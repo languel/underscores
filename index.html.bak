@@ -1,0 +1,412 @@
+<!DOCTYPE html><!--nnx9dNvXdrrBzxhDYQkzs-->
+<html lang="en">
+
+<head>
+  <script src="local-ai.js"></script>
+  <meta charSet="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <link rel="preload" href="_next/static/media/4cf2300e9c8272f7-s.p.woff2" as="font" crossorigin="" type="font/woff2" />
+  <link rel="preload" href="_next/static/media/90e04048d93fc036-s.p.otf" as="font" crossorigin="" type="font/otf" />
+  <link rel="preload" href="_next/static/media/ddc79db6b44f097f-s.p.otf" as="font" crossorigin="" type="font/otf" />
+  <link rel="preload" href="_next/static/media/f6c22ecef866de54-s.p.otf" as="font" crossorigin="" type="font/otf" />
+  <link rel="preload" href="_next/static/media/f78073c9a429e322-s.p.otf" as="font" crossorigin="" type="font/otf" />
+  <link rel="preload" as="image" href="draw/tool-ascii.svg" />
+  <link rel="preload" as="image" href="draw/test-eraser.svg" />
+  <link rel="preload" as="image" href="draw/dice-1.svg" />
+  <link rel="preload" as="image" href="draw/dice-2.svg" />
+  <link rel="preload" as="image" href="draw/dice-3.svg" />
+  <link rel="preload" as="image" href="draw/dice-4.svg" />
+  <link rel="preload" as="image" href="draw/dice-5.svg" />
+  <link rel="preload" as="image" href="draw/dice-6.svg" />
+  <link rel="stylesheet" href="_next/static/css/cc09939b5c4fe385.css" data-precedence="next" />
+  <link rel="stylesheet" href="_next/static/css/e2737d7ca4623874.css" data-precedence="next" />
+  <link rel="stylesheet" href="_next/static/css/1e6856f9fa8d7986.css" data-precedence="next" />
+  <link rel="preload" as="script" fetchPriority="low" href="_next/static/chunks/webpack-03d266e618f2a89f.js" />
+  <script src="_next/static/chunks/4bd1b696-cc729d47eba2cee4.js" async=""></script>
+  <script src="_next/static/css/cc09939b5c4fe385.css" async=""></script>
+  <script src="_next/static/chunks/vendors-3e063e4890849304.js" async=""></script>
+  <script src="_next/static/chunks/common-5a9c58ff3bd4e7a5.js" async=""></script>
+  <script src="_next/static/chunks/main-app-d45ce86590e8cdbf.js" async=""></script>
+  <script src="_next/static/chunks/app/layout-fd25e8cf93a2a470.js" async=""></script>
+  <script src="_next/static/chunks/app/draw/page-ce917d38f3b9eff5.js" async=""></script>
+  <meta name="next-size-adjust" content="" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+  <meta name="theme-color" content="#FBFBFC" />
+  <title>Drawerator - AI Drawing Assistant</title>
+  <meta name="description" content="Local AI-powered drawing assistant." />
+  <meta name="author" content="Drawerator" />
+  <meta name="keywords" content="drawing assistant, local ai, sketch, draw, ollama, lmstudio" />
+  <meta name="creator" content="Drawerator" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-video-preview:-1, max-image-preview:large, max-snippet:-1" />
+  <meta name="apple-mobile-web-app-title" content="Drawerator" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="format-detection" content="telephone=no" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="msapplication-TileColor" content="#FBFBFC" />
+  <meta name="theme-color" content="#FBFBFC" />
+  <meta property="og:title" content="Drawerator" />
+  <meta property="og:description" content="AI Drawing Assistant" />
+  <meta property="og:url" content="http://localhost:8089" />
+  <meta property="og:site_name" content="Drawerator" />
+  <meta property="og:locale" content="en_US" />
+  <meta property="og:image:type" content="image/jpeg" />
+  <meta property="og:image:width" content="2400" />
+  <meta property="og:image:height" content="1260" />
+  <meta property="og:image" content="http://localhost:8089/opengraph-image.jpg?d2c403ee20dbc2d7" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:site" content="" />
+  <meta name="twitter:creator" content="" />
+  <meta name="twitter:title" content="Drawerator" />
+  <meta name="twitter:description" content="Local AI-powered drawing assistant." />
+  <meta name="twitter:image:type" content="image/jpeg" />
+  <meta name="twitter:image:width" content="2400" />
+  <meta name="twitter:image:height" content="1260" />
+  <meta name="twitter:image" content="http://localhost:8089/opengraph-image.jpg?d2c403ee20dbc2d7" />
+  <link rel="icon" href="favicon.ico" type="image/x-icon" sizes="16x16" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" sizes="any" />
+  <link rel="apple-touch-icon" href="apple-icon.png" type="image/png" sizes="180x180" />
+  <link rel="stylesheet" href="https://use.typekit.net/vuw0bky.css" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&amp;display=swap"
+    rel="stylesheet" />
+  <style>
+    @supports (view-transition-name: none) {
+
+      ::view-transition-old(root),
+      ::view-transition-new(root) {
+        animation-duration: 0.15s;
+      }
+    }
+  </style>
+  <script src="_next/static/chunks/polyfills-42372ed130431b0a.js" noModule=""></script>
+</head>
+
+<body
+  class="__variable_188709 __variable_580fd3 __variable_dbc6a0 __variable_c76428 __variable_f7e8cc __variable_f6cdda __variable_4c4515 antialiased">
+  <div hidden=""><!--$--><!--/$--></div>
+  <div class="draw-page ">
+    <div class="draw-page-main">
+      <div class="draw-header-wrap">
+        <header class="draw-header">
+          <div class="draw-header-left"><a class="draw-header-action-btn" aria-label="Back to home" id="1__anchor"
+              href="index.html"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor"
+                viewBox="0 0 256 256">
+                <path d="M168.49,199.51a12,12,0,0,1-17,17l-80-80a12,12,0,0,1,0-17l80-80a12,12,0,0,1,17,17L97,128Z">
+                </path>
+              </svg></a></div>
+          <div class="draw-header-center"><span style="display:inline-flex" id="2__anchor"><button
+                class="draw-header-icon-btn "><svg width="32" height="32" viewBox="0 0 32 32" fill="none"
+                  style="transform-origin:center;transform:rotate(0deg)">
+                  <g style="transform-origin:16px 16px;transform:rotate(0deg)">
+                    <circle cx="16" cy="16" r="9.75" stroke="var(--draw-gray-900)" stroke-width="1.5" fill="none">
+                    </circle>
+                  </g>
+                  <path
+                    d="M11.5158 14.125C11.5158 13.9025 11.5818 13.685 11.7054 13.5C11.829 13.315 12.0047 13.1708 12.2103 13.0856C12.4159 13.0005 12.6421 12.9782 12.8603 13.0216C13.0785 13.065 13.279 13.1722 13.4363 13.3295C13.5936 13.4868 13.7008 13.6873 13.7442 13.9055C13.7876 14.1238 13.7653 14.35 13.6802 14.5555C13.595 14.7611 13.4508 14.9368 13.2658 15.0604C13.0808 15.184 12.8633 15.25 12.6408 15.25C12.3424 15.25 12.0563 15.1315 11.8453 14.9205C11.6343 14.7095 11.5158 14.4234 11.5158 14.125ZM20.5158 14.125C20.5158 14.3475 20.4498 14.565 20.3262 14.75C20.2026 14.935 20.0269 15.0792 19.8213 15.1644C19.6158 15.2495 19.3896 15.2718 19.1713 15.2284C18.9531 15.185 18.7527 15.0778 18.5953 14.9205C18.438 14.7632 18.3308 14.5627 18.2874 14.3445C18.244 14.1262 18.2663 13.9 18.3514 13.6945C18.4366 13.4889 18.5808 13.3132 18.7658 13.1896C18.9508 13.066 19.1683 13 19.3908 13C19.6892 13 19.9753 13.1185 20.1863 13.3295C20.3973 13.5405 20.5158 13.8266 20.5158 14.125ZM20.4155 18.625C19.4508 20.2928 17.8467 21.25 16.0158 21.25C14.1849 21.25 12.5818 20.2938 11.6171 18.625C11.5628 18.5396 11.5264 18.4442 11.5099 18.3444C11.4935 18.2446 11.4975 18.1425 11.5215 18.0442C11.5456 17.946 11.5893 17.8536 11.65 17.7727C11.7107 17.6918 11.7871 17.6239 11.8747 17.5733C11.9622 17.5227 12.0591 17.4903 12.1596 17.4781C12.26 17.4659 12.3618 17.4742 12.459 17.5023C12.5561 17.5305 12.6466 17.5781 12.7248 17.6421C12.8031 17.7062 12.8677 17.7854 12.9146 17.875C13.6149 19.0853 14.7155 19.75 16.0158 19.75C17.3161 19.75 18.4168 19.0844 19.1161 17.875C19.2156 17.7027 19.3794 17.577 19.5716 17.5254C19.7637 17.4739 19.9685 17.5009 20.1408 17.6003C20.3131 17.6998 20.4389 17.8636 20.4904 18.0558C20.5419 18.2479 20.515 18.4527 20.4155 18.625Z"
+                    fill="var(--draw-gray-900)" opacity="1" style="transform-origin:16px 16px;transform:none"></path>
+                </svg></button></span><span class="draw-header-text"></span></div>
+          <div class="draw-header-right">
+            <div class="draw-header-actions"><button class="draw-header-icon-btn" id="3__anchor"><svg
+                  class="w-8 h-8 draw-stroke-icon" width="32" height="32" viewBox="0 0 32 32" fill="none"
+                  xmlns="http://www.w3.org/2000/svg">
+                  <path fill="currentColor"
+                    d="M24.392 7.732a2.5 2.5 0 0 0-3.568.036l-4.173 4.875-.824-.826a1.876 1.876 0 0 0-2.653 0l-5.991 5.992a.625.625 0 0 0 0 .884l6.25 6.25a.625.625 0 0 0 .883 0l5.992-5.989a1.876 1.876 0 0 0 0-2.652l-.827-.826 4.876-4.178q.018-.015.035-.034a2.5 2.5 0 0 0 0-3.532M13.874 23.618l-1.304-1.304 1.746-1.746a.625.625 0 0 0-.884-.884l-1.746 1.745-.99-.99 1.745-1.746a.625.625 0 0 0-.884-.884l-1.746 1.745-1.304-1.303 3.934-3.933 5.366 5.367z">
+                  </path>
+                </svg></button>
+              <div class="draw-header-actions-divider"></div><button class="draw-header-icon-btn" id="4__anchor"><svg
+                  class="w-8 h-8 draw-stroke-icon" width="32" height="32" viewBox="0 0 32 32" fill="none"
+                  xmlns="http://www.w3.org/2000/svg">
+                  <path fill="currentColor"
+                    d="m23.934 10.845-1.25-2.5A.63.63 0 0 0 22.125 8h-11.25a.63.63 0 0 0-.56.345l-1.25 2.5a.6.6 0 0 0-.065.28V21.75A1.25 1.25 0 0 0 10.25 23h12.5A1.25 1.25 0 0 0 24 21.75V11.125a.6.6 0 0 0-.066-.28m-4.492 6.972-2.5 2.5a.627.627 0 0 1-.884 0l-2.5-2.5a.625.625 0 0 1 .884-.884l1.433 1.433v-4.741a.624.624 0 1 1 1.25 0v4.741l1.433-1.433a.625.625 0 0 1 .884.884M10.636 10.5l.625-1.25h10.478l.625 1.25z">
+                  </path>
+                </svg></button>
+              <div class="draw-header-actions-divider draw-header-settings-divider"></div>
+              <div class="draw-header-settings-btn"><button class="draw-header-icon-btn" id="5__anchor"><svg
+                    class="w-8 h-8 draw-stroke-icon" width="32" height="32" viewBox="-64 -64 384 384"
+                    fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                      d="M237.94,107.21a8,8,0,0,0-3.89-5.4l-29.83-17-.12-33.62a8,8,0,0,0-2.83-6.08,111.91,111.91,0,0,0-36.72-20.67,8,8,0,0,0-6.46.59L128,41.85,97.88,25a8,8,0,0,0-6.47-.6A111.92,111.92,0,0,0,54.73,45.15a8,8,0,0,0-2.83,6.07l-.15,33.65-29.83,17a8,8,0,0,0-3.89,5.4,106.47,106.47,0,0,0,0,41.56,8,8,0,0,0,3.89,5.4l29.83,17,.12,33.63a8,8,0,0,0,2.83,6.08,111.91,111.91,0,0,0,36.72,20.67,8,8,0,0,0,6.46-.59L128,214.15,158.12,231a7.91,7.91,0,0,0,3.9,1,8.09,8.09,0,0,0,2.57-.42,112.1,112.1,0,0,0,36.68-20.73,8,8,0,0,0,2.83-6.07l.15-33.65,29.83-17a8,8,0,0,0,3.89-5.4A106.47,106.47,0,0,0,237.94,107.21ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z">
+                    </path>
+                  </svg></button></div>
+            </div>
+          </div>
+        </header>
+        <div class="draw-header-blur" aria-hidden="true">
+          <div
+            style="--blur:0.0px;--mask:linear-gradient(to top, rgba(0,0,0,0) 0%, #000 0%, #000 10%, rgba(0,0,0,0) 30%)">
+          </div>
+          <div
+            style="--blur:0.1px;--mask:linear-gradient(to top, rgba(0,0,0,0) 0%, #000 10%, #000 20%, rgba(0,0,0,0) 40%)">
+          </div>
+          <div
+            style="--blur:0.5px;--mask:linear-gradient(to top, rgba(0,0,0,0) 0%, #000 20%, #000 30%, rgba(0,0,0,0) 50%)">
+          </div>
+          <div
+            style="--blur:1.5px;--mask:linear-gradient(to top, rgba(0,0,0,0) 10%, #000 30%, #000 40%, rgba(0,0,0,0) 60%)">
+          </div>
+          <div
+            style="--blur:4.2px;--mask:linear-gradient(to top, rgba(0,0,0,0) 20%, #000 40%, #000 50%, rgba(0,0,0,0) 70%)">
+          </div>
+          <div
+            style="--blur:11.8px;--mask:linear-gradient(to top, rgba(0,0,0,0) 30%, #000 50%, #000 60%, rgba(0,0,0,0) 80%)">
+          </div>
+          <div
+            style="--blur:14.5px;--mask:linear-gradient(to top, rgba(0,0,0,0) 40%, #000 60%, #000 70%, rgba(0,0,0,0) 90%)">
+          </div>
+          <div
+            style="--blur:15.5px;--mask:linear-gradient(to top, rgba(0,0,0,0) 50%, #000 70%, #000 80%, rgba(0,0,0,0) 100%)">
+          </div>
+          <div
+            style="--blur:15.9px;--mask:linear-gradient(to top, rgba(0,0,0,0) 60%, #000 80%, #000 90%, rgba(0,0,0,0) 100%)">
+          </div>
+          <div
+            style="--blur:16.0px;--mask:linear-gradient(to top, rgba(0,0,0,0) 70%, #000 90%, #000 100%, rgba(0,0,0,0) 100%)">
+          </div>
+        </div>
+      </div><svg class="absolute w-0 h-0" aria-hidden="true">
+        <defs>
+          <filter id="wobbleFilter" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+            <feTurbulence type="turbulence" baseFrequency="0.03" numOctaves="2" seed="1" result="noise"></feTurbulence>
+            <feDisplacementMap in="SourceGraphic" in2="noise" scale="2" xChannelSelector="R" yChannelSelector="G">
+            </feDisplacementMap>
+          </filter>
+          <filter id="wobbleFilterGrid" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+            <feTurbulence type="turbulence" baseFrequency="0.02" numOctaves="1" seed="1" result="noise"></feTurbulence>
+            <feDisplacementMap in="SourceGraphic" in2="noise" scale="2" xChannelSelector="R" yChannelSelector="G">
+            </feDisplacementMap>
+          </filter>
+          <filter id="wobbleFilterBtn" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+            <feTurbulence type="turbulence" baseFrequency="0.03" numOctaves="2" seed="1" result="noise"></feTurbulence>
+            <feDisplacementMap in="SourceGraphic" in2="noise" scale="2" xChannelSelector="R" yChannelSelector="G">
+            </feDisplacementMap>
+          </filter>
+        </defs>
+      </svg>
+      <div class="draw-main">
+        <div class="draw-canvas-container">
+          <div class="absolute inset-0 overflow-hidden"
+            style="transform:translate(0px, 0px) scale(1);transform-origin:center center;will-change:auto;contain:layout style paint">
+            <div class="absolute inset-0" style="filter:url(#wobbleFilterGrid);will-change:filter;transform:translateZ(0)">
+              <div class="absolute"
+                style="inset:1px;background-color:var(--draw-gray-50);background-image:radial-gradient(circle, var(--draw-grid-color) 1.5px, transparent 1.5px);background-size:20px 20px;box-shadow:inset 0 0 0 var(--canvas-dot-inset, 32px) var(--draw-gray-50)">
+              </div>
+            </div>
+            <div class="absolute inset-0" style="filter:url(#wobbleFilter);will-change:filter;transform:translateZ(0)"><svg
+                class="absolute inset-0 pointer-events-none" style="width:100%;height:100%">
+                <defs></defs>
+                <g id="layer-claude-ascii"></g>
+                <g id="layer-ordered-elements"></g>
+                <g id="layer-active"></g>
+              </svg></div>
+          </div>
+        </div>
+      </div>
+      <div class="draw-guest-banner">
+        <div class="draw-guest-banner-content">
+          <p>I&#x27;ve put $200 toward guest credits so you can play with Claude for free!</p>
+          <p class="draw-guest-banner-budget">Loading...</p>
+          <p>If you want to use your own API Key,<!-- --> <button class="draw-guest-banner-link">click here.</button>
+          </p>
+        </div>
+      </div>
+      <div class="draw-toolbar">
+        <div class="draw-toolbar-group">
+          <div class="draw-toolbar-row1">
+            <div class="draw-toolbar-center">
+              <div class="draw-tools-container"><button class="draw-tool-btn" id="6__anchor"><svg width="40" height="72"
+                    viewBox="0 0 40 72" fill="none" xmlns="http://www.w3.org/2000/svg"
+                    class="draw-tool-icon draw-tool-icon--selected" style="bottom:-1px">
+                    <g clip-path="url(#clip__R_1alinpflb_)">
+                      <g filter="url(#filter__R_1alinpflb_)">
+                        <path
+                          d="M18.5637 6.49688C18.8881 5.63171 20.1119 5.63171 20.4363 6.49688L27 24H12L18.5637 6.49688Z"
+                          fill="#000000"
+                          style="transition:fill 110ms ease-out;--tip-c0:#FECC2D;--tip-c1:#A6CADD;--tip-c2:#FDCDED;--tip-c3:#8FCE42;--tip-c4:#FECCFA">
+                        </path>
+                      </g>
+                      <path
+                        d="M19.0322 6.67285C19.1944 6.24026 19.8056 6.24027 19.9678 6.67285L26.2783 23.5H12.7217L19.0322 6.67285Z"
+                        stroke="#02061D" stroke-opacity="0.1"></path>
+                      <path
+                        d="M2 72.1217V50.7296C2 48.2939 2.44493 45.8786 3.31289 43.6028L12.2545 20.1572C12.4023 19.7696 12.7741 19.5135 13.1889 19.5135H25.8227C26.2317 19.5135 26.5995 19.7627 26.7513 20.1425L36.0725 43.4724C37.0155 45.8327 37.5 48.3511 37.5 50.8928V72.1217H2Z"
+                        fill="#F3F0ED"></path>
+                      <path
+                        d="M2 72.1217V50.7296C2 48.2939 2.44493 45.8786 3.31289 43.6028L12.2545 20.1572C12.4023 19.7696 12.7741 19.5135 13.1889 19.5135H25.8227C26.2317 19.5135 26.5995 19.7627 26.7513 20.1425L36.0725 43.4724C37.0155 45.8327 37.5 48.3511 37.5 50.8928V72.1217H2Z"
+                        fill="url(#paint0__R_1alinpflb_)"></path>
+                      <path
+                        d="M2 72.1217V50.7296C2 48.2939 2.44493 45.8786 3.31289 43.6028L12.2545 20.1572C12.4023 19.7696 12.7741 19.5135 13.1889 19.5135H25.8227C26.2317 19.5135 26.5995 19.7627 26.7513 20.1425L36.0725 43.4724C37.0155 45.8327 37.5 48.3511 37.5 50.8928V72.1217H2Z"
+                        fill="url(#paint1__R_1alinpflb_)" fill-opacity="0.3"></path>
+                      <path
+                        d="M2 72.1217V50.7296C2 48.2939 2.44493 45.8786 3.31289 43.6028L12.2545 20.1572C12.4023 19.7696 12.7741 19.5135 13.1889 19.5135H25.8227C26.2317 19.5135 26.5995 19.7627 26.7513 20.1425L36.0725 43.4724C37.0155 45.8327 37.5 48.3511 37.5 50.8928V72.1217H2Z"
+                        fill="url(#paint2__R_1alinpflb_)"></path>
+                      <path
+                        d="M2 72.1217V50.7296C2 48.2939 2.44493 45.8786 3.31289 43.6028L12.2545 20.1572C12.4023 19.7696 12.7741 19.5135 13.1889 19.5135H25.8227C26.2317 19.5135 26.5995 19.7627 26.7513 20.1425L36.0725 43.4724C37.0155 45.8327 37.5 48.3511 37.5 50.8928V72.1217H2Z"
+                        fill="url(#paint3__R_1alinpflb_)" fill-opacity="0.2"></path>
+                      <path
+                        d="M2 72.1217V50.7296C2 48.2939 2.44493 45.8786 3.31289 43.6028L12.2545 20.1572C12.4023 19.7696 12.7741 19.5135 13.1889 19.5135H25.8227C26.2317 19.5135 26.5995 19.7627 26.7513 20.1425L36.0725 43.4724C37.0155 45.8327 37.5 48.3511 37.5 50.8928V72.1217H2Z"
+                        fill="url(#paint4__R_1alinpflb_)" fill-opacity="0.2"></path>
+                      <path
+                        d="M13.1885 20.0135H25.8223C26.0268 20.0135 26.2112 20.1381 26.2871 20.328L35.6084 43.6581C36.5277 45.9592 37 48.4145 37 50.8925V71.6219H2.5V50.7294C2.50003 48.3546 2.93407 46 3.78027 43.7811L12.7217 20.3358C12.7955 20.1422 12.9812 20.0137 13.1885 20.0135Z"
+                        stroke="#0F1931" stroke-opacity="0.1"></path>
+                    </g>
+                    <defs>
+                      <filter id="filter__R_1alinpflb_" x="12" y="4.84802" width="15" height="19.152"
+                        filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+                        <feFlood flood-opacity="0" result="BackgroundImageFix"></feFlood>
+                        <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"></feBlend>
+                        <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+                          result="hardAlpha"></feColorMatrix>
+                        <feOffset dy="-1"></feOffset>
+                        <feGaussianBlur stdDeviation="2"></feGaussianBlur>
+                        <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1"></feComposite>
+                        <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.25 0">
+                        </feColorMatrix>
+                        <feBlend mode="normal" in2="shape" result="effect1_innerShadow"></feBlend>
+                      </filter>
+                      <linearGradient id="paint0__R_1alinpflb_" x1="20.0849" y1="44.9349" x2="20" y2="69.5"
+                        gradientUnits="userSpaceOnUse">
+                        <stop stop-color="white" stop-opacity="0"></stop>
+                        <stop offset="1" stop-color="#F9F1E7"></stop>
+                      </linearGradient>
+                      <linearGradient id="paint1__R_1alinpflb_" x1="38.8396" y1="43.9417" x2="0.660377" y2="43.9417"
+                        gradientUnits="userSpaceOnUse">
+                        <stop stop-color="#B2753F"></stop>
+                        <stop offset="0.245082" stop-color="#B2753F" stop-opacity="0.75"></stop>
+                        <stop offset="0.294077" stop-color="#B2753F" stop-opacity="0"></stop>
+                        <stop offset="0.374934" stop-color="#B2753F" stop-opacity="0.25"></stop>
+                        <stop offset="0.623271" stop-color="#B2753F" stop-opacity="0.1"></stop>
+                        <stop offset="0.69" stop-color="#B2753F" stop-opacity="0"></stop>
+                        <stop offset="0.748823" stop-color="#B2753F" stop-opacity="0.5"></stop>
+                        <stop offset="1" stop-color="#B2753F"></stop>
+                      </linearGradient>
+                      <linearGradient id="paint2__R_1alinpflb_" x1="20.0849" y1="15.6377" x2="20" y2="60.5"
+                        gradientUnits="userSpaceOnUse">
+                        <stop offset="0.01" stop-color="#F4EADE"></stop>
+                        <stop offset="0.709254" stop-color="#F9F1E7" stop-opacity="0.85"></stop>
+                        <stop offset="1" stop-color="white" stop-opacity="0"></stop>
+                      </linearGradient>
+                      <linearGradient id="paint3__R_1alinpflb_" x1="16.066" y1="46.4246" x2="2.6469" y2="41.8993"
+                        gradientUnits="userSpaceOnUse">
+                        <stop stop-color="#B2753F" stop-opacity="0"></stop>
+                        <stop offset="1" stop-color="#B2753F"></stop>
+                      </linearGradient>
+                      <linearGradient id="paint4__R_1alinpflb_" x1="28.1226" y1="42.2038" x2="35.2055" y2="40.0324"
+                        gradientUnits="userSpaceOnUse">
+                        <stop stop-color="#B2753F" stop-opacity="0"></stop>
+                        <stop offset="1" stop-color="#B2753F"></stop>
+                      </linearGradient>
+                      <clipPath id="clip__R_1alinpflb_">
+                        <rect width="40" height="72" fill="white"></rect>
+                      </clipPath>
+                    </defs>
+                  </svg></button><button class="draw-tool-btn" id="7__anchor"><img src="draw/tool-ascii.svg" alt=""
+                    draggable="false" class="draw-tool-icon " style="bottom:-18px" /></button><button
+                  class="draw-tool-btn" id="8__anchor"><img src="draw/test-eraser.svg" alt="" draggable="false"
+                    class="draw-tool-icon " style="bottom:-17px" /></button></div>
+              <div class="draw-colors-section">
+                <div class="draw-color-palette "><button class="draw-color-btn  " style="animation-delay:0ms"
+                    aria-label="Color #FECC2D" id="9__anchor">
+                    <div class="draw-color-reel "
+                      style="--slide-duration:700ms;--reel-items:1;--reel-duration:700ms;--click-brightness:0.961115119825708;animation-delay:0ms">
+                      <div class="draw-color-reel-item" style="background-color:#FECC2D"></div>
+                    </div>
+                  </button><button class="draw-color-btn  " style="animation-delay:0ms" aria-label="Color #F3381A"
+                    id="10__anchor">
+                    <div class="draw-color-reel "
+                      style="--slide-duration:700ms;--reel-items:1;--reel-duration:700ms;--click-brightness:0.8984875816993464;animation-delay:0ms">
+                      <div class="draw-color-reel-item" style="background-color:#F3381A"></div>
+                    </div>
+                  </button><button class="draw-color-btn  " style="animation-delay:0ms" aria-label="Color #0260CB"
+                    id="11__anchor">
+                    <div class="draw-color-reel "
+                      style="--slide-duration:700ms;--reel-items:1;--reel-duration:700ms;--click-brightness:0.8613620915032679;animation-delay:0ms">
+                      <div class="draw-color-reel-item" style="background-color:#0260CB"></div>
+                    </div>
+                  </button><button class="draw-color-btn  " style="animation-delay:0ms" aria-label="Color #262523"
+                    id="12__anchor">
+                    <div class="draw-color-reel "
+                      style="--slide-duration:700ms;--reel-items:1;--reel-duration:700ms;--click-brightness:0.8023355294117647;animation-delay:0ms">
+                      <div class="draw-color-reel-item" style="background-color:#262523"></div>
+                    </div>
+                  </button><button class="draw-color-btn draw-color-btn--dice" id="13__anchor">
+                    <div class="toolbar-dice-cube-container" style="mix-blend-mode:multiply">
+                      <div class="toolbar-dice-cube "
+                        style="--final-rotation:rotateX(-90deg) rotateY(0deg);--cube-duration:450ms;--cube-easing:cubic-bezier(0.34, 1.56, 0.64, 1);--spin-x:360deg;--spin-y:251.99999999999997deg">
+                        <div class="toolbar-dice-face toolbar-dice-front"><img src="draw/dice-1.svg" alt="1" /></div>
+                        <div class="toolbar-dice-face toolbar-dice-back"><img src="draw/dice-2.svg" alt="2" /></div>
+                        <div class="toolbar-dice-face toolbar-dice-right"><img src="draw/dice-3.svg" alt="3" /></div>
+                        <div class="toolbar-dice-face toolbar-dice-left"><img src="draw/dice-4.svg" alt="4" /></div>
+                        <div class="toolbar-dice-face toolbar-dice-top"><img src="draw/dice-5.svg" alt="5" /></div>
+                        <div class="toolbar-dice-face toolbar-dice-bottom"><img src="draw/dice-6.svg" alt="6" /></div>
+                      </div>
+                    </div>
+                  </button></div><button class="draw-icon-btn draw-icon-btn--sm" id="14__anchor"><svg
+                    class="w-6 h-6 draw-stroke-icon" width="32" height="32" viewBox="0 0 32 32" fill="none"
+                    xmlns="http://www.w3.org/2000/svg">
+                    <path fill="currentColor"
+                      d="M16.364 10.027c.66-.086 1.42.008 2.018.633 1.617 1.693.577 4.916-.324 6.673 1.081-.15 2.665-.666 3.196-1.65.365-.677.437-1.76 1.295-1.988.602-.16 1.168-.03 1.358.612.487 1.642-1.527 4.752-3.907 5.502-1.424.449-3.11.707-4.583.316-1.229.646-6.604 2.918-7.33.76-.246-.733.048-1.577.655-1.884.608-.307 2.407-.133 4.285-.996-.69-1.604-.512-3.427.118-5.02.655-1.655 1.73-2.764 3.22-2.958m.226 2.86c-1.477.193-2.101 2.98-1.306 4.017 1.477-1.516 1.98-4.104 1.306-4.016">
+                    </path>
+                  </svg></button><button class="draw-icon-btn draw-icon-btn--sm draw-icon-btn--active"
+                  id="15__anchor"><svg class="w-6 h-6 draw-stroke-icon" width="32" height="32" viewBox="0 0 32 32"
+                    fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path fill="currentColor"
+                      d="M13.892 10.71c.8-.629 1.73-.824 2.675-.649 1.004.186 2.416.817 2.904 2.016.738 1.808-.05 4.808-1.55 6.308.466-.224 1.307-.719 1.765-1.012 1.288-.823 2.39-1.694 3.382-2.841.83-.967 2.432-.685 2.857.632.71 2.204-3.307 4.693-4.609 5.525-1.57 1.004-3.21 1.697-4.915 2.067-1.33.29-2.707-.047-3.58-1.12-1.274.422-2.94 1.12-4.47 1.249-.865.073-1.7.035-2.117-.83-.443-.92-.275-2.39.658-2.58 1.608-.33 3.108-.83 4.798-1.422-.16-2.532.037-5.643 2.202-7.343m2.03 3.175c-1.171-.036-1.026 2.292-1 3 .974-.708 1.898-2.973 1-3">
+                    </path>
+                  </svg></button><button class="draw-icon-btn draw-icon-btn--sm" id="16__anchor"><svg
+                    class="w-6 h-6 draw-stroke-icon" width="32" height="32" viewBox="0 0 32 32" fill="none"
+                    xmlns="http://www.w3.org/2000/svg">
+                    <path fill="currentColor"
+                      d="M14.847 8.001c1.405-.032 2.573.714 3.473 1.712.98 1.085 1.684 2.614 1.463 4.48a6.4 6.4 0 0 1-.688 2.184c2.164-.838 2.58-2.092 4.156-2.51a2.2 2.2 0 0 1 1.036-.03c.52.115 1.19.492 1.587 1.333.814 1.703-1.136 3.476-2.78 4.775-1.667 1.317-3.794 2.108-6.22 2.53-1.433.25-2.87.13-4.153-.62l-.165-.102c-1.296.565-3.045 1.29-4.292 1.507-.967.169-1.89.353-2.592-.453-.893-1.023-.897-2.722-.009-3.793.951-1.145 1.908-.806 3.957-1.72-.305-1.135-.421-2.328-.235-3.537a7.3 7.3 0 0 1 1.974-3.973c.933-.976 2.108-1.751 3.488-1.783m.405 4.72c-1.446-.575-1.8 1.84-1.538 3.326 1.175-.397 2.714-2.857 1.538-3.325">
+                    </path>
+                  </svg></button>
+              </div>
+            </div>
+          </div>
+          <div class="draw-send-bar "><button class="draw-send-bar-btn draw-send-bar-btn--comment" id="17__anchor">
+              <div class="draw-send-bar-btn-inner"><svg width="32" height="32" viewBox="0 0 32 32" fill="none"
+                  xmlns="http://www.w3.org/2000/svg">
+                  <g fill="currentColor" clip-path="url(#clip_tool_comment)">
+                    <path
+                      d="M19.519 15.429c.421-.476 1.266-1.22 1.664-.931.544.397-.226 1.29-.511 1.644-.402.498-.71.847-1.241 1.387-.232.236-.475.466-.715.688.013-.948.15-2.05.803-2.788m-6.024-3.153c.631-.042.671.716.69 1.15.02.466-.005.837-.045.975a5.76 5.76 0 0 1-1.376 2.34 22 22 0 0 1-1.554 1.408 9.7 9.7 0 0 1-.117-1.88c.035-.735.089-.919.183-1.311.102-.42.12-.54.306-.892.398-.754.964-1.725 1.913-1.79">
+                    </path>
+                    <path fill-rule="evenodd"
+                      d="M16 0c8.837 0 16 7.163 16 16s-7.163 16-16 16H4a4 4 0 0 1-4-4V16C0 7.163 7.163 0 16 0m-1.665 10.96c-.828-.431-1.88-.093-2.55.473-1.006.847-1.654 1.878-1.967 3.172-.109.452-.183.735-.223 1.593-.045.935-.03 1.996.332 2.878-.544.335-1.092.645-1.705.84-.714.227-1.26.322-2.007.404h-.007a.751.751 0 0 0 .12 1.495c.195-.015.439.001.895-.097a17 17 0 0 0 1.452-.372c.75-.239 1.433-.61 2.098-1.026.97 1.044 2.514 1.296 3.883 1.297 1.307.002 2.385-.263 3.464-.994l.037.037c.278.292.691.426 1.073.518 1.14.274 2.364.17 3.516.025.513-.064 1.084-.235 1.206-.804a.75.75 0 0 0-1.249-.708q-.056.012-.142.024a16 16 0 0 1-2.058.12 4.6 4.6 0 0 1-.923-.115 3 3 0 0 1-.22-.065 22 22 0 0 0 1.139-1.074c.567-.576.908-.96 1.34-1.498.501-.62.787-1.34.892-1.888.193-1.015-.364-2-1.399-2.209-1.34-.269-2.099.503-2.937 1.449-.965 1.09-1.177 2.619-1.181 4.021-.001.352.032.639.108.898-.603.411-.866.575-1.546.675a8 8 0 0 1-1.119.088c-.679 0-2.156-.135-2.647-.668l-.01-.012c1.057-.847 2.134-1.74 2.818-2.932.324-.564.576-1.055.76-1.68.455-1.545.184-3.118-1.243-3.864"
+                      clip-rule="evenodd"></path>
+                  </g>
+                  <defs>
+                    <clipPath id="clip_tool_comment">
+                      <path fill="#fff" d="M0 0h32v32H0z"></path>
+                    </clipPath>
+                  </defs>
+                </svg></div>
+            </button><button class="draw-send-bar-action ">
+              <div class="draw-send-bar-action-inner"><span class="draw-send-bar-label">Send to Claude</span><span
+                  class="draw-send-bar-shortcut">Space</span></div>
+            </button><button class="draw-send-bar-btn draw-send-bar-btn--settings" id="18__anchor">
+              <div class="draw-send-bar-btn-inner"><svg width="32" height="32" viewBox="-64 -64 384 384"
+                  fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                  <path
+                    d="M237.94,107.21a8,8,0,0,0-3.89-5.4l-29.83-17-.12-33.62a8,8,0,0,0-2.83-6.08,111.91,111.91,0,0,0-36.72-20.67,8,8,0,0,0-6.46.59L128,41.85,97.88,25a8,8,0,0,0-6.47-.6A111.92,111.92,0,0,0,54.73,45.15a8,8,0,0,0-2.83,6.07l-.15,33.65-29.83,17a8,8,0,0,0-3.89,5.4,106.47,106.47,0,0,0,0,41.56,8,8,0,0,0,3.89,5.4l29.83,17,.12,33.63a8,8,0,0,0,2.83,6.08,111.91,111.91,0,0,0,36.72,20.67,8,8,0,0,0,6.46-.59L128,214.15,158.12,231a7.91,7.91,0,0,0,3.9,1,8.09,8.09,0,0,0,2.57-.42,112.1,112.1,0,0,0,36.68-20.73,8,8,0,0,0,2.83-6.07l.15-33.65,29.83-17a8,8,0,0,0,3.89-5.4A106.47,106.47,0,0,0,237.94,107.21ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z">
+                  </path>
+                </svg></div>
+            </button></div>
+        </div><button class="sr-only" aria-label="Claude&#x27;s turn"></button>
+      </div>
+    </div>
+  </div><!--$--><!--/$-->
+  <script src="_next/static/chunks/webpack-03d266e618f2a89f.js" id="_R_" async=""></script>
+  <script>(self.__next_f = self.__next_f || []).push([0])</script>
+  <script>self.__next_f.push([1, "1:\"$Sreact.fragment\"\n2:I[42380,[\"7177\",\"static/chunks/app/layout-fd25e8cf93a2a470.js\"],\"default\"]\n3:I[87555,[],\"\"]\n4:I[31295,[],\"\"]\n5:I[18635,[\"7177\",\"static/chunks/app/layout-fd25e8cf93a2a470.js\"],\"DialRoot\"]\n6:I[90894,[],\"ClientPageRoot\"]\n7:I[70702,[\"5641\",\"static/chunks/app/draw/page-ce917d38f3b9eff5.js\"],\"default\"]\na:I[59665,[],\"OutletBoundary\"]\nc:I[74911,[],\"AsyncMetadataOutlet\"]\ne:I[59665,[],\"ViewportBoundary\"]\n10:I[59665,[],\"MetadataBoundary\"]\n11:\"$Sreact.suspense\"\n13:I[28393,[],\"\"]\n:HL[\"/_next/static/media/4cf2300e9c8272f7-s.p.woff2\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/woff2\"}]\n:HL[\"/_next/static/media/90e04048d93fc036-s.p.otf\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/otf\"}]\n:HL[\"/_next/static/media/ddc79db6b44f097f-s.p.otf\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/otf\"}]\n:HL[\"/_next/static/media/f6c22ecef866de54-s.p.otf\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/otf\"}]\n:HL[\"/_next/static/media/f78073c9a429e322-s.p.otf\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/otf\"}]\n:HL[\"/_next/static/css/cc09939b5c4fe385.css\",\"style\"]\n:HL[\"/_next/static/css/e2737d7ca4623874.css\",\"style\"]\n:HL[\"/_next/static/css/1e6856f9fa8d7986.css\",\"style\"]\n"])</script>
+  <script>self.__next_f.push([1, "0:{\"P\":null,\"b\":\"nnx9dNvXdrrBzxhDYQkzs\",\"p\":\"\",\"c\":[\"\",\"draw\"],\"i\":false,\"f\":[[[\"\",{\"children\":[\"draw\",{\"children\":[\"__PAGE__\",{}]}]},\"$undefined\",\"$undefined\",true],[\"\",[\"$\",\"$1\",\"c\",{\"children\":[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/css/cc09939b5c4fe385.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}],[\"$\",\"link\",\"1\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/css/e2737d7ca4623874.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]],[\"$\",\"html\",null,{\"lang\":\"en\",\"children\":[[\"$\",\"head\",null,{\"children\":[[\"$\",\"link\",null,{\"rel\":\"stylesheet\",\"href\":\"https://use.typekit.net/vuw0bky.css\"}],[\"$\",\"link\",null,{\"rel\":\"preconnect\",\"href\":\"https://fonts.googleapis.com\"}],[\"$\",\"link\",null,{\"rel\":\"preconnect\",\"href\":\"https://fonts.gstatic.com\",\"crossOrigin\":\"anonymous\"}],[\"$\",\"link\",null,{\"href\":\"https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500\u0026display=swap\",\"rel\":\"stylesheet\"}],[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"\\n            @supports (view-transition-name: none) {\\n              ::view-transition-old(root),\\n              ::view-transition-new(root) {\\n                animation-duration: 0.15s;\\n              }\\n            }\\n          \"}}]]}],[\"$\",\"body\",null,{\"className\":\"__variable_188709 __variable_580fd3 __variable_dbc6a0 __variable_c76428 __variable_f7e8cc __variable_f6cdda __variable_4c4515 antialiased\",\"suppressHydrationWarning\":true,\"children\":[[\"$\",\"$L2\",null,{}],[\"$\",\"$L3\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L4\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[[[\"$\",\"title\",null,{\"children\":\"404: This page could not be found.\"}],[\"$\",\"div\",null,{\"style\":{\"fontFamily\":\"system-ui,\\\"Segoe UI\\\",Roboto,Helvetica,Arial,sans-serif,\\\"Apple Color Emoji\\\",\\\"Segoe UI Emoji\\\"\",\"height\":\"100vh\",\"textAlign\":\"center\",\"display\":\"flex\",\"flexDirection\":\"column\",\"alignItems\":\"center\",\"justifyContent\":\"center\"},\"children\":[\"$\",\"div\",null,{\"children\":[[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}\"}}],[\"$\",\"h1\",null,{\"className\":\"next-error-h1\",\"style\":{\"display\":\"inline-block\",\"margin\":\"0 20px 0 0\",\"padding\":\"0 23px 0 0\",\"fontSize\":24,\"fontWeight\":500,\"verticalAlign\":\"top\",\"lineHeight\":\"49px\"},\"children\":404}],[\"$\",\"div\",null,{\"style\":{\"display\":\"inline-block\"},\"children\":[\"$\",\"h2\",null,{\"style\":{\"fontSize\":14,\"fontWeight\":400,\"lineHeight\":\"49px\",\"margin\":0},\"children\":\"This page could not be found.\"}]}]]}]}]],[]],\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}],[\"$\",\"$L5\",null,{\"position\":\"top-left\"}]]}]]}]]}],{\"children\":[\"draw\",[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L3\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L4\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[\"__PAGE__\",[\"$\",\"$1\",\"c\",{\"children\":[[\"$\",\"$L6\",null,{\"Component\":\"$7\",\"searchParams\":{},\"params\":{},\"promises\":[\"$@8\",\"$@9\"]}],[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/css/1e6856f9fa8d7986.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]],[\"$\",\"$La\",null,{\"children\":[\"$Lb\",[\"$\",\"$Lc\",null,{\"promise\":\"$@d\"}]]}]]}],{},null,false]},null,false]},null,false],[\"$\",\"$1\",\"h\",{\"children\":[null,[[\"$\",\"$Le\",null,{\"children\":\"$Lf\"}],[\"$\",\"meta\",null,{\"name\":\"next-size-adjust\",\"content\":\"\"}]],[\"$\",\"$L10\",null,{\"children\":[\"$\",\"div\",null,{\"hidden\":true,\"children\":[\"$\",\"$11\",null,{\"fallback\":null,\"children\":\"$L12\"}]}]}]]}],false]],\"m\":\"$undefined\",\"G\":[\"$13\",[]],\"s\":false,\"S\":true}\n"])</script>
+  <script>self.__next_f.push([1, "8:{}\n9:\"$0:f:0:1:2:children:2:children:1:props:children:0:props:params\"\n"])</script>
+  <script>self.__next_f.push([1, "f:[[\"$\",\"meta\",\"0\",{\"charSet\":\"utf-8\"}],[\"$\",\"meta\",\"1\",{\"name\":\"viewport\",\"content\":\"width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no\"}],[\"$\",\"meta\",\"2\",{\"name\":\"theme-color\",\"content\":\"#FBFBFC\"}]]\nb:null\n"])</script>
+  <script>self.__next_f.push([1, "14:I[38175,[],\"IconMark\"]\n"])</script>
+  <script>self.__next_f.push([1, "d:{\"metadata\":[[\"$\",\"title\",\"0\",{\"children\":\"Drawerator - AI Drawing Assistant\"}],[\"$\",\"meta\",\"1\",{\"name\":\"description\",\"content\":\"Local AI-powered drawing assistant.\"}],[\"$\",\"meta\",\"2\",{\"name\":\"author\",\"content\":\"Drawerator\"}],[\"$\",\"meta\",\"3\",{\"name\":\"keywords\",\"content\":\"lele zhang,cherrilynn zhang,cherrilynnz,lele zhang berkeley,lele zhang design\"}],[\"$\",\"meta\",\"4\",{\"name\":\"creator\",\"content\":\"Drawerator\"}],[\"$\",\"meta\",\"5\",{\"name\":\"robots\",\"content\":\"index, follow\"}],[\"$\",\"meta\",\"6\",{\"name\":\"googlebot\",\"content\":\"index, follow, max-video-preview:-1, max-image-preview:large, max-snippet:-1\"}],[\"$\",\"meta\",\"7\",{\"name\":\"apple-mobile-web-app-title\",\"content\":\"Drawerator\"}],[\"$\",\"meta\",\"8\",{\"name\":\"apple-mobile-web-app-capable\",\"content\":\"yes\"}],[\"$\",\"meta\",\"9\",{\"name\":\"apple-mobile-web-app-status-bar-style\",\"content\":\"default\"}],[\"$\",\"meta\",\"10\",{\"name\":\"format-detection\",\"content\":\"telephone=no\"}],[\"$\",\"meta\",\"11\",{\"name\":\"mobile-web-app-capable\",\"content\":\"yes\"}],[\"$\",\"meta\",\"12\",{\"name\":\"msapplication-TileColor\",\"content\":\"#FBFBFC\"}],[\"$\",\"meta\",\"13\",{\"name\":\"theme-color\",\"content\":\"#FBFBFC\"}],[\"$\",\"meta\",\"14\",{\"property\":\"og:title\",\"content\":\"Drawerator\"}],[\"$\",\"meta\",\"15\",{\"property\":\"og:description\",\"content\":\"AI Drawing Assistant\"}],[\"$\",\"meta\",\"16\",{\"property\":\"og:url\",\"content\":\"http://localhost:8089\"}],[\"$\",\"meta\",\"17\",{\"property\":\"og:site_name\",\"content\":\"Drawerator\"}],[\"$\",\"meta\",\"18\",{\"property\":\"og:locale\",\"content\":\"en_US\"}],[\"$\",\"meta\",\"19\",{\"property\":\"og:image:type\",\"content\":\"image/jpeg\"}],[\"$\",\"meta\",\"20\",{\"property\":\"og:image:width\",\"content\":\"2400\"}],[\"$\",\"meta\",\"21\",{\"property\":\"og:image:height\",\"content\":\"1260\"}],[\"$\",\"meta\",\"22\",{\"property\":\"og:image\",\"content\":\"http://localhost:8089/opengraph-image.jpg?d2c403ee20dbc2d7\"}],[\"$\",\"meta\",\"23\",{\"property\":\"og:type\",\"content\":\"website\"}],[\"$\",\"meta\",\"24\",{\"name\":\"twitter:card\",\"content\":\"summary_large_image\"}],[\"$\",\"meta\",\"25\",{\"name\":\"twitter:site\",\"content\":\"\"}],[\"$\",\"meta\",\"26\",{\"name\":\"twitter:creator\",\"content\":\"\"}],[\"$\",\"meta\",\"27\",{\"name\":\"twitter:title\",\"content\":\"Drawerator\"}],[\"$\",\"meta\",\"28\",{\"name\":\"twitter:description\",\"content\":\"Local AI-powered drawing assistant.\"}],[\"$\",\"meta\",\"29\",{\"name\":\"twitter:image:type\",\"content\":\"image/jpeg\"}],[\"$\",\"meta\",\"30\",{\"name\":\"twitter:image:width\",\"content\":\"2400\"}],[\"$\",\"meta\",\"31\",{\"name\":\"twitter:image:height\",\"content\":\"1260\"}],[\"$\",\"meta\",\"32\",{\"name\":\"twitter:image\",\"content\":\"http://localhost:8089/opengraph-image.jpg?d2c403ee20dbc2d7\"}],[\"$\",\"link\",\"33\",{\"rel\":\"icon\",\"href\":\"/favicon.ico\",\"type\":\"image/x-icon\",\"sizes\":\"16x16\"}],[\"$\",\"link\",\"34\",{\"rel\":\"icon\",\"href\":\"/icon.svg?07ff95508a89d764\",\"type\":\"image/svg+xml\",\"sizes\":\"any\"}],[\"$\",\"link\",\"35\",{\"rel\":\"apple-touch-icon\",\"href\":\"/apple-icon.png?c42cc51866865b9f\",\"type\":\"image/png\",\"sizes\":\"180x180\"}],[\"$\",\"$L14\",\"36\",{}]],\"error\":null,\"digest\":\"$undefined\"}\n"])</script>
+  <script>self.__next_f.push([1, "12:\"$d:metadata\"\n"])</script>
+</body>
+
+</html>¸¸
