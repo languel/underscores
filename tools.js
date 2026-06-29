@@ -53,7 +53,7 @@ function setupCanvasEvents() {
         // Sync properties panel inputs
         document.getElementById("prop-brush").value = closest.path.properties.brush;
         document.getElementById("prop-width").value = closest.path.properties.width;
-        document.getElementById("mod-pressure").checked = closest.path.properties.smooth !== false;
+        document.getElementById("prop-curve").value = closest.path.properties.curve || 'linear';
         document.getElementById("mod-wobble").checked = closest.path.properties.wobble !== false;
         
         // Select color dot
@@ -117,9 +117,15 @@ function setupCanvasEvents() {
   // Mouse Up / End
   window.addEventListener("mouseup", () => {
     if (state.isDrawing && state.activePath) {
-      // Simplify path slightly (smooth modulator)
-      if (brushSettings.smooth && state.activePath.points.length > 3) {
-        state.activePath.points = smoothPoints(state.activePath.points);
+      // Apply curve smoothing interpolation
+      if (state.activePath.points.length > 3) {
+        if (brushSettings.curve === 'chaikin') {
+          state.activePath.points = smoothPoints(state.activePath.points);
+        } else if (brushSettings.curve === 'catmull') {
+          state.activePath.points = catmullRomSpline(state.activePath.points);
+        } else if (brushSettings.curve === 'hobby') {
+          state.activePath.points = hobbySpline(state.activePath.points);
+        }
       }
       
       paths.push(state.activePath);
@@ -172,7 +178,9 @@ function setupCanvasEvents() {
   });
 }
 
-// Simple path smoothing algorithm (Chaikin's Algorithms / averaging neighbors)
+// --- CURVE INTERPOLATION ALGORITHMS ---
+
+// 1. Chaikin's Algorithm (Fast neighborhood averaging)
 function smoothPoints(pts) {
   const result = [pts[0]];
   for (let i = 1; i < pts.length - 1; i++) {
@@ -180,7 +188,6 @@ function smoothPoints(pts) {
     const curr = pts[i];
     const next = pts[i+1];
     
-    // Average
     result.push({
       x: prev.x * 0.25 + curr.x * 0.5 + next.x * 0.25,
       y: prev.y * 0.25 + curr.y * 0.5 + next.y * 0.25,
@@ -188,6 +195,143 @@ function smoothPoints(pts) {
       pressure: curr.pressure
     });
   }
+  result.push(pts[pts.length - 1]);
+  return result;
+}
+
+// 2. Catmull-Rom Spline (Smooth cubic spline passing through all control points)
+function catmullRomSpline(pts, stepsPerSegment = 6) {
+  if (pts.length < 3) return pts;
+  const result = [];
+  
+  // Pad endpoints to calculate tangent boundaries
+  const p = [pts[0], ...pts, pts[pts.length - 1]];
+  
+  for (let i = 1; i < p.length - 2; i++) {
+    const p0 = p[i - 1];
+    const p1 = p[i];
+    const p2 = p[i + 1];
+    const p3 = p[i + 2];
+    
+    for (let step = 0; step < stepsPerSegment; step++) {
+      const t = step / stepsPerSegment;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      
+      const x = 0.5 * (
+        (2 * p1.x) + 
+        (-p0.x + p2.x) * t + 
+        (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + 
+        (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3
+      );
+      
+      const y = 0.5 * (
+        (2 * p1.y) + 
+        (-p0.y + p2.y) * t + 
+        (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + 
+        (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3
+      );
+      
+      // Interpolate pressure and time offset
+      const pressure = p1.pressure + (p2.pressure - p1.pressure) * t;
+      const time = p1.t + (p2.t - p1.t) * t;
+      
+      result.push({ x, y, t: time, pressure });
+    }
+  }
+  
+  result.push(pts[pts.length - 1]);
+  return result;
+}
+
+// 3. John Hobby's Spline Algorithm (Aesthetically optimal smooth curves through vertices)
+function hobbySpline(pts, stepsPerSegment = 6) {
+  if (pts.length < 3) return pts;
+  
+  const n = pts.length;
+  const dx = [];
+  const dy = [];
+  const d = [];
+  const alpha = [];
+  
+  // Calculate chord vectors and lengths
+  for (let i = 0; i < n - 1; i++) {
+    const delX = pts[i+1].x - pts[i].x;
+    const delY = pts[i+1].y - pts[i].y;
+    dx.push(delX);
+    dy.push(delY);
+    d.push(Math.hypot(delX, delY));
+    alpha.push(Math.atan2(delY, delX));
+  }
+  
+  // Solve for tangent angles theta (outgoing) and phi (incoming) relative to chord
+  const theta = new Array(n).fill(0);
+  const phi = new Array(n).fill(0);
+  
+  // Curvature weightings for interior vertices
+  for (let i = 1; i < n - 1; i++) {
+    const psi = alpha[i] - alpha[i-1];
+    // wrap bend to [-PI, PI]
+    const wrappedPsi = Math.atan2(Math.sin(psi), Math.cos(psi));
+    
+    const totalD = d[i-1] + d[i];
+    if (totalD > 0) {
+      theta[i] = -wrappedPsi * (d[i] / totalD);
+      phi[i] = -wrappedPsi * (d[i-1] / totalD);
+    }
+  }
+  
+  // Endpoint curl boundary estimates
+  theta[0] = -phi[1] / 2;
+  phi[n-1] = -theta[n-2] / 2;
+  
+  const result = [];
+  
+  // Generate cubic Bezier points
+  for (let i = 0; i < n - 1; i++) {
+    const p1 = pts[i];
+    const p2 = pts[i+1];
+    const chordLen = d[i];
+    if (chordLen === 0) continue;
+    
+    const th = theta[i];
+    const ph = phi[i+1];
+    
+    // Hobby velocity calculation
+    const mockG = (thAngle, phAngle) => {
+      const num = 2 + Math.sqrt(2) * (Math.sin(thAngle) - Math.sin(phAngle)/16) * (Math.sin(phAngle) - Math.sin(thAngle)/16) * (Math.cos(thAngle) - Math.cos(phAngle));
+      const den = 1 + (0.5 * (Math.sqrt(5) - 1) * Math.cos(thAngle)) + (0.5 * (3 - Math.sqrt(5)) * Math.cos(phAngle));
+      return num / den;
+    };
+    
+    const rho = mockG(th, ph) / 3;
+    const sigma = mockG(ph, th) / 3;
+    
+    // Control points
+    const cp1x = p1.x + chordLen * rho * Math.cos(alpha[i] + th);
+    const cp1y = p1.y + chordLen * rho * Math.sin(alpha[i] + th);
+    const cp2x = p2.x - chordLen * sigma * Math.cos(alpha[i] - ph);
+    const cp2y = p2.y - chordLen * sigma * Math.sin(alpha[i] - ph);
+    
+    // Cubic Bezier interpolation
+    for (let step = 0; step < stepsPerSegment; step++) {
+      const t = step / stepsPerSegment;
+      const mt = 1 - t;
+      const mt2 = mt * mt;
+      const mt3 = mt2 * mt;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      
+      const x = mt3 * p1.x + 3 * mt2 * t * cp1x + 3 * mt * t2 * cp2x + t3 * p2.x;
+      const y = mt3 * p1.y + 3 * mt2 * t * cp1y + 3 * mt * t2 * cp2y + t3 * p2.y;
+      
+      const pressure = p1.pressure + (p2.pressure - p1.pressure) * t;
+      const time = p1.t + (p2.t - p1.t) * t;
+      
+      result.push({ x, y, t: time, pressure });
+    }
+  }
+  
   result.push(pts[pts.length - 1]);
   return result;
 }
@@ -330,13 +474,13 @@ function setupUIEvents() {
     }
   });
 
-  document.getElementById("mod-pressure").addEventListener("change", (e) => {
-    const val = e.target.checked;
-    brushSettings.smooth = val;
+  document.getElementById("prop-curve").addEventListener("change", (e) => {
+    const val = e.target.value;
+    brushSettings.curve = val;
     if (state.selectedPathId) {
       const path = paths.find(p => p.id === state.selectedPathId);
       if (path) {
-        path.properties.smooth = val;
+        path.properties.curve = val;
         saveCanvasToLocalStorage();
         redraw();
       }
@@ -398,7 +542,7 @@ const DraweratorAPI = {
         color: properties.color || brushSettings.color,
         width: properties.width || brushSettings.width,
         brush: properties.brush || brushSettings.brush,
-        smooth: properties.smooth !== false,
+        curve: properties.curve || brushSettings.curve,
         wobble: properties.wobble !== false
       }
     };

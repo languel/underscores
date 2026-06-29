@@ -24,10 +24,10 @@ const state = {
 };
 
 const brushSettings = {
-  color: '#6366f1',
+  color: '#f8fafc',
   width: 3,
   brush: 'rough', // 'rough', 'pencil', 'felt'
-  smooth: true,
+  curve: 'catmull', // 'catmull', 'hobby', 'chaikin', 'linear'
   wobble: true
 };
 
