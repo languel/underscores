@@ -10,7 +10,6 @@ function setupCanvasEvents() {
     state.lastMousePos = worldPos;
 
     if (state.currentTool === 'pan' || (e.button === 1)) {
-      // Middle click or Pan tool
       state.isPanning = true;
       canvas.style.cursor = "grabbing";
     } else if (state.currentTool === 'draw') {
@@ -27,8 +26,8 @@ function setupCanvasEvents() {
         removePath(closest.path.id);
       }
     } else if (state.currentTool === 'select') {
-      // 1. Check if clicking close to a handle of the already selected path
-      if (state.selectedPathId) {
+      // 1. Check if clicking close to a handle of the already selected path (only if showPointsEditor is active)
+      if (state.selectedPathId && state.showPointsEditor) {
         const path = paths.find(p => p.id === state.selectedPathId);
         if (path) {
           const pointIdx = path.points.findIndex(p => distance(worldPos, p) < 8 / state.zoom);
@@ -45,27 +44,23 @@ function setupCanvasEvents() {
       if (closest) {
         state.selectedPathId = closest.path.id;
         state.isDraggingPath = true;
-        
-        // Show properties panel
-        const props = document.getElementById("properties-panel");
-        props.classList.remove("hidden");
-        
-        // Sync properties panel inputs
-        document.getElementById("prop-brush").value = closest.path.properties.brush;
-        document.getElementById("prop-width").value = closest.path.properties.width;
-        document.getElementById("prop-curve").value = closest.path.properties.curve || 'linear';
-        document.getElementById("mod-wobble").checked = closest.path.properties.wobble !== false;
-        
-        // Select color dot
-        document.querySelectorAll(".color-dot").forEach(dot => {
-          dot.classList.toggle("active", dot.dataset.color === closest.path.properties.color);
-        });
+        openEditorForPath(closest.path);
       } else {
         // Clear selection
         state.selectedPathId = null;
         state.selectedPointIndex = null;
+        state.showPointsEditor = false;
         document.getElementById("properties-panel").classList.add("hidden");
       }
+      redraw();
+    } else if (state.currentTool === 'box-select') {
+      state.isDrawingBox = true;
+      state.boxStart = worldPos;
+      state.boxEnd = worldPos;
+      redraw();
+    } else if (state.currentTool === 'lasso-select') {
+      state.isDrawingLasso = true;
+      state.lassoPoints = [worldPos];
       redraw();
     }
   });
@@ -83,7 +78,6 @@ function setupCanvasEvents() {
       redraw();
     } else if (state.isDrawing) {
       const t = Date.now() - state.drawStartTime;
-      // Add point
       state.activePath.points.push({
         x: worldPos.x,
         y: worldPos.y,
@@ -109,8 +103,21 @@ function setupCanvasEvents() {
       if (path && state.selectedPointIndex !== null) {
         path.points[state.selectedPointIndex].x = worldPos.x;
         path.points[state.selectedPointIndex].y = worldPos.y;
+        
+        // Update duration if necessary
+        if (state.selectedPointIndex === path.points.length - 1) {
+          path.playback.duration = path.points[path.points.length - 1].t;
+        }
+        
+        openEditorForPath(path);
         redraw();
       }
+    } else if (state.isDrawingBox) {
+      state.boxEnd = worldPos;
+      redraw();
+    } else if (state.isDrawingLasso) {
+      state.lassoPoints.push(worldPos);
+      redraw();
     }
   });
 
@@ -128,6 +135,14 @@ function setupCanvasEvents() {
         }
       }
       
+      const duration = state.activePath.points[state.activePath.points.length - 1].t;
+      state.activePath.playback = {
+        speed: 1.0,
+        isPlaying: false,
+        currentTime: duration,
+        duration: duration
+      };
+      
       paths.push(state.activePath);
       saveCanvasToLocalStorage();
       state.activePath = null;
@@ -136,6 +151,62 @@ function setupCanvasEvents() {
     
     if (state.isDraggingPath || state.isDraggingPoint) {
       saveCanvasToLocalStorage();
+    }
+
+    if (state.isDrawingBox) {
+      const xMin = Math.min(state.boxStart.x, state.boxEnd.x);
+      const xMax = Math.max(state.boxStart.x, state.boxEnd.x);
+      const yMin = Math.min(state.boxStart.y, state.boxEnd.y);
+      const yMax = Math.max(state.boxStart.y, state.boxEnd.y);
+      
+      const selectedPaths = paths.filter(path => {
+        return path.points.some(pt => pt.x >= xMin && pt.x <= xMax && pt.y >= yMin && pt.y <= yMax);
+      });
+      
+      if (selectedPaths.length > 0) {
+        state.selectedPathId = selectedPaths[0].id;
+        openEditorForPath(selectedPaths[0]);
+      } else {
+        state.selectedPathId = null;
+        state.showPointsEditor = false;
+        document.getElementById("properties-panel").classList.add("hidden");
+      }
+      
+      state.isDrawingBox = false;
+      state.boxStart = null;
+      state.boxEnd = null;
+      redraw();
+    }
+
+    if (state.isDrawingLasso) {
+      function isPointInPolygon(p, poly) {
+        let inside = false;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          const xi = poly[i].x, yi = poly[i].y;
+          const xj = poly[j].x, yj = poly[j].y;
+          const intersect = ((yi > p.y) !== (yj > p.y))
+              && (p.x < (xj - xi) * (p.y - yi) / (yj - yi) + xi);
+          if (intersect) inside = !inside;
+        }
+        return inside;
+      }
+      
+      const selectedPaths = paths.filter(path => {
+        return path.points.some(pt => isPointInPolygon(pt, state.lassoPoints));
+      });
+      
+      if (selectedPaths.length > 0) {
+        state.selectedPathId = selectedPaths[0].id;
+        openEditorForPath(selectedPaths[0]);
+      } else {
+        state.selectedPathId = null;
+        state.showPointsEditor = false;
+        document.getElementById("properties-panel").classList.add("hidden");
+      }
+      
+      state.isDrawingLasso = false;
+      state.lassoPoints = [];
+      redraw();
     }
 
     state.isDrawing = false;
@@ -147,6 +218,18 @@ function setupCanvasEvents() {
       canvas.style.cursor = "grab";
     } else {
       canvas.style.cursor = "crosshair";
+    }
+  });
+
+  // Double Click toggles point editing
+  canvas.addEventListener("dblclick", (e) => {
+    const worldPos = screenToWorld(e.clientX, e.clientY);
+    const closest = findClosestPath(worldPos);
+    if (closest) {
+      state.selectedPathId = closest.path.id;
+      state.showPointsEditor = !state.showPointsEditor;
+      openEditorForPath(closest.path);
+      redraw();
     }
   });
 
@@ -172,6 +255,7 @@ function setupCanvasEvents() {
     } else if (e.key === "Escape") {
       state.selectedPathId = null;
       state.selectedPointIndex = null;
+      state.showPointsEditor = false;
       document.getElementById("properties-panel").classList.add("hidden");
       redraw();
     }
@@ -352,6 +436,8 @@ function setupUIEvents() {
   // Toolbar Buttons
   const tools = {
     'tool-select': 'select',
+    'tool-box-select': 'box-select',
+    'tool-lasso-select': 'lasso-select',
     'tool-draw': 'draw',
     'tool-erase': 'erase',
     'tool-pan': 'pan'
@@ -369,8 +455,8 @@ function setupUIEvents() {
         canvas.style.cursor = "crosshair";
       }
       
-      // Hide properties if not selecting
-      if (name !== 'select') {
+      // Hide properties if not using selection tools
+      if (!['select', 'box-select', 'lasso-select'].includes(name)) {
         document.getElementById("properties-panel").classList.add("hidden");
       }
     });
@@ -382,6 +468,7 @@ function setupUIEvents() {
       paths = [];
       state.selectedPathId = null;
       state.selectedPointIndex = null;
+      state.showPointsEditor = false;
       document.getElementById("properties-panel").classList.add("hidden");
       saveCanvasToLocalStorage();
       redraw();
@@ -416,13 +503,21 @@ function setupUIEvents() {
     const sidebar = document.getElementById("ai-sidebar");
     sidebar.classList.toggle("collapsed");
     document.getElementById("btn-toggle-ai").classList.toggle("active", !sidebar.classList.contains("collapsed"));
-    setTimeout(resizeCanvas, 300); // Wait for transit animate
+    setTimeout(resizeCanvas, 300); // Wait for transition animate
   });
 
   // Toggle Theme (Light / Dark)
   document.getElementById("btn-theme").addEventListener("click", () => {
     const isLight = document.body.classList.toggle("light-mode");
     localStorage.setItem("drawerator_theme", isLight ? "light" : "dark");
+    redraw();
+  });
+
+  // Editor Close Button
+  document.getElementById("editor-close-btn").addEventListener("click", () => {
+    state.selectedPathId = null;
+    state.showPointsEditor = false;
+    document.getElementById("properties-panel").classList.add("hidden");
     redraw();
   });
 
@@ -464,6 +559,7 @@ function setupUIEvents() {
   document.getElementById("prop-width").addEventListener("input", (e) => {
     const val = parseInt(e.target.value);
     brushSettings.width = val;
+    document.getElementById("val-width").innerText = `${val}px`;
     if (state.selectedPathId) {
       const path = paths.find(p => p.id === state.selectedPathId);
       if (path) {
@@ -499,6 +595,98 @@ function setupUIEvents() {
       }
     }
   });
+
+  // Timeline & Playback Events
+  document.getElementById("btn-play-path").addEventListener("click", () => {
+    if (state.selectedPathId) {
+      const path = paths.find(p => p.id === state.selectedPathId);
+      if (path) {
+        if (!path.playback) {
+          const duration = path.points.length > 0 ? path.points[path.points.length - 1].t : 0;
+          path.playback = { speed: 1.0, isPlaying: false, currentTime: duration, duration };
+        }
+        
+        path.playback.isPlaying = !path.playback.isPlaying;
+        if (path.playback.isPlaying && path.playback.currentTime >= path.playback.duration) {
+          path.playback.currentTime = 0;
+        }
+        document.getElementById("btn-play-path").innerText = path.playback.isPlaying ? "Pause" : "Play";
+        redraw();
+      }
+    }
+  });
+
+  document.getElementById("prop-speed").addEventListener("change", (e) => {
+    if (state.selectedPathId) {
+      const path = paths.find(p => p.id === state.selectedPathId);
+      if (path) {
+        if (!path.playback) {
+          const duration = path.points.length > 0 ? path.points[path.points.length - 1].t : 0;
+          path.playback = { speed: 1.0, isPlaying: false, currentTime: duration, duration };
+        }
+        path.playback.speed = parseFloat(e.target.value);
+      }
+    }
+  });
+
+  document.getElementById("btn-reverse-path").addEventListener("click", () => {
+    if (state.selectedPathId) {
+      const path = paths.find(p => p.id === state.selectedPathId);
+      if (path && path.points.length > 1) {
+        path.points.reverse();
+        const totalDuration = path.playback ? path.playback.duration : path.points[path.points.length - 1].t;
+        path.points.forEach((pt, idx) => {
+          pt.t = (idx / (path.points.length - 1)) * totalDuration;
+        });
+        
+        if (path.playback) {
+          path.playback.currentTime = totalDuration;
+        }
+        saveCanvasToLocalStorage();
+        openEditorForPath(path);
+        redraw();
+      }
+    }
+  });
+
+  document.getElementById("prop-scrubber").addEventListener("input", (e) => {
+    if (state.selectedPathId) {
+      const path = paths.find(p => p.id === state.selectedPathId);
+      if (path && path.playback) {
+        const pct = parseFloat(e.target.value) / 100;
+        path.playback.currentTime = pct * path.playback.duration;
+        document.getElementById("val-time").innerText = Math.round(path.playback.currentTime);
+        redraw();
+      }
+    }
+  });
+
+  // Raw Coordinates Data Actions
+  document.getElementById("btn-copy-raw").addEventListener("click", () => {
+    if (state.selectedPathId) {
+      const path = paths.find(p => p.id === state.selectedPathId);
+      if (path) {
+        const rawJSON = JSON.stringify(path.points.map(pt => ({ x: pt.x, y: pt.y, t: pt.t, pressure: pt.pressure })), null, 2);
+        navigator.clipboard.writeText(rawJSON).then(() => {
+          const btn = document.getElementById("btn-copy-raw");
+          btn.innerText = "Copied!";
+          setTimeout(() => btn.innerText = "Copy JSON", 1500);
+        });
+      }
+    }
+  });
+
+  document.getElementById("btn-toggle-handles").addEventListener("click", () => {
+    if (state.selectedPathId) {
+      state.showPointsEditor = !state.showPointsEditor;
+      const path = paths.find(p => p.id === state.selectedPathId);
+      if (path) {
+        openEditorForPath(path);
+      }
+      redraw();
+    }
+  });
+}
 }
 
 function logToolAction(msg, status = 'ok') {
@@ -535,9 +723,17 @@ const DraweratorAPI = {
       pressure: pt.pressure || 0.5
     }));
 
+    const duration = formattedPoints.length > 0 ? formattedPoints[formattedPoints.length - 1].t : 0;
+
     const newPath = {
       id: "ai_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
       points: formattedPoints,
+      playback: {
+        speed: 1.0,
+        isPlaying: false,
+        currentTime: duration,
+        duration: duration
+      },
       properties: {
         color: properties.color || brushSettings.color,
         width: properties.width || brushSettings.width,
@@ -553,6 +749,166 @@ const DraweratorAPI = {
     
     logToolAction(`addPath(points: ${pointsArray.length}, brush: "${newPath.properties.brush}")`, 'ok');
     return newPath.id;
+  },
+
+  // Playback & Timing Controls for AI
+  playPathPlayback: function(id, speed = 1.0) {
+    const path = paths.find(p => p.id === id);
+    if (!path) return false;
+    if (!path.playback) {
+      const duration = path.points.length > 0 ? path.points[path.points.length - 1].t : 0;
+      path.playback = { speed, isPlaying: false, currentTime: duration, duration };
+    }
+    path.playback.speed = speed;
+    path.playback.isPlaying = true;
+    if (path.playback.currentTime >= path.playback.duration) {
+      path.playback.currentTime = 0;
+    }
+    redraw();
+    logToolAction(`playPathPlayback("${id}", speed: ${speed})`, 'ok');
+    return true;
+  },
+
+  pausePathPlayback: function(id) {
+    const path = paths.find(p => p.id === id);
+    if (!path) return false;
+    if (path.playback) {
+      path.playback.isPlaying = false;
+    }
+    redraw();
+    logToolAction(`pausePathPlayback("${id}")`, 'ok');
+    return true;
+  },
+
+  scrubPathPlayback: function(id, timeMs) {
+    const path = paths.find(p => p.id === id);
+    if (!path) return false;
+    if (!path.playback) {
+      const duration = path.points.length > 0 ? path.points[path.points.length - 1].t : 0;
+      path.playback = { speed: 1.0, isPlaying: false, currentTime: duration, duration };
+    }
+    path.playback.currentTime = Math.max(0, Math.min(path.playback.duration, timeMs));
+    redraw();
+    logToolAction(`scrubPathPlayback("${id}", timeMs: ${timeMs})`, 'ok');
+    return true;
+  },
+
+  reversePath: function(id) {
+    const path = paths.find(p => p.id === id);
+    if (!path || path.points.length < 2) return false;
+    path.points.reverse();
+    const totalDuration = path.playback ? path.playback.duration : path.points[path.points.length - 1].t;
+    path.points.forEach((pt, idx) => {
+      pt.t = (idx / (path.points.length - 1)) * totalDuration;
+    });
+    if (path.playback) {
+      path.playback.currentTime = totalDuration;
+    }
+    saveCanvasToLocalStorage();
+    if (state.selectedPathId === id) {
+      openEditorForPath(path);
+    }
+    redraw();
+    logToolAction(`reversePath("${id}")`, 'ok');
+    return true;
+  },
+
+  setPathRenderProperties: function(id, props = {}) {
+    const path = paths.find(p => p.id === id);
+    if (!path) return false;
+    if (props.color !== undefined) path.properties.color = props.color;
+    if (props.width !== undefined) path.properties.width = props.width;
+    if (props.brush !== undefined) path.properties.brush = props.brush;
+    if (props.curve !== undefined) path.properties.curve = props.curve;
+    if (props.wobble !== undefined) path.properties.wobble = props.wobble;
+    saveCanvasToLocalStorage();
+    if (state.selectedPathId === id) {
+      openEditorForPath(path);
+    }
+    redraw();
+    logToolAction(`setPathRenderProperties("${id}")`, 'ok');
+    return true;
+  },
+
+  setSelectionMode: function(mode) {
+    if (!['select', 'box-select', 'lasso-select'].includes(mode)) return false;
+    state.currentTool = mode;
+    
+    document.querySelectorAll(".tool-btn").forEach(btn => btn.classList.remove("active"));
+    const toolBtnId = `tool-${mode}`;
+    const btn = document.getElementById(toolBtnId);
+    if (btn) btn.classList.add("active");
+    
+    redraw();
+    logToolAction(`setSelectionMode("${mode}")`, 'ok');
+    return true;
+  },
+
+  selectPathsInBox: function(x1, y1, x2, y2) {
+    const xMin = Math.min(x1, x2);
+    const xMax = Math.max(x1, x2);
+    const yMin = Math.min(y1, y2);
+    const yMax = Math.max(y1, y2);
+    
+    const selectedPaths = paths.filter(path => {
+      return path.points.some(pt => pt.x >= xMin && pt.x <= xMax && pt.y >= yMin && pt.y <= yMax);
+    });
+    
+    if (selectedPaths.length > 0) {
+      state.selectedPathId = selectedPaths[0].id;
+      openEditorForPath(selectedPaths[0]);
+      redraw();
+      logToolAction(`selectPathsInBox: Selected "${selectedPaths[0].id}"`, 'ok');
+      return selectedPaths[0].id;
+    }
+    logToolAction(`selectPathsInBox: No match`, 'ok');
+    return null;
+  },
+
+  selectPathsInLasso: function(polygonPoints) {
+    if (!Array.isArray(polygonPoints) || polygonPoints.length < 3) return null;
+    function isPointInPolygon(p, poly) {
+      let inside = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const xi = poly[i].x, yi = poly[i].y;
+        const xj = poly[j].x, yj = poly[j].y;
+        const intersect = ((yi > p.y) !== (yj > p.y))
+            && (p.x < (xj - xi) * (p.y - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+    
+    const selectedPaths = paths.filter(path => {
+      return path.points.some(pt => isPointInPolygon(pt, polygonPoints));
+    });
+    
+    if (selectedPaths.length > 0) {
+      state.selectedPathId = selectedPaths[0].id;
+      openEditorForPath(selectedPaths[0]);
+      redraw();
+      logToolAction(`selectPathsInLasso: Selected "${selectedPaths[0].id}"`, 'ok');
+      return selectedPaths[0].id;
+    }
+    logToolAction(`selectPathsInLasso: No match`, 'ok');
+    return null;
+  },
+
+  toggleEditPointsMode: function(id) {
+    const path = paths.find(p => p.id === id);
+    if (!path) return false;
+    state.selectedPathId = id;
+    state.showPointsEditor = !state.showPointsEditor;
+    openEditorForPath(path);
+    redraw();
+    logToolAction(`toggleEditPointsMode("${id}", show: ${state.showPointsEditor})`, 'ok');
+    return true;
+  },
+
+  getSelectedPathData: function() {
+    if (!state.selectedPathId) return null;
+    const path = paths.find(p => p.id === state.selectedPathId);
+    return path ? JSON.parse(JSON.stringify(path)) : null;
   },
 
   // Helper: Draw standard geometric shapes
@@ -688,6 +1044,53 @@ function getPathBounds(path) {
     maxY = Math.max(maxY, p.y);
   });
   return { minX, minY, maxX, maxY };
+}
+
+function openEditorForPath(path) {
+  const props = document.getElementById("properties-panel");
+  if (!props) return;
+  props.classList.remove("hidden");
+  
+  // 1. Rendering
+  document.getElementById("prop-brush").value = path.properties.brush || 'rough';
+  document.getElementById("prop-width").value = path.properties.width || 3;
+  document.getElementById("val-width").innerText = `${path.properties.width || 3}px`;
+  document.getElementById("prop-curve").value = path.properties.curve || 'linear';
+  document.getElementById("mod-wobble").checked = path.properties.wobble !== false;
+  
+  document.querySelectorAll(".color-dot").forEach(dot => {
+    dot.classList.toggle("active", dot.dataset.color === path.properties.color);
+  });
+  
+  // 2. Playback / Timing
+  if (!path.playback) {
+    const duration = path.points.length > 0 ? path.points[path.points.length - 1].t : 0;
+    path.playback = {
+      speed: 1.0,
+      isPlaying: false,
+      currentTime: duration,
+      duration: duration
+    };
+  }
+  
+  const speedSelect = document.getElementById("prop-speed");
+  speedSelect.value = String(path.playback.speed || "1");
+  
+  document.getElementById("val-time").innerText = Math.round(path.playback.currentTime);
+  document.getElementById("val-duration").innerText = Math.round(path.playback.duration);
+  document.getElementById("prop-scrubber").value = path.playback.duration > 0 
+    ? (path.playback.currentTime / path.playback.duration) * 100 
+    : 100;
+    
+  const playBtn = document.getElementById("btn-play-path");
+  playBtn.innerText = path.playback.isPlaying ? "Pause" : "Play";
+  
+  // 3. Raw Data
+  document.getElementById("val-points-count").innerText = path.points.length;
+  
+  const editBtn = document.getElementById("btn-toggle-handles");
+  editBtn.innerText = state.showPointsEditor ? "Move Path" : "Edit Points";
+  editBtn.classList.toggle("active", state.showPointsEditor);
 }
 
 // Expose API to window object

@@ -7,7 +7,7 @@ const ctx = canvas.getContext("2d");
 let paths = []; // List of all path objects
 
 const state = {
-  currentTool: 'select', // 'select', 'draw', 'erase', 'pan'
+  currentTool: 'select', // 'select', 'box-select', 'lasso-select', 'draw', 'erase', 'pan'
   zoom: 1.0,
   panX: 0,
   panY: 0,
@@ -15,9 +15,15 @@ const state = {
   isPanning: false,
   isDraggingPath: false,
   isDraggingPoint: false,
+  isDrawingBox: false,
+  isDrawingLasso: false,
+  boxStart: null,
+  boxEnd: null,
+  lassoPoints: [],
   activePath: null,
   selectedPathId: null,
   selectedPointIndex: null,
+  showPointsEditor: false,
   dragStart: { x: 0, y: 0 },
   lastMousePos: { x: 0, y: 0 },
   drawStartTime: 0
@@ -82,6 +88,18 @@ function loadCanvasFromLocalStorage() {
     const saved = localStorage.getItem("drawerator_canvas_paths");
     if (saved) {
       paths = JSON.parse(saved);
+      // Initialize missing playback parameters for retro-compatibility
+      paths.forEach(path => {
+        if (!path.playback) {
+          const duration = path.points.length > 0 ? path.points[path.points.length - 1].t : 0;
+          path.playback = {
+            speed: 1.0,
+            isPlaying: false,
+            currentTime: duration,
+            duration: duration
+          };
+        }
+      });
       redraw();
     }
   } catch (e) {
@@ -209,19 +227,27 @@ function drawPath(path) {
   const width = path.properties.width || 3;
   const wobble = path.properties.wobble !== false;
 
-  if (path.points.length < 1) return;
-  if (path.points.length === 1) {
+  // Filter points based on playback time limit if playback properties exist
+  const isSelected = path.id === state.selectedPathId;
+  const limitTime = (path.playback && (path.playback.isPlaying || isSelected)) 
+    ? path.playback.currentTime 
+    : Infinity;
+
+  const points = path.points.filter(pt => pt.t <= limitTime);
+
+  if (points.length < 1) return;
+  if (points.length === 1) {
     // Draw a point/dot
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(path.points[0].x, path.points[0].y, width / 2, 0, Math.PI * 2);
+    ctx.arc(points[0].x, points[0].y, width / 2, 0, Math.PI * 2);
     ctx.fill();
     return;
   }
 
-  for (let i = 0; i < path.points.length - 1; i++) {
-    const p1 = path.points[i];
-    const p2 = path.points[i+1];
+  for (let i = 0; i < points.length - 1; i++) {
+    const p1 = points[i];
+    const p2 = points[i+1];
     
     // Apply pressure if available
     const currentWidth = p1.pressure ? width * (0.6 + p1.pressure * 0.8) : width;
@@ -257,10 +283,11 @@ function redraw() {
   drawInfiniteGrid();
 
   // 2. Draw Committed Paths
+  const isSelectionTool = ['select', 'box-select', 'lasso-select'].includes(state.currentTool);
   paths.forEach(path => {
     drawPath(path);
     // Draw Selection Highlighting
-    if (state.currentTool === 'select' && path.id === state.selectedPathId) {
+    if (isSelectionTool && path.id === state.selectedPathId) {
       drawSelectionOutline(path);
     }
   });
@@ -268,6 +295,42 @@ function redraw() {
   // 3. Draw Active Temporary Drawing Path
   if (state.activePath) {
     drawPath(state.activePath);
+  }
+
+  // 4. Draw Box Select Area Overlay
+  if (state.currentTool === 'box-select' && state.isDrawingBox && state.boxStart && state.boxEnd) {
+    ctx.save();
+    const isLight = document.body.classList.contains("light-mode");
+    ctx.strokeStyle = isLight ? "rgba(15, 23, 42, 0.4)" : "rgba(248, 250, 252, 0.4)";
+    ctx.fillStyle = isLight ? "rgba(15, 23, 42, 0.05)" : "rgba(248, 250, 252, 0.05)";
+    ctx.lineWidth = 1 / state.zoom;
+    ctx.setLineDash([4 / state.zoom, 4 / state.zoom]);
+    const x = state.boxStart.x;
+    const y = state.boxStart.y;
+    const w = state.boxEnd.x - state.boxStart.x;
+    const h = state.boxEnd.y - state.boxStart.y;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x, y, w, h);
+    ctx.restore();
+  }
+
+  // 5. Draw Lasso Select Area Overlay
+  if (state.currentTool === 'lasso-select' && state.isDrawingLasso && state.lassoPoints && state.lassoPoints.length > 1) {
+    ctx.save();
+    const isLight = document.body.classList.contains("light-mode");
+    ctx.strokeStyle = isLight ? "rgba(15, 23, 42, 0.4)" : "rgba(248, 250, 252, 0.4)";
+    ctx.fillStyle = isLight ? "rgba(15, 23, 42, 0.05)" : "rgba(248, 250, 252, 0.05)";
+    ctx.lineWidth = 1 / state.zoom;
+    ctx.setLineDash([4 / state.zoom, 4 / state.zoom]);
+    ctx.beginPath();
+    ctx.moveTo(state.lassoPoints[0].x, state.lassoPoints[0].y);
+    for (let i = 1; i < state.lassoPoints.length; i++) {
+      ctx.lineTo(state.lassoPoints[i].x, state.lassoPoints[i].y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
   }
 
   ctx.restore();
@@ -315,19 +378,21 @@ function drawSelectionOutline(path) {
   const pad = 6 / state.zoom;
   ctx.strokeRect(minX - pad, minY - pad, (maxX - minX) + pad * 2, (maxY - minY) + pad * 2);
 
-  // Draw point handles
-  ctx.fillStyle = isLight ? "#0f172a" : "#f8fafc";
-  ctx.setLineDash([]);
-  ctx.lineWidth = 1.5 / state.zoom;
-  ctx.strokeStyle = isLight ? "#ffffff" : "#0f172a";
-  
-  path.points.forEach((p, idx) => {
-    ctx.beginPath();
-    const radius = (idx === state.selectedPointIndex) ? 6 / state.zoom : 4 / state.zoom;
-    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-  });
+  // Draw point handles if editing points
+  if (state.showPointsEditor) {
+    ctx.fillStyle = isLight ? "#0f172a" : "#f8fafc";
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1.5 / state.zoom;
+    ctx.strokeStyle = isLight ? "#ffffff" : "#0f172a";
+    
+    path.points.forEach((p, idx) => {
+      ctx.beginPath();
+      const radius = (idx === state.selectedPointIndex) ? 6 / state.zoom : 4 / state.zoom;
+      ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    });
+  }
 
   ctx.restore();
 }
@@ -354,3 +419,44 @@ function resetViewport() {
   document.getElementById("zoom-level").innerText = "100%";
   redraw();
 }
+
+// --- GLOBAL PLAYBACK ANIMATION LOOP ---
+let lastTime = 0;
+function animationLoop(timestamp) {
+  if (!lastTime) lastTime = timestamp;
+  const dt = timestamp - lastTime;
+  lastTime = timestamp;
+  
+  let needsRedraw = false;
+  
+  paths.forEach(path => {
+    if (path.playback && path.playback.isPlaying) {
+      path.playback.currentTime += dt * (path.playback.speed || 1.0);
+      if (path.playback.currentTime >= path.playback.duration) {
+        path.playback.currentTime = path.playback.duration;
+        path.playback.isPlaying = false;
+        
+        // If this is the currently selected path, update UI play button
+        if (path.id === state.selectedPathId) {
+          const playBtn = document.getElementById("btn-play-path");
+          if (playBtn) playBtn.innerText = "Play";
+        }
+      }
+      
+      // Sync scrubber and text display if this is the selected path
+      if (path.id === state.selectedPathId) {
+        const scrubber = document.getElementById("prop-scrubber");
+        if (scrubber) scrubber.value = (path.playback.currentTime / path.playback.duration) * 100;
+        const timeVal = document.getElementById("val-time");
+        if (timeVal) timeVal.innerText = Math.round(path.playback.currentTime);
+      }
+      
+      needsRedraw = true;
+    }
+  });
+  
+  if (needsRedraw) redraw();
+  
+  requestAnimationFrame(animationLoop);
+}
+requestAnimationFrame(animationLoop);

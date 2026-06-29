@@ -36,8 +36,18 @@
       <!-- Floating Excalidraw-like Toolbar -->
       <div id="toolbar-container">
         <div id="toolbar">
-          <button id="tool-select" class="tool-btn active" title="Select / Edit Paths">
+          <button id="tool-select" class="tool-btn active" title="Pointer Select / Single Click">
             <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" /></svg>
+          </button>
+          <button id="tool-box-select" class="tool-btn" title="Box Area Select">
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="4 4" />
+            </svg>
+          </button>
+          <button id="tool-lasso-select" class="tool-btn" title="Lasso Freehand Select">
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12.5 12c.5-1.5.5-2.5 1.5-3s2 .5 2 1.5c0 1.5-1.5 2-3 2H11m0 0C8.5 12.5 6 11 5 9s1-3.5 3-3.5 4 1.5 4.5 3c.3 1 0 2-1.5 3.5" />
+            </svg>
           </button>
           <button id="tool-draw" class="tool-btn" title="Draw Strokes (Rough Brush)">
             <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
@@ -66,44 +76,84 @@
         </div>
       </div>
 
-      <!-- Properties Panel (when selected) -->
+      <!-- Editor Panel (displays styling, timing, and raw data aspects) -->
       <div id="properties-panel" class="floating-panel hidden">
-        <h3>Stroke Settings</h3>
-        <div class="property-row">
-          <label>Stroke Color</label>
-          <div class="color-palette">
-            <span class="color-dot active" style="background-color: #f8fafc; border: 1px solid var(--border-color);" data-color="#f8fafc"></span>
-            <span class="color-dot" style="background-color: #64748b;" data-color="#64748b"></span>
-            <span class="color-dot" style="background-color: #ef4444;" data-color="#ef4444"></span>
-            <span class="color-dot" style="background-color: #10b981;" data-color="#10b981"></span>
-            <span class="color-dot" style="background-color: #e2e8f0; border: 1px solid var(--border-color);" data-color="#e2e8f0"></span>
+        <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+          <h3 style="margin: 0; font-family: var(--font-title); font-size: 14px; font-weight: 600;">Editor & Path Data</h3>
+          <button id="editor-close-btn" style="background: transparent; border: none; color: var(--color-secondary); font-size: 18px; cursor: pointer; outline: none;">&times;</button>
+        </div>
+        
+        <!-- Tab 1: Styling / Ink -->
+        <div class="editor-section">
+          <label style="font-size: 10px; text-transform: uppercase; color: var(--color-secondary); letter-spacing: 0.05em; font-weight: 600; display: block; margin-bottom: 6px;">Rendering & Ink</label>
+          <div class="property-row">
+            <label>Color</label>
+            <div class="color-palette">
+              <span class="color-dot active" style="background-color: #f8fafc; border: 1px solid var(--border-color);" data-color="#f8fafc"></span>
+              <span class="color-dot" style="background-color: #64748b;" data-color="#64748b"></span>
+              <span class="color-dot" style="background-color: #ef4444;" data-color="#ef4444"></span>
+              <span class="color-dot" style="background-color: #10b981;" data-color="#10b981"></span>
+              <span class="color-dot" style="background-color: #e2e8f0; border: 1px solid var(--border-color);" data-color="#e2e8f0"></span>
+            </div>
+          </div>
+          <div class="property-row">
+            <label>Brush & Curve</label>
+            <div style="display: flex; gap: 6px;">
+              <select id="prop-brush" style="flex: 1; padding: 6px 10px; font-size: 12px;">
+                <option value="rough">Rough</option>
+                <option value="pencil">Pencil</option>
+                <option value="felt">Felt tip</option>
+              </select>
+              <select id="prop-curve" style="flex: 1; padding: 6px 10px; font-size: 12px;">
+                <option value="catmull">Catmull</option>
+                <option value="hobby">Hobby</option>
+                <option value="chaikin">Chaikin</option>
+                <option value="linear">Linear</option>
+              </select>
+            </div>
+          </div>
+          <div class="property-row">
+            <label>Width: <span id="val-width">3px</span></label>
+            <input type="range" id="prop-width" min="1" max="15" value="3" />
+          </div>
+          <div class="property-row">
+            <label class="check-label"><input type="checkbox" id="mod-wobble" checked /> Sketchy Wobble</label>
           </div>
         </div>
-        <div class="property-row">
-          <label>Brush Type</label>
-          <select id="prop-brush">
-            <option value="rough">Rough (Sketchy)</option>
-            <option value="pencil">Pencil (Clean)</option>
-            <option value="felt">Felt (Chisel Marker)</option>
-          </select>
+
+        <div style="height: 1px; background: var(--border-color); margin: 12px 0;"></div>
+
+        <!-- Tab 2: Playback & Timing -->
+        <div class="editor-section">
+          <label style="font-size: 10px; text-transform: uppercase; color: var(--color-secondary); letter-spacing: 0.05em; font-weight: 600; display: block; margin-bottom: 6px;">Playback & Timing</label>
+          <div class="timeline-row" style="display: flex; gap: 6px; align-items: center; margin-bottom: 8px;">
+            <button id="btn-play-path" class="header-btn" style="flex: 1; text-align: center;" title="Play drawing animation">Play</button>
+            <select id="prop-speed" style="width: 75px; padding: 5px 8px; font-size: 11px;">
+              <option value="0.25">0.25x</option>
+              <option value="1" selected>1.0x</option>
+              <option value="2">2.0x</option>
+              <option value="5">5.0x</option>
+              <option value="10">10.0x</option>
+            </select>
+            <button id="btn-reverse-path" class="header-btn" style="flex: 1; text-align: center;" title="Reverse point indices order">Reverse</button>
+          </div>
+          <div class="property-row">
+            <label style="display: flex; justify-content: space-between;">
+              <span>Timeline Scrubber</span>
+              <span><span id="val-time">0</span>ms / <span id="val-duration">0</span>ms</span>
+            </label>
+            <input type="range" id="prop-scrubber" min="0" max="100" value="0" style="margin-top: 4px;" />
+          </div>
         </div>
-        <div class="property-row">
-          <label>Width</label>
-          <input type="range" id="prop-width" min="1" max="15" value="3" />
-        </div>
-        <div class="property-row">
-          <label>Curve Type</label>
-          <select id="prop-curve">
-            <option value="catmull">Catmull-Rom Spline</option>
-            <option value="hobby">Hobby Spline (Elegant)</option>
-            <option value="chaikin">Chaikin (Averaging)</option>
-            <option value="linear">Linear (None)</option>
-          </select>
-        </div>
-        <div class="property-row">
-          <label>Modulators</label>
-          <div style="display: flex; gap: 8px;">
-            <label class="check-label"><input type="checkbox" id="mod-wobble" checked /> Sketchy Wobble</label>
+
+        <div style="height: 1px; background: var(--border-color); margin: 12px 0;"></div>
+
+        <!-- Tab 3: Raw Coordinates Data -->
+        <div class="editor-section">
+          <label style="font-size: 10px; text-transform: uppercase; color: var(--color-secondary); letter-spacing: 0.05em; font-weight: 600; display: block; margin-bottom: 6px;">Raw Data (Vertices: <span id="val-points-count">0</span>)</label>
+          <div style="display: flex; gap: 8px; margin-top: 6px;">
+            <button id="btn-copy-raw" class="header-btn" style="flex: 1; text-align: center;" title="Copy path coordinates to clipboard">Copy JSON</button>
+            <button id="btn-toggle-handles" class="header-btn" style="flex: 1; text-align: center;" title="Double click handles toggles this">Edit Points</button>
           </div>
         </div>
       </div>
