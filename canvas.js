@@ -41,6 +41,14 @@ function resizeCanvas() {
 window.addEventListener("resize", resizeCanvas);
 // Run on load deferred
 document.addEventListener("DOMContentLoaded", () => {
+  // Load saved theme
+  const savedTheme = localStorage.getItem("drawerator_theme") || "dark";
+  if (savedTheme === "light") {
+    document.body.classList.add("light-mode");
+  } else {
+    document.body.classList.remove("light-mode");
+  }
+  
   resizeCanvas();
   loadCanvasFromLocalStorage();
   setupCanvasEvents();
@@ -278,7 +286,7 @@ function drawInfiniteGrid() {
   const endX = Math.ceil(bottomRight.x / gap) * gap;
   const endY = Math.ceil(bottomRight.y / gap) * gap;
 
-  ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
+  ctx.fillStyle = document.body.classList.contains("light-mode") ? "rgba(15, 23, 42, 0.08)" : "rgba(255, 255, 255, 0.08)";
   ctx.beginPath();
   for (let x = startX; x <= endX; x += gap) {
     for (let y = startY; y <= endY; y += gap) {
@@ -290,7 +298,8 @@ function drawInfiniteGrid() {
 
 function drawSelectionOutline(path) {
   ctx.save();
-  ctx.strokeStyle = "rgba(139, 92, 246, 0.4)";
+  const isLight = document.body.classList.contains("light-mode");
+  ctx.strokeStyle = isLight ? "rgba(15, 23, 42, 0.4)" : "rgba(248, 250, 252, 0.4)";
   ctx.lineWidth = 1 / state.zoom;
   ctx.setLineDash([4 / state.zoom, 4 / state.zoom]);
   
@@ -307,10 +316,10 @@ function drawSelectionOutline(path) {
   ctx.strokeRect(minX - pad, minY - pad, (maxX - minX) + pad * 2, (maxY - minY) + pad * 2);
 
   // Draw point handles
-  ctx.fillStyle = "#8b5cf6";
+  ctx.fillStyle = isLight ? "#0f172a" : "#f8fafc";
   ctx.setLineDash([]);
   ctx.lineWidth = 1.5 / state.zoom;
-  ctx.strokeStyle = "#ffffff";
+  ctx.strokeStyle = isLight ? "#ffffff" : "#0f172a";
   
   path.points.forEach((p, idx) => {
     ctx.beginPath();

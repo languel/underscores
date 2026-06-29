@@ -200,10 +200,11 @@ The canvas coordinates are arbitrary 2D floats. The center viewport of the user 
 You can communicate with the user via normal text response, AND you can draw shapes, lines, or control the board by outputting XML tool tags in your responses. 
 
 You MUST use ONLY the following XML tags to draw:
-- Line: <line x1="10" y1="20" x2="100" y2="150" color="#6366f1" width="3" brush="rough" />
+- Line: <line x1="10" y1="20" x2="100" y2="150" color="#f8fafc" width="3" brush="rough" />
   (brush options: "rough" (sketchy), "pencil" (clean), "felt" (thick chisel marker))
-- Rectangle: <rect x="50" y="-100" w="150" h="80" color="#ec4899" width="4" brush="rough" />
+- Rectangle: <rect x="50" y="-100" w="150" h="80" color="#ef4444" width="4" brush="rough" />
 - Circle: <circle x="0" y="0" r="50" color="#10b981" width="3" brush="rough" />
+- Freehand Path: <path points="10,20 15,25 20,30 25,32" color="#f8fafc" width="3" brush="rough" />
 - Clear board: <clear />
 - Erase path by its ID: <erase id="path_123" />
 - Move path: <move id="path_123" dx="50" dy="-20" />
@@ -213,9 +214,9 @@ You MUST use ONLY the following XML tags to draw:
 
 Guidelines:
 1. Always output both standard text descriptions explaining what you're doing, followed or preceded by the relevant XML tags.
-2. If the user asks to draw complex shapes, combine multiple <line>, <rect>, or <circle> tags! For example, a house is a <rect> base and lines forming a triangular roof.
+2. If the user asks to draw complex shapes, combine multiple tags! For example, a house is a <rect> base and lines forming a triangular roof.
 3. Coordinates: Keep shapes centered relative to coordinates 0,0 unless the user specifies otherwise, or based on the context of other shapes.
-4. If you want to know what is currently drawn, output <read_canvas /> and wait. The system will supply the JSON representation of the drawings in the next turn.`;
+4. You will automatically receive context metadata appended to user prompts showing the details of the active selected path (points list) and a summary of all other paths on the canvas. Use this selection details to clone, offset, scale, rotate, or modify drawings as requested!`;
 
 let chatHistory = [
   { role: 'system', content: SYSTEM_PROMPT }
@@ -243,6 +244,39 @@ async function sendChatMessage() {
     return;
   }
 
+  // Inject canvas paths selection and summaries into payload message context
+  const selectedPath = paths.find(p => p.id === state.selectedPathId);
+  const selectionInfo = selectedPath ? {
+    id: selectedPath.id,
+    brush: selectedPath.properties.brush,
+    color: selectedPath.properties.color,
+    width: selectedPath.properties.width,
+    points: selectedPath.points.map(pt => ({
+      x: Math.round(pt.x * 10) / 10,
+      y: Math.round(pt.y * 10) / 10
+    }))
+  } : null;
+
+  const canvasSummary = paths.map(p => ({
+    id: p.id,
+    brush: p.properties.brush,
+    color: p.properties.color,
+    width: p.properties.width,
+    points_count: p.points.length,
+    bounds: getPathBounds(p)
+  }));
+
+  // Create clone of chatHistory to append context metadata to user prompt without displaying it
+  const payloadMessages = JSON.parse(JSON.stringify(chatHistory));
+  if (payloadMessages.length > 0) {
+    const lastUserMsg = payloadMessages[payloadMessages.length - 1];
+    if (lastUserMsg.role === 'user') {
+      lastUserMsg.content += `\n\n[Canvas Context]
+Active Selection: ${selectionInfo ? JSON.stringify(selectionInfo) : "None"}
+All Paths Summary: ${JSON.stringify(canvasSummary)}`;
+    }
+  }
+
   const endpoint = aiSettings.url.replace(/\/$/, "");
   let fetchUrl = "";
   let payload = {};
@@ -251,7 +285,7 @@ async function sendChatMessage() {
     fetchUrl = `${endpoint}/api/chat`;
     payload = {
       model: aiSettings.model,
-      messages: chatHistory,
+      messages: payloadMessages,
       stream: true
     };
   } else {
@@ -259,7 +293,7 @@ async function sendChatMessage() {
     fetchUrl = `${endpoint}/v1/chat/completions`;
     payload = {
       model: aiSettings.model,
-      messages: chatHistory,
+      messages: payloadMessages,
       stream: true
     };
   }
@@ -334,6 +368,7 @@ async function sendChatMessage() {
 
     // Completion Finished! Process Tool XML Tags
     chatHistory.push({ role: 'assistant', content: fullResponse });
+    addCopyButtonToBubble(assistantBubble, fullResponse);
     await executeAIToolCalls(fullResponse);
 
   } catch (err) {
@@ -411,6 +446,19 @@ async function executeAIToolCalls(text) {
     }
   }
 
+  // 4b. Freehand Paths
+  const pathRegex = /<path\s+([^>]+)\s*\/?>/gi;
+  while ((match = pathRegex.exec(text)) !== null) {
+    const a = parseAttrs(match[1]);
+    if (a.points) {
+      DraweratorAPI.drawFreehandPath(
+        a.points,
+        { color: a.color, width: parseFloat(a.width), brush: a.brush }
+      );
+      didAction = true;
+    }
+  }
+
   // 5. Erases
   while ((match = eraseRegex.exec(text)) !== null) {
     const a = parseAttrs(match[1]);
@@ -466,11 +514,36 @@ async function executeAIToolCalls(text) {
 }
 
 // --- CHAT INTERFACE HELPERS ---
+function addCopyButtonToBubble(bubble, text) {
+  const existing = bubble.querySelector(".copy-bubble-btn");
+  if (existing) existing.remove();
+
+  if (text && text !== "Thinking...") {
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "copy-bubble-btn";
+    copyBtn.innerText = "Copy";
+    copyBtn.title = "Copy message text";
+    copyBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(text).then(() => {
+        copyBtn.innerText = "Copied!";
+        setTimeout(() => copyBtn.innerText = "Copy", 1500);
+      });
+    });
+    bubble.appendChild(copyBtn);
+  }
+}
+
 function appendMessage(role, text) {
   const container = document.getElementById("chat-messages");
   const bubble = document.createElement("div");
   bubble.className = `chat-message ${role}`;
   bubble.innerText = text;
+  
+  if (text !== "Thinking...") {
+    addCopyButtonToBubble(bubble, text);
+  }
+
   container.appendChild(bubble);
   scrollToBottom("chat-messages");
   return bubble;
@@ -521,5 +594,37 @@ function setupAIEvents() {
       urlInput.value = "https://api.openai.com";
     }
     testAIConnection();
+  });
+
+  // Start a fresh conversation
+  document.getElementById("btn-new-chat").addEventListener("click", () => {
+    if (confirm("Reset conversation history?")) {
+      chatHistory = [{ role: 'system', content: SYSTEM_PROMPT }];
+      const chatContainer = document.getElementById("chat-messages");
+      chatContainer.innerHTML = "";
+      
+      // Add initial greeting
+      appendMessage('assistant', "Hello! I am your drawing assistant powered by local AI. You can write prompts like \"draw a flow chart\", \"sketch a house\", or \"clean the canvas\" and I will execute the drawing tools programmatically!");
+      logToolAction("new_chat_session()", 'ok');
+    }
+  });
+
+  // Copy whole conversation transcript
+  document.getElementById("btn-copy-transcript").addEventListener("click", () => {
+    const transcript = chatHistory
+      .filter(msg => msg.role !== 'system')
+      .map(msg => `[${msg.role === 'user' ? 'User' : 'AI Assistant'}]:\n${msg.content}`)
+      .join("\n\n");
+      
+    if (!transcript.trim()) {
+      alert("No conversation history to copy!");
+      return;
+    }
+
+    navigator.clipboard.writeText(transcript).then(() => {
+      const copyBtn = document.getElementById("btn-copy-transcript");
+      copyBtn.innerText = "Copied!";
+      setTimeout(() => copyBtn.innerText = "Copy All", 1500);
+    });
   });
 }

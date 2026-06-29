@@ -275,6 +275,13 @@ function setupUIEvents() {
     setTimeout(resizeCanvas, 300); // Wait for transit animate
   });
 
+  // Toggle Theme (Light / Dark)
+  document.getElementById("btn-theme").addEventListener("click", () => {
+    const isLight = document.body.classList.toggle("light-mode");
+    localStorage.setItem("drawerator_theme", isLight ? "light" : "dark");
+    redraw();
+  });
+
   // Color selection
   document.querySelectorAll(".color-dot").forEach(dot => {
     dot.addEventListener("click", (e) => {
@@ -443,6 +450,19 @@ const DraweratorAPI = {
 
   drawLine: function(x1, y1, x2, y2, properties = {}) {
     const pts = [{ x: x1, y: y1 }, { x: x2, y: y2 }];
+    return this.addPath(pts, properties);
+  },
+
+  drawFreehandPath: function(pointsString, properties = {}) {
+    if (!pointsString) return null;
+    const parts = pointsString.trim().split(/\s+/);
+    const pts = [];
+    parts.forEach(part => {
+      const coords = part.split(',');
+      if (coords.length >= 2) {
+        pts.push({ x: parseFloat(coords[0]), y: parseFloat(coords[1]) });
+      }
+    });
     return this.addPath(pts, properties);
   },
 
