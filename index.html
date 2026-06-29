@@ -1,101 +1,186 @@
-<!DOCTYPE html><!--nnx9dNvXdrrBzxhDYQkzs-->
+<!DOCTYPE html>
 <html lang="en">
-
 <head>
-  <script src="local-ai.js?v=2.2"></script>
-  <meta charSet="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <link rel="preload" href="_next/static/media/4cf2300e9c8272f7-s.p.woff2" as="font" crossorigin="" type="font/woff2" />
-  <link rel="preload" href="_next/static/media/90e04048d93fc036-s.p.otf" as="font" crossorigin="" type="font/otf" />
-  <link rel="preload" href="_next/static/media/ddc79db6b44f097f-s.p.otf" as="font" crossorigin="" type="font/otf" />
-  <link rel="preload" href="_next/static/media/f6c22ecef866de54-s.p.otf" as="font" crossorigin="" type="font/otf" />
-  <link rel="preload" href="_next/static/media/f78073c9a429e322-s.p.otf" as="font" crossorigin="" type="font/otf" />
-  <link rel="preload" as="image" href="draw/tool-ascii.svg" />
-  <link rel="preload" as="image" href="draw/test-eraser.svg" />
-  <link rel="preload" as="image" href="draw/dice-1.svg" />
-  <link rel="preload" as="image" href="draw/dice-2.svg" />
-  <link rel="preload" as="image" href="draw/dice-3.svg" />
-  <link rel="preload" as="image" href="draw/dice-4.svg" />
-  <link rel="preload" as="image" href="draw/dice-5.svg" />
-  <link rel="preload" as="image" href="draw/dice-6.svg" />
-  <link rel="stylesheet" href="_next/static/css/cc09939b5c4fe385.css" data-precedence="next" />
-  <link rel="stylesheet" href="_next/static/css/e2737d7ca4623874.css" data-precedence="next" />
-  <link rel="stylesheet" href="_next/static/css/1e6856f9fa8d7986.css" data-precedence="next" />
-  <link rel="preload" as="script" fetchPriority="low" href="_next/static/chunks/webpack-03d266e618f2a89f.js" />
-  <script src="_next/static/chunks/4bd1b696-cc729d47eba2cee4.js" async=""></script>
-  <script src="_next/static/css/cc09939b5c4fe385.css" async=""></script>
-  <script src="_next/static/chunks/vendors-3e063e4890849304.js" async=""></script>
-  <script src="_next/static/chunks/common-5a9c58ff3bd4e7a5.js" async=""></script>
-  <script src="_next/static/chunks/main-app-d45ce86590e8cdbf.js" async=""></script>
-  <script src="_next/static/chunks/app/layout-fd25e8cf93a2a470.js" async=""></script>
-  <script src="_next/static/chunks/app/draw/page-ce917d38f3b9eff5.js" async=""></script>
-  <meta name="next-size-adjust" content="" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Drawerator - AI Infinite Canvas</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
-  <meta name="theme-color" content="#FBFBFC" />
-  <title>Drawerator - AI Drawing Assistant</title>
-  <meta name="description" content="Local AI-powered drawing assistant." />
-  <meta name="author" content="Drawerator" />
-  <meta name="keywords" content="drawing assistant, local ai, sketch, draw, ollama, lmstudio" />
-  <meta name="creator" content="Drawerator" />
-  <meta name="robots" content="index, follow" />
-  <meta name="googlebot" content="index, follow, max-video-preview:-1, max-image-preview:large, max-snippet:-1" />
-  <meta name="apple-mobile-web-app-title" content="Drawerator" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="format-detection" content="telephone=no" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="msapplication-TileColor" content="#FBFBFC" />
-  <meta name="theme-color" content="#FBFBFC" />
-  <meta property="og:title" content="Drawerator" />
-  <meta property="og:description" content="AI Drawing Assistant" />
-  <meta property="og:url" content="http://localhost:8089" />
-  <meta property="og:site_name" content="Drawerator" />
-  <meta property="og:locale" content="en_US" />
-  <meta property="og:image:type" content="image/jpeg" />
-  <meta property="og:image:width" content="2400" />
-  <meta property="og:image:height" content="1260" />
-  <meta property="og:image" content="http://localhost:8089/opengraph-image.jpg?d2c403ee20dbc2d7" />
-  <meta property="og:type" content="website" />
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:site" content="" />
-  <meta name="twitter:creator" content="" />
-  <meta name="twitter:title" content="Drawerator" />
-  <meta name="twitter:description" content="Local AI-powered drawing assistant." />
-  <meta name="twitter:image:type" content="image/jpeg" />
-  <meta name="twitter:image:width" content="2400" />
-  <meta name="twitter:image:height" content="1260" />
-  <meta name="twitter:image" content="http://localhost:8089/opengraph-image.jpg?d2c403ee20dbc2d7" />
-  <link rel="icon" href="favicon.ico" type="image/x-icon" sizes="16x16" />
-  <link rel="icon" href="icon.svg" type="image/svg+xml" sizes="any" />
-  <link rel="apple-touch-icon" href="apple-icon.png" type="image/png" sizes="180x180" />
-  <link rel="stylesheet" href="https://use.typekit.net/vuw0bky.css" />
-  <link
-    href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&amp;display=swap"
-    rel="stylesheet" />
-  <style>
-    @supports (view-transition-name: none) {
-
-      ::view-transition-old(root),
-      ::view-transition-new(root) {
-        animation-duration: 0.15s;
-      }
-    }
-  </style>
-  <script src="_next/static/chunks/polyfills-42372ed130431b0a.js" noModule=""></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="canvas.js" defer></script>
+  <script src="tools.js" defer></script>
+  <script src="ai.js" defer></script>
 </head>
+<body class="dark-mode">
+  <div id="app-container">
+    <!-- Main Drawing Section -->
+    <main id="canvas-section">
+      <!-- Infinite Canvas -->
+      <canvas id="drawing-canvas"></canvas>
 
-<body
-  class="__variable_188709 __variable_580fd3 __variable_dbc6a0 __variable_c76428 __variable_f7e8cc __variable_f6cdda __variable_4c4515 antialiased">
-  <script src="_next/static/chunks/webpack-03d266e618f2a89f.js" id="_R_" async=""></script>
-  <script>(self.__next_f = self.__next_f || []).push([0])</script>
-  <script>self.__next_f.push([1, "1:\"$Sreact.fragment\"\n2:I[42380,[\"7177\",\"static/chunks/app/layout-fd25e8cf93a2a470.js\"],\"default\"]\n3:I[87555,[],\"\"]\n4:I[31295,[],\"\"]\n5:I[18635,[\"7177\",\"static/chunks/app/layout-fd25e8cf93a2a470.js\"],\"DialRoot\"]\n6:I[90894,[],\"ClientPageRoot\"]\n7:I[70702,[\"5641\",\"static/chunks/app/draw/page-ce917d38f3b9eff5.js\"],\"default\"]\na:I[59665,[],\"OutletBoundary\"]\nc:I[74911,[],\"AsyncMetadataOutlet\"]\ne:I[59665,[],\"ViewportBoundary\"]\n10:I[59665,[],\"MetadataBoundary\"]\n11:\"$Sreact.suspense\"\n13:I[28393,[],\"\"]\n:HL[\"/_next/static/media/4cf2300e9c8272f7-s.p.woff2\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/woff2\"}]\n:HL[\"/_next/static/media/90e04048d93fc036-s.p.otf\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/otf\"}]\n:HL[\"/_next/static/media/ddc79db6b44f097f-s.p.otf\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/otf\"}]\n:HL[\"/_next/static/media/f6c22ecef866de54-s.p.otf\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/otf\"}]\n:HL[\"/_next/static/media/f78073c9a429e322-s.p.otf\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/otf\"}]\n:HL[\"/_next/static/css/cc09939b5c4fe385.css\",\"style\"]\n:HL[\"/_next/static/css/e2737d7ca4623874.css\",\"style\"]\n:HL[\"/_next/static/css/1e6856f9fa8d7986.css\",\"style\"]\n"])</script>
-  <script>self.__next_f.push([1, "0:{\"P\":null,\"b\":\"nnx9dNvXdrrBzxhDYQkzs\",\"p\":\"\",\"c\":[\"\",\"draw\"],\"i\":false,\"f\":[[[\"\",{\"children\":[\"draw\",{\"children\":[\"__PAGE__\",{}]}]},\"$undefined\",\"$undefined\",true],[\"\",[\"$\",\"$1\",\"c\",{\"children\":[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/css/cc09939b5c4fe385.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}],[\"$\",\"link\",\"1\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/css/e2737d7ca4623874.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]],[\"$\",\"html\",null,{\"lang\":\"en\",\"children\":[[\"$\",\"head\",null,{\"children\":[[\"$\",\"link\",null,{\"rel\":\"stylesheet\",\"href\":\"https://use.typekit.net/vuw0bky.css\"}],[\"$\",\"link\",null,{\"rel\":\"preconnect\",\"href\":\"https://fonts.googleapis.com\"}],[\"$\",\"link\",null,{\"rel\":\"preconnect\",\"href\":\"https://fonts.gstatic.com\",\"crossOrigin\":\"anonymous\"}],[\"$\",\"link\",null,{\"href\":\"https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500\u0026display=swap\",\"rel\":\"stylesheet\"}],[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"\\n            @supports (view-transition-name: none) {\\n              ::view-transition-old(root),\\n              ::view-transition-new(root) {\\n                animation-duration: 0.15s;\\n              }\\n            }\\n          \"}}]]}],[\"$\",\"body\",null,{\"className\":\"__variable_188709 __variable_580fd3 __variable_dbc6a0 __variable_c76428 __variable_f7e8cc __variable_f6cdda __variable_4c4515 antialiased\",\"suppressHydrationWarning\":true,\"children\":[[\"$\",\"$L2\",null,{}],[\"$\",\"$L3\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L4\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[[[\"$\",\"title\",null,{\"children\":\"404: This page could not be found.\"}],[\"$\",\"div\",null,{\"style\":{\"fontFamily\":\"system-ui,\\\"Segoe UI\\\",Roboto,Helvetica,Arial,sans-serif,\\\"Apple Color Emoji\\\",\\\"Segoe UI Emoji\\\"\",\"height\":\"100vh\",\"textAlign\":\"center\",\"display\":\"flex\",\"flexDirection\":\"column\",\"alignItems\":\"center\",\"justifyContent\":\"center\"},\"children\":[\"$\",\"div\",null,{\"children\":[[\"$\",\"style\",null,{\"dangerouslySetInnerHTML\":{\"__html\":\"body{color:#000;background:#fff;margin:0}.next-error-h1{border-right:1px solid rgba(0,0,0,.3)}@media (prefers-color-scheme:dark){body{color:#fff;background:#000}.next-error-h1{border-right:1px solid rgba(255,255,255,.3)}}\"}}],[\"$\",\"h1\",null,{\"className\":\"next-error-h1\",\"style\":{\"display\":\"inline-block\",\"margin\":\"0 20px 0 0\",\"padding\":\"0 23px 0 0\",\"fontSize\":24,\"fontWeight\":500,\"verticalAlign\":\"top\",\"lineHeight\":\"49px\"},\"children\":404}],[\"$\",\"div\",null,{\"style\":{\"display\":\"inline-block\"},\"children\":[\"$\",\"h2\",null,{\"style\":{\"fontSize\":14,\"fontWeight\":400,\"lineHeight\":\"49px\",\"margin\":0},\"children\":\"This page could not be found.\"}]}]]}]}]],[]],\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}],[\"$\",\"$L5\",null,{\"position\":\"top-left\"}]]}]]}]]}],{\"children\":[\"draw\",[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L3\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$L4\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[\"__PAGE__\",[\"$\",\"$1\",\"c\",{\"children\":[[\"$\",\"$L6\",null,{\"Component\":\"$7\",\"searchParams\":{},\"params\":{},\"promises\":[\"$@8\",\"$@9\"]}],[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/css/1e6856f9fa8d7986.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]],[\"$\",\"$La\",null,{\"children\":[\"$Lb\",[\"$\",\"$Lc\",null,{\"promise\":\"$@d\"}]]}]]}],{},null,false]},null,false]},null,false],[\"$\",\"$1\",\"h\",{\"children\":[null,[[\"$\",\"$Le\",null,{\"children\":\"$Lf\"}],[\"$\",\"meta\",null,{\"name\":\"next-size-adjust\",\"content\":\"\"}]],[\"$\",\"$L10\",null,{\"children\":[\"$\",\"div\",null,{\"hidden\":true,\"children\":[\"$\",\"$11\",null,{\"fallback\":null,\"children\":\"$L12\"}]}]}]]}],false]],\"m\":\"$undefined\",\"G\":[\"$13\",[]],\"s\":false,\"S\":true}\n"])</script>
-  <script>self.__next_f.push([1, "8:{}\n9:\"$0:f:0:1:2:children:2:children:1:props:children:0:props:params\"\n"])</script>
-  <script>self.__next_f.push([1, "f:[[\"$\",\"meta\",\"0\",{\"charSet\":\"utf-8\"}],[\"$\",\"meta\",\"1\",{\"name\":\"viewport\",\"content\":\"width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no\"}],[\"$\",\"meta\",\"2\",{\"name\":\"theme-color\",\"content\":\"#FBFBFC\"}]]\nb:null\n"])</script>
-  <script>self.__next_f.push([1, "14:I[38175,[],\"IconMark\"]\n"])</script>
-  <script>self.__next_f.push([1, "d:{\"metadata\":[[\"$\",\"title\",\"0\",{\"children\":\"Drawerator - AI Drawing Assistant\"}],[\"$\",\"meta\",\"1\",{\"name\":\"description\",\"content\":\"Local AI-powered drawing assistant.\"}],[\"$\",\"meta\",\"2\",{\"name\":\"author\",\"content\":\"Drawerator\"}],[\"$\",\"meta\",\"3\",{\"name\":\"keywords\",\"content\":\"lele zhang,cherrilynn zhang,cherrilynnz,lele zhang berkeley,lele zhang design\"}],[\"$\",\"meta\",\"4\",{\"name\":\"creator\",\"content\":\"Drawerator\"}],[\"$\",\"meta\",\"5\",{\"name\":\"robots\",\"content\":\"index, follow\"}],[\"$\",\"meta\",\"6\",{\"name\":\"googlebot\",\"content\":\"index, follow, max-video-preview:-1, max-image-preview:large, max-snippet:-1\"}],[\"$\",\"meta\",\"7\",{\"name\":\"apple-mobile-web-app-title\",\"content\":\"Drawerator\"}],[\"$\",\"meta\",\"8\",{\"name\":\"apple-mobile-web-app-capable\",\"content\":\"yes\"}],[\"$\",\"meta\",\"9\",{\"name\":\"apple-mobile-web-app-status-bar-style\",\"content\":\"default\"}],[\"$\",\"meta\",\"10\",{\"name\":\"format-detection\",\"content\":\"telephone=no\"}],[\"$\",\"meta\",\"11\",{\"name\":\"mobile-web-app-capable\",\"content\":\"yes\"}],[\"$\",\"meta\",\"12\",{\"name\":\"msapplication-TileColor\",\"content\":\"#FBFBFC\"}],[\"$\",\"meta\",\"13\",{\"name\":\"theme-color\",\"content\":\"#FBFBFC\"}],[\"$\",\"meta\",\"14\",{\"property\":\"og:title\",\"content\":\"Drawerator\"}],[\"$\",\"meta\",\"15\",{\"property\":\"og:description\",\"content\":\"AI Drawing Assistant\"}],[\"$\",\"meta\",\"16\",{\"property\":\"og:url\",\"content\":\"http://localhost:8089\"}],[\"$\",\"meta\",\"17\",{\"property\":\"og:site_name\",\"content\":\"Drawerator\"}],[\"$\",\"meta\",\"18\",{\"property\":\"og:locale\",\"content\":\"en_US\"}],[\"$\",\"meta\",\"19\",{\"property\":\"og:image:type\",\"content\":\"image/jpeg\"}],[\"$\",\"meta\",\"20\",{\"property\":\"og:image:width\",\"content\":\"2400\"}],[\"$\",\"meta\",\"21\",{\"property\":\"og:image:height\",\"content\":\"1260\"}],[\"$\",\"meta\",\"22\",{\"property\":\"og:image\",\"content\":\"http://localhost:8089/opengraph-image.jpg?d2c403ee20dbc2d7\"}],[\"$\",\"meta\",\"23\",{\"property\":\"og:type\",\"content\":\"website\"}],[\"$\",\"meta\",\"24\",{\"name\":\"twitter:card\",\"content\":\"summary_large_image\"}],[\"$\",\"meta\",\"25\",{\"name\":\"twitter:site\",\"content\":\"\"}],[\"$\",\"meta\",\"26\",{\"name\":\"twitter:creator\",\"content\":\"\"}],[\"$\",\"meta\",\"27\",{\"name\":\"twitter:title\",\"content\":\"Drawerator\"}],[\"$\",\"meta\",\"28\",{\"name\":\"twitter:description\",\"content\":\"Local AI-powered drawing assistant.\"}],[\"$\",\"meta\",\"29\",{\"name\":\"twitter:image:type\",\"content\":\"image/jpeg\"}],[\"$\",\"meta\",\"30\",{\"name\":\"twitter:image:width\",\"content\":\"2400\"}],[\"$\",\"meta\",\"31\",{\"name\":\"twitter:image:height\",\"content\":\"1260\"}],[\"$\",\"meta\",\"32\",{\"name\":\"twitter:image\",\"content\":\"http://localhost:8089/opengraph-image.jpg?d2c403ee20dbc2d7\"}],[\"$\",\"link\",\"33\",{\"rel\":\"icon\",\"href\":\"/favicon.ico\",\"type\":\"image/x-icon\",\"sizes\":\"16x16\"}],[\"$\",\"link\",\"34\",{\"rel\":\"icon\",\"href\":\"/icon.svg?07ff95508a89d764\",\"type\":\"image/svg+xml\",\"sizes\":\"any\"}],[\"$\",\"link\",\"35\",{\"rel\":\"apple-touch-icon\",\"href\":\"/apple-icon.png?c42cc51866865b9f\",\"type\":\"image/png\",\"sizes\":\"180x180\"}],[\"$\",\"$L14\",\"36\",{}]],\"error\":null,\"digest\":\"$undefined\"}\n"])</script>
-  <script>self.__next_f.push([1, "12:\"$d:metadata\"\n"])</script>
+      <!-- Viewport Navigation / Zoom Indicators -->
+      <div id="viewport-controls">
+        <button id="zoom-out-btn" title="Zoom Out">
+          <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20 12H4" /></svg>
+        </button>
+        <span id="zoom-level">100%</span>
+        <button id="zoom-in-btn" title="Zoom In">
+          <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+        </button>
+        <button id="reset-view-btn" title="Reset view">
+          <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12a9 9 0 118 8.9V21m0-3h.01" /></svg>
+        </button>
+      </div>
+
+      <!-- Floating Excalidraw-like Toolbar -->
+      <div id="toolbar-container">
+        <div id="toolbar">
+          <button id="tool-select" class="tool-btn active" title="Select / Edit Paths">
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" /></svg>
+          </button>
+          <button id="tool-draw" class="tool-btn" title="Draw Strokes (Rough Brush)">
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+          </button>
+          <button id="tool-erase" class="tool-btn" title="Stroke Eraser">
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+          </button>
+          <button id="tool-pan" class="tool-btn" title="Pan Canvas">
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3m6-11H8m0 0l3-3m-3 3l3 3m4 0h3m0 0l-3-3m3 3l-3 3" /></svg>
+          </button>
+          <div class="toolbar-divider"></div>
+          <button id="btn-clear" class="tool-btn danger" title="Clear Canvas">
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7L5 21M5 7l14 14" /></svg>
+          </button>
+          <button id="btn-settings" class="tool-btn" title="AI Connection Settings">
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+          </button>
+          <button id="btn-toggle-ai" class="tool-btn active" title="Toggle AI Panel">
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Properties Panel (when selected) -->
+      <div id="properties-panel" class="floating-panel hidden">
+        <h3>Stroke Settings</h3>
+        <div class="property-row">
+          <label>Stroke Color</label>
+          <div class="color-palette">
+            <span class="color-dot active" style="background-color: #6366f1;" data-color="#6366f1"></span>
+            <span class="color-dot" style="background-color: #ec4899;" data-color="#ec4899"></span>
+            <span class="color-dot" style="background-color: #10b981;" data-color="#10b981"></span>
+            <span class="color-dot" style="background-color: #f59e0b;" data-color="#f59e0b"></span>
+            <span class="color-dot" style="background-color: #ffffff;" data-color="#ffffff"></span>
+          </div>
+        </div>
+        <div class="property-row">
+          <label>Brush Type</label>
+          <select id="prop-brush">
+            <option value="rough">Rough (Sketchy)</option>
+            <option value="pencil">Pencil (Clean)</option>
+            <option value="felt">Felt (Chisel Marker)</option>
+          </select>
+        </div>
+        <div class="property-row">
+          <label>Width</label>
+          <input type="range" id="prop-width" min="1" max="15" value="3" />
+        </div>
+        <div class="property-row">
+          <label>Modulators</label>
+          <div style="display: flex; gap: 8px;">
+            <label class="check-label"><input type="checkbox" id="mod-pressure" checked /> Smooth</label>
+            <label class="check-label"><input type="checkbox" id="mod-wobble" checked /> Wobble</label>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Side Panel: Local AI Console -->
+    <aside id="ai-sidebar">
+      <div id="ai-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div id="ai-status-indicator" class="status-dot error"></div>
+          <h2>Local AI Assistant</h2>
+        </div>
+        <span id="ai-model-tag">Disconnect</span>
+      </div>
+
+      <!-- System / Tool Action Logger -->
+      <div id="tool-action-logger">
+        <span class="log-title">Executed Canvas Tools</span>
+        <div id="log-list">
+          <div class="log-item empty">No tools executed yet</div>
+        </div>
+      </div>
+
+      <!-- Chat History -->
+      <div id="chat-messages">
+        <div class="chat-message assistant">
+          Hello! I am your drawing assistant powered by local AI. You can write prompts like "draw a flow chart", "sketch a house", or "clean the canvas" and I will execute the drawing tools programmatically!
+        </div>
+      </div>
+
+      <!-- Chat Inputs -->
+      <div id="chat-inputs">
+        <textarea id="chat-message-input" placeholder="Ask AI to draw something... (Ctrl+Enter to send)"></textarea>
+        <button id="chat-send-btn">
+          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+        </button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Settings Drawer / Modal Overlay -->
+  <div id="settings-overlay" class="hidden">
+    <div id="settings-modal" class="floating-panel">
+      <div class="modal-header">
+        <h2>AI Engine Settings</h2>
+        <button id="settings-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="settings-provider">AI Provider</label>
+          <select id="settings-provider">
+            <option value="ollama">Ollama (Local)</option>
+            <option value="lmstudio">LM Studio (Local)</option>
+            <option value="openai">OpenAI / Compatible API</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="settings-url">Endpoint URL</label>
+          <input type="text" id="settings-url" value="http://localhost:11434" />
+        </div>
+        <div class="form-group">
+          <label for="settings-key">API Key (Optional)</label>
+          <input type="password" id="settings-key" placeholder="Bearer Key..." />
+        </div>
+        <div class="form-group">
+          <label for="settings-model">Model Selection</label>
+          <div style="display: flex; gap: 8px;">
+            <select id="settings-model-select" style="flex: 1;">
+              <option value="">Select a model...</option>
+            </select>
+            <button id="settings-refresh-models-btn">Fetch</button>
+          </div>
+          <input type="text" id="settings-model-manual" placeholder="Or enter manual model ID..." style="margin-top: 8px;" />
+        </div>
+        <div class="form-group">
+          <label class="check-label">
+            <input type="checkbox" id="settings-sound" checked /> Enable Sound Effects
+          </label>
+        </div>
+        <div id="settings-status-pill">
+          <div id="settings-status-dot" class="status-dot"></div>
+          <span id="settings-status-text">Checking status...</span>
+        </div>
+        <div id="settings-cors-warning" class="hidden error-box">
+          Connection failed. If using Ollama, ensure it is served with CORS enabled:<br/>
+          <code>OLLAMA_ORIGINS=* ollama serve</code>
+        </div>
+        <button id="settings-save-btn" class="primary-btn">Save & Apply</button>
+      </div>
+    </div>
+  </div>
 </body>
-
-</html>¸¸
+</html>
