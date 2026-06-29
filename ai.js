@@ -499,9 +499,20 @@ function setupAIEvents() {
 
   // Settings Refresh trigger
   document.getElementById("settings-refresh-models-btn").addEventListener("click", testAIConnection);
+  
+  // Sync model dropdown selection to manual input field
+  document.getElementById("settings-model-select").addEventListener("change", (e) => {
+    document.getElementById("settings-model-manual").value = e.target.value;
+  });
+
   document.getElementById("settings-provider").addEventListener("change", (e) => {
     const provider = e.target.value;
     const urlInput = document.getElementById("settings-url");
+    
+    // Clear old model entries to prevent stale values from overriding new ones
+    document.getElementById("settings-model-manual").value = "";
+    document.getElementById("settings-model-select").value = "";
+
     if (provider === 'ollama') {
       urlInput.value = "http://localhost:11434";
     } else if (provider === 'lmstudio') {
