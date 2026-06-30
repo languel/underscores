@@ -687,7 +687,6 @@ function setupUIEvents() {
     }
   });
 }
-}
 
 function logToolAction(msg, status = 'ok') {
   const logger = document.getElementById("log-list");
