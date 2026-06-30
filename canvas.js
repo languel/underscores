@@ -22,6 +22,7 @@ const state = {
   lassoPoints: [],
   activePath: null,
   selectedPathId: null,
+  selectedPathIds: [],
   selectedPointIndex: null,
   showPointsEditor: false,
   dragStart: { x: 0, y: 0 },
@@ -287,7 +288,7 @@ function redraw() {
   paths.forEach(path => {
     drawPath(path);
     // Draw Selection Highlighting
-    if (isSelectionTool && path.id === state.selectedPathId) {
+    if (isSelectionTool && state.selectedPathIds.includes(path.id)) {
       drawSelectionOutline(path);
     }
   });

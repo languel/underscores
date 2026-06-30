@@ -26,6 +26,8 @@ function setupCanvasEvents() {
         removePath(closest.path.id);
       }
     } else if (state.currentTool === 'select') {
+      const isShift = e.shiftKey;
+
       // 1. Check if clicking close to a handle of the already selected path (only if showPointsEditor is active)
       if (state.selectedPathId && state.showPointsEditor) {
         const path = paths.find(p => p.id === state.selectedPathId);
@@ -42,15 +44,44 @@ function setupCanvasEvents() {
       // 2. Check if clicking on another path
       const closest = findClosestPath(worldPos);
       if (closest) {
-        state.selectedPathId = closest.path.id;
+        const clickedId = closest.path.id;
+        
+        if (isShift) {
+          // Toggle selection status
+          if (state.selectedPathIds.includes(clickedId)) {
+            state.selectedPathIds = state.selectedPathIds.filter(id => id !== clickedId);
+            if (state.selectedPathId === clickedId) {
+              state.selectedPathId = state.selectedPathIds.length > 0 ? state.selectedPathIds[0] : null;
+            }
+          } else {
+            state.selectedPathIds.push(clickedId);
+            state.selectedPathId = clickedId;
+          }
+        } else {
+          // If not in selection group, reset select to this single path
+          if (!state.selectedPathIds.includes(clickedId)) {
+            state.selectedPathId = clickedId;
+            state.selectedPathIds = [clickedId];
+          }
+        }
+        
         state.isDraggingPath = true;
-        openEditorForPath(closest.path);
+        
+        if (state.selectedPathId) {
+          const primaryPath = paths.find(p => p.id === state.selectedPathId);
+          if (primaryPath) openEditorForPath(primaryPath);
+        } else {
+          document.getElementById("properties-panel").classList.add("hidden");
+        }
       } else {
-        // Clear selection
-        state.selectedPathId = null;
-        state.selectedPointIndex = null;
-        state.showPointsEditor = false;
-        document.getElementById("properties-panel").classList.add("hidden");
+        // Clear selection if not shifting
+        if (!isShift) {
+          state.selectedPathId = null;
+          state.selectedPathIds = [];
+          state.selectedPointIndex = null;
+          state.showPointsEditor = false;
+          document.getElementById("properties-panel").classList.add("hidden");
+        }
       }
       redraw();
     } else if (state.currentTool === 'box-select') {
@@ -85,18 +116,20 @@ function setupCanvasEvents() {
         pressure: e.pressure || 0.5
       });
       redraw();
-    } else if (state.isDraggingPath && state.selectedPathId) {
+    } else if (state.isDraggingPath && state.selectedPathIds.length > 0) {
       const dx = worldPos.x - state.lastMousePos.x;
       const dy = worldPos.y - state.lastMousePos.y;
       
-      const path = paths.find(p => p.id === state.selectedPathId);
-      if (path) {
-        path.points.forEach(pt => {
-          pt.x += dx;
-          pt.y += dy;
-        });
-        redraw();
-      }
+      state.selectedPathIds.forEach(id => {
+        const path = paths.find(p => p.id === id);
+        if (path) {
+          path.points.forEach(pt => {
+            pt.x += dx;
+            pt.y += dy;
+          });
+        }
+      });
+      redraw();
       state.lastMousePos = worldPos;
     } else if (state.isDraggingPoint && state.selectedPathId) {
       const path = paths.find(p => p.id === state.selectedPathId);
@@ -104,7 +137,6 @@ function setupCanvasEvents() {
         path.points[state.selectedPointIndex].x = worldPos.x;
         path.points[state.selectedPointIndex].y = worldPos.y;
         
-        // Update duration if necessary
         if (state.selectedPointIndex === path.points.length - 1) {
           path.playback.duration = path.points[path.points.length - 1].t;
         }
@@ -122,7 +154,7 @@ function setupCanvasEvents() {
   });
 
   // Mouse Up / End
-  window.addEventListener("mouseup", () => {
+  window.addEventListener("mouseup", (e) => {
     if (state.isDrawing && state.activePath) {
       // Apply curve smoothing interpolation
       if (state.activePath.points.length > 3) {
@@ -159,15 +191,32 @@ function setupCanvasEvents() {
       const yMin = Math.min(state.boxStart.y, state.boxEnd.y);
       const yMax = Math.max(state.boxStart.y, state.boxEnd.y);
       
-      const selectedPaths = paths.filter(path => {
+      const matchedPaths = paths.filter(path => {
         return path.points.some(pt => pt.x >= xMin && pt.x <= xMax && pt.y >= yMin && pt.y <= yMax);
       });
+      const matchedIds = matchedPaths.map(p => p.id);
+      const isShift = e.shiftKey;
       
-      if (selectedPaths.length > 0) {
-        state.selectedPathId = selectedPaths[0].id;
-        openEditorForPath(selectedPaths[0]);
+      if (isShift) {
+        // Toggle each matched path
+        matchedIds.forEach(id => {
+          if (state.selectedPathIds.includes(id)) {
+            state.selectedPathIds = state.selectedPathIds.filter(sid => sid !== id);
+          } else {
+            state.selectedPathIds.push(id);
+          }
+        });
+        state.selectedPathId = state.selectedPathIds.length > 0 ? state.selectedPathIds[state.selectedPathIds.length - 1] : null;
       } else {
-        state.selectedPathId = null;
+        // Replace selection
+        state.selectedPathIds = matchedIds;
+        state.selectedPathId = matchedIds.length > 0 ? matchedIds[0] : null;
+      }
+      
+      if (state.selectedPathId) {
+        const primaryPath = paths.find(p => p.id === state.selectedPathId);
+        if (primaryPath) openEditorForPath(primaryPath);
+      } else {
         state.showPointsEditor = false;
         document.getElementById("properties-panel").classList.add("hidden");
       }
@@ -191,15 +240,32 @@ function setupCanvasEvents() {
         return inside;
       }
       
-      const selectedPaths = paths.filter(path => {
+      const matchedPaths = paths.filter(path => {
         return path.points.some(pt => isPointInPolygon(pt, state.lassoPoints));
       });
+      const matchedIds = matchedPaths.map(p => p.id);
+      const isShift = e.shiftKey;
       
-      if (selectedPaths.length > 0) {
-        state.selectedPathId = selectedPaths[0].id;
-        openEditorForPath(selectedPaths[0]);
+      if (isShift) {
+        // Toggle each matched path
+        matchedIds.forEach(id => {
+          if (state.selectedPathIds.includes(id)) {
+            state.selectedPathIds = state.selectedPathIds.filter(sid => sid !== id);
+          } else {
+            state.selectedPathIds.push(id);
+          }
+        });
+        state.selectedPathId = state.selectedPathIds.length > 0 ? state.selectedPathIds[state.selectedPathIds.length - 1] : null;
       } else {
-        state.selectedPathId = null;
+        // Replace selection
+        state.selectedPathIds = matchedIds;
+        state.selectedPathId = matchedIds.length > 0 ? matchedIds[0] : null;
+      }
+      
+      if (state.selectedPathId) {
+        const primaryPath = paths.find(p => p.id === state.selectedPathId);
+        if (primaryPath) openEditorForPath(primaryPath);
+      } else {
         state.showPointsEditor = false;
         document.getElementById("properties-panel").classList.add("hidden");
       }
@@ -240,20 +306,24 @@ function setupCanvasEvents() {
     adjustZoom(factor, e.clientX, e.clientY);
   }, { passive: false });
 
-  // Keyboards shortcuts (Delete/Backspace to remove selected path, Esc to cancel)
+  // Keyboards shortcuts (Delete/Backspace to remove selected paths, Esc to cancel)
   window.addEventListener("keydown", (e) => {
     if (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA") {
       return; // Do not intercept inputs
     }
 
     if (e.key === "Delete" || e.key === "Backspace") {
-      if (state.selectedPathId) {
-        removePath(state.selectedPathId);
+      if (state.selectedPathIds.length > 0) {
+        const toDelete = [...state.selectedPathIds];
+        toDelete.forEach(id => removePath(id));
+        state.selectedPathIds = [];
         state.selectedPathId = null;
         document.getElementById("properties-panel").classList.add("hidden");
+        redraw();
       }
     } else if (e.key === "Escape") {
       state.selectedPathId = null;
+      state.selectedPathIds = [];
       state.selectedPointIndex = null;
       state.showPointsEditor = false;
       document.getElementById("properties-panel").classList.add("hidden");
@@ -423,8 +493,11 @@ function hobbySpline(pts, stepsPerSegment = 6) {
 function removePath(id) {
   paths = paths.filter(p => p.id !== id);
   saveCanvasToLocalStorage();
+  state.selectedPathIds = state.selectedPathIds.filter(sid => sid !== id);
   if (state.selectedPathId === id) {
-    state.selectedPathId = null;
+    state.selectedPathId = state.selectedPathIds.length > 0 ? state.selectedPathIds[0] : null;
+  }
+  if (!state.selectedPathId) {
     document.getElementById("properties-panel").classList.add("hidden");
   }
   redraw();
