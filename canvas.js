@@ -25,6 +25,8 @@ const state = {
   selectedPathIds: [],
   selectedPointIndex: null,
   showPointsEditor: false,
+  isSpacePanning: false,
+  previousToolBeforeSpace: null,
   dragStart: { x: 0, y: 0 },
   lastMousePos: { x: 0, y: 0 },
   drawStartTime: 0

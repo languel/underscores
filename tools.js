@@ -306,10 +306,117 @@ function setupCanvasEvents() {
     adjustZoom(factor, e.clientX, e.clientY);
   }, { passive: false });
 
-  // Keyboards shortcuts (Delete/Backspace to remove selected paths, Esc to cancel)
+  // --- TOUCH GESTURES (Pinch Zoom & Two-Finger Pan) ---
+  let touchStartDist = 0;
+  let touchStartMid = { x: 0, y: 0 };
+  let isMultiTouch = false;
+
+  canvas.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 1 && !isMultiTouch) {
+      // Single finger touches: dispatch to mousedown
+      const touch = e.touches[0];
+      const mouseEvent = new MouseEvent("mousedown", {
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        button: 0,
+        pressure: touch.force || 0.5
+      });
+      canvas.dispatchEvent(mouseEvent);
+    } else if (e.touches.length === 2) {
+      isMultiTouch = true;
+      // Interrupt active draw strokes
+      state.isDrawing = false;
+      state.activePath = null;
+      
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      touchStartDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      touchStartMid = {
+        x: (t1.clientX + t2.clientX) / 2,
+        y: (t1.clientY + t2.clientY) / 2
+      };
+    }
+  }, { passive: false });
+
+  canvas.addEventListener("touchmove", (e) => {
+    e.preventDefault(); // Prevent standard page bounces & scrolling
+    
+    if (e.touches.length === 1 && !isMultiTouch) {
+      const touch = e.touches[0];
+      const mouseEvent = new MouseEvent("mousemove", {
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        pressure: touch.force || 0.5
+      });
+      canvas.dispatchEvent(mouseEvent);
+    } else if (e.touches.length === 2) {
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      const mid = {
+        x: (t1.clientX + t2.clientX) / 2,
+        y: (t1.clientY + t2.clientY) / 2
+      };
+
+      // 1. Two-finger translation/panning
+      const dx = mid.x - touchStartMid.x;
+      const dy = mid.y - touchStartMid.y;
+      state.panX += dx;
+      state.panY += dy;
+
+      // 2. Pinch Zoom centering on midpoint
+      if (touchStartDist > 0 && dist > 0) {
+        const factor = dist / touchStartDist;
+        const prevZoom = state.zoom;
+        let newZoom = state.zoom * factor;
+        newZoom = Math.max(0.1, Math.min(20, newZoom));
+        
+        state.panX = mid.x - (mid.x - state.panX) * (newZoom / prevZoom);
+        state.panY = mid.y - (mid.y - state.panY) * (newZoom / prevZoom);
+        state.zoom = newZoom;
+        document.getElementById("zoom-level").innerText = `${Math.round(state.zoom * 100)}%`;
+      }
+
+      touchStartDist = dist;
+      touchStartMid = mid;
+      redraw();
+    }
+  }, { passive: false });
+
+  canvas.addEventListener("touchend", (e) => {
+    if (e.touches.length === 0) {
+      if (!isMultiTouch) {
+        const mouseEvent = new MouseEvent("mouseup", {});
+        window.dispatchEvent(mouseEvent);
+      }
+      isMultiTouch = false;
+    } else if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      touchStartMid = { x: touch.clientX, y: touch.clientY };
+      touchStartDist = 0;
+    }
+  }, { passive: false });
+
+  // Keyboards shortcuts (Delete/Backspace, Spacebar pan, Escape cancel)
   window.addEventListener("keydown", (e) => {
     if (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA") {
       return; // Do not intercept inputs
+    }
+
+    // Toggle Pan Tool on space hold
+    if (e.key === " " || e.code === "Space") {
+      if (!state.isSpacePanning) {
+        state.isSpacePanning = true;
+        state.previousToolBeforeSpace = state.currentTool;
+        
+        state.currentTool = 'pan';
+        document.querySelectorAll(".tool-btn").forEach(btn => btn.classList.remove("active"));
+        const panBtn = document.getElementById("tool-pan");
+        if (panBtn) panBtn.classList.add("active");
+        canvas.style.cursor = "grab";
+      }
+      e.preventDefault();
+      return;
     }
 
     if (e.key === "Delete" || e.key === "Backspace") {
@@ -328,6 +435,26 @@ function setupCanvasEvents() {
       state.showPointsEditor = false;
       document.getElementById("properties-panel").classList.add("hidden");
       redraw();
+    }
+  });
+
+  window.addEventListener("keyup", (e) => {
+    if (e.key === " " || e.code === "Space") {
+      if (state.isSpacePanning) {
+        state.currentTool = state.previousToolBeforeSpace || 'select';
+        state.isSpacePanning = false;
+        
+        document.querySelectorAll(".tool-btn").forEach(btn => btn.classList.remove("active"));
+        const originalBtnId = `tool-${state.currentTool}`;
+        const origBtn = document.getElementById(originalBtnId);
+        if (origBtn) origBtn.classList.add("active");
+        
+        if (state.currentTool === 'pan') {
+          canvas.style.cursor = "grab";
+        } else {
+          canvas.style.cursor = "crosshair";
+        }
+      }
     }
   });
 }
