@@ -497,8 +497,8 @@ function App() {
         e.preventDefault();
         setShowCommandPalette(prev => !prev);
       }
-      // Opt + Shift + Z
-      if (e.altKey && e.shiftKey && e.code === "KeyZ") {
+      // Cmd + Ctrl + Z
+      if (e.metaKey && e.ctrlKey && e.code === "KeyZ") {
         e.preventDefault();
         setSatoriMode(prev => !prev);
       }
