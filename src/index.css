@@ -447,7 +447,7 @@ body, html {
 }
 
 /* --- SATORI ZEN MODE OVERRIDES --- */
-.satori-mode .excalidraw .layer-ui__wrapper > *:not(.sidebar):not(.disable-zen-mode) {
+.satori-mode .excalidraw .layer-ui__wrapper > *:not(.sidebar) {
   display: none !important;
 }
 
@@ -465,10 +465,6 @@ body, html {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  position: fixed !important;
-  bottom: 8px !important;
-  right: 12px !important;
-  z-index: 1500 !important;
 }
 
 .excalidraw .disable-zen-mode::after {
@@ -483,4 +479,26 @@ body, html {
 .excalidraw .disable-zen-mode:hover::after {
   opacity: 1;
   color: var(--color-primary) !important;
+}
+
+/* Style Satori Mode custom exit button as a dot */
+#btn-exit-satori {
+  position: fixed;
+  bottom: 8px;
+  right: 12px;
+  z-index: 1500;
+  background: transparent;
+  border: none;
+  color: var(--color-secondary);
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.25;
+  transition: opacity var(--transition-fast), color var(--transition-fast);
+  padding: 4px;
+}
+
+#btn-exit-satori:hover {
+  opacity: 1;
+  color: var(--color-primary);
 }
