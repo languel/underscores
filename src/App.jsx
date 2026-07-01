@@ -506,7 +506,6 @@ function App() {
 
           {/* Welcome Screen brand styling & quick start triggers */}
           <WelcomeScreen>
-            <WelcomeScreen.Hints />
             <WelcomeScreen.Center>
               <WelcomeScreen.Center.Logo />
               <WelcomeScreen.Center.Heading>Drawerator AI Board</WelcomeScreen.Center.Heading>
