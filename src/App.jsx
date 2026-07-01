@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Excalidraw } from "@excalidraw/excalidraw";
+import { Excalidraw, Sidebar, MainMenu, WelcomeScreen } from "@excalidraw/excalidraw";
 import "./App.css";
 
 // System Prompt guiding the local LLM on drawing tools
@@ -29,7 +29,7 @@ Guidelines:
 - Keep your conversational text responses extremely concise and to the point.
 `;
 
-const INITIAL_GREETING = "Hello! I am your drawing assistant powered by local AI. You can write prompts like \"draw a flow chart\", \"sketch a house\", or \"clean the canvas\" and I will execute the drawing tools programmatically!";
+const INITIAL_GREETING = "Hello! I am your drawing assistant powered by local AI. You can write prompts like \"draw a flow chart\", \"sketch a house\", or \"clear the canvas\" and I will execute the drawing tools programmatically!";
 
 function createBaseElement(type, x, y, width, height, strokeColor = "#f8fafc") {
   return {
@@ -65,7 +65,7 @@ function App() {
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarDocked, setSidebarDocked] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   
   // Chat States
@@ -122,7 +122,6 @@ function App() {
           const list = data.models ? data.models.map(m => m.name) : [];
           setModelsList(list);
           setConnectionStatus("ok");
-          // Auto select first model if empty
           if (list.length > 0 && !settings.model) {
             setAiSettings(prev => ({ ...prev, model: list[0] }));
           }
@@ -143,7 +142,6 @@ function App() {
           setConnectionStatus("error");
         }
       } else {
-        // OpenAI default OK
         setConnectionStatus("ok");
       }
     } catch (e) {
@@ -151,7 +149,6 @@ function App() {
     }
   };
 
-  // Test connection on mount or provider/URL changes
   useEffect(() => {
     testAIConnection();
   }, [aiSettings.provider, aiSettings.url]);
@@ -169,7 +166,6 @@ function App() {
   const executeAIToolCalls = (text, api) => {
     if (!api) return;
     
-    // Check clear first
     if (/<clear\s*\/>/i.test(text)) {
       api.updateScene({ elements: [] });
       logToolAction("clear_canvas()", "ok");
@@ -312,13 +308,11 @@ function App() {
     setUserInput("");
     setIsStreaming(true);
 
-    // 1. Gather Excalidraw Elements & active selection contexts to provide to the AI
     const allElements = excalidrawAPI ? excalidrawAPI.getSceneElements().filter(el => !el.isDeleted) : [];
     const appState = excalidrawAPI ? excalidrawAPI.getAppState() : {};
     const selectedIds = appState.selectedElementIds ? Object.keys(appState.selectedElementIds).filter(id => appState.selectedElementIds[id]) : [];
     const selectedElements = allElements.filter(el => selectedIds.includes(el.id));
     
-    // Token-efficient Excalidraw summary
     const canvasSummary = allElements.map(el => {
       if (el.type === "rectangle" || el.type === "ellipse") {
         return { id: el.id, type: el.type, x: Math.round(el.x), y: Math.round(el.y), w: Math.round(el.width), h: Math.round(el.height), color: el.strokeColor };
@@ -347,20 +341,18 @@ function App() {
     const newUserPayload = {
       role: "user",
       content: userMessage + contextString,
-      displayContent: userMessage // display content doesn't show the backend scene JSON block
+      displayContent: userMessage
     };
 
     const newHistory = [...chatHistory, newUserPayload];
     setChatHistory(newHistory);
 
-    // Initialize Assistant Bubble placeholder
     setChatHistory(prev => [...prev, { role: "assistant", content: "Thinking..." }]);
 
     const provider = aiSettings.provider;
     const url = aiSettings.url;
     const model = aiSettings.model || "default";
 
-    // Format chat payload for Ollama vs OpenAI specs
     const historyPayload = newHistory.map(h => ({
       role: h.role,
       content: h.role === "user" && h.displayContent ? h.content : h.content
@@ -390,7 +382,6 @@ function App() {
       const decoder = new TextDecoder("utf-8");
       let fullResponse = "";
 
-      // Stream Reader Loop
       if (provider === "ollama") {
         while (true) {
           const { done, value } = await reader.read();
@@ -437,7 +428,6 @@ function App() {
         }
       }
 
-      // Execution completed, scan tool XML tags
       executeAIToolCalls(fullResponse, excalidrawAPI);
 
     } catch (e) {
@@ -476,96 +466,143 @@ function App() {
 
   return (
     <div id="root">
-      {/* AI Sidebar Panel */}
-      <div id="ai-sidebar" className={sidebarCollapsed ? "collapsed" : ""}>
-        <div className="sidebar-header">
-          <h2>Drawerator AI Excalidraw</h2>
-          <div style={{ display: "flex", gap: "6px" }}>
-            <button className="header-btn" onClick={clearChat} title="Reset chat history">New</button>
-            <button className="header-btn" onClick={copyTranscript} title="Copy full transcript">Copy</button>
-            <button className="header-btn" onClick={() => setShowSettings(true)} title="AI settings">Settings</button>
-          </div>
-        </div>
-
-        {/* Messages Stream */}
-        <div id="chat-messages">
-          {chatHistory
-            .filter(msg => msg.role !== "system")
-            .map((msg, idx) => (
-              <div key={idx} className={`chat-message ${msg.role}`}>
-                {msg.displayContent || msg.content}
-                
-                {msg.content !== "Thinking..." && (
-                  <button 
-                    className="copy-bubble-btn" 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigator.clipboard.writeText(msg.displayContent || msg.content);
-                    }}
-                  >
-                    Copy
-                  </button>
-                )}
-              </div>
-            ))}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input box */}
-        <div className="chat-input-container">
-          <textarea
-            id="chat-message-input"
-            value={userInput}
-            onChange={(e) => setUserInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && e.ctrlKey) {
-                e.preventDefault();
-                sendChatMessage();
-              }
-            }}
-            placeholder="Type a prompt (Ctrl+Enter)..."
-          />
-          <button id="chat-send-btn" onClick={sendChatMessage} disabled={isStreaming}>
-            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Main Canvas Container hosting Excalidraw */}
-      <div id="canvas-container">
+      {/* Excalidraw Canvas Area */}
+      <div id="canvas-container" style={{ width: "100%", height: "100%", position: "relative" }}>
         {/* Toggle Sidebar floating button */}
         <button 
           id="btn-toggle-sidebar-floating" 
           className="floating-overlay-btn" 
-          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          title="Toggle chat panel"
+          onClick={() => excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" })}
+          title="Toggle AI panel"
+          style={{ left: "20px" }}
         >
           <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
           </svg>
         </button>
 
         <Excalidraw 
           theme={theme} 
           excalidrawAPI={(api) => setExcalidrawAPI(api)} 
-        />
+          onChange={(elements, appState) => {
+            if (appState.theme && appState.theme !== theme) {
+              setTheme(appState.theme);
+            }
+          }}
+        >
+          {/* Main Hamburguer Menu */}
+          <MainMenu>
+            <MainMenu.DefaultItems.ClearCanvas />
+            <MainMenu.DefaultItems.LoadScene />
+            <MainMenu.DefaultItems.SaveAsImage />
+            <MainMenu.DefaultItems.Export />
+            <MainMenu.Separator />
+            <MainMenu.DefaultItems.ToggleTheme />
+            <MainMenu.Separator />
+            <MainMenu.Item onSelect={() => excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" })}>
+              Toggle AI Assistant
+            </MainMenu.Item>
+          </MainMenu>
+
+          {/* Welcome Screen brand styling & quick start triggers */}
+          <WelcomeScreen>
+            <WelcomeScreen.Hints />
+            <WelcomeScreen.Center>
+              <WelcomeScreen.Center.Logo />
+              <WelcomeScreen.Center.Heading>Drawerator AI Board</WelcomeScreen.Center.Heading>
+              <WelcomeScreen.Center.Menu>
+                <WelcomeScreen.Center.MenuItemLoadScene />
+                <WelcomeScreen.Center.MenuItemHelp />
+                <button 
+                  className="header-btn" 
+                  onClick={() => excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" })}
+                  style={{ width: "100%", padding: "10px", marginTop: "10px", fontSize: "13px", fontWeight: "600", borderRadius: "8px", background: "var(--color-accent)", color: "var(--color-btn-text)", border: "none", cursor: "pointer" }}
+                >
+                  Open AI Drawing Assistant
+                </button>
+              </WelcomeScreen.Center.Menu>
+            </WelcomeScreen.Center>
+          </WelcomeScreen>
+
+          {/* Custom Native Sidebar */}
+          <Sidebar name="ai-sidebar" docked={sidebarDocked} onDock={setSidebarDocked}>
+            <Sidebar.Header>
+              <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px" }}>
+                <span style={{ fontWeight: 600, fontSize: "14px", fontFamily: "var(--font-title)" }}>Drawerator AI</span>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <button className="header-btn" onClick={clearChat} title="Reset chat history">New</button>
+                  <button className="header-btn" onClick={copyTranscript} title="Copy transcript">Copy</button>
+                  <button className="header-btn" onClick={() => setShowSettings(true)} title="AI settings">Settings</button>
+                </div>
+              </div>
+            </Sidebar.Header>
+            
+            <div style={{ display: "flex", flexDirection: "column", height: "calc(100% - 50px)", overflow: "hidden", background: "var(--bg-sidebar)" }}>
+              {/* Messages Stream */}
+              <div id="chat-messages" style={{ flex: 1, overflowY: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                {chatHistory
+                  .filter(msg => msg.role !== "system")
+                  .map((msg, idx) => (
+                    <div key={idx} className={`chat-message ${msg.role}`}>
+                      {msg.displayContent || msg.content}
+                      {msg.content !== "Thinking..." && (
+                        <button 
+                          className="copy-bubble-btn" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigator.clipboard.writeText(msg.displayContent || msg.content);
+                          }}
+                        >
+                          Copy
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Chat Input Container */}
+              <div className="chat-input-container" style={{ padding: "12px", borderTop: "1px solid var(--border-color)", display: "flex", gap: "6px", alignItems: "flex-end" }}>
+                <textarea
+                  id="chat-message-input"
+                  value={userInput}
+                  onChange={(e) => setUserInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && e.ctrlKey) {
+                      e.preventDefault();
+                      sendChatMessage();
+                    }
+                  }}
+                  placeholder="Type prompt (Ctrl+Enter)..."
+                  style={{ flex: 1, height: "40px", fontSize: "13px" }}
+                />
+                <button id="chat-send-btn" onClick={sendChatMessage} disabled={isStreaming} style={{ width: "40px", height: "40px" }}>
+                  <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </Sidebar>
+        </Excalidraw>
 
         {/* Toggle Theme floating button */}
         <button 
           id="btn-theme-floating" 
           className="floating-overlay-btn" 
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          onClick={() => {
+            const nextTheme = theme === "dark" ? "light" : "dark";
+            setTheme(nextTheme);
+            excalidrawAPI?.updateScene({ appState: { theme: nextTheme } });
+          }}
           title="Toggle theme mode"
+          style={{ right: "20px" }}
         >
           {theme === "dark" ? (
-            // Sun icon
             <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m11.314 11.314l.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z" />
             </svg>
           ) : (
-            // Moon icon
             <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
             </svg>
