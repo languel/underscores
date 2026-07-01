@@ -636,25 +636,23 @@ function App() {
           </MainMenu>
 
           {/* Welcome Screen brand styling & quick start triggers */}
-          {!satoriMode && (
-            <WelcomeScreen>
-              <WelcomeScreen.Center>
-                <WelcomeScreen.Center.Logo />
-                <WelcomeScreen.Center.Heading>Drawerator AI Board</WelcomeScreen.Center.Heading>
-                <WelcomeScreen.Center.Menu>
-                  <WelcomeScreen.Center.MenuItemLoadScene />
-                  <WelcomeScreen.Center.MenuItemHelp />
-                  <button 
-                    className="header-btn" 
-                    onClick={() => excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" })}
-                    style={{ width: "100%", padding: "10px", marginTop: "10px", fontSize: "13px", fontWeight: "600", borderRadius: "8px", background: "var(--color-accent)", color: "var(--color-btn-text)", border: "none", cursor: "pointer" }}
-                  >
-                    Open AI Drawing Assistant
-                  </button>
-                </WelcomeScreen.Center.Menu>
-              </WelcomeScreen.Center>
-            </WelcomeScreen>
-          )}
+          <WelcomeScreen>
+            <WelcomeScreen.Center>
+              <WelcomeScreen.Center.Logo />
+              <WelcomeScreen.Center.Heading>Drawerator AI Board</WelcomeScreen.Center.Heading>
+              <WelcomeScreen.Center.Menu>
+                <WelcomeScreen.Center.MenuItemLoadScene />
+                <WelcomeScreen.Center.MenuItemHelp />
+                <button 
+                  className="header-btn" 
+                  onClick={() => excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" })}
+                  style={{ width: "100%", padding: "10px", marginTop: "10px", fontSize: "13px", fontWeight: "600", borderRadius: "8px", background: "var(--color-accent)", color: "var(--color-btn-text)", border: "none", cursor: "pointer" }}
+                >
+                  Open AI Drawing Assistant
+                </button>
+              </WelcomeScreen.Center.Menu>
+            </WelcomeScreen.Center>
+          </WelcomeScreen>
 
           {/* Custom Native Sidebar */}
           <Sidebar name="ai-sidebar" docked={sidebarDocked} onDock={setSidebarDocked}>
