@@ -498,7 +498,7 @@ function App() {
         setShowCommandPalette(prev => !prev);
       }
       // Opt + Shift + Z
-      if (e.altKey && e.shiftKey && e.key.toLowerCase() === "z") {
+      if (e.altKey && e.shiftKey && e.code === "KeyZ") {
         e.preventDefault();
         setSatoriMode(prev => !prev);
       }
@@ -878,6 +878,16 @@ function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {satoriMode && (
+        <button 
+          id="btn-exit-satori" 
+          onClick={() => setSatoriMode(false)} 
+          title="Exit Satori Mode"
+        >
+          .
+        </button>
       )}
     </div>
   );
