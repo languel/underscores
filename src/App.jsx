@@ -67,6 +67,9 @@ function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
   const [sidebarDocked, setSidebarDocked] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [commandSearch, setCommandSearch] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
   
   // Chat States
   const [chatHistory, setChatHistory] = useState([
@@ -301,11 +304,12 @@ function App() {
   };
 
   // Submit chat text to Local LLM
-  const sendChatMessage = async () => {
-    if (!userInput.trim() || isStreaming) return;
+  const sendChatMessage = async (msgOverride = null) => {
+    const textToSend = msgOverride !== null ? msgOverride : userInput;
+    if (!textToSend.trim() || isStreaming) return;
     
-    const userMessage = userInput.trim();
-    setUserInput("");
+    const userMessage = textToSend.trim();
+    if (msgOverride === null) setUserInput("");
     setIsStreaming(true);
 
     const allElements = excalidrawAPI ? excalidrawAPI.getSceneElements().filter(el => !el.isDeleted) : [];
@@ -464,23 +468,92 @@ function App() {
     });
   };
 
+  // --- COMMAND PALETTE LOGIC ---
+  const COMMANDS = [
+    { id: "toggle-chat", name: "Toggle AI Assistant Chat", category: "AI Chat", action: (api) => api.toggleSidebar({ name: "ai-sidebar" }) },
+    { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
+    { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
+    { id: "settings", name: "Open Local AI Settings", category: "AI Chat", action: () => setShowSettings(true) },
+    { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
+    { id: "reset-view", name: "Reset Zoom & Pan View", category: "Canvas", action: (api) => api.updateScene({ appState: { zoom: { value: 1 }, scrollX: 0, scrollY: 0 } }) },
+    { id: "tool-select", name: "Select Pointer/Selection Tool", category: "Tools", action: (api) => api.updateScene({ appState: { activeTool: { type: "selection" } } }) },
+    { id: "tool-rect", name: "Select Rectangle Tool", category: "Tools", action: (api) => api.updateScene({ appState: { activeTool: { type: "rectangle" } } }) },
+    { id: "tool-ellipse", name: "Select Ellipse/Circle Tool", category: "Tools", action: (api) => api.updateScene({ appState: { activeTool: { type: "ellipse" } } }) },
+    { id: "tool-line", name: "Select Straight Line Tool", category: "Tools", action: (api) => api.updateScene({ appState: { activeTool: { type: "line" } } }) },
+    { id: "tool-freedraw", name: "Select Pencil/Freedraw Tool", category: "Tools", action: (api) => api.updateScene({ appState: { activeTool: { type: "freedraw" } } }) },
+    { id: "tool-eraser", name: "Select Eraser Tool", category: "Tools", action: (api) => api.updateScene({ appState: { activeTool: { type: "eraser" } } }) },
+    { id: "tool-hand", name: "Select Hand/Pan Tool", category: "Tools", action: (api) => api.updateScene({ appState: { activeTool: { type: "hand" } } }) }
+  ];
+
+  const paletteInputRef = useRef(null);
+
+  // Toggle Command Palette on Cmd + / or Ctrl + /
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "/") {
+        e.preventDefault();
+        setShowCommandPalette(prev => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Autofocus input when Command Palette opens
+  useEffect(() => {
+    if (showCommandPalette) {
+      setTimeout(() => paletteInputRef.current?.focus(), 50);
+      setCommandSearch("");
+      setSelectedIndex(0);
+    }
+  }, [showCommandPalette]);
+
+  const getFilteredCommands = () => {
+    const query = commandSearch.toLowerCase().trim();
+    const matches = COMMANDS.filter(cmd => 
+      cmd.name.toLowerCase().includes(query) || 
+      cmd.category.toLowerCase().includes(query)
+    );
+    
+    if (commandSearch.trim() !== "") {
+      matches.unshift({
+        id: "ask-ai",
+        name: `Ask AI: "${commandSearch}"`,
+        category: "AI Query"
+      });
+    }
+    
+    return matches;
+  };
+
+  const openAISidebar = () => {
+    if (!excalidrawAPI) return;
+    const appState = excalidrawAPI.getAppState();
+    if (appState.activeSidebar !== "ai-sidebar") {
+      excalidrawAPI.toggleSidebar({ name: "ai-sidebar" });
+    }
+  };
+
+  const executeCommand = (cmd) => {
+    setShowCommandPalette(false);
+    if (cmd.id === "ask-ai") {
+      openAISidebar();
+      sendChatMessage(commandSearch);
+    } else {
+      if (cmd.id === "toggle-chat") {
+        cmd.action(excalidrawAPI);
+      } else if (cmd.category === "Tools" || cmd.id === "clear-canvas" || cmd.id === "reset-view") {
+        cmd.action(excalidrawAPI);
+      } else {
+        cmd.action();
+      }
+    }
+  };
+
   return (
     <div id="root">
       {/* Excalidraw Canvas Area */}
       <div id="canvas-container" style={{ width: "100%", height: "100%", position: "relative" }}>
-        {/* Toggle Sidebar floating button */}
-        <button 
-          id="btn-toggle-sidebar-floating" 
-          className="floating-overlay-btn" 
-          onClick={() => excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" })}
-          title="Toggle AI panel"
-          style={{ left: "20px" }}
-        >
-          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-          </svg>
-        </button>
-
         <Excalidraw 
           theme={theme} 
           excalidrawAPI={(api) => setExcalidrawAPI(api)} 
@@ -489,6 +562,41 @@ function App() {
               setTheme(appState.theme);
             }
           }}
+          renderTopRightUI={() => (
+            <div className="drawerator-top-right-wrapper">
+              {/* Theme toggle (left of library) */}
+              <button 
+                id="btn-theme-header" 
+                onClick={() => {
+                  const nextTheme = theme === "dark" ? "light" : "dark";
+                  setTheme(nextTheme);
+                  excalidrawAPI?.updateScene({ appState: { theme: nextTheme } });
+                }}
+                title="Toggle theme mode"
+              >
+                {theme === "dark" ? (
+                  <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m11.314 11.314l.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z" />
+                  </svg>
+                ) : (
+                  <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                  </svg>
+                )}
+              </button>
+
+              {/* Chat Toggle (right of library) */}
+              <button 
+                id="btn-chat-header" 
+                onClick={() => excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" })}
+                title="Toggle AI panel"
+              >
+                <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+              </button>
+            </div>
+          )}
         >
           {/* Main Hamburguer Menu */}
           <MainMenu>
@@ -588,7 +696,7 @@ function App() {
                   placeholder="Type prompt (Ctrl+Enter)..."
                   style={{ flex: 1, height: "40px", fontSize: "13px" }}
                 />
-                <button id="chat-send-btn" onClick={sendChatMessage} disabled={isStreaming} style={{ width: "40px", height: "40px" }}>
+                <button id="chat-send-btn" onClick={() => sendChatMessage()} disabled={isStreaming} style={{ width: "40px", height: "40px" }}>
                   <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
                   </svg>
@@ -597,29 +705,6 @@ function App() {
             </div>
           </Sidebar>
         </Excalidraw>
-
-        {/* Toggle Theme floating button */}
-        <button 
-          id="btn-theme-floating" 
-          className="floating-overlay-btn" 
-          onClick={() => {
-            const nextTheme = theme === "dark" ? "light" : "dark";
-            setTheme(nextTheme);
-            excalidrawAPI?.updateScene({ appState: { theme: nextTheme } });
-          }}
-          title="Toggle theme mode"
-          style={{ right: "20px" }}
-        >
-          {theme === "dark" ? (
-            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m11.314 11.314l.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z" />
-            </svg>
-          ) : (
-            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-            </svg>
-          )}
-        </button>
       </div>
 
       {/* Settings Modal Dialog Overlay */}
@@ -706,6 +791,68 @@ function App() {
                 >
                   Save & Apply
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Command Palette Overlay */}
+      {showCommandPalette && (
+        <div className="excalidraw">
+          <div id="command-palette-overlay" onClick={() => setShowCommandPalette(false)}>
+            <div className="command-palette-card" onClick={(e) => e.stopPropagation()}>
+              <div className="command-palette-header">
+                <input
+                  ref={paletteInputRef}
+                  id="command-palette-input"
+                  type="text"
+                  value={commandSearch}
+                  onChange={(e) => {
+                    setCommandSearch(e.target.value);
+                    setSelectedIndex(0);
+                  }}
+                  placeholder="Type a command or ask AI (e.g. 'draw a flow chart')..."
+                  onKeyDown={(e) => {
+                    const filtered = getFilteredCommands();
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setSelectedIndex(prev => (prev + 1) % filtered.length);
+                    } else if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setSelectedIndex(prev => (prev - 1 + filtered.length) % filtered.length);
+                    } else if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (filtered[selectedIndex]) {
+                        executeCommand(filtered[selectedIndex]);
+                      }
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      setShowCommandPalette(false);
+                    }
+                  }}
+                />
+              </div>
+              <div className="command-palette-results">
+                {getFilteredCommands().map((cmd, idx) => (
+                  <div
+                    key={cmd.id}
+                    className={`command-palette-item ${idx === selectedIndex ? "active" : ""}`}
+                    onClick={() => executeCommand(cmd)}
+                    onMouseEnter={() => setSelectedIndex(idx)}
+                  >
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      <span className="command-name">{cmd.name}</span>
+                      <span className="command-category">{cmd.category}</span>
+                    </div>
+                    {cmd.id === "ask-ai" && (
+                      <span className="command-badge">AI Query</span>
+                    )}
+                  </div>
+                ))}
+                {getFilteredCommands().length === 0 && (
+                  <div className="command-palette-empty">No matching commands found</div>
+                )}
               </div>
             </div>
           </div>
