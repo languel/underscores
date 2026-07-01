@@ -516,14 +516,24 @@ function App() {
     }
   }, [showCommandPalette]);
 
-  // Start with active pen tool when entering Satori Mode
+  // Sync Satori Mode status to Excalidraw appState programmatically to avoid prop-drilling loops
   useEffect(() => {
-    if (excalidrawAPI && satoriMode) {
-      excalidrawAPI.updateScene({
-        appState: {
-          activeTool: { type: "freedraw" }
-        }
-      });
+    if (excalidrawAPI) {
+      const appState = excalidrawAPI.getAppState();
+      if (appState.zenModeEnabled !== satoriMode) {
+        excalidrawAPI.updateScene({
+          appState: {
+            zenModeEnabled: satoriMode,
+            ...(satoriMode ? { activeTool: { type: "freedraw" } } : {})
+          }
+        });
+      } else if (satoriMode && appState.activeTool?.type !== "freedraw") {
+        excalidrawAPI.updateScene({
+          appState: {
+            activeTool: { type: "freedraw" }
+          }
+        });
+      }
     }
   }, [excalidrawAPI, satoriMode]);
 
@@ -575,7 +585,6 @@ function App() {
       <div id="canvas-container" style={{ width: "100%", height: "100%", position: "relative" }}>
         <Excalidraw 
           theme={theme} 
-          zenModeEnabled={satoriMode}
           excalidrawAPI={(api) => setExcalidrawAPI(api)} 
           onChange={(elements, appState) => {
             if (appState.theme && appState.theme !== theme) {
