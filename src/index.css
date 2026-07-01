@@ -445,3 +445,8 @@ body, html {
   color: var(--color-secondary);
   font-size: 14px;
 }
+
+/* --- SATORI ZEN MODE OVERRIDES --- */
+.satori-mode .excalidraw .layer-ui__wrapper > *:not(.sidebar) {
+  display: none !important;
+}

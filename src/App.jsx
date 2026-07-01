@@ -70,6 +70,7 @@ function App() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandSearch, setCommandSearch] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [satoriMode, setSatoriMode] = useState(true);
   
   // Chat States
   const [chatHistory, setChatHistory] = useState([
@@ -470,6 +471,7 @@ function App() {
 
   // --- COMMAND PALETTE LOGIC ---
   const COMMANDS = [
+    { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => setSatoriMode(prev => !prev) },
     { id: "toggle-chat", name: "Toggle AI Assistant Chat", category: "AI Chat", action: (api) => api.toggleSidebar({ name: "ai-sidebar" }) },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
@@ -487,12 +489,18 @@ function App() {
 
   const paletteInputRef = useRef(null);
 
-  // Toggle Command Palette on Cmd + / or Ctrl + /
+  // Toggle Command Palette on Cmd + / and Satori Mode on Opt + Shift + Z
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Cmd + / or Ctrl + /
       if ((e.metaKey || e.ctrlKey) && e.key === "/") {
         e.preventDefault();
         setShowCommandPalette(prev => !prev);
+      }
+      // Opt + Shift + Z
+      if (e.altKey && e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        setSatoriMode(prev => !prev);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -507,6 +515,17 @@ function App() {
       setSelectedIndex(0);
     }
   }, [showCommandPalette]);
+
+  // Start with active pen tool when entering Satori Mode
+  useEffect(() => {
+    if (excalidrawAPI && satoriMode) {
+      excalidrawAPI.updateScene({
+        appState: {
+          activeTool: { type: "freedraw" }
+        }
+      });
+    }
+  }, [excalidrawAPI, satoriMode]);
 
   const getFilteredCommands = () => {
     const query = commandSearch.toLowerCase().trim();
@@ -540,7 +559,7 @@ function App() {
       openAISidebar();
       sendChatMessage(commandSearch);
     } else {
-      if (cmd.id === "toggle-chat") {
+      if (cmd.id === "toggle-chat" || cmd.id === "toggle-satori") {
         cmd.action(excalidrawAPI);
       } else if (cmd.category === "Tools" || cmd.id === "clear-canvas" || cmd.id === "reset-view") {
         cmd.action(excalidrawAPI);
@@ -551,7 +570,7 @@ function App() {
   };
 
   return (
-    <div id="root">
+    <div id="root" className={satoriMode ? "satori-mode" : ""}>
       {/* Excalidraw Canvas Area */}
       <div id="canvas-container" style={{ width: "100%", height: "100%", position: "relative" }}>
         <Excalidraw 
@@ -613,23 +632,25 @@ function App() {
           </MainMenu>
 
           {/* Welcome Screen brand styling & quick start triggers */}
-          <WelcomeScreen>
-            <WelcomeScreen.Center>
-              <WelcomeScreen.Center.Logo />
-              <WelcomeScreen.Center.Heading>Drawerator AI Board</WelcomeScreen.Center.Heading>
-              <WelcomeScreen.Center.Menu>
-                <WelcomeScreen.Center.MenuItemLoadScene />
-                <WelcomeScreen.Center.MenuItemHelp />
-                <button 
-                  className="header-btn" 
-                  onClick={() => excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" })}
-                  style={{ width: "100%", padding: "10px", marginTop: "10px", fontSize: "13px", fontWeight: "600", borderRadius: "8px", background: "var(--color-accent)", color: "var(--color-btn-text)", border: "none", cursor: "pointer" }}
-                >
-                  Open AI Drawing Assistant
-                </button>
-              </WelcomeScreen.Center.Menu>
-            </WelcomeScreen.Center>
-          </WelcomeScreen>
+          {!satoriMode && (
+            <WelcomeScreen>
+              <WelcomeScreen.Center>
+                <WelcomeScreen.Center.Logo />
+                <WelcomeScreen.Center.Heading>Drawerator AI Board</WelcomeScreen.Center.Heading>
+                <WelcomeScreen.Center.Menu>
+                  <WelcomeScreen.Center.MenuItemLoadScene />
+                  <WelcomeScreen.Center.MenuItemHelp />
+                  <button 
+                    className="header-btn" 
+                    onClick={() => excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" })}
+                    style={{ width: "100%", padding: "10px", marginTop: "10px", fontSize: "13px", fontWeight: "600", borderRadius: "8px", background: "var(--color-accent)", color: "var(--color-btn-text)", border: "none", cursor: "pointer" }}
+                  >
+                    Open AI Drawing Assistant
+                  </button>
+                </WelcomeScreen.Center.Menu>
+              </WelcomeScreen.Center>
+            </WelcomeScreen>
+          )}
 
           {/* Custom Native Sidebar */}
           <Sidebar name="ai-sidebar" docked={sidebarDocked} onDock={setSidebarDocked}>
