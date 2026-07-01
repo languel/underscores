@@ -63,9 +63,12 @@ body, html {
   background: transparent;
   border: 1px solid var(--border-color);
   color: var(--color-primary);
-  padding: 6px 12px;
+  width: 28px;
+  height: 28px;
   border-radius: 6px;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   transition: all var(--transition-fast);
 }
