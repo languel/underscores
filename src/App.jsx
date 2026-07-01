@@ -575,10 +575,14 @@ function App() {
       <div id="canvas-container" style={{ width: "100%", height: "100%", position: "relative" }}>
         <Excalidraw 
           theme={theme} 
+          zenModeEnabled={satoriMode}
           excalidrawAPI={(api) => setExcalidrawAPI(api)} 
           onChange={(elements, appState) => {
             if (appState.theme && appState.theme !== theme) {
               setTheme(appState.theme);
+            }
+            if (appState.zenModeEnabled !== undefined && appState.zenModeEnabled !== satoriMode) {
+              setSatoriMode(appState.zenModeEnabled);
             }
           }}
           renderTopRightUI={() => (
@@ -880,15 +884,6 @@ function App() {
         </div>
       )}
 
-      {satoriMode && (
-        <button 
-          id="btn-exit-satori" 
-          onClick={() => setSatoriMode(false)} 
-          title="Exit Satori Mode"
-        >
-          .
-        </button>
-      )}
     </div>
   );
 }
