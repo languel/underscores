@@ -611,87 +611,89 @@ function App() {
 
       {/* Settings Modal Dialog Overlay */}
       {showSettings && (
-        <div id="settings-overlay" onClick={() => setShowSettings(false)}>
-          <div className="settings-card" onClick={(e) => e.stopPropagation()}>
-            <div className="settings-title-row">
-              <h3>Local AI Settings</h3>
-              <button 
-                onClick={() => setShowSettings(false)}
-                style={{ background: "transparent", border: "none", color: "var(--color-secondary)", fontSize: "20px", cursor: "pointer" }}
-              >
-                &times;
-              </button>
-            </div>
-            
-            <div className="settings-row">
-              <label>API Provider</label>
-              <select 
-                value={aiSettings.provider}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  let defaultUrl = "http://localhost:11434";
-                  if (val === "lmstudio") defaultUrl = "http://localhost:1234";
-                  else if (val === "openai") defaultUrl = "https://api.openai.com";
-                  
-                  const updated = { ...aiSettings, provider: val, url: defaultUrl, model: "" };
-                  setAiSettings(updated);
-                  testAIConnection(updated);
-                }}
-              >
-                <option value="ollama">Ollama</option>
-                <option value="lmstudio">LM Studio</option>
-                <option value="openai">OpenAI Compatible</option>
-              </select>
-            </div>
-
-            <div className="settings-row">
-              <label>API Endpoint URL</label>
-              <input 
-                type="text" 
-                value={aiSettings.url} 
-                onChange={(e) => {
-                  const updated = { ...aiSettings, url: e.target.value };
-                  setAiSettings(updated);
-                }}
-              />
-            </div>
-
-            <div className="settings-row">
-              <label>Active Model Name</label>
-              {aiSettings.provider !== "openai" && modelsList.length > 0 ? (
-                <select 
-                  value={aiSettings.model} 
-                  onChange={(e) => setAiSettings({ ...aiSettings, model: e.target.value })}
+        <div className="excalidraw">
+          <div id="settings-overlay" onClick={() => setShowSettings(false)}>
+            <div className="settings-card" onClick={(e) => e.stopPropagation()}>
+              <div className="settings-title-row">
+                <h3>Local AI Settings</h3>
+                <button 
+                  onClick={() => setShowSettings(false)}
+                  style={{ background: "transparent", border: "none", color: "var(--color-secondary)", fontSize: "20px", cursor: "pointer" }}
                 >
-                  {modelsList.map((m, idx) => (
-                    <option key={idx} value={m}>{m}</option>
-                  ))}
+                  &times;
+                </button>
+              </div>
+              
+              <div className="settings-row">
+                <label>API Provider</label>
+                <select 
+                  value={aiSettings.provider}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    let defaultUrl = "http://localhost:11434";
+                    if (val === "lmstudio") defaultUrl = "http://localhost:1234";
+                    else if (val === "openai") defaultUrl = "https://api.openai.com";
+                    
+                    const updated = { ...aiSettings, provider: val, url: defaultUrl, model: "" };
+                    setAiSettings(updated);
+                    testAIConnection(updated);
+                  }}
+                >
+                  <option value="ollama">Ollama</option>
+                  <option value="lmstudio">LM Studio</option>
+                  <option value="openai">OpenAI Compatible</option>
                 </select>
-              ) : (
+              </div>
+
+              <div className="settings-row">
+                <label>API Endpoint URL</label>
                 <input 
                   type="text" 
-                  value={aiSettings.model} 
-                  onChange={(e) => setAiSettings({ ...aiSettings, model: e.target.value })}
-                  placeholder="e.g. gpt-4o or llama3"
+                  value={aiSettings.url} 
+                  onChange={(e) => {
+                    const updated = { ...aiSettings, url: e.target.value };
+                    setAiSettings(updated);
+                  }}
                 />
-              )}
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "24px" }}>
-              <div className="status-indicator">
-                <span className={`status-dot ${connectionStatus}`}></span>
-                <span>
-                  {connectionStatus === "ok" ? "Backend Reachable" : 
-                   connectionStatus === "error" ? "Connection Failed" : "Checking..."}
-                </span>
               </div>
-              <button 
-                className="header-btn" 
-                onClick={saveSettings}
-                style={{ background: "var(--color-accent)", color: "var(--color-btn-text)", border: "none", fontWeight: "600", padding: "8px 16px" }}
-              >
-                Save & Apply
-              </button>
+
+              <div className="settings-row">
+                <label>Active Model Name</label>
+                {aiSettings.provider !== "openai" && modelsList.length > 0 ? (
+                  <select 
+                    value={aiSettings.model} 
+                    onChange={(e) => setAiSettings({ ...aiSettings, model: e.target.value })}
+                  >
+                    {modelsList.map((m, idx) => (
+                      <option key={idx} value={m}>{m}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input 
+                    type="text" 
+                    value={aiSettings.model} 
+                    onChange={(e) => setAiSettings({ ...aiSettings, model: e.target.value })}
+                    placeholder="e.g. gpt-4o or llama3"
+                  />
+                )}
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "24px" }}>
+                <div className="status-indicator">
+                  <span className={`status-dot ${connectionStatus}`}></span>
+                  <span>
+                    {connectionStatus === "ok" ? "Backend Reachable" : 
+                     connectionStatus === "error" ? "Connection Failed" : "Checking..."}
+                  </span>
+                </div>
+                <button 
+                  className="header-btn" 
+                  onClick={saveSettings}
+                  style={{ background: "var(--color-accent)", color: "var(--color-btn-text)", border: "none", fontWeight: "600", padding: "8px 16px" }}
+                >
+                  Save & Apply
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -1,19 +1,4 @@
 :root {
-  /* Desaturated Slate monochrome dark theme variables */
-  --bg-app: #090d16;
-  --bg-sidebar: #0b0f19;
-  --bg-message-user: #1e293b;
-  --bg-message-ai: #111827;
-  --bg-hover-btn: rgba(248, 250, 252, 0.08);
-  --border-color: rgba(248, 250, 252, 0.1);
-  --border-focus: rgba(248, 250, 252, 0.25);
-  --color-primary: #f8fafc;
-  --color-secondary: #94a3b8;
-  --color-accent: #f8fafc;
-  --color-btn-text: #0f172a;
-  --color-danger: #ef4444;
-  --color-success: #10b981;
-  
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-title: 'Outfit', var(--font-sans);
   --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -22,19 +7,21 @@
   --shadow-glow: 0 0 12px rgba(248, 250, 252, 0.15);
 }
 
-body.light-mode {
-  --bg-app: #f8fafc;
-  --bg-sidebar: #f1f5f9;
-  --bg-message-user: #e2e8f0;
-  --bg-message-ai: #ffffff;
-  --bg-hover-btn: rgba(15, 23, 42, 0.06);
-  --border-color: rgba(15, 23, 42, 0.08);
-  --border-focus: rgba(15, 23, 42, 0.25);
-  --color-primary: #0f172a;
-  --color-secondary: #64748b;
-  --color-accent: #0f172a;
-  --color-btn-text: #f8fafc;
-  --shadow-glow: 0 0 12px rgba(15, 23, 42, 0.1);
+.excalidraw {
+  /* Sync directly with Excalidraw's active theme CSS variables */
+  --bg-app: var(--default-bg-color);
+  --bg-sidebar: var(--island-bg-color);
+  --bg-message-user: var(--popup-secondary-bg-color);
+  --bg-message-ai: var(--input-bg-color);
+  --bg-hover-btn: var(--button-hover-bg);
+  --border-color: var(--input-border-color, var(--default-border-color));
+  --border-focus: var(--color-primary);
+  --color-primary: var(--popup-text-color);
+  --color-secondary: var(--input-label-color, #777);
+  --color-accent: var(--color-primary);
+  --color-btn-text: var(--popup-text-inverted-color, #fff);
+  --color-danger: var(--button-destructive-bg-color, #ef4444);
+  --color-success: var(--button-special-active-bg-color, #10b981);
 }
 
 * {
