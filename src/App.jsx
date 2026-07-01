@@ -495,16 +495,18 @@ function App() {
       // Cmd + / or Ctrl + /
       if ((e.metaKey || e.ctrlKey) && e.key === "/") {
         e.preventDefault();
+        e.stopPropagation();
         setShowCommandPalette(prev => !prev);
       }
       // Cmd + Ctrl + Z
       if (e.metaKey && e.ctrlKey && e.code === "KeyZ") {
         e.preventDefault();
+        e.stopPropagation();
         setSatoriMode(prev => !prev);
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, []);
 
   // Autofocus input when Command Palette opens
