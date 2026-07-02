@@ -472,6 +472,7 @@ function App() {
   // --- COMMAND PALETTE LOGIC ---
   const COMMANDS = [
     { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => setSatoriMode(prev => !prev) },
+    { id: "toggle-theme", name: "Toggle Dark/Light Theme", category: "View", action: (api) => { const next = theme === "dark" ? "light" : "dark"; setTheme(next); api?.updateScene({ appState: { theme: next } }); } },
     { id: "toggle-chat", name: "Toggle AI Assistant Chat", category: "AI Chat", action: (api) => api.toggleSidebar({ name: "ai-sidebar" }) },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
@@ -504,10 +505,18 @@ function App() {
         e.stopPropagation();
         setSatoriMode(prev => !prev);
       }
+      // Opt + Shift + D (Theme toggle)
+      if (e.altKey && e.shiftKey && e.code === "KeyD") {
+        e.preventDefault();
+        e.stopPropagation();
+        const nextTheme = theme === "dark" ? "light" : "dark";
+        setTheme(nextTheme);
+        excalidrawAPI?.updateScene({ appState: { theme: nextTheme } });
+      }
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, []);
+  }, [theme, excalidrawAPI]);
 
   // Autofocus input when Command Palette opens
   useEffect(() => {
@@ -561,13 +570,7 @@ function App() {
       openAISidebar();
       sendChatMessage(commandSearch);
     } else {
-      if (cmd.id === "toggle-chat" || cmd.id === "toggle-satori") {
-        cmd.action(excalidrawAPI);
-      } else if (cmd.category === "Tools" || cmd.id === "clear-canvas" || cmd.id === "reset-view") {
-        cmd.action(excalidrawAPI);
-      } else {
-        cmd.action();
-      }
+      cmd.action(excalidrawAPI);
     }
   };
 
