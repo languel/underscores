@@ -730,7 +730,7 @@ function App() {
 
       {/* Settings Modal Dialog Overlay */}
       {showSettings && (
-        <div className="excalidraw">
+        <div className={`excalidraw theme--${theme}`}>
           <div id="settings-overlay" onClick={() => setShowSettings(false)}>
             <div className="settings-card" onClick={(e) => e.stopPropagation()}>
               <div className="settings-title-row">
@@ -820,7 +820,7 @@ function App() {
 
       {/* Command Palette Overlay */}
       {showCommandPalette && (
-        <div className="excalidraw">
+        <div className={`excalidraw theme--${theme}`}>
           <div id="command-palette-overlay" onClick={() => setShowCommandPalette(false)}>
             <div className="command-palette-card" onClick={(e) => e.stopPropagation()}>
               <div className="command-palette-header">
