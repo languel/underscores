@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Excalidraw, Sidebar, MainMenu, WelcomeScreen } from "@excalidraw/excalidraw";
+import { Excalidraw, Sidebar, MainMenu, WelcomeScreen, exportToSvg, exportToCanvas } from "@excalidraw/excalidraw";
 import "./App.css";
 
 // System Prompt guiding the local LLM on drawing tools
@@ -149,6 +149,11 @@ function App() {
   });
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showContextDropdown, setShowContextDropdown] = useState(false);
+  const [contextMenuTab, setContextMenuTab] = useState("main");
+  const [showAutocomplete, setShowAutocomplete] = useState(false);
+  const [autocompleteSearch, setAutocompleteSearch] = useState("");
+  const [autocompleteIndex, setAutocompleteIndex] = useState(0);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem("drawerator_sidebar_width");
     return saved ? parseInt(saved, 10) : 380;
@@ -248,6 +253,136 @@ function App() {
       }
     } catch (e) {
       setConnectionStatus("error");
+    }
+  };
+
+  const ALL_TAGS = [
+    { name: "@selection", description: "Selected elements (JSON)" },
+    { name: "@selection-as-svg", description: "Selected elements (SVG)" },
+    { name: "@selection-as-png", description: "Selected elements (PNG)" },
+    { name: "@canvas", description: "Entire canvas (JSON)" },
+    { name: "@canvas-as-svg", description: "Entire canvas (SVG)" },
+    { name: "@canvas-as-png", description: "Entire canvas (PNG)" },
+    { name: "@mermaid", description: "Create Mermaid diagrams" },
+    { name: "@manim", description: "Math animation script" },
+    { name: "@imagegen", description: "Generate images/illustrations" }
+  ];
+
+  const getFilteredTags = () => {
+    if (!autocompleteSearch) return ALL_TAGS;
+    return ALL_TAGS.filter(tag => tag.name.toLowerCase().includes(autocompleteSearch.toLowerCase()));
+  };
+
+  const getContextValue = async (type) => {
+    if (!excalidrawAPI) return null;
+    const allElements = excalidrawAPI.getSceneElements();
+    const activeState = excalidrawAPI.getAppState();
+    const files = excalidrawAPI.getFiles();
+
+    const selectedElements = allElements.filter(el => activeState.selectedElementIds?.[el.id]);
+
+    if (type.startsWith("selection") && selectedElements.length === 0) {
+      return { error: "No elements are currently selected on the canvas." };
+    }
+
+    const targetElements = type.startsWith("selection") ? selectedElements : allElements.filter(el => !el.isDeleted);
+
+    if (type === "selection" || type === "canvas") {
+      const cleanElements = targetElements.map(el => ({
+        type: el.type,
+        id: el.id,
+        x: Math.round(el.x),
+        y: Math.round(el.y),
+        w: Math.round(el.width),
+        h: Math.round(el.height),
+        points: el.points ? el.points.map(p => [Math.round(p[0]), Math.round(p[1])]) : undefined
+      }));
+      return { text: JSON.stringify(cleanElements, null, 2), type: "json" };
+    }
+
+    if (type === "selection-as-svg" || type === "canvas-as-svg") {
+      try {
+        const svgElement = await exportToSvg({
+          elements: targetElements,
+          appState: { ...activeState, exportBackground: true },
+          files
+        });
+        return { text: svgElement.outerHTML, type: "svg" };
+      } catch (err) {
+        console.error(err);
+        return { error: "Failed to export context as SVG." };
+      }
+    }
+
+    if (type === "selection-as-png" || type === "canvas-as-png") {
+      try {
+        const canvas = await exportToCanvas({
+          elements: targetElements,
+          appState: { ...activeState, exportBackground: true },
+          files
+        });
+        const dataUrl = canvas.toDataURL("image/png");
+        return { dataUrl, type: "png" };
+      } catch (err) {
+        console.error(err);
+        return { error: "Failed to export context as PNG." };
+      }
+    }
+
+    return null;
+  };
+
+  const insertTextAtCursor = (text) => {
+    const textarea = document.getElementById("chat-message-input");
+    if (!textarea) {
+      setUserInput(prev => prev + text);
+      return;
+    }
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const currentVal = textarea.value;
+    const newVal = currentVal.substring(0, start) + text + currentVal.substring(end);
+    setUserInput(newVal);
+    
+    setTimeout(() => {
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = start + text.length;
+    }, 50);
+  };
+
+  const handleAutocompleteSelect = (tagName) => {
+    const textarea = document.getElementById("chat-message-input");
+    if (!textarea) return;
+    const cursorPosition = textarea.selectionStart;
+    const textBeforeCursor = userInput.substring(0, cursorPosition);
+    const lastAtIdx = textBeforeCursor.lastIndexOf("@");
+    
+    if (lastAtIdx !== -1) {
+      const newVal = userInput.substring(0, lastAtIdx) + tagName + " " + userInput.substring(cursorPosition);
+      setUserInput(newVal);
+      setShowAutocomplete(false);
+      setTimeout(() => {
+        textarea.focus();
+        const newCursorPos = lastAtIdx + tagName.length + 1;
+        textarea.selectionStart = textarea.selectionEnd = newCursorPos;
+      }, 50);
+    }
+  };
+
+  const handleTextareaChange = (e) => {
+    const val = e.target.value;
+    setUserInput(val);
+
+    const cursorPosition = e.target.selectionStart;
+    const textBeforeCursor = val.substring(0, cursorPosition);
+    const lastWordMatch = textBeforeCursor.match(/@(\w*-?\w*)$/);
+
+    if (lastWordMatch) {
+      setShowAutocomplete(true);
+      setAutocompleteSearch(lastWordMatch[1]);
+      setAutocompleteIndex(0);
+    } else {
+      setShowAutocomplete(false);
     }
   };
 
@@ -427,24 +562,83 @@ function App() {
       return { id: el.id, type: el.type };
     });
 
-    let contextString = "";
-    if (selectedElements.length > 0) {
-      contextString += `\n\n[Active Selection Element Details]:\n${JSON.stringify(selectedElements.map(el => ({
-        id: el.id,
-        type: el.type,
-        x: Math.round(el.x),
-        y: Math.round(el.y),
-        w: Math.round(el.width),
-        h: Math.round(el.height),
-        points: el.points ? el.points.map(p => [Math.round(p[0]), Math.round(p[1])]) : undefined
-      })), null, 2)}`;
+    let processedMessage = userMessage;
+    const imagesToAttach = [];
+
+    // Check tags:
+    if (userMessage.includes("@selection-as-png")) {
+      const val = await getContextValue("selection-as-png");
+      if (val?.error) {
+        alert(val.error);
+        return;
+      }
+      if (val?.dataUrl) imagesToAttach.push(val.dataUrl);
     }
-    contextString += `\n\n[Full Excalidraw Scene JSON]:\n${JSON.stringify(canvasSummary)}`;
+    if (userMessage.includes("@canvas-as-png")) {
+      const val = await getContextValue("canvas-as-png");
+      if (val?.error) {
+        alert(val.error);
+        return;
+      }
+      if (val?.dataUrl) imagesToAttach.push(val.dataUrl);
+    }
+
+    if (userMessage.includes("@selection-as-svg")) {
+      const val = await getContextValue("selection-as-svg");
+      if (val?.error) {
+        alert(val.error);
+        return;
+      }
+      processedMessage += `\n\n[Context: @selection-as-svg]:\n\`\`\`xml\n${val.text}\n\`\`\``;
+    }
+    if (userMessage.includes("@canvas-as-svg")) {
+      const val = await getContextValue("canvas-as-svg");
+      if (val?.error) {
+        alert(val.error);
+        return;
+      }
+      processedMessage += `\n\n[Context: @canvas-as-svg]:\n\`\`\`xml\n${val.text}\n\`\`\``;
+    }
+
+    if (userMessage.includes("@selection") && !userMessage.includes("@selection-as-")) {
+      const val = await getContextValue("selection");
+      if (val?.error) {
+        alert(val.error);
+        return;
+      }
+      processedMessage += `\n\n[Context: @selection JSON]:\n${val.text}`;
+    }
+    if (userMessage.includes("@canvas") && !userMessage.includes("@canvas-as-")) {
+      const val = await getContextValue("canvas");
+      if (val?.error) {
+        alert(val.error);
+        return;
+      }
+      processedMessage += `\n\n[Context: @canvas JSON]:\n${val.text}`;
+    }
+
+    // Default fallback context if no explicit tags are used
+    const hasExplicitTags = ["@selection", "@selection-as-svg", "@selection-as-png", "@canvas", "@canvas-as-svg", "@canvas-as-png"].some(tag => userMessage.includes(tag));
+    if (!hasExplicitTags) {
+      if (selectedElements.length > 0) {
+        processedMessage += `\n\n[Active Selection Element Details]:\n${JSON.stringify(selectedElements.map(el => ({
+          id: el.id,
+          type: el.type,
+          x: Math.round(el.x),
+          y: Math.round(el.y),
+          w: Math.round(el.width),
+          h: Math.round(el.height),
+          points: el.points ? el.points.map(p => [Math.round(p[0]), Math.round(p[1])]) : undefined
+        })), null, 2)}`;
+      }
+      processedMessage += `\n\n[Full Excalidraw Scene JSON]:\n${JSON.stringify(canvasSummary)}`;
+    }
 
     const newUserPayload = {
       role: "user",
-      content: userMessage + contextString,
-      displayContent: userMessage
+      content: processedMessage,
+      displayContent: userMessage,
+      images: imagesToAttach.length > 0 ? imagesToAttach : undefined
     };
 
     const newHistory = [...chatHistory, newUserPayload];
@@ -456,10 +650,36 @@ function App() {
     const url = cleanApiUrl(aiSettings.url, provider);
     const model = aiSettings.model || "default";
 
-    const historyPayload = newHistory.map(h => ({
-      role: h.role,
-      content: h.role === "user" && h.displayContent ? h.content : h.content
-    }));
+    const messagesPayload = newHistory.map(h => {
+      if (h.role === "user") {
+        if (h.images && h.images.length > 0) {
+          if (provider === "ollama") {
+            const cleanImages = h.images.map(img => img.split(",")[1]);
+            return {
+              role: "user",
+              content: h.content,
+              images: cleanImages
+            };
+          } else {
+            const contentArray = [{ type: "text", text: h.content }];
+            h.images.forEach(img => {
+              contentArray.push({
+                type: "image_url",
+                image_url: { url: img }
+              });
+            });
+            return {
+              role: "user",
+              content: contentArray
+            };
+          }
+        }
+      }
+      return {
+        role: h.role,
+        content: h.content
+      };
+    });
 
     try {
       let response;
@@ -467,13 +687,13 @@ function App() {
         response = await fetch(`${url}/api/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model, messages: historyPayload, stream: true })
+          body: JSON.stringify({ model, messages: messagesPayload, stream: true })
         });
       } else {
         response = await fetch(`${url}/v1/chat/completions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model, messages: historyPayload, stream: true })
+          body: JSON.stringify({ model, messages: messagesPayload, stream: true })
         });
       }
 
@@ -1082,6 +1302,21 @@ function App() {
                   .map((msg, idx) => (
                     <div key={idx} className={`chat-message ${msg.role}`}>
                       {msg.displayContent || msg.content}
+                      {msg.images && msg.images.map((img, imgIdx) => (
+                        <img 
+                          key={imgIdx} 
+                          src={img} 
+                          alt="Context preview" 
+                          style={{ 
+                            maxWidth: "100%", 
+                            maxHeight: "150px", 
+                            borderRadius: "6px", 
+                            marginTop: "8px", 
+                            display: "block",
+                            border: "1px solid var(--border-color)"
+                          }} 
+                        />
+                      ))}
                       {msg.content !== "Thinking..." && (
                         <button 
                           className="copy-bubble-btn" 
@@ -1105,14 +1340,72 @@ function App() {
                 display: "flex",
                 flexDirection: "column",
                 gap: "8px",
-                background: "var(--color-surface-primary)"
+                background: "var(--color-surface-primary)",
+                position: "relative"
               }}>
+                {/* Autocomplete Suggestions Popover */}
+                {showAutocomplete && getFilteredTags().length > 0 && (
+                  <div 
+                    style={{
+                      position: "absolute",
+                      bottom: "100%",
+                      left: "10px",
+                      right: "10px",
+                      background: "var(--island-bg-color, #1e1e24)",
+                      border: "1px solid var(--border-color, #2d2d34)",
+                      borderRadius: "8px",
+                      boxShadow: "0 -10px 25px -5px rgba(0, 0, 0, 0.3), 0 -8px 10px -6px rgba(0, 0, 0, 0.3)",
+                      maxHeight: "180px",
+                      overflowY: "auto",
+                      zIndex: 2100,
+                      backdropFilter: "blur(8px)",
+                      marginBottom: "4px"
+                    }}
+                  >
+                    {getFilteredTags().map((tag, idx) => (
+                      <div
+                        key={tag.name}
+                        onClick={() => handleAutocompleteSelect(tag.name)}
+                        className={`autocomplete-item ${idx === autocompleteIndex ? "active" : ""}`}
+                        style={{
+                          padding: "6px 12px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          fontSize: "12px",
+                          color: "var(--color-primary)",
+                          cursor: "pointer",
+                          background: idx === autocompleteIndex ? "var(--button-hover-bg, rgba(255, 255, 255, 0.08))" : "transparent"
+                        }}
+                      >
+                        <span style={{ fontWeight: "600", color: "var(--color-accent)" }}>{tag.name}</span>
+                        <span style={{ fontSize: "11px", color: "var(--color-secondary)", opacity: 0.8 }}>{tag.description}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <textarea
                   id="chat-message-input"
                   value={userInput}
-                  onChange={(e) => setUserInput(e.target.value)}
+                  onChange={handleTextareaChange}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
+                    const filteredTags = getFilteredTags();
+                    if (showAutocomplete && filteredTags.length > 0) {
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        setAutocompleteIndex(prev => (prev + 1) % filteredTags.length);
+                      } else if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        setAutocompleteIndex(prev => (prev - 1 + filteredTags.length) % filteredTags.length);
+                      } else if (e.key === "Enter" || e.key === "Tab") {
+                        e.preventDefault();
+                        handleAutocompleteSelect(filteredTags[autocompleteIndex].name);
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        setShowAutocomplete(false);
+                      }
+                    } else if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
                       sendChatMessage();
                     }
@@ -1134,9 +1427,218 @@ function App() {
                 
                 <div style={{
                   display: "flex",
-                  justifyContent: "flex-end",
+                  justifyContent: "space-between",
                   alignItems: "center"
                 }}>
+                  {/* Plus / Add Context Button */}
+                  <div style={{ position: "relative" }}>
+                    <button
+                      onClick={() => {
+                        setShowContextDropdown(!showContextDropdown);
+                        setContextMenuTab("main");
+                      }}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        color: "var(--color-secondary)",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: "28px",
+                        height: "28px",
+                        borderRadius: "50%",
+                        transition: "background var(--transition-fast)",
+                        padding: 0
+                      }}
+                      title="Add context (@)"
+                    >
+                      <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                    </button>
+
+                    {/* Context Drop-up Menu */}
+                    {showContextDropdown && (
+                      <div 
+                        style={{
+                          position: "absolute",
+                          bottom: "34px",
+                          left: "0",
+                          background: "var(--island-bg-color, #1e1e24)",
+                          border: "1px solid var(--border-color, #2d2d34)",
+                          borderRadius: "12px",
+                          boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.3)",
+                          padding: "6px 0",
+                          minWidth: "160px",
+                          zIndex: 2000,
+                          backdropFilter: "blur(8px)"
+                        }}
+                      >
+                        <div style={{ 
+                          padding: "6px 12px", 
+                          fontSize: "11px", 
+                          fontWeight: "700", 
+                          color: "var(--color-secondary)", 
+                          textTransform: "uppercase", 
+                          letterSpacing: "0.5px",
+                          opacity: 0.7,
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center"
+                        }}>
+                          <span>Add Context</span>
+                          {contextMenuTab !== "main" && (
+                            <span 
+                              onClick={(e) => { e.stopPropagation(); setContextMenuTab("main"); }}
+                              style={{ color: "var(--color-accent)", cursor: "pointer", textTransform: "none", fontSize: "10px" }}
+                            >
+                              ← Back
+                            </span>
+                          )}
+                        </div>
+                        
+                        {contextMenuTab === "main" && (
+                          <>
+                            <div 
+                              className="context-menu-item"
+                              onClick={() => setContextMenuTab("media")}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "10px",
+                                padding: "8px 12px",
+                                fontSize: "13px",
+                                color: "var(--color-primary)",
+                                cursor: "pointer",
+                                transition: "background var(--transition-fast)"
+                              }}
+                            >
+                              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                              </svg>
+                              <span>Media (PNG)</span>
+                            </div>
+                            <div 
+                              className="context-menu-item"
+                              onClick={() => setContextMenuTab("mentions")}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "10px",
+                                padding: "8px 12px",
+                                fontSize: "13px",
+                                color: "var(--color-primary)",
+                                cursor: "pointer",
+                                transition: "background var(--transition-fast)"
+                              }}
+                            >
+                              <span style={{ fontSize: "14px", fontWeight: "bold", width: "16px", textAlign: "center" }}>@</span>
+                              <span>Mentions</span>
+                            </div>
+                            <div 
+                              className="context-menu-item"
+                              onClick={() => setContextMenuTab("actions")}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "10px",
+                                padding: "8px 12px",
+                                fontSize: "13px",
+                                color: "var(--color-primary)",
+                                cursor: "pointer",
+                                transition: "background var(--transition-fast)"
+                              }}
+                            >
+                              <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                              </svg>
+                              <span>Actions & Skills</span>
+                            </div>
+                          </>
+                        )}
+
+                        {contextMenuTab === "media" && (
+                          <>
+                            <div 
+                              className="context-menu-item"
+                              onClick={() => { insertTextAtCursor("@canvas-as-png"); setShowContextDropdown(false); }}
+                              style={{ padding: "8px 12px", fontSize: "12px", color: "var(--color-primary)", cursor: "pointer" }}
+                            >
+                              <span style={{ fontWeight: "600", color: "var(--color-accent)" }}>@canvas-as-png</span>
+                            </div>
+                            <div 
+                              className="context-menu-item"
+                              onClick={() => { insertTextAtCursor("@selection-as-png"); setShowContextDropdown(false); }}
+                              style={{ padding: "8px 12px", fontSize: "12px", color: "var(--color-primary)", cursor: "pointer" }}
+                            >
+                              <span style={{ fontWeight: "600", color: "var(--color-accent)" }}>@selection-as-png</span>
+                            </div>
+                          </>
+                        )}
+
+                        {contextMenuTab === "mentions" && (
+                          <>
+                            <div 
+                              className="context-menu-item"
+                              onClick={() => { insertTextAtCursor("@selection"); setShowContextDropdown(false); }}
+                              style={{ padding: "8px 12px", fontSize: "12px", color: "var(--color-primary)", cursor: "pointer" }}
+                            >
+                              <span style={{ fontWeight: "600", color: "var(--color-accent)" }}>@selection</span>
+                            </div>
+                            <div 
+                              className="context-menu-item"
+                              onClick={() => { insertTextAtCursor("@canvas"); setShowContextDropdown(false); }}
+                              style={{ padding: "8px 12px", fontSize: "12px", color: "var(--color-primary)", cursor: "pointer" }}
+                            >
+                              <span style={{ fontWeight: "600", color: "var(--color-accent)" }}>@canvas</span>
+                            </div>
+                            <div 
+                              className="context-menu-item"
+                              onClick={() => { insertTextAtCursor("@selection-as-svg"); setShowContextDropdown(false); }}
+                              style={{ padding: "8px 12px", fontSize: "12px", color: "var(--color-primary)", cursor: "pointer" }}
+                            >
+                              <span style={{ fontWeight: "600", color: "var(--color-accent)" }}>@selection-as-svg</span>
+                            </div>
+                            <div 
+                              className="context-menu-item"
+                              onClick={() => { insertTextAtCursor("@canvas-as-svg"); setShowContextDropdown(false); }}
+                              style={{ padding: "8px 12px", fontSize: "12px", color: "var(--color-primary)", cursor: "pointer" }}
+                            >
+                              <span style={{ fontWeight: "600", color: "var(--color-accent)" }}>@canvas-as-svg</span>
+                            </div>
+                          </>
+                        )}
+
+                        {contextMenuTab === "actions" && (
+                          <>
+                            <div 
+                              className="context-menu-item"
+                              onClick={() => { insertTextAtCursor("@mermaid"); setShowContextDropdown(false); }}
+                              style={{ padding: "8px 12px", fontSize: "12px", color: "var(--color-primary)", cursor: "pointer" }}
+                            >
+                              <span style={{ fontWeight: "600", color: "var(--color-accent)" }}>@mermaid</span>
+                            </div>
+                            <div 
+                              className="context-menu-item"
+                              onClick={() => { insertTextAtCursor("@manim"); setShowContextDropdown(false); }}
+                              style={{ padding: "8px 12px", fontSize: "12px", color: "var(--color-primary)", cursor: "pointer" }}
+                            >
+                              <span style={{ fontWeight: "600", color: "var(--color-accent)" }}>@manim</span>
+                            </div>
+                            <div 
+                              className="context-menu-item"
+                              onClick={() => { insertTextAtCursor("@imagegen"); setShowContextDropdown(false); }}
+                              style={{ padding: "8px 12px", fontSize: "12px", color: "var(--color-primary)", cursor: "pointer" }}
+                            >
+                              <span style={{ fontWeight: "600", color: "var(--color-accent)" }}>@imagegen</span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Send Button */}
                   <button 
                     id="chat-send-btn" 

@@ -623,3 +623,10 @@ body .excalidraw .sidebar {
   background-color: var(--color-accent) !important;
   opacity: 0.5;
 }
+
+/* Context Menu & Autocomplete Items Hover/Active Styling */
+.context-menu-item:hover,
+.autocomplete-item:hover,
+.autocomplete-item.active {
+  background-color: var(--button-hover-bg, rgba(255, 255, 255, 0.08)) !important;
+}
