@@ -114,6 +114,17 @@ const makeColorOpaque = (color, fallback) => {
   return fallback;
 };
 
+const cleanApiUrl = (url, provider) => {
+  if (!url) return "";
+  let clean = url.trim().replace(/\/+$/, "");
+  if (provider === "lmstudio" || provider === "openai") {
+    if (clean.endsWith("/v1")) {
+      clean = clean.slice(0, -3);
+    }
+  }
+  return clean;
+};
+
 function App() {
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
@@ -202,7 +213,8 @@ function App() {
   // Test AI Connection & Fetch Models
   const testAIConnection = async (settings = aiSettings) => {
     setConnectionStatus("pending");
-    const { provider, url } = settings;
+    const { provider } = settings;
+    const url = cleanApiUrl(settings.url, provider);
     
     try {
       if (provider === "ollama") {
@@ -441,7 +453,7 @@ function App() {
     setChatHistory(prev => [...prev, { role: "assistant", content: "Thinking..." }]);
 
     const provider = aiSettings.provider;
-    const url = aiSettings.url;
+    const url = cleanApiUrl(aiSettings.url, provider);
     const model = aiSettings.model || "default";
 
     const historyPayload = newHistory.map(h => ({
