@@ -809,7 +809,12 @@ function App() {
             <MainMenu.Separator />
             <MainMenu.DefaultItems.ToggleTheme />
             <MainMenu.DefaultItems.ChangeCanvasBackground />
-            <MainMenu.DefaultItems.Preferences />
+            <MainMenu.Item onSelect={() => {
+              setActiveSettingsTab("preferences");
+              setShowSettings(true);
+            }}>
+              Preferences
+            </MainMenu.Item>
             <MainMenu.Separator />
             <MainMenu.ItemCustom>
               <label
