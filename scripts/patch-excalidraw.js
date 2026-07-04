@@ -3,7 +3,9 @@ import path from "path";
 
 const targets = [
   "node_modules/@excalidraw/excalidraw/dist/excalidraw.development.js",
-  "node_modules/@excalidraw/excalidraw/dist/excalidraw.production.min.js"
+  "node_modules/@excalidraw/excalidraw/dist/excalidraw.production.min.js",
+  "node_modules/@excalidraw/excalidraw/dist/excalidraw-with-preact.development.js",
+  "node_modules/@excalidraw/excalidraw/dist/excalidraw-with-preact.production.min.js"
 ];
 
 let patched = false;
