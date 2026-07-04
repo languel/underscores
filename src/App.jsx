@@ -578,19 +578,8 @@ function App() {
           let nextColor;
           if (isTransparent) {
             nextColor = makeColorOpaque(appState.viewBackgroundColor, lastNonTransparentColorRef.current);
-            if (theme === "dark" && (nextColor.toLowerCase() === "#ffffff" || nextColor.toLowerCase() === "#fff")) {
-              nextColor = "#121212";
-            } else if (theme === "light" && nextColor.toLowerCase() === "#121212") {
-              nextColor = "#ffffff";
-            }
           } else {
-            let baseColor = appState.viewBackgroundColor || (theme === "dark" ? "#121212" : "#ffffff");
-            if (theme === "dark" && (baseColor.toLowerCase() === "#ffffff" || baseColor.toLowerCase() === "#fff")) {
-              baseColor = "#121212";
-            } else if (theme === "light" && baseColor.toLowerCase() === "#121212") {
-              baseColor = "#ffffff";
-            }
-            nextColor = makeColorTransparent(baseColor);
+            nextColor = makeColorTransparent(appState.viewBackgroundColor || (theme === "dark" ? "#121212" : "#ffffff"));
           }
           
           excalidrawAPI.updateScene({
@@ -738,11 +727,7 @@ function App() {
               appState.viewBackgroundColor &&
               !isColorTransparent(appState.viewBackgroundColor)
             ) {
-              const color = appState.viewBackgroundColor.toLowerCase();
-              if (!(theme === "dark" && (color === "#ffffff" || color === "#fff")) &&
-                  !(theme === "light" && color === "#121212")) {
-                lastNonTransparentColorRef.current = appState.viewBackgroundColor;
-              }
+              lastNonTransparentColorRef.current = appState.viewBackgroundColor;
             }
           }}
           renderTopRightUI={() => (
