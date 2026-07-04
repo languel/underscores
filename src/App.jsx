@@ -530,6 +530,30 @@ function App() {
     });
   };
 
+  const toggleBackgroundTransparency = (api) => {
+    if (!api) return;
+    const appState = api.getAppState();
+    const isTransparent = isColorTransparent(appState.viewBackgroundColor);
+    
+    let nextColor;
+    if (isTransparent) {
+      nextColor = makeColorOpaque(appState.viewBackgroundColor, lastNonTransparentColorRef.current);
+      if (theme === "dark" && (nextColor.toLowerCase() === "#ffffff" || nextColor.toLowerCase() === "#fff")) {
+        nextColor = "#121212";
+      } else if (theme === "light" && nextColor.toLowerCase() === "#121212") {
+        nextColor = "#ffffff";
+      }
+    } else {
+      nextColor = makeColorTransparent(appState.viewBackgroundColor || (theme === "dark" ? "#121212" : "#ffffff"));
+    }
+    
+    api.updateScene({
+      appState: {
+        viewBackgroundColor: nextColor
+      }
+    });
+  };
+
   // --- COMMAND PALETTE LOGIC ---
   const COMMANDS = [
     { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => setSatoriMode(prev => !prev) },
@@ -539,6 +563,7 @@ function App() {
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
     { id: "settings", name: "Open Local AI Settings", category: "AI Chat", action: () => setShowSettings(true) },
     { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
+    { id: "toggle-transparency", name: "Toggle Canvas Background Transparency", category: "Canvas", action: (api) => toggleBackgroundTransparency(api) },
     { id: "reset-view", name: "Reset Zoom & Pan View", category: "Canvas", action: (api) => api.updateScene({ appState: { zoom: { value: 1 }, scrollX: 0, scrollY: 0 } }) },
     { id: "tool-select", name: "Select Pointer/Selection Tool", category: "Tools", action: (api) => api.updateScene({ appState: { activeTool: { type: "selection" } } }) },
     { id: "tool-rect", name: "Select Rectangle Tool", category: "Tools", action: (api) => api.updateScene({ appState: { activeTool: { type: "rectangle" } } }) },
@@ -579,23 +604,7 @@ function App() {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === "Digit0") {
         e.preventDefault();
         e.stopPropagation();
-        if (excalidrawAPI) {
-          const appState = excalidrawAPI.getAppState();
-          const isTransparent = isColorTransparent(appState.viewBackgroundColor);
-          
-          let nextColor;
-          if (isTransparent) {
-            nextColor = makeColorOpaque(appState.viewBackgroundColor, lastNonTransparentColorRef.current);
-          } else {
-            nextColor = makeColorTransparent(appState.viewBackgroundColor || (theme === "dark" ? "#121212" : "#ffffff"));
-          }
-          
-          excalidrawAPI.updateScene({
-            appState: {
-              viewBackgroundColor: nextColor
-            }
-          });
-        }
+        toggleBackgroundTransparency(excalidrawAPI);
       }
       // [ and ] shortcuts to increase/decrease stroke width for pen and line
       if ((e.key === "[" || e.key === "]") && excalidrawAPI) {
