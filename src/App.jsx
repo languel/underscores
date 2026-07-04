@@ -398,6 +398,29 @@ function App() {
     testAIConnection();
   }, [aiSettings.provider, aiSettings.url]);
 
+  // Global Escape key listener to close context and autocomplete dropdowns
+  useEffect(() => {
+    const handleGlobalEscape = (e) => {
+      if (e.key === "Escape") {
+        let didClose = false;
+        if (showContextDropdown) {
+          setShowContextDropdown(false);
+          didClose = true;
+        }
+        if (showAutocomplete) {
+          setShowAutocomplete(false);
+          didClose = true;
+        }
+        if (didClose) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleGlobalEscape, true);
+    return () => window.removeEventListener("keydown", handleGlobalEscape, true);
+  }, [showContextDropdown, showAutocomplete]);
+
   const saveSettings = () => {
     localStorage.setItem("drawerator_ai_settings", JSON.stringify(aiSettings));
     setShowSettings(false);
