@@ -61,6 +61,59 @@ function createBaseElement(type, x, y, width, height, strokeColor = "#f8fafc") {
   };
 }
 
+const isColorTransparent = (color) => {
+  if (!color) return false;
+  const c = color.trim().toLowerCase();
+  if (c === "transparent") return true;
+  if (c.startsWith("#") && c.length === 9 && c.endsWith("00")) return true;
+  if (c.startsWith("#") && c.length === 5 && c.endsWith("0")) return true;
+  if (c.startsWith("rgba")) {
+    const parts = c.split(",");
+    if (parts.length === 4) {
+      const alpha = parseFloat(parts[3].replace(")", ""));
+      return alpha === 0;
+    }
+  }
+  return false;
+};
+
+const makeColorTransparent = (color) => {
+  if (!color) return "transparent";
+  const c = color.trim();
+  const cLower = c.toLowerCase();
+  if (cLower.startsWith("#")) {
+    if (c.length === 7) return c + "00";
+    if (c.length === 4) {
+      const r = c[1], g = c[2], b = c[3];
+      return `#${r}${r}${g}${g}${b}${b}00`;
+    }
+  } else if (cLower.startsWith("rgb(")) {
+    return cLower.replace("rgb(", "rgba(").replace(")", ", 0)");
+  }
+  return "transparent";
+};
+
+const makeColorOpaque = (color, fallback) => {
+  if (!color) return fallback;
+  const c = color.trim();
+  const cLower = c.toLowerCase();
+  if (cLower === "transparent") return fallback;
+  if (cLower.startsWith("#")) {
+    if (c.length === 9 && cLower.endsWith("00")) {
+      return c.slice(0, 7);
+    }
+    if (c.length === 5 && cLower.endsWith("0")) {
+      return c.slice(0, 4);
+    }
+  } else if (cLower.startsWith("rgba(")) {
+    const parts = c.split(",");
+    if (parts.length === 4) {
+      return parts.slice(0, 3).join(",").replace(/rgba\(/i, "rgb(") + ")";
+    }
+  }
+  return fallback;
+};
+
 function App() {
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
@@ -520,21 +573,18 @@ function App() {
         e.stopPropagation();
         if (excalidrawAPI) {
           const appState = excalidrawAPI.getAppState();
-          const isTransparent = 
-            appState.viewBackgroundColor === "transparent" || 
-            appState.viewBackgroundColor === "rgba(0, 0, 0, 0)" || 
-            appState.viewBackgroundColor === "rgba(255, 255, 255, 0)";
+          const isTransparent = isColorTransparent(appState.viewBackgroundColor);
           
           let nextColor;
           if (isTransparent) {
-            nextColor = lastNonTransparentColorRef.current;
+            nextColor = makeColorOpaque(appState.viewBackgroundColor, lastNonTransparentColorRef.current);
             if (theme === "dark" && nextColor === "#ffffff") {
               nextColor = "#121212";
             } else if (theme === "light" && nextColor === "#121212") {
               nextColor = "#ffffff";
             }
           } else {
-            nextColor = "transparent";
+            nextColor = makeColorTransparent(appState.viewBackgroundColor);
           }
           
           excalidrawAPI.updateScene({
@@ -680,9 +730,7 @@ function App() {
             }
             if (
               appState.viewBackgroundColor &&
-              appState.viewBackgroundColor !== "transparent" &&
-              appState.viewBackgroundColor !== "rgba(0, 0, 0, 0)" &&
-              appState.viewBackgroundColor !== "rgba(255, 255, 255, 0)"
+              !isColorTransparent(appState.viewBackgroundColor)
             ) {
               lastNonTransparentColorRef.current = appState.viewBackgroundColor;
             }
