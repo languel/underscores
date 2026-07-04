@@ -1,9 +1,16 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { viteSingleFile } from 'vite-plugin-singlefile'
+
+const buildSingle = process.env.BUILD_SINGLE === 'true'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  base: buildSingle ? '/drawerator/' : '/',
+  plugins: [
+    react(),
+    buildSingle && viteSingleFile({ removeViteModuleLoader: true })
+  ].filter(Boolean),
   server: {
     port: 8089,
     strictPort: true
