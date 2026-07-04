@@ -513,6 +513,62 @@ function App() {
         setTheme(nextTheme);
         excalidrawAPI?.updateScene({ appState: { theme: nextTheme } });
       }
+      // [ and ] shortcuts to increase/decrease stroke width for pen and line
+      if ((e.key === "[" || e.key === "]") && excalidrawAPI) {
+        const activeEl = document.activeElement;
+        if (
+          !activeEl ||
+          (activeEl.tagName !== "INPUT" &&
+            activeEl.tagName !== "TEXTAREA" &&
+            activeEl.contentEditable !== "true")
+        ) {
+          const appState = excalidrawAPI.getAppState();
+          const activeTool = appState.activeTool?.type;
+          
+          const selectedElements = excalidrawAPI.getSceneElements().filter(
+            (el) => !el.isDeleted && appState.selectedElementIds?.[el.id]
+          );
+          const hasSelectedPenOrLine = selectedElements.some(
+            (el) => el.type === "freedraw" || el.type === "line"
+          );
+          
+          const isPenOrLine =
+            activeTool === "freedraw" ||
+            activeTool === "line" ||
+            hasSelectedPenOrLine;
+
+          if (isPenOrLine) {
+            e.preventDefault();
+            e.stopPropagation();
+            const currentWidth = appState.currentItemStrokeWidth || 1;
+            let newWidth = currentWidth;
+            if (e.key === "[") {
+              newWidth = Math.max(1, currentWidth - 1);
+            } else {
+              newWidth = Math.min(20, currentWidth + 1);
+            }
+
+            if (newWidth !== currentWidth) {
+              const updatedElements = excalidrawAPI.getSceneElements().map((el) => {
+                if (
+                  appState.selectedElementIds?.[el.id] &&
+                  (el.type === "freedraw" || el.type === "line")
+                ) {
+                  return { ...el, strokeWidth: newWidth };
+                }
+                return el;
+              });
+
+              excalidrawAPI.updateScene({
+                elements: updatedElements,
+                appState: {
+                  currentItemStrokeWidth: newWidth
+                }
+              });
+            }
+          }
+        }
+      }
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
@@ -532,7 +588,8 @@ function App() {
     if (excalidrawAPI && satoriMode) {
       excalidrawAPI.updateScene({
         appState: {
-          activeTool: { type: "freedraw" }
+          activeTool: { type: "freedraw" },
+          currentItemRoughness: 0
         }
       });
     }
@@ -581,6 +638,11 @@ function App() {
         <Excalidraw 
           theme={theme} 
           excalidrawAPI={(api) => setExcalidrawAPI(api)} 
+          initialData={{
+            appState: {
+              currentItemRoughness: 0
+            }
+          }}
           onChange={(elements, appState) => {
             if (appState.theme && appState.theme !== theme) {
               setTheme(appState.theme);
