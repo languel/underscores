@@ -525,6 +525,9 @@ body .excalidraw {
   --button-active-border: hsl(190, 5%, 45%) !important;
   --button-special-active-bg-color: hsl(190, 5%, 45%) !important;
 
+  --color-surface-primary-container: hsl(190, 5%, 90%) !important;
+  --color-on-primary-container: hsl(190, 5%, 35%) !important;
+
   --text-primary-color: hsl(190, 5%, 45%) !important;
   --color-accent: hsl(190, 5%, 45%) !important;
 }
@@ -549,6 +552,9 @@ body .excalidraw.theme--dark {
   --button-active-bg: hsl(190, 5%, 25%) !important;
   --button-active-border: hsl(190, 5%, 65%) !important;
   --button-special-active-bg-color: hsl(190, 5%, 65%) !important;
+
+  --color-surface-primary-container: hsl(190, 5%, 25%) !important;
+  --color-on-primary-container: hsl(190, 5%, 75%) !important;
 
   --text-primary-color: hsl(190, 5%, 65%) !important;
   --color-accent: hsl(190, 5%, 65%) !important;
