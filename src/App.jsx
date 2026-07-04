@@ -132,6 +132,11 @@ function App() {
     const saved = localStorage.getItem("drawerator_show_bottom_notifications");
     return saved === "true";
   });
+  const [forceDesktopLayout, setForceDesktopLayout] = useState(() => {
+    const saved = localStorage.getItem("drawerator_force_desktop_layout");
+    return saved !== "false";
+  });
+  const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
   
   // Chat States
   const [chatHistory, setChatHistory] = useState([
@@ -606,6 +611,12 @@ function App() {
         e.stopPropagation();
         toggleBackgroundTransparency(excalidrawAPI);
       }
+      // Cmd + Shift + , or Cmd + , (Toggle Settings Panel)
+      if ((e.metaKey || e.ctrlKey) && (e.key === "," || e.code === "Comma")) {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowSettings(prev => !prev);
+      }
       // [ and ] shortcuts to increase/decrease stroke width for pen and line
       if ((e.key === "[" || e.key === "]") && excalidrawAPI) {
         const activeEl = document.activeElement;
@@ -731,6 +742,12 @@ function App() {
         <Excalidraw 
           theme={theme} 
           excalidrawAPI={(api) => setExcalidrawAPI(api)} 
+          getFormFactor={(width, height) => {
+            if (forceDesktopLayout) {
+              return "desktop";
+            }
+            return width < 768 ? "phone" : "desktop";
+          }}
           initialData={{
             appState: {
               currentItemRoughness: 0
@@ -792,7 +809,42 @@ function App() {
             <MainMenu.Separator />
             <MainMenu.DefaultItems.ToggleTheme />
             <MainMenu.DefaultItems.ChangeCanvasBackground />
+            <MainMenu.DefaultItems.Preferences />
             <MainMenu.Separator />
+            <MainMenu.ItemCustom>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  width: "100%",
+                  padding: "10px 16px",
+                  cursor: "pointer",
+                  color: "var(--popup-text-color)",
+                  fontSize: "14px",
+                  fontFamily: "var(--font-sans)",
+                  transition: "background-color 0.2s"
+                }}
+                className="dropdown-menu-item-custom"
+                onClick={(e) => {
+                  e.stopPropagation();
+                }}
+              >
+                <span>Force Desktop Layout</span>
+                <input 
+                  type="checkbox" 
+                  checked={forceDesktopLayout} 
+                  onChange={(e) => {
+                    setForceDesktopLayout(e.target.checked);
+                    localStorage.setItem("drawerator_force_desktop_layout", e.target.checked);
+                  }}
+                  style={{
+                    cursor: "pointer",
+                    accentColor: "var(--color-primary)"
+                  }}
+                />
+              </label>
+            </MainMenu.ItemCustom>
             <MainMenu.ItemCustom>
               <label
                 style={{
@@ -968,7 +1020,7 @@ function App() {
           <div id="settings-overlay" onClick={() => setShowSettings(false)}>
             <div className="settings-card" onClick={(e) => e.stopPropagation()}>
               <div className="settings-title-row">
-                <h3>Local AI Settings</h3>
+                <h3>Settings</h3>
                 <button 
                   onClick={() => setShowSettings(false)}
                   style={{ background: "transparent", border: "none", color: "var(--color-secondary)", fontSize: "20px", cursor: "pointer" }}
@@ -976,77 +1028,213 @@ function App() {
                   &times;
                 </button>
               </div>
-              
-              <div className="settings-row">
-                <label>API Provider</label>
-                <select 
-                  value={aiSettings.provider}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    let defaultUrl = "http://localhost:11434";
-                    if (val === "lmstudio") defaultUrl = "http://localhost:1234";
-                    else if (val === "openai") defaultUrl = "https://api.openai.com";
-                    
-                    const updated = { ...aiSettings, provider: val, url: defaultUrl, model: "" };
-                    setAiSettings(updated);
-                    testAIConnection(updated);
+
+              {/* Settings Tabs */}
+              <div style={{ display: "flex", gap: "10px", borderBottom: "1px solid var(--border-color)", paddingBottom: "10px", marginBottom: "15px" }}>
+                <button
+                  onClick={() => setActiveSettingsTab("ai")}
+                  style={{
+                    background: activeSettingsTab === "ai" ? "var(--color-accent)" : "transparent",
+                    color: activeSettingsTab === "ai" ? "var(--color-btn-text)" : "var(--color-primary)",
+                    border: "1px solid var(--border-color)",
+                    borderRadius: "6px",
+                    padding: "6px 12px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer"
                   }}
                 >
-                  <option value="ollama">Ollama</option>
-                  <option value="lmstudio">LM Studio</option>
-                  <option value="openai">OpenAI Compatible</option>
-                </select>
-              </div>
-
-              <div className="settings-row">
-                <label>API Endpoint URL</label>
-                <input 
-                  type="text" 
-                  value={aiSettings.url} 
-                  onChange={(e) => {
-                    const updated = { ...aiSettings, url: e.target.value };
-                    setAiSettings(updated);
+                  AI Configuration
+                </button>
+                <button
+                  onClick={() => setActiveSettingsTab("preferences")}
+                  style={{
+                    background: activeSettingsTab === "preferences" ? "var(--color-accent)" : "transparent",
+                    color: activeSettingsTab === "preferences" ? "var(--color-btn-text)" : "var(--color-primary)",
+                    border: "1px solid var(--border-color)",
+                    borderRadius: "6px",
+                    padding: "6px 12px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer"
                   }}
-                />
-              </div>
-
-              <div className="settings-row">
-                <label>Active Model Name</label>
-                {aiSettings.provider !== "openai" && modelsList.length > 0 ? (
-                  <select 
-                    value={aiSettings.model} 
-                    onChange={(e) => setAiSettings({ ...aiSettings, model: e.target.value })}
-                  >
-                    {modelsList.map((m, idx) => (
-                      <option key={idx} value={m}>{m}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input 
-                    type="text" 
-                    value={aiSettings.model} 
-                    onChange={(e) => setAiSettings({ ...aiSettings, model: e.target.value })}
-                    placeholder="e.g. gpt-4o or llama3"
-                  />
-                )}
-              </div>
-
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "24px" }}>
-                <div className="status-indicator">
-                  <span className={`status-dot ${connectionStatus}`}></span>
-                  <span>
-                    {connectionStatus === "ok" ? "Backend Reachable" : 
-                     connectionStatus === "error" ? "Connection Failed" : "Checking..."}
-                  </span>
-                </div>
-                <button 
-                  className="header-btn" 
-                  onClick={saveSettings}
-                  style={{ background: "var(--color-accent)", color: "var(--color-btn-text)", border: "none", fontWeight: "600", padding: "8px 16px" }}
                 >
-                  Save & Apply
+                  Board Preferences
                 </button>
               </div>
+              
+              {activeSettingsTab === "ai" ? (
+                <>
+                  <div className="settings-row">
+                    <label>API Provider</label>
+                    <select 
+                      value={aiSettings.provider}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        let defaultUrl = "http://localhost:11434";
+                        if (val === "lmstudio") defaultUrl = "http://localhost:1234";
+                        else if (val === "openai") defaultUrl = "https://api.openai.com";
+                        
+                        const updated = { ...aiSettings, provider: val, url: defaultUrl, model: "" };
+                        setAiSettings(updated);
+                        testAIConnection(updated);
+                      }}
+                    >
+                      <option value="ollama">Ollama</option>
+                      <option value="lmstudio">LM Studio</option>
+                      <option value="openai">OpenAI Compatible</option>
+                    </select>
+                  </div>
+
+                  <div className="settings-row">
+                    <label>API Endpoint URL</label>
+                    <input 
+                      type="text" 
+                      value={aiSettings.url} 
+                      onChange={(e) => {
+                        const updated = { ...aiSettings, url: e.target.value };
+                        setAiSettings(updated);
+                      }}
+                    />
+                  </div>
+
+                  <div className="settings-row">
+                    <label>Active Model Name</label>
+                    {aiSettings.provider !== "openai" && modelsList.length > 0 ? (
+                      <select 
+                        value={aiSettings.model} 
+                        onChange={(e) => setAiSettings({ ...aiSettings, model: e.target.value })}
+                      >
+                        {modelsList.map((m, idx) => (
+                          <option key={idx} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input 
+                        type="text" 
+                        value={aiSettings.model} 
+                        onChange={(e) => setAiSettings({ ...aiSettings, model: e.target.value })}
+                        placeholder="e.g. gpt-4o or llama3"
+                      />
+                    )}
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "24px" }}>
+                    <div className="status-indicator">
+                      <span className={`status-dot ${connectionStatus}`}></span>
+                      <span>
+                        {connectionStatus === "ok" ? "Backend Reachable" : 
+                         connectionStatus === "error" ? "Connection Failed" : "Checking..."}
+                      </span>
+                    </div>
+                    <button 
+                      className="header-btn" 
+                      onClick={saveSettings}
+                      style={{ background: "var(--color-accent)", color: "var(--color-btn-text)", border: "none", fontWeight: "600", padding: "8px 16px" }}
+                    >
+                      Save & Apply
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <label style={{ margin: 0, cursor: "pointer" }}>Force Desktop Layout</label>
+                    <input 
+                      type="checkbox" 
+                      checked={forceDesktopLayout} 
+                      onChange={(e) => {
+                        setForceDesktopLayout(e.target.checked);
+                        localStorage.setItem("drawerator_force_desktop_layout", e.target.checked);
+                      }}
+                      style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
+                    />
+                  </div>
+
+                  <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <label style={{ margin: 0, cursor: "pointer" }}>Show Toolbar Hints</label>
+                    <input 
+                      type="checkbox" 
+                      checked={showToolbarHints} 
+                      onChange={(e) => {
+                        setShowToolbarHints(e.target.checked);
+                        localStorage.setItem("drawerator_show_toolbar_hints", e.target.checked);
+                      }}
+                      style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
+                    />
+                  </div>
+
+                  <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <label style={{ margin: 0, cursor: "pointer" }}>Show Bottom Alerts</label>
+                    <input 
+                      type="checkbox" 
+                      checked={showBottomNotifications} 
+                      onChange={(e) => {
+                        setShowBottomNotifications(e.target.checked);
+                        localStorage.setItem("drawerator_show_bottom_notifications", e.target.checked);
+                      }}
+                      style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
+                    />
+                  </div>
+
+                  <hr style={{ border: "none", borderTop: "1px solid var(--border-color)", margin: "8px 0" }} />
+
+                  {excalidrawAPI && (() => {
+                    const appState = excalidrawAPI.getAppState() || {};
+                    return (
+                      <>
+                        <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <label style={{ margin: 0, cursor: "pointer" }}>Grid Mode</label>
+                          <input 
+                            type="checkbox" 
+                            checked={appState.gridModeEnabled || false} 
+                            onChange={(e) => {
+                              excalidrawAPI.updateScene({ appState: { gridModeEnabled: e.target.checked } });
+                            }}
+                            style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
+                          />
+                        </div>
+
+                        <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <label style={{ margin: 0, cursor: "pointer" }}>Zen Mode</label>
+                          <input 
+                            type="checkbox" 
+                            checked={appState.zenModeEnabled || false} 
+                            onChange={(e) => {
+                              excalidrawAPI.updateScene({ appState: { zenModeEnabled: e.target.checked } });
+                            }}
+                            style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
+                          />
+                        </div>
+
+                        <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <label style={{ margin: 0, cursor: "pointer" }}>View Mode</label>
+                          <input 
+                            type="checkbox" 
+                            checked={appState.viewModeEnabled || false} 
+                            onChange={(e) => {
+                              excalidrawAPI.updateScene({ appState: { viewModeEnabled: e.target.checked } });
+                            }}
+                            style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
+                          />
+                        </div>
+
+                        <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <label style={{ margin: 0, cursor: "pointer" }}>Snap to Objects</label>
+                          <input 
+                            type="checkbox" 
+                            checked={appState.objectsSnapModeEnabled || false} 
+                            onChange={(e) => {
+                              excalidrawAPI.updateScene({ appState: { objectsSnapModeEnabled: e.target.checked } });
+                            }}
+                            style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
+                          />
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           </div>
         </div>
