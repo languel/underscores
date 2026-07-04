@@ -596,4 +596,25 @@ body .excalidraw #command-palette-overlay {
   gap: 0 !important;
 }
 
+/* Sidebar Width Resizing & Resize Handle */
+body .excalidraw .sidebar {
+  width: var(--sidebar-width, 380px) !important;
+}
 
+.sidebar-resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 6px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 9999;
+  background: transparent;
+  transition: background-color 0.2s;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle:active {
+  background-color: var(--color-accent) !important;
+  opacity: 0.5;
+}

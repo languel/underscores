@@ -137,6 +137,25 @@ function App() {
     return saved !== "false";
   });
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem("drawerator_sidebar_width");
+    return saved ? parseInt(saved, 10) : 380;
+  });
+
+  const handleSidebarResizeMouseDown = (e) => {
+    e.preventDefault();
+    const handleMouseMove = (moveEvent) => {
+      const newWidth = Math.max(280, Math.min(800, window.innerWidth - moveEvent.clientX));
+      setSidebarWidth(newWidth);
+      localStorage.setItem("drawerator_sidebar_width", newWidth);
+    };
+    const handleMouseUp = () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
   
   // Chat States
   const [chatHistory, setChatHistory] = useState([
@@ -736,7 +755,11 @@ function App() {
   };
 
   return (
-    <div id="root" className={`${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"}`}>
+    <div 
+      id="root" 
+      className={`${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"}`}
+      style={{ "--sidebar-width": `${sidebarWidth}px` }}
+    >
       {/* Excalidraw Canvas Area */}
       <div id="canvas-container" style={{ width: "100%", height: "100%", position: "relative" }}>
         <Excalidraw 
@@ -945,6 +968,10 @@ function App() {
 
           {/* Custom Native Sidebar */}
           <Sidebar name="ai-sidebar" docked={sidebarDocked} onDock={setSidebarDocked}>
+            <div 
+              className="sidebar-resize-handle"
+              onMouseDown={handleSidebarResizeMouseDown}
+            />
             <Sidebar.Header>
               <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px" }}>
                 <span />
@@ -994,25 +1021,100 @@ function App() {
               </div>
 
               {/* Chat Input Container */}
-              <div className="chat-input-container" style={{ padding: "12px", borderTop: "1px solid var(--border-color)", display: "flex", gap: "6px", alignItems: "flex-end" }}>
+              <div className="chat-input-container" style={{
+                padding: "10px",
+                borderTop: "1px solid var(--border-color)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+                background: "var(--color-surface-primary)"
+              }}>
                 <textarea
                   id="chat-message-input"
                   value={userInput}
                   onChange={(e) => setUserInput(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && e.ctrlKey) {
+                    if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
                       sendChatMessage();
                     }
                   }}
-                  placeholder="Type prompt (Ctrl+Enter)..."
-                  style={{ flex: 1, height: "40px", fontSize: "13px" }}
+                  placeholder="Type prompt (Enter to send, Shift+Enter for new line)..."
+                  style={{
+                    width: "100%",
+                    minHeight: "60px",
+                    maxHeight: "150px",
+                    resize: "vertical",
+                    fontSize: "13px",
+                    background: "transparent",
+                    border: "none",
+                    outline: "none",
+                    color: "var(--color-primary)",
+                    padding: 0
+                  }}
                 />
-                <button id="chat-send-btn" onClick={() => sendChatMessage()} disabled={isStreaming} style={{ width: "40px", height: "40px" }}>
-                  <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                  </svg>
-                </button>
+                
+                <div style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center"
+                }}>
+                  {/* Model Selector Pill */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                    <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" style={{ color: "var(--color-secondary)" }}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                    <select 
+                      value={aiSettings.model} 
+                      onChange={(e) => {
+                        const updated = { ...aiSettings, model: e.target.value };
+                        setAiSettings(updated);
+                        localStorage.setItem("drawerator_ai_settings", JSON.stringify(updated));
+                      }}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        fontSize: "11px",
+                        fontWeight: "600",
+                        color: "var(--color-secondary)",
+                        cursor: "pointer",
+                        outline: "none",
+                        padding: 0
+                      }}
+                    >
+                      {modelsList.length > 0 ? (
+                        modelsList.map((m, idx) => (
+                          <option key={idx} value={m} style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>{m}</option>
+                        ))
+                      ) : (
+                        <option value="" style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>{aiSettings.model || "Select Model"}</option>
+                      )}
+                    </select>
+                  </div>
+
+                  {/* Send Button */}
+                  <button 
+                    id="chat-send-btn" 
+                    onClick={() => sendChatMessage()} 
+                    disabled={isStreaming} 
+                    style={{ 
+                      width: "28px", 
+                      height: "28px", 
+                      borderRadius: "50%", 
+                      background: "var(--color-accent)", 
+                      color: "var(--color-btn-text)", 
+                      border: "none", 
+                      display: "flex", 
+                      alignItems: "center", 
+                      justifyContent: "center",
+                      cursor: "pointer"
+                    }}
+                  >
+                    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             </div>
           </Sidebar>
@@ -1158,7 +1260,7 @@ function App() {
                       onClick={saveSettings}
                       style={{ background: "var(--color-accent)", color: "var(--color-btn-text)", border: "none", fontWeight: "600", padding: "8px 16px" }}
                     >
-                      Save & Apply
+                      Save
                     </button>
                   </div>
                 </>
