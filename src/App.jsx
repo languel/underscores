@@ -1414,6 +1414,11 @@ function App() {
                         e.preventDefault();
                         setShowAutocomplete(false);
                       }
+                    } else if (e.key === "Escape") {
+                      if (showContextDropdown) {
+                        e.preventDefault();
+                        setShowContextDropdown(false);
+                      }
                     } else if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
                       sendChatMessage();
