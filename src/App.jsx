@@ -148,7 +148,7 @@ function App() {
     return saved !== "false";
   });
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showContextDropdown, setShowContextDropdown] = useState(false);
   const [contextMenuTab, setContextMenuTab] = useState("main");
   const [showAutocomplete, setShowAutocomplete] = useState(false);
@@ -214,6 +214,14 @@ function App() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory]);
+
+  // Sync initial sidebar open state once excalidrawAPI is loaded
+  useEffect(() => {
+    if (excalidrawAPI) {
+      const appState = excalidrawAPI.getAppState();
+      setIsSidebarOpen(appState.activeSidebar === "ai-sidebar");
+    }
+  }, [excalidrawAPI]);
 
   // Test AI Connection & Fetch Models
   const testAIConnection = async (settings = aiSettings) => {
@@ -1341,7 +1349,8 @@ function App() {
                 flexDirection: "column",
                 gap: "8px",
                 background: "var(--color-surface-primary)",
-                position: "relative"
+                position: "relative",
+                alignItems: "stretch"
               }}>
                 {/* Autocomplete Suggestions Popover */}
                 {showAutocomplete && getFilteredTags().length > 0 && (
@@ -1428,7 +1437,8 @@ function App() {
                 <div style={{
                   display: "flex",
                   justifyContent: "space-between",
-                  alignItems: "center"
+                  alignItems: "center",
+                  width: "100%"
                 }}>
                   {/* Plus / Add Context Button */}
                   <div style={{ position: "relative" }}>
