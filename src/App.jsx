@@ -489,6 +489,7 @@ function App() {
   ];
 
   const paletteInputRef = useRef(null);
+  const lastNonTransparentColorRef = useRef(theme === "dark" ? "#121212" : "#ffffff");
 
   // Toggle Command Palette on Cmd + / and Satori Mode on Opt + Shift + Z
   useEffect(() => {
@@ -512,6 +513,36 @@ function App() {
         const nextTheme = theme === "dark" ? "light" : "dark";
         setTheme(nextTheme);
         excalidrawAPI?.updateScene({ appState: { theme: nextTheme } });
+      }
+      // Cmd + Shift + 0 or Ctrl + Shift + 0 (Toggle background transparency)
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === "Digit0") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (excalidrawAPI) {
+          const appState = excalidrawAPI.getAppState();
+          const isTransparent = 
+            appState.viewBackgroundColor === "transparent" || 
+            appState.viewBackgroundColor === "rgba(0, 0, 0, 0)" || 
+            appState.viewBackgroundColor === "rgba(255, 255, 255, 0)";
+          
+          let nextColor;
+          if (isTransparent) {
+            nextColor = lastNonTransparentColorRef.current;
+            if (theme === "dark" && nextColor === "#ffffff") {
+              nextColor = "#121212";
+            } else if (theme === "light" && nextColor === "#121212") {
+              nextColor = "#ffffff";
+            }
+          } else {
+            nextColor = "transparent";
+          }
+          
+          excalidrawAPI.updateScene({
+            appState: {
+              viewBackgroundColor: nextColor
+            }
+          });
+        }
       }
       // [ and ] shortcuts to increase/decrease stroke width for pen and line
       if ((e.key === "[" || e.key === "]") && excalidrawAPI) {
@@ -647,6 +678,14 @@ function App() {
             if (appState.theme && appState.theme !== theme) {
               setTheme(appState.theme);
             }
+            if (
+              appState.viewBackgroundColor &&
+              appState.viewBackgroundColor !== "transparent" &&
+              appState.viewBackgroundColor !== "rgba(0, 0, 0, 0)" &&
+              appState.viewBackgroundColor !== "rgba(255, 255, 255, 0)"
+            ) {
+              lastNonTransparentColorRef.current = appState.viewBackgroundColor;
+            }
           }}
           renderTopRightUI={() => (
             <div className="drawerator-top-right-wrapper">
@@ -692,6 +731,7 @@ function App() {
             <MainMenu.DefaultItems.Export />
             <MainMenu.Separator />
             <MainMenu.DefaultItems.ToggleTheme />
+            <MainMenu.DefaultItems.ChangeCanvasBackground />
             <MainMenu.Separator />
             <MainMenu.Item onSelect={() => excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" })}>
               Toggle AI Assistant
