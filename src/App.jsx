@@ -137,6 +137,7 @@ function App() {
     return saved !== "false";
   });
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem("drawerator_sidebar_width");
     return saved ? parseInt(saved, 10) : 380;
@@ -763,7 +764,7 @@ function App() {
   return (
     <div 
       id="root" 
-      className={`${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"}`}
+      className={`${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${isSidebarOpen ? "sidebar-open" : ""}`}
       style={{ "--sidebar-width": `${sidebarWidth}px` }}
     >
       {/* Excalidraw Canvas Area */}
@@ -792,6 +793,8 @@ function App() {
             ) {
               lastNonTransparentColorRef.current = appState.viewBackgroundColor;
             }
+            // Track if AI sidebar is open
+            setIsSidebarOpen(appState.activeSidebar === "ai-sidebar");
           }}
           renderTopRightUI={() => (
             <div className="drawerator-top-right-wrapper">

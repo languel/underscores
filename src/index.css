@@ -503,6 +503,11 @@ body, html {
   color: var(--color-primary);
 }
 
+/* Shift Exit Satori Mode button to the left of the AI sidebar when open */
+.sidebar-open #btn-exit-satori {
+  right: calc(12px + var(--sidebar-width, 380px));
+}
+
 /* --- BRAND ACCENT OVERRIDES (5% SATURATED CYAN) --- */
 body .excalidraw {
   --color-primary: hsl(190, 5%, 45%) !important;
