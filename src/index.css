@@ -588,3 +588,12 @@ body .excalidraw #command-palette-overlay {
   background-color: var(--button-hover-bg, rgba(255, 255, 255, 0.05));
 }
 
+/* Hide Library text label, keeping only the icon */
+.excalidraw .sidebar-trigger,
+.excalidraw .layer-ui__library-button,
+.excalidraw .ToolIcon__library {
+  font-size: 0 !important;
+  gap: 0 !important;
+}
+
+

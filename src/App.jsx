@@ -126,11 +126,11 @@ function App() {
   const [satoriMode, setSatoriMode] = useState(true);
   const [showToolbarHints, setShowToolbarHints] = useState(() => {
     const saved = localStorage.getItem("drawerator_show_toolbar_hints");
-    return saved !== "false";
+    return saved === "true";
   });
   const [showBottomNotifications, setShowBottomNotifications] = useState(() => {
     const saved = localStorage.getItem("drawerator_show_bottom_notifications");
-    return saved !== "false";
+    return saved === "true";
   });
   
   // Chat States
@@ -881,7 +881,7 @@ function App() {
           <Sidebar name="ai-sidebar" docked={sidebarDocked} onDock={setSidebarDocked}>
             <Sidebar.Header>
               <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px" }}>
-                <span style={{ fontWeight: 600, fontSize: "14px", fontFamily: "var(--font-title)" }}>Drawerator AI</span>
+                <span />
                 <div style={{ display: "flex", gap: "6px" }}>
                   <button className="header-btn" onClick={clearChat} title="Reset chat history">
                     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
