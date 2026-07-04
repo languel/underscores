@@ -578,13 +578,19 @@ function App() {
           let nextColor;
           if (isTransparent) {
             nextColor = makeColorOpaque(appState.viewBackgroundColor, lastNonTransparentColorRef.current);
-            if (theme === "dark" && nextColor === "#ffffff") {
+            if (theme === "dark" && (nextColor.toLowerCase() === "#ffffff" || nextColor.toLowerCase() === "#fff")) {
               nextColor = "#121212";
-            } else if (theme === "light" && nextColor === "#121212") {
+            } else if (theme === "light" && nextColor.toLowerCase() === "#121212") {
               nextColor = "#ffffff";
             }
           } else {
-            nextColor = makeColorTransparent(appState.viewBackgroundColor);
+            let baseColor = appState.viewBackgroundColor || (theme === "dark" ? "#121212" : "#ffffff");
+            if (theme === "dark" && (baseColor.toLowerCase() === "#ffffff" || baseColor.toLowerCase() === "#fff")) {
+              baseColor = "#121212";
+            } else if (theme === "light" && baseColor.toLowerCase() === "#121212") {
+              baseColor = "#ffffff";
+            }
+            nextColor = makeColorTransparent(baseColor);
           }
           
           excalidrawAPI.updateScene({
@@ -728,11 +734,15 @@ function App() {
             if (appState.theme && appState.theme !== theme) {
               setTheme(appState.theme);
             }
-            if (
+             if (
               appState.viewBackgroundColor &&
               !isColorTransparent(appState.viewBackgroundColor)
             ) {
-              lastNonTransparentColorRef.current = appState.viewBackgroundColor;
+              const color = appState.viewBackgroundColor.toLowerCase();
+              if (!(theme === "dark" && (color === "#ffffff" || color === "#fff")) &&
+                  !(theme === "light" && color === "#121212")) {
+                lastNonTransparentColorRef.current = appState.viewBackgroundColor;
+              }
             }
           }}
           renderTopRightUI={() => (
