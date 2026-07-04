@@ -124,6 +124,14 @@ function App() {
   const [commandSearch, setCommandSearch] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [satoriMode, setSatoriMode] = useState(true);
+  const [showToolbarHints, setShowToolbarHints] = useState(() => {
+    const saved = localStorage.getItem("drawerator_show_toolbar_hints");
+    return saved !== "false";
+  });
+  const [showBottomNotifications, setShowBottomNotifications] = useState(() => {
+    const saved = localStorage.getItem("drawerator_show_bottom_notifications");
+    return saved !== "false";
+  });
   
   // Chat States
   const [chatHistory, setChatHistory] = useState([
@@ -708,7 +716,7 @@ function App() {
   };
 
   return (
-    <div id="root" className={satoriMode ? "satori-mode" : ""}>
+    <div id="root" className={`${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"}`}>
       {/* Excalidraw Canvas Area */}
       <div id="canvas-container" style={{ width: "100%", height: "100%", position: "relative" }}>
         <Excalidraw 
@@ -775,6 +783,75 @@ function App() {
             <MainMenu.Separator />
             <MainMenu.DefaultItems.ToggleTheme />
             <MainMenu.DefaultItems.ChangeCanvasBackground />
+            <MainMenu.Separator />
+            <MainMenu.ItemCustom>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  width: "100%",
+                  padding: "10px 16px",
+                  cursor: "pointer",
+                  color: "var(--popup-text-color)",
+                  fontSize: "14px",
+                  fontFamily: "var(--font-sans)",
+                  transition: "background-color 0.2s"
+                }}
+                className="dropdown-menu-item-custom"
+                onClick={(e) => {
+                  e.stopPropagation();
+                }}
+              >
+                <span>Show Toolbar Hints</span>
+                <input 
+                  type="checkbox" 
+                  checked={showToolbarHints} 
+                  onChange={(e) => {
+                    setShowToolbarHints(e.target.checked);
+                    localStorage.setItem("drawerator_show_toolbar_hints", e.target.checked);
+                  }}
+                  style={{
+                    cursor: "pointer",
+                    accentColor: "var(--color-primary)"
+                  }}
+                />
+              </label>
+            </MainMenu.ItemCustom>
+            <MainMenu.ItemCustom>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  width: "100%",
+                  padding: "10px 16px",
+                  cursor: "pointer",
+                  color: "var(--popup-text-color)",
+                  fontSize: "14px",
+                  fontFamily: "var(--font-sans)",
+                  transition: "background-color 0.2s"
+                }}
+                className="dropdown-menu-item-custom"
+                onClick={(e) => {
+                  e.stopPropagation();
+                }}
+              >
+                <span>Show Bottom Alerts</span>
+                <input 
+                  type="checkbox" 
+                  checked={showBottomNotifications} 
+                  onChange={(e) => {
+                    setShowBottomNotifications(e.target.checked);
+                    localStorage.setItem("drawerator_show_bottom_notifications", e.target.checked);
+                  }}
+                  style={{
+                    cursor: "pointer",
+                    accentColor: "var(--color-primary)"
+                  }}
+                />
+              </label>
+            </MainMenu.ItemCustom>
             <MainMenu.Separator />
             <MainMenu.Item onSelect={() => excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" })}>
               Toggle AI Assistant

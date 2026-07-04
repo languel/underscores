@@ -566,3 +566,25 @@ body .excalidraw #settings-overlay,
 body .excalidraw #command-palette-overlay {
   --color-primary: var(--popup-text-color) !important;
 }
+
+/* Custom Visibility Toggles */
+.hide-toolbar-hints .HintViewer {
+  display: none !important;
+}
+
+.hide-bottom-notifications .scroll-back-to-content,
+.hide-bottom-notifications .excalidraw-toast {
+  display: none !important;
+}
+
+/* Custom Dropdown Menu Item Styling */
+.dropdown-menu-item-custom {
+  border-radius: 4px;
+}
+.dropdown-menu-item-custom:hover {
+  background-color: var(--button-hover-bg, rgba(0, 0, 0, 0.05));
+}
+.theme--dark .dropdown-menu-item-custom:hover {
+  background-color: var(--button-hover-bg, rgba(255, 255, 255, 0.05));
+}
+
