@@ -1124,6 +1124,27 @@ function App() {
                     )}
                   </div>
 
+                  {connectionStatus === "error" && (
+                    <div style={{
+                      marginTop: "15px",
+                      padding: "10px",
+                      background: "rgba(255, 0, 0, 0.08)",
+                      border: "1px solid rgba(255, 0, 0, 0.15)",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      lineHeight: "1.4",
+                      color: "var(--color-primary)",
+                      fontFamily: "var(--font-sans)"
+                    }}>
+                      <strong style={{ color: "#e06c75", display: "block", marginBottom: "4px" }}>CORS / Connection Troubleshooting:</strong>
+                      If you are running the app via <code>file://</code> or a hosted domain, your browser will block local backend connections unless CORS is enabled:
+                      <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+                        <li style={{ marginBottom: "4px" }}><strong>Ollama:</strong> Run Ollama with the environment variable <code>OLLAMA_ORIGINS="*"</code>. On macOS, run <code>launchctl setenv OLLAMA_ORIGINS "*"</code> in terminal, restart the Ollama app, and refresh this page.</li>
+                        <li><strong>LM Studio:</strong> Turn on the <strong>Enable CORS</strong> setting in the LM Studio local server tab.</li>
+                      </ul>
+                    </div>
+                  )}
+
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "24px" }}>
                     <div className="status-indicator">
                       <span className={`status-dot ${connectionStatus}`}></span>
