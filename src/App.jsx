@@ -636,6 +636,12 @@ function App() {
         e.stopPropagation();
         setShowSettings(prev => !prev);
       }
+      // Ctrl + Option + A (Toggle AI Chat Panel)
+      if (e.ctrlKey && e.altKey && e.code === "KeyA") {
+        e.preventDefault();
+        e.stopPropagation();
+        excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" });
+      }
       // [ and ] shortcuts to increase/decrease stroke width for pen and line
       if ((e.key === "[" || e.key === "]") && excalidrawAPI) {
         const activeEl = document.activeElement;
@@ -973,8 +979,65 @@ function App() {
               onMouseDown={handleSidebarResizeMouseDown}
             />
             <Sidebar.Header>
-              <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px" }}>
-                <span />
+              <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px", gap: "10px" }}>
+                {/* Model Selector Pill */}
+                <div style={{ 
+                  display: "flex", 
+                  alignItems: "center", 
+                  gap: "4px",
+                  background: "var(--button-hover-bg, rgba(0, 0, 0, 0.05))",
+                  padding: "4px 8px 4px 6px",
+                  borderRadius: "12px",
+                  cursor: "pointer",
+                  position: "relative",
+                  overflow: "hidden"
+                }}>
+                  <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" style={{ color: "var(--color-secondary)", flexShrink: 0 }}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                  <select 
+                    value={aiSettings.model} 
+                    onChange={(e) => {
+                      const updated = { ...aiSettings, model: e.target.value };
+                      setAiSettings(updated);
+                      localStorage.setItem("drawerator_ai_settings", JSON.stringify(updated));
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      fontSize: "11px",
+                      fontWeight: "600",
+                      color: "var(--color-secondary)",
+                      cursor: "pointer",
+                      outline: "none",
+                      padding: "0 10px 0 0",
+                      margin: 0,
+                      width: "auto",
+                      maxWidth: "150px",
+                      appearance: "none",
+                      WebkitAppearance: "none",
+                      MozAppearance: "none"
+                    }}
+                  >
+                    {modelsList.length > 0 ? (
+                      modelsList.map((m, idx) => (
+                        <option key={idx} value={m} style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>{m}</option>
+                      ))
+                    ) : (
+                      <option value="" style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>{aiSettings.model || "Select Model"}</option>
+                    )}
+                  </select>
+                  {/* Custom tiny down arrow */}
+                  <span style={{ 
+                    position: "absolute", 
+                    right: "6px", 
+                    top: "50%", 
+                    transform: "translateY(-50%)", 
+                    fontSize: "7px", 
+                    color: "var(--color-secondary)",
+                    pointerEvents: "none"
+                  }}>▼</span>
+                </div>
                 <div style={{ display: "flex", gap: "6px" }}>
                   <button className="header-btn" onClick={clearChat} title="Reset chat history">
                     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -1056,68 +1119,9 @@ function App() {
                 
                 <div style={{
                   display: "flex",
-                  justifyContent: "space-between",
+                  justifyContent: "flex-end",
                   alignItems: "center"
                 }}>
-                  {/* Model Selector Pill */}
-                  <div style={{ 
-                    display: "flex", 
-                    alignItems: "center", 
-                    gap: "4px",
-                    background: "var(--button-hover-bg, rgba(0, 0, 0, 0.05))",
-                    padding: "4px 8px 4px 6px",
-                    borderRadius: "12px",
-                    cursor: "pointer",
-                    position: "relative",
-                    overflow: "hidden"
-                  }}>
-                    <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" style={{ color: "var(--color-secondary)", flexShrink: 0 }}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                    </svg>
-                    <select 
-                      value={aiSettings.model} 
-                      onChange={(e) => {
-                        const updated = { ...aiSettings, model: e.target.value };
-                        setAiSettings(updated);
-                        localStorage.setItem("drawerator_ai_settings", JSON.stringify(updated));
-                      }}
-                      style={{
-                        background: "transparent",
-                        border: "none",
-                        fontSize: "11px",
-                        fontWeight: "600",
-                        color: "var(--color-secondary)",
-                        cursor: "pointer",
-                        outline: "none",
-                        padding: "0 10px 0 0",
-                        margin: 0,
-                        width: "auto",
-                        maxWidth: "150px",
-                        appearance: "none",
-                        WebkitAppearance: "none",
-                        MozAppearance: "none"
-                      }}
-                    >
-                      {modelsList.length > 0 ? (
-                        modelsList.map((m, idx) => (
-                          <option key={idx} value={m} style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>{m}</option>
-                        ))
-                      ) : (
-                        <option value="" style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>{aiSettings.model || "Select Model"}</option>
-                      )}
-                    </select>
-                    {/* Custom tiny down arrow */}
-                    <span style={{ 
-                      position: "absolute", 
-                      right: "6px", 
-                      top: "50%", 
-                      transform: "translateY(-50%)", 
-                      fontSize: "7px", 
-                      color: "var(--color-secondary)",
-                      pointerEvents: "none"
-                    }}>▼</span>
-                  </div>
-
                   {/* Send Button */}
                   <button 
                     id="chat-send-btn" 
