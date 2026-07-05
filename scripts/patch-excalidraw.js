@@ -29,7 +29,10 @@ for (const target of targets) {
       .replace(/3530c4/gi, '555555')
       .replace(/5e5ad8/gi, '6d7374')
       // Selection bounding box and frame highlight color overrides
-      .replace(/rgb\(0,\s*118,\s*255\)/gi, 'rgb(120, 125, 126)');
+      .replace(/rgb\(0,\s*118,\s*255\)/gi, 'rgb(120, 125, 126)')
+      // Replace deprecated unload event with pagehide to satisfy browser policies
+      .replace(/(EVENT\\?\[\\?["']UNLOAD\\?["']\\?\]\s*=\s*)(\\?["'])unload\2/gi, '$1$2pagehide$2')
+      .replace(/(\bUNLOAD\s*=\s*)(\\?["'])unload\2/gi, '$1$2pagehide$2');
 
     if (content !== initialContent) {
       fs.writeFileSync(target, content, "utf8");
