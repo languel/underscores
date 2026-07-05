@@ -320,11 +320,11 @@ body, html {
 
 /* Force specific ordering around Excalidraw's library button (.sidebar-trigger or generic buttons) */
 .excalidraw .layer-ui__wrapper__top-right > .sidebar-trigger,
-.excalidraw .layer-ui__wrapper__top-right > button:not(#btn-theme-header):not(#btn-chat-header) {
+.excalidraw .layer-ui__wrapper__top-right > button:not(#btn-brush-header):not(#btn-chat-header) {
   order: 2 !important;
 }
 
-#btn-theme-header {
+#btn-brush-header {
   order: 1 !important;
   width: var(--default-button-size, 36px) !important;
   height: var(--default-button-size, 36px) !important;
@@ -337,6 +337,12 @@ body, html {
   justify-content: center !important;
   cursor: pointer !important;
   transition: all var(--transition-fast) !important;
+}
+
+#btn-brush-header.active {
+  background-color: var(--button-selected-bg, #6965db) !important;
+  border-color: var(--button-selected-border, #6965db) !important;
+  color: var(--color-btn-text, #ffffff) !important;
 }
 
 #btn-chat-header {
@@ -354,7 +360,22 @@ body, html {
   transition: all var(--transition-fast) !important;
 }
 
-#btn-theme-header:hover, #btn-chat-header:hover {
+.theme-btn-top-left {
+  width: var(--default-button-size, 36px) !important;
+  height: var(--default-button-size, 36px) !important;
+  border-radius: var(--border-radius-lg, 8px) !important;
+  border: 1px solid var(--border-color) !important;
+  background-color: var(--island-bg-color) !important;
+  color: var(--color-primary) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transition: all var(--transition-fast) !important;
+  outline: none !important;
+}
+
+#btn-brush-header:hover, #btn-chat-header:hover, .theme-btn-top-left:hover {
   background-color: var(--button-hover-bg) !important;
   border-color: var(--border-focus) !important;
 }
