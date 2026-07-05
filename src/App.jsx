@@ -125,6 +125,76 @@ const cleanApiUrl = (url, provider) => {
   return clean;
 };
 
+const customBrushes = {
+  hairy: {
+    name: "Hairy Brush (Calligraphy / Hatching)",
+    generator: (points) => {
+      const lines = [];
+      lines.push(points);
+      for (let i = 1; i < points.length; i += 2) {
+        const [x1, y1] = points[i - 1];
+        const [x2, y2] = points[i];
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len > 0) {
+          const nx = -dy / len * 20;
+          const ny = dx / len * 20;
+          lines.push([[x2, y2], [x2 + nx, y2 + ny]]);
+        }
+      }
+      return lines;
+    }
+  },
+  ribbon: {
+    name: "Ribbon Brush (Parallel Tracks)",
+    generator: (points) => {
+      const lines = [];
+      const leftSide = [];
+      const rightSide = [];
+      for (let i = 1; i < points.length; i++) {
+        const [x1, y1] = points[i - 1];
+        const [x2, y2] = points[i];
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len > 0) {
+          const nx = -dy / len * 12;
+          const ny = dx / len * 12;
+          leftSide.push([x2 + nx, y2 + ny]);
+          rightSide.push([x2 - nx, y2 - ny]);
+        }
+      }
+      lines.push(points);
+      if (leftSide.length > 0) lines.push(leftSide);
+      if (rightSide.length > 0) lines.push(rightSide);
+      return lines;
+    }
+  },
+  sketchy: {
+    name: "Sketchy Multi-line (Parallel offsets)",
+    generator: (points) => {
+      const lines = [];
+      lines.push(points);
+      lines.push(points.map(([x, y]) => [x + 3, y + 2]));
+      lines.push(points.map(([x, y]) => [x - 2, y - 3]));
+      return lines;
+    }
+  }
+};
+
+const compileUserBrush = (code) => {
+  try {
+    const fn = new Function("return (" + code + ")")();
+    if (typeof fn === "function") {
+      return { generator: fn, error: "" };
+    }
+    return { generator: null, error: "Code must return a function." };
+  } catch (err) {
+    return { generator: null, error: err.message || "Compilation error." };
+  }
+};
+
 function App() {
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
@@ -157,7 +227,57 @@ function App() {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem("drawerator_sidebar_width");
     return saved ? parseInt(saved, 10) : 380;
+  });  const [activeBrush, setActiveBrush] = useState(() => localStorage.getItem("drawerator_active_brush") || "normal");
+  const [customBrushCode, setCustomBrushCode] = useState(() => {
+    return localStorage.getItem("drawerator_custom_brush_code") || `// Write a function that takes an array of absolute points: [x, y][]
+// and returns an array of lines: [x, y][][]
+(points) => {
+  const lines = [];
+  
+  // 1. Draw the original path
+  lines.push(points);
+  
+  // 2. Add perpendicular brush offsets (calligraphy or hair effect)
+  for (let i = 1; i < points.length; i++) {
+    const [x1, y1] = points[i - 1];
+    const [x2, y2] = points[i];
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    
+    if (len > 0) {
+      // Calculate perpendicular direction vector
+      const nx = -dy / len * 15;
+      const ny = dx / len * 15;
+      
+      // Add a line segment sticking out from the main path
+      lines.push([
+        [x2, y2],
+        [x2 + nx, y2 + ny]
+      ]);
+    }
+  }
+  
+  return lines;
+}`;
   });
+  const [brushCompileError, setBrushCompileError] = useState("");
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_active_brush", activeBrush);
+  }, [activeBrush]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_custom_brush_code", customBrushCode);
+    
+    // Live validation
+    if (activeBrush === "custom") {
+      const res = compileUserBrush(customBrushCode);
+      setBrushCompileError(res.error);
+    } else {
+      setBrushCompileError("");
+    }
+  }, [customBrushCode, activeBrush]);
 
   const handleSidebarResizeMouseDown = (e) => {
     e.preventDefault();
@@ -172,6 +292,113 @@ function App() {
     };
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
+  };
+  
+  const handleCanvasPointerUp = () => {
+    if (!excalidrawAPI || activeBrush === "normal") return;
+
+    // Wait a brief tick for Excalidraw to finish writing the element
+    setTimeout(() => {
+      try {
+        const elements = excalidrawAPI.getSceneElements();
+        if (!elements || elements.length === 0) return;
+
+        // Find the last added freedraw element that hasn't been processed yet
+        const lastElement = elements[elements.length - 1];
+        if (
+          lastElement &&
+          lastElement.type === "freedraw" &&
+          !lastElement.isDeleted &&
+          !lastElement.__processed
+        ) {
+          // Check if the element has enough points to draw (at least 2 points)
+          if (!lastElement.points || lastElement.points.length < 2) return;
+
+          // Mark it as processed so we don't process it multiple times
+          lastElement.__processed = true;
+
+          let generator = null;
+          if (activeBrush === "custom") {
+            const res = compileUserBrush(customBrushCode);
+            if (res.generator) {
+              generator = res.generator;
+            }
+          } else if (customBrushes[activeBrush]) {
+            generator = customBrushes[activeBrush].generator;
+          }
+
+          if (generator) {
+            // Convert points relative to element.x and element.y to absolute coordinates
+            const absolutePoints = lastElement.points.map(([px, py]) => [
+              lastElement.x + px,
+              lastElement.y + py
+            ]);
+
+            // Execute the brush algorithm to get list of lines
+            let newLines = [];
+            try {
+              newLines = generator(absolutePoints);
+            } catch (err) {
+              console.error("Custom brush execution failed:", err);
+              // Fall back to original points
+              newLines = [absolutePoints];
+            }
+
+            if (!Array.isArray(newLines) || newLines.length === 0) return;
+
+            const baseId = lastElement.id;
+            const groupId = `${baseId}-group`;
+
+            const generatedElements = newLines.map((linePoints, idx) => {
+              if (!Array.isArray(linePoints) || linePoints.length < 1) return null;
+              
+              // Find starting coordinate
+              const [startX, startY] = linePoints[0];
+              const relativePoints = linePoints.map(([lx, ly]) => [
+                lx - startX,
+                ly - startY
+              ]);
+
+              return {
+                type: "line",
+                x: startX,
+                y: startY,
+                points: relativePoints,
+                strokeColor: lastElement.strokeColor,
+                strokeWidth: lastElement.strokeWidth,
+                backgroundColor: lastElement.backgroundColor,
+                roughness: 0, // Solid clean lines look best for custom math lines
+                roundness: { type: 2 }, // smooth corners
+                opacity: lastElement.opacity,
+                groupIds: [groupId],
+                id: `${baseId}-brush-${idx}`,
+                seed: Math.floor(Math.random() * 1000000),
+                version: 1,
+                versionNonce: Math.floor(Math.random() * 1000000),
+                isDeleted: false,
+                updated: Date.now()
+              };
+            }).filter(Boolean);
+
+            if (generatedElements.length === 0) return;
+
+            // soft delete original element and append new ones
+            const nextElements = elements.map(el => {
+              if (el.id === lastElement.id) {
+                return { ...el, isDeleted: true };
+              }
+              return el;
+            }).concat(generatedElements);
+
+            excalidrawAPI.updateScene({
+              elements: nextElements
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Error processing custom brush:", err);
+      }
+    }, 80);
   };
   
   // Chat States
@@ -1098,7 +1325,7 @@ function App() {
       style={{ "--sidebar-width": `${sidebarWidth}px` }}
     >
       {/* Excalidraw Canvas Area */}
-      <div id="canvas-container" style={{ width: "100%", height: "100%", position: "relative" }}>
+      <div id="canvas-container" onPointerUp={handleCanvasPointerUp} style={{ width: "100%", height: "100%", position: "relative" }}>
         <Excalidraw 
           theme={theme} 
           excalidrawAPI={(api) => setExcalidrawAPI(api)} 
@@ -1825,9 +2052,24 @@ function App() {
                 >
                   Board Preferences
                 </button>
+                <button
+                  onClick={() => setActiveSettingsTab("brush")}
+                  style={{
+                    background: activeSettingsTab === "brush" ? "var(--color-accent)" : "transparent",
+                    color: activeSettingsTab === "brush" ? "var(--color-btn-text)" : "var(--color-primary)",
+                    border: "1px solid var(--border-color)",
+                    borderRadius: "6px",
+                    padding: "6px 12px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    cursor: "pointer"
+                  }}
+                >
+                  Brush Lab 🧪
+                </button>
               </div>
               
-              {activeSettingsTab === "ai" ? (
+              {activeSettingsTab === "ai" && (
                 <>
                   <div className="settings-row">
                     <label>API Provider</label>
@@ -1921,7 +2163,8 @@ function App() {
                     </button>
                   </div>
                 </>
-              ) : (
+              )}
+              {activeSettingsTab === "preferences" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                   <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <label style={{ margin: 0, cursor: "pointer" }}>Force Desktop Layout</label>
@@ -2018,6 +2261,136 @@ function App() {
                       </>
                     );
                   })()}
+                </div>
+              )}
+              {activeSettingsTab === "brush" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <div className="settings-row">
+                    <label>Active Brush Algorithm</label>
+                    <select
+                      value={activeBrush}
+                      onChange={(e) => setActiveBrush(e.target.value)}
+                      style={{ width: "100%" }}
+                    >
+                      <option value="normal">Normal Excalidraw Brush (Default)</option>
+                      <option value="hairy">Hairy Brush (Calligraphy / Hatching)</option>
+                      <option value="ribbon">Ribbon Brush (Parallel Tracks)</option>
+                      <option value="sketchy">Sketchy Multi-line (Parallel Offsets)</option>
+                      <option value="custom">Custom Brush (Write Your Own)</option>
+                    </select>
+                  </div>
+
+                  {activeBrush === "custom" && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <label style={{ fontSize: "12px", fontWeight: "600" }}>JavaScript Line Algorithm</label>
+                        <button
+                          onClick={() => {
+                            if (window.confirm("Reset custom brush code to default template?")) {
+                              setCustomBrushCode(`// Write a function that takes an array of absolute points: [x, y][]
+// and returns an array of lines: [x, y][][]
+(points) => {
+  const lines = [];
+  
+  // 1. Draw the original path
+  lines.push(points);
+  
+  // 2. Add perpendicular brush offsets (calligraphy or hair effect)
+  for (let i = 1; i < points.length; i++) {
+    const [x1, y1] = points[i - 1];
+    const [x2, y2] = points[i];
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    
+    if (len > 0) {
+      const nx = -dy / len * 15;
+      const ny = dx / len * 15;
+      lines.push([
+        [x2, y2],
+        [x2 + nx, y2 + ny]
+      ]);
+    }
+  }
+  
+  return lines;
+}`);
+                            }
+                          }}
+                          style={{
+                            fontSize: "11px",
+                            padding: "3px 8px",
+                            background: "transparent",
+                            border: "1px solid var(--border-color)",
+                            borderRadius: "4px",
+                            color: "var(--color-primary)",
+                            cursor: "pointer"
+                          }}
+                        >
+                          Reset Template
+                        </button>
+                      </div>
+
+                      <textarea
+                        value={customBrushCode}
+                        onChange={(e) => setCustomBrushCode(e.target.value)}
+                        style={{
+                          fontFamily: "monospace",
+                          minHeight: "180px",
+                          width: "100%",
+                          background: "var(--color-bg-hover)",
+                          color: "var(--color-primary)",
+                          border: "1px solid var(--border-color)",
+                          borderRadius: "6px",
+                          padding: "8px",
+                          fontSize: "11px",
+                          resize: "vertical",
+                          outline: "none",
+                          lineHeight: "1.4"
+                        }}
+                        spellCheck="false"
+                      />
+
+                      {brushCompileError ? (
+                        <div style={{
+                          padding: "8px 12px",
+                          background: "rgba(255, 0, 0, 0.08)",
+                          border: "1px solid rgba(255, 0, 0, 0.15)",
+                          borderRadius: "6px",
+                          color: "#e06c75",
+                          fontSize: "12px",
+                          fontFamily: "monospace",
+                          whiteSpace: "pre-wrap"
+                        }}>
+                          ❌ Compilation Error: {brushCompileError}
+                        </div>
+                      ) : (
+                        <div style={{
+                          padding: "6px 12px",
+                          background: "rgba(0, 255, 0, 0.08)",
+                          border: "1px solid rgba(0, 255, 0, 0.15)",
+                          borderRadius: "6px",
+                          color: "#98c379",
+                          fontSize: "12px",
+                          fontWeight: "500"
+                        }}>
+                          ✅ Compiled successfully! Ready to draw.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div style={{
+                    marginTop: "10px",
+                    padding: "10px",
+                    background: "var(--color-bg-hover)",
+                    borderRadius: "6px",
+                    fontSize: "12px",
+                    color: "var(--color-secondary)",
+                    lineHeight: "1.4"
+                  }}>
+                    💡 <strong>How to draw:</strong> Make sure you have the <strong>Pencil/Freedraw tool</strong> active on the canvas toolbar. When you finish drawing a line, the system will apply your algorithm to generate custom strokes.
+                  </div>
                 </div>
               )}
             </div>
