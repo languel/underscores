@@ -976,6 +976,65 @@ function App() {
     }
   }, [showCommandPalette]);
 
+  const getExcalidrawInstance = () => {
+    const container = document.querySelector(".excalidraw-container");
+    if (!container) return null;
+    
+    const fiberKey = Object.keys(container).find(
+      (key) => key.startsWith("__reactFiber$") || key.startsWith("__reactInternalInstance$")
+    );
+    if (!fiberKey) return null;
+    
+    let fiber = container[fiberKey];
+    while (fiber) {
+      if (fiber.stateNode && typeof fiber.stateNode.isMobileBreakpoint === "function") {
+        return fiber.stateNode;
+      }
+      fiber = fiber.return;
+    }
+    return null;
+  };
+
+  const applyForceDesktopOverride = () => {
+    try {
+      const instance = getExcalidrawInstance();
+      if (!instance) return;
+      
+      if (!instance.__originalIsMobileBreakpoint) {
+        instance.__originalIsMobileBreakpoint = instance.isMobileBreakpoint;
+      }
+      
+      if (forceDesktopLayout) {
+        instance.isMobileBreakpoint = () => false;
+        if (instance.device) {
+          instance.device = {
+            ...instance.device,
+            viewport: { ...instance.device.viewport, isMobile: false },
+            editor: { ...instance.device.editor, isMobile: false }
+          };
+        }
+      } else {
+        if (instance.__originalIsMobileBreakpoint) {
+          instance.isMobileBreakpoint = instance.__originalIsMobileBreakpoint;
+        }
+      }
+      
+      // Force Excalidraw to refresh/re-render
+      instance.refresh();
+    } catch (err) {
+      console.error("Failed to apply layout override:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (excalidrawAPI) {
+      const timer = setTimeout(() => {
+        applyForceDesktopOverride();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [excalidrawAPI, forceDesktopLayout]);
+
   // Start with active pen tool when entering Satori Mode
   useEffect(() => {
     if (excalidrawAPI && satoriMode) {
@@ -1047,6 +1106,7 @@ function App() {
             }
           }}
           onChange={(elements, appState) => {
+            applyForceDesktopOverride();
             if (appState.theme && appState.theme !== theme) {
               setTheme(appState.theme);
             }
