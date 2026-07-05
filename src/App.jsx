@@ -387,24 +387,45 @@ function App() {
                 ly - startY
               ]);
 
+              const xCoords = relativePoints.map(p => p[0]);
+              const yCoords = relativePoints.map(p => p[1]);
+              const minX = Math.min(...xCoords);
+              const maxX = Math.max(...xCoords);
+              const minY = Math.min(...yCoords);
+              const maxY = Math.max(...yCoords);
+
               return {
                 type: "line",
                 x: startX,
                 y: startY,
                 points: relativePoints,
+                width: maxX - minX,
+                height: maxY - minY,
                 strokeColor: lastElement.strokeColor,
                 strokeWidth: lastElement.strokeWidth,
                 backgroundColor: lastElement.backgroundColor,
+                fillStyle: "solid",
+                strokeStyle: "solid",
                 roughness: 0, // Solid clean lines look best for custom math lines
                 roundness: { type: 2 }, // smooth corners
                 opacity: lastElement.opacity,
                 groupIds: [groupId],
                 id: `${baseId}-brush-${idx}`,
                 seed: Math.floor(Math.random() * 1000000),
-                version: 1,
+                version: 2,
                 versionNonce: Math.floor(Math.random() * 1000000),
                 isDeleted: false,
-                updated: Date.now()
+                updated: Date.now(),
+                angle: 0,
+                boundElements: null,
+                link: null,
+                locked: false,
+                frameId: null,
+                lastCommittedPoint: null,
+                startBinding: null,
+                endBinding: null,
+                startArrowhead: null,
+                endArrowhead: null
               };
             }).filter(Boolean);
 
