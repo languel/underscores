@@ -995,7 +995,7 @@ function App() {
     return null;
   };
 
-  const applyForceDesktopOverride = () => {
+  const applyForceDesktopOverride = (shouldRefresh = true) => {
     try {
       const instance = getExcalidrawInstance();
       if (!instance) return;
@@ -1004,23 +1004,30 @@ function App() {
         instance.__originalIsMobileBreakpoint = instance.isMobileBreakpoint;
       }
       
+      let changed = false;
       if (forceDesktopLayout) {
-        instance.isMobileBreakpoint = () => false;
-        if (instance.device) {
+        if (instance.isMobileBreakpoint.toString() !== "() => false") {
+          instance.isMobileBreakpoint = () => false;
+          changed = true;
+        }
+        if (instance.device && (instance.device.viewport.isMobile || instance.device.editor.isMobile)) {
           instance.device = {
             ...instance.device,
             viewport: { ...instance.device.viewport, isMobile: false },
             editor: { ...instance.device.editor, isMobile: false }
           };
+          changed = true;
         }
       } else {
-        if (instance.__originalIsMobileBreakpoint) {
+        if (instance.__originalIsMobileBreakpoint && instance.isMobileBreakpoint !== instance.__originalIsMobileBreakpoint) {
           instance.isMobileBreakpoint = instance.__originalIsMobileBreakpoint;
+          changed = true;
         }
       }
       
-      // Force Excalidraw to refresh/re-render
-      instance.refresh();
+      if (changed && shouldRefresh) {
+        instance.refresh();
+      }
     } catch (err) {
       console.error("Failed to apply layout override:", err);
     }
@@ -1029,7 +1036,7 @@ function App() {
   useEffect(() => {
     if (excalidrawAPI) {
       const timer = setTimeout(() => {
-        applyForceDesktopOverride();
+        applyForceDesktopOverride(true);
       }, 100);
       return () => clearTimeout(timer);
     }
@@ -1106,7 +1113,7 @@ function App() {
             }
           }}
           onChange={(elements, appState) => {
-            applyForceDesktopOverride();
+            applyForceDesktopOverride(false);
             if (appState.theme && appState.theme !== theme) {
               setTheme(appState.theme);
             }
