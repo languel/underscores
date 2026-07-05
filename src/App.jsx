@@ -1247,6 +1247,12 @@ function App() {
         e.stopPropagation();
         excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" });
       }
+      // Ctrl + Option + P (Toggle Custom Brush Panel)
+      if (e.ctrlKey && e.altKey && e.code === "KeyP") {
+        e.preventDefault();
+        e.stopPropagation();
+        excalidrawAPI?.toggleSidebar({ name: "brush-sidebar" });
+      }
       // [ and ] shortcuts to increase/decrease stroke width for pen and line
       if ((e.key === "[" || e.key === "]") && excalidrawAPI) {
         const activeEl = document.activeElement;
@@ -1318,20 +1324,20 @@ function App() {
   }, [showCommandPalette]);
 
   const getExcalidrawInstance = () => {
-    const container = document.querySelector(".excalidraw-container");
-    if (!container) return null;
-    
-    const fiberKey = Object.keys(container).find(
-      (key) => key.startsWith("__reactFiber$") || key.startsWith("__reactInternalInstance$")
-    );
-    if (!fiberKey) return null;
-    
-    let fiber = container[fiberKey];
-    while (fiber) {
-      if (fiber.stateNode && typeof fiber.stateNode.isMobileBreakpoint === "function") {
-        return fiber.stateNode;
+    try {
+      const container = document.getElementById("canvas-container");
+      const wrapper = container?.querySelector(".excalidraw");
+      const fiberKey = Object.keys(wrapper || {}).find(key => key.startsWith("__reactFiber$"));
+      const fiber = wrapper?.[fiberKey];
+      let current = fiber;
+      while (current) {
+        if (current.stateNode && current.stateNode.refresh && current.stateNode.isMobileBreakpoint) {
+          return current.stateNode;
+        }
+        current = current.return;
       }
-      fiber = fiber.return;
+    } catch (e) {
+      console.error("Failed to get Excalidraw instance:", e);
     }
     return null;
   };
@@ -1341,12 +1347,11 @@ function App() {
       const instance = getExcalidrawInstance();
       if (!instance) return;
       
-      if (!instance.__originalIsMobileBreakpoint) {
-        instance.__originalIsMobileBreakpoint = instance.isMobileBreakpoint;
-      }
-      
       let changed = false;
       if (forceDesktopLayout) {
+        if (!instance.__originalIsMobileBreakpoint) {
+          instance.__originalIsMobileBreakpoint = instance.isMobileBreakpoint;
+        }
         if (instance.isMobileBreakpoint.toString() !== "() => false") {
           instance.isMobileBreakpoint = () => false;
           changed = true;
@@ -1419,6 +1424,16 @@ function App() {
     const appState = excalidrawAPI.getAppState();
     if (appState.activeSidebar !== "ai-sidebar") {
       excalidrawAPI.toggleSidebar({ name: "ai-sidebar" });
+    }
+  };
+
+  const executeCommand = (cmd) => {
+    setShowCommandPalette(false);
+    if (cmd.id === "ask-ai") {
+      openAISidebar();
+      sendChatMessage(commandSearch);
+    } else {
+      cmd.action(excalidrawAPI);
     }
   };
 
@@ -1594,11 +1609,20 @@ function App() {
       {!satoriMode && !zenMode && (
         <div 
           className={`excalidraw theme--${theme}`} 
-          style={{ position: "absolute", left: "68px", top: "15px", zIndex: 5 }}
+          style={{ 
+            position: "absolute", 
+            left: "68px", 
+            top: "15px", 
+            zIndex: 5,
+            width: "36px",
+            height: "36px",
+            pointerEvents: "none"
+          }}
         >
           <button 
             id="btn-theme-header-left" 
             className="theme-btn-top-left"
+            style={{ pointerEvents: "auto" }}
             onClick={() => {
               const nextTheme = theme === "dark" ? "light" : "dark";
               setTheme(nextTheme);
