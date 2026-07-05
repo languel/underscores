@@ -125,61 +125,70 @@ const cleanApiUrl = (url, provider) => {
   return clean;
 };
 
-const customBrushes = {
+const PRESET_BRUSHES = {
   hairy: {
-    name: "Hairy Brush (Calligraphy / Hatching)",
-    generator: (points) => {
-      const lines = [];
-      lines.push(points);
-      for (let i = 1; i < points.length; i += 2) {
-        const [x1, y1] = points[i - 1];
-        const [x2, y2] = points[i];
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        if (len > 0) {
-          const nx = -dy / len * 20;
-          const ny = dx / len * 20;
-          lines.push([[x2, y2], [x2 + nx, y2 + ny]]);
-        }
-      }
-      return lines;
+    id: "hairy",
+    name: "Hairy Brush (Calligraphy)",
+    code: `(points) => {
+  const lines = [];
+  // 1. Draw the primary line
+  lines.push(points);
+  
+  // 2. Draw perpendicular hatching strokes along the path
+  for (let i = 1; i < points.length; i += 2) {
+    const [x1, y1] = points[i - 1];
+    const [x2, y2] = points[i];
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len > 0) {
+      const nx = -dy / len * 20;
+      const ny = dx / len * 20;
+      lines.push([[x2, y2], [x2 + nx, y2 + ny]]);
     }
+  }
+  return lines;
+}`
   },
   ribbon: {
-    name: "Ribbon Brush (Parallel Tracks)",
-    generator: (points) => {
-      const lines = [];
-      const leftSide = [];
-      const rightSide = [];
-      for (let i = 1; i < points.length; i++) {
-        const [x1, y1] = points[i - 1];
-        const [x2, y2] = points[i];
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        if (len > 0) {
-          const nx = -dy / len * 12;
-          const ny = dx / len * 12;
-          leftSide.push([x2 + nx, y2 + ny]);
-          rightSide.push([x2 - nx, y2 - ny]);
-        }
-      }
-      lines.push(points);
-      if (leftSide.length > 0) lines.push(leftSide);
-      if (rightSide.length > 0) lines.push(rightSide);
-      return lines;
+    id: "ribbon",
+    name: "Ribbon Brush (Double Track)",
+    code: `(points) => {
+  const lines = [];
+  const leftSide = [];
+  const rightSide = [];
+  
+  // Calculate parallel offsets on both sides of the line
+  for (let i = 1; i < points.length; i++) {
+    const [x1, y1] = points[i - 1];
+    const [x2, y2] = points[i];
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len > 0) {
+      const nx = -dy / len * 12;
+      const ny = dx / len * 12;
+      leftSide.push([x2 + nx, y2 + ny]);
+      rightSide.push([x2 - nx, y2 - ny]);
     }
+  }
+  lines.push(points);
+  if (leftSide.length > 0) lines.push(leftSide);
+  if (rightSide.length > 0) lines.push(rightSide);
+  return lines;
+}`
   },
   sketchy: {
-    name: "Sketchy Multi-line (Parallel offsets)",
-    generator: (points) => {
-      const lines = [];
-      lines.push(points);
-      lines.push(points.map(([x, y]) => [x + 3, y + 2]));
-      lines.push(points.map(([x, y]) => [x - 2, y - 3]));
-      return lines;
-    }
+    id: "sketchy",
+    name: "Sketchy Multi-line",
+    code: `(points) => {
+  const lines = [];
+  // Overlay 3 parallel lines with random/offset coordinates
+  lines.push(points);
+  lines.push(points.map(([x, y]) => [x + 3, y + 2]));
+  lines.push(points.map(([x, y]) => [x - 2, y - 3]));
+  return lines;
+}`
   }
 };
 
@@ -228,57 +237,120 @@ function App() {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem("drawerator_sidebar_width");
     return saved ? parseInt(saved, 10) : 380;
-  });  const [activeBrush, setActiveBrush] = useState(() => localStorage.getItem("drawerator_active_brush") || "normal");
-  const [customBrushCode, setCustomBrushCode] = useState(() => {
-    return localStorage.getItem("drawerator_custom_brush_code") || `// Write a function that takes an array of absolute points: [x, y][]
-// and returns an array of lines: [x, y][][]
-(points) => {
-  const lines = [];
-  
-  // 1. Draw the original path
-  lines.push(points);
-  
-  // 2. Add perpendicular brush offsets (calligraphy or hair effect)
-  for (let i = 1; i < points.length; i++) {
-    const [x1, y1] = points[i - 1];
-    const [x2, y2] = points[i];
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    
-    if (len > 0) {
-      // Calculate perpendicular direction vector
-      const nx = -dy / len * 15;
-      const ny = dx / len * 15;
-      
-      // Add a line segment sticking out from the main path
-      lines.push([
-        [x2, y2],
-        [x2 + nx, y2 + ny]
-      ]);
+  });  const [brushPalette, setBrushPalette] = useState(() => {
+    const saved = localStorage.getItem("drawerator_brush_palette");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("Failed to parse brush palette", e);
+      }
     }
-  }
-  
-  return lines;
-}`;
+    return [
+      { id: "hairy", name: "Hairy Brush (Calligraphy)", code: PRESET_BRUSHES.hairy.code, isPreset: true },
+      { id: "ribbon", name: "Ribbon Brush (Double Track)", code: PRESET_BRUSHES.ribbon.code, isPreset: true },
+      { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true }
+    ];
   });
-  const [brushCompileError, setBrushCompileError] = useState("");
 
-  useEffect(() => {
-    localStorage.setItem("drawerator_active_brush", activeBrush);
-  }, [activeBrush]);
+  const [activeBrushId, setActiveBrushId] = useState(() => {
+    return localStorage.getItem("drawerator_active_brush_id") || "normal";
+  });
 
-  useEffect(() => {
-    localStorage.setItem("drawerator_custom_brush_code", customBrushCode);
+  const [activeBrushCode, setActiveBrushCode] = useState(() => {
+    const id = localStorage.getItem("drawerator_active_brush_id") || "normal";
+    if (id === "normal") return "";
     
-    // Live validation
-    if (activeBrush === "custom") {
-      const res = compileUserBrush(customBrushCode);
-      setBrushCompileError(res.error);
-    } else {
-      setBrushCompileError("");
+    const savedPalette = localStorage.getItem("drawerator_brush_palette");
+    let currentPalette = [];
+    if (savedPalette) {
+      try { currentPalette = JSON.parse(savedPalette); } catch (e) {}
     }
-  }, [customBrushCode, activeBrush]);
+    if (!currentPalette || currentPalette.length === 0) {
+      currentPalette = [
+        { id: "hairy", name: "Hairy Brush (Calligraphy)", code: PRESET_BRUSHES.hairy.code, isPreset: true },
+        { id: "ribbon", name: "Ribbon Brush (Double Track)", code: PRESET_BRUSHES.ribbon.code, isPreset: true },
+        { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true }
+      ];
+    }
+    const brush = currentPalette.find(b => b.id === id);
+    return brush ? brush.code : "";
+  });
+
+  const [brushCompileError, setBrushCompileError] = useState("");
+  const compiledGeneratorRef = useRef(null);
+  const [brushSidebarDocked, setBrushSidebarDocked] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_brush_palette", JSON.stringify(brushPalette));
+  }, [brushPalette]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_active_brush_id", activeBrushId);
+    if (activeBrushId === "normal") {
+      setActiveBrushCode("");
+    } else {
+      const brush = brushPalette.find(b => b.id === activeBrushId);
+      if (brush) {
+        setActiveBrushCode(brush.code);
+      }
+    }
+  }, [activeBrushId, brushPalette]);
+
+  useEffect(() => {
+    if (activeBrushId === "normal") {
+      setBrushCompileError("");
+      compiledGeneratorRef.current = null;
+      return;
+    }
+    const res = compileUserBrush(activeBrushCode);
+    setBrushCompileError(res.error);
+    if (!res.error) {
+      compiledGeneratorRef.current = res.generator;
+    }
+  }, [activeBrushCode, activeBrushId]);
+
+  const saveBrushChanges = () => {
+    if (activeBrushId === "normal") return;
+    const brush = brushPalette.find(b => b.id === activeBrushId);
+    if (!brush) return;
+    if (brush.isPreset) {
+      saveBrushCopy();
+      return;
+    }
+    setBrushPalette(prev => prev.map(b => b.id === activeBrushId ? { ...b, code: activeBrushCode } : b));
+    alert("Changes saved successfully!");
+  };
+
+  const saveBrushCopy = () => {
+    const brush = brushPalette.find(b => b.id === activeBrushId) || {};
+    const defaultName = brush.name ? `Copy of ${brush.name.split(" (")[0]}` : "My Custom Brush";
+    const name = window.prompt("Enter name for the new brush:", defaultName);
+    if (!name || !name.trim()) return;
+    
+    const newId = `custom-${Date.now()}`;
+    const newBrush = {
+      id: newId,
+      name: name.trim(),
+      code: activeBrushCode,
+      isPreset: false
+    };
+    
+    setBrushPalette(prev => [...prev, newBrush]);
+    setActiveBrushId(newId);
+    setCustomBrushActive(true);
+  };
+
+  const deleteBrush = () => {
+    if (activeBrushId === "normal") return;
+    const brush = brushPalette.find(b => b.id === activeBrushId);
+    if (!brush || brush.isPreset) return;
+    
+    if (window.confirm(`Are you sure you want to delete "${brush.name}"?`)) {
+      setBrushPalette(prev => prev.filter(b => b.id !== activeBrushId));
+      setActiveBrushId("hairy");
+    }
+  };
 
   const [customBrushActive, setCustomBrushActive] = useState(false);
   const [showBrushMenu, setShowBrushMenu] = useState(false);
@@ -324,7 +396,7 @@ function App() {
   };
   
   const handleCanvasPointerUp = () => {
-    if (!excalidrawAPI || !customBrushActive || activeBrush === "normal") return;
+    if (!excalidrawAPI || !customBrushActive || activeBrushId === "normal") return;
 
     // Wait a brief tick for Excalidraw to finish writing the element
     setTimeout(() => {
@@ -346,15 +418,7 @@ function App() {
           // Mark it as processed so we don't process it multiple times
           lastElement.__processed = true;
 
-          let generator = null;
-          if (activeBrush === "custom") {
-            const res = compileUserBrush(customBrushCode);
-            if (res.generator) {
-              generator = res.generator;
-            }
-          } else if (customBrushes[activeBrush]) {
-            generator = customBrushes[activeBrush].generator;
-          }
+          const generator = compiledGeneratorRef.current;
 
           if (generator) {
             // Convert points relative to element.x and element.y to absolute coordinates
@@ -1358,13 +1422,164 @@ function App() {
     }
   };
 
-  const executeCommand = (cmd) => {
-    setShowCommandPalette(false);
-    if (cmd.id === "ask-ai") {
-      openAISidebar();
-      sendChatMessage(commandSearch);
+  const renderBrushConfigForm = (isSidebar) => {
+    const activeBrush = brushPalette.find(b => b.id === activeBrushId) || {};
+    
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "10px", height: "100%" }}>
+        {/* Header (only in flyout) */}
+        {!isSidebar && (
+          <div className="custom-brush-flyout-header">
+            <span className="custom-brush-flyout-title">Custom Brush Lab 🧪</span>
+            <div style={{ display: "flex", gap: "4px" }}>
+              <button 
+                onClick={() => {
+                  excalidrawAPI?.toggleSidebar({ name: "brush-sidebar" });
+                  setShowBrushMenu(false);
+                }}
+                className="custom-brush-dock-btn-compact"
+                title="Dock to Sidebar"
+                style={{ width: "24px", height: "24px", padding: 0 }}
+              >
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
+                </svg>
+              </button>
+              <button 
+                onClick={() => setShowBrushMenu(false)}
+                className="custom-brush-close-btn"
+                title="Close Settings"
+              >
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Brush Selector Dropdown */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+          <label style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-primary)", opacity: 0.8 }}>Select Brush Style</label>
+          <select
+            value={activeBrushId}
+            onChange={(e) => {
+              setActiveBrushId(e.target.value);
+              if (e.target.value !== "normal") {
+                setCustomBrushActive(true);
+              } else {
+                setCustomBrushActive(false);
+              }
+            }}
+            className="custom-brush-select"
+          >
+            <option value="normal" style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>Normal Pencil (Default)</option>
+            {brushPalette.map((brush) => (
+              <option key={brush.id} value={brush.id} style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>
+                {brush.name} {brush.isPreset ? "" : "⭐"}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Editor controls if not normal */}
+        {activeBrushId !== "normal" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px", flexGrow: isSidebar ? 1 : 0, minHeight: 0 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-primary)", opacity: 0.8 }}>
+                JS Line Algorithm Code
+              </span>
+            </div>
+
+            {/* Monospace Code Editor Textarea */}
+            <textarea
+              value={activeBrushCode}
+              onChange={(e) => setActiveBrushCode(e.target.value)}
+              className="custom-brush-textarea"
+              style={{
+                fontFamily: "monospace",
+                fontSize: "11px",
+                padding: "8px",
+                borderRadius: "6px",
+                border: "1px solid var(--border-color)",
+                background: "var(--input-bg-color, rgba(0, 0, 0, 0.05))",
+                color: "var(--color-primary)",
+                resize: isSidebar ? "vertical" : "none",
+                width: "100%",
+                height: isSidebar ? "350px" : "180px",
+                flexGrow: isSidebar ? 1 : 0,
+                outline: "none"
+              }}
+              spellCheck="false"
+            />
+
+            {/* Action buttons row */}
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "2px" }}>
+              {!activeBrush.isPreset && (
+                <button
+                  onClick={saveBrushChanges}
+                  className="palette-action-btn primary"
+                  title="Save changes to this custom brush code"
+                >
+                  Save Changes
+                </button>
+              )}
+              <button
+                onClick={saveBrushCopy}
+                className="palette-action-btn secondary"
+                title="Save this code as a new custom brush copy"
+              >
+                {activeBrush.isPreset ? "Save a Copy" : "Save Copy"}
+              </button>
+              {!activeBrush.isPreset && (
+                <button
+                  onClick={deleteBrush}
+                  className="palette-action-btn danger"
+                  title="Delete this custom brush"
+                >
+                  Delete
+                </button>
+              )}
+            </div>
+
+            {/* Compilation banner */}
+            {brushCompileError ? (
+              <div className="custom-brush-status-error" style={{ marginTop: "2px" }}>
+                <span>❌ Error compiling custom code:</span>
+                <span style={{ fontSize: "10px", whiteSpace: "pre-wrap" }}>{brushCompileError}</span>
+              </div>
+            ) : (
+              <div className="custom-brush-status-success" style={{ marginTop: "2px" }}>
+                <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <span>Compiled successfully!</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{
+          fontSize: "10px",
+          color: "var(--color-secondary)",
+          lineHeight: "1.4",
+          borderTop: "1px solid var(--border-color)",
+          paddingTop: "6px",
+          marginTop: "4px"
+        }}>
+          ✏️ Make sure to use the <strong>Pencil tool</strong> to draw while custom brush is active.
+        </div>
+      </div>
+    );
+  };
+
+  const handleDockSettingsClick = () => {
+    const appState = excalidrawAPI?.getAppState() || {};
+    if (appState.activeSidebar === "brush-sidebar") {
+      excalidrawAPI.toggleSidebar({ name: "brush-sidebar" });
     } else {
-      cmd.action(excalidrawAPI);
+      excalidrawAPI.toggleSidebar({ name: "brush-sidebar" });
+      setShowBrushMenu(false);
     }
   };
 
@@ -1398,12 +1613,22 @@ function App() {
              if (
               appState.viewBackgroundColor &&
               !isColorTransparent(appState.viewBackgroundColor)
-            ) {
+             ) {
               lastNonTransparentColorRef.current = appState.viewBackgroundColor;
             }
-            // Track if AI sidebar is open
-            setIsSidebarOpen(appState.activeSidebar === "ai-sidebar");
+            // Track if AI sidebar or brush sidebar is open
+            setIsSidebarOpen(appState.activeSidebar === "ai-sidebar" || appState.activeSidebar === "brush-sidebar");
             
+            // Auto activate custom brush if the sidebar is opened
+            if (appState.activeSidebar === "brush-sidebar") {
+              if (!customBrushActive) {
+                setCustomBrushActive(true);
+                if (activeBrushId === "normal") {
+                  setActiveBrushId("hairy");
+                }
+              }
+            }
+
             // Sync Excalidraw Zen Mode state
             if (appState.zenModeEnabled !== zenMode) {
               setZenMode(appState.zenModeEnabled);
@@ -2062,6 +2287,22 @@ function App() {
               </div>
             </div>
           </Sidebar>
+
+          {/* Custom Brush Sidebar Dock */}
+          <Sidebar name="brush-sidebar" docked={brushSidebarDocked} onDock={setBrushSidebarDocked}>
+            <div 
+              className="sidebar-resize-handle"
+              onMouseDown={handleSidebarResizeMouseDown}
+            />
+            <Sidebar.Header>
+              <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px" }}>
+                <span style={{ fontSize: "14px", fontWeight: "600", color: "var(--color-primary)" }}>Custom Brush Lab 🧪</span>
+              </div>
+            </Sidebar.Header>
+            <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "16px", height: "calc(100% - 50px)", overflowY: "auto" }}>
+              {renderBrushConfigForm(true)}
+            </div>
+          </Sidebar>
         </Excalidraw>
 
         {/* Floating Custom Brush Tool Dock */}
@@ -2095,8 +2336,8 @@ function App() {
                       // Instantly show the menu when activating the custom brush tool
                       setShowBrushMenu(true);
                       // Ensure a brush is selected if it was normal
-                      if (activeBrush === "normal") {
-                        setActiveBrush("hairy");
+                      if (activeBrushId === "normal") {
+                        setActiveBrushId("hairy");
                       }
                     }
                   }}
@@ -2110,8 +2351,8 @@ function App() {
                 </button>
 
                 <button
-                  onClick={() => setShowBrushMenu(!showBrushMenu)}
-                  className={`custom-brush-dock-btn ${showBrushMenu ? "active" : ""}`}
+                  onClick={handleDockSettingsClick}
+                  className={`custom-brush-dock-btn ${showBrushMenu || excalidrawAPI?.getAppState().activeSidebar === "brush-sidebar" ? "active" : ""}`}
                   title="Brush Settings"
                 >
                   {/* Cog settings icon */}
@@ -2125,125 +2366,7 @@ function App() {
               {/* Expandable Settings Flyout Menu */}
               {showBrushMenu && (
                 <div className="custom-brush-flyout">
-                  <div className="custom-brush-flyout-header">
-                    <span className="custom-brush-flyout-title">Custom Brush Lab 🧪</span>
-                    <button 
-                      onClick={() => setShowBrushMenu(false)}
-                      className="custom-brush-close-btn"
-                      title="Close Settings"
-                    >
-                      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                    <label style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-primary)", opacity: 0.8 }}>Select Brush Style</label>
-                    <select
-                      value={activeBrush}
-                      onChange={(e) => {
-                        setActiveBrush(e.target.value);
-                        if (e.target.value !== "normal") {
-                          setCustomBrushActive(true);
-                        } else {
-                          setCustomBrushActive(false);
-                        }
-                      }}
-                      className="custom-brush-select"
-                    >
-                      <option value="normal" style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>Normal Pencil (Default)</option>
-                      <option value="hairy" style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>Hairy Brush (Calligraphy)</option>
-                      <option value="ribbon" style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>Ribbon Brush (Double Track)</option>
-                      <option value="sketchy" style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>Sketchy (Parallel Multi-line)</option>
-                      <option value="custom" style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>Custom (Write JS Code)</option>
-                    </select>
-                  </div>
-
-                  {activeBrush === "custom" && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-primary)", opacity: 0.8 }}>JS Line Algorithm</span>
-                        <button
-                          onClick={() => {
-                            if (window.confirm("Reset custom brush code to default template?")) {
-                              setCustomBrushCode(`// Write a function that takes an array of absolute points: [x, y][]
-// and returns an array of lines: [x, y][][]
-(points) => {
-  const lines = [];
-  
-  // 1. Draw the original path
-  lines.push(points);
-  
-  // 2. Add perpendicular brush offsets (calligraphy or hair effect)
-  for (let i = 1; i < points.length; i++) {
-    const [x1, y1] = points[i - 1];
-    const [x2, y2] = points[i];
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    
-    if (len > 0) {
-      const nx = -dy / len * 15;
-      const ny = dx / len * 15;
-      lines.push([
-        [x2, y2],
-        [x2 + nx, y2 + ny]
-      ]);
-    }
-  }
-  
-  return lines;
-}`);
-                            }
-                          }}
-                          style={{
-                            fontSize: "10px",
-                            padding: "2px 6px",
-                            background: "transparent",
-                            border: "1px solid var(--border-color)",
-                            borderRadius: "4px",
-                            color: "var(--color-primary)",
-                            cursor: "pointer"
-                          }}
-                        >
-                          Reset
-                        </button>
-                      </div>
-
-                      <textarea
-                        value={customBrushCode}
-                        onChange={(e) => setCustomBrushCode(e.target.value)}
-                        className="custom-brush-textarea"
-                        spellCheck="false"
-                      />
-
-                      {brushCompileError ? (
-                        <div className="custom-brush-status-error">
-                          <span>❌ Error compiling custom code:</span>
-                          <span style={{ fontSize: "10px" }}>{brushCompileError}</span>
-                        </div>
-                      ) : (
-                        <div className="custom-brush-status-success">
-                          <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                          <span>Compiled successfully!</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div style={{
-                    fontSize: "10px",
-                    color: "var(--color-secondary)",
-                    lineHeight: "1.4",
-                    borderTop: "1px solid var(--border-color)",
-                    paddingTop: "6px",
-                    marginTop: "4px"
-                  }}>
-                    ✏️ Make sure to use the <strong>Pencil tool</strong> to draw while the paintbrush icon is active.
-                  </div>
+                  {renderBrushConfigForm(false)}
                 </div>
               )}
             </div>
