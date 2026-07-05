@@ -624,8 +624,156 @@ body .excalidraw .sidebar {
 
 .sidebar-resize-handle:hover,
 .sidebar-resize-handle:active {
-  background-color: var(--color-accent) !important;
-  opacity: 0.5;
+  background-color: var(--color-primary) !important;
+}
+
+/* --- CUSTOM BRUSH TOOLBAR & DOCK --- */
+.custom-brush-dock {
+  background: var(--island-bg-color, #1e1e24);
+  border: 1px solid var(--border-color, #2d2d34);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: var(--shadow-md, 0 10px 20px rgba(0,0,0,0.15));
+  backdrop-filter: blur(12px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.custom-brush-dock-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-secondary, #b4b4b9);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.custom-brush-dock-btn:hover {
+  background-color: var(--button-hover-bg, rgba(255, 255, 255, 0.08));
+  color: var(--color-primary);
+}
+
+.custom-brush-dock-btn.active {
+  background-color: var(--button-selected-bg) !important;
+  border-color: var(--button-selected-border) !important;
+  color: var(--color-primary) !important;
+}
+
+.custom-brush-flyout {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--island-bg-color, #1e1e24);
+  border: 1px solid var(--border-color, #2d2d34);
+  border-radius: 12px;
+  padding: 12px;
+  width: 280px;
+  box-shadow: var(--shadow-island-stronger, 0 10px 25px rgba(0, 0, 0, 0.3));
+  backdrop-filter: blur(12px);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.custom-brush-flyout-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 6px;
+}
+
+.custom-brush-flyout-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.custom-brush-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--color-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all var(--transition-fast);
+}
+
+.custom-brush-close-btn:hover {
+  background-color: var(--button-hover-bg, rgba(255, 255, 255, 0.08));
+  color: var(--color-primary);
+}
+
+.custom-brush-select {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--color-bg-hover, rgba(255, 255, 255, 0.05));
+  color: var(--color-primary);
+  border: 1px solid var(--border-color);
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.custom-brush-select:focus {
+  border-color: var(--border-focus);
+}
+
+.custom-brush-textarea {
+  font-family: monospace;
+  min-height: 140px;
+  width: 100%;
+  background: var(--color-bg-hover, rgba(0, 0, 0, 0.1));
+  color: var(--color-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 11px;
+  resize: vertical;
+  outline: none;
+  line-height: 1.4;
+  transition: border-color var(--transition-fast);
+}
+
+.custom-brush-textarea:focus {
+  border-color: var(--border-focus);
+}
+
+.custom-brush-status-success {
+  padding: 6px 10px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 6px;
+  color: var(--color-success, #10b981);
+  font-size: 11px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.custom-brush-status-error {
+  padding: 6px 10px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 6px;
+  color: var(--color-danger, #ef4444);
+  font-size: 11px;
+  font-family: monospace;
+  white-space: pre-wrap;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 /* Context Menu & Autocomplete Items Hover/Active Styling */

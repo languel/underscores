@@ -2072,19 +2072,7 @@ function App() {
           }}
         >
           {/* Main Dock Button */}
-          <div 
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "6px",
-              background: "var(--island-bg-color, #1e1e24)",
-              border: "1px solid var(--border-color, #2d2d34)",
-              borderRadius: "10px",
-              padding: "6px",
-              boxShadow: "0 10px 20px rgba(0, 0, 0, 0.2)",
-              backdropFilter: "blur(12px)"
-            }}
-          >
+          <div className="custom-brush-dock">
             <button
               onClick={() => {
                 setCustomBrushActive(!customBrushActive);
@@ -2097,46 +2085,22 @@ function App() {
                   }
                 }
               }}
-              style={{
-                width: "36px",
-                height: "36px",
-                borderRadius: "8px",
-                border: "none",
-                background: customBrushActive ? "var(--color-accent, #6965db)" : "transparent",
-                color: customBrushActive ? "var(--color-btn-text, #ffffff)" : "var(--color-primary, #ffffff)",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                transition: "all 0.2s"
-              }}
+              className={`custom-brush-dock-btn ${customBrushActive ? "active" : ""}`}
               title={customBrushActive ? "Deactivate Custom Brush" : "Activate Custom Brush Tool"}
             >
               {/* Paintbrush Icon */}
-              <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+              <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.24 9.12l-8.62 8.62a1 1 0 01-1.41 0l-2.01-2.01a1 1 0 010-1.41l8.62-8.62m3.42 3.42l1.58-1.58a2.5 2.5 0 00-3.54-3.54l-1.58 1.58m3.54 3.54l-3.54-3.54" />
               </svg>
             </button>
 
             <button
               onClick={() => setShowBrushMenu(!showBrushMenu)}
-              style={{
-                width: "36px",
-                height: "36px",
-                borderRadius: "8px",
-                border: "none",
-                background: showBrushMenu ? "var(--button-hover-bg, rgba(255, 255, 255, 0.08))" : "transparent",
-                color: "var(--color-secondary, #b4b4b9)",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                transition: "all 0.2s"
-              }}
+              className={`custom-brush-dock-btn ${showBrushMenu ? "active" : ""}`}
               title="Brush Settings"
             >
               {/* Cog settings icon */}
-              <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+              <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
@@ -2145,29 +2109,17 @@ function App() {
 
           {/* Expandable Settings Flyout Menu */}
           {showBrushMenu && (
-            <div 
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "10px",
-                background: "var(--island-bg-color, #1e1e24)",
-                border: "1px solid var(--border-color, #2d2d34)",
-                borderRadius: "12px",
-                padding: "12px",
-                width: "280px",
-                boxShadow: "0 10px 25px rgba(0, 0, 0, 0.3)",
-                backdropFilter: "blur(12px)",
-                maxHeight: "80vh",
-                overflowY: "auto"
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-color)", paddingBottom: "6px" }}>
-                <span style={{ fontSize: "13px", fontWeight: "600", color: "var(--color-primary)" }}>Custom Brush Lab 🧪</span>
+            <div className="custom-brush-flyout">
+              <div className="custom-brush-flyout-header">
+                <span className="custom-brush-flyout-title">Custom Brush Lab 🧪</span>
                 <button 
                   onClick={() => setShowBrushMenu(false)}
-                  style={{ background: "transparent", border: "none", color: "var(--color-secondary)", fontSize: "16px", cursor: "pointer" }}
+                  className="custom-brush-close-btn"
+                  title="Close Settings"
                 >
-                  &times;
+                  <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
                 </button>
               </div>
 
@@ -2183,16 +2135,7 @@ function App() {
                       setCustomBrushActive(false);
                     }
                   }}
-                  style={{
-                    width: "100%",
-                    padding: "6px 8px",
-                    borderRadius: "6px",
-                    background: "var(--color-bg-hover, rgba(255, 255, 255, 0.05))",
-                    color: "var(--color-primary)",
-                    border: "1px solid var(--border-color)",
-                    fontSize: "12px",
-                    outline: "none"
-                  }}
+                  className="custom-brush-select"
                 >
                   <option value="normal">Normal Pencil (Default)</option>
                   <option value="hairy">Hairy Brush (Calligraphy)</option>
@@ -2256,47 +2199,21 @@ function App() {
                   <textarea
                     value={customBrushCode}
                     onChange={(e) => setCustomBrushCode(e.target.value)}
-                    style={{
-                      fontFamily: "monospace",
-                      minHeight: "140px",
-                      width: "100%",
-                      background: "var(--color-bg-hover, rgba(0, 0, 0, 0.1))",
-                      color: "var(--color-primary)",
-                      border: "1px solid var(--border-color)",
-                      borderRadius: "6px",
-                      padding: "6px",
-                      fontSize: "10px",
-                      resize: "vertical",
-                      outline: "none",
-                      lineHeight: "1.4"
-                    }}
+                    className="custom-brush-textarea"
                     spellCheck="false"
                   />
 
                   {brushCompileError ? (
-                    <div style={{
-                      padding: "6px 8px",
-                      background: "rgba(255, 0, 0, 0.08)",
-                      border: "1px solid rgba(255, 0, 0, 0.15)",
-                      borderRadius: "6px",
-                      color: "#e06c75",
-                      fontSize: "10px",
-                      fontFamily: "monospace",
-                      whiteSpace: "pre-wrap"
-                    }}>
-                      ❌ Error: {brushCompileError}
+                    <div className="custom-brush-status-error">
+                      <span>❌ Error compiling custom code:</span>
+                      <span style={{ fontSize: "10px" }}>{brushCompileError}</span>
                     </div>
                   ) : (
-                    <div style={{
-                      padding: "4px 8px",
-                      background: "rgba(0, 255, 0, 0.08)",
-                      border: "1px solid rgba(0, 255, 0, 0.15)",
-                      borderRadius: "6px",
-                      color: "#98c379",
-                      fontSize: "10px",
-                      fontWeight: "500"
-                    }}>
-                      ✅ Compiled successfully!
+                    <div className="custom-brush-status-success">
+                      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span>Compiled successfully!</span>
                     </div>
                   )}
                 </div>
