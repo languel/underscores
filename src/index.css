@@ -644,7 +644,8 @@ body .excalidraw .sidebar {
   width: 36px;
   height: 36px;
   border-radius: 8px;
-  border: 1px solid transparent;
+  border: none !important;
+  outline: none !important;
   background: transparent;
   color: var(--color-secondary, #b4b4b9);
   cursor: pointer;
@@ -661,7 +662,8 @@ body .excalidraw .sidebar {
 
 .custom-brush-dock-btn.active {
   background-color: var(--button-selected-bg) !important;
-  border-color: var(--button-selected-border) !important;
+  border: none !important;
+  outline: none !important;
   color: var(--color-primary) !important;
 }
 
