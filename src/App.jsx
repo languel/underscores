@@ -853,13 +853,13 @@ function App() {
     { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
     { id: "toggle-transparency", name: "Toggle Canvas Background Transparency", category: "Canvas", action: (api) => toggleBackgroundTransparency(api) },
     { id: "reset-view", name: "Reset Zoom & Pan View", category: "Canvas", action: (api) => api.updateScene({ appState: { zoom: { value: 1 }, scrollX: 0, scrollY: 0 } }) },
-    { id: "tool-select", name: "Select Pointer/Selection Tool", category: "Tools", action: (api) => api.updateScene({ appState: { activeTool: { type: "selection" } } }) },
-    { id: "tool-rect", name: "Select Rectangle Tool", category: "Tools", action: (api) => api.updateScene({ appState: { activeTool: { type: "rectangle" } } }) },
-    { id: "tool-ellipse", name: "Select Ellipse/Circle Tool", category: "Tools", action: (api) => api.updateScene({ appState: { activeTool: { type: "ellipse" } } }) },
-    { id: "tool-line", name: "Select Straight Line Tool", category: "Tools", action: (api) => api.updateScene({ appState: { activeTool: { type: "line" } } }) },
-    { id: "tool-freedraw", name: "Select Pencil/Freedraw Tool", category: "Tools", action: (api) => api.updateScene({ appState: { activeTool: { type: "freedraw" } } }) },
-    { id: "tool-eraser", name: "Select Eraser Tool", category: "Tools", action: (api) => api.updateScene({ appState: { activeTool: { type: "eraser" } } }) },
-    { id: "tool-hand", name: "Select Hand/Pan Tool", category: "Tools", action: (api) => api.updateScene({ appState: { activeTool: { type: "hand" } } }) }
+    { id: "tool-select", name: "Select Pointer/Selection Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "selection", locked: tool.locked ?? false } } }); } },
+    { id: "tool-rect", name: "Select Rectangle Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "rectangle", locked: tool.locked ?? false } } }); } },
+    { id: "tool-ellipse", name: "Select Ellipse/Circle Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "ellipse", locked: tool.locked ?? false } } }); } },
+    { id: "tool-line", name: "Select Straight Line Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "line", locked: tool.locked ?? false } } }); } },
+    { id: "tool-freedraw", name: "Select Pencil/Freedraw Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "freedraw", locked: tool.locked ?? false } } }); } },
+    { id: "tool-eraser", name: "Select Eraser Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "eraser", locked: tool.locked ?? false } } }); } },
+    { id: "tool-hand", name: "Select Hand/Pan Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "hand", locked: tool.locked ?? false } } }); } }
   ];
 
   const paletteInputRef = useRef(null);
@@ -1045,9 +1045,10 @@ function App() {
   // Start with active pen tool when entering Satori Mode
   useEffect(() => {
     if (excalidrawAPI && satoriMode) {
+      const tool = excalidrawAPI.getAppState().activeTool || {};
       excalidrawAPI.updateScene({
         appState: {
-          activeTool: { type: "freedraw" },
+          activeTool: { ...tool, type: "freedraw", locked: tool.locked ?? false },
           currentItemRoughness: 0
         }
       });
