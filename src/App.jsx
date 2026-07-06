@@ -206,7 +206,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.0.2 (rebuilt at 2026-07-06T12:30:00)");
+  console.log("Drawerator version: 1.0.3 (rebuilt at 2026-07-06T12:40:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -1505,44 +1505,6 @@ function App() {
     
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "10px", height: "100%" }}>
-        {/* Enable Custom Brush Switch Row */}
-        <div style={{ 
-          display: "flex", 
-          alignItems: "center", 
-          justifyContent: "space-between", 
-          background: "var(--button-hover-bg, rgba(0, 0, 0, 0.05))",
-          padding: "8px 12px",
-          borderRadius: "8px",
-          border: "1px solid var(--border-color)",
-          marginBottom: "4px"
-        }}>
-          <span style={{ fontSize: "12px", fontWeight: "600", color: "var(--color-primary)" }}>
-            Enable Custom Brush
-          </span>
-          <input
-            type="checkbox"
-            checked={customBrushActive}
-            onChange={(e) => {
-              const checked = e.target.checked;
-              setCustomBrushActive(checked);
-              if (checked) {
-                if (activeBrushId === "normal") {
-                  setActiveBrushId("hairy");
-                }
-                excalidrawAPI?.updateScene({ appState: { activeTool: { type: "freedraw" } } });
-              } else {
-                excalidrawAPI?.updateScene({ appState: { activeTool: { type: "selection" } } });
-              }
-            }}
-            style={{ 
-              cursor: "pointer", 
-              width: "16px", 
-              height: "16px", 
-              accentColor: "var(--color-accent)" 
-            }}
-          />
-        </div>
-
         {/* Brush Selector Dropdown */}
         <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
           <label style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-primary)", opacity: 0.8 }}>Select Brush Style</label>
@@ -1569,30 +1531,6 @@ function App() {
             ))}
           </select>
         </div>
-
-        {/* Apply to Selected Strokes Button */}
-        {activeBrushId !== "normal" && (
-          <button
-            onClick={handleApplyBrushToSelected}
-            className="palette-action-btn primary"
-            style={{ 
-              marginTop: "2px", 
-              width: "100%", 
-              padding: "8px 12px", 
-              fontSize: "12px", 
-              fontWeight: "600",
-              borderRadius: "6px",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "6px"
-            }}
-            title="Apply this brush style to currently selected pencil strokes on the canvas"
-          >
-            <span>✨ Apply to Selected Strokes</span>
-          </button>
-        )}
 
         {/* Editor controls if not normal */}
         {activeBrushId !== "normal" && (
@@ -2436,8 +2374,44 @@ function App() {
               onMouseDown={handleSidebarResizeMouseDown}
             />
             <Sidebar.Header>
-              <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px" }}>
+              <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px", gap: "10px" }}>
                 <span style={{ fontSize: "14px", fontWeight: "600", color: "var(--color-primary)" }}>Custom Brush Lab 🧪</span>
+                <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                  {/* Enable Custom Brush Button (Paintbrush) */}
+                  <button 
+                    className={`header-btn ${customBrushActive ? "active" : ""}`}
+                    onClick={() => {
+                      const nextState = !customBrushActive;
+                      setCustomBrushActive(nextState);
+                      if (nextState) {
+                        if (activeBrushId === "normal") {
+                          setActiveBrushId("hairy");
+                        }
+                        excalidrawAPI?.updateScene({ appState: { activeTool: { type: "freedraw" } } });
+                      } else {
+                        excalidrawAPI?.updateScene({ appState: { activeTool: { type: "selection" } } });
+                      }
+                    }}
+                    title={customBrushActive ? "Disable Custom Brush Mode" : "Enable Custom Brush Mode"}
+                  >
+                    <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.24 9.12l-8.62 8.62a1 1 0 01-1.41 0l-2.01-2.01a1 1 0 010-1.41l8.62-8.62m3.42 3.42l1.58-1.58a2.5 2.5 0 00-3.54-3.54l-1.58 1.58m3.54 3.54l-3.54-3.54" />
+                    </svg>
+                  </button>
+
+                  {/* Apply to Selected Strokes Button (Sparkles) */}
+                  {activeBrushId !== "normal" && (
+                    <button 
+                      className="header-btn"
+                      onClick={handleApplyBrushToSelected}
+                      title="Apply active brush style to selected canvas strokes"
+                    >
+                      <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 21L8.188 15.904L3 15L8.188 14.096L9 9L9.813 14.096L15 15L9.813 15.904Z M19.071 4.929L17.657 6.343 M15 3h2 M21 5v2" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
               </div>
             </Sidebar.Header>
             <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "16px", height: "calc(100% - 50px)", overflowY: "auto" }}>

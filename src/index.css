@@ -76,6 +76,11 @@ body, html {
   background: var(--bg-hover-btn);
   border-color: var(--border-focus);
 }
+.header-btn.active {
+  background: var(--button-selected-bg, #6965db) !important;
+  border-color: var(--button-selected-border, #6965db) !important;
+  color: var(--color-btn-text, #ffffff) !important;
+}
 
 /* --- CHAT MESSAGES AREA --- */
 #chat-messages {
