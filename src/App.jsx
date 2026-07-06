@@ -1,3 +1,4 @@
+// Force rebuild timestamp: 2026-07-06T11:15:00
 import React, { useState, useEffect, useRef } from "react";
 import { Excalidraw, Sidebar, MainMenu, WelcomeScreen, exportToSvg, exportToCanvas } from "@excalidraw/excalidraw";
 import "./App.css";
@@ -205,6 +206,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
+  console.log("Drawerator version: 1.0.1 (rebuilt at 2026-07-06T11:20:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
