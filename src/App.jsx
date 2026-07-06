@@ -284,7 +284,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.2.0 (rebuilt at 2026-07-06T19:15:00)");
+  console.log("Drawerator version: 1.2.1 (rebuilt at 2026-07-06T19:55:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -884,6 +884,13 @@ function App() {
 
   const handleCanvasContextMenu = (e) => {
     if (!excalidrawAPI) return;
+    
+    // Require Shift key for custom context menu, otherwise let Excalidraw's default show
+    if (!e.shiftKey) {
+      setCustomContextMenu(null);
+      return;
+    }
+
     const appState = excalidrawAPI.getAppState();
     const selectedIds = appState.selectedElementIds || {};
     const elements = excalidrawAPI.getSceneElements();
@@ -3261,11 +3268,13 @@ function App() {
             left: `${customContextMenu.x}px`,
             top: `${customContextMenu.y}px`
           }}
-          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
         >
           {customContextMenu.showRestore && (
             <button
-              onClick={() => {
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 handleRestoreOriginalStroke();
                 setCustomContextMenu(null);
               }}
@@ -3279,7 +3288,9 @@ function App() {
           )}
           {customContextMenu.showToLine && (
             <button
-              onClick={() => {
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 handleConvertType("line");
                 setCustomContextMenu(null);
               }}
@@ -3293,7 +3304,9 @@ function App() {
           )}
           {customContextMenu.showToFreehand && (
             <button
-              onClick={() => {
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 handleConvertType("freedraw");
                 setCustomContextMenu(null);
               }}
