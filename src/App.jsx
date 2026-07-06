@@ -206,7 +206,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.0.1 (rebuilt at 2026-07-06T11:20:00)");
+  console.log("Drawerator version: 1.0.2 (rebuilt at 2026-07-06T12:30:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -397,6 +397,144 @@ function App() {
     document.addEventListener("mouseup", handleMouseUp);
   };
   
+  const applyBrushToFreedrawElement = (freedrawElement, generator) => {
+    if (!freedrawElement || !generator || !freedrawElement.points || freedrawElement.points.length < 2) return null;
+
+    // Convert points relative to element.x and element.y to absolute coordinates
+    const absolutePoints = freedrawElement.points.map(([px, py]) => [
+      freedrawElement.x + px,
+      freedrawElement.y + py
+    ]);
+
+    // Execute the brush algorithm to get list of lines
+    let newLines = [];
+    try {
+      newLines = generator(absolutePoints);
+    } catch (err) {
+      console.error("Custom brush execution failed:", err);
+      // Fall back to original points
+      newLines = [absolutePoints];
+    }
+
+    if (!Array.isArray(newLines) || newLines.length === 0) return null;
+
+    const baseId = freedrawElement.id;
+    const groupId = `${baseId}-group`;
+
+    const generatedElements = newLines.map((linePoints, idx) => {
+      if (!Array.isArray(linePoints) || linePoints.length < 1) return null;
+      
+      // Find starting coordinate
+      const [startX, startY] = linePoints[0];
+      const relativePoints = linePoints.map(([lx, ly]) => [
+        lx - startX,
+        ly - startY
+      ]);
+
+      const xCoords = relativePoints.map(p => p[0]);
+      const yCoords = relativePoints.map(p => p[1]);
+      const minX = Math.min(...xCoords);
+      const maxX = Math.max(...xCoords);
+      const minY = Math.min(...yCoords);
+      const maxY = Math.max(...yCoords);
+
+      return {
+        type: "line",
+        x: startX,
+        y: startY,
+        points: relativePoints,
+        width: maxX - minX,
+        height: maxY - minY,
+        strokeColor: freedrawElement.strokeColor,
+        strokeWidth: freedrawElement.strokeWidth,
+        backgroundColor: freedrawElement.backgroundColor,
+        fillStyle: "solid",
+        strokeStyle: "solid",
+        roughness: 0, 
+        roundness: { type: 2 }, // smooth corners
+        opacity: freedrawElement.opacity,
+        groupIds: [groupId],
+        id: `${baseId}-brush-${idx}-${Date.now()}`,
+        seed: Math.floor(Math.random() * 1000000),
+        version: 2,
+        versionNonce: Math.floor(Math.random() * 1000000),
+        isDeleted: false,
+        updated: Date.now(),
+        angle: 0,
+        boundElements: null,
+        link: null,
+        locked: false,
+        frameId: null,
+        lastCommittedPoint: null,
+        startBinding: null,
+        endBinding: null,
+        startArrowhead: null,
+        endArrowhead: null
+      };
+    }).filter(Boolean);
+
+    return {
+      deletedId: freedrawElement.id,
+      newElements: generatedElements
+    };
+  };
+
+  const handleApplyBrushToSelected = () => {
+    if (!excalidrawAPI) return;
+    const appState = excalidrawAPI.getAppState();
+    const selectedIds = appState.selectedElementIds || {};
+    const elements = excalidrawAPI.getSceneElements();
+    
+    // Find all selected freedraw elements that are not deleted
+    const selectedFreedrawElements = elements.filter(el => 
+      selectedIds[el.id] && el.type === "freedraw" && !el.isDeleted
+    );
+
+    if (selectedFreedrawElements.length === 0) {
+      alert("Please select one or more freehand pencil strokes on the canvas first!");
+      return;
+    }
+
+    const generator = compiledGeneratorRef.current;
+    if (!generator) {
+      alert("The active brush script code cannot be compiled or is invalid.");
+      return;
+    }
+
+    let nextElements = [...elements];
+    let allNewElements = [];
+    const deletedIds = new Set();
+
+    for (const el of selectedFreedrawElements) {
+      const result = applyBrushToFreedrawElement(el, generator);
+      if (result) {
+        deletedIds.add(result.deletedId);
+        allNewElements = allNewElements.concat(result.newElements);
+      }
+    }
+
+    if (allNewElements.length === 0) return;
+
+    // Apply soft delete to original elements and concat new elements
+    nextElements = nextElements.map(el => {
+      if (deletedIds.has(el.id)) {
+        return { ...el, isDeleted: true };
+      }
+      return el;
+    }).concat(allNewElements);
+
+    excalidrawAPI.updateScene({
+      elements: nextElements,
+      // Deselect the original elements and select the new ones!
+      appState: {
+        selectedElementIds: allNewElements.reduce((acc, el) => {
+          acc[el.id] = true;
+          return acc;
+        }, {})
+      }
+    });
+  };
+
   const handleCanvasPointerUp = () => {
     if (!excalidrawAPI || !customBrushActive || activeBrushId === "normal") return;
 
@@ -414,101 +552,24 @@ function App() {
           !lastElement.isDeleted &&
           !lastElement.__processed
         ) {
-          // Check if the element has enough points to draw (at least 2 points)
-          if (!lastElement.points || lastElement.points.length < 2) return;
-
           // Mark it as processed so we don't process it multiple times
           lastElement.__processed = true;
 
           const generator = compiledGeneratorRef.current;
-
           if (generator) {
-            // Convert points relative to element.x and element.y to absolute coordinates
-            const absolutePoints = lastElement.points.map(([px, py]) => [
-              lastElement.x + px,
-              lastElement.y + py
-            ]);
+            const result = applyBrushToFreedrawElement(lastElement, generator);
+            if (result) {
+              const nextElements = elements.map(el => {
+                if (el.id === result.deletedId) {
+                  return { ...el, isDeleted: true };
+                }
+                return el;
+              }).concat(result.newElements);
 
-            // Execute the brush algorithm to get list of lines
-            let newLines = [];
-            try {
-              newLines = generator(absolutePoints);
-            } catch (err) {
-              console.error("Custom brush execution failed:", err);
-              // Fall back to original points
-              newLines = [absolutePoints];
+              excalidrawAPI.updateScene({
+                elements: nextElements
+              });
             }
-
-            if (!Array.isArray(newLines) || newLines.length === 0) return;
-
-            const baseId = lastElement.id;
-            const groupId = `${baseId}-group`;
-
-            const generatedElements = newLines.map((linePoints, idx) => {
-              if (!Array.isArray(linePoints) || linePoints.length < 1) return null;
-              
-              // Find starting coordinate
-              const [startX, startY] = linePoints[0];
-              const relativePoints = linePoints.map(([lx, ly]) => [
-                lx - startX,
-                ly - startY
-              ]);
-
-              const xCoords = relativePoints.map(p => p[0]);
-              const yCoords = relativePoints.map(p => p[1]);
-              const minX = Math.min(...xCoords);
-              const maxX = Math.max(...xCoords);
-              const minY = Math.min(...yCoords);
-              const maxY = Math.max(...yCoords);
-
-              return {
-                type: "line",
-                x: startX,
-                y: startY,
-                points: relativePoints,
-                width: maxX - minX,
-                height: maxY - minY,
-                strokeColor: lastElement.strokeColor,
-                strokeWidth: lastElement.strokeWidth,
-                backgroundColor: lastElement.backgroundColor,
-                fillStyle: "solid",
-                strokeStyle: "solid",
-                roughness: 0, // Solid clean lines look best for custom math lines
-                roundness: { type: 2 }, // smooth corners
-                opacity: lastElement.opacity,
-                groupIds: [groupId],
-                id: `${baseId}-brush-${idx}`,
-                seed: Math.floor(Math.random() * 1000000),
-                version: 2,
-                versionNonce: Math.floor(Math.random() * 1000000),
-                isDeleted: false,
-                updated: Date.now(),
-                angle: 0,
-                boundElements: null,
-                link: null,
-                locked: false,
-                frameId: null,
-                lastCommittedPoint: null,
-                startBinding: null,
-                endBinding: null,
-                startArrowhead: null,
-                endArrowhead: null
-              };
-            }).filter(Boolean);
-
-            if (generatedElements.length === 0) return;
-
-            // soft delete original element and append new ones
-            const nextElements = elements.map(el => {
-              if (el.id === lastElement.id) {
-                return { ...el, isDeleted: true };
-              }
-              return el;
-            }).concat(generatedElements);
-
-            excalidrawAPI.updateScene({
-              elements: nextElements
-            });
           }
         }
       } catch (err) {
@@ -1462,9 +1523,15 @@ function App() {
             type="checkbox"
             checked={customBrushActive}
             onChange={(e) => {
-              setCustomBrushActive(e.target.checked);
-              if (e.target.checked && activeBrushId === "normal") {
-                setActiveBrushId("hairy");
+              const checked = e.target.checked;
+              setCustomBrushActive(checked);
+              if (checked) {
+                if (activeBrushId === "normal") {
+                  setActiveBrushId("hairy");
+                }
+                excalidrawAPI?.updateScene({ appState: { activeTool: { type: "freedraw" } } });
+              } else {
+                excalidrawAPI?.updateScene({ appState: { activeTool: { type: "selection" } } });
               }
             }}
             style={{ 
@@ -1482,11 +1549,14 @@ function App() {
           <select
             value={activeBrushId}
             onChange={(e) => {
-              setActiveBrushId(e.target.value);
-              if (e.target.value !== "normal") {
+              const val = e.target.value;
+              setActiveBrushId(val);
+              if (val !== "normal") {
                 setCustomBrushActive(true);
+                excalidrawAPI?.updateScene({ appState: { activeTool: { type: "freedraw" } } });
               } else {
                 setCustomBrushActive(false);
+                excalidrawAPI?.updateScene({ appState: { activeTool: { type: "selection" } } });
               }
             }}
             className="custom-brush-select"
@@ -1499,6 +1569,30 @@ function App() {
             ))}
           </select>
         </div>
+
+        {/* Apply to Selected Strokes Button */}
+        {activeBrushId !== "normal" && (
+          <button
+            onClick={handleApplyBrushToSelected}
+            className="palette-action-btn primary"
+            style={{ 
+              marginTop: "2px", 
+              width: "100%", 
+              padding: "8px 12px", 
+              fontSize: "12px", 
+              fontWeight: "600",
+              borderRadius: "6px",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "6px"
+            }}
+            title="Apply this brush style to currently selected pencil strokes on the canvas"
+          >
+            <span>✨ Apply to Selected Strokes</span>
+          </button>
+        )}
 
         {/* Editor controls if not normal */}
         {activeBrushId !== "normal" && (
