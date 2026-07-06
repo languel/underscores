@@ -277,7 +277,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.1.2 (rebuilt at 2026-07-06T16:35:00)");
+  console.log("Drawerator version: 1.1.3 (rebuilt at 2026-07-06T16:40:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -755,9 +755,11 @@ function App() {
 
   const handleCanvasPointerUp = () => {
     isDrawingRef.current = false;
-    setDrawingPoints([]);
 
-    if (!excalidrawAPI || !customBrushActive || activeBrushId === "normal") return;
+    if (!excalidrawAPI || !customBrushActive || activeBrushId === "normal") {
+      setDrawingPoints([]);
+      return;
+    }
 
     // Restore the real stroke color in Excalidraw appState
     excalidrawAPI.updateScene({
@@ -803,6 +805,8 @@ function App() {
         }
       } catch (err) {
         console.error("Error processing custom brush:", err);
+      } finally {
+        setDrawingPoints([]);
       }
     }, 80);
   };
