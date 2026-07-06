@@ -896,12 +896,12 @@ body .excalidraw .sidebar {
 /* Custom Right-Click Context Menu Styles */
 .custom-floating-context-menu {
   position: fixed;
-  background: var(--island-bg-color, #1e1e24);
-  border: 1px solid var(--border-color, #2d2d34);
-  border-radius: 8px;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+  background: var(--island-bg-color, #232329);
+  border: 1px solid var(--border-color, var(--default-border-color, #36363c));
+  border-radius: 6px;
+  box-shadow: var(--shadow-md, 0 10px 25px -5px rgba(0, 0, 0, 0.4));
   padding: 4px 0;
-  min-width: 190px;
+  min-width: 215px;
   z-index: 99999;
   display: flex;
   flex-direction: column;
@@ -913,10 +913,10 @@ body .excalidraw .sidebar {
   border: none !important;
   outline: none !important;
   color: var(--popup-text-color, #ececec);
-  padding: 8px 14px;
+  padding: 8px 12px;
   text-align: left;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12.5px;
   font-family: var(--font-sans, sans-serif);
   display: flex;
   align-items: center;
@@ -926,4 +926,10 @@ body .excalidraw .sidebar {
 
 .custom-floating-context-menu-btn:hover {
   background-color: var(--button-hover-bg, rgba(255, 255, 255, 0.08));
+}
+
+.custom-floating-context-menu-separator {
+  height: 1px;
+  background-color: var(--border-color, var(--default-border-color, #36363c));
+  margin: 4px 0;
 }

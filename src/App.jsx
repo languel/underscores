@@ -271,6 +271,157 @@ const PRESET_BRUSHES = {
   }
 };
 
+const perpendicularDistance = (pt, lineStart, lineEnd) => {
+  const [x, y] = pt;
+  const [x1, y1] = lineStart;
+  const [x2, y2] = lineEnd;
+  
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lenSq = dx * dx + dy * dy;
+  
+  if (lenSq === 0) {
+    return Math.sqrt((x - x1) * (x - x1) + (y - y1) * (y - y1));
+  }
+  
+  const t = ((x - x1) * dx + (y - y1) * dy) / lenSq;
+  const clampedT = Math.max(0, Math.min(1, t));
+  const projX = x1 + clampedT * dx;
+  const projY = y1 + clampedT * dy;
+  
+  return Math.sqrt((x - projX) * (x - projX) + (y - projY) * (y - projY));
+};
+
+const simplifyRDP = (points, epsilon) => {
+  if (points.length <= 2) return points;
+  
+  let maxDist = 0;
+  let index = 0;
+  const end = points.length - 1;
+  
+  for (let i = 1; i < end; i++) {
+    const dist = perpendicularDistance(points[i], points[0], points[end]);
+    if (dist > maxDist) {
+      index = i;
+      maxDist = dist;
+    }
+  }
+  
+  if (maxDist > epsilon) {
+    const results1 = simplifyRDP(points.slice(0, index + 1), epsilon);
+    const results2 = simplifyRDP(points.slice(index), epsilon);
+    return results1.slice(0, results1.length - 1).concat(results2);
+  } else {
+    return [points[0], points[end]];
+  }
+};
+
+const getTriangleArea = (a, b, c) => {
+  return 0.5 * Math.abs(
+    a[0] * (b[1] - c[1]) +
+    b[0] * (c[1] - a[1]) +
+    c[0] * (a[1] - b[1])
+  );
+};
+
+const simplifyVW = (points, minArea) => {
+  if (points.length <= 2) return points;
+  
+  const pts = points.map((p, idx) => ({ x: p[0], y: p[1], index: idx }));
+  
+  while (pts.length > 2) {
+    let minAreaVal = Infinity;
+    let minIndex = -1;
+    
+    for (let i = 1; i < pts.length - 1; i++) {
+      const area = getTriangleArea(
+        [pts[i-1].x, pts[i-1].y],
+        [pts[i].x, pts[i].y],
+        [pts[i+1].x, pts[i+1].y]
+      );
+      if (area < minAreaVal) {
+        minAreaVal = area;
+        minIndex = i;
+      }
+    }
+    
+    if (minAreaVal < minArea) {
+      pts.splice(minIndex, 1);
+    } else {
+      break;
+    }
+  }
+  
+  return pts.map(p => [p.x, p.y]);
+};
+
+const resampleUniform = (points, count) => {
+  if (points.length <= 2 || count <= 2) return points;
+  
+  const cumulativeDists = [0];
+  for (let i = 1; i < points.length; i++) {
+    const dx = points[i][0] - points[i-1][0];
+    const dy = points[i][1] - points[i-1][1];
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    cumulativeDists.push(cumulativeDists[i-1] + dist);
+  }
+  
+  const totalLength = cumulativeDists[cumulativeDists.length - 1];
+  if (totalLength === 0) return points;
+  
+  const step = totalLength / (count - 1);
+  const newPoints = [points[0]];
+  
+  let originalIdx = 0;
+  for (let i = 1; i < count - 1; i++) {
+    const targetDist = i * step;
+    
+    while (originalIdx < cumulativeDists.length - 1 && cumulativeDists[originalIdx + 1] < targetDist) {
+      originalIdx++;
+    }
+    
+    const d0 = cumulativeDists[originalIdx];
+    const d1 = cumulativeDists[originalIdx + 1];
+    const t = (d1 - d0 === 0) ? 0 : (targetDist - d0) / (d1 - d0);
+    
+    const p0 = points[originalIdx];
+    const p1 = points[originalIdx + 1];
+    
+    const x = p0[0] + t * (p1[0] - p0[0]);
+    const y = p0[1] + t * (p1[1] - p0[1]);
+    newPoints.push([x, y]);
+  }
+  
+  newPoints.push(points[points.length - 1]);
+  return newPoints;
+};
+
+const updateElementGeometry = (el, newAbsolutePoints) => {
+  if (newAbsolutePoints.length < 2) return el;
+  
+  const minX = Math.min(...newAbsolutePoints.map(p => p[0]));
+  const minY = Math.min(...newAbsolutePoints.map(p => p[1]));
+  const maxX = Math.max(...newAbsolutePoints.map(p => p[0]));
+  const maxY = Math.max(...newAbsolutePoints.map(p => p[1]));
+
+  const relativePoints = newAbsolutePoints.map(([px, py]) => [
+    px - minX,
+    py - minY
+  ]);
+
+  return {
+    ...el,
+    x: minX,
+    y: minY,
+    points: relativePoints,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+    version: el.version + 1,
+    versionNonce: Math.floor(Math.random() * 1000000),
+    updated: Date.now()
+  };
+};
+
 const compileUserBrush = (code) => {
   try {
     const fn = new Function("return (" + code + ")")();
@@ -284,7 +435,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.2.1 (rebuilt at 2026-07-06T19:55:00)");
+  console.log("Drawerator version: 1.2.2 (rebuilt at 2026-07-06T20:20:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -879,6 +1030,46 @@ function App() {
       });
     } else {
       alert("Could not locate the original pencil strokes in the scene history.");
+    }
+  };
+
+  const handleSimplifyStroke = (algorithm) => {
+    if (!excalidrawAPI) return;
+    const appState = excalidrawAPI.getAppState();
+    const selectedIds = appState.selectedElementIds || {};
+    const elements = excalidrawAPI.getSceneElements();
+
+    let count = 0;
+    const nextElements = elements.map(el => {
+      if (selectedIds[el.id] && !el.isDeleted) {
+        if ((el.type === "freedraw" || el.type === "line") && el.points && el.points.length > 2) {
+          count++;
+          
+          const absolutePoints = el.points.map(([px, py]) => [
+            el.x + px,
+            el.y + py
+          ]);
+
+          let simplifiedAbs;
+          if (algorithm === "rdp") {
+            simplifiedAbs = simplifyRDP(absolutePoints, 2.5); // 2.5px tolerance
+          } else if (algorithm === "vw") {
+            simplifiedAbs = simplifyVW(absolutePoints, 4.0); // 4px^2 area tolerance
+          } else if (algorithm === "resample") {
+            simplifiedAbs = resampleUniform(absolutePoints, absolutePoints.length);
+          }
+
+          return updateElementGeometry(el, simplifiedAbs);
+        }
+      }
+      return el;
+    });
+
+    if (count > 0) {
+      excalidrawAPI.updateScene({
+        elements: nextElements,
+        commitToHistory: true
+      });
     }
   };
 
@@ -3318,6 +3509,54 @@ function App() {
               Convert to Freehand Pencil
             </button>
           )}
+
+          {/* Separator and Curve Operations */}
+          <div className="custom-floating-context-menu-separator" />
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleSimplifyStroke("rdp");
+              setCustomContextMenu(null);
+            }}
+            className="custom-floating-context-menu-btn"
+            title="Simplify the path coordinates using the Ramer-Douglas-Peucker (RDP) algorithm"
+          >
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 20l4-12 6 8 6-12" />
+            </svg>
+            Simplify Path (RDP)
+          </button>
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleSimplifyStroke("vw");
+              setCustomContextMenu(null);
+            }}
+            className="custom-floating-context-menu-btn"
+            title="Simplify the path coordinates using the Visvalingam-Whyatt (VW) area-based algorithm"
+          >
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 12l6-8 6 12 4-4" />
+            </svg>
+            Simplify Path (VW)
+          </button>
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleSimplifyStroke("resample");
+              setCustomContextMenu(null);
+            }}
+            className="custom-floating-context-menu-btn"
+            title="Space the path vertices at exactly equal distances along the curve"
+          >
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
+            </svg>
+            Resample Uniformly
+          </button>
         </div>
       )}
     </div>
