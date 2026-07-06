@@ -1,6 +1,6 @@
 // Force rebuild timestamp: 2026-07-06T11:15:00
 import React, { useState, useEffect, useRef } from "react";
-import { Excalidraw, Sidebar, MainMenu, WelcomeScreen, exportToSvg, exportToCanvas } from "@excalidraw/excalidraw";
+import { Excalidraw, Sidebar, MainMenu, WelcomeScreen, exportToSvg, exportToCanvas, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw";
 import "./App.css";
 
 // System Prompt guiding the local LLM on drawing tools
@@ -396,6 +396,19 @@ const resampleUniform = (points, count) => {
   return newPoints;
 };
 
+const smoothAbsolutePointsExponentially = (points, beta = 0.12) => {
+  if (points.length <= 2) return points;
+  const smoothed = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const prev = smoothed[smoothed.length - 1];
+    const curr = points[i];
+    const x = prev[0] + (curr[0] - prev[0]) * beta;
+    const y = prev[1] + (curr[1] - prev[1]) * beta;
+    smoothed.push([x, y]);
+  }
+  return smoothed;
+};
+
 const smoothPathLaplacian = (points, factor = 0.4, iterations = 3) => {
   if (points.length <= 2) return points;
   
@@ -459,7 +472,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.3.0 (rebuilt at 2026-07-06T21:20:00)");
+  console.log("Drawerator version: 1.3.2 (rebuilt at 2026-07-06T21:25:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -661,6 +674,7 @@ function App() {
   const isDrawingRef = useRef(false);
   const livePointsRef = useRef([]);
   const rawCursorRef = useRef(null);
+  const wasShiftHeldRef = useRef(false);
   const lastStrokeColorRef = useRef("#000000");
 
   const getThemeColor = (color) => {
@@ -691,33 +705,15 @@ function App() {
   const getCanvasCoords = (clientX, clientY) => {
     if (!excalidrawAPI) return [clientX, clientY];
     const appState = excalidrawAPI.getAppState();
-    const zoom = appState.zoom.value;
-    const container = document.getElementById("canvas-container");
-    if (!container) return [clientX, clientY];
-    const rect = container.getBoundingClientRect();
-    const xRel = clientX - rect.left;
-    const yRel = clientY - rect.top;
-    const width = rect.width;
-    const height = rect.height;
-    return [
-      (xRel - width / 2 - appState.scrollX) / zoom,
-      (yRel - height / 2 - appState.scrollY) / zoom
-    ];
+    const res = viewportCoordsToSceneCoords({ clientX, clientY }, appState);
+    return [res.x, res.y];
   };
 
   const mapCanvasToScreen = (cx, cy) => {
     if (!excalidrawAPI) return [cx, cy];
     const appState = excalidrawAPI.getAppState();
-    const zoom = appState.zoom.value;
-    const container = document.getElementById("canvas-container");
-    if (!container) return [cx, cy];
-    const rect = container.getBoundingClientRect();
-    const width = rect.width;
-    const height = rect.height;
-    return [
-      cx * zoom + width / 2 + appState.scrollX,
-      cy * zoom + height / 2 + appState.scrollY
-    ];
+    const res = sceneCoordsToViewportCoords({ sceneX: cx, sceneY: cy }, appState);
+    return [res.x, res.y];
   };
 
   const handleCanvasPointerDown = (e) => {
@@ -739,6 +735,7 @@ function App() {
     livePointsRef.current = [coords];
     rawCursorRef.current = [e.clientX, e.clientY];
     setShiftHeld(e.shiftKey);
+    wasShiftHeldRef.current = e.shiftKey;
     setDrawingPoints([coords]);
 
     // Force Excalidraw's active drawing stroke to be transparent
@@ -760,6 +757,9 @@ function App() {
     }
 
     setShiftHeld(e.shiftKey);
+    if (e.shiftKey) {
+      wasShiftHeldRef.current = true;
+    }
     rawCursorRef.current = [e.clientX, e.clientY];
 
     const targetCoords = getCanvasCoords(e.clientX, e.clientY);
@@ -1214,7 +1214,7 @@ function App() {
 
           const generator = compiledGeneratorRef.current;
           if (generator) {
-            const pointsToUse = (livePointsRef.current && livePointsRef.current.length >= 2) ? [...livePointsRef.current] : null;
+            const pointsToUse = (wasShiftHeldRef.current && livePointsRef.current && livePointsRef.current.length >= 2) ? [...livePointsRef.current] : null;
             const result = applyBrushToFreedrawElement(lastElement, generator, pointsToUse);
             if (result) {
               const nextElements = elements.map(el => {
