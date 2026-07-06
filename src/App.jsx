@@ -472,7 +472,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.3.2 (rebuilt at 2026-07-06T21:25:00)");
+  console.log("Drawerator version: 1.3.3 (rebuilt at 2026-07-06T21:26:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -3189,10 +3189,10 @@ function App() {
                   points={pointsString}
                   fill="none"
                   stroke={getThemeColor(lastStrokeColorRef.current)}
-                  strokeWidth={excalidrawAPI?.getAppState().currentItemStrokeWidth || 2}
+                  strokeWidth={(excalidrawAPI?.getAppState().currentItemStrokeWidth || 2) * (excalidrawAPI?.getAppState().zoom.value || 1)}
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  opacity={((excalidrawAPI?.getAppState().currentItemOpacity ?? 100) / 100) * 0.8}
+                  opacity={(excalidrawAPI?.getAppState().currentItemOpacity ?? 100) / 100}
                 />
               );
             })}
