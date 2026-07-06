@@ -459,7 +459,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.2.4 (rebuilt at 2026-07-06T20:55:00)");
+  console.log("Drawerator version: 1.3.0 (rebuilt at 2026-07-06T21:20:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -657,8 +657,10 @@ function App() {
   }, []);
 
   const [drawingPoints, setDrawingPoints] = useState([]);
+  const [shiftHeld, setShiftHeld] = useState(false);
   const isDrawingRef = useRef(false);
   const livePointsRef = useRef([]);
+  const rawCursorRef = useRef(null);
   const lastStrokeColorRef = useRef("#000000");
 
   const getThemeColor = (color) => {
@@ -735,6 +737,8 @@ function App() {
     isDrawingRef.current = true;
     const coords = getCanvasCoords(e.clientX, e.clientY);
     livePointsRef.current = [coords];
+    rawCursorRef.current = [e.clientX, e.clientY];
+    setShiftHeld(e.shiftKey);
     setDrawingPoints([coords]);
 
     // Force Excalidraw's active drawing stroke to be transparent
@@ -749,10 +753,27 @@ function App() {
     if (!isDrawingRef.current) return;
     if (e.buttons !== 1) {
       isDrawingRef.current = false;
+      rawCursorRef.current = null;
+      setShiftHeld(false);
       setDrawingPoints([]);
       return;
     }
-    const coords = getCanvasCoords(e.clientX, e.clientY);
+
+    setShiftHeld(e.shiftKey);
+    rawCursorRef.current = [e.clientX, e.clientY];
+
+    const targetCoords = getCanvasCoords(e.clientX, e.clientY);
+    let coords = targetCoords;
+    
+    // Stabilizer (Exponential Moving Average / Lazy Mouse) when holding Shift
+    if (e.shiftKey && livePointsRef.current.length > 0) {
+      const lastPoint = livePointsRef.current[livePointsRef.current.length - 1];
+      const beta = 0.12; // Damping factor: lower is smoother / slower follow
+      const x = lastPoint[0] + (targetCoords[0] - lastPoint[0]) * beta;
+      const y = lastPoint[1] + (targetCoords[1] - lastPoint[1]) * beta;
+      coords = [x, y];
+    }
+
     livePointsRef.current.push(coords);
     setDrawingPoints([...livePointsRef.current]);
   };
@@ -808,14 +829,15 @@ function App() {
     document.addEventListener("mouseup", handleMouseUp);
   };
   
-  const applyBrushToFreedrawElement = (freedrawElement, generator) => {
-    if (!freedrawElement || !generator || !freedrawElement.points || freedrawElement.points.length < 2) return null;
+  const applyBrushToFreedrawElement = (freedrawElement, generator, overrideAbsolutePoints = null) => {
+    if (!freedrawElement || !generator) return null;
 
-    // Convert points relative to element.x and element.y to absolute coordinates
-    const absolutePoints = freedrawElement.points.map(([px, py]) => [
+    const absolutePoints = overrideAbsolutePoints || (freedrawElement.points && freedrawElement.points.map(([px, py]) => [
       freedrawElement.x + px,
       freedrawElement.y + py
-    ]);
+    ]));
+
+    if (!absolutePoints || absolutePoints.length < 2) return null;
 
     // Execute the brush algorithm to get list of lines
     let newLines = [];
@@ -1158,6 +1180,8 @@ function App() {
 
   const handleCanvasPointerUp = () => {
     isDrawingRef.current = false;
+    rawCursorRef.current = null;
+    setShiftHeld(false);
 
     if (!excalidrawAPI || !customBrushActive || activeBrushId === "normal") {
       setDrawingPoints([]);
@@ -1190,7 +1214,8 @@ function App() {
 
           const generator = compiledGeneratorRef.current;
           if (generator) {
-            const result = applyBrushToFreedrawElement(lastElement, generator);
+            const pointsToUse = (livePointsRef.current && livePointsRef.current.length >= 2) ? [...livePointsRef.current] : null;
+            const result = applyBrushToFreedrawElement(lastElement, generator, pointsToUse);
             if (result) {
               const nextElements = elements.map(el => {
                 if (el.id === result.deletedId) {
@@ -3171,6 +3196,43 @@ function App() {
                 />
               );
             })}
+
+            {/* Stabilizer guide leash line (Blender-like Lazy Mouse leash) */}
+            {shiftHeld && rawCursorRef.current && (() => {
+              const lastPoint = drawingPoints[drawingPoints.length - 1];
+              if (!lastPoint) return null;
+              const [tipX, tipY] = mapCanvasToScreen(lastPoint[0], lastPoint[1]);
+              return (
+                <g>
+                  <line
+                    x1={tipX}
+                    y1={tipY}
+                    x2={rawCursorRef.current[0]}
+                    y2={rawCursorRef.current[1]}
+                    stroke="#ff3366"
+                    strokeWidth="1.5"
+                    strokeDasharray="4 4"
+                    opacity="0.85"
+                  />
+                  <circle
+                    cx={rawCursorRef.current[0]}
+                    cy={rawCursorRef.current[1]}
+                    r="6"
+                    fill="none"
+                    stroke="#ff3366"
+                    strokeWidth="1.5"
+                    opacity="0.85"
+                  />
+                  <circle
+                    cx={tipX}
+                    cy={tipY}
+                    r="3.5"
+                    fill="#ff3366"
+                    opacity="0.85"
+                  />
+                </g>
+              );
+            })()}
           </svg>
         )}
 
