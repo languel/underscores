@@ -277,7 +277,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.1.4 (rebuilt at 2026-07-06T16:45:00)");
+  console.log("Drawerator version: 1.1.6 (rebuilt at 2026-07-06T16:55:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -702,13 +702,13 @@ function App() {
     const selectedIds = appState.selectedElementIds || {};
     const elements = excalidrawAPI.getSceneElements();
     
-    // Find all selected freedraw elements that are not deleted
-    const selectedFreedrawElements = elements.filter(el => 
-      selectedIds[el.id] && el.type === "freedraw" && !el.isDeleted
+    // Find all selected freedraw or line elements that are not deleted
+    const selectedStrokeElements = elements.filter(el => 
+      selectedIds[el.id] && (el.type === "freedraw" || el.type === "line") && !el.isDeleted
     );
 
-    if (selectedFreedrawElements.length === 0) {
-      alert("Please select one or more freehand pencil strokes on the canvas first!");
+    if (selectedStrokeElements.length === 0) {
+      alert("Please select one or more freehand pencil strokes or lines on the canvas first!");
       return;
     }
 
@@ -722,7 +722,7 @@ function App() {
     let allNewElements = [];
     const deletedIds = new Set();
 
-    for (const el of selectedFreedrawElements) {
+    for (const el of selectedStrokeElements) {
       const result = applyBrushToFreedrawElement(el, generator);
       if (result) {
         deletedIds.add(result.deletedId);
