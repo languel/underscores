@@ -284,7 +284,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.1.8 (rebuilt at 2026-07-06T17:40:00)");
+  console.log("Drawerator version: 1.1.9 (rebuilt at 2026-07-06T19:10:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -2141,7 +2141,7 @@ function App() {
         onPointerDownCapture={handleCanvasPointerDown}
         onPointerMoveCapture={handleCanvasPointerMove}
         onPointerUpCapture={handleCanvasPointerUp} 
-        onContextMenu={handleCanvasContextMenu}
+        onContextMenuCapture={handleCanvasContextMenu}
         style={{ width: "100%", height: "100%", position: "relative" }}
         className={drawingPoints.length > 0 ? "custom-brush-drawing" : ""}
       >
