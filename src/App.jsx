@@ -206,7 +206,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.0.4 (rebuilt at 2026-07-06T12:50:00)");
+  console.log("Drawerator version: 1.0.5 (rebuilt at 2026-07-06T13:40:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -356,6 +356,80 @@ function App() {
 
   const [customBrushActive, setCustomBrushActive] = useState(false);
   const [showBrushMenu, setShowBrushMenu] = useState(false);
+
+  const [drawingPoints, setDrawingPoints] = useState([]);
+  const isDrawingRef = useRef(false);
+  const livePointsRef = useRef([]);
+
+  const getCanvasCoords = (clientX, clientY) => {
+    if (!excalidrawAPI) return [clientX, clientY];
+    const appState = excalidrawAPI.getAppState();
+    const zoom = appState.zoom.value;
+    const container = document.getElementById("canvas-container");
+    if (!container) return [clientX, clientY];
+    const rect = container.getBoundingClientRect();
+    const xRel = clientX - rect.left;
+    const yRel = clientY - rect.top;
+    const width = rect.width;
+    const height = rect.height;
+    return [
+      (xRel - width / 2 - appState.scrollX) / zoom,
+      (yRel - height / 2 - appState.scrollY) / zoom
+    ];
+  };
+
+  const mapCanvasToScreen = (cx, cy) => {
+    if (!excalidrawAPI) return [cx, cy];
+    const appState = excalidrawAPI.getAppState();
+    const zoom = appState.zoom.value;
+    const container = document.getElementById("canvas-container");
+    if (!container) return [cx, cy];
+    const rect = container.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
+    return [
+      cx * zoom + width / 2 + appState.scrollX,
+      cy * zoom + height / 2 + appState.scrollY
+    ];
+  };
+
+  const handleCanvasPointerDown = (e) => {
+    if (!excalidrawAPI || !customBrushActive || activeBrushId === "normal") return;
+    if (e.button !== 0) return;
+
+    const targetElement = e.target;
+    if (targetElement.closest(".drawerator-top-right-wrapper") || targetElement.closest(".theme-btn-top-left") || targetElement.closest(".sidebar-trigger")) {
+      return;
+    }
+
+    isDrawingRef.current = true;
+    const coords = getCanvasCoords(e.clientX, e.clientY);
+    livePointsRef.current = [coords];
+    setDrawingPoints([coords]);
+  };
+
+  const handleCanvasPointerMove = (e) => {
+    if (!isDrawingRef.current) return;
+    if (e.buttons !== 1) {
+      isDrawingRef.current = false;
+      setDrawingPoints([]);
+      return;
+    }
+    const coords = getCanvasCoords(e.clientX, e.clientY);
+    livePointsRef.current.push(coords);
+    setDrawingPoints([...livePointsRef.current]);
+  };
+
+  const getLivePreviewPaths = () => {
+    if (!customBrushActive || activeBrushId === "normal" || drawingPoints.length < 2) return [];
+    const generator = compiledGeneratorRef.current;
+    if (!generator) return [];
+    try {
+      return generator(drawingPoints);
+    } catch (e) {
+      return [];
+    }
+  };
 
   // Sync Excalidraw tool selection with customBrushActive
   useEffect(() => {
@@ -536,6 +610,9 @@ function App() {
   };
 
   const handleCanvasPointerUp = () => {
+    isDrawingRef.current = false;
+    setDrawingPoints([]);
+
     if (!excalidrawAPI || !customBrushActive || activeBrushId === "normal") return;
 
     // Wait a brief tick for Excalidraw to finish writing the element
@@ -1678,7 +1755,13 @@ function App() {
       )}
 
       {/* Excalidraw Canvas Area */}
-      <div id="canvas-container" onPointerUp={handleCanvasPointerUp} style={{ width: "100%", height: "100%", position: "relative" }}>
+      <div 
+        id="canvas-container" 
+        onPointerDown={handleCanvasPointerDown}
+        onPointerMove={handleCanvasPointerMove}
+        onPointerUp={handleCanvasPointerUp} 
+        style={{ width: "100%", height: "100%", position: "relative" }}
+      >
         <Excalidraw 
           theme={theme} 
           excalidrawAPI={(api) => setExcalidrawAPI(api)} 
@@ -2420,6 +2503,38 @@ function App() {
           </Sidebar>
         </Excalidraw>
 
+        {/* Live Preview SVG Overlay */}
+        {customBrushActive && activeBrushId !== "normal" && drawingPoints.length >= 2 && (
+          <svg 
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              width: "100%",
+              height: "100%",
+              pointerEvents: "none",
+              zIndex: 1
+            }}
+          >
+            {getLivePreviewPaths().map((linePoints) => {
+              return linePoints.map(([cx, cy]) => mapCanvasToScreen(cx, cy));
+            }).map((line, idx) => {
+              const pointsString = line.map(([x, y]) => `${x},${y}`).join(" ");
+              return (
+                <polyline
+                  key={idx}
+                  points={pointsString}
+                  fill="none"
+                  stroke={excalidrawAPI?.getAppState().currentItemStrokeColor || "var(--color-accent, #6965db)"}
+                  strokeWidth={excalidrawAPI?.getAppState().currentItemStrokeWidth || 2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity={0.6}
+                />
+              );
+            })}
+          </svg>
+        )}
 
       </div>
 
