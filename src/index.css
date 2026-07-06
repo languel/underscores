@@ -61,7 +61,7 @@ body, html {
 
 .header-btn {
   background: transparent;
-  border: 1px solid var(--border-color);
+  border: none !important;
   color: var(--color-primary);
   width: 28px;
   height: 28px;
@@ -74,12 +74,9 @@ body, html {
 }
 .header-btn:hover {
   background: var(--bg-hover-btn);
-  border-color: var(--border-focus);
 }
 .header-btn.active {
-  background: var(--button-selected-bg, #6965db) !important;
-  border-color: var(--button-selected-border, #6965db) !important;
-  color: var(--color-btn-text, #ffffff) !important;
+  background: var(--bg-hover-btn) !important;
 }
 
 /* --- CHAT MESSAGES AREA --- */
@@ -809,6 +806,26 @@ body .excalidraw .sidebar {
 .autocomplete-item:hover,
 .autocomplete-item.active {
   background-color: var(--button-hover-bg, rgba(255, 255, 255, 0.08)) !important;
+}
+
+.header-btn {
+  background: transparent;
+  border: none !important;
+  color: var(--color-primary);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.header-btn:hover {
+  background: var(--bg-hover-btn);
+}
+.header-btn.active {
+  background: var(--bg-hover-btn) !important;
 }
 
 /* Custom Brush Palette & Sidebar Styles */

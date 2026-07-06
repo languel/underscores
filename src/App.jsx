@@ -206,7 +206,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.0.3 (rebuilt at 2026-07-06T12:40:00)");
+  console.log("Drawerator version: 1.0.4 (rebuilt at 2026-07-06T12:50:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
