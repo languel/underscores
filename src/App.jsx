@@ -277,7 +277,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.1.3 (rebuilt at 2026-07-06T16:40:00)");
+  console.log("Drawerator version: 1.1.4 (rebuilt at 2026-07-06T16:45:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -2723,7 +2723,7 @@ function App() {
                   strokeWidth={excalidrawAPI?.getAppState().currentItemStrokeWidth || 2}
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  opacity={(excalidrawAPI?.getAppState().currentItemOpacity ?? 100) / 100}
+                  opacity={((excalidrawAPI?.getAppState().currentItemOpacity ?? 100) / 100) * 0.8}
                 />
               );
             })}
