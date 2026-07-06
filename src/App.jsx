@@ -277,7 +277,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.0.8 (rebuilt at 2026-07-06T16:00:00)");
+  console.log("Drawerator version: 1.0.9 (rebuilt at 2026-07-06T16:10:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -465,6 +465,7 @@ function App() {
   const [drawingPoints, setDrawingPoints] = useState([]);
   const isDrawingRef = useRef(false);
   const livePointsRef = useRef([]);
+  const lastStrokeColorRef = useRef("#000000");
 
   const getThemeColor = (color) => {
     if (!color) return "var(--color-primary)";
@@ -532,10 +533,22 @@ function App() {
       return;
     }
 
+    const appState = excalidrawAPI.getAppState();
+    if (appState.currentItemStrokeColor && appState.currentItemStrokeColor !== "transparent") {
+      lastStrokeColorRef.current = appState.currentItemStrokeColor;
+    }
+
     isDrawingRef.current = true;
     const coords = getCanvasCoords(e.clientX, e.clientY);
     livePointsRef.current = [coords];
     setDrawingPoints([coords]);
+
+    // Force Excalidraw's active drawing stroke to be transparent
+    excalidrawAPI.updateScene({
+      appState: {
+        currentItemStrokeColor: "transparent"
+      }
+    });
   };
 
   const handleCanvasPointerMove = (e) => {
@@ -735,7 +748,8 @@ function App() {
           acc[el.id] = true;
           return acc;
         }, {})
-      }
+      },
+      commitToHistory: true
     });
   };
 
@@ -744,6 +758,13 @@ function App() {
     setDrawingPoints([]);
 
     if (!excalidrawAPI || !customBrushActive || activeBrushId === "normal") return;
+
+    // Restore the real stroke color in Excalidraw appState
+    excalidrawAPI.updateScene({
+      appState: {
+        currentItemStrokeColor: lastStrokeColorRef.current
+      }
+    });
 
     // Wait a brief tick for Excalidraw to finish writing the element
     setTimeout(() => {
@@ -774,7 +795,8 @@ function App() {
               }).concat(result.newElements);
 
               excalidrawAPI.updateScene({
-                elements: nextElements
+                elements: nextElements,
+                commitToHistory: true
               });
             }
           }
@@ -1943,6 +1965,9 @@ function App() {
           }}
           onChange={(elements, appState) => {
             applyForceDesktopOverride(false);
+            if (appState.currentItemStrokeColor && appState.currentItemStrokeColor !== "transparent") {
+              lastStrokeColorRef.current = appState.currentItemStrokeColor;
+            }
             if (appState.theme && appState.theme !== theme) {
               setTheme(appState.theme);
             }
