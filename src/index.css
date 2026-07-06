@@ -892,3 +892,38 @@ body .excalidraw .sidebar {
 .custom-brush-drawing canvas:not(.static) {
   opacity: 0 !important;
 }
+
+/* Custom Right-Click Context Menu Styles */
+.custom-floating-context-menu {
+  position: fixed;
+  background: var(--island-bg-color, #1e1e24);
+  border: 1px solid var(--border-color, #2d2d34);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+  padding: 4px 0;
+  min-width: 190px;
+  z-index: 99999;
+  display: flex;
+  flex-direction: column;
+  backdrop-filter: blur(8px);
+}
+
+.custom-floating-context-menu-btn {
+  background: transparent;
+  border: none !important;
+  outline: none !important;
+  color: var(--popup-text-color, #ececec);
+  padding: 8px 14px;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: var(--font-sans, sans-serif);
+  display: flex;
+  align-items: center;
+  width: 100%;
+  transition: background 0.15s;
+}
+
+.custom-floating-context-menu-btn:hover {
+  background-color: var(--button-hover-bg, rgba(255, 255, 255, 0.08));
+}
