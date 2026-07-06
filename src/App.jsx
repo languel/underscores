@@ -277,7 +277,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.1.0 (rebuilt at 2026-07-06T16:20:00)");
+  console.log("Drawerator version: 1.1.1 (rebuilt at 2026-07-06T16:30:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -662,7 +662,7 @@ function App() {
         points: relativePoints,
         width: maxX - minX,
         height: maxY - minY,
-        strokeColor: freedrawElement.strokeColor,
+        strokeColor: (freedrawElement.strokeColor === "transparent" || !freedrawElement.strokeColor) ? lastStrokeColorRef.current : freedrawElement.strokeColor,
         strokeWidth: freedrawElement.strokeWidth,
         backgroundColor: freedrawElement.backgroundColor,
         fillStyle: "solid",
