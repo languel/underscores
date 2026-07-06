@@ -190,6 +190,77 @@ const PRESET_BRUSHES = {
   lines.push(points.map(([x, y]) => [x - 2, y - 3]));
   return lines;
 }`
+  },
+  pressure: {
+    id: "pressure",
+    name: "Calligraphy Pencil (Pressure-Sensitive)",
+    code: `(points) => {
+  const lines = [];
+  if (points.length < 2) return lines;
+  
+  // Calculate distances between consecutive points to estimate drawing speed
+  const dists = [];
+  for (let i = 1; i < points.length; i++) {
+    const dx = points[i][0] - points[i-1][0];
+    const dy = points[i][1] - points[i-1][1];
+    dists.push(Math.sqrt(dx * dx + dy * dy));
+  }
+  
+  // Smooth the speed values using a moving average window
+  const smoothDists = [];
+  const windowSize = 3;
+  for (let i = 0; i < points.length; i++) {
+    let sum = 0;
+    let count = 0;
+    for (let w = -windowSize; w <= windowSize; w++) {
+      const idx = i + w;
+      if (idx >= 0 && idx < dists.length) {
+        sum += dists[idx];
+        count++;
+      }
+    }
+    smoothDists.push(count > 0 ? sum / count : 8);
+  }
+
+  // Draw 3 offsets relative to the normal vectors that merge at high speed
+  const centerTrack = [];
+  const leftTrack = [];
+  const rightTrack = [];
+
+  for (let i = 0; i < points.length; i++) {
+    const [x, y] = points[i];
+    centerTrack.push([x, y]);
+
+    let nx = 0;
+    let ny = 0;
+    if (i < points.length - 1) {
+      const dx = points[i+1][0] - x;
+      const dy = points[i+1][1] - y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 0) { nx = -dy / len; ny = dx / len; }
+    } else if (i > 0) {
+      const dx = x - points[i-1][0];
+      const dy = y - points[i-1][1];
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 0) { nx = -dy / len; ny = dx / len; }
+    }
+
+    // Map drawing speed to normal offset:
+    // Faster movement -> smaller offset (thinner line)
+    // Slower movement -> larger offset (wider line)
+    const speedVal = smoothDists[i];
+    const baseOffset = 3.5;
+    const offsetAmount = Math.max(0.1, baseOffset - (speedVal * 0.12));
+
+    leftTrack.push([x + nx * offsetAmount, y + ny * offsetAmount]);
+    rightTrack.push([x - nx * offsetAmount, y - ny * offsetAmount]);
+  }
+
+  lines.push(centerTrack);
+  lines.push(leftTrack);
+  lines.push(rightTrack);
+  return lines;
+}`
   }
 };
 
@@ -206,7 +277,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.0.5 (rebuilt at 2026-07-06T13:40:00)");
+  console.log("Drawerator version: 1.0.6 (rebuilt at 2026-07-06T15:40:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -241,18 +312,38 @@ function App() {
     return saved ? parseInt(saved, 10) : 380;
   });  const [brushPalette, setBrushPalette] = useState(() => {
     const saved = localStorage.getItem("drawerator_brush_palette");
+    let palette = [];
     if (saved) {
       try {
-        return JSON.parse(saved);
+        palette = JSON.parse(saved);
       } catch (e) {
         console.error("Failed to parse brush palette", e);
       }
     }
-    return [
+    
+    const defaultPresets = [
       { id: "hairy", name: "Hairy Brush (Calligraphy)", code: PRESET_BRUSHES.hairy.code, isPreset: true },
+      { id: "pressure", name: "Calligraphy Pencil (Pressure-Sensitive)", code: PRESET_BRUSHES.pressure.code, isPreset: true },
       { id: "ribbon", name: "Ribbon Brush (Double Track)", code: PRESET_BRUSHES.ribbon.code, isPreset: true },
       { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true }
     ];
+
+    if (!palette || palette.length === 0) {
+      return defaultPresets;
+    }
+
+    // Merge/update presets
+    defaultPresets.forEach(preset => {
+      const idx = palette.findIndex(b => b.id === preset.id);
+      if (idx === -1) {
+        palette.push(preset);
+      } else {
+        // Automatically sync latest preset code
+        palette[idx] = { ...palette[idx], code: preset.code, name: preset.name, isPreset: true };
+      }
+    });
+
+    return palette;
   });
 
   const [activeBrushId, setActiveBrushId] = useState(() => {
@@ -268,13 +359,27 @@ function App() {
     if (savedPalette) {
       try { currentPalette = JSON.parse(savedPalette); } catch (e) {}
     }
+    
+    const defaultPresets = [
+      { id: "hairy", name: "Hairy Brush (Calligraphy)", code: PRESET_BRUSHES.hairy.code, isPreset: true },
+      { id: "pressure", name: "Calligraphy Pencil (Pressure-Sensitive)", code: PRESET_BRUSHES.pressure.code, isPreset: true },
+      { id: "ribbon", name: "Ribbon Brush (Double Track)", code: PRESET_BRUSHES.ribbon.code, isPreset: true },
+      { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true }
+    ];
+
     if (!currentPalette || currentPalette.length === 0) {
-      currentPalette = [
-        { id: "hairy", name: "Hairy Brush (Calligraphy)", code: PRESET_BRUSHES.hairy.code, isPreset: true },
-        { id: "ribbon", name: "Ribbon Brush (Double Track)", code: PRESET_BRUSHES.ribbon.code, isPreset: true },
-        { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true }
-      ];
+      currentPalette = defaultPresets;
+    } else {
+      defaultPresets.forEach(preset => {
+        const idx = currentPalette.findIndex(b => b.id === preset.id);
+        if (idx === -1) {
+          currentPalette.push(preset);
+        } else {
+          currentPalette[idx] = { ...currentPalette[idx], code: preset.code, name: preset.name, isPreset: true };
+        }
+      });
     }
+
     const brush = currentPalette.find(b => b.id === id);
     return brush ? brush.code : "";
   });
@@ -1761,6 +1866,7 @@ function App() {
         onPointerMove={handleCanvasPointerMove}
         onPointerUp={handleCanvasPointerUp} 
         style={{ width: "100%", height: "100%", position: "relative" }}
+        className={drawingPoints.length > 0 ? "custom-brush-drawing" : ""}
       >
         <Excalidraw 
           theme={theme} 

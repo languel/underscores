@@ -886,3 +886,9 @@ body .excalidraw .sidebar {
   background-color: var(--button-hover-bg, rgba(255, 255, 255, 0.08));
   color: var(--color-primary);
 }
+
+/* Hide native drawing pencil stroke when custom brush mode is active */
+.custom-brush-drawing canvas.excalidraw__canvas:not(.static),
+.custom-brush-drawing canvas:not(.static) {
+  opacity: 0 !important;
+}
