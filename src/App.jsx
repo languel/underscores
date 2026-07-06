@@ -396,6 +396,30 @@ const resampleUniform = (points, count) => {
   return newPoints;
 };
 
+const smoothPathLaplacian = (points, factor = 0.4, iterations = 3) => {
+  if (points.length <= 2) return points;
+  
+  let currentPoints = points.map(p => [...p]);
+  
+  for (let iter = 0; iter < iterations; iter++) {
+    const nextPoints = currentPoints.map(p => [...p]);
+    for (let i = 1; i < currentPoints.length - 1; i++) {
+      const prev = currentPoints[i - 1];
+      const curr = currentPoints[i];
+      const next = currentPoints[i + 1];
+      
+      const avgX = (prev[0] + next[0]) / 2;
+      const avgY = (prev[1] + next[1]) / 2;
+      
+      nextPoints[i][0] = curr[0] * (1 - factor) + avgX * factor;
+      nextPoints[i][1] = curr[1] * (1 - factor) + avgY * factor;
+    }
+    currentPoints = nextPoints;
+  }
+  
+  return currentPoints;
+};
+
 const updateElementGeometry = (el, newAbsolutePoints) => {
   if (newAbsolutePoints.length < 2) return el;
   
@@ -435,7 +459,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.2.2 (rebuilt at 2026-07-06T20:20:00)");
+  console.log("Drawerator version: 1.2.4 (rebuilt at 2026-07-06T20:55:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -929,9 +953,19 @@ function App() {
     const selectedIds = appState.selectedElementIds || {};
     const elements = excalidrawAPI.getSceneElements();
     
+    // Gather all active group IDs in the selection
+    const selectedGroupIds = new Set();
+    elements.forEach(el => {
+      if (selectedIds[el.id] && !el.isDeleted && el.groupIds) {
+        el.groupIds.forEach(gId => selectedGroupIds.add(gId));
+      }
+    });
+
     let count = 0;
     const nextElements = elements.map(el => {
-      if (selectedIds[el.id] && !el.isDeleted) {
+      const isSelected = selectedIds[el.id];
+      const isInSelectedGroup = el.groupIds && el.groupIds.some(gId => selectedGroupIds.has(gId));
+      if ((isSelected || isInSelectedGroup) && !el.isDeleted) {
         if ((el.type === "freedraw" || el.type === "line") && el.type !== targetType) {
           count++;
           const nextColor = (el.strokeColor === "transparent" || !el.strokeColor) ? lastStrokeColorRef.current : el.strokeColor;
@@ -1039,9 +1073,19 @@ function App() {
     const selectedIds = appState.selectedElementIds || {};
     const elements = excalidrawAPI.getSceneElements();
 
+    // Gather all active group IDs in the selection
+    const selectedGroupIds = new Set();
+    elements.forEach(el => {
+      if (selectedIds[el.id] && !el.isDeleted && el.groupIds) {
+        el.groupIds.forEach(gId => selectedGroupIds.add(gId));
+      }
+    });
+
     let count = 0;
     const nextElements = elements.map(el => {
-      if (selectedIds[el.id] && !el.isDeleted) {
+      const isSelected = selectedIds[el.id];
+      const isInSelectedGroup = el.groupIds && el.groupIds.some(gId => selectedGroupIds.has(gId));
+      if ((isSelected || isInSelectedGroup) && !el.isDeleted) {
         if ((el.type === "freedraw" || el.type === "line") && el.points && el.points.length > 2) {
           count++;
           
@@ -1054,7 +1098,9 @@ function App() {
           if (algorithm === "rdp") {
             simplifiedAbs = simplifyRDP(absolutePoints, 2.5); // 2.5px tolerance
           } else if (algorithm === "vw") {
-            simplifiedAbs = simplifyVW(absolutePoints, 4.0); // 4px^2 area tolerance
+            simplifiedAbs = simplifyVW(absolutePoints, 15.0); // 15px^2 area tolerance
+          } else if (algorithm === "smooth") {
+            simplifiedAbs = smoothPathLaplacian(absolutePoints, 0.4, 3); // 3 iterations of 0.4 Laplacian weight
           } else if (algorithm === "resample") {
             simplifiedAbs = resampleUniform(absolutePoints, absolutePoints.length);
           }
@@ -3541,6 +3587,21 @@ function App() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 12l6-8 6 12 4-4" />
             </svg>
             Simplify Path (VW)
+          </button>
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleSimplifyStroke("smooth");
+              setCustomContextMenu(null);
+            }}
+            className="custom-floating-context-menu-btn"
+            title="Smooth the path coordinates using a Laplacian moving-average filter without changing point density"
+          >
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 12c2.5-6 5.5-6 8 0s5.5 6 8 0" />
+            </svg>
+            Smooth Path (Laplacian)
           </button>
           <button
             onPointerDown={(e) => {
