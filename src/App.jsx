@@ -127,6 +127,13 @@ const cleanApiUrl = (url, provider) => {
 };
 
 const PRESET_BRUSHES = {
+  simple: {
+    id: "simple",
+    name: "Simple Line",
+    code: `(points) => {
+  return [points];
+}`
+  },
   hairy: {
     id: "hairy",
     name: "Hairy Brush (Calligraphy)",
@@ -277,7 +284,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.1.6 (rebuilt at 2026-07-06T16:55:00)");
+  console.log("Drawerator version: 1.1.7 (rebuilt at 2026-07-06T17:00:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -322,6 +329,7 @@ function App() {
     }
     
     const defaultPresets = [
+      { id: "simple", name: "Simple Line", code: PRESET_BRUSHES.simple.code, isPreset: true },
       { id: "hairy", name: "Hairy Brush (Calligraphy)", code: PRESET_BRUSHES.hairy.code, isPreset: true },
       { id: "pressure", name: "Calligraphy Pencil (Pressure-Sensitive)", code: PRESET_BRUSHES.pressure.code, isPreset: true },
       { id: "ribbon", name: "Ribbon Brush (Double Track)", code: PRESET_BRUSHES.ribbon.code, isPreset: true },
