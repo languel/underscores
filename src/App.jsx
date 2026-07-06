@@ -277,7 +277,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.0.7 (rebuilt at 2026-07-06T15:50:00)");
+  console.log("Drawerator version: 1.0.8 (rebuilt at 2026-07-06T16:00:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -465,6 +465,31 @@ function App() {
   const [drawingPoints, setDrawingPoints] = useState([]);
   const isDrawingRef = useRef(false);
   const livePointsRef = useRef([]);
+
+  const getThemeColor = (color) => {
+    if (!color) return "var(--color-primary)";
+    if (theme === "dark") {
+      if (
+        color === "#000000" ||
+        color === "#1c1c1e" ||
+        color === "#1e1e1e" ||
+        color === "#121212" ||
+        color === "rgb(0,0,0)" ||
+        color === "black"
+      ) {
+        return "#ffffff";
+      }
+    } else {
+      if (
+        color === "#ffffff" ||
+        color === "rgb(255,255,255)" ||
+        color === "white"
+      ) {
+        return "#000000";
+      }
+    }
+    return color;
+  };
 
   const getCanvasCoords = (clientX, clientY) => {
     if (!excalidrawAPI) return [clientX, clientY];
@@ -1498,6 +1523,40 @@ function App() {
         e.stopPropagation();
         excalidrawAPI?.toggleSidebar({ name: "brush-sidebar" });
       }
+
+      // Keyboard shortcuts check for non-input focus
+      const activeEl = document.activeElement;
+      const isInputFocused = activeEl && (
+        activeEl.tagName === "INPUT" ||
+        activeEl.tagName === "TEXTAREA" ||
+        activeEl.contentEditable === "true"
+      );
+
+      if (!isInputFocused) {
+        // Shift + P (Toggle Custom Brush Mode)
+        if (e.shiftKey && !e.ctrlKey && !e.altKey && e.code === "KeyP") {
+          e.preventDefault();
+          e.stopPropagation();
+          const nextState = !customBrushActive;
+          setCustomBrushActive(nextState);
+          if (nextState) {
+            if (activeBrushId === "normal") {
+              setActiveBrushId("hairy");
+            }
+            excalidrawAPI?.updateScene({ appState: { activeTool: { type: "freedraw" } } });
+          } else {
+            excalidrawAPI?.updateScene({ appState: { activeTool: { type: "selection" } } });
+          }
+        }
+        
+        // Ctrl + Shift + P (Apply active brush style to selected strokes)
+        if (e.ctrlKey && e.shiftKey && !e.altKey && e.code === "KeyP") {
+          e.preventDefault();
+          e.stopPropagation();
+          handleApplyBrushToSelected();
+        }
+      }
+
       // [ and ] shortcuts to increase/decrease stroke width for pen and line
       if ((e.key === "[" || e.key === "]") && excalidrawAPI) {
         const activeEl = document.activeElement;
@@ -1557,7 +1616,7 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [theme, excalidrawAPI]);
+  }, [theme, excalidrawAPI, customBrushActive, activeBrushId]);
 
   // Autofocus input when Command Palette opens
   useEffect(() => {
@@ -1862,9 +1921,9 @@ function App() {
       {/* Excalidraw Canvas Area */}
       <div 
         id="canvas-container" 
-        onPointerDown={handleCanvasPointerDown}
-        onPointerMove={handleCanvasPointerMove}
-        onPointerUp={handleCanvasPointerUp} 
+        onPointerDownCapture={handleCanvasPointerDown}
+        onPointerMoveCapture={handleCanvasPointerMove}
+        onPointerUpCapture={handleCanvasPointerUp} 
         style={{ width: "100%", height: "100%", position: "relative" }}
         className={drawingPoints.length > 0 ? "custom-brush-drawing" : ""}
       >
@@ -2631,7 +2690,7 @@ function App() {
                   key={idx}
                   points={pointsString}
                   fill="none"
-                  stroke={excalidrawAPI?.getAppState().currentItemStrokeColor || "var(--color-accent, #6965db)"}
+                  stroke={getThemeColor(excalidrawAPI?.getAppState().currentItemStrokeColor)}
                   strokeWidth={excalidrawAPI?.getAppState().currentItemStrokeWidth || 2}
                   strokeLinecap="round"
                   strokeLinejoin="round"
