@@ -284,7 +284,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.1.9 (rebuilt at 2026-07-06T19:10:00)");
+  console.log("Drawerator version: 1.2.0 (rebuilt at 2026-07-06T19:15:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -783,9 +783,11 @@ function App() {
       if (selectedIds[el.id] && !el.isDeleted) {
         if ((el.type === "freedraw" || el.type === "line") && el.type !== targetType) {
           count++;
+          const nextColor = (el.strokeColor === "transparent" || !el.strokeColor) ? lastStrokeColorRef.current : el.strokeColor;
           return {
             ...el,
             type: targetType,
+            strokeColor: nextColor,
             version: el.version + 1,
             versionNonce: Math.floor(Math.random() * 1000000),
             updated: Date.now()
@@ -811,6 +813,10 @@ function App() {
 
     const selectedStrokeElements = elements.filter(el => selectedIds[el.id] && !el.isDeleted);
     if (selectedStrokeElements.length === 0) return;
+
+    // Find the first selected custom brush line to extract its color
+    const firstSelected = selectedStrokeElements[0];
+    const sourceColor = firstSelected ? firstSelected.strokeColor : lastStrokeColorRef.current;
 
     const baseIdsToRestore = new Set();
     const brushGroupIds = new Set();
@@ -840,9 +846,11 @@ function App() {
     const nextElements = elements.map(el => {
       if (baseIdsToRestore.has(el.id)) {
         restoredCount++;
+        const finalColor = (el.strokeColor === "transparent" || !el.strokeColor) ? sourceColor : el.strokeColor;
         return {
           ...el,
           isDeleted: false,
+          strokeColor: finalColor,
           updated: Date.now()
         };
       }
