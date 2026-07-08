@@ -999,6 +999,11 @@ function App() {
   });
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
   const [sidebarTab, setSidebarTab] = useState("brush"); // "brush" or "modifiers"
+  const [selectedElementIds, setSelectedElementIds] = useState({});
+  const [panelPos, setPanelPos] = useState({ x: 40, y: 150 }); // Left side by default
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [isDraggingPanel, setIsDraggingPanel] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showContextDropdown, setShowContextDropdown] = useState(false);
   const [contextMenuTab, setContextMenuTab] = useState("main");
@@ -3094,6 +3099,36 @@ function App() {
     }
   };
 
+  const handlePanelDragStart = (e) => {
+    if (e.button !== 0) return; // Only left click
+    setIsDraggingPanel(true);
+    dragStartRef.current = {
+      x: e.clientX - panelPos.x,
+      y: e.clientY - panelPos.y
+    };
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    if (isDraggingPanel) {
+      const handleMouseMove = (e) => {
+        setPanelPos({
+          x: e.clientX - dragStartRef.current.x,
+          y: e.clientY - dragStartRef.current.y
+        });
+      };
+      const handleMouseUp = () => {
+        setIsDraggingPanel(false);
+      };
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+      return () => {
+        window.removeEventListener("mousemove", handleMouseMove);
+        window.removeEventListener("mouseup", handleMouseUp);
+      };
+    }
+  }, [isDraggingPanel]);
+
   const getSelectedElements = () => {
     if (!excalidrawAPI) return [];
     const appState = excalidrawAPI.getAppState();
@@ -3120,6 +3155,73 @@ function App() {
     return params;
   };
 
+  const convertShapeToPath = (element) => {
+    if (!excalidrawAPI) return;
+    const { x, y, width, height, strokeColor, strokeWidth, backgroundColor, fillStyle, strokeStyle, roughness, roundness, opacity, groupIds, angle } = element;
+    
+    let points = [];
+    if (element.type === "rectangle") {
+      points = [[0, 0], [width, 0], [width, height], [0, height], [0, 0]];
+    } else if (element.type === "diamond") {
+      points = [[width/2, 0], [width, height/2], [width/2, height], [0, height/2], [width/2, 0]];
+    } else if (element.type === "ellipse") {
+      const steps = 36;
+      for (let i = 0; i <= steps; i++) {
+        const angle = (i * 2 * Math.PI) / steps;
+        points.push([
+          width / 2 + (width / 2) * Math.cos(angle),
+          height / 2 + (height / 2) * Math.sin(angle)
+        ]);
+      }
+    } else {
+      return;
+    }
+
+    const convertedElement = {
+      type: "line",
+      x,
+      y,
+      width,
+      height,
+      points,
+      strokeColor,
+      strokeWidth,
+      backgroundColor,
+      fillStyle,
+      strokeStyle,
+      roughness,
+      roundness,
+      opacity,
+      groupIds,
+      angle,
+      id: element.id,
+      seed: element.seed,
+      version: element.version + 1,
+      versionNonce: Math.floor(Math.random() * 1000000),
+      isDeleted: false,
+      updated: Date.now(),
+      boundElements: null,
+      link: null,
+      locked: element.locked,
+      frameId: element.frameId,
+      lastCommittedPoint: null,
+      startBinding: null,
+      endBinding: null
+    };
+
+    const nextElements = excalidrawAPI.getSceneElements().map(el => {
+      if (el.id === element.id) {
+        return convertedElement;
+      }
+      return el;
+    });
+
+    excalidrawAPI.updateScene({
+      elements: nextElements,
+      commitToHistory: true
+    });
+  };
+
   const renderModifiersTab = () => {
     if (!excalidrawAPI) {
       return <div className="modifiers-panel-empty" style={{ textAlign: "center", opacity: 0.6, padding: "20px" }}>Excalidraw is loading...</div>;
@@ -3144,15 +3246,17 @@ function App() {
           </svg>
           <p style={{ margin: 0, fontSize: "13px", lineHeight: "1.5" }}>
             {selectedElements.length === 0 
-              ? "Select exactly one curve element on the canvas to configure its modifier stack."
-              : "Modifier stack editing is limited to one selected element at a time."}
+              ? "Select exactly one object on the canvas to configure its modifier stack."
+              : "Modifier stack editing is limited to one selected object at a time."}
           </p>
         </div>
       );
     }
 
     const element = selectedElements[0];
-    if (element.type !== "freedraw" && element.type !== "line") {
+    const isShape = ["rectangle", "ellipse", "diamond"].includes(element.type);
+
+    if (element.type !== "freedraw" && element.type !== "line" && !isShape) {
       return (
         <div className="modifiers-panel-empty" style={{
           textAlign: "center",
@@ -3162,7 +3266,41 @@ function App() {
           opacity: 0.7,
           fontSize: "13px"
         }}>
-          Modifiers can only be applied to stroke paths (pencil drawings or lines).
+          Modifiers can only be applied to stroke paths (pencil drawings or lines) or geometric shapes.
+        </div>
+      );
+    }
+
+    if (isShape) {
+      return (
+        <div style={{
+          textAlign: "center",
+          padding: "24px 16px",
+          border: "1px dashed var(--color-border, #3a3b46)",
+          borderRadius: "8px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "12px",
+          alignItems: "center"
+        }}>
+          <p style={{ margin: 0, fontSize: "13px", opacity: 0.8 }}>
+            Selected: <strong style={{ textTransform: "capitalize" }}>{element.type}</strong>. Convert it to a path to apply modifiers.
+          </p>
+          <button
+            onClick={() => convertShapeToPath(element)}
+            style={{
+              padding: "8px 16px",
+              borderRadius: "6px",
+              background: "#6c5ce7",
+              color: "#fff",
+              border: "none",
+              cursor: "pointer",
+              fontWeight: "600",
+              fontSize: "13px"
+            }}
+          >
+            Convert to Path
+          </button>
         </div>
       );
     }
@@ -3587,6 +3725,107 @@ function App() {
     );
   };
 
+  const renderModifiersPropertiesPanel = () => {
+    if (!excalidrawAPI) return null;
+    const selectedElements = getSelectedElements();
+    if (selectedElements.length === 0) return null;
+
+    const panelStyle = {
+      position: "fixed",
+      left: `${panelPos.x}px`,
+      top: `${panelPos.y}px`,
+      zIndex: 9999,
+      width: "320px",
+      background: theme === "dark" ? "rgba(30, 31, 41, 0.9)" : "rgba(255, 255, 255, 0.95)",
+      backdropFilter: "blur(12px)",
+      border: "1px solid var(--color-border-primary, #3a3b46)",
+      borderRadius: "12px",
+      boxShadow: "0 10px 25px rgba(0, 0, 0, 0.25)",
+      color: theme === "dark" ? "#fff" : "#121214",
+      fontFamily: "system-ui, -apple-system, sans-serif",
+      overflow: "hidden",
+      display: "flex",
+      flexDirection: "column",
+      borderTop: "3px solid #6c5ce7"
+    };
+
+    const headerStyle = {
+      padding: "10px 14px",
+      background: theme === "dark" ? "#15161e" : "#f1f2f6",
+      borderBottom: "1px solid var(--color-border-primary, #3a3b46)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      cursor: isDraggingPanel ? "grabbing" : "grab",
+      userSelect: "none"
+    };
+
+    const titleStyle = {
+      fontSize: "12px",
+      fontWeight: "bold",
+      letterSpacing: "0.5px",
+      textTransform: "uppercase",
+      opacity: 0.9,
+      display: "flex",
+      alignItems: "center",
+      gap: "6px"
+    };
+
+    const bodyStyle = {
+      padding: "16px",
+      maxHeight: "420px",
+      overflowY: "auto",
+      display: panelCollapsed ? "none" : "flex",
+      flexDirection: "column",
+      gap: "16px"
+    };
+
+    return (
+      <div style={panelStyle}>
+        {/* Header Drag Handle */}
+        <div style={headerStyle} onMouseDown={handlePanelDragStart}>
+          <div style={titleStyle}>
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+            <span>Modifiers & Effects</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            {/* Collapse / Expand Toggle */}
+            <button
+              onClick={() => setPanelCollapsed(!panelCollapsed)}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: "2px",
+                color: "inherit",
+                display: "flex",
+                alignItems: "center"
+              }}
+              title={panelCollapsed ? "Expand Panel" : "Collapse Panel"}
+            >
+              {panelCollapsed ? (
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              ) : (
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Content Body */}
+        <div style={bodyStyle} className="modifiers-panel-body">
+          {renderModifiersTab()}
+        </div>
+      </div>
+    );
+  };
+
   const renderBrushConfigForm = () => {
     const activeBrush = brushPalette.find(b => b.id === activeBrushId) || {};
     
@@ -3854,6 +4093,12 @@ function App() {
           }}
           onChange={(elements, appState) => {
             applyForceDesktopOverride(false);
+
+            // Sync selected element IDs state to trigger panel re-renders
+            const selectedIds = appState.selectedElementIds || {};
+            if (JSON.stringify(selectedIds) !== JSON.stringify(selectedElementIds)) {
+              setSelectedElementIds(selectedIds);
+            }
 
             if (!evaluatingModifiersRef.current && excalidrawAPI) {
               // 1. Clean up children of deleted parents
@@ -4667,53 +4912,7 @@ function App() {
               </div>
             </Sidebar.Header>
             <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "16px", height: "calc(100% - 50px)", overflowY: "auto" }}>
-              {/* Tab Selector */}
-              <div style={{
-                display: "flex",
-                background: "var(--color-bg-secondary, #2a2b36)",
-                padding: "4px",
-                borderRadius: "8px",
-                border: "1px solid var(--color-border, #3a3b46)",
-                gap: "4px",
-                marginBottom: "4px"
-              }}>
-                <button
-                  onClick={() => setSidebarTab("brush")}
-                  style={{
-                    flex: 1,
-                    padding: "6px 12px",
-                    borderRadius: "6px",
-                    border: "none",
-                    background: sidebarTab === "brush" ? "var(--color-bg-primary, #1e1f29)" : "transparent",
-                    color: "inherit",
-                    fontWeight: "600",
-                    fontSize: "12px",
-                    cursor: "pointer",
-                    transition: "all 0.2s"
-                  }}
-                >
-                  Brush Lab
-                </button>
-                <button
-                  onClick={() => setSidebarTab("modifiers")}
-                  style={{
-                    flex: 1,
-                    padding: "6px 12px",
-                    borderRadius: "6px",
-                    border: "none",
-                    background: sidebarTab === "modifiers" ? "var(--color-bg-primary, #1e1f29)" : "transparent",
-                    color: "inherit",
-                    fontWeight: "600",
-                    fontSize: "12px",
-                    cursor: "pointer",
-                    transition: "all 0.2s"
-                  }}
-                >
-                  Modifiers
-                </button>
-              </div>
-
-              {sidebarTab === "brush" ? renderBrushConfigForm() : renderModifiersTab()}
+              {renderBrushConfigForm()}
             </div>
           </Sidebar>
         </Excalidraw>
@@ -4789,6 +4988,7 @@ function App() {
           </svg>
         )}
 
+        {renderModifiersPropertiesPanel()}
       </div>
 
       {/* Settings Modal Dialog Overlay */}
