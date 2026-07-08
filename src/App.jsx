@@ -851,7 +851,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.7.3 (rebuilt at 2026-07-08T22:12:00)");
+  console.log("Drawerator version: 1.7.4 (rebuilt at 2026-07-08T22:18:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -1381,7 +1381,7 @@ function App() {
         fillStyle: "solid",
         strokeStyle: "solid",
         roughness: 0, 
-        roundness: { type: 2 }, // smooth corners
+        roundness: freedrawElement.roundness !== undefined ? freedrawElement.roundness : null,
         opacity: freedrawElement.opacity,
         groupIds: [groupId],
         id: `${baseId}-brush-${idx}-${Date.now()}`,
