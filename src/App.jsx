@@ -598,6 +598,72 @@ const smoothPathTaubin = (points, lambda = 0.5, mu = -0.53, iterations = 10, per
   return current;
 };
 
+const closeAndSmoothJoint = (points, windowSize = 5, iterations = 10) => {
+  if (points.length < 3) return points.map(p => [...p]);
+
+  let current = points.map(p => [...p]);
+  const n = current.length;
+
+  // 1. Ensure path is closed
+  const first = current[0];
+  const last = current[n - 1];
+  const dist = Math.sqrt((first[0] - last[0]) ** 2 + (first[1] - last[1]) ** 2);
+  if (dist > 0.01) {
+    current.push([...first]);
+  }
+  
+  const numPoints = current.length;
+  if (numPoints < 5) {
+    return current;
+  }
+
+  // 2. Define window size (ensure it doesn't exceed half the path)
+  const actualWindow = Math.min(windowSize, Math.floor((numPoints - 2) / 2));
+
+  // Points that can move:
+  // - Joint: 0 (and its alias numPoints - 1)
+  // - Right side: 1, 2, ..., actualWindow
+  // - Left side: numPoints - 1 - actualWindow, ..., numPoints - 2
+  const moveableIndices = new Set();
+  moveableIndices.add(0);
+  for (let i = 1; i <= actualWindow; i++) {
+    moveableIndices.add(i);
+  }
+  for (let i = numPoints - 1 - actualWindow; i <= numPoints - 2; i++) {
+    moveableIndices.add(i);
+  }
+
+  const lambda = 0.5;
+  const mu = -0.53;
+
+  for (let iter = 0; iter < iterations; iter++) {
+    const step = (iter % 2 === 0) ? lambda : mu;
+    const next = current.map(p => [...p]);
+
+    for (const i of moveableIndices) {
+      let prevIdx, nextIdx;
+      if (i === 0) {
+        prevIdx = numPoints - 2; // last unique point
+        nextIdx = 1;
+      } else {
+        prevIdx = i - 1;
+        nextIdx = (i + 1) % numPoints;
+      }
+
+      const avgX = (current[prevIdx][0] + current[nextIdx][0]) / 2;
+      const avgY = (current[prevIdx][1] + current[nextIdx][1]) / 2;
+
+      next[i][0] = current[i][0] + step * (avgX - current[i][0]);
+      next[i][1] = current[i][1] + step * (avgY - current[i][1]);
+    }
+
+    next[numPoints - 1] = [...next[0]];
+    current = next;
+  }
+
+  return current;
+};
+
 const updateElementGeometry = (el, newAbsolutePoints) => {
   if (newAbsolutePoints.length < 2) return el;
   
@@ -689,7 +755,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.5.7 (rebuilt at 2026-07-08T20:30:00)");
+  console.log("Drawerator version: 1.5.8 (rebuilt at 2026-07-08T20:35:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -1456,14 +1522,7 @@ function App() {
           } else if (algorithm === "taubin") {
             simplifiedAbs = smoothPathTaubin(absolutePoints, 0.5, -0.53, 10, false);
           } else if (algorithm === "close") {
-            const first = absolutePoints[0];
-            const last = absolutePoints[absolutePoints.length - 1];
-            const dist = Math.sqrt((first[0] - last[0]) ** 2 + (first[1] - last[1]) ** 2);
-            let closedPoints = [...absolutePoints];
-            if (dist > 1.0) {
-              closedPoints.push([...first]);
-            }
-            simplifiedAbs = smoothPathTaubin(closedPoints, 0.5, -0.53, 10, true);
+            simplifiedAbs = closeAndSmoothJoint(absolutePoints, 6, 12);
           } else if (algorithm === "resample") {
             simplifiedAbs = resampleUniform(absolutePoints, absolutePoints.length);
           }
