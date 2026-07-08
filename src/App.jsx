@@ -399,9 +399,10 @@ const PRESET_BRUSHES = {
     const x1 = lineStart[0], y1 = lineStart[1];
     const x2 = lineEnd[0], y2 = lineEnd[1];
     
-    const num = Math.abs((x2 - x1) * (y1 - y) - (x1 - x) * (y2 - y1));
-    const den = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
-    return den === 0 ? 0 : num / den;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const den = Math.sqrt(dx * dx + dy * dy);
+    return den === 0 ? Math.sqrt((x - x1) ** 2 + (y - y1) ** 2) : Math.abs(dx * (y1 - y) - (x1 - x) * dy) / den;
   }
   
   function simplifyRDP(pts, eps) {
@@ -850,7 +851,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.7.1 (rebuilt at 2026-07-08T22:02:00)");
+  console.log("Drawerator version: 1.7.2 (rebuilt at 2026-07-08T22:08:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
