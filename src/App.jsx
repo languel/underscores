@@ -551,6 +551,53 @@ const smoothPathLaplacian = (points, factor = 0.4, iterations = 3) => {
   return currentPoints;
 };
 
+const smoothPathTaubin = (points, lambda = 0.5, mu = -0.53, iterations = 10, periodic = false) => {
+  if (points.length < 3) return points.map(p => [...p]);
+  
+  let current = points.map(p => [...p]);
+  const n = current.length;
+  
+  if (periodic) {
+    current[n - 1] = [...current[0]];
+  }
+
+  for (let iter = 0; iter < iterations; iter++) {
+    const step = (iter % 2 === 0) ? lambda : mu;
+    const next = current.map(p => [...p]);
+    
+    for (let i = 0; i < n; i++) {
+      if (periodic) {
+        const numUnique = n - 1;
+        if (i === n - 1) continue;
+        
+        const prevIdx = (i - 1 + numUnique) % numUnique;
+        const nextIdx = (i + 1) % numUnique;
+        
+        const avgX = (current[prevIdx][0] + current[nextIdx][0]) / 2;
+        const avgY = (current[prevIdx][1] + current[nextIdx][1]) / 2;
+        
+        next[i][0] = current[i][0] + step * (avgX - current[i][0]);
+        next[i][1] = current[i][1] + step * (avgY - current[i][1]);
+      } else {
+        if (i === 0 || i === n - 1) continue;
+        
+        const avgX = (current[i - 1][0] + current[i + 1][0]) / 2;
+        const avgY = (current[i - 1][1] + current[i + 1][1]) / 2;
+        
+        next[i][0] = current[i][0] + step * (avgX - current[i][0]);
+        next[i][1] = current[i][1] + step * (avgY - current[i][1]);
+      }
+    }
+    
+    if (periodic) {
+      next[n - 1] = [...next[0]];
+    }
+    current = next;
+  }
+  
+  return current;
+};
+
 const updateElementGeometry = (el, newAbsolutePoints) => {
   if (newAbsolutePoints.length < 2) return el;
   
@@ -642,7 +689,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.5.6 (rebuilt at 2026-07-08T20:00:00)");
+  console.log("Drawerator version: 1.5.7 (rebuilt at 2026-07-08T20:30:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -1406,6 +1453,17 @@ function App() {
             simplifiedAbs = simplifyVW(absolutePoints, 15.0); // 15px^2 area tolerance
           } else if (algorithm === "smooth") {
             simplifiedAbs = smoothPathLaplacian(absolutePoints, 0.4, 3); // 3 iterations of 0.4 Laplacian weight
+          } else if (algorithm === "taubin") {
+            simplifiedAbs = smoothPathTaubin(absolutePoints, 0.5, -0.53, 10, false);
+          } else if (algorithm === "close") {
+            const first = absolutePoints[0];
+            const last = absolutePoints[absolutePoints.length - 1];
+            const dist = Math.sqrt((first[0] - last[0]) ** 2 + (first[1] - last[1]) ** 2);
+            let closedPoints = [...absolutePoints];
+            if (dist > 1.0) {
+              closedPoints.push([...first]);
+            }
+            simplifiedAbs = smoothPathTaubin(closedPoints, 0.5, -0.53, 10, true);
           } else if (algorithm === "resample") {
             simplifiedAbs = resampleUniform(absolutePoints, absolutePoints.length);
           }
@@ -4025,6 +4083,21 @@ function App() {
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
+              handleSimplifyStroke("taubin");
+              setCustomContextMenu(null);
+            }}
+            className="custom-floating-context-menu-btn"
+            title="Smooth the path coordinates using the Taubin algorithm to prevent shrinkage"
+          >
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m11.314 11.314l.707.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
+            </svg>
+            Smooth Path (Taubin)
+          </button>
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
               handleSimplifyStroke("resample");
               setCustomContextMenu(null);
             }}
@@ -4035,6 +4108,21 @@ function App() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
             </svg>
             Resample Uniformly
+          </button>
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleSimplifyStroke("close");
+              setCustomContextMenu(null);
+            }}
+            className="custom-floating-context-menu-btn"
+            title="Close the path by connecting start and end points, and smooth the joint"
+          >
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4h16v16H4z" />
+            </svg>
+            Close & Smooth Joint
           </button>
         </div>
       )}
