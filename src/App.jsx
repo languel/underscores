@@ -642,7 +642,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.5.5 (rebuilt at 2026-07-08T16:55:00)");
+  console.log("Drawerator version: 1.5.6 (rebuilt at 2026-07-08T20:00:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -925,7 +925,24 @@ function App() {
     if (e.button !== 0) return;
 
     const targetElement = e.target;
-    if (targetElement.closest(".drawerator-top-right-wrapper") || targetElement.closest(".theme-btn-top-left") || targetElement.closest(".sidebar-trigger")) {
+    if (
+      targetElement.tagName === "INPUT" ||
+      targetElement.tagName === "TEXTAREA" ||
+      targetElement.tagName === "SELECT" ||
+      targetElement.tagName === "BUTTON" ||
+      targetElement.closest("button") ||
+      targetElement.closest("input") ||
+      targetElement.closest("textarea") ||
+      targetElement.closest(".sidebar") ||
+      targetElement.closest(".excalidraw-sidebar") ||
+      targetElement.closest("#settings-overlay") ||
+      targetElement.closest(".settings-modal") ||
+      targetElement.closest(".context-menu") ||
+      targetElement.closest(".dropdown-menu") ||
+      targetElement.closest(".drawerator-top-right-wrapper") ||
+      targetElement.closest(".theme-btn-top-left") ||
+      targetElement.closest(".sidebar-trigger")
+    ) {
       return;
     }
 
@@ -1445,6 +1462,11 @@ function App() {
   };
 
   const handleCanvasPointerUp = () => {
+    if (!isDrawingRef.current) {
+      rawCursorRef.current = null;
+      setShiftHeld(false);
+      return;
+    }
     isDrawingRef.current = false;
     rawCursorRef.current = null;
     setShiftHeld(false);
