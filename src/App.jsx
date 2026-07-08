@@ -851,7 +851,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.7.5 (rebuilt at 2026-07-08T22:21:00)");
+  console.log("Drawerator version: 1.8.0 (rebuilt at 2026-07-08T22:25:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -1700,7 +1700,7 @@ function App() {
     }
   };
 
-  const handleCanvasPointerUp = () => {
+  const handleCanvasPointerUp = (e) => {
     if (!isDrawingRef.current) {
       rawCursorRef.current = null;
       setShiftHeld(false);
@@ -1709,6 +1709,23 @@ function App() {
     isDrawingRef.current = false;
     rawCursorRef.current = null;
     setShiftHeld(false);
+
+    // Auto-close curve if Option/Alt key is held on release
+    if (e && e.altKey && livePointsRef.current && livePointsRef.current.length >= 3) {
+      const firstPoint = livePointsRef.current[0];
+      const closingPt = [firstPoint[0], firstPoint[1]];
+      closingPt.time = Date.now();
+      closingPt.strokeTime = closingPt.time - (strokeStartTimeRef.current || closingPt.time);
+      
+      const lastPoint = livePointsRef.current[livePointsRef.current.length - 1];
+      if (lastPoint.pressure !== undefined) {
+        closingPt.pressure = lastPoint.pressure;
+      }
+      if (lastPoint.speed !== undefined) {
+        closingPt.speed = lastPoint.speed;
+      }
+      livePointsRef.current.push(closingPt);
+    }
 
     if (!excalidrawAPI || !customBrushActive || activeBrushId === "normal") {
       setDrawingPoints([]);
