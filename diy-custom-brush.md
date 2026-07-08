@@ -97,7 +97,38 @@ for (let i = 0; i < points.length; i++) {
 
 ---
 
-## 4. Code Recipes for Custom Brushes
+## 4. Real-time Coordinate Metadata & Global Context
+
+To support advanced algorithmic effects (like stylus pressure rendering, speed dampening, and grid matching), Drawerator enriches the points and passes a global context configuration object to your brush function.
+
+### Point-Specific Properties
+Each point element in the `points` array is a standard `[x, y]` array, but is decorated with several properties:
+* **`point.time`**: Absolute timestamp in milliseconds (e.g. `Date.now()`).
+* **`point.strokeTime`**: Elapsed time in milliseconds since the start of the current stroke gesture. Useful for animations, walking lines, or time-based brush behavior.
+* **`point.pressure`**: Stylus pressure value ranging from `0.0` (lightest) to `1.0` (hardest). Defaults to `0.5` for mouse drawings.
+* **`point.speed`**: Calculated velocity at that coordinate step, measured in canvas distance units per millisecond.
+
+### The `globals` Context Object
+Your brush function is invoked with a second argument: `globals`. This object exposes the current state of Excalidraw's canvas:
+```javascript
+(points, globals) => {
+  const { 
+    gridSize,            // Size of grid cells (in pixels, or null if disabled)
+    strokeColor,         // Currently active drawing color (hex code)
+    strokeWidth,         // Current stroke width selected (1, 2, 3...)
+    opacity,             // Active opacity level (0 to 100)
+    zoom,                // Current zoom level (1 = 100%)
+    theme,               // Active theme ("light" or "dark")
+    viewBackgroundColor  // Color of the canvas background
+  } = globals || {};
+
+  // Your code here...
+}
+```
+
+---
+
+## 5. Code Recipes for Custom Brushes
 
 Paste these snippets into the **JS Line Algorithm Code** editor in Drawerator to see them in action.
 
@@ -210,7 +241,7 @@ Outputs offset tracks that oscillate using a Sine wave based on the point index,
 
 ---
 
-## 5. Exercises for Students
+## 6. Exercises for Students
 
 1.  **The Dotted Trail**: Modify the *Furry Brush* algorithm to output only single-point lines (dots) at varying distances from the center line.
 2.  **Pressure-Sensitive Splatter**: Create a brush that increases the offset distance of secondary lines the faster you move the cursor.

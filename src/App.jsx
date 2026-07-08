@@ -642,7 +642,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.5.4 (rebuilt at 2026-07-08T16:50:00)");
+  console.log("Drawerator version: 1.5.5 (rebuilt at 2026-07-08T16:55:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -979,8 +979,35 @@ function App() {
       const lastPoint = livePointsRef.current[livePointsRef.current.length - 1];
       const betaParam = brushParams.find(p => p.name === "stabilizerDamping");
       const beta = betaParam ? betaParam.value : defaultStabilizerDamping; // Damping factor: lower is smoother / slower follow
-      const x = lastPoint[0] + (targetCoords[0] - lastPoint[0]) * beta;
-      const y = lastPoint[1] + (targetCoords[1] - lastPoint[1]) * beta;
+      
+      let x = lastPoint[0] + (targetCoords[0] - lastPoint[0]) * beta;
+      let y = lastPoint[1] + (targetCoords[1] - lastPoint[1]) * beta;
+
+      // Magnetic Grid Snapping for Stabilizer
+      const appState = excalidrawAPI?.getAppState();
+      if (appState && appState.gridSize) {
+        const gridSize = appState.gridSize;
+        const snapThreshold = gridSize * 0.45; // Max snapping reach
+        
+        // Snap X
+        const xSnapped = Math.round(x / gridSize) * gridSize;
+        const dx = Math.abs(x - xSnapped);
+        if (dx < snapThreshold) {
+          const t = 1 - (dx / snapThreshold);
+          const weight = t * t; // Sticky snap curve
+          x = x + (xSnapped - x) * weight;
+        }
+        
+        // Snap Y
+        const ySnapped = Math.round(y / gridSize) * gridSize;
+        const dy = Math.abs(y - ySnapped);
+        if (dy < snapThreshold) {
+          const t = 1 - (dy / snapThreshold);
+          const weight = t * t; // Sticky snap curve
+          y = y + (ySnapped - y) * weight;
+        }
+      }
+      
       coords = [x, y];
     }
 
@@ -1003,12 +1030,26 @@ function App() {
     setDrawingPoints([...livePointsRef.current]);
   };
 
+  const getBrushGlobals = () => {
+    if (!excalidrawAPI) return {};
+    const appState = excalidrawAPI.getAppState() || {};
+    return {
+      gridSize: appState.gridSize || null,
+      strokeColor: lastStrokeColorRef.current || "#000000",
+      strokeWidth: appState.currentItemStrokeWidth || 2,
+      opacity: appState.currentItemOpacity ?? 100,
+      zoom: appState.zoom ? appState.zoom.value : 1,
+      theme: theme,
+      viewBackgroundColor: appState.viewBackgroundColor || (theme === "dark" ? "#121212" : "#ffffff")
+    };
+  };
+
   const getLivePreviewPaths = () => {
     if (!customBrushActive || activeBrushId === "normal" || drawingPoints.length < 2) return [];
     const generator = compiledGeneratorRef.current;
     if (!generator) return [];
     try {
-      return generator(drawingPoints);
+      return generator(drawingPoints, getBrushGlobals());
     } catch (e) {
       return [];
     }
@@ -1067,7 +1108,7 @@ function App() {
     // Execute the brush algorithm to get list of lines
     let newLines = [];
     try {
-      newLines = generator(absolutePoints);
+      newLines = generator(absolutePoints, getBrushGlobals());
     } catch (err) {
       console.error("Custom brush execution failed:", err);
       // Fall back to original points
