@@ -667,20 +667,25 @@ const closeAndSmoothJoint = (points, windowSize = 5, iterations = 10) => {
 const updateElementGeometry = (el, newAbsolutePoints) => {
   if (newAbsolutePoints.length < 2) return el;
   
-  const minX = Math.min(...newAbsolutePoints.map(p => p[0]));
-  const minY = Math.min(...newAbsolutePoints.map(p => p[1]));
-  const maxX = Math.max(...newAbsolutePoints.map(p => p[0]));
-  const maxY = Math.max(...newAbsolutePoints.map(p => p[1]));
+  const startX = newAbsolutePoints[0][0];
+  const startY = newAbsolutePoints[0][1];
 
   const relativePoints = newAbsolutePoints.map(([px, py]) => [
-    px - minX,
-    py - minY
+    px - startX,
+    py - startY
   ]);
+
+  const xCoords = relativePoints.map(p => p[0]);
+  const yCoords = relativePoints.map(p => p[1]);
+  const minX = Math.min(...xCoords);
+  const maxX = Math.max(...xCoords);
+  const minY = Math.min(...yCoords);
+  const maxY = Math.max(...yCoords);
 
   return {
     ...el,
-    x: minX,
-    y: minY,
+    x: startX,
+    y: startY,
     points: relativePoints,
     width: Math.max(1, maxX - minX),
     height: Math.max(1, maxY - minY),
@@ -755,7 +760,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.5.8 (rebuilt at 2026-07-08T20:35:00)");
+  console.log("Drawerator version: 1.5.9 (rebuilt at 2026-07-08T20:38:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
