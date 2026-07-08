@@ -642,7 +642,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.5.3 (rebuilt at 2026-07-08T16:45:00)");
+  console.log("Drawerator version: 1.5.4 (rebuilt at 2026-07-08T16:50:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -905,6 +905,11 @@ function App() {
     if (!excalidrawAPI) return [clientX, clientY];
     const appState = excalidrawAPI.getAppState();
     const res = viewportCoordsToSceneCoords({ clientX, clientY }, appState);
+    if (appState.gridSize) {
+      const x = Math.round(res.x / appState.gridSize) * appState.gridSize;
+      const y = Math.round(res.y / appState.gridSize) * appState.gridSize;
+      return [x, y];
+    }
     return [res.x, res.y];
   };
 
