@@ -642,7 +642,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.5.1 (rebuilt at 2026-07-08T15:43:00)");
+  console.log("Drawerator version: 1.5.2 (rebuilt at 2026-07-08T15:52:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -664,6 +664,10 @@ function App() {
   const [forceDesktopLayout, setForceDesktopLayout] = useState(() => {
     const saved = localStorage.getItem("drawerator_force_desktop_layout");
     return saved !== "false";
+  });
+  const [defaultStabilizerDamping, setDefaultStabilizerDamping] = useState(() => {
+    const saved = localStorage.getItem("drawerator_default_stabilizer_damping");
+    return saved ? parseFloat(saved) : 0.12;
   });
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -969,7 +973,7 @@ function App() {
     if (e.shiftKey && livePointsRef.current.length > 0) {
       const lastPoint = livePointsRef.current[livePointsRef.current.length - 1];
       const betaParam = brushParams.find(p => p.name === "stabilizerDamping");
-      const beta = betaParam ? betaParam.value : 0.12; // Damping factor: lower is smoother / slower follow
+      const beta = betaParam ? betaParam.value : defaultStabilizerDamping; // Damping factor: lower is smoother / slower follow
       const x = lastPoint[0] + (targetCoords[0] - lastPoint[0]) * beta;
       const y = lastPoint[1] + (targetCoords[1] - lastPoint[1]) * beta;
       coords = [x, y];
@@ -3665,6 +3669,31 @@ function App() {
                       }}
                       style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
                     />
+                  </div>
+
+                  <div className="settings-row" style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <label style={{ margin: 0 }}>Default Stabilizer Damping (Lazy Mouse)</label>
+                      <span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", color: "var(--color-secondary)" }}>
+                        {defaultStabilizerDamping.toFixed(2)}
+                      </span>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="0.01" 
+                      max="0.5" 
+                      step="0.01" 
+                      value={defaultStabilizerDamping} 
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        setDefaultStabilizerDamping(val);
+                        localStorage.setItem("drawerator_default_stabilizer_damping", val);
+                      }}
+                      style={{ width: "100%", cursor: "pointer", accentColor: "var(--color-accent)" }}
+                    />
+                    <div style={{ fontSize: "10px", color: "var(--color-secondary)", marginTop: "-2px" }}>
+                      Lower values make the stabilizer lazy/smoother. Defaults to 0.12.
+                    </div>
                   </div>
 
                   <hr style={{ border: "none", borderTop: "1px solid var(--border-color)", margin: "8px 0" }} />
