@@ -756,10 +756,14 @@ const updateElementGeometry = (el, newAbsolutePoints) => {
   const startX = newAbsolutePoints[0][0];
   const startY = newAbsolutePoints[0][1];
 
-  const relativePoints = newAbsolutePoints.map(([px, py]) => [
-    px - startX,
-    py - startY
-  ]);
+  const relativePoints = newAbsolutePoints.map((p) => {
+    const relPt = [p[0] - startX, p[1] - startY];
+    if (p.pressure !== undefined) relPt.pressure = p.pressure;
+    if (p.time !== undefined) relPt.time = p.time;
+    if (p.strokeTime !== undefined) relPt.strokeTime = p.strokeTime;
+    if (p.speed !== undefined) relPt.speed = p.speed;
+    return relPt;
+  });
 
   const xCoords = relativePoints.map(p => p[0]);
   const yCoords = relativePoints.map(p => p[1]);
@@ -846,7 +850,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.7.0 (rebuilt at 2026-07-08T21:05:00)");
+  console.log("Drawerator version: 1.7.1 (rebuilt at 2026-07-08T22:02:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -1603,10 +1607,14 @@ function App() {
         if ((el.type === "freedraw" || el.type === "line") && el.points && el.points.length > 2) {
           count++;
           
-          const absolutePoints = el.points.map(([px, py]) => [
-            el.x + px,
-            el.y + py
-          ]);
+          const absolutePoints = el.points.map((p) => {
+            const absPt = [el.x + p[0], el.y + p[1]];
+            if (p.pressure !== undefined) absPt.pressure = p.pressure;
+            if (p.time !== undefined) absPt.time = p.time;
+            if (p.strokeTime !== undefined) absPt.strokeTime = p.strokeTime;
+            if (p.speed !== undefined) absPt.speed = p.speed;
+            return absPt;
+          });
 
           let simplifiedAbs;
           if (algorithm === "rdp") {
@@ -1621,6 +1629,18 @@ function App() {
             simplifiedAbs = closeAndSmoothJoint(absolutePoints, el.type, el.roundness);
           } else if (algorithm === "resample") {
             simplifiedAbs = resampleUniform(absolutePoints, absolutePoints.length);
+          } else if (algorithm === "snap") {
+            const gridSize = appState.gridSize || 20;
+            simplifiedAbs = absolutePoints.map((p) => {
+              const sx = Math.round(p[0] / gridSize) * gridSize;
+              const sy = Math.round(p[1] / gridSize) * gridSize;
+              const snappedPt = [sx, sy];
+              if (p.pressure !== undefined) snappedPt.pressure = p.pressure;
+              if (p.time !== undefined) snappedPt.time = p.time;
+              if (p.strokeTime !== undefined) snappedPt.strokeTime = p.strokeTime;
+              if (p.speed !== undefined) snappedPt.speed = p.speed;
+              return snappedPt;
+            });
           }
 
           return updateElementGeometry(el, simplifiedAbs);
@@ -4278,6 +4298,21 @@ function App() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 4h16v16H4z" />
             </svg>
             Close & Smooth Joint
+          </button>
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleSimplifyStroke("snap");
+              setCustomContextMenu(null);
+            }}
+            className="custom-floating-context-menu-btn"
+            title="Snap all points of the selected curve individually to the nearest grid intersection"
+          >
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 14h18M10 3v18M14 3v18" />
+            </svg>
+            Snap Points to Grid
           </button>
         </div>
       )}
