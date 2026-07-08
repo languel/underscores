@@ -554,17 +554,22 @@ const smoothPathLaplacian = (points, factor = 0.4, iterations = 3) => {
 const smoothPathTaubin = (points, lambda = 0.5, mu = -0.53, iterations = 10, periodic = false) => {
   if (points.length < 3) return points.map(p => [...p]);
   
+  // 1. Calculate original bounding box bounds
+  const origX = points.map(p => p[0]);
+  const origY = points.map(p => p[1]);
+  const minX_orig = Math.min(...origX);
+  const maxX_orig = Math.max(...origX);
+  const minY_orig = Math.min(...origY);
+  const maxY_orig = Math.max(...origY);
+  const w_orig = maxX_orig - minX_orig;
+  const h_orig = maxY_orig - minY_orig;
+
+  // 2. Perform standard stable Laplacian smoothing (convex combination of neighbors)
   let current = points.map(p => [...p]);
   const n = current.length;
-  
-  if (periodic) {
-    current[n - 1] = [...current[0]];
-  }
 
   for (let iter = 0; iter < iterations; iter++) {
-    const step = (iter % 2 === 0) ? lambda : mu;
     const next = current.map(p => [...p]);
-    
     for (let i = 0; i < n; i++) {
       if (periodic) {
         const numUnique = n - 1;
@@ -576,26 +581,44 @@ const smoothPathTaubin = (points, lambda = 0.5, mu = -0.53, iterations = 10, per
         const avgX = (current[prevIdx][0] + current[nextIdx][0]) / 2;
         const avgY = (current[prevIdx][1] + current[nextIdx][1]) / 2;
         
-        next[i][0] = current[i][0] + step * (avgX - current[i][0]);
-        next[i][1] = current[i][1] + step * (avgY - current[i][1]);
+        next[i][0] = current[i][0] * 0.6 + avgX * 0.4;
+        next[i][1] = current[i][1] * 0.6 + avgY * 0.4;
       } else {
         if (i === 0 || i === n - 1) continue;
         
         const avgX = (current[i - 1][0] + current[i + 1][0]) / 2;
         const avgY = (current[i - 1][1] + current[i + 1][1]) / 2;
         
-        next[i][0] = current[i][0] + step * (avgX - current[i][0]);
-        next[i][1] = current[i][1] + step * (avgY - current[i][1]);
+        next[i][0] = current[i][0] * 0.6 + avgX * 0.4;
+        next[i][1] = current[i][1] * 0.6 + avgY * 0.4;
       }
     }
-    
     if (periodic) {
       next[n - 1] = [...next[0]];
     }
     current = next;
   }
-  
-  return current;
+
+  // 3. Rescale smoothed points back to the original bounding box exactly
+  const smoothX = current.map(p => p[0]);
+  const smoothY = current.map(p => p[1]);
+  const minX_smooth = Math.min(...smoothX);
+  const maxX_smooth = Math.max(...smoothX);
+  const minY_smooth = Math.min(...smoothY);
+  const maxY_smooth = Math.max(...smoothY);
+  const w_smooth = maxX_smooth - minX_smooth;
+  const h_smooth = maxY_smooth - minY_smooth;
+
+  const scaleX = w_smooth > 0.01 ? (w_orig / w_smooth) : 1;
+  const scaleY = h_smooth > 0.01 ? (h_orig / h_smooth) : 1;
+
+  const result = current.map(([sx, sy]) => {
+    const rx = minX_orig + (sx - minX_smooth) * scaleX;
+    const ry = minY_orig + (sy - minY_smooth) * scaleY;
+    return [rx, ry];
+  });
+
+  return result;
 };
 
 const closeAndSmoothJoint = (points, elType, roundness) => {
@@ -763,7 +786,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.6.2 (rebuilt at 2026-07-08T20:52:00)");
+  console.log("Drawerator version: 1.6.3 (rebuilt at 2026-07-08T20:56:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
