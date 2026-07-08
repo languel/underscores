@@ -565,7 +565,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.4.3 (rebuilt at 2026-07-08T14:52:00)");
+  console.log("Drawerator version: 1.4.4 (rebuilt at 2026-07-08T15:06:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -2481,16 +2481,7 @@ function App() {
           </div>
         )}
 
-        <div style={{
-          fontSize: "10px",
-          color: "var(--color-secondary)",
-          lineHeight: "1.4",
-          borderTop: "1px solid var(--border-color)",
-          paddingTop: "6px",
-          marginTop: "4px"
-        }}>
-          ✏️ Make sure to use the <strong>Pencil tool</strong> to draw while custom brush is active.
-        </div>
+
 
         {/* Stroke Selection Actions */}
         <div style={{
