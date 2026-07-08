@@ -1957,7 +1957,7 @@ function App() {
           strokeStyle: parentEl.strokeStyle,
           roughness: parentEl.roughness,
           roundness: parentEl.roundness,
-          opacity: parentEl.opacity,
+          opacity: parentEl.customData?.hideOriginal ? (parentEl.customData.savedOpacity ?? 100) : parentEl.opacity,
           groupIds: parentEl.groupIds && parentEl.groupIds.length > 0 ? [...parentEl.groupIds] : [groupId],
           id: `${baseId}-child-${idx}-${Date.now()}`,
           seed: Math.floor(Math.random() * 1000000),
@@ -3343,6 +3343,50 @@ function App() {
       }
     };
 
+    const handleToggleHideOriginal = () => {
+      const nextElements = excalidrawAPI.getSceneElements().map(el => {
+        if (el.id === element.id) {
+          const hide = !el.customData?.hideOriginal;
+          let savedOpacity = el.customData?.savedOpacity;
+          
+          if (hide) {
+            if (el.opacity > 0) {
+              savedOpacity = el.opacity;
+            } else if (savedOpacity === undefined) {
+              savedOpacity = 100;
+            }
+          }
+          
+          const newOpacity = hide ? 0 : (savedOpacity ?? 100);
+          
+          return {
+            ...el,
+            opacity: newOpacity,
+            customData: {
+              ...(el.customData || {}),
+              hideOriginal: hide,
+              savedOpacity: savedOpacity
+            }
+          };
+        }
+        return el;
+      });
+      
+      evaluatingModifiersRef.current = true;
+      try {
+        excalidrawAPI.updateScene({ elements: nextElements });
+      } finally {
+        evaluatingModifiersRef.current = false;
+      }
+      
+      setTimeout(() => {
+        const updatedParent = excalidrawAPI.getSceneElements().find(el => el.id === element.id);
+        if (updatedParent) {
+          updateModifiedElementInScene(element.id, updatedParent.customData?.modifiers || []);
+        }
+      }, 50);
+    };
+
     const handleAddModifier = (type) => {
       let newMod = null;
       if (type === "rdp") {
@@ -3422,20 +3466,31 @@ function App() {
       <div className="modifiers-panel-container" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
         <div style={{
           display: "flex", 
-          alignItems: "center", 
-          justifyContent: "space-between", 
+          flexDirection: "column",
+          gap: "8px",
           padding: "10px 12px", 
           borderRadius: "8px", 
           background: "var(--color-bg-secondary, #2a2b36)",
           border: "1px solid var(--color-border, #3a3b46)"
         }}>
-          <span style={{ fontSize: "13px", fontWeight: "bold" }}>Mute Stack (Edit Base)</span>
-          <input 
-            type="checkbox" 
-            checked={isMuted} 
-            onChange={handleToggleMute} 
-            style={{ width: "16px", height: "16px", cursor: "pointer" }}
-          />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: "13px", fontWeight: "bold" }}>Mute Stack (Edit Base)</span>
+            <input 
+              type="checkbox" 
+              checked={isMuted} 
+              onChange={handleToggleMute} 
+              style={{ width: "16px", height: "16px", cursor: "pointer" }}
+            />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "1px solid var(--color-border-primary, #3a3b46)", paddingTop: "8px" }}>
+            <span style={{ fontSize: "13px", fontWeight: "bold" }}>Hide Original Path</span>
+            <input 
+              type="checkbox" 
+              checked={!!element.customData?.hideOriginal} 
+              onChange={handleToggleHideOriginal} 
+              style={{ width: "16px", height: "16px", cursor: "pointer" }}
+            />
+          </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
