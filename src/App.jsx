@@ -309,6 +309,83 @@ const PRESET_BRUSHES = {
   if (waveTrack.length > 0) lines.push(waveTrack);
   return lines;
 }`
+  },
+  rake: {
+    id: "rake",
+    name: "Rake Brush (Variable Teeth)",
+    code: `// @param teeth = 5 (2..12, step: 1)
+// @param spacing = 4 (1..15, step: 0.5)
+// @param speedSensitivity = 0.12 (0..0.5, step: 0.01)
+// @param stabilizerDamping = 0.12 (0.01..0.5, step: 0.01)
+(points) => {
+  const lines = [];
+  if (points.length < 2) return lines;
+  
+  // Calculate distances between consecutive points to estimate drawing speed
+  const dists = [];
+  for (let i = 1; i < points.length; i++) {
+    const dx = points[i][0] - points[i-1][0];
+    const dy = points[i][1] - points[i-1][1];
+    dists.push(Math.sqrt(dx * dx + dy * dy));
+  }
+  
+  // Smooth the speed values using a moving average window
+  const smoothDists = [];
+  const windowSize = 3;
+  for (let i = 0; i < points.length; i++) {
+    let sum = 0;
+    let count = 0;
+    for (let w = -windowSize; w <= windowSize; w++) {
+      const idx = i + w;
+      if (idx >= 0 && idx < dists.length) {
+        sum += dists[idx];
+        count++;
+      }
+    }
+    smoothDists.push(count > 0 ? sum / count : 8);
+  }
+
+  // Initialize tracks for each tooth
+  const tracks = Array.from({ length: teeth }, () => []);
+
+  for (let i = 0; i < points.length; i++) {
+    const [x, y] = points[i];
+
+    let nx = 0;
+    let ny = 0;
+    if (i < points.length - 1) {
+      const dx = points[i+1][0] - x;
+      const dy = points[i+1][1] - y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 0) { nx = -dy / len; ny = dx / len; }
+    } else if (i > 0) {
+      const dx = x - points[i-1][0];
+      const dy = y - points[i-1][1];
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 0) { nx = -dy / len; ny = dx / len; }
+    }
+
+    // Map drawing speed and pen pressure to scale factor:
+    const speedVal = smoothDists[i];
+    const pressureVal = points[i].pressure !== undefined ? points[i].pressure : 0.5;
+    
+    // Teeth spread wider if pressing hard, narrow down if moving fast
+    const scale = Math.max(0.1, (pressureVal * 2.0) - (speedVal * speedSensitivity));
+
+    for (let t = 0; t < teeth; t++) {
+      const offset = (t - (teeth - 1) / 2) * spacing * scale;
+      tracks[t].push([x + nx * offset, y + ny * offset]);
+    }
+  }
+
+  // Push all teeth tracks into the lines array
+  for (let t = 0; t < teeth; t++) {
+    if (tracks[t].length > 0) {
+      lines.push(tracks[t]);
+    }
+  }
+  return lines;
+}`
   }
 };
 
@@ -565,7 +642,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.4.5 (rebuilt at 2026-07-08T15:40:00)");
+  console.log("Drawerator version: 1.5.1 (rebuilt at 2026-07-08T15:43:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -615,7 +692,8 @@ function App() {
       { id: "pressure", name: "Calligraphy Pencil (Pressure-Sensitive)", code: PRESET_BRUSHES.pressure.code, isPreset: true },
       { id: "ribbon", name: "Ribbon Brush (Double Track)", code: PRESET_BRUSHES.ribbon.code, isPreset: true },
       { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true },
-      { id: "walking", name: "Walking Brush (Time-Oscillated)", code: PRESET_BRUSHES.walking.code, isPreset: true }
+      { id: "walking", name: "Walking Brush (Time-Oscillated)", code: PRESET_BRUSHES.walking.code, isPreset: true },
+      { id: "rake", name: "Rake Brush (Variable Teeth)", code: PRESET_BRUSHES.rake.code, isPreset: true }
     ];
 
     if (!palette || palette.length === 0) {
