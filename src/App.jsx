@@ -613,53 +613,39 @@ const closeAndSmoothJoint = (points, windowSize = 5, iterations = 10) => {
   }
   
   const numPoints = current.length;
-  if (numPoints < 5) {
+  if (numPoints < 4) {
     return current;
   }
 
-  // 2. Define window size (ensure it doesn't exceed half the path)
-  const actualWindow = Math.min(windowSize, Math.floor((numPoints - 2) / 2));
-
-  // Points that can move:
-  // - Joint: 0 (and its alias numPoints - 1)
-  // - Right side: 1, 2, ..., actualWindow
-  // - Left side: numPoints - 1 - actualWindow, ..., numPoints - 2
-  const moveableIndices = new Set();
-  moveableIndices.add(0);
-  for (let i = 1; i <= actualWindow; i++) {
-    moveableIndices.add(i);
-  }
-  for (let i = numPoints - 1 - actualWindow; i <= numPoints - 2; i++) {
-    moveableIndices.add(i);
+  // 2. Perform a local relaxation on the immediate neighbors of the joint (if size permits)
+  // keeping the rest of the path 100% fixed!
+  const moveableNeighbors = new Set();
+  if (numPoints >= 6) {
+    moveableNeighbors.add(1);
+    moveableNeighbors.add(numPoints - 2);
   }
 
-  const lambda = 0.5;
-  const mu = -0.53;
-
+  // Relax the neighbors slightly using Laplacian smoothing to make the transition natural
   for (let iter = 0; iter < iterations; iter++) {
-    const step = (iter % 2 === 0) ? lambda : mu;
     const next = current.map(p => [...p]);
-
-    for (const i of moveableIndices) {
-      let prevIdx, nextIdx;
-      if (i === 0) {
-        prevIdx = numPoints - 2; // last unique point
-        nextIdx = 1;
-      } else {
-        prevIdx = i - 1;
-        nextIdx = (i + 1) % numPoints;
-      }
-
-      const avgX = (current[prevIdx][0] + current[nextIdx][0]) / 2;
-      const avgY = (current[prevIdx][1] + current[nextIdx][1]) / 2;
-
-      next[i][0] = current[i][0] + step * (avgX - current[i][0]);
-      next[i][1] = current[i][1] + step * (avgY - current[i][1]);
+    for (const idx of moveableNeighbors) {
+      const prev = current[idx - 1];
+      const nextP = current[(idx + 1) % numPoints];
+      next[idx][0] = current[idx][0] * 0.8 + ((prev[0] + nextP[0]) / 2) * 0.2;
+      next[idx][1] = current[idx][1] * 0.8 + ((prev[1] + nextP[1]) / 2) * 0.2;
     }
-
-    next[numPoints - 1] = [...next[0]];
     current = next;
   }
+
+  // 3. Force the joint point (0 and numPoints-1) to be the EXACT midpoint of its neighbors.
+  // This mathematically guarantees that the entering and leaving tangents match!
+  const leftNeighbor = current[numPoints - 2];
+  const rightNeighbor = current[1];
+  const midX = (leftNeighbor[0] + rightNeighbor[0]) / 2;
+  const midY = (leftNeighbor[1] + rightNeighbor[1]) / 2;
+
+  current[0] = [midX, midY];
+  current[numPoints - 1] = [midX, midY];
 
   return current;
 };
@@ -760,7 +746,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.5.9 (rebuilt at 2026-07-08T20:38:00)");
+  console.log("Drawerator version: 1.6.0 (rebuilt at 2026-07-08T20:45:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
