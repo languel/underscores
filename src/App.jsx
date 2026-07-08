@@ -386,6 +386,66 @@ const PRESET_BRUSHES = {
   }
   return lines;
 }`
+  },
+  simplify: {
+    id: "simplify",
+    name: "Simplify Brush (RDP)",
+    code: `// @param epsilon = 3.0 (0.5..15, step: 0.1)
+(points) => {
+  if (points.length <= 2) return [points];
+  
+  function getOrthogonalDistance(p, lineStart, lineEnd) {
+    const x = p[0], y = p[1];
+    const x1 = lineStart[0], y1 = lineStart[1];
+    const x2 = lineEnd[0], y2 = lineEnd[1];
+    
+    const num = Math.abs((x2 - x1) * (y1 - y) - (x1 - x) * (y2 - y1));
+    const den = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+    return den === 0 ? 0 : num / den;
+  }
+  
+  function simplifyRDP(pts, eps) {
+    if (pts.length <= 2) return pts;
+    let dmax = 0;
+    let index = 0;
+    const end = pts.length - 1;
+    
+    for (let i = 1; i < end; i++) {
+      const d = getOrthogonalDistance(pts[i], pts[0], pts[end]);
+      if (d > dmax) {
+        index = i;
+        dmax = d;
+      }
+    }
+    
+    if (dmax > eps) {
+      const results1 = simplifyRDP(pts.slice(0, index + 1), eps);
+      const results2 = simplifyRDP(pts.slice(index), eps);
+      const combined = results1.slice(0, results1.length - 1).concat(results2);
+      return combined;
+    } else {
+      const pStart = pts[0];
+      const pEnd = pts[end];
+      
+      const startPt = [pStart[0], pStart[1]];
+      if (pStart.pressure !== undefined) startPt.pressure = pStart.pressure;
+      if (pStart.time !== undefined) startPt.time = pStart.time;
+      if (pStart.strokeTime !== undefined) startPt.strokeTime = pStart.strokeTime;
+      if (pStart.speed !== undefined) startPt.speed = pStart.speed;
+      
+      const endPt = [pEnd[0], pEnd[1]];
+      if (pEnd.pressure !== undefined) endPt.pressure = pEnd.pressure;
+      if (pEnd.time !== undefined) endPt.time = pEnd.time;
+      if (pEnd.strokeTime !== undefined) endPt.strokeTime = pEnd.strokeTime;
+      if (pEnd.speed !== undefined) endPt.speed = pEnd.speed;
+      
+      return [startPt, endPt];
+    }
+  }
+
+  const simplified = simplifyRDP(points, epsilon);
+  return [simplified];
+}`
   }
 };
 
@@ -786,7 +846,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.6.3 (rebuilt at 2026-07-08T20:56:00)");
+  console.log("Drawerator version: 1.7.0 (rebuilt at 2026-07-08T21:05:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -841,7 +901,8 @@ function App() {
       { id: "ribbon", name: "Ribbon Brush (Double Track)", code: PRESET_BRUSHES.ribbon.code, isPreset: true },
       { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true },
       { id: "walking", name: "Walking Brush (Time-Oscillated)", code: PRESET_BRUSHES.walking.code, isPreset: true },
-      { id: "rake", name: "Rake Brush (Variable Teeth)", code: PRESET_BRUSHES.rake.code, isPreset: true }
+      { id: "rake", name: "Rake Brush (Variable Teeth)", code: PRESET_BRUSHES.rake.code, isPreset: true },
+      { id: "simplify", name: "Simplify Brush (RDP)", code: PRESET_BRUSHES.simplify.code, isPreset: true }
     ];
 
     if (!palette || palette.length === 0) {
@@ -877,10 +938,14 @@ function App() {
     }
     
     const defaultPresets = [
+      { id: "simple", name: "Simple Line", code: PRESET_BRUSHES.simple.code, isPreset: true },
       { id: "hairy", name: "Hairy Brush (Calligraphy)", code: PRESET_BRUSHES.hairy.code, isPreset: true },
       { id: "pressure", name: "Calligraphy Pencil (Pressure-Sensitive)", code: PRESET_BRUSHES.pressure.code, isPreset: true },
       { id: "ribbon", name: "Ribbon Brush (Double Track)", code: PRESET_BRUSHES.ribbon.code, isPreset: true },
-      { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true }
+      { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true },
+      { id: "walking", name: "Walking Brush (Time-Oscillated)", code: PRESET_BRUSHES.walking.code, isPreset: true },
+      { id: "rake", name: "Rake Brush (Variable Teeth)", code: PRESET_BRUSHES.rake.code, isPreset: true },
+      { id: "simplify", name: "Simplify Brush (RDP)", code: PRESET_BRUSHES.simplify.code, isPreset: true }
     ];
 
     if (!currentPalette || currentPalette.length === 0) {
