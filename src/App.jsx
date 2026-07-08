@@ -598,7 +598,7 @@ const smoothPathTaubin = (points, lambda = 0.5, mu = -0.53, iterations = 10, per
   return current;
 };
 
-const closeAndSmoothJoint = (points, windowSize = 5, iterations = 10) => {
+const closeAndSmoothJoint = (points, elType, roundness) => {
   if (points.length < 3) return points.map(p => [...p]);
 
   let current = points.map(p => [...p]);
@@ -611,41 +611,48 @@ const closeAndSmoothJoint = (points, windowSize = 5, iterations = 10) => {
   if (dist > 0.01) {
     current.push([...first]);
   }
-  
-  const numPoints = current.length;
-  if (numPoints < 4) {
+
+  // 2. Structured lines/polygons or sharp paths should not be smoothed at all
+  if (elType === "line" || !roundness) {
     return current;
   }
 
-  // 2. Perform a local relaxation on the immediate neighbors of the joint (if size permits)
-  // keeping the rest of the path 100% fixed!
-  const moveableNeighbors = new Set();
-  if (numPoints >= 6) {
-    moveableNeighbors.add(1);
-    moveableNeighbors.add(numPoints - 2);
+  const numPoints = current.length;
+  if (numPoints < 6) {
+    return current;
   }
 
-  // Relax the neighbors slightly using Laplacian smoothing to make the transition natural
+  // 3. Hand-drawn freedraw loops get a local weld joint smoothing window
+  const moveableIndices = new Set([0, 1, 2, numPoints - 2, numPoints - 3]);
+
+  const lambda = 0.5;
+  const mu = -0.53;
+  const iterations = 8;
+
   for (let iter = 0; iter < iterations; iter++) {
+    const step = (iter % 2 === 0) ? lambda : mu;
     const next = current.map(p => [...p]);
-    for (const idx of moveableNeighbors) {
-      const prev = current[idx - 1];
-      const nextP = current[(idx + 1) % numPoints];
-      next[idx][0] = current[idx][0] * 0.8 + ((prev[0] + nextP[0]) / 2) * 0.2;
-      next[idx][1] = current[idx][1] * 0.8 + ((prev[1] + nextP[1]) / 2) * 0.2;
+
+    for (const i of moveableIndices) {
+      let prevIdx, nextIdx;
+      if (i === 0) {
+        prevIdx = numPoints - 2;
+        nextIdx = 1;
+      } else {
+        prevIdx = i - 1;
+        nextIdx = (i + 1) % numPoints;
+      }
+
+      const avgX = (current[prevIdx][0] + current[nextIdx][0]) / 2;
+      const avgY = (current[prevIdx][1] + current[nextIdx][1]) / 2;
+
+      next[i][0] = current[i][0] + step * (avgX - current[i][0]);
+      next[i][1] = current[i][1] + step * (avgY - current[i][1]);
     }
+
+    next[numPoints - 1] = [...next[0]];
     current = next;
   }
-
-  // 3. Force the joint point (0 and numPoints-1) to be the EXACT midpoint of its neighbors.
-  // This mathematically guarantees that the entering and leaving tangents match!
-  const leftNeighbor = current[numPoints - 2];
-  const rightNeighbor = current[1];
-  const midX = (leftNeighbor[0] + rightNeighbor[0]) / 2;
-  const midY = (leftNeighbor[1] + rightNeighbor[1]) / 2;
-
-  current[0] = [midX, midY];
-  current[numPoints - 1] = [midX, midY];
 
   return current;
 };
@@ -746,7 +753,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.6.0 (rebuilt at 2026-07-08T20:45:00)");
+  console.log("Drawerator version: 1.6.1 (rebuilt at 2026-07-08T20:47:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -1513,7 +1520,7 @@ function App() {
           } else if (algorithm === "taubin") {
             simplifiedAbs = smoothPathTaubin(absolutePoints, 0.5, -0.53, 10, false);
           } else if (algorithm === "close") {
-            simplifiedAbs = closeAndSmoothJoint(absolutePoints, 6, 12);
+            simplifiedAbs = closeAndSmoothJoint(absolutePoints, el.type, el.roundness);
           } else if (algorithm === "resample") {
             simplifiedAbs = resampleUniform(absolutePoints, absolutePoints.length);
           }
