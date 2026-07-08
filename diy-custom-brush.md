@@ -126,6 +126,23 @@ Your brush function is invoked with a second argument: `globals`. This object ex
 }
 ```
 
+### Grid Snapping inside Custom Brushes
+By utilizing `globals.gridSize`, custom brushes can dynamically snap coordinate offsets or vertices directly to the canvas grid during drawing. For example:
+```javascript
+const snapValue = (val, gridSize) => {
+  return gridSize ? Math.round(val / gridSize) * gridSize : val;
+};
+```
+
+---
+
+## 4.5. Gesture Shortcuts: Alt/Option Auto-Close
+To streamline drawing closed loops (like triangles or polygons), Drawerator includes a built-in gesture shortcut:
+* **Option / Alt Key (on release)**: If you hold the **`Option`** (Alt) key when releasing your mouse or stylus, the drawing pipeline automatically appends a final point that is identical to the first coordinate point.
+* This automatically closes the path. When **Smooth** mode is active, the loop is welded and smoothed cleanly at the joint; when **Sharp** mode is active, the loop closes with sharp vertices.
+
+---
+
 ---
 
 ## 5. Code Recipes for Custom Brushes
@@ -236,6 +253,63 @@ Outputs offset tracks that oscillate using a Sine wave based on the point index,
   lines.push(points);
   lines.push(waveTrack);
   return lines;
+}
+```
+
+### Recipe 5: Simplify Brush (RDP)
+Uses the Ramer-Douglas-Peucker (RDP) algorithm to dynamically reduce the points of the curve *while* drawing it. Includes a robust handler for closed loops.
+
+```javascript
+// @param epsilon = 3.0 (0.5..15, step: 0.1)
+(points) => {
+  if (points.length <= 2) return [points];
+  
+  function getOrthogonalDistance(p, lineStart, lineEnd) {
+    const x = p[0], y = p[1];
+    const x1 = lineStart[0], y1 = lineStart[1];
+    const x2 = lineEnd[0], y2 = lineEnd[1];
+    
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const den = Math.sqrt(dx * dx + dy * dy);
+    // If start and end are identical (closed loop), calculate distance directly to starting point
+    return den === 0 ? Math.sqrt((x - x1) ** 2 + (y - y1) ** 2) : Math.abs(dx * (y1 - y) - (x1 - x) * dy) / den;
+  }
+  
+  function simplifyRDP(pts, eps) {
+    if (pts.length <= 2) return pts;
+    let dmax = 0;
+    let index = 0;
+    const end = pts.length - 1;
+    
+    for (let i = 1; i < end; i++) {
+      const d = getOrthogonalDistance(pts[i], pts[0], pts[end]);
+      if (d > dmax) {
+        index = i;
+        dmax = d;
+      }
+    }
+    
+    if (dmax > eps) {
+      const results1 = simplifyRDP(pts.slice(0, index + 1), eps);
+      const results2 = simplifyRDP(pts.slice(index), eps);
+      return results1.slice(0, results1.length - 1).concat(results2);
+    } else {
+      const pStart = pts[0];
+      const pEnd = pts[end];
+      
+      const startPt = [pStart[0], pStart[1]];
+      if (pStart.pressure !== undefined) startPt.pressure = pStart.pressure;
+      
+      const endPt = [pEnd[0], pEnd[1]];
+      if (pEnd.pressure !== undefined) endPt.pressure = pEnd.pressure;
+      
+      return [startPt, endPt];
+    }
+  }
+
+  const simplified = simplifyRDP(points, epsilon);
+  return [simplified];
 }
 ```
 
