@@ -618,12 +618,22 @@ const closeAndSmoothJoint = (points, elType, roundness) => {
   }
 
   const numPoints = current.length;
-  if (numPoints < 6) {
+  if (numPoints < 4) {
     return current;
   }
 
-  // 3. Hand-drawn freedraw loops get a local weld joint smoothing window
-  const moveableIndices = new Set([0, 1, 2, numPoints - 2, numPoints - 3]);
+  // 3. Dynamic joint-smoothing window
+  // Clamped to 1 vertex for short paths, allowing up to 2 vertices for longer paths.
+  const actualWindow = Math.min(2, Math.floor((numPoints - 3) / 2));
+  
+  const moveableIndices = new Set();
+  moveableIndices.add(0);
+  for (let i = 1; i <= actualWindow; i++) {
+    moveableIndices.add(i);
+  }
+  for (let i = numPoints - 1 - actualWindow; i <= numPoints - 2; i++) {
+    moveableIndices.add(i);
+  }
 
   const lambda = 0.5;
   const mu = -0.53;
@@ -753,7 +763,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.6.1 (rebuilt at 2026-07-08T20:47:00)");
+  console.log("Drawerator version: 1.6.2 (rebuilt at 2026-07-08T20:52:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
