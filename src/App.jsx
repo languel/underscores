@@ -1909,6 +1909,41 @@ function App() {
         if (p.speed !== undefined) absPt.speed = p.speed;
         return absPt;
       });
+    } else {
+      // Sync translation and scale if the element was moved or transformed outside the linear point editor
+      const xCoords = originalPoints.map(p => p[0]);
+      const yCoords = originalPoints.map(p => p[1]);
+      const minX = Math.min(...xCoords);
+      const minY = Math.min(...yCoords);
+      const maxX = Math.max(...xCoords);
+      const maxY = Math.max(...yCoords);
+      const origW = maxX - minX;
+      const origH = maxY - minY;
+
+      const deltaX = parentEl.x - minX;
+      const deltaY = parentEl.y - minY;
+
+      let scaleX = 1;
+      let scaleY = 1;
+      if (origW > 0.1 && Math.abs(parentEl.width - origW) > 0.5) {
+        scaleX = parentEl.width / origW;
+      }
+      if (origH > 0.1 && Math.abs(parentEl.height - origH) > 0.5) {
+        scaleY = parentEl.height / origH;
+      }
+
+      if (Math.abs(deltaX) > 0.1 || Math.abs(deltaY) > 0.1 || Math.abs(scaleX - 1) > 0.01 || Math.abs(scaleY - 1) > 0.01) {
+        originalPoints = originalPoints.map(p => {
+          const scaledX = minX + (p[0] - minX) * scaleX;
+          const scaledY = minY + (p[1] - minY) * scaleY;
+          const copy = [scaledX + deltaX, scaledY + deltaY];
+          if (p.pressure !== undefined) copy.pressure = p.pressure;
+          if (p.time !== undefined) copy.time = p.time;
+          if (p.strokeTime !== undefined) copy.strokeTime = p.strokeTime;
+          if (p.speed !== undefined) copy.speed = p.speed;
+          return copy;
+        });
+      }
     }
 
     const globals = getBrushGlobals();
@@ -1919,7 +1954,8 @@ function App() {
       ...(parentEl.customData || {}),
       originalPoints: originalPoints,
       modifiers: newModifiers,
-      version: (parentEl.customData?.version || 0) + 1
+      version: (parentEl.customData?.version || 0) + 1,
+      excalidrawVersion: updatedParent.version
     };
 
     processedModifierVersionsRef.current[parentEl.id] = updatedParent.customData.version;
