@@ -1869,7 +1869,7 @@ function App() {
                 }
               });
             }
-            const processedCode = preprocessBrushCode(brush.code, params);
+            const processedCode = updateCodeWithParamValues(brush.code, params);
             const { generator } = compileUserBrush(processedCode, params);
             if (generator) {
               const res = generator(currentPoints, globals);
