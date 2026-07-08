@@ -1919,77 +1919,15 @@ function App() {
 
     processedModifierVersionsRef.current[parentEl.id] = updatedParent.customData.version;
 
-    const baseId = parentEl.id;
-    const groupId = `${baseId}-group`;
-    const childElements = [];
-
-    if (allLines.length > 1) {
-      for (let idx = 1; idx < allLines.length; idx++) {
-        const linePoints = allLines[idx];
-        if (!Array.isArray(linePoints) || linePoints.length < 1) continue;
-
-        const [startX, startY] = linePoints[0];
-        const relativePoints = linePoints.map(([lx, ly]) => {
-          const relPt = [lx - startX, ly - startY];
-          const origPt = linePoints.find(p => p[0] === lx && p[1] === ly);
-          if (origPt && origPt.pressure !== undefined) relPt.pressure = origPt.pressure;
-          return relPt;
-        });
-
-        const xCoords = relativePoints.map(p => p[0]);
-        const yCoords = relativePoints.map(p => p[1]);
-        const minX = Math.min(...xCoords);
-        const maxX = Math.max(...xCoords);
-        const minY = Math.min(...yCoords);
-        const maxY = Math.max(...yCoords);
-
-        childElements.push({
-          type: "line",
-          x: startX,
-          y: startY,
-          points: relativePoints,
-          width: Math.max(1, maxX - minX),
-          height: Math.max(1, maxY - minY),
-          strokeColor: parentEl.strokeColor,
-          strokeWidth: parentEl.strokeWidth,
-          backgroundColor: parentEl.backgroundColor,
-          fillStyle: parentEl.fillStyle,
-          strokeStyle: parentEl.strokeStyle,
-          roughness: parentEl.roughness,
-          roundness: parentEl.roundness,
-          opacity: parentEl.customData?.hideOriginal ? (parentEl.customData.savedOpacity ?? 100) : parentEl.opacity,
-          groupIds: parentEl.groupIds && parentEl.groupIds.length > 0 ? [...parentEl.groupIds] : [groupId],
-          id: `${baseId}-child-${idx}-${Date.now()}`,
-          seed: Math.floor(Math.random() * 1000000),
-          version: 2,
-          versionNonce: Math.floor(Math.random() * 1000000),
-          isDeleted: false,
-          updated: Date.now(),
-          angle: parentEl.angle,
-          boundElements: null,
-          link: null,
-          locked: parentEl.locked,
-          frameId: parentEl.frameId,
-          lastCommittedPoint: null,
-          startBinding: null,
-          endBinding: null,
-          customData: {
-            parentId: baseId,
-            isModifierGenerated: true
-          }
-        });
-      }
-    }
-
     const nextElements = elements.map(el => {
-      if (el.id === baseId) {
+      if (el.id === parentEl.id) {
         return updatedParent;
       }
-      if (el.customData?.parentId === baseId && el.customData?.isModifierGenerated) {
+      if (el.customData?.parentId === parentEl.id && el.customData?.isModifierGenerated) {
         return { ...el, isDeleted: true };
       }
       return el;
-    }).concat(childElements);
+    });
 
     evaluatingModifiersRef.current = true;
     try {
@@ -3776,7 +3714,235 @@ function App() {
             </div>
           )}
         </div>
+
+        {modifiers.length > 0 && (
+          <button
+            onClick={() => handleBakeModifiers(element)}
+            style={{
+              padding: "10px 14px",
+              borderRadius: "8px",
+              background: "#6c5ce7",
+              color: "#fff",
+              border: "none",
+              cursor: "pointer",
+              fontWeight: "bold",
+              fontSize: "13px",
+              marginTop: "8px",
+              transition: "opacity 0.2s"
+            }}
+            onMouseOver={(e) => e.target.style.opacity = 0.9}
+            onMouseOut={(e) => e.target.style.opacity = 1}
+          >
+            Bake Modifiers (Apply)
+          </button>
+        )}
       </div>
+    );
+  };
+
+  const rotatePoint = (x, y, cx, cy, angle) => {
+    if (!angle) return [x, y];
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const rx = cos * (x - cx) - sin * (y - cy) + cx;
+    const ry = sin * (x - cx) + cos * (y - cy) + cy;
+    return [rx, ry];
+  };
+
+  const handleBakeModifiers = (parentElement) => {
+    if (!excalidrawAPI) return;
+    const elements = excalidrawAPI.getSceneElements();
+    
+    let originalPoints = parentElement.customData?.originalPoints;
+    if (!originalPoints || originalPoints.length === 0) return;
+    
+    const globals = getBrushGlobals();
+    const { primaryPoints, allLines } = evaluateModifierStack(originalPoints, parentElement.customData.modifiers, globals);
+    
+    const updatedParent = updateElementGeometry(parentElement, primaryPoints);
+    updatedParent.customData = {
+      ...(parentElement.customData || {}),
+      originalPoints: null,
+      modifiers: [],
+      hideOriginal: false,
+      version: (parentElement.customData?.version || 0) + 1
+    };
+    
+    if (parentElement.customData?.hideOriginal) {
+      updatedParent.opacity = parentElement.customData.savedOpacity ?? 100;
+    }
+    
+    const childElements = [];
+    const baseId = parentElement.id;
+    const groupId = `${baseId}-baked-group`;
+    
+    if (allLines.length > 1) {
+      const cx = parentElement.x + parentElement.width / 2;
+      const cy = parentElement.y + parentElement.height / 2;
+      const angle = parentElement.angle || 0;
+
+      for (let idx = 1; idx < allLines.length; idx++) {
+        const linePoints = allLines[idx];
+        if (!Array.isArray(linePoints) || linePoints.length < 1) continue;
+
+        const rotatedPoints = linePoints.map(p => {
+          if (angle !== 0) {
+            return rotatePoint(p[0], p[1], cx, cy, angle);
+          }
+          return [p[0], p[1]];
+        });
+
+        const [startX, startY] = rotatedPoints[0];
+        const relativePoints = rotatedPoints.map(([rx, ry]) => {
+          const relPt = [rx - startX, ry - startY];
+          const origPt = linePoints.find(p => p[0] === rx && p[1] === ry) || linePoints[0];
+          if (origPt && origPt.pressure !== undefined) relPt.pressure = origPt.pressure;
+          return relPt;
+        });
+
+        const xCoords = relativePoints.map(p => p[0]);
+        const yCoords = relativePoints.map(p => p[1]);
+        const minX = Math.min(...xCoords);
+        const maxX = Math.max(...xCoords);
+        const minY = Math.min(...yCoords);
+        const maxY = Math.max(...yCoords);
+
+        childElements.push({
+          type: "line",
+          x: startX,
+          y: startY,
+          points: relativePoints,
+          width: Math.max(1, maxX - minX),
+          height: Math.max(1, maxY - minY),
+          strokeColor: parentElement.strokeColor,
+          strokeWidth: parentElement.strokeWidth,
+          backgroundColor: parentElement.backgroundColor,
+          fillStyle: parentElement.fillStyle,
+          strokeStyle: parentElement.strokeStyle,
+          roughness: parentElement.roughness,
+          roundness: parentElement.roundness,
+          opacity: updatedParent.opacity,
+          groupIds: parentElement.groupIds && parentElement.groupIds.length > 0 
+            ? [...parentElement.groupIds, groupId] 
+            : [groupId],
+          id: `${baseId}-baked-${idx}-${Date.now()}`,
+          seed: Math.floor(Math.random() * 1000000),
+          version: 2,
+          versionNonce: Math.floor(Math.random() * 1000000),
+          isDeleted: false,
+          updated: Date.now(),
+          angle: 0,
+          boundElements: null,
+          link: null,
+          locked: parentElement.locked,
+          frameId: parentElement.frameId,
+          lastCommittedPoint: null,
+          startBinding: null,
+          endBinding: null
+        });
+      }
+      
+      if (updatedParent.groupIds) {
+        if (!updatedParent.groupIds.includes(groupId)) {
+          updatedParent.groupIds.push(groupId);
+        }
+      } else {
+        updatedParent.groupIds = [groupId];
+      }
+    }
+
+    const nextElements = elements.map(el => {
+      if (el.id === parentElement.id) {
+        return updatedParent;
+      }
+      return el;
+    }).concat(childElements);
+
+    excalidrawAPI.updateScene({
+      elements: nextElements,
+      commitToHistory: true
+    });
+  };
+
+  const renderGlobalModifiersOverlay = () => {
+    if (!excalidrawAPI) return null;
+    const elements = excalidrawAPI.getSceneElements();
+    
+    const modifierElements = elements.filter(el => el.customData?.modifiers && !el.isDeleted);
+    if (modifierElements.length === 0) return null;
+
+    const paths = [];
+
+    modifierElements.forEach(parentEl => {
+      if (parentEl.customData?.muteModifiers) return;
+
+      const originalPoints = parentEl.customData?.originalPoints;
+      if (!originalPoints || originalPoints.length === 0) return;
+
+      const globals = getBrushGlobals();
+      const { allLines } = evaluateModifierStack(originalPoints, parentEl.customData.modifiers, globals);
+      
+      if (allLines.length > 1) {
+        const cx = parentEl.x + parentEl.width / 2;
+        const cy = parentEl.y + parentEl.height / 2;
+        const angle = parentEl.angle || 0;
+
+        for (let idx = 1; idx < allLines.length; idx++) {
+          const linePoints = allLines[idx];
+          const screenPoints = linePoints.map(p => {
+            let rx = p[0];
+            let ry = p[1];
+            if (angle !== 0) {
+              const rotated = rotatePoint(p[0], p[1], cx, cy, angle);
+              rx = rotated[0];
+              ry = rotated[1];
+            }
+            return mapCanvasToScreen(rx, ry);
+          });
+
+          paths.push({
+            points: screenPoints,
+            strokeColor: parentEl.strokeColor,
+            strokeWidth: parentEl.strokeWidth,
+            opacity: parentEl.customData?.hideOriginal 
+              ? (parentEl.customData.savedOpacity ?? 100) / 100
+              : parentEl.opacity / 100
+          });
+        }
+      }
+    });
+
+    if (paths.length === 0) return null;
+
+    return (
+      <svg 
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          width: "100%",
+          height: "100%",
+          pointerEvents: "none",
+          zIndex: 1
+        }}
+      >
+        {paths.map((p, idx) => {
+          const pointsString = p.points.map(([x, y]) => `${x},${y}`).join(" ");
+          return (
+            <polyline
+              key={idx}
+              points={pointsString}
+              fill="none"
+              stroke={p.strokeColor}
+              strokeWidth={p.strokeWidth * (excalidrawAPI.getAppState().zoom.value || 1)}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              opacity={p.opacity}
+              style={theme === "dark" ? { filter: "invert(93%) hue-rotate(180deg)" } : undefined}
+            />
+          );
+        })}
+      </svg>
     );
   };
 
@@ -5043,6 +5209,7 @@ function App() {
           </svg>
         )}
 
+        {renderGlobalModifiersOverlay()}
         {renderModifiersPropertiesPanel()}
       </div>
 
