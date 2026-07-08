@@ -851,7 +851,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.7.2 (rebuilt at 2026-07-08T22:08:00)");
+  console.log("Drawerator version: 1.7.3 (rebuilt at 2026-07-08T22:12:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -2533,6 +2533,53 @@ function App() {
           e.preventDefault();
           e.stopPropagation();
           handleApplyBrushToSelected();
+        }
+
+        // Shift + R (Toggle sharp / smooth edges)
+        if (e.shiftKey && !e.ctrlKey && !e.altKey && e.code === "KeyR" && excalidrawAPI) {
+          e.preventDefault();
+          e.stopPropagation();
+          const appState = excalidrawAPI.getAppState();
+          const selectedIds = appState.selectedElementIds || {};
+          const elements = excalidrawAPI.getSceneElements();
+          
+          let count = 0;
+          const nextElements = elements.map(el => {
+            if (selectedIds[el.id] && !el.isDeleted) {
+              if (
+                el.type === "freedraw" ||
+                el.type === "line" ||
+                el.type === "rectangle" ||
+                el.type === "diamond"
+              ) {
+                count++;
+                return {
+                  ...el,
+                  roundness: el.roundness ? null : { type: 2 },
+                  version: el.version + 1,
+                  versionNonce: Math.floor(Math.random() * 1000000),
+                  updated: Date.now()
+                };
+              }
+            }
+            return el;
+          });
+          
+          if (count > 0) {
+            excalidrawAPI.updateScene({
+              elements: nextElements,
+              commitToHistory: true
+            });
+          } else {
+            // Toggle currentItemRoundnessType in appState: 2 is smooth, 1 is sharp
+            const currentType = appState.currentItemRoundnessType;
+            const nextType = currentType === 2 ? 1 : 2;
+            excalidrawAPI.updateScene({
+              appState: {
+                currentItemRoundnessType: nextType
+              }
+            });
+          }
         }
       }
 
