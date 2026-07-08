@@ -207,6 +207,7 @@ const PRESET_BRUSHES = {
     name: "Calligraphy Pencil (Pressure-Sensitive)",
     code: `// @param baseWidth = 3.5 (1..15, step: 0.1)
 // @param speedSensitivity = 0.12 (0..0.5, step: 0.01)
+// @param stabilizerDamping = 0.12 (0.01..0.5, step: 0.01)
 (points) => {
   const lines = [];
   if (points.length < 2) return lines;
@@ -272,6 +273,40 @@ const PRESET_BRUSHES = {
   lines.push(centerTrack);
   lines.push(leftTrack);
   lines.push(rightTrack);
+  return lines;
+}`
+  },
+  walking: {
+    id: "walking",
+    name: "Walking Brush (Time-Oscillated)",
+    code: `// @param speed = 5 (1..20, step: 0.5)
+// @param amplitude = 15 (2..50, step: 1)
+// @param stabilizerDamping = 0.12 (0.01..0.5, step: 0.01)
+(points) => {
+  const lines = [];
+  const waveTrack = [];
+  
+  for (let i = 1; i < points.length; i++) {
+    const [x1, y1] = points[i - 1];
+    const [x2, y2] = points[i];
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    
+    if (len > 0) {
+      // Use point.strokeTime (time in ms since stroke start) to oscillate the wave!
+      const timeMs = points[i].strokeTime || 0;
+      const offset = Math.sin(timeMs * 0.001 * speed) * amplitude;
+      
+      const nx = -dy / len * offset;
+      const ny = dx / len * offset;
+      
+      waveTrack.push([x2 + nx, y2 + ny]);
+    }
+  }
+  
+  lines.push(points);
+  if (waveTrack.length > 0) lines.push(waveTrack);
   return lines;
 }`
   }
@@ -530,7 +565,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.4.0 (rebuilt at 2026-07-08T13:35:00)");
+  console.log("Drawerator version: 1.4.3 (rebuilt at 2026-07-08T14:52:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -579,7 +614,8 @@ function App() {
       { id: "hairy", name: "Hairy Brush (Calligraphy)", code: PRESET_BRUSHES.hairy.code, isPreset: true },
       { id: "pressure", name: "Calligraphy Pencil (Pressure-Sensitive)", code: PRESET_BRUSHES.pressure.code, isPreset: true },
       { id: "ribbon", name: "Ribbon Brush (Double Track)", code: PRESET_BRUSHES.ribbon.code, isPreset: true },
-      { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true }
+      { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true },
+      { id: "walking", name: "Walking Brush (Time-Oscillated)", code: PRESET_BRUSHES.walking.code, isPreset: true }
     ];
 
     if (!palette || palette.length === 0) {
@@ -755,6 +791,7 @@ function App() {
   const livePointsRef = useRef([]);
   const rawCursorRef = useRef(null);
   const wasShiftHeldRef = useRef(false);
+  const strokeStartTimeRef = useRef(0);
   const lastStrokeColorRef = useRef("#000000");
 
   const getThemeColor = (color) => {
@@ -813,6 +850,8 @@ function App() {
     isDrawingRef.current = true;
     const coords = getCanvasCoords(e.clientX, e.clientY);
     coords.time = Date.now();
+    strokeStartTimeRef.current = coords.time;
+    coords.strokeTime = 0;
     coords.pressure = e.pressure !== undefined ? e.pressure : 0.5;
     coords.speed = 0;
     livePointsRef.current = [coords];
@@ -851,13 +890,15 @@ function App() {
     // Stabilizer (Exponential Moving Average / Lazy Mouse) when holding Shift
     if (e.shiftKey && livePointsRef.current.length > 0) {
       const lastPoint = livePointsRef.current[livePointsRef.current.length - 1];
-      const beta = 0.12; // Damping factor: lower is smoother / slower follow
+      const betaParam = brushParams.find(p => p.name === "stabilizerDamping");
+      const beta = betaParam ? betaParam.value : 0.12; // Damping factor: lower is smoother / slower follow
       const x = lastPoint[0] + (targetCoords[0] - lastPoint[0]) * beta;
       const y = lastPoint[1] + (targetCoords[1] - lastPoint[1]) * beta;
       coords = [x, y];
     }
 
     coords.time = Date.now();
+    coords.strokeTime = coords.time - (strokeStartTimeRef.current || coords.time);
     coords.pressure = e.pressure !== undefined ? e.pressure : 0.5;
     
     let speed = 0;
@@ -1311,7 +1352,7 @@ function App() {
 
           const generator = compiledGeneratorRef.current;
           if (generator) {
-            const pointsToUse = (wasShiftHeldRef.current && livePointsRef.current && livePointsRef.current.length >= 2) ? [...livePointsRef.current] : null;
+            const pointsToUse = (livePointsRef.current && livePointsRef.current.length >= 2) ? [...livePointsRef.current] : null;
             const result = applyBrushToFreedrawElement(lastElement, generator, pointsToUse);
             if (result) {
               const nextElements = elements.map(el => {
@@ -3321,11 +3362,12 @@ function App() {
                   key={idx}
                   points={pointsString}
                   fill="none"
-                  stroke={getThemeColor(lastStrokeColorRef.current)}
+                  stroke={lastStrokeColorRef.current}
                   strokeWidth={(excalidrawAPI?.getAppState().currentItemStrokeWidth || 2) * (excalidrawAPI?.getAppState().zoom.value || 1)}
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   opacity={(excalidrawAPI?.getAppState().currentItemOpacity ?? 100) / 100}
+                  style={theme === "dark" ? { filter: "invert(93%) hue-rotate(180deg)" } : undefined}
                 />
               );
             })}
