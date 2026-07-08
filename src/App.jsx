@@ -145,9 +145,13 @@ const PRESET_BRUSHES = {
   lines.push(points);
   
   // 2. Draw perpendicular hatching strokes along the path
-  for (let i = 1; i < points.length; i += spacing) {
-    const [x1, y1] = points[i - 1];
-    const [x2, y2] = points[i];
+  const stepVal = Math.max(1, Math.round(spacing));
+  for (let i = 1; i < points.length; i += stepVal) {
+    const p1 = points[i - 1];
+    const p2 = points[i];
+    if (!p1 || !p2) continue;
+    const [x1, y1] = p1;
+    const [x2, y2] = p2;
     const dx = x2 - x1;
     const dy = y2 - y1;
     const len = Math.sqrt(dx * dx + dy * dy);
@@ -1000,6 +1004,7 @@ function App() {
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
   const [sidebarTab, setSidebarTab] = useState("brush"); // "brush" or "modifiers"
   const [selectedElementIds, setSelectedElementIds] = useState({});
+  const [modifierUpdateNonce, setModifierUpdateNonce] = useState(0);
   const [panelPos, setPanelPos] = useState({ x: 40, y: 150 }); // Left side by default
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [isDraggingPanel, setIsDraggingPanel] = useState(false);
@@ -1938,6 +1943,7 @@ function App() {
     } finally {
       evaluatingModifiersRef.current = false;
     }
+    setModifierUpdateNonce(n => n + 1);
   };
 
   const handleCanvasPointerUp = (e) => {
@@ -3862,6 +3868,7 @@ function App() {
       elements: nextElements,
       commitToHistory: true
     });
+    setModifierUpdateNonce(n => n + 1);
   };
 
   const renderGlobalModifiersOverlay = () => {
