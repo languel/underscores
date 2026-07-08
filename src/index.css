@@ -366,9 +366,9 @@ body, html {
   width: var(--default-button-size, 36px) !important;
   height: var(--default-button-size, 36px) !important;
   border-radius: var(--border-radius-lg, 8px) !important;
-  border: 1px solid var(--border-color) !important;
-  background-color: var(--island-bg-color) !important;
-  color: var(--color-primary) !important;
+  border: none !important;
+  background-color: var(--button-gray-bg) !important;
+  color: var(--icon-fill-color) !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -377,9 +377,13 @@ body, html {
   outline: none !important;
 }
 
-#btn-brush-header:hover, #btn-chat-header:hover, .theme-btn-top-left:hover {
+#btn-brush-header:hover, #btn-chat-header:hover {
   background-color: var(--button-hover-bg) !important;
   border-color: var(--border-focus) !important;
+}
+
+.theme-btn-top-left:hover {
+  background-color: var(--button-gray-bg-hover, var(--button-hover-bg)) !important;
 }
 
 /* --- COMMAND PALETTE OVERLAY --- */

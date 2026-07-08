@@ -137,21 +137,23 @@ const PRESET_BRUSHES = {
   hairy: {
     id: "hairy",
     name: "Hairy Brush (Calligraphy)",
-    code: `(points) => {
+    code: `// @param hairLength = 20 (5..100, step: 1)
+// @param spacing = 2 (1..10, step: 1)
+(points) => {
   const lines = [];
   // 1. Draw the primary line
   lines.push(points);
   
   // 2. Draw perpendicular hatching strokes along the path
-  for (let i = 1; i < points.length; i += 2) {
+  for (let i = 1; i < points.length; i += spacing) {
     const [x1, y1] = points[i - 1];
     const [x2, y2] = points[i];
     const dx = x2 - x1;
     const dy = y2 - y1;
     const len = Math.sqrt(dx * dx + dy * dy);
     if (len > 0) {
-      const nx = -dy / len * 20;
-      const ny = dx / len * 20;
+      const nx = -dy / len * hairLength;
+      const ny = dx / len * hairLength;
       lines.push([[x2, y2], [x2 + nx, y2 + ny]]);
     }
   }
@@ -161,7 +163,8 @@ const PRESET_BRUSHES = {
   ribbon: {
     id: "ribbon",
     name: "Ribbon Brush (Double Track)",
-    code: `(points) => {
+    code: `// @param width = 12 (2..50, step: 0.5)
+(points) => {
   const lines = [];
   const leftSide = [];
   const rightSide = [];
@@ -174,8 +177,8 @@ const PRESET_BRUSHES = {
     const dy = y2 - y1;
     const len = Math.sqrt(dx * dx + dy * dy);
     if (len > 0) {
-      const nx = -dy / len * 12;
-      const ny = dx / len * 12;
+      const nx = -dy / len * width;
+      const ny = dx / len * width;
       leftSide.push([x2 + nx, y2 + ny]);
       rightSide.push([x2 - nx, y2 - ny]);
     }
@@ -189,19 +192,22 @@ const PRESET_BRUSHES = {
   sketchy: {
     id: "sketchy",
     name: "Sketchy Multi-line",
-    code: `(points) => {
+    code: `// @param jitter = 3 (1..15, step: 0.5)
+(points) => {
   const lines = [];
   // Overlay 3 parallel lines with random/offset coordinates
   lines.push(points);
-  lines.push(points.map(([x, y]) => [x + 3, y + 2]));
-  lines.push(points.map(([x, y]) => [x - 2, y - 3]));
+  lines.push(points.map(([x, y]) => [x + jitter, y + jitter * 0.7]));
+  lines.push(points.map(([x, y]) => [x - jitter * 0.7, y - jitter]));
   return lines;
 }`
   },
   pressure: {
     id: "pressure",
     name: "Calligraphy Pencil (Pressure-Sensitive)",
-    code: `(points) => {
+    code: `// @param baseWidth = 3.5 (1..15, step: 0.1)
+// @param speedSensitivity = 0.12 (0..0.5, step: 0.01)
+(points) => {
   const lines = [];
   if (points.length < 2) return lines;
   
@@ -252,12 +258,12 @@ const PRESET_BRUSHES = {
       if (len > 0) { nx = -dy / len; ny = dx / len; }
     }
 
-    // Map drawing speed to normal offset:
-    // Faster movement -> smaller offset (thinner line)
-    // Slower movement -> larger offset (wider line)
+    // Map drawing speed and pen pressure to normal offset:
     const speedVal = smoothDists[i];
-    const baseOffset = 3.5;
-    const offsetAmount = Math.max(0.1, baseOffset - (speedVal * 0.12));
+    const pressureVal = points[i].pressure !== undefined ? points[i].pressure : 0.5;
+    
+    // Wider if moving slow, wider if pressing hard
+    const offsetAmount = Math.max(0.1, (baseWidth * pressureVal * 2) - (speedVal * speedSensitivity));
 
     leftTrack.push([x + nx * offsetAmount, y + ny * offsetAmount]);
     rightTrack.push([x - nx * offsetAmount, y - ny * offsetAmount]);
@@ -459,9 +465,61 @@ const updateElementGeometry = (el, newAbsolutePoints) => {
   };
 };
 
-const compileUserBrush = (code) => {
+const parseParameters = (code) => {
+  if (!code) return [];
+  const params = [];
+  const lines = code.split("\n");
+  for (const line of lines) {
+    const m = /^\s*\/\/\s*@param\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*([0-9.-]+)(?:\s*\(([^)]+)\))?/.exec(line);
+    if (m) {
+      const name = m[1];
+      const defaultValue = parseFloat(m[2]);
+      let min = defaultValue < 0 ? defaultValue * 2 : 0;
+      let max = defaultValue > 0 ? defaultValue * 2 : 100;
+      if (min === max) { min = 0; max = 100; }
+      let step = defaultValue % 1 === 0 ? 1 : 0.01;
+      
+      const rangeStr = m[3];
+      if (rangeStr) {
+        const rangeMatch = /([0-9.-]+)\s*\.\.\s*([0-9.-]+)/.exec(rangeStr);
+        if (rangeMatch) {
+          min = parseFloat(rangeMatch[1]);
+          max = parseFloat(rangeMatch[2]);
+        }
+        const stepMatch = /step\s*:\s*([0-9.-]+)/.exec(rangeStr);
+        if (stepMatch) {
+          step = parseFloat(stepMatch[1]);
+        }
+      }
+      
+      params.push({
+        name,
+        default: defaultValue,
+        min,
+        max,
+        step,
+        value: defaultValue
+      });
+    }
+  }
+  return params;
+};
+
+const updateCodeWithParamValues = (code, params) => {
+  let updatedCode = code;
+  params.forEach(p => {
+    const regex = new RegExp(`(//\\s*@param\\s+${p.name}\\s*=\\s*)[0-9.-]+`, "g");
+    updatedCode = updatedCode.replace(regex, `$1${p.value}`);
+  });
+  return updatedCode;
+};
+
+const compileUserBrush = (code, params = []) => {
   try {
-    const fn = new Function("return (" + code + ")")();
+    const keys = params.map(p => p.name);
+    const values = params.map(p => p.value);
+    const maker = new Function(...keys, "return (" + code + ")");
+    const fn = maker(...values);
     if (typeof fn === "function") {
       return { generator: fn, error: "" };
     }
@@ -472,7 +530,7 @@ const compileUserBrush = (code) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.3.3 (rebuilt at 2026-07-06T21:26:00)");
+  console.log("Drawerator version: 1.4.0 (rebuilt at 2026-07-08T13:35:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -581,6 +639,7 @@ function App() {
   });
 
   const [brushCompileError, setBrushCompileError] = useState("");
+  const [brushParams, setBrushParams] = useState([]);
   const compiledGeneratorRef = useRef(null);
   const [brushSidebarDocked, setBrushSidebarDocked] = useState(false);
 
@@ -602,16 +661,33 @@ function App() {
 
   useEffect(() => {
     if (activeBrushId === "normal") {
+      setBrushParams([]);
+      return;
+    }
+    const parsed = parseParameters(activeBrushCode);
+    setBrushParams(prev => {
+      return parsed.map(newParam => {
+        const existing = prev.find(p => p.name === newParam.name);
+        if (existing) {
+          return { ...newParam, value: existing.value };
+        }
+        return newParam;
+      });
+    });
+  }, [activeBrushCode, activeBrushId]);
+
+  useEffect(() => {
+    if (activeBrushId === "normal") {
       setBrushCompileError("");
       compiledGeneratorRef.current = null;
       return;
     }
-    const res = compileUserBrush(activeBrushCode);
+    const res = compileUserBrush(activeBrushCode, brushParams);
     setBrushCompileError(res.error);
     if (!res.error) {
       compiledGeneratorRef.current = res.generator;
     }
-  }, [activeBrushCode, activeBrushId]);
+  }, [activeBrushCode, activeBrushId, brushParams]);
 
   const saveBrushChanges = () => {
     if (activeBrushId === "normal") return;
@@ -621,7 +697,9 @@ function App() {
       saveBrushCopy();
       return;
     }
-    setBrushPalette(prev => prev.map(b => b.id === activeBrushId ? { ...b, code: activeBrushCode } : b));
+    const finalCode = updateCodeWithParamValues(activeBrushCode, brushParams);
+    setBrushPalette(prev => prev.map(b => b.id === activeBrushId ? { ...b, code: finalCode } : b));
+    setActiveBrushCode(finalCode);
     alert("Changes saved successfully!");
   };
 
@@ -632,15 +710,17 @@ function App() {
     if (!name || !name.trim()) return;
     
     const newId = `custom-${Date.now()}`;
+    const finalCode = updateCodeWithParamValues(activeBrushCode, brushParams);
     const newBrush = {
       id: newId,
       name: name.trim(),
-      code: activeBrushCode,
+      code: finalCode,
       isPreset: false
     };
     
     setBrushPalette(prev => [...prev, newBrush]);
     setActiveBrushId(newId);
+    setActiveBrushCode(finalCode);
     setCustomBrushActive(true);
   };
 
@@ -732,6 +812,9 @@ function App() {
 
     isDrawingRef.current = true;
     const coords = getCanvasCoords(e.clientX, e.clientY);
+    coords.time = Date.now();
+    coords.pressure = e.pressure !== undefined ? e.pressure : 0.5;
+    coords.speed = 0;
     livePointsRef.current = [coords];
     rawCursorRef.current = [e.clientX, e.clientY];
     setShiftHeld(e.shiftKey);
@@ -773,6 +856,20 @@ function App() {
       const y = lastPoint[1] + (targetCoords[1] - lastPoint[1]) * beta;
       coords = [x, y];
     }
+
+    coords.time = Date.now();
+    coords.pressure = e.pressure !== undefined ? e.pressure : 0.5;
+    
+    let speed = 0;
+    if (livePointsRef.current.length > 0) {
+      const prev = livePointsRef.current[livePointsRef.current.length - 1];
+      const dx = coords[0] - prev[0];
+      const dy = coords[1] - prev[1];
+      const dt = coords.time - (prev.time || coords.time);
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      speed = dt > 0 ? dist / dt : 0;
+    }
+    coords.speed = speed;
 
     livePointsRef.current.push(coords);
     setDrawingPoints([...livePointsRef.current]);
@@ -2229,6 +2326,42 @@ function App() {
             ))}
           </select>
         </div>
+
+        {/* Uniform Parameters Sliders */}
+        {activeBrushId !== "normal" && brushParams.length > 0 && (
+          <div style={{ 
+            display: "flex", 
+            flexDirection: "column", 
+            gap: "8px", 
+            padding: "10px", 
+            borderRadius: "6px", 
+            border: "1px solid var(--border-color)", 
+            background: "var(--input-bg-color, rgba(0, 0, 0, 0.02))",
+            marginTop: "2px"
+          }}>
+            <label style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-primary)", opacity: 0.8 }}>Brush Parameters</label>
+            {brushParams.map((param) => (
+              <div key={param.name} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                <div style={{ display: "flex", width: "100%", justifyContent: "space-between", fontSize: "11px" }}>
+                  <span style={{ fontFamily: "monospace", color: "var(--color-primary)" }}>{param.name}</span>
+                  <span style={{ color: "var(--color-primary)", opacity: 0.7 }}>{param.value.toFixed(param.step % 1 === 0 ? 0 : 2)}</span>
+                </div>
+                <input
+                  type="range"
+                  min={param.min}
+                  max={param.max}
+                  step={param.step}
+                  value={param.value}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    setBrushParams(prev => prev.map(p => p.name === param.name ? { ...p, value: val } : p));
+                  }}
+                  style={{ width: "100%", cursor: "pointer", accentColor: "var(--color-primary)" }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Editor controls if not normal */}
         {activeBrushId !== "normal" && (
