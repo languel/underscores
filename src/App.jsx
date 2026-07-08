@@ -851,7 +851,7 @@ const compileUserBrush = (code, params = []) => {
 };
 
 function App() {
-  console.log("Drawerator version: 1.7.4 (rebuilt at 2026-07-08T22:18:00)");
+  console.log("Drawerator version: 1.7.5 (rebuilt at 2026-07-08T22:21:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
@@ -1068,6 +1068,11 @@ function App() {
   };
 
   const [customBrushActive, setCustomBrushActive] = useState(false);
+  const [customBrushRoundness, setCustomBrushRoundness] = useState(() => localStorage.getItem("drawerator_custom_brush_roundness") !== "false");
+  
+  useEffect(() => {
+    localStorage.setItem("drawerator_custom_brush_roundness", customBrushRoundness);
+  }, [customBrushRoundness]);
   const [showBrushMenu, setShowBrushMenu] = useState(false);
   const [customContextMenu, setCustomContextMenu] = useState(null);
 
@@ -1381,7 +1386,7 @@ function App() {
         fillStyle: "solid",
         strokeStyle: "solid",
         roughness: 0, 
-        roundness: freedrawElement.roundness !== undefined ? freedrawElement.roundness : null,
+        roundness: customBrushRoundness ? { type: 2 } : null,
         opacity: freedrawElement.opacity,
         groupIds: [groupId],
         id: `${baseId}-brush-${idx}-${Date.now()}`,
@@ -2571,6 +2576,9 @@ function App() {
               commitToHistory: true
             });
           } else {
+            // Toggle our global custom brush roundness switch!
+            setCustomBrushRoundness(prev => !prev);
+
             // Toggle currentItemRoundnessType in appState: 2 is smooth, 1 is sharp
             const currentType = appState.currentItemRoundnessType;
             const nextType = currentType === 2 ? 1 : 2;
@@ -3732,6 +3740,23 @@ function App() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                     </svg>
+                  </button>
+
+                  {/* Toggle Corner Style (Sharp / Smooth) */}
+                  <button 
+                    className={`header-btn ${!customBrushRoundness ? "active" : ""}`}
+                    onClick={() => setCustomBrushRoundness(prev => !prev)}
+                    title={customBrushRoundness ? "Toggle Sharp Corners (Shift+R)" : "Toggle Smooth Corners (Shift+R)"}
+                  >
+                    {customBrushRoundness ? (
+                      <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 20c8 0 16-8 16-16" />
+                      </svg>
+                    ) : (
+                      <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 20h16V4" />
+                      </svg>
+                    )}
                   </button>
 
                   {/* Enable Custom Brush Button (Paintbrush) */}
