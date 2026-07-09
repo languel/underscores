@@ -391,65 +391,85 @@ const PRESET_BRUSHES = {
   return lines;
 }`
   },
-  simplify: {
-    id: "simplify",
-    name: "Simplify Brush (RDP)",
-    code: `// @param epsilon = 3.0 (0.5..15, step: 0.1)
-(points) => {
-  if (points.length <= 2) return [points];
-  
-  function getOrthogonalDistance(p, lineStart, lineEnd) {
-    const x = p[0], y = p[1];
-    const x1 = lineStart[0], y1 = lineStart[1];
-    const x2 = lineEnd[0], y2 = lineEnd[1];
-    
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const den = Math.sqrt(dx * dx + dy * dy);
-    return den === 0 ? Math.sqrt((x - x1) ** 2 + (y - y1) ** 2) : Math.abs(dx * (y1 - y) - (x1 - x) * dy) / den;
+  rdp: {
+    id: "rdp",
+    name: "Simplify (RDP)",
+    code: `// @param epsilon = 3 (0.5..15, step: 0.1)
+(points, globals) => {
+  return [globals.simplifyRDP(points, epsilon)];
+}`
+  },
+  vw: {
+    id: "vw",
+    name: "Simplify (VW)",
+    code: `// @param minArea = 5 (0.5..50, step: 0.5)
+(points, globals) => {
+  return [globals.simplifyVW(points, minArea)];
+}`
+  },
+  smooth: {
+    id: "smooth",
+    name: "Laplacian Smooth",
+    code: `// @param iterations = 10 (1..40, step: 1)
+// @param weight = 0.4 (0.1..0.9, step: 0.05)
+(points, globals) => {
+  return [globals.smoothPathLaplacian(points, weight, iterations)];
+}`
+  },
+  taubin: {
+    id: "taubin",
+    name: "Taubin Smooth",
+    code: `// @param iterations = 10 (1..40, step: 1)
+// @param weight = 0.5 (0.1..0.9, step: 0.05)
+(points, globals) => {
+  return [globals.smoothPathTaubin(points, weight, -0.53, iterations, false)];
+}`
+  },
+  resample: {
+    id: "resample",
+    name: "Resample Uniformly",
+    code: `// @param targetCount = 100 (5..500, step: 5)
+// @param usePercent = 0 (0..1, step: 1)
+// @param percent = 100 (5..200, step: 5)
+(points, globals) => {
+  let count = targetCount;
+  if (usePercent > 0.5) {
+    count = Math.max(3, Math.round(points.length * (percent / 100)));
   }
-  
-  function simplifyRDP(pts, eps) {
-    if (pts.length <= 2) return pts;
-    let dmax = 0;
-    let index = 0;
-    const end = pts.length - 1;
-    
-    for (let i = 1; i < end; i++) {
-      const d = getOrthogonalDistance(pts[i], pts[0], pts[end]);
-      if (d > dmax) {
-        index = i;
-        dmax = d;
-      }
-    }
-    
-    if (dmax > eps) {
-      const results1 = simplifyRDP(pts.slice(0, index + 1), eps);
-      const results2 = simplifyRDP(pts.slice(index), eps);
-      const combined = results1.slice(0, results1.length - 1).concat(results2);
-      return combined;
-    } else {
-      const pStart = pts[0];
-      const pEnd = pts[end];
-      
-      const startPt = [pStart[0], pStart[1]];
-      if (pStart.pressure !== undefined) startPt.pressure = pStart.pressure;
-      if (pStart.time !== undefined) startPt.time = pStart.time;
-      if (pStart.strokeTime !== undefined) startPt.strokeTime = pStart.strokeTime;
-      if (pStart.speed !== undefined) startPt.speed = pStart.speed;
-      
-      const endPt = [pEnd[0], pEnd[1]];
-      if (pEnd.pressure !== undefined) endPt.pressure = pEnd.pressure;
-      if (pEnd.time !== undefined) endPt.time = pEnd.time;
-      if (pEnd.strokeTime !== undefined) endPt.strokeTime = pEnd.strokeTime;
-      if (pEnd.speed !== undefined) endPt.speed = pEnd.speed;
-      
-      return [startPt, endPt];
-    }
-  }
-
-  const simplified = simplifyRDP(points, epsilon);
-  return [simplified];
+  return [globals.resampleUniform(points, count)];
+}`
+  },
+  joint: {
+    id: "joint",
+    name: "Close & Smooth Joint",
+    code: `// @param smoothJoint = 1 (0..1, step: 1)
+(points, globals) => {
+  return [globals.closeAndSmoothJoint(points, "freedraw", smoothJoint > 0.5)];
+}`
+  },
+  snap: {
+    id: "snap",
+    name: "Snap to Grid",
+    code: `// @param size = 20 (5..100, step: 5)
+(points, globals) => {
+  return [points.map(p => {
+    const sx = Math.round(p[0] / size) * size;
+    const sy = Math.round(p[1] / size) * size;
+    const copy = [sx, sy];
+    if (p.pressure !== undefined) copy.pressure = p.pressure;
+    if (p.time !== undefined) copy.time = p.time;
+    if (p.strokeTime !== undefined) copy.strokeTime = p.strokeTime;
+    if (p.speed !== undefined) copy.speed = p.speed;
+    return copy;
+  })];
+}`
+  },
+  hobby: {
+    id: "hobby",
+    name: "Hobby Spline",
+    code: `// @param tension = 1 (0.5..3, step: 0.1)
+(points, globals) => {
+  return [globals.solveHobbySpline(points, tension)];
 }`
   }
 };
@@ -1037,7 +1057,14 @@ function App() {
       { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true },
       { id: "walking", name: "Walking Brush (Time-Oscillated)", code: PRESET_BRUSHES.walking.code, isPreset: true },
       { id: "rake", name: "Rake Brush (Variable Teeth)", code: PRESET_BRUSHES.rake.code, isPreset: true },
-      { id: "simplify", name: "Simplify Brush (RDP)", code: PRESET_BRUSHES.simplify.code, isPreset: true }
+      { id: "rdp", name: "Simplify (RDP)", code: PRESET_BRUSHES.rdp.code, isPreset: true },
+      { id: "vw", name: "Simplify (VW)", code: PRESET_BRUSHES.vw.code, isPreset: true },
+      { id: "smooth", name: "Laplacian Smooth", code: PRESET_BRUSHES.smooth.code, isPreset: true },
+      { id: "taubin", name: "Taubin Smooth", code: PRESET_BRUSHES.taubin.code, isPreset: true },
+      { id: "resample", name: "Resample Uniformly", code: PRESET_BRUSHES.resample.code, isPreset: true },
+      { id: "joint", name: "Close & Smooth Joint", code: PRESET_BRUSHES.joint.code, isPreset: true },
+      { id: "snap", name: "Snap to Grid", code: PRESET_BRUSHES.snap.code, isPreset: true },
+      { id: "hobby", name: "Hobby Spline", code: PRESET_BRUSHES.hobby.code, isPreset: true }
     ];
 
     if (!palette || palette.length === 0) {
@@ -1408,7 +1435,14 @@ function App() {
       opacity: appState.currentItemOpacity ?? 100,
       zoom: appState.zoom ? appState.zoom.value : 1,
       theme: theme,
-      viewBackgroundColor: appState.viewBackgroundColor || (theme === "dark" ? "#121212" : "#ffffff")
+      viewBackgroundColor: appState.viewBackgroundColor || (theme === "dark" ? "#121212" : "#ffffff"),
+      simplifyRDP,
+      simplifyVW,
+      smoothPathLaplacian,
+      smoothPathTaubin,
+      resampleUniform,
+      closeAndSmoothJoint,
+      solveHobbySpline
     };
   };
 
@@ -1832,56 +1866,33 @@ function App() {
       if (!mod.enabled) continue;
 
       try {
-        if (mod.id === "rdp") {
-          const epsilon = mod.params?.epsilon ?? 3.0;
-          currentPoints = simplifyRDP(currentPoints, epsilon);
-          generatedLines = [currentPoints];
-        } else if (mod.id === "smooth") {
-          const iterations = mod.params?.iterations ?? 10;
-          const weight = mod.params?.weight ?? 0.4;
-          currentPoints = smoothPathTaubin(currentPoints, weight, -0.53, iterations, false);
-          generatedLines = [currentPoints];
-        } else if (mod.id === "hobby") {
-          const tension = mod.params?.tension ?? 1.0;
-          currentPoints = solveHobbySpline(currentPoints, tension);
-          generatedLines = [currentPoints];
-        } else if (mod.id === "snap") {
-          const size = globals.gridSize || 20;
-          currentPoints = currentPoints.map(p => {
-            const sx = Math.round(p[0] / size) * size;
-            const sy = Math.round(p[1] / size) * size;
-            const copy = [sx, sy];
-            if (p.pressure !== undefined) copy.pressure = p.pressure;
-            if (p.time !== undefined) copy.time = p.time;
-            if (p.strokeTime !== undefined) copy.strokeTime = p.strokeTime;
-            if (p.speed !== undefined) copy.speed = p.speed;
-            return copy;
-          });
-          generatedLines = [currentPoints];
-        } else if (mod.id.startsWith("custom-")) {
-          const brushId = mod.id.replace("custom-", "");
-          const brush = brushPalette.find(b => b.id === brushId);
-          if (brush) {
-            const params = [];
-            if (brush.code) {
-              const lines = brush.code.split("\n");
-              lines.forEach(line => {
-                const match = line.match(/\/\/\s*@param\s+(\w+)\s*=\s*([0-9.-]+)\s*\(([^)]+)\)/);
-                if (match) {
-                  const pName = match[1];
-                  const pVal = mod.params && mod.params[pName] !== undefined ? mod.params[pName] : parseFloat(match[2]);
-                  params.push({ name: pName, value: pVal });
-                }
-              });
-            }
-            const processedCode = updateCodeWithParamValues(brush.code, params);
-            const { generator } = compileUserBrush(processedCode, params);
-            if (generator) {
-              const res = generator(currentPoints, globals);
-              if (Array.isArray(res) && res.length > 0) {
-                generatedLines = res;
-                currentPoints = res[0] || currentPoints;
+        let modId = mod.id;
+        if (!modId.startsWith("custom-")) {
+          modId = "custom-" + modId;
+        }
+
+        const brushId = modId.replace("custom-", "");
+        const brush = brushPalette.find(b => b.id === brushId);
+        if (brush) {
+          const params = [];
+          if (brush.code) {
+            const lines = brush.code.split("\n");
+            lines.forEach(line => {
+              const match = line.match(/\/\/\s*@param\s+(\w+)\s*=\s*([0-9.-]+)/);
+              if (match) {
+                const pName = match[1];
+                const pVal = mod.params && mod.params[pName] !== undefined ? mod.params[pName] : parseFloat(match[2]);
+                params.push({ name: pName, value: pVal });
               }
+            });
+          }
+          const processedCode = updateCodeWithParamValues(brush.code, params);
+          const { generator } = compileUserBrush(processedCode, params);
+          if (generator) {
+            const res = generator(currentPoints, globals);
+            if (Array.isArray(res) && res.length > 0) {
+              generatedLines = res;
+              currentPoints = res[0] || currentPoints;
             }
           }
         }
@@ -3094,7 +3105,11 @@ function App() {
         const rangeMatch = match[3].match(/([0-9.-]+)\.\.([0-9.-]+)/);
         const min = rangeMatch ? parseFloat(rangeMatch[1]) : 0;
         const max = rangeMatch ? parseFloat(rangeMatch[2]) : 100;
-        params.push({ name: pName, default: pVal, min, max });
+        
+        const stepMatch = match[3].match(/step:\s*([0-9.-]+)/);
+        const step = stepMatch ? parseFloat(stepMatch[1]) : ((max - min) / 100 || 0.1);
+        
+        params.push({ name: pName, default: pVal, min, max, step });
       }
     });
     return params;
@@ -3236,7 +3251,7 @@ function App() {
             style={{
               padding: "8px 16px",
               borderRadius: "6px",
-              background: "#6c5ce7",
+              background: "var(--color-accent, #6965db)",
               color: "#fff",
               border: "none",
               cursor: "pointer",
@@ -3333,34 +3348,20 @@ function App() {
     };
 
     const handleAddModifier = (type) => {
-      let newMod = null;
-      if (type === "rdp") {
-        newMod = { id: "rdp", name: "Simplify (RDP)", enabled: true, params: { epsilon: 3.0 } };
-      } else if (type === "smooth") {
-        newMod = { id: "smooth", name: "Laplacian Smooth", enabled: true, params: { iterations: 10, weight: 0.4 } };
-      } else if (type === "hobby") {
-        newMod = { id: "hobby", name: "Hobby Spline", enabled: true, params: { tension: 1.0 } };
-      } else if (type === "snap") {
-        newMod = { id: "snap", name: "Snap to Grid", enabled: true, params: {} };
-      } else if (type.startsWith("custom-")) {
-        const brushId = type.replace("custom-", "");
-        const brush = brushPalette.find(b => b.id === brushId);
-        if (brush) {
-          const defaultParams = {};
-          const scriptParams = getScriptParams(brush.code);
-          scriptParams.forEach(p => {
-            defaultParams[p.name] = p.default;
-          });
-          newMod = {
-            id: type,
-            name: `Script: ${brush.name}`,
-            enabled: true,
-            params: defaultParams
-          };
-        }
-      }
-
-      if (newMod) {
+      const brushId = type.startsWith("custom-") ? type.replace("custom-", "") : type;
+      const brush = brushPalette.find(b => b.id === brushId);
+      if (brush) {
+        const defaultParams = {};
+        const scriptParams = getScriptParams(brush.code);
+        scriptParams.forEach(p => {
+          defaultParams[p.name] = p.default;
+        });
+        const newMod = {
+          id: `custom-${brushId}`,
+          name: brush.name,
+          enabled: true,
+          params: defaultParams
+        };
         const updated = [...modifiers, newMod];
         updateModifiedElementInScene(element.id, updated);
       }
@@ -3458,12 +3459,18 @@ function App() {
             }}
           >
             <option value="">-- Choose Modifier to Add --</option>
-            <option value="rdp">Simplify (RDP)</option>
-            <option value="smooth">Laplacian Smooth</option>
-            <option value="hobby">Hobby Spline</option>
-            <option value="snap">Snap to Grid</option>
-            <optgroup label="Custom Scripts">
-              {brushPalette.map(b => (
+            <optgroup label="Geometric Filters">
+              <option value="custom-rdp">Simplify (RDP)</option>
+              <option value="custom-vw">Simplify (VW)</option>
+              <option value="custom-smooth">Laplacian Smooth</option>
+              <option value="custom-taubin">Taubin Smooth</option>
+              <option value="custom-resample">Resample Uniformly</option>
+              <option value="custom-joint">Close & Smooth Joint</option>
+              <option value="custom-snap">Snap to Grid</option>
+              <option value="custom-hobby">Hobby Spline</option>
+            </optgroup>
+            <optgroup label="Creative Effects & Brushes">
+              {brushPalette.filter(b => !["rdp", "vw", "smooth", "taubin", "resample", "joint", "snap", "hobby", "simple"].includes(b.id)).map(b => (
                 <option key={b.id} value={`custom-${b.id}`}>{b.name}</option>
               ))}
             </optgroup>
@@ -3517,7 +3524,7 @@ function App() {
                             border: "none",
                             cursor: "pointer",
                             padding: "4px",
-                            color: mod.enabled ? "#6c5ce7" : "inherit",
+                            color: mod.enabled ? "var(--color-accent, #6965db)" : "inherit",
                             display: "flex",
                             alignItems: "center"
                           }}
@@ -3603,110 +3610,48 @@ function App() {
                         flexDirection: "column",
                         gap: "6px"
                       }}>
-                        {mod.id === "rdp" && (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
-                              <span>Tolerance (epsilon):</span>
-                              <strong>{mod.params?.epsilon?.toFixed(1) ?? "3.0"}px</strong>
-                            </div>
-                            <input 
-                              type="range"
-                              min="0.5"
-                              max="15.0"
-                              step="0.1"
-                              value={mod.params?.epsilon ?? 3.0}
-                              onChange={(e) => handleUpdateModifierParams(index, "epsilon", parseFloat(e.target.value))}
-                              style={{ width: "100%", cursor: "pointer" }}
-                            />
-                          </div>
-                        )}
-
-                        {mod.id === "smooth" && (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
-                                <span>Iterations:</span>
-                                <strong>{mod.params?.iterations ?? 10}</strong>
-                              </div>
-                              <input 
-                                type="range"
-                                min="1"
-                                max="40"
-                                step="1"
-                                value={mod.params?.iterations ?? 10}
-                                onChange={(e) => handleUpdateModifierParams(index, "iterations", parseInt(e.target.value, 10))}
-                                style={{ width: "100%", cursor: "pointer" }}
-                              />
-                            </div>
-                            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
-                                <span>Weight:</span>
-                                <strong>{mod.params?.weight ?? 0.4}</strong>
-                              </div>
-                              <input 
-                                type="range"
-                                min="0.1"
-                                max="0.9"
-                                step="0.05"
-                                value={mod.params?.weight ?? 0.4}
-                                onChange={(e) => handleUpdateModifierParams(index, "weight", parseFloat(e.target.value))}
-                                style={{ width: "100%", cursor: "pointer" }}
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                        {mod.id === "hobby" && (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
-                              <span>Tension:</span>
-                              <strong>{mod.params?.tension?.toFixed(1) ?? "1.0"}</strong>
-                            </div>
-                            <input 
-                              type="range"
-                              min="0.5"
-                              max="3.0"
-                              step="0.1"
-                              value={mod.params?.tension ?? 1.0}
-                              onChange={(e) => handleUpdateModifierParams(index, "tension", parseFloat(e.target.value))}
-                              style={{ width: "100%", cursor: "pointer" }}
-                            />
-                          </div>
-                        )}
-
-                        {mod.id === "snap" && (
-                          <div style={{ fontSize: "11px", opacity: 0.6 }}>
-                            Uses active scene grid (or 20px default).
-                          </div>
-                        )}
-
-                        {mod.id.startsWith("custom-") && (() => {
+                        {(() => {
                           const brushId = mod.id.replace("custom-", "");
                           const brush = brushPalette.find(b => b.id === brushId);
                           if (!brush) return null;
                           const scriptParams = getScriptParams(brush.code);
                           if (scriptParams.length === 0) {
-                            return <div style={{ fontSize: "11px", opacity: 0.6 }}>No parameters found.</div>;
+                            return <div style={{ fontSize: "11px", opacity: 0.6 }}>No parameters.</div>;
                           }
                           return (
                             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                               {scriptParams.map(sp => {
                                 const val = mod.params && mod.params[sp.name] !== undefined ? mod.params[sp.name] : sp.default;
+                                const isBinary = sp.min === 0 && sp.max === 1 && sp.step === 1;
                                 return (
                                   <div key={sp.name} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
-                                      <span>{sp.name}:</span>
-                                      <strong>{val}</strong>
-                                    </div>
-                                    <input 
-                                      type="range"
-                                      min={sp.min}
-                                      max={sp.max}
-                                      step={(sp.max - sp.min) / 100 || 0.1}
-                                      value={val}
-                                      onChange={(e) => handleUpdateModifierParams(index, sp.name, parseFloat(e.target.value))}
-                                      style={{ width: "100%", cursor: "pointer" }}
-                                    />
+                                    {isBinary ? (
+                                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0" }}>
+                                        <span style={{ fontSize: "11px", opacity: 0.8 }}>{sp.name}:</span>
+                                        <input 
+                                          type="checkbox"
+                                          checked={val > 0.5}
+                                          onChange={(e) => handleUpdateModifierParams(index, sp.name, e.target.checked ? 1 : 0)}
+                                          style={{ cursor: "pointer", width: "16px", height: "16px" }}
+                                        />
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
+                                          <span>{sp.name}:</span>
+                                          <strong>{val}</strong>
+                                        </div>
+                                        <input 
+                                          type="range"
+                                          min={sp.min}
+                                          max={sp.max}
+                                          step={sp.step}
+                                          value={val}
+                                          onChange={(e) => handleUpdateModifierParams(index, sp.name, parseFloat(e.target.value))}
+                                          style={{ width: "100%", cursor: "pointer" }}
+                                        />
+                                      </>
+                                    )}
                                   </div>
                                 );
                               })}
@@ -3728,7 +3673,7 @@ function App() {
             style={{
               padding: "10px 14px",
               borderRadius: "8px",
-              background: "#6c5ce7",
+              background: "var(--color-accent, #6965db)",
               color: "#fff",
               border: "none",
               cursor: "pointer",
@@ -3975,7 +3920,7 @@ function App() {
       overflow: "hidden",
       display: "flex",
       flexDirection: "column",
-      borderTop: "3px solid #6c5ce7"
+      borderTop: "3px solid var(--color-accent, #6965db)"
     };
 
     const headerStyle = {
