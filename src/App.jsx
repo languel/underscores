@@ -140,6 +140,7 @@ const PRESET_BRUSHES = {
     name: "Hairy Brush (Calligraphy)",
     code: `// @param hairLength = 20 (5..100, step: 1)
 // @param spacing = 2 (1..10, step: 1)
+// @param skipEnds = 0 (0..1, step: 1)
 (points) => {
   const lines = [];
   // 1. Draw the primary line
@@ -147,7 +148,13 @@ const PRESET_BRUSHES = {
   
   // 2. Draw perpendicular hatching strokes along the path
   const stepVal = Math.max(1, Math.round(spacing));
+  const skip = typeof skipEnds !== 'undefined' ? skipEnds > 0.5 : false;
+  
   for (let i = 1; i < points.length; i += stepVal) {
+    if (skip) {
+      if (i === 1) continue;
+      if (i + stepVal >= points.length) continue;
+    }
     const p1 = points[i - 1];
     const p2 = points[i];
     if (!p1 || !p2) continue;
@@ -707,6 +714,74 @@ const smoothPathTaubin = (points, lambda = 0.5, mu = -0.53, iterations = 10, per
   return result;
 };
 
+const interpolateCatmullRom = (points, segments = 15) => {
+  if (points.length < 3) return points.map(p => {
+    const copy = [...p];
+    if (p.pressure !== undefined) copy.pressure = p.pressure;
+    if (p.time !== undefined) copy.time = p.time;
+    if (p.strokeTime !== undefined) copy.strokeTime = p.strokeTime;
+    if (p.speed !== undefined) copy.speed = p.speed;
+    return copy;
+  });
+  
+  const result = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const p1 = points[i];
+    const p2 = points[i+1];
+    
+    const p0 = i > 0 ? points[i-1] : [p1[0] - (p2[0] - p1[0]), p1[1] - (p2[1] - p1[1])];
+    const p3 = i < points.length - 2 ? points[i+2] : [p2[0] + (p2[0] - p1[0]), p2[1] + (p2[1] - p1[1])];
+    
+    for (let j = 0; j < segments; j++) {
+      const t = j / segments;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      
+      const x = 0.5 * (
+        (2 * p1[0]) +
+        (-p0[0] + p2[0]) * t +
+        (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 +
+        (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3
+      );
+      
+      const y = 0.5 * (
+        (2 * p1[1]) +
+        (-p0[1] + p2[1]) * t +
+        (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 +
+        (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3
+      );
+      
+      const pt = [x, y];
+      if (p1.pressure !== undefined && p2.pressure !== undefined) {
+        pt.pressure = p1.pressure + (p2.pressure - p1.pressure) * t;
+      } else if (p1.pressure !== undefined) {
+        pt.pressure = p1.pressure;
+      }
+      if (p1.time !== undefined && p2.time !== undefined) {
+        pt.time = p1.time + (p2.time - p1.time) * t;
+      }
+      if (p1.strokeTime !== undefined && p2.strokeTime !== undefined) {
+        pt.strokeTime = p1.strokeTime + (p2.strokeTime - p1.strokeTime) * t;
+      }
+      if (p1.speed !== undefined && p2.speed !== undefined) {
+        pt.speed = p1.speed + (p2.speed - p1.speed) * t;
+      }
+      
+      result.push(pt);
+    }
+  }
+  
+  const last = points[points.length - 1];
+  const lastPt = [...last];
+  if (last.pressure !== undefined) lastPt.pressure = last.pressure;
+  if (last.time !== undefined) lastPt.time = last.time;
+  if (last.strokeTime !== undefined) lastPt.strokeTime = last.strokeTime;
+  if (last.speed !== undefined) lastPt.speed = last.speed;
+  result.push(lastPt);
+  
+  return result;
+};
+
 const solveHobbySpline = (points, tension = 1.0) => {
   if (points.length < 3) return points.map(p => [...p]);
   
@@ -1026,6 +1101,7 @@ function App() {
   const [sidebarTab, setSidebarTab] = useState("brush"); // "brush" or "modifiers"
   const [selectedElementIds, setSelectedElementIds] = useState({});
   const [modifierUpdateNonce, setModifierUpdateNonce] = useState(0);
+  const cameraRef = useRef({ scrollX: 0, scrollY: 0, zoom: 1 });
   const [showPropertiesModal, setShowPropertiesModal] = useState(false);
   const [modifiersSidebarDocked, setModifiersSidebarDocked] = useState(false);
   const [panelPos, setPanelPos] = useState({ x: 40, y: 150 }); // Left side by default
@@ -1041,7 +1117,11 @@ function App() {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem("drawerator_sidebar_width");
     return saved ? parseInt(saved, 10) : 380;
-  });  const [brushPalette, setBrushPalette] = useState(() => {
+  });
+  const [showDebugLayer, setShowDebugLayer] = useState(() => {
+    return localStorage.getItem("drawerator_show_debug_layer") === "true";
+  });
+  const [brushPalette, setBrushPalette] = useState(() => {
     const saved = localStorage.getItem("drawerator_brush_palette");
     let palette = [];
     if (saved) {
@@ -1091,6 +1171,11 @@ function App() {
   const [activeBrushId, setActiveBrushId] = useState(() => {
     return localStorage.getItem("drawerator_active_brush_id") || "normal";
   });
+
+  const [globalModifiers, setGlobalModifiers] = useState([]);
+  const [globalMuteStack, setGlobalMuteStack] = useState(false);
+  const [globalHideOriginal, setGlobalHideOriginal] = useState(false);
+  const [globalRoundness, setGlobalRoundness] = useState(true);
 
   const [activeBrushCode, setActiveBrushCode] = useState(() => {
     const id = localStorage.getItem("drawerator_active_brush_id") || "normal";
@@ -1142,11 +1227,16 @@ function App() {
   const compiledGeneratorRef = useRef(null);
   const processedModifierVersionsRef = useRef({});
   const evaluatingModifiersRef = useRef(false);
+  const lastOverlayVersionRef = useRef({});
   const [brushSidebarDocked, setBrushSidebarDocked] = useState(false);
 
   useEffect(() => {
     localStorage.setItem("drawerator_brush_palette", JSON.stringify(brushPalette));
   }, [brushPalette]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_show_debug_layer", showDebugLayer);
+  }, [showDebugLayer]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_active_brush_id", activeBrushId);
@@ -1245,13 +1335,22 @@ function App() {
   const [showBrushMenu, setShowBrushMenu] = useState(false);
   const [customContextMenu, setCustomContextMenu] = useState(null);
 
+  const isMouseDownRef = useRef(false);
   useEffect(() => {
     const closeMenu = () => setCustomContextMenu(null);
+    const handleDown = () => { isMouseDownRef.current = true; };
+    const handleUp = () => { isMouseDownRef.current = false; };
+
     window.addEventListener("click", closeMenu);
     window.addEventListener("pointerdown", closeMenu);
+    window.addEventListener("pointerdown", handleDown, { capture: true });
+    window.addEventListener("pointerup", handleUp, { capture: true });
+
     return () => {
       window.removeEventListener("click", closeMenu);
       window.removeEventListener("pointerdown", closeMenu);
+      window.removeEventListener("pointerdown", handleDown, { capture: true });
+      window.removeEventListener("pointerup", handleUp, { capture: true });
     };
   }, []);
 
@@ -1309,7 +1408,7 @@ function App() {
   };
 
   const handleCanvasPointerDown = (e) => {
-    if (!excalidrawAPI || !customBrushActive || activeBrushId === "normal") return;
+    if (!excalidrawAPI || !customBrushActive) return;
     if (e.button !== 0) return;
 
     const targetElement = e.target;
@@ -1457,13 +1556,19 @@ function App() {
   };
 
   const getLivePreviewPaths = () => {
-    if (!customBrushActive || activeBrushId === "normal" || drawingPoints.length < 2) return [];
-    const generator = compiledGeneratorRef.current;
-    if (!generator) return [];
+    if (!customBrushActive || drawingPoints.length < 2) return [];
+    
+    let pointsToUse = drawingPoints;
+    if (globalRoundness && drawingPoints.length >= 3) {
+      pointsToUse = interpolateCatmullRom(drawingPoints, 15);
+    }
+    
     try {
-      return generator(drawingPoints, getBrushGlobals());
+      const { allLines } = evaluateModifierStack(pointsToUse, globalModifiers, getBrushGlobals());
+      return allLines;
     } catch (e) {
-      return [];
+      console.error("Live preview modifier evaluation error", e);
+      return [drawingPoints];
     }
   };
 
@@ -1605,28 +1710,22 @@ function App() {
       return;
     }
 
-    const defaultParams = {};
-    const brush = brushPalette.find(b => b.id === activeBrushId);
-    if (brush && brush.code) {
-      const lines = brush.code.split("\n");
-      lines.forEach(line => {
-        const match = line.match(/\/\/\s*@param\s+(\w+)\s*=\s*([0-9.-]+)/);
-        if (match) {
-          defaultParams[match[1]] = parseFloat(match[2]);
-        }
-      });
+    if (globalModifiers.length === 0) {
+      alert("The active modifier stack is empty! Add some modifiers to the stack first.");
+      return;
     }
-
-    const newMod = {
-      id: "custom-" + activeBrushId,
-      name: brush ? brush.name : "Custom Brush",
-      enabled: true,
-      params: defaultParams
-    };
 
     for (const el of selectedStrokeElements) {
       const currentMods = el.customData?.modifiers || [];
-      const updatedMods = [...currentMods, newMod];
+      const updatedMods = [...currentMods, ...globalModifiers];
+      
+      el.roundness = globalRoundness ? { type: 2 } : null;
+      el.customData = {
+        ...el.customData,
+        hideOriginal: globalHideOriginal,
+        muteModifiers: globalMuteStack
+      };
+      
       updateModifiedElementInScene(el.id, updatedMods);
     }
   };
@@ -1939,29 +2038,48 @@ function App() {
 
     const primaryPoints = baseLine;
     const allLines = accumulatedTracks.length > 0 ? accumulatedTracks : [baseLine];
-    return { primaryPoints, allLines };
+    return { primaryPoints, allLines, hasAccumulated: accumulatedTracks.length > 0 };
   };
 
-  const updateModifiedElementInScene = (elId, newModifiers, forceOriginalPoints = null) => {
+  const updateModifiedElementInScene = (elId, newModifiers) => {
     if (!excalidrawAPI) return;
     const elements = excalidrawAPI.getSceneElements();
     const parentEl = elements.find(el => el.id === elId);
     if (!parentEl) return;
 
-    let originalPoints = forceOriginalPoints || parentEl.customData?.originalPoints;
+    const isFirstTime = !parentEl.customData?.originalPoints;
+    if (isFirstTime && (parentEl.type === "freedraw" || parentEl.type === "line")) {
+      parentEl.roundness = { type: 2 };
+    }
+
+    let originalPoints = parentEl.points.map(p => {
+      const absPt = [parentEl.x + p[0], parentEl.y + p[1]];
+      if (p.pressure !== undefined) absPt.pressure = p.pressure;
+      if (p.time !== undefined) absPt.time = p.time;
+      if (p.strokeTime !== undefined) absPt.strokeTime = p.strokeTime;
+      if (p.speed !== undefined) absPt.speed = p.speed;
+      return absPt;
+    });
     if (!originalPoints || originalPoints.length === 0) {
-      originalPoints = parentEl.points.map(p => {
-        const absPt = [parentEl.x + p[0], parentEl.y + p[1]];
-        if (p.pressure !== undefined) absPt.pressure = p.pressure;
-        if (p.time !== undefined) absPt.time = p.time;
-        if (p.strokeTime !== undefined) absPt.strokeTime = p.strokeTime;
-        if (p.speed !== undefined) absPt.speed = p.speed;
-        return absPt;
-      });
+      originalPoints = parentEl.customData?.originalPoints;
+    }
+
+    let pointsForStack = originalPoints;
+    if (parentEl.roundness && originalPoints.length >= 3) {
+      pointsForStack = interpolateCatmullRom(originalPoints, 15);
     }
 
     const globals = getBrushGlobals();
-    const { primaryPoints, allLines } = evaluateModifierStack(originalPoints, newModifiers, globals);
+    const { primaryPoints, allLines } = evaluateModifierStack(pointsForStack, newModifiers, globals);
+
+    const geometryChanged = primaryPoints.length !== pointsForStack.length || 
+      primaryPoints.some((p, i) => Math.abs(p[0] - pointsForStack[i][0]) > 0.01 || Math.abs(p[1] - pointsForStack[i][1]) > 0.01);
+
+    if (!geometryChanged) {
+      processedModifierVersionsRef.current[parentEl.id] = (parentEl.customData?.version || 0) + 1;
+      setModifierUpdateNonce(n => n + 1);
+      return;
+    }
 
     const updatedParent = updateElementGeometry(parentEl, primaryPoints);
     
@@ -2035,7 +2153,7 @@ function App() {
       livePointsRef.current.push(closingPt);
     }
 
-    if (!excalidrawAPI || !customBrushActive || activeBrushId === "normal") {
+    if (!excalidrawAPI || !customBrushActive) {
       setDrawingPoints([]);
       return;
     }
@@ -2063,30 +2181,31 @@ function App() {
         ) {
           lastElement.__processed = true;
 
-          const defaultParams = {};
-          const brush = brushPalette.find(b => b.id === activeBrushId);
-          if (brush && brush.code) {
-            const lines = brush.code.split("\n");
-            lines.forEach(line => {
-              const match = line.match(/\/\/\s*@param\s+(\w+)\s*=\s*([0-9.-]+)/);
-              if (match) {
-                defaultParams[match[1]] = parseFloat(match[2]);
-              }
-            });
-          }
-
-          const initialMod = {
-            id: "custom-" + activeBrushId,
-            name: brush ? brush.name : "Custom Brush",
-            enabled: true,
-            params: defaultParams
-          };
-
           const pointsToUse = (livePointsRef.current && livePointsRef.current.length >= 2)
             ? [...livePointsRef.current]
             : lastElement.points.map(p => [lastElement.x + p[0], lastElement.y + p[1]]);
 
-          updateModifiedElementInScene(lastElement.id, [initialMod], pointsToUse);
+          lastElement.roundness = globalRoundness ? { type: 2 } : null;
+          lastElement.strokeColor = lastStrokeColorRef.current;
+          const effHide = globalHideOriginal && globalModifiers.length > 0;
+          if (effHide) {
+            const savedOpacity = lastElement.opacity > 0 ? lastElement.opacity : 100;
+            lastElement.opacity = 0;
+            lastElement.customData = {
+              ...lastElement.customData,
+              hideOriginal: globalHideOriginal,
+              muteModifiers: globalMuteStack,
+              savedOpacity
+            };
+          } else {
+            lastElement.customData = {
+              ...lastElement.customData,
+              hideOriginal: globalHideOriginal,
+              muteModifiers: globalMuteStack
+            };
+          }
+
+          updateModifiedElementInScene(lastElement.id, [...globalModifiers], pointsToUse);
         }
       } catch (err) {
         console.error("Error processing custom brush as modifier:", err);
@@ -2868,10 +2987,7 @@ function App() {
           const nextState = !customBrushActive;
           setCustomBrushActive(nextState);
           if (nextState) {
-            if (activeBrushId === "normal") {
-              setActiveBrushId("hairy");
-            }
-            excalidrawAPI?.updateScene({ appState: { activeTool: { type: "freedraw" } } });
+            excalidrawAPI?.updateScene({ appState: { activeTool: { type: "freedraw", locked: true } } });
           } else {
             excalidrawAPI?.updateScene({ appState: { activeTool: { type: "selection" } } });
           }
@@ -3252,47 +3368,61 @@ function App() {
     }
 
     const selectedElements = getSelectedElements();
-    if (selectedElements.length !== 1) {
-      return (
-        <div className="modifiers-panel-empty" style={{
-          textAlign: "center",
-          padding: "32px 16px",
-          border: "1px dashed var(--color-border, #3a3b46)",
-          borderRadius: "8px",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: "12px",
-          opacity: 0.7
-        }}>
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.24 9.12l-8.62 8.62a1 1 0 01-1.41 0l-2.01-2.01a1 1 0 010-1.41l8.62-8.62m3.42 3.42l1.58-1.58a2.5 2.5 0 00-3.54-3.54l-1.58 1.58m3.54 3.54l-3.54-3.54" />
-          </svg>
-          <p style={{ margin: 0, fontSize: "13px", lineHeight: "1.5" }}>
-            {selectedElements.length === 0 
-              ? "Select exactly one object on the canvas to configure its modifier stack."
-              : "Modifier stack editing is limited to one selected object at a time."}
-          </p>
-        </div>
-      );
-    }
+    const hasSelection = selectedElements.length === 1;
 
-    const element = selectedElements[0];
-    const isShape = ["rectangle", "ellipse", "diamond"].includes(element.type);
+    let element = null;
+    let isShape = false;
+    let modifiers = [];
+    let isMuted = false;
+    let hideOriginal = false;
 
-    if (element.type !== "freedraw" && element.type !== "line" && !isShape) {
-      return (
-        <div className="modifiers-panel-empty" style={{
-          textAlign: "center",
-          padding: "24px 16px",
-          border: "1px dashed var(--color-border, #3a3b46)",
-          borderRadius: "8px",
-          opacity: 0.7,
-          fontSize: "13px"
-        }}>
-          Modifiers can only be applied to stroke paths (pencil drawings or lines) or geometric shapes.
-        </div>
-      );
+    if (hasSelection) {
+      element = selectedElements[0];
+      isShape = ["rectangle", "ellipse", "diamond"].includes(element.type);
+      modifiers = element.customData?.modifiers || [];
+      isMuted = element.customData?.muteModifiers || false;
+      hideOriginal = element.customData?.hideOriginal || false;
+      if (element.type !== "freedraw" && element.type !== "line" && !isShape) {
+        return (
+          <div className="modifiers-panel-empty" style={{
+            textAlign: "center",
+            padding: "24px 16px",
+            border: "1px dashed var(--color-border, #3a3b46)",
+            borderRadius: "8px",
+            opacity: 0.7,
+            fontSize: "13px"
+          }}>
+            Modifiers can only be applied to stroke paths (pencil drawings or lines) or geometric shapes.
+          </div>
+        );
+      }
+    } else {
+      if (selectedElements.length > 1) {
+        return (
+          <div className="modifiers-panel-empty" style={{
+            textAlign: "center",
+            padding: "32px 16px",
+            border: "1px dashed var(--color-border, #3a3b46)",
+            borderRadius: "8px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "12px",
+            opacity: 0.7
+          }}>
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.24 9.12l-8.62 8.62a1 1 0 01-1.41 0l-2.01-2.01a1 1 0 010-1.41l8.62-8.62m3.42 3.42l1.58-1.58a2.5 2.5 0 00-3.54-3.54l-1.58 1.58m3.54 3.54l-3.54-3.54" />
+            </svg>
+            <p style={{ margin: 0, fontSize: "13px", lineHeight: "1.5" }}>
+              Modifier stack editing is limited to one selected object at a time.
+            </p>
+          </div>
+        );
+      }
+      // Zero elements selected: Use global stack
+      modifiers = globalModifiers;
+      isMuted = globalMuteStack;
+      hideOriginal = globalHideOriginal;
     }
 
     if (isShape) {
@@ -3313,14 +3443,14 @@ function App() {
           <button
             onClick={() => convertShapeToPath(element)}
             style={{
-              padding: "8px 16px",
-              borderRadius: "6px",
-              background: "var(--color-accent, #6965db)",
-              color: "#fff",
-              border: "none",
+              padding: "6px 12px",
+              borderRadius: "4px",
+              background: "var(--button-hover-bg, rgba(0, 0, 0, 0.05))",
+              color: "var(--color-primary)",
+              border: "1px solid var(--border-color, rgba(0, 0, 0, 0.1))",
               cursor: "pointer",
               fontWeight: "600",
-              fontSize: "13px"
+              fontSize: "12px"
             }}
           >
             Convert to Path
@@ -3329,102 +3459,118 @@ function App() {
       );
     }
 
-    const modifiers = element.customData?.modifiers || [];
-    const isMuted = !!element.customData?.muteModifiers;
-
     const handleToggleMute = () => {
-      const nextElements = excalidrawAPI.getSceneElements().map(el => {
-        if (el.id === element.id) {
-          const originalPoints = el.customData?.originalPoints;
-          const mute = !isMuted;
-          let updatedPoints = el.points;
-          
-          if (mute && originalPoints) {
-            updatedPoints = originalPoints.map(p => {
-              const relPt = [p[0] - el.x, p[1] - el.y];
-              if (p.pressure !== undefined) relPt.pressure = p.pressure;
-              return relPt;
-            });
-          }
-          
-          return {
-            ...el,
-            points: updatedPoints,
-            customData: {
-              ...(el.customData || {}),
-              muteModifiers: mute
+      if (hasSelection) {
+        const nextElements = excalidrawAPI.getSceneElements().map(el => {
+          if (el.id === element.id) {
+            const originalPoints = el.customData?.originalPoints;
+            const mute = !isMuted;
+            let updatedPoints = el.points;
+            
+            if (mute && originalPoints) {
+              updatedPoints = originalPoints.map(p => {
+                const relPt = [p[0] - el.x, p[1] - el.y];
+                if (p.pressure !== undefined) relPt.pressure = p.pressure;
+                return relPt;
+              });
             }
-          };
+            
+            return {
+              ...el,
+              points: updatedPoints,
+              customData: {
+                ...(el.customData || {}),
+                muteModifiers: mute
+              }
+            };
+          }
+          return el;
+        });
+        excalidrawAPI.updateScene({ elements: nextElements });
+        
+        if (isMuted) {
+          setTimeout(() => {
+            updateModifiedElementInScene(element.id, modifiers);
+          }, 50);
         }
-        return el;
-      });
-      excalidrawAPI.updateScene({ elements: nextElements });
-      
-      if (isMuted) {
-        setTimeout(() => {
-          updateModifiedElementInScene(element.id, modifiers);
-        }, 50);
+      } else {
+        setGlobalMuteStack(!globalMuteStack);
       }
     };
 
     const handleToggleHideOriginal = () => {
-      const nextElements = excalidrawAPI.getSceneElements().map(el => {
-        if (el.id === element.id) {
-          const hide = !el.customData?.hideOriginal;
-          let savedOpacity = el.customData?.savedOpacity;
-          
-          if (hide) {
-            if (el.opacity > 0) {
-              savedOpacity = el.opacity;
-            } else if (savedOpacity === undefined) {
-              savedOpacity = 100;
+      if (hasSelection) {
+        const nextElements = excalidrawAPI.getSceneElements().map(el => {
+          if (el.id === element.id) {
+            const hide = !el.customData?.hideOriginal;
+            const effHide = hide && (el.customData?.modifiers?.length || 0) > 0;
+            let savedOpacity = el.customData?.savedOpacity;
+            
+            if (effHide) {
+              if (el.opacity > 0) {
+                savedOpacity = el.opacity;
+              } else if (savedOpacity === undefined) {
+                savedOpacity = 100;
+              }
             }
+            
+            const newOpacity = effHide ? 0 : (savedOpacity ?? 100);
+            
+            return {
+              ...el,
+              opacity: newOpacity,
+              customData: {
+                ...(el.customData || {}),
+                hideOriginal: hide,
+                savedOpacity: savedOpacity
+              }
+            };
           }
-          
-          const newOpacity = hide ? 0 : (savedOpacity ?? 100);
-          
-          return {
-            ...el,
-            opacity: newOpacity,
-            customData: {
-              ...(el.customData || {}),
-              hideOriginal: hide,
-              savedOpacity: savedOpacity
+          return el;
+        });
+        
+        evaluatingModifiersRef.current = true;
+        try {
+          excalidrawAPI.updateScene({ elements: nextElements });
+        } finally {
+          evaluatingModifiersRef.current = false;
+        }
+        
+        setTimeout(() => {
+          const updatedParent = excalidrawAPI.getSceneElements().find(el => el.id === element.id);
+          if (updatedParent) {
+            updateModifiedElementInScene(element.id, updatedParent.customData?.modifiers || []);
+          }
+        }, 50);
+      } else {
+        const next = !globalHideOriginal;
+        setGlobalHideOriginal(next);
+        const nextElements = excalidrawAPI.getSceneElements().map(el => {
+          if (el.customData?.modifiers && !el.isDeleted) {
+            const effHide = next && (el.customData.modifiers?.length || 0) > 0;
+            let savedOpacity = el.customData?.savedOpacity;
+            if (effHide) {
+              if (el.opacity > 0) {
+                savedOpacity = el.opacity;
+              } else if (savedOpacity === undefined) {
+                savedOpacity = 100;
+              }
             }
-          };
-        }
-        return el;
-      });
-      
-      evaluatingModifiersRef.current = true;
-      try {
+            const newOpacity = effHide ? 0 : (savedOpacity ?? 100);
+            return {
+              ...el,
+              opacity: newOpacity,
+              customData: {
+                ...(el.customData || {}),
+                hideOriginal: next,
+                savedOpacity: savedOpacity
+              }
+            };
+          }
+          return el;
+        });
         excalidrawAPI.updateScene({ elements: nextElements });
-      } finally {
-        evaluatingModifiersRef.current = false;
       }
-      
-      setTimeout(() => {
-        const updatedParent = excalidrawAPI.getSceneElements().find(el => el.id === element.id);
-        if (updatedParent) {
-          updateModifiedElementInScene(element.id, updatedParent.customData?.modifiers || []);
-        }
-      }, 50);
-    };
-
-    const handleToggleSharpness = (sharpness) => {
-      const nextElements = excalidrawAPI.getSceneElements().map(el => {
-        if (el.id === element.id) {
-          return {
-            ...el,
-            roundness: sharpness === "round" ? { type: 2 } : null,
-            version: el.version + 1,
-            versionNonce: Math.floor(Math.random() * 1000000)
-          };
-        }
-        return el;
-      });
-      excalidrawAPI.updateScene({ elements: nextElements });
-      setModifierUpdateNonce(n => n + 1);
     };
 
     const handleAddModifier = (type) => {
@@ -3443,7 +3589,11 @@ function App() {
           params: defaultParams
         };
         const updated = [...modifiers, newMod];
-        updateModifiedElementInScene(element.id, updated);
+        if (hasSelection) {
+          updateModifiedElementInScene(element.id, updated);
+        } else {
+          setGlobalModifiers(updated);
+        }
       }
     };
 
@@ -3460,7 +3610,11 @@ function App() {
         }
         return mod;
       });
-      updateModifiedElementInScene(element.id, updated);
+      if (hasSelection) {
+        updateModifiedElementInScene(element.id, updated);
+      } else {
+        setGlobalModifiers(updated);
+      }
     };
 
     const handleToggleModifierEnabled = (modIndex) => {
@@ -3470,12 +3624,20 @@ function App() {
         }
         return mod;
       });
-      updateModifiedElementInScene(element.id, updated);
+      if (hasSelection) {
+        updateModifiedElementInScene(element.id, updated);
+      } else {
+        setGlobalModifiers(updated);
+      }
     };
 
     const handleRemoveModifier = (modIndex) => {
       const updated = modifiers.filter((_, idx) => idx !== modIndex);
-      updateModifiedElementInScene(element.id, updated);
+      if (hasSelection) {
+        updateModifiedElementInScene(element.id, updated);
+      } else {
+        setGlobalModifiers(updated);
+      }
     };
 
     const handleMoveModifier = (modIndex, direction) => {
@@ -3485,19 +3647,23 @@ function App() {
       const temp = updated[modIndex];
       updated[modIndex] = updated[newIndex];
       updated[newIndex] = temp;
-      updateModifiedElementInScene(element.id, updated);
+      if (hasSelection) {
+        updateModifiedElementInScene(element.id, updated);
+      } else {
+        setGlobalModifiers(updated);
+      }
     };
 
     return (
-      <div className="modifiers-panel-container" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+      <div className="modifiers-panel-container" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
         <div style={{
           display: "flex", 
           flexDirection: "column",
           gap: "8px",
-          padding: "10px 12px", 
-          borderRadius: "8px", 
-          background: "var(--color-bg-secondary, #2a2b36)",
-          border: "1px solid var(--color-border, #3a3b46)"
+          padding: "8px 10px", 
+          borderRadius: "4px", 
+          background: "var(--input-bg-color, rgba(0, 0, 0, 0.02))",
+          border: "1px solid var(--border-color, rgba(0, 0, 0, 0.1))"
         }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ fontSize: "13px", fontWeight: "bold" }}>Mute Stack (Edit Base)</span>
@@ -3508,87 +3674,51 @@ function App() {
               style={{ width: "16px", height: "16px", cursor: "pointer" }}
             />
           </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "1px solid var(--color-border-primary, #3a3b46)", paddingTop: "8px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "1px solid var(--border-color, rgba(0, 0, 0, 0.1))", paddingTop: "8px" }}>
             <span style={{ fontSize: "13px", fontWeight: "bold" }}>Hide Original Path</span>
             <input 
               type="checkbox" 
-              checked={!!element.customData?.hideOriginal} 
+              checked={hideOriginal} 
               onChange={handleToggleHideOriginal} 
               style={{ width: "16px", height: "16px", cursor: "pointer" }}
             />
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px", borderTop: "1px solid var(--color-border-primary, #3a3b46)", paddingTop: "8px" }}>
-            <span style={{ fontSize: "12px", fontWeight: "bold", opacity: 0.8 }}>Corner Style (Excalidraw)</span>
-            <div style={{ display: "flex", gap: "6px" }}>
-              <button
-                onClick={() => handleToggleSharpness("round")}
-                style={{
-                  flex: 1,
-                  padding: "4px 8px",
-                  borderRadius: "4px",
-                  background: element.roundness ? "var(--color-accent, #6965db)" : "var(--color-bg-primary, #1e1f29)",
-                  color: element.roundness ? "#fff" : "var(--color-text-secondary, #a0a0a0)",
-                  border: "1px solid var(--color-border, #3a3b46)",
-                  cursor: "pointer",
-                  fontSize: "11px",
-                  fontWeight: "600"
-                }}
-              >
-                Round
-              </button>
-              <button
-                onClick={() => handleToggleSharpness("sharp")}
-                style={{
-                  flex: 1,
-                  padding: "4px 8px",
-                  borderRadius: "4px",
-                  background: !element.roundness ? "var(--color-accent, #6965db)" : "var(--color-bg-primary, #1e1f29)",
-                  color: !element.roundness ? "#fff" : "var(--color-text-secondary, #a0a0a0)",
-                  border: "1px solid var(--color-border, #3a3b46)",
-                  cursor: "pointer",
-                  fontSize: "11px",
-                  fontWeight: "600"
-                }}
-              >
-                Sharp
-              </button>
-            </div>
-          </div>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
           <label style={{ fontSize: "11px", fontWeight: "bold", opacity: 0.7 }}>ADD MODIFIER</label>
           <select 
+            value=""
             onChange={(e) => {
               if (e.target.value) {
                 handleAddModifier(e.target.value);
-                e.target.value = "";
               }
             }}
             style={{
-              padding: "8px 12px",
-              borderRadius: "6px",
-              background: "var(--color-bg-primary, #1e1f29)",
-              color: "inherit",
-              border: "1px solid var(--color-border, #3a3b46)",
+              padding: "6px 10px",
+              borderRadius: "4px",
+              background: "var(--island-bg-color, #ffffff)",
+              color: "var(--color-primary)",
+              border: "1px solid var(--border-color, rgba(0, 0, 0, 0.1))",
               cursor: "pointer",
-              width: "100%"
+              width: "100%",
+              outline: "none"
             }}
           >
-            <option value="">-- Choose Modifier to Add --</option>
-            <optgroup label="Geometric Filters">
-              <option value="custom-rdp">Simplify (RDP)</option>
-              <option value="custom-vw">Simplify (VW)</option>
-              <option value="custom-smooth">Laplacian Smooth</option>
-              <option value="custom-taubin">Taubin Smooth</option>
-              <option value="custom-resample">Resample Uniformly</option>
-              <option value="custom-joint">Close & Smooth Joint</option>
-              <option value="custom-snap">Snap to Grid</option>
-              <option value="custom-hobby">Hobby Spline</option>
+            <option value="" style={{ background: "var(--island-bg-color, #ffffff)", color: "var(--color-primary)" }}>-- Choose Modifier to Add --</option>
+            <optgroup label="Geometric Filters" style={{ background: "var(--island-bg-color, #ffffff)", color: "var(--color-primary)" }}>
+              <option value="custom-rdp" style={{ background: "var(--island-bg-color, #ffffff)", color: "var(--color-primary)" }}>Simplify (RDP)</option>
+              <option value="custom-vw" style={{ background: "var(--island-bg-color, #ffffff)", color: "var(--color-primary)" }}>Simplify (VW)</option>
+              <option value="custom-smooth" style={{ background: "var(--island-bg-color, #ffffff)", color: "var(--color-primary)" }}>Laplacian Smooth</option>
+              <option value="custom-taubin" style={{ background: "var(--island-bg-color, #ffffff)", color: "var(--color-primary)" }}>Taubin Smooth</option>
+              <option value="custom-resample" style={{ background: "var(--island-bg-color, #ffffff)", color: "var(--color-primary)" }}>Resample Uniformly</option>
+              <option value="custom-joint" style={{ background: "var(--island-bg-color, #ffffff)", color: "var(--color-primary)" }}>Close & Smooth Joint</option>
+              <option value="custom-snap" style={{ background: "var(--island-bg-color, #ffffff)", color: "var(--color-primary)" }}>Snap to Grid</option>
+              <option value="custom-hobby" style={{ background: "var(--island-bg-color, #ffffff)", color: "var(--color-primary)" }}>Hobby Spline</option>
             </optgroup>
-            <optgroup label="Creative Effects & Brushes">
+            <optgroup label="Creative Effects & Brushes" style={{ background: "var(--island-bg-color, #ffffff)", color: "var(--color-primary)" }}>
               {brushPalette.filter(b => !["rdp", "vw", "smooth", "taubin", "resample", "joint", "snap", "hobby"].includes(b.id)).map(b => (
-                <option key={b.id} value={`custom-${b.id}`}>{b.name}</option>
+                <option key={b.id} value={`custom-${b.id}`} style={{ background: "var(--island-bg-color, #ffffff)", color: "var(--color-primary)" }}>{b.name}</option>
               ))}
             </optgroup>
           </select>
@@ -3617,20 +3747,20 @@ function App() {
                   <div 
                     key={index} 
                     style={{
-                      border: "1px solid var(--color-border, #3a3b46)",
-                      borderRadius: "8px",
-                      background: "var(--color-bg-secondary, #2a2b36)",
-                      padding: "10px",
+                      border: "1px solid var(--border-color, rgba(0, 0, 0, 0.1))",
+                      borderRadius: "4px",
+                      background: "var(--input-bg-color, rgba(0, 0, 0, 0.02))",
+                      padding: "8px 10px",
                       display: "flex",
                       flexDirection: "column",
-                      gap: "8px",
+                      gap: "6px",
                       opacity: mod.enabled ? 1 : 0.6
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                         <span style={{ fontSize: "11px", opacity: 0.5, fontWeight: "bold" }}>#{index + 1}</span>
-                        <strong style={{ fontSize: "13px" }}>{mod.name}</strong>
+                        <strong style={{ fontSize: "12px" }}>{mod.name}</strong>
                       </div>
                       
                       <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
@@ -3641,7 +3771,8 @@ function App() {
                             border: "none",
                             cursor: "pointer",
                             padding: "4px",
-                            color: mod.enabled ? "var(--color-accent, #6965db)" : "inherit",
+                            color: "var(--color-primary)",
+                            opacity: mod.enabled ? 1 : 0.4,
                             display: "flex",
                             alignItems: "center"
                           }}
@@ -3658,7 +3789,7 @@ function App() {
                             </svg>
                           )}
                         </button>
-
+ 
                         <button
                           onClick={() => handleMoveModifier(index, -1)}
                           disabled={index === 0}
@@ -3678,7 +3809,7 @@ function App() {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
                           </svg>
                         </button>
-
+ 
                         <button
                           onClick={() => handleMoveModifier(index, 1)}
                           disabled={index === modifiers.length - 1}
@@ -3698,7 +3829,7 @@ function App() {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                           </svg>
                         </button>
-
+ 
                         <button
                           onClick={() => handleRemoveModifier(index)}
                           style={{
@@ -3718,10 +3849,10 @@ function App() {
                         </button>
                       </div>
                     </div>
-
+ 
                     {mod.enabled && (
                       <div style={{
-                        borderTop: "1px solid var(--color-border, #3a3b46)",
+                        borderTop: "1px solid var(--border-color, rgba(0, 0, 0, 0.1))",
                         paddingTop: "8px",
                         display: "flex",
                         flexDirection: "column",
@@ -3743,7 +3874,7 @@ function App() {
                                 return (
                                   <div key={sp.name} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                                     {isBinary ? (
-                                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0" }}>
+                                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "2px 0" }}>
                                         <span style={{ fontSize: "11px", opacity: 0.8 }}>{sp.name}:</span>
                                         <input 
                                           type="checkbox"
@@ -3765,7 +3896,7 @@ function App() {
                                           step={sp.step}
                                           value={val}
                                           onChange={(e) => handleUpdateModifierParams(index, sp.name, parseFloat(e.target.value))}
-                                          style={{ width: "100%", cursor: "pointer" }}
+                                          style={{ width: "100%", cursor: "pointer", accentColor: "var(--color-primary)" }}
                                         />
                                       </>
                                     )}
@@ -3783,28 +3914,8 @@ function App() {
             </div>
           )}
         </div>
+ 
 
-        {modifiers.length > 0 && (
-          <button
-            onClick={() => handleBakeModifiers(element)}
-            style={{
-              padding: "10px 14px",
-              borderRadius: "8px",
-              background: "var(--color-accent, #6965db)",
-              color: "#fff",
-              border: "none",
-              cursor: "pointer",
-              fontWeight: "bold",
-              fontSize: "13px",
-              marginTop: "8px",
-              transition: "opacity 0.2s"
-            }}
-            onMouseOver={(e) => e.target.style.opacity = 0.9}
-            onMouseOut={(e) => e.target.style.opacity = 1}
-          >
-            Bake Modifiers (Apply)
-          </button>
-        )}
       </div>
     );
   };
@@ -3818,6 +3929,26 @@ function App() {
     return [rx, ry];
   };
 
+  const handleToggleSharpness = (element, sharpness) => {
+    if (element) {
+      const nextElements = excalidrawAPI.getSceneElements().map(el => {
+        if (el.id === element.id) {
+          return {
+            ...el,
+            roundness: sharpness === "round" ? { type: 2 } : null,
+            version: el.version + 1,
+            versionNonce: Math.floor(Math.random() * 1000000)
+          };
+        }
+        return el;
+      });
+      excalidrawAPI.updateScene({ elements: nextElements });
+      setModifierUpdateNonce(n => n + 1);
+    } else {
+      setGlobalRoundness(sharpness === "round");
+    }
+  };
+
   const handleBakeModifiers = (parentElement) => {
     if (!excalidrawAPI) return;
     const elements = excalidrawAPI.getSceneElements();
@@ -3825,8 +3956,13 @@ function App() {
     let originalPoints = parentElement.customData?.originalPoints;
     if (!originalPoints || originalPoints.length === 0) return;
     
+    let pointsForStack = originalPoints;
+    if (parentElement.roundness && originalPoints.length >= 3) {
+      pointsForStack = interpolateCatmullRom(originalPoints, 15);
+    }
+
     const globals = getBrushGlobals();
-    const { primaryPoints, allLines } = evaluateModifierStack(originalPoints, parentElement.customData.modifiers, globals);
+    const { primaryPoints, allLines, hasAccumulated } = evaluateModifierStack(pointsForStack, parentElement.customData.modifiers, globals);
     
     const updatedParent = updateElementGeometry(parentElement, primaryPoints);
     updatedParent.customData = {
@@ -3845,12 +3981,19 @@ function App() {
     const baseId = parentElement.id;
     const groupId = `${baseId}-baked-group`;
     
-    if (allLines.length > 1) {
-      const cx = parentElement.x + parentElement.width / 2;
-      const cy = parentElement.y + parentElement.height / 2;
-      const angle = parentElement.angle || 0;
+    const startIdx = hasAccumulated ? 0 : 1;
+    if (allLines.length > startIdx) {
+      const relPoints = updatedParent.points || [];
+      const minXRel = relPoints.length > 0 ? Math.min(...relPoints.map(p => p[0])) : 0;
+      const minYRel = relPoints.length > 0 ? Math.min(...relPoints.map(p => p[1])) : 0;
+      const maxXRel = relPoints.length > 0 ? Math.max(...relPoints.map(p => p[0])) : 0;
+      const maxYRel = relPoints.length > 0 ? Math.max(...relPoints.map(p => p[1])) : 0;
 
-      for (let idx = 1; idx < allLines.length; idx++) {
+      const cx = updatedParent.x + (minXRel + maxXRel) / 2;
+      const cy = updatedParent.y + (minYRel + maxYRel) / 2;
+      const angle = parentElement.angle || 0;
+ 
+      for (let idx = startIdx; idx < allLines.length; idx++) {
         const linePoints = allLines[idx];
         if (!Array.isArray(linePoints) || linePoints.length < 1) continue;
 
@@ -3942,17 +4085,23 @@ function App() {
     if (modifierElements.length === 0) return null;
 
     const paths = [];
-
+    const debugTexts = [];
+ 
     modifierElements.forEach(parentEl => {
       if (parentEl.customData?.muteModifiers) return;
-
+ 
       const originalPoints = parentEl.customData?.originalPoints;
       if (!originalPoints || originalPoints.length === 0) return;
-
+ 
+      let pointsForStack = originalPoints;
+      if (parentEl.roundness && originalPoints.length >= 3) {
+        pointsForStack = interpolateCatmullRom(originalPoints, 15);
+      }
+ 
       const globals = getBrushGlobals();
-      const { allLines } = evaluateModifierStack(originalPoints, parentEl.customData.modifiers, globals);
+      const { allLines, hasAccumulated } = evaluateModifierStack(pointsForStack, parentEl.customData.modifiers, globals);
       
-      if (allLines.length > 1) {
+      if (allLines.length > 0) {
         const xCoords = originalPoints.map(p => p[0]);
         const yCoords = originalPoints.map(p => p[1]);
         const minX = Math.min(...xCoords);
@@ -3961,29 +4110,83 @@ function App() {
         const maxY = Math.max(...yCoords);
         const origW = maxX - minX;
         const origH = maxY - minY;
-
+ 
         const lastWidth = parentEl.customData?.lastWidth || parentEl.width;
         const lastHeight = parentEl.customData?.lastHeight || parentEl.height;
+ 
+        let scaleSignX = 1;
+        let scaleSignY = 1;
+        
+        let maxAbsDx = 0;
+        let refIdxX = originalPoints.length - 1;
+        for (let i = 1; i < originalPoints.length; i++) {
+          const dx = Math.abs(originalPoints[i][0] - originalPoints[0][0]);
+          if (dx > maxAbsDx) {
+            maxAbsDx = dx;
+            refIdxX = i;
+          }
+        }
+        if (maxAbsDx > 0.1 && parentEl.points && parentEl.points.length > 0) {
+          const origDx = originalPoints[refIdxX][0] - originalPoints[0][0];
+          const frac = refIdxX / originalPoints.length;
+          const currIdx = Math.min(parentEl.points.length - 1, Math.max(0, Math.round(frac * parentEl.points.length)));
+          const currDx = parentEl.points[currIdx] ? (parentEl.points[currIdx][0] - parentEl.points[0][0]) : 0;
+          if (origDx * currDx < 0) scaleSignX = -1;
+        }
 
-        let scaleX = 1;
-        let scaleY = 1;
+        let maxAbsDy = 0;
+        let refIdxY = originalPoints.length - 1;
+        for (let i = 1; i < originalPoints.length; i++) {
+          const dy = Math.abs(originalPoints[i][1] - originalPoints[0][1]);
+          if (dy > maxAbsDy) {
+            maxAbsDy = dy;
+            refIdxY = i;
+          }
+        }
+        if (maxAbsDy > 0.1 && parentEl.points && parentEl.points.length > 0) {
+          const origDy = originalPoints[refIdxY][1] - originalPoints[0][1];
+          const frac = refIdxY / originalPoints.length;
+          const currIdx = Math.min(parentEl.points.length - 1, Math.max(0, Math.round(frac * parentEl.points.length)));
+          const currDx = parentEl.points[currIdx] ? (parentEl.points[currIdx][1] - parentEl.points[0][1]) : 0;
+          if (origDy * currDx < 0) scaleSignY = -1;
+        }
+
+        let scaleX = scaleSignX;
+        let scaleY = scaleSignY;
         if (lastWidth > 0.1 && Math.abs(parentEl.width - lastWidth) > 0.1) {
-          scaleX = parentEl.width / lastWidth;
+          scaleX = scaleSignX * (parentEl.width / lastWidth);
         }
         if (lastHeight > 0.1 && Math.abs(parentEl.height - lastHeight) > 0.1) {
-          scaleY = parentEl.height / lastHeight;
+          scaleY = scaleSignY * (parentEl.height / lastHeight);
         }
 
-        const cx = parentEl.x + parentEl.width / 2;
-        const cy = parentEl.y + parentEl.height / 2;
+        if (showDebugLayer) {
+          const debugStr = `W:${parentEl.width.toFixed(1)} LW:${lastWidth.toFixed(1)} SX:${scaleX.toFixed(2)}`;
+          const screenPos = mapCanvasToScreen(parentEl.x, parentEl.y - 15);
+          debugTexts.push({ x: screenPos[0], y: screenPos[1], text: debugStr });
+        }
+ 
+        const relPoints = parentEl.points || [];
+        const minXRel = relPoints.length > 0 ? Math.min(...relPoints.map(p => p[0])) : 0;
+        const minYRel = relPoints.length > 0 ? Math.min(...relPoints.map(p => p[1])) : 0;
+        const maxXRel = relPoints.length > 0 ? Math.max(...relPoints.map(p => p[0])) : 0;
+        const maxYRel = relPoints.length > 0 ? Math.max(...relPoints.map(p => p[1])) : 0;
+ 
+        const cx = parentEl.x + (minXRel + maxXRel) / 2;
+        const cy = parentEl.y + (minYRel + maxYRel) / 2;
         const angle = parentEl.angle || 0;
+ 
+        const startIdx = hasAccumulated ? 0 : 1;
+        const firstPtRel = relPoints[0] || [0, 0];
+        const tx_start = parentEl.x + firstPtRel[0];
+        const ty_start = parentEl.y + firstPtRel[1];
 
-        for (let idx = 1; idx < allLines.length; idx++) {
+        for (let idx = startIdx; idx < allLines.length; idx++) {
           const linePoints = allLines[idx];
           const screenPoints = linePoints.map(p => {
-            const tx = parentEl.x + (p[0] - originalPoints[0][0]) * scaleX;
-            const ty = parentEl.y + (p[1] - originalPoints[0][1]) * scaleY;
-
+            const tx = tx_start + (p[0] - pointsForStack[0][0]) * scaleX;
+            const ty = ty_start + (p[1] - pointsForStack[0][1]) * scaleY;
+ 
             let rx = tx;
             let ry = ty;
             if (angle !== 0) {
@@ -3993,7 +4196,7 @@ function App() {
             }
             return mapCanvasToScreen(rx, ry);
           });
-
+ 
           paths.push({
             points: screenPoints,
             strokeColor: parentEl.strokeColor,
@@ -4005,9 +4208,9 @@ function App() {
         }
       }
     });
-
-    if (paths.length === 0) return null;
-
+ 
+    if (paths.length === 0 && debugTexts.length === 0) return null;
+ 
     return (
       <svg 
         style={{
@@ -4036,6 +4239,20 @@ function App() {
             />
           );
         })}
+        {debugTexts.map((dt, idx) => (
+          <text
+            key={`debug-${idx}`}
+            x={dt.x}
+            y={dt.y}
+            fill="#ff00ff"
+            fontSize="14"
+            fontFamily="monospace"
+            fontWeight="bold"
+            textAnchor="middle"
+          >
+            {dt.text}
+          </text>
+        ))}
       </svg>
     );
   };
@@ -4043,7 +4260,7 @@ function App() {
   const renderModifiersPropertiesPanel = () => {
     if (!excalidrawAPI) return null;
     const selectedElements = getSelectedElements();
-    if (selectedElements.length === 0) return null;
+    if (selectedElements.length > 1) return null;
     if (!showPropertiesModal) return null;
 
     const panelStyle = {
@@ -4051,24 +4268,22 @@ function App() {
       left: `${panelPos.x}px`,
       top: `${panelPos.y}px`,
       zIndex: 9999,
-      width: "320px",
-      background: theme === "dark" ? "rgba(30, 31, 41, 0.9)" : "rgba(255, 255, 255, 0.95)",
-      backdropFilter: "blur(12px)",
-      border: "1px solid var(--color-border-primary, #3a3b46)",
-      borderRadius: "12px",
-      boxShadow: "0 10px 25px rgba(0, 0, 0, 0.25)",
-      color: theme === "dark" ? "#fff" : "#121214",
+      width: "300px",
+      background: "var(--island-bg-color, #ffffff)",
+      border: "1px solid var(--border-color, rgba(0, 0, 0, 0.1))",
+      borderRadius: "4px",
+      boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+      color: "var(--color-primary)",
       fontFamily: "system-ui, -apple-system, sans-serif",
       overflow: "hidden",
       display: "flex",
-      flexDirection: "column",
-      borderTop: "3px solid var(--color-accent, #6965db)"
+      flexDirection: "column"
     };
 
     const headerStyle = {
-      padding: "10px 14px",
-      background: theme === "dark" ? "#15161e" : "#f1f2f6",
-      borderBottom: "1px solid var(--color-border-primary, #3a3b46)",
+      padding: "8px 10px",
+      background: "var(--island-bg-color, #ffffff)",
+      borderBottom: "1px solid var(--border-color, rgba(0, 0, 0, 0.1))",
       display: "flex",
       alignItems: "center",
       justifyContent: "space-between",
@@ -4078,35 +4293,105 @@ function App() {
 
     const titleStyle = {
       fontSize: "12px",
-      fontWeight: "bold",
-      letterSpacing: "0.5px",
-      textTransform: "uppercase",
-      opacity: 0.9,
+      fontWeight: "600",
+      color: "var(--color-primary)",
       display: "flex",
       alignItems: "center",
       gap: "6px"
     };
 
     const bodyStyle = {
-      padding: "16px",
-      maxHeight: "420px",
+      padding: "10px",
+      maxHeight: "400px",
       overflowY: "auto",
       display: panelCollapsed ? "none" : "flex",
       flexDirection: "column",
-      gap: "16px"
+      gap: "12px"
     };
 
     return (
-      <div style={panelStyle}>
+      <div className={`excalidraw theme--${theme}`} style={panelStyle}>
         {/* Header Drag Handle */}
         <div style={headerStyle} onMouseDown={handlePanelDragStart}>
           <div style={titleStyle}>
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
             </svg>
-            <span>Modifiers & Effects</span>
+            {(() => {
+              const element = selectedElements[0];
+              return (
+                <span>
+                  Modifiers & Effects {element ? "" : "(Active Stack)"}
+                </span>
+              );
+            })()}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            {/* Header Action Buttons (Corners, Bake) */}
+            {(() => {
+              const element = selectedElements[0];
+              const isShape = element ? ["rectangle", "ellipse", "diamond"].includes(element.type) : false;
+              if (element && element.type !== "freedraw" && element.type !== "line" && !isShape) return null;
+              
+              const modifiers = element ? (element.customData?.modifiers || []) : globalModifiers;
+              const isRound = element ? !!element.roundness : globalRoundness;
+              
+              return (
+                <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                  {/* Enable Custom Brush Button (Paintbrush) */}
+                  <button 
+                    className={`header-btn ${customBrushActive ? "active" : ""}`}
+                    onClick={() => {
+                      const nextState = !customBrushActive;
+                      setCustomBrushActive(nextState);
+                      if (nextState) {
+                        excalidrawAPI?.updateScene({ appState: { activeTool: { type: "freedraw", locked: true } } });
+                      } else {
+                        excalidrawAPI?.updateScene({ appState: { activeTool: { type: "selection" } } });
+                      }
+                    }}
+                    title={customBrushActive ? "Disable Custom Brush Mode (Shift+P)" : "Enable Custom Brush Mode (Shift+P)"}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", display: "flex", alignItems: "center", padding: "2px" }}
+                  >
+                    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.53 16.122l9.82-9.82 1.41 1.414-9.82 9.82-1.41-1.414zm-1.86 2.23l.36-1.02 1.02.36-.36 1.02-1.02-.36zm-.49 1.4l-.4-.4 1.25-1.25.4.4-1.25 1.25zm-.76-.76l-.4-.4.4-1.25 1.25 1.25-.4.4zm.76-.76l-1.09-1.09-4.8 4.8 1.41 1.414 4.48-4.48-.36-1.02-.36-1.02z" />
+                    </svg>
+                  </button>
+
+                  {/* Corner Style Toggle Button */}
+                  {!isShape && (
+                    <button
+                      className={`header-btn ${!isRound ? "active" : ""}`}
+                      onClick={() => handleToggleSharpness(element, isRound ? "sharp" : "round")}
+                      title={isRound ? "Toggle Sharp Corners" : "Toggle Smooth Corners"}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", display: "flex", alignItems: "center", padding: "2px" }}
+                    >
+                      {isRound ? (
+                        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 20c8 0 16-8 16-16" />
+                        </svg>
+                      ) : (
+                        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 20h16V4" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
+                  {element && modifiers.length > 0 && (
+                    <button
+                      className="header-btn"
+                      onClick={() => handleBakeModifiers(element)}
+                      title="Bake Modifiers (Apply changes permanently)"
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", display: "flex", alignItems: "center", padding: "2px" }}
+                    >
+                      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 21L8.188 15.904L3 15L8.188 14.096L9 9L9.813 14.096L15 15L9.813 15.904Z M19.071 4.929L17.657 6.343 M15 3h2 M21 5v2" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
             {/* Collapse / Expand Toggle */}
             <button
               onClick={() => setPanelCollapsed(!panelCollapsed)}
@@ -4416,6 +4701,20 @@ function App() {
               setSelectedElementIds(selectedIds);
             }
 
+            // Sync camera zoom/scroll state to trigger visual overlay position updates in real-time
+            if (
+              appState.scrollX !== cameraRef.current.scrollX ||
+              appState.scrollY !== cameraRef.current.scrollY ||
+              appState.zoom.value !== cameraRef.current.zoom
+            ) {
+              cameraRef.current = {
+                scrollX: appState.scrollX,
+                scrollY: appState.scrollY,
+                zoom: appState.zoom.value
+              };
+              setModifierUpdateNonce(n => n + 1);
+            }
+
             if (!evaluatingModifiersRef.current && excalidrawAPI) {
               // 1. Clean up children of deleted parents
               const deletedParentIds = new Set(
@@ -4445,67 +4744,40 @@ function App() {
               let needsUpdate = false;
               let targetElId = null;
               let targetMods = null;
-              let targetPoints = null;
-
-              const isTransforming = !!(appState.draggingElement || appState.resizingElement || appState.isRotating);
+              const isTransforming = !!(
+                appState.draggingElement || 
+                appState.resizingElement || 
+                appState.isRotating || 
+                (appState.editingLinearElement && isMouseDownRef.current)
+              );
 
               for (const el of elements) {
                 if (el.customData?.modifiers && !el.isDeleted) {
                   if (el.version > (el.customData.excalidrawVersion || 0)) {
                     if (isTransforming) {
+                      const lastVer = lastOverlayVersionRef.current[el.id] || 0;
+                      if (el.version > lastVer) {
+                        lastOverlayVersionRef.current[el.id] = el.version;
+                        // Force a re-render of the SVG overlay during real-time transformation
+                        setModifierUpdateNonce(n => n + 1);
+                      }
                       continue; // Wait until drag/resize/rotate is finished to finalize coordinates
                     }
-                    el.customData.excalidrawVersion = el.version;
-                    
                     if (!el.customData.muteModifiers) {
+                      el.customData.originalPoints = el.points.map(p => {
+                        const absPt = [el.x + p[0], el.y + p[1]];
+                        if (p.pressure !== undefined) absPt.pressure = p.pressure;
+                        if (p.time !== undefined) absPt.time = p.time;
+                        if (p.strokeTime !== undefined) absPt.strokeTime = p.strokeTime;
+                        if (p.speed !== undefined) absPt.speed = p.speed;
+                        return absPt;
+                      });
+                      el.customData.lastWidth = el.width;
+                      el.customData.lastHeight = el.height;
+                      el.customData.excalidrawVersion = el.version;
                       needsUpdate = true;
                       targetElId = el.id;
                       targetMods = el.customData.modifiers;
-                      
-                       if (appState.editingLinearElement && appState.editingLinearElement.elementId === el.id) {
-                        targetPoints = el.points.map(p => [el.x + p[0], el.y + p[1]]);
-                      } else {
-                        const originalPoints = el.customData?.originalPoints;
-                        if (originalPoints && originalPoints.length > 0) {
-                          const xCoords = originalPoints.map(p => p[0]);
-                          const yCoords = originalPoints.map(p => p[1]);
-                          const minX = Math.min(...xCoords);
-                          const minY = Math.min(...yCoords);
-                          const maxX = Math.max(...xCoords);
-                          const maxY = Math.max(...yCoords);
-                          const origW = maxX - minX;
-                          const origH = maxY - minY;
-
-                          const deltaX = el.x - originalPoints[0][0];
-                          const deltaY = el.y - originalPoints[0][1];
-
-                          const lastWidth = el.customData?.lastWidth || el.width;
-                          const lastHeight = el.customData?.lastHeight || el.height;
-
-                          let scaleX = 1;
-                          let scaleY = 1;
-                          if (lastWidth > 0.1 && Math.abs(el.width - lastWidth) > 0.1) {
-                            scaleX = el.width / lastWidth;
-                          }
-                          if (lastHeight > 0.1 && Math.abs(el.height - lastHeight) > 0.1) {
-                            scaleY = el.height / lastHeight;
-                          }
-
-                          if (Math.abs(deltaX) > 0.1 || Math.abs(deltaY) > 0.1 || Math.abs(scaleX - 1) > 0.01 || Math.abs(scaleY - 1) > 0.01) {
-                            targetPoints = originalPoints.map(p => {
-                              const copy = [
-                                el.x + (p[0] - originalPoints[0][0]) * scaleX,
-                                el.y + (p[1] - originalPoints[0][1]) * scaleY
-                              ];
-                              if (p.pressure !== undefined) copy.pressure = p.pressure;
-                              if (p.time !== undefined) copy.time = p.time;
-                              if (p.strokeTime !== undefined) copy.strokeTime = p.strokeTime;
-                              if (p.speed !== undefined) copy.speed = p.speed;
-                              return copy;
-                            });
-                          }
-                        }
-                      }
                       break;
                     }
                   }
@@ -4513,9 +4785,7 @@ function App() {
               }
 
               if (needsUpdate && targetElId) {
-                setTimeout(() => {
-                  updateModifiedElementInScene(targetElId, targetMods, targetPoints);
-                }, 0);
+                updateModifiedElementInScene(targetElId, targetMods);
               }
             }
 
@@ -5239,28 +5509,6 @@ function App() {
                     )}
                   </button>
 
-                  {/* Enable Custom Brush Button (Paintbrush) */}
-                  <button 
-                    className={`header-btn ${customBrushActive ? "active" : ""}`}
-                    onClick={() => {
-                      const nextState = !customBrushActive;
-                      setCustomBrushActive(nextState);
-                      if (nextState) {
-                        if (activeBrushId === "normal") {
-                          setActiveBrushId("hairy");
-                        }
-                        excalidrawAPI?.updateScene({ appState: { activeTool: { type: "freedraw" } } });
-                      } else {
-                        excalidrawAPI?.updateScene({ appState: { activeTool: { type: "selection" } } });
-                      }
-                    }}
-                    title={customBrushActive ? "Disable Custom Brush Mode" : "Enable Custom Brush Mode"}
-                  >
-                    <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.24 9.12l-8.62 8.62a1 1 0 01-1.41 0l-2.01-2.01a1 1 0 010-1.41l8.62-8.62m3.42 3.42l1.58-1.58a2.5 2.5 0 00-3.54-3.54l-1.58 1.58m3.54 3.54l-3.54-3.54" />
-                    </svg>
-                  </button>
-
                   {/* Apply to Selected Strokes Button (Sparkles) */}
                   {activeBrushId !== "normal" && (
                     <button 
@@ -5281,65 +5529,138 @@ function App() {
             </div>
           </Sidebar>
 
-          {/* Modifiers / Properties Sidebar Dock */}
           <Sidebar name="modifiers-sidebar" docked={modifiersSidebarDocked} onDock={setModifiersSidebarDocked}>
             <Sidebar.Header>
-              <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px" }}>
-                <span style={{ fontSize: "14px", fontWeight: "600", color: "var(--color-primary)" }}>Modifiers & Effects 🛠️</span>
+              <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px", gap: "10px" }}>
+                {(() => {
+                  const selectedElements = getSelectedElements();
+                  const element = selectedElements[0];
+                  return (
+                    <span style={{ fontSize: "14px", fontWeight: "600", color: "var(--color-primary)" }}>
+                      Modifiers & Effects {element ? "" : "(Active Stack)"} 🛠️
+                    </span>
+                  );
+                })()}
+                {(() => {
+                  const selectedElements = getSelectedElements();
+                  const element = selectedElements[0];
+                  const isShape = element ? ["rectangle", "ellipse", "diamond"].includes(element.type) : false;
+                  if (element && element.type !== "freedraw" && element.type !== "line" && !isShape) return null;
+                  
+                  const modifiers = element ? (element.customData?.modifiers || []) : globalModifiers;
+                  const isRound = element ? !!element.roundness : globalRoundness;
+                  
+                  return (
+                    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                      {/* Enable Custom Brush Button (Paintbrush) */}
+                      <button 
+                        className={`header-btn ${customBrushActive ? "active" : ""}`}
+                        onClick={() => {
+                          const nextState = !customBrushActive;
+                          setCustomBrushActive(nextState);
+                          if (nextState) {
+                            excalidrawAPI?.updateScene({ appState: { activeTool: { type: "freedraw", locked: true } } });
+                          } else {
+                            excalidrawAPI?.updateScene({ appState: { activeTool: { type: "selection" } } });
+                          }
+                        }}
+                        title={customBrushActive ? "Disable Custom Brush Mode (Shift+P)" : "Enable Custom Brush Mode (Shift+P)"}
+                      >
+                        <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9.53 16.122l9.82-9.82 1.41 1.414-9.82 9.82-1.41-1.414zm-1.86 2.23l.36-1.02 1.02.36-.36 1.02-1.02-.36zm-.49 1.4l-.4-.4 1.25-1.25.4.4-1.25 1.25zm-.76-.76l-.4-.4.4-1.25 1.25 1.25-.4.4zm.76-.76l-1.09-1.09-4.8 4.8 1.41 1.414 4.48-4.48-.36-1.02-.36-1.02z" />
+                        </svg>
+                      </button>
+
+                      {/* Corner Style Toggle Button */}
+                      {!isShape && (
+                        <button
+                          className={`header-btn ${!isRound ? "active" : ""}`}
+                          onClick={() => handleToggleSharpness(element, isRound ? "sharp" : "round")}
+                          title={isRound ? "Toggle Sharp Corners" : "Toggle Smooth Corners"}
+                        >
+                          {isRound ? (
+                            <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 20c8 0 16-8 16-16" />
+                            </svg>
+                          ) : (
+                            <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 20h16V4" />
+                            </svg>
+                          )}
+                        </button>
+                      )}
+                      
+                      {/* Bake Modifiers Button */}
+                      {element && modifiers.length > 0 && (
+                        <button
+                          className="header-btn"
+                          onClick={() => handleBakeModifiers(element)}
+                          title="Bake Modifiers (Apply changes permanently)"
+                        >
+                          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 21L8.188 15.904L3 15L8.188 14.096L9 9L9.813 14.096L15 15L9.813 15.904Z M19.071 4.929L17.657 6.343 M15 3h2 M21 5v2" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </Sidebar.Header>
             <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "16px", height: "calc(100% - 50px)", overflowY: "auto" }}>
               {(() => {
                 const selectedElements = getSelectedElements();
-                if (selectedElements.length === 0) {
+                if (selectedElements.length > 1) {
                   return (
                     <div style={{ textAlign: "center", padding: "24px 16px", opacity: 0.6, fontSize: "13px" }}>
-                      Select an object on the canvas to configure its modifiers.
+                      Modifier stack editing is limited to one selected object at a time.
                     </div>
                   );
                 }
                 const element = selectedElements[0];
-                const isShape = ["rectangle", "ellipse", "diamond"].includes(element.type);
-                if (isShape) {
-                  return (
-                    <div style={{
-                      textAlign: "center",
-                      padding: "24px 16px",
-                      border: "1px dashed var(--color-border, #3a3b46)",
-                      borderRadius: "8px",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "12px",
-                      alignItems: "center"
-                    }}>
-                      <p style={{ margin: 0, fontSize: "13px", opacity: 0.8 }}>
-                        Selected: <strong style={{ textTransform: "capitalize" }}>{element.type}</strong>. Convert it to a path to apply modifiers.
-                      </p>
-                      <button
-                        onClick={() => convertShapeToPath(element)}
-                        style={{
-                          padding: "8px 16px",
-                          borderRadius: "6px",
-                          background: "var(--color-accent, #6965db)",
-                          color: "#fff",
-                          border: "none",
-                          cursor: "pointer",
-                          fontWeight: "600",
-                          fontSize: "13px"
-                        }}
-                      >
-                        Convert to Path
-                      </button>
-                    </div>
-                  );
-                }
-                
-                if (element.type !== "freedraw" && element.type !== "line") {
-                  return (
-                    <div style={{ textAlign: "center", padding: "24px 16px", opacity: 0.6, fontSize: "13px" }}>
-                      Modifiers can only be applied to stroke paths (pencil drawings or lines) or geometric shapes.
-                    </div>
-                  );
+                if (element) {
+                  const isShape = ["rectangle", "ellipse", "diamond"].includes(element.type);
+                  if (isShape) {
+                    return (
+                      <div style={{
+                        textAlign: "center",
+                        padding: "24px 16px",
+                        border: "1px dashed var(--color-border, #3a3b46)",
+                        borderRadius: "8px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "12px",
+                        alignItems: "center"
+                      }}>
+                        <p style={{ margin: 0, fontSize: "13px", opacity: 0.8 }}>
+                          Selected: <strong style={{ textTransform: "capitalize" }}>{element.type}</strong>. Convert it to a path to apply modifiers.
+                        </p>
+                        <button
+                          onClick={() => convertShapeToPath(element)}
+                          style={{
+                             padding: "6px 12px",
+                             borderRadius: "4px",
+                             background: "var(--button-hover-bg, rgba(0, 0, 0, 0.05))",
+                             color: "var(--color-primary)",
+                             border: "1px solid var(--border-color, rgba(0, 0, 0, 0.1))",
+                             cursor: "pointer",
+                             fontWeight: "600",
+                             fontSize: "12px"
+                           }}
+                        >
+                          Convert to Path
+                        </button>
+                      </div>
+                    );
+                  }
+                  
+                  if (element.type !== "freedraw" && element.type !== "line") {
+                    return (
+                      <div style={{ textAlign: "center", padding: "24px 16px", opacity: 0.6, fontSize: "13px" }}>
+                        Modifiers can only be applied to stroke paths (pencil drawings or lines) or geometric shapes.
+                      </div>
+                    );
+                  }
                 }
                 
                 return renderModifiersTab();
@@ -5349,7 +5670,7 @@ function App() {
         </Excalidraw>
 
         {/* Live Preview SVG Overlay */}
-        {customBrushActive && activeBrushId !== "normal" && drawingPoints.length >= 2 && (
+        {customBrushActive && drawingPoints.length >= 2 && (
           <svg 
             style={{
               position: "absolute",
@@ -5603,6 +5924,18 @@ function App() {
                       onChange={(e) => {
                         setShowBottomNotifications(e.target.checked);
                         localStorage.setItem("drawerator_show_bottom_notifications", e.target.checked);
+                      }}
+                      style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
+                    />
+                  </div>
+
+                  <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <label style={{ margin: 0, cursor: "pointer" }}>Show Debug Coordinates (Modifiers)</label>
+                    <input 
+                      type="checkbox" 
+                      checked={showDebugLayer} 
+                      onChange={(e) => {
+                        setShowDebugLayer(e.target.checked);
                       }}
                       style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
                     />

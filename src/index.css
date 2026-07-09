@@ -852,13 +852,13 @@ body .excalidraw .sidebar {
 }
 
 .palette-action-btn.primary {
-  background: var(--color-accent, #6965db);
-  color: var(--color-btn-text, #ffffff);
-  border: none;
+  background: var(--button-hover-bg, rgba(0, 0, 0, 0.05));
+  color: var(--color-primary);
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
 }
 
 .palette-action-btn.primary:hover {
-  opacity: 0.9;
+  background: var(--button-hover-bg, rgba(0, 0, 0, 0.12));
 }
 
 .palette-action-btn.danger {
