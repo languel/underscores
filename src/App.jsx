@@ -130,7 +130,8 @@ const PRESET_BRUSHES = {
   simple: {
     id: "simple",
     name: "Simple Line",
-    code: `(points) => {
+    code: `// @param strokeWidth = 2 (1..20, step: 0.5)
+(points, globals) => {
   return [points];
 }`
   },
@@ -214,6 +215,7 @@ const PRESET_BRUSHES = {
 // @param stabilizerDamping = 0.12 (0.01..0.5, step: 0.01)
 (points, globals) => {
   if (points.length < 2) return [points];
+  const lines = [];
   
   // Calculate distances between consecutive points to estimate drawing speed
   const dists = [];
@@ -322,6 +324,7 @@ const PRESET_BRUSHES = {
 // @param stabilizerDamping = 0.12 (0.01..0.5, step: 0.01)
 (points, globals) => {
   if (points.length < 2) return [points];
+  const lines = [];
   
   // Calculate distances between consecutive points to estimate drawing speed
   const dists = [];
@@ -1944,6 +1947,16 @@ function App() {
     const { primaryPoints, allLines } = evaluateModifierStack(originalPoints, newModifiers, globals);
 
     const updatedParent = updateElementGeometry(parentEl, primaryPoints);
+    
+    let customStrokeWidth = null;
+    newModifiers.forEach(mod => {
+      if (mod.enabled && mod.params && mod.params.strokeWidth !== undefined) {
+        customStrokeWidth = mod.params.strokeWidth;
+      }
+    });
+    if (customStrokeWidth !== null) {
+      updatedParent.strokeWidth = customStrokeWidth;
+    }
     updatedParent.customData = {
       ...(parentEl.customData || {}),
       originalPoints: originalPoints,
