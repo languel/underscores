@@ -1107,7 +1107,14 @@ function App() {
       { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true },
       { id: "walking", name: "Walking Brush (Time-Oscillated)", code: PRESET_BRUSHES.walking.code, isPreset: true },
       { id: "rake", name: "Rake Brush (Variable Teeth)", code: PRESET_BRUSHES.rake.code, isPreset: true },
-      { id: "simplify", name: "Simplify Brush (RDP)", code: PRESET_BRUSHES.simplify.code, isPreset: true }
+      { id: "rdp", name: "Simplify (RDP)", code: PRESET_BRUSHES.rdp.code, isPreset: true },
+      { id: "vw", name: "Simplify (VW)", code: PRESET_BRUSHES.vw.code, isPreset: true },
+      { id: "smooth", name: "Laplacian Smooth", code: PRESET_BRUSHES.smooth.code, isPreset: true },
+      { id: "taubin", name: "Taubin Smooth", code: PRESET_BRUSHES.taubin.code, isPreset: true },
+      { id: "resample", name: "Resample Uniformly", code: PRESET_BRUSHES.resample.code, isPreset: true },
+      { id: "joint", name: "Close & Smooth Joint", code: PRESET_BRUSHES.joint.code, isPreset: true },
+      { id: "snap", name: "Snap to Grid", code: PRESET_BRUSHES.snap.code, isPreset: true },
+      { id: "hobby", name: "Hobby Spline", code: PRESET_BRUSHES.hobby.code, isPreset: true }
     ];
 
     if (!currentPalette || currentPalette.length === 0) {
