@@ -1025,6 +1025,8 @@ function App() {
   const [sidebarTab, setSidebarTab] = useState("brush"); // "brush" or "modifiers"
   const [selectedElementIds, setSelectedElementIds] = useState({});
   const [modifierUpdateNonce, setModifierUpdateNonce] = useState(0);
+  const [showPropertiesModal, setShowPropertiesModal] = useState(false);
+  const [modifiersSidebarDocked, setModifiersSidebarDocked] = useState(false);
   const [panelPos, setPanelPos] = useState({ x: 40, y: 150 }); // Left side by default
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [isDraggingPanel, setIsDraggingPanel] = useState(false);
@@ -1858,16 +1860,14 @@ function App() {
   };
 
   const evaluateModifierStack = (originalPoints, modifiers, globals) => {
-    let currentPoints = originalPoints.map(p => {
+    let currentLines = [originalPoints.map(p => {
       const copy = [p[0], p[1]];
       if (p.pressure !== undefined) copy.pressure = p.pressure;
       if (p.time !== undefined) copy.time = p.time;
       if (p.strokeTime !== undefined) copy.strokeTime = p.strokeTime;
       if (p.speed !== undefined) copy.speed = p.speed;
       return copy;
-    });
-    
-    let generatedLines = [currentPoints];
+    })];
 
     for (const mod of modifiers) {
       if (!mod.enabled) continue;
@@ -1896,10 +1896,22 @@ function App() {
           const processedCode = updateCodeWithParamValues(brush.code, params);
           const { generator } = compileUserBrush(processedCode, params);
           if (generator) {
-            const res = generator(currentPoints, globals);
-            if (Array.isArray(res) && res.length > 0) {
-              generatedLines = res;
-              currentPoints = res[0] || currentPoints;
+            const nextLines = [];
+            for (const line of currentLines) {
+              const res = generator(line, globals);
+              if (Array.isArray(res) && res.length > 0) {
+                // If it is a list of lines (e.g. Hairy Brush returns [[line1], [line2]])
+                if (Array.isArray(res[0]) && Array.isArray(res[0][0])) {
+                  nextLines.push(...res);
+                } else {
+                  nextLines.push(res);
+                }
+              } else if (res) {
+                nextLines.push(res);
+              }
+            }
+            if (nextLines.length > 0) {
+              currentLines = nextLines;
             }
           }
         }
@@ -1908,7 +1920,8 @@ function App() {
       }
     }
 
-    return { primaryPoints: currentPoints, allLines: generatedLines };
+    const primaryPoints = currentLines[0] || originalPoints;
+    return { primaryPoints, allLines: currentLines };
   };
 
   const updateModifiedElementInScene = (elId, newModifiers, forceOriginalPoints = null) => {
@@ -2788,11 +2801,17 @@ function App() {
         e.stopPropagation();
         excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" });
       }
-      // Ctrl + Option + P (Toggle Custom Brush Panel)
-      if (e.ctrlKey && e.altKey && e.code === "KeyP") {
+      // Ctrl + Option + B (Toggle Custom Brush Panel)
+      if (e.ctrlKey && e.altKey && e.code === "KeyB") {
         e.preventDefault();
         e.stopPropagation();
         excalidrawAPI?.toggleSidebar({ name: "brush-sidebar" });
+      }
+      // Ctrl + Option + P (Toggle Modifiers/Properties Sidebar Panel)
+      if (e.ctrlKey && e.altKey && e.code === "KeyP") {
+        e.preventDefault();
+        e.stopPropagation();
+        excalidrawAPI?.toggleSidebar({ name: "modifiers-sidebar" });
       }
 
       // Keyboard shortcuts check for non-input focus
@@ -2800,10 +2819,18 @@ function App() {
       const isInputFocused = activeEl && (
         activeEl.tagName === "INPUT" ||
         activeEl.tagName === "TEXTAREA" ||
-        activeEl.contentEditable === "true"
+        activeEl.contentEditable === "true" ||
+        activeEl.closest?.(".cm-editor")
       );
 
       if (!isInputFocused) {
+        // Option + P (Toggle Floating Properties Modal)
+        if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyP") {
+          e.preventDefault();
+          e.stopPropagation();
+          setShowPropertiesModal(prev => !prev);
+        }
+
         // Shift + P (Toggle Custom Brush Mode)
         if (e.shiftKey && !e.ctrlKey && !e.altKey && e.code === "KeyP") {
           e.preventDefault();
@@ -3910,6 +3937,7 @@ function App() {
     if (!excalidrawAPI) return null;
     const selectedElements = getSelectedElements();
     if (selectedElements.length === 0) return null;
+    if (!showPropertiesModal) return null;
 
     const panelStyle = {
       position: "fixed",
@@ -4387,8 +4415,11 @@ function App() {
              ) {
               lastNonTransparentColorRef.current = appState.viewBackgroundColor;
             }
-            // Track if AI sidebar or brush sidebar is open
-            setIsSidebarOpen(appState.activeSidebar === "ai-sidebar" || appState.activeSidebar === "brush-sidebar");
+            setIsSidebarOpen(
+              appState.activeSidebar === "ai-sidebar" || 
+              appState.activeSidebar === "brush-sidebar" ||
+              appState.activeSidebar === "modifiers-sidebar"
+            );
             
             // Auto activate custom brush if the sidebar is opened
             if (appState.activeSidebar === "brush-sidebar") {
@@ -5131,6 +5162,72 @@ function App() {
             </Sidebar.Header>
             <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "16px", height: "calc(100% - 50px)", overflowY: "auto" }}>
               {renderBrushConfigForm()}
+            </div>
+          </Sidebar>
+
+          {/* Modifiers / Properties Sidebar Dock */}
+          <Sidebar name="modifiers-sidebar" docked={modifiersSidebarDocked} onDock={setModifiersSidebarDocked}>
+            <Sidebar.Header>
+              <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px" }}>
+                <span style={{ fontSize: "14px", fontWeight: "600", color: "var(--color-primary)" }}>Modifiers & Effects 🛠️</span>
+              </div>
+            </Sidebar.Header>
+            <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "16px", height: "calc(100% - 50px)", overflowY: "auto" }}>
+              {(() => {
+                const selectedElements = getSelectedElements();
+                if (selectedElements.length === 0) {
+                  return (
+                    <div style={{ textAlign: "center", padding: "24px 16px", opacity: 0.6, fontSize: "13px" }}>
+                      Select an object on the canvas to configure its modifiers.
+                    </div>
+                  );
+                }
+                const element = selectedElements[0];
+                const isShape = ["rectangle", "ellipse", "diamond"].includes(element.type);
+                if (isShape) {
+                  return (
+                    <div style={{
+                      textAlign: "center",
+                      padding: "24px 16px",
+                      border: "1px dashed var(--color-border, #3a3b46)",
+                      borderRadius: "8px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "12px",
+                      alignItems: "center"
+                    }}>
+                      <p style={{ margin: 0, fontSize: "13px", opacity: 0.8 }}>
+                        Selected: <strong style={{ textTransform: "capitalize" }}>{element.type}</strong>. Convert it to a path to apply modifiers.
+                      </p>
+                      <button
+                        onClick={() => convertShapeToPath(element)}
+                        style={{
+                          padding: "8px 16px",
+                          borderRadius: "6px",
+                          background: "var(--color-accent, #6965db)",
+                          color: "#fff",
+                          border: "none",
+                          cursor: "pointer",
+                          fontWeight: "600",
+                          fontSize: "13px"
+                        }}
+                      >
+                        Convert to Path
+                      </button>
+                    </div>
+                  );
+                }
+                
+                if (element.type !== "freedraw" && element.type !== "line") {
+                  return (
+                    <div style={{ textAlign: "center", padding: "24px 16px", opacity: 0.6, fontSize: "13px" }}>
+                      Modifiers can only be applied to stroke paths (pencil drawings or lines) or geometric shapes.
+                    </div>
+                  );
+                }
+                
+                return renderModifiersTab();
+              })()}
             </div>
           </Sidebar>
         </Excalidraw>
