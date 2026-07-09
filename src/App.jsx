@@ -3870,6 +3870,27 @@ function App() {
       const { allLines } = evaluateModifierStack(originalPoints, parentEl.customData.modifiers, globals);
       
       if (allLines.length > 1) {
+        const xCoords = originalPoints.map(p => p[0]);
+        const yCoords = originalPoints.map(p => p[1]);
+        const minX = Math.min(...xCoords);
+        const minY = Math.min(...yCoords);
+        const maxX = Math.max(...xCoords);
+        const maxY = Math.max(...yCoords);
+        const origW = maxX - minX;
+        const origH = maxY - minY;
+
+        const deltaX = parentEl.x - minX;
+        const deltaY = parentEl.y - minY;
+
+        let scaleX = 1;
+        let scaleY = 1;
+        if (origW > 0.1 && Math.abs(parentEl.width - origW) > 0.5) {
+          scaleX = parentEl.width / origW;
+        }
+        if (origH > 0.1 && Math.abs(parentEl.height - origH) > 0.5) {
+          scaleY = parentEl.height / origH;
+        }
+
         const cx = parentEl.x + parentEl.width / 2;
         const cy = parentEl.y + parentEl.height / 2;
         const angle = parentEl.angle || 0;
@@ -3877,10 +3898,13 @@ function App() {
         for (let idx = 1; idx < allLines.length; idx++) {
           const linePoints = allLines[idx];
           const screenPoints = linePoints.map(p => {
-            let rx = p[0];
-            let ry = p[1];
+            const tx = minX + (p[0] - minX) * scaleX + deltaX;
+            const ty = minY + (p[1] - minY) * scaleY + deltaY;
+
+            let rx = tx;
+            let ry = ty;
             if (angle !== 0) {
-              const rotated = rotatePoint(p[0], p[1], cx, cy, angle);
+              const rotated = rotatePoint(tx, ty, cx, cy, angle);
               rx = rotated[0];
               ry = rotated[1];
             }
@@ -4340,9 +4364,14 @@ function App() {
               let targetMods = null;
               let targetPoints = null;
 
+              const isTransforming = !!(appState.draggingElement || appState.resizingElement || appState.isRotating);
+
               for (const el of elements) {
                 if (el.customData?.modifiers && !el.isDeleted) {
                   if (el.version > (el.customData.excalidrawVersion || 0)) {
+                    if (isTransforming) {
+                      continue; // Wait until drag/resize/rotate is finished to finalize coordinates
+                    }
                     el.customData.excalidrawVersion = el.version;
                     
                     if (!el.customData.muteModifiers) {
