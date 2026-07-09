@@ -3877,9 +3877,6 @@ function App() {
         const origW = maxX - minX;
         const origH = maxY - minY;
 
-        const deltaX = parentEl.x - minX;
-        const deltaY = parentEl.y - minY;
-
         let scaleX = 1;
         let scaleY = 1;
         if (origW > 0.1 && Math.abs(parentEl.width - origW) > 0.5) {
@@ -3896,8 +3893,8 @@ function App() {
         for (let idx = 1; idx < allLines.length; idx++) {
           const linePoints = allLines[idx];
           const screenPoints = linePoints.map(p => {
-            const tx = minX + (p[0] - minX) * scaleX + deltaX;
-            const ty = minY + (p[1] - minY) * scaleY + deltaY;
+            const tx = parentEl.x + (p[0] - originalPoints[0][0]) * scaleX;
+            const ty = parentEl.y + (p[1] - originalPoints[0][1]) * scaleY;
 
             let rx = tx;
             let ry = ty;
@@ -4391,8 +4388,8 @@ function App() {
                           const origW = maxX - minX;
                           const origH = maxY - minY;
 
-                          const deltaX = el.x - minX;
-                          const deltaY = el.y - minY;
+                          const deltaX = el.x - originalPoints[0][0];
+                          const deltaY = el.y - originalPoints[0][1];
 
                           let scaleX = 1;
                           let scaleY = 1;
@@ -4405,9 +4402,10 @@ function App() {
 
                           if (Math.abs(deltaX) > 0.1 || Math.abs(deltaY) > 0.1 || Math.abs(scaleX - 1) > 0.01 || Math.abs(scaleY - 1) > 0.01) {
                             targetPoints = originalPoints.map(p => {
-                              const scaledX = minX + (p[0] - minX) * scaleX;
-                              const scaledY = minY + (p[1] - minY) * scaleY;
-                              const copy = [scaledX + deltaX, scaledY + deltaY];
+                              const copy = [
+                                el.x + (p[0] - originalPoints[0][0]) * scaleX,
+                                el.y + (p[1] - originalPoints[0][1]) * scaleY
+                              ];
                               if (p.pressure !== undefined) copy.pressure = p.pressure;
                               if (p.time !== undefined) copy.time = p.time;
                               if (p.strokeTime !== undefined) copy.strokeTime = p.strokeTime;
