@@ -973,8 +973,14 @@ const closeAndSmoothJoint = (points, elType, roundness) => {
 const updateElementGeometry = (el, newAbsolutePoints) => {
   if (newAbsolutePoints.length < 2) return el;
   
-  const startX = newAbsolutePoints[0][0];
-  const startY = newAbsolutePoints[0][1];
+  let startX, startY;
+  if (el.type === "freedraw") {
+    startX = Math.min(...newAbsolutePoints.map(p => p[0]));
+    startY = Math.min(...newAbsolutePoints.map(p => p[1]));
+  } else {
+    startX = newAbsolutePoints[0][0];
+    startY = newAbsolutePoints[0][1];
+  }
 
   const relativePoints = newAbsolutePoints.map((p) => {
     const relPt = [p[0] - startX, p[1] - startY];
@@ -2041,7 +2047,7 @@ function App() {
     return { primaryPoints, allLines, hasAccumulated: accumulatedTracks.length > 0 };
   };
 
-  const updateModifiedElementInScene = (elId, newModifiers) => {
+  const updateModifiedElementInScene = (elId, newModifiers, forceOriginalPoints = null) => {
     if (!excalidrawAPI) return;
     const elements = excalidrawAPI.getSceneElements();
     const parentEl = elements.find(el => el.id === elId);
@@ -2052,16 +2058,20 @@ function App() {
       parentEl.roundness = { type: 2 };
     }
 
-    let originalPoints = parentEl.points.map(p => {
-      const absPt = [parentEl.x + p[0], parentEl.y + p[1]];
-      if (p.pressure !== undefined) absPt.pressure = p.pressure;
-      if (p.time !== undefined) absPt.time = p.time;
-      if (p.strokeTime !== undefined) absPt.strokeTime = p.strokeTime;
-      if (p.speed !== undefined) absPt.speed = p.speed;
-      return absPt;
-    });
-    if (!originalPoints || originalPoints.length === 0) {
-      originalPoints = parentEl.customData?.originalPoints;
+    let originalPoints = forceOriginalPoints;
+    if (!originalPoints) {
+      if (parentEl.customData?.originalPoints) {
+        originalPoints = parentEl.customData.originalPoints;
+      } else {
+        originalPoints = parentEl.points.map(p => {
+          const absPt = [parentEl.x + p[0], parentEl.y + p[1]];
+          if (p.pressure !== undefined) absPt.pressure = p.pressure;
+          if (p.time !== undefined) absPt.time = p.time;
+          if (p.strokeTime !== undefined) absPt.strokeTime = p.strokeTime;
+          if (p.speed !== undefined) absPt.speed = p.speed;
+          return absPt;
+        });
+      }
     }
 
     let pointsForStack = originalPoints;
@@ -2072,14 +2082,7 @@ function App() {
     const globals = getBrushGlobals();
     const { primaryPoints, allLines } = evaluateModifierStack(pointsForStack, newModifiers, globals);
 
-    const geometryChanged = primaryPoints.length !== pointsForStack.length || 
-      primaryPoints.some((p, i) => Math.abs(p[0] - pointsForStack[i][0]) > 0.01 || Math.abs(p[1] - pointsForStack[i][1]) > 0.01);
 
-    if (!geometryChanged) {
-      processedModifierVersionsRef.current[parentEl.id] = (parentEl.customData?.version || 0) + 1;
-      setModifierUpdateNonce(n => n + 1);
-      return;
-    }
 
     const updatedParent = updateElementGeometry(parentEl, primaryPoints);
     
@@ -4744,6 +4747,7 @@ function App() {
               let needsUpdate = false;
               let targetElId = null;
               let targetMods = null;
+              let targetPoints = null;
               const isTransforming = !!(
                 appState.draggingElement || 
                 appState.resizingElement || 
@@ -4764,14 +4768,113 @@ function App() {
                       continue; // Wait until drag/resize/rotate is finished to finalize coordinates
                     }
                     if (!el.customData.muteModifiers) {
-                      el.customData.originalPoints = el.points.map(p => {
-                        const absPt = [el.x + p[0], el.y + p[1]];
-                        if (p.pressure !== undefined) absPt.pressure = p.pressure;
-                        if (p.time !== undefined) absPt.time = p.time;
-                        if (p.strokeTime !== undefined) absPt.strokeTime = p.strokeTime;
-                        if (p.speed !== undefined) absPt.speed = p.speed;
-                        return absPt;
-                      });
+                      if (appState.editingLinearElement && appState.editingLinearElement.elementId === el.id) {
+                        targetPoints = el.points.map(p => [el.x + p[0], el.y + p[1]]);
+                      } else {
+                        const originalPoints = el.customData?.originalPoints;
+                        if (originalPoints && originalPoints.length > 0) {
+                          const lastWidth = el.customData?.lastWidth || el.width;
+                          const lastHeight = el.customData?.lastHeight || el.height;
+
+                          let scaleSignX = 1;
+                          let scaleSignY = 1;
+                           
+                          let maxAbsDx = 0;
+                          let refIdxX = originalPoints.length - 1;
+                          for (let i = 1; i < originalPoints.length; i++) {
+                            const dx = Math.abs(originalPoints[i][0] - originalPoints[0][0]);
+                            if (dx > maxAbsDx) {
+                              maxAbsDx = dx;
+                              refIdxX = i;
+                            }
+                          }
+                          if (maxAbsDx > 0.1 && el.points && el.points.length > 0) {
+                            const origDx = originalPoints[refIdxX][0] - originalPoints[0][0];
+                            const frac = refIdxX / originalPoints.length;
+                            const currIdx = Math.min(el.points.length - 1, Math.max(0, Math.round(frac * el.points.length)));
+                            const currDx = el.points[currIdx] ? (el.points[currIdx][0] - el.points[0][0]) : 0;
+                            if (origDx * currDx < 0) scaleSignX = -1;
+                          }
+ 
+                          let maxAbsDy = 0;
+                          let refIdxY = originalPoints.length - 1;
+                          for (let i = 1; i < originalPoints.length; i++) {
+                            const dy = Math.abs(originalPoints[i][1] - originalPoints[0][1]);
+                            if (dy > maxAbsDy) {
+                              maxAbsDy = dy;
+                              refIdxY = i;
+                            }
+                          }
+                          if (maxAbsDy > 0.1 && el.points && el.points.length > 0) {
+                            const origDy = originalPoints[refIdxY][1] - originalPoints[0][1];
+                            const frac = refIdxY / originalPoints.length;
+                            const currIdx = Math.min(el.points.length - 1, Math.max(0, Math.round(frac * el.points.length)));
+                            const currDx = el.points[currIdx] ? (el.points[currIdx][1] - el.points[0][1]) : 0;
+                            if (origDy * currDx < 0) scaleSignY = -1;
+                          }
+
+                          let scaleX = scaleSignX;
+                          let scaleY = scaleSignY;
+                          if (lastWidth > 0.1 && Math.abs(el.width - lastWidth) > 0.1) {
+                            scaleX = scaleSignX * (el.width / lastWidth);
+                          }
+                          if (lastHeight > 0.1 && Math.abs(el.height - lastHeight) > 0.1) {
+                            scaleY = scaleSignY * (el.height / lastHeight);
+                          }
+
+                          const origMinX = Math.min(...originalPoints.map(p => p[0]));
+                          const origMinY = Math.min(...originalPoints.map(p => p[1]));
+                          const deltaX = el.type === "freedraw" ? (el.x - origMinX) : (el.x - originalPoints[0][0]);
+                          const deltaY = el.type === "freedraw" ? (el.y - origMinY) : (el.y - originalPoints[0][1]);
+
+                          if (Math.abs(deltaX) > 0.1 || Math.abs(deltaY) > 0.1 || Math.abs(scaleX - 1) > 0.01 || Math.abs(scaleY - 1) > 0.01) {
+                            if (el.type === "freedraw") {
+                              targetPoints = originalPoints.map(p => {
+                                const copy = [
+                                  el.x + (p[0] - origMinX) * scaleX,
+                                  el.y + (p[1] - origMinY) * scaleY
+                                ];
+                                if (p.pressure !== undefined) copy.pressure = p.pressure;
+                                if (p.time !== undefined) copy.time = p.time;
+                                if (p.strokeTime !== undefined) copy.strokeTime = p.strokeTime;
+                                if (p.speed !== undefined) copy.speed = p.speed;
+                                return copy;
+                              });
+                            } else {
+                              const currMinXRel = el.points && el.points.length > 0 ? Math.min(...el.points.map(p => p[0])) : 0;
+                              const currMinYRel = el.points && el.points.length > 0 ? Math.min(...el.points.map(p => p[1])) : 0;
+                              
+                              const shiftX = scaleX > 0.01 ? currMinXRel * (1 - 1 / scaleX) : 0;
+                              const shiftY = scaleY > 0.01 ? currMinYRel * (1 - 1 / scaleY) : 0;
+                              
+                              const newStartX = el.x + shiftX;
+                              const newStartY = el.y + shiftY;
+
+                              targetPoints = originalPoints.map(p => {
+                                const copy = [
+                                  newStartX + (p[0] - originalPoints[0][0]) * scaleX,
+                                  newStartY + (p[1] - originalPoints[0][1]) * scaleY
+                                ];
+                                if (p.pressure !== undefined) copy.pressure = p.pressure;
+                                if (p.time !== undefined) copy.time = p.time;
+                                if (p.strokeTime !== undefined) copy.strokeTime = p.strokeTime;
+                                if (p.speed !== undefined) copy.speed = p.speed;
+                                return copy;
+                              });
+                            }
+                          }
+                        } else {
+                          // No originalPoints exists, initialize it
+                          targetPoints = el.points.map(p => {
+                            const absPt = [el.x + p[0], el.y + p[1]];
+                            if (p.pressure !== undefined) absPt.pressure = p.pressure;
+                            if (p.time !== undefined) absPt.time = p.time;
+                            if (p.strokeTime !== undefined) absPt.strokeTime = p.strokeTime;
+                            if (p.speed !== undefined) absPt.speed = p.speed;
+                            return absPt;
+                          });
+                        }
+                      }
                       el.customData.lastWidth = el.width;
                       el.customData.lastHeight = el.height;
                       el.customData.excalidrawVersion = el.version;
@@ -4785,7 +4888,9 @@ function App() {
               }
 
               if (needsUpdate && targetElId) {
-                updateModifiedElementInScene(targetElId, targetMods);
+                setTimeout(() => {
+                  updateModifiedElementInScene(targetElId, targetMods, targetPoints);
+                }, 0);
               }
             }
 
