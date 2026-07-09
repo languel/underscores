@@ -3416,7 +3416,7 @@ function App() {
         if (el.id === element.id) {
           return {
             ...el,
-            strokeSharpness: sharpness,
+            roundness: sharpness === "round" ? { type: 2 } : null,
             version: el.version + 1,
             versionNonce: Math.floor(Math.random() * 1000000)
           };
@@ -3526,8 +3526,8 @@ function App() {
                   flex: 1,
                   padding: "4px 8px",
                   borderRadius: "4px",
-                  background: element.strokeSharpness === "round" ? "var(--color-accent, #6965db)" : "var(--color-bg-primary, #1e1f29)",
-                  color: element.strokeSharpness === "round" ? "#fff" : "var(--color-text-secondary, #a0a0a0)",
+                  background: element.roundness ? "var(--color-accent, #6965db)" : "var(--color-bg-primary, #1e1f29)",
+                  color: element.roundness ? "#fff" : "var(--color-text-secondary, #a0a0a0)",
                   border: "1px solid var(--color-border, #3a3b46)",
                   cursor: "pointer",
                   fontSize: "11px",
@@ -3542,8 +3542,8 @@ function App() {
                   flex: 1,
                   padding: "4px 8px",
                   borderRadius: "4px",
-                  background: element.strokeSharpness === "sharp" ? "var(--color-accent, #6965db)" : "var(--color-bg-primary, #1e1f29)",
-                  color: element.strokeSharpness === "sharp" ? "#fff" : "var(--color-text-secondary, #a0a0a0)",
+                  background: !element.roundness ? "var(--color-accent, #6965db)" : "var(--color-bg-primary, #1e1f29)",
+                  color: !element.roundness ? "#fff" : "var(--color-text-secondary, #a0a0a0)",
                   border: "1px solid var(--color-border, #3a3b46)",
                   cursor: "pointer",
                   fontSize: "11px",
