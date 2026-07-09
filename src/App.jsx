@@ -212,9 +212,8 @@ const PRESET_BRUSHES = {
     code: `// @param baseWidth = 3.5 (1..15, step: 0.1)
 // @param speedSensitivity = 0.12 (0..0.5, step: 0.01)
 // @param stabilizerDamping = 0.12 (0.01..0.5, step: 0.01)
-(points) => {
-  const lines = [];
-  if (points.length < 2) return lines;
+(points, globals) => {
+  if (points.length < 2) return [points];
   
   // Calculate distances between consecutive points to estimate drawing speed
   const dists = [];
@@ -321,9 +320,8 @@ const PRESET_BRUSHES = {
 // @param spacing = 4 (1..15, step: 0.5)
 // @param speedSensitivity = 0.12 (0..0.5, step: 0.01)
 // @param stabilizerDamping = 0.12 (0.01..0.5, step: 0.01)
-(points) => {
-  const lines = [];
-  if (points.length < 2) return lines;
+(points, globals) => {
+  if (points.length < 2) return [points];
   
   // Calculate distances between consecutive points to estimate drawing speed
   const dists = [];
@@ -3504,7 +3502,7 @@ function App() {
               <option value="custom-hobby">Hobby Spline</option>
             </optgroup>
             <optgroup label="Creative Effects & Brushes">
-              {brushPalette.filter(b => !["rdp", "vw", "smooth", "taubin", "resample", "joint", "snap", "hobby", "simple"].includes(b.id)).map(b => (
+              {brushPalette.filter(b => !["rdp", "vw", "smooth", "taubin", "resample", "joint", "snap", "hobby"].includes(b.id)).map(b => (
                 <option key={b.id} value={`custom-${b.id}`}>{b.name}</option>
               ))}
             </optgroup>
