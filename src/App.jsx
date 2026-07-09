@@ -1861,14 +1861,22 @@ function App() {
   };
 
   const evaluateModifierStack = (originalPoints, modifiers, globals) => {
-    let currentLines = [originalPoints.map(p => {
+    let baseLine = originalPoints.map(p => {
       const copy = [p[0], p[1]];
       if (p.pressure !== undefined) copy.pressure = p.pressure;
       if (p.time !== undefined) copy.time = p.time;
       if (p.strokeTime !== undefined) copy.strokeTime = p.strokeTime;
       if (p.speed !== undefined) copy.speed = p.speed;
       return copy;
-    })];
+    });
+
+    let accumulatedTracks = [];
+
+    const BRUSH_MODIFIERS = ["simple", "hairy", "pressure", "ribbon", "sketchy", "walking", "rake"];
+    const isBrush = (id) => {
+      const cleanId = id.replace(/^custom-/, "");
+      return BRUSH_MODIFIERS.includes(cleanId);
+    };
 
     for (const mod of modifiers) {
       if (!mod.enabled) continue;
@@ -1897,22 +1905,30 @@ function App() {
           const processedCode = updateCodeWithParamValues(brush.code, params);
           const { generator } = compileUserBrush(processedCode, params);
           if (generator) {
-            const nextLines = [];
-            for (const line of currentLines) {
-              const res = generator(line, globals);
+            if (isBrush(modId)) {
+              const res = generator(baseLine, globals);
+              const newTracks = [];
               if (Array.isArray(res) && res.length > 0) {
-                // If it is a list of lines (e.g. Hairy Brush returns [[line1], [line2]])
                 if (Array.isArray(res[0]) && Array.isArray(res[0][0])) {
-                  nextLines.push(...res);
+                  newTracks.push(...res);
                 } else {
-                  nextLines.push(res);
+                  newTracks.push(res);
                 }
               } else if (res) {
-                nextLines.push(res);
+                newTracks.push(res);
               }
-            }
-            if (nextLines.length > 0) {
-              currentLines = nextLines;
+              accumulatedTracks.push(...newTracks);
+            } else {
+              baseLine = generator(baseLine, globals);
+              if (accumulatedTracks.length > 0) {
+                accumulatedTracks = accumulatedTracks.map(track => {
+                  const filtered = generator(track, globals);
+                  if (Array.isArray(filtered) && filtered.length > 0 && Array.isArray(filtered[0]) && Array.isArray(filtered[0][0])) {
+                    return filtered[0];
+                  }
+                  return filtered;
+                });
+              }
             }
           }
         }
@@ -1921,8 +1937,9 @@ function App() {
       }
     }
 
-    const primaryPoints = currentLines[0] || originalPoints;
-    return { primaryPoints, allLines: currentLines };
+    const primaryPoints = baseLine;
+    const allLines = accumulatedTracks.length > 0 ? accumulatedTracks : [baseLine];
+    return { primaryPoints, allLines };
   };
 
   const updateModifiedElementInScene = (elId, newModifiers, forceOriginalPoints = null) => {
@@ -1962,7 +1979,9 @@ function App() {
       originalPoints: originalPoints,
       modifiers: newModifiers,
       version: (parentEl.customData?.version || 0) + 1,
-      excalidrawVersion: updatedParent.version
+      excalidrawVersion: updatedParent.version,
+      lastWidth: updatedParent.width,
+      lastHeight: updatedParent.height
     };
 
     processedModifierVersionsRef.current[parentEl.id] = updatedParent.customData.version;
@@ -3392,6 +3411,22 @@ function App() {
       }, 50);
     };
 
+    const handleToggleSharpness = (sharpness) => {
+      const nextElements = excalidrawAPI.getSceneElements().map(el => {
+        if (el.id === element.id) {
+          return {
+            ...el,
+            strokeSharpness: sharpness,
+            version: el.version + 1,
+            versionNonce: Math.floor(Math.random() * 1000000)
+          };
+        }
+        return el;
+      });
+      excalidrawAPI.updateScene({ elements: nextElements });
+      setModifierUpdateNonce(n => n + 1);
+    };
+
     const handleAddModifier = (type) => {
       const brushId = type.startsWith("custom-") ? type.replace("custom-", "") : type;
       const brush = brushPalette.find(b => b.id === brushId);
@@ -3481,6 +3516,43 @@ function App() {
               onChange={handleToggleHideOriginal} 
               style={{ width: "16px", height: "16px", cursor: "pointer" }}
             />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px", borderTop: "1px solid var(--color-border-primary, #3a3b46)", paddingTop: "8px" }}>
+            <span style={{ fontSize: "12px", fontWeight: "bold", opacity: 0.8 }}>Corner Style (Excalidraw)</span>
+            <div style={{ display: "flex", gap: "6px" }}>
+              <button
+                onClick={() => handleToggleSharpness("round")}
+                style={{
+                  flex: 1,
+                  padding: "4px 8px",
+                  borderRadius: "4px",
+                  background: element.strokeSharpness === "round" ? "var(--color-accent, #6965db)" : "var(--color-bg-primary, #1e1f29)",
+                  color: element.strokeSharpness === "round" ? "#fff" : "var(--color-text-secondary, #a0a0a0)",
+                  border: "1px solid var(--color-border, #3a3b46)",
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  fontWeight: "600"
+                }}
+              >
+                Round
+              </button>
+              <button
+                onClick={() => handleToggleSharpness("sharp")}
+                style={{
+                  flex: 1,
+                  padding: "4px 8px",
+                  borderRadius: "4px",
+                  background: element.strokeSharpness === "sharp" ? "var(--color-accent, #6965db)" : "var(--color-bg-primary, #1e1f29)",
+                  color: element.strokeSharpness === "sharp" ? "#fff" : "var(--color-text-secondary, #a0a0a0)",
+                  border: "1px solid var(--color-border, #3a3b46)",
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  fontWeight: "600"
+                }}
+              >
+                Sharp
+              </button>
+            </div>
           </div>
         </div>
 
@@ -3890,13 +3962,16 @@ function App() {
         const origW = maxX - minX;
         const origH = maxY - minY;
 
+        const lastWidth = parentEl.customData?.lastWidth || parentEl.width;
+        const lastHeight = parentEl.customData?.lastHeight || parentEl.height;
+
         let scaleX = 1;
         let scaleY = 1;
-        if (origW > 0.1 && Math.abs(parentEl.width - origW) > 0.5) {
-          scaleX = parentEl.width / origW;
+        if (lastWidth > 0.1 && Math.abs(parentEl.width - lastWidth) > 0.1) {
+          scaleX = parentEl.width / lastWidth;
         }
-        if (origH > 0.1 && Math.abs(parentEl.height - origH) > 0.5) {
-          scaleY = parentEl.height / origH;
+        if (lastHeight > 0.1 && Math.abs(parentEl.height - lastHeight) > 0.1) {
+          scaleY = parentEl.height / lastHeight;
         }
 
         const cx = parentEl.x + parentEl.width / 2;
@@ -4404,13 +4479,16 @@ function App() {
                           const deltaX = el.x - originalPoints[0][0];
                           const deltaY = el.y - originalPoints[0][1];
 
+                          const lastWidth = el.customData?.lastWidth || el.width;
+                          const lastHeight = el.customData?.lastHeight || el.height;
+
                           let scaleX = 1;
                           let scaleY = 1;
-                          if (origW > 0.1 && Math.abs(el.width - origW) > 0.5) {
-                            scaleX = el.width / origW;
+                          if (lastWidth > 0.1 && Math.abs(el.width - lastWidth) > 0.1) {
+                            scaleX = el.width / lastWidth;
                           }
-                          if (origH > 0.1 && Math.abs(el.height - origH) > 0.5) {
-                            scaleY = el.height / origH;
+                          if (lastHeight > 0.1 && Math.abs(el.height - lastHeight) > 0.1) {
+                            scaleY = el.height / lastHeight;
                           }
 
                           if (Math.abs(deltaX) > 0.1 || Math.abs(deltaY) > 0.1 || Math.abs(scaleX - 1) > 0.01 || Math.abs(scaleY - 1) > 0.01) {
