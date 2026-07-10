@@ -3657,6 +3657,70 @@ function App() {
       }
     };
 
+    const handleApplyModifier = (modIndex) => {
+      if (!hasSelection || !excalidrawAPI) return;
+      const elements = excalidrawAPI.getSceneElements();
+      const parentEl = elements.find(el => el.id === element.id);
+      if (!parentEl) return;
+
+      const originalPoints = parentEl.customData?.originalPoints;
+      if (!originalPoints || originalPoints.length === 0) return;
+
+      // 1. Evaluate modifier stack up to and including modIndex
+      const subStack = modifiers.slice(0, modIndex + 1);
+      const globals = getBrushGlobals();
+      const { primaryPoints } = evaluateModifierStack(originalPoints, subStack, globals);
+
+      // 2. The remaining modifiers that will stay in the stack
+      const remainingMods = modifiers.slice(modIndex + 1);
+
+      // 3. Update element geometry and custom data
+      const updatedParent = updateElementGeometry(parentEl, primaryPoints);
+      
+      let customStrokeWidth = null;
+      remainingMods.forEach(mod => {
+        if (mod.enabled && mod.params && mod.params.strokeWidth !== undefined) {
+          customStrokeWidth = mod.params.strokeWidth;
+        }
+      });
+      if (customStrokeWidth !== null) {
+        updatedParent.strokeWidth = customStrokeWidth;
+      }
+
+      updatedParent.customData = {
+        ...(parentEl.customData || {}),
+        originalPoints: primaryPoints,
+        modifiers: remainingMods,
+        version: (parentEl.customData?.version || 0) + 1,
+        excalidrawVersion: updatedParent.version,
+        lastWidth: updatedParent.width,
+        lastHeight: updatedParent.height
+      };
+
+      processedModifierVersionsRef.current[parentEl.id] = updatedParent.customData.version;
+
+      const nextElements = elements.map(el => {
+        if (el.id === parentEl.id) {
+          return updatedParent;
+        }
+        if (el.customData?.parentId === parentEl.id && el.customData?.isModifierGenerated) {
+          return { ...el, isDeleted: true };
+        }
+        return el;
+      });
+
+      evaluatingModifiersRef.current = true;
+      try {
+        excalidrawAPI.updateScene({
+          elements: nextElements,
+          commitToHistory: true
+        });
+      } finally {
+        evaluatingModifiersRef.current = false;
+      }
+      setModifierUpdateNonce(n => n + 1);
+    };
+
     return (
       <div className="modifiers-panel-container" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
         <div style={{
@@ -3793,6 +3857,55 @@ function App() {
                           )}
                         </button>
  
+                        {hasSelection && (
+                          <button
+                            onClick={() => handleApplyModifier(index)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              padding: "4px",
+                              color: "var(--color-primary)",
+                              opacity: 0.8,
+                              display: "flex",
+                              alignItems: "center"
+                            }}
+                            title="Apply (Bake) modifier"
+                          >
+                            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => {
+                            const cleanId = mod.id.replace(/^custom-/, "");
+                            setActiveBrushId(cleanId);
+                            if (excalidrawAPI) {
+                              const activeSidebar = excalidrawAPI.getAppState().activeSidebar;
+                              if (activeSidebar !== "brush-sidebar") {
+                                excalidrawAPI.toggleSidebar({ name: "brush-sidebar" });
+                              }
+                            }
+                          }}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            padding: "4px",
+                            color: "var(--color-primary)",
+                            opacity: 0.8,
+                            display: "flex",
+                            alignItems: "center"
+                          }}
+                          title="Edit custom script in Brush Lab"
+                        >
+                          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                          </svg>
+                        </button>
+
                         <button
                           onClick={() => handleMoveModifier(index, -1)}
                           disabled={index === 0}
@@ -4537,15 +4650,15 @@ function App() {
                   className="palette-action-btn primary"
                   title="Save changes to this custom brush code"
                 >
-                  Save Changes
+                  Save
                 </button>
               )}
               <button
                 onClick={saveBrushCopy}
                 className="palette-action-btn secondary"
-                title="Save this code as a new custom brush copy"
+                title="Save this code as a new custom brush under a new name"
               >
-                {activeBrush.isPreset ? "Save a Copy" : "Save Copy"}
+                Save As...
               </button>
               {!activeBrush.isPreset && (
                 <button
