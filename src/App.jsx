@@ -1977,12 +1977,6 @@ function App() {
 
     let accumulatedTracks = [];
 
-    const BRUSH_MODIFIERS = ["simple", "hairy", "pressure", "ribbon", "sketchy", "walking", "rake"];
-    const isBrush = (id) => {
-      const cleanId = id.replace(/^custom-/, "");
-      return BRUSH_MODIFIERS.includes(cleanId);
-    };
-
     for (const mod of modifiers) {
       if (!mod.enabled) continue;
 
@@ -2010,8 +2004,12 @@ function App() {
           const processedCode = updateCodeWithParamValues(brush.code, params);
           const { generator } = compileUserBrush(processedCode, params);
           if (generator) {
-            if (isBrush(modId)) {
-              const res = generator(baseLine, globals);
+            const res = generator(baseLine, globals);
+            
+            // Dynamically detect if output is multi-track (a brush) or single-track (a filter)
+            const isMultiTrack = Array.isArray(res) && res.length > 0 && Array.isArray(res[0]) && Array.isArray(res[0][0]);
+
+            if (isMultiTrack) {
               const newTracks = [];
               if (Array.isArray(res) && res.length > 0) {
                 if (Array.isArray(res[0]) && Array.isArray(res[0][0])) {
@@ -2024,7 +2022,9 @@ function App() {
               }
               accumulatedTracks.push(...newTracks);
             } else {
-              baseLine = generator(baseLine, globals);
+              if (res) {
+                baseLine = res;
+              }
               if (accumulatedTracks.length > 0) {
                 accumulatedTracks = accumulatedTracks.map(track => {
                   const filtered = generator(track, globals);
