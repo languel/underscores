@@ -1139,21 +1139,21 @@ function App() {
     }
     
     const defaultPresets = [
-      { id: "simple", name: "Simple Line", code: PRESET_BRUSHES.simple.code, isPreset: true },
-      { id: "hairy", name: "Hairy Brush (Calligraphy)", code: PRESET_BRUSHES.hairy.code, isPreset: true },
-      { id: "pressure", name: "Calligraphy Pencil (Pressure-Sensitive)", code: PRESET_BRUSHES.pressure.code, isPreset: true },
-      { id: "ribbon", name: "Ribbon Brush (Double Track)", code: PRESET_BRUSHES.ribbon.code, isPreset: true },
-      { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true },
-      { id: "walking", name: "Walking Brush (Time-Oscillated)", code: PRESET_BRUSHES.walking.code, isPreset: true },
-      { id: "rake", name: "Rake Brush (Variable Teeth)", code: PRESET_BRUSHES.rake.code, isPreset: true },
-      { id: "rdp", name: "Simplify (RDP)", code: PRESET_BRUSHES.rdp.code, isPreset: true },
-      { id: "vw", name: "Simplify (VW)", code: PRESET_BRUSHES.vw.code, isPreset: true },
-      { id: "smooth", name: "Laplacian Smooth", code: PRESET_BRUSHES.smooth.code, isPreset: true },
-      { id: "taubin", name: "Taubin Smooth", code: PRESET_BRUSHES.taubin.code, isPreset: true },
-      { id: "resample", name: "Resample Uniformly", code: PRESET_BRUSHES.resample.code, isPreset: true },
-      { id: "joint", name: "Close & Smooth Joint", code: PRESET_BRUSHES.joint.code, isPreset: true },
-      { id: "snap", name: "Snap to Grid", code: PRESET_BRUSHES.snap.code, isPreset: true },
-      { id: "hobby", name: "Hobby Spline", code: PRESET_BRUSHES.hobby.code, isPreset: true }
+      { id: "simple", name: "Simple Line", code: PRESET_BRUSHES.simple.code, isPreset: true, type: "brush" },
+      { id: "hairy", name: "Hairy Brush (Calligraphy)", code: PRESET_BRUSHES.hairy.code, isPreset: true, type: "brush" },
+      { id: "pressure", name: "Calligraphy Pencil (Pressure-Sensitive)", code: PRESET_BRUSHES.pressure.code, isPreset: true, type: "brush" },
+      { id: "ribbon", name: "Ribbon Brush (Double Track)", code: PRESET_BRUSHES.ribbon.code, isPreset: true, type: "brush" },
+      { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true, type: "brush" },
+      { id: "walking", name: "Walking Brush (Time-Oscillated)", code: PRESET_BRUSHES.walking.code, isPreset: true, type: "brush" },
+      { id: "rake", name: "Rake Brush (Variable Teeth)", code: PRESET_BRUSHES.rake.code, isPreset: true, type: "brush" },
+      { id: "rdp", name: "Simplify (RDP)", code: PRESET_BRUSHES.rdp.code, isPreset: true, type: "filter" },
+      { id: "vw", name: "Simplify (VW)", code: PRESET_BRUSHES.vw.code, isPreset: true, type: "filter" },
+      { id: "smooth", name: "Laplacian Smooth", code: PRESET_BRUSHES.smooth.code, isPreset: true, type: "filter" },
+      { id: "taubin", name: "Taubin Smooth", code: PRESET_BRUSHES.taubin.code, isPreset: true, type: "filter" },
+      { id: "resample", name: "Resample Uniformly", code: PRESET_BRUSHES.resample.code, isPreset: true, type: "filter" },
+      { id: "joint", name: "Close & Smooth Joint", code: PRESET_BRUSHES.joint.code, isPreset: true, type: "filter" },
+      { id: "snap", name: "Snap to Grid", code: PRESET_BRUSHES.snap.code, isPreset: true, type: "filter" },
+      { id: "hobby", name: "Hobby Spline", code: PRESET_BRUSHES.hobby.code, isPreset: true, type: "filter" }
     ];
 
     if (!palette || palette.length === 0) {
@@ -1167,7 +1167,7 @@ function App() {
         palette.push(preset);
       } else {
         // Automatically sync latest preset code
-        palette[idx] = { ...palette[idx], code: preset.code, name: preset.name, isPreset: true };
+        palette[idx] = { ...palette[idx], code: preset.code, name: preset.name, isPreset: true, type: preset.type };
       }
     });
 
@@ -1312,7 +1312,8 @@ function App() {
       id: newId,
       name: name.trim(),
       code: finalCode,
-      isPreset: false
+      isPreset: false,
+      type: brush.type || "brush"
     };
     
     setBrushPalette(prev => [...prev, newBrush]);
@@ -1570,7 +1571,7 @@ function App() {
     }
     
     try {
-      const { allLines } = evaluateModifierStack(pointsToUse, globalModifiers, getBrushGlobals());
+      const { allLines } = evaluateModifierStack(pointsToUse, globalModifiers, getBrushGlobals(), globalRoundness);
       return allLines;
     } catch (e) {
       console.error("Live preview modifier evaluation error", e);
@@ -1965,7 +1966,7 @@ function App() {
     }
   };
 
-  const evaluateModifierStack = (originalPoints, modifiers, globals) => {
+  const evaluateModifierStack = (originalPoints, modifiers, globals, roundnessEnabled = false) => {
     let baseLine = originalPoints.map(p => {
       const copy = [p[0], p[1]];
       if (p.pressure !== undefined) copy.pressure = p.pressure;
@@ -2006,8 +2007,15 @@ function App() {
           if (generator) {
             const res = generator(baseLine, globals);
             
-            // Dynamically detect if output is multi-track (a brush) or single-track (a filter)
-            const isMultiTrack = Array.isArray(res) && res.length > 0 && Array.isArray(res[0]) && Array.isArray(res[0][0]);
+            // Check type property first, fallback to dynamic array dimension check
+            let isMultiTrack = false;
+            if (brush.type === "brush") {
+              isMultiTrack = true;
+            } else if (brush.type === "filter") {
+              isMultiTrack = false;
+            } else {
+              isMultiTrack = Array.isArray(res) && res.length > 0 && Array.isArray(res[0]) && Array.isArray(res[0][0]);
+            }
 
             if (isMultiTrack) {
               const newTracks = [];
@@ -2022,16 +2030,22 @@ function App() {
               }
               accumulatedTracks.push(...newTracks);
             } else {
+              // It is a geometric filter: mutate the baseline and propagate down the stack
               if (res) {
-                baseLine = res;
+                let path = (Array.isArray(res) && res.length > 0 && Array.isArray(res[0])) ? res[0] : res;
+                if (roundnessEnabled && path.length >= 3) {
+                  path = interpolateCatmullRom(path, 15);
+                }
+                baseLine = path;
               }
               if (accumulatedTracks.length > 0) {
                 accumulatedTracks = accumulatedTracks.map(track => {
                   const filtered = generator(track, globals);
-                  if (Array.isArray(filtered) && filtered.length > 0 && Array.isArray(filtered[0]) && Array.isArray(filtered[0][0])) {
-                    return filtered[0];
+                  let path = (Array.isArray(filtered) && filtered.length > 0 && Array.isArray(filtered[0])) ? filtered[0] : filtered;
+                  if (roundnessEnabled && path.length >= 3) {
+                    path = interpolateCatmullRom(path, 15);
                   }
-                  return filtered;
+                  return path;
                 });
               }
             }
@@ -2080,7 +2094,7 @@ function App() {
     }
 
     const globals = getBrushGlobals();
-    const { primaryPoints, allLines } = evaluateModifierStack(pointsForStack, newModifiers, globals);
+    const { primaryPoints, allLines } = evaluateModifierStack(pointsForStack, newModifiers, globals, !!parentEl.roundness);
 
 
 
@@ -3669,7 +3683,7 @@ function App() {
       // 1. Evaluate modifier stack up to and including modIndex
       const subStack = modifiers.slice(0, modIndex + 1);
       const globals = getBrushGlobals();
-      const { primaryPoints } = evaluateModifierStack(originalPoints, subStack, globals);
+      const { primaryPoints } = evaluateModifierStack(originalPoints, subStack, globals, !!parentEl.roundness);
 
       // 2. The remaining modifiers that will stay in the stack
       const remainingMods = modifiers.slice(modIndex + 1);
@@ -4078,7 +4092,7 @@ function App() {
     }
 
     const globals = getBrushGlobals();
-    const { primaryPoints, allLines, hasAccumulated } = evaluateModifierStack(pointsForStack, parentElement.customData.modifiers, globals);
+    const { primaryPoints, allLines, hasAccumulated } = evaluateModifierStack(pointsForStack, parentElement.customData.modifiers, globals, !!parentElement.roundness);
     
     const updatedParent = updateElementGeometry(parentElement, primaryPoints);
     updatedParent.customData = {
@@ -4215,7 +4229,7 @@ function App() {
       }
  
       const globals = getBrushGlobals();
-      const { allLines, hasAccumulated } = evaluateModifierStack(pointsForStack, parentEl.customData.modifiers, globals);
+      const { allLines, hasAccumulated } = evaluateModifierStack(pointsForStack, parentEl.customData.modifiers, globals, !!parentEl.roundness);
       
       if (allLines.length > 0) {
         const xCoords = originalPoints.map(p => p[0]);
@@ -4300,8 +4314,16 @@ function App() {
         for (let idx = startIdx; idx < allLines.length; idx++) {
           const linePoints = allLines[idx];
           const screenPoints = linePoints.map(p => {
-            const tx = tx_start + (p[0] - pointsForStack[0][0]) * scaleX;
-            const ty = ty_start + (p[1] - pointsForStack[0][1]) * scaleY;
+            let tx, ty;
+            if (parentEl.type === "freedraw") {
+              const origMinX = Math.min(...pointsForStack.map(pt => pt[0]));
+              const origMinY = Math.min(...pointsForStack.map(pt => pt[1]));
+              tx = parentEl.x + (p[0] - origMinX) * scaleX;
+              ty = parentEl.y + (p[1] - origMinY) * scaleY;
+            } else {
+              tx = tx_start + (p[0] - pointsForStack[0][0]) * scaleX;
+              ty = ty_start + (p[1] - pointsForStack[0][1]) * scaleY;
+            }
  
             let rx = tx;
             let ry = ty;
