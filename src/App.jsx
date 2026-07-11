@@ -3699,7 +3699,7 @@ function App() {
       // 1. Evaluate modifier stack up to and including modIndex
       const subStack = modifiers.slice(0, modIndex + 1);
       const globals = getBrushGlobals();
-      const { primaryPoints } = evaluateModifierStack(originalPoints, subStack, globals, !!parentEl.roundness);
+      const { primaryPoints, allLines, hasAccumulated } = evaluateModifierStack(originalPoints, subStack, globals, !!parentEl.roundness);
 
       // 2. The remaining modifiers that will stay in the stack
       const remainingMods = modifiers.slice(modIndex + 1);
@@ -3717,6 +3717,10 @@ function App() {
         updatedParent.strokeWidth = customStrokeWidth;
       }
 
+      const childElements = [];
+      const baseId = parentEl.id;
+      const groupId = `${baseId}-baked-group`;
+
       if (remainingMods.length === 0) {
         updatedParent.customData = {
           ...(parentEl.customData || {}),
@@ -3730,6 +3734,88 @@ function App() {
         };
         if (parentEl.customData?.hideOriginal) {
           updatedParent.opacity = parentEl.customData.savedOpacity ?? 100;
+        }
+
+        const startIdx = hasAccumulated ? 0 : 1;
+        if (allLines.length > startIdx) {
+          const relPoints = updatedParent.points || [];
+          const minXRel = relPoints.length > 0 ? Math.min(...relPoints.map(p => p[0])) : 0;
+          const minYRel = relPoints.length > 0 ? Math.min(...relPoints.map(p => p[1])) : 0;
+          const maxXRel = relPoints.length > 0 ? Math.max(...relPoints.map(p => p[0])) : 0;
+          const maxYRel = relPoints.length > 0 ? Math.max(...relPoints.map(p => p[1])) : 0;
+
+          const cx = updatedParent.x + (minXRel + maxXRel) / 2;
+          const cy = updatedParent.y + (minYRel + maxYRel) / 2;
+          const angle = parentEl.angle || 0;
+
+          for (let idx = startIdx; idx < allLines.length; idx++) {
+            const linePoints = allLines[idx];
+            if (!Array.isArray(linePoints) || linePoints.length < 1) continue;
+
+            const rotatedPoints = linePoints.map(p => {
+              if (angle !== 0) {
+                return rotatePoint(p[0], p[1], cx, cy, angle);
+              }
+              return [p[0], p[1]];
+            });
+
+            const [startX, startY] = rotatedPoints[0];
+            const relativePoints = rotatedPoints.map(([rx, ry]) => {
+              const relPt = [rx - startX, ry - startY];
+              const origPt = linePoints.find(p => p[0] === rx && p[1] === ry) || linePoints[0];
+              if (origPt && origPt.pressure !== undefined) relPt.pressure = origPt.pressure;
+              return relPt;
+            });
+
+            const xCoords = relativePoints.map(p => p[0]);
+            const yCoords = relativePoints.map(p => p[1]);
+            const minX = Math.min(...xCoords);
+            const maxX = Math.max(...xCoords);
+            const minY = Math.min(...yCoords);
+            const maxY = Math.max(...yCoords);
+
+            childElements.push({
+              type: "line",
+              x: startX,
+              y: startY,
+              points: relativePoints,
+              width: Math.max(1, maxX - minX),
+              height: Math.max(1, maxY - minY),
+              strokeColor: parentEl.strokeColor,
+              strokeWidth: parentEl.strokeWidth,
+              backgroundColor: parentEl.backgroundColor,
+              fillStyle: parentEl.fillStyle,
+              strokeStyle: parentEl.strokeStyle,
+              roughness: parentEl.roughness,
+              roundness: parentEl.roundness,
+              opacity: updatedParent.opacity,
+              groupIds: parentEl.groupIds && parentEl.groupIds.length > 0 
+                ? [...parentEl.groupIds, groupId] 
+                : [groupId],
+              id: `${baseId}-baked-${idx}-${Date.now()}`,
+              seed: Math.floor(Math.random() * 1000000),
+              version: 2,
+              versionNonce: Math.floor(Math.random() * 1000000),
+              isDeleted: false,
+              updated: Date.now(),
+              angle: 0,
+              boundElements: null,
+              link: null,
+              locked: parentEl.locked,
+              frameId: parentEl.frameId,
+              lastCommittedPoint: null,
+              startBinding: null,
+              endBinding: null
+            });
+          }
+
+          if (updatedParent.groupIds) {
+            if (!updatedParent.groupIds.includes(groupId)) {
+              updatedParent.groupIds.push(groupId);
+            }
+          } else {
+            updatedParent.groupIds = [groupId];
+          }
         }
       } else {
         updatedParent.customData = {
@@ -3753,7 +3839,7 @@ function App() {
           return { ...el, isDeleted: true };
         }
         return el;
-      });
+      }).concat(childElements);
 
       evaluatingModifiersRef.current = true;
       try {
