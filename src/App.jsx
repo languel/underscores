@@ -2109,15 +2109,31 @@ function App() {
     if (customStrokeWidth !== null) {
       updatedParent.strokeWidth = customStrokeWidth;
     }
-    updatedParent.customData = {
-      ...(parentEl.customData || {}),
-      originalPoints: originalPoints,
-      modifiers: newModifiers,
-      version: (parentEl.customData?.version || 0) + 1,
-      excalidrawVersion: updatedParent.version,
-      lastWidth: updatedParent.width,
-      lastHeight: updatedParent.height
-    };
+    if (newModifiers.length === 0) {
+      updatedParent.customData = {
+        ...(parentEl.customData || {}),
+        originalPoints: null,
+        modifiers: [],
+        hideOriginal: false,
+        version: (parentEl.customData?.version || 0) + 1,
+        excalidrawVersion: updatedParent.version,
+        lastWidth: updatedParent.width,
+        lastHeight: updatedParent.height
+      };
+      if (parentEl.customData?.hideOriginal) {
+        updatedParent.opacity = parentEl.customData.savedOpacity ?? 100;
+      }
+    } else {
+      updatedParent.customData = {
+        ...(parentEl.customData || {}),
+        originalPoints: originalPoints,
+        modifiers: newModifiers,
+        version: (parentEl.customData?.version || 0) + 1,
+        excalidrawVersion: updatedParent.version,
+        lastWidth: updatedParent.width,
+        lastHeight: updatedParent.height
+      };
+    }
 
     processedModifierVersionsRef.current[parentEl.id] = updatedParent.customData.version;
 
@@ -3701,15 +3717,31 @@ function App() {
         updatedParent.strokeWidth = customStrokeWidth;
       }
 
-      updatedParent.customData = {
-        ...(parentEl.customData || {}),
-        originalPoints: primaryPoints,
-        modifiers: remainingMods,
-        version: (parentEl.customData?.version || 0) + 1,
-        excalidrawVersion: updatedParent.version,
-        lastWidth: updatedParent.width,
-        lastHeight: updatedParent.height
-      };
+      if (remainingMods.length === 0) {
+        updatedParent.customData = {
+          ...(parentEl.customData || {}),
+          originalPoints: null,
+          modifiers: [],
+          hideOriginal: false,
+          version: (parentEl.customData?.version || 0) + 1,
+          excalidrawVersion: updatedParent.version,
+          lastWidth: updatedParent.width,
+          lastHeight: updatedParent.height
+        };
+        if (parentEl.customData?.hideOriginal) {
+          updatedParent.opacity = parentEl.customData.savedOpacity ?? 100;
+        }
+      } else {
+        updatedParent.customData = {
+          ...(parentEl.customData || {}),
+          originalPoints: primaryPoints,
+          modifiers: remainingMods,
+          version: (parentEl.customData?.version || 0) + 1,
+          excalidrawVersion: updatedParent.version,
+          lastWidth: updatedParent.width,
+          lastHeight: updatedParent.height
+        };
+      }
 
       processedModifierVersionsRef.current[parentEl.id] = updatedParent.customData.version;
 
