@@ -9,6 +9,60 @@ export const isDrawableTrack = (track) =>
   );
 
 /**
+ * Build the tracks shown by the transient drawing preview. Brush modifiers
+ * return generated tracks separately from the source path, while filter-only
+ * stacks return the filtered source as their sole line. Keeping this decision
+ * here makes the live preview match the committed element without duplicating
+ * filter output.
+ */
+export const composePreviewTracks = ({
+  primaryPoints,
+  allLines,
+  hasAccumulated,
+  hideOriginal,
+}) => {
+  const drawableLines = Array.isArray(allLines)
+    ? allLines.filter(isDrawableTrack)
+    : [];
+
+  if (hasAccumulated && !hideOriginal && isDrawableTrack(primaryPoints)) {
+    return [primaryPoints, ...drawableLines];
+  }
+
+  if (drawableLines.length > 0) return drawableLines;
+  return isDrawableTrack(primaryPoints) ? [primaryPoints] : [];
+};
+
+export const resolveHideOriginalControl = ({
+  hasSelection,
+  selectedHideOriginal,
+  customBrushActive,
+  nextStrokeHideOriginal,
+}) => {
+  if (hasSelection) {
+    return {
+      checked: Boolean(selectedHideOriginal),
+      disabled: false,
+      target: "selectedStroke",
+    };
+  }
+
+  if (customBrushActive) {
+    return {
+      checked: Boolean(nextStrokeHideOriginal),
+      disabled: false,
+      target: "nextStroke",
+    };
+  }
+
+  return {
+    checked: false,
+    disabled: true,
+    target: null,
+  };
+};
+
+/**
  * Resolve the evaluator output into the one track owned by the parent element
  * and the additional tracks that must be baked as grouped child elements.
  *
@@ -89,6 +143,30 @@ export const inferAxisFlipSign = (originalPoints, currentPoints, axis) => {
 
 export const removeModifierAt = (modifiers, index) =>
   modifiers.filter((_, modifierIndex) => modifierIndex !== index);
+
+export const resolveDrawingModifiers = ({
+  globalModifiers,
+}) => Array.isArray(globalModifiers) ? globalModifiers : [];
+
+export const resolveBrushId = (modifierId, brushes) => {
+  if (!modifierId || !Array.isArray(brushes)) return null;
+  if (brushes.some(brush => brush.id === modifierId)) return modifierId;
+  const withoutWrapper = modifierId.startsWith("custom-")
+    ? modifierId.slice("custom-".length)
+    : modifierId;
+  return brushes.some(brush => brush.id === withoutWrapper) ? withoutWrapper : null;
+};
+
+export const replaceModifierBrushAt = (modifiers, index, brush, params) =>
+  modifiers.map((modifier, modifierIndex) => modifierIndex === index
+    ? {
+        ...modifier,
+        id: `custom-${brush.id}`,
+        name: brush.name,
+        params: { ...params },
+        codeOverride: undefined,
+      }
+    : modifier);
 
 const POINT_METADATA_KEYS = ["pressure", "time", "strokeTime", "speed"];
 

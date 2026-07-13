@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { inferAxisFlipSign, mapTrackPointToElement, removeModifierAt, resampleStrokeByDistance, resolveBakedTracks } from "./modifierStack.js";
+import { composePreviewTracks, inferAxisFlipSign, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
 
 const base = [[0, 0], [10, 10]];
 const left = [[-2, 0], [8, 10]];
@@ -48,6 +48,72 @@ test("invalid single-point tracks are not baked", () => {
   }), {
     parentTrack: base,
     childTracks: [right],
+  });
+});
+
+test("brush preview includes the source path when it is visible", () => {
+  assert.deepEqual(composePreviewTracks({
+    primaryPoints: base,
+    allLines: [left, right],
+    hasAccumulated: true,
+    hideOriginal: false,
+  }), [base, left, right]);
+});
+
+test("brush preview omits the source path when that stroke hides it", () => {
+  assert.deepEqual(composePreviewTracks({
+    primaryPoints: base,
+    allLines: [left, right],
+    hasAccumulated: true,
+    hideOriginal: true,
+  }), [left, right]);
+});
+
+test("filter-only preview does not duplicate its primary path", () => {
+  assert.deepEqual(composePreviewTracks({
+    primaryPoints: base,
+    allLines: [base],
+    hasAccumulated: false,
+    hideOriginal: false,
+  }), [base]);
+});
+
+test("hide original edits the selected stroke when one is selected", () => {
+  assert.deepEqual(resolveHideOriginalControl({
+    hasSelection: true,
+    selectedHideOriginal: true,
+    customBrushActive: true,
+    nextStrokeHideOriginal: false,
+  }), {
+    checked: true,
+    disabled: false,
+    target: "selectedStroke",
+  });
+});
+
+test("hide original arms only the next stroke in Mod Pen mode", () => {
+  assert.deepEqual(resolveHideOriginalControl({
+    hasSelection: false,
+    selectedHideOriginal: false,
+    customBrushActive: true,
+    nextStrokeHideOriginal: true,
+  }), {
+    checked: true,
+    disabled: false,
+    target: "nextStroke",
+  });
+});
+
+test("hide original has no target without a selection or Mod Pen", () => {
+  assert.deepEqual(resolveHideOriginalControl({
+    hasSelection: false,
+    selectedHideOriginal: false,
+    customBrushActive: false,
+    nextStrokeHideOriginal: false,
+  }), {
+    checked: false,
+    disabled: true,
+    target: null,
   });
 });
 
@@ -120,4 +186,49 @@ test("distance sampling interpolates temporal metadata", () => {
   const samples = resampleStrokeByDistance([start, end], 5);
   assert.equal(samples[1].strokeTime, 50);
   assert.equal(samples[1].sourceSegmentIndex, 0);
+});
+
+test("modifier IDs resolve preset and user brush IDs without double-prefix ambiguity", () => {
+  const brushes = [{ id: "growingHairy" }, { id: "custom-123" }];
+  assert.equal(resolveBrushId("custom-growingHairy", brushes), "growingHairy");
+  assert.equal(resolveBrushId("custom-custom-123", brushes), "custom-123");
+  assert.equal(resolveBrushId("custom-123", brushes), "custom-123");
+});
+
+test("save-as retargets one modifier and clears its inline script override", () => {
+  const modifiers = [
+    { id: "custom-growingHairy", name: "Growing", params: { spacing: 3 }, codeOverride: "draft" },
+    { id: "custom-simple", name: "Simple", params: {} },
+  ];
+  const replacement = { id: "user-42", name: "My Growing", code: "code", type: "brush" };
+  const updated = replaceModifierBrushAt(modifiers, 0, replacement, { spacing: 7 });
+
+  assert.equal(updated[0].id, "custom-user-42");
+  assert.equal(updated[0].name, "My Growing");
+  assert.deepEqual(updated[0].params, { spacing: 7 });
+  assert.equal(updated[0].codeOverride, undefined);
+  assert.equal(updated[1], modifiers[1]);
+});
+
+test("a visible global stack does not receive a hidden active brush modifier", () => {
+  const rake = { id: "custom-rake", name: "Rake", enabled: true, params: { teeth: 5 } };
+  const modifiers = resolveDrawingModifiers({
+    activeBrushId: "growingHairy",
+    activeBrush: { id: "growingHairy", name: "Growing Hairy" },
+    activeParams: { spacing: 3 },
+    globalModifiers: [rake],
+  });
+
+  assert.deepEqual(modifiers, [rake]);
+});
+
+test("an empty visible stack stays empty regardless of the editor brush", () => {
+  const modifiers = resolveDrawingModifiers({
+    activeBrushId: "growingHairy",
+    activeBrush: { id: "growingHairy", name: "Growing Hairy" },
+    activeParams: { spacing: 3 },
+    globalModifiers: [],
+  });
+
+  assert.deepEqual(modifiers, []);
 });

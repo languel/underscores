@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Excalidraw, Sidebar, MainMenu, WelcomeScreen, exportToSvg, exportToCanvas, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw";
 import "./App.css";
-import { inferAxisFlipSign, isDrawableTrack, mapTrackPointToElement, removeModifierAt, resampleStrokeByDistance, resolveBakedTracks } from "./modifierStack.js";
+import { composePreviewTracks, inferAxisFlipSign, isDrawableTrack, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
 
 // System Prompt guiding the local LLM on drawing tools
 const SYSTEM_PROMPT = `You are "Drawerator", an autonomous, high-performance drawing assistant.
@@ -189,8 +189,6 @@ const PRESET_BRUSHES = {
     ? (globals.globalElapsedMs || 0)
     : (globals.elapsedMs || 0));
   const samples = globals.resampleStrokeByDistance(points, Math.max(0.1, spacing));
-  const grownHairs = [];
-
   const intersect = (a, b, c, d) => {
     const rX = b[0] - a[0];
     const rY = b[1] - a[1];
@@ -238,11 +236,6 @@ const PRESET_BRUSHES = {
       const hitT = intersect(origin, target, points[segmentIndex], points[segmentIndex + 1]);
       if (hitT !== null && hitT < nearestT) nearestT = hitT;
     }
-    for (const hair of grownHairs) {
-      const hitT = intersect(origin, target, hair[0], hair[1]);
-      if (hitT !== null && hitT < nearestT) nearestT = hitT;
-    }
-
     const paddingT = desiredLength > 0 ? collisionPadding / desiredLength : 0;
     const clampedT = Math.max(0, nearestT - paddingT);
     const end = [
@@ -251,7 +244,6 @@ const PRESET_BRUSHES = {
     ];
     if (Math.hypot(end[0] - origin[0], end[1] - origin[1]) > 0.05) {
       const hair = [[origin[0], origin[1]], end];
-      grownHairs.push(hair);
       lines.push(hair);
     }
   }
@@ -483,6 +475,135 @@ const PRESET_BRUSHES = {
     }
   }
   return lines;
+}`
+  },
+  zenRake: {
+    id: "zenRake",
+    name: "Zen Garden Rake (Parallel Grooves)",
+    code: `// @param grooves = 5 (2..12, step: 1)
+// @param spacing = 8 (2..20, step: 0.5)
+// @param smoothing = 8 (0..24, step: 1)
+// @param tangentWindow = 4 (1..12, step: 1)
+// @param cornerSafety = 0.8 (0.45..0.95, step: 0.05)
+(points, globals) => {
+  if (!points || points.length < 2) return [points];
+
+  // Smooth the gesture without the shrinkage of repeated averaging, then
+  // sample by distance so normals are independent of pointer event density.
+  const smoothPasses = Math.max(0, Math.round(smoothing));
+  const smoothed = smoothPasses > 0
+    ? globals.smoothPathTaubin(points, 0.45, -0.5, smoothPasses, false)
+    : points;
+  const sampleStep = Math.max(1.5, spacing * 0.3);
+  const center = globals.resampleStrokeByDistance(smoothed, sampleStep)
+    .map(point => [point[0], point[1]]);
+  if (center.length < 2) return [center];
+
+  // A windowed central tangent keeps neighboring groove normals aligned at
+  // hand-drawn corners instead of letting each raw point choose a direction.
+  const windowSize = Math.max(1, Math.round(tangentWindow));
+  const normals = center.map((point, index) => {
+    const before = center[Math.max(0, index - windowSize)];
+    const after = center[Math.min(center.length - 1, index + windowSize)];
+    let dx = after[0] - before[0];
+    let dy = after[1] - before[1];
+    let length = Math.hypot(dx, dy);
+    if (length < 0.0001 && index > 0) {
+      dx = point[0] - center[index - 1][0];
+      dy = point[1] - center[index - 1][1];
+      length = Math.hypot(dx, dy);
+    }
+    return length < 0.0001 ? [0, 0] : [-dy / length, dx / length];
+  });
+
+  // Perfect parallel offsets cannot exist when the requested half-width is
+  // larger than an inside turn radius. Compress the complete groove bundle
+  // together only at those impossible bends, preserving equal lane spacing.
+  const halfWidth = Math.max(0.001, ((grooves - 1) * spacing) / 2);
+  let widthScale = center.map((point, index) => {
+    const before = center[Math.max(0, index - windowSize)];
+    const after = center[Math.min(center.length - 1, index + windowSize)];
+    const ab = Math.hypot(point[0] - before[0], point[1] - before[1]);
+    const bc = Math.hypot(after[0] - point[0], after[1] - point[1]);
+    const ac = Math.hypot(after[0] - before[0], after[1] - before[1]);
+    const cross = Math.abs(
+      (point[0] - before[0]) * (after[1] - before[1]) -
+      (point[1] - before[1]) * (after[0] - before[0])
+    );
+    if (cross < 0.0001 || ab < 0.0001 || bc < 0.0001 || ac < 0.0001) return 1;
+    const radius = (ab * bc * ac) / (2 * cross);
+    return Math.max(0.12, Math.min(1, (radius * cornerSafety) / halfWidth));
+  });
+
+  // Feather width changes so the grooves converge like a designed track,
+  // rather than pinching abruptly at a single sample.
+  for (let pass = 0; pass < 4; pass++) {
+    widthScale = widthScale.map((scale, index, values) => {
+      const previous = values[Math.max(0, index - 1)];
+      const next = values[Math.min(values.length - 1, index + 1)];
+      return previous * 0.25 + scale * 0.5 + next * 0.25;
+    });
+  }
+
+  const segmentIntersection = (a, b, c, d) => {
+    const rX = b[0] - a[0];
+    const rY = b[1] - a[1];
+    const sX = d[0] - c[0];
+    const sY = d[1] - c[1];
+    const denominator = rX * sY - rY * sX;
+    if (Math.abs(denominator) < 0.000001) return null;
+    const qX = c[0] - a[0];
+    const qY = c[1] - a[1];
+    const t = (qX * sY - qY * sX) / denominator;
+    const u = (qX * rY - qY * rX) / denominator;
+    const epsilon = 0.001;
+    if (t <= epsilon || t >= 1 - epsilon || u <= epsilon || u >= 1 - epsilon) return null;
+    return [a[0] + rX * t, a[1] + rY * t];
+  };
+
+  // Remove the loop between the oldest and newest crossing of a single
+  // groove. This is a final safety net for very tight scribbles.
+  const eraseSelfLoops = (track) => {
+    if (track.length < 4) return track;
+    let result = [track[0]];
+    for (let index = 1; index < track.length; index++) {
+      const previous = result[result.length - 1];
+      const current = track[index];
+      let crossingIndex = -1;
+      let crossingPoint = null;
+      for (let segment = 0; segment < result.length - 2; segment++) {
+        const hit = segmentIntersection(
+          result[segment],
+          result[segment + 1],
+          previous,
+          current
+        );
+        if (hit) {
+          crossingIndex = segment;
+          crossingPoint = hit;
+          break;
+        }
+      }
+      if (crossingIndex >= 0) {
+        result = result.slice(0, crossingIndex + 1);
+        result.push(crossingPoint);
+      }
+      result.push(current);
+    }
+    return result;
+  };
+
+  const tracks = [];
+  for (let groove = 0; groove < grooves; groove++) {
+    const laneOffset = (groove - (grooves - 1) / 2) * spacing;
+    const track = center.map((point, index) => [
+      point[0] + normals[index][0] * laneOffset * widthScale[index],
+      point[1] + normals[index][1] * laneOffset * widthScale[index]
+    ]);
+    const cleaned = eraseSelfLoops(track);
+    if (cleaned.length >= 2) tracks.push(cleaned);
+  }
+  return tracks;
 }`
   },
   rdp: {
@@ -1152,7 +1273,7 @@ function App() {
     return saved ? parseFloat(saved) : 0.12;
   });
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
-  const [sidebarTab, setSidebarTab] = useState("brush"); // "brush" or "modifiers"
+  const [modsPanelTab, setModsPanelTab] = useState("stack");
   const [selectedElementIds, setSelectedElementIds] = useState({});
   const [modifierUpdateNonce, setModifierUpdateNonce] = useState(0);
   const cameraRef = useRef({ scrollX: 0, scrollY: 0, zoom: 1 });
@@ -1195,6 +1316,7 @@ function App() {
       { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true, type: "brush" },
       { id: "walking", name: "Walking Brush (Time-Oscillated)", code: PRESET_BRUSHES.walking.code, isPreset: true, type: "brush" },
       { id: "rake", name: "Rake Brush (Variable Teeth)", code: PRESET_BRUSHES.rake.code, isPreset: true, type: "brush" },
+      { id: "zenRake", name: "Zen Garden Rake (Parallel Grooves)", code: PRESET_BRUSHES.zenRake.code, isPreset: true, type: "brush" },
       { id: "rdp", name: "Simplify (RDP)", code: PRESET_BRUSHES.rdp.code, isPreset: true, type: "filter" },
       { id: "vw", name: "Simplify (VW)", code: PRESET_BRUSHES.vw.code, isPreset: true, type: "filter" },
       { id: "smooth", name: "Laplacian Smooth", code: PRESET_BRUSHES.smooth.code, isPreset: true, type: "filter" },
@@ -1224,17 +1346,18 @@ function App() {
   });
 
   const [activeBrushId, setActiveBrushId] = useState(() => {
-    return localStorage.getItem("drawerator_active_brush_id") || "normal";
+    const saved = localStorage.getItem("drawerator_active_brush_id");
+    return saved && saved !== "normal" ? saved : "simple";
   });
 
   const [globalModifiers, setGlobalModifiers] = useState([]);
   const [globalMuteStack, setGlobalMuteStack] = useState(false);
-  const [globalHideOriginal, setGlobalHideOriginal] = useState(false);
+  const [nextStrokeHideOriginal, setNextStrokeHideOriginal] = useState(false);
   const [globalRoundness, setGlobalRoundness] = useState(true);
 
   const [activeBrushCode, setActiveBrushCode] = useState(() => {
-    const id = localStorage.getItem("drawerator_active_brush_id") || "normal";
-    if (id === "normal") return "";
+    const savedId = localStorage.getItem("drawerator_active_brush_id");
+    const id = savedId && savedId !== "normal" ? savedId : "simple";
     
     const savedPalette = localStorage.getItem("drawerator_brush_palette");
     let currentPalette = [];
@@ -1251,6 +1374,7 @@ function App() {
       { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true },
       { id: "walking", name: "Walking Brush (Time-Oscillated)", code: PRESET_BRUSHES.walking.code, isPreset: true },
       { id: "rake", name: "Rake Brush (Variable Teeth)", code: PRESET_BRUSHES.rake.code, isPreset: true },
+      { id: "zenRake", name: "Zen Garden Rake (Parallel Grooves)", code: PRESET_BRUSHES.zenRake.code, isPreset: true },
       { id: "rdp", name: "Simplify (RDP)", code: PRESET_BRUSHES.rdp.code, isPreset: true },
       { id: "vw", name: "Simplify (VW)", code: PRESET_BRUSHES.vw.code, isPreset: true },
       { id: "smooth", name: "Laplacian Smooth", code: PRESET_BRUSHES.smooth.code, isPreset: true },
@@ -1280,6 +1404,12 @@ function App() {
 
   const [brushCompileError, setBrushCompileError] = useState("");
   const [brushParams, setBrushParams] = useState([]);
+  const [saveAsBrushName, setSaveAsBrushName] = useState(null);
+  const [brushSaveMessage, setBrushSaveMessage] = useState("");
+  const [editingModifierTarget, setEditingModifierTarget] = useState(null);
+  const pendingBrushParamsRef = useRef(null);
+  const pendingModifierRetargetRef = useRef(null);
+  const lastParamsBrushIdRef = useRef(activeBrushId);
   const compiledGeneratorRef = useRef(null);
   const processedModifierVersionsRef = useRef({});
   const restoredHistoryElementVersionsRef = useRef({});
@@ -1287,10 +1417,29 @@ function App() {
   const linearEditPointsRef = useRef({});
   const evaluatingModifiersRef = useRef(false);
   const lastOverlayVersionRef = useRef({});
-  const [brushSidebarDocked, setBrushSidebarDocked] = useState(false);
 
   useEffect(() => {
     localStorage.setItem("drawerator_brush_palette", JSON.stringify(brushPalette));
+
+    const pending = pendingModifierRetargetRef.current;
+    if (!pending || !brushPalette.some(brush => brush.id === pending.brush.id)) return;
+    const { target, brush, params } = pending;
+    pendingModifierRetargetRef.current = null;
+
+    if (target.elementId && excalidrawAPI) {
+      const parentElement = excalidrawAPI.getSceneElements().find(element => element.id === target.elementId);
+      if (parentElement) {
+        const updatedModifiers = replaceModifierBrushAt(
+          parentElement.customData?.modifiers || [],
+          target.modifierIndex,
+          brush,
+          params
+        );
+        updateModifiedElementInScene(parentElement.id, updatedModifiers);
+      }
+    } else if (!target.elementId) {
+      setGlobalModifiers(previous => replaceModifierBrushAt(previous, target.modifierIndex, brush, params));
+    }
   }, [brushPalette]);
 
   useEffect(() => {
@@ -1315,15 +1464,22 @@ function App() {
       return;
     }
     const parsed = parseParameters(activeBrushCode);
+    const pending = pendingBrushParamsRef.current;
+    const brushChanged = lastParamsBrushIdRef.current !== activeBrushId;
     setBrushParams(prev => {
       return parsed.map(newParam => {
+        if (pending?.brushId === activeBrushId && pending.params?.[newParam.name] !== undefined) {
+          return { ...newParam, value: pending.params[newParam.name] };
+        }
         const existing = prev.find(p => p.name === newParam.name);
-        if (existing) {
+        if (!brushChanged && existing) {
           return { ...newParam, value: existing.value };
         }
         return newParam;
       });
     });
+    if (pending?.brushId === activeBrushId) pendingBrushParamsRef.current = null;
+    lastParamsBrushIdRef.current = activeBrushId;
   }, [activeBrushCode, activeBrushId]);
 
   useEffect(() => {
@@ -1350,16 +1506,15 @@ function App() {
     const finalCode = updateCodeWithParamValues(activeBrushCode, brushParams);
     setBrushPalette(prev => prev.map(b => b.id === activeBrushId ? { ...b, code: finalCode } : b));
     setActiveBrushCode(finalCode);
-    alert("Changes saved successfully!");
+    setBrushSaveMessage("Changes saved to this brush.");
   };
 
   const saveBrushCopy = () => {
     const brush = brushPalette.find(b => b.id === activeBrushId) || {};
-    const defaultName = brush.name ? `Copy of ${brush.name.split(" (")[0]}` : "My Custom Brush";
-    const name = window.prompt("Enter name for the new brush:", defaultName);
-    if (!name || !name.trim()) return;
+    const name = saveAsBrushName?.trim();
+    if (!name) return;
     
-    const newId = `custom-${Date.now()}`;
+    const newId = `user-${Date.now()}`;
     const finalCode = updateCodeWithParamValues(activeBrushCode, brushParams);
     const newBrush = {
       id: newId,
@@ -1369,10 +1524,23 @@ function App() {
       type: brush.type || "brush"
     };
     
+    const currentParams = Object.fromEntries(brushParams.map(param => [param.name, param.value]));
+    if (editingModifierTarget) {
+      pendingModifierRetargetRef.current = {
+        target: editingModifierTarget,
+        brush: newBrush,
+        params: currentParams
+      };
+      setEditingModifierTarget(null);
+    }
+
     setBrushPalette(prev => [...prev, newBrush]);
     setActiveBrushId(newId);
     setActiveBrushCode(finalCode);
-    setCustomBrushActive(true);
+    setSaveAsBrushName(null);
+    setBrushSaveMessage(editingModifierTarget
+      ? `Saved “${newBrush.name}” and replaced the modifier in the stack.`
+      : `Saved “${newBrush.name}” to the brush palette.`);
   };
 
   const deleteBrush = () => {
@@ -1387,12 +1555,12 @@ function App() {
   };
 
   const [customBrushActive, setCustomBrushActive] = useState(false);
+  const modifierDrawingActive = customBrushActive && globalModifiers.length > 0;
   const [customBrushRoundness, setCustomBrushRoundness] = useState(() => localStorage.getItem("drawerator_custom_brush_roundness") !== "false");
   
   useEffect(() => {
     localStorage.setItem("drawerator_custom_brush_roundness", customBrushRoundness);
   }, [customBrushRoundness]);
-  const [showBrushMenu, setShowBrushMenu] = useState(false);
   const [customContextMenu, setCustomContextMenu] = useState(null);
 
   const isMouseDownRef = useRef(false);
@@ -1400,21 +1568,37 @@ function App() {
     const closeMenu = () => setCustomContextMenu(null);
     const handleDown = () => { isMouseDownRef.current = true; };
     const handleUp = () => { isMouseDownRef.current = false; };
+    const clearFinishedBrushPreview = () => {
+      // The canvas-level pointer-up handler snapshots a completed stroke during
+      // capture. This bubble-phase cleanup also covers releases outside the
+      // canvas, which otherwise leave the last live brush preview on screen.
+      isDrawingRef.current = false;
+      rawCursorRef.current = null;
+      livePointsRef.current = [];
+      setShiftHeld(false);
+      setDrawingPoints([]);
+    };
 
     window.addEventListener("click", closeMenu);
     window.addEventListener("pointerdown", closeMenu);
     window.addEventListener("pointerdown", handleDown, { capture: true });
     window.addEventListener("pointerup", handleUp, { capture: true });
+    window.addEventListener("pointerup", clearFinishedBrushPreview);
+    window.addEventListener("pointercancel", clearFinishedBrushPreview);
 
     return () => {
       window.removeEventListener("click", closeMenu);
       window.removeEventListener("pointerdown", closeMenu);
       window.removeEventListener("pointerdown", handleDown, { capture: true });
       window.removeEventListener("pointerup", handleUp, { capture: true });
+      window.removeEventListener("pointerup", clearFinishedBrushPreview);
+      window.removeEventListener("pointercancel", clearFinishedBrushPreview);
     };
   }, []);
 
   const [drawingPoints, setDrawingPoints] = useState([]);
+  const [pendingStrokePreview, setPendingStrokePreview] = useState(null);
+  const pendingStrokePreviewIdRef = useRef(0);
   const [shiftHeld, setShiftHeld] = useState(false);
   const isDrawingRef = useRef(false);
   const livePointsRef = useRef([]);
@@ -1426,7 +1610,7 @@ function App() {
   const lastStrokeColorRef = useRef("#000000");
 
   useEffect(() => {
-    if (!customBrushActive || drawingPoints.length < 2 || !isDrawingRef.current) return;
+    if (!modifierDrawingActive || drawingPoints.length < 2 || !isDrawingRef.current) return;
     let animationFrame = 0;
     let lastPaintTime = 0;
     const animate = (timestamp) => {
@@ -1440,7 +1624,7 @@ function App() {
     };
     animationFrame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animationFrame);
-  }, [customBrushActive, drawingPoints.length]);
+  }, [modifierDrawingActive, drawingPoints.length]);
 
   const getThemeColor = (color) => {
     if (!color) return "var(--color-primary)";
@@ -1487,7 +1671,7 @@ function App() {
   };
 
   const handleCanvasPointerDown = (e) => {
-    if (!excalidrawAPI || !customBrushActive) return;
+    if (!excalidrawAPI || !modifierDrawingActive) return;
     if (e.button !== 0) return;
 
     const targetElement = e.target;
@@ -1511,6 +1695,9 @@ function App() {
     ) {
       return;
     }
+
+    pendingStrokePreviewIdRef.current += 1;
+    setPendingStrokePreview(null);
 
     const appState = excalidrawAPI.getAppState();
     if (appState.currentItemStrokeColor && appState.currentItemStrokeColor !== "transparent") {
@@ -1647,30 +1834,26 @@ function App() {
   });
 
   const getDrawingModifiers = () => {
-    const drawingModifiers = [];
-    if (activeBrushId !== "normal") {
-      const activeBrush = brushPalette.find(brush => brush.id === activeBrushId);
-      if (activeBrush) {
-        drawingModifiers.push({
-          id: activeBrushId,
-          name: activeBrush.name,
-          enabled: true,
-          params: Object.fromEntries(brushParams.map(param => [param.name, param.value]))
-        });
-      }
-    }
-    return [...drawingModifiers, ...globalModifiers];
+    return resolveDrawingModifiers({
+      globalModifiers,
+    });
   };
 
-  const getLivePreviewPaths = () => {
-    if (!customBrushActive || drawingPoints.length < 2) return [];
+  const getLivePreviewPaths = (frozenPreview = null) => {
+    const previewPoints = frozenPreview?.points || drawingPoints;
+    const previewModifiers = frozenPreview?.modifiers || getDrawingModifiers();
+    const previewGlobals = frozenPreview?.globals || getBrushGlobals();
+    if (!modifierDrawingActive || previewPoints.length < 2) return [];
 
     try {
-      const { allLines } = evaluateModifierStack(drawingPoints, getDrawingModifiers(), getBrushGlobals());
-      return allLines;
+      const evaluation = evaluateModifierStack(previewPoints, previewModifiers, previewGlobals);
+      return composePreviewTracks({
+        ...evaluation,
+        hideOriginal: frozenPreview?.hideOriginal ?? nextStrokeHideOriginal,
+      });
     } catch (e) {
       console.error("Live preview modifier evaluation error", e);
-      return [drawingPoints];
+      return [previewPoints];
     }
   };
 
@@ -1824,7 +2007,6 @@ function App() {
       el.roundness = globalRoundness ? { type: 2 } : null;
       el.customData = {
         ...el.customData,
-        hideOriginal: globalHideOriginal,
         muteModifiers: globalMuteStack
       };
       
@@ -2077,17 +2259,13 @@ function App() {
       if (!mod.enabled) continue;
 
       try {
-        let modId = mod.id;
-        if (!modId.startsWith("custom-")) {
-          modId = "custom-" + modId;
-        }
-
-        const brushId = modId.replace("custom-", "");
+        const brushId = resolveBrushId(mod.id, brushPalette);
         const brush = brushPalette.find(b => b.id === brushId);
-        if (brush) {
+        const brushCode = mod.codeOverride || brush?.code;
+        if (brushCode) {
           const params = [];
-          if (brush.code) {
-            const lines = brush.code.split("\n");
+          if (brushCode) {
+            const lines = brushCode.split("\n");
             lines.forEach(line => {
               const match = line.match(/\/\/\s*@param\s+(\w+)\s*=\s*([0-9.-]+)/);
               if (match) {
@@ -2097,16 +2275,16 @@ function App() {
               }
             });
           }
-          const processedCode = updateCodeWithParamValues(brush.code, params);
+          const processedCode = updateCodeWithParamValues(brushCode, params);
           const { generator } = compileUserBrush(processedCode, params);
           if (generator) {
             const res = generator(baseLine, globals);
             
             // Check type property first, fallback to dynamic array dimension check
             let isMultiTrack = false;
-            if (brush.type === "brush") {
+            if ((brush?.type || mod.type) === "brush") {
               isMultiTrack = true;
-            } else if (brush.type === "filter") {
+            } else if ((brush?.type || mod.type) === "filter") {
               isMultiTrack = false;
             } else {
               isMultiTrack = Array.isArray(res) && res.length > 0 && Array.isArray(res[0]) && Array.isArray(res[0][0]);
@@ -2230,7 +2408,7 @@ function App() {
     });
   };
 
-  const updateModifiedElementInScene = (elId, newModifiers, forceOriginalPoints = null, modifierGlobals = null) => {
+  const updateModifiedElementInScene = (elId, newModifiers, forceOriginalPoints = null, modifierGlobals = null, commitToHistory = true) => {
     if (!excalidrawAPI) return;
     const elements = excalidrawAPI.getSceneElements();
     const parentEl = elements.find(el => el.id === elId);
@@ -2324,7 +2502,7 @@ function App() {
     try {
       excalidrawAPI.updateScene({
         elements: nextElements,
-        commitToHistory: true
+        commitToHistory
       });
     } finally {
       evaluatingModifiersRef.current = false;
@@ -2332,10 +2510,73 @@ function App() {
     setModifierUpdateNonce(n => n + 1);
   };
 
+  const syncEditorDraftToModifier = (commitToHistory = false) => {
+    if (!editingModifierTarget || editingModifierTarget.brushId !== activeBrushId) return false;
+    const finalCode = updateCodeWithParamValues(activeBrushCode, brushParams);
+    const compiled = compileUserBrush(finalCode, brushParams);
+    if (!compiled.generator || compiled.error) return false;
+    const nextParams = Object.fromEntries(brushParams.map(param => [param.name, param.value]));
+    const paletteCode = brushPalette.find(brush => brush.id === activeBrushId)?.code || "";
+    const paletteCodeWithParams = updateCodeWithParamValues(paletteCode, brushParams);
+    const nextCodeOverride = finalCode === paletteCodeWithParams ? undefined : finalCode;
+
+    const updateModifiers = (currentModifiers) => {
+      let targetIndex = editingModifierTarget.modifierIndex;
+      if (currentModifiers[targetIndex]?.id !== editingModifierTarget.modifierId) {
+        targetIndex = currentModifiers.findIndex(modifier => modifier.id === editingModifierTarget.modifierId);
+      }
+      if (targetIndex < 0) return currentModifiers;
+      const current = currentModifiers[targetIndex];
+      if (
+        current.codeOverride === nextCodeOverride &&
+        JSON.stringify(current.params || {}) === JSON.stringify(nextParams)
+      ) {
+        return currentModifiers;
+      }
+      return currentModifiers.map((modifier, index) => index === targetIndex
+        ? { ...modifier, codeOverride: nextCodeOverride, params: nextParams }
+        : modifier);
+    };
+
+    if (editingModifierTarget.elementId && excalidrawAPI) {
+      const parentElement = excalidrawAPI.getSceneElements().find(
+        element => element.id === editingModifierTarget.elementId
+      );
+      if (!parentElement) return false;
+      const currentModifiers = parentElement.customData?.modifiers || [];
+      const updatedModifiers = updateModifiers(currentModifiers);
+      if (updatedModifiers === currentModifiers) return true;
+      updateModifiedElementInScene(
+        parentElement.id,
+        updatedModifiers,
+        null,
+        null,
+        commitToHistory
+      );
+      return true;
+    }
+
+    if (!editingModifierTarget.elementId) {
+      setGlobalModifiers(previous => updateModifiers(previous));
+      return true;
+    }
+    return false;
+  };
+
+  useEffect(() => {
+    if (!editingModifierTarget || editingModifierTarget.brushId !== activeBrushId) return;
+    const timeout = window.setTimeout(() => {
+      syncEditorDraftToModifier(false);
+    }, 120);
+    return () => window.clearTimeout(timeout);
+  }, [activeBrushCode, brushParams, activeBrushId, editingModifierTarget]);
+
   const handleCanvasPointerUp = (e) => {
     if (!isDrawingRef.current) {
       rawCursorRef.current = null;
+      livePointsRef.current = [];
       setShiftHeld(false);
+      setDrawingPoints([]);
       return;
     }
     brushElapsedRef.current = Math.max(0, Date.now() - strokeStartTimeRef.current);
@@ -2360,7 +2601,7 @@ function App() {
       livePointsRef.current.push(closingPt);
     }
 
-    if (!excalidrawAPI || !customBrushActive) {
+    if (!excalidrawAPI || !modifierDrawingActive) {
       setDrawingPoints([]);
       return;
     }
@@ -2379,7 +2620,22 @@ function App() {
       : null;
     const completedStrokeModifiers = getDrawingModifiers();
     const completedStrokeElapsedMs = brushElapsedRef.current;
+    const completedStrokeHideOriginal = nextStrokeHideOriginal;
+    const completedPreviewId = ++pendingStrokePreviewIdRef.current;
+    const frozenBrushGlobals = getBrushGlobals({
+      elapsedMs: completedStrokeElapsedMs,
+      isPointerDown: false
+    });
 
+    if (completedStrokePoints) {
+      setPendingStrokePreview({
+        id: completedPreviewId,
+        points: completedStrokePoints,
+        modifiers: completedStrokeModifiers,
+        globals: frozenBrushGlobals,
+        hideOriginal: completedStrokeHideOriginal,
+      });
+    }
     // Wait a brief tick for Excalidraw to finish writing the element
     setTimeout(() => {
       try {
@@ -2403,34 +2659,29 @@ function App() {
           lastElement.roundness = globalRoundness ? { type: 2 } : null;
           lastElement.strokeColor = lastStrokeColorRef.current;
           const drawingModifiers = completedStrokeModifiers;
-          const effHide = globalHideOriginal && drawingModifiers.length > 0;
-          if (effHide) {
-            const savedOpacity = lastElement.opacity > 0 ? lastElement.opacity : 100;
+          const shouldHideOriginal = completedStrokeHideOriginal && drawingModifiers.length > 0;
+          let savedOpacity = lastElement.customData?.savedOpacity;
+          if (shouldHideOriginal) {
+            savedOpacity = lastElement.opacity > 0 ? lastElement.opacity : (savedOpacity ?? 100);
             lastElement.opacity = 0;
-            lastElement.customData = {
-              ...lastElement.customData,
-              hideOriginal: globalHideOriginal,
-              muteModifiers: globalMuteStack,
-              savedOpacity
-            };
-          } else {
-            lastElement.customData = {
-              ...lastElement.customData,
-              hideOriginal: globalHideOriginal,
-              muteModifiers: globalMuteStack
-            };
           }
-
-          const frozenBrushGlobals = getBrushGlobals({
-            elapsedMs: completedStrokeElapsedMs,
-            isPointerDown: false
-          });
+          lastElement.customData = {
+            ...lastElement.customData,
+            hideOriginal: completedStrokeHideOriginal,
+            muteModifiers: globalMuteStack,
+            ...(savedOpacity !== undefined ? { savedOpacity } : {})
+          };
           updateModifiedElementInScene(lastElement.id, drawingModifiers, pointsToUse, frozenBrushGlobals);
         }
       } catch (err) {
         console.error("Error processing custom brush as modifier:", err);
       } finally {
         setDrawingPoints([]);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => setPendingStrokePreview(previous =>
+            previous?.id === completedPreviewId ? null : previous
+          ));
+        });
       }
     }, 80);
   };
@@ -3170,11 +3421,14 @@ function App() {
         e.stopPropagation();
         excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" });
       }
-      // Ctrl + Option + B (Toggle Custom Brush Panel)
+      // Ctrl + Option + B (Open the script editor in Mods & FX)
       if (e.ctrlKey && e.altKey && e.code === "KeyB") {
         e.preventDefault();
         e.stopPropagation();
-        excalidrawAPI?.toggleSidebar({ name: "brush-sidebar" });
+        setModsPanelTab("script");
+        if (excalidrawAPI?.getAppState().activeSidebar !== "modifiers-sidebar") {
+          excalidrawAPI?.toggleSidebar({ name: "modifiers-sidebar" });
+        }
       }
       // Ctrl + Option + P (Toggle Modifiers/Properties Sidebar Panel)
       if (e.ctrlKey && e.altKey && e.code === "KeyP") {
@@ -3187,7 +3441,7 @@ function App() {
         e.preventDefault();
         e.stopPropagation();
         setModifiersSidebarDocked(prev => !prev);
-        if (!document.querySelector(".drawerator-modifiers-pin")) {
+        if (excalidrawAPI?.getAppState().activeSidebar !== "modifiers-sidebar") {
           excalidrawAPI?.toggleSidebar({ name: "modifiers-sidebar" });
         }
       }
@@ -3595,11 +3849,7 @@ function App() {
     });
   };
 
-  const renderModifiersTab = () => {
-    if (!excalidrawAPI) {
-      return <div className="modifiers-panel-empty" style={{ textAlign: "center", opacity: 0.6, padding: "20px" }}>Excalidraw is loading...</div>;
-    }
-
+  const getModifierPanelSelectedElements = () => {
     let selectedElements = getSelectedElements();
     const selectedIds = new Set(selectedElements.map(el => el.id));
     // A baked brush is one logical object even though Excalidraw selects its
@@ -3608,20 +3858,138 @@ function App() {
     selectedElements = selectedElements.filter(el => !(
       el.customData?.bakedTrack && selectedIds.has(el.customData?.parentId)
     ));
+    return selectedElements;
+  };
+
+  const getModifierPanelControlState = () => {
+    const selectedElements = getModifierPanelSelectedElements();
+    const hasSelection = selectedElements.length === 1;
+    const hasMultipleSelection = selectedElements.length > 1;
+    const element = hasSelection ? selectedElements[0] : null;
+    const isShape = element ? ["rectangle", "ellipse", "diamond"].includes(element.type) : false;
+    const modifiers = hasSelection ? (element.customData?.modifiers || []) : globalModifiers;
+    const isMuted = hasSelection ? Boolean(element.customData?.muteModifiers) : globalMuteStack;
+    const selectedHideOriginal = hasSelection ? Boolean(element.customData?.hideOriginal) : nextStrokeHideOriginal;
+    const resolvedHideControl = resolveHideOriginalControl({
+      hasSelection,
+      selectedHideOriginal,
+      customBrushActive,
+      nextStrokeHideOriginal,
+    });
+    const hideOriginalControl = hasMultipleSelection
+      ? { checked: false, disabled: true, target: null }
+      : resolvedHideControl;
+    const canRestoreOriginal = hasSelection && (
+      element.id.includes("-brush-") ||
+      element.groupIds?.some(groupId => groupId.endsWith("-group"))
+    );
+
+    return {
+      selectedElements,
+      hasSelection,
+      hasMultipleSelection,
+      element,
+      isShape,
+      modifiers,
+      isMuted,
+      hideOriginalControl,
+      canRestoreOriginal,
+    };
+  };
+
+  const handleToggleModifierMute = ({ hasSelection, element, modifiers, isMuted, hasMultipleSelection, hideOriginalControl }) => {
+    if (!excalidrawAPI || hasMultipleSelection) return;
+    if (!isMuted && hideOriginalControl.checked) return;
+    if (hasSelection) {
+      const nextElements = excalidrawAPI.getSceneElements().map(el => {
+        if (el.id !== element.id) return el;
+        const originalPoints = el.customData?.originalPoints;
+        const mute = !isMuted;
+        let updatedPoints = el.points;
+
+        if (mute && originalPoints) {
+          updatedPoints = originalPoints.map(point => {
+            const relativePoint = [point[0] - el.x, point[1] - el.y];
+            if (point.pressure !== undefined) relativePoint.pressure = point.pressure;
+            return relativePoint;
+          });
+        }
+
+        return {
+          ...el,
+          points: updatedPoints,
+          customData: {
+            ...(el.customData || {}),
+            muteModifiers: mute,
+          },
+        };
+      });
+      excalidrawAPI.updateScene({ elements: nextElements });
+
+      if (isMuted) {
+        setTimeout(() => updateModifiedElementInScene(element.id, modifiers), 50);
+      }
+      return;
+    }
+    setGlobalMuteStack(previous => !previous);
+  };
+
+  const handleToggleModifierHideOriginal = ({ element, hideOriginalControl, isMuted }) => {
+    if (!excalidrawAPI || hideOriginalControl.disabled) return;
+    if (!hideOriginalControl.checked && isMuted) return;
+    if (hideOriginalControl.target === "nextStroke") {
+      setNextStrokeHideOriginal(previous => !previous);
+      return;
+    }
+    if (hideOriginalControl.target !== "selectedStroke" || !element) return;
+
+    const nextElements = excalidrawAPI.getSceneElements().map(el => {
+      if (el.id !== element.id) return el;
+      const hide = !el.customData?.hideOriginal;
+      const effectiveHide = hide && (el.customData?.modifiers?.length || 0) > 0;
+      let savedOpacity = el.customData?.savedOpacity;
+
+      if (effectiveHide) {
+        if (el.opacity > 0) savedOpacity = el.opacity;
+        else if (savedOpacity === undefined) savedOpacity = 100;
+      }
+
+      return {
+        ...el,
+        opacity: effectiveHide ? 0 : (savedOpacity ?? 100),
+        customData: {
+          ...(el.customData || {}),
+          hideOriginal: hide,
+          savedOpacity,
+        },
+      };
+    });
+
+    evaluatingModifiersRef.current = true;
+    try {
+      excalidrawAPI.updateScene({ elements: nextElements });
+    } finally {
+      evaluatingModifiersRef.current = false;
+    }
+    setModifierUpdateNonce(nonce => nonce + 1);
+  };
+
+  const renderModifiersTab = () => {
+    if (!excalidrawAPI) {
+      return <div className="modifiers-panel-empty" style={{ textAlign: "center", opacity: 0.6, padding: "20px" }}>Excalidraw is loading...</div>;
+    }
+
+    const selectedElements = getModifierPanelSelectedElements();
     const hasSelection = selectedElements.length === 1;
 
     let element = null;
     let isShape = false;
     let modifiers = [];
-    let isMuted = false;
-    let hideOriginal = false;
 
     if (hasSelection) {
       element = selectedElements[0];
       isShape = ["rectangle", "ellipse", "diamond"].includes(element.type);
       modifiers = element.customData?.modifiers || [];
-      isMuted = element.customData?.muteModifiers || false;
-      hideOriginal = element.customData?.hideOriginal || false;
       if (element.type !== "freedraw" && element.type !== "line" && !isShape) {
         return (
           <div className="modifiers-panel-empty" style={{
@@ -3661,8 +4029,6 @@ function App() {
       }
       // Zero elements selected: Use global stack
       modifiers = globalModifiers;
-      isMuted = globalMuteStack;
-      hideOriginal = globalHideOriginal;
     }
 
     if (isShape) {
@@ -3699,117 +4065,8 @@ function App() {
       );
     }
 
-    const handleToggleMute = () => {
-      if (hasSelection) {
-        const nextElements = excalidrawAPI.getSceneElements().map(el => {
-          if (el.id === element.id) {
-            const originalPoints = el.customData?.originalPoints;
-            const mute = !isMuted;
-            let updatedPoints = el.points;
-            
-            if (mute && originalPoints) {
-              updatedPoints = originalPoints.map(p => {
-                const relPt = [p[0] - el.x, p[1] - el.y];
-                if (p.pressure !== undefined) relPt.pressure = p.pressure;
-                return relPt;
-              });
-            }
-            
-            return {
-              ...el,
-              points: updatedPoints,
-              customData: {
-                ...(el.customData || {}),
-                muteModifiers: mute
-              }
-            };
-          }
-          return el;
-        });
-        excalidrawAPI.updateScene({ elements: nextElements });
-        
-        if (isMuted) {
-          setTimeout(() => {
-            updateModifiedElementInScene(element.id, modifiers);
-          }, 50);
-        }
-      } else {
-        setGlobalMuteStack(!globalMuteStack);
-      }
-    };
-
-    const handleToggleHideOriginal = () => {
-      if (hasSelection) {
-        const nextElements = excalidrawAPI.getSceneElements().map(el => {
-          if (el.id === element.id) {
-            const hide = !el.customData?.hideOriginal;
-            const effHide = hide && (el.customData?.modifiers?.length || 0) > 0;
-            let savedOpacity = el.customData?.savedOpacity;
-            
-            if (effHide) {
-              if (el.opacity > 0) {
-                savedOpacity = el.opacity;
-              } else if (savedOpacity === undefined) {
-                savedOpacity = 100;
-              }
-            }
-            
-            const newOpacity = effHide ? 0 : (savedOpacity ?? 100);
-            
-            return {
-              ...el,
-              opacity: newOpacity,
-              customData: {
-                ...(el.customData || {}),
-                hideOriginal: hide,
-                savedOpacity: savedOpacity
-              }
-            };
-          }
-          return el;
-        });
-        
-        evaluatingModifiersRef.current = true;
-        try {
-          excalidrawAPI.updateScene({ elements: nextElements });
-        } finally {
-          evaluatingModifiersRef.current = false;
-        }
-        
-        setModifierUpdateNonce(n => n + 1);
-      } else {
-        const next = !globalHideOriginal;
-        setGlobalHideOriginal(next);
-        const nextElements = excalidrawAPI.getSceneElements().map(el => {
-          if (el.customData?.modifiers && !el.isDeleted) {
-            const effHide = next && (el.customData.modifiers?.length || 0) > 0;
-            let savedOpacity = el.customData?.savedOpacity;
-            if (effHide) {
-              if (el.opacity > 0) {
-                savedOpacity = el.opacity;
-              } else if (savedOpacity === undefined) {
-                savedOpacity = 100;
-              }
-            }
-            const newOpacity = effHide ? 0 : (savedOpacity ?? 100);
-            return {
-              ...el,
-              opacity: newOpacity,
-              customData: {
-                ...(el.customData || {}),
-                hideOriginal: next,
-                savedOpacity: savedOpacity
-              }
-            };
-          }
-          return el;
-        });
-        excalidrawAPI.updateScene({ elements: nextElements });
-      }
-    };
-
     const handleAddModifier = (type) => {
-      const brushId = type.startsWith("custom-") ? type.replace("custom-", "") : type;
+      const brushId = resolveBrushId(type, brushPalette);
       const brush = brushPalette.find(b => b.id === brushId);
       if (brush) {
         const defaultParams = {};
@@ -4105,35 +4362,6 @@ function App() {
 
     return (
       <div className="modifiers-panel-container" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-        <div style={{
-          display: "flex", 
-          flexDirection: "column",
-          gap: "8px",
-          padding: "8px 10px", 
-          borderRadius: "4px", 
-          background: "var(--input-bg-color, rgba(0, 0, 0, 0.02))",
-          border: "1px solid var(--border-color, rgba(0, 0, 0, 0.1))"
-        }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontSize: "13px", fontWeight: "bold" }}>Mute Stack (Edit Base)</span>
-            <input 
-              type="checkbox" 
-              checked={isMuted} 
-              onChange={handleToggleMute} 
-              style={{ width: "16px", height: "16px", cursor: "pointer" }}
-            />
-          </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: "1px solid var(--border-color, rgba(0, 0, 0, 0.1))", paddingTop: "8px" }}>
-            <span style={{ fontSize: "13px", fontWeight: "bold" }}>Hide Original Path</span>
-            <input 
-              type="checkbox" 
-              checked={hideOriginal} 
-              onChange={handleToggleHideOriginal} 
-              style={{ width: "16px", height: "16px", cursor: "pointer" }}
-            />
-          </div>
-        </div>
-
         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
           <label style={{ fontSize: "11px", fontWeight: "bold", opacity: 0.7 }}>ADD MODIFIER</label>
           <select 
@@ -4210,6 +4438,11 @@ function App() {
                       <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                         <span style={{ fontSize: "11px", opacity: 0.5, fontWeight: "bold" }}>#{index + 1}</span>
                         <strong style={{ fontSize: "12px" }}>{mod.name}</strong>
+                        {mod.codeOverride && (
+                          <span style={{ fontSize: "9px", opacity: 0.65, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                            edited
+                          </span>
+                        )}
                       </div>
                       
                       <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
@@ -4262,14 +4495,28 @@ function App() {
 
                         <button
                           onClick={() => {
-                            const cleanId = mod.id.replace(/^custom-/, "");
-                            setActiveBrushId(cleanId);
-                            if (excalidrawAPI) {
-                              const activeSidebar = excalidrawAPI.getAppState().activeSidebar;
-                              if (activeSidebar !== "brush-sidebar") {
-                                excalidrawAPI.toggleSidebar({ name: "brush-sidebar" });
-                              }
-                            }
+                            const brushId = resolveBrushId(mod.id, brushPalette);
+                            const brush = brushPalette.find(candidate => candidate.id === brushId);
+                            if (!brushId || !brush) return;
+                            const editorCode = mod.codeOverride || brush.code;
+                            const editorParams = getScriptParams(editorCode).map(param => ({
+                              ...param,
+                              value: mod.params?.[param.name] ?? param.default
+                            }));
+                            pendingBrushParamsRef.current = {
+                              brushId,
+                              params: { ...(mod.params || {}) }
+                            };
+                            setEditingModifierTarget({
+                              elementId: element?.id || null,
+                              modifierIndex: index,
+                              modifierId: mod.id,
+                              brushId
+                            });
+                            setActiveBrushId(brushId);
+                            setActiveBrushCode(editorCode);
+                            setBrushParams(editorParams);
+                            setModsPanelTab("script");
                           }}
                           style={{
                             background: "none",
@@ -4281,7 +4528,7 @@ function App() {
                             display: "flex",
                             alignItems: "center"
                           }}
-                          title="Edit custom script in Brush Lab"
+                          title="Edit modifier script"
                         >
                           <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
@@ -4357,10 +4604,10 @@ function App() {
                         gap: "6px"
                       }}>
                         {(() => {
-                          const brushId = mod.id.replace("custom-", "");
+                          const brushId = resolveBrushId(mod.id, brushPalette);
                           const brush = brushPalette.find(b => b.id === brushId);
                           if (!brush) return null;
-                          const scriptParams = getScriptParams(brush.code);
+                          const scriptParams = getScriptParams(mod.codeOverride || brush.code);
                           if (scriptParams.length === 0) {
                             return <div style={{ fontSize: "11px", opacity: 0.6 }}>No parameters.</div>;
                           }
@@ -4834,28 +5081,25 @@ function App() {
 
   const renderBrushConfigForm = () => {
     const activeBrush = brushPalette.find(b => b.id === activeBrushId) || {};
+    const editingActiveModifier = editingModifierTarget?.brushId === activeBrushId;
     
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "10px", height: "100%" }}>
-        {/* Brush Selector Dropdown */}
+        {/* Script selector */}
         <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-          <label style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-primary)", opacity: 0.8 }}>Select Brush Style</label>
+          <label style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-primary)", opacity: 0.8 }}>Brush Script</label>
           <select
-            value={activeBrushId}
-            onChange={(e) => {
-              const val = e.target.value;
-              setActiveBrushId(val);
-              if (val !== "normal") {
-                setCustomBrushActive(true);
-                excalidrawAPI?.updateScene({ appState: { activeTool: { type: "freedraw" } } });
-              } else {
-                setCustomBrushActive(false);
-                excalidrawAPI?.updateScene({ appState: { activeTool: { type: "selection" } } });
-              }
+              value={activeBrushId}
+              onChange={(e) => {
+                const val = e.target.value;
+                setEditingModifierTarget(null);
+                pendingBrushParamsRef.current = null;
+                setSaveAsBrushName(null);
+                setBrushSaveMessage("");
+                setActiveBrushId(val);
             }}
             className="custom-brush-select"
           >
-            <option value="normal" style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>Normal Pencil (Default)</option>
             {brushPalette.map((brush) => (
               <option key={brush.id} value={brush.id} style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>
                 {brush.name} {brush.isPreset ? "" : "⭐"}
@@ -4864,76 +5108,23 @@ function App() {
           </select>
         </div>
 
-        {/* Uniform Parameters Sliders */}
-        {activeBrushId !== "normal" && brushParams.length > 0 && (
-          <div style={{ 
-            display: "flex", 
-            flexDirection: "column", 
-            gap: "8px", 
-            padding: "10px", 
-            borderRadius: "6px", 
-            border: "1px solid var(--border-color)", 
-            background: "var(--input-bg-color, rgba(0, 0, 0, 0.02))",
-            marginTop: "2px"
-          }}>
-            <label style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-primary)", opacity: 0.8 }}>Brush Parameters</label>
-            {brushParams.map((param) => {
-              const isToggle = param.min === 0 && param.max === 1 && param.step === 1;
-              const label = param.name === "globalClock" ? "Use global clock" : param.name;
-              return (
-                <div key={param.name} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                  {isToggle ? (
-                    <label style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", fontSize: "11px", cursor: "pointer" }}>
-                      <span style={{ fontFamily: "monospace", color: "var(--color-primary)" }}>{label}</span>
-                      <input
-                        type="checkbox"
-                        checked={param.value > 0.5}
-                        onChange={(event) => {
-                          const val = event.target.checked ? 1 : 0;
-                          setBrushParams(prev => prev.map(p => p.name === param.name ? { ...p, value: val } : p));
-                        }}
-                        style={{ cursor: "pointer", width: "16px", height: "16px" }}
-                      />
-                    </label>
-                  ) : (
-                    <>
-                      <div style={{ display: "flex", width: "100%", justifyContent: "space-between", fontSize: "11px" }}>
-                        <span style={{ fontFamily: "monospace", color: "var(--color-primary)" }}>{label}</span>
-                        <span style={{ color: "var(--color-primary)", opacity: 0.7 }}>{param.value.toFixed(param.step % 1 === 0 ? 0 : 2)}</span>
-                      </div>
-                      <input
-                        type="range"
-                        min={param.min}
-                        max={param.max}
-                        step={param.step}
-                        value={param.value}
-                        onChange={(event) => {
-                          const val = parseFloat(event.target.value);
-                          setBrushParams(prev => prev.map(p => p.name === param.name ? { ...p, value: val } : p));
-                        }}
-                        style={{ width: "100%", cursor: "pointer", accentColor: "var(--color-primary)" }}
-                      />
-                    </>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Editor controls if not normal */}
+        {/* Script editor */}
         {activeBrushId !== "normal" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "8px", flexGrow: 1, minHeight: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-primary)", opacity: 0.8 }}>
-                JS Line Algorithm Code
+                JavaScript modifier code
               </span>
             </div>
 
             {/* Monospace Code Editor Textarea */}
             <textarea
               value={activeBrushCode}
-              onChange={(e) => setActiveBrushCode(e.target.value)}
+              onChange={(e) => {
+                setActiveBrushCode(e.target.value);
+                setBrushSaveMessage("");
+              }}
+              onBlur={() => syncEditorDraftToModifier(true)}
               className="custom-brush-textarea"
               style={{
                 fontFamily: "monospace",
@@ -4945,7 +5136,7 @@ function App() {
                 color: "var(--color-primary)",
                 resize: "vertical",
                 width: "100%",
-                height: "350px",
+                minHeight: "420px",
                 flexGrow: 1,
                 outline: "none"
               }}
@@ -4954,17 +5145,34 @@ function App() {
 
             {/* Action buttons row */}
             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "2px" }}>
-              {!activeBrush.isPreset && (
-                <button
-                  onClick={saveBrushChanges}
-                  className="palette-action-btn primary"
-                  title="Save changes to this custom brush code"
-                >
-                  Save
-                </button>
-              )}
               <button
-                onClick={saveBrushCopy}
+                onClick={() => {
+                  if (editingActiveModifier) {
+                    if (syncEditorDraftToModifier(true)) {
+                      setBrushSaveMessage("Modifier script updated.");
+                    }
+                    return;
+                  }
+                  saveBrushChanges();
+                }}
+                disabled={Boolean(activeBrush.isPreset && !editingActiveModifier)}
+                className="palette-action-btn primary"
+                title={activeBrush.isPreset && !editingActiveModifier
+                  ? "Built-in scripts are locked; use Save As to create an editable copy"
+                  : editingActiveModifier
+                    ? "Save this script to the modifier being edited"
+                    : "Save changes to this custom brush script"}
+              >
+                Save
+              </button>
+              <button
+                onClick={() => {
+                  const defaultName = activeBrush.name
+                    ? `Copy of ${activeBrush.name.split(" (")[0]}`
+                    : "My Custom Brush";
+                  setSaveAsBrushName(defaultName);
+                  setBrushSaveMessage("");
+                }}
                 className="palette-action-btn secondary"
                 title="Save this code as a new custom brush under a new name"
               >
@@ -4980,6 +5188,49 @@ function App() {
                 </button>
               )}
             </div>
+
+            {saveAsBrushName !== null && (
+              <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                <input
+                  aria-label="New brush name"
+                  value={saveAsBrushName}
+                  onChange={(event) => setSaveAsBrushName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") saveBrushCopy();
+                    if (event.key === "Escape") setSaveAsBrushName(null);
+                  }}
+                  autoFocus
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    padding: "6px 8px",
+                    borderRadius: "5px",
+                    border: "1px solid var(--border-color)",
+                    background: "var(--input-bg-color, rgba(0, 0, 0, 0.05))",
+                    color: "var(--color-primary)"
+                  }}
+                />
+                <button
+                  onClick={saveBrushCopy}
+                  disabled={!saveAsBrushName.trim()}
+                  className="palette-action-btn primary"
+                >
+                  Save copy
+                </button>
+                <button
+                  onClick={() => setSaveAsBrushName(null)}
+                  className="palette-action-btn secondary"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {brushSaveMessage && (
+              <div role="status" style={{ fontSize: "10px", color: "var(--color-primary)", opacity: 0.8 }}>
+                {brushSaveMessage}
+              </div>
+            )}
 
             {/* Compilation banner */}
             {brushCompileError ? (
@@ -5000,55 +5251,8 @@ function App() {
 
 
 
-        {/* Stroke Selection Actions */}
-        <div style={{
-          borderTop: "1px solid var(--border-color)",
-          paddingTop: "10px",
-          marginTop: "4px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "8px"
-        }}>
-          <label style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-primary)", opacity: 0.8 }}>Selection Utilities</label>
-          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-            <button
-              onClick={handleRestoreOriginalStroke}
-              className="palette-action-btn"
-              style={{ flexGrow: 1, padding: "6px 8px", fontSize: "11px" }}
-              title="Restore selected custom brush strokes back to original pencil lines"
-            >
-              Restore Original Stroke
-            </button>
-            <button
-              onClick={() => handleConvertType("line")}
-              className="palette-action-btn"
-              style={{ flexGrow: 1, padding: "6px 8px", fontSize: "11px" }}
-              title="Convert selected freehand pencil strokes to straight lines"
-            >
-              Convert to Line
-            </button>
-            <button
-              onClick={() => handleConvertType("freedraw")}
-              className="palette-action-btn"
-              style={{ flexGrow: 1, padding: "6px 8px", fontSize: "11px" }}
-              title="Convert selected straight lines to freehand pencil strokes"
-            >
-              Convert to Freehand
-            </button>
-          </div>
-        </div>
       </div>
     );
-  };
-
-  const handleDockSettingsClick = () => {
-    const appState = excalidrawAPI?.getAppState() || {};
-    if (appState.activeSidebar === "brush-sidebar") {
-      excalidrawAPI.toggleSidebar({ name: "brush-sidebar" });
-    } else {
-      excalidrawAPI.toggleSidebar({ name: "brush-sidebar" });
-      setShowBrushMenu(false);
-    }
   };
 
   return (
@@ -5336,19 +5540,8 @@ function App() {
             }
             setIsSidebarOpen(
               appState.activeSidebar === "ai-sidebar" || 
-              appState.activeSidebar === "brush-sidebar" ||
               appState.activeSidebar === "modifiers-sidebar"
             );
-            
-            // Auto activate custom brush if the sidebar is opened
-            if (appState.activeSidebar === "brush-sidebar") {
-              if (!customBrushActive) {
-                setCustomBrushActive(true);
-                if (activeBrushId === "normal") {
-                  setActiveBrushId("hairy");
-                }
-              }
-            }
 
             // Sync Excalidraw Zen Mode state
             if (appState.zenModeEnabled !== zenMode) {
@@ -5362,18 +5555,6 @@ function App() {
           }}
           renderTopRightUI={() => (
             <div className="drawerator-top-right-wrapper">
-              {/* Brush Sidebar Toggle (pencil and scribble icon) */}
-              <button 
-                id="btn-brush-header"
-                className={excalidrawAPI?.getAppState().activeSidebar === "brush-sidebar" ? "active" : ""}
-                onClick={() => excalidrawAPI?.toggleSidebar({ name: "brush-sidebar" })}
-                title="Toggle Custom Brush Lab"
-              >
-                <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.24 9.12l-8.62 8.62a1 1 0 01-1.41 0l-2.01-2.01a1 1 0 010-1.41l8.62-8.62m3.42 3.42l1.58-1.58a2.5 2.5 0 00-3.54-3.54l-1.58 1.58m3.54 3.54l-3.54-3.54 M3 21c3-3 7-1 10-4" />
-                </svg>
-              </button>
-
               {/* Chat Toggle (right of library) */}
               <button 
                 id="btn-chat-header" 
@@ -6000,147 +6181,133 @@ function App() {
             </div>
           </Sidebar>
 
-          {/* Custom Brush Sidebar Dock */}
-          <Sidebar name="brush-sidebar" docked={brushSidebarDocked} onDock={setBrushSidebarDocked}>
-            <div 
+          <Sidebar name="modifiers-sidebar" docked={modifiersSidebarDocked} onDock={setModifiersSidebarDocked}>
+            <div
               className="sidebar-resize-handle"
               onMouseDown={handleSidebarResizeMouseDown}
+              title="Drag to resize panel"
+              aria-label="Resize Mods and FX panel"
             />
-            <Sidebar.Header>
-              <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px", gap: "10px" }}>
-                <span style={{ fontSize: "14px", fontWeight: "600", color: "var(--color-primary)" }}>Custom Brush Lab 🧪</span>
-                <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-                  {/* Settings Button (Cog) */}
-                  <button 
-                    className="header-btn" 
-                    onClick={() => {
-                      setActiveSettingsTab("preferences");
-                      setShowSettings(true);
-                    }}
-                    title="Drawerator Settings"
-                  >
-                    <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                  </button>
-
-                  {/* Toggle Corner Style (Sharp / Smooth) */}
-                  <button 
-                    className={`header-btn ${!customBrushRoundness ? "active" : ""}`}
-                    onClick={() => setCustomBrushRoundness(prev => !prev)}
-                    title={customBrushRoundness ? "Toggle Sharp Corners (Shift+R)" : "Toggle Smooth Corners (Shift+R)"}
-                  >
-                    {customBrushRoundness ? (
-                      <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 20c8 0 16-8 16-16" />
-                      </svg>
-                    ) : (
-                      <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 20h16V4" />
-                      </svg>
-                    )}
-                  </button>
-
-                  {/* Apply to Selected Strokes Button (Sparkles) */}
-                  {activeBrushId !== "normal" && (
-                    <button 
-                      className="header-btn"
-                      onClick={handleApplyBrushToSelected}
-                      title="Apply active brush style to selected canvas strokes"
-                    >
-                      <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 21L8.188 15.904L3 15L8.188 14.096L9 9L9.813 14.096L15 15L9.813 15.904Z M19.071 4.929L17.657 6.343 M15 3h2 M21 5v2" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-              </div>
-            </Sidebar.Header>
-            <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "16px", height: "calc(100% - 50px)", overflowY: "auto" }}>
-              {renderBrushConfigForm()}
-            </div>
-          </Sidebar>
-
-          <Sidebar name="modifiers-sidebar" docked={modifiersSidebarDocked} onDock={setModifiersSidebarDocked}>
             <Sidebar.Header>
               <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px", gap: "10px" }}>
                 <span style={{ fontSize: "14px", fontWeight: "600", color: "var(--color-primary)" }}>
                   🛠️ Mods &amp; FX
                 </span>
                 {(() => {
-                  const selectedElements = getSelectedElements();
-                  const element = selectedElements[0];
-                  const isShape = element ? ["rectangle", "ellipse", "diamond"].includes(element.type) : false;
+                  const controlState = getModifierPanelControlState();
+                  const { element, isShape, modifiers, isMuted, hideOriginalControl, canRestoreOriginal } = controlState;
                   if (element && element.type !== "freedraw" && element.type !== "line" && !isShape) return null;
-                  
-                  const modifiers = element ? (element.customData?.modifiers || []) : globalModifiers;
+
                   const isRound = element ? !!element.roundness : globalRoundness;
-                  
+                  const bypassDisabled = controlState.hasMultipleSelection || (!isMuted && hideOriginalControl.checked);
+                  const hideDisabled = hideOriginalControl.disabled || (!hideOriginalControl.checked && isMuted);
+                  const hideTargetLabel = hideOriginalControl.target === "nextStroke" ? "new Mod Pen strokes" : "the selected stroke";
+
                   return (
-                    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-                      <button
-                        className={`header-btn drawerator-modifiers-pin ${modifiersSidebarDocked ? "active" : ""}`}
-                        onClick={() => setModifiersSidebarDocked(prev => !prev)}
-                        title={modifiersSidebarDocked ? "Unpin Modifiers panel (Cmd+Option+P)" : "Pin Modifiers panel (Cmd+Option+P)"}
-                        aria-label={modifiersSidebarDocked ? "Unpin Modifiers panel" : "Pin Modifiers panel"}
-                        aria-pressed={modifiersSidebarDocked}
-                      >
-                        <svg width="15" height="15" fill={modifiersSidebarDocked ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
-                          <path d="M5 3h14l-2 7 3 2v2H4v-2l3-2-2-7Z" />
-                          <path d="M12 14v7" fill="none" strokeLinecap="round" />
-                        </svg>
-                      </button>
-
-                      {/* Enable Custom Brush Button (Paintbrush) */}
-                      <button 
-                        className={`header-btn ${customBrushActive ? "active" : ""}`}
-                        onClick={() => {
-                          const nextState = !customBrushActive;
-                          setCustomBrushActive(nextState);
-                          if (nextState) {
-                            excalidrawAPI?.updateScene({ appState: { activeTool: { type: "freedraw", locked: true } } });
-                          } else {
-                            excalidrawAPI?.updateScene({ appState: { activeTool: { type: "selection" } } });
-                          }
-                        }}
-                        title={customBrushActive ? "Disable Custom Brush Mode (Shift+P)" : "Enable Custom Brush Mode (Shift+P)"}
-                      >
-                        <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M9.53 16.122l9.82-9.82 1.41 1.414-9.82 9.82-1.41-1.414zm-1.86 2.23l.36-1.02 1.02.36-.36 1.02-1.02-.36zm-.49 1.4l-.4-.4 1.25-1.25.4.4-1.25 1.25zm-.76-.76l-.4-.4.4-1.25 1.25 1.25-.4.4zm.76-.76l-1.09-1.09-4.8 4.8 1.41 1.414 4.48-4.48-.36-1.02-.36-1.02z" />
-                        </svg>
-                      </button>
-
-                      {/* Corner Style Toggle Button */}
-                      {!isShape && (
-                        <button
-                          className={`header-btn ${!isRound ? "active" : ""}`}
-                          onClick={() => handleToggleSharpness(element, isRound ? "sharp" : "round")}
-                          title={isRound ? "Toggle Sharp Corners" : "Toggle Smooth Corners"}
-                        >
-                          {isRound ? (
+                    <div className="modifiers-header-actions">
+                      {modsPanelTab === "stack" && (
+                        <>
+                          <button
+                            className={`header-btn ${customBrushActive ? "active" : ""}`}
+                            onClick={() => {
+                              const nextState = !customBrushActive;
+                              setCustomBrushActive(nextState);
+                              excalidrawAPI?.updateScene({
+                                appState: { activeTool: { type: nextState ? "freedraw" : "selection", ...(nextState ? { locked: true } : {}) } }
+                              });
+                            }}
+                            title={customBrushActive ? "Disable Mod Pen (Shift+P)" : "Enable Mod Pen (Shift+P)"}
+                            aria-label={customBrushActive ? "Disable Mod Pen" : "Enable Mod Pen"}
+                            aria-pressed={customBrushActive}
+                          >
                             <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 20c8 0 16-8 16-16" />
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M9.53 16.122l9.82-9.82 1.41 1.414-9.82 9.82-1.41-1.414zm-1.86 2.23l.36-1.02 1.02.36-.36 1.02-1.02-.36zm-.49 1.4l-.4-.4 1.25-1.25.4.4-1.25 1.25zm-.76-.76l-.4-.4.4-1.25 1.25 1.25-.4.4zm.76-.76l-1.09-1.09-4.8 4.8 1.41 1.414 4.48-4.48-.36-1.02-.36-1.02z" />
                             </svg>
-                          ) : (
-                            <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 20h16V4" />
-                            </svg>
+                          </button>
+
+                          {!isShape && !controlState.hasMultipleSelection && (
+                            <button
+                              className={`header-btn ${!isRound ? "active" : ""}`}
+                              onClick={() => handleToggleSharpness(element, isRound ? "sharp" : "round")}
+                              title={isRound ? "Use sharp corners" : "Use smooth corners"}
+                              aria-label={isRound ? "Use sharp corners" : "Use smooth corners"}
+                            >
+                              {isRound ? (
+                                <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 20c8 0 16-8 16-16" />
+                                </svg>
+                              ) : (
+                                <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 20h16V4" />
+                                </svg>
+                              )}
+                            </button>
                           )}
-                        </button>
-                      )}
-                      
-                      {/* Bake Modifiers Button */}
-                      {element && modifiers.length > 0 && (
-                        <button
-                          className="header-btn"
-                          onClick={() => handleBakeModifiers(element)}
-                          title="Bake Modifiers (Apply changes permanently)"
-                        >
-                          <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 21L8.188 15.904L3 15L8.188 14.096L9 9L9.813 14.096L15 15L9.813 15.904Z M19.071 4.929L17.657 6.343 M15 3h2 M21 5v2" />
-                          </svg>
-                        </button>
+
+                          {element?.type === "freedraw" && (
+                            <button className="header-btn" onClick={() => handleConvertType("line")} title="Convert selected freehand stroke to a line" aria-label="Convert to line">
+                              <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                <circle cx="5" cy="12" r="1.5" /><path d="M6.5 12h11" /><circle cx="19" cy="12" r="1.5" />
+                              </svg>
+                            </button>
+                          )}
+
+                          {element?.type === "line" && (
+                            <button className="header-btn" onClick={() => handleConvertType("freedraw")} title="Convert selected line to a freehand stroke" aria-label="Convert to freehand">
+                              <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                                <path d="M3 16c3-8 6 4 9-4s6 4 9-4" />
+                              </svg>
+                            </button>
+                          )}
+
+                          {element && (
+                            <button
+                              className="header-btn"
+                              onClick={handleRestoreOriginalStroke}
+                              disabled={!canRestoreOriginal}
+                              title={canRestoreOriginal ? "Restore the original source stroke" : "Restore is available for generated legacy brush strokes"}
+                              aria-label="Restore original stroke"
+                            >
+                              <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
+                              </svg>
+                            </button>
+                          )}
+
+                          <button
+                            className={`header-btn ${isMuted ? "active" : ""}`}
+                            onClick={() => handleToggleModifierMute(controlState)}
+                            disabled={bypassDisabled}
+                            title={bypassDisabled ? "Show the original path before bypassing the stack" : isMuted ? "Reapply the modifier stack" : "Bypass the modifier stack to edit the source path"}
+                            aria-label={isMuted ? "Reapply modifier stack" : "Bypass modifier stack"}
+                            aria-pressed={isMuted}
+                          >
+                            <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="m12 3-8 4.5 8 4.5 8-4.5L12 3Z" /><path d="m4 12 8 4.5 8-4.5M4 16.5 12 21l8-4.5" /><path d="M3 3 21 21" />
+                            </svg>
+                          </button>
+
+                          <button
+                            className={`header-btn ${hideOriginalControl.checked ? "active" : ""}`}
+                            onClick={() => handleToggleModifierHideOriginal(controlState)}
+                            disabled={hideDisabled}
+                            title={hideDisabled && isMuted ? "Reapply the modifier stack before hiding the original path" : hideOriginalControl.checked ? `Show the original path for ${hideTargetLabel}` : `Hide the original path for ${hideTargetLabel}`}
+                            aria-label={hideOriginalControl.checked ? "Show original path" : "Hide original path"}
+                            aria-pressed={hideOriginalControl.checked}
+                          >
+                            <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M3 3 21 21" /><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8M9.4 5.2A10.8 10.8 0 0 1 12 5c5.5 0 9 7 9 7a16.5 16.5 0 0 1-2.2 3.1M6.2 6.2C4.1 7.6 3 12 3 12s3.5 7 9 7a9.8 9.8 0 0 0 3.1-.5" />
+                            </svg>
+                          </button>
+
+                          {element && modifiers.length > 0 && (
+                            <button className="header-btn" onClick={() => handleBakeModifiers(element)} title="Bake the modifier stack permanently" aria-label="Bake modifier stack">
+                              <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9 21l-.812-5.096L3 15l5.188-.904L9 9l.813 5.096L15 15l-5.187.904ZM19.071 4.929l-1.414 1.414M15 3h2M21 5v2" />
+                              </svg>
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   );
@@ -6148,7 +6315,44 @@ function App() {
               </div>
             </Sidebar.Header>
             <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "16px", height: "calc(100% - 50px)", overflowY: "auto" }}>
-              {(() => {
+              <div
+                role="tablist"
+                aria-label="Mods and effects views"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "4px",
+                  padding: "3px",
+                  borderRadius: "7px",
+                  background: "var(--input-bg-color, rgba(0, 0, 0, 0.08))",
+                  border: "1px solid var(--border-color)",
+                }}
+              >
+                {[{ id: "stack", label: "Stack" }, { id: "script", label: "Script" }].map(tab => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={modsPanelTab === tab.id}
+                    onClick={() => setModsPanelTab(tab.id)}
+                    style={{
+                      padding: "7px 10px",
+                      borderRadius: "5px",
+                      border: "none",
+                      background: modsPanelTab === tab.id ? "var(--button-hover-bg, rgba(255, 255, 255, 0.1))" : "transparent",
+                      color: "var(--color-primary)",
+                      fontSize: "12px",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                      boxShadow: modsPanelTab === tab.id ? "0 1px 3px rgba(0, 0, 0, 0.18)" : "none",
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {modsPanelTab === "script" ? renderBrushConfigForm() : (() => {
                 const selectedElements = getSelectedElements();
                 if (selectedElements.length > 1) {
                   return (
@@ -6210,7 +6414,10 @@ function App() {
         </Excalidraw>
 
         {/* Live Preview SVG Overlay */}
-        {customBrushActive && drawingPoints.length >= 2 && (
+        {modifierDrawingActive && (
+          (isDrawingRef.current && isMouseDownRef.current && drawingPoints.length >= 2) ||
+          pendingStrokePreview
+        ) && (
           <svg 
             style={{
               position: "absolute",
@@ -6222,7 +6429,7 @@ function App() {
               zIndex: 1
             }}
           >
-            {getLivePreviewPaths().map((linePoints) => {
+            {getLivePreviewPaths(isDrawingRef.current ? null : pendingStrokePreview).map((linePoints) => {
               return linePoints.map(([cx, cy]) => mapCanvasToScreen(cx, cy));
             }).map((line, idx) => {
               const pointsString = line.map(([x, y]) => `${x},${y}`).join(" ");

@@ -18,6 +18,7 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 - **Non-destructive Mods & FX:** Attach ordered geometric filters and multi-track brushes to freehand strokes or lines while retaining editable source points.
 - **Modifier Baking:** Bake a complete stack or one modifier at a time. Partial bakes become independently selectable artwork while the remaining stack stays live.
 - **Evolving Brushes:** Time-aware brushes can animate while the pointer is down, freeze per stroke on release, and optionally use a shared global clock.
+- **Scriptable Brushes:** Edit or fork brush JavaScript in the Mods & FX **Script** tab. The editor is inert until its script is saved into the active stack.
 - **Custom Canvas Backgrounds:** Set custom colors (including presets and hex input) from the hamburger main menu.
 - **Toggles for Interface Elements:** Control the visibility of toolbar hints and bottom alerts right from the main menu.
 - **Single-File Compilation:** Built to be easily bundled as a single self-contained HTML page.
@@ -29,6 +30,8 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 | `Cmd + /` or `Ctrl + /` | Toggle Command Palette |
 | `Cmd + Ctrl + Z` | Toggle Satori (Zen) Mode |
 | `Ctrl + Opt + A` | Toggle AI Assistant Chat Sidebar |
+| `Ctrl + Opt + P` | Toggle Mods & FX Sidebar |
+| `Ctrl + Opt + B` | Open the Mods & FX Script tab |
 | `Cmd + Opt + P` | Pin / unpin Modifiers sidebar |
 | `Opt + Shift + D` | Toggle Dark / Light Theme |
 | `[` | Decrease stroke width (for Pen and Line tools) |
@@ -38,13 +41,16 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 
 ## Mods & FX workflow
 
-1. Select one freehand stroke or line and open **🛠️ Mods & FX**.
-2. Add filters or brushes to the ordered stack. The source control points remain editable.
-3. Use **Hide Original Path** to display generated tracks without the source stroke; it does not alter source sampling.
-4. Use the Apply action on a modifier card to bake only that modifier, or bake the full stack from the panel header.
-5. Baked tracks are native, selectable Excalidraw elements. Full bake clears the stack; partial bake preserves every remaining modifier in order.
+1. Select one freehand stroke or line and open **🛠️ Mods & FX**, or enable **Mod Pen** before drawing.
+2. Add filters or brushes to the ordered stack. The source control points remain editable. An empty Mod Pen stack draws a normal Excalidraw stroke; an open Script editor never acts as an implicit brush.
+3. Use the compact header actions to bypass the stack, hide/show the original, convert between line and freehand, restore a recoverable source, or bake. Hover an action for its description.
+4. **Bypass Stack** temporarily shows the editable source without evaluating modifiers. **Hide Original** removes only the source from the result. They are mutually exclusive, and the next-stroke Hide Original preference persists until changed.
+5. Use the Apply action on a modifier card to bake only that modifier, or bake the full stack from the panel header.
+6. Baked tracks are native, selectable Excalidraw elements. Full bake clears the stack; partial bake preserves every remaining modifier in order.
 
-Modifier operations participate in Excalidraw undo/redo. The panel can be pinned with its pin button or `Cmd + Opt + P`.
+Modifier operations participate in Excalidraw undo/redo. The panel can be resized from its left edge and pinned with the native pin button or `Cmd + Opt + P`.
+
+The **Script** tab is a code editor, not a second drawing mode. **Save** updates the attached modifier currently being edited. Built-in presets remain locked; **Save As** creates a user brush and, when editing a modifier, replaces only that modifier in the stack with the new brush.
 
 ## Development
 

@@ -2,9 +2,21 @@
 
 > *"A drawing is simply a line going for a walk."* — Paul Klee
 
-Welcome, creative coders! This guide will teach you how to write custom JavaScript brushes to transform simple mouse or stylus strokes into dynamic, algorithmic drawings inside Excalidraw.
+Welcome, creative coders! This guide will teach you how to write custom JavaScript brushes to transform simple mouse or stylus strokes into dynamic, algorithmic drawings inside Excalidraw. Brush code now lives in the **Script** tab of the **Mods & FX** panel.
 
-Inspired by creative coding principles, this tutorial explains the math, geometry, and coordinates behind Drawerator's custom brush laboratory.
+Inspired by creative coding principles, this tutorial explains the math, geometry, and coordinates behind Drawerator's modifier scripting system.
+
+## Editor workflow
+
+The Script tab is an editor, not an active brush slot. Merely opening or changing a script cannot affect drawing; a brush runs only after it is present and enabled in the visible modifier stack.
+
+1. Open **Mods & FX → Script** (`Ctrl + Option + B`).
+2. Choose a script or edit the modifier selected from the Stack tab.
+3. Use **Save** to update the attached modifier you are editing.
+4. Built-in presets are locked. Use **Save As** to create an editable user brush. When launched from a modifier card, Save As also replaces only that modifier with the new brush.
+5. Return to **Stack** and add or confirm the modifier before drawing with Mod Pen.
+
+With an empty stack, Mod Pen produces an ordinary Excalidraw stroke. This is intentional and prevents stale editor code from becoming a ghost brush.
 
 ---
 
@@ -187,7 +199,7 @@ To streamline drawing closed loops (like triangles or polygons), Drawerator incl
 
 ## 5. Code Recipes for Custom Brushes
 
-Paste these snippets into the **JS Line Algorithm Code** editor in Drawerator to see them in action.
+Paste these snippets into the **Script** tab, save them as a user brush, and add that brush to the Stack tab to see them in action.
 
 ### Recipe 1: The Simple Line (Base Case)
 Just returns the path unmodified.

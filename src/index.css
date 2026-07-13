@@ -79,6 +79,24 @@ body, html {
   background: var(--bg-hover-btn) !important;
 }
 
+.modifiers-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.modifiers-header-actions .header-btn {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+}
+
+.modifiers-header-actions .header-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.32;
+  background: transparent !important;
+}
+
 /* --- CHAT MESSAGES AREA --- */
 #chat-messages {
   flex: 1;
@@ -345,12 +363,6 @@ body, html {
   background-color: var(--button-selected-bg, #6965db) !important;
   border-color: var(--button-selected-border, #6965db) !important;
   color: var(--color-btn-text, #ffffff) !important;
-}
-
-/* Drawerator owns the Modifiers pin so it remains available at narrow widths. */
-.excalidraw .sidebar:has(.drawerator-modifiers-pin) [data-testid="sidebar-dock"],
-.excalidraw .sidebar:has(.drawerator-modifiers-pin) .sidebar-dock {
-  display: none !important;
 }
 
 #btn-chat-header {
