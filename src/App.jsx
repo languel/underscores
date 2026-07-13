@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Excalidraw, Sidebar, MainMenu, WelcomeScreen, exportToSvg, exportToCanvas, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw";
 import "./App.css";
+import { inferAxisFlipSign, isDrawableTrack, mapTrackPointToElement, removeModifierAt, resampleStrokeByDistance, resolveBakedTracks } from "./modifierStack.js";
 
 // System Prompt guiding the local LLM on drawing tools
 const SYSTEM_PROMPT = `You are "Drawerator", an autonomous, high-performance drawing assistant.
@@ -167,6 +168,91 @@ const PRESET_BRUSHES = {
       const nx = -dy / len * hairLength;
       const ny = dx / len * hairLength;
       lines.push([[x2, y2], [x2 + nx, y2 + ny]]);
+    }
+  }
+  return lines;
+}`
+  },
+  growingHairy: {
+    id: "growingHairy",
+    name: "Growing Hairy Brush (Collision Stop)",
+    code: `// @param maxHairLength = 80 (5..200, step: 1)
+// @param growthRate = 45 (5..200, step: 1)
+// @param spacing = 3 (1..12, step: 1)
+// @param collisionPadding = 1 (0..8, step: 0.5)
+// @param globalClock = 0 (0..1, step: 1)
+(points, globals) => {
+  const lines = [points];
+  if (!points || points.length < 2) return lines;
+
+  const elapsedMs = Math.max(0, globalClock > 0.5
+    ? (globals.globalElapsedMs || 0)
+    : (globals.elapsedMs || 0));
+  const samples = globals.resampleStrokeByDistance(points, Math.max(0.1, spacing));
+  const grownHairs = [];
+
+  const intersect = (a, b, c, d) => {
+    const rX = b[0] - a[0];
+    const rY = b[1] - a[1];
+    const sX = d[0] - c[0];
+    const sY = d[1] - c[1];
+    const denominator = rX * sY - rY * sX;
+    if (Math.abs(denominator) < 0.000001) return null;
+    const qX = c[0] - a[0];
+    const qY = c[1] - a[1];
+    const t = (qX * sY - qY * sX) / denominator;
+    const u = (qX * rY - qY * rX) / denominator;
+    if (t > 0.001 && t <= 1 && u >= 0 && u <= 1) return t;
+    return null;
+  };
+
+  for (let i = 1; i < samples.length; i++) {
+    const origin = samples[i];
+    const sourceSegmentIndex = Math.max(0, Math.min(
+      points.length - 2,
+      origin.sourceSegmentIndex || 0
+    ));
+    const previous = points[sourceSegmentIndex];
+    const segmentEnd = points[sourceSegmentIndex + 1];
+    if (!previous || !origin) continue;
+    const dx = segmentEnd[0] - previous[0];
+    const dy = segmentEnd[1] - previous[1];
+    const tangentLength = Math.hypot(dx, dy);
+    if (tangentLength < 0.0001) continue;
+
+    const birthMs = origin.strokeTime || 0;
+    const ageSeconds = Math.max(0, elapsedMs - birthMs) / 1000;
+    const desiredLength = Math.min(maxHairLength, growthRate * ageSeconds);
+    if (desiredLength <= 0.05) continue;
+
+    const normalX = -dy / tangentLength;
+    const normalY = dx / tangentLength;
+    const target = [
+      origin[0] + normalX * desiredLength,
+      origin[1] + normalY * desiredLength
+    ];
+    let nearestT = 1;
+
+    for (let segmentIndex = 0; segmentIndex < points.length - 1; segmentIndex++) {
+      if (segmentIndex === sourceSegmentIndex) continue;
+      const hitT = intersect(origin, target, points[segmentIndex], points[segmentIndex + 1]);
+      if (hitT !== null && hitT < nearestT) nearestT = hitT;
+    }
+    for (const hair of grownHairs) {
+      const hitT = intersect(origin, target, hair[0], hair[1]);
+      if (hitT !== null && hitT < nearestT) nearestT = hitT;
+    }
+
+    const paddingT = desiredLength > 0 ? collisionPadding / desiredLength : 0;
+    const clampedT = Math.max(0, nearestT - paddingT);
+    const end = [
+      origin[0] + (target[0] - origin[0]) * clampedT,
+      origin[1] + (target[1] - origin[1]) * clampedT
+    ];
+    if (Math.hypot(end[0] - origin[0], end[1] - origin[1]) > 0.05) {
+      const hair = [[origin[0], origin[1]], end];
+      grownHairs.push(hair);
+      lines.push(hair);
     }
   }
   return lines;
@@ -714,74 +800,6 @@ const smoothPathTaubin = (points, lambda = 0.5, mu = -0.53, iterations = 10, per
   return result;
 };
 
-const interpolateCatmullRom = (points, segments = 15) => {
-  if (points.length < 3) return points.map(p => {
-    const copy = [...p];
-    if (p.pressure !== undefined) copy.pressure = p.pressure;
-    if (p.time !== undefined) copy.time = p.time;
-    if (p.strokeTime !== undefined) copy.strokeTime = p.strokeTime;
-    if (p.speed !== undefined) copy.speed = p.speed;
-    return copy;
-  });
-  
-  const result = [];
-  for (let i = 0; i < points.length - 1; i++) {
-    const p1 = points[i];
-    const p2 = points[i+1];
-    
-    const p0 = i > 0 ? points[i-1] : [p1[0] - (p2[0] - p1[0]), p1[1] - (p2[1] - p1[1])];
-    const p3 = i < points.length - 2 ? points[i+2] : [p2[0] + (p2[0] - p1[0]), p2[1] + (p2[1] - p1[1])];
-    
-    for (let j = 0; j < segments; j++) {
-      const t = j / segments;
-      const t2 = t * t;
-      const t3 = t2 * t;
-      
-      const x = 0.5 * (
-        (2 * p1[0]) +
-        (-p0[0] + p2[0]) * t +
-        (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 +
-        (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3
-      );
-      
-      const y = 0.5 * (
-        (2 * p1[1]) +
-        (-p0[1] + p2[1]) * t +
-        (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 +
-        (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3
-      );
-      
-      const pt = [x, y];
-      if (p1.pressure !== undefined && p2.pressure !== undefined) {
-        pt.pressure = p1.pressure + (p2.pressure - p1.pressure) * t;
-      } else if (p1.pressure !== undefined) {
-        pt.pressure = p1.pressure;
-      }
-      if (p1.time !== undefined && p2.time !== undefined) {
-        pt.time = p1.time + (p2.time - p1.time) * t;
-      }
-      if (p1.strokeTime !== undefined && p2.strokeTime !== undefined) {
-        pt.strokeTime = p1.strokeTime + (p2.strokeTime - p1.strokeTime) * t;
-      }
-      if (p1.speed !== undefined && p2.speed !== undefined) {
-        pt.speed = p1.speed + (p2.speed - p1.speed) * t;
-      }
-      
-      result.push(pt);
-    }
-  }
-  
-  const last = points[points.length - 1];
-  const lastPt = [...last];
-  if (last.pressure !== undefined) lastPt.pressure = last.pressure;
-  if (last.time !== undefined) lastPt.time = last.time;
-  if (last.strokeTime !== undefined) lastPt.strokeTime = last.strokeTime;
-  if (last.speed !== undefined) lastPt.speed = last.speed;
-  result.push(lastPt);
-  
-  return result;
-};
-
 const solveHobbySpline = (points, tension = 1.0) => {
   if (points.length < 3) return points.map(p => [...p]);
   
@@ -1011,6 +1029,36 @@ const updateElementGeometry = (el, newAbsolutePoints) => {
   };
 };
 
+const getElementAbsolutePoints = (element) => element.points.map(point => {
+  const absolutePoint = [element.x + point[0], element.y + point[1]];
+  if (point.pressure !== undefined) absolutePoint.pressure = point.pressure;
+  if (point.time !== undefined) absolutePoint.time = point.time;
+  if (point.strokeTime !== undefined) absolutePoint.strokeTime = point.strokeTime;
+  if (point.speed !== undefined) absolutePoint.speed = point.speed;
+  return absolutePoint;
+});
+
+const pointsToSmoothSvgPath = (points) => {
+  if (!Array.isArray(points) || points.length < 2) return "";
+  let path = `M ${points[0][0]} ${points[0][1]}`;
+  for (let index = 0; index < points.length - 1; index++) {
+    const previous = points[Math.max(0, index - 1)];
+    const current = points[index];
+    const next = points[index + 1];
+    const following = points[Math.min(points.length - 1, index + 2)];
+    const control1 = [
+      current[0] + (next[0] - previous[0]) / 6,
+      current[1] + (next[1] - previous[1]) / 6
+    ];
+    const control2 = [
+      next[0] - (following[0] - current[0]) / 6,
+      next[1] - (following[1] - current[1]) / 6
+    ];
+    path += ` C ${control1[0]} ${control1[1]}, ${control2[0]} ${control2[1]}, ${next[0]} ${next[1]}`;
+  }
+  return path;
+};
+
 const parseParameters = (code) => {
   if (!code) return [];
   const params = [];
@@ -1141,6 +1189,7 @@ function App() {
     const defaultPresets = [
       { id: "simple", name: "Simple Line", code: PRESET_BRUSHES.simple.code, isPreset: true, type: "brush" },
       { id: "hairy", name: "Hairy Brush (Calligraphy)", code: PRESET_BRUSHES.hairy.code, isPreset: true, type: "brush" },
+      { id: "growingHairy", name: "Growing Hairy Brush (Collision Stop)", code: PRESET_BRUSHES.growingHairy.code, isPreset: true, type: "brush" },
       { id: "pressure", name: "Calligraphy Pencil (Pressure-Sensitive)", code: PRESET_BRUSHES.pressure.code, isPreset: true, type: "brush" },
       { id: "ribbon", name: "Ribbon Brush (Double Track)", code: PRESET_BRUSHES.ribbon.code, isPreset: true, type: "brush" },
       { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true, type: "brush" },
@@ -1196,6 +1245,7 @@ function App() {
     const defaultPresets = [
       { id: "simple", name: "Simple Line", code: PRESET_BRUSHES.simple.code, isPreset: true },
       { id: "hairy", name: "Hairy Brush (Calligraphy)", code: PRESET_BRUSHES.hairy.code, isPreset: true },
+      { id: "growingHairy", name: "Growing Hairy Brush (Collision Stop)", code: PRESET_BRUSHES.growingHairy.code, isPreset: true },
       { id: "pressure", name: "Calligraphy Pencil (Pressure-Sensitive)", code: PRESET_BRUSHES.pressure.code, isPreset: true },
       { id: "ribbon", name: "Ribbon Brush (Double Track)", code: PRESET_BRUSHES.ribbon.code, isPreset: true },
       { id: "sketchy", name: "Sketchy Multi-line", code: PRESET_BRUSHES.sketchy.code, isPreset: true },
@@ -1232,6 +1282,9 @@ function App() {
   const [brushParams, setBrushParams] = useState([]);
   const compiledGeneratorRef = useRef(null);
   const processedModifierVersionsRef = useRef({});
+  const restoredHistoryElementVersionsRef = useRef({});
+  const suppressedModifierSyncVersionsRef = useRef({});
+  const linearEditPointsRef = useRef({});
   const evaluatingModifiersRef = useRef(false);
   const lastOverlayVersionRef = useRef({});
   const [brushSidebarDocked, setBrushSidebarDocked] = useState(false);
@@ -1368,7 +1421,26 @@ function App() {
   const rawCursorRef = useRef(null);
   const wasShiftHeldRef = useRef(false);
   const strokeStartTimeRef = useRef(0);
+  const brushElapsedRef = useRef(0);
+  const [, setBrushAnimationTick] = useState(0);
   const lastStrokeColorRef = useRef("#000000");
+
+  useEffect(() => {
+    if (!customBrushActive || drawingPoints.length < 2 || !isDrawingRef.current) return;
+    let animationFrame = 0;
+    let lastPaintTime = 0;
+    const animate = (timestamp) => {
+      if (!isDrawingRef.current) return;
+      brushElapsedRef.current = Math.max(0, Date.now() - strokeStartTimeRef.current);
+      if (timestamp - lastPaintTime >= 33) {
+        lastPaintTime = timestamp;
+        setBrushAnimationTick(tick => tick + 1);
+      }
+      animationFrame = requestAnimationFrame(animate);
+    };
+    animationFrame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [customBrushActive, drawingPoints.length]);
 
   const getThemeColor = (color) => {
     if (!color) return "var(--color-primary)";
@@ -1449,6 +1521,7 @@ function App() {
     const coords = getCanvasCoords(e.clientX, e.clientY);
     coords.time = Date.now();
     strokeStartTimeRef.current = coords.time;
+    brushElapsedRef.current = 0;
     coords.strokeTime = 0;
     coords.pressure = e.pressure !== undefined ? e.pressure : 0.5;
     coords.speed = 0;
@@ -1541,7 +1614,7 @@ function App() {
     setDrawingPoints([...livePointsRef.current]);
   };
 
-  const getBrushGlobals = () => {
+  const getBrushGlobals = (overrides = {}) => {
     if (!excalidrawAPI) return {};
     const appState = excalidrawAPI.getAppState() || {};
     return {
@@ -1549,6 +1622,9 @@ function App() {
       strokeColor: lastStrokeColorRef.current || "#000000",
       strokeWidth: appState.currentItemStrokeWidth || 2,
       opacity: appState.currentItemOpacity ?? 100,
+      elapsedMs: brushElapsedRef.current,
+      globalElapsedMs: brushElapsedRef.current,
+      isPointerDown: isDrawingRef.current,
       zoom: appState.zoom ? appState.zoom.value : 1,
       theme: theme,
       viewBackgroundColor: appState.viewBackgroundColor || (theme === "dark" ? "#121212" : "#ffffff"),
@@ -1557,21 +1633,40 @@ function App() {
       smoothPathLaplacian,
       smoothPathTaubin,
       resampleUniform,
+      resampleStrokeByDistance,
       closeAndSmoothJoint,
-      solveHobbySpline
+      solveHobbySpline,
+      ...overrides
     };
+  };
+
+  const getElementBrushGlobals = (element, overrides = {}) => getBrushGlobals({
+    elapsedMs: element?.customData?.brushElapsedMs ?? 0,
+    isPointerDown: false,
+    ...overrides
+  });
+
+  const getDrawingModifiers = () => {
+    const drawingModifiers = [];
+    if (activeBrushId !== "normal") {
+      const activeBrush = brushPalette.find(brush => brush.id === activeBrushId);
+      if (activeBrush) {
+        drawingModifiers.push({
+          id: activeBrushId,
+          name: activeBrush.name,
+          enabled: true,
+          params: Object.fromEntries(brushParams.map(param => [param.name, param.value]))
+        });
+      }
+    }
+    return [...drawingModifiers, ...globalModifiers];
   };
 
   const getLivePreviewPaths = () => {
     if (!customBrushActive || drawingPoints.length < 2) return [];
-    
-    let pointsToUse = drawingPoints;
-    if (globalRoundness && drawingPoints.length >= 3) {
-      pointsToUse = interpolateCatmullRom(drawingPoints, 15);
-    }
-    
+
     try {
-      const { allLines } = evaluateModifierStack(pointsToUse, globalModifiers, getBrushGlobals(), globalRoundness);
+      const { allLines } = evaluateModifierStack(drawingPoints, getDrawingModifiers(), getBrushGlobals());
       return allLines;
     } catch (e) {
       console.error("Live preview modifier evaluation error", e);
@@ -1966,7 +2061,7 @@ function App() {
     }
   };
 
-  const evaluateModifierStack = (originalPoints, modifiers, globals, roundnessEnabled = false) => {
+  const evaluateModifierStack = (originalPoints, modifiers, globals) => {
     let baseLine = originalPoints.map(p => {
       const copy = [p[0], p[1]];
       if (p.pressure !== undefined) copy.pressure = p.pressure;
@@ -2033,18 +2128,12 @@ function App() {
               // It is a geometric filter: mutate the baseline and propagate down the stack
               if (res) {
                 let path = (Array.isArray(res) && res.length > 0 && Array.isArray(res[0])) ? res[0] : res;
-                if (roundnessEnabled && path.length >= 3) {
-                  path = interpolateCatmullRom(path, 15);
-                }
                 baseLine = path;
               }
               if (accumulatedTracks.length > 0) {
                 accumulatedTracks = accumulatedTracks.map(track => {
                   const filtered = generator(track, globals);
                   let path = (Array.isArray(filtered) && filtered.length > 0 && Array.isArray(filtered[0])) ? filtered[0] : filtered;
-                  if (roundnessEnabled && path.length >= 3) {
-                    path = interpolateCatmullRom(path, 15);
-                  }
                   return path;
                 });
               }
@@ -2061,7 +2150,87 @@ function App() {
     return { primaryPoints, allLines, hasAccumulated: accumulatedTracks.length > 0 };
   };
 
-  const updateModifiedElementInScene = (elId, newModifiers, forceOriginalPoints = null) => {
+  const createBakedTrackElements = (parentElement, updatedParent, childTracks, groupId) => {
+    if (!childTracks.length) return [];
+
+    const relPoints = updatedParent.points || [];
+    const minXRel = relPoints.length > 0 ? Math.min(...relPoints.map(p => p[0])) : 0;
+    const minYRel = relPoints.length > 0 ? Math.min(...relPoints.map(p => p[1])) : 0;
+    const maxXRel = relPoints.length > 0 ? Math.max(...relPoints.map(p => p[0])) : 0;
+    const maxYRel = relPoints.length > 0 ? Math.max(...relPoints.map(p => p[1])) : 0;
+    const cx = updatedParent.x + (minXRel + maxXRel) / 2;
+    const cy = updatedParent.y + (minYRel + maxYRel) / 2;
+    const angle = parentElement.angle || 0;
+    const timestamp = Date.now();
+    const effectiveOpacity = parentElement.customData?.hideOriginal || updatedParent.opacity === 0
+      ? (parentElement.customData.savedOpacity ?? parentElement.opacity ?? 100)
+      : updatedParent.opacity;
+
+    return childTracks.map((linePoints, idx) => {
+      const rotatedPoints = linePoints.map((point) => {
+        const [x, y] = angle === 0
+          ? point
+          : rotatePoint(point[0], point[1], cx, cy, angle);
+        const copy = [x, y];
+        if (point.pressure !== undefined) copy.pressure = point.pressure;
+        if (point.time !== undefined) copy.time = point.time;
+        if (point.strokeTime !== undefined) copy.strokeTime = point.strokeTime;
+        if (point.speed !== undefined) copy.speed = point.speed;
+        return copy;
+      });
+
+      const [startX, startY] = rotatedPoints[0];
+      const relativePoints = rotatedPoints.map((point) => {
+        const relPt = [point[0] - startX, point[1] - startY];
+        if (point.pressure !== undefined) relPt.pressure = point.pressure;
+        if (point.time !== undefined) relPt.time = point.time;
+        if (point.strokeTime !== undefined) relPt.strokeTime = point.strokeTime;
+        if (point.speed !== undefined) relPt.speed = point.speed;
+        return relPt;
+      });
+      const xCoords = relativePoints.map(p => p[0]);
+      const yCoords = relativePoints.map(p => p[1]);
+
+      return {
+        type: "line",
+        x: startX,
+        y: startY,
+        points: relativePoints,
+        width: Math.max(1, Math.max(...xCoords) - Math.min(...xCoords)),
+        height: Math.max(1, Math.max(...yCoords) - Math.min(...yCoords)),
+        strokeColor: updatedParent.strokeColor,
+        strokeWidth: updatedParent.strokeWidth,
+        backgroundColor: updatedParent.backgroundColor,
+        fillStyle: updatedParent.fillStyle,
+        strokeStyle: updatedParent.strokeStyle,
+        roughness: updatedParent.roughness,
+        roundness: updatedParent.roundness,
+        opacity: effectiveOpacity,
+        groupIds: [...(parentElement.groupIds || []), groupId],
+        id: `${parentElement.id}-baked-${idx}-${timestamp}`,
+        seed: Math.floor(Math.random() * 1000000),
+        version: 2,
+        versionNonce: Math.floor(Math.random() * 1000000),
+        isDeleted: false,
+        updated: timestamp,
+        angle: 0,
+        boundElements: null,
+        link: null,
+        locked: parentElement.locked,
+        frameId: parentElement.frameId,
+        customData: {
+          parentId: parentElement.id,
+          isModifierGenerated: true,
+          bakedTrack: true
+        },
+        lastCommittedPoint: null,
+        startBinding: null,
+        endBinding: null
+      };
+    });
+  };
+
+  const updateModifiedElementInScene = (elId, newModifiers, forceOriginalPoints = null, modifierGlobals = null) => {
     if (!excalidrawAPI) return;
     const elements = excalidrawAPI.getSceneElements();
     const parentEl = elements.find(el => el.id === elId);
@@ -2088,13 +2257,10 @@ function App() {
       }
     }
 
-    let pointsForStack = originalPoints;
-    if (parentEl.roundness && originalPoints.length >= 3) {
-      pointsForStack = interpolateCatmullRom(originalPoints, 15);
-    }
+    const pointsForStack = originalPoints;
 
-    const globals = getBrushGlobals();
-    const { primaryPoints, allLines } = evaluateModifierStack(pointsForStack, newModifiers, globals, !!parentEl.roundness);
+    const globals = modifierGlobals || getElementBrushGlobals(parentEl);
+    const { primaryPoints, allLines } = evaluateModifierStack(pointsForStack, newModifiers, globals);
 
 
 
@@ -2118,7 +2284,8 @@ function App() {
         version: (parentEl.customData?.version || 0) + 1,
         excalidrawVersion: updatedParent.version,
         lastWidth: updatedParent.width,
-        lastHeight: updatedParent.height
+        lastHeight: updatedParent.height,
+        brushElapsedMs: modifierGlobals?.elapsedMs ?? parentEl.customData?.brushElapsedMs ?? 0
       };
       if (parentEl.customData?.hideOriginal) {
         updatedParent.opacity = parentEl.customData.savedOpacity ?? 100;
@@ -2131,17 +2298,23 @@ function App() {
         version: (parentEl.customData?.version || 0) + 1,
         excalidrawVersion: updatedParent.version,
         lastWidth: updatedParent.width,
-        lastHeight: updatedParent.height
+        lastHeight: updatedParent.height,
+        brushElapsedMs: modifierGlobals?.elapsedMs ?? parentEl.customData?.brushElapsedMs ?? 0
       };
     }
 
     processedModifierVersionsRef.current[parentEl.id] = updatedParent.customData.version;
+    suppressedModifierSyncVersionsRef.current[parentEl.id] = updatedParent.customData.version;
 
     const nextElements = elements.map(el => {
       if (el.id === parentEl.id) {
         return updatedParent;
       }
-      if (el.customData?.parentId === parentEl.id && el.customData?.isModifierGenerated) {
+      if (
+        el.customData?.parentId === parentEl.id &&
+        el.customData?.isModifierGenerated &&
+        !el.customData?.bakedTrack
+      ) {
         return { ...el, isDeleted: true };
       }
       return el;
@@ -2165,6 +2338,7 @@ function App() {
       setShiftHeld(false);
       return;
     }
+    brushElapsedRef.current = Math.max(0, Date.now() - strokeStartTimeRef.current);
     isDrawingRef.current = false;
     rawCursorRef.current = null;
     setShiftHeld(false);
@@ -2198,6 +2372,14 @@ function App() {
       }
     });
 
+    // Snapshot the completed stroke before Excalidraw's asynchronous commit.
+    // A new pointer-down must not replace its points, modifiers, or local clock.
+    const completedStrokePoints = livePointsRef.current && livePointsRef.current.length >= 2
+      ? [...livePointsRef.current]
+      : null;
+    const completedStrokeModifiers = getDrawingModifiers();
+    const completedStrokeElapsedMs = brushElapsedRef.current;
+
     // Wait a brief tick for Excalidraw to finish writing the element
     setTimeout(() => {
       try {
@@ -2214,13 +2396,14 @@ function App() {
         ) {
           lastElement.__processed = true;
 
-          const pointsToUse = (livePointsRef.current && livePointsRef.current.length >= 2)
-            ? [...livePointsRef.current]
+          const pointsToUse = completedStrokePoints
+            ? completedStrokePoints
             : lastElement.points.map(p => [lastElement.x + p[0], lastElement.y + p[1]]);
 
           lastElement.roundness = globalRoundness ? { type: 2 } : null;
           lastElement.strokeColor = lastStrokeColorRef.current;
-          const effHide = globalHideOriginal && globalModifiers.length > 0;
+          const drawingModifiers = completedStrokeModifiers;
+          const effHide = globalHideOriginal && drawingModifiers.length > 0;
           if (effHide) {
             const savedOpacity = lastElement.opacity > 0 ? lastElement.opacity : 100;
             lastElement.opacity = 0;
@@ -2238,7 +2421,11 @@ function App() {
             };
           }
 
-          updateModifiedElementInScene(lastElement.id, [...globalModifiers], pointsToUse);
+          const frozenBrushGlobals = getBrushGlobals({
+            elapsedMs: completedStrokeElapsedMs,
+            isPointerDown: false
+          });
+          updateModifiedElementInScene(lastElement.id, drawingModifiers, pointsToUse, frozenBrushGlobals);
         }
       } catch (err) {
         console.error("Error processing custom brush as modifier:", err);
@@ -2995,6 +3182,15 @@ function App() {
         e.stopPropagation();
         excalidrawAPI?.toggleSidebar({ name: "modifiers-sidebar" });
       }
+      // Cmd + Option + P (Pin / unpin Modifiers sidebar)
+      if (e.metaKey && e.altKey && !e.ctrlKey && e.code === "KeyP") {
+        e.preventDefault();
+        e.stopPropagation();
+        setModifiersSidebarDocked(prev => !prev);
+        if (!document.querySelector(".drawerator-modifiers-pin")) {
+          excalidrawAPI?.toggleSidebar({ name: "modifiers-sidebar" });
+        }
+      }
 
       // Keyboard shortcuts check for non-input focus
       const activeEl = document.activeElement;
@@ -3187,11 +3383,15 @@ function App() {
           instance.isMobileBreakpoint = () => false;
           changed = true;
         }
-        if (instance.device && (instance.device.viewport.isMobile || instance.device.editor.isMobile)) {
+        if (instance.device && (
+          instance.device.viewport.isMobile ||
+          instance.device.editor.isMobile ||
+          instance.device.editor.canFitSidebar === false
+        )) {
           instance.device = {
             ...instance.device,
             viewport: { ...instance.device.viewport, isMobile: false },
-            editor: { ...instance.device.editor, isMobile: false }
+            editor: { ...instance.device.editor, isMobile: false, canFitSidebar: true }
           };
           changed = true;
         }
@@ -3400,7 +3600,14 @@ function App() {
       return <div className="modifiers-panel-empty" style={{ textAlign: "center", opacity: 0.6, padding: "20px" }}>Excalidraw is loading...</div>;
     }
 
-    const selectedElements = getSelectedElements();
+    let selectedElements = getSelectedElements();
+    const selectedIds = new Set(selectedElements.map(el => el.id));
+    // A baked brush is one logical object even though Excalidraw selects its
+    // grouped track elements individually. Keep the owning parent editable in
+    // the modifier panel and ignore its baked children for selection counting.
+    selectedElements = selectedElements.filter(el => !(
+      el.customData?.bakedTrack && selectedIds.has(el.customData?.parentId)
+    ));
     const hasSelection = selectedElements.length === 1;
 
     let element = null;
@@ -3569,12 +3776,7 @@ function App() {
           evaluatingModifiersRef.current = false;
         }
         
-        setTimeout(() => {
-          const updatedParent = excalidrawAPI.getSceneElements().find(el => el.id === element.id);
-          if (updatedParent) {
-            updateModifiedElementInScene(element.id, updatedParent.customData?.modifiers || []);
-          }
-        }, 50);
+        setModifierUpdateNonce(n => n + 1);
       } else {
         const next = !globalHideOriginal;
         setGlobalHideOriginal(next);
@@ -3693,19 +3895,133 @@ function App() {
       const parentEl = elements.find(el => el.id === element.id);
       if (!parentEl) return;
 
-      const originalPoints = parentEl.customData?.originalPoints;
+      const liveLinearEditPoints = linearEditPointsRef.current[parentEl.id];
+      const originalPoints = liveLinearEditPoints || parentEl.customData?.originalPoints;
       if (!originalPoints || originalPoints.length === 0) return;
 
       // 1. Evaluate modifier stack up to and including modIndex
       const subStack = modifiers.slice(0, modIndex + 1);
-      const globals = getBrushGlobals();
-      const { primaryPoints, allLines, hasAccumulated } = evaluateModifierStack(originalPoints, subStack, globals, !!parentEl.roundness);
+      const globals = getElementBrushGlobals(parentEl);
+      const pointsForStack = originalPoints;
+
+      const selectedModifier = modifiers[modIndex];
+      const upstreamEvaluation = evaluateModifierStack(
+        pointsForStack,
+        modifiers.slice(0, modIndex),
+        globals
+      );
+      const selectedEvaluation = evaluateModifierStack(
+        upstreamEvaluation.primaryPoints,
+        [selectedModifier],
+        globals
+      );
+
+      // Brush modifiers produce additional tracks rather than replacing the
+      // source path. They can therefore be baked independently while every
+      // other modifier remains live and editable in its original stack order.
+      if (selectedEvaluation.hasAccumulated) {
+        const tracksToBake = selectedEvaluation.allLines.filter(isDrawableTrack);
+        if (tracksToBake.length === 0) return;
+
+        const remainingMods = removeModifierAt(modifiers, modIndex);
+        const remainingEvaluation = evaluateModifierStack(
+          pointsForStack,
+          remainingMods,
+          globals
+        );
+        const updatedParent = updateElementGeometry(parentEl, remainingEvaluation.primaryPoints);
+
+        let customStrokeWidth = null;
+        remainingMods.forEach(mod => {
+          if (mod.enabled && mod.params?.strokeWidth !== undefined) {
+            customStrokeWidth = mod.params.strokeWidth;
+          }
+        });
+        if (customStrokeWidth !== null) updatedParent.strokeWidth = customStrokeWidth;
+
+        updatedParent.customData = {
+          ...(parentEl.customData || {}),
+          originalPoints,
+          modifiers: remainingMods,
+          version: (parentEl.customData?.version || 0) + 1,
+          excalidrawVersion: updatedParent.version,
+          lastWidth: updatedParent.width,
+          lastHeight: updatedParent.height
+        };
+
+        const detachedGroupId = `${parentEl.id}-partial-bake-${Date.now()}`;
+        const childElements = createBakedTrackElements(
+          parentEl,
+          updatedParent,
+          tracksToBake,
+          detachedGroupId
+        ).map(child => ({
+          ...child,
+          // The bake is detached from the live source, but its tracks remain
+          // one independently selectable and transformable Excalidraw group.
+          groupIds: [detachedGroupId],
+          locked: false,
+          customData: {
+            bakedTrack: true,
+            detachedBake: true,
+            sourceElementId: parentEl.id,
+            sourceModifierId: selectedModifier.id
+          }
+        }));
+        processedModifierVersionsRef.current[parentEl.id] = updatedParent.customData.version;
+        suppressedModifierSyncVersionsRef.current[parentEl.id] = updatedParent.customData.version;
+
+        const nextElements = [];
+        elements.forEach(el => {
+          if (el.id === parentEl.id) {
+            // Insert detached baked artwork immediately underneath its source.
+            nextElements.push(...childElements, updatedParent);
+            return;
+          }
+          if (
+            el.customData?.parentId === parentEl.id &&
+            el.customData?.isModifierGenerated &&
+            !el.customData?.bakedTrack
+          ) {
+            nextElements.push({ ...el, isDeleted: true });
+            return;
+          }
+          nextElements.push(el);
+        });
+
+        evaluatingModifiersRef.current = true;
+        try {
+          excalidrawAPI.updateScene({
+            elements: nextElements,
+            appState: {
+              selectedElementIds: { [updatedParent.id]: true }
+            },
+            commitToHistory: true
+          });
+        } finally {
+          evaluatingModifiersRef.current = false;
+        }
+        setModifierUpdateNonce(n => n + 1);
+        return;
+      }
+
+      const evaluation = evaluateModifierStack(pointsForStack, subStack, globals);
+      const { parentTrack, childTracks } = resolveBakedTracks(evaluation);
+      if (!parentTrack) return;
 
       // 2. The remaining modifiers that will stay in the stack
       const remainingMods = modifiers.slice(modIndex + 1);
+      const isFinalBrushBake = evaluation.hasAccumulated && remainingMods.length === 0;
 
       // 3. Update element geometry and custom data
-      const updatedParent = updateElementGeometry(parentEl, primaryPoints);
+      const updatedParent = isFinalBrushBake
+        ? {
+            ...parentEl,
+            version: parentEl.version + 1,
+            versionNonce: Math.floor(Math.random() * 1000000),
+            updated: Date.now()
+          }
+        : updateElementGeometry(parentEl, parentTrack);
       
       let customStrokeWidth = null;
       remainingMods.forEach(mod => {
@@ -3718,8 +4034,15 @@ function App() {
       }
 
       const childElements = [];
-      const baseId = parentEl.id;
-      const groupId = `${baseId}-baked-group`;
+      const groupId = `${parentEl.id}-baked-group`;
+
+      const tracksToBake = isFinalBrushBake
+        ? evaluation.allLines.filter(isDrawableTrack)
+        : childTracks;
+      childElements.push(...createBakedTrackElements(parentEl, updatedParent, tracksToBake, groupId));
+      if (childElements.length > 0) {
+        updatedParent.groupIds = [...new Set([...(parentEl.groupIds || []), groupId])];
+      }
 
       if (remainingMods.length === 0) {
         updatedParent.customData = {
@@ -3733,94 +4056,17 @@ function App() {
           lastHeight: updatedParent.height
         };
         if (parentEl.customData?.hideOriginal) {
-          updatedParent.opacity = parentEl.customData.savedOpacity ?? 100;
+          // Preserve the preview's layer semantics: hide only the source
+          // freedraw while keeping every generated brush track visible.
+          updatedParent.opacity = isFinalBrushBake
+            ? 0
+            : (parentEl.customData.savedOpacity ?? 100);
         }
 
-        const startIdx = hasAccumulated ? 0 : 1;
-        if (allLines.length > startIdx) {
-          const relPoints = updatedParent.points || [];
-          const minXRel = relPoints.length > 0 ? Math.min(...relPoints.map(p => p[0])) : 0;
-          const minYRel = relPoints.length > 0 ? Math.min(...relPoints.map(p => p[1])) : 0;
-          const maxXRel = relPoints.length > 0 ? Math.max(...relPoints.map(p => p[0])) : 0;
-          const maxYRel = relPoints.length > 0 ? Math.max(...relPoints.map(p => p[1])) : 0;
-
-          const cx = updatedParent.x + (minXRel + maxXRel) / 2;
-          const cy = updatedParent.y + (minYRel + maxYRel) / 2;
-          const angle = parentEl.angle || 0;
-
-          for (let idx = startIdx; idx < allLines.length; idx++) {
-            const linePoints = allLines[idx];
-            if (!Array.isArray(linePoints) || linePoints.length < 1) continue;
-
-            const rotatedPoints = linePoints.map(p => {
-              if (angle !== 0) {
-                return rotatePoint(p[0], p[1], cx, cy, angle);
-              }
-              return [p[0], p[1]];
-            });
-
-            const [startX, startY] = rotatedPoints[0];
-            const relativePoints = rotatedPoints.map(([rx, ry]) => {
-              const relPt = [rx - startX, ry - startY];
-              const origPt = linePoints.find(p => p[0] === rx && p[1] === ry) || linePoints[0];
-              if (origPt && origPt.pressure !== undefined) relPt.pressure = origPt.pressure;
-              return relPt;
-            });
-
-            const xCoords = relativePoints.map(p => p[0]);
-            const yCoords = relativePoints.map(p => p[1]);
-            const minX = Math.min(...xCoords);
-            const maxX = Math.max(...xCoords);
-            const minY = Math.min(...yCoords);
-            const maxY = Math.max(...yCoords);
-
-            childElements.push({
-              type: "line",
-              x: startX,
-              y: startY,
-              points: relativePoints,
-              width: Math.max(1, maxX - minX),
-              height: Math.max(1, maxY - minY),
-              strokeColor: parentEl.strokeColor,
-              strokeWidth: parentEl.strokeWidth,
-              backgroundColor: parentEl.backgroundColor,
-              fillStyle: parentEl.fillStyle,
-              strokeStyle: parentEl.strokeStyle,
-              roughness: parentEl.roughness,
-              roundness: parentEl.roundness,
-              opacity: updatedParent.opacity,
-              groupIds: parentEl.groupIds && parentEl.groupIds.length > 0 
-                ? [...parentEl.groupIds, groupId] 
-                : [groupId],
-              id: `${baseId}-baked-${idx}-${Date.now()}`,
-              seed: Math.floor(Math.random() * 1000000),
-              version: 2,
-              versionNonce: Math.floor(Math.random() * 1000000),
-              isDeleted: false,
-              updated: Date.now(),
-              angle: 0,
-              boundElements: null,
-              link: null,
-              locked: parentEl.locked,
-              frameId: parentEl.frameId,
-              lastCommittedPoint: null,
-              startBinding: null,
-              endBinding: null
-            });
-          }
-
-          if (updatedParent.groupIds) {
-            if (!updatedParent.groupIds.includes(groupId)) {
-              updatedParent.groupIds.push(groupId);
-            }
-          } else {
-            updatedParent.groupIds = [groupId];
-          }
-        }
       } else {
         updatedParent.customData = {
           ...(parentEl.customData || {}),
-          originalPoints: primaryPoints,
+          originalPoints: parentTrack,
           modifiers: remainingMods,
           version: (parentEl.customData?.version || 0) + 1,
           excalidrawVersion: updatedParent.version,
@@ -3843,8 +4089,12 @@ function App() {
 
       evaluatingModifiersRef.current = true;
       try {
+        const selectedElementIds = Object.fromEntries(
+          [updatedParent, ...childElements].map(el => [el.id, true])
+        );
         excalidrawAPI.updateScene({
           elements: nextElements,
+          appState: { selectedElementIds },
           commitToHistory: true
         });
       } finally {
@@ -4204,111 +4454,50 @@ function App() {
     let originalPoints = parentElement.customData?.originalPoints;
     if (!originalPoints || originalPoints.length === 0) return;
     
-    let pointsForStack = originalPoints;
-    if (parentElement.roundness && originalPoints.length >= 3) {
-      pointsForStack = interpolateCatmullRom(originalPoints, 15);
-    }
+    const pointsForStack = originalPoints;
 
-    const globals = getBrushGlobals();
-    const { primaryPoints, allLines, hasAccumulated } = evaluateModifierStack(pointsForStack, parentElement.customData.modifiers, globals, !!parentElement.roundness);
-    
-    const updatedParent = updateElementGeometry(parentElement, primaryPoints);
+    const globals = getElementBrushGlobals(parentElement);
+    const evaluation = evaluateModifierStack(pointsForStack, parentElement.customData.modifiers, globals);
+    const { parentTrack, childTracks } = resolveBakedTracks(evaluation);
+    if (!parentTrack) return;
+
+    // A brush preview is composed of the source Excalidraw element plus every
+    // generated track. Preserve that exact layer model when baking instead of
+    // replacing the source freedraw with the generated primary line.
+    const isBrushBake = evaluation.hasAccumulated;
+    const updatedParent = isBrushBake
+      ? {
+          ...parentElement,
+          version: parentElement.version + 1,
+          versionNonce: Math.floor(Math.random() * 1000000),
+          updated: Date.now()
+        }
+      : updateElementGeometry(parentElement, parentTrack);
     updatedParent.customData = {
       ...(parentElement.customData || {}),
       originalPoints: null,
       modifiers: [],
       hideOriginal: false,
-      version: (parentElement.customData?.version || 0) + 1
+      version: (parentElement.customData?.version || 0) + 1,
+      excalidrawVersion: updatedParent.version,
+      lastWidth: updatedParent.width,
+      lastHeight: updatedParent.height
     };
+    processedModifierVersionsRef.current[parentElement.id] = updatedParent.customData.version;
     
     if (parentElement.customData?.hideOriginal) {
-      updatedParent.opacity = parentElement.customData.savedOpacity ?? 100;
+      updatedParent.opacity = isBrushBake
+        ? 0
+        : (parentElement.customData.savedOpacity ?? 100);
     }
     
-    const childElements = [];
-    const baseId = parentElement.id;
-    const groupId = `${baseId}-baked-group`;
-    
-    const startIdx = hasAccumulated ? 0 : 1;
-    if (allLines.length > startIdx) {
-      const relPoints = updatedParent.points || [];
-      const minXRel = relPoints.length > 0 ? Math.min(...relPoints.map(p => p[0])) : 0;
-      const minYRel = relPoints.length > 0 ? Math.min(...relPoints.map(p => p[1])) : 0;
-      const maxXRel = relPoints.length > 0 ? Math.max(...relPoints.map(p => p[0])) : 0;
-      const maxYRel = relPoints.length > 0 ? Math.max(...relPoints.map(p => p[1])) : 0;
-
-      const cx = updatedParent.x + (minXRel + maxXRel) / 2;
-      const cy = updatedParent.y + (minYRel + maxYRel) / 2;
-      const angle = parentElement.angle || 0;
- 
-      for (let idx = startIdx; idx < allLines.length; idx++) {
-        const linePoints = allLines[idx];
-        if (!Array.isArray(linePoints) || linePoints.length < 1) continue;
-
-        const rotatedPoints = linePoints.map(p => {
-          if (angle !== 0) {
-            return rotatePoint(p[0], p[1], cx, cy, angle);
-          }
-          return [p[0], p[1]];
-        });
-
-        const [startX, startY] = rotatedPoints[0];
-        const relativePoints = rotatedPoints.map(([rx, ry]) => {
-          const relPt = [rx - startX, ry - startY];
-          const origPt = linePoints.find(p => p[0] === rx && p[1] === ry) || linePoints[0];
-          if (origPt && origPt.pressure !== undefined) relPt.pressure = origPt.pressure;
-          return relPt;
-        });
-
-        const xCoords = relativePoints.map(p => p[0]);
-        const yCoords = relativePoints.map(p => p[1]);
-        const minX = Math.min(...xCoords);
-        const maxX = Math.max(...xCoords);
-        const minY = Math.min(...yCoords);
-        const maxY = Math.max(...yCoords);
-
-        childElements.push({
-          type: "line",
-          x: startX,
-          y: startY,
-          points: relativePoints,
-          width: Math.max(1, maxX - minX),
-          height: Math.max(1, maxY - minY),
-          strokeColor: parentElement.strokeColor,
-          strokeWidth: parentElement.strokeWidth,
-          backgroundColor: parentElement.backgroundColor,
-          fillStyle: parentElement.fillStyle,
-          strokeStyle: parentElement.strokeStyle,
-          roughness: parentElement.roughness,
-          roundness: parentElement.roundness,
-          opacity: updatedParent.opacity,
-          groupIds: parentElement.groupIds && parentElement.groupIds.length > 0 
-            ? [...parentElement.groupIds, groupId] 
-            : [groupId],
-          id: `${baseId}-baked-${idx}-${Date.now()}`,
-          seed: Math.floor(Math.random() * 1000000),
-          version: 2,
-          versionNonce: Math.floor(Math.random() * 1000000),
-          isDeleted: false,
-          updated: Date.now(),
-          angle: 0,
-          boundElements: null,
-          link: null,
-          locked: parentElement.locked,
-          frameId: parentElement.frameId,
-          lastCommittedPoint: null,
-          startBinding: null,
-          endBinding: null
-        });
-      }
-      
-      if (updatedParent.groupIds) {
-        if (!updatedParent.groupIds.includes(groupId)) {
-          updatedParent.groupIds.push(groupId);
-        }
-      } else {
-        updatedParent.groupIds = [groupId];
-      }
+    const groupId = `${parentElement.id}-baked-group`;
+    const tracksToBake = isBrushBake
+      ? evaluation.allLines.filter(isDrawableTrack)
+      : childTracks;
+    const childElements = createBakedTrackElements(parentElement, updatedParent, tracksToBake, groupId);
+    if (childElements.length > 0) {
+      updatedParent.groupIds = [...new Set([...(parentElement.groupIds || []), groupId])];
     }
 
     const nextElements = elements.map(el => {
@@ -4318,8 +4507,12 @@ function App() {
       return el;
     }).concat(childElements);
 
+    const selectedElementIds = Object.fromEntries(
+      [updatedParent, ...childElements].map(el => [el.id, true])
+    );
     excalidrawAPI.updateScene({
       elements: nextElements,
+      appState: { selectedElementIds },
       commitToHistory: true
     });
     setModifierUpdateNonce(n => n + 1);
@@ -4338,73 +4531,28 @@ function App() {
     modifierElements.forEach(parentEl => {
       if (parentEl.customData?.muteModifiers) return;
  
-      const originalPoints = parentEl.customData?.originalPoints;
+      const liveLinearEditPoints = linearEditPointsRef.current[parentEl.id];
+      const originalPoints = liveLinearEditPoints || parentEl.customData?.originalPoints;
       if (!originalPoints || originalPoints.length === 0) return;
  
-      let pointsForStack = originalPoints;
-      if (parentEl.roundness && originalPoints.length >= 3) {
-        pointsForStack = interpolateCatmullRom(originalPoints, 15);
-      }
+      const pointsForStack = originalPoints;
  
-      const globals = getBrushGlobals();
-      const { allLines, hasAccumulated } = evaluateModifierStack(pointsForStack, parentEl.customData.modifiers, globals, !!parentEl.roundness);
+      const globals = getElementBrushGlobals(parentEl);
+      const { primaryPoints, allLines, hasAccumulated } = evaluateModifierStack(pointsForStack, parentEl.customData.modifiers, globals);
       
       if (allLines.length > 0) {
-        const xCoords = originalPoints.map(p => p[0]);
-        const yCoords = originalPoints.map(p => p[1]);
-        const minX = Math.min(...xCoords);
-        const minY = Math.min(...yCoords);
-        const maxX = Math.max(...xCoords);
-        const maxY = Math.max(...yCoords);
-        const origW = maxX - minX;
-        const origH = maxY - minY;
- 
         const lastWidth = parentEl.customData?.lastWidth || parentEl.width;
         const lastHeight = parentEl.customData?.lastHeight || parentEl.height;
- 
-        let scaleSignX = 1;
-        let scaleSignY = 1;
-        
-        let maxAbsDx = 0;
-        let refIdxX = originalPoints.length - 1;
-        for (let i = 1; i < originalPoints.length; i++) {
-          const dx = Math.abs(originalPoints[i][0] - originalPoints[0][0]);
-          if (dx > maxAbsDx) {
-            maxAbsDx = dx;
-            refIdxX = i;
-          }
-        }
-        if (maxAbsDx > 0.1 && parentEl.points && parentEl.points.length > 0) {
-          const origDx = originalPoints[refIdxX][0] - originalPoints[0][0];
-          const frac = refIdxX / originalPoints.length;
-          const currIdx = Math.min(parentEl.points.length - 1, Math.max(0, Math.round(frac * parentEl.points.length)));
-          const currDx = parentEl.points[currIdx] ? (parentEl.points[currIdx][0] - parentEl.points[0][0]) : 0;
-          if (origDx * currDx < 0) scaleSignX = -1;
-        }
 
-        let maxAbsDy = 0;
-        let refIdxY = originalPoints.length - 1;
-        for (let i = 1; i < originalPoints.length; i++) {
-          const dy = Math.abs(originalPoints[i][1] - originalPoints[0][1]);
-          if (dy > maxAbsDy) {
-            maxAbsDy = dy;
-            refIdxY = i;
-          }
-        }
-        if (maxAbsDy > 0.1 && parentEl.points && parentEl.points.length > 0) {
-          const origDy = originalPoints[refIdxY][1] - originalPoints[0][1];
-          const frac = refIdxY / originalPoints.length;
-          const currIdx = Math.min(parentEl.points.length - 1, Math.max(0, Math.round(frac * parentEl.points.length)));
-          const currDx = parentEl.points[currIdx] ? (parentEl.points[currIdx][1] - parentEl.points[0][1]) : 0;
-          if (origDy * currDx < 0) scaleSignY = -1;
-        }
+        const scaleSignX = liveLinearEditPoints ? 1 : inferAxisFlipSign(originalPoints, parentEl.points, 0);
+        const scaleSignY = liveLinearEditPoints ? 1 : inferAxisFlipSign(originalPoints, parentEl.points, 1);
 
         let scaleX = scaleSignX;
         let scaleY = scaleSignY;
-        if (lastWidth > 0.1 && Math.abs(parentEl.width - lastWidth) > 0.1) {
+        if (!liveLinearEditPoints && lastWidth > 0.1 && Math.abs(parentEl.width - lastWidth) > 0.1) {
           scaleX = scaleSignX * (parentEl.width / lastWidth);
         }
-        if (lastHeight > 0.1 && Math.abs(parentEl.height - lastHeight) > 0.1) {
+        if (!liveLinearEditPoints && lastHeight > 0.1 && Math.abs(parentEl.height - lastHeight) > 0.1) {
           scaleY = scaleSignY * (parentEl.height / lastHeight);
         }
 
@@ -4426,22 +4574,20 @@ function App() {
  
         const startIdx = hasAccumulated ? 0 : 1;
         const firstPtRel = relPoints[0] || [0, 0];
-        const tx_start = parentEl.x + firstPtRel[0];
-        const ty_start = parentEl.y + firstPtRel[1];
 
         for (let idx = startIdx; idx < allLines.length; idx++) {
           const linePoints = allLines[idx];
           const screenPoints = linePoints.map(p => {
-            let tx, ty;
-            if (parentEl.type === "freedraw") {
-              const origMinX = Math.min(...pointsForStack.map(pt => pt[0]));
-              const origMinY = Math.min(...pointsForStack.map(pt => pt[1]));
-              tx = parentEl.x + (p[0] - origMinX) * scaleX;
-              ty = parentEl.y + (p[1] - origMinY) * scaleY;
-            } else {
-              tx = tx_start + (p[0] - pointsForStack[0][0]) * scaleX;
-              ty = ty_start + (p[1] - pointsForStack[0][1]) * scaleY;
-            }
+            const [tx, ty] = mapTrackPointToElement({
+              point: p,
+              elementType: parentEl.type,
+              elementX: parentEl.x,
+              elementY: parentEl.y,
+              elementFirstPoint: firstPtRel,
+              evaluatedBaseline: primaryPoints,
+              scaleX,
+              scaleY
+            });
  
             let rx = tx;
             let ry = ty;
@@ -4455,6 +4601,7 @@ function App() {
  
           paths.push({
             points: screenPoints,
+            smooth: !!parentEl.roundness && screenPoints.length >= 3,
             strokeColor: parentEl.strokeColor,
             strokeWidth: parentEl.strokeWidth,
             opacity: parentEl.customData?.hideOriginal 
@@ -4481,17 +4628,29 @@ function App() {
       >
         {paths.map((p, idx) => {
           const pointsString = p.points.map(([x, y]) => `${x},${y}`).join(" ");
+          const sharedProps = {
+            fill: "none",
+            stroke: p.strokeColor,
+            strokeWidth: p.strokeWidth * (excalidrawAPI.getAppState().zoom.value || 1),
+            strokeLinecap: "round",
+            strokeLinejoin: "round",
+            opacity: p.opacity,
+            style: theme === "dark" ? { filter: "invert(93%) hue-rotate(180deg)" } : undefined
+          };
+          if (p.smooth) {
+            return (
+              <path
+                key={idx}
+                d={pointsToSmoothSvgPath(p.points)}
+                {...sharedProps}
+              />
+            );
+          }
           return (
             <polyline
               key={idx}
               points={pointsString}
-              fill="none"
-              stroke={p.strokeColor}
-              strokeWidth={p.strokeWidth * (excalidrawAPI.getAppState().zoom.value || 1)}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              opacity={p.opacity}
-              style={theme === "dark" ? { filter: "invert(93%) hue-rotate(180deg)" } : undefined}
+              {...sharedProps}
             />
           );
         })}
@@ -4570,17 +4729,7 @@ function App() {
         {/* Header Drag Handle */}
         <div style={headerStyle} onMouseDown={handlePanelDragStart}>
           <div style={titleStyle}>
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-            </svg>
-            {(() => {
-              const element = selectedElements[0];
-              return (
-                <span>
-                  Modifiers & Effects {element ? "" : "(Active Stack)"}
-                </span>
-              );
-            })()}
+            <span>🛠️ Mods &amp; FX</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             {/* Header Action Buttons (Corners, Bake) */}
@@ -4728,26 +4877,47 @@ function App() {
             marginTop: "2px"
           }}>
             <label style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-primary)", opacity: 0.8 }}>Brush Parameters</label>
-            {brushParams.map((param) => (
-              <div key={param.name} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                <div style={{ display: "flex", width: "100%", justifyContent: "space-between", fontSize: "11px" }}>
-                  <span style={{ fontFamily: "monospace", color: "var(--color-primary)" }}>{param.name}</span>
-                  <span style={{ color: "var(--color-primary)", opacity: 0.7 }}>{param.value.toFixed(param.step % 1 === 0 ? 0 : 2)}</span>
+            {brushParams.map((param) => {
+              const isToggle = param.min === 0 && param.max === 1 && param.step === 1;
+              const label = param.name === "globalClock" ? "Use global clock" : param.name;
+              return (
+                <div key={param.name} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                  {isToggle ? (
+                    <label style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", fontSize: "11px", cursor: "pointer" }}>
+                      <span style={{ fontFamily: "monospace", color: "var(--color-primary)" }}>{label}</span>
+                      <input
+                        type="checkbox"
+                        checked={param.value > 0.5}
+                        onChange={(event) => {
+                          const val = event.target.checked ? 1 : 0;
+                          setBrushParams(prev => prev.map(p => p.name === param.name ? { ...p, value: val } : p));
+                        }}
+                        style={{ cursor: "pointer", width: "16px", height: "16px" }}
+                      />
+                    </label>
+                  ) : (
+                    <>
+                      <div style={{ display: "flex", width: "100%", justifyContent: "space-between", fontSize: "11px" }}>
+                        <span style={{ fontFamily: "monospace", color: "var(--color-primary)" }}>{label}</span>
+                        <span style={{ color: "var(--color-primary)", opacity: 0.7 }}>{param.value.toFixed(param.step % 1 === 0 ? 0 : 2)}</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={param.min}
+                        max={param.max}
+                        step={param.step}
+                        value={param.value}
+                        onChange={(event) => {
+                          const val = parseFloat(event.target.value);
+                          setBrushParams(prev => prev.map(p => p.name === param.name ? { ...p, value: val } : p));
+                        }}
+                        style={{ width: "100%", cursor: "pointer", accentColor: "var(--color-primary)" }}
+                      />
+                    </>
+                  )}
                 </div>
-                <input
-                  type="range"
-                  min={param.min}
-                  max={param.max}
-                  step={param.step}
-                  value={param.value}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    setBrushParams(prev => prev.map(p => p.name === param.name ? { ...p, value: val } : p));
-                  }}
-                  style={{ width: "100%", cursor: "pointer", accentColor: "var(--color-primary)" }}
-                />
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -5009,9 +5179,47 @@ function App() {
               );
 
               for (const el of elements) {
-                if (el.customData?.modifiers && !el.isDeleted) {
+                if (el.customData?.modifiers?.length > 0 && !el.isDeleted) {
+                  const modifierVersion = el.customData?.version || 0;
+                  const processedModifierVersion = processedModifierVersionsRef.current[el.id];
+                  const restoredElementVersion = restoredHistoryElementVersionsRef.current[el.id];
+                  const suppressedModifierVersion = suppressedModifierSyncVersionsRef.current[el.id];
+
+                  if (suppressedModifierVersion === modifierVersion) {
+                    if (isTransforming) {
+                      delete suppressedModifierSyncVersionsRef.current[el.id];
+                    }
+                    continue;
+                  }
+
+                  if (restoredElementVersion === el.version) {
+                    continue;
+                  }
+                  if (restoredElementVersion !== undefined && restoredElementVersion !== el.version) {
+                    delete restoredHistoryElementVersionsRef.current[el.id];
+                  }
+
+                  // Undo/redo restores the element and its modifier metadata as
+                  // one Excalidraw history snapshot. Accept that snapshot as-is.
+                  // Our own modifier edits update this ref before updateScene(),
+                  // while transforms leave customData.version unchanged.
+                  if (
+                    processedModifierVersion === undefined ||
+                    modifierVersion !== processedModifierVersion
+                  ) {
+                    processedModifierVersionsRef.current[el.id] = modifierVersion;
+                    restoredHistoryElementVersionsRef.current[el.id] = el.version;
+                    continue;
+                  }
+
                   if (el.version > (el.customData.excalidrawVersion || 0)) {
                     if (isTransforming) {
+                      if (el.type === "line") {
+                        // Excalidraw's line points are authoritative during both
+                        // point edits and frame transforms. Do not reconstruct
+                        // them from cached bounds or inferred flip signs.
+                        linearEditPointsRef.current[el.id] = getElementAbsolutePoints(el);
+                      }
                       const lastVer = lastOverlayVersionRef.current[el.id] || 0;
                       if (el.version > lastVer) {
                         lastOverlayVersionRef.current[el.id] = el.version;
@@ -5021,50 +5229,17 @@ function App() {
                       continue; // Wait until drag/resize/rotate is finished to finalize coordinates
                     }
                     if (!el.customData.muteModifiers) {
-                      if (appState.editingLinearElement && appState.editingLinearElement.elementId === el.id) {
-                        targetPoints = el.points.map(p => [el.x + p[0], el.y + p[1]]);
+                      if (el.type === "line") {
+                        targetPoints = linearEditPointsRef.current[el.id] || getElementAbsolutePoints(el);
+                        delete linearEditPointsRef.current[el.id];
                       } else {
                         const originalPoints = el.customData?.originalPoints;
                         if (originalPoints && originalPoints.length > 0) {
                           const lastWidth = el.customData?.lastWidth || el.width;
                           const lastHeight = el.customData?.lastHeight || el.height;
 
-                          let scaleSignX = 1;
-                          let scaleSignY = 1;
-                           
-                          let maxAbsDx = 0;
-                          let refIdxX = originalPoints.length - 1;
-                          for (let i = 1; i < originalPoints.length; i++) {
-                            const dx = Math.abs(originalPoints[i][0] - originalPoints[0][0]);
-                            if (dx > maxAbsDx) {
-                              maxAbsDx = dx;
-                              refIdxX = i;
-                            }
-                          }
-                          if (maxAbsDx > 0.1 && el.points && el.points.length > 0) {
-                            const origDx = originalPoints[refIdxX][0] - originalPoints[0][0];
-                            const frac = refIdxX / originalPoints.length;
-                            const currIdx = Math.min(el.points.length - 1, Math.max(0, Math.round(frac * el.points.length)));
-                            const currDx = el.points[currIdx] ? (el.points[currIdx][0] - el.points[0][0]) : 0;
-                            if (origDx * currDx < 0) scaleSignX = -1;
-                          }
- 
-                          let maxAbsDy = 0;
-                          let refIdxY = originalPoints.length - 1;
-                          for (let i = 1; i < originalPoints.length; i++) {
-                            const dy = Math.abs(originalPoints[i][1] - originalPoints[0][1]);
-                            if (dy > maxAbsDy) {
-                              maxAbsDy = dy;
-                              refIdxY = i;
-                            }
-                          }
-                          if (maxAbsDy > 0.1 && el.points && el.points.length > 0) {
-                            const origDy = originalPoints[refIdxY][1] - originalPoints[0][1];
-                            const frac = refIdxY / originalPoints.length;
-                            const currIdx = Math.min(el.points.length - 1, Math.max(0, Math.round(frac * el.points.length)));
-                            const currDx = el.points[currIdx] ? (el.points[currIdx][1] - el.points[0][1]) : 0;
-                            if (origDy * currDx < 0) scaleSignY = -1;
-                          }
+                          const scaleSignX = inferAxisFlipSign(originalPoints, el.points, 0);
+                          const scaleSignY = inferAxisFlipSign(originalPoints, el.points, 1);
 
                           let scaleX = scaleSignX;
                           let scaleY = scaleSignY;
@@ -5890,15 +6065,9 @@ function App() {
           <Sidebar name="modifiers-sidebar" docked={modifiersSidebarDocked} onDock={setModifiersSidebarDocked}>
             <Sidebar.Header>
               <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px", gap: "10px" }}>
-                {(() => {
-                  const selectedElements = getSelectedElements();
-                  const element = selectedElements[0];
-                  return (
-                    <span style={{ fontSize: "14px", fontWeight: "600", color: "var(--color-primary)" }}>
-                      Modifiers & Effects {element ? "" : "(Active Stack)"} 🛠️
-                    </span>
-                  );
-                })()}
+                <span style={{ fontSize: "14px", fontWeight: "600", color: "var(--color-primary)" }}>
+                  🛠️ Mods &amp; FX
+                </span>
                 {(() => {
                   const selectedElements = getSelectedElements();
                   const element = selectedElements[0];
@@ -5910,6 +6079,19 @@ function App() {
                   
                   return (
                     <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                      <button
+                        className={`header-btn drawerator-modifiers-pin ${modifiersSidebarDocked ? "active" : ""}`}
+                        onClick={() => setModifiersSidebarDocked(prev => !prev)}
+                        title={modifiersSidebarDocked ? "Unpin Modifiers panel (Cmd+Option+P)" : "Pin Modifiers panel (Cmd+Option+P)"}
+                        aria-label={modifiersSidebarDocked ? "Unpin Modifiers panel" : "Pin Modifiers panel"}
+                        aria-pressed={modifiersSidebarDocked}
+                      >
+                        <svg width="15" height="15" fill={modifiersSidebarDocked ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+                          <path d="M5 3h14l-2 7 3 2v2H4v-2l3-2-2-7Z" />
+                          <path d="M12 14v7" fill="none" strokeLinecap="round" />
+                        </svg>
+                      </button>
+
                       {/* Enable Custom Brush Button (Paintbrush) */}
                       <button 
                         className={`header-btn ${customBrushActive ? "active" : ""}`}
@@ -6044,17 +6226,23 @@ function App() {
               return linePoints.map(([cx, cy]) => mapCanvasToScreen(cx, cy));
             }).map((line, idx) => {
               const pointsString = line.map(([x, y]) => `${x},${y}`).join(" ");
+              const commonProps = {
+                fill: "none",
+                stroke: lastStrokeColorRef.current,
+                strokeWidth: (excalidrawAPI?.getAppState().currentItemStrokeWidth || 2) * (excalidrawAPI?.getAppState().zoom.value || 1),
+                strokeLinecap: "round",
+                strokeLinejoin: "round",
+                opacity: (excalidrawAPI?.getAppState().currentItemOpacity ?? 100) / 100,
+                style: theme === "dark" ? { filter: "invert(93%) hue-rotate(180deg)" } : undefined
+              };
+              if (globalRoundness && line.length >= 3) {
+                return <path key={idx} d={pointsToSmoothSvgPath(line)} {...commonProps} />;
+              }
               return (
                 <polyline
                   key={idx}
                   points={pointsString}
-                  fill="none"
-                  stroke={lastStrokeColorRef.current}
-                  strokeWidth={(excalidrawAPI?.getAppState().currentItemStrokeWidth || 2) * (excalidrawAPI?.getAppState().zoom.value || 1)}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity={(excalidrawAPI?.getAppState().currentItemOpacity ?? 100) / 100}
-                  style={theme === "dark" ? { filter: "invert(93%) hue-rotate(180deg)" } : undefined}
+                  {...commonProps}
                 />
               );
             })}

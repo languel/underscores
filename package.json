@@ -9,6 +9,7 @@
     "build:single": "node scripts/patch-excalidraw.js && BUILD_SINGLE=true vite build",
     "deploy": "npm run build:single && gh-pages -d dist --dotfiles",
     "lint": "oxlint",
+    "test": "node --test src/*.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

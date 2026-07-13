@@ -13,7 +13,7 @@ Inspired by creative coding principles, this tutorial explains the math, geometr
 At its heart, any drawing gesture is a series of captures in time. When you drag your cursor or pen across the canvas, Drawerator collects a sequence of coordinates.
 
 ### The Input: `points`
-Your brush function receives a single parameter: `points`. This is an array of absolute coordinates captured during drawing:
+Your brush function receives `points` as its first parameter. This is an array of absolute coordinates captured during drawing:
 
 ```javascript
 [
@@ -25,7 +25,7 @@ Your brush function receives a single parameter: `points`. This is an array of a
 ```
 
 ### The Output: `lines`
-Your function must return an **array of lines**. Each line is itself an array of coordinates. Drawerator takes each individual line in your output and creates a native Excalidraw stroke for it.
+Your function must return an **array of lines**. Each line is itself an array of coordinates. Drawerator previews these tracks without replacing the source path. They become native Excalidraw elements when the modifier or stack is baked.
 
 *   To draw a single path, return: `[points]`
 *   To draw three parallel tracks, return: `[track1, track2, track3]`
@@ -117,6 +117,9 @@ Your brush function is invoked with a second argument: `globals`. This object ex
     strokeColor,         // Currently active drawing color (hex code)
     strokeWidth,         // Current stroke width selected (1, 2, 3...)
     opacity,             // Active opacity level (0 to 100)
+    elapsedMs,           // Local time for the active/frozen stroke
+    globalElapsedMs,     // Shared live clock (opt-in)
+    isPointerDown,       // True only for the stroke currently being drawn
     zoom,                // Current zoom level (1 = 100%)
     theme,               // Active theme ("light" or "dark")
     viewBackgroundColor  // Color of the canvas background
@@ -125,6 +128,43 @@ Your brush function is invoked with a second argument: `globals`. This object ex
   // Your code here...
 }
 ```
+
+Completed strokes use a **local clock** by default: `elapsedMs` is frozen at pointer release and later strokes cannot change the result. A brush may explicitly opt into `globalElapsedMs` when synchronized evolution across elements is desired.
+
+### Stable distance sampling
+
+Pointer-event density varies with device, speed, and browser. Brushes should not use raw point indices when visual spacing must remain stable. Drawerator exposes:
+
+```javascript
+const samples = globals.resampleStrokeByDistance(points, 3);
+```
+
+This returns samples approximately every three canvas units while interpolating `time`, `strokeTime`, `pressure`, and `speed`. It does not resample or replace the Excalidraw source path.
+
+### Temporal brush pattern
+
+The built-in **Growing Hairy Brush (Collision Stop)** uses point birth time and the element-local clock:
+
+```javascript
+// @param maxHairLength = 80 (5..200, step: 1)
+// @param growthRate = 45 (5..200, step: 1)
+// @param spacing = 3 (1..12, step: 1)
+// @param globalClock = 0 (0..1, step: 1)
+(points, globals) => {
+  const clock = globalClock > 0.5
+    ? globals.globalElapsedMs
+    : globals.elapsedMs;
+  const samples = globals.resampleStrokeByDistance(points, spacing);
+
+  // For each sample:
+  // ageSeconds = (clock - sample.strokeTime) / 1000
+  // length = min(maxHairLength, growthRate * ageSeconds)
+  // emit the perpendicular hair, clamped at the first collision.
+  return [points /*, ...generated hairs */];
+}
+```
+
+Keep the global-clock parameter off unless existing elements are intentionally meant to react to the shared live drawing clock.
 
 ### Grid Snapping inside Custom Brushes
 By utilizing `globals.gridSize`, custom brushes can dynamically snap coordinate offsets or vertices directly to the canvas grid during drawing. For example:

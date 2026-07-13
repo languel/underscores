@@ -347,6 +347,12 @@ body, html {
   color: var(--color-btn-text, #ffffff) !important;
 }
 
+/* Drawerator owns the Modifiers pin so it remains available at narrow widths. */
+.excalidraw .sidebar:has(.drawerator-modifiers-pin) [data-testid="sidebar-dock"],
+.excalidraw .sidebar:has(.drawerator-modifiers-pin) .sidebar-dock {
+  display: none !important;
+}
+
 #btn-chat-header {
   order: 3 !important;
   width: var(--default-button-size, 36px) !important;
