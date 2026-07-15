@@ -11,11 +11,6 @@ export default defineConfig({
     react(),
     buildSingle && viteSingleFile({ removeViteModuleLoader: true })
   ].filter(Boolean),
-  resolve: {
-    alias: {
-      '@excalidraw/excalidraw': '@excalidraw/excalidraw/dist/excalidraw.production.min.js'
-    }
-  },
   server: {
     port: 8089,
     strictPort: true
