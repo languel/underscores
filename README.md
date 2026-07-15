@@ -15,10 +15,12 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 - **Autocomplete Popover:** Typing `@` inside the prompt opens a dropdown suggestion list; navigate via `ArrowUp`/`ArrowDown` and select using `Enter`/`Tab`.
 - **Add Context (+) Drop-up Menu:** A quick-select footer menu to insert mentions, media elements, or skill actions into your prompt.
 - **Command Palette:** Instantly run commands, toggle states, change tools, or ask questions to the AI.
+- **Independent Dockable Panels:** AI Assistant, Mods & FX, Settings, and Console / Info each keep their own visibility, size, and left/float/right placement. Floating panels can coexist; panels docked to the same side become one compact tab group whose active tab shows its icon and label. Transport uses the same interaction for floating or bottom docking. Visibility, active tabs, collapsed docks, and layouts persist independently; toggle panels with `/chat`, `/mods`, `/settings`, `/console`, and `/transport`.
 - **Non-destructive Mods & FX:** Attach ordered geometric filters and multi-track brushes to freehand strokes or lines while retaining editable source points.
 - **Modifier Baking:** Bake a complete stack or one modifier at a time. Partial bakes become independently selectable artwork while the remaining stack stays live.
 - **Evolving Brushes:** Time-aware brushes can animate while the pointer is down, freeze per stroke on release, and optionally use a shared global clock.
 - **Scriptable Brushes:** Edit or fork brush JavaScript in the Mods & FX **Script** tab. The editor is inert until its script is saved into the active stack.
+- **IanniX Score Objects:** Give any selected canvas object one score role—Curve, Cursor, or Trigger—from the per-object **IanniX** tab. A compact global transport drives each object's local clock while cursor motion and trigger evaluation continue to use the editable core geometry beneath Mods & FX.
 - **Custom Canvas Backgrounds:** Set custom colors (including presets and hex input) from the hamburger main menu.
 - **Toggles for Interface Elements:** Control the visibility of toolbar hints and bottom alerts right from the main menu.
 - **Single-File Compilation:** Built to be easily bundled as a single self-contained HTML page.
@@ -29,9 +31,13 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 | --- | --- |
 | `Cmd + /` or `Ctrl + /` | Toggle Command Palette |
 | `Cmd + Ctrl + Z` | Toggle Satori (Zen) Mode |
+| `Ctrl + Opt + T` | Toggle the global transport (`Cmd + Ctrl + T` remains supported) |
+| `Cmd + ,` | Toggle the Settings sidebar |
 | `Ctrl + Opt + A` | Toggle AI Assistant Chat Sidebar |
 | `Ctrl + Opt + P` | Toggle Mods & FX Sidebar |
 | `Ctrl + Opt + B` | Open the Mods & FX Script tab |
+| `Cmd + B` | Collapse / reveal the left dock |
+| `Cmd + Opt + B` | Collapse / reveal the right dock |
 | `Cmd + Opt + P` | Pin / unpin Modifiers sidebar |
 | `Opt + Shift + D` | Toggle Dark / Light Theme |
 | `[` | Decrease stroke width (for Pen and Line tools) |
@@ -48,9 +54,21 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 5. Use the Apply action on a modifier card to bake only that modifier, or bake the full stack from the panel header.
 6. Baked tracks are native, selectable Excalidraw elements. Full bake clears the stack; partial bake preserves every remaining modifier in order.
 
-Modifier operations participate in Excalidraw undo/redo. The panel can be resized from its left edge and pinned with the native pin button or `Cmd + Opt + P`.
+Modifier operations participate in Excalidraw undo/redo. The panel icon is the unified placement control: click to activate its dock tab, drag to float or dock, and right-click for explicit placement or close actions. A click alone never detaches a panel. Resize a side dock from its canvas-facing edge or a floating panel from its lower-right corner. Dragging a dock below its minimum width collapses it; drag or double-click its hidden edge handle to restore it. `Cmd + Opt + P` toggles Mods & FX between floating and right-docked placement.
 
 The **Script** tab is a code editor, not a second drawing mode. **Save** updates the attached modifier currently being edited. Built-in presets remain locked; **Save As** creates a user brush and, when editing a modifier, replaces only that modifier in the stack with the new brush.
+
+## IanniX score workflow
+
+1. Select one or more canvas objects and open **🛠️ Mods & FX → IanniX**. Multi-selection can assign a shared role in one undoable action; Drawerator generates unique role labels automatically.
+2. Assign exactly one role for this first slice: **Curve**, **Cursor**, or **Trigger**. The role and its properties belong only to that object.
+3. For a cursor, choose a Curve object as its support path. The cursor object itself becomes the moving playhead; its source geometry remains editable at rest.
+4. Set the object's start, duration, rate, and loop mode. These derive a local object clock from the global transport and are independent of modifier or evolving-brush clocks.
+5. Press Play in the transport. Switch its ruler between frames, SMPTE-style timecode, and bars·beats·16ths while the current frame remains visible in every mode. Drag the timeline playhead to seek, drag the loop handles or band to edit the range, or Shift-drag the lane to mark a new loop. Tempo, meter, FPS, and MIDI clock synchronization remain available in the transport and Score & MIDI settings. The cursor's complete visible Mods & FX result moves along the underlying curve geometry, while triggers pulse once when a cursor enters their core geometry. Drag the stopwatch icon to float or bottom-dock the transport; right-click it for the same placements.
+6. A Trigger can optionally emit Web MIDI using IanniX-compatible `/note`, `/notef`, `/cc`, or `/ccf` URL patterns. Templates cover IanniX XY mapping, fixed notes, cursor-relative pitch, and cursor-driven CC. Cursor/Curve base-note and octave-range controls make intersection position musically meaningful; **Test message** previews the exact resolved event before playback. MIDI destination and score tempo live in global **Settings → Score & MIDI**.
+7. Use the **Scene data** section to export/import a complete Drawerator scene or copy/paste selection JSON. Both paths preserve Mods & FX and IanniX custom properties; selection paste remaps internal IDs and cursor/curve links.
+
+Mods & FX remains the rendering layer: changing or baking a brush does not redefine score topology. See `notes/iannix.md` for the phase-one schema, timing model, and extension points.
 
 ## Development
 
@@ -61,11 +79,16 @@ npm run lint
 npm run build
 ```
 
-Modifier-stack behavior is covered by Node's built-in test runner in `src/modifierStack.test.js`. See `notes/modifier-stack.md` for the data model and implementation invariants.
+Modifier-stack and score-engine behavior are covered by Node's built-in test runner in `src/modifierStack.test.js` and `src/iannixEngine.test.js`. See `notes/modifier-stack.md` and `notes/iannix.md` for their data models and implementation invariants.
 
 ## Command Palette Commands
 
 Access the command palette using `Cmd + /` or `Ctrl + /` and select from options like:
+- **Toggle AI Assistant `/chat`**
+- **Toggle Mods & FX `/mods`**
+- **Toggle Settings `/settings`**
+- **Toggle Console / Info `/console`**
+- **Toggle Transport `/transport`**
 - **Toggle Canvas Background Transparency**
 - **Toggle Satori Mode (Zen) /satori**
 - **Toggle Dark/Light Theme**

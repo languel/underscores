@@ -1,0 +1,17 @@
+export const DRAWERATOR_PANELS = Object.freeze([
+  Object.freeze({ id: "chat", label: "AI Assistant", slash: "/chat", kind: "dockable", sidebarName: "ai-sidebar", placements: ["left", "floating", "right"] }),
+  Object.freeze({ id: "mods", label: "Mods & FX", slash: "/mods", kind: "dockable", sidebarName: "modifiers-sidebar", placements: ["left", "floating", "right"] }),
+  Object.freeze({ id: "settings", label: "Settings", slash: "/settings", kind: "dockable", sidebarName: "settings-sidebar", placements: ["left", "floating", "right"] }),
+  Object.freeze({ id: "console", label: "Console / Info", slash: "/console", kind: "dockable", placements: ["left", "floating", "right"] }),
+  Object.freeze({ id: "transport", label: "Transport", slash: "/transport", kind: "dockable", placements: ["floating", "bottom"] }),
+]);
+
+export const getDraweratorPanel = id => DRAWERATOR_PANELS.find(panel => panel.id === id) || null;
+
+export const matchesDraweratorPanel = (panel, query) => {
+  const normalized = String(query || "").trim().toLowerCase();
+  if (!normalized) return true;
+  return panel.label.toLowerCase().includes(normalized) ||
+    panel.slash.toLowerCase().includes(normalized) ||
+    `panel ${panel.label}`.toLowerCase().includes(normalized);
+};

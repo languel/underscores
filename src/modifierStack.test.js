@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { composePreviewTracks, inferAxisFlipSign, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
+import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
 
 const base = [[0, 0], [10, 10]];
 const left = [[-2, 0], [8, 10]];
@@ -75,6 +75,33 @@ test("filter-only preview does not duplicate its primary path", () => {
     allLines: [base],
     hasAccumulated: false,
     hideOriginal: false,
+  }), [base]);
+});
+
+test("runtime cursor owns its source and every generated brush track", () => {
+  assert.deepEqual(composeRuntimeCursorTracks({
+    sourcePaths: [base],
+    evaluatedTracks: [left, right],
+    hasAccumulated: true,
+    hideOriginal: false,
+    muteModifiers: false,
+  }), [base, left, right]);
+});
+
+test("runtime cursor respects hide-original and bypass semantics", () => {
+  assert.deepEqual(composeRuntimeCursorTracks({
+    sourcePaths: [base],
+    evaluatedTracks: [left, right],
+    hasAccumulated: true,
+    hideOriginal: true,
+    muteModifiers: false,
+  }), [left, right]);
+  assert.deepEqual(composeRuntimeCursorTracks({
+    sourcePaths: [base],
+    evaluatedTracks: [left, right],
+    hasAccumulated: true,
+    hideOriginal: false,
+    muteModifiers: true,
   }), [base]);
 });
 

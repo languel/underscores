@@ -1,8 +1,17 @@
 // Force rebuild timestamp: 2026-07-06T11:15:00
-import React, { useState, useEffect, useRef } from "react";
-import { Excalidraw, Sidebar, MainMenu, WelcomeScreen, exportToSvg, exportToCanvas, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { Excalidraw, MainMenu, exportToSvg, exportToCanvas, loadFromBlob, serializeAsJSON, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw";
 import "./App.css";
-import { composePreviewTracks, inferAxisFlipSign, isDrawableTrack, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
+import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, isDrawableTrack, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
+import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, isRuntimeCursor, normalizeIannixData, transformPaths } from "./iannixEngine.js";
+import { describeIannixMidiMessage, getIannixMidiTemplatePattern, getIannixTriggerMidiContext, IANNIX_MIDI_TEMPLATES, parseIannixMidiPattern, selectIannixTriggerCursor, sendIannixMidiMessage } from "./iannixMidi.js";
+import { attachDraweratorExchangeMetadata, getSelectionExchangeElements, parseDraweratorExchange, remapSelectionForImport } from "./sceneExchange.js";
+import { DRAWERATOR_PANELS } from "./panelRegistry.js";
+import { getDockTarget, getOpenPanelsForPlacement, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
+import { estimateMidiClockTempo, formatTimelinePosition, MIDI_REALTIME, midiClockIntervalMs, normalizeTimeSignature, parseTimelinePosition, secondsToFrame, songPositionToSeconds } from "./transport.js";
+import PanelPlacementControls from "./PanelPlacementControls.jsx";
+import DraweratorPanel from "./DraweratorPanel.jsx";
+import TransportTimeline from "./TransportTimeline.jsx";
 
 // System Prompt guiding the local LLM on drawing tools
 const SYSTEM_PROMPT = `You are "Drawerator", an autonomous, high-performance drawing assistant.
@@ -874,10 +883,10 @@ const smoothPathTaubin = (points, lambda = 0.5, mu = -0.53, iterations = 10, per
       if (periodic) {
         const numUnique = n - 1;
         if (i === n - 1) continue;
-        
+
         const prevIdx = (i - 1 + numUnique) % numUnique;
         const nextIdx = (i + 1) % numUnique;
-        
+
         const avgX = (current[prevIdx][0] + current[nextIdx][0]) / 2;
         const avgY = (current[prevIdx][1] + current[nextIdx][1]) / 2;
         
@@ -1009,7 +1018,7 @@ const solveHobbySpline = (points, tension = 1.0) => {
   for (let i = 0; i < n; i++) {
     const p0 = points[i];
     const p3 = points[i+1];
-    
+
     const th = theta[i];
     const ph = phi[i+1];
     
@@ -1249,8 +1258,43 @@ function App() {
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
-  const [sidebarDocked, setSidebarDocked] = useState(true);
-  const [showSettings, setShowSettings] = useState(false);
+  const [accentColor, setAccentColor] = useState(() => localStorage.getItem("drawerator_accent_color") || "#6b7173");
+  const [panelLayouts, setPanelLayouts] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("drawerator_panel_layout_v1") || "null");
+      const layouts = normalizePanelLayouts(saved);
+      const legacyTransport = JSON.parse(localStorage.getItem("drawerator_transport_position") || "null");
+      if (!saved && Number.isFinite(legacyTransport?.x) && Number.isFinite(legacyTransport?.y)) {
+        layouts.transport = { placement: PANEL_PLACEMENTS.FLOATING, x: legacyTransport.x, y: legacyTransport.y };
+      }
+      return layouts;
+    } catch {
+      return normalizePanelLayouts(null);
+    }
+  });
+  const [openPanels, setOpenPanels] = useState(() => {
+    try {
+      return { chat: false, settings: false, mods: true, console: false, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
+    } catch {
+      return { chat: false, settings: false, mods: true, console: false };
+    }
+  });
+  const [activeDockPanels, setActiveDockPanels] = useState(() => {
+    try {
+      return { left: "mods", right: "mods", ...JSON.parse(localStorage.getItem("drawerator_panel_dock_tabs_v1") || "null") };
+    } catch {
+      return { left: "mods", right: "mods" };
+    }
+  });
+  const [collapsedDocks, setCollapsedDocks] = useState(() => {
+    try {
+      return { left: false, right: false, ...JSON.parse(localStorage.getItem("drawerator_collapsed_docks_v1") || "null") };
+    } catch {
+      return { left: false, right: false };
+    }
+  });
+  const [draggingPanelId, setDraggingPanelId] = useState(null);
+  const [dockPreview, setDockPreview] = useState(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandSearch, setCommandSearch] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -1274,25 +1318,89 @@ function App() {
   });
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
   const [modsPanelTab, setModsPanelTab] = useState("stack");
+  const [scoreTime, setScoreTime] = useState(0);
+  const [scorePlaying, setScorePlaying] = useState(false);
+  const [scoreRate, setScoreRate] = useState(() => {
+    const saved = Number(localStorage.getItem("drawerator_iannix_rate"));
+    return Number.isFinite(saved) && saved > 0 ? saved : 1;
+  });
+  const [scoreTempo, setScoreTempo] = useState(() => {
+    const saved = Number(localStorage.getItem("drawerator_iannix_tempo"));
+    return Number.isFinite(saved) && saved >= 20 && saved <= 400 ? saved : 120;
+  });
+  const [scoreTempoDraft, setScoreTempoDraft] = useState(() => String(scoreTempo));
+  const [scoreTimeSignature, setScoreTimeSignature] = useState(() => {
+    try {
+      return normalizeTimeSignature(JSON.parse(localStorage.getItem("drawerator_time_signature") || "null"));
+    } catch {
+      return { numerator: 4, denominator: 4 };
+    }
+  });
+  const [transportDisplayMode, setTransportDisplayMode] = useState(() => {
+    const saved = localStorage.getItem("drawerator_transport_display");
+    return ["frame", "timecode", "beats"].includes(saved) ? saved : "timecode";
+  });
+  const [transportFps, setTransportFps] = useState(() => {
+    const saved = Number(localStorage.getItem("drawerator_transport_fps"));
+    return [24, 25, 30, 50, 60].includes(saved) ? saved : 30;
+  });
+  const [transportLoopEnabled, setTransportLoopEnabled] = useState(() =>
+    localStorage.getItem("drawerator_transport_loop") === "true"
+  );
+  const [transportLoopStart, setTransportLoopStart] = useState(() => Math.max(0, Number(localStorage.getItem("drawerator_transport_loop_start")) || 0));
+  const [transportLoopEnd, setTransportLoopEnd] = useState(() => Math.max(1, Number(localStorage.getItem("drawerator_transport_loop_end")) || 10));
+  const updateTransportLoop = useCallback((start, end) => {
+    setTransportLoopStart(Math.max(0, start));
+    setTransportLoopEnd(Math.max(start + 0.001, end));
+  }, []);
+  const [midiClockMode, setMidiClockMode] = useState(() => {
+    const saved = localStorage.getItem("drawerator_midi_clock_mode");
+    return ["send", "receive"].includes(saved) ? saved : "internal";
+  });
+  const [midiInputs, setMidiInputs] = useState([]);
+  const [midiInputId, setMidiInputId] = useState(() => localStorage.getItem("drawerator_iannix_midi_input") || "");
+  const [midiClockStatus, setMidiClockStatus] = useState("Internal clock");
+  const [transportDragging, setTransportDragging] = useState(false);
+  const [showIannixLabels, setShowIannixLabels] = useState(() => {
+    return localStorage.getItem("drawerator_iannix_show_labels") === "true";
+  });
+  const [showIannixTransport, setShowIannixTransport] = useState(() => {
+    return localStorage.getItem("drawerator_iannix_transport_visible") !== "false";
+  });
+  const [scoreEvents, setScoreEvents] = useState([]);
+  const [midiAccess, setMidiAccess] = useState(null);
+  const [midiOutputs, setMidiOutputs] = useState([]);
+  const [midiOutputId, setMidiOutputId] = useState(() =>
+    localStorage.getItem("drawerator_iannix_midi_output") || ""
+  );
+  const [midiStatus, setMidiStatus] = useState(() =>
+    typeof navigator !== "undefined" && navigator.requestMIDIAccess
+      ? "MIDI not connected"
+      : "Web MIDI is unavailable in this browser"
+  );
+  const [sceneExchangeStatus, setSceneExchangeStatus] = useState("");
+  const [, setScoreRuntimeNonce] = useState(0);
+  const previousCursorStatesRef = useRef(new Map());
+  const visualCursorTransformsRef = useRef(new Map());
+  const activeScoreCollisionsRef = useRef(new Set());
+  const triggerPulseUntilRef = useRef(new Map());
+  const midiAccessRef = useRef(null);
+  const midiOutputIdRef = useRef(midiOutputId);
+  const midiInputIdRef = useRef(midiInputId);
+  const midiClockLastTimestampRef = useRef(null);
+  const midiClockTempoRef = useRef(scoreTempo);
+  const tapTempoTimesRef = useRef([]);
+  const transportDragRef = useRef(null);
+  const panelDragRef = useRef(null);
+  const sceneImportInputRef = useRef(null);
   const [selectedElementIds, setSelectedElementIds] = useState({});
   const [modifierUpdateNonce, setModifierUpdateNonce] = useState(0);
   const cameraRef = useRef({ scrollX: 0, scrollY: 0, zoom: 1 });
-  const [showPropertiesModal, setShowPropertiesModal] = useState(false);
-  const [modifiersSidebarDocked, setModifiersSidebarDocked] = useState(false);
-  const [panelPos, setPanelPos] = useState({ x: 40, y: 150 }); // Left side by default
-  const [panelCollapsed, setPanelCollapsed] = useState(false);
-  const [isDraggingPanel, setIsDraggingPanel] = useState(false);
-  const dragStartRef = useRef({ x: 0, y: 0 });
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [showContextDropdown, setShowContextDropdown] = useState(false);
   const [contextMenuTab, setContextMenuTab] = useState("main");
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [autocompleteSearch, setAutocompleteSearch] = useState("");
   const [autocompleteIndex, setAutocompleteIndex] = useState(0);
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = localStorage.getItem("drawerator_sidebar_width");
-    return saved ? parseInt(saved, 10) : 380;
-  });
   const [showDebugLayer, setShowDebugLayer] = useState(() => {
     return localStorage.getItem("drawerator_show_debug_layer") === "true";
   });
@@ -1354,6 +1462,353 @@ function App() {
   const [globalMuteStack, setGlobalMuteStack] = useState(false);
   const [nextStrokeHideOriginal, setNextStrokeHideOriginal] = useState(false);
   const [globalRoundness, setGlobalRoundness] = useState(true);
+
+  const updatePanelLayout = useCallback((panelId, nextLayout) => {
+    setPanelLayouts(previous => ({
+      ...previous,
+      [panelId]: { ...previous[panelId], ...nextLayout },
+    }));
+  }, []);
+
+  const setPanelPlacement = useCallback((panelId, placement) => {
+    updatePanelLayout(panelId, { placement });
+    if (placement === PANEL_PLACEMENTS.LEFT || placement === PANEL_PLACEMENTS.RIGHT) {
+      setActiveDockPanels(previous => ({ ...previous, [placement]: panelId }));
+      setCollapsedDocks(previous => ({ ...previous, [placement]: false }));
+    }
+  }, [updatePanelLayout]);
+
+  const startSidebarPanelDrag = useCallback((panelId, event) => {
+    if (event.button !== 0) return;
+    const panel = event.currentTarget.closest(".drawerator-panel-shell");
+    const rect = panel?.getBoundingClientRect();
+    if (!rect) return;
+    event.preventDefault();
+    event.stopPropagation();
+    panelDragRef.current = {
+      panelId,
+      started: false,
+      startX: event.clientX,
+      startY: event.clientY,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      width: rect.width,
+      height: rect.height,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    };
+    setDraggingPanelId(panelId);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_iannix_rate", String(scoreRate));
+  }, [scoreRate]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_iannix_tempo", String(scoreTempo));
+    midiClockTempoRef.current = scoreTempo;
+    setScoreTempoDraft(String(scoreTempo));
+  }, [scoreTempo]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_time_signature", JSON.stringify(scoreTimeSignature));
+    localStorage.setItem("drawerator_transport_display", transportDisplayMode);
+    localStorage.setItem("drawerator_transport_fps", String(transportFps));
+    localStorage.setItem("drawerator_transport_loop", String(transportLoopEnabled));
+    localStorage.setItem("drawerator_transport_loop_start", String(transportLoopStart));
+    localStorage.setItem("drawerator_transport_loop_end", String(transportLoopEnd));
+    localStorage.setItem("drawerator_midi_clock_mode", midiClockMode);
+  }, [midiClockMode, scoreTimeSignature, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopStart]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_panel_layout_v1", JSON.stringify(panelLayouts));
+    localStorage.removeItem("drawerator_transport_position");
+  }, [panelLayouts]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_panel_visibility_v1", JSON.stringify(openPanels));
+  }, [openPanels]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_panel_dock_tabs_v1", JSON.stringify(activeDockPanels));
+  }, [activeDockPanels]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_collapsed_docks_v1", JSON.stringify(collapsedDocks));
+  }, [collapsedDocks]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_iannix_show_labels", String(showIannixLabels));
+  }, [showIannixLabels]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_iannix_transport_visible", String(showIannixTransport));
+  }, [showIannixTransport]);
+
+  useEffect(() => {
+    midiOutputIdRef.current = midiOutputId;
+    localStorage.setItem("drawerator_iannix_midi_output", midiOutputId);
+  }, [midiOutputId]);
+
+  useEffect(() => {
+    midiInputIdRef.current = midiInputId;
+    localStorage.setItem("drawerator_iannix_midi_input", midiInputId);
+  }, [midiInputId]);
+
+  useEffect(() => {
+    if (!midiAccess) return undefined;
+    const refreshPorts = () => {
+      const outputs = [...midiAccess.outputs.values()].map(output => ({
+        id: output.id,
+        name: output.name || "Unnamed MIDI output",
+        manufacturer: output.manufacturer || "",
+        state: output.state,
+      }));
+      setMidiOutputs(outputs);
+      const currentId = midiOutputIdRef.current;
+      if (!outputs.some(output => output.id === currentId)) {
+        const nextId = outputs[0]?.id || "";
+        midiOutputIdRef.current = nextId;
+        setMidiOutputId(nextId);
+      }
+      const inputs = [...midiAccess.inputs.values()].map(input => ({
+        id: input.id,
+        name: input.name || "Unnamed MIDI input",
+        manufacturer: input.manufacturer || "",
+        state: input.state,
+      }));
+      setMidiInputs(inputs);
+      if (!inputs.some(input => input.id === midiInputIdRef.current)) {
+        const nextInputId = inputs[0]?.id || "";
+        midiInputIdRef.current = nextInputId;
+        setMidiInputId(nextInputId);
+      }
+      setMidiStatus(`${inputs.length} in · ${outputs.length} out`);
+    };
+    refreshPorts();
+    midiAccess.addEventListener?.("statechange", refreshPorts);
+    return () => midiAccess.removeEventListener?.("statechange", refreshPorts);
+  }, [midiAccess]);
+
+  useEffect(() => {
+    if (!scorePlaying || midiClockMode === "receive") return undefined;
+    let animationFrame = 0;
+    let previousTimestamp = performance.now();
+    const tick = (timestamp) => {
+      const deltaSeconds = Math.max(0, Math.min(0.1, (timestamp - previousTimestamp) / 1000));
+      previousTimestamp = timestamp;
+      setScoreTime(time => {
+        const next = time + deltaSeconds * scoreRate;
+        if (transportLoopEnabled && transportLoopEnd > transportLoopStart && next >= transportLoopEnd) {
+          return transportLoopStart + ((next - transportLoopStart) % (transportLoopEnd - transportLoopStart));
+        }
+        return next;
+      });
+      animationFrame = requestAnimationFrame(tick);
+    };
+    animationFrame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [midiClockMode, scorePlaying, scoreRate, transportLoopEnabled, transportLoopEnd, transportLoopStart]);
+
+  useEffect(() => {
+    if (!midiAccess || midiClockMode !== "receive") return undefined;
+    const input = midiAccess.inputs.get(midiInputId) || [...midiAccess.inputs.values()][0];
+    if (!input) {
+      setMidiClockStatus("No MIDI clock input");
+      return undefined;
+    }
+    const handleMidiClock = event => {
+      const [status, data1 = 0, data2 = 0] = event.data || [];
+      const timestamp = Number(event.receivedTime) || performance.now();
+      if (status === MIDI_REALTIME.start) {
+        midiClockLastTimestampRef.current = null;
+        setScoreTime(0);
+        setScorePlaying(true);
+        setMidiClockStatus(`Receiving · ${input.name || "MIDI"}`);
+      } else if (status === MIDI_REALTIME.continue) {
+        setScorePlaying(true);
+        setMidiClockStatus(`Receiving · ${input.name || "MIDI"}`);
+      } else if (status === MIDI_REALTIME.stop) {
+        setScorePlaying(false);
+        setMidiClockStatus("External clock stopped");
+      } else if (status === MIDI_REALTIME.songPosition) {
+        setScoreTime(songPositionToSeconds(data1, data2, midiClockTempoRef.current));
+      } else if (status === MIDI_REALTIME.clock) {
+        const previousTimestamp = midiClockLastTimestampRef.current;
+        if (previousTimestamp !== null) {
+          const tempo = estimateMidiClockTempo(previousTimestamp, timestamp, midiClockTempoRef.current);
+          midiClockTempoRef.current = tempo;
+          setScoreTempo(Number(tempo.toFixed(2)));
+          setScoreTime(time => time + 60 / (tempo * 24));
+        }
+        midiClockLastTimestampRef.current = timestamp;
+      }
+    };
+    input.addEventListener?.("midimessage", handleMidiClock);
+    setMidiClockStatus(`Waiting for clock · ${input.name || "MIDI"}`);
+    return () => input.removeEventListener?.("midimessage", handleMidiClock);
+  }, [midiAccess, midiClockMode, midiInputId]);
+
+  useEffect(() => {
+    if (!midiAccess || midiClockMode !== "send") return undefined;
+    const output = midiAccess.outputs.get(midiOutputId) || [...midiAccess.outputs.values()][0];
+    if (!output) {
+      setMidiClockStatus("No MIDI clock output");
+      return undefined;
+    }
+    if (!scorePlaying) {
+      output.send([MIDI_REALTIME.stop]);
+      setMidiClockStatus("Clock output stopped");
+      return undefined;
+    }
+    output.send([MIDI_REALTIME.start]);
+    setMidiClockStatus(`Sending ${midiClockTempoRef.current.toFixed(2)} BPM · ${output.name || "MIDI"}`);
+    let timeout = 0;
+    const sendClock = () => {
+      output.send([MIDI_REALTIME.clock]);
+      timeout = window.setTimeout(sendClock, midiClockIntervalMs(midiClockTempoRef.current));
+    };
+    timeout = window.setTimeout(sendClock, midiClockIntervalMs(midiClockTempoRef.current));
+    return () => {
+      window.clearTimeout(timeout);
+      output.send([MIDI_REALTIME.stop]);
+    };
+  }, [midiAccess, midiClockMode, midiOutputId, scorePlaying]);
+
+  useEffect(() => {
+    if (!transportDragging) return undefined;
+    const handleMove = event => {
+      const drag = transportDragRef.current;
+      if (!drag) return;
+      drag.clientX = event.clientX;
+      drag.clientY = event.clientY;
+      if (!drag.started) {
+        if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return;
+        drag.started = true;
+        updatePanelLayout("transport", {
+          placement: PANEL_PLACEMENTS.FLOATING,
+          x: Math.max(8, Math.min(window.innerWidth - drag.width - 8, event.clientX - drag.offsetX)),
+          y: Math.max(8, Math.min(window.innerHeight - drag.height - 8, event.clientY - drag.offsetY)),
+          width: drag.width,
+        });
+      }
+      const width = drag.width;
+      const height = drag.height;
+      const target = getDockTarget(event.clientX, event.clientY, window.innerWidth, window.innerHeight, { allowBottom: true, transport: true });
+      setDockPreview(target === PANEL_PLACEMENTS.BOTTOM ? target : null);
+      updatePanelLayout("transport", {
+        placement: PANEL_PLACEMENTS.FLOATING,
+        x: Math.max(8, Math.min(window.innerWidth - width - 8, event.clientX - drag.offsetX)),
+        y: Math.max(8, Math.min(window.innerHeight - height - 8, event.clientY - drag.offsetY)),
+      });
+    };
+    const handleUp = () => {
+      const drag = transportDragRef.current;
+      if (drag?.started) {
+        const target = getDockTarget(drag.clientX, drag.clientY, window.innerWidth, window.innerHeight, { allowBottom: true, transport: true });
+        if (target === PANEL_PLACEMENTS.BOTTOM) setPanelPlacement("transport", PANEL_PLACEMENTS.BOTTOM);
+      }
+      transportDragRef.current = null;
+      setTransportDragging(false);
+      setDockPreview(null);
+    };
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, [setPanelPlacement, transportDragging, updatePanelLayout]);
+
+  useEffect(() => {
+    if (!excalidrawAPI) return;
+    const frame = evaluateScoreFrame(
+      excalidrawAPI.getSceneElements(),
+      scoreTime,
+      previousCursorStatesRef.current,
+    );
+    previousCursorStatesRef.current = frame.nextCursorPaths;
+
+    const collisionState = advanceScoreCollisionState(
+      frame.collisions,
+      activeScoreCollisionsRef.current,
+      scorePlaying,
+    );
+    activeScoreCollisionsRef.current = collisionState.active;
+    if (!scorePlaying) return;
+
+    const entered = collisionState.entered;
+    if (entered.length === 0) return;
+
+    const elements = excalidrawAPI.getSceneElements();
+    const elementMap = new Map(elements.map(element => [element.id, element]));
+    const now = Date.now();
+    const nextEvents = entered.map(key => {
+      const [cursorId, triggerId] = key.split(":");
+      const trigger = elementMap.get(triggerId);
+      const triggerData = normalizeIannixData(trigger?.customData?.iannix);
+      const pulseMs = Math.max(80, triggerData.trigger.duration * 1000);
+      triggerPulseUntilRef.current.set(triggerId, now + pulseMs);
+      window.setTimeout(() => setScoreRuntimeNonce(nonce => nonce + 1), pulseMs + 16);
+      let midi = null;
+      if (triggerData.trigger.midiEnabled) {
+        try {
+          const cursor = frame.cursors.find(candidate => candidate.element.id === cursorId);
+          const context = getIannixTriggerMidiContext(cursor, triggerData, trigger);
+          const message = parseIannixMidiPattern(triggerData.trigger.midiPattern, context);
+          const access = midiAccessRef.current;
+          const output = access?.outputs.get(midiOutputIdRef.current) || [...(access?.outputs.values() || [])][0];
+          sendIannixMidiMessage(output, message, performance.now());
+          midi = message.kind === "cc"
+            ? { kind: "cc", channel: message.channel, controller: message.controller, value: message.value }
+            : { kind: "note", channel: message.channel, note: message.note, velocity: message.velocity };
+          setMidiStatus(`Sent ${describeIannixMidiMessage(message)}`);
+        } catch (error) {
+          setMidiStatus(error.message || "MIDI send failed");
+        }
+      }
+      return {
+        id: `${key}:${now}`,
+        cursorId,
+        triggerId,
+        time: scoreTime,
+        label: triggerData.label || `Trigger ${triggerId.slice(0, 6)}`,
+        midi,
+      };
+    });
+    setScoreEvents(events => [...nextEvents, ...events].slice(0, 20));
+    setScoreRuntimeNonce(nonce => nonce + 1);
+  }, [excalidrawAPI, modifierUpdateNonce, scorePlaying, scoreTime]);
+
+  // A linked cursor is rendered by the score overlay at its runtime position.
+  // Keep its authored Excalidraw element invisible without losing the opacity
+  // that must be restored when it is unlinked or changes role.
+  useEffect(() => {
+    if (!excalidrawAPI) return;
+    let changed = false;
+    const nextElements = excalidrawAPI.getSceneElements().map(element => {
+      if (!isRuntimeCursor(element)) return element;
+      const data = normalizeIannixData(element.customData?.iannix);
+      const storedOpacity = data.cursor.sourceOpacity;
+      if (element.opacity === 0 && storedOpacity !== null && storedOpacity !== undefined) return element;
+      const sourceOpacity = element.opacity > 0
+        ? element.opacity
+        : (storedOpacity ?? element.customData?.savedOpacity ?? 100);
+      changed = true;
+      return {
+        ...element,
+        opacity: 0,
+        customData: {
+          ...(element.customData || {}),
+          iannix: {
+            ...data,
+            cursor: { ...data.cursor, sourceOpacity },
+          },
+        },
+      };
+    });
+    if (changed) excalidrawAPI.updateScene({ elements: nextElements });
+  }, [excalidrawAPI, modifierUpdateNonce]);
 
   const [activeBrushCode, setActiveBrushCode] = useState(() => {
     const savedId = localStorage.getItem("drawerator_active_brush_id");
@@ -1882,12 +2337,30 @@ function App() {
     }
   }, [customBrushActive, excalidrawAPI]);
 
-  const handleSidebarResizeMouseDown = (e) => {
+  const handlePanelResizeMouseDown = (panelId, e, placement = PANEL_PLACEMENTS.RIGHT) => {
     e.preventDefault();
+    e.stopPropagation();
+    const panel = e.currentTarget.closest(".drawerator-panel-shell");
+    const startRect = panel?.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
     const handleMouseMove = (moveEvent) => {
-      const newWidth = Math.max(280, Math.min(800, window.innerWidth - moveEvent.clientX));
-      setSidebarWidth(newWidth);
-      localStorage.setItem("drawerator_sidebar_width", newWidth);
+      if (placement === PANEL_PLACEMENTS.FLOATING && startRect) {
+        updatePanelLayout(panelId, {
+          width: Math.max(280, Math.min(window.innerWidth - startRect.left - 8, startRect.width + moveEvent.clientX - startX)),
+          height: Math.max(220, Math.min(window.innerHeight - startRect.top - 8, startRect.height + moveEvent.clientY - startY)),
+        });
+        return;
+      }
+      const rawWidth = placement === PANEL_PLACEMENTS.LEFT
+        ? moveEvent.clientX
+        : window.innerWidth - moveEvent.clientX;
+      if (rawWidth < 180) {
+        setCollapsedDocks(previous => ({ ...previous, [placement]: true }));
+        return;
+      }
+      setCollapsedDocks(previous => ({ ...previous, [placement]: false }));
+      updatePanelLayout(panelId, { width: Math.max(280, Math.min(800, rawWidth)) });
     };
     const handleMouseUp = () => {
       document.removeEventListener("mousemove", handleMouseMove);
@@ -1896,6 +2369,43 @@ function App() {
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
   };
+
+  useEffect(() => {
+    if (!draggingPanelId) return undefined;
+    const handleMove = event => {
+      const drag = panelDragRef.current;
+      if (!drag) return;
+      drag.clientX = event.clientX;
+      drag.clientY = event.clientY;
+      if (!drag.started) {
+        if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return;
+        drag.started = true;
+      }
+      const target = getDockTarget(event.clientX, event.clientY, window.innerWidth, window.innerHeight);
+      setDockPreview(target === PANEL_PLACEMENTS.FLOATING ? null : target);
+      updatePanelLayout(drag.panelId, {
+        placement: PANEL_PLACEMENTS.FLOATING,
+        x: Math.max(8, Math.min(window.innerWidth - drag.width - 8, event.clientX - drag.offsetX)),
+        y: Math.max(8, Math.min(window.innerHeight - drag.height - 8, event.clientY - drag.offsetY)),
+      });
+    };
+    const handleUp = () => {
+      const drag = panelDragRef.current;
+      if (drag?.started) {
+        const target = getDockTarget(drag.clientX, drag.clientY, window.innerWidth, window.innerHeight);
+        if (target !== PANEL_PLACEMENTS.FLOATING) setPanelPlacement(drag.panelId, target);
+      }
+      panelDragRef.current = null;
+      setDraggingPanelId(null);
+      setDockPreview(null);
+    };
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, [draggingPanelId, setPanelPlacement, updatePanelLayout]);
   
   const applyBrushToFreedrawElement = (freedrawElement, generator, overrideAbsolutePoints = null) => {
     if (!freedrawElement || !generator) return null;
@@ -2727,14 +3237,6 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory]);
 
-  // Sync initial sidebar open state once excalidrawAPI is loaded
-  useEffect(() => {
-    if (excalidrawAPI) {
-      const appState = excalidrawAPI.getAppState();
-      setIsSidebarOpen(appState.activeSidebar === "ai-sidebar");
-    }
-  }, [excalidrawAPI]);
-
   // Test AI Connection & Fetch Models
   const testAIConnection = async (settings = aiSettings) => {
     setConnectionStatus("pending");
@@ -2935,7 +3437,7 @@ function App() {
 
   const saveSettings = () => {
     localStorage.setItem("drawerator_ai_settings", JSON.stringify(aiSettings));
-    setShowSettings(false);
+    testAIConnection(aiSettings);
   };
 
   const logToolAction = (msg, status = "ok") => {
@@ -3354,14 +3856,64 @@ function App() {
     });
   };
 
+  const toggleDraweratorPanel = (panelId, options = {}) => {
+    const panel = DRAWERATOR_PANELS.find(candidate => candidate.id === panelId);
+    if (!panel) return;
+    if (panel.id === "transport") {
+      setShowIannixTransport(visible => !visible);
+      return;
+    }
+    if (panel.id === "settings" && options.settingsTab) {
+      setActiveSettingsTab(options.settingsTab);
+    }
+    if (panel.id === "mods" && options.modsTab) {
+      setModsPanelTab(options.modsTab);
+    }
+    const forceOpen = Boolean(options.settingsTab || options.modsTab || options.open);
+    const placement = panelLayouts[panelId]?.placement;
+    if (placement === PANEL_PLACEMENTS.LEFT || placement === PANEL_PLACEMENTS.RIGHT) {
+      const isFrontmostExpandedPanel = Boolean(
+        openPanels[panelId] &&
+        activeDockPanels[placement] === panelId &&
+        !collapsedDocks[placement]
+      );
+      setOpenPanels(previous => ({ ...previous, [panelId]: true }));
+      setActiveDockPanels(previous => ({ ...previous, [placement]: panelId }));
+      setCollapsedDocks(previous => ({
+        ...previous,
+        [placement]: forceOpen ? false : isFrontmostExpandedPanel,
+      }));
+      return;
+    }
+    setOpenPanels(previous => ({ ...previous, [panelId]: forceOpen ? true : !previous[panelId] }));
+  };
+
+  const closeDraweratorPanel = panelId => {
+    setOpenPanels(previous => ({ ...previous, [panelId]: false }));
+  };
+
+  const toggleLibrary = () => {
+    excalidrawAPI?.toggleSidebar({ name: "library" });
+  };
+
   // --- COMMAND PALETTE LOGIC ---
+  const PANEL_COMMANDS = DRAWERATOR_PANELS.map(panel => ({
+    id: `panel-${panel.id}`,
+    name: `Toggle ${panel.label} ${panel.slash}`,
+    aliases: [panel.slash, panel.label, `panel ${panel.label}`],
+    category: "Panels",
+    panel,
+    action: () => toggleDraweratorPanel(panel.id),
+  }));
   const COMMANDS = [
+    ...PANEL_COMMANDS,
     { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => setSatoriMode(prev => !prev) },
     { id: "toggle-theme", name: "Toggle Dark/Light Theme", category: "View", action: (api) => { const next = theme === "dark" ? "light" : "dark"; setTheme(next); api?.updateScene({ appState: { theme: next } }); } },
-    { id: "toggle-chat", name: "Toggle AI Assistant Chat", category: "AI Chat", action: (api) => api.toggleSidebar({ name: "ai-sidebar" }) },
+    { id: "toggle-chat", name: "Toggle AI Assistant Chat", category: "AI Chat", action: () => toggleDraweratorPanel("chat") },
+    { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
-    { id: "settings", name: "Open Local AI Settings", category: "AI Chat", action: () => setShowSettings(true) },
+    { id: "settings-ai", name: "Open AI Configuration /settings-ai", aliases: ["/settings-ai"], category: "Panels", action: () => toggleDraweratorPanel("settings", { settingsTab: "ai" }) },
     { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
     { id: "toggle-transparency", name: "Toggle Canvas Background Transparency", category: "Canvas", action: (api) => toggleBackgroundTransparency(api) },
     { id: "reset-view", name: "Reset Zoom & Pan View", category: "Canvas", action: (api) => api.updateScene({ appState: { zoom: { value: 1 }, scrollX: 0, scrollY: 0 } }) },
@@ -3395,6 +3947,12 @@ function App() {
         e.stopPropagation();
         setSatoriMode(prev => !prev);
       }
+      // Ctrl + Option + T, with legacy Cmd + Ctrl + T support (Toggle transport)
+      if (((e.ctrlKey && e.altKey) || (e.metaKey && e.ctrlKey)) && e.code === "KeyT") {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowIannixTransport(visible => !visible);
+      }
       // Opt + Shift + D (Theme toggle)
       if (e.altKey && e.shiftKey && e.code === "KeyD") {
         e.preventDefault();
@@ -3413,37 +3971,48 @@ function App() {
       if ((e.metaKey || e.ctrlKey) && (e.key === "," || e.code === "Comma")) {
         e.preventDefault();
         e.stopPropagation();
-        setShowSettings(prev => !prev);
+        toggleDraweratorPanel("settings");
       }
       // Ctrl + Option + A (Toggle AI Chat Panel)
       if (e.ctrlKey && e.altKey && e.code === "KeyA") {
         e.preventDefault();
         e.stopPropagation();
-        excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" });
+        toggleDraweratorPanel("chat");
+      }
+      // Cmd + B collapses/reveals the left dock; Cmd + Option + B does the right dock.
+      if (e.metaKey && !e.ctrlKey && e.code === "KeyB") {
+        e.preventDefault();
+        e.stopPropagation();
+        const side = e.altKey ? PANEL_PLACEMENTS.RIGHT : PANEL_PLACEMENTS.LEFT;
+        setCollapsedDocks(previous => ({ ...previous, [side]: !previous[side] }));
       }
       // Ctrl + Option + B (Open the script editor in Mods & FX)
       if (e.ctrlKey && e.altKey && e.code === "KeyB") {
         e.preventDefault();
         e.stopPropagation();
         setModsPanelTab("script");
-        if (excalidrawAPI?.getAppState().activeSidebar !== "modifiers-sidebar") {
-          excalidrawAPI?.toggleSidebar({ name: "modifiers-sidebar" });
-        }
+        toggleDraweratorPanel("mods", { modsTab: "script" });
       }
       // Ctrl + Option + P (Toggle Modifiers/Properties Sidebar Panel)
       if (e.ctrlKey && e.altKey && e.code === "KeyP") {
         e.preventDefault();
         e.stopPropagation();
-        excalidrawAPI?.toggleSidebar({ name: "modifiers-sidebar" });
+        toggleDraweratorPanel("mods");
       }
       // Cmd + Option + P (Pin / unpin Modifiers sidebar)
       if (e.metaKey && e.altKey && !e.ctrlKey && e.code === "KeyP") {
         e.preventDefault();
         e.stopPropagation();
-        setModifiersSidebarDocked(prev => !prev);
-        if (excalidrawAPI?.getAppState().activeSidebar !== "modifiers-sidebar") {
-          excalidrawAPI?.toggleSidebar({ name: "modifiers-sidebar" });
-        }
+        setPanelLayouts(previous => ({
+          ...previous,
+          mods: {
+            ...previous.mods,
+            placement: previous.mods.placement === PANEL_PLACEMENTS.FLOATING
+              ? PANEL_PLACEMENTS.RIGHT
+              : PANEL_PLACEMENTS.FLOATING,
+          },
+        }));
+        setOpenPanels(previous => ({ ...previous, mods: true }));
       }
 
       // Keyboard shortcuts check for non-input focus
@@ -3456,13 +4025,6 @@ function App() {
       );
 
       if (!isInputFocused) {
-        // Option + P (Toggle Floating Properties Modal)
-        if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === "KeyP") {
-          e.preventDefault();
-          e.stopPropagation();
-          setShowPropertiesModal(prev => !prev);
-        }
-
         // Shift + P (Toggle Custom Brush Mode)
         if (e.shiftKey && !e.ctrlKey && !e.altKey && e.code === "KeyP") {
           e.preventDefault();
@@ -3690,10 +4252,11 @@ function App() {
     const query = commandSearch.toLowerCase().trim();
     const matches = COMMANDS.filter(cmd => 
       cmd.name.toLowerCase().includes(query) || 
-      cmd.category.toLowerCase().includes(query)
+      cmd.category.toLowerCase().includes(query) ||
+      cmd.aliases?.some(alias => alias.toLowerCase().includes(query))
     );
     
-    if (commandSearch.trim() !== "") {
+    if (commandSearch.trim() !== "" && !query.startsWith("/")) {
       matches.unshift({
         id: "ask-ai",
         name: `Ask AI: "${commandSearch}"`,
@@ -3705,10 +4268,10 @@ function App() {
   };
 
   const openAISidebar = () => {
-    if (!excalidrawAPI) return;
-    const appState = excalidrawAPI.getAppState();
-    if (appState.activeSidebar !== "ai-sidebar") {
-      excalidrawAPI.toggleSidebar({ name: "ai-sidebar" });
+    setOpenPanels(previous => ({ ...previous, chat: true }));
+    const placement = panelLayouts.chat.placement;
+    if (placement === PANEL_PLACEMENTS.LEFT || placement === PANEL_PLACEMENTS.RIGHT) {
+      setActiveDockPanels(previous => ({ ...previous, [placement]: "chat" }));
     }
   };
 
@@ -3722,42 +4285,678 @@ function App() {
     }
   };
 
-  const handlePanelDragStart = (e) => {
-    if (e.button !== 0) return; // Only left click
-    setIsDraggingPanel(true);
-    dragStartRef.current = {
-      x: e.clientX - panelPos.x,
-      y: e.clientY - panelPos.y
-    };
-    e.preventDefault();
-  };
-
-  useEffect(() => {
-    if (isDraggingPanel) {
-      const handleMouseMove = (e) => {
-        setPanelPos({
-          x: e.clientX - dragStartRef.current.x,
-          y: e.clientY - dragStartRef.current.y
-        });
-      };
-      const handleMouseUp = () => {
-        setIsDraggingPanel(false);
-      };
-      window.addEventListener("mousemove", handleMouseMove);
-      window.addEventListener("mouseup", handleMouseUp);
-      return () => {
-        window.removeEventListener("mousemove", handleMouseMove);
-        window.removeEventListener("mouseup", handleMouseUp);
-      };
-    }
-  }, [isDraggingPanel]);
-
   const getSelectedElements = () => {
     if (!excalidrawAPI) return [];
     const appState = excalidrawAPI.getAppState();
     const selectedIds = appState.selectedElementIds || {};
     const elements = excalidrawAPI.getSceneElements();
     return elements.filter(el => selectedIds[el.id] && !el.isDeleted);
+  };
+
+  const updateIannixElements = (elementIds, updater) => {
+    if (!excalidrawAPI || !elementIds?.length) return;
+    const targetIds = new Set(elementIds);
+    let didUpdate = false;
+    const nextElements = excalidrawAPI.getSceneElements().map(element => {
+      if (!targetIds.has(element.id)) return element;
+      const current = normalizeIannixData(element.customData?.iannix);
+      let updated = normalizeIannixData(updater(current, element));
+      const wasRuntimeCursor = isRuntimeCursor({ customData: { iannix: current } });
+      const becomesRuntimeCursor = isRuntimeCursor({ customData: { iannix: updated } });
+      let opacity = element.opacity;
+      if (becomesRuntimeCursor) {
+        const sourceOpacity = wasRuntimeCursor
+          ? (current.cursor.sourceOpacity ?? element.opacity)
+          : element.opacity;
+        updated = {
+          ...updated,
+          cursor: { ...updated.cursor, sourceOpacity },
+        };
+        opacity = 0;
+      } else if (wasRuntimeCursor) {
+        opacity = current.cursor.sourceOpacity ?? element.opacity;
+        updated = {
+          ...updated,
+          cursor: { ...updated.cursor, sourceOpacity: null },
+        };
+      }
+      updated.version = (current.version || 0) + 1;
+      const nextVersion = element.version + 1;
+      const customData = {
+        ...(element.customData || {}),
+        iannix: updated,
+      };
+      if (customData.modifiers?.length > 0) {
+        customData.excalidrawVersion = nextVersion;
+        processedModifierVersionsRef.current[element.id] = customData.version || 0;
+      }
+      didUpdate = true;
+      return {
+        ...element,
+        opacity,
+        customData,
+        version: nextVersion,
+        versionNonce: Math.floor(Math.random() * 1000000),
+        updated: Date.now(),
+      };
+    });
+    if (!didUpdate) return;
+    excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
+    setModifierUpdateNonce(nonce => nonce + 1);
+  };
+
+  const updateIannixElement = (elementId, updater) => {
+    updateIannixElements([elementId], updater);
+  };
+
+  const assignIannixRole = (elements, role) => {
+    if (!excalidrawAPI || elements.length === 0) return;
+    const sceneElements = excalidrawAPI.getSceneElements();
+    const elementIds = elements.map(element => element.id);
+    const labels = allocateIannixRoleLabels(sceneElements, elementIds, role);
+    updateIannixElements(elementIds, (current, element) => ({
+      ...current,
+      role,
+      label: labels.get(element.id) ?? current.label,
+    }));
+  };
+
+  const connectIannixMidi = async () => {
+    if (!navigator.requestMIDIAccess) {
+      setMidiStatus("Web MIDI is unavailable in this browser");
+      return;
+    }
+    try {
+      setMidiStatus("Requesting MIDI access…");
+      const access = await navigator.requestMIDIAccess({ sysex: false });
+      midiAccessRef.current = access;
+      setMidiAccess(access);
+    } catch (error) {
+      setMidiStatus(error?.message || "MIDI access was denied");
+    }
+  };
+
+  const emitIannixMidiPattern = (pattern, context) => {
+    try {
+      const message = parseIannixMidiPattern(pattern, context);
+      const access = midiAccessRef.current;
+      const output = access?.outputs.get(midiOutputIdRef.current) || [...(access?.outputs.values() || [])][0];
+      sendIannixMidiMessage(output, message, performance.now());
+      setMidiStatus(`Sent ${describeIannixMidiMessage(message)}`);
+    } catch (error) {
+      setMidiStatus(error.message || "MIDI send failed");
+    }
+  };
+
+  const createDraweratorExchangeJson = (kind, elements) => {
+    if (!excalidrawAPI) throw new Error("The scene is not ready.");
+    const serialized = serializeAsJSON(
+      elements,
+      excalidrawAPI.getAppState(),
+      excalidrawAPI.getFiles(),
+      "local",
+    );
+    return JSON.stringify(attachDraweratorExchangeMetadata(serialized, kind, {
+      time: scoreTime,
+      rate: scoreRate,
+      tempo: scoreTempo,
+      timeSignature: scoreTimeSignature,
+      displayMode: transportDisplayMode,
+      fps: transportFps,
+      loop: { enabled: transportLoopEnabled, start: transportLoopStart, end: transportLoopEnd },
+    }), null, 2);
+  };
+
+  const downloadTextFile = (text, filename) => {
+    const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportDraweratorScene = () => {
+    try {
+      const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+      downloadTextFile(createDraweratorExchangeJson("scene", elements), `drawerator-scene-${new Date().toISOString().slice(0, 10)}.excalidraw`);
+      setSceneExchangeStatus(`Exported ${elements.filter(element => !element.isDeleted).length} scene objects with Drawerator metadata.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Scene export failed.");
+    }
+  };
+
+  const importDraweratorSceneText = async (text) => {
+    if (!excalidrawAPI) return;
+    const { score } = parseDraweratorExchange(text, "scene");
+    const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
+    if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
+    excalidrawAPI.updateScene({
+      elements: restored.elements || [],
+      appState: {
+        ...(restored.appState || {}),
+        selectedElementIds: {},
+      },
+      commitToHistory: true,
+    });
+    if (Number.isFinite(score?.time)) setScoreTime(score.time);
+    if (Number.isFinite(score?.rate) && score.rate > 0) setScoreRate(score.rate);
+    if (Number.isFinite(score?.tempo) && score.tempo >= 20 && score.tempo <= 400) setScoreTempo(score.tempo);
+    if (score?.timeSignature) setScoreTimeSignature(normalizeTimeSignature(score.timeSignature));
+    if (["frame", "timecode", "beats"].includes(score?.displayMode)) setTransportDisplayMode(score.displayMode);
+    if ([24, 25, 30, 50, 60].includes(score?.fps)) setTransportFps(score.fps);
+    if (score?.loop) {
+      setTransportLoopEnabled(!!score.loop.enabled);
+      if (Number.isFinite(score.loop.start)) setTransportLoopStart(Math.max(0, score.loop.start));
+      if (Number.isFinite(score.loop.end)) setTransportLoopEnd(Math.max(0.1, score.loop.end));
+    }
+    previousCursorStatesRef.current = new Map();
+    activeScoreCollisionsRef.current = new Set();
+    visualCursorTransformsRef.current = new Map();
+    setModifierUpdateNonce(nonce => nonce + 1);
+    setSceneExchangeStatus(`Imported ${restored.elements?.filter(element => !element.isDeleted).length || 0} scene objects.`);
+  };
+
+  const handleDraweratorSceneFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      await importDraweratorSceneText(await file.text());
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Scene import failed.");
+    }
+  };
+
+  const copyDraweratorSelection = async () => {
+    try {
+      const appState = excalidrawAPI.getAppState();
+      const elements = getSelectionExchangeElements(
+        excalidrawAPI.getSceneElementsIncludingDeleted(),
+        appState.selectedElementIds,
+      );
+      if (elements.length === 0) throw new Error("Select one or more objects to copy as JSON.");
+      await navigator.clipboard.writeText(createDraweratorExchangeJson("selection", elements));
+      setSceneExchangeStatus(`Copied ${elements.length} selected object${elements.length === 1 ? "" : "s"} as Drawerator JSON.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not copy selection JSON.");
+    }
+  };
+
+  const pasteDraweratorSelection = async () => {
+    if (!excalidrawAPI) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      parseDraweratorExchange(text, "selection");
+      const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
+      const existing = excalidrawAPI.getSceneElementsIncludingDeleted();
+      const imported = remapSelectionForImport(restored.elements || [], existing);
+      if (imported.elements.length === 0) throw new Error("The selection JSON contains no objects.");
+      if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
+      const importedIds = Object.fromEntries(imported.elements.map(element => [element.id, true]));
+      excalidrawAPI.updateScene({
+        elements: [...existing, ...imported.elements],
+        appState: { selectedElementIds: importedIds },
+        commitToHistory: true,
+      });
+      setModifierUpdateNonce(nonce => nonce + 1);
+      setSceneExchangeStatus(`Pasted ${imported.elements.length} objects with new IDs and preserved Drawerator metadata.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not paste selection JSON.");
+    }
+  };
+
+  const renderSceneExchangeTools = () => {
+    const selectedCount = getSelectedElements().length;
+    return (
+      <section className="iannix-section compact iannix-data-section">
+        <div className="iannix-section-title">Scene data</div>
+        <input
+          ref={sceneImportInputRef}
+          type="file"
+          accept=".excalidraw,.json,application/json"
+          hidden
+          onChange={handleDraweratorSceneFile}
+        />
+        <div className="iannix-data-actions">
+          <button type="button" className="iannix-flat-button" onClick={exportDraweratorScene}>Export scene</button>
+          <button type="button" className="iannix-flat-button" onClick={() => sceneImportInputRef.current?.click()}>Import scene</button>
+          <button type="button" className="iannix-flat-button" onClick={copyDraweratorSelection} disabled={selectedCount === 0}>Copy selection JSON</button>
+          <button type="button" className="iannix-flat-button" onClick={pasteDraweratorSelection}>Paste selection JSON</button>
+        </div>
+        <div className="iannix-hint">Includes native Excalidraw geometry, Mods &amp; FX custom data, IanniX roles, links, timing, and MIDI patterns.</div>
+        {sceneExchangeStatus && <div className="iannix-midi-status" role="status">{sceneExchangeStatus}</div>}
+      </section>
+    );
+  };
+
+  const renderIannixTab = () => {
+    if (!excalidrawAPI) return null;
+    const selectedElements = getSelectedElements();
+    if (selectedElements.length === 0) {
+      return (
+        <div className="iannix-properties">
+          {renderSceneExchangeTools()}
+          <div className="iannix-empty-state">
+            Select any canvas object to assign a score role and object time.
+          </div>
+        </div>
+      );
+    }
+
+    const roleOptions = [
+      { value: null, label: "None" },
+      { value: "curve", label: "Curve" },
+      { value: "cursor", label: "Cursor" },
+      { value: "trigger", label: "Trigger" },
+    ];
+
+    if (selectedElements.length > 1) {
+      const selectedRoles = new Set(selectedElements.map(element =>
+        normalizeIannixData(element.customData?.iannix).role
+      ));
+      const sharedRole = selectedRoles.size === 1 ? selectedRoles.values().next().value : undefined;
+      return (
+        <div className="iannix-properties">
+          {renderSceneExchangeTools()}
+          <section className="iannix-section">
+            <div className="iannix-section-heading-row">
+              <div className="iannix-section-title">Score role</div>
+              <span className="iannix-selection-count">{selectedElements.length} objects</span>
+            </div>
+            <div className="iannix-role-grid" role="radiogroup" aria-label="IanniX role for selected objects">
+              {roleOptions.map(option => (
+                <button
+                  key={option.label}
+                  type="button"
+                  className={`iannix-role-button role-${option.value || "none"} ${sharedRole === option.value ? "active" : ""}`}
+                  role="radio"
+                  aria-checked={sharedRole === option.value}
+                  onClick={() => assignIannixRole(selectedElements, option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <div className="iannix-hint">
+              {selectedRoles.size > 1 ? "Mixed roles. " : ""}
+              Assigning a role gives every selected object a unique label. Timing and links remain editable per object.
+            </div>
+          </section>
+        </div>
+      );
+    }
+
+    const element = selectedElements[0];
+    const data = normalizeIannixData(element.customData?.iannix);
+    const timeState = getObjectTimeState(scoreTime, data.time);
+    const curves = excalidrawAPI.getSceneElements().filter(candidate =>
+      !candidate.isDeleted && candidate.customData?.iannix?.role === "curve"
+    );
+    const linkedCursorCount = excalidrawAPI.getSceneElements().filter(candidate =>
+      !candidate.isDeleted &&
+      candidate.customData?.iannix?.role === "cursor" &&
+      candidate.customData?.iannix?.cursor?.curveId === element.id
+    ).length;
+    const setNumber = (section, field, value) => {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return;
+      updateIannixElement(element.id, current => ({
+        ...current,
+        [section]: { ...current[section], [field]: number },
+      }));
+    };
+    let midiPreview = null;
+    let midiPreviewError = "";
+    if (data.role === "trigger" && data.trigger.midiEnabled) {
+      try {
+        const frame = evaluateScoreFrame(excalidrawAPI.getSceneElements(), scoreTime);
+        const collisionKey = [...frame.collisions].find(key => key.endsWith(`:${element.id}`));
+        const preferredCursorId = collisionKey?.split(":")[0] || null;
+        const cursor = selectIannixTriggerCursor(frame.cursors, element, preferredCursorId);
+        if (!cursor) throw new Error("No active cursor is linked to a curve, so this trigger has no event context yet.");
+        const context = getIannixTriggerMidiContext(cursor, data, element);
+        const message = parseIannixMidiPattern(data.trigger.midiPattern, context);
+        const cursorData = normalizeIannixData(cursor.element.customData?.iannix);
+        midiPreview = {
+          context,
+          message,
+          cursorLabel: cursorData.label || `Cursor ${cursor.element.id.slice(0, 6)}`,
+        };
+      } catch (error) {
+        midiPreviewError = error.message || "Could not resolve this trigger's MIDI event.";
+      }
+    }
+    const updateTriggerMidi = (updates, regeneratePattern = true) => {
+      updateIannixElement(element.id, current => {
+        const trigger = { ...current.trigger, ...updates };
+        if (regeneratePattern && trigger.midiTemplate !== "custom") {
+          trigger.midiPattern = getIannixMidiTemplatePattern(trigger.midiTemplate, trigger);
+        }
+        return { ...current, trigger };
+      });
+    };
+
+    return (
+      <div className="iannix-properties">
+        {renderSceneExchangeTools()}
+        <section className="iannix-section">
+          <div className="iannix-section-title">Score role</div>
+          <div className="iannix-role-grid" role="radiogroup" aria-label="IanniX object role">
+            {roleOptions.map(option => (
+              <button
+                key={option.label}
+                type="button"
+                className={`iannix-role-button role-${option.value || "none"} ${data.role === option.value ? "active" : ""}`}
+                role="radio"
+                aria-checked={data.role === option.value}
+                onClick={() => assignIannixRole([element], option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <label className="iannix-field">
+            <span>Label</span>
+            <input
+              type="text"
+              value={data.label}
+              placeholder={`${element.type} ${element.id.slice(0, 6)}`}
+              onChange={event => updateIannixElement(element.id, current => ({ ...current, label: event.target.value }))}
+            />
+          </label>
+          <label className="iannix-check-row">
+            <span>Active in score</span>
+            <input
+              type="checkbox"
+              checked={data.active}
+              onChange={event => updateIannixElement(element.id, current => ({ ...current, active: event.target.checked }))}
+            />
+          </label>
+        </section>
+
+        {data.role === "cursor" && (
+          <section className="iannix-section">
+            <div className="iannix-section-title">Cursor</div>
+            <label className="iannix-field">
+              <span>Support curve</span>
+              <select
+                value={data.cursor.curveId || ""}
+                onChange={event => updateIannixElement(element.id, current => ({
+                  ...current,
+                  cursor: { ...current.cursor, curveId: event.target.value || null },
+                }))}
+              >
+                <option value="">— Choose curve —</option>
+                {curves.map(curve => {
+                  const curveData = normalizeIannixData(curve.customData?.iannix);
+                  return (
+                    <option key={curve.id} value={curve.id}>
+                      {curveData.label || `${curve.type} ${curve.id.slice(0, 6)}`}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+            <label className="iannix-check-row">
+              <span>Follow curve tangent</span>
+              <input
+                type="checkbox"
+                checked={data.cursor.followTangent}
+                onChange={event => updateIannixElement(element.id, current => ({
+                  ...current,
+                  cursor: { ...current.cursor, followTangent: event.target.checked },
+                }))}
+              />
+            </label>
+            <label className="iannix-range-field">
+              <span><span>Visual smoothing</span><strong>{Math.round(data.cursor.visualSmoothing * 100)}%</strong></span>
+              <input
+                type="range"
+                min="0"
+                max="0.95"
+                step="0.05"
+                value={data.cursor.visualSmoothing}
+                onChange={event => updateIannixElement(element.id, current => ({
+                  ...current,
+                  cursor: { ...current.cursor, visualSmoothing: Number(event.target.value) },
+                }))}
+              />
+            </label>
+            <div className="iannix-hint">Display-only position and angle damping. Trigger timing continues to use the exact cursor path.</div>
+            <div className="iannix-two-column">
+              <label className="iannix-field">
+                <span>MIDI base note</span>
+                <input type="number" min="0" max="127" step="1" value={data.midi.baseNote} onChange={event => setNumber("midi", "baseNote", event.target.value)} />
+              </label>
+              <label className="iannix-field">
+                <span>Pitch range ± oct.</span>
+                <input type="number" min="0" max="5" step="0.25" value={data.midi.pitchRangeOctaves} onChange={event => setNumber("midi", "pitchRangeOctaves", event.target.value)} />
+              </label>
+            </div>
+            <div className="iannix-hint">Used by the Cursor-relative pitch template. The cursor center is the base note; either end of its shape reaches the selected octave range.</div>
+            {curves.length === 0 && (
+              <div className="iannix-hint">Assign another object as a Curve before linking this cursor.</div>
+            )}
+          </section>
+        )}
+
+        {data.role === "curve" && (
+          <section className="iannix-section">
+            <div className="iannix-section-title">Curve</div>
+            <div className="iannix-readout-row"><span>Linked cursors</span><strong>{linkedCursorCount}</strong></div>
+            <div className="iannix-two-column">
+              <label className="iannix-field">
+                <span>MIDI base note</span>
+                <input type="number" min="0" max="127" step="1" value={data.midi.baseNote} onChange={event => setNumber("midi", "baseNote", event.target.value)} />
+              </label>
+              <label className="iannix-field">
+                <span>Pitch range ± oct.</span>
+                <input type="number" min="0" max="5" step="0.25" value={data.midi.pitchRangeOctaves} onChange={event => setNumber("midi", "pitchRangeOctaves", event.target.value)} />
+              </label>
+            </div>
+            <div className="iannix-hint">Playback follows this object's core geometry; Mods &amp; FX remain a rendering layer.</div>
+          </section>
+        )}
+
+        {data.role === "trigger" && (
+          <section className="iannix-section">
+            <div className="iannix-section-title">Trigger</div>
+            <label className="iannix-field">
+              <span>Pulse duration (s)</span>
+              <input
+                type="number"
+                min="0"
+                step="0.05"
+                value={data.trigger.duration}
+                onChange={event => setNumber("trigger", "duration", event.target.value)}
+              />
+            </label>
+            <div className="iannix-hint">Fires once when a cursor enters this object's core geometry and rearms after exit.</div>
+            <label className="iannix-check-row">
+              <span>Send MIDI on trigger</span>
+              <input
+                type="checkbox"
+                checked={data.trigger.midiEnabled}
+                onChange={event => updateIannixElement(element.id, current => ({
+                  ...current,
+                  trigger: { ...current.trigger, midiEnabled: event.target.checked },
+                }))}
+              />
+            </label>
+            {data.trigger.midiEnabled && (
+              <>
+                <label className="iannix-field">
+                  <span>Message template</span>
+                  <select
+                    value={data.trigger.midiTemplate}
+                    onChange={event => updateTriggerMidi({ midiTemplate: event.target.value })}
+                  >
+                    {IANNIX_MIDI_TEMPLATES.map(template => (
+                      <option key={template.id} value={template.id}>{template.label}</option>
+                    ))}
+                  </select>
+                </label>
+                {data.trigger.midiTemplate !== "custom" && (
+                  <div className="iannix-two-column">
+                    <label className="iannix-field">
+                      <span>Channel</span>
+                      <input type="number" min="1" max="16" step="1" value={data.trigger.midiChannel} onChange={event => updateTriggerMidi({ midiChannel: Number(event.target.value) })} />
+                    </label>
+                    {(data.trigger.midiTemplate === "relativePitch" || data.trigger.midiTemplate === "fixedNote") && (
+                      <label className="iannix-field">
+                        <span>Velocity</span>
+                        <input type="number" min="0" max="127" step="1" value={data.trigger.midiVelocity} onChange={event => updateTriggerMidi({ midiVelocity: Number(event.target.value) })} />
+                      </label>
+                    )}
+                    {data.trigger.midiTemplate === "fixedNote" && (
+                      <label className="iannix-field">
+                        <span>Note</span>
+                        <input type="number" min="0" max="127" step="1" value={data.trigger.midiFixedNote} onChange={event => updateTriggerMidi({ midiFixedNote: Number(event.target.value) })} />
+                      </label>
+                    )}
+                    {data.trigger.midiTemplate === "cursorCC" && (
+                      <label className="iannix-field">
+                        <span>Controller</span>
+                        <input type="number" min="0" max="127" step="1" value={data.trigger.midiController} onChange={event => updateTriggerMidi({ midiController: Number(event.target.value) })} />
+                      </label>
+                    )}
+                  </div>
+                )}
+                {data.trigger.midiTemplate === "relativePitch" && (
+                  <>
+                    <label className="iannix-field">
+                      <span>Base note from</span>
+                      <select value={data.trigger.midiBaseSource} onChange={event => updateTriggerMidi({ midiBaseSource: event.target.value }, false)}>
+                        <option value="cursor">Cursor</option>
+                        <option value="curve">Curve</option>
+                      </select>
+                    </label>
+                    <div className="iannix-hint">Pitch is the signed intersection offset along the cursor shape. Its center is the chosen object's base note; its ends use that object's ± octave range.</div>
+                  </>
+                )}
+                <label className="iannix-field">
+                  <span>IanniX MIDI pattern</span>
+                  <input
+                    type="text"
+                    value={data.trigger.midiPattern}
+                    onChange={event => updateTriggerMidi({ midiTemplate: "custom", midiPattern: event.target.value }, false)}
+                  />
+                </label>
+                <div className="iannix-midi-actions">
+                  <button
+                    type="button"
+                    className="iannix-flat-button"
+                    onClick={() => toggleDraweratorPanel("settings", { settingsTab: "score" })}
+                  >
+                    Score &amp; MIDI settings
+                  </button>
+                  <button
+                    type="button"
+                    className="iannix-flat-button"
+                    disabled={!midiPreview}
+                    onClick={() => emitIannixMidiPattern(data.trigger.midiPattern, midiPreview.context)}
+                  >
+                    Test message
+                  </button>
+                </div>
+                <div className="iannix-hint">MIDI destination and tempo are global score settings.</div>
+                {midiPreview ? (
+                  <div className="iannix-midi-preview">
+                    <span>Would emit via {midiPreview.cursorLabel}</span>
+                    <strong>{describeIannixMidiMessage(midiPreview.message)}</strong>
+                    {data.trigger.midiTemplate === "relativePitch" && (
+                      <small>offset {midiPreview.context.trigger_offset.toFixed(3)} · base {midiPreview.context.midi_base_note}</small>
+                    )}
+                  </div>
+                ) : (
+                  <div className="iannix-hint warning">{midiPreviewError}</div>
+                )}
+                <div className="iannix-midi-status" role="status">{midiStatus}</div>
+                <details className="iannix-protocol-docs">
+                  <summary>MIDI protocol reference</summary>
+                  <div className="iannix-protocol-body">
+                    <code>midi://device/notef channel note velocity duration</code>
+                    <code>midi://device/ccf channel controller value</code>
+                    <p><strong>/notef</strong> maps note and velocity from 0–1 to MIDI 0–127. <strong>/note</strong> accepts integer MIDI values directly. <strong>/ccf</strong> maps a 0–1 value to a control change; <strong>/cc</strong> accepts 0–127.</p>
+                    <dl>
+                      <dt>trigger_value_x</dt><dd>Trigger X mapped through the colliding cursor's curve bounds; default velocity.</dd>
+                      <dt>trigger_value_y</dt><dd>Trigger Y mapped upward from 0–1; default pitch.</dd>
+                      <dt>trigger_offset</dt><dd>Signed −1…1 intersection offset along the cursor shape.</dd>
+                      <dt>trigger_note</dt><dd>Cursor-relative pitch after applying base note and octave range.</dd>
+                      <dt>cursor_value_y</dt><dd>Current cursor Y in its expanded IanniX curve bounds.</dd>
+                      <dt>trigger_duration</dt><dd>This trigger's pulse duration in seconds.</dd>
+                      <dt>midi_out</dt><dd>Alias for the MIDI output selected above.</dd>
+                    </dl>
+                    <p>IanniX XY preserves the original template. Cursor-relative pitch is a Drawerator extension built on IanniX's configurable cursor bounds idea. Test Message uses the same selected-trigger and nearest-cursor context as playback.</p>
+                  </div>
+                </details>
+              </>
+            )}
+          </section>
+        )}
+
+        <section className="iannix-section">
+          <div className="iannix-section-heading-row">
+            <div className="iannix-section-title">Object time</div>
+            <span className="iannix-progress-readout">{timeState.localTime.toFixed(2)}s · {(timeState.progress * 100).toFixed(1)}%</span>
+          </div>
+          <div className="iannix-two-column">
+            <label className="iannix-field">
+              <span>Start (s)</span>
+              <input type="number" min="0" step="0.1" value={data.time.start} onChange={event => setNumber("time", "start", event.target.value)} />
+            </label>
+            <label className="iannix-field">
+              <span>Duration (s)</span>
+              <input type="number" min="0.001" step="0.1" value={data.time.duration} onChange={event => setNumber("time", "duration", event.target.value)} />
+            </label>
+            <label className="iannix-field">
+              <span>Rate</span>
+              <input type="number" min="0" step="0.1" value={data.time.rate} onChange={event => setNumber("time", "rate", event.target.value)} />
+            </label>
+            <label className="iannix-field">
+              <span>Loop</span>
+              <select
+                value={data.time.loopMode}
+                onChange={event => updateIannixElement(element.id, current => ({
+                  ...current,
+                  time: { ...current.time, loopMode: event.target.value },
+                }))}
+              >
+                <option value="once">Once / hold</option>
+                <option value="loop">Loop</option>
+                <option value="pingPong">Ping-pong</option>
+              </select>
+            </label>
+          </div>
+          <div className="iannix-time-bar" aria-label="Object time progress">
+            <span style={{ width: `${Math.max(0, Math.min(100, timeState.progress * 100))}%` }} />
+          </div>
+          <div className="iannix-hint">This role-independent clock will also drive object draw-on animation in the next phase.</div>
+        </section>
+
+        {scoreEvents.length > 0 && (
+          <section className="iannix-section compact">
+            <div className="iannix-section-heading-row">
+              <div className="iannix-section-title">Recent triggers</div>
+              <button type="button" className="iannix-text-button" onClick={() => setScoreEvents([])}>Clear</button>
+            </div>
+            <div className="iannix-event-list">
+              {scoreEvents.slice(0, 5).map(event => (
+                <div key={event.id}>
+                  <span>{event.label}{event.midi
+                    ? event.midi.kind === "cc"
+                      ? ` · ch ${event.midi.channel} CC ${event.midi.controller} value ${event.midi.value}`
+                      : ` · ch ${event.midi.channel} note ${event.midi.note} vel ${event.midi.velocity}`
+                    : ""}</span>
+                  <time>{event.time.toFixed(3)}s</time>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    );
   };
 
   const getScriptParams = (code) => {
@@ -3772,10 +4971,10 @@ function App() {
         const rangeMatch = match[3].match(/([0-9.-]+)\.\.([0-9.-]+)/);
         const min = rangeMatch ? parseFloat(rangeMatch[1]) : 0;
         const max = rangeMatch ? parseFloat(rangeMatch[2]) : 100;
-        
+
         const stepMatch = match[3].match(/step:\s*([0-9.-]+)/);
         const step = stepMatch ? parseFloat(stepMatch[1]) : ((max - min) / 100 || 0.1);
-        
+
         params.push({ name: pName, default: pVal, min, max, step });
       }
     });
@@ -3785,7 +4984,7 @@ function App() {
   const convertShapeToPath = (element) => {
     if (!excalidrawAPI) return;
     const { x, y, width, height, strokeColor, strokeWidth, backgroundColor, fillStyle, strokeStyle, roughness, roundness, opacity, groupIds, angle } = element;
-    
+
     let points = [];
     if (element.type === "rectangle") {
       points = [[0, 0], [width, 0], [width, height], [0, height], [0, 0]];
@@ -3947,6 +5146,7 @@ function App() {
       if (el.id !== element.id) return el;
       const hide = !el.customData?.hideOriginal;
       const effectiveHide = hide && (el.customData?.modifiers?.length || 0) > 0;
+      const runtimeCursor = isRuntimeCursor(el);
       let savedOpacity = el.customData?.savedOpacity;
 
       if (effectiveHide) {
@@ -3956,7 +5156,7 @@ function App() {
 
       return {
         ...el,
-        opacity: effectiveHide ? 0 : (savedOpacity ?? 100),
+        opacity: runtimeCursor ? 0 : (effectiveHide ? 0 : (savedOpacity ?? 100)),
         customData: {
           ...(el.customData || {}),
           hideOriginal: hide,
@@ -4694,6 +5894,87 @@ function App() {
     }
   };
 
+  const getElementRenderedCanvasTracks = (element) => {
+    const sourcePaths = getElementCorePaths(element);
+    const modifiers = element.customData?.modifiers || [];
+    const data = normalizeIannixData(element.customData?.iannix);
+    const authoredOpacity = data.cursor.sourceOpacity ?? element.opacity ?? 100;
+    const renderedOpacity = element.customData?.hideOriginal && modifiers.length > 0
+      ? (element.customData.savedOpacity ?? authoredOpacity)
+      : authoredOpacity;
+    const styleTrack = points => ({
+      points,
+      smooth: !!element.roundness && points.length >= 3,
+      strokeColor: element.strokeColor,
+      strokeWidth: element.strokeWidth,
+      opacity: renderedOpacity / 100,
+    });
+
+    const liveLinearEditPoints = linearEditPointsRef.current[element.id];
+    const originalPoints = liveLinearEditPoints || element.customData?.originalPoints;
+    if (element.customData?.muteModifiers || modifiers.length === 0 || !isDrawableTrack(originalPoints)) {
+      return composeRuntimeCursorTracks({
+        sourcePaths,
+        evaluatedTracks: [],
+        hasAccumulated: false,
+        hideOriginal: false,
+        muteModifiers: true,
+      }).map(styleTrack);
+    }
+
+    const globals = getElementBrushGlobals(element);
+    const evaluation = evaluateModifierStack(originalPoints, modifiers, globals);
+    const lastWidth = element.customData?.lastWidth || element.width;
+    const lastHeight = element.customData?.lastHeight || element.height;
+    const scaleSignX = liveLinearEditPoints ? 1 : inferAxisFlipSign(originalPoints, element.points, 0);
+    const scaleSignY = liveLinearEditPoints ? 1 : inferAxisFlipSign(originalPoints, element.points, 1);
+    let scaleX = scaleSignX;
+    let scaleY = scaleSignY;
+    if (!liveLinearEditPoints && lastWidth > 0.1 && Math.abs(element.width - lastWidth) > 0.1) {
+      scaleX = scaleSignX * (element.width / lastWidth);
+    }
+    if (!liveLinearEditPoints && lastHeight > 0.1 && Math.abs(element.height - lastHeight) > 0.1) {
+      scaleY = scaleSignY * (element.height / lastHeight);
+    }
+
+    const relPoints = element.points || [];
+    const minXRel = relPoints.length > 0 ? Math.min(...relPoints.map(point => point[0])) : 0;
+    const minYRel = relPoints.length > 0 ? Math.min(...relPoints.map(point => point[1])) : 0;
+    const maxXRel = relPoints.length > 0 ? Math.max(...relPoints.map(point => point[0])) : 0;
+    const maxYRel = relPoints.length > 0 ? Math.max(...relPoints.map(point => point[1])) : 0;
+    const centerX = element.x + (minXRel + maxXRel) / 2;
+    const centerY = element.y + (minYRel + maxYRel) / 2;
+    const firstPoint = relPoints[0] || [0, 0];
+    const angle = element.angle || 0;
+    const mapEvaluatedTrack = linePoints => linePoints.map(point => {
+      const [mappedX, mappedY] = mapTrackPointToElement({
+        point,
+        elementType: element.type,
+        elementX: element.x,
+        elementY: element.y,
+        elementFirstPoint: firstPoint,
+        evaluatedBaseline: evaluation.primaryPoints,
+        scaleX,
+        scaleY,
+      });
+      return angle === 0
+        ? [mappedX, mappedY]
+        : rotatePoint(mappedX, mappedY, centerX, centerY, angle);
+    });
+    const evaluatedTracks = (evaluation.hasAccumulated
+      ? evaluation.allLines
+      : [evaluation.primaryPoints]
+    ).filter(isDrawableTrack).map(mapEvaluatedTrack);
+
+    return composeRuntimeCursorTracks({
+      sourcePaths,
+      evaluatedTracks,
+      hasAccumulated: evaluation.hasAccumulated,
+      hideOriginal: Boolean(element.customData?.hideOriginal),
+      muteModifiers: false,
+    }).map(styleTrack);
+  };
+
   const handleBakeModifiers = (parentElement) => {
     if (!excalidrawAPI) return;
     const elements = excalidrawAPI.getSceneElements();
@@ -4777,6 +6058,7 @@ function App() {
  
     modifierElements.forEach(parentEl => {
       if (parentEl.customData?.muteModifiers) return;
+      if (isRuntimeCursor(parentEl)) return;
  
       const liveLinearEditPoints = linearEditPointsRef.current[parentEl.id];
       const originalPoints = liveLinearEditPoints || parentEl.customData?.originalPoints;
@@ -4919,161 +6201,571 @@ function App() {
     );
   };
 
-  const renderModifiersPropertiesPanel = () => {
+  const renderIannixOverlay = () => {
     if (!excalidrawAPI) return null;
-    const selectedElements = getSelectedElements();
-    if (selectedElements.length > 1) return null;
-    if (!showPropertiesModal) return null;
+    const elements = excalidrawAPI.getSceneElements();
+    const scoreObjects = elements.filter(element =>
+      !element.isDeleted && ["curve", "cursor", "trigger"].includes(element.customData?.iannix?.role)
+    );
+    if (scoreObjects.length === 0) return null;
 
-    const panelStyle = {
-      position: "fixed",
-      left: `${panelPos.x}px`,
-      top: `${panelPos.y}px`,
-      zIndex: 9999,
-      width: "300px",
-      background: "var(--island-bg-color, #ffffff)",
-      border: "1px solid var(--border-color, rgba(0, 0, 0, 0.1))",
-      borderRadius: "4px",
-      boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
-      color: "var(--color-primary)",
-      fontFamily: "system-ui, -apple-system, sans-serif",
-      overflow: "hidden",
-      display: "flex",
-      flexDirection: "column"
+    const frame = evaluateScoreFrame(elements, scoreTime);
+    const zoom = excalidrawAPI.getAppState().zoom.value || 1;
+    const now = Date.now();
+    const roleColors = { curve: "#7c9cff", cursor: "#19c3ff", trigger: "#ff8a3d" };
+    const visualTransforms = new Map();
+    const nextVisualStates = new Map();
+    for (const cursor of frame.cursors) {
+      const previous = visualCursorTransformsRef.current.get(cursor.element.id);
+      const deltaSeconds = previous ? Math.max(0, (now - previous.timestamp) / 1000) : 0;
+      const discontinuity = !scorePlaying || !previous ||
+        Math.abs(previous.progress - cursor.timeState.progress) > 0.35;
+      const transform = discontinuity
+        ? cursor.transform
+        : dampCursorTransform(
+          previous.transform,
+          cursor.transform,
+          cursor.data.cursor.visualSmoothing,
+          deltaSeconds,
+        );
+      visualTransforms.set(cursor.element.id, transform);
+      nextVisualStates.set(cursor.element.id, {
+        transform,
+        progress: cursor.timeState.progress,
+        timestamp: now,
+      });
+    }
+    visualCursorTransformsRef.current = nextVisualStates;
+
+    return (
+      <svg className="iannix-runtime-overlay" aria-hidden="true">
+        {frame.cursors.flatMap(cursor => getElementRenderedCanvasTracks(cursor.element).map((track, pathIndex) => {
+          const visualTransform = visualTransforms.get(cursor.element.id) || cursor.transform;
+          const path = transformPaths([track.points], visualTransform)[0];
+          const screenPath = path.map(point => mapCanvasToScreen(point[0], point[1]));
+          const sharedProps = {
+            fill: "none",
+            stroke: track.strokeColor || "#ffffff",
+            strokeWidth: Math.max(1, track.strokeWidth || 2) * zoom,
+            strokeLinecap: "round",
+            strokeLinejoin: "round",
+            opacity: track.opacity,
+            style: theme === "dark" ? { filter: "invert(93%) hue-rotate(180deg)" } : undefined,
+          };
+          return track.smooth ? (
+            <path
+              key={`${cursor.element.id}-${pathIndex}`}
+              d={pointsToSmoothSvgPath(screenPath)}
+              {...sharedProps}
+            />
+          ) : (
+            <polyline
+              key={`${cursor.element.id}-${pathIndex}`}
+              points={screenPath.map(point => `${point[0]},${point[1]}`).join(" ")}
+              {...sharedProps}
+            />
+          );
+        }))}
+
+        {scoreObjects.filter(element => element.customData.iannix.role === "trigger").map(element => {
+          const pulseUntil = triggerPulseUntilRef.current.get(element.id) || 0;
+          if (pulseUntil <= now) return null;
+          return getElementCorePaths(element).map((path, index) => {
+            const points = path
+              .map(point => mapCanvasToScreen(point[0], point[1]))
+              .map(point => `${point[0]},${point[1]}`)
+              .join(" ");
+            return (
+              <polyline
+                key={`${element.id}-pulse-${index}`}
+                points={points}
+                fill="none"
+                stroke="#ff8a3d"
+                strokeWidth={Math.max(5, (element.strokeWidth || 2) * 3) * zoom}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity="0.85"
+              />
+            );
+          });
+        })}
+
+        {showIannixLabels && scoreObjects.map(element => {
+          const data = normalizeIannixData(element.customData.iannix);
+          let center = getElementCenter(element);
+          if (data.role === "cursor") {
+            const runtimeCursor = frame.cursors.find(cursor => cursor.element.id === element.id);
+            if (runtimeCursor) {
+              center = (visualTransforms.get(element.id) || runtimeCursor.transform).position;
+            }
+          }
+          const [x, y] = mapCanvasToScreen(center[0], center[1]);
+          return (
+            <g key={`${element.id}-role`} transform={`translate(${x + 9} ${y - 9})`}>
+              <rect x="0" y="-14" width={Math.max(44, (data.label || data.role).length * 6.5 + 14)} height="18" rx="5" fill="rgba(20, 22, 28, 0.86)" stroke={roleColors[data.role]} />
+              <text x="7" y="-2" fill={roleColors[data.role]} fontSize="10" fontWeight="700" fontFamily="system-ui, sans-serif">
+                {(data.label || data.role).toUpperCase()}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    );
+  };
+
+  const renderIannixTransport = () => {
+    if (!excalidrawAPI || !showIannixTransport) return null;
+    const scoreObjects = excalidrawAPI.getSceneElements().filter(element =>
+      !element.isDeleted && ["curve", "cursor", "trigger"].includes(element.customData?.iannix?.role)
+    );
+    const scoreEnd = Math.max(
+      transportLoopEnd,
+      10,
+      scoreTime + 1,
+      ...scoreObjects.map(element => {
+        const timing = normalizeIannixData(element.customData?.iannix).time;
+        return timing.start + timing.duration / Math.max(0.001, timing.rate || 1);
+      }),
+    );
+    const rewind = () => {
+      setScorePlaying(false);
+      setScoreTime(transportLoopEnabled ? transportLoopStart : 0);
+      previousCursorStatesRef.current = new Map();
+      visualCursorTransformsRef.current = new Map();
+      activeScoreCollisionsRef.current = new Set();
     };
-
-    const headerStyle = {
-      padding: "8px 10px",
-      background: "var(--island-bg-color, #ffffff)",
-      borderBottom: "1px solid var(--border-color, rgba(0, 0, 0, 0.1))",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      cursor: isDraggingPanel ? "grabbing" : "grab",
-      userSelect: "none"
+    const timelineOptions = { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature };
+    const displayValue = formatTimelinePosition(scoreTime, transportDisplayMode, timelineOptions);
+    const currentFrame = secondsToFrame(scoreTime, transportFps);
+    const tapTempo = () => {
+      if (midiClockMode === "receive") return;
+      const now = performance.now();
+      const recentTaps = tapTempoTimesRef.current.filter(timestamp => now - timestamp < 2000);
+      recentTaps.push(now);
+      tapTempoTimesRef.current = recentTaps.slice(-6);
+      if (tapTempoTimesRef.current.length < 2) return;
+      const intervals = tapTempoTimesRef.current.slice(1).map((timestamp, index) => timestamp - tapTempoTimesRef.current[index]);
+      const averageInterval = intervals.reduce((sum, interval) => sum + interval, 0) / intervals.length;
+      setScoreTempo(Math.min(400, Math.max(20, Number((60000 / averageInterval).toFixed(2)))));
     };
-
-    const titleStyle = {
-      fontSize: "12px",
-      fontWeight: "600",
-      color: "var(--color-primary)",
-      display: "flex",
-      alignItems: "center",
-      gap: "6px"
+    const updateTempoDraft = event => {
+      const nextValue = event.target.value;
+      setScoreTempoDraft(nextValue);
+      if (nextValue.trim() === "") return;
+      const nextTempo = Number(nextValue);
+      if (Number.isFinite(nextTempo) && nextTempo >= 20 && nextTempo <= 400) setScoreTempo(nextTempo);
     };
-
-    const bodyStyle = {
-      padding: "10px",
-      maxHeight: "400px",
-      overflowY: "auto",
-      display: panelCollapsed ? "none" : "flex",
-      flexDirection: "column",
-      gap: "12px"
+    const commitTempoDraft = () => {
+      if (scoreTempoDraft.trim() === "") {
+        setScoreTempoDraft(String(scoreTempo));
+        return;
+      }
+      const parsedTempo = Number(scoreTempoDraft);
+      const nextTempo = Number.isFinite(parsedTempo) ? Math.min(400, Math.max(20, parsedTempo)) : scoreTempo;
+      setScoreTempo(nextTempo);
+      setScoreTempoDraft(String(nextTempo));
+    };
+    const commitLoopBoundary = (event, boundary) => {
+      const parsed = parseTimelinePosition(event.currentTarget.value, transportDisplayMode, timelineOptions);
+      const minimumSpan = 1 / transportFps;
+      if (boundary === "start") {
+        setTransportLoopStart(Math.max(0, Math.min(parsed, transportLoopEnd - minimumSpan)));
+      } else {
+        setTransportLoopEnd(Math.max(transportLoopStart + minimumSpan, parsed));
+      }
+      setTransportLoopEnabled(true);
+    };
+    const transportLayout = panelLayouts.transport;
+    const viewportWidth = typeof window === "undefined" ? 1200 : window.innerWidth;
+    const floatingTransportWidth = Math.min(
+      Math.max(transportLayout.width || 980, 980),
+      Math.max(320, viewportWidth - 16),
+    );
+    const positionStyle = transportLayout.placement === PANEL_PLACEMENTS.FLOATING
+      ? {
+          left: Math.max(8, Math.min(viewportWidth - floatingTransportWidth - 8, transportLayout.x)),
+          top: transportLayout.y,
+          bottom: "auto",
+          width: floatingTransportWidth,
+          maxWidth: "calc(100vw - 16px)",
+          transform: "none",
+        }
+      : undefined;
+    const startTransportDrag = event => {
+      if (event.button !== 0) return;
+      const panel = event.currentTarget.closest(".iannix-transport");
+      const rect = panel?.getBoundingClientRect();
+      if (!rect) return;
+      event.preventDefault();
+      const dragWidth = Math.min(Math.max(transportLayout.width || 980, 980), Math.max(320, window.innerWidth - 16));
+      transportDragRef.current = {
+        started: false,
+        startX: event.clientX,
+        startY: event.clientY,
+        offsetX: event.clientX - rect.left,
+        offsetY: event.clientY - rect.top,
+        width: dragWidth,
+        height: rect.height,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      };
+      setTransportDragging(true);
     };
 
     return (
-      <div className={`excalidraw theme--${theme}`} style={panelStyle}>
-        {/* Header Drag Handle */}
-        <div style={headerStyle} onMouseDown={handlePanelDragStart}>
-          <div style={titleStyle}>
-            <span>🛠️ Mods &amp; FX</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            {/* Header Action Buttons (Corners, Bake) */}
-            {(() => {
-              const element = selectedElements[0];
-              const isShape = element ? ["rectangle", "ellipse", "diamond"].includes(element.type) : false;
-              if (element && element.type !== "freedraw" && element.type !== "line" && !isShape) return null;
-              
-              const modifiers = element ? (element.customData?.modifiers || []) : globalModifiers;
-              const isRound = element ? !!element.roundness : globalRoundness;
-              
-              return (
-                <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-                  {/* Enable Custom Brush Button (Paintbrush) */}
-                  <button 
-                    className={`header-btn ${customBrushActive ? "active" : ""}`}
-                    onClick={() => {
-                      const nextState = !customBrushActive;
-                      setCustomBrushActive(nextState);
-                      if (nextState) {
-                        excalidrawAPI?.updateScene({ appState: { activeTool: { type: "freedraw", locked: true } } });
-                      } else {
-                        excalidrawAPI?.updateScene({ appState: { activeTool: { type: "selection" } } });
-                      }
-                    }}
-                    title={customBrushActive ? "Disable Custom Brush Mode (Shift+P)" : "Enable Custom Brush Mode (Shift+P)"}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", display: "flex", alignItems: "center", padding: "2px" }}
-                  >
-                    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.53 16.122l9.82-9.82 1.41 1.414-9.82 9.82-1.41-1.414zm-1.86 2.23l.36-1.02 1.02.36-.36 1.02-1.02-.36zm-.49 1.4l-.4-.4 1.25-1.25.4.4-1.25 1.25zm-.76-.76l-.4-.4.4-1.25 1.25 1.25-.4.4zm.76-.76l-1.09-1.09-4.8 4.8 1.41 1.414 4.48-4.48-.36-1.02-.36-1.02z" />
-                    </svg>
-                  </button>
+      <div
+        className={`iannix-transport theme-${theme} ${transportDragging ? "dragging" : ""} ${transportLayout.placement === PANEL_PLACEMENTS.FLOATING ? "positioned" : "docked-bottom"}`}
+        role="region"
+        aria-label="IanniX transport"
+        style={positionStyle}
+      >
+        <PanelPlacementControls
+          label="Transport"
+          placement={transportLayout.placement}
+          onPlacementChange={placement => setPanelPlacement("transport", placement)}
+          onDragStart={startTransportDrag}
+          allowBottom
+          dragIcon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6M12 2v3"/></svg>}
+        />
 
-                  {/* Corner Style Toggle Button */}
-                  {!isShape && (
-                    <button
-                      className={`header-btn ${!isRound ? "active" : ""}`}
-                      onClick={() => handleToggleSharpness(element, isRound ? "sharp" : "round")}
-                      title={isRound ? "Toggle Sharp Corners" : "Toggle Smooth Corners"}
-                      style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", display: "flex", alignItems: "center", padding: "2px" }}
-                    >
-                      {isRound ? (
-                        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 20c8 0 16-8 16-16" />
-                        </svg>
-                      ) : (
-                        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 20h16V4" />
-                        </svg>
-                      )}
-                    </button>
-                  )}
-                  {element && modifiers.length > 0 && (
-                    <button
-                      className="header-btn"
-                      onClick={() => handleBakeModifiers(element)}
-                      title="Bake Modifiers (Apply changes permanently)"
-                      style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", display: "flex", alignItems: "center", padding: "2px" }}
-                    >
-                      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 21L8.188 15.904L3 15L8.188 14.096L9 9L9.813 14.096L15 15L9.813 15.904Z M19.071 4.929L17.657 6.343 M15 3h2 M21 5v2" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-              );
-            })()}
-            {/* Collapse / Expand Toggle */}
-            <button
-              onClick={() => setPanelCollapsed(!panelCollapsed)}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                padding: "2px",
-                color: "inherit",
-                display: "flex",
-                alignItems: "center"
-              }}
-              title={panelCollapsed ? "Expand Panel" : "Collapse Panel"}
-            >
-              {panelCollapsed ? (
-                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
-              ) : (
-                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-                </svg>
-              )}
-            </button>
-          </div>
+        <select className="iannix-transport-mode" aria-label="Transport display" value={transportDisplayMode} onChange={event => setTransportDisplayMode(event.target.value)}>
+          <option value="frame">Frame</option>
+          <option value="timecode">Timecode</option>
+          <option value="beats">Beats</option>
+        </select>
+
+        <div className="iannix-transport-display" aria-label={transportDisplayMode === "beats" ? "Bars beats sixteenths" : transportDisplayMode === "frame" ? "Frame" : "Timecode"}>
+          <strong>{displayValue}</strong>
+          <span>{transportDisplayMode === "beats" ? `${scoreTimeSignature.numerator}/${scoreTimeSignature.denominator}` : `${transportFps} FPS`}</span>
         </div>
 
-        {/* Content Body */}
-        <div style={bodyStyle} className="modifiers-panel-body">
-          {renderModifiersTab()}
+        <div className="iannix-transport-frame" aria-label={`Current frame ${currentFrame}`}>
+          <strong>{currentFrame}</strong>
+        </div>
+
+        <div className="iannix-transport-controls">
+          <button type="button" onClick={rewind} title="Stop and rewind" aria-label="Stop and rewind">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M11 6v12l-8.5-6L11 6Zm10 0v12l-8.5-6L21 6Z" /></svg>
+          </button>
+          <button type="button" className={scorePlaying ? "active" : ""} onClick={() => setScorePlaying(playing => !playing)} title={scorePlaying ? "Pause" : "Play"} aria-label={scorePlaying ? "Pause score" : "Play score"}>
+            {scorePlaying ? <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6V5Zm8 0h4v14h-4V5Z" /></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="m7 4 13 8L7 20V4Z" /></svg>}
+          </button>
+          <button type="button" onClick={() => setScorePlaying(false)} title="Stop" aria-label="Stop score">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5h14v14H5z" /></svg>
+          </button>
+        </div>
+
+        <div className="iannix-transport-tempo">
+          <button type="button" onClick={tapTempo} disabled={midiClockMode === "receive"} title="Tap repeatedly to set tempo">BPM</button>
+          <input type="text" inputMode="decimal" value={scoreTempoDraft} disabled={midiClockMode === "receive"} onChange={updateTempoDraft} onBlur={commitTempoDraft} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} aria-label="Tempo in BPM" />
+        </div>
+
+        <div className="iannix-transport-signature" aria-label="Time signature">
+          <input aria-label="Time signature numerator" type="number" min="1" max="32" value={scoreTimeSignature.numerator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, numerator: event.target.value }))} />
+          <span>/</span>
+          <select aria-label="Time signature denominator" value={scoreTimeSignature.denominator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, denominator: event.target.value }))}>
+            {[1, 2, 4, 8, 16].map(value => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </div>
+
+        <select className="iannix-transport-sync" aria-label="Clock synchronization" value={midiClockMode} onChange={event => setMidiClockMode(event.target.value)}>
+          <option value="internal">INT</option>
+          <option value="send">MIDI OUT</option>
+          <option value="receive">MIDI IN</option>
+        </select>
+
+        <button type="button" className={transportLoopEnabled ? "active loop" : "loop"} onClick={() => setTransportLoopEnabled(enabled => !enabled)} title="Toggle loop" aria-label="Toggle loop" aria-pressed={transportLoopEnabled}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="m7 22-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg>
+        </button>
+
+        <div className="iannix-transport-range">
+          <input key={`start-${transportDisplayMode}-${transportLoopStart}`} aria-label={`Loop start in ${transportDisplayMode}`} type="text" defaultValue={formatTimelinePosition(transportLoopStart, transportDisplayMode, timelineOptions)} onBlur={event => commitLoopBoundary(event, "start")} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+          <span>–</span>
+          <input key={`end-${transportDisplayMode}-${transportLoopEnd}`} aria-label={`Loop end in ${transportDisplayMode}`} type="text" defaultValue={formatTimelinePosition(transportLoopEnd, transportDisplayMode, timelineOptions)} onBlur={event => commitLoopBoundary(event, "end")} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+        </div>
+
+        <button type="button" onClick={() => setShowIannixTransport(false)} title="Hide transport (/transport · Ctrl+Opt+T)" aria-label="Hide transport">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+        <TransportTimeline
+          duration={scoreEnd}
+          currentTime={scoreTime}
+          displayMode={transportDisplayMode}
+          fps={transportFps}
+          tempo={scoreTempo}
+          signature={scoreTimeSignature}
+          loopEnabled={transportLoopEnabled}
+          loopStart={transportLoopStart}
+          loopEnd={transportLoopEnd}
+          onSeek={setScoreTime}
+          onLoopEnabledChange={setTransportLoopEnabled}
+          onLoopChange={updateTransportLoop}
+        />
+      </div>
+    );
+  };
+  const renderSettingsContent = () => {
+    const boardState = excalidrawAPI?.getAppState() || {};
+    const settingTabs = [
+      { id: "ai", label: "AI" },
+      { id: "preferences", label: "Board" },
+      { id: "score", label: "Score & MIDI" },
+    ];
+    return (
+      <div className="settings-panel-content">
+        <div className="settings-panel-tabs" role="tablist" aria-label="Settings sections">
+          {settingTabs.map(tab => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={activeSettingsTab === tab.id}
+              className={activeSettingsTab === tab.id ? "active" : ""}
+              onClick={() => setActiveSettingsTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {activeSettingsTab === "ai" && (
+          <div className="settings-panel-section">
+            <label className="settings-panel-field">
+              <span>API provider</span>
+              <select
+                value={aiSettings.provider}
+                onChange={event => {
+                  const provider = event.target.value;
+                  const url = provider === "lmstudio"
+                    ? "http://localhost:1234"
+                    : provider === "openai" ? "https://api.openai.com" : "http://localhost:11434";
+                  const updated = { ...aiSettings, provider, url, model: "" };
+                  setAiSettings(updated);
+                  testAIConnection(updated);
+                }}
+              >
+                <option value="ollama">Ollama</option>
+                <option value="lmstudio">LM Studio</option>
+                <option value="openai">OpenAI Compatible</option>
+              </select>
+            </label>
+            <label className="settings-panel-field">
+              <span>API endpoint URL</span>
+              <input type="text" value={aiSettings.url} onChange={event => setAiSettings({ ...aiSettings, url: event.target.value })} />
+            </label>
+            <label className="settings-panel-field">
+              <span>Active model</span>
+              {aiSettings.provider !== "openai" && modelsList.length > 0 ? (
+                <select value={aiSettings.model} onChange={event => setAiSettings({ ...aiSettings, model: event.target.value })}>
+                  {modelsList.map(model => <option key={model} value={model}>{model}</option>)}
+                </select>
+              ) : (
+                <input type="text" value={aiSettings.model} onChange={event => setAiSettings({ ...aiSettings, model: event.target.value })} placeholder="Model name" />
+              )}
+            </label>
+            <div className="settings-panel-actions">
+              <span className={`settings-panel-status ${connectionStatus}`}>
+                {connectionStatus === "ok" ? "Backend reachable" : connectionStatus === "error" ? "Connection failed" : "Checking…"}
+              </span>
+              <button type="button" className="iannix-flat-button" onClick={saveSettings}>Save &amp; test</button>
+            </div>
+          </div>
+        )}
+
+        {activeSettingsTab === "preferences" && (
+          <div className="settings-panel-section">
+            <label className="settings-panel-field">
+              <span>Accent color</span>
+              <div className="settings-accent-control">
+                <input
+                  type="color"
+                  value={accentColor}
+                  onChange={event => {
+                    setAccentColor(event.target.value);
+                    localStorage.setItem("drawerator_accent_color", event.target.value);
+                  }}
+                  aria-label="Drawerator accent color"
+                />
+                <button
+                  type="button"
+                  className="iannix-flat-button"
+                  onClick={() => {
+                    setAccentColor("#6b7173");
+                    localStorage.setItem("drawerator_accent_color", "#6b7173");
+                  }}
+                >
+                  Reset to subtle gray
+                </button>
+              </div>
+            </label>
+            {[
+              ["Force desktop layout", forceDesktopLayout, value => { setForceDesktopLayout(value); localStorage.setItem("drawerator_force_desktop_layout", value); }],
+              ["Show toolbar hints", showToolbarHints, value => { setShowToolbarHints(value); localStorage.setItem("drawerator_show_toolbar_hints", value); }],
+              ["Show bottom alerts", showBottomNotifications, value => { setShowBottomNotifications(value); localStorage.setItem("drawerator_show_bottom_notifications", value); }],
+              ["Show modifier debug coordinates", showDebugLayer, setShowDebugLayer],
+            ].map(([label, checked, update]) => (
+              <label className="settings-panel-check" key={label}>
+                <span>{label}</span>
+                <input type="checkbox" checked={checked} onChange={event => update(event.target.checked)} />
+              </label>
+            ))}
+            <label className="settings-panel-field">
+              <span>Default stabilizer damping <strong>{defaultStabilizerDamping.toFixed(2)}</strong></span>
+              <input type="range" min="0.01" max="0.5" step="0.01" value={defaultStabilizerDamping} onChange={event => {
+                const value = Number(event.target.value);
+                setDefaultStabilizerDamping(value);
+                localStorage.setItem("drawerator_default_stabilizer_damping", value);
+              }} />
+            </label>
+            <div className="settings-panel-divider" />
+            {[
+              ["Grid mode", !!boardState.gridModeEnabled, "gridModeEnabled"],
+              ["Zen mode", !!boardState.zenModeEnabled, "zenModeEnabled"],
+              ["View mode", !!boardState.viewModeEnabled, "viewModeEnabled"],
+              ["Snap to objects", !!boardState.objectsSnapModeEnabled, "objectsSnapModeEnabled"],
+            ].map(([label, checked, field]) => (
+              <label className="settings-panel-check" key={field}>
+                <span>{label}</span>
+                <input type="checkbox" checked={checked} onChange={event => excalidrawAPI?.updateScene({ appState: { [field]: event.target.checked } })} />
+              </label>
+            ))}
+          </div>
+        )}
+
+        {activeSettingsTab === "score" && (
+          <div className="settings-panel-section">
+            <div className="settings-panel-two-column">
+              <label className="settings-panel-field">
+                <span>Tempo (BPM)</span>
+                <input type="number" min="20" max="400" step="1" value={scoreTempo} onChange={event => {
+                  const value = Math.min(400, Math.max(20, Number(event.target.value) || 120));
+                  setScoreTempo(value);
+                }} />
+              </label>
+              <label className="settings-panel-field">
+                <span>Playback rate</span>
+                <input type="number" min="0.05" max="8" step="0.05" value={scoreRate} onChange={event => {
+                  const value = Number(event.target.value);
+                  if (Number.isFinite(value) && value > 0) setScoreRate(value);
+                }} />
+              </label>
+            </div>
+            <div className="settings-panel-two-column">
+              <label className="settings-panel-field">
+                <span>Transport display</span>
+                <select value={transportDisplayMode} onChange={event => setTransportDisplayMode(event.target.value)}>
+                  <option value="frame">Frames</option>
+                  <option value="timecode">Timecode</option>
+                  <option value="beats">Bars · Beats · 16ths</option>
+                </select>
+              </label>
+              <label className="settings-panel-field">
+                <span>Timecode FPS</span>
+                <select value={transportFps} onChange={event => setTransportFps(Number(event.target.value))}>
+                  {[24, 25, 30, 50, 60].map(value => <option key={value} value={value}>{value}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="settings-panel-two-column">
+              <label className="settings-panel-field">
+                <span>Meter numerator</span>
+                <input type="number" min="1" max="32" value={scoreTimeSignature.numerator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, numerator: event.target.value }))} />
+              </label>
+              <label className="settings-panel-field">
+                <span>Meter denominator</span>
+                <select value={scoreTimeSignature.denominator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, denominator: event.target.value }))}>
+                  {[1, 2, 4, 8, 16].map(value => <option key={value} value={value}>{value}</option>)}
+                </select>
+              </label>
+            </div>
+            <label className="settings-panel-check">
+              <span>Loop range</span>
+              <input type="checkbox" checked={transportLoopEnabled} onChange={event => setTransportLoopEnabled(event.target.checked)} />
+            </label>
+            <div className="settings-panel-two-column">
+              <label className="settings-panel-field"><span>Loop start ({transportDisplayMode})</span><input key={`settings-start-${transportDisplayMode}-${transportLoopStart}`} type="text" defaultValue={formatTimelinePosition(transportLoopStart, transportDisplayMode, { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature })} onBlur={event => {
+                const parsed = parseTimelinePosition(event.currentTarget.value, transportDisplayMode, { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature });
+                setTransportLoopStart(Math.max(0, Math.min(parsed, transportLoopEnd - 1 / transportFps)));
+              }} /></label>
+              <label className="settings-panel-field"><span>Loop end ({transportDisplayMode})</span><input key={`settings-end-${transportDisplayMode}-${transportLoopEnd}`} type="text" defaultValue={formatTimelinePosition(transportLoopEnd, transportDisplayMode, { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature })} onBlur={event => {
+                const parsed = parseTimelinePosition(event.currentTarget.value, transportDisplayMode, { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature });
+                setTransportLoopEnd(Math.max(transportLoopStart + 1 / transportFps, parsed));
+              }} /></label>
+            </div>
+            <label className="settings-panel-check">
+              <span>Show transport panel</span>
+              <input type="checkbox" checked={showIannixTransport} onChange={event => setShowIannixTransport(event.target.checked)} />
+            </label>
+            <label className="settings-panel-check">
+              <span>Show score-object labels</span>
+              <input type="checkbox" checked={showIannixLabels} onChange={event => setShowIannixLabels(event.target.checked)} />
+            </label>
+            <div className="settings-panel-divider" />
+            <div className="settings-panel-heading">MIDI &amp; clock</div>
+            <label className="settings-panel-field">
+              <span>Clock synchronization</span>
+              <select value={midiClockMode} onChange={event => setMidiClockMode(event.target.value)}>
+                <option value="internal">Internal</option>
+                <option value="send">Send MIDI clock</option>
+                <option value="receive">Receive MIDI clock</option>
+              </select>
+            </label>
+            {midiInputs.length > 0 && (
+              <label className="settings-panel-field">
+                <span>MIDI input</span>
+                <select value={midiInputId} onChange={event => setMidiInputId(event.target.value)}>
+                  {midiInputs.map(input => <option key={input.id} value={input.id}>{input.name}{input.manufacturer ? ` — ${input.manufacturer}` : ""}</option>)}
+                </select>
+              </label>
+            )}
+            {midiOutputs.length > 0 ? (
+              <label className="settings-panel-field">
+                <span>Destination</span>
+                <select value={midiOutputId} onChange={event => setMidiOutputId(event.target.value)}>
+                  {midiOutputs.map(output => (
+                    <option key={output.id} value={output.id}>{output.name}{output.manufacturer ? ` — ${output.manufacturer}` : ""}</option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <div className="settings-panel-hint">Connect Web MIDI to discover available output ports.</div>
+            )}
+            <button type="button" className="iannix-flat-button" onClick={connectIannixMidi}>
+              {midiAccess ? "Refresh MIDI access" : "Connect MIDI"}
+            </button>
+            <div className="settings-panel-status">{midiStatus}</div>
+            <div className="settings-panel-status">{midiClockStatus}</div>
+            <div className="settings-panel-divider" />
+            <div className="settings-panel-actions">
+              <span className="settings-panel-hint">{scoreTime.toFixed(2)}s · {(scoreTime * scoreTempo / 60).toFixed(2)} beats</span>
+              <button type="button" className="iannix-flat-button" onClick={() => { setScorePlaying(false); setScoreTime(0); }}>Rewind</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderConsoleContent = () => {
+    const selectedObjects = getSelectedElements();
+    const scoreObjects = (excalidrawAPI?.getSceneElements() || []).filter(element =>
+      !element.isDeleted && ["curve", "cursor", "trigger"].includes(element.customData?.iannix?.role)
+    );
+    return (
+      <div className="settings-panel-content">
+        <div className="settings-panel-section">
+          <div className="settings-panel-heading">Scene info</div>
+          <div className="settings-panel-check"><span>Selected objects</span><strong>{selectedObjects.length}</strong></div>
+          <div className="settings-panel-check"><span>Score objects</span><strong>{scoreObjects.length}</strong></div>
+          <label className="settings-panel-check">
+            <span>Show score-object labels</span>
+            <input type="checkbox" checked={showIannixLabels} onChange={event => setShowIannixLabels(event.target.checked)} />
+          </label>
+        </div>
+        <div className="settings-panel-section">
+          <div className="settings-panel-heading">Score activity</div>
+          <div className="settings-panel-check"><span>Events</span><strong>{scoreEvents.length}</strong></div>
+          <div className="settings-panel-status">{midiClockStatus}</div>
         </div>
       </div>
     );
@@ -5255,50 +6947,34 @@ function App() {
     );
   };
 
+  const sidePanels = DRAWERATOR_PANELS.filter(panel => panel.id !== "transport");
+  const getDockTabs = placement => getOpenPanelsForPlacement(sidePanels, openPanels, panelLayouts, placement);
+  const leftDockTabs = getDockTabs(PANEL_PLACEMENTS.LEFT);
+  const rightDockTabs = getDockTabs(PANEL_PLACEMENTS.RIGHT);
+  const resolvedActiveDockPanels = {
+    left: resolveActiveDockPanel(leftDockTabs, activeDockPanels.left),
+    right: resolveActiveDockPanel(rightDockTabs, activeDockPanels.right),
+  };
+  const shouldRenderPanel = panelId => {
+    if (!openPanels[panelId]) return false;
+    const placement = panelLayouts[panelId]?.placement;
+    if (placement === PANEL_PLACEMENTS.FLOATING) return true;
+    return resolvedActiveDockPanels[placement] === panelId;
+  };
+  const getPanelDockTabs = panelId => {
+    const placement = panelLayouts[panelId]?.placement;
+    return placement === PANEL_PLACEMENTS.LEFT ? leftDockTabs : placement === PANEL_PLACEMENTS.RIGHT ? rightDockTabs : [];
+  };
+  const anySidePanelOpen = sidePanels.some(panel => openPanels[panel.id]);
+
   return (
     <div 
       id="root" 
-      className={`${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${isSidebarOpen ? "sidebar-open" : ""}`}
-      style={{ "--sidebar-width": `${sidebarWidth}px` }}
+      className={`drawerator-shell ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} transport-placement-${panelLayouts.transport.placement} ${draggingPanelId ? "panel-is-dragging" : ""}`}
+      style={{
+        "--drawerator-accent": accentColor,
+      }}
     >
-      {/* Floating top left Theme button next to Excalidraw's hamburger menu */}
-      {!satoriMode && !zenMode && (
-        <div 
-          className={`excalidraw theme--${theme}`} 
-          style={{ 
-            position: "absolute", 
-            left: "68px", 
-            top: "15px", 
-            zIndex: 5,
-            width: "36px",
-            height: "36px",
-            pointerEvents: "none"
-          }}
-        >
-          <button 
-            id="btn-theme-header-left" 
-            className="theme-btn-top-left"
-            style={{ pointerEvents: "auto" }}
-            onClick={() => {
-              const nextTheme = theme === "dark" ? "light" : "dark";
-              setTheme(nextTheme);
-              excalidrawAPI?.updateScene({ appState: { theme: nextTheme } });
-            }}
-            title="Toggle theme mode"
-          >
-            {theme === "dark" ? (
-              <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m11.314 11.314l.707-.707M12 7a5 5 0 100 10 5 5 0 000-10z" />
-              </svg>
-            ) : (
-              <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-              </svg>
-            )}
-          </button>
-        </div>
-      )}
-
       <div 
         id="canvas-container" 
         onPointerDownCapture={handleCanvasPointerDown}
@@ -5538,11 +7214,6 @@ function App() {
              ) {
               lastNonTransparentColorRef.current = appState.viewBackgroundColor;
             }
-            setIsSidebarOpen(
-              appState.activeSidebar === "ai-sidebar" || 
-              appState.activeSidebar === "modifiers-sidebar"
-            );
-
             // Sync Excalidraw Zen Mode state
             if (appState.zenModeEnabled !== zenMode) {
               setZenMode(appState.zenModeEnabled);
@@ -5553,20 +7224,6 @@ function App() {
               setCustomBrushActive(false);
             }
           }}
-          renderTopRightUI={() => (
-            <div className="drawerator-top-right-wrapper">
-              {/* Chat Toggle (right of library) */}
-              <button 
-                id="btn-chat-header" 
-                onClick={() => excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" })}
-                title="Toggle AI panel"
-              >
-                <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-              </button>
-            </div>
-          )}
         >
           {/* Main Hamburguer Menu */}
           <MainMenu>
@@ -5576,148 +7233,47 @@ function App() {
             <MainMenu.DefaultItems.Export />
             <MainMenu.Separator />
             <MainMenu.DefaultItems.ToggleTheme />
+            <MainMenu.Separator />
+            <MainMenu.Item onSelect={toggleLibrary}>Library</MainMenu.Item>
+            <MainMenu.Item onSelect={() => toggleDraweratorPanel("chat")}>
+              AI Assistant
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => toggleDraweratorPanel("mods")}>
+              Mods &amp; FX
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => toggleDraweratorPanel("settings")}>
+              Settings
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => toggleDraweratorPanel("console")}>
+              Console / Info
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => toggleDraweratorPanel("transport")}>
+              Transport
+            </MainMenu.Item>
+            <MainMenu.Separator />
             <MainMenu.DefaultItems.ChangeCanvasBackground />
-            <MainMenu.Item onSelect={() => {
-              setActiveSettingsTab("preferences");
-              setShowSettings(true);
-            }}>
-              Preferences
-            </MainMenu.Item>
-            <MainMenu.Separator />
-            <MainMenu.ItemCustom>
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  width: "100%",
-                  padding: "10px 16px",
-                  cursor: "pointer",
-                  color: "var(--popup-text-color)",
-                  fontSize: "14px",
-                  fontFamily: "var(--font-sans)",
-                  transition: "background-color 0.2s"
-                }}
-                className="dropdown-menu-item-custom"
-                onClick={(e) => {
-                  e.stopPropagation();
-                }}
-              >
-                <span>Force Desktop Layout</span>
-                <input 
-                  type="checkbox" 
-                  checked={forceDesktopLayout} 
-                  onChange={(e) => {
-                    setForceDesktopLayout(e.target.checked);
-                    localStorage.setItem("drawerator_force_desktop_layout", e.target.checked);
-                  }}
-                  style={{
-                    cursor: "pointer",
-                    accentColor: "var(--color-primary)"
-                  }}
-                />
-              </label>
-            </MainMenu.ItemCustom>
-            <MainMenu.ItemCustom>
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  width: "100%",
-                  padding: "10px 16px",
-                  cursor: "pointer",
-                  color: "var(--popup-text-color)",
-                  fontSize: "14px",
-                  fontFamily: "var(--font-sans)",
-                  transition: "background-color 0.2s"
-                }}
-                className="dropdown-menu-item-custom"
-                onClick={(e) => {
-                  e.stopPropagation();
-                }}
-              >
-                <span>Show Toolbar Hints</span>
-                <input 
-                  type="checkbox" 
-                  checked={showToolbarHints} 
-                  onChange={(e) => {
-                    setShowToolbarHints(e.target.checked);
-                    localStorage.setItem("drawerator_show_toolbar_hints", e.target.checked);
-                  }}
-                  style={{
-                    cursor: "pointer",
-                    accentColor: "var(--color-primary)"
-                  }}
-                />
-              </label>
-            </MainMenu.ItemCustom>
-            <MainMenu.ItemCustom>
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  width: "100%",
-                  padding: "10px 16px",
-                  cursor: "pointer",
-                  color: "var(--popup-text-color)",
-                  fontSize: "14px",
-                  fontFamily: "var(--font-sans)",
-                  transition: "background-color 0.2s"
-                }}
-                className="dropdown-menu-item-custom"
-                onClick={(e) => {
-                  e.stopPropagation();
-                }}
-              >
-                <span>Show Bottom Alerts</span>
-                <input 
-                  type="checkbox" 
-                  checked={showBottomNotifications} 
-                  onChange={(e) => {
-                    setShowBottomNotifications(e.target.checked);
-                    localStorage.setItem("drawerator_show_bottom_notifications", e.target.checked);
-                  }}
-                  style={{
-                    cursor: "pointer",
-                    accentColor: "var(--color-primary)"
-                  }}
-                />
-              </label>
-            </MainMenu.ItemCustom>
-            <MainMenu.Separator />
-            <MainMenu.Item onSelect={() => excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" })}>
-              Toggle AI Assistant
-            </MainMenu.Item>
           </MainMenu>
 
-          {/* Welcome Screen brand styling & quick start triggers */}
-          <WelcomeScreen>
-            <WelcomeScreen.Center>
-              <WelcomeScreen.Center.Logo />
-              <WelcomeScreen.Center.Heading>Drawerator AI Board</WelcomeScreen.Center.Heading>
-              <WelcomeScreen.Center.Menu>
-                <WelcomeScreen.Center.MenuItemLoadScene />
-                <WelcomeScreen.Center.MenuItemHelp />
-                <button 
-                  className="header-btn" 
-                  onClick={() => excalidrawAPI?.toggleSidebar({ name: "ai-sidebar" })}
-                  style={{ width: "100%", padding: "10px", marginTop: "10px", fontSize: "13px", fontWeight: "600", borderRadius: "8px", background: "var(--color-accent)", color: "var(--color-btn-text)", border: "none", cursor: "pointer" }}
-                >
-                  Open AI Drawing Assistant
-                </button>
-              </WelcomeScreen.Center.Menu>
-            </WelcomeScreen.Center>
-          </WelcomeScreen>
-
-          {/* Custom Native Sidebar */}
-          <Sidebar name="ai-sidebar" docked={sidebarDocked} onDock={setSidebarDocked}>
-            <div 
-              className="sidebar-resize-handle"
-              onMouseDown={handleSidebarResizeMouseDown}
-            />
-            <Sidebar.Header>
+          {/* Drawerator-owned panels can coexist when floating and share icon tabs when docked. */}
+          {shouldRenderPanel("chat") && (
+          <DraweratorPanel
+            id="chat"
+            title="AI Assistant"
+            placement={panelLayouts.chat.placement}
+            layout={panelLayouts.chat}
+            dockTabs={getPanelDockTabs("chat")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.chat.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("chat", placement)}
+            onDragStart={event => startSidebarPanelDrag("chat", event)}
+            onClose={() => closeDraweratorPanel("chat")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.chat.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.chat.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.chat.placement]: false }))}
+          >
+            <div className="drawerator-panel-secondary-header">
               <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px", gap: "10px" }}>
                 {/* Model Selector Pill */}
                 <div style={{ 
@@ -5788,7 +7344,7 @@ function App() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                     </svg>
                   </button>
-                  <button className="header-btn" onClick={() => setShowSettings(true)} title="AI settings">
+                  <button className="header-btn" onClick={() => toggleDraweratorPanel("settings", { settingsTab: "ai" })} title="AI settings">
                     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -5796,7 +7352,7 @@ function App() {
                   </button>
                 </div>
               </div>
-            </Sidebar.Header>
+            </div>
             
             <div style={{ display: "flex", flexDirection: "column", height: "calc(100% - 50px)", overflow: "hidden", background: "var(--bg-sidebar)" }}>
               {/* Messages Stream */}
@@ -6179,20 +7735,73 @@ function App() {
                 </div>
               </div>
             </div>
-          </Sidebar>
+          </DraweratorPanel>
+          )}
 
-          <Sidebar name="modifiers-sidebar" docked={modifiersSidebarDocked} onDock={setModifiersSidebarDocked}>
-            <div
-              className="sidebar-resize-handle"
-              onMouseDown={handleSidebarResizeMouseDown}
-              title="Drag to resize panel"
-              aria-label="Resize Mods and FX panel"
-            />
-            <Sidebar.Header>
+          {shouldRenderPanel("settings") && (
+          <DraweratorPanel
+            id="settings"
+            title="Settings"
+            placement={panelLayouts.settings.placement}
+            layout={panelLayouts.settings}
+            dockTabs={getPanelDockTabs("settings")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.settings.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("settings", placement)}
+            onDragStart={event => startSidebarPanelDrag("settings", event)}
+            onClose={() => closeDraweratorPanel("settings")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.settings.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.settings.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.settings.placement]: false }))}
+          >
+            {renderSettingsContent()}
+          </DraweratorPanel>
+          )}
+
+          {shouldRenderPanel("console") && (
+          <DraweratorPanel
+            id="console"
+            title="Console / Info"
+            placement={panelLayouts.console.placement}
+            layout={panelLayouts.console}
+            dockTabs={getPanelDockTabs("console")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.console.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("console", placement)}
+            onDragStart={event => startSidebarPanelDrag("console", event)}
+            onClose={() => closeDraweratorPanel("console")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.console.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.console.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.console.placement]: false }))}
+          >
+            {renderConsoleContent()}
+          </DraweratorPanel>
+          )}
+
+          {shouldRenderPanel("mods") && (
+          <DraweratorPanel
+            id="mods"
+            title="Mods & FX"
+            placement={panelLayouts.mods.placement}
+            layout={panelLayouts.mods}
+            dockTabs={getPanelDockTabs("mods")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.mods.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("mods", placement)}
+            onDragStart={event => startSidebarPanelDrag("mods", event)}
+            onClose={() => closeDraweratorPanel("mods")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.mods.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.mods.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.mods.placement]: false }))}
+          >
+            <div className="drawerator-panel-secondary-header drawerator-mods-actions-header">
               <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px", gap: "10px" }}>
-                <span style={{ fontSize: "14px", fontWeight: "600", color: "var(--color-primary)" }}>
-                  🛠️ Mods &amp; FX
-                </span>
                 {(() => {
                   const controlState = getModifierPanelControlState();
                   const { element, isShape, modifiers, isMuted, hideOriginalControl, canRestoreOriginal } = controlState;
@@ -6313,46 +7922,32 @@ function App() {
                   );
                 })()}
               </div>
-            </Sidebar.Header>
+            </div>
             <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "16px", height: "calc(100% - 50px)", overflowY: "auto" }}>
               <div
                 role="tablist"
                 aria-label="Mods and effects views"
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "4px",
-                  padding: "3px",
-                  borderRadius: "7px",
-                  background: "var(--input-bg-color, rgba(0, 0, 0, 0.08))",
-                  border: "1px solid var(--border-color)",
-                }}
+                className="mods-panel-tabs"
               >
-                {[{ id: "stack", label: "Stack" }, { id: "script", label: "Script" }].map(tab => (
+                {[
+                  { id: "stack", label: "Stack" },
+                  { id: "script", label: "Script" },
+                  { id: "iannix", label: "IanniX" },
+                ].map(tab => (
                   <button
                     key={tab.id}
                     type="button"
                     role="tab"
                     aria-selected={modsPanelTab === tab.id}
                     onClick={() => setModsPanelTab(tab.id)}
-                    style={{
-                      padding: "7px 10px",
-                      borderRadius: "5px",
-                      border: "none",
-                      background: modsPanelTab === tab.id ? "var(--button-hover-bg, rgba(255, 255, 255, 0.1))" : "transparent",
-                      color: "var(--color-primary)",
-                      fontSize: "12px",
-                      fontWeight: "700",
-                      cursor: "pointer",
-                      boxShadow: modsPanelTab === tab.id ? "0 1px 3px rgba(0, 0, 0, 0.18)" : "none",
-                    }}
+                    className={`mods-panel-tab ${modsPanelTab === tab.id ? "active" : ""}`}
                   >
                     {tab.label}
                   </button>
                 ))}
               </div>
 
-              {modsPanelTab === "script" ? renderBrushConfigForm() : (() => {
+              {modsPanelTab === "script" ? renderBrushConfigForm() : modsPanelTab === "iannix" ? renderIannixTab() : (() => {
                 const selectedElements = getSelectedElements();
                 if (selectedElements.length > 1) {
                   return (
@@ -6410,7 +8005,8 @@ function App() {
                 return renderModifiersTab();
               })()}
             </div>
-          </Sidebar>
+          </DraweratorPanel>
+          )}
         </Excalidraw>
 
         {/* Live Preview SVG Overlay */}
@@ -6494,293 +8090,12 @@ function App() {
         )}
 
         {renderGlobalModifiersOverlay()}
-        {renderModifiersPropertiesPanel()}
+        {renderIannixOverlay()}
+        {renderIannixTransport()}
       </div>
 
-      {/* Settings Modal Dialog Overlay */}
-      {showSettings && (
-        <div className={`excalidraw theme--${theme}`}>
-          <div id="settings-overlay" onClick={() => setShowSettings(false)}>
-            <div className="settings-card" onClick={(e) => e.stopPropagation()}>
-              <div className="settings-title-row">
-                <h3>Settings</h3>
-                <button 
-                  onClick={() => setShowSettings(false)}
-                  style={{ background: "transparent", border: "none", color: "var(--color-secondary)", fontSize: "20px", cursor: "pointer" }}
-                >
-                  &times;
-                </button>
-              </div>
-
-              {/* Settings Tabs */}
-              <div style={{ display: "flex", gap: "10px", borderBottom: "1px solid var(--border-color)", paddingBottom: "10px", marginBottom: "15px" }}>
-                <button
-                  onClick={() => setActiveSettingsTab("ai")}
-                  style={{
-                    background: activeSettingsTab === "ai" ? "var(--color-accent)" : "transparent",
-                    color: activeSettingsTab === "ai" ? "var(--color-btn-text)" : "var(--color-primary)",
-                    border: "1px solid var(--border-color)",
-                    borderRadius: "6px",
-                    padding: "6px 12px",
-                    fontSize: "13px",
-                    fontWeight: "600",
-                    cursor: "pointer"
-                  }}
-                >
-                  AI Configuration
-                </button>
-                <button
-                  onClick={() => setActiveSettingsTab("preferences")}
-                  style={{
-                    background: activeSettingsTab === "preferences" ? "var(--color-accent)" : "transparent",
-                    color: activeSettingsTab === "preferences" ? "var(--color-btn-text)" : "var(--color-primary)",
-                    border: "1px solid var(--border-color)",
-                    borderRadius: "6px",
-                    padding: "6px 12px",
-                    fontSize: "13px",
-                    fontWeight: "600",
-                    cursor: "pointer"
-                  }}
-                >
-                  Board Preferences
-                </button>
-              </div>
-              
-              {activeSettingsTab === "ai" && (
-                <>
-                  <div className="settings-row">
-                    <label>API Provider</label>
-                    <select 
-                      value={aiSettings.provider}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        let defaultUrl = "http://localhost:11434";
-                        if (val === "lmstudio") defaultUrl = "http://localhost:1234";
-                        else if (val === "openai") defaultUrl = "https://api.openai.com";
-                        
-                        const updated = { ...aiSettings, provider: val, url: defaultUrl, model: "" };
-                        setAiSettings(updated);
-                        testAIConnection(updated);
-                      }}
-                    >
-                      <option value="ollama">Ollama</option>
-                      <option value="lmstudio">LM Studio</option>
-                      <option value="openai">OpenAI Compatible</option>
-                    </select>
-                  </div>
-
-                  <div className="settings-row">
-                    <label>API Endpoint URL</label>
-                    <input 
-                      type="text" 
-                      value={aiSettings.url} 
-                      onChange={(e) => {
-                        const updated = { ...aiSettings, url: e.target.value };
-                        setAiSettings(updated);
-                      }}
-                    />
-                  </div>
-
-                  <div className="settings-row">
-                    <label>Active Model Name</label>
-                    {aiSettings.provider !== "openai" && modelsList.length > 0 ? (
-                      <select 
-                        value={aiSettings.model} 
-                        onChange={(e) => setAiSettings({ ...aiSettings, model: e.target.value })}
-                      >
-                        {modelsList.map((m, idx) => (
-                          <option key={idx} value={m}>{m}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input 
-                        type="text" 
-                        value={aiSettings.model} 
-                        onChange={(e) => setAiSettings({ ...aiSettings, model: e.target.value })}
-                        placeholder="e.g. gpt-4o or llama3"
-                      />
-                    )}
-                  </div>
-
-                  {connectionStatus === "error" && (
-                    <div style={{
-                      marginTop: "15px",
-                      padding: "10px",
-                      background: "rgba(255, 0, 0, 0.08)",
-                      border: "1px solid rgba(255, 0, 0, 0.15)",
-                      borderRadius: "6px",
-                      fontSize: "12px",
-                      lineHeight: "1.4",
-                      color: "var(--color-primary)",
-                      fontFamily: "var(--font-sans)"
-                    }}>
-                      <strong style={{ color: "#e06c75", display: "block", marginBottom: "4px" }}>CORS / Connection Troubleshooting:</strong>
-                      If you are running the app via <code>file://</code> or a hosted domain, your browser will block local backend connections unless CORS is enabled:
-                      <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
-                        <li style={{ marginBottom: "4px" }}><strong>Ollama:</strong> Run Ollama with the environment variable <code>OLLAMA_ORIGINS="*"</code>. On macOS, run <code>launchctl setenv OLLAMA_ORIGINS "*"</code> in terminal, restart the Ollama app, and refresh this page.</li>
-                        <li><strong>LM Studio:</strong> Turn on the <strong>Enable CORS</strong> setting in the LM Studio local server tab.</li>
-                      </ul>
-                    </div>
-                  )}
-
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "24px" }}>
-                    <div className="status-indicator">
-                      <span className={`status-dot ${connectionStatus}`}></span>
-                      <span>
-                        {connectionStatus === "ok" ? "Backend Reachable" : 
-                         connectionStatus === "error" ? "Connection Failed" : "Checking..."}
-                      </span>
-                    </div>
-                    <button 
-                      className="header-btn" 
-                      onClick={saveSettings}
-                      style={{ background: "var(--color-accent)", color: "var(--color-btn-text)", border: "none", fontWeight: "600", padding: "8px 16px" }}
-                    >
-                      Save
-                    </button>
-                  </div>
-                </>
-              )}
-              {activeSettingsTab === "preferences" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                  <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <label style={{ margin: 0, cursor: "pointer" }}>Force Desktop Layout</label>
-                    <input 
-                      type="checkbox" 
-                      checked={forceDesktopLayout} 
-                      onChange={(e) => {
-                        setForceDesktopLayout(e.target.checked);
-                        localStorage.setItem("drawerator_force_desktop_layout", e.target.checked);
-                      }}
-                      style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
-                    />
-                  </div>
-
-                  <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <label style={{ margin: 0, cursor: "pointer" }}>Show Toolbar Hints</label>
-                    <input 
-                      type="checkbox" 
-                      checked={showToolbarHints} 
-                      onChange={(e) => {
-                        setShowToolbarHints(e.target.checked);
-                        localStorage.setItem("drawerator_show_toolbar_hints", e.target.checked);
-                      }}
-                      style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
-                    />
-                  </div>
-
-                  <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <label style={{ margin: 0, cursor: "pointer" }}>Show Bottom Alerts</label>
-                    <input 
-                      type="checkbox" 
-                      checked={showBottomNotifications} 
-                      onChange={(e) => {
-                        setShowBottomNotifications(e.target.checked);
-                        localStorage.setItem("drawerator_show_bottom_notifications", e.target.checked);
-                      }}
-                      style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
-                    />
-                  </div>
-
-                  <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <label style={{ margin: 0, cursor: "pointer" }}>Show Debug Coordinates (Modifiers)</label>
-                    <input 
-                      type="checkbox" 
-                      checked={showDebugLayer} 
-                      onChange={(e) => {
-                        setShowDebugLayer(e.target.checked);
-                      }}
-                      style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
-                    />
-                  </div>
-
-                  <div className="settings-row" style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <label style={{ margin: 0 }}>Default Stabilizer Damping (Lazy Mouse)</label>
-                      <span style={{ fontSize: "12px", fontFamily: "var(--font-mono)", color: "var(--color-secondary)" }}>
-                        {defaultStabilizerDamping.toFixed(2)}
-                      </span>
-                    </div>
-                    <input 
-                      type="range" 
-                      min="0.01" 
-                      max="0.5" 
-                      step="0.01" 
-                      value={defaultStabilizerDamping} 
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value);
-                        setDefaultStabilizerDamping(val);
-                        localStorage.setItem("drawerator_default_stabilizer_damping", val);
-                      }}
-                      style={{ width: "100%", cursor: "pointer", accentColor: "var(--color-accent)" }}
-                    />
-                    <div style={{ fontSize: "10px", color: "var(--color-secondary)", marginTop: "-2px" }}>
-                      Lower values make the stabilizer lazy/smoother. Defaults to 0.12.
-                    </div>
-                  </div>
-
-                  <hr style={{ border: "none", borderTop: "1px solid var(--border-color)", margin: "8px 0" }} />
-
-                  {excalidrawAPI && (() => {
-                    const appState = excalidrawAPI.getAppState() || {};
-                    return (
-                      <>
-                        <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <label style={{ margin: 0, cursor: "pointer" }}>Grid Mode</label>
-                          <input 
-                            type="checkbox" 
-                            checked={appState.gridModeEnabled || false} 
-                            onChange={(e) => {
-                              excalidrawAPI.updateScene({ appState: { gridModeEnabled: e.target.checked } });
-                            }}
-                            style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
-                          />
-                        </div>
-
-                        <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <label style={{ margin: 0, cursor: "pointer" }}>Zen Mode</label>
-                          <input 
-                            type="checkbox" 
-                            checked={appState.zenModeEnabled || false} 
-                            onChange={(e) => {
-                              excalidrawAPI.updateScene({ appState: { zenModeEnabled: e.target.checked } });
-                            }}
-                            style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
-                          />
-                        </div>
-
-                        <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <label style={{ margin: 0, cursor: "pointer" }}>View Mode</label>
-                          <input 
-                            type="checkbox" 
-                            checked={appState.viewModeEnabled || false} 
-                            onChange={(e) => {
-                              excalidrawAPI.updateScene({ appState: { viewModeEnabled: e.target.checked } });
-                            }}
-                            style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
-                          />
-                        </div>
-
-                        <div className="settings-row" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <label style={{ margin: 0, cursor: "pointer" }}>Snap to Objects</label>
-                          <input 
-                            type="checkbox" 
-                            checked={appState.objectsSnapModeEnabled || false} 
-                            onChange={(e) => {
-                              excalidrawAPI.updateScene({ appState: { objectsSnapModeEnabled: e.target.checked } });
-                            }}
-                            style={{ cursor: "pointer", accentColor: "var(--color-primary)" }}
-                          />
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              )}
-
-            </div>
-          </div>
-        </div>
+      {dockPreview && (
+        <div className={`panel-dock-preview panel-dock-preview-${dockPreview}`} aria-hidden="true" />
       )}
 
       {/* Command Palette Overlay */}

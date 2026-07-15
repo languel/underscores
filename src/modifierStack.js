@@ -33,6 +33,28 @@ export const composePreviewTracks = ({
   return isDrawableTrack(primaryPoints) ? [primaryPoints] : [];
 };
 
+/**
+ * Compose the complete visible appearance of a runtime cursor after modifier
+ * tracks have been mapped into canvas coordinates. The authored Excalidraw
+ * element is hidden while linked, so the runtime overlay must own both the
+ * source path and every generated brush track.
+ */
+export const composeRuntimeCursorTracks = ({
+  sourcePaths,
+  evaluatedTracks,
+  hasAccumulated,
+  hideOriginal,
+  muteModifiers,
+}) => {
+  const source = Array.isArray(sourcePaths) ? sourcePaths.filter(isDrawableTrack) : [];
+  const evaluated = Array.isArray(evaluatedTracks) ? evaluatedTracks.filter(isDrawableTrack) : [];
+
+  if (muteModifiers) return source;
+  if (hasAccumulated) return hideOriginal ? evaluated : [...source, ...evaluated];
+  if (evaluated.length > 0) return evaluated;
+  return source;
+};
+
 export const resolveHideOriginalControl = ({
   hasSelection,
   selectedHideOriginal,

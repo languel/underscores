@@ -1,6 +1,6 @@
 # Modifier Stack Architecture Notes
 
-Last updated: 2026-07-13
+Last updated: 2026-07-15
 
 This note records the contracts behind Drawerator's non-destructive **🛠️ Mods & FX** implementation. Preserve these invariants when adding brushes, filters, transforms, or history behavior.
 
@@ -42,7 +42,7 @@ The header is the single home for contextual stack actions. Keep these behaviors
 - **Hide Original** controls only the selected stroke, or the next-stroke preference when no stroke is selected in Mod Pen mode.
 - Bypass and Hide Original are mutually exclusive. The UI disables the conflicting action and the handlers also enforce the invariant.
 - Line/freehand conversion and source restoration are contextual and must remain unavailable when the selected element cannot support the action.
-- The sidebar uses Excalidraw's native dock/pin state. Its width is user-resizable and persisted independently.
+- Mods & FX uses Drawerator's shared panel shell. Its width, floating size, placement, visibility, and dock-tab state persist independently from other panels. The panel icon handles activation, thresholded drag-to-float/dock, and a right-click placement menu; a plain click never detaches the panel.
 
 ## Bake semantics
 
