@@ -14,10 +14,13 @@ import DraweratorPanel from "./DraweratorPanel.jsx";
 import TransportTimeline from "./TransportTimeline.jsx";
 import HistoryPanel from "./HistoryPanel.jsx";
 import EventConsole from "./EventConsole.jsx";
+import PropertiesPanel from "./PropertiesPanel.jsx";
+import OutlinerPanel from "./OutlinerPanel.jsx";
+import IannixDataPanel from "./IannixDataPanel.jsx";
 import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, parseGenericCommandSlash } from "./commandSystem.js";
 import { autoKeyElement, collectAutomationKeys, evaluateElementAutomation } from "./automation.js";
 import { createDraweratorMacro, DRAWERATOR_MACRO_TYPE, DraweratorLibraryStore, DraweratorSessionController, instantiateDraweratorMacro, mergeSceneMutation, parseDraweratorSession } from "./sessionHistory.js";
-import { buildIannixObjectModel, executeTrustedIannixScript } from "./iannixScript.js";
+import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCurveStartAngle } from "./iannixScript.js";
 
 // System Prompt guiding the local LLM on drawing tools
 const SYSTEM_PROMPT = `You are "Drawerator", an autonomous, high-performance drawing assistant.
@@ -142,6 +145,25 @@ const cleanApiUrl = (url, provider) => {
     }
   }
   return clean;
+};
+
+const colorWithOpacity = (hex, opacity) => {
+  const value = String(hex || "").replace("#", "");
+  if (!/^[0-9a-f]{6}$/i.test(value)) return hex;
+  const channels = [0, 2, 4].map(index => parseInt(value.slice(index, index + 2), 16));
+  return `rgba(${channels.join(", ")}, ${Math.min(100, Math.max(0, Number(opacity))) / 100})`;
+};
+
+const ScriptActionIcon = ({ type }) => {
+  const paths = {
+    run: <><path d="m9 6 9 6-9 6V6Z"/></>,
+    save: <><path d="M5 4h12l2 2v14H5V4Z"/><path d="M8 4v6h8V4M8 20v-6h8v6"/></>,
+    copy: <><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5H5v11h3"/></>,
+    add: <><path d="M12 5v14M5 12h14"/></>,
+    remove: <><path d="M5 7h14M9 7V4h6v3M8 7l1 13h6l1-13"/></>,
+    import: <><path d="M4 19h16M12 4v10M8 10l4 4 4-4"/></>,
+  };
+  return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[type]}</svg>;
 };
 
 const PRESET_BRUSHES = {
@@ -1305,10 +1327,15 @@ function App() {
   const [historyIncludePresentation, setHistoryIncludePresentation] = useState(true);
   const [historyMidiArmed, setHistoryMidiArmed] = useState(false);
   const [historyShowPointer, setHistoryShowPointer] = useState(true);
+  const [historyClockMode, setHistoryClockMode] = useState(() => localStorage.getItem("drawerator_history_clock_mode") || "realtime");
+  const [historyRecordFilter, setHistoryRecordFilter] = useState(() => localStorage.getItem("drawerator_history_record_filter") || "all");
   const [autoKeyEnabled, setAutoKeyEnabled] = useState(false);
   const [sessionPlaybackOverlay, setSessionPlaybackOverlay] = useState([]);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
   const [accentColor, setAccentColor] = useState(() => localStorage.getItem("drawerator_accent_color") || "#6b7173");
+  const [accentOpacity, setAccentOpacity] = useState(() => Number(localStorage.getItem("drawerator_accent_opacity") || 100));
+  const [highlightColor, setHighlightColor] = useState(() => localStorage.getItem("drawerator_highlight_color") || (theme === "dark" ? "#33323b" : "#f1f0ff"));
+  const [highlightOpacity, setHighlightOpacity] = useState(() => Number(localStorage.getItem("drawerator_highlight_opacity") || 100));
   const [panelLayouts, setPanelLayouts] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("drawerator_panel_layout_v1") || "null");
@@ -1324,9 +1351,9 @@ function App() {
   });
   const [openPanels, setOpenPanels] = useState(() => {
     try {
-      return { chat: false, settings: false, mods: true, console: false, history: false, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
+      return { chat: false, settings: false, mods: true, iannix: false, console: false, history: false, properties: false, outliner: false, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
     } catch {
-      return { chat: false, settings: false, mods: true, console: false, history: false };
+      return { chat: false, settings: false, mods: true, iannix: false, console: false, history: false, properties: false, outliner: false };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
@@ -1368,6 +1395,16 @@ function App() {
   });
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
   const [modsPanelTab, setModsPanelTab] = useState("stack");
+  const [iannixPanelTab, setIannixPanelTab] = useState("data");
+  const [iannixScriptSource, setIannixScriptSource] = useState("");
+  const [iannixScripts, setIannixScripts] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("drawerator_iannix_scripts") || "[]");
+    } catch {
+      return [];
+    }
+  });
+  const [activeIannixScriptId, setActiveIannixScriptId] = useState("");
   const [scoreTime, setScoreTime] = useState(0);
   const [scorePlaying, setScorePlaying] = useState(false);
   const [scoreRate, setScoreRate] = useState(() => {
@@ -1545,6 +1582,10 @@ function App() {
     }
   }), [eventBus, historyController]);
 
+  useEffect(() => {
+    historyController.setRecordFilter(historyRecordFilter);
+  }, [historyController, historyRecordFilter]);
+
   useEffect(() => commandRegistry.subscribe(detail => {
     historyController.recordCommand(detail);
   }), [commandRegistry, historyController]);
@@ -1684,6 +1725,16 @@ function App() {
     localStorage.setItem("drawerator_panel_layout_v1", JSON.stringify(panelLayouts));
     localStorage.removeItem("drawerator_transport_position");
   }, [panelLayouts]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_iannix_scripts", JSON.stringify(iannixScripts));
+  }, [iannixScripts]);
+
+  useEffect(() => {
+    if (activeIannixScriptId || iannixScripts.length === 0) return;
+    setActiveIannixScriptId(iannixScripts[0].id);
+    setIannixScriptSource(iannixScripts[0].source || "");
+  }, [activeIannixScriptId, iannixScripts]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_panel_visibility_v1", JSON.stringify(openPanels));
@@ -2211,6 +2262,22 @@ function App() {
     }
   };
 
+  const createNewBrush = () => {
+    const id = `user-${Date.now()}`;
+    const brush = {
+      id,
+      name: "Untitled Brush",
+      code: `(points, globals) => {\n  return [points];\n}`,
+      isPreset: false,
+      type: "brush",
+    };
+    setEditingModifierTarget(null);
+    setBrushPalette(previous => [...previous, brush]);
+    setActiveBrushId(id);
+    setActiveBrushCode(brush.code);
+    setBrushSaveMessage("Created a new brush script.");
+  };
+
   const [customBrushActive, setCustomBrushActive] = useState(false);
   const modifierDrawingActive = customBrushActive && globalModifiers.length > 0;
   const [customBrushRoundness, setCustomBrushRoundness] = useState(() => localStorage.getItem("drawerator_custom_brush_roundness") !== "false");
@@ -2260,6 +2327,7 @@ function App() {
   const isDrawingRef = useRef(false);
   const livePointsRef = useRef([]);
   const rawCursorRef = useRef(null);
+  const lastCanvasPointerRef = useRef(null);
   const wasShiftHeldRef = useRef(false);
   const strokeStartTimeRef = useRef(0);
   const brushElapsedRef = useRef(0);
@@ -2352,6 +2420,7 @@ function App() {
 
   const handleCanvasPointerDown = (e) => {
     if (!excalidrawAPI) return;
+    lastCanvasPointerRef.current = [e.clientX, e.clientY];
     if (e.button !== 0) return;
 
     const targetElement = e.target;
@@ -2376,8 +2445,48 @@ function App() {
       return;
     }
 
+    const activeTool = excalidrawAPI.getAppState().activeTool?.type;
+    if (activeTool === "selection") {
+      const elements = excalidrawAPI.getSceneElements();
+      const frame = evaluateScoreFrame(elements, scoreTime);
+      const zoom = excalidrawAPI.getAppState().zoom.value || 1;
+      let nearest = null;
+      const distanceToSegment = (point, start, end) => {
+        const dx = end[0] - start[0];
+        const dy = end[1] - start[1];
+        const lengthSquared = dx * dx + dy * dy;
+        const t = lengthSquared > 0
+          ? Math.max(0, Math.min(1, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / lengthSquared))
+          : 0;
+        return Math.hypot(point[0] - (start[0] + dx * t), point[1] - (start[1] + dy * t));
+      };
+      for (const cursor of frame.cursors) {
+        const visualTransform = visualCursorTransformsRef.current.get(cursor.element.id)?.transform || cursor.transform;
+        for (const track of getElementRenderedCanvasTracks(cursor.element)) {
+          const canvasPath = transformPaths([track.points], visualTransform)[0];
+          const screenPath = canvasPath.map(point => mapCanvasToScreen(point[0], point[1]));
+          for (let index = 1; index < screenPath.length; index++) {
+            const distance = distanceToSegment([e.clientX, e.clientY], screenPath[index - 1], screenPath[index]);
+            const threshold = Math.max(7, (track.strokeWidth || 1) * zoom + 5);
+            if (distance <= threshold && (!nearest || distance < nearest.distance)) nearest = { id: cursor.element.id, distance };
+          }
+        }
+      }
+      if (nearest) {
+        e.preventDefault();
+        e.stopPropagation();
+        const current = excalidrawAPI.getAppState().selectedElementIds || {};
+        const additive = e.metaKey || e.ctrlKey || e.shiftKey;
+        const next = additive ? { ...current } : {};
+        if (additive && next[nearest.id]) delete next[nearest.id];
+        else next[nearest.id] = true;
+        excalidrawAPI.updateScene({ appState: { selectedElementIds: next, selectedGroupIds: {}, editingLinearElement: null, selectedLinearElement: null } });
+        setSelectedElementIds(next);
+        return;
+      }
+    }
+
     if (!modifierDrawingActive) {
-      const activeTool = excalidrawAPI.getAppState().activeTool?.type;
       if (activeTool !== "freedraw" && activeTool !== "line") return;
       const coords = getCanvasCoords(e.clientX, e.clientY);
       coords.time = Date.now();
@@ -2427,6 +2536,7 @@ function App() {
   };
 
   const handleCanvasPointerMove = (e) => {
+    lastCanvasPointerRef.current = [e.clientX, e.clientY];
     if (passiveStrokeCaptureRef.current && !isDrawingRef.current) {
       if (e.buttons !== 1) return;
       const nativeEvent = e.nativeEvent || e;
@@ -4324,6 +4434,22 @@ function App() {
 
   // Toggle Command Palette on Cmd + / and Satori Mode on Opt + Shift + Z
   useEffect(() => {
+    const refreshCanvasToolCursor = () => {
+      const point = lastCanvasPointerRef.current;
+      if (!point) return;
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+        const target = document.elementFromPoint(point[0], point[1]);
+        if (!target?.closest?.("#canvas-container")) return;
+        target.dispatchEvent(new PointerEvent("pointermove", {
+          bubbles: true,
+          clientX: point[0],
+          clientY: point[1],
+          pointerId: 1,
+          pointerType: "mouse",
+          isPrimary: true,
+        }));
+      }));
+    };
     const handleKeyDown = (e) => {
       // Cmd + / or Ctrl + /
       if ((e.metaKey || e.ctrlKey) && e.key === "/") {
@@ -4418,6 +4544,14 @@ function App() {
         activeEl.contentEditable === "true" ||
         activeEl.closest?.(".cm-editor")
       );
+
+      if (
+        !isInputFocused &&
+        !e.metaKey && !e.ctrlKey && !e.altKey &&
+        new Set(["KeyV", "KeyP", "KeyR", "KeyO", "KeyD", "KeyA", "KeyL", "KeyT", "KeyE", "KeyH", "KeyI"]).has(e.code)
+      ) {
+        refreshCanvasToolCursor();
+      }
 
       if (!isInputFocused) {
         // Shift + P (Toggle Custom Brush Mode)
@@ -4769,6 +4903,16 @@ function App() {
     updateIannixElements([elementId], updater);
   };
 
+  const updateIannixDataPath = (elementId, path, value) => {
+    updateIannixElement(elementId, current => {
+      const next = structuredClone(current);
+      let target = next;
+      path.slice(0, -1).forEach(segment => { target = target[segment]; });
+      target[path[path.length - 1]] = value;
+      return next;
+    });
+  };
+
   const assignIannixRole = (elements, role) => {
     if (!excalidrawAPI || elements.length === 0) return;
     const sceneElements = excalidrawAPI.getSceneElements();
@@ -5015,7 +5159,7 @@ function App() {
     historyController.start({
       baseline,
       includePresentation: historyIncludePresentation,
-      clock: { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature },
+      clock: { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature, historyMode: historyClockMode },
       name: `Session ${new Date().toLocaleString()}`,
     });
     if (play) setScorePlaying(true);
@@ -5041,6 +5185,16 @@ function App() {
 
   const importHistorySession = text => {
     historyController.load(parseDraweratorSession(text));
+  };
+
+  const clearHistorySession = () => {
+    if (!window.confirm("Clear all recorded History actions?")) return;
+    historyController.clear({
+      baseline: captureSessionBaseline(),
+      includePresentation: historyIncludePresentation,
+      clock: { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature, historyMode: historyClockMode },
+      name: `Session ${new Date().toLocaleString()}`,
+    });
   };
 
   const saveHistoryMacro = async (selection = {}, requestedName = "") => {
@@ -5141,6 +5295,18 @@ function App() {
       setAccentColor(state.accentColor);
       localStorage.setItem("drawerator_accent_color", state.accentColor);
     }
+    if (Number.isFinite(Number(state.accentOpacity))) {
+      setAccentOpacity(Number(state.accentOpacity));
+      localStorage.setItem("drawerator_accent_opacity", String(state.accentOpacity));
+    }
+    if (typeof state.highlightColor === "string") {
+      setHighlightColor(state.highlightColor);
+      localStorage.setItem("drawerator_highlight_color", state.highlightColor);
+    }
+    if (Number.isFinite(Number(state.highlightOpacity))) {
+      setHighlightOpacity(Number(state.highlightOpacity));
+      localStorage.setItem("drawerator_highlight_opacity", String(state.highlightOpacity));
+    }
     if (typeof state.satoriMode === "boolean") setSatoriMode(state.satoriMode);
     if (typeof state.showToolbarHints === "boolean") setShowToolbarHints(state.showToolbarHints);
     if (typeof state.showBottomNotifications === "boolean") setShowBottomNotifications(state.showBottomNotifications);
@@ -5202,6 +5368,9 @@ function App() {
     const state = {
       theme,
       accentColor,
+      accentOpacity,
+      highlightColor,
+      highlightOpacity,
       satoriMode,
       showToolbarHints,
       showBottomNotifications,
@@ -5224,7 +5393,7 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record board settings", error));
     }, 180);
-  }, [accentColor, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, historyController, historyIncludePresentation, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
+  }, [accentColor, accentOpacity, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, highlightColor, highlightOpacity, historyController, historyIncludePresentation, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
 
   useEffect(() => {
     const api = {
@@ -5371,11 +5540,14 @@ function App() {
       const strokeColor = colorFromIannix(object);
       const alpha = object.color?.[3] ?? object.colorHue?.[3] ?? 255;
       const opacity = Math.min(100, Math.max(0, Math.round(alpha / 2.55)));
+      const linkedCurve = object.role === "cursor"
+        ? model.objects.find(candidate => candidate.externalId === object.curveExternalId)
+        : null;
       const iannix = normalizeIannixData({
         role: object.role,
         active: object.active !== false,
         label: object.label || `${object.role.charAt(0).toUpperCase()}${object.role.slice(1)} ${object.externalId}`,
-        time: { duration: Math.max(0.001, Number(object.speed) || 5) },
+        time: { duration: object.role === "cursor" ? getIannixCursorDuration(object, linkedCurve) : Math.max(0.001, Number(object.speed) || 5) },
         cursor: object.role === "cursor" ? {
           curveId: internalIds.get(object.curveExternalId) || null,
           sourceOpacity: opacity,
@@ -5422,11 +5594,12 @@ function App() {
         };
       } else if (object.role === "cursor") {
         const center = positioned([0, 0]);
-        const length = Math.max(10, (Number(object.size) || 1) * scale * 0.45);
+        const length = getIannixCursorCanvasLength(object, scale);
         element = {
           ...createBaseElement("line", center[0], center[1] - length / 2, 1, length, strokeColor),
           points: [[0, 0], [0, length]],
-          strokeWidth: Math.max(1, Number(object.width) || 2),
+          angle: getIannixCurveStartAngle(linkedCurve),
+          strokeWidth: Math.max(1, Number(object.size) || 1),
           roughness: 0,
           opacity: iannix.cursor.curveId ? 0 : opacity,
           customData,
@@ -5483,6 +5656,15 @@ function App() {
     if (!trusted) return;
     try {
       const source = await file.text();
+      const existingScript = iannixScripts.find(script => script.name === file.name);
+      const scriptId = existingScript?.id || `iannix-script-${crypto.randomUUID()}`;
+      setIannixScripts(previous => existingScript
+        ? previous.map(script => script.id === scriptId ? { ...script, source, updatedAt: Date.now() } : script)
+        : [...previous, { id: scriptId, name: file.name, source, createdAt: Date.now(), updatedAt: Date.now() }]
+      );
+      setActiveIannixScriptId(scriptId);
+      setIannixScriptSource(source);
+      setIannixPanelTab("script");
       const appState = excalidrawAPI.getAppState();
       const anchor = viewportCoordsToSceneCoords({
         clientX: (appState.width || window.innerWidth) / 2,
@@ -5512,13 +5694,11 @@ function App() {
           hidden
           onChange={handleDraweratorSceneFile}
         />
-        <input ref={iannixImportInputRef} type="file" accept=".iannix,.js,text/javascript" hidden onChange={handleTrustedIannixFile} />
         <div className="iannix-data-actions">
           <button type="button" className="iannix-flat-button" onClick={exportDraweratorScene}>Export scene</button>
           <button type="button" className="iannix-flat-button" onClick={() => sceneImportInputRef.current?.click()}>Import scene</button>
           <button type="button" className="iannix-flat-button" onClick={copyDraweratorSelection} disabled={selectedCount === 0}>Copy selection JSON</button>
           <button type="button" className="iannix-flat-button" onClick={pasteDraweratorSelection}>Paste selection JSON</button>
-          <button type="button" className="iannix-flat-button" onClick={() => iannixImportInputRef.current?.click()}>Import trusted .iannix</button>
         </div>
         <div className="iannix-hint">Scene exchange preserves Drawerator metadata. Trusted .iannix compatibility executes familiar run()/load() scripts, reports unsupported commands, and is not a security sandbox.</div>
         {sceneExchangeStatus && <div className="iannix-midi-status" role="status">{sceneExchangeStatus}</div>}
@@ -5951,6 +6131,62 @@ function App() {
             </div>
           </section>
         )}
+      </div>
+    );
+  };
+
+  const renderIannixScriptTab = () => {
+    const activeScript = iannixScripts.find(script => script.id === activeIannixScriptId);
+    const createScript = () => {
+      const id = `iannix-script-${crypto.randomUUID()}`;
+      const script = { id, name: "Untitled IanniX Script", source: "// IanniX commands\n", createdAt: Date.now(), updatedAt: Date.now() };
+      setIannixScripts(previous => [...previous, script]);
+      setActiveIannixScriptId(id);
+      setIannixScriptSource(script.source);
+    };
+    const saveScript = () => {
+      if (!activeScript) return;
+      setIannixScripts(previous => previous.map(script => script.id === activeScript.id
+        ? { ...script, source: iannixScriptSource, updatedAt: Date.now() }
+        : script
+      ));
+    };
+    const deleteScript = () => {
+      if (!activeScript || !window.confirm(`Delete “${activeScript.name}”?`)) return;
+      const remaining = iannixScripts.filter(script => script.id !== activeScript.id);
+      setIannixScripts(remaining);
+      setActiveIannixScriptId(remaining[0]?.id || "");
+      setIannixScriptSource(remaining[0]?.source || "");
+    };
+    return (
+      <div className="iannix-properties iannix-script-pane">
+          <label className="iannix-section-title" htmlFor="iannix-script-select">IanniX Script</label>
+          <select id="iannix-script-select" className="custom-brush-select" value={activeIannixScriptId} onChange={event => {
+            const script = iannixScripts.find(candidate => candidate.id === event.target.value);
+            setActiveIannixScriptId(event.target.value);
+            setIannixScriptSource(script?.source || "");
+          }}>
+            <option value="">— Choose script —</option>
+            {iannixScripts.map(script => <option key={script.id} value={script.id}>{script.name}</option>)}
+          </select>
+          <textarea
+            className="iannix-script-editor custom-brush-textarea"
+            value={iannixScriptSource}
+            onChange={event => setIannixScriptSource(event.target.value)}
+            placeholder="Paste a trusted .iannix script or a one-off run() command…"
+            spellCheck="false"
+          />
+          <div className="script-icon-toolbar">
+            <button type="button" className="palette-action-btn primary script-icon-button" title="Run script" aria-label="Run script" onClick={() => {
+              if (!iannixScriptSource.trim()) return;
+              commandRegistry.execute("iannix.import.trusted", { source: iannixScriptSource, filename: activeScript?.name || "IanniX editor" }, { source: "iannix-panel", transportTime: scoreTimeRef.current });
+            }}><ScriptActionIcon type="run" /></button>
+            <button type="button" className="palette-action-btn secondary script-icon-button" title="Save script" aria-label="Save script" onClick={saveScript} disabled={!activeScript}><ScriptActionIcon type="save" /></button>
+            <button type="button" className="palette-action-btn secondary script-icon-button" title="New script" aria-label="New script" onClick={createScript}><ScriptActionIcon type="add" /></button>
+            <button type="button" className="palette-action-btn secondary script-icon-button" title="Import trusted .iannix" aria-label="Import trusted .iannix" onClick={() => iannixImportInputRef.current?.click()}><ScriptActionIcon type="import" /></button>
+            <button type="button" className="palette-action-btn danger script-icon-button" title="Delete script" aria-label="Delete script" onClick={deleteScript} disabled={!activeScript}><ScriptActionIcon type="remove" /></button>
+          </div>
+          <div className="iannix-hint">Imported files are stored in this local catalog. Run executes the current trusted script through the IanniX compatibility dispatcher.</div>
       </div>
     );
   };
@@ -6891,6 +7127,7 @@ function App() {
   };
 
   const getElementRenderedCanvasTracks = (element) => {
+    if (element.customData?.outlinerHidden) return [];
     const sourcePaths = getElementCorePaths(element);
     const modifiers = element.customData?.modifiers || [];
     const data = normalizeIannixData(element.customData?.iannix);
@@ -7046,7 +7283,7 @@ function App() {
     if (!excalidrawAPI) return null;
     const elements = excalidrawAPI.getSceneElements();
     
-    const modifierElements = elements.filter(el => el.customData?.modifiers && !el.isDeleted);
+    const modifierElements = elements.filter(el => el.customData?.modifiers && !el.customData?.outlinerHidden && !el.isDeleted);
     if (modifierElements.length === 0) return null;
 
     const paths = [];
@@ -7248,18 +7485,16 @@ function App() {
             opacity: track.opacity,
             style: theme === "dark" ? { filter: "invert(93%) hue-rotate(180deg)" } : undefined,
           };
-          return track.smooth ? (
-            <path
-              key={`${cursor.element.id}-${pathIndex}`}
-              d={pointsToSmoothSvgPath(screenPath)}
-              {...sharedProps}
-            />
-          ) : (
-            <polyline
-              key={`${cursor.element.id}-${pathIndex}`}
-              points={screenPath.map(point => `${point[0]},${point[1]}`).join(" ")}
-              {...sharedProps}
-            />
+          const selected = Boolean(selectedElementIds[cursor.element.id]);
+          const geometry = track.smooth
+            ? { element: "path", props: { d: pointsToSmoothSvgPath(screenPath) } }
+            : { element: "polyline", props: { points: screenPath.map(point => `${point[0]},${point[1]}`).join(" ") } };
+          const Geometry = geometry.element;
+          return (
+            <g key={`${cursor.element.id}-${pathIndex}`}>
+              {selected && <Geometry {...geometry.props} {...sharedProps} stroke="var(--drawerator-accent)" strokeWidth={sharedProps.strokeWidth + 6} opacity="0.55" style={undefined} />}
+              <Geometry {...geometry.props} {...sharedProps} />
+            </g>
           );
         }))}
 
@@ -7586,26 +7821,20 @@ function App() {
           <div className="settings-panel-section">
             <label className="settings-panel-field">
               <span>Accent color</span>
-              <div className="settings-accent-control">
-                <input
-                  type="color"
-                  value={accentColor}
-                  onChange={event => {
-                    setAccentColor(event.target.value);
-                    localStorage.setItem("drawerator_accent_color", event.target.value);
-                  }}
-                  aria-label="Drawerator accent color"
-                />
-                <button
-                  type="button"
-                  className="iannix-flat-button"
-                  onClick={() => {
-                    setAccentColor("#6b7173");
-                    localStorage.setItem("drawerator_accent_color", "#6b7173");
-                  }}
-                >
-                  Reset to subtle gray
-                </button>
+              <div className="settings-color-control">
+                <input type="color" value={accentColor} onChange={event => { setAccentColor(event.target.value); localStorage.setItem("drawerator_accent_color", event.target.value); }} aria-label="Accent color" />
+                <input key={accentColor} type="text" defaultValue={accentColor} onBlur={event => { if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) { setAccentColor(event.currentTarget.value); localStorage.setItem("drawerator_accent_color", event.currentTarget.value); } else event.currentTarget.value = accentColor; }} aria-label="Accent hex color" />
+                <input type="range" min="0" max="100" value={accentOpacity} onChange={event => { const value = Number(event.target.value); setAccentOpacity(value); localStorage.setItem("drawerator_accent_opacity", String(value)); }} aria-label="Accent opacity" />
+                <output>{accentOpacity}%</output>
+              </div>
+            </label>
+            <label className="settings-panel-field">
+              <span>Hover highlight</span>
+              <div className="settings-color-control">
+                <input type="color" value={highlightColor} onChange={event => { setHighlightColor(event.target.value); localStorage.setItem("drawerator_highlight_color", event.target.value); }} aria-label="Hover highlight color" />
+                <input key={highlightColor} type="text" defaultValue={highlightColor} onBlur={event => { if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) { setHighlightColor(event.currentTarget.value); localStorage.setItem("drawerator_highlight_color", event.currentTarget.value); } else event.currentTarget.value = highlightColor; }} aria-label="Hover highlight hex color" />
+                <input type="range" min="0" max="100" value={highlightOpacity} onChange={event => { const value = Number(event.target.value); setHighlightOpacity(value); localStorage.setItem("drawerator_highlight_opacity", String(value)); }} aria-label="Hover highlight opacity" />
+                <output>{highlightOpacity}%</output>
               </div>
             </label>
             {[
@@ -7821,7 +8050,7 @@ function App() {
             />
 
             {/* Action buttons row */}
-            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "2px" }}>
+            <div className="script-icon-toolbar">
               <button
                 onClick={() => {
                   if (editingActiveModifier) {
@@ -7833,15 +8062,14 @@ function App() {
                   saveBrushChanges();
                 }}
                 disabled={Boolean(activeBrush.isPreset && !editingActiveModifier)}
-                className="palette-action-btn primary"
+                className="palette-action-btn primary script-icon-button"
+                aria-label="Save brush script"
                 title={activeBrush.isPreset && !editingActiveModifier
                   ? "Built-in scripts are locked; use Save As to create an editable copy"
                   : editingActiveModifier
                     ? "Save this script to the modifier being edited"
                     : "Save changes to this custom brush script"}
-              >
-                Save
-              </button>
+              ><ScriptActionIcon type="save" /></button>
               <button
                 onClick={() => {
                   const defaultName = activeBrush.name
@@ -7850,19 +8078,23 @@ function App() {
                   setSaveAsBrushName(defaultName);
                   setBrushSaveMessage("");
                 }}
-                className="palette-action-btn secondary"
+                className="palette-action-btn secondary script-icon-button"
+                aria-label="Save brush script as a copy"
                 title="Save this code as a new custom brush under a new name"
-              >
-                Save As...
-              </button>
+              ><ScriptActionIcon type="copy" /></button>
+              <button
+                onClick={createNewBrush}
+                className="palette-action-btn secondary script-icon-button"
+                aria-label="New brush script"
+                title="Create a new editable brush script"
+              ><ScriptActionIcon type="add" /></button>
               {!activeBrush.isPreset && (
                 <button
                   onClick={deleteBrush}
-                  className="palette-action-btn danger"
+                  className="palette-action-btn danger script-icon-button"
+                  aria-label="Delete brush script"
                   title="Delete this custom brush"
-                >
-                  Delete
-                </button>
+                ><ScriptActionIcon type="remove" /></button>
               )}
             </div>
 
@@ -7932,6 +8164,34 @@ function App() {
     );
   };
 
+  const updateSceneObject = (elementId, mutate) => {
+    if (!excalidrawAPI) return;
+    const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+    let changed = false;
+    const nextElements = elements.map(element => {
+      if (element.id !== elementId) return element;
+      const next = structuredClone(element);
+      mutate(next);
+      next.version = (element.version || 0) + 1;
+      next.versionNonce = Math.floor(Math.random() * 0x7fffffff);
+      next.updated = Date.now();
+      changed = true;
+      return next;
+    });
+    if (!changed) return;
+    excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
+    setModifierUpdateNonce(nonce => nonce + 1);
+  };
+
+  const updateSceneObjectProperty = (elementId, path, value) => updateSceneObject(elementId, element => {
+    let target = element;
+    for (let index = 0; index < path.length - 1; index += 1) target = target[path[index]];
+    target[path.at(-1)] = value;
+    if (path[0] === "customData" && path.includes("modifiers")) {
+      element.customData.version = (element.customData.version || 0) + 1;
+    }
+  });
+
   const sidePanels = DRAWERATOR_PANELS.filter(panel => panel.id !== "transport");
   const getDockTabs = placement => getOpenPanelsForPlacement(sidePanels, openPanels, panelLayouts, placement);
   const leftDockTabs = getDockTabs(PANEL_PLACEMENTS.LEFT);
@@ -7957,7 +8217,8 @@ function App() {
       id="root" 
       className={`drawerator-shell ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} transport-placement-${panelLayouts.transport.placement} ${draggingPanelId ? "panel-is-dragging" : ""}`}
       style={{
-        "--drawerator-accent": accentColor,
+        "--drawerator-accent": colorWithOpacity(accentColor, accentOpacity),
+        "--drawerator-highlight": colorWithOpacity(highlightColor, highlightOpacity),
       }}
     >
       <div 
@@ -8098,12 +8359,16 @@ function App() {
                 if (!mutation) return;
                 const duration = Math.max(0, performance.now() - mutation.startedAt) / 1000;
                 const groupId = crypto.randomUUID();
-                const recordSceneCommand = (commandId, args) => commandRegistry.execute(commandId, args, {
+                const recordSceneCommand = (commandId, args) => historyController.record({
+                  kind: "command",
+                  commandId,
+                  commandVersion: 1,
+                  args,
                   source: "excalidraw",
                   groupId,
                   duration,
                   transportTime: scoreTimeRef.current,
-                }).catch(error => console.error("Could not record scene command", error));
+                });
                 if (mutation.created.size) recordSceneCommand("scene.create", { elements: [...mutation.created.values()] });
                 if (mutation.updated.size) recordSceneCommand("scene.update", { elements: [...mutation.updated.values()] });
                 if (mutation.deletedElementIds.size) recordSceneCommand("scene.delete", { elementIds: [...mutation.deletedElementIds] });
@@ -8332,6 +8597,9 @@ function App() {
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-mods", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Mods &amp; FX
             </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-iannix", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              IanniX
+            </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-settings", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Settings
             </MainMenu.Item>
@@ -8340,6 +8608,12 @@ function App() {
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-history", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               History
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-properties", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              Properties
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-outliner", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              Outliner
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-transport", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Transport
@@ -8901,9 +9175,19 @@ function App() {
               includePresentation={historyIncludePresentation}
               emitMidi={historyMidiArmed}
               showPointer={historyShowPointer}
+              clockMode={historyClockMode}
+              recordFilter={historyRecordFilter}
               onIncludePresentationChange={setHistoryIncludePresentation}
               onEmitMidiChange={setHistoryMidiArmed}
               onShowPointerChange={setHistoryShowPointer}
+              onClockModeChange={mode => {
+                setHistoryClockMode(mode);
+                localStorage.setItem("drawerator_history_clock_mode", mode);
+              }}
+              onRecordFilterChange={filter => {
+                setHistoryRecordFilter(filter);
+                localStorage.setItem("drawerator_history_record_filter", filter);
+              }}
               onStart={() => startHistoryRecording()}
               onPause={() => historyController.pause()}
               onStop={stopHistory}
@@ -8920,6 +9204,81 @@ function App() {
               onRemoveMacro={removeHistoryMacro}
               onExport={exportHistorySession}
               onImport={importHistorySession}
+              onClear={clearHistorySession}
+            />
+          </DraweratorPanel>
+          )}
+
+          {shouldRenderPanel("properties") && (
+          <DraweratorPanel
+            id="properties"
+            title="Properties"
+            placement={panelLayouts.properties.placement}
+            layout={panelLayouts.properties}
+            dockTabs={getPanelDockTabs("properties")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.properties.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("properties", placement)}
+            onDragStart={event => startSidebarPanelDrag("properties", event)}
+            onClose={() => closeDraweratorPanel("properties")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.properties.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.properties.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.properties.placement]: false }))}
+          >
+            <PropertiesPanel
+              elements={(excalidrawAPI?.getSceneElementsIncludingDeleted() || []).filter(element => selectedElementIds[element.id])}
+              onChange={updateSceneObjectProperty}
+            />
+          </DraweratorPanel>
+          )}
+
+          {shouldRenderPanel("outliner") && (
+          <DraweratorPanel
+            id="outliner"
+            title="Outliner"
+            placement={panelLayouts.outliner.placement}
+            layout={panelLayouts.outliner}
+            dockTabs={getPanelDockTabs("outliner")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.outliner.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("outliner", placement)}
+            onDragStart={event => startSidebarPanelDrag("outliner", event)}
+            onClose={() => closeDraweratorPanel("outliner")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.outliner.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.outliner.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.outliner.placement]: false }))}
+          >
+            <OutlinerPanel
+              elements={excalidrawAPI?.getSceneElementsIncludingDeleted() || []}
+              selectedElementIds={selectedElementIds}
+              onSelect={(elementId, additive) => {
+                if (!excalidrawAPI) return;
+                const current = excalidrawAPI.getAppState().selectedElementIds || {};
+                const next = additive ? { ...current } : {};
+                if (additive && next[elementId]) delete next[elementId];
+                else next[elementId] = true;
+                const activeTool = excalidrawAPI.getAppState().activeTool || {};
+                excalidrawAPI.updateScene({ appState: { selectedElementIds: next, selectedGroupIds: {}, editingLinearElement: null, selectedLinearElement: null, activeTool: { ...activeTool, type: "selection" } } });
+                setSelectedElementIds(next);
+              }}
+              onVisibilityChange={elementId => updateSceneObject(elementId, element => {
+                const hidden = !element.customData?.outlinerHidden;
+                element.customData = { ...(element.customData || {}) };
+                if (hidden) {
+                  element.customData.outlinerSavedOpacity = element.opacity ?? 100;
+                  element.customData.outlinerHidden = true;
+                  element.opacity = 0;
+                } else {
+                  element.opacity = element.customData.outlinerSavedOpacity ?? 100;
+                  element.customData.outlinerHidden = false;
+                  delete element.customData.outlinerSavedOpacity;
+                }
+              })}
+              onLockChange={elementId => updateSceneObject(elementId, element => { element.locked = !element.locked; })}
             />
           </DraweratorPanel>
           )}
@@ -9074,7 +9433,6 @@ function App() {
                 {[
                   { id: "stack", label: "Stack" },
                   { id: "script", label: "Script" },
-                  { id: "iannix", label: "IanniX" },
                 ].map(tab => (
                   <button
                     key={tab.id}
@@ -9089,7 +9447,7 @@ function App() {
                 ))}
               </div>
 
-              {modsPanelTab === "script" ? renderBrushConfigForm() : modsPanelTab === "iannix" ? renderIannixTab() : (() => {
+              {modsPanelTab === "script" ? renderBrushConfigForm() : (() => {
                 const selectedElements = getSelectedElements();
                 if (selectedElements.length > 1) {
                   return (
@@ -9146,6 +9504,42 @@ function App() {
                 
                 return renderModifiersTab();
               })()}
+            </div>
+          </DraweratorPanel>
+          )}
+
+          {shouldRenderPanel("iannix") && (
+          <DraweratorPanel
+            id="iannix"
+            title="IanniX"
+            placement={panelLayouts.iannix.placement}
+            layout={panelLayouts.iannix}
+            dockTabs={getPanelDockTabs("iannix")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.iannix.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("iannix", placement)}
+            onDragStart={event => startSidebarPanelDrag("iannix", event)}
+            onClose={() => closeDraweratorPanel("iannix")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.iannix.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.iannix.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.iannix.placement]: false }))}
+          >
+            <input ref={iannixImportInputRef} type="file" accept=".iannix,.js,text/javascript" hidden onChange={handleTrustedIannixFile} />
+            <div className="drawerator-panel-secondary-header">
+              <div role="tablist" aria-label="IanniX views" className="mods-panel-tabs">
+                {[{ id: "object", label: "Object" }, { id: "data", label: "Data" }, { id: "script", label: "Script" }].map(tab => (
+                  <button key={tab.id} type="button" role="tab" aria-selected={iannixPanelTab === tab.id} className={`mods-panel-tab ${iannixPanelTab === tab.id ? "active" : ""}`} onClick={() => setIannixPanelTab(tab.id)}>{tab.label}</button>
+                ))}
+              </div>
+            </div>
+            <div style={{ padding: "16px", height: "calc(100% - 50px)", overflowY: "auto" }}>
+              {iannixPanelTab === "script"
+                ? renderIannixScriptTab()
+                : iannixPanelTab === "data"
+                  ? <IannixDataPanel elements={getSelectedElements()} onChange={updateIannixDataPath} />
+                  : renderIannixTab()}
             </div>
           </DraweratorPanel>
           )}

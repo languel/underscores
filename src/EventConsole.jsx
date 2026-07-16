@@ -2,6 +2,28 @@ import { useEffect, useRef, useState } from "react";
 import { parseGenericCommandSlash } from "./commandSystem.js";
 
 const MAX_VISIBLE_EVENTS = 500;
+const LOGGING_STORAGE_KEY = "drawerator_console_logging";
+const POLL_STORAGE_KEY = "drawerator_console_poll_frequency";
+const POLL_FREQUENCIES = [50, 100, 250, 500, 1000];
+const EVENT_CATEGORIES = ["command", "history", "input", "iannix", "midi", "macro", "transport", "automation", "presentation", "settings", "ai"];
+let consoleEventCutoff = -Infinity;
+
+const readStoredLogging = () => {
+  try {
+    return localStorage.getItem(LOGGING_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+};
+
+const readStoredPollFrequency = () => {
+  try {
+    const value = Number(localStorage.getItem(POLL_STORAGE_KEY));
+    return POLL_FREQUENCIES.includes(value) ? value : 250;
+  } catch {
+    return 250;
+  }
+};
 
 const eventReplayText = event => {
   if (event.name === "command.before" && event.detail?.id) {
@@ -19,27 +41,31 @@ const eventDetailText = event => {
 };
 
 export default function EventConsole({ eventBus, commandRegistry, transportTime = 0 }) {
-  const [events, setEvents] = useState(() => eventBus.recent(MAX_VISIBLE_EVENTS));
+  const initialLoggingRef = useRef(readStoredLogging());
+  const [events, setEvents] = useState([]);
   const [input, setInput] = useState("");
   const [status, setStatus] = useState("");
-  const [loggingEnabled, setLoggingEnabled] = useState(true);
-  const [pollFrequency, setPollFrequency] = useState(250);
+  const [eventFilter, setEventFilter] = useState("all");
+  const [loggingEnabled, setLoggingEnabled] = useState(initialLoggingRef.current);
+  const [pollFrequency, setPollFrequency] = useState(readStoredPollFrequency);
   const outputRef = useRef(null);
-  const clearedAtRef = useRef(-Infinity);
+  const clearedAtRef = useRef(Math.max(consoleEventCutoff, performance.now()));
 
   useEffect(() => {
     if (!loggingEnabled) return undefined;
     const poll = () => {
-      const next = eventBus.recent(MAX_VISIBLE_EVENTS).filter(event => event.time > clearedAtRef.current);
-      setEvents(previous => {
-        if (previous.length === next.length && previous.at(-1)?.id === next.at(-1)?.id) return previous;
-        return next;
-      });
+      const unseen = eventBus.recent(MAX_VISIBLE_EVENTS).filter(event => event.time > clearedAtRef.current);
+      if (!unseen.length) return;
+      clearedAtRef.current = Math.max(...unseen.map(event => event.time));
+      const accepted = eventFilter === "all"
+        ? unseen
+        : unseen.filter(event => event.name.split(".")[0] === eventFilter);
+      if (accepted.length) setEvents(previous => [...previous, ...accepted].slice(-MAX_VISIBLE_EVENTS));
     };
     poll();
     const interval = window.setInterval(poll, pollFrequency);
     return () => window.clearInterval(interval);
-  }, [eventBus, loggingEnabled, pollFrequency]);
+  }, [eventBus, eventFilter, loggingEnabled, pollFrequency]);
 
   useEffect(() => {
     const output = outputRef.current;
@@ -82,18 +108,45 @@ export default function EventConsole({ eventBus, commandRegistry, transportTime 
     }
   };
 
+  const updateLogging = enabled => {
+    consoleEventCutoff = performance.now();
+    clearedAtRef.current = consoleEventCutoff;
+    setEvents([]);
+    setLoggingEnabled(enabled);
+    localStorage.setItem(LOGGING_STORAGE_KEY, String(enabled));
+  };
+
+  const updatePollFrequency = value => {
+    const frequency = POLL_FREQUENCIES.includes(value) ? value : 250;
+    setPollFrequency(frequency);
+    localStorage.setItem(POLL_STORAGE_KEY, String(frequency));
+  };
+
+  const clearEvents = () => {
+    consoleEventCutoff = performance.now();
+    clearedAtRef.current = consoleEventCutoff;
+    setEvents([]);
+  };
+
   return (
     <div className="event-console">
       <div className="event-console-toolbar">
         <span>{events.length} events</span>
         <div className="event-console-toolbar-controls">
           <label>
-            <input type="checkbox" checked={loggingEnabled} onChange={event => setLoggingEnabled(event.target.checked)} />
+            <span>Type</span>
+            <select value={eventFilter} onChange={event => setEventFilter(event.target.value)}>
+              <option value="all">All</option>
+              {EVENT_CATEGORIES.map(category => <option key={category} value={category}>{category}</option>)}
+            </select>
+          </label>
+          <label>
+            <input type="checkbox" checked={loggingEnabled} onChange={event => updateLogging(event.target.checked)} />
             <span>Log</span>
           </label>
           <label>
             <span>Poll</span>
-            <select value={pollFrequency} onChange={event => setPollFrequency(Number(event.target.value))} disabled={!loggingEnabled}>
+            <select value={pollFrequency} onChange={event => updatePollFrequency(Number(event.target.value))} disabled={!loggingEnabled}>
               <option value={50}>50 ms</option>
               <option value={100}>100 ms</option>
               <option value={250}>250 ms</option>
@@ -101,10 +154,7 @@ export default function EventConsole({ eventBus, commandRegistry, transportTime 
               <option value={1000}>1 s</option>
             </select>
           </label>
-          <button type="button" onClick={() => {
-            clearedAtRef.current = performance.now();
-            setEvents([]);
-          }}>Clear</button>
+          <button type="button" onClick={clearEvents}>Clear</button>
         </div>
       </div>
       <div className="event-console-output" ref={outputRef} role="log" aria-live="off">

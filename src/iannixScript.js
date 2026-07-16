@@ -32,6 +32,68 @@ const seededRandom = seed => {
   };
 };
 
+export const getIannixCurveStartAngle = curveObject => {
+  if (!curveObject) return 0;
+  let points = (curveObject.points || []).filter(Boolean);
+  if (curveObject.ellipse) {
+    const [radiusX = 1, radiusY = radiusX] = curveObject.ellipse;
+    const step = Math.PI / 24;
+    points = [
+      [radiusX, 0, 0],
+      [Math.cos(step) * radiusX, Math.sin(step) * radiusY, 0],
+    ];
+  }
+  for (let index = 1; index < points.length; index++) {
+    const dx = number(points[index]?.[0]) - number(points[index - 1]?.[0]);
+    // IanniX is Y-up while the Drawerator canvas is Y-down.
+    const dy = -(number(points[index]?.[1]) - number(points[index - 1]?.[1]));
+    if (Math.hypot(dx, dy) > 0.000001) return Math.atan2(dy, dx) || 0;
+  }
+  return 0;
+};
+
+export const getIannixCursorCanvasLength = (cursorObject, scale = 1) => {
+  const width = Math.abs(number(cursorObject?.width, 1));
+  const canvasScale = Math.abs(number(scale, 1));
+  return Math.max(0.001, width * canvasScale);
+};
+
+export const getIannixCurvePathLength = curveObject => {
+  if (!curveObject) return 0.001;
+  if (curveObject.ellipse) {
+    const [radiusX = 1, radiusY = radiusX] = curveObject.ellipse.map(value => Math.abs(number(value, 1)));
+    return Math.max(0.001, Math.PI * Math.sqrt(2 * (radiusX * radiusX + radiusY * radiusY)));
+  }
+  const points = (curveObject.points || []).filter(Boolean);
+  let length = 0;
+  for (let index = 1; index < points.length; index++) {
+    length += Math.hypot(
+      number(points[index]?.[0]) - number(points[index - 1]?.[0]),
+      number(points[index]?.[1]) - number(points[index - 1]?.[1]),
+      number(points[index]?.[2]) - number(points[index - 1]?.[2]),
+    );
+  }
+  if (curveObject.closed && points.length > 2) {
+    length += Math.hypot(
+      number(points[0]?.[0]) - number(points.at(-1)?.[0]),
+      number(points[0]?.[1]) - number(points.at(-1)?.[1]),
+      number(points[0]?.[2]) - number(points.at(-1)?.[2]),
+    );
+  }
+  return Math.max(0.001, length);
+};
+
+export const getIannixCursorDuration = (cursorObject, curveObject) => {
+  const pathLength = getIannixCurvePathLength(curveObject);
+  if (!Number.isFinite(Number(cursorObject?.speed))) return pathLength;
+  const speed = Math.abs(Number(cursorObject.speed));
+  if (["auto", "autolock"].includes(String(cursorObject.speedMode || "").toLowerCase())) {
+    return Math.max(0.001, speed);
+  }
+  if (speed <= 0.000001) return Number.MAX_SAFE_INTEGER;
+  return Math.max(0.001, pathLength / speed);
+};
+
 export const createIannixCommandCollector = () => {
   const state = {
     currentId: null,
@@ -137,12 +199,21 @@ export const createIannixCommandCollector = () => {
 };
 
 const createHelpers = randomSource => {
+  const linexp = (value, factor) => !factor
+    ? value
+    : (Math.exp(factor * value - factor) - Math.exp(-factor)) / (1 - Math.exp(-factor));
   const random = (low, high) => low === undefined || high === undefined
     ? randomSource()
     : low + randomSource() * (high - low);
-  const norm = (value, low, high) => high === low ? 0 : (value - low) / (high - low);
-  const range = (value, low, high) => low + value * (high - low);
-  const map = (value, low1, high1, low2, high2) => range(norm(value, low1, high1), low2, high2);
+  const norm = (value, low, high, factor) => high === low ? 0 : linexp((value - low) / (high - low), factor);
+  const range = (value, low, high, factor) => low + linexp(value, factor) * (high - low);
+  const rangeMid = (value, low, mid, high, factor) => {
+    const scaled = linexp(value, factor);
+    return scaled < 0.5
+      ? scaled * 2 * (mid - low) + low
+      : (scaled - 0.5) * 2 * (high - mid) + mid;
+  };
+  const map = (value, low1, high1, low2, high2, factor) => range(norm(value, low1, high1, factor), low2, high2);
   return {
     PI: Math.PI,
     TWO_PI: Math.PI * 2,
@@ -150,8 +221,10 @@ const createHelpers = randomSource => {
     QUARTER_PI: Math.PI / 4,
     random,
     range,
+    rangeMid,
     norm,
     map,
+    linexp,
     constrain: (value, min, max) => Math.min(max, Math.max(min, value)),
     abs: Math.abs,
     acos: Math.acos,
@@ -187,14 +260,32 @@ export const executeTrustedIannixScript = (source, options = {}) => {
   };
   const helperNames = Object.keys(helpers);
   const helperValues = Object.values(helpers);
+  const scope = Object.assign(Object.create(null), options.parameters || {});
+  const requestedParameters = [];
+  let scoreTitle = "";
+  const ask = (category, label, variable, defaultValue) => {
+    const key = String(variable || "").trim();
+    if (!key) return defaultValue;
+    const value = Object.prototype.hasOwnProperty.call(options.parameters || {}, key)
+      ? options.parameters[key]
+      : defaultValue;
+    scope[key] = value;
+    requestedParameters.push({ category, label, variable: key, defaultValue, value });
+    return value;
+  };
+  const title = value => { scoreTitle = String(value || ""); return scoreTitle; };
   const factory = new Function(
-    "run", "load", "loadJSON", "sessionTime", "Math", ...helperNames,
-    `"use strict";\n${String(source || "")}\n` +
+    "scope", "run", "ask", "title", "load", "loadJSON", "sessionTime", "Math", ...helperNames,
+    `with (scope) {\n${String(source || "")}\n` +
+      `if (typeof askUserForParameters === "function") askUserForParameters();\n` +
       `if (typeof makeWithScript === "function") makeWithScript();\n` +
-      `return typeof onIncomingMessage === "function" ? onIncomingMessage : null;`,
+      `return typeof onIncomingMessage === "function" ? onIncomingMessage : null;\n}`,
   );
   const onIncomingMessage = factory(
+    scope,
     collector.run,
+    ask,
+    title,
     load,
     filename => JSON.parse(load(filename)),
     Number(options.sessionTime) || 0,
@@ -206,6 +297,8 @@ export const executeTrustedIannixScript = (source, options = {}) => {
     unsupported: collector.state.unsupported,
     onIncomingMessage,
     seed: options.seed ?? 1,
+    title: scoreTitle,
+    parameters: requestedParameters,
   };
 };
 
@@ -221,13 +314,19 @@ export const buildIannixObjectModel = operations => {
     if (operation.type === "clear") { clear = true; objects.clear(); continue; }
     if (operation.type === "presentation") { presentation.push(operation); continue; }
     const object = ensure(operation.externalId);
-    if (operation.type === "add") object.role = operation.role;
+    if (operation.type === "add") {
+      object.role = operation.role;
+      if (operation.role === "curve" && object.points.length === 0) object.points[0] = [0, 0, 0];
+    }
     else if (operation.type === "point") object.points[operation.index] = operation.point;
     else if (operation.type === "points") { object.points = operation.points; object.closed = operation.closed; }
     else if (operation.type === "ellipse") object.ellipse = operation.radii;
     else if (operation.type === "position") object.position = operation.position;
     else if (operation.type === "curve") object.curveExternalId = operation.curveExternalId;
-    else if (operation.type === "speed") object.speed = operation.value;
+    else if (operation.type === "speed") {
+      object.speed = operation.value;
+      object.speedMode = operation.mode;
+    }
     else if (operation.type === "size") object.size = operation.value;
     else if (operation.type === "width") object.width = operation.value;
     else if (operation.type === "group") object.group = operation.value;

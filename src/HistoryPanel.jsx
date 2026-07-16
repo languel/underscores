@@ -21,9 +21,13 @@ const HistoryPanel = memo(function HistoryPanel({
   includePresentation,
   emitMidi,
   showPointer,
+  clockMode,
+  recordFilter,
   onIncludePresentationChange,
   onEmitMidiChange,
   onShowPointerChange,
+  onClockModeChange,
+  onRecordFilterChange,
   onStart,
   onPause,
   onStop,
@@ -40,6 +44,7 @@ const HistoryPanel = memo(function HistoryPanel({
   onRemoveMacro,
   onExport,
   onImport,
+  onClear,
 }) {
   const fileRef = useRef(null);
   const [selectedActionId, setSelectedActionId] = useState(null);
@@ -109,10 +114,19 @@ const HistoryPanel = memo(function HistoryPanel({
       </div>
 
       <div className="history-options">
+        <label title="Choose how global History time advances while recording">
+          <span>Clock</span>
+          <select value={clockMode} onChange={event => onClockModeChange(event.target.value)} disabled={isRecording}>
+            <option value="realtime">Real time</option>
+            <option value="active">Active actions</option>
+            <option value="hold">Hold</option>
+          </select>
+        </label>
         <label><span>Presentation</span><input type="checkbox" checked={includePresentation} onChange={event => onIncludePresentationChange(event.target.checked)} /></label>
         <label title="External MIDI is sent only while this is armed"><span>MIDI armed</span><input type="checkbox" checked={emitMidi} onChange={event => onEmitMidiChange(event.target.checked)} /></label>
         <label><span>Pointer</span><input type="checkbox" checked={showPointer} onChange={event => onShowPointerChange(event.target.checked)} /></label>
         <div className="history-file-actions">
+          <button type="button" onClick={onClear} disabled={!actions.length || isRecording || isPlaying}>Clear</button>
           <button type="button" onClick={onExport} disabled={!actions.length}>Export</button>
           <button type="button" onClick={() => fileRef.current?.click()}>Import</button>
           <input ref={fileRef} hidden type="file" accept=".json,.drawerator-session" onChange={event => {
@@ -125,7 +139,13 @@ const HistoryPanel = memo(function HistoryPanel({
 
       <div className="history-section-heading">
         <span>Actions</span>
-        <span>{actions.length}</span>
+        <span className="history-section-controls">
+          <select value={recordFilter} onChange={event => onRecordFilterChange(event.target.value)} aria-label="Choose which History action type to record">
+            <option value="all">Record all</option>
+            {['stroke', 'command', 'scene', 'midi', 'presentation'].map(kind => <option key={kind} value={kind}>{kind}</option>)}
+          </select>
+          <span>{actions.length}</span>
+        </span>
       </div>
       {actions.length > 0 ? (
         <div className="history-range-save">
@@ -137,7 +157,9 @@ const HistoryPanel = memo(function HistoryPanel({
       <div className="history-action-list" role="listbox" aria-label="Recorded actions">
         {actions.length === 0 ? (
           <div className="history-empty">Start recording, then draw or use Drawerator commands.</div>
-        ) : actions.map((action, index) => (
+        ) : actions.map(action => {
+          const index = actions.findIndex(candidate => candidate.id === action.id);
+          return (
           <div key={action.id} className={`history-action ${selectedActionId === action.id ? "selected" : ""} ${action.enabled ? "" : "disabled"}`}>
             <button type="button" className="history-action-main" onClick={() => setSelectedActionId(action.id)}>
               <span className={`history-action-kind kind-${action.kind}`} />
@@ -157,7 +179,8 @@ const HistoryPanel = memo(function HistoryPanel({
               <IconButton title="Delete action" onClick={() => onRemoveAction(action.id)}>×</IconButton>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {selectedAction ? (

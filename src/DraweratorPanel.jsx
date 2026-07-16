@@ -15,6 +15,15 @@ const PanelIcon = ({ id }) => {
   if (id === "history") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.5"/><path d="M4 4v4.5h4.5M12 7v5l3 2"/></svg>;
   }
+  if (id === "properties") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h8M16 18h4"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></svg>;
+  }
+  if (id === "outliner") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14M5 8h5M5 16h5M10 8v4h5M10 16h5"/><rect x="15" y="10" width="5" height="4" rx="1"/><circle cx="5" cy="5" r="1.5"/><circle cx="5" cy="19" r="1.5"/></svg>;
+  }
+  if (id === "iannix") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12c2.2-7 4.5-7 6.7 0s4.5 7 6.7 0 3.4-5 4.6-5"/><path d="M3 18h18"/></svg>;
+  }
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 5 4.5 4.5M13 6.5l4.5 4.5M4 20l7.5-7.5M14 3l7 7-9.5 9.5-7-7L14 3Z"/></svg>;
 };
 

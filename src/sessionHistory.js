@@ -10,6 +10,7 @@ const cloneValue = value => {
 
 const createId = () => crypto.randomUUID();
 const numeric = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+const normalizeHistoryClockMode = value => ["realtime", "active", "hold"].includes(value) ? value : "realtime";
 
 export const normalizeSessionAction = (action, sequence = 0) => ({
   id: action.id || createId(),
@@ -40,6 +41,7 @@ export const createDraweratorSession = ({ baseline = null, clock = {}, includePr
     fps: numeric(clock.fps, 30),
     tempo: numeric(clock.tempo, 120),
     signature: cloneValue(clock.signature || { numerator: 4, denominator: 4 }),
+    historyMode: normalizeHistoryClockMode(clock.historyMode),
   },
   includePresentation,
   baseline: cloneValue(baseline),
@@ -120,6 +122,9 @@ export class DraweratorSessionController {
     this.recordStartedAt = 0;
     this.recordPausedAt = 0;
     this.recordPausedDuration = 0;
+    this.recordClockMode = "realtime";
+    this.recordFilter = "all";
+    this.recordCursor = 0;
     this.frameHandle = null;
     this.listeners = new Set();
     this.dispatched = new Set();
@@ -147,15 +152,37 @@ export class DraweratorSessionController {
     for (const listener of this.listeners) listener(snapshot, event, detail);
   }
 
-  start({ baseline = null, clock = {}, includePresentation = true, name } = {}) {
-    this.stopPlayback({ reset: true });
-    this.session = createDraweratorSession({ baseline, clock, includePresentation, name });
+  start({ baseline = null, clock = {}, includePresentation = true, name, append = true } = {}) {
+    const appendToExisting = append && this.session.actions.length > 0;
+    const resumeCursor = appendToExisting ? this.playhead : 0;
+    this.stopPlayback({ reset: !appendToExisting });
+    if (appendToExisting) {
+      this.session = {
+        ...this.session,
+        includePresentation,
+        clock: { ...this.session.clock, ...cloneValue(clock) },
+      };
+    } else {
+      this.session = createDraweratorSession({ baseline, clock, includePresentation, name });
+    }
     this.status = "recording";
-    this.playhead = 0;
+    this.playhead = resumeCursor;
     this.recordStartedAt = this.now();
     this.recordPausedAt = 0;
     this.recordPausedDuration = 0;
+    this.recordClockMode = normalizeHistoryClockMode(this.session.clock?.historyMode);
+    this.recordCursor = resumeCursor;
     this.notify("recording.start");
+    return this.snapshot();
+  }
+
+  clear({ baseline = null, clock = {}, includePresentation = true, name } = {}) {
+    this.stopPlayback({ reset: true });
+    this.session = createDraweratorSession({ baseline, clock, includePresentation, name });
+    this.status = "idle";
+    this.playhead = 0;
+    this.recordCursor = 0;
+    this.notify("session.cleared");
     return this.snapshot();
   }
 
@@ -197,17 +224,31 @@ export class DraweratorSessionController {
     return this.snapshot();
   }
 
+  setRecordFilter(filter = "all") {
+    this.recordFilter = filter || "all";
+    return this.recordFilter;
+  }
+
   record(action) {
     if (this.status !== "recording") return null;
+    if (this.recordFilter !== "all" && action.kind !== this.recordFilter) return null;
     const relativeNow = Math.max(0, (this.now() - this.recordStartedAt - this.recordPausedDuration) / 1000);
+    const implicitAt = this.recordClockMode === "realtime" ? this.recordCursor + relativeNow : this.recordCursor;
     const normalized = normalizeSessionAction({
       ...action,
-      at: Number.isFinite(action.at) ? action.at : relativeNow,
+      at: Number.isFinite(action.at) ? action.at : implicitAt,
     }, this.session.actions.length);
     if (normalized.presentation && !this.session.includePresentation) return null;
     this.session.actions.push(normalized);
     this.session.actions.sort((a, b) => a.at - b.at || a.sequence - b.sequence);
-    this.playhead = Math.max(this.playhead, normalized.at + normalized.duration);
+    if (this.recordClockMode === "active") {
+      this.recordCursor = normalized.at + normalized.duration;
+      this.playhead = this.recordCursor;
+    } else if (this.recordClockMode === "hold") {
+      this.playhead = this.recordCursor;
+    } else {
+      this.playhead = Math.max(this.playhead, normalized.at + normalized.duration);
+    }
     this.notify("action.recorded", normalized);
     return cloneValue(normalized);
   }

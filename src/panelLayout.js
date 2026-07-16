@@ -9,8 +9,11 @@ export const DEFAULT_PANEL_LAYOUTS = Object.freeze({
   chat: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 24, y: 72, width: 380, height: 760 }),
   settings: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 48, y: 88, width: 380, height: 760 }),
   mods: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 72, y: 104, width: 380, height: 760 }),
+  iannix: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 96, y: 120, width: 380, height: 760 }),
   console: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 96, y: 120, width: 340, height: 420 }),
   history: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 120, y: 136, width: 420, height: 720 }),
+  properties: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 144, y: 152, width: 380, height: 720 }),
+  outliner: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 168, y: 168, width: 340, height: 560 }),
   transport: Object.freeze({ placement: PANEL_PLACEMENTS.BOTTOM, x: 32, y: 32, width: 960, height: 114 }),
 });
 
