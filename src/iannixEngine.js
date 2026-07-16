@@ -1,3 +1,5 @@
+import { getBezierWorldPath, hasCubicBezierGeometry, sampleBezierElement } from "./bezierGeometry.js";
+
 export const IANNIX_ROLES = ["curve", "cursor", "trigger"];
 export const IANNIX_LOOP_MODES = ["once", "loop", "pingPong"];
 
@@ -169,6 +171,35 @@ export const isRuntimeCursor = (element) => {
   return data.role === "cursor" && data.active && Boolean(data.cursor.curveId);
 };
 
+export const enforceRuntimeCursorHostVisibility = (element) => {
+  if (!isRuntimeCursor(element)) return element;
+  const data = normalizeIannixData(element.customData?.iannix);
+  const sourceOpacity = element.opacity > 0
+    ? element.opacity
+    : (data.cursor.sourceOpacity ?? element.customData?.savedOpacity ?? 100);
+  const sourceStrokeColor = element.strokeColor && element.strokeColor !== "transparent"
+    ? element.strokeColor
+    : (data.cursor.sourceStrokeColor || element.customData?.roleThemeSourceStrokeColor || "#ff3b0a");
+  if (
+    element.opacity === 0 &&
+    element.strokeColor === "transparent" &&
+    data.cursor.sourceOpacity === sourceOpacity &&
+    data.cursor.sourceStrokeColor === sourceStrokeColor
+  ) return element;
+  return {
+    ...element,
+    opacity: 0,
+    strokeColor: "transparent",
+    customData: {
+      ...(element.customData || {}),
+      iannix: {
+        ...data,
+        cursor: { ...data.cursor, sourceOpacity, sourceStrokeColor },
+      },
+    },
+  };
+};
+
 export const getObjectTimeState = (globalTime, timing) => {
   const normalized = normalizeIannixData({ time: timing }).time;
   const elapsed = (Math.max(0, Number(globalTime) || 0) - normalized.start) * normalized.rate;
@@ -260,6 +291,7 @@ const getBoxPath = (element) => {
 
 export const getElementCorePaths = (element) => {
   if (!element || element.isDeleted) return [];
+  if (hasCubicBezierGeometry(element)) return [getBezierWorldPath(element)];
   const center = getElementCenter(element);
   const angle = element.angle || 0;
 
@@ -327,8 +359,8 @@ export const samplePath = (path, progress) => {
 
 export const getCursorTransform = (cursorElement, curveElement, progress, followTangent = true) => {
   const curvePath = getElementCorePaths(curveElement)[0];
-  const current = samplePath(curvePath, progress);
-  const start = samplePath(curvePath, 0);
+  const current = hasCubicBezierGeometry(curveElement) ? sampleBezierElement(curveElement, progress) : samplePath(curvePath, progress);
+  const start = hasCubicBezierGeometry(curveElement) ? sampleBezierElement(curveElement, 0) : samplePath(curvePath, 0);
   if (!current || !start) return null;
   const cursorCenter = getElementCenter(cursorElement);
   return {

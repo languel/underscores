@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Excalidraw, MainMenu, exportToSvg, exportToCanvas, loadFromBlob, serializeAsJSON, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
 import "./App.css";
 import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, isDrawableTrack, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
-import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, isRuntimeCursor, normalizeIannixData, transformPaths } from "./iannixEngine.js";
+import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, isRuntimeCursor, normalizeIannixData, transformPaths } from "./iannixEngine.js";
 import { describeIannixMidiMessage, getIannixMidiTemplatePattern, getIannixTriggerMidiContext, IANNIX_MIDI_TEMPLATES, parseIannixMidiPattern, selectIannixTriggerCursor, sendIannixMidiMessage } from "./iannixMidi.js";
 import { attachDraweratorExchangeMetadata, getSelectionExchangeElements, parseDraweratorExchange, remapSelectionForImport } from "./sceneExchange.js";
 import { DRAWERATOR_PANELS } from "./panelRegistry.js";
@@ -20,7 +20,8 @@ import IannixDataPanel from "./IannixDataPanel.jsx";
 import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, parseGenericCommandSlash } from "./commandSystem.js";
 import { autoKeyElement, collectAutomationKeys, evaluateElementAutomation } from "./automation.js";
 import { createDraweratorMacro, DRAWERATOR_MACRO_TYPE, DraweratorLibraryStore, DraweratorSessionController, instantiateDraweratorMacro, mergeSceneMutation, parseDraweratorSession } from "./sessionHistory.js";
-import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCurveStartAngle } from "./iannixScript.js";
+import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCurveStartAngle, serializeBezierElementToIannixCommands } from "./iannixScript.js";
+import { bezierWorldPointToLocal, createBezierGeometryFromElement, createBezierHostGeometry, findNearestBezierLocation, getBezierWorldAnchors, hasCubicBezierGeometry, normalizeBezierGeometry, normalizeBezierHostElement, reframeBezierElement, removeBezierAnchor, setBezierAnchorMode, setElementBezierGeometry, splitBezierSegment, updateBezierAnchor } from "./bezierGeometry.js";
 
 // System Prompt guiding the local LLM on drawing tools
 const SYSTEM_PROMPT = `You are "Drawerator", an autonomous, high-performance drawing assistant.
@@ -152,6 +153,17 @@ const colorWithOpacity = (hex, opacity) => {
   if (!/^[0-9a-f]{6}$/i.test(value)) return hex;
   const channels = [0, 2, 4].map(index => parseInt(value.slice(index, index + 2), 16));
   return `rgba(${channels.join(", ")}, ${Math.min(100, Math.max(0, Number(opacity))) / 100})`;
+};
+
+const DEFAULT_ROLE_THEME = {
+  enabled: false,
+  curveActive: { color: "#333333", opacity: 100 },
+  curveInactive: { color: "#888888", opacity: 35 },
+  cursorActive: { color: "#ff3b0a", opacity: 100 },
+  cursorInactive: { color: "#888888", opacity: 35 },
+  triggerActive: { color: "#00b8e8", opacity: 100 },
+  triggerInactive: { color: "#888888", opacity: 35 },
+  triggerPulse: { color: "#ff8a3d", opacity: 85 },
 };
 
 const ScriptActionIcon = ({ type }) => {
@@ -1336,6 +1348,14 @@ function App() {
   const [accentOpacity, setAccentOpacity] = useState(() => Number(localStorage.getItem("drawerator_accent_opacity") || 100));
   const [highlightColor, setHighlightColor] = useState(() => localStorage.getItem("drawerator_highlight_color") || (theme === "dark" ? "#33323b" : "#f1f0ff"));
   const [highlightOpacity, setHighlightOpacity] = useState(() => Number(localStorage.getItem("drawerator_highlight_opacity") || 100));
+  const [roleTheme, setRoleTheme] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("drawerator_role_theme") || "null");
+      return { ...DEFAULT_ROLE_THEME, ...(saved || {}) };
+    } catch {
+      return DEFAULT_ROLE_THEME;
+    }
+  });
   const [panelLayouts, setPanelLayouts] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("drawerator_panel_layout_v1") || "null");
@@ -1500,7 +1520,77 @@ function App() {
   const applyingRecordedUiStateRef = useRef(false);
   const commandActionsRef = useRef(new Map());
   const [selectedElementIds, setSelectedElementIds] = useState({});
+  const runtimeCursorSelectionRef = useRef({});
   const [modifierUpdateNonce, setModifierUpdateNonce] = useState(0);
+  const [bezierEditElementId, setBezierEditElementId] = useState(null);
+  const [bezierSelectedAnchor, setBezierSelectedAnchor] = useState(null);
+  const bezierDragRef = useRef(null);
+  useEffect(() => {
+    localStorage.setItem("drawerator_role_theme", JSON.stringify(roleTheme));
+    if (!excalidrawAPI) return;
+    let changed = false;
+    const elements = excalidrawAPI.getSceneElementsIncludingDeleted().map(element => {
+      const role = element.customData?.score?.role || element.customData?.iannix?.role;
+      if (!["curve", "cursor", "trigger"].includes(role)) return element;
+      const savedColor = element.customData?.roleThemeSourceStrokeColor;
+      if (!roleTheme.enabled) {
+        if (role === "cursor" && isRuntimeCursor(element)) {
+          const data = normalizeIannixData(element.customData?.iannix);
+          const sourceStrokeColor = savedColor || data.cursor.sourceStrokeColor || element.strokeColor;
+          if (element.strokeColor === "transparent" && data.cursor.sourceStrokeColor === sourceStrokeColor && !savedColor) return element;
+          changed = true;
+          const customData = { ...(element.customData || {}) };
+          delete customData.roleThemeSourceStrokeColor;
+          customData.iannix = {
+            ...data,
+            cursor: { ...data.cursor, sourceStrokeColor },
+          };
+          return { ...element, strokeColor: "transparent", customData, version: element.version + 1, versionNonce: Math.floor(Math.random() * 1000000), updated: Date.now() };
+        }
+        if (!savedColor) return element;
+        changed = true;
+        const customData = { ...(element.customData || {}) };
+        delete customData.roleThemeSourceStrokeColor;
+        return { ...element, strokeColor: savedColor, customData, version: element.version + 1, versionNonce: Math.floor(Math.random() * 1000000), updated: Date.now() };
+      }
+      const active = element.customData?.score?.active ?? normalizeIannixData(element.customData?.iannix).active;
+      const key = `${role}${active ? "Active" : "Inactive"}`;
+      const palette = roleTheme[key];
+      if (!palette) return element;
+      const strokeColor = colorWithOpacity(palette.color, palette.opacity);
+      if (role === "cursor" && isRuntimeCursor(element)) {
+        const data = normalizeIannixData(element.customData?.iannix);
+        if (element.strokeColor === "transparent" && data.cursor.sourceStrokeColor === strokeColor) return element;
+        changed = true;
+        return {
+          ...element,
+          strokeColor: "transparent",
+          customData: {
+            ...(element.customData || {}),
+            roleThemeSourceStrokeColor: savedColor || data.cursor.sourceStrokeColor || element.strokeColor,
+            iannix: {
+              ...data,
+              cursor: { ...data.cursor, sourceStrokeColor: strokeColor },
+            },
+          },
+          version: element.version + 1,
+          versionNonce: Math.floor(Math.random() * 1000000),
+          updated: Date.now(),
+        };
+      }
+      if (element.strokeColor === strokeColor && savedColor) return element;
+      changed = true;
+      return {
+        ...element,
+        strokeColor,
+        customData: { ...(element.customData || {}), roleThemeSourceStrokeColor: savedColor || element.strokeColor },
+        version: element.version + 1,
+        versionNonce: Math.floor(Math.random() * 1000000),
+        updated: Date.now(),
+      };
+    });
+    if (changed) excalidrawAPI.updateScene({ elements, commitToHistory: false });
+  }, [excalidrawAPI, modifierUpdateNonce, roleTheme]);
   const cameraRef = useRef({ scrollX: 0, scrollY: 0, zoom: 1 });
   const [showContextDropdown, setShowContextDropdown] = useState(false);
   const [contextMenuTab, setContextMenuTab] = useState("main");
@@ -2016,7 +2106,8 @@ function App() {
     const elements = excalidrawAPI.getSceneElements();
     let changed = false;
     const evaluated = elements.map(element => {
-      const next = evaluateElementAutomation(element, scoreTime);
+      let next = evaluateElementAutomation(element, scoreTime);
+      if (next !== element && hasCubicBezierGeometry(next)) next = setElementBezierGeometry(next, next.customData.draweratorGeometry);
       if (next !== element && JSON.stringify(next) !== JSON.stringify(element)) changed = true;
       return next;
     });
@@ -2040,28 +2131,43 @@ function App() {
     if (!excalidrawAPI) return;
     let changed = false;
     const nextElements = excalidrawAPI.getSceneElements().map(element => {
-      if (!isRuntimeCursor(element)) return element;
-      const data = normalizeIannixData(element.customData?.iannix);
-      const storedOpacity = data.cursor.sourceOpacity;
-      if (element.opacity === 0 && storedOpacity !== null && storedOpacity !== undefined) return element;
-      const sourceOpacity = element.opacity > 0
-        ? element.opacity
-        : (storedOpacity ?? element.customData?.savedOpacity ?? 100);
-      changed = true;
-      return {
-        ...element,
-        opacity: 0,
-        customData: {
-          ...(element.customData || {}),
-          iannix: {
-            ...data,
-            cursor: { ...data.cursor, sourceOpacity },
-          },
-        },
-      };
+      const next = enforceRuntimeCursorHostVisibility(element);
+      if (next !== element) changed = true;
+      return next;
     });
     if (changed) excalidrawAPI.updateScene({ elements: nextElements });
   }, [excalidrawAPI, modifierUpdateNonce]);
+
+  // Excalidraw renders selection feedback even for a zero-opacity line. Keep
+  // linked runtime cursors selected in Drawerator state, but migrate them out
+  // of Excalidraw's native selection so their hidden authoring hosts never
+  // appear at their stored coordinates.
+  useEffect(() => {
+    if (!excalidrawAPI) return;
+    const nativeSelections = excalidrawAPI.getAppState().selectedElementIds || {};
+    const runtimeSelections = Object.fromEntries(
+      excalidrawAPI.getSceneElements()
+        .filter(element => nativeSelections[element.id] && isRuntimeCursor(element))
+        .map(element => [element.id, true])
+    );
+    if (Object.keys(runtimeSelections).length === 0) return;
+    runtimeCursorSelectionRef.current = {
+      ...runtimeCursorSelectionRef.current,
+      ...runtimeSelections,
+    };
+    const nextNativeSelections = Object.fromEntries(
+      Object.entries(nativeSelections).filter(([id]) => !runtimeSelections[id])
+    );
+    excalidrawAPI.updateScene({
+      appState: {
+        selectedElementIds: nextNativeSelections,
+        selectedGroupIds: {},
+        editingLinearElement: null,
+        selectedLinearElement: null,
+      },
+    });
+    setSelectedElementIds(previous => ({ ...previous, ...runtimeSelections }));
+  }, [excalidrawAPI, selectedElementIds]);
 
   const [activeBrushCode, setActiveBrushCode] = useState(() => {
     const savedId = localStorage.getItem("drawerator_active_brush_id");
@@ -2418,10 +2524,100 @@ function App() {
     return sample;
   };
 
+  const getBezierEditElement = () => excalidrawAPI?.getSceneElements().find(element => element.id === bezierEditElementId && !element.isDeleted && hasCubicBezierGeometry(element)) || null;
+
+  const findBezierControlAtPointer = (element, clientX, clientY) => {
+    const controls = getBezierWorldAnchors(element);
+    let nearest = null;
+    controls.forEach((control, index) => {
+      [["anchor", control.anchor], ["in", control.in], ["out", control.out]].forEach(([part, world]) => {
+        if (!world) return;
+        const screen = mapCanvasToScreen(world[0], world[1]);
+        const candidateDistance = Math.hypot(screen[0] - clientX, screen[1] - clientY);
+        const threshold = part === "anchor" ? 11 : 9;
+        if (candidateDistance <= threshold && (!nearest || candidateDistance < nearest.distance)) nearest = { index, part, distance: candidateDistance };
+      });
+    });
+    return nearest;
+  };
+
+  const handleBezierPointerDown = e => {
+    const element = getBezierEditElement();
+    if (!element || e.button !== 0) return false;
+    const hit = findBezierControlAtPointer(element, e.clientX, e.clientY);
+    if (hit) {
+      e.preventDefault();
+      e.stopPropagation();
+      setBezierSelectedAnchor(hit.index);
+      bezierDragRef.current = { elementId: element.id, anchorIndex: hit.index, part: hit.part, pointerId: e.pointerId };
+      e.currentTarget?.setPointerCapture?.(e.pointerId);
+      return true;
+    }
+    const coords = getCanvasCoords(e.clientX, e.clientY);
+    const nearest = findNearestBezierLocation(element, coords);
+    if (e.detail >= 2 && nearest && nearest.distance <= 14 / Math.max(0.1, excalidrawAPI.getAppState().zoom.value || 1)) {
+      e.preventDefault();
+      e.stopPropagation();
+      const geometry = splitBezierSegment(element.customData.draweratorGeometry, nearest.segmentIndex, nearest.t);
+      commitBezierElement(element.id, geometry);
+      setBezierSelectedAnchor(nearest.segmentIndex + 1);
+      return true;
+    }
+    return false;
+  };
+
+  const handleBezierPointerMove = e => {
+    const drag = bezierDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return false;
+    const element = getBezierEditElement();
+    if (!element || element.id !== drag.elementId) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    const world = getCanvasCoords(e.clientX, e.clientY);
+    const local = bezierWorldPointToLocal(element, world);
+    const anchor = element.customData.draweratorGeometry.anchors[drag.anchorIndex];
+    const value = drag.part === "anchor" ? local : [local[0] - anchor.x, local[1] - anchor.y];
+    const geometry = updateBezierAnchor(element.customData.draweratorGeometry, drag.anchorIndex, drag.part, value, { breakHandles: e.altKey });
+    commitBezierElement(element.id, geometry, { commitToHistory: false });
+    return true;
+  };
+
+  const handleBezierPointerUp = e => {
+    const drag = bezierDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    bezierDragRef.current = null;
+    const element = getBezierEditElement();
+    if (element) {
+      const reframed = reframeBezierElement(element);
+      const nextModifierVersion = Number(element.customData?.version || 0) + 1;
+      const nextElements = excalidrawAPI.getSceneElementsIncludingDeleted().map(candidate => candidate.id === element.id
+        ? {
+          ...reframed,
+          version: (element.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+          customData: {
+            ...reframed.customData,
+            version: nextModifierVersion,
+            excalidrawVersion: nextModifierVersion,
+          },
+        }
+        : candidate);
+      excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
+      setModifierUpdateNonce(nonce => nonce + 1);
+    }
+    e.currentTarget?.releasePointerCapture?.(e.pointerId);
+    return true;
+  };
+
   const handleCanvasPointerDown = (e) => {
     if (!excalidrawAPI) return;
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
     if (e.button !== 0) return;
+
+    if (handleBezierPointerDown(e)) return;
 
     const targetElement = e.target;
     if (
@@ -2447,6 +2643,19 @@ function App() {
 
     const activeTool = excalidrawAPI.getAppState().activeTool?.type;
     if (activeTool === "selection") {
+      const selectedBezier = excalidrawAPI.getSceneElements().find(element => selectedElementIds[element.id] && hasCubicBezierGeometry(element));
+      if ((e.metaKey || e.ctrlKey) && selectedBezier) {
+        const coords = getCanvasCoords(e.clientX, e.clientY);
+        const nearest = findNearestBezierLocation(selectedBezier, coords);
+        if (nearest && nearest.distance <= 12 / Math.max(0.1, excalidrawAPI.getAppState().zoom.value || 1)) {
+          e.preventDefault();
+          e.stopPropagation();
+          setBezierEditElementId(selectedBezier.id);
+          setBezierSelectedAnchor(Math.min(nearest.segmentIndex + 1, selectedBezier.customData.draweratorGeometry.anchors.length - 1));
+          excalidrawAPI.updateScene({ appState: { editingLinearElement: null, selectedLinearElement: null } });
+          return;
+        }
+      }
       const elements = excalidrawAPI.getSceneElements();
       const frame = evaluateScoreFrame(elements, scoreTime);
       const zoom = excalidrawAPI.getAppState().zoom.value || 1;
@@ -2468,22 +2677,39 @@ function App() {
           for (let index = 1; index < screenPath.length; index++) {
             const distance = distanceToSegment([e.clientX, e.clientY], screenPath[index - 1], screenPath[index]);
             const threshold = Math.max(7, (track.strokeWidth || 1) * zoom + 5);
-            if (distance <= threshold && (!nearest || distance < nearest.distance)) nearest = { id: cursor.element.id, distance };
+            if (distance <= threshold && (!nearest || distance < nearest.distance)) {
+              nearest = {
+                id: cursor.element.id,
+                distance,
+              };
+            }
           }
         }
       }
       if (nearest) {
         e.preventDefault();
         e.stopPropagation();
-        const current = excalidrawAPI.getAppState().selectedElementIds || {};
+        const current = selectedElementIds || {};
         const additive = e.metaKey || e.ctrlKey || e.shiftKey;
         const next = additive ? { ...current } : {};
         if (additive && next[nearest.id]) delete next[nearest.id];
         else next[nearest.id] = true;
-        excalidrawAPI.updateScene({ appState: { selectedElementIds: next, selectedGroupIds: {}, editingLinearElement: null, selectedLinearElement: null } });
+        const runtimeSelections = Object.fromEntries(
+          excalidrawAPI.getSceneElements()
+            .filter(element => next[element.id] && isRuntimeCursor(element))
+            .map(element => [element.id, true])
+        );
+        runtimeCursorSelectionRef.current = runtimeSelections;
+        const nativeSelections = Object.fromEntries(
+          Object.entries(next).filter(([id]) => !runtimeSelections[id])
+        );
+        excalidrawAPI.updateScene({
+          appState: { selectedElementIds: nativeSelections, selectedGroupIds: {}, editingLinearElement: null, selectedLinearElement: null },
+        });
         setSelectedElementIds(next);
         return;
       }
+      if (!e.metaKey && !e.ctrlKey && !e.shiftKey) runtimeCursorSelectionRef.current = {};
     }
 
     if (!modifierDrawingActive) {
@@ -2537,6 +2763,7 @@ function App() {
 
   const handleCanvasPointerMove = (e) => {
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
+    if (handleBezierPointerMove(e)) return;
     if (passiveStrokeCaptureRef.current && !isDrawingRef.current) {
       if (e.buttons !== 1) return;
       const nativeEvent = e.nativeEvent || e;
@@ -3465,6 +3692,7 @@ function App() {
   };
 
   const handleCanvasPointerUp = (e) => {
+    if (handleBezierPointerUp(e)) return;
     if (passiveStrokeCaptureRef.current && !isDrawingRef.current) {
       const capture = passiveStrokeCaptureRef.current;
       passiveStrokeCaptureRef.current = null;
@@ -4387,6 +4615,15 @@ function App() {
     { id: "restore-original-stroke", name: "Restore Original Stroke (Recover Brush Replacement)", category: "Brushes", action: () => handleRestoreOriginalStroke() },
     { id: "convert-to-line", name: "Convert Selected Strokes to Straight Lines", category: "Brushes", action: () => handleConvertType("line") },
     { id: "convert-to-freedraw", name: "Convert Selected Lines to Freehand Pencil", category: "Brushes", action: () => handleConvertType("freedraw") },
+    { id: "geometry.bezier.convert", name: "Convert Selection to Bézier /bezier convert", aliases: ["/bezier convert", "Convert to Bézier"], category: "Geometry", action: () => convertSelectedToBezier() },
+    { id: "geometry.bezier.edit", name: "Edit Selected Bézier /bezier edit", aliases: ["/bezier edit", "Edit Bézier"], category: "Geometry", action: () => enterBezierEditMode() },
+    { id: "geometry.bezier.close", name: "Close Selected Bézier Path /bezier close", aliases: ["/bezier close"], category: "Geometry", action: () => setSelectedBezierClosed(true) },
+    { id: "geometry.bezier.open", name: "Open Selected Bézier Path /bezier open", aliases: ["/bezier open"], category: "Geometry", action: () => setSelectedBezierClosed(false) },
+    { id: "geometry.bezier.handles.smooth", name: "Set Bézier Anchor Smooth /bezier smooth", aliases: ["/bezier smooth"], category: "Geometry", action: () => setSelectedBezierHandleMode("smooth") },
+    { id: "geometry.bezier.handles.corner", name: "Set Bézier Anchor Corner /bezier corner", aliases: ["/bezier corner"], category: "Geometry", action: () => setSelectedBezierHandleMode("corner") },
+    { id: "geometry.bezier.anchor.insert", name: "Insert Bézier Anchor", category: "Geometry", args: { segmentIndex: "number", t: "number?" }, action: (_api, args) => insertSelectedBezierAnchor(args) },
+    { id: "geometry.bezier.anchor.delete", name: "Delete Selected Bézier Anchor", category: "Geometry", action: () => deleteSelectedBezierAnchor() },
+    { id: "iannix.export.bezier", name: "Export Selected Bézier Curves as IanniX /iannix export", aliases: ["/iannix export"], category: "IanniX", action: () => exportSelectedBezierIannix() },
     { id: "scene.create", name: "Create Scene Objects", category: "Scene", args: { elements: "element[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.create", args) },
     { id: "scene.update", name: "Update Scene Objects", category: "Scene", args: { elements: "element[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.update", args) },
     { id: "scene.delete", name: "Delete Scene Objects", category: "Scene", args: { elementIds: "string[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.delete", args) },
@@ -4451,6 +4688,54 @@ function App() {
       }));
     };
     const handleKeyDown = (e) => {
+      // Escape is a global cancel/clear gesture: close transient UI, blur any
+      // focused control, leave Bézier editing, and clear the canvas selection.
+      // Keep this capture-phase so it also works from number boxes and menus.
+      if (e.key === "Escape") {
+        const activeElement = document.activeElement;
+        const hadFocus = activeElement && activeElement !== document.body;
+        if (showContextDropdown) setShowContextDropdown(false);
+        if (showAutocomplete) setShowAutocomplete(false);
+        if (showCommandPalette) setShowCommandPalette(false);
+        if (hadFocus && typeof activeElement.blur === "function") activeElement.blur();
+        if (bezierEditElementId) exitBezierEditMode();
+        if (excalidrawAPI) {
+          excalidrawAPI.updateScene({ appState: { selectedElementIds: {} } });
+        }
+        runtimeCursorSelectionRef.current = {};
+        if (hadFocus || showContextDropdown || showAutocomplete || showCommandPalette || bezierEditElementId) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
+
+      // Space controls score transport from the canvas/UI. Text controls keep
+      // their native spacebar behavior so users can still type normally.
+      const activeElement = document.activeElement;
+      const isTextControlFocused = activeElement && (
+        activeElement.tagName === "INPUT" ||
+        activeElement.tagName === "TEXTAREA" ||
+        activeElement.tagName === "SELECT" ||
+        activeElement.isContentEditable ||
+        activeElement.closest?.(".cm-editor")
+      );
+      if (e.code === "Space" && !isTextControlFocused && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        setScorePlaying(playing => !playing);
+        return;
+      }
+
+      // Keep H deterministic across browsers; Excalidraw's hand tool uses the
+      // same activeTool value and still handles its normal temporary hand mode.
+      if (e.code === "KeyH" && !isTextControlFocused && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        excalidrawAPI?.updateScene({ appState: { activeTool: { type: "hand", locked: false } } });
+        return;
+      }
+
       // Cmd + / or Ctrl + /
       if ((e.metaKey || e.ctrlKey) && e.key === "/") {
         e.preventDefault();
@@ -4841,11 +5126,161 @@ function App() {
 
   const getSelectedElements = () => {
     if (!excalidrawAPI) return [];
-    const appState = excalidrawAPI.getAppState();
-    const selectedIds = appState.selectedElementIds || {};
     const elements = excalidrawAPI.getSceneElements();
-    return elements.filter(el => selectedIds[el.id] && !el.isDeleted);
+    return elements.filter(el => selectedElementIds[el.id] && !el.isDeleted);
   };
+
+  const commitBezierElement = (elementId, geometry, { commitToHistory = true } = {}) => {
+    if (!excalidrawAPI) return null;
+    let updated = null;
+    const nextElements = excalidrawAPI.getSceneElementsIncludingDeleted().map(element => {
+      if (element.id !== elementId || element.isDeleted) return element;
+      const nextVersion = (element.version || 0) + 1;
+      const next = setElementBezierGeometry(element, geometry);
+      next.version = nextVersion;
+      next.versionNonce = Math.floor(Math.random() * 0x7fffffff);
+      next.updated = Date.now();
+      next.customData = {
+        ...(next.customData || {}),
+        version: (next.customData?.version || 0) + 1,
+        ...(next.customData?.modifiers?.length ? { excalidrawVersion: nextVersion } : {}),
+      };
+      updated = next;
+      return next;
+    });
+    if (!updated) return null;
+    excalidrawAPI.updateScene({ elements: nextElements, commitToHistory });
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return updated;
+  };
+
+  const convertSelectedToBezier = () => {
+    if (!excalidrawAPI) return [];
+    const selected = getSelectedElements().filter(element => ["line", "freedraw"].includes(element.type));
+    if (!selected.length) throw new Error("Select at least one line or freehand path to convert.");
+    const targets = new Map();
+    for (const element of selected) {
+      const geometry = hasCubicBezierGeometry(element)
+        ? normalizeBezierGeometry(element.customData.draweratorGeometry)
+        : createBezierGeometryFromElement(element);
+      if (geometry) targets.set(element.id, geometry);
+    }
+    const nextElements = excalidrawAPI.getSceneElementsIncludingDeleted().map(element => {
+      const geometry = targets.get(element.id);
+      if (!geometry) return element;
+      const nextVersion = (element.version || 0) + 1;
+      const next = setElementBezierGeometry(element, geometry);
+      return {
+        ...next,
+        version: nextVersion,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+        customData: {
+          ...(next.customData || {}),
+          version: (next.customData?.version || 0) + 1,
+          ...(next.customData?.modifiers?.length ? { excalidrawVersion: nextVersion } : {}),
+        },
+      };
+    });
+    excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return [...targets.keys()];
+  };
+
+  const enterBezierEditMode = () => {
+    const selected = getSelectedElements().find(hasCubicBezierGeometry);
+    if (!selected) throw new Error("Select a Bézier path first.");
+    setBezierEditElementId(selected.id);
+    setBezierSelectedAnchor(0);
+    const activeTool = excalidrawAPI.getAppState().activeTool || {};
+    excalidrawAPI.updateScene({ appState: { activeTool: { ...activeTool, type: "selection" }, editingLinearElement: null, selectedLinearElement: null } });
+    return selected.id;
+  };
+
+  const exitBezierEditMode = () => {
+    bezierDragRef.current = null;
+    setBezierEditElementId(null);
+    setBezierSelectedAnchor(null);
+  };
+
+  const setSelectedBezierClosed = closed => {
+    const element = getSelectedElements().find(hasCubicBezierGeometry);
+    if (!element) throw new Error("Select a Bézier path first.");
+    return commitBezierElement(element.id, { ...element.customData.draweratorGeometry, closed: closed === undefined ? !element.customData.draweratorGeometry.closed : Boolean(closed) });
+  };
+
+  const setSelectedBezierHandleMode = mode => {
+    const element = getSelectedElements().find(hasCubicBezierGeometry);
+    if (!element) throw new Error("Select a Bézier path first.");
+    const index = Number.isInteger(bezierSelectedAnchor) ? bezierSelectedAnchor : 0;
+    return commitBezierElement(element.id, setBezierAnchorMode(element.customData.draweratorGeometry, index, mode));
+  };
+
+  const insertSelectedBezierAnchor = args => {
+    const element = getSelectedElements().find(hasCubicBezierGeometry);
+    if (!element) throw new Error("Select a Bézier path first.");
+    const segmentIndex = Math.max(0, Math.min(element.customData.draweratorGeometry.anchors.length - 1, Math.round(Number(args?.segmentIndex) || 0)));
+    const geometry = splitBezierSegment(element.customData.draweratorGeometry, segmentIndex, Number.isFinite(Number(args?.t)) ? Number(args.t) : 0.5);
+    commitBezierElement(element.id, geometry);
+    setBezierSelectedAnchor(segmentIndex + 1);
+    return geometry;
+  };
+
+  const deleteSelectedBezierAnchor = () => {
+    const element = getSelectedElements().find(hasCubicBezierGeometry);
+    if (!element) throw new Error("Select a Bézier path first.");
+    const index = Number.isInteger(bezierSelectedAnchor) ? bezierSelectedAnchor : element.customData.draweratorGeometry.anchors.length - 1;
+    const geometry = removeBezierAnchor(element.customData.draweratorGeometry, index);
+    commitBezierElement(element.id, geometry);
+    setBezierSelectedAnchor(Math.min(index, geometry.anchors.length - 1));
+    return geometry;
+  };
+
+  const exportSelectedBezierIannix = () => {
+    const selected = getSelectedElements().filter(hasCubicBezierGeometry);
+    if (!selected.length) throw new Error("Select at least one Bézier curve to export.");
+    const commands = ["/* Exported by Drawerator */", "run(\"clear\");"];
+    selected.forEach((element, index) => {
+      const importData = element.customData?.iannixImport || {};
+      const elementCommands = serializeBezierElementToIannixCommands(element, {
+        externalId: importData.externalId ?? index + 1,
+        scale: importData.scale || 1,
+        anchor: importData.anchor || [0, 0],
+      });
+      elementCommands.forEach(command => commands.push(`run(${JSON.stringify(command)});`));
+    });
+    const source = `${commands.join("\n")}\n`;
+    downloadTextFile(source, `drawerator-curves-${new Date().toISOString().slice(0, 10)}.iannix`, "text/javascript");
+    return source;
+  };
+
+  useEffect(() => {
+    if (!bezierEditElementId) return undefined;
+    const handleKeyDown = event => {
+      const target = event.target;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        exitBezierEditMode();
+        return;
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && Number.isInteger(bezierSelectedAnchor)) {
+        const element = getBezierEditElement();
+        if (!element) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const geometry = removeBezierAnchor(element.customData.draweratorGeometry, bezierSelectedAnchor);
+        commitBezierElement(element.id, geometry);
+        setBezierSelectedAnchor(Math.min(bezierSelectedAnchor, geometry.anchors.length - 1));
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, [bezierEditElementId, bezierSelectedAnchor, excalidrawAPI]);
+
+  useEffect(() => {
+    if (bezierEditElementId && !selectedElementIds[bezierEditElementId]) exitBezierEditMode();
+  }, [bezierEditElementId, selectedElementIds]);
 
   const updateIannixElements = (elementIds, updater) => {
     if (!excalidrawAPI || !elementIds?.length) return;
@@ -4858,20 +5293,26 @@ function App() {
       const wasRuntimeCursor = isRuntimeCursor({ customData: { iannix: current } });
       const becomesRuntimeCursor = isRuntimeCursor({ customData: { iannix: updated } });
       let opacity = element.opacity;
+      let strokeColor = element.strokeColor;
       if (becomesRuntimeCursor) {
         const sourceOpacity = wasRuntimeCursor
           ? (current.cursor.sourceOpacity ?? element.opacity)
           : element.opacity;
+        const sourceStrokeColor = wasRuntimeCursor
+          ? (current.cursor.sourceStrokeColor || (element.strokeColor !== "transparent" ? element.strokeColor : null))
+          : element.strokeColor;
         updated = {
           ...updated,
-          cursor: { ...updated.cursor, sourceOpacity },
+          cursor: { ...updated.cursor, sourceOpacity, sourceStrokeColor },
         };
         opacity = 0;
+        strokeColor = "transparent";
       } else if (wasRuntimeCursor) {
         opacity = current.cursor.sourceOpacity ?? element.opacity;
+        strokeColor = current.cursor.sourceStrokeColor || element.customData?.roleThemeSourceStrokeColor || element.strokeColor;
         updated = {
           ...updated,
-          cursor: { ...updated.cursor, sourceOpacity: null },
+          cursor: { ...updated.cursor, sourceOpacity: null, sourceStrokeColor: null },
         };
       }
       updated.version = (current.version || 0) + 1;
@@ -4888,6 +5329,7 @@ function App() {
       return {
         ...element,
         opacity,
+        strokeColor,
         customData,
         version: nextVersion,
         versionNonce: Math.floor(Math.random() * 1000000),
@@ -4971,8 +5413,8 @@ function App() {
     }), null, 2);
   };
 
-  const downloadTextFile = (text, filename) => {
-    const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  const downloadTextFile = (text, filename, mimeType = "application/json") => {
+    const url = URL.createObjectURL(new Blob([text], { type: mimeType }));
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = filename;
@@ -4994,6 +5436,20 @@ function App() {
         }
       }, 0);
     }
+  };
+
+  const resetIannixRuntime = ({ resetTransport = false } = {}) => {
+    previousCursorStatesRef.current = new Map();
+    visualCursorTransformsRef.current = new Map();
+    activeScoreCollisionsRef.current = new Set();
+    triggerPulseUntilRef.current = new Map();
+    setScoreEvents([]);
+    if (resetTransport) {
+      setScorePlaying(false);
+      scoreTimeRef.current = 0;
+      setScoreTime(0);
+    }
+    setScoreRuntimeNonce(nonce => nonce + 1);
   };
 
   const exportDraweratorScene = () => {
@@ -5307,6 +5763,7 @@ function App() {
       setHighlightOpacity(Number(state.highlightOpacity));
       localStorage.setItem("drawerator_highlight_opacity", String(state.highlightOpacity));
     }
+    if (state.roleTheme && typeof state.roleTheme === "object") setRoleTheme(previous => ({ ...previous, ...state.roleTheme }));
     if (typeof state.satoriMode === "boolean") setSatoriMode(state.satoriMode);
     if (typeof state.showToolbarHints === "boolean") setShowToolbarHints(state.showToolbarHints);
     if (typeof state.showBottomNotifications === "boolean") setShowBottomNotifications(state.showBottomNotifications);
@@ -5371,6 +5828,7 @@ function App() {
       accentOpacity,
       highlightColor,
       highlightOpacity,
+      roleTheme,
       satoriMode,
       showToolbarHints,
       showBottomNotifications,
@@ -5393,7 +5851,7 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record board settings", error));
     }, 180);
-  }, [accentColor, accentOpacity, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, highlightColor, highlightOpacity, historyController, historyIncludePresentation, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
+  }, [accentColor, accentOpacity, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, highlightColor, highlightOpacity, historyController, historyIncludePresentation, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
 
   useEffect(() => {
     const api = {
@@ -5435,6 +5893,10 @@ function App() {
       },
       events: {
         subscribe: (pattern, listener) => eventBus.subscribe(pattern, listener),
+      },
+      scene: {
+        get: () => excalidrawAPIRef.current?.getSceneElementsIncludingDeleted() || [],
+        getAppState: () => excalidrawAPIRef.current?.getAppState() || null,
       },
     };
     window.drawerator = api;
@@ -5508,6 +5970,10 @@ function App() {
   const applyTrustedIannixImport = async (args = {}) => {
     if (!excalidrawAPIRef.current) throw new Error("The canvas is not ready.");
     if (!String(args.source || "").trim()) throw new Error("The IanniX script is empty.");
+    // A script import is a new score runtime. Reset synchronously before
+    // evaluating it so a render caused by selection cannot reuse the previous
+    // score's time, cursor smoothing state, collisions, or trigger pulses.
+    resetIannixRuntime({ resetTransport: true });
     const result = executeTrustedIannixScript(args.source, {
       trusted: true,
       seed: Number.isFinite(Number(args.seed)) ? Number(args.seed) : 1,
@@ -5551,6 +6017,7 @@ function App() {
         cursor: object.role === "cursor" ? {
           curveId: internalIds.get(object.curveExternalId) || null,
           sourceOpacity: opacity,
+          sourceStrokeColor: strokeColor,
         } : undefined,
         trigger: object.role === "trigger" ? {
           midiEnabled: String(object.message || "").includes("midi://"),
@@ -5566,31 +6033,48 @@ function App() {
           group: object.group || "",
           pattern: object.pattern || "",
           source: args.filename || "IanniX script",
+          scale,
+          anchor: [anchor.x, anchor.y],
         },
       };
       let element;
       if (object.role === "curve") {
         let worldPoints;
+        let bezierHost = null;
         if (object.ellipse) {
           worldPoints = Array.from({ length: 49 }, (_, index) => {
             const angle = index / 48 * Math.PI * 2;
             return positioned([Math.cos(angle) * object.ellipse[0], Math.sin(angle) * object.ellipse[1]]);
           });
         } else {
-          const points = object.points.filter(Boolean);
-          worldPoints = (points.length >= 2 ? points : [[0, 0], [1, 0]]).map(positioned);
+          const indexedPoints = object.points.map((value, index) => ({ value, index })).filter(entry => entry.value);
+          const points = indexedPoints.length >= 2 ? indexedPoints : [{ value: [0, 0], index: 0 }, { value: [1, 0], index: 1 }];
+          worldPoints = points.map(entry => positioned(entry.value));
+          const anchors = worldPoints.map(point => ({ x: point[0], y: point[1], in: null, out: null, mode: "corner" }));
+          const mapControlVector = value => [(Number(value?.[0]) || 0) * scale, -(Number(value?.[1]) || 0) * scale];
+          for (let destination = 1; destination < points.length; destination += 1) {
+            const controls = object.controls?.[points[destination].index];
+            if (!controls) continue;
+            const c1 = mapControlVector(controls.c1);
+            const c2 = mapControlVector(controls.c2);
+            if (Math.hypot(...c1) > 0.000001) anchors[destination - 1].out = c1;
+            if (Math.hypot(...c2) > 0.000001) anchors[destination].in = c2;
+            if (controls.smooth) anchors[destination].mode = "smooth";
+          }
+          bezierHost = createBezierHostGeometry(anchors, Boolean(object.closed));
+          worldPoints = bezierHost.points.map(point => [bezierHost.bounds.x + point[0], bezierHost.bounds.y + point[1]]);
         }
-        const minX = Math.min(...worldPoints.map(point => point[0]));
-        const minY = Math.min(...worldPoints.map(point => point[1]));
-        const maxX = Math.max(...worldPoints.map(point => point[0]));
-        const maxY = Math.max(...worldPoints.map(point => point[1]));
+        const minX = bezierHost?.bounds.x ?? Math.min(...worldPoints.map(point => point[0]));
+        const minY = bezierHost?.bounds.y ?? Math.min(...worldPoints.map(point => point[1]));
+        const width = bezierHost?.bounds.width ?? Math.max(1, Math.max(...worldPoints.map(point => point[0])) - minX);
+        const height = bezierHost?.bounds.height ?? Math.max(1, Math.max(...worldPoints.map(point => point[1])) - minY);
         element = {
-          ...createBaseElement("line", minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY), strokeColor),
-          points: worldPoints.map(point => [point[0] - minX, point[1] - minY]),
+          ...createBaseElement("line", minX, minY, width, height, strokeColor),
+          points: bezierHost?.points || worldPoints.map(point => [point[0] - minX, point[1] - minY]),
           strokeWidth: Math.max(0.5, Number(object.width) || 1),
           roughness: 0,
           opacity,
-          customData,
+          customData: bezierHost ? { ...customData, draweratorGeometry: bezierHost.geometry } : customData,
         };
       } else if (object.role === "cursor") {
         const center = positioned([0, 0]);
@@ -5602,6 +6086,7 @@ function App() {
           strokeWidth: Math.max(1, Number(object.size) || 1),
           roughness: 0,
           opacity: iannix.cursor.curveId ? 0 : opacity,
+          strokeColor: iannix.cursor.curveId ? "transparent" : strokeColor,
           customData,
         };
       } else {
@@ -5623,12 +6108,15 @@ function App() {
       const current = model.clear ? [] : excalidrawAPIRef.current.getSceneElementsIncludingDeleted();
       const importedIds = new Set(imported.map(element => element.id));
       const preserved = current.filter(element => !importedIds.has(element.id));
+      runtimeCursorSelectionRef.current = {};
       excalidrawAPIRef.current.updateScene({
         elements: [...preserved, ...imported],
-        appState: { selectedElementIds: Object.fromEntries(imported.map(element => [element.id, true])) },
+        appState: { selectedElementIds: {}, selectedGroupIds: {}, editingLinearElement: null, selectedLinearElement: null },
         commitToHistory: true,
       });
+      setSelectedElementIds({});
     });
+    resetIannixRuntime();
     setModifierUpdateNonce(nonce => nonce + 1);
     const report = {
       filename: args.filename || "IanniX script",
@@ -7138,13 +7626,15 @@ function App() {
     const styleTrack = points => ({
       points,
       smooth: !!element.roundness && points.length >= 3,
-      strokeColor: element.strokeColor,
+      strokeColor: isRuntimeCursor(element)
+        ? (data.cursor.sourceStrokeColor || element.customData?.roleThemeSourceStrokeColor || "#ff3b0a")
+        : element.strokeColor,
       strokeWidth: element.strokeWidth,
       opacity: renderedOpacity / 100,
     });
 
     const liveLinearEditPoints = linearEditPointsRef.current[element.id];
-    const originalPoints = liveLinearEditPoints || element.customData?.originalPoints;
+    const originalPoints = liveLinearEditPoints || (hasCubicBezierGeometry(element) ? sourcePaths[0] : element.customData?.originalPoints);
     if (element.customData?.muteModifiers || modifiers.length === 0 || !isDrawableTrack(originalPoints)) {
       return composeRuntimeCursorTracks({
         sourcePaths,
@@ -7294,7 +7784,7 @@ function App() {
       if (isRuntimeCursor(parentEl)) return;
  
       const liveLinearEditPoints = linearEditPointsRef.current[parentEl.id];
-      const originalPoints = liveLinearEditPoints || parentEl.customData?.originalPoints;
+      const originalPoints = liveLinearEditPoints || (hasCubicBezierGeometry(parentEl) ? getElementCorePaths(parentEl)[0] : parentEl.customData?.originalPoints);
       if (!originalPoints || originalPoints.length === 0) return;
  
       const pointsForStack = originalPoints;
@@ -7434,6 +7924,30 @@ function App() {
     );
   };
 
+  const renderBezierEditorOverlay = () => {
+    const element = getBezierEditElement();
+    if (!element) return null;
+    const controls = getBezierWorldAnchors(element).map(control => ({
+      ...control,
+      anchor: mapCanvasToScreen(control.anchor[0], control.anchor[1]),
+      in: control.in ? mapCanvasToScreen(control.in[0], control.in[1]) : null,
+      out: control.out ? mapCanvasToScreen(control.out[0], control.out[1]) : null,
+    }));
+    return (
+      <svg className="drawerator-bezier-editor-overlay" aria-label="Bézier path editor">
+        {controls.map((control, index) => (
+          <g key={`${element.id}-bezier-control-${index}`} className={bezierSelectedAnchor === index ? "selected" : ""}>
+            {control.in && <line x1={control.anchor[0]} y1={control.anchor[1]} x2={control.in[0]} y2={control.in[1]} className="bezier-handle-line" />}
+            {control.out && <line x1={control.anchor[0]} y1={control.anchor[1]} x2={control.out[0]} y2={control.out[1]} className="bezier-handle-line" />}
+            {control.in && <circle cx={control.in[0]} cy={control.in[1]} r="4.5" className="bezier-handle-point" />}
+            {control.out && <circle cx={control.out[0]} cy={control.out[1]} r="4.5" className="bezier-handle-point" />}
+            <circle cx={control.anchor[0]} cy={control.anchor[1]} r="6" className="bezier-anchor-point" />
+          </g>
+        ))}
+      </svg>
+    );
+  };
+
   const renderIannixOverlay = () => {
     if (!excalidrawAPI) return null;
     const elements = excalidrawAPI.getSceneElements();
@@ -7511,11 +8025,11 @@ function App() {
                 key={`${element.id}-pulse-${index}`}
                 points={points}
                 fill="none"
-                stroke="#ff8a3d"
+                stroke={roleTheme.enabled ? colorWithOpacity(roleTheme.triggerPulse.color, roleTheme.triggerPulse.opacity) : "#ff8a3d"}
                 strokeWidth={Math.max(5, (element.strokeWidth || 2) * 3) * zoom}
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                opacity="0.85"
+                opacity={roleTheme.enabled ? 1 : 0.85}
               />
             );
           });
@@ -7837,6 +8351,39 @@ function App() {
                 <output>{highlightOpacity}%</output>
               </div>
             </label>
+            <details className="settings-role-theme">
+              <summary>Score object theme</summary>
+              <div className="settings-role-theme-body">
+                <label className="settings-panel-check">
+                  <span>Override role colors</span>
+                  <input type="checkbox" checked={roleTheme.enabled} onChange={event => setRoleTheme(previous => ({ ...previous, enabled: event.target.checked }))} />
+                </label>
+                {[
+                  ["curveActive", "Curve enabled"], ["curveInactive", "Curve disabled"],
+                  ["cursorActive", "Cursor enabled"], ["cursorInactive", "Cursor disabled"],
+                  ["triggerActive", "Trigger enabled"], ["triggerInactive", "Trigger disabled"],
+                  ["triggerPulse", "Trigger pulse"],
+                ].map(([key, label]) => {
+                  const entry = roleTheme[key];
+                  return (
+                    <label className="settings-panel-field" key={key}>
+                      <span>{label}</span>
+                      <div className="settings-color-control">
+                        <input type="color" value={entry.color} onChange={event => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: event.target.value } }))} aria-label={`${label} color`} />
+                        <input key={entry.color} type="text" defaultValue={entry.color} onBlur={event => {
+                          if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: event.currentTarget.value } }));
+                          else event.currentTarget.value = entry.color;
+                        }} aria-label={`${label} hex color`} />
+                        <input type="range" min="0" max="100" value={entry.opacity} onChange={event => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], opacity: Number(event.target.value) } }))} aria-label={`${label} opacity`} />
+                        <output>{entry.opacity}%</output>
+                      </div>
+                    </label>
+                  );
+                })}
+                <button type="button" className="iannix-flat-button" onClick={() => setRoleTheme(previous => ({ ...DEFAULT_ROLE_THEME, enabled: previous.enabled }))}>Reset to IanniX-compatible palette</button>
+                <div className="settings-panel-hint">Enabled/disabled follows the object's score switch. Trigger pulse is the temporary collision highlight. Original object colors restore when the override is disabled.</div>
+              </div>
+            </details>
             {[
               ["Force desktop layout", forceDesktopLayout, value => { setForceDesktopLayout(value); localStorage.setItem("drawerator_force_desktop_layout", value); }],
               ["Show toolbar hints", showToolbarHints, value => { setShowToolbarHints(value); localStorage.setItem("drawerator_show_toolbar_hints", value); }],
@@ -8190,6 +8737,9 @@ function App() {
     if (path[0] === "customData" && path.includes("modifiers")) {
       element.customData.version = (element.customData.version || 0) + 1;
     }
+    if (path[0] === "customData" && path[1] === "draweratorGeometry") {
+      Object.assign(element, setElementBezierGeometry(element, element.customData.draweratorGeometry));
+    }
   });
 
   const sidePanels = DRAWERATOR_PANELS.filter(panel => panel.id !== "transport");
@@ -8247,8 +8797,23 @@ function App() {
           onChange={(elements, appState) => {
             applyForceDesktopOverride(false);
 
+            const visibilitySafeElements = elements.map(element =>
+              enforceRuntimeCursorHostVisibility(normalizeBezierHostElement(element))
+            );
+            if (visibilitySafeElements.some((element, index) => element !== elements[index])) {
+              historySuppressSceneRef.current += 1;
+              excalidrawAPIRef.current?.updateScene({ elements: visibilitySafeElements, commitToHistory: false });
+              window.setTimeout(() => {
+                historySuppressSceneRef.current = Math.max(0, historySuppressSceneRef.current - 1);
+              }, 0);
+              return;
+            }
+
             // Sync selected element IDs state to trigger panel re-renders
-            const selectedIds = appState.selectedElementIds || {};
+            const selectedIds = {
+              ...(appState.selectedElementIds || {}),
+              ...runtimeCursorSelectionRef.current,
+            };
             if (JSON.stringify(selectedIds) !== JSON.stringify(selectedElementIds)) {
               setSelectedElementIds(selectedIds);
             }
@@ -9257,12 +9822,21 @@ function App() {
               selectedElementIds={selectedElementIds}
               onSelect={(elementId, additive) => {
                 if (!excalidrawAPI) return;
-                const current = excalidrawAPI.getAppState().selectedElementIds || {};
+                const current = selectedElementIds || {};
                 const next = additive ? { ...current } : {};
                 if (additive && next[elementId]) delete next[elementId];
                 else next[elementId] = true;
+                const runtimeSelections = Object.fromEntries(
+                  excalidrawAPI.getSceneElements()
+                    .filter(element => next[element.id] && isRuntimeCursor(element))
+                    .map(element => [element.id, true])
+                );
+                runtimeCursorSelectionRef.current = runtimeSelections;
+                const nativeSelections = Object.fromEntries(
+                  Object.entries(next).filter(([id]) => !runtimeSelections[id])
+                );
                 const activeTool = excalidrawAPI.getAppState().activeTool || {};
-                excalidrawAPI.updateScene({ appState: { selectedElementIds: next, selectedGroupIds: {}, editingLinearElement: null, selectedLinearElement: null, activeTool: { ...activeTool, type: "selection" } } });
+                excalidrawAPI.updateScene({ appState: { selectedElementIds: nativeSelections, selectedGroupIds: {}, editingLinearElement: null, selectedLinearElement: null, activeTool: { ...activeTool, type: "selection" } } });
                 setSelectedElementIds(next);
               }}
               onVisibilityChange={elementId => updateSceneObject(elementId, element => {
@@ -9366,6 +9940,21 @@ function App() {
                             <button className="header-btn" onClick={() => handleConvertType("freedraw")} title="Convert selected line to a freehand stroke" aria-label="Convert to freehand">
                               <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                                 <path d="M3 16c3-8 6 4 9-4s6 4 9-4" />
+                              </svg>
+                            </button>
+                          )}
+
+                          {element && ["line", "freedraw"].includes(element.type) && (
+                            <button
+                              className={`header-btn ${hasCubicBezierGeometry(element) && bezierEditElementId === element.id ? "active" : ""}`}
+                              onClick={() => hasCubicBezierGeometry(element) ? enterBezierEditMode() : convertSelectedToBezier()}
+                              title={hasCubicBezierGeometry(element) ? "Edit Bézier anchors and handles" : "Convert selected path to an editable Bézier"}
+                              aria-label={hasCubicBezierGeometry(element) ? "Edit Bézier" : "Convert to Bézier"}
+                            >
+                              <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M4 18C4 7 20 17 20 6" />
+                                <circle cx="4" cy="18" r="1.7" /><circle cx="20" cy="6" r="1.7" />
+                                <path d="M4 18 8 8M20 6l-5 10" opacity=".7" />
                               </svg>
                             </button>
                           )}
@@ -9651,6 +10240,7 @@ function App() {
 
         {renderGlobalModifiersOverlay()}
         {renderIannixOverlay()}
+        {renderBezierEditorOverlay()}
         {renderIannixTransport()}
       </div>
 

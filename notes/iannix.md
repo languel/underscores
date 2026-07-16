@@ -1,6 +1,6 @@
 # IanniX Score Engine Notes
 
-Last updated: 2026-07-15
+Last updated: 2026-07-16
 
 This note records Drawerator's first IanniX-inspired score slice. It adapts the concepts from the local IanniX project without coupling score semantics to its original renderer or OSC layer.
 
@@ -40,7 +40,7 @@ Score metadata lives beside modifier metadata in `element.customData.iannix`:
 }
 ```
 
-The selected object's **IanniX** tab is the editor for these properties. A multi-selection exposes batch role assignment and allocates conflict-free role labels such as `Curve 1`, `Curve 2`, and `Cursor 1` in one history transaction. Timing and cursor links remain per-object edits. The tab sits beside **Stack** and **Script** because all three are contextual views of the same selected object.
+The independent dockable **IanniX** panel edits these properties. Its Object, Data, and Script tabs separate role configuration, compact custom data, trusted script catalogs, and one-line commands from the Mods & FX rendering stack. A multi-selection exposes batch role assignment and allocates conflict-free role labels such as `Curve 1`, `Curve 2`, and `Cursor 1` in one history transaction. Timing and cursor links remain per-object edits.
 
 ## Global and local time
 
@@ -99,9 +99,32 @@ Score evaluation uses the underlying editable object, not live modifier output:
 
 - Lines, arrows, and freehand strokes use `customData.originalPoints` when a modifier stack has preserved them; otherwise their native Excalidraw points are used.
 - Rectangles, diamonds, and ellipses expose deterministic outline paths.
+- Elements with `customData.draweratorGeometry.kind === "cubicBezierPath"` use their canonical cubic anchors and handles for sampling, length, tangent, collision, modifiers, automation, and history. Their native Excalidraw `points` are adaptive derived data only.
 - Mods & FX continues to render or bake appearance above that core geometry.
 
 This boundary prevents a Hairy Brush, Rake, bake operation, or hidden original path from silently changing cursor routing or trigger topology.
+
+### Canonical cubic Bézier schema
+
+Canonical geometry is normalized in the host element's local coordinate system, so Excalidraw remains authoritative for movement, rotation, grouping, undo, and non-uniform scaling:
+
+```js
+customData.draweratorGeometry = {
+  version: 1,
+  revision: 1,
+  kind: "cubicBezierPath",
+  closed: false,
+  anchors: [
+    { x, y, in: [dx, dy] | null, out: [dx, dy] | null, mode: "smooth" | "corner" },
+  ],
+};
+```
+
+`src/bezierGeometry.js` owns conversion, adaptive subdivision, cached cumulative arc length, coordinate transforms, de Casteljau insertion, anchor editing, and host-polyline regeneration. Native line and freehand elements remain unchanged until explicitly converted. Imported ellipses remain analytic.
+
+IanniX controls use destination-point semantics. For segment `p1 → p2`, Drawerator maps the first control to `p1 + p2.c1` and the second to `p2 + p2.c2`; zero controls remain straight. `setSmoothPointAt` receives the compatible automatic tangent construction. Export performs the inverse mapping back to `setPointAt` commands.
+
+Canonical paths are hosted by native Excalidraw linear elements whose first derived point must remain local `[0, 0]`. Imported controls may extend beyond the first anchor, so using the control-point bounding-box origin as the host origin is invalid: Excalidraw rebases that host when it is selected and the curve appears displaced. Import now anchors the host at the first canonical point, preserves world geometry through rotation and scaling, and migrates legacy malformed hosts on scene change without committing the derived repair to undo history.
 
 ## Runtime evaluation
 
@@ -118,13 +141,15 @@ Swept testing prevents a fast cursor from tunneling through a narrow trigger bet
 
 Cursor motion is a runtime SVG overlay, leaving the authored Excalidraw geometry untouched and editable. Once an active cursor is linked, its in-place Excalidraw source and the ordinary modifier overlay are hidden. The runtime overlay reconstructs the cursor's complete visible appearance—source path, filters, and every generated brush track—then applies the curve translation and tangent rotation to that whole result. Unlinking, deactivating, or changing the role restores the authored source opacity. This is a non-destructive authoring model, not a bake.
 
+Trusted import clears previous cursor transforms, collision state, trigger pulses, score events, and transport time before replacing the scene. This prevents runtime overlays from an earlier score from leaking into a newly imported score or becoming visible only after selection changes.
+
 Trigger pulses use the same overlay. Curve/Cursor/Trigger labels are a global display aid controlled from the transport; they are off by default and remain independent of per-object label text.
 
 ## History and persistence
 
 Role and property edits update only the selected element's `customData` and commit through Excalidraw history. They therefore serialize with the scene and participate in undo/redo.
 
-The IanniX tab's **Scene data** section adds an explicit exchange layer:
+The IanniX panel's **Data** tab adds an explicit exchange layer:
 
 - **Export scene** writes standard Excalidraw JSON with a small top-level `drawerator` envelope for score time/rate. All element `customData`—including modifier stacks, IanniX roles, curve links, timing, and MIDI patterns—remains embedded on its objects.
 - **Import scene** restores the complete scene, files, and Drawerator transport metadata.
@@ -165,3 +190,5 @@ Rendered QA should additionally exercise:
 - one trigger event on entry and rearming after exit;
 - per-object start, duration, rate, and loop changes;
 - modifying or baking an object's appearance without changing score geometry.
+
+Current checkpoint: the Grid and IanniX logo examples import with canonical curves, cursor orientation/size, score-relative timing, role theming, and stable selection of imported Bézier hosts. Further sessions should continue broader `.iannix` command/message parity, MIDI/OSC behavior, and import coverage for scores beyond the two reference examples.

@@ -1,3 +1,5 @@
+import { getBezierPathLengthFromAnchors, getBezierWorldAnchors, hasCubicBezierGeometry } from "./bezierGeometry.js";
+
 const TOKEN_PATTERN = /"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\s]+)/g;
 
 export const tokenizeIannixCommand = command => {
@@ -44,9 +46,12 @@ export const getIannixCurveStartAngle = curveObject => {
     ];
   }
   for (let index = 1; index < points.length; index++) {
-    const dx = number(points[index]?.[0]) - number(points[index - 1]?.[0]);
+    const controls = curveObject.controls?.[index];
+    const outgoing = controls?.c1 || [0, 0, 0];
+    const hasOutgoing = Math.hypot(number(outgoing[0]), number(outgoing[1])) > 0.000001;
+    const dx = hasOutgoing ? number(outgoing[0]) : number(points[index]?.[0]) - number(points[index - 1]?.[0]);
     // IanniX is Y-up while the Drawerator canvas is Y-down.
-    const dy = -(number(points[index]?.[1]) - number(points[index - 1]?.[1]));
+    const dy = -(hasOutgoing ? number(outgoing[1]) : number(points[index]?.[1]) - number(points[index - 1]?.[1]));
     if (Math.hypot(dx, dy) > 0.000001) return Math.atan2(dy, dx) || 0;
   }
   return 0;
@@ -64,7 +69,21 @@ export const getIannixCurvePathLength = curveObject => {
     const [radiusX = 1, radiusY = radiusX] = curveObject.ellipse.map(value => Math.abs(number(value, 1)));
     return Math.max(0.001, Math.PI * Math.sqrt(2 * (radiusX * radiusX + radiusY * radiusY)));
   }
-  const points = (curveObject.points || []).filter(Boolean);
+  const indexedPoints = (curveObject.points || []).map((value, index) => ({ value, index })).filter(entry => entry.value);
+  const points = indexedPoints.map(entry => entry.value);
+  if (points.length >= 2 && curveObject.controls) {
+    const anchors = points.map(value => ({ x: number(value[0]), y: number(value[1]), in: null, out: null, mode: "corner" }));
+    for (let destination = 1; destination < indexedPoints.length; destination += 1) {
+      const controls = curveObject.controls[indexedPoints[destination].index];
+      if (!controls) continue;
+      const c1 = controls.c1 || [0, 0];
+      const c2 = controls.c2 || [0, 0];
+      if (Math.hypot(number(c1[0]), number(c1[1])) > 0.000001) anchors[destination - 1].out = [number(c1[0]), number(c1[1])];
+      if (Math.hypot(number(c2[0]), number(c2[1])) > 0.000001) anchors[destination].in = [number(c2[0]), number(c2[1])];
+      if (controls.smooth) anchors[destination].mode = "smooth";
+    }
+    return Math.max(0.001, getBezierPathLengthFromAnchors(anchors, curveObject.closed));
+  }
   let length = 0;
   for (let index = 1; index < points.length; index++) {
     length += Math.hypot(
@@ -127,11 +146,21 @@ export const createIannixCommandCollector = () => {
 
     const id = targetId(state, args[0]);
     if (["setpointat", "setsmoothpointat"].includes(command) && id) {
+      const values = args.slice(2).map(value => number(value));
+      const has3dControls = values.length >= 9;
+      const has2dControls = !has3dControls && values.length >= 6;
+      const pointValue = [values[0] || 0, values[1] || 0, has3dControls || values.length === 3 ? values[2] || 0 : 0];
+      const c1 = has3dControls ? [values[3] || 0, values[4] || 0, values[5] || 0]
+        : has2dControls ? [values[2] || 0, values[3] || 0, 0] : [0, 0, 0];
+      const c2 = has3dControls ? [values[6] || 0, values[7] || 0, values[8] || 0]
+        : has2dControls ? [values[4] || 0, values[5] || 0, 0] : [0, 0, 0];
       state.operations.push({
         type: "point",
         externalId: id,
         index: Math.max(0, Math.round(number(args[1]))),
-        point: [number(args[2]), number(args[3]), number(args[4])],
+        point: pointValue,
+        c1,
+        c2,
         smooth: command === "setsmoothpointat",
       });
       return true;
@@ -307,7 +336,7 @@ export const buildIannixObjectModel = operations => {
   let clear = false;
   const presentation = [];
   const ensure = externalId => {
-    if (!objects.has(externalId)) objects.set(externalId, { externalId, role: null, position: [0, 0, 0], points: [], size: 1, width: 1, active: true });
+    if (!objects.has(externalId)) objects.set(externalId, { externalId, role: null, position: [0, 0, 0], points: [], controls: [], size: 1, width: 1, active: true });
     return objects.get(externalId);
   };
   for (const operation of operations || []) {
@@ -318,8 +347,11 @@ export const buildIannixObjectModel = operations => {
       object.role = operation.role;
       if (operation.role === "curve" && object.points.length === 0) object.points[0] = [0, 0, 0];
     }
-    else if (operation.type === "point") object.points[operation.index] = operation.point;
-    else if (operation.type === "points") { object.points = operation.points; object.closed = operation.closed; }
+    else if (operation.type === "point") {
+      object.points[operation.index] = operation.point;
+      object.controls[operation.index] = { c1: operation.c1 || [0, 0, 0], c2: operation.c2 || [0, 0, 0], smooth: operation.smooth === true };
+    }
+    else if (operation.type === "points") { object.points = operation.points; object.controls = []; object.closed = operation.closed; }
     else if (operation.type === "ellipse") object.ellipse = operation.radii;
     else if (operation.type === "position") object.position = operation.position;
     else if (operation.type === "curve") object.curveExternalId = operation.curveExternalId;
@@ -335,5 +367,50 @@ export const buildIannixObjectModel = operations => {
     else if (operation.type === "color" || operation.type === "colorHue") object[operation.type] = operation.value;
     else if (operation.type === "message" || operation.type === "pattern") object[operation.type] = operation.value;
   }
+  for (const object of objects.values()) {
+    if (object.role !== "curve" || !object.controls.some(control => control?.smooth)) continue;
+    const points = object.points;
+    const isLoop = points.length > 2 && points[0] && points.at(-1) && points[0].every((value, index) => Math.abs(number(value) - number(points.at(-1)[index])) < 0.000001);
+    for (let index = 0; index < points.length; index += 1) {
+      if (!points[index] || !object.controls[index]?.smooth) continue;
+      const factor = 5;
+      if (index === 0 && points[1]) {
+        const before = isLoop ? points.at(-2) : points[0];
+        object.controls[1] ||= { c1: [0, 0, 0], c2: [0, 0, 0], smooth: false };
+        object.controls[1].c1 = points[1].map((value, axis) => (number(value) - number(before?.[axis])) / factor);
+      } else if (index === points.length - 1 && points[index - 1]) {
+        const after = isLoop ? points[1] : points[index];
+        object.controls[index].c2 = after.map((value, axis) => -(number(value) - number(points[index - 1]?.[axis])) / factor);
+      } else if (points[index - 1] && points[index + 1]) {
+        const tangent = points[index + 1].map((value, axis) => (number(value) - number(points[index - 1]?.[axis])) / factor);
+        object.controls[index].c2 = tangent.map(value => -value);
+        object.controls[index + 1] ||= { c1: [0, 0, 0], c2: [0, 0, 0], smooth: false };
+        object.controls[index + 1].c1 = tangent;
+      }
+    }
+  }
   return { clear, objects: [...objects.values()].filter(object => object.role), presentation };
+};
+
+export const serializeBezierElementToIannixCommands = (element, options = {}) => {
+  if (!hasCubicBezierGeometry(element)) return [];
+  const id = String(options.externalId ?? element.customData?.iannixImport?.externalId ?? element.id).replace(/\s+/g, "_");
+  const scale = Math.max(0.000001, Math.abs(number(options.scale, 1)));
+  const anchor = options.anchor || [0, 0];
+  const geometry = element.customData.draweratorGeometry;
+  const controls = getBezierWorldAnchors(element);
+  const entries = geometry.closed ? [...controls, controls[0]] : controls;
+  const format = value => Number(value.toFixed(8)).toString();
+  const toIannixPoint = value => [(value[0] - number(anchor[0])) / scale, -(value[1] - number(anchor[1])) / scale];
+  const toIannixVector = value => [value[0] / scale, -value[1] / scale];
+  const commands = [`add curve ${id}`];
+  for (let index = 0; index < entries.length; index += 1) {
+    const current = entries[index];
+    const previous = index === 0 ? null : entries[index - 1];
+    const target = toIannixPoint(current.anchor);
+    const c1 = previous?.out ? toIannixVector([previous.out[0] - previous.anchor[0], previous.out[1] - previous.anchor[1]]) : [0, 0];
+    const c2 = current.in ? toIannixVector([current.in[0] - current.anchor[0], current.in[1] - current.anchor[1]]) : [0, 0];
+    commands.push(`setPointAt ${id} ${index} ${format(target[0])} ${format(target[1])} 0 ${format(c1[0])} ${format(c1[1])} 0 ${format(c2[0])} ${format(c2[1])} 0`);
+  }
+  return commands;
 };

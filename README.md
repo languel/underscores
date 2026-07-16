@@ -22,7 +22,8 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 - **Modifier Baking:** Bake a complete stack or one modifier at a time. Partial bakes become independently selectable artwork while the remaining stack stays live.
 - **Evolving Brushes:** Time-aware brushes can animate while the pointer is down, freeze per stroke on release, and optionally use a shared global clock.
 - **Scriptable Brushes:** Edit or fork brush JavaScript in the Mods & FX **Script** tab. The editor is inert until its script is saved into the active stack.
-- **IanniX Score Objects:** Give any selected canvas object one score role—Curve, Cursor, or Trigger—from the per-object **IanniX** tab. A compact global transport drives each object's local clock while cursor motion and trigger evaluation continue to use the editable core geometry beneath Mods & FX.
+- **Canonical Bézier Paths:** Explicitly convert native lines or freehand paths into editable cubic Béziers. Versioned local-space anchors and handles remain canonical while an adaptive Excalidraw polyline supplies native selection, transforms, exports, and hit-testing.
+- **IanniX Score Objects:** Give any selected canvas object one score role—Curve, Cursor, or Trigger—from the dockable **IanniX** panel. A compact global transport drives each object's local clock while cursor motion and trigger evaluation continue to use the editable core geometry beneath Mods & FX.
 - **Trusted IanniX Script Import:** Explicitly trusted `.iannix` scripts use deterministic IanniX-style `run()` and math helpers, map supported score commands through Drawerator's recorder, and report unsupported commands.
 - **Custom Canvas Backgrounds:** Set custom colors (including presets and hex input) from the hamburger main menu.
 - **Toggles for Interface Elements:** Control the visibility of toolbar hints and bottom alerts right from the main menu.
@@ -64,7 +65,7 @@ The **Script** tab is a code editor, not a second drawing mode. **Save** updates
 
 ## IanniX score workflow
 
-1. Select one or more canvas objects and open **🛠️ Mods & FX → IanniX**. Multi-selection can assign a shared role in one undoable action; Drawerator generates unique role labels automatically.
+1. Select one or more canvas objects and open the independent **IanniX** panel with `/iannix`. Multi-selection can assign a shared role in one undoable action; Drawerator generates unique role labels automatically.
 2. Assign exactly one role for this first slice: **Curve**, **Cursor**, or **Trigger**. The role and its properties belong only to that object.
 3. For a cursor, choose a Curve object as its support path. The cursor object itself becomes the moving playhead; its source geometry remains editable at rest.
 4. Set the object's start, duration, rate, and loop mode. These derive a local object clock from the global transport and are independent of modifier or evolving-brush clocks.
@@ -72,6 +73,8 @@ The **Script** tab is a code editor, not a second drawing mode. **Save** updates
 6. A Trigger can optionally emit Web MIDI using IanniX-compatible `/note`, `/notef`, `/cc`, or `/ccf` URL patterns. Templates cover IanniX XY mapping, fixed notes, cursor-relative pitch, and cursor-driven CC. Cursor/Curve base-note and octave-range controls make intersection position musically meaningful; **Test message** previews the exact resolved event before playback. MIDI destination and score tempo live in global **Settings → Score & MIDI**.
 7. Use the **Scene data** section to export/import a complete Drawerator scene or copy/paste selection JSON. Both paths preserve Mods & FX and IanniX custom properties; selection paste remaps internal IDs and cursor/curve links.
 8. **Import trusted .iannix** executes compatible scripts after an explicit trust warning. This compatibility mode is executable JavaScript, not a security sandbox; unsupported commands are reported.
+
+Imported IanniX curves preserve `setPointAt` cubic controls as canonical Drawerator Béziers. Ordinary Excalidraw lines remain native until **Convert to Bézier** or `/bezier convert` is invoked. In Bézier edit mode, drag anchors or handles, Option-drag to break smooth coupling, double-click a segment to insert an exact de Casteljau anchor, Delete to remove an anchor, and Escape to exit. `/iannix export` writes selected canonical curves back to equivalent `setPointAt` commands.
 
 Mods & FX remains the rendering layer: changing or baking a brush does not redefine score topology. See `notes/iannix.md` for the phase-one schema, timing model, and extension points.
 
@@ -103,7 +106,9 @@ Access the command palette using `Cmd + /` or `Ctrl + /` and select from options
 - **Toggle Mods & FX `/mods`**
 - **Toggle Settings `/settings`**
 - **Toggle Console / Info `/console`**
+- **Toggle IanniX `/iannix`**
 - **Toggle Transport `/transport`**
+- **Convert / edit Bézier paths `/bezier convert`, `/bezier edit`**
 - **History `/history`**
 - **Start / pause / stop recording `/record …`**
 - **Play / seek History `/history play`, `/history seek …`**

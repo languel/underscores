@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCurvePathLength, getIannixCurveStartAngle, tokenizeIannixCommand } from "./iannixScript.js";
+import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCurvePathLength, getIannixCurveStartAngle, serializeBezierElementToIannixCommands, tokenizeIannixCommand } from "./iannixScript.js";
+import { createBezierHostGeometry } from "./bezierGeometry.js";
 
 test("tokenizes quoted IanniX command arguments", () => {
   assert.deepEqual(tokenizeIannixCommand('setLabel current "Main curve"'), ["setLabel", "current", "Main curve"]);
@@ -58,6 +59,7 @@ test("derives imported cursor rotation from its linked curve start tangent", () 
   assert.equal(getIannixCurveStartAngle(horizontal), 0);
   assert.equal(getIannixCurveStartAngle(rising), -Math.PI / 4);
   assert.equal(getIannixCurveStartAngle(vertical), -Math.PI / 2);
+  assert.equal(getIannixCurveStartAngle({ points: [[0, 0, 0], [10, 10, 0]], controls: [null, { c1: [0, 4, 0] }] }), -Math.PI / 2);
 });
 
 test("maps IanniX cursor width to world-space cursor length", () => {
@@ -73,6 +75,35 @@ test("derives IanniX cursor duration from curve length and speed mode", () => {
   assert.ok(Math.abs(getIannixCursorDuration({}, lastGridCurve) - Math.hypot(29, 0.5)) < 1e-9);
   assert.equal(getIannixCursorDuration({ speed: 2, speedMode: "absolute" }, firstGridCurve), 7.5);
   assert.equal(getIannixCursorDuration({ speed: 10, speedMode: "auto" }, firstGridCurve), 10);
+});
+
+test("preserves explicit IanniX cubic controls", () => {
+  const result = executeTrustedIannixScript(`
+    run("add curve 7");
+    run("setPointAt 7 0 0 0 0 0 0 0 0 0 0");
+    run("setPointAt 7 1 10 5 0 3 4 0 -2 1 0");
+  `, { trusted: true });
+  const curve = buildIannixObjectModel(result.operations).objects[0];
+  assert.deepEqual(curve.controls[1].c1, [3, 4, 0]);
+  assert.deepEqual(curve.controls[1].c2, [-2, 1, 0]);
+  assert.ok(getIannixCurvePathLength(curve) > Math.hypot(10, 5));
+
+  const twoDimensional = executeTrustedIannixScript(`run("add curve 8"); run("setPointAt 8 0 2 3 4 5 6 7");`, { trusted: true });
+  const point2d = buildIannixObjectModel(twoDimensional.operations).objects[0];
+  assert.deepEqual(point2d.points[0], [2, 3, 0]);
+  assert.deepEqual(point2d.controls[0].c1, [4, 5, 0]);
+  assert.deepEqual(point2d.controls[0].c2, [6, 7, 0]);
+});
+
+test("exports canonical handles with IanniX endpoint control semantics", () => {
+  const host = createBezierHostGeometry([
+    { x: 0, y: 0, out: [3, -4], mode: "corner" },
+    { x: 10, y: 5, in: [-2, -1], mode: "corner" },
+  ]);
+  const element = { id: "curve", ...host.bounds, angle: 0, customData: { draweratorGeometry: host.geometry } };
+  const commands = serializeBezierElementToIannixCommands(element, { externalId: 7 });
+  assert.equal(commands[0], "add curve 7");
+  assert.match(commands[2], /setPointAt 7 1 10 -5 0 3 4 0 -2 1 0/);
 });
 
 test("reports unsupported commands instead of discarding them", () => {

@@ -5,6 +5,7 @@ import {
   allocateIannixRoleLabels,
   createDefaultIannixData,
   dampCursorTransform,
+  enforceRuntimeCursorHostVisibility,
   evaluateScoreFrame,
   getCursorTransform,
   getElementCorePaths,
@@ -15,6 +16,7 @@ import {
   samplePath,
   sweptPathsIntersect,
 } from "./iannixEngine.js";
+import { createBezierHostGeometry } from "./bezierGeometry.js";
 
 const line = (id, points, iannix = null) => {
   const xs = points.map(point => point[0]);
@@ -54,6 +56,21 @@ test("only an active linked cursor transfers visual ownership to the runtime", (
       },
     },
   }), false);
+});
+
+test("runtime cursor hosts remain invisible even when an interaction restores their style", () => {
+  const cursor = line("cursor", [[0, 0], [0, 20]], createDefaultIannixData({
+    role: "cursor",
+    cursor: { curveId: "curve", sourceOpacity: 70, sourceStrokeColor: "#ff3300" },
+  }));
+  cursor.opacity = 100;
+  cursor.strokeColor = "#00ff00";
+  const hidden = enforceRuntimeCursorHostVisibility(cursor);
+  assert.equal(hidden.opacity, 0);
+  assert.equal(hidden.strokeColor, "transparent");
+  assert.equal(hidden.customData.iannix.cursor.sourceOpacity, 100);
+  assert.equal(hidden.customData.iannix.cursor.sourceStrokeColor, "#00ff00");
+  assert.equal(enforceRuntimeCursorHostVisibility(hidden), hidden);
 });
 
 test("normalizes role-independent timing without discarding role settings", () => {
@@ -133,6 +150,20 @@ test("cursor transform places its center on the curve and follows tangent change
   const transform = getCursorTransform(cursor, curve, 0.75, true);
   assert.deepEqual(transform.position, [50, 25]);
   assert.equal(transform.angle, Math.PI / 2);
+});
+
+test("cursor transform follows canonical Bezier arc length instead of the host chord", () => {
+  const cursor = line("cursor", [[0, -5], [0, 5]]);
+  const curve = line("curve", [[0, 0], [100, 0]]);
+  const canonical = createBezierHostGeometry([
+    { x: 0, y: 0, in: null, out: [0, 80], mode: "smooth" },
+    { x: 100, y: 0, in: [0, 80], out: null, mode: "smooth" },
+  ]);
+  Object.assign(curve, canonical.bounds, { points: canonical.points });
+  curve.customData.draweratorGeometry = canonical.geometry;
+  const transform = getCursorTransform(cursor, curve, 0.5, true);
+  assert.ok(Math.abs(transform.position[0] - 50) < 0.5);
+  assert.ok(transform.position[1] > 40);
 });
 
 test("visual cursor damping eases position and uses the shortest angle path", () => {
