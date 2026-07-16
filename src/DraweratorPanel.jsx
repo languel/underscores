@@ -12,6 +12,9 @@ const PanelIcon = ({ id }) => {
   if (id === "console") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m7 10 3 2-3 2M12 15h5"/></svg>;
   }
+  if (id === "history") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.5"/><path d="M4 4v4.5h4.5M12 7v5l3 2"/></svg>;
+  }
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 5 4.5 4.5M13 6.5l4.5 4.5M4 20l7.5-7.5M14 3l7 7-9.5 9.5-7-7L14 3Z"/></svg>;
 };
 

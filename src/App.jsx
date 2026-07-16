@@ -12,6 +12,12 @@ import { estimateMidiClockTempo, formatTimelinePosition, MIDI_REALTIME, midiCloc
 import PanelPlacementControls from "./PanelPlacementControls.jsx";
 import DraweratorPanel from "./DraweratorPanel.jsx";
 import TransportTimeline from "./TransportTimeline.jsx";
+import HistoryPanel from "./HistoryPanel.jsx";
+import EventConsole from "./EventConsole.jsx";
+import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, parseGenericCommandSlash } from "./commandSystem.js";
+import { autoKeyElement, collectAutomationKeys, evaluateElementAutomation } from "./automation.js";
+import { createDraweratorMacro, DRAWERATOR_MACRO_TYPE, DraweratorLibraryStore, DraweratorSessionController, instantiateDraweratorMacro, mergeSceneMutation, parseDraweratorSession } from "./sessionHistory.js";
+import { buildIannixObjectModel, executeTrustedIannixScript } from "./iannixScript.js";
 
 // System Prompt guiding the local LLM on drawing tools
 const SYSTEM_PROMPT = `You are "Drawerator", an autonomous, high-performance drawing assistant.
@@ -32,6 +38,8 @@ Available Drawing XML tags:
    <erase id="[element_id]"/>
 6. Clear Entire Canvas:
    <clear/>
+7. Execute any registered Drawerator command:
+   <drawerator-command id="[stable_command_id]">{"argument":"value"}</drawerator-command>
 
 Guidelines:
 - All shapes should be sized logically (typical screen coords range from 0 to 1000).
@@ -1257,6 +1265,48 @@ function App() {
   console.log("Drawerator version: 1.8.0 (rebuilt at 2026-07-08T22:25:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
+  const runtimeCallbacksRef = useRef({
+    restoreBaseline: async () => {},
+    applyAction: async () => {},
+    historyStart: () => {},
+    historyPause: () => {},
+    historyStop: () => {},
+    historyPlay: () => {},
+    historySeek: () => {},
+    macroSave: () => {},
+    macroInsert: () => {},
+    sceneCommand: () => {},
+    iannixImport: () => {},
+    transportUpdate: () => {},
+    transportSeek: () => {},
+    panelStateUpdate: () => {},
+    boardSettingsUpdate: () => {},
+  });
+  const draweratorRuntimeRef = useRef(null);
+  if (!draweratorRuntimeRef.current) {
+    const eventBus = new DraweratorEventBus();
+    const inputBus = new DraweratorInputBus({ eventBus });
+    const commandRegistry = new DraweratorCommandRegistry({ eventBus });
+    const historyController = new DraweratorSessionController({
+      restoreBaseline: baseline => runtimeCallbacksRef.current.restoreBaseline(baseline),
+      applyAction: (action, options) => runtimeCallbacksRef.current.applyAction(action, options),
+    });
+    draweratorRuntimeRef.current = {
+      eventBus,
+      inputBus,
+      commandRegistry,
+      historyController,
+      library: new DraweratorLibraryStore(),
+    };
+  }
+  const { eventBus, inputBus, commandRegistry, historyController, library: historyLibrary } = draweratorRuntimeRef.current;
+  const [historySnapshot, setHistorySnapshot] = useState(() => historyController.snapshot());
+  const [historyMacros, setHistoryMacros] = useState([]);
+  const [historyIncludePresentation, setHistoryIncludePresentation] = useState(true);
+  const [historyMidiArmed, setHistoryMidiArmed] = useState(false);
+  const [historyShowPointer, setHistoryShowPointer] = useState(true);
+  const [autoKeyEnabled, setAutoKeyEnabled] = useState(false);
+  const [sessionPlaybackOverlay, setSessionPlaybackOverlay] = useState([]);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
   const [accentColor, setAccentColor] = useState(() => localStorage.getItem("drawerator_accent_color") || "#6b7173");
   const [panelLayouts, setPanelLayouts] = useState(() => {
@@ -1274,9 +1324,9 @@ function App() {
   });
   const [openPanels, setOpenPanels] = useState(() => {
     try {
-      return { chat: false, settings: false, mods: true, console: false, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
+      return { chat: false, settings: false, mods: true, console: false, history: false, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
     } catch {
-      return { chat: false, settings: false, mods: true, console: false };
+      return { chat: false, settings: false, mods: true, console: false, history: false };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
@@ -1393,6 +1443,25 @@ function App() {
   const transportDragRef = useRef(null);
   const panelDragRef = useRef(null);
   const sceneImportInputRef = useRef(null);
+  const iannixImportInputRef = useRef(null);
+  const excalidrawAPIRef = useRef(null);
+  const scoreTimeRef = useRef(scoreTime);
+  const historySuppressSceneRef = useRef(0);
+  const lastSceneElementsRef = useRef(new Map());
+  const pendingSceneMutationRef = useRef(null);
+  const sceneMutationTimerRef = useRef(null);
+  const lastPresentationStateRef = useRef(null);
+  const pendingPresentationRef = useRef(null);
+  const presentationTimerRef = useRef(null);
+  const autoKeyApplyingRef = useRef(false);
+  const strokeInputSamplesRef = useRef([]);
+  const strokeRecordingSuppressedRef = useRef(false);
+  const passiveStrokeCaptureRef = useRef(null);
+  const transportStateRecordingRef = useRef(null);
+  const panelStateRecordingRef = useRef(null);
+  const boardSettingsRecordingRef = useRef(null);
+  const applyingRecordedUiStateRef = useRef(false);
+  const commandActionsRef = useRef(new Map());
   const [selectedElementIds, setSelectedElementIds] = useState({});
   const [modifierUpdateNonce, setModifierUpdateNonce] = useState(0);
   const cameraRef = useRef({ scrollX: 0, scrollY: 0, zoom: 1 });
@@ -1404,6 +1473,97 @@ function App() {
   const [showDebugLayer, setShowDebugLayer] = useState(() => {
     return localStorage.getItem("drawerator_show_debug_layer") === "true";
   });
+
+  useEffect(() => {
+    excalidrawAPIRef.current = excalidrawAPI;
+    if (excalidrawAPI) {
+      lastSceneElementsRef.current = new Map(
+        excalidrawAPI.getSceneElementsIncludingDeleted().map(element => [element.id, element])
+      );
+    }
+  }, [excalidrawAPI]);
+
+  useEffect(() => {
+    scoreTimeRef.current = scoreTime;
+  }, [scoreTime]);
+
+  useEffect(() => historyController.subscribe((snapshot, eventName) => {
+    setHistorySnapshot(snapshot);
+    eventBus.emit(`history.${eventName}`, {
+      status: snapshot.status,
+      playhead: snapshot.playhead,
+      duration: snapshot.duration,
+      actions: snapshot.session?.actions?.length || 0,
+    }, { source: "history", time: performance.now() });
+    if (eventName === "playback.tick" || eventName === "playback.seek" || eventName === "playback.start") {
+      const active = (snapshot.session?.actions || []).filter(action =>
+        action.enabled && action.kind === "stroke" && snapshot.playhead >= action.at && snapshot.playhead < action.at + action.duration
+      ).map(action => {
+        const samples = action.args?.samples || [];
+        const progress = action.duration > 0 ? Math.min(1, Math.max(0, (snapshot.playhead - action.at) / action.duration)) : 1;
+        const count = Math.max(1, Math.ceil(samples.length * progress));
+        const visibleSamples = samples.slice(0, count);
+        const finalElements = action.args?.finalElements || [];
+        const sourceElement = finalElements.find(element => !element.customData?.isModifierGenerated) || finalElements[0];
+        const sourcePoints = visibleSamples.map(sample => {
+          const point = [sample.scene.x, sample.scene.y];
+          point.pressure = sample.pressure;
+          point.time = sample.time;
+          point.strokeTime = sample.data?.strokeTime ?? sample.time;
+          point.speed = sample.data?.speed ?? 0;
+          return point;
+        });
+        let paths = sourcePoints.length >= 2 ? [sourcePoints] : [];
+        const modifiers = sourceElement?.customData?.modifiers || [];
+        if (sourcePoints.length >= 2 && modifiers.length > 0 && !sourceElement.customData?.muteModifiers) {
+          const elapsedMs = visibleSamples.at(-1)?.time || 0;
+          const evaluation = evaluateModifierStack(sourcePoints, modifiers, getElementBrushGlobals(sourceElement, {
+            elapsedMs,
+            globalElapsedMs: elapsedMs,
+            isPointerDown: true,
+            strokeColor: sourceElement.strokeColor,
+            strokeWidth: sourceElement.strokeWidth,
+            opacity: sourceElement.opacity ?? 100,
+          }));
+          paths = composePreviewTracks({
+            ...evaluation,
+            hideOriginal: Boolean(sourceElement.customData?.hideOriginal),
+          });
+        }
+        return {
+          id: action.id,
+          samples: visibleSamples,
+          pointer: samples[Math.max(0, count - 1)] || null,
+          strokeColor: sourceElement?.strokeColor || "#e9ecef",
+          strokeWidth: sourceElement?.strokeWidth || 2,
+          paths,
+        };
+      });
+      setSessionPlaybackOverlay(active);
+    } else if (eventName === "playback.complete" || eventName === "playback.stop") {
+      setSessionPlaybackOverlay([]);
+    }
+  }), [eventBus, historyController]);
+
+  useEffect(() => commandRegistry.subscribe(detail => {
+    historyController.recordCommand(detail);
+  }), [commandRegistry, historyController]);
+
+  const refreshHistoryMacros = useCallback(async () => {
+    setHistoryMacros(await historyLibrary.list(DRAWERATOR_MACRO_TYPE));
+  }, [historyLibrary]);
+
+  useEffect(() => {
+    refreshHistoryMacros();
+  }, [refreshHistoryMacros]);
+
+  useEffect(() => () => {
+    window.clearTimeout(sceneMutationTimerRef.current);
+    window.clearTimeout(presentationTimerRef.current);
+    window.clearTimeout(transportStateRecordingRef.current?.timer);
+    window.clearTimeout(panelStateRecordingRef.current?.timer);
+    window.clearTimeout(boardSettingsRecordingRef.current?.timer);
+  }, []);
   const [brushPalette, setBrushPalette] = useState(() => {
     const saved = localStorage.getItem("drawerator_brush_palette");
     let palette = [];
@@ -1751,11 +1911,14 @@ function App() {
       triggerPulseUntilRef.current.set(triggerId, now + pulseMs);
       window.setTimeout(() => setScoreRuntimeNonce(nonce => nonce + 1), pulseMs + 16);
       let midi = null;
+      let midiPattern = null;
+      let midiContext = null;
       if (triggerData.trigger.midiEnabled) {
         try {
           const cursor = frame.cursors.find(candidate => candidate.element.id === cursorId);
-          const context = getIannixTriggerMidiContext(cursor, triggerData, trigger);
-          const message = parseIannixMidiPattern(triggerData.trigger.midiPattern, context);
+          midiContext = getIannixTriggerMidiContext(cursor, triggerData, trigger);
+          midiPattern = triggerData.trigger.midiPattern;
+          const message = parseIannixMidiPattern(midiPattern, midiContext);
           const access = midiAccessRef.current;
           const output = access?.outputs.get(midiOutputIdRef.current) || [...(access?.outputs.values() || [])][0];
           sendIannixMidiMessage(output, message, performance.now());
@@ -1763,6 +1926,19 @@ function App() {
             ? { kind: "cc", channel: message.channel, controller: message.controller, value: message.value }
             : { kind: "note", channel: message.channel, note: message.note, velocity: message.velocity };
           setMidiStatus(`Sent ${describeIannixMidiMessage(message)}`);
+          historyController.record({
+            kind: "midi",
+            transportTime: scoreTime,
+            source: "iannix-trigger",
+            args: {
+              description: describeIannixMidiMessage(message),
+              pattern: midiPattern,
+              context: midiContext,
+              message: midi,
+              cursorId,
+              triggerId,
+            },
+          });
         } catch (error) {
           setMidiStatus(error.message || "MIDI send failed");
         }
@@ -1776,9 +1952,35 @@ function App() {
         midi,
       };
     });
+    nextEvents.forEach(event => eventBus.emit("iannix.trigger.enter", event, {
+      source: "iannix-trigger",
+      time: performance.now(),
+    }));
     setScoreEvents(events => [...nextEvents, ...events].slice(0, 20));
     setScoreRuntimeNonce(nonce => nonce + 1);
-  }, [excalidrawAPI, modifierUpdateNonce, scorePlaying, scoreTime]);
+  }, [excalidrawAPI, historyController, modifierUpdateNonce, scorePlaying, scoreTime]);
+
+  useEffect(() => {
+    if (!excalidrawAPI || autoKeyApplyingRef.current || isMouseDownRef.current) return;
+    const elements = excalidrawAPI.getSceneElements();
+    let changed = false;
+    const evaluated = elements.map(element => {
+      const next = evaluateElementAutomation(element, scoreTime);
+      if (next !== element && JSON.stringify(next) !== JSON.stringify(element)) changed = true;
+      return next;
+    });
+    if (!changed) return;
+    autoKeyApplyingRef.current = true;
+    historySuppressSceneRef.current += 1;
+    excalidrawAPI.updateScene({ elements: evaluated, commitToHistory: false });
+    window.setTimeout(() => {
+      autoKeyApplyingRef.current = false;
+      historySuppressSceneRef.current = Math.max(0, historySuppressSceneRef.current - 1);
+      lastSceneElementsRef.current = new Map(
+        excalidrawAPI.getSceneElementsIncludingDeleted().map(element => [element.id, element])
+      );
+    }, 0);
+  }, [excalidrawAPI, scoreTime]);
 
   // A linked cursor is rendered by the score overlay at its runtime position.
   // Keep its authored Excalidraw element invisible without losing the opacity
@@ -2125,8 +2327,31 @@ function App() {
     return [res.x, res.y];
   };
 
+  const emitPointerInputSample = (event, phase, coords) => {
+    const nativeEvent = event?.nativeEvent || event || {};
+    const sample = inputBus.emit({
+      source: nativeEvent.pointerType || "pointer",
+      deviceId: `${nativeEvent.pointerType || "pointer"}:${nativeEvent.pointerId ?? 0}`,
+      pointerId: nativeEvent.pointerId ?? 0,
+      phase,
+      time: Number.isFinite(nativeEvent.timeStamp) ? nativeEvent.timeStamp : performance.now(),
+      scene: { x: coords[0], y: coords[1] },
+      pressure: Number.isFinite(nativeEvent.pressure) ? nativeEvent.pressure : 0.5,
+      tiltX: nativeEvent.tiltX,
+      tiltY: nativeEvent.tiltY,
+      twist: nativeEvent.twist,
+      buttons: nativeEvent.buttons ?? (phase === "start" ? 1 : 0),
+      data: {
+        strokeTime: coords.strokeTime || 0,
+        speed: coords.speed || 0,
+      },
+    });
+    strokeInputSamplesRef.current.push(sample);
+    return sample;
+  };
+
   const handleCanvasPointerDown = (e) => {
-    if (!excalidrawAPI || !modifierDrawingActive) return;
+    if (!excalidrawAPI) return;
     if (e.button !== 0) return;
 
     const targetElement = e.target;
@@ -2151,6 +2376,23 @@ function App() {
       return;
     }
 
+    if (!modifierDrawingActive) {
+      const activeTool = excalidrawAPI.getAppState().activeTool?.type;
+      if (activeTool !== "freedraw" && activeTool !== "line") return;
+      const coords = getCanvasCoords(e.clientX, e.clientY);
+      coords.time = Date.now();
+      coords.strokeTime = 0;
+      coords.speed = 0;
+      strokeInputSamplesRef.current = [];
+      strokeRecordingSuppressedRef.current = true;
+      emitPointerInputSample(e, "start", coords);
+      passiveStrokeCaptureRef.current = {
+        startedAt: Date.now(),
+        existingIds: new Set(excalidrawAPI.getSceneElementsIncludingDeleted().map(element => element.id)),
+      };
+      return;
+    }
+
     pendingStrokePreviewIdRef.current += 1;
     setPendingStrokePreview(null);
 
@@ -2160,6 +2402,8 @@ function App() {
     }
 
     isDrawingRef.current = true;
+    strokeInputSamplesRef.current = [];
+    strokeRecordingSuppressedRef.current = true;
     const coords = getCanvasCoords(e.clientX, e.clientY);
     coords.time = Date.now();
     strokeStartTimeRef.current = coords.time;
@@ -2167,6 +2411,7 @@ function App() {
     coords.strokeTime = 0;
     coords.pressure = e.pressure !== undefined ? e.pressure : 0.5;
     coords.speed = 0;
+    emitPointerInputSample(e, "start", coords);
     livePointsRef.current = [coords];
     rawCursorRef.current = [e.clientX, e.clientY];
     setShiftHeld(e.shiftKey);
@@ -2182,6 +2427,21 @@ function App() {
   };
 
   const handleCanvasPointerMove = (e) => {
+    if (passiveStrokeCaptureRef.current && !isDrawingRef.current) {
+      if (e.buttons !== 1) return;
+      const nativeEvent = e.nativeEvent || e;
+      const events = typeof nativeEvent.getCoalescedEvents === "function" && nativeEvent.getCoalescedEvents().length
+        ? nativeEvent.getCoalescedEvents()
+        : [nativeEvent];
+      for (const pointerEvent of events) {
+        const coords = getCanvasCoords(pointerEvent.clientX, pointerEvent.clientY);
+        coords.time = Date.now();
+        coords.strokeTime = coords.time - passiveStrokeCaptureRef.current.startedAt;
+        coords.speed = 0;
+        emitPointerInputSample(pointerEvent, "move", coords);
+      }
+      return;
+    }
     if (!isDrawingRef.current) return;
     if (e.buttons !== 1) {
       isDrawingRef.current = false;
@@ -2191,68 +2451,61 @@ function App() {
       return;
     }
 
-    setShiftHeld(e.shiftKey);
-    if (e.shiftKey) {
-      wasShiftHeldRef.current = true;
-    }
+    const nativeEvent = e.nativeEvent || e;
+    const coalesced = typeof nativeEvent.getCoalescedEvents === "function"
+      ? nativeEvent.getCoalescedEvents()
+      : [];
+    const pointerEvents = coalesced.length ? coalesced : [nativeEvent];
+    const shiftKey = e.shiftKey || nativeEvent.shiftKey;
+    setShiftHeld(shiftKey);
+    if (shiftKey) wasShiftHeldRef.current = true;
     rawCursorRef.current = [e.clientX, e.clientY];
 
-    const targetCoords = getCanvasCoords(e.clientX, e.clientY);
-    let coords = targetCoords;
-    
-    // Stabilizer (Exponential Moving Average / Lazy Mouse) when holding Shift
-    if (e.shiftKey && livePointsRef.current.length > 0) {
-      const lastPoint = livePointsRef.current[livePointsRef.current.length - 1];
-      const betaParam = brushParams.find(p => p.name === "stabilizerDamping");
-      const beta = betaParam ? betaParam.value : defaultStabilizerDamping; // Damping factor: lower is smoother / slower follow
-      
-      let x = lastPoint[0] + (targetCoords[0] - lastPoint[0]) * beta;
-      let y = lastPoint[1] + (targetCoords[1] - lastPoint[1]) * beta;
+    for (const pointerEvent of pointerEvents) {
+      const targetCoords = getCanvasCoords(pointerEvent.clientX, pointerEvent.clientY);
+      let coords = targetCoords;
 
-      // Magnetic Grid Snapping for Stabilizer
-      const appState = excalidrawAPI?.getAppState();
-      if (appState && appState.gridSize) {
-        const gridSize = appState.gridSize;
-        const snapThreshold = gridSize * 0.45; // Max snapping reach
-        
-        // Snap X
-        const xSnapped = Math.round(x / gridSize) * gridSize;
-        const dx = Math.abs(x - xSnapped);
-        if (dx < snapThreshold) {
-          const t = 1 - (dx / snapThreshold);
-          const weight = t * t; // Sticky snap curve
-          x = x + (xSnapped - x) * weight;
+      // Stabilizer (Exponential Moving Average / Lazy Mouse) when holding Shift.
+      if (shiftKey && livePointsRef.current.length > 0) {
+        const lastPoint = livePointsRef.current[livePointsRef.current.length - 1];
+        const betaParam = brushParams.find(p => p.name === "stabilizerDamping");
+        const beta = betaParam ? betaParam.value : defaultStabilizerDamping;
+        let x = lastPoint[0] + (targetCoords[0] - lastPoint[0]) * beta;
+        let y = lastPoint[1] + (targetCoords[1] - lastPoint[1]) * beta;
+        const appState = excalidrawAPI?.getAppState();
+        if (appState?.gridSize) {
+          const gridSize = appState.gridSize;
+          const snapThreshold = gridSize * 0.45;
+          const xSnapped = Math.round(x / gridSize) * gridSize;
+          const dx = Math.abs(x - xSnapped);
+          if (dx < snapThreshold) {
+            const weight = (1 - dx / snapThreshold) ** 2;
+            x += (xSnapped - x) * weight;
+          }
+          const ySnapped = Math.round(y / gridSize) * gridSize;
+          const dy = Math.abs(y - ySnapped);
+          if (dy < snapThreshold) {
+            const weight = (1 - dy / snapThreshold) ** 2;
+            y += (ySnapped - y) * weight;
+          }
         }
-        
-        // Snap Y
-        const ySnapped = Math.round(y / gridSize) * gridSize;
-        const dy = Math.abs(y - ySnapped);
-        if (dy < snapThreshold) {
-          const t = 1 - (dy / snapThreshold);
-          const weight = t * t; // Sticky snap curve
-          y = y + (ySnapped - y) * weight;
-        }
+        coords = [x, y];
       }
-      
-      coords = [x, y];
-    }
 
-    coords.time = Date.now();
-    coords.strokeTime = coords.time - (strokeStartTimeRef.current || coords.time);
-    coords.pressure = e.pressure !== undefined ? e.pressure : 0.5;
-    
-    let speed = 0;
-    if (livePointsRef.current.length > 0) {
-      const prev = livePointsRef.current[livePointsRef.current.length - 1];
-      const dx = coords[0] - prev[0];
-      const dy = coords[1] - prev[1];
-      const dt = coords.time - (prev.time || coords.time);
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      speed = dt > 0 ? dist / dt : 0;
+      coords.time = Date.now();
+      coords.strokeTime = coords.time - (strokeStartTimeRef.current || coords.time);
+      coords.pressure = Number.isFinite(pointerEvent.pressure) ? pointerEvent.pressure : 0.5;
+      let speed = 0;
+      if (livePointsRef.current.length > 0) {
+        const previous = livePointsRef.current[livePointsRef.current.length - 1];
+        const distance = Math.hypot(coords[0] - previous[0], coords[1] - previous[1]);
+        const elapsed = coords.time - (previous.time || coords.time);
+        speed = elapsed > 0 ? distance / elapsed : 0;
+      }
+      coords.speed = speed;
+      livePointsRef.current.push(coords);
+      emitPointerInputSample(pointerEvent, "move", coords);
     }
-    coords.speed = speed;
-
-    livePointsRef.current.push(coords);
     setDrawingPoints([...livePointsRef.current]);
   };
 
@@ -3081,7 +3334,47 @@ function App() {
     return () => window.clearTimeout(timeout);
   }, [activeBrushCode, brushParams, activeBrushId, editingModifierTarget]);
 
+  const recordCompletedStroke = ({ finalElements, durationMs, brush = null }) => {
+    const samples = strokeInputSamplesRef.current.map(sample => ({
+      ...sample,
+      time: Math.max(0, (sample.time || 0) - (strokeInputSamplesRef.current[0]?.time || 0)),
+    }));
+    historyController.record({
+      kind: "stroke",
+      duration: Math.max(0, durationMs || 0) / 1000,
+      transportTime: scoreTimeRef.current,
+      source: samples[0]?.source || "pointer",
+      args: {
+        samples,
+        finalElements: (finalElements || []).map(element => JSON.parse(JSON.stringify(element))),
+        brush,
+      },
+    });
+    strokeInputSamplesRef.current = [];
+    strokeRecordingSuppressedRef.current = false;
+  };
+
   const handleCanvasPointerUp = (e) => {
+    if (passiveStrokeCaptureRef.current && !isDrawingRef.current) {
+      const capture = passiveStrokeCaptureRef.current;
+      passiveStrokeCaptureRef.current = null;
+      const last = strokeInputSamplesRef.current[strokeInputSamplesRef.current.length - 1];
+      const coords = last ? [last.scene.x, last.scene.y] : getCanvasCoords(e.clientX, e.clientY);
+      coords.strokeTime = Date.now() - capture.startedAt;
+      coords.speed = 0;
+      emitPointerInputSample(e, "end", coords);
+      window.setTimeout(() => {
+        const finalElements = excalidrawAPI?.getSceneElementsIncludingDeleted().filter(element =>
+          !element.isDeleted && !capture.existingIds.has(element.id)
+        ) || [];
+        recordCompletedStroke({
+          finalElements,
+          durationMs: Date.now() - capture.startedAt,
+          brush: { kind: "excalidraw", tool: excalidrawAPI?.getAppState().activeTool?.type || "freedraw" },
+        });
+      }, 120);
+      return;
+    }
     if (!isDrawingRef.current) {
       rawCursorRef.current = null;
       livePointsRef.current = [];
@@ -3090,6 +3383,8 @@ function App() {
       return;
     }
     brushElapsedRef.current = Math.max(0, Date.now() - strokeStartTimeRef.current);
+    const lastRecordedPoint = livePointsRef.current[livePointsRef.current.length - 1];
+    if (lastRecordedPoint) emitPointerInputSample(e, "end", lastRecordedPoint);
     isDrawingRef.current = false;
     rawCursorRef.current = null;
     setShiftHeld(false);
@@ -3148,6 +3443,7 @@ function App() {
     }
     // Wait a brief tick for Excalidraw to finish writing the element
     setTimeout(() => {
+      let scheduledStrokeRecord = false;
       try {
         const elements = excalidrawAPI.getSceneElements();
         if (!elements || elements.length === 0) return;
@@ -3182,10 +3478,31 @@ function App() {
             ...(savedOpacity !== undefined ? { savedOpacity } : {})
           };
           updateModifiedElementInScene(lastElement.id, drawingModifiers, pointsToUse, frozenBrushGlobals);
+          window.setTimeout(() => {
+            const finalElements = excalidrawAPI.getSceneElementsIncludingDeleted().filter(element =>
+              element.id === lastElement.id || element.customData?.parentId === lastElement.id
+            );
+            recordCompletedStroke({
+              finalElements,
+              durationMs: completedStrokeElapsedMs,
+              brush: {
+                kind: "modifier-stack",
+                modifiers: drawingModifiers,
+                hideOriginal: completedStrokeHideOriginal,
+                roundness: globalRoundness,
+              },
+            });
+          }, 0);
+          scheduledStrokeRecord = true;
         }
       } catch (err) {
         console.error("Error processing custom brush as modifier:", err);
+        strokeRecordingSuppressedRef.current = false;
       } finally {
+        if (!scheduledStrokeRecord) {
+          strokeInputSamplesRef.current = [];
+          strokeRecordingSuppressedRef.current = false;
+        }
         setDrawingPoints([]);
         requestAnimationFrame(() => {
           requestAnimationFrame(() => setPendingStrokePreview(previous =>
@@ -3466,6 +3783,22 @@ function App() {
       return attrs;
     };
 
+    const draweratorCommandRegex = /<drawerator-command\s+id="([^"]+)"\s*>([\s\S]*?)<\/drawerator-command>/gi;
+    let commandMatch;
+    while ((commandMatch = draweratorCommandRegex.exec(text)) !== null) {
+      try {
+        const commandId = commandMatch[1];
+        const args = commandMatch[2].trim() ? JSON.parse(commandMatch[2]) : {};
+        commandRegistry.execute(commandId, args, {
+          source: "ai",
+          transportTime: scoreTimeRef.current,
+        }).then(() => logToolAction(`command(${commandId})`, "ok"))
+          .catch(error => logToolAction(`command(${commandId}): ${error.message}`, "error"));
+      } catch (error) {
+        logToolAction(`command(${commandMatch[1]}): ${error.message}`, "error");
+      }
+    }
+
     // 1. Draw Rectangles
     const rectRegex = /<rect\s+([^>]+)\/>/gi;
     let match;
@@ -3695,7 +4028,18 @@ function App() {
     const url = cleanApiUrl(aiSettings.url, provider);
     const model = aiSettings.model || "default";
 
+    const aiCommandCatalog = commandRegistry.list().map(command => ({
+      id: command.id,
+      name: command.name,
+      args: command.args,
+    }));
     const messagesPayload = newHistory.map(h => {
+      if (h.role === "system") {
+        return {
+          role: "system",
+          content: `${h.content}\n\nRegistered Drawerator commands (generated from the live registry):\n${JSON.stringify(aiCommandCatalog)}`,
+        };
+      }
       if (h.role === "user") {
         if (h.images && h.images.length > 0) {
           if (provider === "ollama") {
@@ -3902,13 +4246,19 @@ function App() {
     name: `Toggle ${panel.label} ${panel.slash}`,
     aliases: [panel.slash, panel.label, `panel ${panel.label}`],
     category: "Panels",
+    record: "presentation",
     panel,
-    action: () => toggleDraweratorPanel(panel.id),
+    action: () => {
+      applyingRecordedUiStateRef.current = true;
+      if (panel.id === "transport") setShowIannixTransport(visible => !visible);
+      else toggleDraweratorPanel(panel.id);
+      finishApplyingRecordedUiState();
+    },
   }));
   const COMMANDS = [
     ...PANEL_COMMANDS,
-    { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => setSatoriMode(prev => !prev) },
-    { id: "toggle-theme", name: "Toggle Dark/Light Theme", category: "View", action: (api) => { const next = theme === "dark" ? "light" : "dark"; setTheme(next); api?.updateScene({ appState: { theme: next } }); } },
+    { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => { applyingRecordedUiStateRef.current = true; setSatoriMode(prev => !prev); finishApplyingRecordedUiState(); } },
+    { id: "toggle-theme", name: "Toggle Dark/Light Theme", category: "View", action: (api) => { applyingRecordedUiStateRef.current = true; const next = theme === "dark" ? "light" : "dark"; setTheme(next); api?.updateScene({ appState: { theme: next } }); finishApplyingRecordedUiState(); } },
     { id: "toggle-chat", name: "Toggle AI Assistant Chat", category: "AI Chat", action: () => toggleDraweratorPanel("chat") },
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
@@ -3926,8 +4276,48 @@ function App() {
     { id: "tool-hand", name: "Select Hand/Pan Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "hand", locked: tool.locked ?? false } } }); } },
     { id: "restore-original-stroke", name: "Restore Original Stroke (Recover Brush Replacement)", category: "Brushes", action: () => handleRestoreOriginalStroke() },
     { id: "convert-to-line", name: "Convert Selected Strokes to Straight Lines", category: "Brushes", action: () => handleConvertType("line") },
-    { id: "convert-to-freedraw", name: "Convert Selected Lines to Freehand Pencil", category: "Brushes", action: () => handleConvertType("freedraw") }
+    { id: "convert-to-freedraw", name: "Convert Selected Lines to Freehand Pencil", category: "Brushes", action: () => handleConvertType("freedraw") },
+    { id: "scene.create", name: "Create Scene Objects", category: "Scene", args: { elements: "element[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.create", args) },
+    { id: "scene.update", name: "Update Scene Objects", category: "Scene", args: { elements: "element[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.update", args) },
+    { id: "scene.delete", name: "Delete Scene Objects", category: "Scene", args: { elementIds: "string[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.delete", args) },
+    { id: "transport.update", name: "Update Transport State", category: "Transport", args: { state: "transportState" }, action: (_api, args) => runtimeCallbacksRef.current.transportUpdate(args?.state || args) },
+    { id: "transport.seek", name: "Seek Global Transport", category: "Transport", args: { seconds: "number" }, action: (_api, args) => runtimeCallbacksRef.current.transportSeek(Number(args?.seconds) || 0) },
+    { id: "presentation.panels", name: "Update Panel Presentation", category: "Panels", record: "presentation", args: { state: "panelState" }, action: (_api, args) => runtimeCallbacksRef.current.panelStateUpdate(args?.state || args) },
+    { id: "settings.board.update", name: "Update Board Settings", category: "Settings", record: "presentation", args: { state: "boardSettings" }, sensitiveArgs: ["state.credentials", "state.apiKey", "state.token"], action: (_api, args) => runtimeCallbacksRef.current.boardSettingsUpdate(args?.state || args) },
+    { id: "history.record.start", name: "Start Session Recording /record start", aliases: ["/record start"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyStart({ play: false }) },
+    { id: "history.record.play", name: "Record and Play /record play", aliases: ["/record play"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyStart({ play: true }) },
+    { id: "history.record.pause", name: "Pause or Resume Recording /record pause", aliases: ["/record pause"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyPause() },
+    { id: "history.record.stop", name: "Stop Session Recording /record stop", aliases: ["/record stop"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyStop() },
+    { id: "history.play", name: "Play Session /history play", aliases: ["/history play"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyPlay() },
+    { id: "history.seek", name: "Seek Session /history seek", aliases: ["/history seek"], category: "History", record: "never", args: { seconds: "number" }, action: (_api, args) => runtimeCallbacksRef.current.historySeek(Number(args?.seconds) || 0) },
+    { id: "automation.autokey.toggle", name: "Toggle Auto-key /autokey", aliases: ["/autokey"], category: "History", record: "presentation", action: () => setAutoKeyEnabled(enabled => !enabled) },
+    { id: "macro.save", name: "Save Session as Sequence /macro save", aliases: ["/macro save"], category: "History", record: "never", args: { name: "string?" }, action: (_api, args) => runtimeCallbacksRef.current.macroSave(null, args?.name) },
+    { id: "macro.insert", name: "Insert Sequence /macro insert", aliases: ["/macro insert"], category: "History", args: { id: "string", mode: "relative|absolute" }, action: (_api, args) => runtimeCallbacksRef.current.macroInsert(args) },
+    { id: "iannix.import.trusted", name: "Import Trusted IanniX Script /iannix import", aliases: ["/iannix import"], category: "IanniX", args: { source: "string", filename: "string?", seed: "number?", anchor: "point?", scale: "number?", importId: "string?" }, validate: args => ({ ...args, importId: args?.importId || crypto.randomUUID() }), action: (_api, args) => runtimeCallbacksRef.current.iannixImport(args) },
+    { id: "ai.prompt", name: "Send AI Prompt", category: "AI Chat", args: { prompt: "string" }, action: (_api, args) => { openAISidebar(); return sendChatMessage(args?.prompt || ""); } },
   ];
+
+  commandActionsRef.current = new Map(COMMANDS.map(command => [command.id, command]));
+  const commandRegistrySignature = COMMANDS.map(command => `${command.id}:${command.version || 1}`).join("|");
+  useEffect(() => {
+    const currentCommands = [...commandActionsRef.current.values()];
+    commandRegistry.replace(currentCommands.map(command => ({
+      ...command,
+      title: command.name,
+      execute: async (args, _context, metadata) => {
+        const current = commandActionsRef.current.get(command.id);
+        if (!current) throw new Error(`Command is no longer available: ${command.id}`);
+        historySuppressSceneRef.current += 1;
+        try {
+          return await current.action(excalidrawAPIRef.current, args, metadata);
+        } finally {
+          window.setTimeout(() => {
+            historySuppressSceneRef.current = Math.max(0, historySuppressSceneRef.current - 1);
+          }, 0);
+        }
+      },
+    })));
+  }, [commandRegistry, commandRegistrySignature]);
 
   const paletteInputRef = useRef(null);
   const lastNonTransparentColorRef = useRef(theme === "dark" ? "#121212" : "#ffffff");
@@ -3951,15 +4341,13 @@ function App() {
       if (((e.ctrlKey && e.altKey) || (e.metaKey && e.ctrlKey)) && e.code === "KeyT") {
         e.preventDefault();
         e.stopPropagation();
-        setShowIannixTransport(visible => !visible);
+        commandRegistry.execute("panel-transport", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
       }
       // Opt + Shift + D (Theme toggle)
       if (e.altKey && e.shiftKey && e.code === "KeyD") {
         e.preventDefault();
         e.stopPropagation();
-        const nextTheme = theme === "dark" ? "light" : "dark";
-        setTheme(nextTheme);
-        excalidrawAPI?.updateScene({ appState: { theme: nextTheme } });
+        commandRegistry.execute("toggle-theme", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
       }
       // Cmd + Shift + 0 or Ctrl + Shift + 0 (Toggle background transparency)
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === "Digit0") {
@@ -3971,13 +4359,13 @@ function App() {
       if ((e.metaKey || e.ctrlKey) && (e.key === "," || e.code === "Comma")) {
         e.preventDefault();
         e.stopPropagation();
-        toggleDraweratorPanel("settings");
+        commandRegistry.execute("panel-settings", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
       }
       // Ctrl + Option + A (Toggle AI Chat Panel)
       if (e.ctrlKey && e.altKey && e.code === "KeyA") {
         e.preventDefault();
         e.stopPropagation();
-        toggleDraweratorPanel("chat");
+        commandRegistry.execute("panel-chat", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
       }
       // Cmd + B collapses/reveals the left dock; Cmd + Option + B does the right dock.
       if (e.metaKey && !e.ctrlKey && e.code === "KeyB") {
@@ -3991,13 +4379,20 @@ function App() {
         e.preventDefault();
         e.stopPropagation();
         setModsPanelTab("script");
-        toggleDraweratorPanel("mods", { modsTab: "script" });
+        commandRegistry.execute("panel-mods", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
       }
       // Ctrl + Option + P (Toggle Modifiers/Properties Sidebar Panel)
       if (e.ctrlKey && e.altKey && e.code === "KeyP") {
         e.preventDefault();
         e.stopPropagation();
-        toggleDraweratorPanel("mods");
+        commandRegistry.execute("panel-mods", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
+      }
+      // Ctrl + Option + R toggles session recording without changing transport playback.
+      if (e.ctrlKey && e.altKey && e.code === "KeyR") {
+        e.preventDefault();
+        e.stopPropagation();
+        const commandId = historyController.status.startsWith("recording") ? "history.record.stop" : "history.record.start";
+        commandRegistry.execute(commandId, {}, { source: "shortcut", record: false, transportTime: scoreTimeRef.current });
       }
       // Cmd + Option + P (Pin / unpin Modifiers sidebar)
       if (e.metaKey && e.altKey && !e.ctrlKey && e.code === "KeyP") {
@@ -4267,6 +4662,28 @@ function App() {
     return matches;
   };
 
+  const parseSlashInvocation = value => {
+    const input = String(value || "").trim();
+    if (!input.startsWith("/")) return null;
+    const exact = COMMANDS.find(command => command.aliases?.includes(input));
+    if (exact) return { command: exact, args: {} };
+    let match = /^\/history\s+seek\s+([0-9.]+)$/i.exec(input);
+    if (match) return { command: COMMANDS.find(command => command.id === "history.seek"), args: { seconds: Number(match[1]) } };
+    match = /^\/macro\s+save(?:\s+(.+))?$/i.exec(input);
+    if (match) return { command: COMMANDS.find(command => command.id === "macro.save"), args: { name: match[1]?.trim() || "" } };
+    match = /^\/macro\s+insert\s+(.+?)(?:\s+(relative|absolute))?$/i.exec(input);
+    if (match) return {
+      command: COMMANDS.find(command => command.id === "macro.insert"),
+      args: { query: match[1].trim(), mode: match[2] || "relative" },
+    };
+    const generic = parseGenericCommandSlash(input, COMMANDS.map(command => command.id));
+    if (generic) {
+      if (generic.error) return generic;
+      return { command: COMMANDS.find(command => command.id === generic.id), args: generic.args };
+    }
+    return null;
+  };
+
   const openAISidebar = () => {
     setOpenPanels(previous => ({ ...previous, chat: true }));
     const placement = panelLayouts.chat.placement;
@@ -4275,13 +4692,16 @@ function App() {
     }
   };
 
-  const executeCommand = (cmd) => {
+  const executeCommand = async (cmd, args = {}, source = "palette") => {
     setShowCommandPalette(false);
     if (cmd.id === "ask-ai") {
-      openAISidebar();
-      sendChatMessage(commandSearch);
-    } else {
-      cmd.action(excalidrawAPI);
+      return commandRegistry.execute("ai.prompt", { prompt: commandSearch }, { source, transportTime: scoreTimeRef.current });
+    }
+    try {
+      return await commandRegistry.execute(cmd.id, args, { source, transportTime: scoreTimeRef.current });
+    } catch (error) {
+      console.error("Drawerator command failed", error);
+      setSceneExchangeStatus(error.message || "Command failed.");
     }
   };
 
@@ -4416,6 +4836,22 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
+  const runWithoutSessionSceneRecording = async callback => {
+    historySuppressSceneRef.current += 1;
+    try {
+      return await callback();
+    } finally {
+      window.setTimeout(() => {
+        historySuppressSceneRef.current = Math.max(0, historySuppressSceneRef.current - 1);
+        if (excalidrawAPIRef.current) {
+          lastSceneElementsRef.current = new Map(
+            excalidrawAPIRef.current.getSceneElementsIncludingDeleted().map(element => [element.id, element])
+          );
+        }
+      }, 0);
+    }
+  };
+
   const exportDraweratorScene = () => {
     try {
       const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
@@ -4426,7 +4862,7 @@ function App() {
     }
   };
 
-  const importDraweratorSceneText = async (text) => {
+  const importDraweratorSceneText = async (text, { commitToHistory = true } = {}) => {
     if (!excalidrawAPI) return;
     const { score } = parseDraweratorExchange(text, "scene");
     const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
@@ -4437,7 +4873,7 @@ function App() {
         ...(restored.appState || {}),
         selectedElementIds: {},
       },
-      commitToHistory: true,
+      commitToHistory,
     });
     if (Number.isFinite(score?.time)) setScoreTime(score.time);
     if (Number.isFinite(score?.rate) && score.rate > 0) setScoreRate(score.rate);
@@ -4456,6 +4892,388 @@ function App() {
     setModifierUpdateNonce(nonce => nonce + 1);
     setSceneExchangeStatus(`Imported ${restored.elements?.filter(element => !element.isDeleted).length || 0} scene objects.`);
   };
+
+  const captureSessionBaseline = () => {
+    if (!excalidrawAPI) return null;
+    const appState = excalidrawAPI.getAppState();
+    return {
+      version: 1,
+      sceneJson: createDraweratorExchangeJson("scene", excalidrawAPI.getSceneElementsIncludingDeleted()),
+      presentation: {
+        theme,
+        selectedElementIds: appState.selectedElementIds || {},
+        activeTool: appState.activeTool || null,
+        camera: {
+          scrollX: appState.scrollX || 0,
+          scrollY: appState.scrollY || 0,
+          zoom: appState.zoom?.value || 1,
+        },
+        openPanels,
+        panelLayouts,
+        activeDockPanels,
+        collapsedDocks,
+        activeSettingsTab,
+        modsPanelTab,
+      },
+    };
+  };
+
+  const restoreSessionBaseline = async baseline => {
+    if (!baseline?.sceneJson || !excalidrawAPIRef.current) return;
+    await runWithoutSessionSceneRecording(async () => {
+      await importDraweratorSceneText(baseline.sceneJson, { commitToHistory: false });
+      const presentation = baseline.presentation;
+      if (presentation) {
+        if (presentation.theme) setTheme(presentation.theme);
+        if (presentation.openPanels) setOpenPanels(presentation.openPanels);
+        if (presentation.panelLayouts) setPanelLayouts(normalizePanelLayouts(presentation.panelLayouts));
+        if (presentation.activeDockPanels) setActiveDockPanels(presentation.activeDockPanels);
+        if (presentation.collapsedDocks) setCollapsedDocks(presentation.collapsedDocks);
+        if (presentation.activeSettingsTab) setActiveSettingsTab(presentation.activeSettingsTab);
+        if (presentation.modsPanelTab) setModsPanelTab(presentation.modsPanelTab);
+        excalidrawAPIRef.current.updateScene({
+          appState: {
+            selectedElementIds: presentation.selectedElementIds || {},
+            activeTool: presentation.activeTool || undefined,
+            scrollX: presentation.camera?.scrollX,
+            scrollY: presentation.camera?.scrollY,
+            zoom: presentation.camera?.zoom ? { value: presentation.camera.zoom } : undefined,
+          },
+          commitToHistory: false,
+        });
+      }
+    });
+  };
+
+  const applySessionAction = async (action, { emitMidi = false } = {}) => {
+    if (!action?.enabled || !excalidrawAPIRef.current) return;
+    if (action.kind === "command" && action.commandId) {
+      return commandRegistry.execute(action.commandId, action.args || {}, {
+        source: "playback",
+        record: false,
+        transportTime: action.transportTime,
+      });
+    }
+    if (action.kind === "stroke" || action.kind === "scene") {
+      const snapshots = action.args?.finalElements || action.args?.elements || [];
+      const deletedIds = new Set(action.args?.deletedElementIds || []);
+      await runWithoutSessionSceneRecording(async () => {
+        const current = excalidrawAPIRef.current.getSceneElementsIncludingDeleted();
+        const snapshotMap = new Map(snapshots.map(element => [element.id, element]));
+        const existingIds = new Set(current.map(element => element.id));
+        const next = current.map(element => {
+          if (snapshotMap.has(element.id)) return JSON.parse(JSON.stringify(snapshotMap.get(element.id)));
+          if (deletedIds.has(element.id)) return { ...element, isDeleted: true };
+          return element;
+        });
+        for (const element of snapshots) {
+          if (!existingIds.has(element.id)) next.push(JSON.parse(JSON.stringify(element)));
+        }
+        excalidrawAPIRef.current.updateScene({ elements: next, commitToHistory: false });
+      });
+      setModifierUpdateNonce(nonce => nonce + 1);
+      return;
+    }
+    if (action.kind === "midi") {
+      const event = {
+        id: action.id,
+        time: action.transportTime,
+        kind: "playback",
+        description: action.args?.description || "Recorded MIDI event",
+        message: action.args?.message || null,
+      };
+      setScoreEvents(previous => [event, ...previous].slice(0, 100));
+      eventBus.emit("midi.playback", event, { source: "playback" });
+      if (emitMidi && action.args?.pattern) emitIannixMidiPattern(action.args.pattern, action.args.context || {});
+      return;
+    }
+    if (action.kind === "presentation" && action.args?.appState) {
+      await runWithoutSessionSceneRecording(async () => {
+        excalidrawAPIRef.current.updateScene({ appState: action.args.appState, commitToHistory: false });
+      });
+    }
+  };
+
+  runtimeCallbacksRef.current.restoreBaseline = restoreSessionBaseline;
+  runtimeCallbacksRef.current.applyAction = applySessionAction;
+  runtimeCallbacksRef.current.sceneCommand = (commandId, args = {}) => applySessionAction({
+    id: crypto.randomUUID(),
+    enabled: true,
+    kind: "scene",
+    args: commandId === "scene.delete"
+      ? { deletedElementIds: args.elementIds || [] }
+      : { elements: args.elements || [] },
+  });
+
+  const startHistoryRecording = ({ play = false } = {}) => {
+    const baseline = captureSessionBaseline();
+    lastSceneElementsRef.current = new Map(
+      (excalidrawAPI?.getSceneElementsIncludingDeleted() || []).map(element => [element.id, element])
+    );
+    pendingSceneMutationRef.current = null;
+    window.clearTimeout(sceneMutationTimerRef.current);
+    historyController.start({
+      baseline,
+      includePresentation: historyIncludePresentation,
+      clock: { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature },
+      name: `Session ${new Date().toLocaleString()}`,
+    });
+    if (play) setScorePlaying(true);
+  };
+
+  const stopHistory = async () => {
+    const wasRecording = historyController.status === "recording" || historyController.status === "recording-paused";
+    historyController.stop();
+    if (wasRecording) await historyLibrary.put(historyController.get());
+  };
+
+  const playHistory = () => historyController.play({
+    from: 0,
+    restoreBaseline: true,
+    includePresentation: historyIncludePresentation,
+    emitMidi: historyMidiArmed,
+    rate: historySnapshot.playbackRate,
+  });
+
+  const exportHistorySession = () => {
+    downloadTextFile(historyController.export(), `drawerator-session-${new Date().toISOString().slice(0, 10)}.json`);
+  };
+
+  const importHistorySession = text => {
+    historyController.load(parseDraweratorSession(text));
+  };
+
+  const saveHistoryMacro = async (selection = {}, requestedName = "") => {
+    const name = requestedName || window.prompt("Sequence name", "New sequence");
+    if (!name) return;
+    const options = Array.isArray(selection) ? { actionIds: selection } : (selection || {});
+    const macro = createDraweratorMacro(historyController.get(), { ...options, name });
+    await historyLibrary.put(macro);
+    await refreshHistoryMacros();
+  };
+
+  const insertHistoryMacro = (macro, mode = "relative") => {
+    const appState = excalidrawAPI?.getAppState();
+    const center = appState
+      ? viewportCoordsToSceneCoords({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 }, appState)
+      : { x: 0, y: 0 };
+    const actions = instantiateDraweratorMacro(macro, { mode, anchor: { x: center.x, y: center.y } });
+    for (const action of actions) {
+      window.setTimeout(() => applySessionAction(action, { emitMidi: historyMidiArmed }), Math.max(0, action.at * 1000));
+    }
+    eventBus.emit("macro.insert", { id: macro.id, mode, actionCount: actions.length }, { source: "history" });
+  };
+
+  const removeHistoryMacro = async id => {
+    await historyLibrary.remove(id);
+    await refreshHistoryMacros();
+  };
+
+  runtimeCallbacksRef.current.historyStart = startHistoryRecording;
+  runtimeCallbacksRef.current.historyPause = () => historyController.pause();
+  runtimeCallbacksRef.current.historyStop = stopHistory;
+  runtimeCallbacksRef.current.historyPlay = playHistory;
+  runtimeCallbacksRef.current.historySeek = seconds => historyController.seek(seconds, {
+    includePresentation: historyIncludePresentation,
+    emitMidi: historyMidiArmed,
+  });
+  runtimeCallbacksRef.current.macroSave = saveHistoryMacro;
+  runtimeCallbacksRef.current.macroInsert = ({ id, query, mode = "relative" } = {}) => {
+    const needle = String(id || query || "").toLowerCase();
+    const macro = historyMacros.find(candidate => candidate.id === id || candidate.name.toLowerCase() === needle || candidate.name.toLowerCase().includes(needle));
+    if (!macro) throw new Error(`Sequence not found: ${id || query || "(missing id)"}`);
+    insertHistoryMacro(macro, mode);
+  };
+
+  const finishApplyingRecordedUiState = () => {
+    window.setTimeout(() => {
+      applyingRecordedUiStateRef.current = false;
+    }, 50);
+  };
+
+  runtimeCallbacksRef.current.transportSeek = seconds => {
+    applyingRecordedUiStateRef.current = true;
+    setScoreTime(Math.max(0, Number(seconds) || 0));
+    previousCursorStatesRef.current = new Map();
+    visualCursorTransformsRef.current = new Map();
+    activeScoreCollisionsRef.current = new Set();
+    finishApplyingRecordedUiState();
+  };
+  runtimeCallbacksRef.current.transportUpdate = state => {
+    if (!state || typeof state !== "object") return;
+    applyingRecordedUiStateRef.current = true;
+    if (typeof state.playing === "boolean") setScorePlaying(state.playing);
+    if (Number.isFinite(Number(state.rate)) && Number(state.rate) > 0) setScoreRate(Number(state.rate));
+    if (Number.isFinite(Number(state.tempo)) && Number(state.tempo) >= 20 && Number(state.tempo) <= 400) {
+      setScoreTempo(Number(state.tempo));
+    }
+    if (state.timeSignature) setScoreTimeSignature(normalizeTimeSignature(state.timeSignature));
+    if (["frame", "timecode", "beats"].includes(state.displayMode)) setTransportDisplayMode(state.displayMode);
+    if ([24, 25, 30, 50, 60].includes(Number(state.fps))) setTransportFps(Number(state.fps));
+    if (state.loop && typeof state.loop === "object") {
+      if (typeof state.loop.enabled === "boolean") setTransportLoopEnabled(state.loop.enabled);
+      if (Number.isFinite(Number(state.loop.start)) && Number.isFinite(Number(state.loop.end))) {
+        updateTransportLoop(Number(state.loop.start), Number(state.loop.end));
+      }
+    }
+    if (["internal", "send", "receive"].includes(state.midiClockMode)) setMidiClockMode(state.midiClockMode);
+    finishApplyingRecordedUiState();
+  };
+  runtimeCallbacksRef.current.panelStateUpdate = state => {
+    if (!state || typeof state !== "object") return;
+    applyingRecordedUiStateRef.current = true;
+    if (state.openPanels) setOpenPanels(state.openPanels);
+    if (state.panelLayouts) setPanelLayouts(normalizePanelLayouts(state.panelLayouts));
+    if (state.activeDockPanels) setActiveDockPanels(state.activeDockPanels);
+    if (state.collapsedDocks) setCollapsedDocks(state.collapsedDocks);
+    if (typeof state.activeSettingsTab === "string") setActiveSettingsTab(state.activeSettingsTab);
+    if (typeof state.modsPanelTab === "string") setModsPanelTab(state.modsPanelTab);
+    finishApplyingRecordedUiState();
+  };
+  runtimeCallbacksRef.current.boardSettingsUpdate = state => {
+    if (!state || typeof state !== "object") return;
+    applyingRecordedUiStateRef.current = true;
+    if (["dark", "light"].includes(state.theme)) {
+      setTheme(state.theme);
+      excalidrawAPIRef.current?.updateScene({ appState: { theme: state.theme }, commitToHistory: false });
+    }
+    if (typeof state.accentColor === "string") {
+      setAccentColor(state.accentColor);
+      localStorage.setItem("drawerator_accent_color", state.accentColor);
+    }
+    if (typeof state.satoriMode === "boolean") setSatoriMode(state.satoriMode);
+    if (typeof state.showToolbarHints === "boolean") setShowToolbarHints(state.showToolbarHints);
+    if (typeof state.showBottomNotifications === "boolean") setShowBottomNotifications(state.showBottomNotifications);
+    if (typeof state.forceDesktopLayout === "boolean") setForceDesktopLayout(state.forceDesktopLayout);
+    if (typeof state.showDebugLayer === "boolean") setShowDebugLayer(state.showDebugLayer);
+    if (Number.isFinite(Number(state.defaultStabilizerDamping))) {
+      setDefaultStabilizerDamping(Number(state.defaultStabilizerDamping));
+    }
+    finishApplyingRecordedUiState();
+  };
+
+  useEffect(() => {
+    const state = {
+      playing: scorePlaying,
+      rate: scoreRate,
+      tempo: scoreTempo,
+      timeSignature: scoreTimeSignature,
+      displayMode: transportDisplayMode,
+      fps: transportFps,
+      loop: { enabled: transportLoopEnabled, start: transportLoopStart, end: transportLoopEnd },
+      midiClockMode,
+    };
+    const signature = JSON.stringify(state);
+    const previous = transportStateRecordingRef.current?.signature ?? null;
+    window.clearTimeout(transportStateRecordingRef.current?.timer);
+    transportStateRecordingRef.current = { signature, timer: null };
+    if (
+      previous === null || previous === signature || applyingRecordedUiStateRef.current ||
+      historyController.status !== "recording"
+    ) return;
+    transportStateRecordingRef.current.timer = window.setTimeout(() => {
+      commandRegistry.execute("transport.update", { state }, {
+        source: "transport",
+        transportTime: scoreTimeRef.current,
+      }).catch(error => console.error("Could not record transport state", error));
+    }, 180);
+  }, [commandRegistry, historyController, midiClockMode, scorePlaying, scoreRate, scoreTempo, scoreTimeSignature, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopStart]);
+
+  useEffect(() => {
+    const state = { openPanels, panelLayouts, activeDockPanels, collapsedDocks, activeSettingsTab, modsPanelTab };
+    const signature = JSON.stringify(state);
+    const previous = panelStateRecordingRef.current?.signature ?? null;
+    window.clearTimeout(panelStateRecordingRef.current?.timer);
+    panelStateRecordingRef.current = { signature, timer: null };
+    if (
+      previous === null || previous === signature || applyingRecordedUiStateRef.current ||
+      historyController.status !== "recording" || !historyIncludePresentation
+    ) return;
+    panelStateRecordingRef.current.timer = window.setTimeout(() => {
+      commandRegistry.execute("presentation.panels", { state }, {
+        source: "panel",
+        presentation: true,
+        transportTime: scoreTimeRef.current,
+      }).catch(error => console.error("Could not record panel presentation", error));
+    }, 180);
+  }, [activeDockPanels, activeSettingsTab, collapsedDocks, commandRegistry, historyController, historyIncludePresentation, modsPanelTab, openPanels, panelLayouts]);
+
+  useEffect(() => {
+    const state = {
+      theme,
+      accentColor,
+      satoriMode,
+      showToolbarHints,
+      showBottomNotifications,
+      forceDesktopLayout,
+      showDebugLayer,
+      defaultStabilizerDamping,
+    };
+    const signature = JSON.stringify(state);
+    const previous = boardSettingsRecordingRef.current?.signature ?? null;
+    window.clearTimeout(boardSettingsRecordingRef.current?.timer);
+    boardSettingsRecordingRef.current = { signature, timer: null };
+    if (
+      previous === null || previous === signature || applyingRecordedUiStateRef.current ||
+      historyController.status !== "recording" || !historyIncludePresentation
+    ) return;
+    boardSettingsRecordingRef.current.timer = window.setTimeout(() => {
+      commandRegistry.execute("settings.board.update", { state }, {
+        source: "settings",
+        presentation: true,
+        transportTime: scoreTimeRef.current,
+      }).catch(error => console.error("Could not record board settings", error));
+    }, 180);
+  }, [accentColor, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, historyController, historyIncludePresentation, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
+
+  useEffect(() => {
+    const api = {
+      apiVersion: 1,
+      commands: {
+        list: () => commandRegistry.list(),
+        describe: id => commandRegistry.describe(id),
+        execute: (id, args, options) => commandRegistry.execute(id, args, { transportTime: scoreTimeRef.current, ...options }),
+        subscribe: listener => commandRegistry.subscribe(listener),
+      },
+      history: {
+        start: options => runtimeCallbacksRef.current.historyStart(options),
+        pause: () => runtimeCallbacksRef.current.historyPause(),
+        stop: () => runtimeCallbacksRef.current.historyStop(),
+        get: () => historyController.get(),
+        load: session => historyController.load(session),
+        play: options => options
+          ? historyController.play({ includePresentation: historyIncludePresentation, emitMidi: historyMidiArmed, ...options })
+          : runtimeCallbacksRef.current.historyPlay(),
+        pausePlayback: () => historyController.pausePlayback(),
+        stopPlayback: () => historyController.stopPlayback(),
+        seek: seconds => runtimeCallbacksRef.current.historySeek(seconds),
+        export: () => historyController.export(),
+        import: payload => historyController.load(parseDraweratorSession(payload)),
+      },
+      macros: {
+        list: () => historyLibrary.list(DRAWERATOR_MACRO_TYPE),
+        saveRange: options => {
+          const macro = createDraweratorMacro(historyController.get(), options);
+          return historyLibrary.put(macro).then(() => refreshHistoryMacros()).then(() => macro);
+        },
+        insert: (id, options = {}) => runtimeCallbacksRef.current.macroInsert({ id, ...options }),
+        remove: id => historyLibrary.remove(id).then(refreshHistoryMacros),
+      },
+      inputs: {
+        registerAdapter: adapter => inputBus.registerAdapter(adapter),
+        unregisterAdapter: id => inputBus.unregisterAdapter(id),
+        emit: sample => inputBus.emit(sample),
+      },
+      events: {
+        subscribe: (pattern, listener) => eventBus.subscribe(pattern, listener),
+      },
+    };
+    window.drawerator = api;
+    window.dispatchEvent(new CustomEvent("drawerator:ready", { detail: { apiVersion: api.apiVersion } }));
+    return () => {
+      if (window.drawerator === api) delete window.drawerator;
+    };
+  }, [commandRegistry, eventBus, historyController, historyIncludePresentation, historyLibrary, historyMidiArmed, inputBus, refreshHistoryMacros]);
 
   const handleDraweratorSceneFile = async (event) => {
     const file = event.target.files?.[0];
@@ -4506,6 +5324,182 @@ function App() {
     }
   };
 
+  const colorFromIannix = object => {
+    if (object.color?.length >= 3) {
+      const [r, g, b] = object.color.map(value => Math.min(255, Math.max(0, Math.round(value))));
+      return `#${[r, g, b].map(value => value.toString(16).padStart(2, "0")).join("")}`;
+    }
+    if (object.colorHue?.length >= 3) {
+      const [h, s, lightness] = object.colorHue;
+      return `hsl(${((h % 360) + 360) % 360} ${Math.min(100, Math.max(0, s / 2.55))}% ${Math.min(80, Math.max(20, lightness / 5.1))}%)`;
+    }
+    return theme === "light" ? "#1b1b1f" : "#e7e7e9";
+  };
+
+  const applyTrustedIannixImport = async (args = {}) => {
+    if (!excalidrawAPIRef.current) throw new Error("The canvas is not ready.");
+    if (!String(args.source || "").trim()) throw new Error("The IanniX script is empty.");
+    const result = executeTrustedIannixScript(args.source, {
+      trusted: true,
+      seed: Number.isFinite(Number(args.seed)) ? Number(args.seed) : 1,
+      sessionTime: scoreTimeRef.current,
+      files: args.files || {},
+    });
+    const model = buildIannixObjectModel(result.operations);
+    const scale = Math.max(0.01, Number(args.scale) || 40);
+    const anchor = {
+      x: Number(args.anchor?.x) || 0,
+      y: Number(args.anchor?.y) || 0,
+    };
+    const importId = String(args.importId || "iannix").replace(/[^a-z0-9_-]/gi, "_");
+    const internalIds = new Map(model.objects.map(object => [
+      object.externalId,
+      `iannix_${importId}_${String(object.externalId).replace(/[^a-z0-9_-]/gi, "_")}`,
+    ]));
+    const mapPoint = point => [
+      anchor.x + (Number(point?.[0]) || 0) * scale,
+      anchor.y - (Number(point?.[1]) || 0) * scale,
+    ];
+    const imported = [];
+
+    for (const object of model.objects) {
+      const objectPosition = object.position || [0, 0, 0];
+      const positioned = point => mapPoint([
+        (Number(objectPosition[0]) || 0) + (Number(point?.[0]) || 0),
+        (Number(objectPosition[1]) || 0) + (Number(point?.[1]) || 0),
+      ]);
+      const strokeColor = colorFromIannix(object);
+      const alpha = object.color?.[3] ?? object.colorHue?.[3] ?? 255;
+      const opacity = Math.min(100, Math.max(0, Math.round(alpha / 2.55)));
+      const iannix = normalizeIannixData({
+        role: object.role,
+        active: object.active !== false,
+        label: object.label || `${object.role.charAt(0).toUpperCase()}${object.role.slice(1)} ${object.externalId}`,
+        time: { duration: Math.max(0.001, Number(object.speed) || 5) },
+        cursor: object.role === "cursor" ? {
+          curveId: internalIds.get(object.curveExternalId) || null,
+          sourceOpacity: opacity,
+        } : undefined,
+        trigger: object.role === "trigger" ? {
+          midiEnabled: String(object.message || "").includes("midi://"),
+          midiTemplate: String(object.message || "").includes("midi://") ? "custom" : undefined,
+          midiPattern: String(object.message || "").includes("midi://") ? object.message : undefined,
+        } : undefined,
+      });
+      const customData = {
+        iannix,
+        iannixImport: {
+          version: 1,
+          externalId: object.externalId,
+          group: object.group || "",
+          pattern: object.pattern || "",
+          source: args.filename || "IanniX script",
+        },
+      };
+      let element;
+      if (object.role === "curve") {
+        let worldPoints;
+        if (object.ellipse) {
+          worldPoints = Array.from({ length: 49 }, (_, index) => {
+            const angle = index / 48 * Math.PI * 2;
+            return positioned([Math.cos(angle) * object.ellipse[0], Math.sin(angle) * object.ellipse[1]]);
+          });
+        } else {
+          const points = object.points.filter(Boolean);
+          worldPoints = (points.length >= 2 ? points : [[0, 0], [1, 0]]).map(positioned);
+        }
+        const minX = Math.min(...worldPoints.map(point => point[0]));
+        const minY = Math.min(...worldPoints.map(point => point[1]));
+        const maxX = Math.max(...worldPoints.map(point => point[0]));
+        const maxY = Math.max(...worldPoints.map(point => point[1]));
+        element = {
+          ...createBaseElement("line", minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY), strokeColor),
+          points: worldPoints.map(point => [point[0] - minX, point[1] - minY]),
+          strokeWidth: Math.max(0.5, Number(object.width) || 1),
+          roughness: 0,
+          opacity,
+          customData,
+        };
+      } else if (object.role === "cursor") {
+        const center = positioned([0, 0]);
+        const length = Math.max(10, (Number(object.size) || 1) * scale * 0.45);
+        element = {
+          ...createBaseElement("line", center[0], center[1] - length / 2, 1, length, strokeColor),
+          points: [[0, 0], [0, length]],
+          strokeWidth: Math.max(1, Number(object.width) || 2),
+          roughness: 0,
+          opacity: iannix.cursor.curveId ? 0 : opacity,
+          customData,
+        };
+      } else {
+        const center = positioned([0, 0]);
+        const diameter = Math.max(8, (Number(object.size) || 1) * scale * 0.4);
+        element = {
+          ...createBaseElement("ellipse", center[0] - diameter / 2, center[1] - diameter / 2, diameter, diameter, strokeColor),
+          strokeWidth: Math.max(1, Number(object.width) || 2),
+          roughness: 0,
+          opacity,
+          customData,
+        };
+      }
+      element.id = internalIds.get(object.externalId);
+      imported.push(element);
+    }
+
+    await runWithoutSessionSceneRecording(async () => {
+      const current = model.clear ? [] : excalidrawAPIRef.current.getSceneElementsIncludingDeleted();
+      const importedIds = new Set(imported.map(element => element.id));
+      const preserved = current.filter(element => !importedIds.has(element.id));
+      excalidrawAPIRef.current.updateScene({
+        elements: [...preserved, ...imported],
+        appState: { selectedElementIds: Object.fromEntries(imported.map(element => [element.id, true])) },
+        commitToHistory: true,
+      });
+    });
+    setModifierUpdateNonce(nonce => nonce + 1);
+    const report = {
+      filename: args.filename || "IanniX script",
+      objectCount: imported.length,
+      operationCount: result.operations.length,
+      unsupported: result.unsupported,
+    };
+    eventBus.emit("iannix.import.complete", report, { source: "iannix" });
+    setSceneExchangeStatus(
+      `Imported ${imported.length} IanniX object${imported.length === 1 ? "" : "s"}.` +
+      (result.unsupported.length ? ` ${result.unsupported.length} unsupported command${result.unsupported.length === 1 ? " was" : "s were"} reported.` : "")
+    );
+    return report;
+  };
+
+  runtimeCallbacksRef.current.iannixImport = applyTrustedIannixImport;
+
+  const handleTrustedIannixFile = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !excalidrawAPI) return;
+    const trusted = window.confirm(
+      "IanniX files are executable JavaScript. Only continue with a file you trust. This compatibility mode is not a security sandbox."
+    );
+    if (!trusted) return;
+    try {
+      const source = await file.text();
+      const appState = excalidrawAPI.getAppState();
+      const anchor = viewportCoordsToSceneCoords({
+        clientX: (appState.width || window.innerWidth) / 2,
+        clientY: (appState.height || window.innerHeight) / 2,
+      }, appState);
+      await commandRegistry.execute("iannix.import.trusted", {
+        source,
+        filename: file.name,
+        seed: historyController.get()?.seed || 1,
+        anchor,
+        scale: 40,
+      }, { source: "file", transportTime: scoreTimeRef.current });
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not import this IanniX script.");
+    }
+  };
+
   const renderSceneExchangeTools = () => {
     const selectedCount = getSelectedElements().length;
     return (
@@ -4518,13 +5512,15 @@ function App() {
           hidden
           onChange={handleDraweratorSceneFile}
         />
+        <input ref={iannixImportInputRef} type="file" accept=".iannix,.js,text/javascript" hidden onChange={handleTrustedIannixFile} />
         <div className="iannix-data-actions">
           <button type="button" className="iannix-flat-button" onClick={exportDraweratorScene}>Export scene</button>
           <button type="button" className="iannix-flat-button" onClick={() => sceneImportInputRef.current?.click()}>Import scene</button>
           <button type="button" className="iannix-flat-button" onClick={copyDraweratorSelection} disabled={selectedCount === 0}>Copy selection JSON</button>
           <button type="button" className="iannix-flat-button" onClick={pasteDraweratorSelection}>Paste selection JSON</button>
+          <button type="button" className="iannix-flat-button" onClick={() => iannixImportInputRef.current?.click()}>Import trusted .iannix</button>
         </div>
-        <div className="iannix-hint">Includes native Excalidraw geometry, Mods &amp; FX custom data, IanniX roles, links, timing, and MIDI patterns.</div>
+        <div className="iannix-hint">Scene exchange preserves Drawerator metadata. Trusted .iannix compatibility executes familiar run()/load() scripts, reports unsupported commands, and is not a security sandbox.</div>
         {sceneExchangeStatus && <div className="iannix-midi-status" role="status">{sceneExchangeStatus}</div>}
       </section>
     );
@@ -6322,17 +7318,19 @@ function App() {
       transportLoopEnd,
       10,
       scoreTime + 1,
+      historySnapshot.duration,
       ...scoreObjects.map(element => {
         const timing = normalizeIannixData(element.customData?.iannix).time;
         return timing.start + timing.duration / Math.max(0.001, timing.rate || 1);
       }),
     );
+    const commitTransportSeek = seconds => commandRegistry.execute("transport.seek", { seconds }, {
+      source: "transport",
+      transportTime: scoreTimeRef.current,
+    }).catch(error => console.error("Could not seek transport", error));
     const rewind = () => {
       setScorePlaying(false);
-      setScoreTime(transportLoopEnabled ? transportLoopStart : 0);
-      previousCursorStatesRef.current = new Map();
-      visualCursorTransformsRef.current = new Map();
-      activeScoreCollisionsRef.current = new Set();
+      commitTransportSeek(transportLoopEnabled ? transportLoopStart : 0);
     };
     const timelineOptions = { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature };
     const displayValue = formatTimelinePosition(scoreTime, transportDisplayMode, timelineOptions);
@@ -6453,6 +7451,16 @@ function App() {
           <button type="button" onClick={() => setScorePlaying(false)} title="Stop" aria-label="Stop score">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M5 5h14v14H5z" /></svg>
           </button>
+          <button
+            type="button"
+            className={autoKeyEnabled ? "active autokey" : "autokey"}
+            onClick={() => commandRegistry.execute("automation.autokey.toggle", {}, { source: "transport", transportTime: scoreTimeRef.current })}
+            title="Auto-key object changes"
+            aria-label="Toggle auto-key"
+            aria-pressed={autoKeyEnabled}
+          >
+            <span className="transport-autokey-diamond" />
+          </button>
         </div>
 
         <div className="iannix-transport-tempo">
@@ -6498,8 +7506,10 @@ function App() {
           loopStart={transportLoopStart}
           loopEnd={transportLoopEnd}
           onSeek={setScoreTime}
+          onSeekCommit={commitTransportSeek}
           onLoopEnabledChange={setTransportLoopEnabled}
           onLoopChange={updateTransportLoop}
+          automationKeys={collectAutomationKeys(excalidrawAPI.getSceneElements())}
         />
       </div>
     );
@@ -6742,31 +7752,6 @@ function App() {
             </div>
           </div>
         )}
-      </div>
-    );
-  };
-
-  const renderConsoleContent = () => {
-    const selectedObjects = getSelectedElements();
-    const scoreObjects = (excalidrawAPI?.getSceneElements() || []).filter(element =>
-      !element.isDeleted && ["curve", "cursor", "trigger"].includes(element.customData?.iannix?.role)
-    );
-    return (
-      <div className="settings-panel-content">
-        <div className="settings-panel-section">
-          <div className="settings-panel-heading">Scene info</div>
-          <div className="settings-panel-check"><span>Selected objects</span><strong>{selectedObjects.length}</strong></div>
-          <div className="settings-panel-check"><span>Score objects</span><strong>{scoreObjects.length}</strong></div>
-          <label className="settings-panel-check">
-            <span>Show score-object labels</span>
-            <input type="checkbox" checked={showIannixLabels} onChange={event => setShowIannixLabels(event.target.checked)} />
-          </label>
-        </div>
-        <div className="settings-panel-section">
-          <div className="settings-panel-heading">Score activity</div>
-          <div className="settings-panel-check"><span>Events</span><strong>{scoreEvents.length}</strong></div>
-          <div className="settings-panel-status">{midiClockStatus}</div>
-        </div>
       </div>
     );
   };
@@ -7021,6 +8006,112 @@ function App() {
               setModifierUpdateNonce(n => n + 1);
             }
 
+            const presentationState = {
+              selectedElementIds: appState.selectedElementIds || {},
+              activeTool: appState.activeTool || null,
+              scrollX: appState.scrollX || 0,
+              scrollY: appState.scrollY || 0,
+              zoom: appState.zoom || { value: 1 },
+            };
+            const presentationChanged = JSON.stringify(presentationState) !== JSON.stringify(lastPresentationStateRef.current);
+            lastPresentationStateRef.current = presentationState;
+            if (
+              presentationChanged &&
+              historyIncludePresentation &&
+              historyController.status === "recording" &&
+              historySuppressSceneRef.current === 0
+            ) {
+              pendingPresentationRef.current = presentationState;
+              window.clearTimeout(presentationTimerRef.current);
+              presentationTimerRef.current = window.setTimeout(() => {
+                const next = pendingPresentationRef.current;
+                pendingPresentationRef.current = null;
+                if (!next) return;
+                historyController.record({
+                  kind: "presentation",
+                  presentation: true,
+                  track: "presentation",
+                  source: "excalidraw",
+                  transportTime: scoreTimeRef.current,
+                  args: { label: "View / selection", appState: next },
+                });
+              }, 120);
+            }
+
+            const previousSceneMap = lastSceneElementsRef.current;
+            let effectiveElements = elements;
+            if (
+              autoKeyEnabled &&
+              !autoKeyApplyingRef.current &&
+              historySuppressSceneRef.current === 0 &&
+              previousSceneMap.size > 0
+            ) {
+              let keyed = false;
+              effectiveElements = elements.map(element => {
+                const previous = previousSceneMap.get(element.id);
+                const next = autoKeyElement(previous, element, scoreTimeRef.current);
+                if (next === element) return element;
+                keyed = true;
+                const version = (element.version || 0) + 1;
+                return {
+                  ...next,
+                  version,
+                  versionNonce: Math.floor(Math.random() * 0x7fffffff),
+                  updated: Date.now(),
+                  customData: {
+                    ...(next.customData || {}),
+                    ...(next.customData?.modifiers?.length ? { excalidrawVersion: version } : {}),
+                  },
+                };
+              });
+              if (keyed) {
+                autoKeyApplyingRef.current = true;
+                excalidrawAPI.updateScene({ elements: effectiveElements, commitToHistory: false });
+                window.setTimeout(() => { autoKeyApplyingRef.current = false; }, 0);
+              }
+            }
+
+            const currentSceneMap = new Map(effectiveElements.map(element => [element.id, element]));
+            const changedElements = effectiveElements.filter(element => {
+              const previous = previousSceneMap.get(element.id);
+              return !previous || previous.version !== element.version || previous.isDeleted !== element.isDeleted;
+            });
+            const removedElementIds = [...previousSceneMap.keys()].filter(id => !currentSceneMap.has(id));
+            lastSceneElementsRef.current = currentSceneMap;
+
+            if (
+              historyController.status === "recording" &&
+              historySuppressSceneRef.current === 0 &&
+              !strokeRecordingSuppressedRef.current &&
+              !evaluatingModifiersRef.current &&
+              (changedElements.length > 0 || removedElementIds.length > 0)
+            ) {
+              pendingSceneMutationRef.current = mergeSceneMutation(pendingSceneMutationRef.current, {
+                previousElements: previousSceneMap,
+                changedElements,
+                removedElementIds,
+              });
+              window.clearTimeout(sceneMutationTimerRef.current);
+              sceneMutationTimerRef.current = window.setTimeout(() => {
+                const mutation = pendingSceneMutationRef.current;
+                pendingSceneMutationRef.current = null;
+                if (!mutation) return;
+                const duration = Math.max(0, performance.now() - mutation.startedAt) / 1000;
+                const groupId = crypto.randomUUID();
+                const recordSceneCommand = (commandId, args) => commandRegistry.execute(commandId, args, {
+                  source: "excalidraw",
+                  groupId,
+                  duration,
+                  transportTime: scoreTimeRef.current,
+                }).catch(error => console.error("Could not record scene command", error));
+                if (mutation.created.size) recordSceneCommand("scene.create", { elements: [...mutation.created.values()] });
+                if (mutation.updated.size) recordSceneCommand("scene.update", { elements: [...mutation.updated.values()] });
+                if (mutation.deletedElementIds.size) recordSceneCommand("scene.delete", { elementIds: [...mutation.deletedElementIds] });
+              }, 180);
+            }
+
+            if (effectiveElements !== elements) return;
+
             if (!evaluatingModifiersRef.current && excalidrawAPI) {
               // 1. Clean up children of deleted parents
               const deletedParentIds = new Set(
@@ -7234,20 +8325,23 @@ function App() {
             <MainMenu.Separator />
             <MainMenu.DefaultItems.ToggleTheme />
             <MainMenu.Separator />
-            <MainMenu.Item onSelect={toggleLibrary}>Library</MainMenu.Item>
-            <MainMenu.Item onSelect={() => toggleDraweratorPanel("chat")}>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("library", {}, { source: "menu", transportTime: scoreTimeRef.current })}>Library</MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-chat", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               AI Assistant
             </MainMenu.Item>
-            <MainMenu.Item onSelect={() => toggleDraweratorPanel("mods")}>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-mods", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Mods &amp; FX
             </MainMenu.Item>
-            <MainMenu.Item onSelect={() => toggleDraweratorPanel("settings")}>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-settings", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Settings
             </MainMenu.Item>
-            <MainMenu.Item onSelect={() => toggleDraweratorPanel("console")}>
-              Console / Info
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-console", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              Console
             </MainMenu.Item>
-            <MainMenu.Item onSelect={() => toggleDraweratorPanel("transport")}>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-history", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              History
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-transport", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Transport
             </MainMenu.Item>
             <MainMenu.Separator />
@@ -7763,7 +8857,7 @@ function App() {
           {shouldRenderPanel("console") && (
           <DraweratorPanel
             id="console"
-            title="Console / Info"
+            title="Console"
             placement={panelLayouts.console.placement}
             layout={panelLayouts.console}
             dockTabs={getPanelDockTabs("console")}
@@ -7778,7 +8872,55 @@ function App() {
             collapsed={panelLayouts.console.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.console.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.console.placement]: false }))}
           >
-            {renderConsoleContent()}
+            <EventConsole eventBus={eventBus} commandRegistry={commandRegistry} transportTime={scoreTime} />
+          </DraweratorPanel>
+          )}
+
+          {shouldRenderPanel("history") && (
+          <DraweratorPanel
+            id="history"
+            title="History"
+            placement={panelLayouts.history.placement}
+            layout={panelLayouts.history}
+            dockTabs={getPanelDockTabs("history")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.history.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("history", placement)}
+            onDragStart={event => startSidebarPanelDrag("history", event)}
+            onClose={() => closeDraweratorPanel("history")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.history.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.history.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.history.placement]: false }))}
+          >
+            <HistoryPanel
+              snapshot={historySnapshot}
+              commands={commandRegistry.list()}
+              macros={historyMacros}
+              includePresentation={historyIncludePresentation}
+              emitMidi={historyMidiArmed}
+              showPointer={historyShowPointer}
+              onIncludePresentationChange={setHistoryIncludePresentation}
+              onEmitMidiChange={setHistoryMidiArmed}
+              onShowPointerChange={setHistoryShowPointer}
+              onStart={() => startHistoryRecording()}
+              onPause={() => historyController.pause()}
+              onStop={stopHistory}
+              onPlay={playHistory}
+              onPlayAction={id => historyController.playAction(id, { emitMidi: historyMidiArmed })}
+              onSeek={seconds => historyController.seek(seconds, { includePresentation: historyIncludePresentation, emitMidi: historyMidiArmed })}
+              onRateChange={rate => historyController.setPlaybackRate(rate)}
+              onUpdateAction={(id, patch) => historyController.updateAction(id, patch)}
+              onRemoveAction={id => historyController.removeAction(id)}
+              onDuplicateAction={id => historyController.duplicateAction(id)}
+              onMoveAction={(id, direction) => historyController.moveAction(id, direction)}
+              onSaveMacro={saveHistoryMacro}
+              onInsertMacro={insertHistoryMacro}
+              onRemoveMacro={removeHistoryMacro}
+              onExport={exportHistorySession}
+              onImport={importHistorySession}
+            />
           </DraweratorPanel>
           )}
 
@@ -8089,6 +9231,30 @@ function App() {
           </svg>
         )}
 
+        {sessionPlaybackOverlay.length > 0 && (
+          <svg className="drawerator-session-playback-overlay" aria-hidden="true">
+            {sessionPlaybackOverlay.flatMap(stroke => (stroke.paths.length ? stroke.paths : [stroke.samples.map(sample => [sample.scene.x, sample.scene.y])]).map((path, index) => {
+              const screenPath = path.map(point => mapCanvasToScreen(point[0], point[1]));
+              return screenPath.length >= 2 ? (
+                <polyline
+                  key={`${stroke.id}-${index}`}
+                  points={screenPath.map(point => `${point[0]},${point[1]}`).join(" ")}
+                  fill="none"
+                  stroke={getThemeColor(stroke.strokeColor)}
+                  strokeWidth={stroke.strokeWidth * (excalidrawAPI?.getAppState().zoom.value || 1)}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              ) : null;
+            }))}
+            {historyShowPointer && sessionPlaybackOverlay.map(stroke => {
+              if (!stroke.pointer?.scene) return null;
+              const [x, y] = mapCanvasToScreen(stroke.pointer.scene.x, stroke.pointer.scene.y);
+              return <g key={`${stroke.id}-pointer`} transform={`translate(${x} ${y})`}><circle r="7" className="drawerator-session-pointer-ring"/><circle r="2.5" className="drawerator-session-pointer-core"/></g>;
+            })}
+          </svg>
+        )}
+
         {renderGlobalModifiersOverlay()}
         {renderIannixOverlay()}
         {renderIannixTransport()}
@@ -8124,7 +9290,12 @@ function App() {
                       setSelectedIndex(prev => (prev - 1 + filtered.length) % filtered.length);
                     } else if (e.key === "Enter") {
                       e.preventDefault();
-                      if (filtered[selectedIndex]) {
+                      const slashInvocation = parseSlashInvocation(commandSearch);
+                      if (slashInvocation?.error) {
+                        setSceneExchangeStatus(slashInvocation.error);
+                      } else if (slashInvocation?.command) {
+                        executeCommand(slashInvocation.command, slashInvocation.args, "slash");
+                      } else if (filtered[selectedIndex]) {
                         executeCommand(filtered[selectedIndex]);
                       }
                     } else if (e.key === "Escape") {

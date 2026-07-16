@@ -14,14 +14,26 @@ const TransportTimeline = memo(function TransportTimeline({
   loopStart,
   loopEnd,
   onSeek,
+  onSeekCommit = onSeek,
   onLoopEnabledChange,
   onLoopChange,
+  automationKeys = [],
 }) {
   const trackRef = useRef(null);
   const dragRef = useRef(null);
   const safeDuration = Math.max(0.001, duration);
   const options = useMemo(() => ({ fps, tempo, signature }), [fps, tempo, signature]);
   const ticks = useMemo(() => createTimelineTicks(safeDuration, 12), [safeDuration]);
+  const interactionRef = useRef(null);
+  interactionRef.current = {
+    fps,
+    loopEnd,
+    loopStart,
+    onLoopChange,
+    onSeek,
+    onSeekCommit,
+    safeDuration,
+  };
 
   const timeFromPointer = useCallback(clientX => {
     const rect = trackRef.current?.getBoundingClientRect();
@@ -30,53 +42,93 @@ const TransportTimeline = memo(function TransportTimeline({
   }, [safeDuration]);
 
   useEffect(() => {
-    const handleMove = event => {
+    const releaseDrag = event => {
       const drag = dragRef.current;
-      if (!drag) return;
-      const time = timeFromPointer(event.clientX);
-      if (drag.kind === "playhead") {
-        onSeek(time);
-      } else if (drag.kind === "loop-start") {
-        onLoopChange(Math.min(time, loopEnd - 1 / fps), loopEnd);
-      } else if (drag.kind === "loop-end") {
-        onLoopChange(loopStart, Math.max(time, loopStart + 1 / fps));
-      } else if (drag.kind === "loop-range") {
-        const width = drag.end - drag.start;
-        const nextStart = clamp(time - drag.offset, 0, Math.max(0, safeDuration - width));
-        onLoopChange(nextStart, nextStart + width);
+      if (!drag || (event?.pointerId != null && drag.pointerId !== event.pointerId)) return;
+      if (drag.kind === "playhead" && Number.isFinite(drag.time)) {
+        interactionRef.current.onSeekCommit(drag.time);
       }
-    };
-    const handleUp = () => {
+      try {
+        if (drag.captureTarget?.hasPointerCapture?.(drag.pointerId)) {
+          drag.captureTarget.releasePointerCapture(drag.pointerId);
+        }
+      } catch {
+        // Pointer capture may already be released by the browser.
+      }
       dragRef.current = null;
     };
+    const handleMove = event => {
+      const drag = dragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const {
+        fps: currentFps,
+        loopEnd: currentLoopEnd,
+        loopStart: currentLoopStart,
+        onLoopChange: changeLoop,
+        onSeek: seek,
+        safeDuration: currentDuration,
+      } = interactionRef.current;
+      const rect = trackRef.current?.getBoundingClientRect();
+      if (!rect?.width) return;
+      const time = clamp((event.clientX - rect.left) / rect.width * currentDuration, 0, currentDuration);
+      if (drag.kind === "playhead") {
+        drag.time = time;
+        seek(time);
+      } else if (drag.kind === "loop-start") {
+        changeLoop(Math.min(time, currentLoopEnd - 1 / currentFps), currentLoopEnd);
+      } else if (drag.kind === "loop-end") {
+        changeLoop(currentLoopStart, Math.max(time, currentLoopStart + 1 / currentFps));
+      } else if (drag.kind === "loop-range") {
+        const width = drag.end - drag.start;
+        const nextStart = clamp(time - drag.offset, 0, Math.max(0, currentDuration - width));
+        changeLoop(nextStart, nextStart + width);
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") releaseDrag();
+    };
     window.addEventListener("pointermove", handleMove);
-    window.addEventListener("pointerup", handleUp);
-    window.addEventListener("pointercancel", handleUp);
+    window.addEventListener("pointerup", releaseDrag);
+    window.addEventListener("pointercancel", releaseDrag);
+    window.addEventListener("blur", releaseDrag);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("pointerup", handleUp);
-      window.removeEventListener("pointercancel", handleUp);
+      window.removeEventListener("pointerup", releaseDrag);
+      window.removeEventListener("pointercancel", releaseDrag);
+      window.removeEventListener("blur", releaseDrag);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [fps, loopEnd, loopStart, onLoopChange, onSeek, safeDuration, timeFromPointer]);
+  }, []);
+
+  const beginDrag = (event, drag) => {
+    if (event.button !== 0) return false;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    dragRef.current = {
+      ...drag,
+      pointerId: event.pointerId,
+      captureTarget: event.currentTarget,
+    };
+    return true;
+  };
 
   const startPlayheadDrag = event => {
     if (event.button !== 0) return;
-    event.preventDefault();
     const time = timeFromPointer(event.clientX);
     if (event.shiftKey) {
       onLoopEnabledChange(true);
       onLoopChange(time, Math.min(safeDuration, time + Math.max(1 / fps, safeDuration * 0.01)));
-      dragRef.current = { kind: "loop-end" };
+      beginDrag(event, { kind: "loop-end" });
       return;
     }
     onSeek(time);
-    dragRef.current = { kind: "playhead" };
+    beginDrag(event, { kind: "playhead", time });
   };
 
   const playheadPercent = clamp(currentTime / safeDuration * 100, 0, 100);
   const loopStartPercent = clamp(loopStart / safeDuration * 100, 0, 100);
   const loopEndPercent = clamp(loopEnd / safeDuration * 100, 0, 100);
-
   return (
     <div className="iannix-timeline" aria-label="Score timeline">
       <div className="iannix-timeline-ruler" aria-hidden="true">
@@ -93,6 +145,9 @@ const TransportTimeline = memo(function TransportTimeline({
         title="Drag to seek · Shift-drag to mark a loop"
       >
         {ticks.map(tick => <i className="iannix-timeline-gridline" key={tick.percent} style={{ left: `${tick.percent}%` }} />)}
+        <div className="iannix-timeline-key-lane" aria-label="Object automation keyframes">
+          {automationKeys.map(key => <i key={`${key.elementId}-${key.path}-${key.id}`} className="iannix-timeline-key" style={{ left: `${clamp(key.time / safeDuration * 100, 0, 100)}%` }} title={`${key.path} · ${formatTimelinePosition(key.time, displayMode, options)}`} />)}
+        </div>
         {loopEnabled ? (
           <>
             <button
@@ -102,7 +157,7 @@ const TransportTimeline = memo(function TransportTimeline({
               onPointerDown={event => {
                 event.stopPropagation();
                 const time = timeFromPointer(event.clientX);
-                dragRef.current = { kind: "loop-range", start: loopStart, end: loopEnd, offset: time - loopStart };
+                beginDrag(event, { kind: "loop-range", start: loopStart, end: loopEnd, offset: time - loopStart });
               }}
               aria-label="Move loop range"
               title="Drag loop range"
@@ -113,7 +168,7 @@ const TransportTimeline = memo(function TransportTimeline({
               style={{ left: `${loopStartPercent}%` }}
               onPointerDown={event => {
                 event.stopPropagation();
-                dragRef.current = { kind: "loop-start" };
+                beginDrag(event, { kind: "loop-start" });
               }}
               aria-label="Set loop start"
               title={`Loop start ${formatTimelinePosition(loopStart, displayMode, options)}`}
@@ -124,7 +179,7 @@ const TransportTimeline = memo(function TransportTimeline({
               style={{ left: `${loopEndPercent}%` }}
               onPointerDown={event => {
                 event.stopPropagation();
-                dragRef.current = { kind: "loop-end" };
+                beginDrag(event, { kind: "loop-end" });
               }}
               aria-label="Set loop end"
               title={`Loop end ${formatTimelinePosition(loopEnd, displayMode, options)}`}

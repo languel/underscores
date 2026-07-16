@@ -87,6 +87,12 @@ The Trigger panel provides these templates while keeping the URL pattern editabl
 
 IanniX JavaScript expressions and the `/pgm` and `/bend` message families remain future extensions.
 
+### Trusted `.iannix` import
+
+The Scene data section can execute an explicitly trusted `.iannix`/JavaScript score. The compatibility runner provides IanniX's `run()`, `load()`, `loadJSON()`, `makeWithScript()`, common math helpers, deterministic session time, and seeded randomness. Supported object/geometry/link/property commands are collected into the recordable `iannix.import.trusted` command and translated to native Drawerator elements with stable import IDs. Missing or unsupported commands are reported through UI status and events instead of being silently discarded.
+
+This is trusted executable compatibility mode, not a sandbox or security boundary. Drawerator always presents a warning before file execution.
+
 ## Core geometry versus rendered appearance
 
 Score evaluation uses the underlying editable object, not live modifier output:

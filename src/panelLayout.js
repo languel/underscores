@@ -10,6 +10,7 @@ export const DEFAULT_PANEL_LAYOUTS = Object.freeze({
   settings: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 48, y: 88, width: 380, height: 760 }),
   mods: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 72, y: 104, width: 380, height: 760 }),
   console: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 96, y: 120, width: 340, height: 420 }),
+  history: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 120, y: 136, width: 420, height: 720 }),
   transport: Object.freeze({ placement: PANEL_PLACEMENTS.BOTTOM, x: 32, y: 32, width: 960, height: 114 }),
 });
 
