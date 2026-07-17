@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  createIannixMidiVoiceTracker,
   getIannixTriggerMidiContext,
   getIannixMidiTemplatePattern,
   parseIannixMidiPattern,
@@ -16,8 +17,8 @@ test("parses IanniX floating note patterns and schedules matching bytes", () => 
   assert.equal(message.port, "midi_out");
   assert.equal(message.channel, 2);
   assert.equal(message.note, 95);
-  assert.equal(message.velocity, 64);
-  assert.deepEqual(message.noteOn, [0x91, 95, 64]);
+  assert.equal(message.velocity, 63);
+  assert.deepEqual(message.noteOn, [0x91, 95, 63]);
   assert.deepEqual(message.noteOff, [0x81, 95, 0]);
 });
 
@@ -48,6 +49,42 @@ test("MIDI send queues note-off after the IanniX duration", () => {
     { bytes: [0x90, 60, 100], time: 1000 },
     { bytes: [0x80, 60, 0], time: 1250 },
   ]);
+});
+
+test("voice tracking does not let an older same-note expiry cut off a retrigger", () => {
+  let now = 1000;
+  let timerId = 0;
+  const timers = new Map();
+  const sent = [];
+  const output = { send: (bytes, time) => sent.push({ bytes, time: time ?? now }) };
+  const tracker = createIannixMidiVoiceTracker({
+    now: () => now,
+    setTimer: (callback, delay) => {
+      const id = ++timerId;
+      timers.set(id, { callback, due: now + delay });
+      return id;
+    },
+    clearTimer: id => timers.delete(id),
+  });
+  const runTo = target => {
+    now = target;
+    [...timers.entries()]
+      .filter(([, timer]) => timer.due <= target)
+      .sort((a, b) => a[1].due - b[1].due)
+      .forEach(([id, timer]) => {
+        timers.delete(id);
+        timer.callback();
+      });
+  };
+  const message = parseIannixMidiPattern("midi://midi_out/note 1 60 100 0.25");
+  tracker.send(output, message, 1000);
+  now = 1100;
+  tracker.send(output, message, 1100);
+  runTo(1250);
+  assert.equal(sent.filter(event => event.bytes[0] === 0x80).length, 0);
+  runTo(1350);
+  assert.equal(sent.filter(event => event.bytes[0] === 0x80).length, 1);
+  assert.deepEqual(sent.slice(0, 2).map(event => event.bytes), [message.noteOn, message.noteOn]);
 });
 
 test("trigger context maps curve bounds to IanniX-style normalized values", () => {

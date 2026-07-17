@@ -4,11 +4,11 @@ import { Excalidraw, MainMenu, exportToSvg, exportToCanvas, loadFromBlob, serial
 import "./App.css";
 import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, isDrawableTrack, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
 import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, isRuntimeCursor, normalizeIannixData, transformPaths } from "./iannixEngine.js";
-import { describeIannixMidiMessage, getIannixMidiTemplatePattern, getIannixTriggerMidiContext, IANNIX_MIDI_TEMPLATES, parseIannixMidiPattern, selectIannixTriggerCursor, sendIannixMidiMessage } from "./iannixMidi.js";
+import { createIannixMidiVoiceTracker, describeIannixMidiMessage, getIannixMidiTemplatePattern, getIannixTriggerMidiContext, IANNIX_MIDI_TEMPLATES, parseIannixMidiPattern, selectIannixTriggerCursor } from "./iannixMidi.js";
 import { attachDraweratorExchangeMetadata, getSelectionExchangeElements, parseDraweratorExchange, remapSelectionForImport } from "./sceneExchange.js";
 import { DRAWERATOR_PANELS } from "./panelRegistry.js";
 import { getDockTarget, getOpenPanelsForPlacement, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
-import { estimateMidiClockTempo, formatTimelinePosition, MIDI_REALTIME, midiClockIntervalMs, normalizeTimeSignature, parseTimelinePosition, secondsToFrame, songPositionToSeconds } from "./transport.js";
+import { advanceMidiClockReceiver, createMidiClockReceiverState, formatTimelinePosition, MIDI_REALTIME, midiClockIntervalMs, normalizeTimeSignature, parseTimelinePosition, secondsToFrame, songPositionToSeconds } from "./transport.js";
 import PanelPlacementControls from "./PanelPlacementControls.jsx";
 import DraweratorPanel from "./DraweratorPanel.jsx";
 import TransportTimeline from "./TransportTimeline.jsx";
@@ -20,8 +20,9 @@ import IannixDataPanel from "./IannixDataPanel.jsx";
 import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, parseGenericCommandSlash } from "./commandSystem.js";
 import { autoKeyElement, collectAutomationKeys, evaluateElementAutomation } from "./automation.js";
 import { createDraweratorMacro, DRAWERATOR_MACRO_TYPE, DraweratorLibraryStore, DraweratorSessionController, instantiateDraweratorMacro, mergeSceneMutation, parseDraweratorSession } from "./sessionHistory.js";
-import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCurveStartAngle, serializeBezierElementToIannixCommands } from "./iannixScript.js";
+import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCursorLoopMode, getIannixCurveStartAngle, serializeBezierElementToIannixCommands, tokenizeIannixCommand } from "./iannixScript.js";
 import { bezierWorldPointToLocal, createBezierGeometryFromElement, createBezierHostGeometry, findNearestBezierLocation, getBezierWorldAnchors, hasCubicBezierGeometry, normalizeBezierGeometry, normalizeBezierHostElement, reframeBezierElement, removeBezierAnchor, setBezierAnchorMode, setElementBezierGeometry, splitBezierSegment, updateBezierAnchor } from "./bezierGeometry.js";
+import { getScriptParameterValues, parseScriptParameters } from "./scriptParameters.js";
 
 // System Prompt guiding the local LLM on drawing tools
 const SYSTEM_PROMPT = `You are "Drawerator", an autonomous, high-performance drawing assistant.
@@ -53,6 +54,23 @@ Guidelines:
 `;
 
 const INITIAL_GREETING = "Hello! I am your drawing assistant powered by local AI. You can write prompts like \"draw a flow chart\", \"sketch a house\", or \"clear the canvas\" and I will execute the drawing tools programmatically!";
+
+const MIDI_PORT_NONE = "";
+const MIDI_PORT_ALL = "__all__";
+
+const resolveMidiOutputs = (access, portId) => {
+  if (!access || portId === MIDI_PORT_NONE) return [];
+  if (portId === MIDI_PORT_ALL) return [...access.outputs.values()];
+  const output = access.outputs.get(portId);
+  return output ? [output] : [];
+};
+
+const resolveMidiInputs = (access, portId) => {
+  if (!access || portId === MIDI_PORT_NONE) return [];
+  if (portId === MIDI_PORT_ALL) return [...access.inputs.values()];
+  const input = access.inputs.get(portId);
+  return input ? [input] : [];
+};
 
 function createBaseElement(type, x, y, width, height, strokeColor = "#f8fafc") {
   return {
@@ -1231,45 +1249,7 @@ const pointsToSmoothSvgPath = (points) => {
   return path;
 };
 
-const parseParameters = (code) => {
-  if (!code) return [];
-  const params = [];
-  const lines = code.split("\n");
-  for (const line of lines) {
-    const m = /^\s*\/\/\s*@param\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*([0-9.-]+)(?:\s*\(([^)]+)\))?/.exec(line);
-    if (m) {
-      const name = m[1];
-      const defaultValue = parseFloat(m[2]);
-      let min = defaultValue < 0 ? defaultValue * 2 : 0;
-      let max = defaultValue > 0 ? defaultValue * 2 : 100;
-      if (min === max) { min = 0; max = 100; }
-      let step = defaultValue % 1 === 0 ? 1 : 0.01;
-      
-      const rangeStr = m[3];
-      if (rangeStr) {
-        const rangeMatch = /([0-9.-]+)\s*\.\.\s*([0-9.-]+)/.exec(rangeStr);
-        if (rangeMatch) {
-          min = parseFloat(rangeMatch[1]);
-          max = parseFloat(rangeMatch[2]);
-        }
-        const stepMatch = /step\s*:\s*([0-9.-]+)/.exec(rangeStr);
-        if (stepMatch) {
-          step = parseFloat(stepMatch[1]);
-        }
-      }
-      
-      params.push({
-        name,
-        default: defaultValue,
-        min,
-        max,
-        step,
-        value: defaultValue
-      });
-    }
-  }
-  return params;
-};
+const parseParameters = code => parseScriptParameters(code);
 
 const updateCodeWithParamValues = (code, params) => {
   let updatedCode = code;
@@ -1417,6 +1397,7 @@ function App() {
   const [modsPanelTab, setModsPanelTab] = useState("stack");
   const [iannixPanelTab, setIannixPanelTab] = useState("data");
   const [iannixScriptSource, setIannixScriptSource] = useState("");
+  const [iannixCommandSource, setIannixCommandSource] = useState("");
   const [iannixScripts, setIannixScripts] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("drawerator_iannix_scripts") || "[]");
@@ -1464,6 +1445,15 @@ function App() {
     const saved = localStorage.getItem("drawerator_midi_clock_mode");
     return ["send", "receive"].includes(saved) ? saved : "internal";
   });
+  const [followMidiClockTempo, setFollowMidiClockTempo] = useState(() =>
+    localStorage.getItem("drawerator_follow_midi_clock_tempo") === "true"
+  );
+  const [followMidiTransport, setFollowMidiTransport] = useState(() =>
+    localStorage.getItem("drawerator_follow_midi_transport") !== "false"
+  );
+  const [latchTriggersAcrossCursors, setLatchTriggersAcrossCursors] = useState(() =>
+    localStorage.getItem("drawerator_latch_triggers_across_cursors") !== "false"
+  );
   const [midiInputs, setMidiInputs] = useState([]);
   const [midiInputId, setMidiInputId] = useState(() => localStorage.getItem("drawerator_iannix_midi_input") || "");
   const [midiClockStatus, setMidiClockStatus] = useState("Internal clock");
@@ -1490,12 +1480,17 @@ function App() {
   const previousCursorStatesRef = useRef(new Map());
   const visualCursorTransformsRef = useRef(new Map());
   const activeScoreCollisionsRef = useRef(new Set());
+  const triggerCollisionLockoutsRef = useRef(new Map());
   const triggerPulseUntilRef = useRef(new Map());
   const midiAccessRef = useRef(null);
   const midiOutputIdRef = useRef(midiOutputId);
   const midiInputIdRef = useRef(midiInputId);
-  const midiClockLastTimestampRef = useRef(null);
   const midiClockTempoRef = useRef(scoreTempo);
+  const midiClockReceiverRef = useRef(createMidiClockReceiverState(scoreTempo));
+  const midiClockRunningRef = useRef(false);
+  const scorePlayingRef = useRef(scorePlaying);
+  const midiVoiceTrackerRef = useRef(null);
+  if (!midiVoiceTrackerRef.current) midiVoiceTrackerRef.current = createIannixMidiVoiceTracker();
   const tapTempoTimesRef = useRef([]);
   const transportDragRef = useRef(null);
   const panelDragRef = useRef(null);
@@ -1613,6 +1608,13 @@ function App() {
   useEffect(() => {
     scoreTimeRef.current = scoreTime;
   }, [scoreTime]);
+
+  useEffect(() => {
+    scorePlayingRef.current = scorePlaying;
+    if (!scorePlaying) midiVoiceTrackerRef.current?.panic();
+  }, [scorePlaying]);
+
+  useEffect(() => () => midiVoiceTrackerRef.current?.panic(), []);
 
   useEffect(() => historyController.subscribe((snapshot, eventName) => {
     setHistorySnapshot(snapshot);
@@ -1809,7 +1811,10 @@ function App() {
     localStorage.setItem("drawerator_transport_loop_start", String(transportLoopStart));
     localStorage.setItem("drawerator_transport_loop_end", String(transportLoopEnd));
     localStorage.setItem("drawerator_midi_clock_mode", midiClockMode);
-  }, [midiClockMode, scoreTimeSignature, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopStart]);
+    localStorage.setItem("drawerator_follow_midi_clock_tempo", String(followMidiClockTempo));
+    localStorage.setItem("drawerator_follow_midi_transport", String(followMidiTransport));
+    localStorage.setItem("drawerator_latch_triggers_across_cursors", String(latchTriggersAcrossCursors));
+  }, [followMidiClockTempo, followMidiTransport, latchTriggersAcrossCursors, midiClockMode, scoreTimeSignature, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopStart]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_panel_layout_v1", JSON.stringify(panelLayouts));
@@ -1849,6 +1854,7 @@ function App() {
   useEffect(() => {
     midiOutputIdRef.current = midiOutputId;
     localStorage.setItem("drawerator_iannix_midi_output", midiOutputId);
+    midiVoiceTrackerRef.current?.panic();
   }, [midiOutputId]);
 
   useEffect(() => {
@@ -1867,10 +1873,9 @@ function App() {
       }));
       setMidiOutputs(outputs);
       const currentId = midiOutputIdRef.current;
-      if (!outputs.some(output => output.id === currentId)) {
-        const nextId = outputs[0]?.id || "";
-        midiOutputIdRef.current = nextId;
-        setMidiOutputId(nextId);
+      if (currentId !== MIDI_PORT_NONE && currentId !== MIDI_PORT_ALL && !outputs.some(output => output.id === currentId)) {
+        midiOutputIdRef.current = MIDI_PORT_NONE;
+        setMidiOutputId(MIDI_PORT_NONE);
       }
       const inputs = [...midiAccess.inputs.values()].map(input => ({
         id: input.id,
@@ -1879,10 +1884,9 @@ function App() {
         state: input.state,
       }));
       setMidiInputs(inputs);
-      if (!inputs.some(input => input.id === midiInputIdRef.current)) {
-        const nextInputId = inputs[0]?.id || "";
-        midiInputIdRef.current = nextInputId;
-        setMidiInputId(nextInputId);
+      if (midiInputIdRef.current !== MIDI_PORT_NONE && midiInputIdRef.current !== MIDI_PORT_ALL && !inputs.some(input => input.id === midiInputIdRef.current)) {
+        midiInputIdRef.current = MIDI_PORT_NONE;
+        setMidiInputId(MIDI_PORT_NONE);
       }
       setMidiStatus(`${inputs.length} in · ${outputs.length} out`);
     };
@@ -1913,66 +1917,93 @@ function App() {
 
   useEffect(() => {
     if (!midiAccess || midiClockMode !== "receive") return undefined;
-    const input = midiAccess.inputs.get(midiInputId) || [...midiAccess.inputs.values()][0];
-    if (!input) {
+    const inputs = resolveMidiInputs(midiAccess, midiInputId);
+    if (inputs.length === 0) {
       setMidiClockStatus("No MIDI clock input");
       return undefined;
     }
+    midiClockReceiverRef.current = createMidiClockReceiverState(midiClockTempoRef.current);
+    midiClockRunningRef.current = false;
     const handleMidiClock = event => {
       const [status, data1 = 0, data2 = 0] = event.data || [];
       const timestamp = Number(event.receivedTime) || performance.now();
       if (status === MIDI_REALTIME.start) {
-        midiClockLastTimestampRef.current = null;
-        setScoreTime(0);
-        setScorePlaying(true);
-        setMidiClockStatus(`Receiving · ${input.name || "MIDI"}`);
+        midiClockReceiverRef.current = createMidiClockReceiverState(midiClockTempoRef.current);
+        midiClockRunningRef.current = true;
+        if (followMidiTransport) {
+          setScoreTime(0);
+          setScorePlaying(true);
+        }
+        setMidiClockStatus(`Receiving clock · ${inputs.length > 1 ? `${inputs.length} inputs` : inputs[0]?.name || "MIDI"}`);
       } else if (status === MIDI_REALTIME.continue) {
-        setScorePlaying(true);
-        setMidiClockStatus(`Receiving · ${input.name || "MIDI"}`);
+        midiClockRunningRef.current = true;
+        if (followMidiTransport) setScorePlaying(true);
+        setMidiClockStatus(`Receiving clock · ${inputs.length > 1 ? `${inputs.length} inputs` : inputs[0]?.name || "MIDI"}`);
       } else if (status === MIDI_REALTIME.stop) {
-        setScorePlaying(false);
+        midiClockRunningRef.current = false;
+        if (followMidiTransport) setScorePlaying(false);
         setMidiClockStatus("External clock stopped");
       } else if (status === MIDI_REALTIME.songPosition) {
-        setScoreTime(songPositionToSeconds(data1, data2, midiClockTempoRef.current));
-      } else if (status === MIDI_REALTIME.clock) {
-        const previousTimestamp = midiClockLastTimestampRef.current;
-        if (previousTimestamp !== null) {
-          const tempo = estimateMidiClockTempo(previousTimestamp, timestamp, midiClockTempoRef.current);
-          midiClockTempoRef.current = tempo;
-          setScoreTempo(Number(tempo.toFixed(2)));
-          setScoreTime(time => time + 60 / (tempo * 24));
+        if (followMidiTransport) {
+          setScoreTime(songPositionToSeconds(data1, data2, midiClockTempoRef.current));
         }
-        midiClockLastTimestampRef.current = timestamp;
+      } else if (status === MIDI_REALTIME.clock) {
+        const receiverState = followMidiClockTempo
+          ? midiClockReceiverRef.current
+          : { ...midiClockReceiverRef.current, tempo: midiClockTempoRef.current };
+        const clock = advanceMidiClockReceiver(receiverState, timestamp, {
+          followTempo: followMidiClockTempo,
+        });
+        midiClockReceiverRef.current = clock.state;
+        if (followMidiClockTempo && clock.ready && Math.abs(clock.tempo - midiClockTempoRef.current) >= 0.05) {
+          const nextTempo = Number(clock.tempo.toFixed(2));
+          midiClockTempoRef.current = nextTempo;
+          setScoreTempo(nextTempo);
+          setMidiClockStatus(`Following ${nextTempo.toFixed(2)} BPM · ${inputs.length > 1 ? `${inputs.length} inputs` : inputs[0]?.name || "MIDI"}`);
+        }
+        const shouldAdvance = followMidiTransport
+          ? midiClockRunningRef.current
+          : scorePlayingRef.current;
+        if (shouldAdvance) {
+          setScoreTime(time => {
+            const next = time + clock.secondsPerPulse;
+            if (transportLoopEnabled && transportLoopEnd > transportLoopStart && next >= transportLoopEnd) {
+              return transportLoopStart + ((next - transportLoopStart) % (transportLoopEnd - transportLoopStart));
+            }
+            return next;
+          });
+        }
       }
     };
-    input.addEventListener?.("midimessage", handleMidiClock);
-    setMidiClockStatus(`Waiting for clock · ${input.name || "MIDI"}`);
-    return () => input.removeEventListener?.("midimessage", handleMidiClock);
-  }, [midiAccess, midiClockMode, midiInputId]);
+    inputs.forEach(input => input.addEventListener?.("midimessage", handleMidiClock));
+    const inputLabel = inputs.length > 1 ? `${inputs.length} inputs` : inputs[0]?.name || "MIDI";
+    setMidiClockStatus(`Waiting for clock · ${inputLabel} · ${followMidiClockTempo ? "tempo follow" : `${midiClockTempoRef.current.toFixed(2)} BPM fixed`}`);
+    return () => inputs.forEach(input => input.removeEventListener?.("midimessage", handleMidiClock));
+  }, [followMidiClockTempo, followMidiTransport, midiAccess, midiClockMode, midiInputId, transportLoopEnabled, transportLoopEnd, transportLoopStart]);
 
   useEffect(() => {
     if (!midiAccess || midiClockMode !== "send") return undefined;
-    const output = midiAccess.outputs.get(midiOutputId) || [...midiAccess.outputs.values()][0];
-    if (!output) {
+    const outputs = resolveMidiOutputs(midiAccess, midiOutputId);
+    if (outputs.length === 0) {
       setMidiClockStatus("No MIDI clock output");
       return undefined;
     }
     if (!scorePlaying) {
-      output.send([MIDI_REALTIME.stop]);
+      outputs.forEach(output => output.send([MIDI_REALTIME.stop]));
       setMidiClockStatus("Clock output stopped");
       return undefined;
     }
-    output.send([MIDI_REALTIME.start]);
-    setMidiClockStatus(`Sending ${midiClockTempoRef.current.toFixed(2)} BPM · ${output.name || "MIDI"}`);
+    outputs.forEach(output => output.send([MIDI_REALTIME.start]));
+    setMidiClockStatus(`Sending ${midiClockTempoRef.current.toFixed(2)} BPM · ${outputs.length > 1 ? `${outputs.length} outputs` : outputs[0]?.name || "MIDI"}`);
     let timeout = 0;
     const sendClock = () => {
-      output.send([MIDI_REALTIME.clock]);
+      outputs.forEach(output => output.send([MIDI_REALTIME.clock]));
       timeout = window.setTimeout(sendClock, midiClockIntervalMs(midiClockTempoRef.current));
     };
     timeout = window.setTimeout(sendClock, midiClockIntervalMs(midiClockTempoRef.current));
     return () => {
       window.clearTimeout(timeout);
-      output.send([MIDI_REALTIME.stop]);
+      outputs.forEach(output => output.send([MIDI_REALTIME.stop]));
     };
   }, [midiAccess, midiClockMode, midiOutputId, scorePlaying]);
 
@@ -2030,19 +2061,35 @@ function App() {
     );
     previousCursorStatesRef.current = frame.nextCursorPaths;
 
+    const elements = excalidrawAPI.getSceneElements();
+    const elementMap = new Map(elements.map(element => [element.id, element]));
+    const triggerDurations = new Map(
+      elements
+        .filter(element => element.customData?.iannix?.role === "trigger")
+        .map(element => [
+          element.id,
+          normalizeIannixData(element.customData.iannix).trigger.duration,
+        ]),
+    );
+
     const collisionState = advanceScoreCollisionState(
       frame.collisions,
       activeScoreCollisionsRef.current,
       scorePlaying,
+      {
+        nowMs: performance.now(),
+        lockouts: triggerCollisionLockoutsRef.current,
+        triggerDurations,
+        latchTriggersAcrossCursors,
+      },
     );
     activeScoreCollisionsRef.current = collisionState.active;
+    triggerCollisionLockoutsRef.current = collisionState.lockouts;
     if (!scorePlaying) return;
 
     const entered = collisionState.entered;
     if (entered.length === 0) return;
 
-    const elements = excalidrawAPI.getSceneElements();
-    const elementMap = new Map(elements.map(element => [element.id, element]));
     const now = Date.now();
     const nextEvents = entered.map(key => {
       const [cursorId, triggerId] = key.split(":");
@@ -2061,8 +2108,9 @@ function App() {
           midiPattern = triggerData.trigger.midiPattern;
           const message = parseIannixMidiPattern(midiPattern, midiContext);
           const access = midiAccessRef.current;
-          const output = access?.outputs.get(midiOutputIdRef.current) || [...(access?.outputs.values() || [])][0];
-          sendIannixMidiMessage(output, message, performance.now());
+          const outputs = resolveMidiOutputs(access, midiOutputIdRef.current);
+          if (outputs.length === 0) throw new Error("No MIDI output is selected.");
+          outputs.forEach(output => midiVoiceTrackerRef.current.send(output, message, performance.now()));
           midi = message.kind === "cc"
             ? { kind: "cc", channel: message.channel, controller: message.controller, value: message.value }
             : { kind: "note", channel: message.channel, note: message.note, velocity: message.velocity };
@@ -2099,7 +2147,7 @@ function App() {
     }));
     setScoreEvents(events => [...nextEvents, ...events].slice(0, 20));
     setScoreRuntimeNonce(nonce => nonce + 1);
-  }, [excalidrawAPI, historyController, modifierUpdateNonce, scorePlaying, scoreTime]);
+  }, [excalidrawAPI, historyController, latchTriggersAcrossCursors, modifierUpdateNonce, scorePlaying, scoreTime]);
 
   useEffect(() => {
     if (!excalidrawAPI || autoKeyApplyingRef.current || isMouseDownRef.current) return;
@@ -4640,7 +4688,8 @@ function App() {
     { id: "automation.autokey.toggle", name: "Toggle Auto-key /autokey", aliases: ["/autokey"], category: "History", record: "presentation", action: () => setAutoKeyEnabled(enabled => !enabled) },
     { id: "macro.save", name: "Save Session as Sequence /macro save", aliases: ["/macro save"], category: "History", record: "never", args: { name: "string?" }, action: (_api, args) => runtimeCallbacksRef.current.macroSave(null, args?.name) },
     { id: "macro.insert", name: "Insert Sequence /macro insert", aliases: ["/macro insert"], category: "History", args: { id: "string", mode: "relative|absolute" }, action: (_api, args) => runtimeCallbacksRef.current.macroInsert(args) },
-    { id: "iannix.import.trusted", name: "Import Trusted IanniX Script /iannix import", aliases: ["/iannix import"], category: "IanniX", args: { source: "string", filename: "string?", seed: "number?", anchor: "point?", scale: "number?", importId: "string?" }, validate: args => ({ ...args, importId: args?.importId || crypto.randomUUID() }), action: (_api, args) => runtimeCallbacksRef.current.iannixImport(args) },
+    { id: "iannix.import.trusted", name: "Import Trusted IanniX Script /iannix import", aliases: ["/iannix import"], category: "IanniX", args: { source: "string", filename: "string?", seed: "number?", anchor: "point?", scale: "number?", importId: "string?", parameters: "object?" }, validate: args => ({ ...args, importId: args?.importId || crypto.randomUUID() }), action: (_api, args) => runtimeCallbacksRef.current.iannixImport(args) },
+    { id: "iannix.command.execute", name: "Execute IanniX Command", category: "IanniX", args: { command: "string" }, action: (_api, args) => runtimeCallbacksRef.current.iannixCommand(args?.command) },
     { id: "ai.prompt", name: "Send AI Prompt", category: "AI Chat", args: { prompt: "string" }, action: (_api, args) => { openAISidebar(); return sendChatMessage(args?.prompt || ""); } },
   ];
 
@@ -5377,6 +5426,21 @@ function App() {
       const access = await navigator.requestMIDIAccess({ sysex: false });
       midiAccessRef.current = access;
       setMidiAccess(access);
+      const inputs = [...access.inputs.values()].map(input => ({
+        id: input.id,
+        name: input.name || "Unnamed MIDI input",
+        manufacturer: input.manufacturer || "",
+        state: input.state,
+      }));
+      const outputs = [...access.outputs.values()].map(output => ({
+        id: output.id,
+        name: output.name || "Unnamed MIDI output",
+        manufacturer: output.manufacturer || "",
+        state: output.state,
+      }));
+      setMidiInputs(inputs);
+      setMidiOutputs(outputs);
+      setMidiStatus(`${inputs.length} in · ${outputs.length} out`);
     } catch (error) {
       setMidiStatus(error?.message || "MIDI access was denied");
     }
@@ -5386,8 +5450,9 @@ function App() {
     try {
       const message = parseIannixMidiPattern(pattern, context);
       const access = midiAccessRef.current;
-      const output = access?.outputs.get(midiOutputIdRef.current) || [...(access?.outputs.values() || [])][0];
-      sendIannixMidiMessage(output, message, performance.now());
+      const outputs = resolveMidiOutputs(access, midiOutputIdRef.current);
+      if (outputs.length === 0) throw new Error("No MIDI output is selected.");
+      outputs.forEach(output => midiVoiceTrackerRef.current.send(output, message, performance.now()));
       setMidiStatus(`Sent ${describeIannixMidiMessage(message)}`);
     } catch (error) {
       setMidiStatus(error.message || "MIDI send failed");
@@ -5442,6 +5507,7 @@ function App() {
     previousCursorStatesRef.current = new Map();
     visualCursorTransformsRef.current = new Map();
     activeScoreCollisionsRef.current = new Set();
+    triggerCollisionLockoutsRef.current = new Map();
     triggerPulseUntilRef.current = new Map();
     setScoreEvents([]);
     if (resetTransport) {
@@ -5488,6 +5554,7 @@ function App() {
     }
     previousCursorStatesRef.current = new Map();
     activeScoreCollisionsRef.current = new Set();
+    triggerCollisionLockoutsRef.current = new Map();
     visualCursorTransformsRef.current = new Map();
     setModifierUpdateNonce(nonce => nonce + 1);
     setSceneExchangeStatus(`Imported ${restored.elements?.filter(element => !element.isDeleted).length || 0} scene objects.`);
@@ -5707,6 +5774,7 @@ function App() {
     previousCursorStatesRef.current = new Map();
     visualCursorTransformsRef.current = new Map();
     activeScoreCollisionsRef.current = new Set();
+    triggerCollisionLockoutsRef.current = new Map();
     finishApplyingRecordedUiState();
   };
   runtimeCallbacksRef.current.transportUpdate = state => {
@@ -5727,6 +5795,8 @@ function App() {
       }
     }
     if (["internal", "send", "receive"].includes(state.midiClockMode)) setMidiClockMode(state.midiClockMode);
+    if (typeof state.followMidiClockTempo === "boolean") setFollowMidiClockTempo(state.followMidiClockTempo);
+    if (typeof state.followMidiTransport === "boolean") setFollowMidiTransport(state.followMidiTransport);
     finishApplyingRecordedUiState();
   };
   runtimeCallbacksRef.current.panelStateUpdate = state => {
@@ -5785,6 +5855,8 @@ function App() {
       fps: transportFps,
       loop: { enabled: transportLoopEnabled, start: transportLoopStart, end: transportLoopEnd },
       midiClockMode,
+      followMidiClockTempo,
+      followMidiTransport,
     };
     const signature = JSON.stringify(state);
     const previous = transportStateRecordingRef.current?.signature ?? null;
@@ -5800,7 +5872,7 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record transport state", error));
     }, 180);
-  }, [commandRegistry, historyController, midiClockMode, scorePlaying, scoreRate, scoreTempo, scoreTimeSignature, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopStart]);
+  }, [commandRegistry, followMidiClockTempo, followMidiTransport, historyController, midiClockMode, scorePlaying, scoreRate, scoreTempo, scoreTimeSignature, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopStart]);
 
   useEffect(() => {
     const state = { openPanels, panelLayouts, activeDockPanels, collapsedDocks, activeSettingsTab, modsPanelTab };
@@ -5979,6 +6051,7 @@ function App() {
       seed: Number.isFinite(Number(args.seed)) ? Number(args.seed) : 1,
       sessionTime: scoreTimeRef.current,
       files: args.files || {},
+      parameters: args.parameters || {},
     });
     const model = buildIannixObjectModel(result.operations);
     const scale = Math.max(0.01, Number(args.scale) || 40);
@@ -6013,17 +6086,35 @@ function App() {
         role: object.role,
         active: object.active !== false,
         label: object.label || `${object.role.charAt(0).toUpperCase()}${object.role.slice(1)} ${object.externalId}`,
-        time: { duration: object.role === "cursor" ? getIannixCursorDuration(object, linkedCurve) : Math.max(0.001, Number(object.speed) || 5) },
+        time: {
+          duration: object.role === "cursor" ? getIannixCursorDuration(object, linkedCurve) : Math.max(0.001, Number(object.speed) || 5),
+          loopMode: object.role === "cursor" ? getIannixCursorLoopMode(object) : "once",
+        },
         cursor: object.role === "cursor" ? {
           curveId: internalIds.get(object.curveExternalId) || null,
           sourceOpacity: opacity,
           sourceStrokeColor: strokeColor,
+          boundsSource: Array.isArray(object.boundsSource) && object.boundsSource.length >= 4
+            ? object.boundsSource
+            : null,
+          boundsTarget: Array.isArray(object.boundsTarget) && object.boundsTarget.length >= 4
+            ? object.boundsTarget
+            : [0, 1, 0, 1, 0, 1],
         } : undefined,
-        trigger: object.role === "trigger" ? {
-          midiEnabled: String(object.message || "").includes("midi://"),
-          midiTemplate: String(object.message || "").includes("midi://") ? "custom" : undefined,
-          midiPattern: String(object.message || "").includes("midi://") ? object.message : undefined,
-        } : undefined,
+        trigger: object.role === "trigger" ? (() => {
+          const explicitMessage = String(object.message || "");
+          const hasExplicitMessage = explicitMessage.trim().length > 0;
+          const hasExplicitMidi = explicitMessage.includes("midi://");
+          return {
+            // Native IanniX triggers inherit its global MIDI note template when
+            // no setMessage override is present. An explicit non-MIDI message
+            // intentionally replaces that default.
+            duration: 1,
+            midiEnabled: !hasExplicitMessage || hasExplicitMidi,
+            midiTemplate: hasExplicitMidi ? "custom" : "iannixXY",
+            midiPattern: hasExplicitMidi ? explicitMessage : undefined,
+          };
+        })() : undefined,
       });
       const customData = {
         iannix,
@@ -6133,6 +6224,118 @@ function App() {
   };
 
   runtimeCallbacksRef.current.iannixImport = applyTrustedIannixImport;
+
+  const applyTrustedIannixCommand = async source => {
+    if (!excalidrawAPIRef.current) throw new Error("The canvas is not ready.");
+    const command = String(source || "").trim();
+    if (!command) throw new Error("The IanniX command is empty.");
+    const elements = excalidrawAPIRef.current.getSceneElementsIncludingDeleted();
+    const liveElements = elements.filter(element => !element.isDeleted);
+    const selected = liveElements.filter(element => selectedElementIds[element.id]);
+    const externalIdFor = element => String(element?.customData?.iannixImport?.externalId ?? element?.id ?? "");
+    const byExternalId = new Map(liveElements.map(element => [externalIdFor(element), element]));
+    const byLabel = new Map(liveElements.map(element => [String(element.customData?.iannix?.label || ""), element]).filter(([label]) => label));
+    const defaultTarget = selected[0] || null;
+    const expandTarget = raw => {
+      const token = String(raw || "");
+      if (token === "@selection") return selected.map(externalIdFor);
+      if (token.startsWith("#")) {
+        const key = token.slice(1);
+        const element = byExternalId.get(key) || byLabel.get(key);
+        return element ? [externalIdFor(element)] : [];
+      }
+      return [token];
+    };
+    const tokens = tokenizeIannixCommand(command);
+    const targetToken = tokens[1];
+    const targets = targetToken === "@selection" || targetToken?.startsWith("#")
+      ? expandTarget(targetToken)
+      : [externalIdFor(defaultTarget) || undefined];
+    if ((targetToken === "@selection" || targetToken?.startsWith("#")) && targets.length === 0) {
+      throw new Error(`No IanniX object matches ${targetToken}.`);
+    }
+    const commands = targets.map(target => {
+      if (!(targetToken === "@selection" || targetToken?.startsWith("#"))) return command;
+      return [tokens[0], target, ...tokens.slice(2)].map(token => JSON.stringify(token)).join(" ");
+    });
+    const operations = [];
+    const unsupported = [];
+    for (let index = 0; index < commands.length; index += 1) {
+      const result = executeTrustedIannixScript(`run(${JSON.stringify(commands[index])});`, {
+        trusted: true,
+        sessionTime: scoreTimeRef.current,
+        currentId: targets[index] || externalIdFor(defaultTarget) || null,
+      });
+      operations.push(...result.operations);
+      unsupported.push(...result.unsupported);
+    }
+    if (unsupported.length) throw new Error(unsupported[0].reason);
+    if (operations.some(operation => operation.type === "clear")) {
+      await runWithoutSessionSceneRecording(async () => {
+        excalidrawAPIRef.current.updateScene({
+          elements: [],
+          appState: { selectedElementIds: {}, selectedGroupIds: {}, editingLinearElement: null, selectedLinearElement: null },
+          commitToHistory: true,
+        });
+        setSelectedElementIds({});
+      });
+      resetIannixRuntime();
+      setModifierUpdateNonce(nonce => nonce + 1);
+      setSceneExchangeStatus("Executed IanniX command: cleared the scene.");
+      eventBus.emit("iannix.command.executed", { command, objectCount: 0 }, { source: "iannix" });
+      return { command, objectCount: 0 };
+    }
+    const supportedTypes = new Set(["group", "label", "active", "speed", "width", "color", "colorHue", "message", "pattern", "curve"]);
+    const unsupportedOperation = operations.find(operation => !supportedTypes.has(operation.type));
+    if (unsupportedOperation) throw new Error(`Interactive ${unsupportedOperation.type} commands are not supported yet; run a full script for structural score changes.`);
+    let changed = 0;
+    const nextElements = elements.map(element => {
+      const relevant = operations.filter(operation => String(operation.externalId) === externalIdFor(element));
+      if (!relevant.length) return element;
+      let iannix = normalizeIannixData(element.customData?.iannix);
+      let iannixImport = { ...(element.customData?.iannixImport || {}) };
+      let strokeColor = element.strokeColor;
+      let strokeWidth = element.strokeWidth;
+      for (const operation of relevant) {
+        if (operation.type === "group") iannixImport.group = operation.value;
+        else if (operation.type === "label") iannix = { ...iannix, label: operation.value };
+        else if (operation.type === "active") iannix = { ...iannix, active: operation.value };
+        else if (operation.type === "speed") iannix = { ...iannix, time: { ...iannix.time, duration: Math.max(0.001, operation.value) } };
+        else if (operation.type === "width") strokeWidth = Math.max(0.5, operation.value);
+        else if (operation.type === "color") {
+          const [r = 0, g = 0, b = 0] = operation.value;
+          strokeColor = `#${[r, g, b].map(value => Math.min(255, Math.max(0, Math.round(value))).toString(16).padStart(2, "0")).join("")}`;
+        } else if (operation.type === "colorHue") {
+          const [h = 0, s = 0, lightness = 0] = operation.value;
+          strokeColor = `hsl(${((h % 360) + 360) % 360} ${Math.min(100, Math.max(0, s / 2.55))}% ${Math.min(80, Math.max(20, lightness / 5.1))}%)`;
+        } else if (operation.type === "message") iannix = { ...iannix, trigger: { ...iannix.trigger, midiPattern: operation.value, midiEnabled: String(operation.value).includes("midi://") } };
+        else if (operation.type === "pattern") iannixImport.pattern = operation.value;
+        else if (operation.type === "curve") {
+          const curve = byExternalId.get(String(operation.curveExternalId));
+          iannix = { ...iannix, cursor: { ...iannix.cursor, curveId: curve?.id || null } };
+        }
+      }
+      changed += 1;
+      return {
+        ...element,
+        strokeColor,
+        strokeWidth,
+        customData: { ...(element.customData || {}), iannix: { ...iannix, version: (iannix.version || 0) + 1 }, iannixImport },
+        version: element.version + 1,
+        versionNonce: Math.floor(Math.random() * 1000000),
+        updated: Date.now(),
+      };
+    });
+    if (!changed) throw new Error("Select an IanniX object or address one by #id or #label.");
+    excalidrawAPIRef.current.updateScene({ elements: nextElements, commitToHistory: true });
+    resetIannixRuntime();
+    setModifierUpdateNonce(nonce => nonce + 1);
+    setSceneExchangeStatus(`Executed IanniX command on ${changed} object${changed === 1 ? "" : "s"}.`);
+    eventBus.emit("iannix.command.executed", { command, objectCount: changed }, { source: "iannix" });
+    return { command, objectCount: changed };
+  };
+
+  runtimeCallbacksRef.current.iannixCommand = applyTrustedIannixCommand;
 
   const handleTrustedIannixFile = async event => {
     const file = event.target.files?.[0];
@@ -6625,9 +6828,42 @@ function App() {
 
   const renderIannixScriptTab = () => {
     const activeScript = iannixScripts.find(script => script.id === activeIannixScriptId);
+    const scriptParameters = parseScriptParameters(iannixScriptSource, {
+      includeIannixAsk: true,
+      values: activeScript?.parameters || {},
+    });
+    const scriptParameterValues = getScriptParameterValues(scriptParameters);
+    const runTrustedSource = (source, filename, parameters = {}) => {
+      const trimmed = String(source || "").trim();
+      if (!trimmed) return Promise.resolve(null);
+      return commandRegistry.execute("iannix.import.trusted", {
+        source: trimmed,
+        filename,
+        parameters,
+      }, {
+        source: "iannix-panel",
+        transportTime: scoreTimeRef.current,
+      }).catch(error => {
+        setSceneExchangeStatus(error.message || "Could not execute this IanniX source.");
+        return null;
+      });
+    };
+    const runScript = () => runTrustedSource(iannixScriptSource, activeScript?.name || "IanniX editor", scriptParameterValues);
+    const runCommand = async () => {
+      const command = iannixCommandSource.trim();
+      if (!command) return;
+      const result = await commandRegistry.execute("iannix.command.execute", { command }, {
+        source: "iannix-panel",
+        transportTime: scoreTimeRef.current,
+      }).catch(error => {
+        setSceneExchangeStatus(error.message || "Could not execute this IanniX command.");
+        return null;
+      });
+      if (result) setIannixCommandSource("");
+    };
     const createScript = () => {
       const id = `iannix-script-${crypto.randomUUID()}`;
-      const script = { id, name: "Untitled IanniX Script", source: "// IanniX commands\n", createdAt: Date.now(), updatedAt: Date.now() };
+      const script = { id, name: "Untitled IanniX Script", source: "// IanniX commands\n", parameters: {}, createdAt: Date.now(), updatedAt: Date.now() };
       setIannixScripts(previous => [...previous, script]);
       setActiveIannixScriptId(id);
       setIannixScriptSource(script.source);
@@ -6638,6 +6874,17 @@ function App() {
         ? { ...script, source: iannixScriptSource, updatedAt: Date.now() }
         : script
       ));
+      setSceneExchangeStatus(`Saved “${activeScript.name}” in this browser.`);
+    };
+    const renameScript = name => {
+      if (!activeScript) return;
+      const trimmed = String(name || "").trim();
+      if (!trimmed || trimmed === activeScript.name) return;
+      setIannixScripts(previous => previous.map(script => script.id === activeScript.id
+        ? { ...script, name: trimmed, updatedAt: Date.now() }
+        : script
+      ));
+      setSceneExchangeStatus(`Renamed script to “${trimmed}”.`);
     };
     const deleteScript = () => {
       if (!activeScript || !window.confirm(`Delete “${activeScript.name}”?`)) return;
@@ -6645,6 +6892,17 @@ function App() {
       setIannixScripts(remaining);
       setActiveIannixScriptId(remaining[0]?.id || "");
       setIannixScriptSource(remaining[0]?.source || "");
+    };
+    const updateScriptParameter = (name, value) => {
+      if (!activeScript || !Number.isFinite(Number(value))) return;
+      setIannixScripts(previous => previous.map(script => script.id === activeScript.id
+        ? {
+            ...script,
+            parameters: { ...(script.parameters || {}), [name]: Number(value) },
+            updatedAt: Date.now(),
+          }
+        : script
+      ));
     };
     return (
       <div className="iannix-properties iannix-script-pane">
@@ -6657,49 +6915,92 @@ function App() {
             <option value="">— Choose script —</option>
             {iannixScripts.map(script => <option key={script.id} value={script.id}>{script.name}</option>)}
           </select>
+          <input
+            type="text"
+            className="custom-brush-select"
+            defaultValue={activeScript?.name || ""}
+            key={activeScript?.id || "no-script"}
+            onBlur={event => renameScript(event.target.value)}
+            onKeyDown={event => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              renameScript(event.currentTarget.value);
+              event.currentTarget.blur();
+            }}
+            placeholder="Script name"
+            aria-label="Script name"
+            disabled={!activeScript}
+          />
           <textarea
             className="iannix-script-editor custom-brush-textarea"
             value={iannixScriptSource}
             onChange={event => setIannixScriptSource(event.target.value)}
+            onKeyDown={event => {
+              if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
+              event.preventDefault();
+              event.stopPropagation();
+              runScript();
+            }}
             placeholder="Paste a trusted .iannix script or a one-off run() command…"
             spellCheck="false"
           />
+          {scriptParameters.length > 0 && (
+            <div className="iannix-script-parameters" aria-label="IanniX script parameters">
+              {scriptParameters.map(parameter => (
+                <label
+                  className="iannix-script-parameter"
+                  key={parameter.name}
+                  title={[parameter.category, parameter.name].filter(Boolean).join(" · ")}
+                >
+                  <span className="iannix-script-parameter-header">
+                    <span>{parameter.label || parameter.name}</span>
+                    <strong>{Number(parameter.value).toFixed(Number(parameter.step) < 1 ? 2 : 0)}</strong>
+                  </span>
+                  <input
+                    type="range"
+                    min={parameter.min}
+                    max={parameter.max}
+                    step={parameter.step}
+                    value={parameter.value}
+                    onChange={event => updateScriptParameter(parameter.name, event.target.value)}
+                    disabled={!activeScript}
+                    aria-label={`${parameter.label || parameter.name} (${parameter.name})`}
+                  />
+                </label>
+              ))}
+            </div>
+          )}
           <div className="script-icon-toolbar">
-            <button type="button" className="palette-action-btn primary script-icon-button" title="Run script" aria-label="Run script" onClick={() => {
-              if (!iannixScriptSource.trim()) return;
-              commandRegistry.execute("iannix.import.trusted", { source: iannixScriptSource, filename: activeScript?.name || "IanniX editor" }, { source: "iannix-panel", transportTime: scoreTimeRef.current });
-            }}><ScriptActionIcon type="run" /></button>
+            <button type="button" className="palette-action-btn primary script-icon-button" title="Run script (Cmd/Ctrl+Enter)" aria-label="Run script" onClick={runScript}><ScriptActionIcon type="run" /></button>
             <button type="button" className="palette-action-btn secondary script-icon-button" title="Save script" aria-label="Save script" onClick={saveScript} disabled={!activeScript}><ScriptActionIcon type="save" /></button>
             <button type="button" className="palette-action-btn secondary script-icon-button" title="New script" aria-label="New script" onClick={createScript}><ScriptActionIcon type="add" /></button>
             <button type="button" className="palette-action-btn secondary script-icon-button" title="Import trusted .iannix" aria-label="Import trusted .iannix" onClick={() => iannixImportInputRef.current?.click()}><ScriptActionIcon type="import" /></button>
             <button type="button" className="palette-action-btn danger script-icon-button" title="Delete script" aria-label="Delete script" onClick={deleteScript} disabled={!activeScript}><ScriptActionIcon type="remove" /></button>
           </div>
-          <div className="iannix-hint">Imported files are stored in this local catalog. Run executes the current trusted script through the IanniX compatibility dispatcher.</div>
+          <form className="iannix-command-line" onSubmit={event => { event.preventDefault(); runCommand(); }}>
+            <input
+              type="text"
+              value={iannixCommandSource}
+              onChange={event => setIannixCommandSource(event.target.value)}
+              onKeyDown={event => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                event.stopPropagation();
+                runCommand();
+              }}
+              placeholder='IanniX command, e.g. setGroup current "section A"'
+              aria-label="IanniX command line"
+              spellCheck="false"
+            />
+            <button type="submit" className="palette-action-btn primary script-icon-button" title="Run IanniX command" aria-label="Run IanniX command" disabled={!iannixCommandSource.trim()}><ScriptActionIcon type="run" /></button>
+          </form>
+          <div className="iannix-hint">Cmd/Ctrl+Enter runs the editor. Scripts are saved in this browser's localStorage. The command line executes its value as <code>run("...")</code>.</div>
+          {sceneExchangeStatus && <div className="iannix-midi-status" role="status">{sceneExchangeStatus}</div>}
       </div>
     );
   };
 
-  const getScriptParams = (code) => {
-    const params = [];
-    if (!code) return params;
-    const lines = code.split("\n");
-    lines.forEach(line => {
-      const match = line.match(/\/\/\s*@param\s+(\w+)\s*=\s*([0-9.-]+)\s*\(([^)]+)\)/);
-      if (match) {
-        const pName = match[1];
-        const pVal = parseFloat(match[2]);
-        const rangeMatch = match[3].match(/([0-9.-]+)\.\.([0-9.-]+)/);
-        const min = rangeMatch ? parseFloat(rangeMatch[1]) : 0;
-        const max = rangeMatch ? parseFloat(rangeMatch[2]) : 100;
-
-        const stepMatch = match[3].match(/step:\s*([0-9.-]+)/);
-        const step = stepMatch ? parseFloat(stepMatch[1]) : ((max - min) / 100 || 0.1);
-
-        params.push({ name: pName, default: pVal, min, max, step });
-      }
-    });
-    return params;
-  };
+  const getScriptParams = code => parseScriptParameters(code);
 
   const convertShapeToPath = (element) => {
     if (!excalidrawAPI) return;
@@ -8213,8 +8514,8 @@ function App() {
         </div>
 
         <div className="iannix-transport-tempo">
-          <button type="button" onClick={tapTempo} disabled={midiClockMode === "receive"} title="Tap repeatedly to set tempo">BPM</button>
-          <input type="text" inputMode="decimal" value={scoreTempoDraft} disabled={midiClockMode === "receive"} onChange={updateTempoDraft} onBlur={commitTempoDraft} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} aria-label="Tempo in BPM" />
+          <button type="button" onClick={tapTempo} disabled={midiClockMode === "receive" && followMidiClockTempo} title="Tap repeatedly to set tempo">BPM</button>
+          <input type="text" inputMode="decimal" value={scoreTempoDraft} disabled={midiClockMode === "receive" && followMidiClockTempo} onChange={updateTempoDraft} onBlur={commitTempoDraft} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} aria-label="Tempo in BPM" />
         </div>
 
         <div className="iannix-transport-signature" aria-label="Time signature">
@@ -8496,29 +8797,50 @@ function App() {
                 <option value="receive">Receive MIDI clock</option>
               </select>
             </label>
-            {midiInputs.length > 0 && (
+            {midiClockMode === "receive" && (
+              <>
+                <label className="settings-panel-check">
+                  <span>Follow MIDI transport</span>
+                  <input type="checkbox" checked={followMidiTransport} onChange={event => setFollowMidiTransport(event.target.checked)} />
+                </label>
+                <label className="settings-panel-check">
+                  <span>Estimate tempo from clock</span>
+                  <input type="checkbox" checked={followMidiClockTempo} onChange={event => setFollowMidiClockTempo(event.target.checked)} />
+                </label>
+                <div className="settings-panel-hint">
+                  MIDI Clock carries pulses, not a numeric BPM. Leave tempo estimation off to keep the BPM field fixed and match the sender manually.
+                </div>
+              </>
+            )}
+            <div className="settings-panel-midi-routing">
               <label className="settings-panel-field">
-                <span>MIDI input</span>
+                <span>MIDI in</span>
                 <select value={midiInputId} onChange={event => setMidiInputId(event.target.value)}>
+                  <option value={MIDI_PORT_NONE}>None</option>
+                  <option value={MIDI_PORT_ALL}>All</option>
                   {midiInputs.map(input => <option key={input.id} value={input.id}>{input.name}{input.manufacturer ? ` — ${input.manufacturer}` : ""}</option>)}
                 </select>
               </label>
-            )}
-            {midiOutputs.length > 0 ? (
               <label className="settings-panel-field">
-                <span>Destination</span>
+                <span>MIDI out</span>
                 <select value={midiOutputId} onChange={event => setMidiOutputId(event.target.value)}>
+                  <option value={MIDI_PORT_NONE}>None</option>
+                  <option value={MIDI_PORT_ALL}>All</option>
                   {midiOutputs.map(output => (
                     <option key={output.id} value={output.id}>{output.name}{output.manufacturer ? ` — ${output.manufacturer}` : ""}</option>
                   ))}
                 </select>
               </label>
-            ) : (
-              <div className="settings-panel-hint">Connect Web MIDI to discover available output ports.</div>
-            )}
-            <button type="button" className="iannix-flat-button" onClick={connectIannixMidi}>
-              {midiAccess ? "Refresh MIDI access" : "Connect MIDI"}
-            </button>
+              <button type="button" className="settings-panel-midi-refresh" title={midiAccess ? "Refresh MIDI access" : "Connect MIDI"} aria-label={midiAccess ? "Refresh MIDI access" : "Connect MIDI"} onClick={connectIannixMidi}>↻</button>
+            </div>
+            <label className="settings-panel-check" title="On: one voice per trigger for its duration. Off: each cursor can voice the same trigger independently, with a separate duration latch per cursor.">
+              <span>Latch each trigger across cursors</span>
+              <input type="checkbox" checked={latchTriggersAcrossCursors} onChange={event => {
+                setLatchTriggersAcrossCursors(event.target.checked);
+                activeScoreCollisionsRef.current = new Set();
+                triggerCollisionLockoutsRef.current = new Map();
+              }} />
+            </label>
             <div className="settings-panel-status">{midiStatus}</div>
             <div className="settings-panel-status">{midiClockStatus}</div>
             <div className="settings-panel-divider" />
@@ -9820,12 +10142,20 @@ function App() {
             <OutlinerPanel
               elements={excalidrawAPI?.getSceneElementsIncludingDeleted() || []}
               selectedElementIds={selectedElementIds}
-              onSelect={(elementId, additive) => {
+              onSelect={(elementId, selection = {}) => {
                 if (!excalidrawAPI) return;
                 const current = selectedElementIds || {};
-                const next = additive ? { ...current } : {};
-                if (additive && next[elementId]) delete next[elementId];
-                else next[elementId] = true;
+                let next = {};
+                if (selection.mode === "toggle") {
+                  next = { ...current };
+                  if (next[elementId]) delete next[elementId];
+                  else next[elementId] = true;
+                } else if (selection.mode === "range") {
+                  next = selection.additive ? { ...current } : {};
+                  for (const id of selection.rangeIds || [elementId]) next[id] = true;
+                } else {
+                  next[elementId] = true;
+                }
                 const runtimeSelections = Object.fromEntries(
                   excalidrawAPI.getSceneElements()
                     .filter(element => next[element.id] && isRuntimeCursor(element))
@@ -9838,6 +10168,20 @@ function App() {
                 const activeTool = excalidrawAPI.getAppState().activeTool || {};
                 excalidrawAPI.updateScene({ appState: { selectedElementIds: nativeSelections, selectedGroupIds: {}, editingLinearElement: null, selectedLinearElement: null, activeTool: { ...activeTool, type: "selection" } } });
                 setSelectedElementIds(next);
+              }}
+              onDelete={elementIds => {
+                if (!excalidrawAPI || !elementIds?.length) return;
+                const ids = new Set(elementIds);
+                const nextElements = excalidrawAPI.getSceneElementsIncludingDeleted().map(element => (
+                  ids.has(element.id) ? { ...element, isDeleted: true, updated: Date.now() } : element
+                ));
+                runtimeCursorSelectionRef.current = {};
+                excalidrawAPI.updateScene({
+                  elements: nextElements,
+                  appState: { selectedElementIds: {}, selectedGroupIds: {}, editingLinearElement: null, selectedLinearElement: null },
+                  commitToHistory: true,
+                });
+                setSelectedElementIds({});
               }}
               onVisibilityChange={elementId => updateSceneObject(elementId, element => {
                 const hidden = !element.customData?.outlinerHidden;

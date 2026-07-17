@@ -1,9 +1,10 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 
-const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedElementIds = {}, onSelect, onVisibilityChange, onLockChange }) {
+const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedElementIds = {}, onSelect, onDelete, onVisibilityChange, onLockChange }) {
   const [query, setQuery] = useState("");
   const [nameMode, setNameMode] = useState(() => localStorage.getItem("drawerator_outliner_name_mode") === "ids" ? "ids" : "labels");
   const rowRefs = useRef(new Map());
+  const selectionAnchorRef = useRef(null);
   const visibleElements = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return elements
@@ -17,6 +18,45 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
     if (!row) return;
     row.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [selectedElementIds, visibleElements]);
+
+  const selectElement = (elementId, event) => {
+    const visibleIds = visibleElements.map(element => element.id);
+    if (event.shiftKey) {
+      const anchorId = selectionAnchorRef.current;
+      const anchorIndex = visibleIds.indexOf(anchorId);
+      const targetIndex = visibleIds.indexOf(elementId);
+      const rangeIds = anchorIndex >= 0 && targetIndex >= 0
+        ? visibleIds.slice(Math.min(anchorIndex, targetIndex), Math.max(anchorIndex, targetIndex) + 1)
+        : [elementId];
+      onSelect(elementId, {
+        mode: "range",
+        rangeIds,
+        additive: event.metaKey || event.ctrlKey,
+      });
+      if (anchorIndex < 0) selectionAnchorRef.current = elementId;
+      return;
+    }
+
+    const toggle = event.metaKey || event.ctrlKey;
+    onSelect(elementId, { mode: toggle ? "toggle" : "replace" });
+    selectionAnchorRef.current = elementId;
+  };
+
+  const deleteSelection = elementId => {
+    const selectedIds = Object.keys(selectedElementIds).filter(id => selectedElementIds[id]);
+    onDelete(selectedElementIds[elementId] ? selectedIds : [elementId]);
+  };
+
+  const handleKeyDown = event => {
+    if (event.key !== "Delete" && event.key !== "Backspace") return;
+    const target = event.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable) return;
+    const selectedIds = Object.keys(selectedElementIds).filter(id => selectedElementIds[id]);
+    if (!selectedIds.length) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onDelete(selectedIds);
+  };
 
   return (
     <div className="outliner-panel">
@@ -36,7 +76,7 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
         </button>
         <span>{visibleElements.length}</span>
       </div>
-      <div className="outliner-list" role="tree" aria-label="Scene objects">
+      <div className="outliner-list" role="tree" aria-label="Scene objects" onKeyDown={handleKeyDown}>
         {visibleElements.length ? visibleElements.map(element => (
           <div
             role="treeitem"
@@ -45,7 +85,7 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
             key={element.id}
             ref={node => node ? rowRefs.current.set(element.id, node) : rowRefs.current.delete(element.id)}
           >
-            <button type="button" className="outliner-object" onClick={event => onSelect(element.id, event.metaKey || event.ctrlKey || event.shiftKey)} title={`${element.type} · ${element.id}`}>
+            <button type="button" className="outliner-object" onClick={event => selectElement(element.id, event)} title={`${element.type} · ${element.id}`}>
               <span className={`outliner-type type-${element.type}`}>{element.type.slice(0, 1).toUpperCase()}</span>
               <span className="outliner-label">{nameMode === "labels" && element.customData?.iannix?.label ? element.customData.iannix.label : element.id}</span>
             </button>
@@ -54,6 +94,9 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
             </button>
             <button type="button" className={element.locked ? "outliner-toggle active" : "outliner-toggle"} onClick={() => onLockChange(element.id)} title={element.locked ? "Unlock object" : "Lock object"} aria-label={element.locked ? `Unlock ${element.id}` : `Lock ${element.id}`}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+            </button>
+            <button type="button" className="outliner-toggle outliner-delete" onClick={() => deleteSelection(element.id)} title="Delete object" aria-label={`Delete ${element.id}`}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>
             </button>
           </div>
         )) : <div className="scene-panel-empty compact">No scene objects.</div>}

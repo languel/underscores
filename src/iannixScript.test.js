@@ -1,10 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCurvePathLength, getIannixCurveStartAngle, serializeBezierElementToIannixCommands, tokenizeIannixCommand } from "./iannixScript.js";
+import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCursorLoopMode, getIannixCurvePathLength, getIannixCurveStartAngle, serializeBezierElementToIannixCommands, tokenizeIannixCommand } from "./iannixScript.js";
 import { createBezierHostGeometry } from "./bezierGeometry.js";
 
 test("tokenizes quoted IanniX command arguments", () => {
   assert.deepEqual(tokenizeIannixCommand('setLabel current "Main curve"'), ["setLabel", "current", "Main curve"]);
+});
+
+test("standalone IanniX commands can inherit the current object", () => {
+  const result = executeTrustedIannixScript('run("setLabel current Updated label");', {
+    trusted: true,
+    currentId: "curve-12",
+  });
+  assert.deepEqual(result.operations, [{ type: "label", externalId: "curve-12", value: "Updated label" }]);
 });
 
 test("executes trusted IanniX scripts with deterministic helpers", () => {
@@ -50,6 +58,14 @@ test("runs IanniX configure lifecycle and exposes ask defaults to score creation
   assert.equal(model.objects.filter(object => object.role === "curve").length, 3);
   assert.equal(model.objects.filter(object => object.role === "cursor").length, 3);
   assert.equal(model.objects.filter(object => object.role === "trigger").length, 3);
+
+  const overridden = executeTrustedIannixScript(source, {
+    trusted: true,
+    parameters: { indexMax: 2 },
+  });
+  const overriddenModel = buildIannixObjectModel(overridden.operations);
+  assert.equal(overriddenModel.objects.length, 6);
+  assert.equal(overridden.parameters[0].value, 2);
 });
 
 test("derives imported cursor rotation from its linked curve start tangent", () => {
@@ -75,6 +91,12 @@ test("derives IanniX cursor duration from curve length and speed mode", () => {
   assert.ok(Math.abs(getIannixCursorDuration({}, lastGridCurve) - Math.hypot(29, 0.5)) < 1e-9);
   assert.equal(getIannixCursorDuration({ speed: 2, speedMode: "absolute" }, firstGridCurve), 7.5);
   assert.equal(getIannixCursorDuration({ speed: 10, speedMode: "auto" }, firstGridCurve), 10);
+});
+
+test("maps IanniX cursor traversal patterns to Drawerator loop modes", () => {
+  assert.equal(getIannixCursorLoopMode({ pattern: "0 0 1 -1" }), "pingPong");
+  assert.equal(getIannixCursorLoopMode({ pattern: "0 0 1 1" }), "loop");
+  assert.equal(getIannixCursorLoopMode({ pattern: "0 0 1 0" }), "once");
 });
 
 test("preserves explicit IanniX cubic controls", () => {

@@ -63,6 +63,21 @@ export const getIannixCursorCanvasLength = (cursorObject, scale = 1) => {
   return Math.max(0.001, width * canvasScale);
 };
 
+export const getIannixCursorLoopMode = cursorObject => {
+  const values = String(cursorObject?.pattern || "")
+    .trim()
+    .split(/\s+/)
+    .map(value => Number(value))
+    .filter(Number.isFinite);
+  // IanniX setPattern is NxCursor.setStart: the first two values are easing
+  // metadata and the remainder is the traversal sequence. A negative pass
+  // sends the cursor back along its support curve.
+  const traversal = values.slice(2);
+  if (traversal.some(value => value < 0)) return "pingPong";
+  if (traversal.length > 1 && traversal.every(value => value > 0)) return "loop";
+  return "once";
+};
+
 export const getIannixCurvePathLength = curveObject => {
   if (!curveObject) return 0.001;
   if (curveObject.ellipse) {
@@ -113,10 +128,10 @@ export const getIannixCursorDuration = (cursorObject, curveObject) => {
   return Math.max(0.001, pathLength / speed);
 };
 
-export const createIannixCommandCollector = () => {
+export const createIannixCommandCollector = (options = {}) => {
   const state = {
-    currentId: null,
-    lastCurveId: null,
+    currentId: options.currentId == null ? null : String(options.currentId),
+    lastCurveId: options.lastCurveId == null ? null : String(options.lastCurveId),
     operations: [],
     unsupported: [],
   };
@@ -189,6 +204,14 @@ export const createIannixCommandCollector = () => {
     if (command === "setspeed" && id) {
       const candidate = args[2] ?? args[1];
       state.operations.push({ type: "speed", externalId: id, value: Math.max(0.001, number(candidate, 5)), mode: args.length > 2 ? args[1] : "absolute" });
+      return true;
+    }
+    if (["setboundssource", "setboundstarget"].includes(command) && id) {
+      state.operations.push({
+        type: command === "setboundssource" ? "boundsSource" : "boundsTarget",
+        externalId: id,
+        value: args.slice(1, 7).map(value => number(value)),
+      });
       return true;
     }
     if (["setsize", "setwidth"].includes(command) && id) {
@@ -277,7 +300,10 @@ const createHelpers = randomSource => {
 
 export const executeTrustedIannixScript = (source, options = {}) => {
   if (!options.trusted) throw new Error("IanniX scripts require explicit trusted execution.");
-  const collector = createIannixCommandCollector();
+  const collector = createIannixCommandCollector({
+    currentId: options.currentId,
+    lastCurveId: options.lastCurveId,
+  });
   const randomSource = seededRandom(options.seed ?? 1);
   const helpers = createHelpers(randomSource);
   const math = Object.create(null, Object.getOwnPropertyDescriptors(Math));
@@ -359,6 +385,8 @@ export const buildIannixObjectModel = operations => {
       object.speed = operation.value;
       object.speedMode = operation.mode;
     }
+    else if (operation.type === "boundsSource") object.boundsSource = operation.value;
+    else if (operation.type === "boundsTarget") object.boundsTarget = operation.value;
     else if (operation.type === "size") object.size = operation.value;
     else if (operation.type === "width") object.width = operation.value;
     else if (operation.type === "group") object.group = operation.value;

@@ -1,6 +1,6 @@
 # IanniX Score Engine Notes
 
-Last updated: 2026-07-16
+Last updated: 2026-07-17
 
 This note records Drawerator's first IanniX-inspired score slice. It adapts the concepts from the local IanniX project without coupling score semantics to its original renderer or OSC layer.
 
@@ -58,7 +58,7 @@ Evolving-brush time remains separate. `brushElapsedMs` describes how a brush was
 
 ### MIDI clock synchronization
 
-The transport supports three clock modes: **Internal**, **MIDI OUT**, and **MIDI IN**. MIDI clock uses the standard 24 pulses per quarter note and Web MIDI realtime bytes: Clock `F8`, Start `FA`, Continue `FB`, Stop `FC`, plus Song Position Pointer `F2` in sixteenth-note units. In receive mode, incoming clock drives score time and estimates tempo with light damping; the BPM control becomes read-only. In send mode, Drawerator emits Start/Stop and a tempo-derived clock pulse stream to the selected global MIDI output. Ableton Live can therefore follow Drawerator when its MIDI Sync input is enabled, or drive Drawerator when its Sync output is enabled.
+The transport supports **Internal**, **MIDI OUT**, and **MIDI IN** clock modes. MIDI clock uses the standard 24 pulses per quarter note and Web MIDI realtime bytes: Clock `F8`, Start `FA`, Continue `FB`, Stop `FC`, plus Song Position Pointer `F2` in sixteenth-note units. Incoming pulses advance score phase without assuming that they contain a numeric BPM value; the user-visible tempo therefore remains stable by default and can be matched manually. The optional receiver estimator uses a median-gated interval window and damping rather than individual browser event intervals. In send mode, Drawerator emits Start/Stop and a tempo-derived pulse stream. MIDI input and output each support a concrete device, **All**, or **None**, and the global settings can independently enable clock receive and send.
 
 Cursor `visualSmoothing` is a display-only low-pass factor for runtime position and tangent angle. It defaults to `0.65`. Trigger collision and event timing always use the raw score transform, never the damped overlay transform.
 
@@ -72,6 +72,7 @@ Drawerator's first MIDI slice follows IanniX's message URL convention and its de
 - `/notef` uses the same argument order but scales note and velocity from `0..1` to `0..127`, matching `InterfaceMidi::send()`.
 - `/cc` accepts channel, controller, and value as MIDI integers. `/ccf` scales its value from `0..1` to `0..127`, matching IanniX's cursor-to-controller template.
 - Note-on uses status `0x90 + channel - 1`; a scheduled note-off uses `0x80 + channel - 1` after `trigger_duration`.
+- Overlapping notes are tracked per output, channel, and pitch. A stale timer from an earlier occurrence cannot end a newer overlapping voice; the final note-off is emitted only when the last active occurrence expires.
 - `midi_out` resolves to the output selected in Drawerator's global **Settings → Score & MIDI** panel. Browser permission is requested only when **Connect MIDI** is pressed there.
 - Matching IanniX `NxCursor::getCursorValue(triggerPos)`, `trigger_value_x` and `trigger_value_y` are the trigger's position mapped through the colliding cursor's curve bounds. Drawerator also mirrors IanniX's default bounds-source mode by expanding those bounds by half the cursor dimensions; this avoids collapsing ordinary edge intersections immediately to `0` or `1`. Y is inverted so upward is higher.
 - Collision entry remains the event source. Visual cursor damping never changes MIDI or trigger timing.
@@ -87,11 +88,30 @@ The Trigger panel provides these templates while keeping the URL pattern editabl
 
 IanniX JavaScript expressions and the `/pgm` and `/bend` message families remain future extensions.
 
+Trigger entry policy is configurable in **Settings → Score & MIDI**. The default latched policy treats a trigger as one shared voice source across all cursors and applies a duration lockout, matching the reference scores' non-retriggering behavior. Disabling latching permits independent cursor-trigger pairs to retrigger the same trigger.
+
 ### Trusted `.iannix` import
 
 The Scene data section can execute an explicitly trusted `.iannix`/JavaScript score. The compatibility runner provides IanniX's `run()`, `load()`, `loadJSON()`, `makeWithScript()`, common math helpers, deterministic session time, and seeded randomness. Supported object/geometry/link/property commands are collected into the recordable `iannix.import.trusted` command and translated to native Drawerator elements with stable import IDs. Missing or unsupported commands are reported through UI status and events instead of being silently discarded.
 
 This is trusted executable compatibility mode, not a sandbox or security boundary. Drawerator always presents a warning before file execution.
+
+### Shared script parameters
+
+Brush and IanniX editors use the same typed script-parameter parser. A native IanniX declaration such as:
+
+```js
+ask("Lines", "Quantity", "indexMax", 30);
+```
+
+automatically creates a slider in the IanniX Script tab, persists its value with that saved script, and supplies the selected value to `ask()` during execution. Drawerator infers a useful range when the IanniX source provides only a default. Authors can refine the slider with the same annotation used by brush scripts:
+
+```js
+// @param indexMax = 30 (1..100, step: 1)
+ask("Lines", "Quantity", "indexMax", 30);
+```
+
+When both declarations exist, `ask()` supplies the human-facing category and label while `@param` supplies the default, range, and step. The shared parser lives in `src/scriptParameters.js` so brush and score scripts cannot drift into separate parameter conventions.
 
 ## Core geometry versus rendered appearance
 
@@ -137,7 +157,7 @@ Canonical paths are hosted by native Excalidraw linear elements whose first deri
 5. transforms cursor core paths for collision and overlay rendering;
 6. tests both the current cursor paths and the swept paths since the previous frame against every active trigger.
 
-Swept testing prevents a fast cursor from tunneling through a narrow trigger between animation frames. Loop discontinuities do not create a false sweep across the canvas. The React layer tracks enter/exit state so a trigger fires once on entry, pulses for its configured duration, and rearms only after the cursor exits.
+Swept testing prevents a fast cursor from tunneling through a narrow trigger between animation frames. Loop discontinuities do not create a false sweep across the canvas. Collision state supports both shared-trigger latching and independent cursor-trigger entry, with duration lockouts preventing accidental rapid retriggers.
 
 Cursor motion is a runtime SVG overlay, leaving the authored Excalidraw geometry untouched and editable. Once an active cursor is linked, its in-place Excalidraw source and the ordinary modifier overlay are hidden. The runtime overlay reconstructs the cursor's complete visible appearance—source path, filters, and every generated brush track—then applies the curve translation and tangent rotation to that whole result. Unlinking, deactivating, or changing the role restores the authored source opacity. This is a non-destructive authoring model, not a bake.
 

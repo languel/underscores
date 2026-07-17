@@ -20,6 +20,8 @@ export const createDefaultIannixData = (overrides = {}) => ({
     curveId: null,
     followTangent: true,
     visualSmoothing: 0.65,
+    boundsSource: null,
+    boundsTarget: [0, 1, 0, 1, 0, 1],
     ...(overrides.cursor || {}),
   },
   midi: {
@@ -472,13 +474,41 @@ export const sweptPathsIntersect = (previousPaths, currentPaths, targetPaths) =>
 export const getScoreObjects = (elements) => (elements || [])
   .filter(element => !element.isDeleted && IANNIX_ROLES.includes(element.customData?.iannix?.role));
 
-export const advanceScoreCollisionState = (collisions, previousCollisions, playing) => {
-  if (!playing) return { entered: [], active: new Set() };
+const collisionTriggerId = key => String(key).split(":").slice(1).join(":");
+
+export const advanceScoreCollisionState = (collisions, previousCollisions, playing, {
+  nowMs = 0,
+  lockouts: previousLockouts = new Map(),
+  triggerDurations = new Map(),
+  latchTriggersAcrossCursors = true,
+} = {}) => {
+  if (!playing) return { entered: [], active: new Set(), lockouts: new Map() };
   const active = new Set(collisions || []);
   const previous = previousCollisions || new Set();
+  const previousEntries = latchTriggersAcrossCursors
+    ? new Set([...previous].map(collisionTriggerId))
+    : previous;
+  const lockouts = new Map(
+    [...previousLockouts].filter(([, until]) => Number(until) > nowMs),
+  );
+  const enteredTriggers = new Set();
+  const entered = [];
+
+  for (const key of active) {
+    const triggerId = collisionTriggerId(key);
+    const latchId = latchTriggersAcrossCursors ? triggerId : key;
+    if (!triggerId || previousEntries.has(latchId) || enteredTriggers.has(latchId)) continue;
+    if ((lockouts.get(latchId) || 0) > nowMs) continue;
+    entered.push(key);
+    enteredTriggers.add(latchId);
+    const durationSeconds = Math.max(0, Number(triggerDurations.get(triggerId)) || 0);
+    lockouts.set(latchId, nowMs + durationSeconds * 1000);
+  }
+
   return {
-    entered: [...active].filter(key => !previous.has(key)),
+    entered,
     active,
+    lockouts,
   };
 };
 

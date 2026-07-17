@@ -113,3 +113,69 @@ export const estimateMidiClockTempo = (previousTimestamp, timestamp, previousTem
   const instantaneous = 60000 / (delta * 24);
   return clampTempo(previousTempo * 0.85 + instantaneous * 0.15);
 };
+
+const median = values => {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
+};
+
+export const createMidiClockReceiverState = (tempo = 120) => ({
+  tempo: clampTempo(tempo),
+  lastTimestamp: null,
+  intervals: [],
+});
+
+/**
+ * Advances the 24 PPQN MIDI-clock receiver without conflating clock phase and
+ * the user-visible tempo. MIDI Clock does not contain a numeric BPM value, so
+ * tempo following is deliberately opt-in. When enabled, a median-gated window
+ * rejects browser scheduling spikes before applying a damped estimate.
+ */
+export const advanceMidiClockReceiver = (
+  previousState,
+  timestamp,
+  { followTempo = false, minSamples = 12, maxSamples = 48 } = {},
+) => {
+  const state = previousState || createMidiClockReceiverState();
+  const nextTimestamp = Number(timestamp);
+  const priorTimestamp = Number(state.lastTimestamp);
+  const delta = nextTimestamp - priorTimestamp;
+  let intervals = Array.isArray(state.intervals) ? [...state.intervals] : [];
+
+  if (Number.isFinite(delta) && state.lastTimestamp !== null) {
+    if (delta > 500) {
+      intervals = [];
+    } else if (delta >= 5 && delta <= 250) {
+      intervals.push(delta);
+      intervals = intervals.slice(-Math.max(minSamples, maxSamples));
+    }
+  }
+
+  let tempo = clampTempo(state.tempo);
+  let ready = false;
+  if (followTempo && intervals.length >= minSamples) {
+    const center = median(intervals);
+    const inliers = intervals.filter(value => value >= center * 0.75 && value <= center * 1.25);
+    if (inliers.length >= minSamples) {
+      const meanInterval = inliers.reduce((sum, value) => sum + value, 0) / inliers.length;
+      const measuredTempo = clampTempo(60000 / (meanInterval * 24));
+      tempo = clampTempo(tempo * 0.8 + measuredTempo * 0.2);
+      ready = true;
+    }
+  }
+
+  return {
+    state: {
+      tempo,
+      lastTimestamp: Number.isFinite(nextTimestamp) ? nextTimestamp : state.lastTimestamp,
+      intervals,
+    },
+    tempo,
+    secondsPerPulse: 60 / (tempo * 24),
+    ready,
+  };
+};

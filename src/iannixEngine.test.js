@@ -225,3 +225,99 @@ test("paused collisions do not consume the first playback entry", () => {
   const playing = advanceScoreCollisionState(collision, paused.active, true);
   assert.deepEqual(playing.entered, ["cursor:trigger"]);
 });
+
+test("a sustained cursor-trigger collision enters once and can retrigger after exit", () => {
+  const collision = new Set(["cursor:trigger"]);
+  const first = advanceScoreCollisionState(collision, new Set(), true, {
+    nowMs: 0,
+    triggerDurations: new Map([["trigger", 1]]),
+  });
+  assert.deepEqual(first.entered, ["cursor:trigger"]);
+
+  const sustained = advanceScoreCollisionState(collision, first.active, true, {
+    nowMs: 100,
+    lockouts: first.lockouts,
+    triggerDurations: new Map([["trigger", 1]]),
+  });
+  assert.deepEqual(sustained.entered, []);
+
+  const exited = advanceScoreCollisionState(new Set(), sustained.active, true, {
+    nowMs: 200,
+    lockouts: sustained.lockouts,
+    triggerDurations: new Map([["trigger", 1]]),
+  });
+  assert.equal(exited.active.size, 0);
+
+  const earlyReentry = advanceScoreCollisionState(collision, exited.active, true, {
+    nowMs: 500,
+    lockouts: exited.lockouts,
+    triggerDurations: new Map([["trigger", 1]]),
+  });
+  assert.deepEqual(earlyReentry.entered, []);
+
+  const released = advanceScoreCollisionState(new Set(), earlyReentry.active, true, {
+    nowMs: 600,
+    lockouts: earlyReentry.lockouts,
+    triggerDurations: new Map([["trigger", 1]]),
+  });
+  const reentered = advanceScoreCollisionState(collision, released.active, true, {
+    nowMs: 1001,
+    lockouts: released.lockouts,
+    triggerDurations: new Map([["trigger", 1]]),
+  });
+  assert.deepEqual(reentered.entered, ["cursor:trigger"]);
+});
+
+test("a trigger is globally latched when multiple cursors collide", () => {
+  const duration = new Map([["trigger", 1]]);
+  const first = advanceScoreCollisionState(
+    new Set(["cursor-a:trigger", "cursor-b:trigger"]),
+    new Set(),
+    true,
+    { nowMs: 0, triggerDurations: duration },
+  );
+  assert.deepEqual(first.entered, ["cursor-a:trigger"]);
+
+  const handoff = advanceScoreCollisionState(
+    new Set(["cursor-b:trigger"]),
+    first.active,
+    true,
+    { nowMs: 250, lockouts: first.lockouts, triggerDurations: duration },
+  );
+  assert.deepEqual(handoff.entered, []);
+});
+
+test("independent cursor latches allow multiple cursors to voice one trigger", () => {
+  const duration = new Map([["trigger", 1]]);
+  const first = advanceScoreCollisionState(
+    new Set(["cursor-a:trigger", "cursor-b:trigger"]),
+    new Set(),
+    true,
+    { nowMs: 0, triggerDurations: duration, latchTriggersAcrossCursors: false },
+  );
+  assert.deepEqual(first.entered, ["cursor-a:trigger", "cursor-b:trigger"]);
+
+  const exited = advanceScoreCollisionState(
+    new Set(),
+    first.active,
+    true,
+    {
+      nowMs: 100,
+      lockouts: first.lockouts,
+      triggerDurations: duration,
+      latchTriggersAcrossCursors: false,
+    },
+  );
+  const earlyReentry = advanceScoreCollisionState(
+    new Set(["cursor-a:trigger"]),
+    exited.active,
+    true,
+    {
+      nowMs: 500,
+      lockouts: exited.lockouts,
+      triggerDurations: duration,
+      latchTriggersAcrossCursors: false,
+    },
+  );
+  assert.deepEqual(earlyReentry.entered, []);
+});

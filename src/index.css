@@ -1600,6 +1600,68 @@ body .excalidraw .sidebar {
   gap: 8px;
 }
 
+.iannix-script-parameters {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--input-bg-color, rgba(128, 128, 128, 0.05));
+}
+
+.iannix-script-parameter {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--color-secondary);
+  font-size: 11px;
+}
+
+.iannix-script-parameter-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.iannix-script-parameter-header strong {
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.iannix-script-parameter input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+.iannix-command-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.iannix-command-line input {
+  min-width: 0;
+  width: 100%;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  color: var(--color-primary);
+  background: var(--input-bg-color, rgba(128, 128, 128, 0.08));
+  font: 11px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.iannix-command-line input:focus {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+
 .iannix-data-panel {
   display: flex;
   flex-direction: column;
@@ -2738,13 +2800,14 @@ body .excalidraw .sidebar {
 .outliner-name-mode:hover { color: var(--color-primary); background: var(--button-hover-bg, rgba(128,128,128,.12)); }
 .outliner-toolbar span { min-width: 24px; color: var(--color-secondary); text-align: right; }
 .outliner-list { min-height: 0; overflow: auto; }
-.outliner-row { display: grid; grid-template-columns: minmax(0, 1fr) 24px 24px; align-items: center; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.13)); }
+.outliner-row { display: grid; grid-template-columns: minmax(0, 1fr) 24px 24px 24px; align-items: center; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.13)); }
 .outliner-row:hover { background: var(--button-hover-bg, rgba(128,128,128,.12)); }
 .outliner-row.selected { background: var(--button-selected-bg, rgba(128,128,128,.2)); }
 .outliner-object { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: center; gap: 6px; min-width: 0; padding: 6px 8px; border: 0; background: transparent; color: var(--color-primary); text-align: left; cursor: pointer; }
 .outliner-toggle { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 4px; border: 0; background: transparent; color: var(--color-secondary); cursor: pointer; }
 .outliner-toggle:hover, .outliner-toggle.active { color: var(--color-primary); background: var(--button-hover-bg, rgba(128,128,128,.12)); }
 .outliner-toggle.inactive { opacity: .35; }
+.outliner-delete:hover { color: var(--color-danger, #e03131); }
 .outliner-toggle svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; }
 .outliner-type { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1px solid var(--border-color); border-radius: 3px; color: var(--color-secondary); font-size: 9px; }
 .outliner-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: capitalize; }
@@ -2949,6 +3012,30 @@ body .excalidraw .sidebar {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.settings-panel-midi-routing {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 28px;
+  align-items: end;
+  gap: 8px;
+}
+
+.settings-panel-midi-refresh {
+  width: 28px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+  border-radius: 6px;
+  background: var(--input-bg-color, rgba(128, 128, 128, 0.08));
+  color: var(--color-primary);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.settings-panel-midi-refresh:hover {
+  background: var(--button-hover-bg, rgba(128, 128, 128, 0.16));
 }
 
 .settings-panel-divider {

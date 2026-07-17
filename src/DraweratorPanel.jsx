@@ -22,7 +22,11 @@ const PanelIcon = ({ id }) => {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14M5 8h5M5 16h5M10 8v4h5M10 16h5"/><rect x="15" y="10" width="5" height="4" rx="1"/><circle cx="5" cy="5" r="1.5"/><circle cx="5" cy="19" r="1.5"/></svg>;
   }
   if (id === "iannix") {
-    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12c2.2-7 4.5-7 6.7 0s4.5 7 6.7 0 3.4-5 4.6-5"/><path d="M3 18h18"/></svg>;
+    return <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M2.5 5.5h4c4 0 5-2.8 7.5-2.3 2.8.6 3.7 7 7.5 9.3"/>
+      <path d="M2.5 11.7c3.5 0 4.7-2.5 7.7-2 3.1.5 5.3 4 11.3 4"/>
+      <path d="M2.5 18.5c2.8 0 3.3-5.3 5.2-5.3 2.1 0 2.6 5.6 5.6 5.6 2.9 0 4.5-8.6 8.2-11.6"/>
+    </svg>;
   }
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 5 4.5 4.5M13 6.5l4.5 4.5M4 20l7.5-7.5M14 3l7 7-9.5 9.5-7-7L14 3Z"/></svg>;
 };

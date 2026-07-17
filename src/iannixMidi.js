@@ -73,8 +73,11 @@ export const parseIannixMidiPattern = (patterns, context = {}) => {
     };
   }
   const floating = command === "/notef";
-  const note = Math.round(clamp(floating ? values[1] * 127 : values[1], 0, 127));
-  const velocity = Math.round(clamp(floating ? values[2] * 127 : values[2], 0, 127));
+  // IanniX's floating MIDI commands truncate normalized values when converting
+  // to 7-bit MIDI. Rounding shifts many notes and velocities up by one.
+  const quantize = value => floating ? Math.trunc(value) : Math.round(value);
+  const note = quantize(clamp(floating ? values[1] * 127 : values[1], 0, 127));
+  const velocity = quantize(clamp(floating ? values[2] * 127 : values[2], 0, 127));
   const duration = Math.max(0, values[3]);
 
   return {
@@ -101,6 +104,83 @@ export const sendIannixMidiMessage = (output, message, timestamp = 0) => {
   if (message.duration > 0) {
     output.send(message.noteOff, (timestamp || performance.now()) + message.duration * 1000);
   }
+};
+
+/**
+ * Tracks overlapping notes by output/channel/pitch. A stale note-off from an
+ * earlier trigger is held until the final overlapping voice expires, avoiding
+ * the short, robotic note fragments produced by independent scheduled offs.
+ */
+export const createIannixMidiVoiceTracker = ({
+  now = () => performance.now(),
+  setTimer = (callback, delay) => setTimeout(callback, delay),
+  clearTimer = timer => clearTimeout(timer),
+} = {}) => {
+  const outputIds = new WeakMap();
+  const voices = new Map();
+  let nextOutputId = 1;
+
+  const getOutputId = output => {
+    if (!outputIds.has(output)) outputIds.set(output, nextOutputId++);
+    return outputIds.get(output);
+  };
+  const voiceKey = (output, message) => `${getOutputId(output)}:${message.channel}:${message.note}`;
+
+  const send = (output, message, timestamp = 0) => {
+    if (!output?.send) throw new Error("No MIDI output is connected.");
+    if (message.kind === "cc") {
+      output.send(message.data, timestamp || undefined);
+      return;
+    }
+
+    const sentAt = timestamp || now();
+    output.send(message.noteOn, timestamp || undefined);
+    if (!(message.duration > 0)) return;
+
+    const key = voiceKey(output, message);
+    const voice = voices.get(key) || {
+      count: 0,
+      output,
+      noteOff: message.noteOff,
+      timers: new Set(),
+    };
+    voice.count += 1;
+    voices.set(key, voice);
+
+    let timer = null;
+    timer = setTimer(() => {
+      const current = voices.get(key);
+      if (!current) return;
+      current.timers.delete(timer);
+      current.count -= 1;
+      if (current.count > 0) return;
+      try {
+        current.output.send(current.noteOff);
+      } finally {
+        voices.delete(key);
+      }
+    }, Math.max(0, sentAt + message.duration * 1000 - now()));
+    voice.timers.add(timer);
+  };
+
+  const panic = () => {
+    voices.forEach(voice => {
+      voice.timers.forEach(clearTimer);
+      try {
+        voice.output.send(voice.noteOff);
+      } catch {
+        // A disconnected output should not prevent the remaining voices from
+        // being cleared locally.
+      }
+    });
+    voices.clear();
+  };
+
+  return {
+    send,
+    panic,
+    getActiveVoiceCount: () => voices.size,
+  };
 };
 
 export const describeIannixMidiMessage = (message) => message?.kind === "cc"
@@ -139,6 +219,7 @@ const closestPointOnPaths = (point, paths) => {
 
 export const getIannixTriggerMidiContext = (cursor, triggerData, triggerElement = null) => {
   const points = cursor?.curveElement ? getElementCorePaths(cursor.curveElement)[0] : [];
+  const cursorData = cursor?.data || normalizeIannixData(cursor?.element?.customData?.iannix);
   // IanniX maps trigger_value_* from the triggered trigger's position through
   // the colliding cursor's source/target bounds. The cursor position remains a
   // fallback for older callers that do not provide the trigger element.
@@ -151,15 +232,42 @@ export const getIannixTriggerMidiContext = (cursor, triggerData, triggerElement 
   // cursor's dimensions. This avoids immediately clamping edge hits to 0/1.
   const paddingX = Math.max(0, Number(cursor?.element?.width) || 0) / 2;
   const paddingY = Math.max(0, Number(cursor?.element?.height) || 0) / 2;
-  const bounds = {
+  const derivedBounds = {
     minX: (xs.length ? Math.min(...xs) : position[0]) - paddingX,
     maxX: (xs.length ? Math.max(...xs) : position[0] + 1) + paddingX,
     minY: (ys.length ? Math.min(...ys) : position[1]) - paddingY,
     maxY: (ys.length ? Math.max(...ys) : position[1] + 1) + paddingY,
   };
-  const triggerValue = mapPointToBounds(position, bounds);
+  const source = cursorData.cursor.boundsSource;
+  const target = cursorData.cursor.boundsTarget;
+  const importData = cursor?.element?.customData?.iannixImport;
+  const importScale = Number(importData?.scale);
+  const importAnchor = importData?.anchor;
+  const hasExplicitSource = Array.isArray(source)
+    && source.length >= 4
+    && Number.isFinite(importScale)
+    && importScale !== 0
+    && Array.isArray(importAnchor)
+    && importAnchor.length >= 2;
+  // Imported IanniX bounds are expressed in score coordinates (Y up), while
+  // the Excalidraw host uses canvas coordinates (Y down).
+  const bounds = hasExplicitSource ? {
+    minX: Number(importAnchor[0]) + Number(source[0]) * importScale,
+    maxX: Number(importAnchor[0]) + Number(source[1]) * importScale,
+    minY: Number(importAnchor[1]) - Number(source[3]) * importScale,
+    maxY: Number(importAnchor[1]) - Number(source[2]) * importScale,
+  } : derivedBounds;
+  const mapThroughCursorBounds = point => {
+    const normalized = mapPointToBounds(point, bounds);
+    if (!Array.isArray(target) || target.length < 4) return normalized;
+    return {
+      x: Number(target[0]) + normalized.x * (Number(target[1]) - Number(target[0])),
+      y: Number(target[2]) + normalized.y * (Number(target[3]) - Number(target[2])),
+    };
+  };
+  const triggerValue = mapThroughCursorBounds(position);
   const cursorPosition = cursor?.transform?.position || position;
-  const cursorValue = mapPointToBounds(cursorPosition, bounds);
+  const cursorValue = mapThroughCursorBounds(cursorPosition);
 
   const cursorPaths = cursor?.paths || [];
   const hitPoint = closestPointOnPaths(position, cursorPaths);
@@ -182,15 +290,14 @@ export const getIannixTriggerMidiContext = (cursor, triggerData, triggerElement 
     1,
   );
 
-  const cursorData = cursor?.data || normalizeIannixData(cursor?.element?.customData?.iannix);
   const curveData = normalizeIannixData(cursor?.curveElement?.customData?.iannix);
   const sourceData = triggerData?.trigger?.midiBaseSource === "curve" ? curveData : cursorData;
   const baseNote = sourceData.midi.baseNote;
   const pitchRange = sourceData.midi.pitchRangeOctaves * 12;
   const triggerNote = Math.round(clamp(baseNote + relativeOffset * pitchRange, 0, 127));
   return {
-    trigger_value_x: clamp(triggerValue.x, 0, 1),
-    trigger_value_y: clamp(triggerValue.y, 0, 1),
+    trigger_value_x: triggerValue.x,
+    trigger_value_y: triggerValue.y,
     trigger_value_z: 0,
     trigger_value: 127,
     trigger_duration: triggerData?.trigger?.duration ?? 0.35,
@@ -198,8 +305,8 @@ export const getIannixTriggerMidiContext = (cursor, triggerData, triggerElement 
     trigger_value_relative: (relativeOffset + 1) / 2,
     trigger_note: triggerNote,
     trigger_velocity: triggerData?.trigger?.midiVelocity ?? sourceData.midi.velocity,
-    cursor_value_x: clamp(cursorValue.x, 0, 1),
-    cursor_value_y: clamp(cursorValue.y, 0, 1),
+    cursor_value_x: cursorValue.x,
+    cursor_value_y: cursorValue.y,
     cursor_value_z: 0,
     midi_channel: triggerData?.trigger?.midiChannel ?? 1,
     midi_controller: triggerData?.trigger?.midiController ?? 0,

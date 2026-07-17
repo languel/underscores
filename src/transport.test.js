@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  advanceMidiClockReceiver,
+  createMidiClockReceiverState,
   createTimelineTicks,
   estimateMidiClockTempo,
   formatMusicalPosition,
@@ -36,6 +38,30 @@ test("MIDI clock uses 24 PPQN and Song Position Pointer uses sixteenth notes", (
 test("incoming MIDI clock tempo estimation is damped", () => {
   const estimate = estimateMidiClockTempo(1000, 1020.8333333333, 120);
   assert.ok(Math.abs(estimate - 120) < 0.001);
+});
+
+test("incoming MIDI clock keeps the configured tempo unless tempo following is armed", () => {
+  let state = createMidiClockReceiverState(120);
+  for (const timestamp of [1000, 1001, 1021, 1042, 1043, 1063]) {
+    const result = advanceMidiClockReceiver(state, timestamp, { followTempo: false });
+    state = result.state;
+    assert.equal(result.tempo, 120);
+    assert.ok(Math.abs(result.secondsPerPulse - 1 / 48) < 1e-9);
+  }
+});
+
+test("optional MIDI clock tempo following rejects rogue pulse intervals", () => {
+  let state = createMidiClockReceiverState(120);
+  let timestamp = 1000;
+  const intervals = Array.from({ length: 40 }, (_, index) => index === 18 ? 1 : 20.833 + (index % 3 - 1) * 0.35);
+  let result;
+  for (const interval of intervals) {
+    timestamp += interval;
+    result = advanceMidiClockReceiver(state, timestamp, { followTempo: true });
+    state = result.state;
+  }
+  assert.equal(result.ready, true);
+  assert.ok(Math.abs(result.tempo - 120) < 1.5, `expected ~120 BPM, got ${result.tempo}`);
 });
 
 test("frame and timecode conversions share the selected FPS", () => {
