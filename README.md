@@ -26,6 +26,7 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 - **Canonical Bézier Paths:** Explicitly convert native lines or freehand paths into editable cubic Béziers. Versioned local-space anchors and handles remain canonical while an adaptive Excalidraw polyline supplies native selection, transforms, exports, and hit-testing.
 - **IanniX Score Objects:** Give any selected canvas object one score role—Curve, Cursor, or Trigger—from the dockable **IanniX** panel. A compact global transport drives each object's local clock while cursor motion and trigger evaluation continue to use the editable core geometry beneath Mods & FX.
 - **Trusted IanniX Script Import:** Explicitly trusted `.iannix` scripts use deterministic IanniX-style `run()` and math helpers, map supported score commands through Drawerator's recorder, and report unsupported commands.
+- **Cached Score Playback:** Canonical Bézier metrics, prepared trigger paths, metadata, and bounds are cached during playback; collision checks use broad-phase rejection and transport/MIDI updates are throttled without reducing imported curve fidelity.
 - **Custom Canvas Backgrounds:** Set custom colors (including presets and hex input) from the hamburger main menu.
 - **Toggles for Interface Elements:** Control the visibility of toolbar hints and bottom alerts right from the main menu.
 - **Single-File Compilation:** Built to be easily bundled as a single self-contained HTML page.
@@ -99,6 +100,8 @@ npm run build
 ```
 
 Modifier-stack, score-engine, command, session, macro, input, IanniX-import, and automation behavior are covered by Node's built-in test runner. See `notes/modifier-stack.md`, `notes/iannix.md`, and `notes/history-automation.md` for their data models and implementation invariants.
+
+The IanniX performance path is intentionally fidelity-first: imported geometry remains adaptively sampled, while repeated metrics, trigger preparation, collision broad-phase checks, and UI commits are cached or coalesced. See the performance checkpoint in `notes/iannix.md` for profiling results and future worker/bundle-splitting directions.
 
 ## Command Palette Commands
 

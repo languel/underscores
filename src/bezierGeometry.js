@@ -417,7 +417,15 @@ export const sampleBezierElement = (element, progress) => {
   const metrics = getBezierWorldMetrics(element);
   if (!metrics || metrics.length <= EPSILON) return null;
   const targetDistance = Math.min(1, Math.max(0, finite(progress))) * metrics.length;
-  const segment = metrics.segments.find(candidate => targetDistance <= candidate.startDistance + candidate.length + EPSILON) || metrics.segments.at(-1);
+  let low = 0;
+  let high = metrics.segments.length - 1;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    const candidate = metrics.segments[middle];
+    if (targetDistance <= candidate.startDistance + candidate.length + EPSILON) high = middle;
+    else low = middle + 1;
+  }
+  const segment = metrics.segments[low] || metrics.segments.at(-1);
   const amount = Math.min(1, Math.max(0, (targetDistance - segment.startDistance) / segment.length));
   const dx = segment.end[0] - segment.start[0];
   const dy = segment.end[1] - segment.start[1];

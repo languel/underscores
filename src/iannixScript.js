@@ -17,6 +17,31 @@ const number = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const splitTopLevelCommaList = source => {
+  const values = [];
+  let start = 0;
+  let depth = 0;
+  let quote = null;
+  const text = String(source || "");
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (quote) {
+      if (character === "\\") index += 1;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") quote = character;
+    else if (character === "(") depth += 1;
+    else if (character === ")") depth = Math.max(0, depth - 1);
+    else if (character === "," && depth === 0) {
+      values.push(text.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  values.push(text.slice(start).trim());
+  return values;
+};
+
 const targetId = (state, value) => {
   if (!value || value.toLowerCase() === "current") return state.currentId;
   if (value.toLowerCase() === "lastcurve") return state.lastCurveId;
@@ -70,11 +95,13 @@ export const getIannixCursorLoopMode = cursorObject => {
     .map(value => Number(value))
     .filter(Number.isFinite);
   // IanniX setPattern is NxCursor.setStart: the first two values are easing
-  // metadata and the remainder is the traversal sequence. A negative pass
-  // sends the cursor back along its support curve.
+  // metadata and the remainder is the traversal sequence. The sequence is
+  // cyclic unless it contains a terminating zero (the IanniX default is
+  // `0 0 1 0`, while scripts commonly use `0 0 1` for endless traversal).
+  // A negative pass sends the cursor back along its support curve.
   const traversal = values.slice(2);
   if (traversal.some(value => value < 0)) return "pingPong";
-  if (traversal.length > 1 && traversal.every(value => value > 0)) return "loop";
+  if (traversal.length > 0 && !traversal.includes(0)) return "loop";
   return "once";
 };
 
@@ -193,6 +220,24 @@ export const createIannixCommandCollector = (options = {}) => {
       state.operations.push({ type: "ellipse", externalId: id, radii: [Math.abs(number(args[1], 1)), Math.abs(number(args[2], number(args[1], 1)))] });
       return true;
     }
+    if (command === "setequation" && id) {
+      const equationType = String(args[1] || "cartesian").toLowerCase();
+      const expressions = splitTopLevelCommaList(args.slice(2).join(" "));
+      if (expressions.length !== 3 || expressions.some(expression => !expression)) {
+        state.unsupported.push({ command: raw, reason: "IanniX equation must contain three coordinate expressions." });
+        return null;
+      }
+      state.operations.push({ type: "equation", externalId: id, equationType, expressions });
+      return true;
+    }
+    if (command === "setequationparam" && id) {
+      state.operations.push({ type: "equationParam", externalId: id, name: String(args[1] || ""), value: number(args[2]) });
+      return true;
+    }
+    if (["setequationnbpoints", "setequationpoints"].includes(command) && id) {
+      state.operations.push({ type: "equationPoints", externalId: id, value: Math.min(10000, Math.max(2, Math.round(number(args[1], 400)))) });
+      return true;
+    }
     if (command === "setpos" && id) {
       state.operations.push({ type: "position", externalId: id, position: [number(args[1]), number(args[2]), number(args[3])] });
       return true;
@@ -234,6 +279,18 @@ export const createIannixCommandCollector = (options = {}) => {
       state.operations.push({ type: command === "setcolor" ? "color" : "colorHue", externalId: id, value: args.slice(1, 5).map(value => number(value)) });
       return true;
     }
+    if (command === "setcoloractive" && id) {
+      state.operations.push({ type: "color", externalId: id, value: args.slice(1, 5).map(value => number(value)) });
+      return true;
+    }
+    if (command === "setoffset" && id) {
+      state.operations.push({ type: "offset", externalId: id, value: args.slice(1).join(" ") });
+      return true;
+    }
+    if (command === "settriggeroff" && id) {
+      state.operations.push({ type: "triggerOff", externalId: id, value: !["0", "false", "off"].includes(String(args[1]).toLowerCase()) });
+      return true;
+    }
     if (["setmessage", "setpattern"].includes(command) && id) {
       state.operations.push({ type: command === "setmessage" ? "message" : "pattern", externalId: id, value: args.slice(1).join(" ") });
       return true;
@@ -270,6 +327,7 @@ const createHelpers = randomSource => {
     PI: Math.PI,
     TWO_PI: Math.PI * 2,
     HALF_PI: Math.PI / 2,
+    THIRD_PI: Math.PI / 3,
     QUARTER_PI: Math.PI / 4,
     random,
     range,
@@ -334,6 +392,7 @@ export const executeTrustedIannixScript = (source, options = {}) => {
     `with (scope) {\n${String(source || "")}\n` +
       `if (typeof askUserForParameters === "function") askUserForParameters();\n` +
       `if (typeof makeWithScript === "function") makeWithScript();\n` +
+      `if (typeof madeThroughGUI === "function") madeThroughGUI();\n` +
       `return typeof onIncomingMessage === "function" ? onIncomingMessage : null;\n}`,
   );
   const onIncomingMessage = factory(
@@ -362,7 +421,7 @@ export const buildIannixObjectModel = operations => {
   let clear = false;
   const presentation = [];
   const ensure = externalId => {
-    if (!objects.has(externalId)) objects.set(externalId, { externalId, role: null, position: [0, 0, 0], points: [], controls: [], size: 1, width: 1, active: true });
+    if (!objects.has(externalId)) objects.set(externalId, { externalId, role: null, position: [0, 0, 0], points: [], controls: [], size: 1, width: 1, active: true, equationParams: {} });
     return objects.get(externalId);
   };
   for (const operation of operations || []) {
@@ -379,6 +438,12 @@ export const buildIannixObjectModel = operations => {
     }
     else if (operation.type === "points") { object.points = operation.points; object.controls = []; object.closed = operation.closed; }
     else if (operation.type === "ellipse") object.ellipse = operation.radii;
+    else if (operation.type === "equation") {
+      object.equationType = operation.equationType;
+      object.equationExpressions = operation.expressions;
+    }
+    else if (operation.type === "equationParam") object.equationParams[operation.name] = operation.value;
+    else if (operation.type === "equationPoints") object.equationPoints = operation.value;
     else if (operation.type === "position") object.position = operation.position;
     else if (operation.type === "curve") object.curveExternalId = operation.curveExternalId;
     else if (operation.type === "speed") {
@@ -394,6 +459,40 @@ export const buildIannixObjectModel = operations => {
     else if (operation.type === "active") object.active = operation.value;
     else if (operation.type === "color" || operation.type === "colorHue") object[operation.type] = operation.value;
     else if (operation.type === "message" || operation.type === "pattern") object[operation.type] = operation.value;
+    else if (operation.type === "offset" || operation.type === "triggerOff") object[operation.type] = operation.value;
+  }
+  for (const object of objects.values()) {
+    if (object.role !== "curve" || !object.equationExpressions) continue;
+    const parameters = object.equationParams || {};
+    const names = Object.keys(parameters);
+    let evaluators;
+    try {
+      evaluators = object.equationExpressions.map(expression => new Function(
+        "t", ...names,
+        `with (Math) { return Number(${expression}); }`,
+      ));
+    } catch (error) {
+      throw new Error(`IanniX curve ${object.externalId} equation could not be parsed: ${error.message}`);
+    }
+    const count = Math.min(10000, Math.max(2, Math.round(number(object.equationPoints, 400))));
+    const parameterValues = names.map(name => parameters[name]);
+    object.points = [];
+    object.controls = [];
+    for (let index = 0; index <= count; index += 1) {
+      const t = index / count;
+      let values;
+      try {
+        values = evaluators.map(evaluate => evaluate(t, ...parameterValues));
+      } catch (error) {
+        throw new Error(`IanniX curve ${object.externalId} equation failed at t=${t.toFixed(4)}: ${error.message}`);
+      }
+      if (!values.every(Number.isFinite)) {
+        throw new Error(`IanniX curve ${object.externalId} equation returned a non-finite coordinate at t=${t.toFixed(4)}.`);
+      }
+      object.points.push(object.equationType === "polar"
+        ? [values[0] * Math.sin(values[1]) * Math.cos(values[2]), values[0] * Math.cos(values[1]), values[0] * Math.sin(values[1]) * Math.sin(values[2])]
+        : values);
+    }
   }
   for (const object of objects.values()) {
     if (object.role !== "curve" || !object.controls.some(control => control?.smooth)) continue;

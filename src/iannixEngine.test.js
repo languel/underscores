@@ -217,6 +217,23 @@ test("score frame links cursor to curve and reports trigger collision", () => {
   assert.equal(frame.collisions.has("cursor:trigger"), true);
 });
 
+test("score frame can skip collision work for visual-only consumers", () => {
+  const elements = [
+    line("curve", [[0, 0], [100, 0]], createDefaultIannixData({ role: "curve" })),
+    line("cursor", [[0, -10], [0, 10]], createDefaultIannixData({
+      role: "cursor",
+      time: { start: 0, duration: 10, rate: 1, loopMode: "once" },
+      cursor: { curveId: "curve" },
+    })),
+    line("trigger", [[50, -20], [50, 20]], createDefaultIannixData({ role: "trigger" })),
+  ];
+
+  const frame = evaluateScoreFrame(elements, 5, new Map(), { detectCollisions: false });
+  assert.equal(frame.cursors.length, 1);
+  assert.equal(frame.collisions.size, 0);
+  assert.equal(frame.triggerDurations.get("trigger"), 0.35);
+});
+
 test("paused collisions do not consume the first playback entry", () => {
   const collision = new Set(["cursor:trigger"]);
   const paused = advanceScoreCollisionState(collision, new Set(), false);

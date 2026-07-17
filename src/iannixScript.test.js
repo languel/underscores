@@ -68,6 +68,34 @@ test("runs IanniX configure lifecycle and exposes ask defaults to score creation
   assert.equal(overridden.parameters[0].value, 2);
 });
 
+test("runs saved GUI lifecycle and samples equation curves", () => {
+  const source = `
+    function makeWithScript() { run("clear"); }
+    function madeThroughGUI() {
+      run("add curve 3");
+      run("setEquation current cartesian (param1+1)*cos(t*2*PI),(param1+1)*sin(t*2*PI),0");
+      run("setEquationParam current param1 1");
+      run("setEquationNbPoints current 8");
+      run("setColorActive current 44 167 218 128");
+      run("add cursor 54");
+      run("setCurve current lastCurve");
+      run("add trigger 7");
+      run("setTriggerOff current 1");
+    }
+  `;
+  const result = executeTrustedIannixScript(source, { trusted: true });
+  const model = buildIannixObjectModel(result.operations);
+  const curve = model.objects.find(object => object.role === "curve");
+  const trigger = model.objects.find(object => object.role === "trigger");
+  assert.equal(model.objects.length, 3);
+  assert.equal(curve.points.length, 9);
+  assert.ok(Math.abs(curve.points[0][0] - 2) < 1e-9);
+  assert.ok(Math.abs(curve.points[4][0] + 2) < 1e-9);
+  assert.deepEqual(curve.color, [44, 167, 218, 128]);
+  assert.equal(trigger.triggerOff, true);
+  assert.equal(result.unsupported.length, 0);
+});
+
 test("derives imported cursor rotation from its linked curve start tangent", () => {
   const horizontal = { points: [[0, 0, 0], [10, 0, 0]] };
   const rising = { points: [[0, 0, 0], [10, 10, 0]] };
@@ -94,6 +122,7 @@ test("derives IanniX cursor duration from curve length and speed mode", () => {
 });
 
 test("maps IanniX cursor traversal patterns to Drawerator loop modes", () => {
+  assert.equal(getIannixCursorLoopMode({ pattern: "0 0 1" }), "loop");
   assert.equal(getIannixCursorLoopMode({ pattern: "0 0 1 -1" }), "pingPong");
   assert.equal(getIannixCursorLoopMode({ pattern: "0 0 1 1" }), "loop");
   assert.equal(getIannixCursorLoopMode({ pattern: "0 0 1 0" }), "once");

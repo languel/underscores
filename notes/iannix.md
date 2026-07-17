@@ -159,6 +159,12 @@ Canonical paths are hosted by native Excalidraw linear elements whose first deri
 
 Swept testing prevents a fast cursor from tunneling through a narrow trigger between animation frames. Loop discontinuities do not create a false sweep across the canvas. Collision state supports both shared-trigger latching and independent cursor-trigger entry, with duration lockouts preventing accidental rapid retriggers.
 
+### Performance checkpoint
+
+The score kernel keeps canonical geometry and adaptive sampling intact while avoiding repeated work during playback. Core paths, Bézier metrics, normalized IanniX metadata, prepared trigger paths, and trigger bounds are cached by immutable element/geometry revisions; trigger collision uses broad-phase bounds rejection before exact path tests. Runtime evaluation is performed once per frame, React transport commits are capped at the configured refresh rate, incoming MIDI-clock updates are batched, and automation scans are skipped when no tracks exist. Overlay-only evaluations disable collision detection so visual refreshes do not duplicate score events.
+
+Profiling representative examples in `~/Documents/IanniX/Examples` showed script parsing/model construction was not the dominant cost; repeated per-frame geometry/collision work and top-level React updates were. Dense imported scores therefore retain visual fidelity while benefiting from these caches. Future scaling work should focus on worker/off-main-thread evaluation, explicit cache invalidation instrumentation, and bundle splitting rather than reducing curve sampling globally.
+
 Cursor motion is a runtime SVG overlay, leaving the authored Excalidraw geometry untouched and editable. Once an active cursor is linked, its in-place Excalidraw source and the ordinary modifier overlay are hidden. The runtime overlay reconstructs the cursor's complete visible appearance—source path, filters, and every generated brush track—then applies the curve translation and tangent rotation to that whole result. Unlinking, deactivating, or changing the role restores the authored source opacity. This is a non-destructive authoring model, not a bake.
 
 Trusted import clears previous cursor transforms, collision state, trigger pulses, score events, and transport time before replacing the scene. This prevents runtime overlays from an earlier score from leaking into a newly imported score or becoming visible only after selection changes.

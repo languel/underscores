@@ -1912,21 +1912,30 @@ function App() {
     if (!scorePlaying || midiClockMode === "receive") return undefined;
     let animationFrame = 0;
     let previousTimestamp = performance.now();
+    let lastCommitTimestamp = previousTimestamp;
+    let pendingAdvanceSeconds = 0;
+    const commitIntervalMs = 1000 / Math.max(1, Math.min(60, transportFps));
     const tick = (timestamp) => {
       const deltaSeconds = Math.max(0, Math.min(0.1, (timestamp - previousTimestamp) / 1000));
       previousTimestamp = timestamp;
-      setScoreTime(time => {
-        const next = time + deltaSeconds * scoreRate;
-        if (transportLoopEnabled && transportLoopEnd > transportLoopStart && next >= transportLoopEnd) {
-          return transportLoopStart + ((next - transportLoopStart) % (transportLoopEnd - transportLoopStart));
-        }
-        return next;
-      });
+      pendingAdvanceSeconds += deltaSeconds * scoreRate;
+      if (timestamp - lastCommitTimestamp >= commitIntervalMs) {
+        const advanceSeconds = pendingAdvanceSeconds;
+        pendingAdvanceSeconds = 0;
+        lastCommitTimestamp = timestamp;
+        setScoreTime(time => {
+          const next = time + advanceSeconds;
+          if (transportLoopEnabled && transportLoopEnd > transportLoopStart && next >= transportLoopEnd) {
+            return transportLoopStart + ((next - transportLoopStart) % (transportLoopEnd - transportLoopStart));
+          }
+          return next;
+        });
+      }
       animationFrame = requestAnimationFrame(tick);
     };
     animationFrame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(animationFrame);
-  }, [midiClockMode, scorePlaying, scoreRate, transportLoopEnabled, transportLoopEnd, transportLoopStart]);
+  }, [midiClockMode, scorePlaying, scoreRate, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopStart]);
 
   useEffect(() => {
     if (!midiAccess || midiClockMode !== "receive") return undefined;
@@ -1937,12 +1946,29 @@ function App() {
     }
     midiClockReceiverRef.current = createMidiClockReceiverState(midiClockTempoRef.current);
     midiClockRunningRef.current = false;
+    let pendingClockSeconds = 0;
+    let lastClockCommitTimestamp = 0;
+    const clockCommitIntervalMs = 1000 / Math.max(1, Math.min(60, transportFps));
+    const commitPendingClock = () => {
+      if (!(pendingClockSeconds > 0)) return;
+      const advanceSeconds = pendingClockSeconds;
+      pendingClockSeconds = 0;
+      setScoreTime(time => {
+        const next = time + advanceSeconds;
+        if (transportLoopEnabled && transportLoopEnd > transportLoopStart && next >= transportLoopEnd) {
+          return transportLoopStart + ((next - transportLoopStart) % (transportLoopEnd - transportLoopStart));
+        }
+        return next;
+      });
+    };
     const handleMidiClock = event => {
       const [status, data1 = 0, data2 = 0] = event.data || [];
       const timestamp = Number(event.receivedTime) || performance.now();
       if (status === MIDI_REALTIME.start) {
         midiClockReceiverRef.current = createMidiClockReceiverState(midiClockTempoRef.current);
         midiClockRunningRef.current = true;
+        pendingClockSeconds = 0;
+        lastClockCommitTimestamp = timestamp;
         if (followMidiTransport) {
           setScoreTime(0);
           setScorePlaying(true);
@@ -1953,10 +1979,13 @@ function App() {
         if (followMidiTransport) setScorePlaying(true);
         setMidiClockStatus(`Receiving clock · ${inputs.length > 1 ? `${inputs.length} inputs` : inputs[0]?.name || "MIDI"}`);
       } else if (status === MIDI_REALTIME.stop) {
+        commitPendingClock();
         midiClockRunningRef.current = false;
         if (followMidiTransport) setScorePlaying(false);
         setMidiClockStatus("External clock stopped");
       } else if (status === MIDI_REALTIME.songPosition) {
+        pendingClockSeconds = 0;
+        lastClockCommitTimestamp = timestamp;
         if (followMidiTransport) {
           setScoreTime(songPositionToSeconds(data1, data2, midiClockTempoRef.current));
         }
@@ -1978,13 +2007,11 @@ function App() {
           ? midiClockRunningRef.current
           : scorePlayingRef.current;
         if (shouldAdvance) {
-          setScoreTime(time => {
-            const next = time + clock.secondsPerPulse;
-            if (transportLoopEnabled && transportLoopEnd > transportLoopStart && next >= transportLoopEnd) {
-              return transportLoopStart + ((next - transportLoopStart) % (transportLoopEnd - transportLoopStart));
-            }
-            return next;
-          });
+          pendingClockSeconds += clock.secondsPerPulse;
+          if (timestamp - lastClockCommitTimestamp >= clockCommitIntervalMs) {
+            lastClockCommitTimestamp = timestamp;
+            commitPendingClock();
+          }
         }
       }
     };
@@ -1992,7 +2019,7 @@ function App() {
     const inputLabel = inputs.length > 1 ? `${inputs.length} inputs` : inputs[0]?.name || "MIDI";
     setMidiClockStatus(`Waiting for clock · ${inputLabel} · ${followMidiClockTempo ? "tempo follow" : `${midiClockTempoRef.current.toFixed(2)} BPM fixed`}`);
     return () => inputs.forEach(input => input.removeEventListener?.("midimessage", handleMidiClock));
-  }, [followMidiClockTempo, followMidiTransport, midiAccess, midiClockMode, midiInputId, transportLoopEnabled, transportLoopEnd, transportLoopStart]);
+  }, [followMidiClockTempo, followMidiTransport, midiAccess, midiClockMode, midiInputId, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopStart]);
 
   useEffect(() => {
     if (!midiAccess || midiClockMode !== "send") return undefined;
@@ -2067,23 +2094,15 @@ function App() {
 
   useEffect(() => {
     if (!excalidrawAPI) return;
+    const elements = excalidrawAPI.getSceneElements();
     const frame = evaluateScoreFrame(
-      excalidrawAPI.getSceneElements(),
+      elements,
       scoreTime,
       previousCursorStatesRef.current,
     );
     previousCursorStatesRef.current = frame.nextCursorPaths;
 
-    const elements = excalidrawAPI.getSceneElements();
     const elementMap = new Map(elements.map(element => [element.id, element]));
-    const triggerDurations = new Map(
-      elements
-        .filter(element => element.customData?.iannix?.role === "trigger")
-        .map(element => [
-          element.id,
-          normalizeIannixData(element.customData.iannix).trigger.duration,
-        ]),
-    );
 
     const collisionState = advanceScoreCollisionState(
       frame.collisions,
@@ -2092,7 +2111,7 @@ function App() {
       {
         nowMs: performance.now(),
         lockouts: triggerCollisionLockoutsRef.current,
-        triggerDurations,
+        triggerDurations: frame.triggerDurations,
         latchTriggersAcrossCursors,
       },
     );
@@ -2165,6 +2184,11 @@ function App() {
   useEffect(() => {
     if (!excalidrawAPI || autoKeyApplyingRef.current || isMouseDownRef.current) return;
     const elements = excalidrawAPI.getSceneElements();
+    const hasAutomation = elements.some(element => {
+      const tracks = element.customData?.draweratorAutomation?.tracks;
+      return tracks && typeof tracks === "object" && Object.keys(tracks).length > 0;
+    });
+    if (!hasAutomation) return;
     let changed = false;
     const evaluated = elements.map(element => {
       let next = evaluateElementAutomation(element, scoreTime);
@@ -2718,7 +2742,7 @@ function App() {
         }
       }
       const elements = excalidrawAPI.getSceneElements();
-      const frame = evaluateScoreFrame(elements, scoreTime);
+      const frame = evaluateScoreFrame(elements, scoreTime, undefined, { detectCollisions: false });
       const zoom = excalidrawAPI.getAppState().zoom.value || 1;
       let nearest = null;
       const distanceToSegment = (point, start, end) => {
@@ -4732,6 +4756,15 @@ function App() {
     { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
     { id: "toggle-transparency", name: "Toggle Canvas Background Transparency", category: "Canvas", action: (api) => toggleBackgroundTransparency(api) },
     { id: "reset-view", name: "Reset Zoom & Pan View", category: "Canvas", action: (api) => api.updateScene({ appState: { zoom: { value: 1 }, scrollX: 0, scrollY: 0 } }) },
+    { id: "view.frameAll", name: "Frame All /frame all", aliases: ["/frame all", "Frame All"], category: "Canvas", record: "presentation", action: (api) => {
+      const elements = api.getSceneElements().filter(element => !element.isDeleted);
+      if (elements.length) api.scrollToContent(elements, { fitToContent: true, animate: true });
+    } },
+    { id: "view.frameSelected", name: "Frame Selected /frame selected", aliases: ["/frame selected", "Frame Selected"], category: "Canvas", record: "presentation", action: (api) => {
+      const selectedIds = api.getAppState().selectedElementIds || {};
+      const elements = api.getSceneElements().filter(element => !element.isDeleted && selectedIds[element.id]);
+      if (elements.length) api.scrollToContent(elements, { fitToContent: true, animate: true });
+    } },
     { id: "tool-select", name: "Select Pointer/Selection Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "selection", locked: tool.locked ?? false } } }); } },
     { id: "tool-rect", name: "Select Rectangle Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "rectangle", locked: tool.locked ?? false } } }); } },
     { id: "tool-ellipse", name: "Select Ellipse/Circle Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "ellipse", locked: tool.locked ?? false } } }); } },
@@ -4957,6 +4990,24 @@ function App() {
         activeEl.contentEditable === "true" ||
         activeEl.closest?.(".cm-editor")
       );
+
+      if (!isInputFocused && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "Home") {
+        e.preventDefault();
+        e.stopPropagation();
+        commandRegistry.execute(e.shiftKey ? "view.frameSelected" : "view.frameAll", {}, {
+          source: "shortcut",
+          transportTime: scoreTimeRef.current,
+        });
+      }
+
+      if (!isInputFocused && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "NumpadDecimal") {
+        e.preventDefault();
+        e.stopPropagation();
+        commandRegistry.execute("view.frameSelected", {}, {
+          source: "shortcut",
+          transportTime: scoreTimeRef.current,
+        });
+      }
 
       if (
         !isInputFocused &&
@@ -6152,14 +6203,23 @@ function App() {
     // evaluating it so a render caused by selection cannot reuse the previous
     // score's time, cursor smoothing state, collisions, or trigger pulses.
     resetIannixRuntime({ resetTransport: true });
-    const result = executeTrustedIannixScript(args.source, {
-      trusted: true,
-      seed: Number.isFinite(Number(args.seed)) ? Number(args.seed) : 1,
-      sessionTime: scoreTimeRef.current,
-      files: args.files || {},
-      parameters: args.parameters || {},
-    });
-    const model = buildIannixObjectModel(result.operations);
+    let result;
+    let model;
+    try {
+      result = executeTrustedIannixScript(args.source, {
+        trusted: true,
+        seed: Number.isFinite(Number(args.seed)) ? Number(args.seed) : 1,
+        sessionTime: scoreTimeRef.current,
+        files: args.files || {},
+        parameters: args.parameters || {},
+      });
+      model = buildIannixObjectModel(result.operations);
+    } catch (error) {
+      const message = `IanniX import failed: ${error instanceof Error ? error.message : String(error)}`;
+      setSceneExchangeStatus(message);
+      eventBus.emit("iannix.import.error", { filename: args.filename || "IanniX script", message }, { source: "iannix" });
+      throw error;
+    }
     const scale = Math.max(0.01, Number(args.scale) || 40);
     const anchor = {
       x: Number(args.anchor?.x) || 0,
@@ -6322,9 +6382,18 @@ function App() {
       unsupported: result.unsupported,
     };
     eventBus.emit("iannix.import.complete", report, { source: "iannix" });
+    const unsupportedSummary = result.unsupported
+      .slice(0, 3)
+      .map(entry => entry.reason || entry.command)
+      .filter(Boolean)
+      .join(" ");
     setSceneExchangeStatus(
-      `Imported ${imported.length} IanniX object${imported.length === 1 ? "" : "s"}.` +
-      (result.unsupported.length ? ` ${result.unsupported.length} unsupported command${result.unsupported.length === 1 ? " was" : "s were"} reported.` : "")
+      imported.length === 0
+        ? `Imported 0 IanniX objects. ${unsupportedSummary || "The script produced no curve, cursor, or trigger objects."}`
+        : `Imported ${imported.length} IanniX object${imported.length === 1 ? "" : "s"}.` +
+          (result.unsupported.length
+            ? ` ${result.unsupported.length} unsupported command${result.unsupported.length === 1 ? "" : "s"}: ${unsupportedSummary}`
+            : "")
     );
     return report;
   };
@@ -6462,16 +6531,13 @@ function App() {
       setActiveIannixScriptId(scriptId);
       setIannixScriptSource(source);
       setIannixPanelTab("script");
-      const appState = excalidrawAPI.getAppState();
-      const anchor = viewportCoordsToSceneCoords({
-        clientX: (appState.width || window.innerWidth) / 2,
-        clientY: (appState.height || window.innerHeight) / 2,
-      }, appState);
       await commandRegistry.execute("iannix.import.trusted", {
         source,
         filename: file.name,
         seed: historyController.get()?.seed || 1,
-        anchor,
+        // IanniX coordinates are model coordinates. Keep imports independent
+        // of the current pointer, pan, zoom, viewport size, and panel layout.
+        anchor: { x: 0, y: 0 },
         scale: 40,
       }, { source: "file", transportTime: scoreTimeRef.current });
     } catch (error) {
@@ -8371,7 +8437,7 @@ function App() {
     );
     if (scoreObjects.length === 0) return null;
 
-    const frame = evaluateScoreFrame(elements, scoreTime);
+    const frame = evaluateScoreFrame(elements, scoreTime, undefined, { detectCollisions: false });
     const zoom = excalidrawAPI.getAppState().zoom.value || 1;
     const now = Date.now();
     const roleColors = { curve: "#7c9cff", cursor: "#19c3ff", trigger: "#ff8a3d" };

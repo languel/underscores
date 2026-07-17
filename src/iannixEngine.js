@@ -291,9 +291,37 @@ const getBoxPath = (element) => {
   ];
 };
 
+const corePathCache = new WeakMap();
+const pathMetricsCache = new WeakMap();
+const preparedPathsCache = new WeakMap();
+const normalizedElementDataCache = new WeakMap();
+
 export const getElementCorePaths = (element) => {
   if (!element || element.isDeleted) return [];
-  if (hasCubicBezierGeometry(element)) return [getBezierWorldPath(element)];
+  const cached = corePathCache.get(element);
+  const geometry = element.customData?.draweratorGeometry;
+  const originalPoints = element.customData?.originalPoints;
+  if (
+    cached &&
+    cached.x === element.x &&
+    cached.y === element.y &&
+    cached.width === element.width &&
+    cached.height === element.height &&
+    cached.angle === element.angle &&
+    cached.points === element.points &&
+    cached.originalPoints === originalPoints &&
+    cached.geometry === geometry
+  ) return cached.paths;
+
+  let paths;
+  if (hasCubicBezierGeometry(element)) {
+    paths = [getBezierWorldPath(element)];
+    corePathCache.set(element, {
+      x: element.x, y: element.y, width: element.width, height: element.height,
+      angle: element.angle, points: element.points, originalPoints, geometry, paths,
+    });
+    return paths;
+  }
   const center = getElementCenter(element);
   const angle = element.angle || 0;
 
@@ -302,10 +330,8 @@ export const getElementCorePaths = (element) => {
     Array.isArray(element.customData?.originalPoints) &&
     element.customData.originalPoints.length >= 2
   ) {
-    return [element.customData.originalPoints.map(point => rotatePoint(point, center, angle))];
-  }
-
-  if (
+    paths = [element.customData.originalPoints.map(point => rotatePoint(point, center, angle))];
+  } else if (
     (element.type === "line" || element.type === "arrow" || element.type === "freedraw") &&
     Array.isArray(element.points) &&
     element.points.length >= 2
@@ -314,13 +340,20 @@ export const getElementCorePaths = (element) => {
       element.x + point[0],
       element.y + point[1],
     ], center, angle));
-    return [path];
+    paths = [path];
+  } else {
+    paths = [getBoxPath(element).map(point => rotatePoint(point, center, angle))];
   }
-
-  return [getBoxPath(element).map(point => rotatePoint(point, center, angle))];
+  corePathCache.set(element, {
+    x: element.x, y: element.y, width: element.width, height: element.height,
+    angle: element.angle, points: element.points, originalPoints, geometry, paths,
+  });
+  return paths;
 };
 
 const getPathMetrics = (path) => {
+  const cached = pathMetricsCache.get(path);
+  if (cached) return cached;
   const segments = [];
   let length = 0;
   for (let index = 1; index < path.length; index++) {
@@ -331,7 +364,9 @@ const getPathMetrics = (path) => {
     segments.push({ start, end, startDistance: length, length: segmentLength });
     length += segmentLength;
   }
-  return { segments, length };
+  const metrics = { segments, length };
+  pathMetricsCache.set(path, metrics);
+  return metrics;
 };
 
 export const samplePath = (path, progress) => {
@@ -340,9 +375,15 @@ export const samplePath = (path, progress) => {
   if (metrics.length <= 0 || metrics.segments.length === 0) return null;
   const clamped = Math.min(1, Math.max(0, Number(progress) || 0));
   const targetDistance = clamped * metrics.length;
-  const segment = metrics.segments.find(candidate =>
-    targetDistance <= candidate.startDistance + candidate.length + 0.000001
-  ) || metrics.segments.at(-1);
+  let low = 0;
+  let high = metrics.segments.length - 1;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    const candidate = metrics.segments[middle];
+    if (targetDistance <= candidate.startDistance + candidate.length + 0.000001) high = middle;
+    else low = middle + 1;
+  }
+  const segment = metrics.segments[low] || metrics.segments.at(-1);
   const segmentProgress = Math.min(1, Math.max(0,
     (targetDistance - segment.startDistance) / segment.length
   ));
@@ -360,9 +401,10 @@ export const samplePath = (path, progress) => {
 };
 
 export const getCursorTransform = (cursorElement, curveElement, progress, followTangent = true) => {
-  const curvePath = getElementCorePaths(curveElement)[0];
-  const current = hasCubicBezierGeometry(curveElement) ? sampleBezierElement(curveElement, progress) : samplePath(curvePath, progress);
-  const start = hasCubicBezierGeometry(curveElement) ? sampleBezierElement(curveElement, 0) : samplePath(curvePath, 0);
+  const isBezier = hasCubicBezierGeometry(curveElement);
+  const curvePath = isBezier ? null : getElementCorePaths(curveElement)[0];
+  const current = isBezier ? sampleBezierElement(curveElement, progress) : samplePath(curvePath, progress);
+  const start = isBezier ? sampleBezierElement(curveElement, 0) : samplePath(curvePath, 0);
   if (!current || !start) return null;
   const cursorCenter = getElementCenter(cursorElement);
   return {
@@ -439,33 +481,93 @@ export const segmentsIntersect = (a1, a2, b1, b2) => {
   return o4 === 0 && onSegment(b1, a2, b2);
 };
 
-const pathSegments = (paths) => paths.flatMap(path => {
+const emptyBounds = () => ({ minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
+
+const includePointInBounds = (bounds, point) => {
+  bounds.minX = Math.min(bounds.minX, point[0]);
+  bounds.minY = Math.min(bounds.minY, point[1]);
+  bounds.maxX = Math.max(bounds.maxX, point[0]);
+  bounds.maxY = Math.max(bounds.maxY, point[1]);
+};
+
+const boundsOverlap = (a, b) =>
+  a.minX <= b.maxX + 0.000001 &&
+  a.maxX + 0.000001 >= b.minX &&
+  a.minY <= b.maxY + 0.000001 &&
+  a.maxY + 0.000001 >= b.minY;
+
+const preparePaths = (paths) => {
+  const cached = preparedPathsCache.get(paths);
+  if (cached) return cached;
+  const bounds = emptyBounds();
   const segments = [];
-  for (let index = 1; index < path.length; index++) {
-    segments.push([path[index - 1], path[index]]);
+  for (const path of paths || []) {
+    for (const point of path || []) includePointInBounds(bounds, point);
+    for (let index = 1; index < (path?.length || 0); index++) {
+      const start = path[index - 1];
+      const end = path[index];
+      segments.push({
+        start,
+        end,
+        minX: Math.min(start[0], end[0]),
+        minY: Math.min(start[1], end[1]),
+        maxX: Math.max(start[0], end[0]),
+        maxY: Math.max(start[1], end[1]),
+      });
+    }
   }
-  return segments;
-});
+  const prepared = { bounds, segments };
+  preparedPathsCache.set(paths, prepared);
+  return prepared;
+};
+
+const preparedPathsIntersect = (preparedA, preparedB) => {
+  if (!boundsOverlap(preparedA.bounds, preparedB.bounds)) return false;
+  for (const a of preparedA.segments) {
+    for (const b of preparedB.segments) {
+      if (!boundsOverlap(a, b)) continue;
+      if (segmentsIntersect(a.start, a.end, b.start, b.end)) return true;
+    }
+  }
+  return false;
+};
 
 export const pathsIntersect = (pathsA, pathsB) => {
-  const segmentsA = pathSegments(pathsA);
-  const segmentsB = pathSegments(pathsB);
-  return segmentsA.some(([a1, a2]) =>
-    segmentsB.some(([b1, b2]) => segmentsIntersect(a1, a2, b1, b2))
-  );
+  return preparedPathsIntersect(preparePaths(pathsA), preparePaths(pathsB));
 };
 
 export const sweptPathsIntersect = (previousPaths, currentPaths, targetPaths) => {
-  if (pathsIntersect(currentPaths, targetPaths) || pathsIntersect(previousPaths, targetPaths)) return true;
-  const targetSegments = pathSegments(targetPaths);
+  const previousPrepared = preparePaths(previousPaths);
+  const currentPrepared = preparePaths(currentPaths);
+  const targetPrepared = preparePaths(targetPaths);
+  const sweptBounds = {
+    minX: Math.min(previousPrepared.bounds.minX, currentPrepared.bounds.minX),
+    minY: Math.min(previousPrepared.bounds.minY, currentPrepared.bounds.minY),
+    maxX: Math.max(previousPrepared.bounds.maxX, currentPrepared.bounds.maxX),
+    maxY: Math.max(previousPrepared.bounds.maxY, currentPrepared.bounds.maxY),
+  };
+  if (!boundsOverlap(sweptBounds, targetPrepared.bounds)) return false;
+  if (
+    preparedPathsIntersect(currentPrepared, targetPrepared) ||
+    preparedPathsIntersect(previousPrepared, targetPrepared)
+  ) return true;
   for (let pathIndex = 0; pathIndex < Math.min(previousPaths.length, currentPaths.length); pathIndex++) {
     const previous = previousPaths[pathIndex];
     const current = currentPaths[pathIndex];
     const pointCount = Math.min(previous.length, current.length);
     for (let pointIndex = 0; pointIndex < pointCount; pointIndex++) {
-      if (targetSegments.some(([start, end]) =>
-        segmentsIntersect(previous[pointIndex], current[pointIndex], start, end)
-      )) return true;
+      const start = previous[pointIndex];
+      const end = current[pointIndex];
+      const movementBounds = {
+        minX: Math.min(start[0], end[0]),
+        minY: Math.min(start[1], end[1]),
+        maxX: Math.max(start[0], end[0]),
+        maxY: Math.max(start[1], end[1]),
+      };
+      for (const target of targetPrepared.segments) {
+        if (!boundsOverlap(movementBounds, target)) continue;
+        if (segmentsIntersect(start, end, target.start, target.end)) return true;
+      }
     }
   }
   return false;
@@ -512,18 +614,42 @@ export const advanceScoreCollisionState = (collisions, previousCollisions, playi
   };
 };
 
-export const evaluateScoreFrame = (elements, globalTime, previousCursorStates = new Map()) => {
+const getNormalizedElementData = (element) => {
+  const source = element?.customData?.iannix;
+  const cached = normalizedElementDataCache.get(element);
+  if (cached?.source === source) return cached.data;
+  const data = normalizeIannixData(source);
+  normalizedElementDataCache.set(element, { source, data });
+  return data;
+};
+
+export const evaluateScoreFrame = (
+  elements,
+  globalTime,
+  previousCursorStates = new Map(),
+  { detectCollisions = true } = {},
+) => {
   const scoreObjects = getScoreObjects(elements);
-  const byId = new Map(scoreObjects.map(element => [element.id, element]));
-  const triggers = scoreObjects.filter(element => element.customData.iannix.role === "trigger");
+  const byId = new Map((elements || []).filter(element => !element.isDeleted).map(element => [element.id, element]));
+  const triggerObjects = scoreObjects
+    .filter(element => element.customData.iannix.role === "trigger")
+    .map(element => ({ element, data: getNormalizedElementData(element) }))
+    .filter(trigger => trigger.data.active);
+  const triggers = detectCollisions
+    ? triggerObjects.map(trigger => ({
+      ...trigger,
+      paths: getElementCorePaths(trigger.element),
+    }))
+    : [];
   const cursors = [];
   const collisions = new Set();
   const nextCursorPaths = new Map();
+  const triggerDurations = new Map(triggerObjects.map(trigger => [trigger.element.id, trigger.data.trigger.duration]));
 
   for (const cursorElement of scoreObjects.filter(element => element.customData.iannix.role === "cursor")) {
-    const data = normalizeIannixData(cursorElement.customData.iannix);
+    const data = getNormalizedElementData(cursorElement);
     if (!data.active || !data.cursor.curveId) continue;
-    const curveElement = byId.get(data.cursor.curveId) || elements.find(element => element.id === data.cursor.curveId && !element.isDeleted);
+    const curveElement = byId.get(data.cursor.curveId);
     if (!curveElement || curveElement.customData?.iannix?.role !== "curve") continue;
     const timeState = getObjectTimeState(globalTime, data.time);
     const transform = getCursorTransform(cursorElement, curveElement, timeState.progress, data.cursor.followTangent);
@@ -542,15 +668,12 @@ export const evaluateScoreFrame = (elements, globalTime, previousCursorStates = 
     cursors.push({ element: cursorElement, curveElement, data, timeState, transform, paths });
 
     if (!timeState.active) continue;
-    for (const triggerElement of triggers) {
-      const triggerData = normalizeIannixData(triggerElement.customData.iannix);
-      if (!triggerData.active) continue;
-      const triggerPaths = getElementCorePaths(triggerElement);
-      if (sweptPathsIntersect(previousPaths, paths, triggerPaths)) {
-        collisions.add(`${cursorElement.id}:${triggerElement.id}`);
+    for (const trigger of triggers) {
+      if (sweptPathsIntersect(previousPaths, paths, trigger.paths)) {
+        collisions.add(`${cursorElement.id}:${trigger.element.id}`);
       }
     }
   }
 
-  return { cursors, collisions, nextCursorPaths };
+  return { cursors, collisions, nextCursorPaths, triggerDurations };
 };
