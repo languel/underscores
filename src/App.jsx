@@ -21,7 +21,7 @@ import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, pars
 import { autoKeyElement, collectAutomationKeys, evaluateElementAutomation } from "./automation.js";
 import { createDraweratorMacro, DRAWERATOR_MACRO_TYPE, DraweratorLibraryStore, DraweratorSessionController, instantiateDraweratorMacro, mergeSceneMutation, parseDraweratorSession } from "./sessionHistory.js";
 import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCursorLoopMode, getIannixCurveStartAngle, serializeBezierElementToIannixCommands, tokenizeIannixCommand } from "./iannixScript.js";
-import { bezierWorldPointToLocal, createBezierGeometryFromElement, createBezierHostGeometry, findNearestBezierLocation, getBezierWorldAnchors, hasCubicBezierGeometry, normalizeBezierGeometry, normalizeBezierHostElement, reframeBezierElement, removeBezierAnchor, setBezierAnchorMode, setElementBezierGeometry, splitBezierSegment, updateBezierAnchor } from "./bezierGeometry.js";
+import { bezierWorldPointToLocal, createBezierGeometryFromElement, createBezierHostGeometry, findNearestBezierLocation, getBezierWorldAnchors, getBezierWorldPath, hasCubicBezierGeometry, normalizeBezierGeometry, normalizeBezierHostElement, reframeBezierElement, removeBezierAnchor, setBezierAnchorMode, setElementBezierGeometry, splitBezierSegment, updateBezierAnchor } from "./bezierGeometry.js";
 import { getScriptParameterValues, parseScriptParameters } from "./scriptParameters.js";
 
 // System Prompt guiding the local LLM on drawing tools
@@ -1206,7 +1206,7 @@ const updateElementGeometry = (el, newAbsolutePoints) => {
   const minY = Math.min(...yCoords);
   const maxY = Math.max(...yCoords);
 
-  return {
+  const nextElement = {
     ...el,
     x: startX,
     y: startY,
@@ -1217,6 +1217,19 @@ const updateElementGeometry = (el, newAbsolutePoints) => {
     versionNonce: Math.floor(Math.random() * 1000000),
     updated: Date.now()
   };
+
+  if (el.type === "freedraw") {
+    const fallbackPressure = 0.5;
+    nextElement.pressures = newAbsolutePoints.map((point, index) => {
+      const pointPressure = Number(point?.pressure);
+      if (Number.isFinite(pointPressure)) return pointPressure;
+      const existingPressure = Number(el.pressures?.[index]);
+      return Number.isFinite(existingPressure) ? existingPressure : fallbackPressure;
+    });
+    nextElement.simulatePressure = false;
+  }
+
+  return nextElement;
 };
 
 const getElementAbsolutePoints = (element) => element.points.map(point => {
@@ -3181,13 +3194,63 @@ function App() {
       const isSelected = selectedIds[el.id];
       const isInSelectedGroup = el.groupIds && el.groupIds.some(gId => selectedGroupIds.has(gId));
       if ((isSelected || isInSelectedGroup) && !el.isDeleted) {
-        if ((el.type === "freedraw" || el.type === "line") && el.type !== targetType) {
+        const isSpline = hasCubicBezierGeometry(el);
+        const isSplineToLine = isSpline && targetType === "line";
+        const isSplineToFreehand = isSpline && targetType === "freedraw";
+        const isConvertibleStroke = (el.type === "freedraw" || el.type === "line") && (el.type !== targetType || isSplineToLine || isSplineToFreehand);
+        if (isConvertibleStroke) {
           count++;
           const nextColor = (el.strokeColor === "transparent" || !el.strokeColor) ? lastStrokeColorRef.current : el.strokeColor;
+          const { draweratorGeometry: _geometry, ...nativeCustomData } = el.customData || {};
           return {
             ...el,
             type: targetType,
             strokeColor: nextColor,
+            // Freehand and line elements share sampled points, but Excalidraw
+            // expects freehand paths to have no line roundness/bindings.
+            ...(targetType === "freedraw"
+              ? {
+                  // Excalidraw stores freehand pressure in a parallel array;
+                  // putting it in a third point coordinate produces an
+                  // invalid/empty freehand element.
+                  ...(() => {
+                    // A rounded Excalidraw line stores only its sparse control
+                    // points. Feeding those directly to perfect-freehand cuts
+                    // across the displayed curve. Sample the same canonical
+                    // curve used by Convert to Spline so direct line ->
+                    // freehand preserves the shape users actually see.
+                    const sampledLine = el.type === "line" && !isSpline
+                      ? (() => {
+                          const geometry = createBezierGeometryFromElement(el);
+                          return geometry ? setElementBezierGeometry(el, geometry).points : null;
+                        })()
+                      : null;
+                    const sourcePoints = Array.isArray(sampledLine) && sampledLine.length >= 2
+                      ? sampledLine
+                      : Array.isArray(el.points) && el.points.length >= 2
+                        ? el.points
+                        : [[0, 0], [Math.max(Number(el.width) || 1, 1), Number(el.height) || 0]];
+                    const points = sourcePoints.map(point => [
+                      Number(point?.[0]) || 0,
+                      Number(point?.[1]) || 0,
+                    ]);
+                    const pressures = points.map((_, index) => {
+                      const pressure = Number(el.pressures?.[index]);
+                      return Number.isFinite(pressure) ? pressure : 0.5;
+                    });
+                    return { points, pressures, simulatePressure: false };
+                  })(),
+                  roundness: null,
+                  lastCommittedPoint: null,
+                  startBinding: null,
+                  endBinding: null,
+                  startArrowhead: null,
+                  endArrowhead: null,
+                }
+              : {}),
+            ...(hasCubicBezierGeometry(el) && targetType === "line"
+              ? { customData: nativeCustomData, roundness: null }
+              : {}),
             version: el.version + 1,
             versionNonce: Math.floor(Math.random() * 1000000),
             updated: Date.now()
@@ -3304,8 +3367,13 @@ function App() {
         if ((el.type === "freedraw" || el.type === "line") && el.points && el.points.length > 2) {
           count++;
           
-          const absolutePoints = el.points.map((p) => {
-            const absPt = [el.x + p[0], el.y + p[1]];
+          const sourceWorldPoints = hasCubicBezierGeometry(el)
+            ? getBezierWorldPath(el)
+            : getElementCorePaths(el)[0];
+          const absolutePoints = sourceWorldPoints.map((p, index) => {
+            const absPt = [p[0], p[1]];
+            const pressure = Number(el.pressures?.[index]);
+            if (Number.isFinite(pressure)) absPt.pressure = pressure;
             if (p.pressure !== undefined) absPt.pressure = p.pressure;
             if (p.time !== undefined) absPt.time = p.time;
             if (p.strokeTime !== undefined) absPt.strokeTime = p.strokeTime;
@@ -3340,7 +3408,14 @@ function App() {
             });
           }
 
-          return updateElementGeometry(el, simplifiedAbs);
+          const simplifiedElement = updateElementGeometry(el, simplifiedAbs);
+          if (!hasCubicBezierGeometry(el)) return simplifiedElement;
+
+          // Direct path operations are destructive edits of the visible
+          // samples. Do not leave the old canonical spline active, otherwise
+          // it will render from stale host coordinates after reframing.
+          const { draweratorGeometry: _geometry, ...customData } = simplifiedElement.customData || {};
+          return { ...simplifiedElement, customData };
         }
       }
       return el;
@@ -3378,13 +3453,17 @@ function App() {
       const hasBrush = selectedStrokeElements.some(el => el.id.includes("-brush-") || (el.groupIds && el.groupIds.some(gId => gId.endsWith("-group"))));
       const hasFreehand = selectedStrokeElements.some(el => el.type === "freedraw");
       const hasLine = selectedStrokeElements.some(el => el.type === "line");
+      const hasSpline = selectedStrokeElements.some(hasCubicBezierGeometry);
+      const hasConvertiblePath = selectedStrokeElements.some(el => !hasCubicBezierGeometry(el));
 
       setCustomContextMenu({
         x: e.clientX,
         y: e.clientY,
         showRestore: hasBrush,
-        showToLine: hasFreehand,
-        showToFreehand: hasLine
+        showToLine: hasFreehand || hasSpline,
+        showToFreehand: hasLine || hasSpline,
+        showToSpline: hasConvertiblePath,
+        showFromSpline: hasSpline,
       });
     } else {
       setCustomContextMenu(null);
@@ -5234,6 +5313,33 @@ function App() {
     excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
     setModifierUpdateNonce(nonce => nonce + 1);
     return [...targets.keys()];
+  };
+
+  // Remove Drawerator's canonical spline metadata while retaining the sampled
+  // host path. This makes the conversion reversible without changing the
+  // element's Excalidraw identity, selection, or transforms.
+  const convertSelectedFromBezier = () => {
+    if (!excalidrawAPI) return [];
+    const selected = getSelectedElements().filter(hasCubicBezierGeometry);
+    if (!selected.length) throw new Error("Select at least one spline path to convert.");
+    const selectedIds = new Set(selected.map(element => element.id));
+    const convertedIds = [];
+    const nextElements = excalidrawAPI.getSceneElementsIncludingDeleted().map(element => {
+      if (!selectedIds.has(element.id) || element.isDeleted) return element;
+      const { draweratorGeometry: _geometry, ...remainingCustomData } = element.customData || {};
+      convertedIds.push(element.id);
+      return {
+        ...element,
+        customData: remainingCustomData,
+        roundness: null,
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+      };
+    });
+    excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return convertedIds;
   };
 
   const enterBezierEditMode = () => {
@@ -7970,7 +8076,14 @@ function App() {
     const centerY = element.y + (minYRel + maxYRel) / 2;
     const firstPoint = relPoints[0] || [0, 0];
     const angle = element.angle || 0;
-    const mapEvaluatedTrack = linePoints => linePoints.map(point => {
+    const mapEvaluatedTrack = linePoints => {
+      // Canonical Bézier paths enter the modifier engine in world space, so
+      // modifier output is already world-space too. Mapping it through the
+      // legacy freehand/line anchoring path double-translates the result.
+      if (hasCubicBezierGeometry(element)) {
+        return linePoints.map(point => [point[0], point[1]]);
+      }
+      return linePoints.map(point => {
       const [mappedX, mappedY] = mapTrackPointToElement({
         point,
         elementType: element.type,
@@ -7984,7 +8097,8 @@ function App() {
       return angle === 0
         ? [mappedX, mappedY]
         : rotatePoint(mappedX, mappedY, centerX, centerY, angle);
-    });
+      });
+    };
     const evaluatedTracks = (evaluation.hasAccumulated
       ? evaluation.allLines
       : [evaluation.primaryPoints]
@@ -10725,6 +10839,40 @@ function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.24 9.12l-8.62 8.62a1 1 0 01-1.41 0l-2.01-2.01a1 1 0 010-1.41l8.62-8.62m3.42 3.42l1.58-1.58a2.5 2.5 0 00-3.54-3.54l-1.58 1.58m3.54 3.54M3 21c3-3 7-1 10-4" />
               </svg>
               Convert to Freehand Pencil
+            </button>
+          )}
+          {customContextMenu.showToSpline && (
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                convertSelectedToBezier();
+                setCustomContextMenu(null);
+              }}
+              className="custom-floating-context-menu-btn"
+              title="Convert selected paths to a canonical cubic spline"
+            >
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 17c4-8 6-8 10-2s6 6 6-8" />
+              </svg>
+              Convert to Spline
+            </button>
+          )}
+          {customContextMenu.showFromSpline && (
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                convertSelectedFromBezier();
+                setCustomContextMenu(null);
+              }}
+              className="custom-floating-context-menu-btn"
+              title="Convert selected splines back to native Excalidraw paths"
+            >
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 7c4 8 6 8 10 2s6-6 6 8" />
+              </svg>
+              Convert from Spline
             </button>
           )}
 
