@@ -23,6 +23,9 @@ import { createDraweratorMacro, DRAWERATOR_MACRO_TYPE, DraweratorLibraryStore, D
 import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCursorLoopMode, getIannixCurveStartAngle, serializeBezierElementToIannixCommands, tokenizeIannixCommand } from "./iannixScript.js";
 import { bezierWorldPointToLocal, createBezierGeometryFromElement, createBezierHostGeometry, findNearestBezierLocation, getBezierWorldAnchors, getBezierWorldPath, hasCubicBezierGeometry, normalizeBezierGeometry, normalizeBezierHostElement, reframeBezierElement, removeBezierAnchor, setBezierAnchorMode, setElementBezierGeometry, splitBezierSegment, updateBezierAnchor } from "./bezierGeometry.js";
 import { getScriptParameterValues, parseScriptParameters } from "./scriptParameters.js";
+import { GM_PROGRAMS, isPercussionChannel, normalizeGmPrograms } from "./generalMidi.js";
+import { createInternalMidiSynth, disposeInternalMidiSynth, isInternalMidiSynthSupported, resumeInternalMidiSynth } from "./internalMidiSynth.js";
+import { INTERNAL_MIDI_SYNTH_ID, MIDI_PORT_ALL, MIDI_PORT_NONE, resolveExternalMidiOutputs, resolveMidiOutputRoute } from "./midiOutputRouting.js";
 
 // System Prompt guiding the local LLM on drawing tools
 const SYSTEM_PROMPT = `You are "Drawerator", an autonomous, high-performance drawing assistant.
@@ -54,16 +57,6 @@ Guidelines:
 `;
 
 const INITIAL_GREETING = "Hello! I am your drawing assistant powered by local AI. You can write prompts like \"draw a flow chart\", \"sketch a house\", or \"clear the canvas\" and I will execute the drawing tools programmatically!";
-
-const MIDI_PORT_NONE = "";
-const MIDI_PORT_ALL = "__all__";
-
-const resolveMidiOutputs = (access, portId) => {
-  if (!access || portId === MIDI_PORT_NONE) return [];
-  if (portId === MIDI_PORT_ALL) return [...access.outputs.values()];
-  const output = access.outputs.get(portId);
-  return output ? [output] : [];
-};
 
 const resolveMidiInputs = (access, portId) => {
   if (!access || portId === MIDI_PORT_NONE) return [];
@@ -1330,7 +1323,7 @@ function App() {
   const [historySnapshot, setHistorySnapshot] = useState(() => historyController.snapshot());
   const [historyMacros, setHistoryMacros] = useState([]);
   const [historyIncludePresentation, setHistoryIncludePresentation] = useState(true);
-  const [historyMidiArmed, setHistoryMidiArmed] = useState(false);
+  const [historyMidiArmed, setHistoryMidiArmed] = useState(() => localStorage.getItem("drawerator_history_midi_armed") === "true");
   const [historyShowPointer, setHistoryShowPointer] = useState(true);
   const [historyClockMode, setHistoryClockMode] = useState(() => localStorage.getItem("drawerator_history_clock_mode") || "realtime");
   const [historyRecordFilter, setHistoryRecordFilter] = useState(() => localStorage.getItem("drawerator_history_record_filter") || "all");
@@ -1483,6 +1476,24 @@ function App() {
   const [midiOutputId, setMidiOutputId] = useState(() =>
     localStorage.getItem("drawerator_iannix_midi_output") || ""
   );
+  const [midiFallbackEnabled, setMidiFallbackEnabled] = useState(() =>
+    localStorage.getItem("drawerator_midi_internal_fallback") !== "false"
+  );
+  const [internalGmPrograms, setInternalGmPrograms] = useState(() => {
+    try {
+      return normalizeGmPrograms(JSON.parse(localStorage.getItem("drawerator_internal_gm_programs") || "null"));
+    } catch {
+      return normalizeGmPrograms(null);
+    }
+  });
+  const [internalProgramsExpanded, setInternalProgramsExpanded] = useState(false);
+  const [internalSynthStatus, setInternalSynthStatus] = useState(() => (
+    midiOutputId === INTERNAL_MIDI_SYNTH_ID
+    || (midiFallbackEnabled && midiOutputId !== MIDI_PORT_NONE && midiOutputId !== MIDI_PORT_ALL)
+      ? "Audio suspended"
+      : "Off"
+  ));
+  const [internalSynthError, setInternalSynthError] = useState("");
   const [midiStatus, setMidiStatus] = useState(() =>
     typeof navigator !== "undefined" && navigator.requestMIDIAccess
       ? "MIDI not connected"
@@ -1497,6 +1508,9 @@ function App() {
   const triggerPulseUntilRef = useRef(new Map());
   const midiAccessRef = useRef(null);
   const midiOutputIdRef = useRef(midiOutputId);
+  const midiFallbackEnabledRef = useRef(midiFallbackEnabled);
+  const internalGmProgramsRef = useRef(internalGmPrograms);
+  const internalSynthRef = useRef(null);
   const midiInputIdRef = useRef(midiInputId);
   const midiClockTempoRef = useRef(scoreTempo);
   const midiClockReceiverRef = useRef(createMidiClockReceiverState(scoreTempo));
@@ -1622,15 +1636,57 @@ function App() {
     scoreTimeRef.current = scoreTime;
   }, [scoreTime]);
 
+  const panicMidi = useCallback(() => {
+    midiVoiceTrackerRef.current?.panic();
+    internalSynthRef.current?.clear?.();
+  }, []);
+
+  const getScoreMidiRoute = useCallback(() => resolveMidiOutputRoute({
+    midiAccess: midiAccessRef.current,
+    selectedOutputId: midiOutputIdRef.current,
+    fallbackEnabled: midiFallbackEnabledRef.current,
+    internalOutput: internalSynthRef.current?.getState?.() !== "off" ? internalSynthRef.current : null,
+  }), []);
+
+  const ensureInternalSynth = useCallback(async () => {
+    if (!isInternalMidiSynthSupported()) {
+      setInternalSynthStatus("Unavailable");
+      setInternalSynthError("Web Audio is unavailable in this browser.");
+      return null;
+    }
+    try {
+      setInternalSynthError("");
+      if (!internalSynthRef.current) {
+        internalSynthRef.current = createInternalMidiSynth({ programs: internalGmProgramsRef.current });
+      }
+      const output = internalSynthRef.current;
+      output.setPrograms(internalGmProgramsRef.current);
+      const state = await resumeInternalMidiSynth(output);
+      setInternalSynthStatus(state === "suspended" ? "Audio suspended" : "Ready");
+      return output;
+    } catch (error) {
+      setInternalSynthStatus("Error");
+      setInternalSynthError(error?.message || "Internal synth initialization failed.");
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     scorePlayingRef.current = scorePlaying;
-    if (!scorePlaying) midiVoiceTrackerRef.current?.panic();
-  }, [scorePlaying]);
+    if (!scorePlaying) panicMidi();
+  }, [panicMidi, scorePlaying]);
 
-  useEffect(() => () => midiVoiceTrackerRef.current?.panic(), []);
+  useEffect(() => () => {
+    panicMidi();
+    void disposeInternalMidiSynth(internalSynthRef.current);
+    internalSynthRef.current = null;
+  }, [panicMidi]);
 
   useEffect(() => historyController.subscribe((snapshot, eventName) => {
     setHistorySnapshot(snapshot);
+    if (["playback.start", "playback.pause", "playback.stop", "playback.complete", "playback.error", "playback.seek"].includes(eventName)) {
+      panicMidi();
+    }
     eventBus.emit(`history.${eventName}`, {
       status: snapshot.status,
       playhead: snapshot.playhead,
@@ -1685,7 +1741,7 @@ function App() {
     } else if (eventName === "playback.complete" || eventName === "playback.stop") {
       setSessionPlaybackOverlay([]);
     }
-  }), [eventBus, historyController]);
+  }), [eventBus, historyController, panicMidi]);
 
   useEffect(() => {
     historyController.setRecordFilter(historyRecordFilter);
@@ -1867,8 +1923,26 @@ function App() {
   useEffect(() => {
     midiOutputIdRef.current = midiOutputId;
     localStorage.setItem("drawerator_iannix_midi_output", midiOutputId);
-    midiVoiceTrackerRef.current?.panic();
-  }, [midiOutputId]);
+    panicMidi();
+    if (midiOutputId === MIDI_PORT_NONE) setInternalSynthStatus("Off");
+    else if (midiOutputId === INTERNAL_MIDI_SYNTH_ID && !internalSynthRef.current) setInternalSynthStatus("Audio suspended");
+    else if (midiOutputId !== MIDI_PORT_ALL && midiFallbackEnabledRef.current && getScoreMidiRoute().kind === "internal-unavailable") setInternalSynthStatus("Audio suspended");
+  }, [getScoreMidiRoute, midiOutputId, panicMidi]);
+
+  useEffect(() => {
+    midiFallbackEnabledRef.current = midiFallbackEnabled;
+    localStorage.setItem("drawerator_midi_internal_fallback", String(midiFallbackEnabled));
+    panicMidi();
+  }, [midiFallbackEnabled, panicMidi]);
+
+  useEffect(() => {
+    internalGmProgramsRef.current = internalGmPrograms;
+    localStorage.setItem("drawerator_internal_gm_programs", JSON.stringify(internalGmPrograms));
+  }, [internalGmPrograms]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_history_midi_armed", String(historyMidiArmed));
+  }, [historyMidiArmed]);
 
   useEffect(() => {
     midiInputIdRef.current = midiInputId;
@@ -1878,6 +1952,7 @@ function App() {
   useEffect(() => {
     if (!midiAccess) return undefined;
     const refreshPorts = () => {
+      panicMidi();
       const outputs = [...midiAccess.outputs.values()].map(output => ({
         id: output.id,
         name: output.name || "Unnamed MIDI output",
@@ -1885,11 +1960,6 @@ function App() {
         state: output.state,
       }));
       setMidiOutputs(outputs);
-      const currentId = midiOutputIdRef.current;
-      if (currentId !== MIDI_PORT_NONE && currentId !== MIDI_PORT_ALL && !outputs.some(output => output.id === currentId)) {
-        midiOutputIdRef.current = MIDI_PORT_NONE;
-        setMidiOutputId(MIDI_PORT_NONE);
-      }
       const inputs = [...midiAccess.inputs.values()].map(input => ({
         id: input.id,
         name: input.name || "Unnamed MIDI input",
@@ -1906,7 +1976,7 @@ function App() {
     refreshPorts();
     midiAccess.addEventListener?.("statechange", refreshPorts);
     return () => midiAccess.removeEventListener?.("statechange", refreshPorts);
-  }, [midiAccess]);
+  }, [midiAccess, panicMidi]);
 
   useEffect(() => {
     if (!scorePlaying || midiClockMode === "receive") return undefined;
@@ -2023,7 +2093,9 @@ function App() {
 
   useEffect(() => {
     if (!midiAccess || midiClockMode !== "send") return undefined;
-    const outputs = resolveMidiOutputs(midiAccess, midiOutputId);
+    // MIDI clock is meaningful to hardware/software MIDI destinations, not the
+    // embedded audio synth. "All" therefore remains external-only.
+    const outputs = resolveExternalMidiOutputs(midiAccess, midiOutputId);
     if (outputs.length === 0) {
       setMidiClockStatus("No MIDI clock output");
       return undefined;
@@ -2139,8 +2211,7 @@ function App() {
           midiContext = getIannixTriggerMidiContext(cursor, triggerData, trigger);
           midiPattern = triggerData.trigger.midiPattern;
           const message = parseIannixMidiPattern(midiPattern, midiContext);
-          const access = midiAccessRef.current;
-          const outputs = resolveMidiOutputs(access, midiOutputIdRef.current);
+          const outputs = getScoreMidiRoute().outputs;
           if (outputs.length === 0) throw new Error("No MIDI output is selected.");
           outputs.forEach(output => midiVoiceTrackerRef.current.send(output, message, performance.now()));
           midi = message.kind === "cc"
@@ -5573,6 +5644,35 @@ function App() {
     }));
   };
 
+  const handleMidiOutputChange = async nextOutputId => {
+    panicMidi();
+    midiOutputIdRef.current = nextOutputId;
+    setMidiOutputId(nextOutputId);
+    if (nextOutputId === INTERNAL_MIDI_SYNTH_ID) await ensureInternalSynth();
+  };
+
+  const handleMidiFallbackChange = async enabled => {
+    panicMidi();
+    midiFallbackEnabledRef.current = enabled;
+    setMidiFallbackEnabled(enabled);
+    if (enabled) {
+      const route = resolveMidiOutputRoute({
+        midiAccess: midiAccessRef.current,
+        selectedOutputId: midiOutputIdRef.current,
+        fallbackEnabled: true,
+        internalOutput: internalSynthRef.current?.getState?.() !== "off" ? internalSynthRef.current : null,
+      });
+      if (route.kind === "internal-unavailable") await ensureInternalSynth();
+    }
+  };
+
+  const handleInternalProgramChange = (channel, program) => {
+    const next = normalizeGmPrograms({ ...internalGmProgramsRef.current, [channel]: program });
+    internalGmProgramsRef.current = next;
+    setInternalGmPrograms(next);
+    internalSynthRef.current?.setProgram?.(channel, next[channel]);
+  };
+
   const connectIannixMidi = async () => {
     if (!navigator.requestMIDIAccess) {
       setMidiStatus("Web MIDI is unavailable in this browser");
@@ -5603,14 +5703,18 @@ function App() {
     }
   };
 
-  const emitIannixMidiPattern = (pattern, context) => {
+  const emitIannixMidiPattern = async (pattern, context, { userGesture = false } = {}) => {
     try {
       const message = parseIannixMidiPattern(pattern, context);
-      const access = midiAccessRef.current;
-      const outputs = resolveMidiOutputs(access, midiOutputIdRef.current);
+      let route = getScoreMidiRoute();
+      if (userGesture && route.kind === "internal-unavailable") {
+        await ensureInternalSynth();
+        route = getScoreMidiRoute();
+      }
+      const outputs = route.outputs;
       if (outputs.length === 0) throw new Error("No MIDI output is selected.");
       outputs.forEach(output => midiVoiceTrackerRef.current.send(output, message, performance.now()));
-      setMidiStatus(`Sent ${describeIannixMidiMessage(message)}`);
+      setMidiStatus(`Sent ${describeIannixMidiMessage(message)}${route.fallback ? " · internal fallback" : ""}`);
     } catch (error) {
       setMidiStatus(error.message || "MIDI send failed");
     }
@@ -5808,7 +5912,7 @@ function App() {
       };
       setScoreEvents(previous => [event, ...previous].slice(0, 100));
       eventBus.emit("midi.playback", event, { source: "playback" });
-      if (emitMidi && action.args?.pattern) emitIannixMidiPattern(action.args.pattern, action.args.context || {});
+      if (emitMidi && action.args?.pattern) await emitIannixMidiPattern(action.args.pattern, action.args.context || {});
       return;
     }
     if (action.kind === "presentation" && action.args?.appState) {
@@ -5848,6 +5952,7 @@ function App() {
   const stopHistory = async () => {
     const wasRecording = historyController.status === "recording" || historyController.status === "recording-paused";
     historyController.stop();
+    panicMidi();
     if (wasRecording) await historyLibrary.put(historyController.get());
   };
 
@@ -6894,7 +6999,7 @@ function App() {
                     type="button"
                     className="iannix-flat-button"
                     disabled={!midiPreview}
-                    onClick={() => emitIannixMidiPattern(data.trigger.midiPattern, midiPreview.context)}
+                    onClick={() => emitIannixMidiPattern(data.trigger.midiPattern, midiPreview.context, { userGesture: true })}
                   >
                     Test message
                   </button>
@@ -9003,9 +9108,13 @@ function App() {
               </label>
               <label className="settings-panel-field">
                 <span>MIDI out</span>
-                <select value={midiOutputId} onChange={event => setMidiOutputId(event.target.value)}>
+                <select value={midiOutputId} onChange={event => void handleMidiOutputChange(event.target.value)}>
                   <option value={MIDI_PORT_NONE}>None</option>
-                  <option value={MIDI_PORT_ALL}>All</option>
+                  <option value={MIDI_PORT_ALL}>All MIDI Outputs</option>
+                  <option value={INTERNAL_MIDI_SYNTH_ID}>Internal GM Synth</option>
+                  {midiOutputId && midiOutputId !== MIDI_PORT_ALL && midiOutputId !== INTERNAL_MIDI_SYNTH_ID && !midiOutputs.some(output => output.id === midiOutputId) && (
+                    <option value={midiOutputId}>Unavailable output ({midiOutputId})</option>
+                  )}
                   {midiOutputs.map(output => (
                     <option key={output.id} value={output.id}>{output.name}{output.manufacturer ? ` — ${output.manufacturer}` : ""}</option>
                   ))}
@@ -9013,6 +9122,41 @@ function App() {
               </label>
               <button type="button" className="settings-panel-midi-refresh" title={midiAccess ? "Refresh MIDI access" : "Connect MIDI"} aria-label={midiAccess ? "Refresh MIDI access" : "Connect MIDI"} onClick={connectIannixMidi}>↻</button>
             </div>
+            <label className="settings-panel-check settings-panel-midi-fallback">
+              <span>Use Internal GM Synth if the selected external output disappears</span>
+              <input type="checkbox" checked={midiFallbackEnabled} onChange={event => void handleMidiFallbackChange(event.target.checked)} />
+            </label>
+            <details className="settings-panel-gm-programs" open={internalProgramsExpanded} onToggle={event => setInternalProgramsExpanded(event.currentTarget.open)}>
+              <summary>Internal GM programs</summary>
+              <div className="settings-panel-gm-program-list">
+                {Array.from({ length: 16 }, (_, index) => {
+                  const channel = index + 1;
+                  return (
+                    <label key={channel} className={isPercussionChannel(channel) ? "settings-panel-gm-program percussion" : "settings-panel-gm-program"}>
+                      <span>Ch {channel}</span>
+                      {isPercussionChannel(channel) ? (
+                        <strong>Percussion</strong>
+                      ) : (
+                        <select value={internalGmPrograms[channel]} onChange={event => handleInternalProgramChange(channel, Number(event.target.value))}>
+                          {GM_PROGRAMS.map((name, program) => (
+                            <option key={program} value={program}>{String(program + 1).padStart(3, "0")} {name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </details>
+            <div className="settings-panel-synth-status" role="status">
+              <span>Internal synth: <strong>{internalSynthStatus}</strong></span>
+              {(internalSynthStatus === "Audio suspended" || internalSynthStatus === "Error") && (
+                <button type="button" className="iannix-flat-button" onClick={() => void ensureInternalSynth()}>Enable audio</button>
+              )}
+              <button type="button" className="iannix-flat-button" onClick={panicMidi}>Panic</button>
+            </div>
+            {internalSynthError && <div className="settings-panel-hint warning">{internalSynthError}</div>}
+            <div className="settings-panel-hint">Channel 10 is percussion. Programs are saved locally and apply only to the embedded synth.</div>
             <label className="settings-panel-check" title="On: one voice per trigger for its duration. Off: each cursor can voice the same trigger independently, with a separate duration latch per cursor.">
               <span>Latch each trigger across cursors</span>
               <input type="checkbox" checked={latchTriggersAcrossCursors} onChange={event => {

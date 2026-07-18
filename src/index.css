@@ -3038,6 +3038,67 @@ body .excalidraw .sidebar {
   background: var(--button-hover-bg, rgba(128, 128, 128, 0.16));
 }
 
+.settings-panel-midi-fallback {
+  align-items: flex-start;
+  line-height: 1.35;
+}
+
+.settings-panel-gm-programs {
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+  border-bottom: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+  padding: 9px 0;
+  color: var(--color-primary);
+  font-size: 12px;
+}
+
+.settings-panel-gm-programs summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.settings-panel-gm-program-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.settings-panel-gm-program {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: var(--color-secondary);
+  font-size: 11px;
+}
+
+.settings-panel-gm-program select {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+  border-radius: 6px;
+  background: var(--input-bg-color, rgba(128, 128, 128, 0.08));
+  color: var(--color-primary);
+  font: inherit;
+}
+
+.settings-panel-gm-program strong {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.settings-panel-synth-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-secondary);
+  font-size: 11px;
+}
+
+.settings-panel-synth-status > span {
+  margin-right: auto;
+}
+
 .settings-panel-divider {
   height: 1px;
   background: var(--border-color, rgba(128, 128, 128, 0.3));

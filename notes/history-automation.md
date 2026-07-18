@@ -9,7 +9,7 @@ Drawerator records semantic intent and world-coordinate input rather than screen
 - `src/commandSystem.js` owns the stable, versioned command registry, event bus, and normalized input bus. Menus, shortcuts, slash commands, the public API, AI prompts, panels, History, and transport controls share these command IDs.
 - `src/sessionHistory.js` owns `drawerator-session` documents, playback, editable steps, IndexedDB persistence, and `drawerator-macro` sequences.
 - `src/automation.js` owns auto-key extraction and playback interpolation.
-- `src/HistoryPanel.jsx` is the dockable editor for recording, playback, action timing/state/JSON, time-range macro creation, and external-MIDI/presentation/pointer playback policies.
+- `src/HistoryPanel.jsx` is the dockable editor for recording, playback, action timing/state/JSON, time-range macro creation, and MIDI/presentation/pointer playback policies.
 - `src/TransportTimeline.jsx` renders session-action and object-automation lanes under the existing score transport.
 
 Playback never feeds back into the recorder. Commands invoked by playback use `record: false`; scene mutations run inside the scene-recorder suppression transaction.
@@ -32,7 +32,7 @@ The JSON envelope is versioned and begins with:
 }
 ```
 
-Every action has monotonic `at` time, global `transportTime`, `duration`, `source`, `groupId`, track, enabled state, typed arguments, and optional result references. Full playback restores the baseline by default. Presentation playback and external MIDI can be armed independently.
+Every action has monotonic `at` time, global `transportTime`, `duration`, `source`, `groupId`, track, enabled state, typed arguments, and optional result references. Full playback restores the baseline by default. Presentation playback and MIDI output can be armed independently. MIDI actions store destination-independent pattern/context data and resolve the current external or internal route only when replayed.
 
 High-rate strokes store normalized input samples as one stream rather than one command per point. Samples include scene coordinates, relative time, pressure, tilt, twist, buttons, pointer/device identity, and phase. The completed native Excalidraw element snapshot is kept beside the stream so playback can reveal the stroke and then commit exact geometry independent of viewport size or zoom.
 

@@ -184,6 +184,16 @@ The IanniX panel's **Data** tab adds an explicit exchange layer:
 
 The selected MIDI hardware output is intentionally not serialized because it is a local browser/device choice.
 
+### Internal GM fallback output
+
+`src/midiOutputRouting.js` resolves one shared raw-MIDI output contract for trigger playback and History replay. **None** is always silent, **All MIDI Outputs** includes connected Web MIDI outputs only, a connected selected device wins over fallback, and a missing selected device may resolve to **Internal GM Synth** without discarding the saved device ID. Reconnection therefore restores the external route and first panics the old route. MIDI clock continues to target external outputs only.
+
+`src/internalMidiSynth.js` is the only TinySynth-specific layer. It lazy-loads `jzz` and `jzz-synth-tiny` from the bundle after a user gesture, adapts raw `send(data, timestamp)` calls, filters system realtime messages, converts future DOM timestamps to cancellable timers, and owns Web Audio resume/dispose behavior. TinySynth supports note on/off (including velocity-zero note-on), program change, pitch bend, sustain and the common panic controllers; unsupported messages are harmlessly ignored by the backend. Timer scheduling is browser-main-thread scheduling, so it is less precise than a native Web MIDI destination under heavy load.
+
+The complete GM Level 1 program table and one-based UI-channel helpers live in `src/generalMidi.js`. Stored programs remain zero-based MIDI values; channel 3 defaults to Acoustic Bass, other melodic channels default to Acoustic Grand Piano, and channel 10 is fixed as percussion. Programs are reapplied on initialization and audio resume. Output choice, fallback policy, GM programs, and History's MIDI-armed toggle use local browser storage and are normalized for older or invalid saved values. No audio context is created on page load.
+
+History actions continue to store the IanniX pattern and resolved context, not an output ID or TinySynth event. The same recording can therefore replay through either an external output or the internal synth according to the current route.
+
 ## Extension points
 
 The current model is designed to grow in these directions without changing its core boundary:

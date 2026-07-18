@@ -123,7 +123,7 @@ const HistoryPanel = memo(function HistoryPanel({
           </select>
         </label>
         <label><span>Presentation</span><input type="checkbox" checked={includePresentation} onChange={event => onIncludePresentationChange(event.target.checked)} /></label>
-        <label title="External MIDI is sent only while this is armed"><span>MIDI armed</span><input type="checkbox" checked={emitMidi} onChange={event => onEmitMidiChange(event.target.checked)} /></label>
+        <label title="Recorded MIDI is sent to the currently selected route only while this is armed"><span>MIDI armed</span><input type="checkbox" checked={emitMidi} onChange={event => onEmitMidiChange(event.target.checked)} /></label>
         <label><span>Pointer</span><input type="checkbox" checked={showPointer} onChange={event => onShowPointerChange(event.target.checked)} /></label>
         <div className="history-file-actions">
           <button type="button" onClick={onClear} disabled={!actions.length || isRecording || isPlaying}>Clear</button>

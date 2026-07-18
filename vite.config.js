@@ -15,6 +15,12 @@ export default defineConfig({
     port: 8089,
     strictPort: true
   },
+  // The internal synth is lazy-loaded on first use. Pre-bundle both CommonJS
+  // packages at dev-server startup so a first click cannot race Vite's
+  // dependency discovery or retain an outdated optimizer URL after install.
+  optimizeDeps: {
+    include: ['jzz', 'jzz-synth-tiny']
+  },
   define: {
     "process.env.IS_PREACT": JSON.stringify("false"),
     "process.env.NODE_ENV": JSON.stringify("development"),
