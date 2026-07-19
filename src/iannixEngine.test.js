@@ -8,12 +8,14 @@ import {
   enforceRuntimeCursorHostVisibility,
   evaluateScoreFrame,
   getCursorTransform,
+  getElementCenter,
   getElementCorePaths,
   getObjectTimeState,
   isRuntimeCursor,
   normalizeIannixData,
   pathsIntersect,
   samplePath,
+  snapCursorHostToCurveStart,
   sweptPathsIntersect,
 } from "./iannixEngine.js";
 import { createBezierHostGeometry } from "./bezierGeometry.js";
@@ -152,6 +154,22 @@ test("cursor transform places its center on the curve and follows tangent change
   assert.equal(transform.angle, Math.PI / 2);
 });
 
+test("snapping a cursor host bakes the curve start pose into selectable geometry", () => {
+  const cursor = line("cursor", [[0, -5], [0, 5]]);
+  cursor.x = 80;
+  cursor.y = 90;
+  cursor.customData.originalPoints = [[80, 90], [80, 100]];
+  const curve = line("curve", [[0, 0], [100, 100]]);
+  const snapped = snapCursorHostToCurveStart(cursor, curve, true);
+  assert.deepEqual(getElementCenter(snapped), [0, 0]);
+  assert.ok(Math.abs(snapped.angle - Math.PI / 4) < 0.000001);
+  assert.deepEqual(snapped.customData.originalPoints, [[0, -5], [0, 5]]);
+  const runtimeTransform = getCursorTransform(snapped, curve, 0, true);
+  assert.ok(Math.abs(runtimeTransform.translate[0]) < 0.000001);
+  assert.ok(Math.abs(runtimeTransform.translate[1]) < 0.000001);
+  assert.ok(Math.abs(runtimeTransform.angle) < 0.000001);
+});
+
 test("cursor transform follows canonical Bezier arc length instead of the host chord", () => {
   const cursor = line("cursor", [[0, -5], [0, 5]]);
   const curve = line("curve", [[0, 0], [100, 0]]);
@@ -166,7 +184,27 @@ test("cursor transform follows canonical Bezier arc length instead of the host c
   assert.ok(transform.position[1] > 40);
 });
 
-test("visual cursor damping eases position and uses the shortest angle path", () => {
+test("cursor tangent follows the smooth display path of rounded native lines", () => {
+  const cursor = line("cursor", [[0, -5], [0, 5]]);
+  const curve = line("curve", [[0, 50], [50, 0], [100, 50]]);
+  curve.roundness = { type: 2 };
+  const before = getCursorTransform(cursor, curve, 0.499, true);
+  const after = getCursorTransform(cursor, curve, 0.501, true);
+  assert.ok(Math.abs(before.angle - after.angle) < 0.1);
+  assert.ok(before.position[1] < 5);
+  assert.ok(after.position[1] < 5);
+});
+
+test("cursor tangent follows a fitted cubic for native freehand paths", () => {
+  const cursor = line("cursor", [[0, -5], [0, 5]]);
+  const curve = line("curve", [[0, 50], [25, 15], [50, 0], [75, 15], [100, 50]]);
+  curve.type = "freedraw";
+  const before = getCursorTransform(cursor, curve, 0.499, true);
+  const after = getCursorTransform(cursor, curve, 0.501, true);
+  assert.ok(Math.abs(before.angle - after.angle) < 0.1);
+});
+
+test("visual cursor damping keeps position on-path and uses the shortest angle path", () => {
   const previous = {
     anchor: [0, 0],
     position: [0, 0],
@@ -182,8 +220,8 @@ test("visual cursor damping eases position and uses the shortest angle path", ()
     tangentAngle: -Math.PI * 0.9,
   };
   const damped = dampCursorTransform(previous, target, 0.8, 1 / 60);
-  assert.ok(damped.position[0] > 0 && damped.position[0] < 100);
-  assert.deepEqual(damped.translate, damped.position);
+  assert.deepEqual(damped.position, target.position);
+  assert.deepEqual(damped.translate, target.translate);
   assert.ok(damped.angle > previous.angle);
   assert.deepEqual(dampCursorTransform(previous, target, 0, 1 / 60), target);
 });

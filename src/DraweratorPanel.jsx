@@ -2,7 +2,7 @@ import React from "react";
 import PanelPlacementControls from "./PanelPlacementControls.jsx";
 import { PANEL_PLACEMENTS } from "./panelLayout.js";
 
-const PanelIcon = ({ id }) => {
+export const PanelIcon = ({ id }) => {
   if (id === "chat") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v11H9l-5 3v-14Z"/><path d="M8 10h8M8 13h5"/></svg>;
   }
@@ -28,6 +28,12 @@ const PanelIcon = ({ id }) => {
       <path d="M2.5 18.5c2.8 0 3.3-5.3 5.2-5.3 2.1 0 2.6 5.6 5.6 5.6 2.9 0 4.5-8.6 8.2-11.6"/>
     </svg>;
   }
+  if (id === "transport") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6M12 2v3"/></svg>;
+  }
+  if (id === "grid") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM9.3 4v16M14.7 4v16M4 9.3h16M4 14.7h16"/></svg>;
+  }
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 5 4.5 4.5M13 6.5l4.5 4.5M4 20l7.5-7.5M14 3l7 7-9.5 9.5-7-7L14 3Z"/></svg>;
 };
 
@@ -46,17 +52,20 @@ export default function DraweratorPanel({
   onClose,
   onResizeStart,
   onExpand,
+  allowBottom = false,
+  bottomHeight = 144,
   collapsed = false,
   children,
 }) {
   const floating = placement === PANEL_PLACEMENTS.FLOATING;
   const grouped = !floating && dockTabs.length > 1;
+  const bottom = placement === PANEL_PLACEMENTS.BOTTOM;
   const style = {
-    width: `${layout?.width ?? 380}px`,
+    ...(!bottom ? { width: `${layout?.width ?? 380}px` } : { height: `${bottomHeight}px` }),
     ...(floating ? {
       left: `${layout?.x ?? 24}px`,
       top: `${layout?.y ?? 72}px`,
-      height: `${layout?.height ?? 760}px`,
+      height: `${allowBottom ? Math.max(layout?.height ?? 0, bottomHeight + 50) : layout?.height ?? 760}px`,
     } : {}),
   };
 
@@ -68,7 +77,7 @@ export default function DraweratorPanel({
       aria-label={`${title} panel`}
       onDoubleClick={collapsed ? onExpand : undefined}
     >
-      {!floating && (
+      {!floating && !bottom && (
         <div
           className={`drawerator-panel-resize-handle drawerator-panel-resize-${placement}`}
           onMouseDown={event => onResizeStart(id, event, placement)}
@@ -104,9 +113,10 @@ export default function DraweratorPanel({
                 onDragStart={event => onDockTabDragStart(panel.id, event)}
                 onActivate={active ? undefined : () => onSelectDockTab(panel.id)}
                 onClose={() => onCloseDockTab(panel.id)}
+                allowBottom={allowBottom}
                 dragIcon={<PanelIcon id={panel.id} />}
               />
-              {active && <span>{panel.label}</span>}
+              {active && !bottom && <span>{panel.label}</span>}
             </div>
             );
           })}
@@ -120,9 +130,10 @@ export default function DraweratorPanel({
             onPlacementChange={onPlacementChange}
             onDragStart={onDragStart}
             onClose={onClose}
+            allowBottom={allowBottom}
             dragIcon={<PanelIcon id={id} />}
           />
-          <span>{title}</span>
+          {!bottom && <span>{title}</span>}
         </div>
       </header>}
       <div className="drawerator-panel-body">{children}</div>

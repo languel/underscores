@@ -3,13 +3,12 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Excalidraw, MainMenu, exportToSvg, exportToCanvas, loadFromBlob, serializeAsJSON, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
 import "./App.css";
 import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, isDrawableTrack, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
-import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, isRuntimeCursor, normalizeIannixData, transformPaths } from "./iannixEngine.js";
+import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, isRuntimeCursor, normalizeIannixData, snapCursorHostToCurveStart, transformPaths } from "./iannixEngine.js";
 import { createIannixMidiVoiceTracker, describeIannixMidiMessage, getIannixMidiTemplatePattern, getIannixTriggerMidiContext, IANNIX_MIDI_TEMPLATES, parseIannixMidiPattern, selectIannixTriggerCursor } from "./iannixMidi.js";
 import { attachDraweratorExchangeMetadata, getSelectionExchangeElements, parseDraweratorExchange, remapSelectionForImport } from "./sceneExchange.js";
 import { DRAWERATOR_PANELS } from "./panelRegistry.js";
 import { getDockTarget, getOpenPanelsForPlacement, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
 import { advanceMidiClockReceiver, createMidiClockReceiverState, formatTimelinePosition, MIDI_REALTIME, midiClockIntervalMs, normalizeTimeSignature, parseTimelinePosition, secondsToFrame, songPositionToSeconds } from "./transport.js";
-import PanelPlacementControls from "./PanelPlacementControls.jsx";
 import DraweratorPanel from "./DraweratorPanel.jsx";
 import TransportTimeline from "./TransportTimeline.jsx";
 import HistoryPanel from "./HistoryPanel.jsx";
@@ -26,6 +25,20 @@ import { getScriptParameterValues, parseScriptParameters } from "./scriptParamet
 import { GM_PROGRAMS, isPercussionChannel, normalizeGmPrograms } from "./generalMidi.js";
 import { createInternalMidiSynth, disposeInternalMidiSynth, isInternalMidiSynthSupported, resumeInternalMidiSynth } from "./internalMidiSynth.js";
 import { INTERNAL_MIDI_SYNTH_ID, MIDI_PORT_ALL, MIDI_PORT_NONE, resolveExternalMidiOutputs, resolveMidiOutputRoute } from "./midiOutputRouting.js";
+import GlobalGridCanvas from "./GlobalGridCanvas.jsx";
+import GridPanel from "./GridPanel.jsx";
+import ShortcutsPanel from "./ShortcutsPanel.jsx";
+import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
+import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
+import {
+  DEFAULT_GLOBAL_GRID,
+  GRID_STORAGE_KEY,
+  gridUnitsToSeconds,
+  mergeGridPatch,
+  normalizeGlobalGrid,
+  secondsToGridUnits,
+  snapPointToGrid,
+} from "./gridSystem.js";
 
 // System Prompt guiding the local LLM on drawing tools
 const SYSTEM_PROMPT = `You are "Drawerator", an autonomous, high-performance drawing assistant.
@@ -1301,6 +1314,9 @@ function App() {
     transportSeek: () => {},
     panelStateUpdate: () => {},
     boardSettingsUpdate: () => {},
+    globalGridUpdate: () => {},
+    globalGridReset: () => {},
+    gridQuantizeSelection: () => {},
   });
   const draweratorRuntimeRef = useRef(null);
   if (!draweratorRuntimeRef.current) {
@@ -1330,6 +1346,20 @@ function App() {
   const [autoKeyEnabled, setAutoKeyEnabled] = useState(false);
   const [sessionPlaybackOverlay, setSessionPlaybackOverlay] = useState([]);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
+  const [globalGrid, setGlobalGrid] = useState(() => {
+    try {
+      return normalizeGlobalGrid(JSON.parse(localStorage.getItem(GRID_STORAGE_KEY) || "null"));
+    } catch {
+      return normalizeGlobalGrid(null);
+    }
+  });
+  const [shortcutBindings, setShortcutBindings] = useState(() => {
+    try {
+      return normalizeShortcutBindings(JSON.parse(localStorage.getItem(SHORTCUT_STORAGE_KEY) || "null"));
+    } catch {
+      return normalizeShortcutBindings(null);
+    }
+  });
   const [accentColor, setAccentColor] = useState(() => localStorage.getItem("drawerator_accent_color") || "#6b7173");
   const [accentOpacity, setAccentOpacity] = useState(() => Number(localStorage.getItem("drawerator_accent_opacity") || 100));
   const [highlightColor, setHighlightColor] = useState(() => localStorage.getItem("drawerator_highlight_color") || (theme === "dark" ? "#33323b" : "#f1f0ff"));
@@ -1357,16 +1387,16 @@ function App() {
   });
   const [openPanels, setOpenPanels] = useState(() => {
     try {
-      return { chat: false, settings: false, mods: true, iannix: false, console: false, history: false, properties: false, outliner: false, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
+      return { chat: false, settings: false, mods: true, iannix: false, console: false, history: false, properties: false, outliner: false, grid: true, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
     } catch {
-      return { chat: false, settings: false, mods: true, iannix: false, console: false, history: false, properties: false, outliner: false };
+      return { chat: false, settings: false, mods: true, iannix: false, console: false, history: false, properties: false, outliner: false, grid: true };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
     try {
-      return { left: "mods", right: "mods", ...JSON.parse(localStorage.getItem("drawerator_panel_dock_tabs_v1") || "null") };
+      return { left: "mods", right: "mods", bottom: "transport", ...JSON.parse(localStorage.getItem("drawerator_panel_dock_tabs_v1") || "null") };
     } catch {
-      return { left: "mods", right: "mods" };
+      return { left: "mods", right: "mods", bottom: "transport" };
     }
   });
   const [collapsedDocks, setCollapsedDocks] = useState(() => {
@@ -1507,6 +1537,12 @@ function App() {
   const triggerCollisionLockoutsRef = useRef(new Map());
   const triggerPulseUntilRef = useRef(new Map());
   const midiAccessRef = useRef(null);
+  const globalGridRef = useRef(globalGrid);
+  const gridQuantizingRef = useRef(false);
+  const gridInteractionRef = useRef({ moving: false, resizing: false, pointEditing: false });
+  const editingLinearGridRef = useRef(null);
+  const multiElementGridRef = useRef(null);
+  const activeGridToolRef = useRef(null);
   const midiOutputIdRef = useRef(midiOutputId);
   const midiFallbackEnabledRef = useRef(midiFallbackEnabled);
   const internalGmProgramsRef = useRef(internalGmPrograms);
@@ -1536,6 +1572,10 @@ function App() {
   const strokeInputSamplesRef = useRef([]);
   const strokeRecordingSuppressedRef = useRef(false);
   const passiveStrokeCaptureRef = useRef(null);
+  const nativeLineGridPointsRef = useRef(null);
+  const nativeLineGridPreviewPointRef = useRef(null);
+  const nativeLineGridSyncFrameRef = useRef(null);
+  const passiveGridFreedrawRef = useRef(false);
   const transportStateRecordingRef = useRef(null);
   const panelStateRecordingRef = useRef(null);
   const boardSettingsRecordingRef = useRef(null);
@@ -1838,6 +1878,9 @@ function App() {
       setActiveDockPanels(previous => ({ ...previous, [placement]: panelId }));
       setCollapsedDocks(previous => ({ ...previous, [placement]: false }));
     }
+    if (placement === PANEL_PLACEMENTS.BOTTOM) {
+      setActiveDockPanels(previous => ({ ...previous, bottom: panelId }));
+    }
   }, [updatePanelLayout]);
 
   const startSidebarPanelDrag = useCallback((panelId, event) => {
@@ -1862,6 +1905,30 @@ function App() {
     setDraggingPanelId(panelId);
   }, []);
 
+  const startHorizontalPanelDrag = useCallback((panelId, event) => {
+    if (event.button !== 0) return;
+    const panel = event.currentTarget.closest(".drawerator-panel-shell");
+    const rect = panel?.getBoundingClientRect();
+    if (!rect) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const layout = panelLayouts[panelId];
+    const width = Math.min(Math.max(layout?.width || 980, 720), Math.max(320, window.innerWidth - 16));
+    transportDragRef.current = {
+      panelId,
+      started: false,
+      startX: event.clientX,
+      startY: event.clientY,
+      offsetX: Math.min(event.clientX - rect.left, width - 24),
+      offsetY: event.clientY - rect.top,
+      width,
+      height: rect.height,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    };
+    setTransportDragging(true);
+  }, [panelLayouts]);
+
   useEffect(() => {
     localStorage.setItem("drawerator_iannix_rate", String(scoreRate));
   }, [scoreRate]);
@@ -1871,6 +1938,20 @@ function App() {
     midiClockTempoRef.current = scoreTempo;
     setScoreTempoDraft(String(scoreTempo));
   }, [scoreTempo]);
+
+  useEffect(() => {
+    globalGridRef.current = globalGrid;
+    localStorage.setItem(GRID_STORAGE_KEY, JSON.stringify(globalGrid));
+    const api = excalidrawAPIRef.current;
+    const appState = api?.getAppState();
+    if (api && (appState?.gridSize !== null || appState?.gridModeEnabled || appState?.objectsSnapModeEnabled)) {
+      api.updateScene({ appState: { gridSize: null, gridModeEnabled: false, objectsSnapModeEnabled: false }, commitToHistory: false });
+    }
+  }, [globalGrid]);
+
+  useEffect(() => {
+    localStorage.setItem(SHORTCUT_STORAGE_KEY, JSON.stringify(shortcutBindings));
+  }, [shortcutBindings]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_time_signature", JSON.stringify(scoreTimeSignature));
@@ -2129,7 +2210,7 @@ function App() {
       if (!drag.started) {
         if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return;
         drag.started = true;
-        updatePanelLayout("transport", {
+        updatePanelLayout(drag.panelId, {
           placement: PANEL_PLACEMENTS.FLOATING,
           x: Math.max(8, Math.min(window.innerWidth - drag.width - 8, event.clientX - drag.offsetX)),
           y: Math.max(8, Math.min(window.innerHeight - drag.height - 8, event.clientY - drag.offsetY)),
@@ -2140,7 +2221,7 @@ function App() {
       const height = drag.height;
       const target = getDockTarget(event.clientX, event.clientY, window.innerWidth, window.innerHeight, { allowBottom: true, transport: true });
       setDockPreview(target === PANEL_PLACEMENTS.BOTTOM ? target : null);
-      updatePanelLayout("transport", {
+      updatePanelLayout(drag.panelId, {
         placement: PANEL_PLACEMENTS.FLOATING,
         x: Math.max(8, Math.min(window.innerWidth - width - 8, event.clientX - drag.offsetX)),
         y: Math.max(8, Math.min(window.innerHeight - height - 8, event.clientY - drag.offsetY)),
@@ -2150,7 +2231,7 @@ function App() {
       const drag = transportDragRef.current;
       if (drag?.started) {
         const target = getDockTarget(drag.clientX, drag.clientY, window.innerWidth, window.innerHeight, { allowBottom: true, transport: true });
-        if (target === PANEL_PLACEMENTS.BOTTOM) setPanelPlacement("transport", PANEL_PLACEMENTS.BOTTOM);
+        if (target === PANEL_PLACEMENTS.BOTTOM) setPanelPlacement(drag.panelId, PANEL_PLACEMENTS.BOTTOM);
       }
       transportDragRef.current = null;
       setTransportDragging(false);
@@ -2250,7 +2331,7 @@ function App() {
     }));
     setScoreEvents(events => [...nextEvents, ...events].slice(0, 20));
     setScoreRuntimeNonce(nonce => nonce + 1);
-  }, [excalidrawAPI, historyController, latchTriggersAcrossCursors, modifierUpdateNonce, scorePlaying, scoreTime]);
+  }, [excalidrawAPI, getScoreMidiRoute, historyController, latchTriggersAcrossCursors, modifierUpdateNonce, scorePlaying, scoreTime]);
 
   useEffect(() => {
     if (!excalidrawAPI || autoKeyApplyingRef.current || isMouseDownRef.current) return;
@@ -2286,8 +2367,18 @@ function App() {
   useEffect(() => {
     if (!excalidrawAPI) return;
     let changed = false;
-    const nextElements = excalidrawAPI.getSceneElements().map(element => {
-      const next = enforceRuntimeCursorHostVisibility(element);
+    const sceneElements = excalidrawAPI.getSceneElements();
+    const byId = new Map(sceneElements.map(element => [element.id, element]));
+    const nextElements = sceneElements.map(element => {
+      let next = element;
+      if (isRuntimeCursor(element)) {
+        const data = normalizeIannixData(element.customData?.iannix);
+        const supportCurve = byId.get(data.cursor.curveId);
+        if (supportCurve && !supportCurve.isDeleted) {
+          next = snapCursorHostToCurveStart(next, supportCurve, data.cursor.followTangent);
+        }
+      }
+      next = enforceRuntimeCursorHostVisibility(next);
       if (next !== element) changed = true;
       return next;
     });
@@ -2638,14 +2729,13 @@ function App() {
     return color;
   };
 
-  const getCanvasCoords = (clientX, clientY) => {
+  const getCanvasCoords = (clientX, clientY, snapTarget = "input") => {
     if (!excalidrawAPI) return [clientX, clientY];
     const appState = excalidrawAPI.getAppState();
     const res = viewportCoordsToSceneCoords({ clientX, clientY }, appState);
-    if (appState.gridSize) {
-      const x = Math.round(res.x / appState.gridSize) * appState.gridSize;
-      const y = Math.round(res.y / appState.gridSize) * appState.gridSize;
-      return [x, y];
+    const grid = globalGridRef.current;
+    if (grid.snap.mode !== "off" && grid.snap.targets[snapTarget]) {
+      return snapPointToGrid(grid, [res.x, res.y], { zoom: appState.zoom?.value || 1 }).point;
     }
     return [res.x, res.y];
   };
@@ -2729,7 +2819,7 @@ function App() {
     if (!element || element.id !== drag.elementId) return false;
     e.preventDefault();
     e.stopPropagation();
-    const world = getCanvasCoords(e.clientX, e.clientY);
+    const world = getCanvasCoords(e.clientX, e.clientY, "points");
     const local = bezierWorldPointToLocal(element, world);
     const anchor = element.customData.draweratorGeometry.anchors[drag.anchorIndex];
     const value = drag.part === "anchor" ? local : [local[0] - anchor.x, local[1] - anchor.y];
@@ -2768,10 +2858,47 @@ function App() {
     return true;
   };
 
+  const scheduleNativeLineGridSync = previewPoint => {
+    nativeLineGridPreviewPointRef.current = previewPoint;
+    if (nativeLineGridSyncFrameRef.current !== null) return;
+    nativeLineGridSyncFrameRef.current = window.requestAnimationFrame(() => {
+      nativeLineGridSyncFrameRef.current = null;
+      const api = excalidrawAPIRef.current;
+      const captured = nativeLineGridPointsRef.current;
+      if (!api || !captured?.points?.length) return;
+      const appState = api.getAppState();
+      const targetId = captured.elementId || appState.multiElement?.id || appState.editingLinearElement?.elementId;
+      if (!targetId) return;
+      captured.elementId = targetId;
+      const sceneElements = api.getSceneElementsIncludingDeleted();
+      const target = sceneElements.find(element => element.id === targetId && !element.isDeleted);
+      if (!target || target.type !== "line" || !Array.isArray(target.points) || target.points.length < 2) return;
+
+      const worldPoints = [...captured.points];
+      const livePoint = nativeLineGridPreviewPointRef.current;
+      if (livePoint && target.points.length > worldPoints.length) worldPoints.push(livePoint);
+      while (worldPoints.length < target.points.length) worldPoints.push(worldPoints[worldPoints.length - 1]);
+      if (worldPoints.length > target.points.length) worldPoints.length = target.points.length;
+
+      const quantized = quantizeGridElement(target, globalGridRef.current, {
+        mode: globalGridRef.current.snap.mode,
+        zoom: appState.zoom?.value || 1,
+        worldPoints,
+      });
+      if (quantized === target) return;
+      api.updateScene({
+        elements: sceneElements.map(element => element.id === target.id ? quantized : element),
+        commitToHistory: false,
+      });
+      setModifierUpdateNonce(nonce => nonce + 1);
+    });
+  };
+
   const handleCanvasPointerDown = (e) => {
     if (!excalidrawAPI) return;
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
     if (e.button !== 0) return;
+    gridInteractionRef.current = { moving: false, resizing: false, pointEditing: false };
 
     if (handleBezierPointerDown(e)) return;
 
@@ -2870,6 +2997,10 @@ function App() {
 
     if (!modifierDrawingActive) {
       if (activeTool !== "freedraw" && activeTool !== "line") return;
+      const nativeAppState = excalidrawAPI.getAppState();
+      if (nativeAppState.currentItemStrokeColor && !isColorTransparent(nativeAppState.currentItemStrokeColor)) {
+        lastStrokeColorRef.current = nativeAppState.currentItemStrokeColor;
+      }
       const coords = getCanvasCoords(e.clientX, e.clientY);
       coords.time = Date.now();
       coords.strokeTime = 0;
@@ -2877,8 +3008,31 @@ function App() {
       strokeInputSamplesRef.current = [];
       strokeRecordingSuppressedRef.current = true;
       emitPointerInputSample(e, "start", coords);
+      const gridInputSnap = globalGridRef.current.snap.mode !== "off" && globalGridRef.current.snap.targets.input;
+      if (activeTool === "line" && gridInputSnap) {
+        const current = nativeLineGridPointsRef.current;
+        const points = current?.points ? [...current.points] : [];
+        const previous = points[points.length - 1];
+        if (!previous || Math.hypot(previous[0] - coords[0], previous[1] - coords[1]) > 1e-8) points.push(coords);
+        nativeLineGridPointsRef.current = {
+          elementId: current?.elementId || excalidrawAPI.getAppState().multiElement?.id || excalidrawAPI.getAppState().editingLinearElement?.elementId || null,
+          points,
+        };
+        setDrawingPoints(points);
+        scheduleNativeLineGridSync(coords);
+      }
+      if (activeTool === "freedraw" && gridInputSnap) {
+        passiveGridFreedrawRef.current = true;
+        setDrawingPoints([coords]);
+        const appState = excalidrawAPI.getAppState();
+        if (appState.currentItemStrokeColor && appState.currentItemStrokeColor !== "transparent") {
+          lastStrokeColorRef.current = appState.currentItemStrokeColor;
+        }
+        excalidrawAPI.updateScene({ appState: { currentItemStrokeColor: "transparent" }, commitToHistory: false });
+      }
       passiveStrokeCaptureRef.current = {
         startedAt: Date.now(),
+        tool: activeTool,
         existingIds: new Set(excalidrawAPI.getSceneElementsIncludingDeleted().map(element => element.id)),
       };
       return;
@@ -2920,7 +3074,28 @@ function App() {
   const handleCanvasPointerMove = (e) => {
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
     if (handleBezierPointerMove(e)) return;
+    if (nativeLineGridPointsRef.current) {
+      const state = excalidrawAPI?.getAppState();
+      const editingId = state?.multiElement?.id || state?.editingLinearElement?.elementId;
+      if (editingId) {
+        nativeLineGridPointsRef.current.elementId = editingId;
+        const coords = getCanvasCoords(e.clientX, e.clientY);
+        setDrawingPoints([...nativeLineGridPointsRef.current.points, coords]);
+        scheduleNativeLineGridSync(coords);
+      }
+    }
     if (passiveStrokeCaptureRef.current && !isDrawingRef.current) {
+      const passiveTool = passiveStrokeCaptureRef.current.tool;
+      if (passiveTool === "line" && nativeLineGridPointsRef.current) {
+        const state = excalidrawAPI?.getAppState();
+        const editingId = state?.multiElement?.id || state?.editingLinearElement?.elementId;
+        if (editingId) {
+          nativeLineGridPointsRef.current.elementId = editingId;
+          const coords = getCanvasCoords(e.clientX, e.clientY);
+          setDrawingPoints([...nativeLineGridPointsRef.current.points, coords]);
+        }
+        return;
+      }
       if (e.buttons !== 1) return;
       const nativeEvent = e.nativeEvent || e;
       const events = typeof nativeEvent.getCoalescedEvents === "function" && nativeEvent.getCoalescedEvents().length
@@ -2932,6 +3107,9 @@ function App() {
         coords.strokeTime = coords.time - passiveStrokeCaptureRef.current.startedAt;
         coords.speed = 0;
         emitPointerInputSample(pointerEvent, "move", coords);
+        if (passiveGridFreedrawRef.current) {
+          setDrawingPoints(points => [...points, coords]);
+        }
       }
       return;
     }
@@ -2966,21 +3144,9 @@ function App() {
         let x = lastPoint[0] + (targetCoords[0] - lastPoint[0]) * beta;
         let y = lastPoint[1] + (targetCoords[1] - lastPoint[1]) * beta;
         const appState = excalidrawAPI?.getAppState();
-        if (appState?.gridSize) {
-          const gridSize = appState.gridSize;
-          const snapThreshold = gridSize * 0.45;
-          const xSnapped = Math.round(x / gridSize) * gridSize;
-          const dx = Math.abs(x - xSnapped);
-          if (dx < snapThreshold) {
-            const weight = (1 - dx / snapThreshold) ** 2;
-            x += (xSnapped - x) * weight;
-          }
-          const ySnapped = Math.round(y / gridSize) * gridSize;
-          const dy = Math.abs(y - ySnapped);
-          if (dy < snapThreshold) {
-            const weight = (1 - dy / snapThreshold) ** 2;
-            y += (ySnapped - y) * weight;
-          }
+        const grid = globalGridRef.current;
+        if (grid.snap.mode !== "off" && grid.snap.targets.input) {
+          [x, y] = snapPointToGrid(grid, [x, y], { zoom: appState?.zoom?.value || 1 }).point;
         }
         coords = [x, y];
       }
@@ -3005,8 +3171,14 @@ function App() {
   const getBrushGlobals = (overrides = {}) => {
     if (!excalidrawAPI) return {};
     const appState = excalidrawAPI.getAppState() || {};
+    const grid = globalGridRef.current;
+    const clock = { tempo: scoreTempo, signature: scoreTimeSignature, fps: transportFps };
     return {
-      gridSize: appState.gridSize || null,
+      gridSize: grid.spacing.x / grid.spacing.subdivisionsX,
+      grid,
+      snapToGrid: (point, options = {}) => snapPointToGrid(grid, point, { zoom: appState.zoom?.value || 1, ...options }).point,
+      gridUnitsToSeconds: units => gridUnitsToSeconds(units, grid, clock),
+      secondsToGridUnits: seconds => secondsToGridUnits(seconds, grid, clock),
       strokeColor: lastStrokeColorRef.current || "#000000",
       strokeWidth: appState.currentItemStrokeWidth || 2,
       opacity: appState.currentItemOpacity ?? 100,
@@ -3044,7 +3216,10 @@ function App() {
     const previewPoints = frozenPreview?.points || drawingPoints;
     const previewModifiers = frozenPreview?.modifiers || getDrawingModifiers();
     const previewGlobals = frozenPreview?.globals || getBrushGlobals();
-    if (!modifierDrawingActive || previewPoints.length < 2) return [];
+    if (previewPoints.length < 2) return [];
+    if (!modifierDrawingActive) {
+      return passiveGridFreedrawRef.current ? [previewPoints] : [];
+    }
 
     try {
       const evaluation = evaluateModifierStack(previewPoints, previewModifiers, previewGlobals);
@@ -3180,13 +3355,21 @@ function App() {
 
     const generatedElements = newLines.map((linePoints, idx) => {
       if (!Array.isArray(linePoints) || linePoints.length < 1) return null;
+      const grid = globalGridRef.current;
+      const outputPoints = grid.snap.mode !== "off" && grid.snap.targets.generated
+        ? linePoints.map(point => snapPointToGrid(grid, point, { zoom: excalidrawAPIRef.current?.getAppState()?.zoom?.value || 1 }).point)
+        : linePoints;
       
       // Find starting coordinate
-      const [startX, startY] = linePoints[0];
-      const relativePoints = linePoints.map(([lx, ly]) => [
-        lx - startX,
-        ly - startY
-      ]);
+      const [startX, startY] = outputPoints[0];
+      const relativePoints = outputPoints.map(point => {
+        const next = [point[0] - startX, point[1] - startY];
+        if (point.pressure !== undefined) next.pressure = point.pressure;
+        if (point.time !== undefined) next.time = point.time;
+        if (point.strokeTime !== undefined) next.strokeTime = point.strokeTime;
+        if (point.speed !== undefined) next.speed = point.speed;
+        return next;
+      });
 
       const xCoords = relativePoints.map(p => p[0]);
       const yCoords = relativePoints.map(p => p[1]);
@@ -3490,17 +3673,10 @@ function App() {
           } else if (algorithm === "resample") {
             simplifiedAbs = resampleUniform(absolutePoints, absolutePoints.length);
           } else if (algorithm === "snap") {
-            const gridSize = appState.gridSize || 20;
-            simplifiedAbs = absolutePoints.map((p) => {
-              const sx = Math.round(p[0] / gridSize) * gridSize;
-              const sy = Math.round(p[1] / gridSize) * gridSize;
-              const snappedPt = [sx, sy];
-              if (p.pressure !== undefined) snappedPt.pressure = p.pressure;
-              if (p.time !== undefined) snappedPt.time = p.time;
-              if (p.strokeTime !== undefined) snappedPt.strokeTime = p.strokeTime;
-              if (p.speed !== undefined) snappedPt.speed = p.speed;
-              return snappedPt;
-            });
+            simplifiedAbs = absolutePoints.map(point => snapPointToGrid(globalGridRef.current, point, {
+              mode: "hard",
+              zoom: appState.zoom?.value || 1,
+            }).point);
           }
 
           const simplifiedElement = updateElementGeometry(el, simplifiedAbs);
@@ -3554,6 +3730,7 @@ function App() {
       setCustomContextMenu({
         x: e.clientX,
         y: e.clientY,
+        showAddCursor: selectedStrokeElements.length > 0,
         showRestore: hasBrush,
         showToLine: hasFreehand || hasSpline,
         showToFreehand: hasLine || hasSpline,
@@ -3667,7 +3844,7 @@ function App() {
       : updatedParent.opacity;
 
     return childTracks.map((linePoints, idx) => {
-      const rotatedPoints = linePoints.map((point) => {
+      let rotatedPoints = linePoints.map((point) => {
         const [x, y] = angle === 0
           ? point
           : rotatePoint(point[0], point[1], cx, cy, angle);
@@ -3678,6 +3855,12 @@ function App() {
         if (point.speed !== undefined) copy.speed = point.speed;
         return copy;
       });
+      const grid = globalGridRef.current;
+      if (grid.snap.mode !== "off" && grid.snap.targets.generated) {
+        rotatedPoints = rotatedPoints.map(point => snapPointToGrid(grid, point, {
+          zoom: excalidrawAPIRef.current?.getAppState()?.zoom?.value || 1,
+        }).point);
+      }
 
       const [startX, startY] = rotatedPoints[0];
       const relativePoints = rotatedPoints.map((point) => {
@@ -3913,25 +4096,197 @@ function App() {
     strokeRecordingSuppressedRef.current = false;
   };
 
+  const quantizeGlobalGridElements = ({
+    elementIds = null,
+    transformOnly = false,
+    forceHard = true,
+    commitToHistory = true,
+    resolution = null,
+    axes = null,
+  } = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api || gridQuantizingRef.current) return { count: 0 };
+    const grid = globalGridRef.current;
+    const selectedIds = elementIds
+      ? new Set(elementIds)
+      : new Set(Object.keys(api.getAppState().selectedElementIds || {}).filter(id => api.getAppState().selectedElementIds[id]));
+    const selected = api.getSceneElements().filter(element => selectedIds.has(element.id) && !element.isDeleted);
+    if (!selected.length) return { count: 0 };
+    const zoom = api.getAppState().zoom?.value || 1;
+    const options = {
+      mode: forceHard ? "hard" : grid.snap.mode,
+      resolution: resolution || grid.snap.resolution,
+      axes: axes || grid.snap.axes,
+      zoom,
+    };
+    const selectedIdSet = new Set(selected.map(element => element.id));
+    let changed = 0;
+    let replacements;
+    if (transformOnly) {
+      const delta = sharedGridSnapDelta(selected, grid, options);
+      if (Math.abs(delta[0]) < 1e-8 && Math.abs(delta[1]) < 1e-8) return { count: 0, delta };
+      replacements = new Map(selected.map(element => [element.id, translateGridElement(element, delta)]));
+      changed = selected.length;
+    } else {
+      replacements = new Map(selected.map(element => {
+        const next = quantizeGridElement(element, grid, options);
+        if (next !== element) changed += 1;
+        return [element.id, next];
+      }));
+    }
+    if (!changed) return { count: 0 };
+    gridQuantizingRef.current = true;
+    try {
+      api.updateScene({
+        elements: api.getSceneElementsIncludingDeleted().map(element => selectedIdSet.has(element.id) ? replacements.get(element.id) : element),
+        commitToHistory,
+      });
+      setModifierUpdateNonce(nonce => nonce + 1);
+    } finally {
+      window.setTimeout(() => { gridQuantizingRef.current = false; }, 0);
+    }
+    return { count: changed };
+  };
+
+  const scheduleNativeGridQuantization = () => {
+    const grid = globalGridRef.current;
+    if (grid.snap.mode === "off" || (!grid.snap.targets.transforms && !grid.snap.targets.points)) return;
+    if (nativeLineGridPointsRef.current && excalidrawAPIRef.current?.getAppState()?.activeTool?.type === "line") return;
+    window.setTimeout(() => {
+      const api = excalidrawAPIRef.current;
+      if (!api) return;
+      const appState = api.getAppState();
+      const interaction = gridInteractionRef.current;
+      gridInteractionRef.current = { moving: false, resizing: false, pointEditing: false };
+      if ((appState.multiElement?.id || appState.editingLinearElement?.elementId) && appState.activeTool?.type === "line") return;
+      const selectedIds = Object.keys(appState.selectedElementIds || {}).filter(id => appState.selectedElementIds[id]);
+      const eligibleIds = api.getSceneElements().filter(element =>
+        selectedIds.includes(element.id) && (!element.customData?.parentId || grid.snap.targets.generated)
+      ).map(element => element.id);
+      const isPointEdit = interaction.pointEditing || Boolean(appState.editingLinearElement || bezierEditElementId);
+      const isCreation = appState.activeTool?.type && appState.activeTool.type !== "selection";
+      const isResize = interaction.resizing;
+      const allowed = isPointEdit
+        ? grid.snap.targets.points
+        : isCreation ? grid.snap.targets.input : grid.snap.targets.transforms;
+      if (!allowed) return;
+      quantizeGlobalGridElements({
+        elementIds: eligibleIds,
+        transformOnly: eligibleIds.length > 1 || (!isPointEdit && !isCreation && !isResize),
+        forceHard: false,
+      });
+    }, 0);
+  };
+
+  const finalizeCapturedNativeLine = elementId => {
+    const captured = nativeLineGridPointsRef.current;
+    nativeLineGridPointsRef.current = null;
+    nativeLineGridPreviewPointRef.current = null;
+    if (nativeLineGridSyncFrameRef.current !== null) {
+      window.cancelAnimationFrame(nativeLineGridSyncFrameRef.current);
+      nativeLineGridSyncFrameRef.current = null;
+    }
+    setDrawingPoints([]);
+    window.setTimeout(() => {
+      const api = excalidrawAPIRef.current;
+      if (!api) return;
+      const sceneElements = api.getSceneElementsIncludingDeleted();
+      const capturedTargetId = elementId || captured?.elementId;
+      const target = sceneElements.find(element => element.id === capturedTargetId && !element.isDeleted)
+        || [...sceneElements].reverse().find(element => element.type === "line" && !element.isDeleted);
+      if (captured?.points?.length >= 2 && target) {
+        const grid = globalGridRef.current;
+        api.updateScene({
+          elements: sceneElements.map(element => {
+            if (element.id !== target.id) return element;
+            const quantized = quantizeGridElement(element, grid, {
+              mode: grid.snap.mode,
+              zoom: api.getAppState()?.zoom?.value || 1,
+              worldPoints: captured.points,
+            });
+            const strokeColor = isColorTransparent(lastStrokeColorRef.current)
+              ? (theme === "dark" ? "#f8fafc" : "#1b1b1f")
+              : lastStrokeColorRef.current;
+            return { ...quantized, strokeColor };
+          }),
+          commitToHistory: false,
+        });
+      } else {
+        if (target) quantizeGlobalGridElements({ elementIds: [target.id], transformOnly: false, forceHard: false });
+      }
+    }, 0);
+  };
+
   const handleCanvasPointerUp = (e) => {
     if (handleBezierPointerUp(e)) return;
+    scheduleNativeGridQuantization();
     if (passiveStrokeCaptureRef.current && !isDrawingRef.current) {
       const capture = passiveStrokeCaptureRef.current;
       passiveStrokeCaptureRef.current = null;
+      const completedInputSamples = [...strokeInputSamplesRef.current];
       const last = strokeInputSamplesRef.current[strokeInputSamplesRef.current.length - 1];
-      const coords = last ? [last.scene.x, last.scene.y] : getCanvasCoords(e.clientX, e.clientY);
+      const coords = capture.tool === "line"
+        ? getCanvasCoords(e.clientX, e.clientY)
+        : last ? [last.scene.x, last.scene.y] : getCanvasCoords(e.clientX, e.clientY);
       coords.strokeTime = Date.now() - capture.startedAt;
       coords.speed = 0;
       emitPointerInputSample(e, "end", coords);
+      if (capture.tool === "line" && nativeLineGridPointsRef.current) {
+        const points = [...nativeLineGridPointsRef.current.points];
+        const previous = points[points.length - 1];
+        if (!previous || Math.hypot(previous[0] - coords[0], previous[1] - coords[1]) > 1e-8) points.push(coords);
+        nativeLineGridPointsRef.current = { ...nativeLineGridPointsRef.current, points };
+        setDrawingPoints(points);
+        window.setTimeout(() => {
+          const state = excalidrawAPIRef.current?.getAppState();
+          if (!state?.multiElement && nativeLineGridPointsRef.current?.points?.length >= 2) finalizeCapturedNativeLine();
+        }, 120);
+      }
+      if (capture.tool === "freedraw" && passiveGridFreedrawRef.current) {
+        excalidrawAPI?.updateScene({ appState: { currentItemStrokeColor: lastStrokeColorRef.current }, commitToHistory: false });
+      }
       window.setTimeout(() => {
-        const finalElements = excalidrawAPI?.getSceneElementsIncludingDeleted().filter(element =>
+        let finalElements = excalidrawAPI?.getSceneElementsIncludingDeleted().filter(element =>
           !element.isDeleted && !capture.existingIds.has(element.id)
         ) || [];
+        const grid = globalGridRef.current;
+        if (capture.tool === "freedraw" && grid.snap.mode !== "off" && grid.snap.targets.input && finalElements.length) {
+          const worldPoints = capture.tool === "freedraw"
+            ? completedInputSamples.map(sample => {
+              const point = [sample.scene.x, sample.scene.y];
+              point.pressure = sample.pressure;
+              point.time = sample.time;
+              point.strokeTime = sample.strokeTime;
+              point.speed = sample.speed;
+              return point;
+            })
+            : null;
+          const replacements = new Map(finalElements.map(element => {
+            let next = quantizeGridElement(element, grid, {
+              mode: grid.snap.mode,
+              zoom: excalidrawAPI?.getAppState()?.zoom?.value || 1,
+              ...(worldPoints?.length >= 2 ? { worldPoints } : {}),
+            });
+            if ((capture.tool === "freedraw" || capture.tool === "line") && isColorTransparent(next.strokeColor)) {
+              next = { ...next, strokeColor: lastStrokeColorRef.current };
+            }
+            return [element.id, next];
+          }));
+          excalidrawAPI?.updateScene({
+            elements: excalidrawAPI.getSceneElementsIncludingDeleted().map(element => replacements.get(element.id) || element),
+            commitToHistory: false,
+          });
+          finalElements = finalElements.map(element => replacements.get(element.id) || element);
+        }
         recordCompletedStroke({
           finalElements,
           durationMs: Date.now() - capture.startedAt,
           brush: { kind: "excalidraw", tool: excalidrawAPI?.getAppState().activeTool?.type || "freedraw" },
         });
+        if (capture.tool === "freedraw") {
+          passiveGridFreedrawRef.current = false;
+          setDrawingPoints([]);
+        }
       }, 120);
       return;
     }
@@ -4764,7 +5119,10 @@ function App() {
     const panel = DRAWERATOR_PANELS.find(candidate => candidate.id === panelId);
     if (!panel) return;
     if (panel.id === "transport") {
-      setShowIannixTransport(visible => !visible);
+      const forceOpen = Boolean(options.open);
+      const isFrontmost = showIannixTransport && panelLayouts.transport.placement === PANEL_PLACEMENTS.BOTTOM && activeDockPanels.bottom === "transport";
+      setShowIannixTransport(forceOpen ? true : !isFrontmost);
+      if (forceOpen || !isFrontmost) setActiveDockPanels(previous => ({ ...previous, bottom: "transport" }));
       return;
     }
     if (panel.id === "settings" && options.settingsTab) {
@@ -4775,6 +5133,12 @@ function App() {
     }
     const forceOpen = Boolean(options.settingsTab || options.modsTab || options.open);
     const placement = panelLayouts[panelId]?.placement;
+    if (placement === PANEL_PLACEMENTS.BOTTOM) {
+      const isFrontmost = Boolean(openPanels[panelId] && activeDockPanels.bottom === panelId);
+      setOpenPanels(previous => ({ ...previous, [panelId]: forceOpen ? true : !isFrontmost }));
+      if (forceOpen || !isFrontmost) setActiveDockPanels(previous => ({ ...previous, bottom: panelId }));
+      return;
+    }
     if (placement === PANEL_PLACEMENTS.LEFT || placement === PANEL_PLACEMENTS.RIGHT) {
       const isFrontmostExpandedPanel = Boolean(
         openPanels[panelId] &&
@@ -4810,8 +5174,7 @@ function App() {
     panel,
     action: () => {
       applyingRecordedUiStateRef.current = true;
-      if (panel.id === "transport") setShowIannixTransport(visible => !visible);
-      else toggleDraweratorPanel(panel.id);
+      toggleDraweratorPanel(panel.id);
       finishApplyingRecordedUiState();
     },
   }));
@@ -4846,6 +5209,7 @@ function App() {
     { id: "restore-original-stroke", name: "Restore Original Stroke (Recover Brush Replacement)", category: "Brushes", action: () => handleRestoreOriginalStroke() },
     { id: "convert-to-line", name: "Convert Selected Strokes to Straight Lines", category: "Brushes", action: () => handleConvertType("line") },
     { id: "convert-to-freedraw", name: "Convert Selected Lines to Freehand Pencil", category: "Brushes", action: () => handleConvertType("freedraw") },
+    { id: "iannix.cursor.addToSelectedCurves", name: "Add Cursor to Selected Curves /add cursor to selected curves", aliases: ["/add cursor to selected curves", "Add Cursor to Selected Curves"], category: "IanniX", action: () => addCursorsToSelectedCurves() },
     { id: "geometry.bezier.convert", name: "Convert Selection to Bézier /bezier convert", aliases: ["/bezier convert", "Convert to Bézier"], category: "Geometry", action: () => convertSelectedToBezier() },
     { id: "geometry.bezier.edit", name: "Edit Selected Bézier /bezier edit", aliases: ["/bezier edit", "Edit Bézier"], category: "Geometry", action: () => enterBezierEditMode() },
     { id: "geometry.bezier.close", name: "Close Selected Bézier Path /bezier close", aliases: ["/bezier close"], category: "Geometry", action: () => setSelectedBezierClosed(true) },
@@ -4862,6 +5226,11 @@ function App() {
     { id: "transport.seek", name: "Seek Global Transport", category: "Transport", args: { seconds: "number" }, action: (_api, args) => runtimeCallbacksRef.current.transportSeek(Number(args?.seconds) || 0) },
     { id: "presentation.panels", name: "Update Panel Presentation", category: "Panels", record: "presentation", args: { state: "panelState" }, action: (_api, args) => runtimeCallbacksRef.current.panelStateUpdate(args?.state || args) },
     { id: "settings.board.update", name: "Update Board Settings", category: "Settings", record: "presentation", args: { state: "boardSettings" }, sensitiveArgs: ["state.credentials", "state.apiKey", "state.token"], action: (_api, args) => runtimeCallbacksRef.current.boardSettingsUpdate(args?.state || args) },
+    { id: "grid.global.update", name: "Update Global Grid /grid update", aliases: ["/grid update"], category: "Grid", args: { patch: "gridPatch" }, action: (_api, args) => runtimeCallbacksRef.current.globalGridUpdate(args?.patch || args) },
+    { id: "grid.global.reset", name: "Reset Global Grid /grid reset", aliases: ["/grid reset"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridReset() },
+    { id: "grid.visible.toggle", name: "Toggle Global Grid Visibility /grid visible", aliases: ["/grid visible"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridUpdate({ appearance: { visible: !globalGridRef.current.appearance.visible } }) },
+    { id: "grid.snap.toggle", name: "Toggle Global Grid Snapping /grid snap", aliases: ["/grid snap"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridUpdate({ snap: { mode: globalGridRef.current.snap.mode === "off" ? "hard" : "off" } }) },
+    { id: "grid.quantize.selection", name: "Quantize Selection to Global Grid /grid quantize", aliases: ["/grid quantize"], category: "Grid", args: { elementIds: "string[]?", resolution: "minor|major?", axes: "x|y|both?" }, action: (_api, args) => runtimeCallbacksRef.current.gridQuantizeSelection(args) },
     { id: "history.record.start", name: "Start Session Recording /record start", aliases: ["/record start"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyStart({ play: false }) },
     { id: "history.record.play", name: "Record and Play /record play", aliases: ["/record play"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyStart({ play: true }) },
     { id: "history.record.pause", name: "Pause or Resume Recording /record pause", aliases: ["/record pause"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyPause() },
@@ -4952,6 +5321,23 @@ function App() {
         activeElement.isContentEditable ||
         activeElement.closest?.(".cm-editor")
       );
+      const shortcutAction = !isTextControlFocused ? findShortcutAction(shortcutBindings, e) : null;
+      if (shortcutAction) {
+        if (shortcutAction.id !== "tool-line" && excalidrawAPI?.getAppState()?.activeTool?.type === "line" && nativeLineGridPointsRef.current?.points?.length >= 2) {
+          finalizeCapturedNativeLine();
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        commandRegistry.execute(shortcutAction.commandId || shortcutAction.id, {}, {
+          source: "shortcut",
+          transportTime: scoreTimeRef.current,
+        });
+        refreshCanvasToolCursor();
+        return;
+      }
+      if (e.code === "Enter" && !isTextControlFocused && excalidrawAPI?.getAppState()?.activeTool?.type === "line" && nativeLineGridPointsRef.current?.points?.length >= 2) {
+        finalizeCapturedNativeLine();
+      }
       if (e.code === "Space" && !isTextControlFocused && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         e.stopPropagation();
@@ -5219,7 +5605,7 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [theme, excalidrawAPI, customBrushActive, activeBrushId]);
+  }, [theme, excalidrawAPI, customBrushActive, activeBrushId, shortcutBindings, commandRegistry]);
 
   // Autofocus input when Command Palette opens
   useEffect(() => {
@@ -5563,7 +5949,9 @@ function App() {
     if (!excalidrawAPI || !elementIds?.length) return;
     const targetIds = new Set(elementIds);
     let didUpdate = false;
-    const nextElements = excalidrawAPI.getSceneElements().map(element => {
+    const sceneElements = excalidrawAPI.getSceneElements();
+    const sceneElementsById = new Map(sceneElements.map(element => [element.id, element]));
+    const nextElements = sceneElements.map(element => {
       if (!targetIds.has(element.id)) return element;
       const current = normalizeIannixData(element.customData?.iannix);
       let updated = normalizeIannixData(updater(current, element));
@@ -5603,7 +5991,7 @@ function App() {
         processedModifierVersionsRef.current[element.id] = customData.version || 0;
       }
       didUpdate = true;
-      return {
+      let nextElement = {
         ...element,
         opacity,
         strokeColor,
@@ -5612,6 +6000,14 @@ function App() {
         versionNonce: Math.floor(Math.random() * 1000000),
         updated: Date.now(),
       };
+      const changedSupportCurve = current.cursor.curveId !== updated.cursor.curveId;
+      if (becomesRuntimeCursor && (!wasRuntimeCursor || changedSupportCurve)) {
+        const supportCurve = sceneElementsById.get(updated.cursor.curveId);
+        if (supportCurve && !supportCurve.isDeleted) {
+          nextElement = snapCursorHostToCurveStart(nextElement, supportCurve, updated.cursor.followTangent);
+        }
+      }
+      return nextElement;
     });
     if (!didUpdate) return;
     excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
@@ -5642,6 +6038,101 @@ function App() {
       role,
       label: labels.get(element.id) ?? current.label,
     }));
+  };
+
+  // Create one hidden, runtime-linked cursor for every selected path. As with
+  // imported IanniX cursors, the host is a vertical line centered exactly on
+  // curve progress 0 and rotated by the onset tangent. Runtime evaluation then
+  // moves that center along the curve and applies only the tangent delta.
+  const addCursorsToSelectedCurves = () => {
+    if (!excalidrawAPI) throw new Error("The canvas is not ready.");
+    const sceneElements = excalidrawAPI.getSceneElements();
+    const selectedIds = excalidrawAPI.getAppState().selectedElementIds || {};
+    const candidates = sceneElements.filter(element => (
+      selectedIds[element.id] &&
+      !element.isDeleted &&
+      (element.type === "line" || element.type === "freedraw") &&
+      !isRuntimeCursor(element) &&
+      !sceneElements.some(candidate => (
+        !candidate.isDeleted &&
+        isRuntimeCursor(candidate) &&
+        normalizeIannixData(candidate.customData?.iannix).cursor?.curveId === element.id
+      ))
+    ));
+    if (!candidates.length) throw new Error("Select one or more lines or freehand paths first.");
+
+    const curveLabels = allocateIannixRoleLabels(sceneElements, candidates.map(element => element.id), "curve");
+    const updates = new Map();
+    const cursors = [];
+    candidates.forEach((source, index) => {
+      const path = getElementCorePaths(source)?.[0] || [];
+      const points = path.filter(point => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]));
+      if (points.length < 2) return;
+      let first = points[0];
+      let second = points.find(point => Math.hypot(point[0] - first[0], point[1] - first[1]) > 0.0001);
+      if (!second) {
+        first = points[points.length - 2];
+        second = points[points.length - 1];
+      }
+      const dx = second[0] - first[0];
+      const dy = second[1] - first[1];
+      const tangentLength = Math.hypot(dx, dy);
+      const startTangentAngle = tangentLength > 0.0001 ? Math.atan2(dy, dx) : 0;
+      const pathLength = points.slice(1).reduce((sum, point, pointIndex) => sum + Math.hypot(point[0] - points[pointIndex][0], point[1] - points[pointIndex][1]), 0);
+      const cursorLength = Math.max(12, Math.min(48, pathLength * 0.08 || 20));
+      const half = cursorLength / 2;
+      const cursorId = `cursor_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 8)}`;
+      const sourceData = normalizeIannixData({
+        ...(source.customData?.iannix || {}),
+        role: "curve",
+        active: true,
+        label: curveLabels.get(source.id) || source.customData?.iannix?.label || `Curve ${index + 1}`,
+      });
+      updates.set(source.id, sourceData);
+      const cursorData = normalizeIannixData({
+        role: "cursor",
+        active: true,
+        label: `Cursor ${index + 1}`,
+        cursor: {
+          curveId: source.id,
+          followTangent: true,
+          visualSmoothing: 0.65,
+          sourceOpacity: source.opacity ?? 100,
+          sourceStrokeColor: source.strokeColor || "#ff3b0a",
+        },
+      });
+      const cursor = {
+        ...createBaseElement("line", first[0], first[1] - half, 0, cursorLength, "transparent"),
+        id: cursorId,
+        points: [[0, 0], [0, cursorLength]],
+        angle: startTangentAngle,
+        strokeWidth: source.strokeWidth || 2,
+        roughness: 0,
+        opacity: 0,
+        strokeColor: "transparent",
+        customData: { iannix: cursorData },
+      };
+      cursors.push(cursor);
+    });
+    if (!cursors.length) throw new Error("The selected paths do not contain usable geometry.");
+    const nextElements = sceneElements.map(element => {
+      const nextData = updates.get(element.id);
+      if (!nextData) return element;
+      return {
+        ...element,
+        customData: { ...(element.customData || {}), iannix: nextData },
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 1000000),
+        updated: Date.now(),
+      };
+    });
+    excalidrawAPI.updateScene({
+      elements: [...nextElements, ...cursors],
+      appState: { selectedElementIds: Object.fromEntries(candidates.map(element => [element.id, true])) },
+      commitToHistory: true,
+    });
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return cursors;
   };
 
   const handleMidiOutputChange = async nextOutputId => {
@@ -5736,7 +6227,7 @@ function App() {
       displayMode: transportDisplayMode,
       fps: transportFps,
       loop: { enabled: transportLoopEnabled, start: transportLoopStart, end: transportLoopEnd },
-    }), null, 2);
+    }, kind === "scene" ? globalGridRef.current : null), null, 2);
   };
 
   const downloadTextFile = (text, filename, mimeType = "application/json") => {
@@ -5791,7 +6282,7 @@ function App() {
 
   const importDraweratorSceneText = async (text, { commitToHistory = true } = {}) => {
     if (!excalidrawAPI) return;
-    const { score } = parseDraweratorExchange(text, "scene");
+    const { score, grid } = parseDraweratorExchange(text, "scene");
     const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
     if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
     excalidrawAPI.updateScene({
@@ -5799,9 +6290,13 @@ function App() {
       appState: {
         ...(restored.appState || {}),
         selectedElementIds: {},
+        gridSize: null,
+        gridModeEnabled: false,
+        objectsSnapModeEnabled: false,
       },
       commitToHistory,
     });
+    setGlobalGrid(grid);
     if (Number.isFinite(score?.time)) setScoreTime(score.time);
     if (Number.isFinite(score?.rate) && score.rate > 0) setScoreRate(score.rate);
     if (Number.isFinite(score?.tempo) && score.tempo >= 20 && score.tempo <= 400) setScoreTempo(score.tempo);
@@ -6106,6 +6601,26 @@ function App() {
     }
     finishApplyingRecordedUiState();
   };
+  runtimeCallbacksRef.current.globalGridUpdate = patch => {
+    const next = mergeGridPatch(globalGridRef.current, patch || {});
+    globalGridRef.current = next;
+    setGlobalGrid(next);
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return next;
+  };
+  runtimeCallbacksRef.current.globalGridReset = () => {
+    const next = normalizeGlobalGrid(DEFAULT_GLOBAL_GRID);
+    globalGridRef.current = next;
+    setGlobalGrid(next);
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return next;
+  };
+  runtimeCallbacksRef.current.gridQuantizeSelection = (args = {}) => quantizeGlobalGridElements({
+    elementIds: args?.elementIds,
+    resolution: args?.resolution,
+    axes: args?.axes,
+    forceHard: true,
+  });
 
   useEffect(() => {
     const state = {
@@ -6189,7 +6704,7 @@ function App() {
 
   useEffect(() => {
     const api = {
-      apiVersion: 1,
+      apiVersion: 2,
       commands: {
         list: () => commandRegistry.list(),
         describe: id => commandRegistry.describe(id),
@@ -6232,13 +6747,31 @@ function App() {
         get: () => excalidrawAPIRef.current?.getSceneElementsIncludingDeleted() || [],
         getAppState: () => excalidrawAPIRef.current?.getAppState() || null,
       },
+      grid: {
+        getGlobal: () => normalizeGlobalGrid(globalGridRef.current),
+        updateGlobal: patch => commandRegistry.execute("grid.global.update", { patch }, { source: "api", transportTime: scoreTimeRef.current }),
+        snapPoint: (point, options = {}) => snapPointToGrid(globalGridRef.current, point, {
+          zoom: excalidrawAPIRef.current?.getAppState()?.zoom?.value || 1,
+          ...options,
+        }),
+        unitsToSeconds: units => gridUnitsToSeconds(units, globalGridRef.current, {
+          tempo: scoreTempo,
+          signature: scoreTimeSignature,
+          fps: transportFps,
+        }),
+        secondsToUnits: seconds => secondsToGridUnits(seconds, globalGridRef.current, {
+          tempo: scoreTempo,
+          signature: scoreTimeSignature,
+          fps: transportFps,
+        }),
+      },
     };
     window.drawerator = api;
     window.dispatchEvent(new CustomEvent("drawerator:ready", { detail: { apiVersion: api.apiVersion } }));
     return () => {
       if (window.drawerator === api) delete window.drawerator;
     };
-  }, [commandRegistry, eventBus, historyController, historyIncludePresentation, historyLibrary, historyMidiArmed, inputBus, refreshHistoryMacros]);
+  }, [commandRegistry, eventBus, historyController, historyIncludePresentation, historyLibrary, historyMidiArmed, inputBus, refreshHistoryMacros, scoreTempo, scoreTimeSignature, transportFps]);
 
   const handleDraweratorSceneFile = async (event) => {
     const file = event.target.files?.[0];
@@ -8645,7 +9178,7 @@ function App() {
   };
 
   const renderIannixTransport = () => {
-    if (!excalidrawAPI || !showIannixTransport) return null;
+    if (!excalidrawAPI) return null;
     const scoreObjects = excalidrawAPI.getSceneElements().filter(element =>
       !element.isDeleted && ["curve", "cursor", "trigger"].includes(element.customData?.iannix?.role)
     );
@@ -8708,59 +9241,12 @@ function App() {
       }
       setTransportLoopEnabled(true);
     };
-    const transportLayout = panelLayouts.transport;
-    const viewportWidth = typeof window === "undefined" ? 1200 : window.innerWidth;
-    const floatingTransportWidth = Math.min(
-      Math.max(transportLayout.width || 980, 980),
-      Math.max(320, viewportWidth - 16),
-    );
-    const positionStyle = transportLayout.placement === PANEL_PLACEMENTS.FLOATING
-      ? {
-          left: Math.max(8, Math.min(viewportWidth - floatingTransportWidth - 8, transportLayout.x)),
-          top: transportLayout.y,
-          bottom: "auto",
-          width: floatingTransportWidth,
-          maxWidth: "calc(100vw - 16px)",
-          transform: "none",
-        }
-      : undefined;
-    const startTransportDrag = event => {
-      if (event.button !== 0) return;
-      const panel = event.currentTarget.closest(".iannix-transport");
-      const rect = panel?.getBoundingClientRect();
-      if (!rect) return;
-      event.preventDefault();
-      const dragWidth = Math.min(Math.max(transportLayout.width || 980, 980), Math.max(320, window.innerWidth - 16));
-      transportDragRef.current = {
-        started: false,
-        startX: event.clientX,
-        startY: event.clientY,
-        offsetX: event.clientX - rect.left,
-        offsetY: event.clientY - rect.top,
-        width: dragWidth,
-        height: rect.height,
-        clientX: event.clientX,
-        clientY: event.clientY,
-      };
-      setTransportDragging(true);
-    };
-
     return (
       <div
-        className={`iannix-transport theme-${theme} ${transportDragging ? "dragging" : ""} ${transportLayout.placement === PANEL_PLACEMENTS.FLOATING ? "positioned" : "docked-bottom"}`}
+        className={`iannix-transport theme-${theme}`}
         role="region"
-        aria-label="IanniX transport"
-        style={positionStyle}
+        aria-label="Timeline"
       >
-        <PanelPlacementControls
-          label="Transport"
-          placement={transportLayout.placement}
-          onPlacementChange={placement => setPanelPlacement("transport", placement)}
-          onDragStart={startTransportDrag}
-          allowBottom
-          dragIcon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6M12 2v3"/></svg>}
-        />
-
         <select className="iannix-transport-mode" aria-label="Transport display" value={transportDisplayMode} onChange={event => setTransportDisplayMode(event.target.value)}>
           <option value="frame">Frame</option>
           <option value="timecode">Timecode</option>
@@ -8827,9 +9313,6 @@ function App() {
           <input key={`end-${transportDisplayMode}-${transportLoopEnd}`} aria-label={`Loop end in ${transportDisplayMode}`} type="text" defaultValue={formatTimelinePosition(transportLoopEnd, transportDisplayMode, timelineOptions)} onBlur={event => commitLoopBoundary(event, "end")} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} />
         </div>
 
-        <button type="button" onClick={() => setShowIannixTransport(false)} title="Hide transport (/transport · Ctrl+Opt+T)" aria-label="Hide transport">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 6l12 12M18 6 6 18"/></svg>
-        </button>
         <TransportTimeline
           duration={scoreEnd}
           currentTime={scoreTime}
@@ -8849,11 +9332,24 @@ function App() {
       </div>
     );
   };
+  const updateGlobalGridSetting = patch => {
+    commandRegistry.execute("grid.global.update", { patch }, {
+      source: "settings",
+      transportTime: scoreTimeRef.current,
+    }).catch(error => setSceneExchangeStatus(error.message || "Could not update the global grid."));
+  };
+  const resetGlobalGridSetting = () => {
+    commandRegistry.execute("grid.global.reset", {}, {
+      source: "settings",
+      transportTime: scoreTimeRef.current,
+    }).catch(error => setSceneExchangeStatus(error.message || "Could not reset the global grid."));
+  };
   const renderSettingsContent = () => {
     const boardState = excalidrawAPI?.getAppState() || {};
     const settingTabs = [
       { id: "ai", label: "AI" },
       { id: "preferences", label: "Board" },
+      { id: "shortcuts", label: "Shortcuts" },
       { id: "score", label: "Score & MIDI" },
     ];
     return (
@@ -8991,10 +9487,8 @@ function App() {
             </label>
             <div className="settings-panel-divider" />
             {[
-              ["Grid mode", !!boardState.gridModeEnabled, "gridModeEnabled"],
               ["Zen mode", !!boardState.zenModeEnabled, "zenModeEnabled"],
               ["View mode", !!boardState.viewModeEnabled, "viewModeEnabled"],
-              ["Snap to objects", !!boardState.objectsSnapModeEnabled, "objectsSnapModeEnabled"],
             ].map(([label, checked, field]) => (
               <label className="settings-panel-check" key={field}>
                 <span>{label}</span>
@@ -9002,6 +9496,14 @@ function App() {
               </label>
             ))}
           </div>
+        )}
+
+        {activeSettingsTab === "shortcuts" && (
+          <ShortcutsPanel
+            bindings={shortcutBindings}
+            onChange={(actionId, binding) => setShortcutBindings(previous => ({ ...previous, [actionId]: binding }))}
+            onReset={() => setShortcutBindings({ ...DEFAULT_SHORTCUTS })}
+          />
         )}
 
         {activeSettingsTab === "score" && (
@@ -9065,7 +9567,7 @@ function App() {
               }} /></label>
             </div>
             <label className="settings-panel-check">
-              <span>Show transport panel</span>
+              <span>Show Timeline panel</span>
               <input type="checkbox" checked={showIannixTransport} onChange={event => setShowIannixTransport(event.target.checked)} />
             </label>
             <label className="settings-panel-check">
@@ -9388,7 +9890,8 @@ function App() {
     }
   });
 
-  const sidePanels = DRAWERATOR_PANELS.filter(panel => panel.id !== "transport");
+  const sidePanels = DRAWERATOR_PANELS.filter(panel => !panel.placements.includes(PANEL_PLACEMENTS.BOTTOM));
+  const horizontalPanels = DRAWERATOR_PANELS.filter(panel => panel.placements.includes(PANEL_PLACEMENTS.BOTTOM));
   const getDockTabs = placement => getOpenPanelsForPlacement(sidePanels, openPanels, panelLayouts, placement);
   const leftDockTabs = getDockTabs(PANEL_PLACEMENTS.LEFT);
   const rightDockTabs = getDockTabs(PANEL_PLACEMENTS.RIGHT);
@@ -9396,6 +9899,9 @@ function App() {
     left: resolveActiveDockPanel(leftDockTabs, activeDockPanels.left),
     right: resolveActiveDockPanel(rightDockTabs, activeDockPanels.right),
   };
+  const horizontalOpenPanels = { ...openPanels, transport: showIannixTransport };
+  const bottomDockTabs = getOpenPanelsForPlacement(horizontalPanels, horizontalOpenPanels, panelLayouts, PANEL_PLACEMENTS.BOTTOM);
+  const activeBottomPanelId = resolveActiveDockPanel(bottomDockTabs, activeDockPanels.bottom);
   const shouldRenderPanel = panelId => {
     if (!openPanels[panelId]) return false;
     const placement = panelLayouts[panelId]?.placement;
@@ -9406,15 +9912,26 @@ function App() {
     const placement = panelLayouts[panelId]?.placement;
     return placement === PANEL_PLACEMENTS.LEFT ? leftDockTabs : placement === PANEL_PLACEMENTS.RIGHT ? rightDockTabs : [];
   };
+  const shouldRenderHorizontalPanel = panelId => {
+    if (!horizontalOpenPanels[panelId]) return false;
+    return panelLayouts[panelId]?.placement === PANEL_PLACEMENTS.FLOATING || activeBottomPanelId === panelId;
+  };
+  const closeHorizontalPanel = panelId => {
+    if (panelId === "transport") setShowIannixTransport(false);
+    else closeDraweratorPanel(panelId);
+  };
   const anySidePanelOpen = sidePanels.some(panel => openPanels[panel.id]);
+  const bottomDockOpen = bottomDockTabs.length > 0;
+  const bottomDockHeight = horizontalPanels.find(panel => panel.id === activeBottomPanelId)?.dockedHeight || 144;
 
   return (
     <div 
       id="root" 
-      className={`drawerator-shell ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} transport-placement-${panelLayouts.transport.placement} ${draggingPanelId ? "panel-is-dragging" : ""}`}
+      className={`drawerator-shell ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} ${bottomDockOpen ? "horizontal-dock-open" : ""} ${draggingPanelId || transportDragging ? "panel-is-dragging" : ""}`}
       style={{
         "--drawerator-accent": colorWithOpacity(accentColor, accentOpacity),
         "--drawerator-highlight": colorWithOpacity(highlightColor, highlightOpacity),
+        "--horizontal-dock-height": `${bottomDockHeight}px`,
       }}
     >
       <div 
@@ -9424,10 +9941,11 @@ function App() {
         onPointerUpCapture={handleCanvasPointerUp} 
         onContextMenuCapture={handleCanvasContextMenu}
         style={{ width: "100%", height: "100%", position: "relative" }}
-        className={drawingPoints.length > 0 ? "custom-brush-drawing" : ""}
+        className={modifierDrawingActive && drawingPoints.length > 0 ? "custom-brush-drawing" : ""}
       >
         <Excalidraw 
           theme={theme} 
+          gridModeEnabled={false}
           excalidrawAPI={(api) => setExcalidrawAPI(api)} 
           getFormFactor={(width, height) => {
             if (forceDesktopLayout) {
@@ -9437,11 +9955,46 @@ function App() {
           }}
           initialData={{
             appState: {
-              currentItemRoughness: 0
+              currentItemRoughness: 0,
+              gridSize: null,
+              gridModeEnabled: false,
+              objectsSnapModeEnabled: false,
             }
           }}
           onChange={(elements, appState) => {
             applyForceDesktopOverride(false);
+
+            const nativeGridEnabled = appState.gridSize !== null || Boolean(appState.gridModeEnabled) || Boolean(appState.objectsSnapModeEnabled);
+            const activeToolType = appState.activeTool?.type || null;
+            const previousActiveToolType = activeGridToolRef.current;
+            activeGridToolRef.current = activeToolType;
+            const editingLinearId = appState.editingLinearElement?.elementId || null;
+            const previousEditingLinearId = editingLinearGridRef.current;
+            editingLinearGridRef.current = editingLinearId;
+            const multiElementId = appState.multiElement?.id || null;
+            const previousMultiElementId = multiElementGridRef.current;
+            multiElementGridRef.current = multiElementId;
+
+            if (previousActiveToolType === "line" && activeToolType !== "line" && nativeLineGridPointsRef.current?.points?.length >= 2) {
+              const fallbackLine = [...elements].reverse().find(element => element.type === "line" && !element.isDeleted);
+              const capturedElementId = nativeLineGridPointsRef.current.elementId || previousMultiElementId || fallbackLine?.id;
+              if (capturedElementId) finalizeCapturedNativeLine(capturedElementId);
+            }
+
+            if (previousEditingLinearId && previousEditingLinearId !== previousMultiElementId && !editingLinearId && globalGridRef.current.snap.mode !== "off" && (globalGridRef.current.snap.targets.points || globalGridRef.current.snap.targets.input)) {
+              finalizeCapturedNativeLine(previousEditingLinearId);
+            }
+
+            if (nativeGridEnabled) {
+              excalidrawAPIRef.current?.updateScene({
+                appState: { gridSize: null, gridModeEnabled: false, objectsSnapModeEnabled: false },
+                commitToHistory: false,
+              });
+            }
+
+            if (appState.draggingElement) gridInteractionRef.current.moving = true;
+            if (appState.resizingElement || appState.isRotating) gridInteractionRef.current.resizing = true;
+            if (appState.editingLinearElement && isMouseDownRef.current) gridInteractionRef.current.pointEditing = true;
 
             const visibilitySafeElements = elements.map(element =>
               enforceRuntimeCursorHostVisibility(normalizeBezierHostElement(element))
@@ -9827,7 +10380,10 @@ function App() {
               Outliner
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-transport", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Transport
+              Timeline
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-grid", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              Grid
             </MainMenu.Item>
             <MainMenu.Separator />
             <MainMenu.DefaultItems.ChangeCanvasBackground />
@@ -10521,6 +11077,10 @@ function App() {
                 }
               })}
               onLockChange={elementId => updateSceneObject(elementId, element => { element.locked = !element.locked; })}
+              onRename={(elementId, label) => updateIannixElements([elementId], current => ({
+                ...current,
+                label: label || undefined,
+              }))}
             />
           </DraweratorPanel>
           )}
@@ -10800,14 +11360,74 @@ function App() {
             </div>
           </DraweratorPanel>
           )}
+
+          {shouldRenderHorizontalPanel("transport") && (
+            <DraweratorPanel
+              id="transport"
+              title="Timeline"
+              placement={panelLayouts.transport.placement}
+              layout={panelLayouts.transport}
+              dockTabs={panelLayouts.transport.placement === PANEL_PLACEMENTS.BOTTOM ? bottomDockTabs : []}
+              onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, bottom: panelId }))}
+              onDockTabPlacementChange={setPanelPlacement}
+              onDockTabDragStart={startHorizontalPanelDrag}
+              onCloseDockTab={closeHorizontalPanel}
+              onPlacementChange={placement => setPanelPlacement("transport", placement)}
+              onDragStart={event => startHorizontalPanelDrag("transport", event)}
+              onClose={() => closeHorizontalPanel("transport")}
+              onResizeStart={handlePanelResizeMouseDown}
+              allowBottom
+              bottomHeight={114}
+            >
+              {renderIannixTransport()}
+            </DraweratorPanel>
+          )}
+
+          {shouldRenderHorizontalPanel("grid") && (
+            <DraweratorPanel
+              id="grid"
+              title="Grid"
+              placement={panelLayouts.grid.placement}
+              layout={panelLayouts.grid}
+              dockTabs={panelLayouts.grid.placement === PANEL_PLACEMENTS.BOTTOM ? bottomDockTabs : []}
+              onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, bottom: panelId }))}
+              onDockTabPlacementChange={setPanelPlacement}
+              onDockTabDragStart={startHorizontalPanelDrag}
+              onCloseDockTab={closeHorizontalPanel}
+              onPlacementChange={placement => setPanelPlacement("grid", placement)}
+              onDragStart={event => startHorizontalPanelDrag("grid", event)}
+              onClose={() => closeHorizontalPanel("grid")}
+              onResizeStart={handlePanelResizeMouseDown}
+              allowBottom
+              bottomHeight={144}
+            >
+              <GridPanel
+                grid={globalGrid}
+                tempo={scoreTempo}
+                signature={scoreTimeSignature}
+                fps={transportFps}
+                onUpdate={updateGlobalGridSetting}
+                onReset={resetGlobalGridSetting}
+                onQuantizeSelection={() => commandRegistry.execute("grid.quantize.selection", {}, { source: "grid-panel", transportTime: scoreTimeRef.current }).catch(error => setSceneExchangeStatus(error.message || "Could not quantize the selection."))}
+              />
+            </DraweratorPanel>
+          )}
         </Excalidraw>
 
+        <GlobalGridCanvas
+          grid={globalGrid}
+          appState={excalidrawAPI?.getAppState() || null}
+          theme={theme}
+          renderNonce={modifierUpdateNonce}
+        />
+
         {/* Live Preview SVG Overlay */}
-        {modifierDrawingActive && (
-          (isDrawingRef.current && isMouseDownRef.current && drawingPoints.length >= 2) ||
-          pendingStrokePreview
+        {(
+          (modifierDrawingActive && ((isDrawingRef.current && isMouseDownRef.current && drawingPoints.length >= 2) || pendingStrokePreview)) ||
+          (!modifierDrawingActive && passiveGridFreedrawRef.current && drawingPoints.length >= 2)
         ) && (
-          <svg 
+          <svg
+            className="drawerator-live-stroke-preview"
             style={{
               position: "absolute",
               left: 0,
@@ -10909,7 +11529,6 @@ function App() {
         {renderGlobalModifiersOverlay()}
         {renderIannixOverlay()}
         {renderBezierEditorOverlay()}
-        {renderIannixTransport()}
       </div>
 
       {dockPreview && (
@@ -11083,6 +11702,25 @@ function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 7c4 8 6 8 10 2s6-6 6 8" />
               </svg>
               Convert from Spline
+            </button>
+          )}
+
+          {customContextMenu.showAddCursor && (
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                void commandRegistry.execute("iannix.cursor.addToSelectedCurves", {}, { source: "context-menu", record: true });
+                setCustomContextMenu(null);
+              }}
+              className="custom-floating-context-menu-btn"
+              title="Mark selected paths as curves and attach perpendicular runtime cursors"
+            >
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
+                <circle cx="12" cy="12" r="3" />
+                <path strokeLinecap="round" d="M12 2v5M12 17v5M2 12h5M17 12h5" />
+              </svg>
+              Add Cursor to Selected Curves
             </button>
           )}
 

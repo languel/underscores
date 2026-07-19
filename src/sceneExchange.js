@@ -1,6 +1,8 @@
-const DRAWERATOR_EXCHANGE_VERSION = 1;
+import { normalizeGlobalGrid } from "./gridSystem.js";
 
-export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = {}) => {
+const DRAWERATOR_EXCHANGE_VERSION = 2;
+
+export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = {}, grid = null) => {
   const payload = typeof serializedScene === "string"
     ? JSON.parse(serializedScene)
     : structuredClone(serializedScene);
@@ -25,6 +27,7 @@ export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = 
           end: Number.isFinite(score.loop?.end) ? Math.max(0.1, score.loop.end) : 10,
         },
       },
+      ...(kind === "scene" ? { grid: normalizeGlobalGrid(grid) } : {}),
     },
   };
 };
@@ -38,7 +41,12 @@ export const parseDraweratorExchange = (text, expectedKind = null) => {
   if (expectedKind && kind !== expectedKind) {
     throw new Error(`Expected Drawerator ${expectedKind} JSON, received ${kind} JSON.`);
   }
-  return { payload, kind, score: payload.drawerator?.score || null };
+  return {
+    payload,
+    kind,
+    score: payload.drawerator?.score || null,
+    grid: kind === "scene" ? normalizeGlobalGrid(payload.drawerator?.grid) : null,
+  };
 };
 
 export const getSelectionExchangeElements = (elements, selectedElementIds) => {

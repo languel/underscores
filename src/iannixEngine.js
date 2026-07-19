@@ -1,4 +1,9 @@
-import { getBezierWorldPath, hasCubicBezierGeometry, sampleBezierElement } from "./bezierGeometry.js";
+import {
+  createBezierGeometryFromElement,
+  getBezierWorldPath,
+  hasCubicBezierGeometry,
+  sampleBezierElement,
+} from "./bezierGeometry.js";
 
 export const IANNIX_ROLES = ["curve", "cursor", "trigger"];
 export const IANNIX_LOOP_MODES = ["once", "loop", "pingPong"];
@@ -295,6 +300,53 @@ const corePathCache = new WeakMap();
 const pathMetricsCache = new WeakMap();
 const preparedPathsCache = new WeakMap();
 const normalizedElementDataCache = new WeakMap();
+const semanticBezierCache = new WeakMap();
+
+// Excalidraw draws rounded lines and freehand strokes as smooth paths, while
+// their persisted `points` remain a polyline. Sampling that polyline directly
+// makes a following cursor snap to each segment angle. Build a transient cubic
+// representation for semantic path evaluation so position and tangent match
+// the visible smooth path without converting or mutating the source element.
+const getSemanticBezierElement = element => {
+  if (hasCubicBezierGeometry(element)) return element;
+  if (!element || (element.type !== "freedraw" && !element.roundness)) return null;
+  const cached = semanticBezierCache.get(element);
+  if (
+    cached &&
+    cached.points === element.points &&
+    cached.x === element.x &&
+    cached.y === element.y &&
+    cached.width === element.width &&
+    cached.height === element.height &&
+    cached.angle === element.angle &&
+    cached.roundness === element.roundness
+  ) return cached.element;
+  const geometry = createBezierGeometryFromElement(element);
+  if (!geometry) return null;
+  const semanticElement = {
+    ...element,
+    customData: {
+      ...(element.customData || {}),
+      draweratorGeometry: {
+        ...geometry,
+        // Keep the shared Bezier metrics cache coherent when a native path is
+        // edited without changing its outer bounds.
+        revision: Math.max(geometry.revision || 0, element.version || 0),
+      },
+    },
+  };
+  semanticBezierCache.set(element, {
+    points: element.points,
+    x: element.x,
+    y: element.y,
+    width: element.width,
+    height: element.height,
+    angle: element.angle,
+    roundness: element.roundness,
+    element: semanticElement,
+  });
+  return semanticElement;
+};
 
 export const getElementCorePaths = (element) => {
   if (!element || element.isDeleted) return [];
@@ -401,18 +453,62 @@ export const samplePath = (path, progress) => {
 };
 
 export const getCursorTransform = (cursorElement, curveElement, progress, followTangent = true) => {
-  const isBezier = hasCubicBezierGeometry(curveElement);
-  const curvePath = isBezier ? null : getElementCorePaths(curveElement)[0];
-  const current = isBezier ? sampleBezierElement(curveElement, progress) : samplePath(curvePath, progress);
-  const start = isBezier ? sampleBezierElement(curveElement, 0) : samplePath(curvePath, 0);
-  if (!current || !start) return null;
+  const semanticBezier = getSemanticBezierElement(curveElement);
+  const curvePath = semanticBezier ? null : getElementCorePaths(curveElement)[0];
+  const current = semanticBezier ? sampleBezierElement(semanticBezier, progress) : samplePath(curvePath, progress);
+  if (!current) return null;
   const cursorCenter = getElementCenter(cursorElement);
+  const cursorPath = getElementCorePaths(cursorElement)?.[0] || [];
+  const cursorStart = cursorPath[0];
+  const cursorEnd = cursorPath.find(point => (
+    cursorStart && Math.hypot(point[0] - cursorStart[0], point[1] - cursorStart[1]) > 0.000001
+  ));
+  const hostOrientation = cursorStart && cursorEnd
+    ? Math.atan2(cursorEnd[1] - cursorStart[1], cursorEnd[0] - cursorStart[0])
+    : Math.PI / 2 + (cursorElement.angle || 0);
+  const targetOrientation = current.angle + Math.PI / 2;
+  const rotation = Math.atan2(
+    Math.sin(targetOrientation - hostOrientation),
+    Math.cos(targetOrientation - hostOrientation),
+  );
   return {
     anchor: cursorCenter,
     position: current.point,
     translate: [current.point[0] - cursorCenter[0], current.point[1] - cursorCenter[1]],
-    angle: followTangent ? current.angle - start.angle : 0,
+    angle: followTangent ? rotation : 0,
     tangentAngle: current.angle,
+  };
+};
+
+export const snapCursorHostToCurveStart = (cursorElement, curveElement, followTangent = true) => {
+  const transform = getCursorTransform(cursorElement, curveElement, 0, followTangent);
+  if (!transform) return cursorElement;
+  const [translateX, translateY] = transform.translate;
+  const rotation = followTangent ? transform.angle : 0;
+  if (
+    Math.abs(translateX) <= 0.000001 &&
+    Math.abs(translateY) <= 0.000001 &&
+    Math.abs(rotation) <= 0.000001
+  ) return cursorElement;
+  const customData = { ...(cursorElement.customData || {}) };
+  if (Array.isArray(customData.originalPoints)) {
+    customData.originalPoints = customData.originalPoints.map(point => {
+      const translated = point.slice();
+      translated[0] = point[0] + translateX;
+      translated[1] = point[1] + translateY;
+      for (const key of Object.keys(point)) {
+        if (key !== "0" && key !== "1") translated[key] = point[key];
+      }
+      return translated;
+    });
+  }
+  const angle = (cursorElement.angle || 0) + rotation;
+  return {
+    ...cursorElement,
+    x: cursorElement.x + translateX,
+    y: cursorElement.y + translateY,
+    angle: Math.atan2(Math.sin(angle), Math.cos(angle)),
+    customData,
   };
 };
 
@@ -441,17 +537,12 @@ export const dampCursorTransform = (previous, target, smoothing, deltaSeconds) =
   if (deltaSeconds <= 0) return previous;
   const timeConstant = Math.max(0.001, damping * damping * 0.25);
   const amount = 1 - Math.exp(-Math.min(0.1, deltaSeconds) / timeConstant);
-  const position = [
-    previous.position[0] + (target.position[0] - previous.position[0]) * amount,
-    previous.position[1] + (target.position[1] - previous.position[1]) * amount,
-  ];
   return {
     ...target,
-    position,
-    translate: [
-      position[0] - target.anchor[0],
-      position[1] - target.anchor[1],
-    ],
+    // Position is semantic and must remain constrained to the path. Only the
+    // displayed orientation is damped; Cartesian position damping cuts corners.
+    position: target.position,
+    translate: target.translate,
     angle: dampAngle(previous.angle || 0, target.angle || 0, amount),
     tangentAngle: dampAngle(previous.tangentAngle || 0, target.tangentAngle || 0, amount),
   };

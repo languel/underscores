@@ -6,9 +6,11 @@ test("normalizes panel layout storage independently per panel", () => {
   const layouts = normalizePanelLayouts({
     mods: { placement: "left", x: 100, y: 80 },
     transport: { placement: "right", x: 4, y: 5 },
+    grid: { placement: "left", x: 8, y: 9 },
   });
   assert.deepEqual(layouts.mods, { placement: PANEL_PLACEMENTS.LEFT, x: 100, y: 80, width: 380, height: 760 });
   assert.equal(layouts.transport.placement, PANEL_PLACEMENTS.BOTTOM);
+  assert.equal(layouts.grid.placement, PANEL_PLACEMENTS.BOTTOM);
 });
 
 test("detects sidebar and transport drop zones", () => {

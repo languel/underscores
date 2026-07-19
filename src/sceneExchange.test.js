@@ -6,6 +6,7 @@ import {
   parseDraweratorExchange,
   remapSelectionForImport,
 } from "./sceneExchange.js";
+import { mergeGridPatch, DEFAULT_GLOBAL_GRID } from "./gridSystem.js";
 
 test("scene exchange metadata preserves Drawerator score state", () => {
   const payload = attachDraweratorExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {
@@ -33,6 +34,28 @@ test("scene exchange preserves frame timeline display mode", () => {
   const payload = attachDraweratorExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", { displayMode: "frame", fps: 24 });
   assert.equal(payload.drawerator.score.displayMode, "frame");
   assert.equal(payload.drawerator.score.fps, 24);
+});
+
+test("scene exchange version 2 preserves the global grid and migrates legacy scenes", () => {
+  const grid = mergeGridPatch(DEFAULT_GLOBAL_GRID, {
+    appearance: { visible: true },
+    spacing: { x: 120, y: 80, subdivisionsX: 6, subdivisionsY: 4 },
+    time: { amount: 2, unit: "bar" },
+  });
+  const payload = attachDraweratorExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, grid);
+  assert.equal(payload.drawerator.version, 2);
+  assert.deepEqual(parseDraweratorExchange(payload, "scene").grid, grid);
+
+  const legacy = { type: "excalidraw", elements: [], drawerator: { version: 1, kind: "scene", score: {} } };
+  const migrated = parseDraweratorExchange(legacy, "scene").grid;
+  assert.equal(migrated.appearance.visible, false);
+  assert.equal(migrated.snap.mode, "off");
+});
+
+test("selection exchange does not carry the scene-global grid", () => {
+  const payload = attachDraweratorExchangeMetadata({ type: "excalidraw", elements: [] }, "selection", {}, DEFAULT_GLOBAL_GRID);
+  assert.equal(payload.drawerator.grid, undefined);
+  assert.equal(parseDraweratorExchange(payload, "selection").grid, null);
 });
 
 test("selection exchange includes generated children and all custom metadata", () => {

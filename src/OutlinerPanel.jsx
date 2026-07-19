@@ -1,10 +1,13 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 
-const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedElementIds = {}, onSelect, onDelete, onVisibilityChange, onLockChange }) {
+const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedElementIds = {}, onSelect, onDelete, onVisibilityChange, onLockChange, onRename }) {
   const [query, setQuery] = useState("");
   const [nameMode, setNameMode] = useState(() => localStorage.getItem("drawerator_outliner_name_mode") === "ids" ? "ids" : "labels");
   const rowRefs = useRef(new Map());
   const selectionAnchorRef = useRef(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editingValue, setEditingValue] = useState("");
+  const editingRef = useRef(null);
   const visibleElements = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return elements
@@ -47,7 +50,29 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
     onDelete(selectedElementIds[elementId] ? selectedIds : [elementId]);
   };
 
+  const beginRename = element => {
+    setEditingId(element.id);
+    setEditingValue(element.customData?.iannix?.label || "");
+    requestAnimationFrame(() => editingRef.current?.focus());
+  };
+
+  const finishRename = (element, commit = true) => {
+    if (!commit) {
+      setEditingId(null);
+      return;
+    }
+    const value = editingValue.trim();
+    onRename?.(element.id, value);
+    setEditingId(null);
+  };
+
   const handleKeyDown = event => {
+    if (event.key === "F2") {
+      const selectedId = Object.keys(selectedElementIds).find(id => selectedElementIds[id]);
+      const element = selectedId && visibleElements.find(item => item.id === selectedId);
+      if (element) { event.preventDefault(); beginRename(element); }
+      return;
+    }
     if (event.key !== "Delete" && event.key !== "Backspace") return;
     const target = event.target;
     if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable) return;
@@ -76,7 +101,7 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
         </button>
         <span>{visibleElements.length}</span>
       </div>
-      <div className="outliner-list" role="tree" aria-label="Scene objects" onKeyDown={handleKeyDown}>
+      <div className="outliner-list" role="tree" tabIndex={0} aria-label="Scene objects" onKeyDown={handleKeyDown}>
         {visibleElements.length ? visibleElements.map(element => (
           <div
             role="treeitem"
@@ -85,9 +110,11 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
             key={element.id}
             ref={node => node ? rowRefs.current.set(element.id, node) : rowRefs.current.delete(element.id)}
           >
-            <button type="button" className="outliner-object" onClick={event => selectElement(element.id, event)} title={`${element.type} · ${element.id}`}>
+            <button type="button" className="outliner-object" onClick={event => selectElement(element.id, event)} onDoubleClick={event => { if (event.shiftKey) { event.preventDefault(); beginRename(element); } }} title={`${element.type} · ${element.id}`}>
               <span className={`outliner-type type-${element.type}`}>{element.type.slice(0, 1).toUpperCase()}</span>
-              <span className="outliner-label">{nameMode === "labels" && element.customData?.iannix?.label ? element.customData.iannix.label : element.id}</span>
+              {editingId === element.id ? (
+                <input ref={editingRef} className="outliner-label-input" value={editingValue} placeholder={element.id} onChange={event => setEditingValue(event.target.value)} onBlur={() => finishRename(element)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); finishRename(element); } if (event.key === "Escape") { event.preventDefault(); finishRename(element, false); } }} aria-label={`Rename ${element.id}`} />
+              ) : <span className="outliner-label">{nameMode === "labels" && element.customData?.iannix?.label ? element.customData.iannix.label : element.id}</span>}
             </button>
             <button type="button" className={element.customData?.outlinerHidden ? "outliner-toggle inactive" : "outliner-toggle"} onClick={() => onVisibilityChange(element.id)} title={element.customData?.outlinerHidden ? "Show object" : "Hide object"} aria-label={element.customData?.outlinerHidden ? `Show ${element.id}` : `Hide ${element.id}`}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>

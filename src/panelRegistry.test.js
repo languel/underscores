@@ -11,5 +11,8 @@ test("every Drawerator panel has a unique slash command", () => {
 test("panel lookup and slash matching share one registry", () => {
   assert.equal(getDraweratorPanel("mods")?.sidebarName, "modifiers-sidebar");
   assert.equal(matchesDraweratorPanel(getDraweratorPanel("transport"), "/trans"), true);
+  assert.equal(getDraweratorPanel("transport")?.label, "Timeline");
+  assert.deepEqual(getDraweratorPanel("grid")?.placements, ["floating", "bottom"]);
+  assert.equal(getDraweratorPanel("grid")?.dockedHeight, 144);
   assert.equal(matchesDraweratorPanel(getDraweratorPanel("settings"), "midi"), false);
 });

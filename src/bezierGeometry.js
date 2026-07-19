@@ -390,7 +390,7 @@ export const findNearestBezierLocation = (element, worldPoint) => {
 
 const cacheSignature = element => {
   const geometry = element.customData.draweratorGeometry;
-  return `${element.id}:${element.x}:${element.y}:${element.width}:${element.height}:${element.angle}:${geometry.revision || 0}:${geometry.closed}`;
+  return `${element.id}:${element.version || 0}:${element.versionNonce || 0}:${element.x}:${element.y}:${element.width}:${element.height}:${element.angle}:${geometry.revision || 0}:${geometry.closed}`;
 };
 
 export const getBezierWorldMetrics = element => {
@@ -398,38 +398,103 @@ export const getBezierWorldMetrics = element => {
   const signature = cacheSignature(element);
   const cached = metricsCache.get(signature);
   if (cached) return cached;
-  const path = getBezierWorldPath(element);
+  const geometry = normalizeBezierGeometry(element.customData.draweratorGeometry);
+  const detailed = flattenBezierGeometryDetailed(
+    geometry,
+    DEFAULT_TOLERANCE / Math.max(1, Math.abs(element.width), Math.abs(element.height)),
+  );
+  const path = detailed.map(entry => bezierLocalPointToWorld(element, entry.point));
   const segments = [];
   let length = 0;
   for (let index = 1; index < path.length; index += 1) {
     const segmentLength = distance(path[index - 1], path[index]);
     if (segmentLength <= EPSILON) continue;
-    segments.push({ start: path[index - 1], end: path[index], startDistance: length, length: segmentLength });
+    const startDetail = detailed[index - 1];
+    const endDetail = detailed[index];
+    segments.push({
+      start: path[index - 1],
+      end: path[index],
+      startDistance: length,
+      length: segmentLength,
+      bezierSegmentIndex: endDetail.segmentIndex,
+      t0: startDetail.segmentIndex === endDetail.segmentIndex ? startDetail.t : 0,
+      t1: endDetail.t,
+    });
     length += segmentLength;
   }
-  const metrics = { path, segments, length };
+  const metrics = { path, segments, length, geometry, element };
   if (metricsCache.size > 256) metricsCache.clear();
   metricsCache.set(signature, metrics);
   return metrics;
+};
+
+const sampleBezierMetricsAtDistance = (metrics, targetDistance) => {
+  const distanceOnPath = Math.min(metrics.length, Math.max(0, targetDistance));
+  let low = 0;
+  let high = metrics.segments.length - 1;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    const candidate = metrics.segments[middle];
+    if (distanceOnPath <= candidate.startDistance + candidate.length + EPSILON) high = middle;
+    else low = middle + 1;
+  }
+  const segment = metrics.segments[low] || metrics.segments.at(-1);
+  const amount = Math.min(1, Math.max(0, (distanceOnPath - segment.startDistance) / segment.length));
+  return {
+    point: lerp(segment.start, segment.end, amount),
+    segment,
+    t: segment.t0 + (segment.t1 - segment.t0) * amount,
+  };
+};
+
+const cubicDerivative = (controls, t) => {
+  const mt = 1 - t;
+  return [
+    3 * mt * mt * (controls.p1[0] - controls.p0[0]) +
+      6 * mt * t * (controls.p2[0] - controls.p1[0]) +
+      3 * t * t * (controls.p3[0] - controls.p2[0]),
+    3 * mt * mt * (controls.p1[1] - controls.p0[1]) +
+      6 * mt * t * (controls.p2[1] - controls.p1[1]) +
+      3 * t * t * (controls.p3[1] - controls.p2[1]),
+  ];
+};
+
+const localVectorToWorld = (element, vector) => {
+  const dx = vector[0] * element.width;
+  const dy = vector[1] * element.height;
+  const angle = element.angle || 0;
+  if (!angle) return [dx, dy];
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return [dx * cos - dy * sin, dx * sin + dy * cos];
 };
 
 export const sampleBezierElement = (element, progress) => {
   const metrics = getBezierWorldMetrics(element);
   if (!metrics || metrics.length <= EPSILON) return null;
   const targetDistance = Math.min(1, Math.max(0, finite(progress))) * metrics.length;
-  let low = 0;
-  let high = metrics.segments.length - 1;
-  while (low < high) {
-    const middle = (low + high) >> 1;
-    const candidate = metrics.segments[middle];
-    if (targetDistance <= candidate.startDistance + candidate.length + EPSILON) high = middle;
-    else low = middle + 1;
-  }
-  const segment = metrics.segments[low] || metrics.segments.at(-1);
-  const amount = Math.min(1, Math.max(0, (targetDistance - segment.startDistance) / segment.length));
-  const dx = segment.end[0] - segment.start[0];
-  const dy = segment.end[1] - segment.start[1];
-  return { point: [segment.start[0] + dx * amount, segment.start[1] + dy * amount], angle: Math.atan2(dy, dx), distance: targetDistance, length: metrics.length };
+  const sampled = sampleBezierMetricsAtDistance(metrics, targetDistance);
+  const controls = segmentControls(
+    metrics.geometry.anchors,
+    sampled.segment.bezierSegmentIndex,
+    metrics.geometry.closed,
+  );
+  const derivative = controls
+    ? localVectorToWorld(metrics.element, cubicDerivative(controls, sampled.t))
+    : [0, 0];
+  const dx = derivative[0];
+  const dy = derivative[1];
+  const fallbackDx = sampled.segment.end[0] - sampled.segment.start[0];
+  const fallbackDy = sampled.segment.end[1] - sampled.segment.start[1];
+  return {
+    point: sampled.point,
+    angle: Math.atan2(
+      Math.abs(dx) + Math.abs(dy) > EPSILON ? dy : fallbackDy,
+      Math.abs(dx) + Math.abs(dy) > EPSILON ? dx : fallbackDx,
+    ),
+    distance: targetDistance,
+    length: metrics.length,
+  };
 };
 
 export const getBezierPathLengthFromAnchors = (worldAnchors, closed = false) => {
