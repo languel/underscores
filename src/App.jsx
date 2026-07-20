@@ -1539,7 +1539,7 @@ function App() {
   const midiAccessRef = useRef(null);
   const globalGridRef = useRef(globalGrid);
   const gridQuantizingRef = useRef(false);
-  const gridInteractionRef = useRef({ moving: false, resizing: false, pointEditing: false });
+  const gridInteractionRef = useRef({ moving: false, resizing: false, pointEditing: false, pointIndices: null });
   const editingLinearGridRef = useRef(null);
   const multiElementGridRef = useRef(null);
   const activeGridToolRef = useRef(null);
@@ -1573,8 +1573,7 @@ function App() {
   const strokeRecordingSuppressedRef = useRef(false);
   const passiveStrokeCaptureRef = useRef(null);
   const nativeLineGridPointsRef = useRef(null);
-  const nativeLineGridPreviewPointRef = useRef(null);
-  const nativeLineGridSyncFrameRef = useRef(null);
+  const pendingNativeLineFinalizeRef = useRef(null);
   const passiveGridFreedrawRef = useRef(false);
   const transportStateRecordingRef = useRef(null);
   const panelStateRecordingRef = useRef(null);
@@ -1587,6 +1586,7 @@ function App() {
   const [bezierEditElementId, setBezierEditElementId] = useState(null);
   const [bezierSelectedAnchor, setBezierSelectedAnchor] = useState(null);
   const bezierDragRef = useRef(null);
+  const lastBezierPointerDownRef = useRef(null);
   useEffect(() => {
     localStorage.setItem("drawerator_role_theme", JSON.stringify(roleTheme));
     if (!excalidrawAPI) return;
@@ -2646,6 +2646,7 @@ function App() {
     const handleDown = () => { isMouseDownRef.current = true; };
     const handleUp = () => { isMouseDownRef.current = false; };
     const clearFinishedBrushPreview = () => {
+      if (nativeLineGridPointsRef.current && excalidrawAPIRef.current?.getAppState()?.activeTool?.type === "line") return;
       // The canvas-level pointer-up handler snapshots a completed stroke during
       // capture. This bubble-phase cleanup also covers releases outside the
       // canvas, which otherwise leave the last live brush preview on screen.
@@ -2787,6 +2788,56 @@ function App() {
     return nearest;
   };
 
+  const findBezierPathAtPointer = (clientX, clientY, candidates = null) => {
+    const rawCoords = getCanvasCoords(clientX, clientY, null);
+    const paths = candidates || excalidrawAPI?.getSceneElements().filter(candidate => !candidate.isDeleted && hasCubicBezierGeometry(candidate)) || [];
+    let nearest = null;
+    for (const element of paths) {
+      const location = findNearestBezierLocation(element, rawCoords);
+      const screenPath = getBezierWorldPath(element).map(point => mapCanvasToScreen(point[0], point[1]));
+      let screenDistance = Infinity;
+      for (let index = 1; index < screenPath.length; index += 1) {
+        const start = screenPath[index - 1];
+        const end = screenPath[index];
+        const dx = end[0] - start[0];
+        const dy = end[1] - start[1];
+        const lengthSquared = dx * dx + dy * dy;
+        const amount = lengthSquared > 0
+          ? Math.max(0, Math.min(1, ((clientX - start[0]) * dx + (clientY - start[1]) * dy) / lengthSquared))
+          : 0;
+        screenDistance = Math.min(screenDistance, Math.hypot(
+          clientX - (start[0] + dx * amount),
+          clientY - (start[1] + dy * amount),
+        ));
+      }
+      if (location && (!nearest || screenDistance < nearest.screenDistance)) nearest = { element, location, screenDistance };
+    }
+    return nearest;
+  };
+
+  const enterBezierEditAtPointer = (e, candidates = null) => {
+    if (!excalidrawAPI || excalidrawAPI.getAppState().activeTool?.type !== "selection") return false;
+    const hit = findBezierPathAtPointer(e.clientX, e.clientY, candidates);
+    if (!hit || hit.screenDistance > 12) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    setBezierEditElementId(hit.element.id);
+    setBezierSelectedAnchor(Math.min(hit.location.segmentIndex + 1, hit.element.customData.draweratorGeometry.anchors.length - 1));
+    excalidrawAPI.updateScene({
+      appState: {
+        selectedElementIds: { [hit.element.id]: true },
+        selectedGroupIds: {},
+        editingLinearElement: null,
+        selectedLinearElement: null,
+      },
+    });
+    return true;
+  };
+
+  const handleCanvasDoubleClick = e => {
+    enterBezierEditAtPointer(e);
+  };
+
   const handleBezierPointerDown = e => {
     const element = getBezierEditElement();
     if (!element || e.button !== 0) return false;
@@ -2812,10 +2863,40 @@ function App() {
     return false;
   };
 
+  const handleSelectedBezierAnchorPointerDown = e => {
+    if (!excalidrawAPI || e.button !== 0 || e.metaKey || e.ctrlKey) return false;
+    const appState = excalidrawAPI.getAppState();
+    if (appState.activeTool?.type !== "selection") return false;
+    const selected = excalidrawAPI.getSceneElements().filter(element =>
+      appState.selectedElementIds?.[element.id] && !element.isDeleted && hasCubicBezierGeometry(element)
+    );
+    let nearest = null;
+    for (const element of selected) {
+      getBezierWorldAnchors(element).forEach((control, index) => {
+        const screen = mapCanvasToScreen(control.anchor[0], control.anchor[1]);
+        const distance = Math.hypot(screen[0] - e.clientX, screen[1] - e.clientY);
+        if (distance <= 11 && (!nearest || distance < nearest.distance)) nearest = { element, index, distance };
+      });
+    }
+    if (!nearest) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    setBezierSelectedAnchor(nearest.index);
+    bezierDragRef.current = {
+      elementId: nearest.element.id,
+      anchorIndex: nearest.index,
+      part: "anchor",
+      pointerId: e.pointerId,
+      directSelection: true,
+    };
+    e.currentTarget?.setPointerCapture?.(e.pointerId);
+    return true;
+  };
+
   const handleBezierPointerMove = e => {
     const drag = bezierDragRef.current;
     if (!drag || drag.pointerId !== e.pointerId) return false;
-    const element = getBezierEditElement();
+    const element = excalidrawAPI?.getSceneElements().find(candidate => candidate.id === drag.elementId && !candidate.isDeleted && hasCubicBezierGeometry(candidate));
     if (!element || element.id !== drag.elementId) return false;
     e.preventDefault();
     e.stopPropagation();
@@ -2834,7 +2915,7 @@ function App() {
     e.preventDefault();
     e.stopPropagation();
     bezierDragRef.current = null;
-    const element = getBezierEditElement();
+    const element = excalidrawAPI?.getSceneElements().find(candidate => candidate.id === drag.elementId && !candidate.isDeleted && hasCubicBezierGeometry(candidate));
     if (element) {
       const reframed = reframeBezierElement(element);
       const nextModifierVersion = Number(element.customData?.version || 0) + 1;
@@ -2858,47 +2939,11 @@ function App() {
     return true;
   };
 
-  const scheduleNativeLineGridSync = previewPoint => {
-    nativeLineGridPreviewPointRef.current = previewPoint;
-    if (nativeLineGridSyncFrameRef.current !== null) return;
-    nativeLineGridSyncFrameRef.current = window.requestAnimationFrame(() => {
-      nativeLineGridSyncFrameRef.current = null;
-      const api = excalidrawAPIRef.current;
-      const captured = nativeLineGridPointsRef.current;
-      if (!api || !captured?.points?.length) return;
-      const appState = api.getAppState();
-      const targetId = captured.elementId || appState.multiElement?.id || appState.editingLinearElement?.elementId;
-      if (!targetId) return;
-      captured.elementId = targetId;
-      const sceneElements = api.getSceneElementsIncludingDeleted();
-      const target = sceneElements.find(element => element.id === targetId && !element.isDeleted);
-      if (!target || target.type !== "line" || !Array.isArray(target.points) || target.points.length < 2) return;
-
-      const worldPoints = [...captured.points];
-      const livePoint = nativeLineGridPreviewPointRef.current;
-      if (livePoint && target.points.length > worldPoints.length) worldPoints.push(livePoint);
-      while (worldPoints.length < target.points.length) worldPoints.push(worldPoints[worldPoints.length - 1]);
-      if (worldPoints.length > target.points.length) worldPoints.length = target.points.length;
-
-      const quantized = quantizeGridElement(target, globalGridRef.current, {
-        mode: globalGridRef.current.snap.mode,
-        zoom: appState.zoom?.value || 1,
-        worldPoints,
-      });
-      if (quantized === target) return;
-      api.updateScene({
-        elements: sceneElements.map(element => element.id === target.id ? quantized : element),
-        commitToHistory: false,
-      });
-      setModifierUpdateNonce(nonce => nonce + 1);
-    });
-  };
-
   const handleCanvasPointerDown = (e) => {
     if (!excalidrawAPI) return;
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
     if (e.button !== 0) return;
-    gridInteractionRef.current = { moving: false, resizing: false, pointEditing: false };
+    gridInteractionRef.current = { moving: false, resizing: false, pointEditing: false, pointIndices: null };
 
     if (handleBezierPointerDown(e)) return;
 
@@ -2924,20 +2969,28 @@ function App() {
       return;
     }
 
-    const activeTool = excalidrawAPI.getAppState().activeTool?.type;
+    const currentAppState = excalidrawAPI.getAppState();
+    const activeTool = currentAppState.activeTool?.type;
     if (activeTool === "selection") {
-      const selectedBezier = excalidrawAPI.getSceneElements().find(element => selectedElementIds[element.id] && hasCubicBezierGeometry(element));
+      if (handleSelectedBezierAnchorPointerDown(e)) return;
+      const sceneBeziers = excalidrawAPI.getSceneElements().filter(element => !element.isDeleted && hasCubicBezierGeometry(element));
+      const selectedBezier = sceneBeziers.find(element => currentAppState.selectedElementIds?.[element.id]);
+      const now = Date.now();
+      const previousBezierPointer = lastBezierPointerDownRef.current;
+      const repeatedPointer = previousBezierPointer &&
+        now - previousBezierPointer.time <= 450 &&
+        Math.hypot(e.clientX - previousBezierPointer.x, e.clientY - previousBezierPointer.y) <= 8;
+      lastBezierPointerDownRef.current = { time: now, x: e.clientX, y: e.clientY };
+      if (repeatedPointer && enterBezierEditAtPointer(e, sceneBeziers)) {
+        lastBezierPointerDownRef.current = null;
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && selectedBezier) {
-        const coords = getCanvasCoords(e.clientX, e.clientY);
-        const nearest = findNearestBezierLocation(selectedBezier, coords);
-        if (nearest && nearest.distance <= 12 / Math.max(0.1, excalidrawAPI.getAppState().zoom.value || 1)) {
-          e.preventDefault();
-          e.stopPropagation();
-          setBezierEditElementId(selectedBezier.id);
-          setBezierSelectedAnchor(Math.min(nearest.segmentIndex + 1, selectedBezier.customData.draweratorGeometry.anchors.length - 1));
-          excalidrawAPI.updateScene({ appState: { editingLinearElement: null, selectedLinearElement: null } });
-          return;
-        }
+        // Canonical Bézier paths must never enter Excalidraw's sampled-point
+        // editor. Its white points edit the derived host polyline rather than
+        // Drawerator's anchors and handles, so those edits cannot be snapped or
+        // persisted coherently.
+        if (enterBezierEditAtPointer(e, [selectedBezier])) return;
       }
       const elements = excalidrawAPI.getSceneElements();
       const frame = evaluateScoreFrame(elements, scoreTime, undefined, { detectCollisions: false });
@@ -3019,7 +3072,7 @@ function App() {
           points,
         };
         setDrawingPoints(points);
-        scheduleNativeLineGridSync(coords);
+        excalidrawAPI.updateScene({ appState: { currentItemStrokeColor: "transparent" }, commitToHistory: false });
       }
       if (activeTool === "freedraw" && gridInputSnap) {
         passiveGridFreedrawRef.current = true;
@@ -3081,7 +3134,6 @@ function App() {
         nativeLineGridPointsRef.current.elementId = editingId;
         const coords = getCanvasCoords(e.clientX, e.clientY);
         setDrawingPoints([...nativeLineGridPointsRef.current.points, coords]);
-        scheduleNativeLineGridSync(coords);
       }
     }
     if (passiveStrokeCaptureRef.current && !isDrawingRef.current) {
@@ -3218,7 +3270,7 @@ function App() {
     const previewGlobals = frozenPreview?.globals || getBrushGlobals();
     if (previewPoints.length < 2) return [];
     if (!modifierDrawingActive) {
-      return passiveGridFreedrawRef.current ? [previewPoints] : [];
+      return nativeLineGridPointsRef.current || passiveGridFreedrawRef.current ? [previewPoints] : [];
     }
 
     try {
@@ -4103,6 +4155,7 @@ function App() {
     commitToHistory = true,
     resolution = null,
     axes = null,
+    pointIndices = null,
   } = {}) => {
     const api = excalidrawAPIRef.current;
     if (!api || gridQuantizingRef.current) return { count: 0 };
@@ -4118,6 +4171,7 @@ function App() {
       resolution: resolution || grid.snap.resolution,
       axes: axes || grid.snap.axes,
       zoom,
+      pointIndices,
     };
     const selectedIdSet = new Set(selected.map(element => element.id));
     let changed = 0;
@@ -4152,16 +4206,18 @@ function App() {
     const grid = globalGridRef.current;
     if (grid.snap.mode === "off" || (!grid.snap.targets.transforms && !grid.snap.targets.points)) return;
     if (nativeLineGridPointsRef.current && excalidrawAPIRef.current?.getAppState()?.activeTool?.type === "line") return;
+    // Let Excalidraw commit its pointer-up edit before quantizing the authored point.
     window.setTimeout(() => {
       const api = excalidrawAPIRef.current;
       if (!api) return;
       const appState = api.getAppState();
       const interaction = gridInteractionRef.current;
-      gridInteractionRef.current = { moving: false, resizing: false, pointEditing: false };
-      if ((appState.multiElement?.id || appState.editingLinearElement?.elementId) && appState.activeTool?.type === "line") return;
+      gridInteractionRef.current = { moving: false, resizing: false, pointEditing: false, pointIndices: null };
+      if (appState.multiElement?.id && appState.activeTool?.type === "line") return;
       const selectedIds = Object.keys(appState.selectedElementIds || {}).filter(id => appState.selectedElementIds[id]);
+      const editingLinearId = appState.editingLinearElement?.elementId || (interaction.pointEditing ? editingLinearGridRef.current : null);
       const eligibleIds = api.getSceneElements().filter(element =>
-        selectedIds.includes(element.id) && (!element.customData?.parentId || grid.snap.targets.generated)
+        (selectedIds.includes(element.id) || element.id === editingLinearId) && (!element.customData?.parentId || grid.snap.targets.generated)
       ).map(element => element.id);
       const isPointEdit = interaction.pointEditing || Boolean(appState.editingLinearElement || bezierEditElementId);
       const isCreation = appState.activeTool?.type && appState.activeTool.type !== "selection";
@@ -4174,47 +4230,51 @@ function App() {
         elementIds: eligibleIds,
         transformOnly: eligibleIds.length > 1 || (!isPointEdit && !isCreation && !isResize),
         forceHard: false,
+        pointIndices: isPointEdit && interaction.pointIndices?.length ? interaction.pointIndices : null,
       });
-    }, 0);
+    }, 32);
+  };
+
+  const applyPendingNativeLineFinalize = (elements = null) => {
+    const pending = pendingNativeLineFinalizeRef.current;
+    const api = excalidrawAPIRef.current;
+    if (!pending || !api || api.getAppState().multiElement?.id) return false;
+    const sceneElements = elements || api.getSceneElementsIncludingDeleted();
+    const target = sceneElements.find(element => element.id === pending.elementId && !element.isDeleted)
+      || [...sceneElements].reverse().find(element => element.type === "line" && !element.isDeleted);
+    if (!target) return false;
+    const strokeColor = isColorTransparent(lastStrokeColorRef.current)
+      ? (theme === "dark" ? "#f8fafc" : "#1b1b1f")
+      : lastStrokeColorRef.current;
+    const quantized = quantizeGridElement(target, globalGridRef.current, {
+      mode: globalGridRef.current.snap.mode,
+      zoom: api.getAppState()?.zoom?.value || 1,
+      worldPoints: pending.points,
+    });
+    pendingNativeLineFinalizeRef.current = null;
+    api.updateScene({
+      elements: sceneElements.map(element => element.id === target.id ? { ...quantized, strokeColor } : element),
+      appState: { currentItemStrokeColor: strokeColor },
+      commitToHistory: false,
+    });
+    return true;
   };
 
   const finalizeCapturedNativeLine = elementId => {
     const captured = nativeLineGridPointsRef.current;
     nativeLineGridPointsRef.current = null;
-    nativeLineGridPreviewPointRef.current = null;
-    if (nativeLineGridSyncFrameRef.current !== null) {
-      window.cancelAnimationFrame(nativeLineGridSyncFrameRef.current);
-      nativeLineGridSyncFrameRef.current = null;
-    }
     setDrawingPoints([]);
-    window.setTimeout(() => {
-      const api = excalidrawAPIRef.current;
-      if (!api) return;
-      const sceneElements = api.getSceneElementsIncludingDeleted();
-      const capturedTargetId = elementId || captured?.elementId;
-      const target = sceneElements.find(element => element.id === capturedTargetId && !element.isDeleted)
-        || [...sceneElements].reverse().find(element => element.type === "line" && !element.isDeleted);
-      if (captured?.points?.length >= 2 && target) {
-        const grid = globalGridRef.current;
-        api.updateScene({
-          elements: sceneElements.map(element => {
-            if (element.id !== target.id) return element;
-            const quantized = quantizeGridElement(element, grid, {
-              mode: grid.snap.mode,
-              zoom: api.getAppState()?.zoom?.value || 1,
-              worldPoints: captured.points,
-            });
-            const strokeColor = isColorTransparent(lastStrokeColorRef.current)
-              ? (theme === "dark" ? "#f8fafc" : "#1b1b1f")
-              : lastStrokeColorRef.current;
-            return { ...quantized, strokeColor };
-          }),
-          commitToHistory: false,
-        });
-      } else {
-        if (target) quantizeGlobalGridElements({ elementIds: [target.id], transformOnly: false, forceHard: false });
+    if (!captured?.points?.length) {
+      if (excalidrawAPIRef.current?.getAppState().currentItemStrokeColor === "transparent") {
+        excalidrawAPIRef.current.updateScene({ appState: { currentItemStrokeColor: lastStrokeColorRef.current }, commitToHistory: false });
       }
-    }, 0);
+      return;
+    }
+    pendingNativeLineFinalizeRef.current = {
+      elementId: elementId || captured.elementId || null,
+      points: captured.points,
+    };
+    window.setTimeout(() => applyPendingNativeLineFinalize(), 80);
   };
 
   const handleCanvasPointerUp = (e) => {
@@ -5818,7 +5878,11 @@ function App() {
         },
       };
     });
-    excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
+    excalidrawAPI.updateScene({
+      elements: nextElements,
+      appState: { editingLinearElement: null, selectedLinearElement: null },
+      commitToHistory: true,
+    });
     setModifierUpdateNonce(nonce => nonce + 1);
     return [...targets.keys()];
   };
@@ -9939,6 +10003,7 @@ function App() {
         onPointerDownCapture={handleCanvasPointerDown}
         onPointerMoveCapture={handleCanvasPointerMove}
         onPointerUpCapture={handleCanvasPointerUp} 
+        onDoubleClickCapture={handleCanvasDoubleClick}
         onContextMenuCapture={handleCanvasContextMenu}
         style={{ width: "100%", height: "100%", position: "relative" }}
         className={modifierDrawingActive && drawingPoints.length > 0 ? "custom-brush-drawing" : ""}
@@ -9964,25 +10029,55 @@ function App() {
           onChange={(elements, appState) => {
             applyForceDesktopOverride(false);
 
+            const nativeBezierEditId = appState.editingLinearElement?.elementId || null;
+            const nativeBezierEditElement = nativeBezierEditId
+              ? elements.find(element => element.id === nativeBezierEditId && !element.isDeleted && hasCubicBezierGeometry(element))
+              : null;
+            if (nativeBezierEditElement) {
+              // Canonical curves are owned by Drawerator's anchor/handle
+              // editor. Transfer both edit and selection state together so the
+              // selection-sync effect cannot immediately exit the editor.
+              const nextSelection = { [nativeBezierEditElement.id]: true };
+              setSelectedElementIds(nextSelection);
+              setBezierEditElementId(nativeBezierEditElement.id);
+              setBezierSelectedAnchor(0);
+              excalidrawAPIRef.current?.updateScene({
+                appState: {
+                  selectedElementIds: nextSelection,
+                  selectedGroupIds: {},
+                  editingLinearElement: null,
+                  selectedLinearElement: null,
+                },
+                commitToHistory: false,
+              });
+              return;
+            }
+
             const nativeGridEnabled = appState.gridSize !== null || Boolean(appState.gridModeEnabled) || Boolean(appState.objectsSnapModeEnabled);
             const activeToolType = appState.activeTool?.type || null;
             const previousActiveToolType = activeGridToolRef.current;
             activeGridToolRef.current = activeToolType;
-            const editingLinearId = appState.editingLinearElement?.elementId || null;
-            const previousEditingLinearId = editingLinearGridRef.current;
+            const activeLinearState = appState.editingLinearElement || appState.selectedLinearElement || null;
+            const editingLinearId = activeLinearState?.elementId || null;
             editingLinearGridRef.current = editingLinearId;
             const multiElementId = appState.multiElement?.id || null;
             const previousMultiElementId = multiElementGridRef.current;
             multiElementGridRef.current = multiElementId;
 
-            if (previousActiveToolType === "line" && activeToolType !== "line" && nativeLineGridPointsRef.current?.points?.length >= 2) {
-              const fallbackLine = [...elements].reverse().find(element => element.type === "line" && !element.isDeleted);
-              const capturedElementId = nativeLineGridPointsRef.current.elementId || previousMultiElementId || fallbackLine?.id;
-              if (capturedElementId) finalizeCapturedNativeLine(capturedElementId);
+            if (previousActiveToolType === "line" && activeToolType !== "line" && nativeLineGridPointsRef.current) {
+              if (nativeLineGridPointsRef.current.points?.length >= 2) {
+                const fallbackLine = [...elements].reverse().find(element => element.type === "line" && !element.isDeleted);
+                const capturedElementId = nativeLineGridPointsRef.current.elementId || previousMultiElementId || fallbackLine?.id;
+                if (capturedElementId) finalizeCapturedNativeLine(capturedElementId);
+              } else {
+                nativeLineGridPointsRef.current = null;
+                setDrawingPoints([]);
+                excalidrawAPIRef.current?.updateScene({ appState: { currentItemStrokeColor: lastStrokeColorRef.current }, commitToHistory: false });
+              }
             }
 
-            if (previousEditingLinearId && previousEditingLinearId !== previousMultiElementId && !editingLinearId && globalGridRef.current.snap.mode !== "off" && (globalGridRef.current.snap.targets.points || globalGridRef.current.snap.targets.input)) {
-              finalizeCapturedNativeLine(previousEditingLinearId);
+            if (pendingNativeLineFinalizeRef.current && !multiElementId) {
+              window.setTimeout(() => applyPendingNativeLineFinalize(), 0);
             }
 
             if (nativeGridEnabled) {
@@ -9994,7 +10089,16 @@ function App() {
 
             if (appState.draggingElement) gridInteractionRef.current.moving = true;
             if (appState.resizingElement || appState.isRotating) gridInteractionRef.current.resizing = true;
-            if (appState.editingLinearElement && isMouseDownRef.current) gridInteractionRef.current.pointEditing = true;
+            if (activeLinearState && isMouseDownRef.current) {
+              gridInteractionRef.current.pointEditing = true;
+              const selectedPointIndices = activeLinearState.selectedPointsIndices;
+              const lastClickedPoint = activeLinearState.pointerDownState?.lastClickedPoint;
+              if (selectedPointIndices?.length) {
+                gridInteractionRef.current.pointIndices = [...selectedPointIndices];
+              } else if (Number.isInteger(lastClickedPoint) && lastClickedPoint >= 0) {
+                gridInteractionRef.current.pointIndices = [lastClickedPoint];
+              }
+            }
 
             const visibilitySafeElements = elements.map(element =>
               enforceRuntimeCursorHostVisibility(normalizeBezierHostElement(element))
@@ -11424,7 +11528,7 @@ function App() {
         {/* Live Preview SVG Overlay */}
         {(
           (modifierDrawingActive && ((isDrawingRef.current && isMouseDownRef.current && drawingPoints.length >= 2) || pendingStrokePreview)) ||
-          (!modifierDrawingActive && passiveGridFreedrawRef.current && drawingPoints.length >= 2)
+          (!modifierDrawingActive && (nativeLineGridPointsRef.current || passiveGridFreedrawRef.current) && drawingPoints.length >= 2)
         ) && (
           <svg
             className="drawerator-live-stroke-preview"

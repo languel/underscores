@@ -129,7 +129,10 @@ export const quantizeGridElement = (element, grid, options = {}) => {
       const lastIndex = source.length - 1;
       source[lastIndex] = pointWithMetadata(source[lastIndex], Number(options.lastPoint[0]), Number(options.lastPoint[1]));
     }
-    const snapped = source.map(point => snapConfigured(grid, point, options));
+    const pointIndices = Array.isArray(options.pointIndices) ? new Set(options.pointIndices) : null;
+    const snapped = source.map((point, index) => !pointIndices || pointIndices.has(index)
+      ? snapConfigured(grid, point, options)
+      : pointWithMetadata(point, point[0], point[1]));
     const matchesAuthoredGeometry = snapped.length === originalSource.length &&
       snapped.every((point, index) => samePoint(point, originalSource[index]));
     return matchesAuthoredGeometry ? element : reframeLinearElement(element, snapped);

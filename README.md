@@ -24,6 +24,7 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 - **Shared Script Parameters:** Brush `@param` annotations and native IanniX `ask()` declarations use one typed parameter model, producing persistent sliders that are injected into script execution.
 - **Scriptable Brushes:** Edit or fork brush JavaScript in the Mods & FX **Script** tab. The editor is inert until its script is saved into the active stack.
 - **Canonical Bézier Paths:** Explicitly convert native lines or freehand paths into editable cubic Béziers. Versioned local-space anchors and handles remain canonical while an adaptive Excalidraw polyline supplies native selection, transforms, exports, and hit-testing.
+- **Drawerator Global Grid:** A scene-wide rectangular grid supports independent spacing and subdivisions, rotated origins, major/minor rendering, hard or magnetic snapping, configurable input/transform/point/generated targets, and beat/bar/second/frame conversion. Grid state is persisted with scenes and restored locally for new scenes.
 - **IanniX Score Objects:** Give any selected canvas object one score role—Curve, Cursor, or Trigger—from the dockable **IanniX** panel. A compact global transport drives each object's local clock while cursor motion and trigger evaluation continue to use the editable core geometry beneath Mods & FX.
 - **Trusted IanniX Script Import:** Explicitly trusted `.iannix` scripts use deterministic IanniX-style `run()` and math helpers, map supported score commands through Drawerator's recorder, and report unsupported commands.
 - **Cached Score Playback:** Canonical Bézier metrics, prepared trigger paths, metadata, and bounds are cached during playback; collision checks use broad-phase rejection and transport/MIDI updates are throttled without reducing imported curve fidelity.
@@ -78,6 +79,8 @@ The **Script** tab is a code editor, not a second drawing mode. **Save** updates
 9. **Import trusted .iannix** executes compatible scripts after an explicit trust warning. Native `ask()` declarations automatically become persistent sliders and can be refined with brush-compatible `@param` annotations. This compatibility mode is executable JavaScript, not a security sandbox; unsupported commands are reported.
 
 Imported IanniX curves preserve `setPointAt` cubic controls as canonical Drawerator Béziers. Ordinary Excalidraw lines remain native until **Convert to Bézier** or `/bezier convert` is invoked. In Bézier edit mode, drag anchors or handles, Option-drag to break smooth coupling, double-click a segment to insert an exact de Casteljau anchor, Delete to remove an anchor, and Escape to exit. `/iannix export` writes selected canonical curves back to equivalent `setPointAt` commands.
+
+Global Grid snapping is available from the compact bottom **Grid** panel. Enable visibility and snapping independently, choose minor or major resolution, and select the target classes to affect. Converted Bézier paths keep their canonical anchors and handles synchronized in both command-click editing and ordinary selected-anchor editing; native line point edits retain their selected point metadata while snapping.
 
 Mods & FX remains the rendering layer: changing or baking a brush does not redefine score topology. See `notes/iannix.md` for the phase-one schema, timing model, and extension points.
 

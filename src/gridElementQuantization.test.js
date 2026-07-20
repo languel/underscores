@@ -61,4 +61,11 @@ describe("grid element quantization", () => {
     assert.deepEqual([result.x, result.y], [0, 0]);
     assert.deepEqual(result.points.map(point => Array.from(point)), [[0, 0], [100, 100]]);
   });
+
+  it("snaps only the actively edited line point when an index is supplied", () => {
+    const element = { id: "edited-line", type: "line", x: 13, y: 17, width: 204, height: 196, angle: 0, version: 1, points: [[0, 0], [101, 96], [204, 196]], customData: {} };
+    const result = quantizeGridElement(element, grid, { pointIndices: [1] });
+    const worldPoints = result.points.map(point => [result.x + point[0], result.y + point[1]]);
+    assert.deepEqual(worldPoints, [[13, 17], [100, 100], [217, 213]]);
+  });
 });

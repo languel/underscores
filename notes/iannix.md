@@ -146,6 +146,10 @@ IanniX controls use destination-point semantics. For segment `p1 → p2`, Drawer
 
 Canonical paths are hosted by native Excalidraw linear elements whose first derived point must remain local `[0, 0]`. Imported controls may extend beyond the first anchor, so using the control-point bounding-box origin as the host origin is invalid: Excalidraw rebases that host when it is selected and the curve appears displaced. Import now anchors the host at the first canonical point, preserves world geometry through rotation and scaling, and migrates legacy malformed hosts on scene change without committing the derived repair to undo history.
 
+### Editing and grid interaction
+
+The native Excalidraw polyline is derived data, not a second source of truth. Converting a selected line or freehand path clears any active native linear-point editor before the canonical Bézier editor is used. Command-click editing exposes anchors and handles; ordinary selection-mode drags on a canonical anchor are routed through the same canonical geometry update and therefore honor the Drawerator Global Grid's point snapping. Native non-canonical line point edits preserve the selected point index so release quantization can update the authored point without transforming the whole element.
+
 ## Runtime evaluation
 
 `src/iannixEngine.js` is a pure score kernel. For each frame it:
