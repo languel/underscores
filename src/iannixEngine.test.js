@@ -236,6 +236,59 @@ test("path collision detects direct and swept crossings", () => {
   ), true);
 });
 
+test("point-like freedraw triggers use their rendered stroke diameter", () => {
+  const trigger = line("dot", [[50, 0]], createDefaultIannixData({ role: "trigger" }));
+  trigger.type = "freedraw";
+  trigger.points = [[0, 0], [0, 0], [0, 0], [0, 0]];
+  trigger.strokeWidth = 4;
+
+  const path = getElementCorePaths(trigger)[0];
+  const xs = path.map(point => point[0]);
+  const ys = path.map(point => point[1]);
+  assert.ok(Math.abs(Math.min(...xs) - (50 - 8.5)) < 0.001);
+  assert.ok(Math.abs(Math.max(...xs) - (50 + 8.5)) < 0.001);
+  assert.ok(Math.abs(Math.min(...ys) - -8.5) < 0.001);
+  assert.ok(Math.abs(Math.max(...ys) - 8.5) < 0.001);
+});
+
+test("multi-point freedraw trigger keeps its centerline and adds rendered stroke collision geometry", () => {
+  const trigger = line("stroke", [[10, 20], [30, 40], [60, 10]], createDefaultIannixData({ role: "trigger" }));
+  trigger.type = "freedraw";
+  trigger.strokeWidth = 12;
+  const paths = getElementCorePaths(trigger);
+  assert.deepEqual(paths[0], [[10, 20], [30, 40], [60, 10]]);
+  assert.ok(paths.length > 1);
+  assert.equal(pathsIntersect([[[-10, 30], [4, 30]]], paths), true);
+});
+
+test("vertical freedraw triggers collide across their visible stroke width", () => {
+  const trigger = line("vertical", [[50, -20], [50, 20]], createDefaultIannixData({ role: "trigger" }));
+  trigger.type = "freedraw";
+  trigger.strokeWidth = 4;
+  const paths = getElementCorePaths(trigger);
+  assert.equal(pathsIntersect([[[42, -5], [42, 5]]], paths), true);
+  assert.equal(pathsIntersect([[[30, -5], [30, 5]]], paths), false);
+});
+
+test("a cursor crossing an Excalidraw point-like freedraw trigger collides between score frames", () => {
+  const curve = line("curve", [[0, 0], [100, 0]], createDefaultIannixData({ role: "curve" }));
+  const cursor = line("cursor", [[0, -20], [0, 20]], createDefaultIannixData({
+    role: "cursor",
+    time: { start: 0, duration: 10, rate: 1, loopMode: "once" },
+    cursor: { curveId: "curve" },
+  }));
+  const trigger = line("dot", [[50, 0]], createDefaultIannixData({ role: "trigger" }));
+  trigger.type = "freedraw";
+  trigger.width = 1;
+  trigger.height = 1;
+  trigger.points = [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]];
+  trigger.strokeWidth = 4;
+
+  const previous = evaluateScoreFrame([curve, cursor, trigger], 4.8);
+  const current = evaluateScoreFrame([curve, cursor, trigger], 5.2, previous.nextCursorPaths);
+  assert.equal(current.collisions.has("cursor:dot"), true);
+});
+
 test("score frame links cursor to curve and reports trigger collision", () => {
   const curveData = createDefaultIannixData({ role: "curve" });
   const cursorData = createDefaultIannixData({

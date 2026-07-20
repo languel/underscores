@@ -24,12 +24,14 @@ const Check = ({ label, checked, onChange }) => (
 
 export default function GridPanel({
   grid,
+  selectionFilter,
   tempo,
   signature,
   fps,
   onUpdate,
   onReset,
   onQuantizeSelection,
+  onToggleSelectionFilter,
 }) {
   return (
     <div className="grid-panel" role="form" aria-label="Global grid controls">
@@ -76,6 +78,18 @@ export default function GridPanel({
         </div>
         <div className="grid-panel-row grid-panel-actions">
           <button type="button" onClick={onQuantizeSelection}>Quantize selection</button>
+        </div>
+      </section>
+
+      <section className="grid-panel-group grid-panel-selection" aria-label="Selection filter">
+        <div className="grid-panel-group-title">Select</div>
+        <div className="grid-panel-selection-options">
+          {[["Anything", "anything"], ["Curve", "curve"], ["Cursor", "cursor"], ["Trigger", "trigger"]].map(([label, key]) => (
+            <Check key={key} label={label} checked={selectionFilter[key]} onChange={() => onToggleSelectionFilter(key)} />
+          ))}
+        </div>
+        <div className="grid-panel-selection-summary">
+          {selectionFilter.anything ? "All canvas objects" : "Only checked roles"}
         </div>
       </section>
 

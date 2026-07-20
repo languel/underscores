@@ -67,6 +67,22 @@ test("selection exchange includes generated children and all custom metadata", (
   assert.equal(selected[0].customData.iannix.role, "trigger");
 });
 
+test("selection exchange preserves linked cursor and curve components", () => {
+  const curve = { id: "curve", customData: { iannix: { role: "curve" } } };
+  const cursor = { id: "cursor", customData: { iannix: { role: "cursor", cursor: { curveId: "curve" } } } };
+  const child = { id: "child", customData: { parentId: "cursor" } };
+  const unrelated = { id: "unrelated" };
+
+  assert.deepEqual(
+    getSelectionExchangeElements([curve, cursor, child, unrelated], { curve: true }).map(element => element.id),
+    ["curve", "cursor", "child"],
+  );
+  assert.deepEqual(
+    getSelectionExchangeElements([curve, cursor, child, unrelated], { cursor: true }).map(element => element.id),
+    ["curve", "cursor", "child"],
+  );
+});
+
 test("selection import remaps element, parent, and IanniX curve links", () => {
   let id = 0;
   const createId = () => `new-${++id}`;

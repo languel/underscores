@@ -40,7 +40,7 @@ Score metadata lives beside modifier metadata in `element.customData.iannix`:
 }
 ```
 
-The independent dockable **IanniX** panel edits these properties. Its Object, Data, and Script tabs separate role configuration, compact custom data, trusted script catalogs, and one-line commands from the Mods & FX rendering stack. A multi-selection exposes batch role assignment and allocates conflict-free role labels such as `Curve 1`, `Curve 2`, and `Cursor 1` in one history transaction. Timing and cursor links remain per-object edits.
+The independent dockable **IanniX** panel edits these properties. Its Object, Data, and Script tabs separate role configuration, compact custom data, trusted script catalogs, and one-line commands from the Mods & FX rendering stack. A multi-selection exposes batch role assignment and allocates conflict-free role labels such as `Curve 1`, `Curve 2`, and `Cursor 1` in one history transaction. Same-role selections also expose a shared Data editor: mixed primitive values appear blank, edits apply atomically to every compatible selected object, and `${n}` label templates expand in stable one-based scene order.
 
 ## Global and local time
 
@@ -163,6 +163,8 @@ The native Excalidraw polyline is derived data, not a second source of truth. Co
 
 Swept testing prevents a fast cursor from tunneling through a narrow trigger between animation frames. Loop discontinuities do not create a false sweep across the canvas. Collision state supports both shared-trigger latching and independent cursor-trigger entry, with duration lockouts preventing accidental rapid retriggers.
 
+Freedraw triggers are an additive Drawerator geometry extension. Excalidraw may persist a click as one sample or several coincident samples; Drawerator recognizes either representation. A point-like trigger's authored point remains the score position and grid-snapping anchor, while collision evaluation creates a circular footprint matching Excalidraw's rendered freedraw diameter (`strokeWidth × 4.25`). Non-degenerate freedraw triggers retain their authored centerline and add a rendered stroke envelope with segment bodies and rounded end caps. Collision therefore respects stroke thickness even for zero-width vertical paths or a cursor traveling inside a parallel stroke. Imported IanniX geometry and non-trigger paths keep their existing semantics.
+
 ### Performance checkpoint
 
 The score kernel keeps canonical geometry and adaptive sampling intact while avoiding repeated work during playback. Core paths, Bézier metrics, normalized IanniX metadata, prepared trigger paths, and trigger bounds are cached by immutable element/geometry revisions; trigger collision uses broad-phase bounds rejection before exact path tests. Runtime evaluation is performed once per frame, React transport commits are capped at the configured refresh rate, incoming MIDI-clock updates are batched, and automation scans are skipped when no tracks exist. Overlay-only evaluations disable collision detection so visual refreshes do not duplicate score events.
@@ -177,13 +179,14 @@ Trigger pulses use the same overlay. Curve/Cursor/Trigger labels are a global di
 
 ## History and persistence
 
-Role and property edits update only the selected element's `customData` and commit through Excalidraw history. They therefore serialize with the scene and participate in undo/redo.
+Role and property edits update only the selected elements' `customData` and commit through Excalidraw history. A bulk property edit is one scene transaction, so the complete selection participates in undo/redo together and serializes with the scene.
 
 The IanniX panel's **Data** tab adds an explicit exchange layer:
 
 - **Export scene** writes standard Excalidraw JSON with a small top-level `drawerator` envelope for score time/rate. All element `customData`—including modifier stacks, IanniX roles, curve links, timing, and MIDI patterns—remains embedded on its objects.
 - **Import scene** restores the complete scene, files, and Drawerator transport metadata.
-- **Copy selection JSON** serializes the selected objects and modifier-generated children to the clipboard.
+- **Copy/Paste scene JSON** provides the same whole-scene exchange through the clipboard for browser shells that suppress file downloads.
+- **Copy selection JSON** serializes Drawerator's combined native/runtime selection, modifier-generated children, and the linked cursor–curve component to the clipboard. A hidden runtime cursor therefore cannot silently disappear from a copied score.
 - **Paste selection JSON** assigns collision-safe element/group IDs, remaps parent and cursor-to-curve links, offsets the pasted copy, and selects it.
 
 The selected MIDI hardware output is intentionally not serialized because it is a local browser/device choice.
@@ -193,6 +196,10 @@ The selected MIDI hardware output is intentionally not serialized because it is 
 `src/midiOutputRouting.js` resolves one shared raw-MIDI output contract for trigger playback and History replay. **None** is always silent, **All MIDI Outputs** includes connected Web MIDI outputs only, a connected selected device wins over fallback, and a missing selected device may resolve to **Internal GM Synth** without discarding the saved device ID. Reconnection therefore restores the external route and first panics the old route. MIDI clock continues to target external outputs only.
 
 `src/internalMidiSynth.js` is the only TinySynth-specific layer. It lazy-loads `jzz` and `jzz-synth-tiny` from the bundle after a user gesture, adapts raw `send(data, timestamp)` calls, filters system realtime messages, converts future DOM timestamps to cancellable timers, and owns Web Audio resume/dispose behavior. TinySynth supports note on/off (including velocity-zero note-on), program change, pitch bend, sustain and the common panic controllers; unsupported messages are harmlessly ignored by the backend. Timer scheduling is browser-main-thread scheduling, so it is less precise than a native Web MIDI destination under heavy load.
+
+The Score & MIDI panel exposes a direct **Test audio** C4 independent of score links and a **Reset audio** action that panics, closes, and recreates TinySynth and its AudioContext. **Test Web Audio** plays a short raw oscillator tone through a separate temporary context, making it possible to distinguish synth/MIDI routing problems from an embedded browser's audio-output problem. It reports the running sample rate and destination channel count after rendering. A closed context is reported as an error rather than as Ready.
+
+Web MIDI remains a browser-owned capability. Drawerator requests standard non-SysEx access only and reports the browser's rejection without weakening its permission model. The current Codex/ChatGPT browser profile can persist an allow entry for the Drawerator origin while still rejecting `requestMIDIAccess()` before port enumeration; external Chromium browsers enumerate the same hardware correctly. Use the internal GM synth for embedded-harness audio testing and an external browser for physical MIDI until the host permission/service integration is corrected.
 
 The complete GM Level 1 program table and one-based UI-channel helpers live in `src/generalMidi.js`. Stored programs remain zero-based MIDI values; channel 3 defaults to Acoustic Bass, other melodic channels default to Acoustic Grand Piano, and channel 10 is fixed as percussion. Programs are reapplied on initialization and audio resume. Output choice, fallback policy, GM programs, and History's MIDI-armed toggle use local browser storage and are normalized for older or invalid saved values. No audio context is created on page load.
 

@@ -52,12 +52,29 @@ export const parseDraweratorExchange = (text, expectedKind = null) => {
 export const getSelectionExchangeElements = (elements, selectedElementIds) => {
   const selectedIds = new Set(Object.keys(selectedElementIds || {}).filter(id => selectedElementIds[id]));
   if (selectedIds.size === 0) return [];
-  return (elements || []).filter(element =>
-    !element.isDeleted && (
-      selectedIds.has(element.id) ||
-      (element.customData?.parentId && selectedIds.has(element.customData.parentId))
-    )
-  );
+  const liveElements = (elements || []).filter(element => !element.isDeleted);
+  const liveIds = new Set(liveElements.map(element => element.id));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    liveElements.forEach(element => {
+      const parentId = element.customData?.parentId;
+      const curveId = element.customData?.iannix?.cursor?.curveId;
+      const shouldInclude =
+        (parentId && selectedIds.has(parentId)) ||
+        (curveId && selectedIds.has(curveId)) ||
+        (selectedIds.has(element.id) && curveId && liveIds.has(curveId));
+      if (shouldInclude && !selectedIds.has(element.id)) {
+        selectedIds.add(element.id);
+        changed = true;
+      }
+      if (selectedIds.has(element.id) && curveId && liveIds.has(curveId) && !selectedIds.has(curveId)) {
+        selectedIds.add(curveId);
+        changed = true;
+      }
+    });
+  }
+  return liveElements.filter(element => selectedIds.has(element.id));
 };
 
 const remapBinding = (binding, idMap, existingIds) => {

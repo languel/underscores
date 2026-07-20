@@ -19,6 +19,17 @@ describe("grid element quantization", () => {
     assert.deepEqual(Array.from(result.customData.originalPoints[1]), [0, 0]);
   });
 
+  it("snaps a single-point freedraw by its authored center", () => {
+    const element = {
+      id: "dot", type: "freedraw", x: 43, y: 57, width: 0, height: 0,
+      angle: 0, version: 1, points: [[0, 0]], strokeWidth: 4, customData: {},
+    };
+    const result = quantizeGridElement(element, grid);
+    assert.deepEqual([result.x, result.y], [0, 100]);
+    assert.deepEqual(result.points, [[0, 0]]);
+    assert.equal(result.strokeWidth, 4);
+  });
+
   it("quantizes real bezier anchors and canonical geometry", () => {
     const host = createBezierHostGeometry([
       { x: 13, y: 17, out: [30, 0], mode: "smooth" },

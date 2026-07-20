@@ -296,6 +296,62 @@ const getBoxPath = (element) => {
   ];
 };
 
+const FREEDRAW_RENDERED_STROKE_SCALE = 4.25;
+const SINGLE_POINT_CIRCLE_SEGMENTS = 32;
+
+const isPointLikeFreedraw = element => {
+  if (element?.type !== "freedraw" || !Array.isArray(element.points) || element.points.length === 0) return false;
+  const [originX, originY] = element.points[0];
+  return element.points.every(point => Math.hypot(point[0] - originX, point[1] - originY) <= 0.001);
+};
+
+const getPointLikeFreedrawPath = element => {
+  const originalPoint = element.customData?.originalPoints?.length === 1
+    ? element.customData.originalPoints[0]
+    : null;
+  const localPoint = element.points[0];
+  const center = originalPoint
+    ? [originalPoint[0], originalPoint[1]]
+    : [element.x + localPoint[0], element.y + localPoint[1]];
+  const radius = Math.max(0.05, (Number(element.strokeWidth) || 1) * FREEDRAW_RENDERED_STROKE_SCALE / 2);
+  return Array.from({ length: SINGLE_POINT_CIRCLE_SEGMENTS + 1 }, (_, index) => {
+    const angle = index / SINGLE_POINT_CIRCLE_SEGMENTS * Math.PI * 2;
+    return [
+      center[0] + Math.cos(angle) * radius,
+      center[1] + Math.sin(angle) * radius,
+    ];
+  });
+};
+
+const getFreedrawTriggerStrokePaths = (element, centerline) => {
+  const radius = Math.max(0.05, (Number(element.strokeWidth) || 1) * FREEDRAW_RENDERED_STROKE_SCALE / 2);
+  const paths = [centerline];
+  for (let index = 1; index < centerline.length; index += 1) {
+    const start = centerline[index - 1];
+    const end = centerline[index];
+    const dx = end[0] - start[0];
+    const dy = end[1] - start[1];
+    const length = Math.hypot(dx, dy);
+    if (length <= 0.001) continue;
+    const nx = -dy / length * radius;
+    const ny = dx / length * radius;
+    paths.push([
+      [start[0] + nx, start[1] + ny],
+      [end[0] + nx, end[1] + ny],
+      [end[0] - nx, end[1] - ny],
+      [start[0] - nx, start[1] - ny],
+      [start[0] + nx, start[1] + ny],
+    ]);
+  }
+  for (const point of centerline) {
+    paths.push(Array.from({ length: SINGLE_POINT_CIRCLE_SEGMENTS + 1 }, (_, index) => {
+      const angle = index / SINGLE_POINT_CIRCLE_SEGMENTS * Math.PI * 2;
+      return [point[0] + Math.cos(angle) * radius, point[1] + Math.sin(angle) * radius];
+    }));
+  }
+  return paths;
+};
+
 const corePathCache = new WeakMap();
 const pathMetricsCache = new WeakMap();
 const preparedPathsCache = new WeakMap();
@@ -360,17 +416,31 @@ export const getElementCorePaths = (element) => {
     cached.width === element.width &&
     cached.height === element.height &&
     cached.angle === element.angle &&
+    cached.strokeWidth === element.strokeWidth &&
     cached.points === element.points &&
     cached.originalPoints === originalPoints &&
     cached.geometry === geometry
   ) return cached.paths;
 
   let paths;
-  if (hasCubicBezierGeometry(element)) {
-    paths = [getBezierWorldPath(element)];
+  if (isPointLikeFreedraw(element)) {
+    paths = [getPointLikeFreedrawPath(element)];
     corePathCache.set(element, {
       x: element.x, y: element.y, width: element.width, height: element.height,
-      angle: element.angle, points: element.points, originalPoints, geometry, paths,
+      angle: element.angle, strokeWidth: element.strokeWidth,
+      points: element.points, originalPoints, geometry, paths,
+    });
+    return paths;
+  }
+  if (hasCubicBezierGeometry(element)) {
+    const centerline = getBezierWorldPath(element);
+    paths = element.type === "freedraw" && element.customData?.iannix?.role === "trigger" && !isPointLikeFreedraw(element)
+      ? getFreedrawTriggerStrokePaths(element, centerline)
+      : [centerline];
+    corePathCache.set(element, {
+      x: element.x, y: element.y, width: element.width, height: element.height,
+      angle: element.angle, strokeWidth: element.strokeWidth,
+      points: element.points, originalPoints, geometry, paths,
     });
     return paths;
   }
@@ -382,7 +452,10 @@ export const getElementCorePaths = (element) => {
     Array.isArray(element.customData?.originalPoints) &&
     element.customData.originalPoints.length >= 2
   ) {
-    paths = [element.customData.originalPoints.map(point => rotatePoint(point, center, angle))];
+    const centerline = element.customData.originalPoints.map(point => rotatePoint(point, center, angle));
+    paths = element.type === "freedraw" && element.customData?.iannix?.role === "trigger"
+      ? getFreedrawTriggerStrokePaths(element, centerline)
+      : [centerline];
   } else if (
     (element.type === "line" || element.type === "arrow" || element.type === "freedraw") &&
     Array.isArray(element.points) &&
@@ -392,13 +465,16 @@ export const getElementCorePaths = (element) => {
       element.x + point[0],
       element.y + point[1],
     ], center, angle));
-    paths = [path];
+    paths = element.type === "freedraw" && element.customData?.iannix?.role === "trigger"
+      ? getFreedrawTriggerStrokePaths(element, path)
+      : [path];
   } else {
     paths = [getBoxPath(element).map(point => rotatePoint(point, center, angle))];
   }
   corePathCache.set(element, {
     x: element.x, y: element.y, width: element.width, height: element.height,
-    angle: element.angle, points: element.points, originalPoints, geometry, paths,
+    angle: element.angle, strokeWidth: element.strokeWidth,
+    points: element.points, originalPoints, geometry, paths,
   });
   return paths;
 };
@@ -607,9 +683,24 @@ const preparePaths = (paths) => {
       });
     }
   }
-  const prepared = { bounds, segments };
+  const prepared = { bounds, segments, paths: paths || [] };
   preparedPathsCache.set(paths, prepared);
   return prepared;
+};
+
+const pointInClosedPath = (point, path) => {
+  if (!Array.isArray(path) || path.length < 4) return false;
+  const first = path[0];
+  const last = path[path.length - 1];
+  if (Math.hypot(first[0] - last[0], first[1] - last[1]) > 0.000001) return false;
+  let inside = false;
+  for (let index = 0, previous = path.length - 1; index < path.length; previous = index++) {
+    const a = path[index];
+    const b = path[previous];
+    if (((a[1] > point[1]) !== (b[1] > point[1])) &&
+      point[0] < (b[0] - a[0]) * (point[1] - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+  }
+  return inside;
 };
 
 const preparedPathsIntersect = (preparedA, preparedB) => {
@@ -619,6 +710,12 @@ const preparedPathsIntersect = (preparedA, preparedB) => {
       if (!boundsOverlap(a, b)) continue;
       if (segmentsIntersect(a.start, a.end, b.start, b.end)) return true;
     }
+  }
+  for (const path of preparedA.paths) {
+    if (path?.[0] && preparedB.paths.some(target => pointInClosedPath(path[0], target))) return true;
+  }
+  for (const path of preparedB.paths) {
+    if (path?.[0] && preparedA.paths.some(target => pointInClosedPath(path[0], target))) return true;
   }
   return false;
 };

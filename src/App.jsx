@@ -5,6 +5,7 @@ import "./App.css";
 import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, isDrawableTrack, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
 import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, isRuntimeCursor, normalizeIannixData, snapCursorHostToCurveStart, transformPaths } from "./iannixEngine.js";
 import { createIannixMidiVoiceTracker, describeIannixMidiMessage, getIannixMidiTemplatePattern, getIannixTriggerMidiContext, IANNIX_MIDI_TEMPLATES, parseIannixMidiPattern, selectIannixTriggerCursor } from "./iannixMidi.js";
+import { expandIndexedLabelTemplate } from "./iannixBulkEdit.js";
 import { attachDraweratorExchangeMetadata, getSelectionExchangeElements, parseDraweratorExchange, remapSelectionForImport } from "./sceneExchange.js";
 import { DRAWERATOR_PANELS } from "./panelRegistry.js";
 import { getDockTarget, getOpenPanelsForPlacement, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
@@ -24,12 +25,15 @@ import { bezierWorldPointToLocal, createBezierGeometryFromElement, createBezierH
 import { getScriptParameterValues, parseScriptParameters } from "./scriptParameters.js";
 import { GM_PROGRAMS, isPercussionChannel, normalizeGmPrograms } from "./generalMidi.js";
 import { createInternalMidiSynth, disposeInternalMidiSynth, isInternalMidiSynthSupported, resumeInternalMidiSynth } from "./internalMidiSynth.js";
+import { playWebAudioTestTone } from "./audioDiagnostics.js";
 import { INTERNAL_MIDI_SYNTH_ID, MIDI_PORT_ALL, MIDI_PORT_NONE, resolveExternalMidiOutputs, resolveMidiOutputRoute } from "./midiOutputRouting.js";
 import GlobalGridCanvas from "./GlobalGridCanvas.jsx";
 import GridPanel from "./GridPanel.jsx";
 import ShortcutsPanel from "./ShortcutsPanel.jsx";
 import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
+import { getStrokeWidthShortcut, stepStrokeWidth } from "./strokeWidthShortcuts.js";
+import { DEFAULT_SELECTION_FILTER, filterSelectedElementIds, normalizeSelectionFilter, selectionFilterAllowsElement, selectionMapsEqual, SELECTION_FILTER_STORAGE_KEY, toggleSelectionFilter } from "./selectionFilter.js";
 import {
   DEFAULT_GLOBAL_GRID,
   GRID_STORAGE_KEY,
@@ -1353,6 +1357,13 @@ function App() {
       return normalizeGlobalGrid(null);
     }
   });
+  const [selectionFilter, setSelectionFilter] = useState(() => {
+    try {
+      return normalizeSelectionFilter(JSON.parse(localStorage.getItem(SELECTION_FILTER_STORAGE_KEY) || "null"));
+    } catch {
+      return { ...DEFAULT_SELECTION_FILTER };
+    }
+  });
   const [shortcutBindings, setShortcutBindings] = useState(() => {
     try {
       return normalizeShortcutBindings(JSON.parse(localStorage.getItem(SHORTCUT_STORAGE_KEY) || "null"));
@@ -1538,6 +1549,8 @@ function App() {
   const triggerPulseUntilRef = useRef(new Map());
   const midiAccessRef = useRef(null);
   const globalGridRef = useRef(globalGrid);
+  const selectionFilterRef = useRef(selectionFilter);
+  selectionFilterRef.current = selectionFilter;
   const gridQuantizingRef = useRef(false);
   const gridInteractionRef = useRef({ moving: false, resizing: false, pointEditing: false, pointIndices: null });
   const editingLinearGridRef = useRef(null);
@@ -1581,6 +1594,8 @@ function App() {
   const applyingRecordedUiStateRef = useRef(false);
   const commandActionsRef = useRef(new Map());
   const [selectedElementIds, setSelectedElementIds] = useState({});
+  const selectedElementIdsRef = useRef(selectedElementIds);
+  selectedElementIdsRef.current = selectedElementIds;
   const runtimeCursorSelectionRef = useRef({});
   const [modifierUpdateNonce, setModifierUpdateNonce] = useState(0);
   const [bezierEditElementId, setBezierEditElementId] = useState(null);
@@ -1702,12 +1717,52 @@ function App() {
       const output = internalSynthRef.current;
       output.setPrograms(internalGmProgramsRef.current);
       const state = await resumeInternalMidiSynth(output);
-      setInternalSynthStatus(state === "suspended" ? "Audio suspended" : "Ready");
+      if (state === "closed") throw new Error("The internal audio context is closed. Reset audio to create a new one.");
+      setInternalSynthStatus(state === "running" ? "Ready" : "Audio suspended");
       return output;
     } catch (error) {
       setInternalSynthStatus("Error");
       setInternalSynthError(error?.message || "Internal synth initialization failed.");
       return null;
+    }
+  }, []);
+
+  const resetInternalSynth = useCallback(async () => {
+    panicMidi();
+    const previous = internalSynthRef.current;
+    internalSynthRef.current = null;
+    setInternalSynthStatus("Resetting…");
+    setInternalSynthError("");
+    try {
+      await disposeInternalMidiSynth(previous);
+    } catch {
+      // A broken AudioContext must not prevent a clean replacement.
+    }
+    const replacement = await ensureInternalSynth();
+    if (replacement) setMidiStatus("Internal synth reset and ready.");
+    return replacement;
+  }, [ensureInternalSynth, panicMidi]);
+
+  const testInternalSynthAudio = useCallback(async () => {
+    const output = await ensureInternalSynth();
+    if (!output) return;
+    try {
+      const now = performance.now();
+      output.send([0x90, 60, 100], now);
+      output.send([0x80, 60, 0], now + 350);
+      setMidiStatus("Sent internal synth test note C4.");
+    } catch (error) {
+      setMidiStatus(error?.message || "Internal synth test failed.");
+    }
+  }, [ensureInternalSynth]);
+
+  const testRawWebAudio = useCallback(async () => {
+    try {
+      setMidiStatus("Playing raw Web Audio test tone…");
+      const result = await playWebAudioTestTone();
+      setMidiStatus(`Raw Web Audio rendered (${result.sampleRate || "unknown"} Hz, ${result.channels || "unknown"} ch).`);
+    } catch (error) {
+      setMidiStatus(error?.message || "Raw Web Audio test failed.");
     }
   }, []);
 
@@ -1948,6 +2003,44 @@ function App() {
       api.updateScene({ appState: { gridSize: null, gridModeEnabled: false, objectsSnapModeEnabled: false }, commitToHistory: false });
     }
   }, [globalGrid]);
+
+  useEffect(() => {
+    selectionFilterRef.current = selectionFilter;
+    localStorage.setItem(SELECTION_FILTER_STORAGE_KEY, JSON.stringify(selectionFilter));
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+
+    const elements = api.getSceneElements();
+    const combinedSelection = {
+      ...(api.getAppState().selectedElementIds || {}),
+      ...runtimeCursorSelectionRef.current,
+      ...selectedElementIdsRef.current,
+    };
+    const filteredSelection = filterSelectedElementIds(elements, combinedSelection, selectionFilter);
+    const runtimeSelections = Object.fromEntries(
+      elements
+        .filter(element => filteredSelection[element.id] && isRuntimeCursor(element))
+        .map(element => [element.id, true])
+    );
+    const nativeSelections = Object.fromEntries(
+      Object.entries(filteredSelection).filter(([id]) => !runtimeSelections[id])
+    );
+    runtimeCursorSelectionRef.current = runtimeSelections;
+    if (!selectionMapsEqual(nativeSelections, api.getAppState().selectedElementIds || {})) {
+      api.updateScene({
+        appState: {
+          selectedElementIds: nativeSelections,
+          selectedGroupIds: {},
+          editingLinearElement: null,
+          selectedLinearElement: null,
+        },
+        commitToHistory: false,
+      });
+    }
+    if (!selectionMapsEqual(filteredSelection, selectedElementIdsRef.current)) {
+      setSelectedElementIds(filteredSelection);
+    }
+  }, [excalidrawAPI, selectionFilter]);
 
   useEffect(() => {
     localStorage.setItem(SHORTCUT_STORAGE_KEY, JSON.stringify(shortcutBindings));
@@ -2817,7 +2910,10 @@ function App() {
 
   const enterBezierEditAtPointer = (e, candidates = null) => {
     if (!excalidrawAPI || excalidrawAPI.getAppState().activeTool?.type !== "selection") return false;
-    const hit = findBezierPathAtPointer(e.clientX, e.clientY, candidates);
+    const selectableCandidates = (candidates || excalidrawAPI.getSceneElements().filter(
+      candidate => !candidate.isDeleted && hasCubicBezierGeometry(candidate)
+    )).filter(element => selectionFilterAllowsElement(selectionFilterRef.current, element));
+    const hit = findBezierPathAtPointer(e.clientX, e.clientY, selectableCandidates);
     if (!hit || hit.screenDistance > 12) return false;
     e.preventDefault();
     e.stopPropagation();
@@ -3006,6 +3102,7 @@ function App() {
         return Math.hypot(point[0] - (start[0] + dx * t), point[1] - (start[1] + dy * t));
       };
       for (const cursor of frame.cursors) {
+        if (!selectionFilterAllowsElement(selectionFilterRef.current, cursor.element)) continue;
         const visualTransform = visualCursorTransformsRef.current.get(cursor.element.id)?.transform || cursor.transform;
         for (const track of getElementRenderedCanvasTracks(cursor.element)) {
           const canvasPath = transformPaths([track.points], visualTransform)[0];
@@ -5606,8 +5703,9 @@ function App() {
         }
       }
 
-      // [ and ] shortcuts to increase/decrease stroke width for pen and line
-      if ((e.key === "[" || e.key === "]") && excalidrawAPI) {
+      // Brackets adjust stroke width; Shift uses a one-tenth step.
+      const strokeWidthShortcut = getStrokeWidthShortcut(e);
+      if (strokeWidthShortcut && excalidrawAPI) {
         const activeEl = document.activeElement;
         if (
           !activeEl ||
@@ -5633,13 +5731,12 @@ function App() {
           if (isPenOrLine) {
             e.preventDefault();
             e.stopPropagation();
-            const currentWidth = appState.currentItemStrokeWidth || 1;
-            let newWidth = currentWidth;
-            if (e.key === "[") {
-              newWidth = Math.max(1, currentWidth - 1);
-            } else {
-              newWidth = Math.min(20, currentWidth + 1);
-            }
+            const currentWidth = appState.currentItemStrokeWidth ?? 1;
+            const newWidth = stepStrokeWidth(
+              currentWidth,
+              strokeWidthShortcut.direction,
+              strokeWidthShortcut.fine,
+            );
 
             if (newWidth !== currentWidth) {
               const updatedElements = excalidrawAPI.getSceneElements().map((el) => {
@@ -6082,12 +6179,17 @@ function App() {
     updateIannixElements([elementId], updater);
   };
 
-  const updateIannixDataPath = (elementId, path, value) => {
-    updateIannixElement(elementId, current => {
+  const updateIannixDataPath = (elementIds, path, value) => {
+    const ids = Array.isArray(elementIds) ? elementIds : [elementIds];
+    const elementIndex = new Map(ids.map((id, index) => [id, index]));
+    updateIannixElements(ids, (current, element) => {
       const next = structuredClone(current);
       let target = next;
       path.slice(0, -1).forEach(segment => { target = target[segment]; });
-      target[path[path.length - 1]] = value;
+      const nextValue = path.length === 1 && path[0] === "label"
+        ? expandIndexedLabelTemplate(value, elementIndex.get(element.id) || 0)
+        : value;
+      target[path[path.length - 1]] = nextValue;
       return next;
     });
   };
@@ -6275,6 +6377,16 @@ function App() {
     }
   };
 
+  const toggleScorePlayback = async () => {
+    if (scorePlaying) {
+      setScorePlaying(false);
+      return;
+    }
+    const route = getScoreMidiRoute();
+    if (route.kind === "internal-unavailable") await ensureInternalSynth();
+    setScorePlaying(true);
+  };
+
   const createDraweratorExchangeJson = (kind, elements) => {
     if (!excalidrawAPI) throw new Error("The scene is not ready.");
     const serialized = serializeAsJSON(
@@ -6295,12 +6407,20 @@ function App() {
   };
 
   const downloadTextFile = (text, filename, mimeType = "application/json") => {
-    const url = URL.createObjectURL(new Blob([text], { type: mimeType }));
+    const useDataUrl = text.length <= 2_000_000;
+    const url = useDataUrl
+      ? `data:${mimeType};charset=utf-8,${encodeURIComponent(text)}`
+      : URL.createObjectURL(new Blob([text], { type: mimeType }));
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = filename;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
     anchor.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => {
+      anchor.remove();
+      if (!useDataUrl) URL.revokeObjectURL(url);
+    }, 1000);
   };
 
   const runWithoutSessionSceneRecording = async callback => {
@@ -6344,6 +6464,24 @@ function App() {
     }
   };
 
+  const prepareDraweratorSceneDownload = event => {
+    try {
+      const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+      const text = createDraweratorExchangeJson("scene", elements);
+      const useDataUrl = text.length <= 2_000_000;
+      const url = useDataUrl
+        ? `data:application/json;charset=utf-8,${encodeURIComponent(text)}`
+        : URL.createObjectURL(new Blob([text], { type: "application/json" }));
+      event.currentTarget.href = url;
+      event.currentTarget.download = `drawerator-scene-${new Date().toISOString().slice(0, 10)}.excalidraw`;
+      if (!useDataUrl) window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+      setSceneExchangeStatus(`Exported ${elements.filter(element => !element.isDeleted).length} scene objects with Drawerator metadata.`);
+    } catch (error) {
+      event.preventDefault();
+      setSceneExchangeStatus(error.message || "Scene export failed.");
+    }
+  };
+
   const importDraweratorSceneText = async (text, { commitToHistory = true } = {}) => {
     if (!excalidrawAPI) return;
     const { score, grid } = parseDraweratorExchange(text, "scene");
@@ -6378,6 +6516,25 @@ function App() {
     visualCursorTransformsRef.current = new Map();
     setModifierUpdateNonce(nonce => nonce + 1);
     setSceneExchangeStatus(`Imported ${restored.elements?.filter(element => !element.isDeleted).length || 0} scene objects.`);
+  };
+
+  const copyDraweratorScene = async () => {
+    try {
+      const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+      await navigator.clipboard.writeText(createDraweratorExchangeJson("scene", elements));
+      setSceneExchangeStatus(`Copied ${elements.filter(element => !element.isDeleted).length} scene objects as Drawerator JSON.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not copy scene JSON.");
+    }
+  };
+
+  const pasteDraweratorScene = async () => {
+    try {
+      await importDraweratorSceneText(await navigator.clipboard.readText());
+      setSceneExchangeStatus("Pasted the complete Drawerator scene from the clipboard.");
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not paste scene JSON.");
+    }
   };
 
   const captureSessionBaseline = () => {
@@ -6851,9 +7008,14 @@ function App() {
   const copyDraweratorSelection = async () => {
     try {
       const appState = excalidrawAPI.getAppState();
+      const draweratorSelection = {
+        ...(appState.selectedElementIds || {}),
+        ...runtimeCursorSelectionRef.current,
+        ...selectedElementIdsRef.current,
+      };
       const elements = getSelectionExchangeElements(
         excalidrawAPI.getSceneElementsIncludingDeleted(),
-        appState.selectedElementIds,
+        draweratorSelection,
       );
       if (elements.length === 0) throw new Error("Select one or more objects to copy as JSON.");
       await navigator.clipboard.writeText(createDraweratorExchangeJson("selection", elements));
@@ -7260,8 +7422,10 @@ function App() {
           onChange={handleDraweratorSceneFile}
         />
         <div className="iannix-data-actions">
-          <button type="button" className="iannix-flat-button" onClick={exportDraweratorScene}>Export scene</button>
+          <a className="iannix-flat-button" href="#" download onClick={prepareDraweratorSceneDownload}>Export scene</a>
           <button type="button" className="iannix-flat-button" onClick={() => sceneImportInputRef.current?.click()}>Import scene</button>
+          <button type="button" className="iannix-flat-button" onClick={() => void copyDraweratorScene()}>Copy scene JSON</button>
+          <button type="button" className="iannix-flat-button" onClick={() => void pasteDraweratorScene()}>Paste scene JSON</button>
           <button type="button" className="iannix-flat-button" onClick={copyDraweratorSelection} disabled={selectedCount === 0}>Copy selection JSON</button>
           <button type="button" className="iannix-flat-button" onClick={pasteDraweratorSelection}>Paste selection JSON</button>
         </div>
@@ -7321,9 +7485,18 @@ function App() {
             </div>
             <div className="iannix-hint">
               {selectedRoles.size > 1 ? "Mixed roles. " : ""}
-              Assigning a role gives every selected object a unique label. Timing and links remain editable per object.
+              Assigning a role gives every selected object a unique label. Same-role selections can be edited together below.
             </div>
           </section>
+          {sharedRole ? (
+            <div className="iannix-object-shared-editor">
+              <IannixDataPanel elements={selectedElements} onChange={updateIannixDataPath} />
+            </div>
+          ) : (
+            <div className="iannix-empty-state iannix-object-shared-empty">
+              Assign one shared score role to edit these objects together.
+            </div>
+          )}
         </div>
       );
     }
@@ -9330,7 +9503,7 @@ function App() {
           <button type="button" onClick={rewind} title="Stop and rewind" aria-label="Stop and rewind">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M11 6v12l-8.5-6L11 6Zm10 0v12l-8.5-6L21 6Z" /></svg>
           </button>
-          <button type="button" className={scorePlaying ? "active" : ""} onClick={() => setScorePlaying(playing => !playing)} title={scorePlaying ? "Pause" : "Play"} aria-label={scorePlaying ? "Pause score" : "Play score"}>
+          <button type="button" className={scorePlaying ? "active" : ""} onClick={() => void toggleScorePlayback()} title={scorePlaying ? "Pause" : "Play"} aria-label={scorePlaying ? "Pause score" : "Play score"}>
             {scorePlaying ? <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6V5Zm8 0h4v14h-4V5Z" /></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="m7 4 13 8L7 20V4Z" /></svg>}
           </button>
           <button type="button" onClick={() => setScorePlaying(false)} title="Stop" aria-label="Stop score">
@@ -9719,6 +9892,9 @@ function App() {
               {(internalSynthStatus === "Audio suspended" || internalSynthStatus === "Error") && (
                 <button type="button" className="iannix-flat-button" onClick={() => void ensureInternalSynth()}>Enable audio</button>
               )}
+              <button type="button" className="iannix-flat-button" onClick={() => void testInternalSynthAudio()}>Test audio</button>
+              <button type="button" className="iannix-flat-button" onClick={() => void testRawWebAudio()}>Test Web Audio</button>
+              <button type="button" className="iannix-flat-button" onClick={() => void resetInternalSynth()}>Reset audio</button>
               <button type="button" className="iannix-flat-button" onClick={panicMidi}>Panic</button>
             </div>
             {internalSynthError && <div className="settings-panel-hint warning">{internalSynthError}</div>}
@@ -10034,6 +10210,18 @@ function App() {
               ? elements.find(element => element.id === nativeBezierEditId && !element.isDeleted && hasCubicBezierGeometry(element))
               : null;
             if (nativeBezierEditElement) {
+              if (!selectionFilterAllowsElement(selectionFilterRef.current, nativeBezierEditElement)) {
+                excalidrawAPIRef.current?.updateScene({
+                  appState: {
+                    selectedElementIds: {},
+                    selectedGroupIds: {},
+                    editingLinearElement: null,
+                    selectedLinearElement: null,
+                  },
+                  commitToHistory: false,
+                });
+                return;
+              }
               // Canonical curves are owned by Drawerator's anchor/handle
               // editor. Transfer both edit and selection state together so the
               // selection-sync effect cannot immediately exit the editor.
@@ -10113,11 +10301,29 @@ function App() {
             }
 
             // Sync selected element IDs state to trigger panel re-renders
-            const selectedIds = {
+            const combinedSelectedIds = {
               ...(appState.selectedElementIds || {}),
               ...runtimeCursorSelectionRef.current,
             };
-            if (JSON.stringify(selectedIds) !== JSON.stringify(selectedElementIds)) {
+            const selectedIds = filterSelectedElementIds(elements, combinedSelectedIds, selectionFilterRef.current);
+            const nativeSelectedIds = filterSelectedElementIds(elements, appState.selectedElementIds || {}, selectionFilterRef.current);
+            runtimeCursorSelectionRef.current = filterSelectedElementIds(
+              elements,
+              runtimeCursorSelectionRef.current,
+              selectionFilterRef.current
+            );
+            if (!selectionMapsEqual(nativeSelectedIds, appState.selectedElementIds || {})) {
+              excalidrawAPIRef.current?.updateScene({
+                appState: {
+                  selectedElementIds: nativeSelectedIds,
+                  selectedGroupIds: {},
+                  editingLinearElement: null,
+                  selectedLinearElement: null,
+                },
+                commitToHistory: false,
+              });
+            }
+            if (!selectionMapsEqual(selectedIds, selectedElementIds)) {
               setSelectedElementIds(selectedIds);
             }
 
@@ -10455,6 +10661,7 @@ function App() {
             <MainMenu.DefaultItems.LoadScene />
             <MainMenu.DefaultItems.SaveAsImage />
             <MainMenu.DefaultItems.Export />
+            <MainMenu.Item onSelect={exportDraweratorScene}>Export Drawerator .excalidraw</MainMenu.Item>
             <MainMenu.Separator />
             <MainMenu.DefaultItems.ToggleTheme />
             <MainMenu.Separator />
@@ -11128,6 +11335,9 @@ function App() {
               selectedElementIds={selectedElementIds}
               onSelect={(elementId, selection = {}) => {
                 if (!excalidrawAPI) return;
+                const sceneElements = excalidrawAPI.getSceneElements();
+                const clickedElement = sceneElements.find(element => element.id === elementId);
+                if (!selectionFilterAllowsElement(selectionFilterRef.current, clickedElement)) return;
                 const current = selectedElementIds || {};
                 let next = {};
                 if (selection.mode === "toggle") {
@@ -11140,8 +11350,9 @@ function App() {
                 } else {
                   next[elementId] = true;
                 }
+                next = filterSelectedElementIds(sceneElements, next, selectionFilterRef.current);
                 const runtimeSelections = Object.fromEntries(
-                  excalidrawAPI.getSceneElements()
+                  sceneElements
                     .filter(element => next[element.id] && isRuntimeCursor(element))
                     .map(element => [element.id, true])
                 );
@@ -11507,12 +11718,14 @@ function App() {
             >
               <GridPanel
                 grid={globalGrid}
+                selectionFilter={selectionFilter}
                 tempo={scoreTempo}
                 signature={scoreTimeSignature}
                 fps={transportFps}
                 onUpdate={updateGlobalGridSetting}
                 onReset={resetGlobalGridSetting}
                 onQuantizeSelection={() => commandRegistry.execute("grid.quantize.selection", {}, { source: "grid-panel", transportTime: scoreTimeRef.current }).catch(error => setSceneExchangeStatus(error.message || "Could not quantize the selection."))}
+                onToggleSelectionFilter={target => setSelectionFilter(previous => toggleSelectionFilter(previous, target))}
               />
             </DraweratorPanel>
           )}
