@@ -1,6 +1,6 @@
 # Panel System Notes
 
-Last updated: 2026-07-15
+Last updated: 2026-07-21
 
 Drawerator owns one persistent panel model for **AI Assistant**, **Mods & FX**, **Settings**, **Console / Info**, and **Transport**. Side panels support left dock, floating, and right dock placement. Transport supports floating and bottom-docked placement.
 
@@ -35,3 +35,11 @@ The following state persists independently:
 - transport placement and dimensions.
 
 Every panel is available from the main menu and command palette: `/chat`, `/mods`, `/settings`, `/console`, and `/transport`. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
+
+## Inspector layout
+
+Dense parameter panels use the shared `InspectorSection` disclosure pattern. Sections are single-column, open by default when their contents are immediately useful, and collapse in place without adding nested card frames. A section header may include a compact readout or action on its right edge.
+
+The Grid panel is a vertical inspector rather than a horizontal extension of the timeline. Timeline and inspector controls share the same compact type and control-height tokens; neither establishes a competing visual scale.
+
+The detailed control and styling contract lives in [UI guidelines](ui-guidelines.md).

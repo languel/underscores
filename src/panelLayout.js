@@ -15,7 +15,7 @@ export const DEFAULT_PANEL_LAYOUTS = Object.freeze({
   properties: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 144, y: 152, width: 380, height: 720 }),
   outliner: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 168, y: 168, width: 340, height: 560 }),
   transport: Object.freeze({ placement: PANEL_PLACEMENTS.BOTTOM, x: 32, y: 32, width: 960, height: 114 }),
-  grid: Object.freeze({ placement: PANEL_PLACEMENTS.BOTTOM, x: 48, y: 48, width: 1120, height: 144 }),
+  grid: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 48, y: 88, width: 360, height: 720 }),
 });
 
 const SIDEBAR_PLACEMENTS = new Set([
@@ -28,15 +28,20 @@ export const normalizePanelLayouts = value => {
   const source = value && typeof value === "object" ? value : {};
   return Object.fromEntries(Object.entries(DEFAULT_PANEL_LAYOUTS).map(([id, fallback]) => {
     const candidate = source[id] && typeof source[id] === "object" ? source[id] : {};
-    const allowed = id === "transport" || id === "grid"
+    const legacyHorizontalGrid = id === "grid" && (
+      candidate.placement === PANEL_PLACEMENTS.BOTTOM ||
+      (Number.isFinite(candidate.height) && candidate.height < 320) ||
+      (Number.isFinite(candidate.width) && candidate.width > 640)
+    );
+    const allowed = id === "transport"
       ? new Set([PANEL_PLACEMENTS.BOTTOM, PANEL_PLACEMENTS.FLOATING])
       : SIDEBAR_PLACEMENTS;
     return [id, {
-      placement: allowed.has(candidate.placement) ? candidate.placement : fallback.placement,
+      placement: !legacyHorizontalGrid && allowed.has(candidate.placement) ? candidate.placement : fallback.placement,
       x: Number.isFinite(candidate.x) ? candidate.x : fallback.x,
       y: Number.isFinite(candidate.y) ? candidate.y : fallback.y,
-      width: Number.isFinite(candidate.width) ? candidate.width : fallback.width,
-      height: Number.isFinite(candidate.height) ? candidate.height : fallback.height,
+      width: !legacyHorizontalGrid && Number.isFinite(candidate.width) ? candidate.width : fallback.width,
+      height: !legacyHorizontalGrid && Number.isFinite(candidate.height) ? candidate.height : fallback.height,
     }];
   }));
 };

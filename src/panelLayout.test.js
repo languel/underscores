@@ -10,7 +10,12 @@ test("normalizes panel layout storage independently per panel", () => {
   });
   assert.deepEqual(layouts.mods, { placement: PANEL_PLACEMENTS.LEFT, x: 100, y: 80, width: 380, height: 760 });
   assert.equal(layouts.transport.placement, PANEL_PLACEMENTS.BOTTOM);
-  assert.equal(layouts.grid.placement, PANEL_PLACEMENTS.BOTTOM);
+  assert.deepEqual(layouts.grid, { placement: PANEL_PLACEMENTS.LEFT, x: 8, y: 9, width: 360, height: 720 });
+  assert.equal(normalizePanelLayouts({ grid: { placement: "bottom" } }).grid.placement, PANEL_PLACEMENTS.RIGHT);
+  assert.deepEqual(
+    normalizePanelLayouts({ grid: { placement: "floating", width: 1120, height: 144 } }).grid,
+    { placement: PANEL_PLACEMENTS.RIGHT, x: 48, y: 88, width: 360, height: 720 },
+  );
 });
 
 test("detects sidebar and transport drop zones", () => {

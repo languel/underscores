@@ -1,6 +1,13 @@
 :root {
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-title: 'Outfit', var(--font-sans);
+  --drawerator-ui-font-size: 10px;
+  --drawerator-ui-font-size-small: 9px;
+  --drawerator-ui-font-size-title: 11px;
+  --drawerator-ui-line-height: 1.25;
+  --drawerator-ui-control-height: 27px;
+  --drawerator-ui-control-radius: 3px;
+  --drawerator-ui-control-padding-x: 7px;
   --transition-fast: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
@@ -2051,6 +2058,21 @@ body .excalidraw .sidebar {
   opacity: 0.42;
 }
 
+/* The scene exporter is an anchor so the browser can download its generated
+   JSON. Give it the same box model and neutral link treatment as its button
+   siblings. */
+a.iannix-flat-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  color: inherit !important;
+  font-family: Arial, sans-serif !important;
+  font-weight: 700 !important;
+  text-align: center;
+  text-decoration: none;
+}
+
 .iannix-data-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2212,7 +2234,7 @@ body .excalidraw .sidebar {
 }
 
 .iannix-transport > :not(.iannix-timeline) {
-  height: 36px;
+  height: 27px;
   align-self: center;
 }
 
@@ -3016,12 +3038,13 @@ body .excalidraw .sidebar {
 
 .grid-panel {
   display: flex;
+  flex-direction: column;
   align-items: stretch;
-  min-width: max-content;
+  min-width: 0;
   height: 100%;
   padding: 5px 7px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   color: var(--color-primary);
   background: transparent;
   font-size: 10px;
@@ -3029,27 +3052,21 @@ body .excalidraw .sidebar {
 
 .grid-panel-group {
   box-sizing: border-box;
-  display: grid;
-  grid-template-rows: 14px repeat(3, minmax(0, 1fr));
-  align-items: center;
-  gap: 2px 7px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   min-width: 0;
-  padding: 0 10px;
-  border-left: 1px solid var(--border-color, rgba(128, 128, 128, 0.24));
+  width: auto;
+  padding: 10px 3px;
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.24));
 }
 
 .grid-panel-group:first-child {
-  padding-left: 3px;
-  border-left: 0;
+  border-top: 0;
 }
 
-.grid-panel-geometry { width: 405px; }
-.grid-panel-snap { width: 345px; }
-.grid-panel-selection { width: 185px; }
-.grid-panel-time { width: 295px; }
-
 .grid-panel-group-title {
-  align-self: end;
   color: var(--color-secondary);
   font-size: 9px;
   font-weight: 750;
@@ -3059,9 +3076,10 @@ body .excalidraw .sidebar {
 }
 
 .grid-panel-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
-  gap: 6px;
+  gap: 6px 10px;
   min-width: 0;
 }
 
@@ -3093,14 +3111,9 @@ body .excalidraw .sidebar {
 .grid-panel-field select { width: 78px; }
 
 .grid-panel-snap .grid-panel-field {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1px;
-  line-height: 1;
-}
-
-.grid-panel-snap .grid-panel-field input,
-.grid-panel-snap .grid-panel-field select {
-  width: 72px;
+  grid-template-columns: auto minmax(42px, 1fr);
+  gap: 4px;
+  line-height: normal;
 }
 
 .grid-panel-field input:focus,
@@ -3155,10 +3168,11 @@ body .excalidraw .sidebar {
 }
 
 .grid-panel-targets {
-  gap: 10px;
+  gap: 7px 10px;
 }
 
 .grid-panel-actions {
+  display: flex;
   justify-content: flex-end;
 }
 
@@ -3437,4 +3451,680 @@ body .excalidraw .sidebar {
 
 .drawerator-bezier-editor-overlay g.selected .bezier-anchor-point {
   fill: var(--drawerator-accent);
+}
+
+/* Numeric fields support horizontal scrubbing without changing the existing
+   panel styling. The context menu reuses Drawerator's current menu surface. */
+.drawerator-shell input[type="number"]:not(:disabled),
+.number-box-global-dragging,
+.number-box-global-dragging * {
+  cursor: ew-resize !important;
+}
+
+.number-box-global-dragging,
+.number-box-global-dragging * {
+  user-select: none !important;
+}
+
+.number-box-menu-title {
+  padding: 6px 12px;
+  color: var(--color-secondary);
+  font-size: 11px;
+}
+
+.number-box-menu {
+  min-width: 270px;
+}
+
+.number-box-menu .custom-floating-context-menu-btn {
+  gap: 6px;
+}
+
+.number-box-menu-icon {
+  width: 18px;
+  flex: 0 0 18px;
+}
+
+.number-box-menu kbd {
+  margin-left: auto;
+  color: var(--color-secondary);
+  font: inherit;
+}
+
+/* Compact inspector language: neutral Drawerator colors, Ableton-like density,
+   and Blender-like single-column parameter/disclosure structure. */
+.drawerator-panel-left > .drawerator-panel-header,
+.drawerator-panel-right > .drawerator-panel-header,
+.drawerator-panel-floating > .drawerator-panel-header {
+  min-height: 40px;
+  padding: 5px 8px;
+}
+
+.drawerator-panel-left .drawerator-panel-heading,
+.drawerator-panel-right .drawerator-panel-heading,
+.drawerator-panel-floating .drawerator-panel-heading {
+  font-size: 12px;
+}
+
+.drawerator-panel-secondary-header {
+  min-height: 34px;
+  padding: 5px 8px;
+}
+
+.mods-panel-tabs,
+.settings-panel-tabs {
+  border-radius: 3px;
+}
+
+.mods-panel-tab,
+.settings-panel-tabs button {
+  min-height: 26px;
+  padding: 4px 7px;
+  border-radius: 0;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.settings-panel-tabs {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.settings-panel-content {
+  gap: 8px;
+  padding: 8px;
+}
+
+.settings-panel-section {
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.settings-panel-field,
+.settings-panel-check {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.9fr) minmax(0, 1.1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  font-size: 10px;
+}
+
+.settings-panel-field input:not([type="range"]),
+.settings-panel-field select,
+.settings-panel-midi-refresh {
+  height: 27px;
+  padding: 0 7px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
+.settings-panel-two-column {
+  display: contents;
+}
+
+.settings-color-control {
+  grid-template-columns: 27px minmax(58px, 1fr) 52px 11px;
+  gap: 4px;
+}
+
+.settings-color-control input[type="color"] {
+  width: 27px;
+  height: 25px;
+  border-radius: 3px;
+}
+
+.settings-panel-actions {
+  min-height: 28px;
+  font-size: 10px;
+}
+
+.settings-panel-midi-routing {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.settings-panel-midi-refresh {
+  align-self: flex-end;
+  width: 27px;
+  padding: 0;
+}
+
+.settings-role-theme,
+.settings-panel-gm-programs {
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.24));
+}
+
+.settings-role-theme > summary,
+.settings-panel-gm-programs > summary {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  font-size: 10px;
+}
+
+.inspector-section {
+  min-width: 0;
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.24));
+}
+
+.inspector-section:first-child {
+  border-top: 0;
+}
+
+.inspector-section-header {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inspector-section-toggle {
+  min-width: 0;
+  min-height: 28px;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-primary);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.inspector-section-toggle:hover {
+  background: var(--button-hover-bg, rgba(128, 128, 128, 0.1));
+}
+
+.inspector-section-toggle svg {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  transition: transform 100ms ease;
+}
+
+.inspector-section:not(.open) .inspector-section-toggle svg {
+  transform: rotate(-90deg);
+}
+
+.inspector-section-aside {
+  padding-right: 6px;
+  color: var(--color-secondary);
+  font-size: 9px;
+}
+
+.inspector-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 3px 6px 9px 21px;
+}
+
+.iannix-properties {
+  gap: 0;
+}
+
+.inspector-section.iannix-section {
+  gap: 0;
+  padding: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0;
+}
+
+.iannix-field,
+.iannix-check-row,
+.iannix-readout-row {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.9fr) minmax(0, 1.1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 27px;
+  font-size: 10px;
+}
+
+.iannix-field input,
+.iannix-field select {
+  height: 27px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
+.iannix-two-column {
+  display: contents;
+}
+
+.iannix-role-grid {
+  gap: 0;
+}
+
+.iannix-role-button {
+  min-height: 27px;
+  padding: 4px 2px;
+  border-radius: 0;
+  font-size: 10px;
+}
+
+.iannix-empty-state {
+  padding: 18px 8px;
+  border: 0;
+  border-radius: 0;
+  font-size: 11px;
+}
+
+.grid-panel {
+  padding: 0;
+}
+
+.grid-panel-group {
+  gap: 0;
+  padding: 0;
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.24));
+}
+
+.grid-panel-group > .inspector-section-body {
+  gap: 4px;
+}
+
+.grid-panel-row,
+.grid-panel-selection-options {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.grid-panel-field,
+.grid-panel-check {
+  width: 100%;
+  min-height: 26px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(82px, 40%);
+  align-items: center;
+  gap: 8px;
+}
+
+.grid-panel-check input {
+  justify-self: end;
+}
+
+.grid-panel-field input,
+.grid-panel-field select {
+  width: 100%;
+  height: 26px;
+}
+
+.grid-panel-actions button {
+  width: 100%;
+  height: 27px;
+}
+
+.iannix-transport-display strong,
+.iannix-transport-frame strong {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+/* Shared Drawerator chrome scale. Keep editor controls dense and predictable
+   without changing Excalidraw's own canvas/tool typography. */
+.drawerator-panel-shell,
+.iannix-transport {
+  font-family: var(--font-sans);
+  font-size: var(--drawerator-ui-font-size);
+  line-height: var(--drawerator-ui-line-height);
+}
+
+.drawerator-panel-body input,
+.drawerator-panel-body select,
+.drawerator-panel-body textarea,
+.drawerator-panel-body button,
+.iannix-transport input,
+.iannix-transport select,
+.iannix-transport button {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.drawerator-panel-body input:not([type="checkbox"]):not([type="range"]):not([type="color"]),
+.drawerator-panel-body select {
+  box-sizing: border-box;
+  height: var(--drawerator-ui-control-height);
+  min-height: var(--drawerator-ui-control-height);
+  padding-block: 0;
+  padding-inline: var(--drawerator-ui-control-padding-x);
+  border-radius: var(--drawerator-ui-control-radius);
+  font-size: var(--drawerator-ui-font-size);
+  font-weight: 400;
+}
+
+.drawerator-panel-heading,
+.drawerator-panel-title {
+  font-family: inherit;
+  font-size: var(--drawerator-ui-font-size-title);
+  line-height: var(--drawerator-ui-line-height);
+  font-weight: 650;
+}
+
+.drawerator-dock-tab {
+  font-size: var(--drawerator-ui-font-size);
+  line-height: var(--drawerator-ui-line-height);
+  font-weight: 600;
+}
+
+.drawerator-panel-body label,
+.drawerator-panel-body summary,
+.drawerator-panel-body output,
+.drawerator-panel-body small,
+.drawerator-panel-body code {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.settings-panel-heading,
+.grid-panel-group-title,
+.inspector-section-toggle,
+.modifiers-panel-container > div > label {
+  font-size: var(--drawerator-ui-font-size-small) !important;
+  font-weight: 700 !important;
+  line-height: var(--drawerator-ui-line-height);
+  letter-spacing: 0.04em;
+}
+
+.iannix-empty-state,
+.settings-panel-status,
+.settings-panel-hint,
+.settings-panel-check,
+.settings-panel-actions,
+.history-empty,
+.properties-panel,
+.outliner-panel,
+.shortcut-row {
+  font-size: var(--drawerator-ui-font-size);
+  line-height: var(--drawerator-ui-line-height);
+}
+
+.modifiers-panel-container,
+.modifiers-panel-container p,
+.modifiers-panel-container span,
+.modifiers-panel-container strong,
+.modifiers-panel-container label,
+.modifiers-panel-container button,
+.modifiers-panel-container input,
+.modifiers-panel-container select {
+  font-family: inherit;
+  font-size: var(--drawerator-ui-font-size) !important;
+  line-height: var(--drawerator-ui-line-height);
+}
+
+.modifiers-panel-container input[type="number"],
+.modifiers-panel-container input[type="text"],
+.modifiers-panel-container select {
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--drawerator-ui-control-height) !important;
+  min-height: var(--drawerator-ui-control-height);
+  padding: 0 var(--drawerator-ui-control-padding-x) !important;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+  border-radius: var(--drawerator-ui-control-radius) !important;
+  background: var(--input-bg-color, var(--island-bg-color)) !important;
+  color: var(--color-primary);
+  font-weight: 400;
+}
+
+.modifiers-panel-container input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
+.iannix-transport > :not(.iannix-timeline),
+.iannix-transport-mode,
+.iannix-transport-display,
+.iannix-transport-frame,
+.iannix-transport-controls,
+.iannix-transport-tempo,
+.iannix-transport-signature,
+.iannix-transport-sync,
+.iannix-transport > button.loop,
+.iannix-transport-range {
+  box-sizing: border-box;
+  height: var(--drawerator-ui-control-height);
+  min-height: var(--drawerator-ui-control-height);
+}
+
+.iannix-transport-tempo button,
+.iannix-transport-tempo input,
+.iannix-transport-signature input,
+.iannix-transport-signature select,
+.iannix-transport-range input,
+.iannix-transport-sync {
+  box-sizing: border-box;
+  height: var(--drawerator-ui-control-height);
+  min-height: var(--drawerator-ui-control-height);
+  padding-block: 0;
+  padding-inline: var(--drawerator-ui-control-padding-x);
+  border-radius: var(--drawerator-ui-control-radius);
+  font-size: var(--drawerator-ui-font-size);
+  line-height: var(--drawerator-ui-line-height);
+  font-weight: 400;
+}
+
+.iannix-transport-tempo button {
+  font-weight: 600;
+}
+
+.iannix-transport button.active,
+.iannix-transport button.loop.active {
+  border-color: transparent !important;
+  outline: none !important;
+  background: color-mix(in srgb, var(--transport-accent) 25%, transparent) !important;
+  color: var(--transport-text) !important;
+  box-shadow: none !important;
+}
+
+.iannix-transport-controls button.autokey {
+  height: 25px;
+  min-height: 25px;
+  align-self: center;
+}
+
+.iannix-transport > button.loop {
+  width: 24px;
+  height: 25px;
+  min-height: 25px;
+  align-self: center;
+  justify-self: center;
+  padding-inline: 0;
+  border-color: transparent !important;
+  outline: none;
+  background: transparent !important;
+  color: var(--transport-text) !important;
+  box-shadow: none !important;
+}
+
+.iannix-transport > button.loop.active {
+  border-color: transparent !important;
+}
+
+.iannix-transport > button.loop:hover,
+.iannix-transport > button.loop.active:hover {
+  background: color-mix(in srgb, var(--transport-hover-bg) 50%, transparent) !important;
+}
+
+.iannix-transport > button.loop.active:hover {
+  background: color-mix(in srgb, var(--transport-accent) 25%, transparent) !important;
+}
+
+.iannix-transport > button:hover,
+.iannix-transport-controls button:hover,
+.iannix-transport-tempo button:hover {
+  background: color-mix(in srgb, var(--transport-hover-bg) 50%, transparent);
+}
+
+.iannix-transport-display strong,
+.iannix-transport-frame strong,
+.iannix-transport-display span,
+.iannix-timeline-tick span,
+.iannix-timeline-playhead span {
+  font-size: var(--drawerator-ui-font-size);
+  line-height: var(--drawerator-ui-line-height);
+}
+
+.ai-model-picker {
+  position: relative;
+  min-width: 0;
+  width: min(220px, 100%);
+  height: var(--drawerator-ui-control-height);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+  border-radius: var(--drawerator-ui-control-radius);
+  background: var(--input-bg-color, var(--island-bg-color));
+  color: var(--color-secondary);
+}
+
+.ai-model-picker > svg {
+  flex: 0 0 auto;
+}
+
+.drawerator-panel-body .ai-model-select {
+  min-width: 0;
+  width: 100%;
+  height: calc(var(--drawerator-ui-control-height) - 2px);
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 0 15px 0 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-primary);
+  box-shadow: none;
+  font-size: var(--drawerator-ui-font-size);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ai-model-picker-arrow {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-secondary);
+  font-size: 7px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* Keep select controls visually flat in passive, focused, and open states.
+   Chromium's customizable picker lets the popup use the same surface instead
+   of switching to the heavy operating-system frame and shadow. */
+.drawerator-panel-shell select:focus,
+.drawerator-panel-shell select:focus-visible,
+.drawerator-panel-shell select:open,
+.iannix-transport select:focus,
+.iannix-transport select:focus-visible,
+.iannix-transport select:open {
+  outline: none;
+  border-color: var(--border-color, rgba(128, 128, 128, 0.3));
+  box-shadow: none;
+}
+
+@supports (appearance: base-select) {
+  .drawerator-panel-shell select,
+  .drawerator-panel-shell select::picker(select),
+  .iannix-transport select,
+  .iannix-transport select::picker(select) {
+    appearance: base-select;
+  }
+
+  .drawerator-panel-shell select,
+  .iannix-transport select {
+    align-items: center;
+  }
+
+  .drawerator-panel-shell select::picker(select),
+  .iannix-transport select::picker(select) {
+    margin-top: 2px;
+    padding: 2px;
+    border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+    border-radius: var(--drawerator-ui-control-radius);
+    background: var(--island-bg-color, var(--bg-sidebar, #fff));
+    color: var(--color-primary);
+    box-shadow: none;
+    font-family: var(--font-sans);
+    font-size: var(--drawerator-ui-font-size);
+    line-height: var(--drawerator-ui-line-height);
+  }
+
+  .drawerator-panel-shell select option,
+  .iannix-transport select option {
+    display: flex;
+    align-items: center;
+    min-height: var(--drawerator-ui-control-height);
+    padding: 5px var(--drawerator-ui-control-padding-x);
+    border: 0;
+    border-radius: 2px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+  }
+
+  .drawerator-panel-shell select option {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .drawerator-panel-shell select option:hover,
+  .drawerator-panel-shell select option:focus,
+  .drawerator-panel-shell select option:checked,
+  .iannix-transport select option:hover,
+  .iannix-transport select option:focus,
+  .iannix-transport select option:checked {
+    background: var(--button-hover-bg, rgba(128, 128, 128, 0.14));
+    color: var(--color-primary);
+    font-weight: 600;
+  }
+
+  .drawerator-panel-shell select option::checkmark,
+  .iannix-transport select option::checkmark {
+    display: none;
+  }
+
+  .drawerator-panel-shell select::picker-icon,
+  .iannix-transport select::picker-icon {
+    color: var(--color-secondary);
+  }
+
+  .drawerator-panel-shell .ai-model-select::picker-icon {
+    display: none;
+  }
+
+  .drawerator-panel-shell .ai-model-select::picker(select) {
+    inline-size: min(320px, calc(100vw - 24px));
+    max-block-size: min(360px, 60vh);
+    overflow-y: auto;
+    position-area: block-end span-inline-end;
+  }
 }

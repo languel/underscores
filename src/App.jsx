@@ -3,9 +3,11 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Excalidraw, MainMenu, exportToSvg, exportToCanvas, loadFromBlob, serializeAsJSON, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
 import "./App.css";
 import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, isDrawableTrack, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
-import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, isRuntimeCursor, normalizeIannixData, snapCursorHostToCurveStart, transformPaths } from "./iannixEngine.js";
+import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, isRuntimeCursor, normalizeIannixData, reconcileRuntimeCursorHosts, snapCursorHostToCurveStart, transformPaths } from "./iannixEngine.js";
 import { createIannixMidiVoiceTracker, describeIannixMidiMessage, getIannixMidiTemplatePattern, getIannixTriggerMidiContext, IANNIX_MIDI_TEMPLATES, parseIannixMidiPattern, selectIannixTriggerCursor } from "./iannixMidi.js";
 import { expandIndexedLabelTemplate } from "./iannixBulkEdit.js";
+import NumberInputController from "./NumberInputController.jsx";
+import InspectorSection from "./InspectorSection.jsx";
 import { attachDraweratorExchangeMetadata, getSelectionExchangeElements, parseDraweratorExchange, remapSelectionForImport } from "./sceneExchange.js";
 import { DRAWERATOR_PANELS } from "./panelRegistry.js";
 import { getDockTarget, getOpenPanelsForPlacement, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
@@ -6486,9 +6488,10 @@ function App() {
     if (!excalidrawAPI) return;
     const { score, grid } = parseDraweratorExchange(text, "scene");
     const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
+    const restoredElements = reconcileRuntimeCursorHosts(restored.elements || []);
     if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
     excalidrawAPI.updateScene({
-      elements: restored.elements || [],
+      elements: restoredElements,
       appState: {
         ...(restored.appState || {}),
         selectedElementIds: {},
@@ -6515,7 +6518,7 @@ function App() {
     triggerCollisionLockoutsRef.current = new Map();
     visualCursorTransformsRef.current = new Map();
     setModifierUpdateNonce(nonce => nonce + 1);
-    setSceneExchangeStatus(`Imported ${restored.elements?.filter(element => !element.isDeleted).length || 0} scene objects.`);
+    setSceneExchangeStatus(`Imported ${restoredElements.filter(element => !element.isDeleted).length} scene objects.`);
   };
 
   const copyDraweratorScene = async () => {
@@ -7034,15 +7037,19 @@ function App() {
       const existing = excalidrawAPI.getSceneElementsIncludingDeleted();
       const imported = remapSelectionForImport(restored.elements || [], existing);
       if (imported.elements.length === 0) throw new Error("The selection JSON contains no objects.");
+      const importedElements = reconcileRuntimeCursorHosts(
+        imported.elements,
+        [...existing, ...imported.elements],
+      );
       if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
-      const importedIds = Object.fromEntries(imported.elements.map(element => [element.id, true]));
+      const importedIds = Object.fromEntries(importedElements.map(element => [element.id, true]));
       excalidrawAPI.updateScene({
-        elements: [...existing, ...imported.elements],
+        elements: [...existing, ...importedElements],
         appState: { selectedElementIds: importedIds },
         commitToHistory: true,
       });
       setModifierUpdateNonce(nonce => nonce + 1);
-      setSceneExchangeStatus(`Pasted ${imported.elements.length} objects with new IDs and preserved Drawerator metadata.`);
+      setSceneExchangeStatus(`Pasted ${importedElements.length} objects with new IDs and preserved Drawerator metadata.`);
     } catch (error) {
       setSceneExchangeStatus(error.message || "Could not paste selection JSON.");
     }
@@ -7412,8 +7419,7 @@ function App() {
   const renderSceneExchangeTools = () => {
     const selectedCount = getSelectedElements().length;
     return (
-      <section className="iannix-section compact iannix-data-section">
-        <div className="iannix-section-title">Scene data</div>
+      <InspectorSection title="Scene data" className="iannix-section compact iannix-data-section">
         <input
           ref={sceneImportInputRef}
           type="file"
@@ -7431,7 +7437,7 @@ function App() {
         </div>
         <div className="iannix-hint">Scene exchange preserves Drawerator metadata. Trusted .iannix compatibility executes familiar run()/load() scripts, reports unsupported commands, and is not a security sandbox.</div>
         {sceneExchangeStatus && <div className="iannix-midi-status" role="status">{sceneExchangeStatus}</div>}
-      </section>
+      </InspectorSection>
     );
   };
 
@@ -7464,11 +7470,7 @@ function App() {
       return (
         <div className="iannix-properties">
           {renderSceneExchangeTools()}
-          <section className="iannix-section">
-            <div className="iannix-section-heading-row">
-              <div className="iannix-section-title">Score role</div>
-              <span className="iannix-selection-count">{selectedElements.length} objects</span>
-            </div>
+          <InspectorSection title="Score role" className="iannix-section" aside={<span className="iannix-selection-count">{selectedElements.length} objects</span>}>
             <div className="iannix-role-grid" role="radiogroup" aria-label="IanniX role for selected objects">
               {roleOptions.map(option => (
                 <button
@@ -7487,7 +7489,7 @@ function App() {
               {selectedRoles.size > 1 ? "Mixed roles. " : ""}
               Assigning a role gives every selected object a unique label. Same-role selections can be edited together below.
             </div>
-          </section>
+          </InspectorSection>
           {sharedRole ? (
             <div className="iannix-object-shared-editor">
               <IannixDataPanel elements={selectedElements} onChange={updateIannixDataPath} />
@@ -7554,8 +7556,7 @@ function App() {
     return (
       <div className="iannix-properties">
         {renderSceneExchangeTools()}
-        <section className="iannix-section">
-          <div className="iannix-section-title">Score role</div>
+        <InspectorSection title="Score role" className="iannix-section">
           <div className="iannix-role-grid" role="radiogroup" aria-label="IanniX object role">
             {roleOptions.map(option => (
               <button
@@ -7587,11 +7588,10 @@ function App() {
               onChange={event => updateIannixElement(element.id, current => ({ ...current, active: event.target.checked }))}
             />
           </label>
-        </section>
+        </InspectorSection>
 
         {data.role === "cursor" && (
-          <section className="iannix-section">
-            <div className="iannix-section-title">Cursor</div>
+          <InspectorSection title="Cursor" className="iannix-section">
             <label className="iannix-field">
               <span>Support curve</span>
               <select
@@ -7623,13 +7623,14 @@ function App() {
                 }))}
               />
             </label>
-            <label className="iannix-range-field">
-              <span><span>Visual smoothing</span><strong>{Math.round(data.cursor.visualSmoothing * 100)}%</strong></span>
+            <label className="iannix-field">
+              <span>Visual smoothing</span>
               <input
-                type="range"
+                type="number"
                 min="0"
                 max="0.95"
                 step="0.05"
+                data-default="0.65"
                 value={data.cursor.visualSmoothing}
                 onChange={event => updateIannixElement(element.id, current => ({
                   ...current,
@@ -7641,47 +7642,46 @@ function App() {
             <div className="iannix-two-column">
               <label className="iannix-field">
                 <span>MIDI base note</span>
-                <input type="number" min="0" max="127" step="1" value={data.midi.baseNote} onChange={event => setNumber("midi", "baseNote", event.target.value)} />
+                <input type="number" min="0" max="127" step="1" data-default="60" value={data.midi.baseNote} onChange={event => setNumber("midi", "baseNote", event.target.value)} />
               </label>
               <label className="iannix-field">
                 <span>Pitch range ± oct.</span>
-                <input type="number" min="0" max="5" step="0.25" value={data.midi.pitchRangeOctaves} onChange={event => setNumber("midi", "pitchRangeOctaves", event.target.value)} />
+                <input type="number" min="0" max="5" step="0.25" data-default="2" value={data.midi.pitchRangeOctaves} onChange={event => setNumber("midi", "pitchRangeOctaves", event.target.value)} />
               </label>
             </div>
             <div className="iannix-hint">Used by the Cursor-relative pitch template. The cursor center is the base note; either end of its shape reaches the selected octave range.</div>
             {curves.length === 0 && (
               <div className="iannix-hint">Assign another object as a Curve before linking this cursor.</div>
             )}
-          </section>
+          </InspectorSection>
         )}
 
         {data.role === "curve" && (
-          <section className="iannix-section">
-            <div className="iannix-section-title">Curve</div>
+          <InspectorSection title="Curve" className="iannix-section">
             <div className="iannix-readout-row"><span>Linked cursors</span><strong>{linkedCursorCount}</strong></div>
             <div className="iannix-two-column">
               <label className="iannix-field">
                 <span>MIDI base note</span>
-                <input type="number" min="0" max="127" step="1" value={data.midi.baseNote} onChange={event => setNumber("midi", "baseNote", event.target.value)} />
+                <input type="number" min="0" max="127" step="1" data-default="60" value={data.midi.baseNote} onChange={event => setNumber("midi", "baseNote", event.target.value)} />
               </label>
               <label className="iannix-field">
                 <span>Pitch range ± oct.</span>
-                <input type="number" min="0" max="5" step="0.25" value={data.midi.pitchRangeOctaves} onChange={event => setNumber("midi", "pitchRangeOctaves", event.target.value)} />
+                <input type="number" min="0" max="5" step="0.25" data-default="2" value={data.midi.pitchRangeOctaves} onChange={event => setNumber("midi", "pitchRangeOctaves", event.target.value)} />
               </label>
             </div>
             <div className="iannix-hint">Playback follows this object's core geometry; Mods &amp; FX remain a rendering layer.</div>
-          </section>
+          </InspectorSection>
         )}
 
         {data.role === "trigger" && (
-          <section className="iannix-section">
-            <div className="iannix-section-title">Trigger</div>
+          <InspectorSection title="Trigger" className="iannix-section">
             <label className="iannix-field">
               <span>Pulse duration (s)</span>
               <input
                 type="number"
                 min="0"
                 step="0.05"
+                data-default="0.35"
                 value={data.trigger.duration}
                 onChange={event => setNumber("trigger", "duration", event.target.value)}
               />
@@ -7715,24 +7715,24 @@ function App() {
                   <div className="iannix-two-column">
                     <label className="iannix-field">
                       <span>Channel</span>
-                      <input type="number" min="1" max="16" step="1" value={data.trigger.midiChannel} onChange={event => updateTriggerMidi({ midiChannel: Number(event.target.value) })} />
+                      <input type="number" min="1" max="16" step="1" data-default="1" value={data.trigger.midiChannel} onChange={event => updateTriggerMidi({ midiChannel: Number(event.target.value) })} />
                     </label>
                     {(data.trigger.midiTemplate === "relativePitch" || data.trigger.midiTemplate === "fixedNote") && (
                       <label className="iannix-field">
                         <span>Velocity</span>
-                        <input type="number" min="0" max="127" step="1" value={data.trigger.midiVelocity} onChange={event => updateTriggerMidi({ midiVelocity: Number(event.target.value) })} />
+                        <input type="number" min="0" max="127" step="1" data-default="100" value={data.trigger.midiVelocity} onChange={event => updateTriggerMidi({ midiVelocity: Number(event.target.value) })} />
                       </label>
                     )}
                     {data.trigger.midiTemplate === "fixedNote" && (
                       <label className="iannix-field">
                         <span>Note</span>
-                        <input type="number" min="0" max="127" step="1" value={data.trigger.midiFixedNote} onChange={event => updateTriggerMidi({ midiFixedNote: Number(event.target.value) })} />
+                        <input type="number" min="0" max="127" step="1" data-default="69" value={data.trigger.midiFixedNote} onChange={event => updateTriggerMidi({ midiFixedNote: Number(event.target.value) })} />
                       </label>
                     )}
                     {data.trigger.midiTemplate === "cursorCC" && (
                       <label className="iannix-field">
                         <span>Controller</span>
-                        <input type="number" min="0" max="127" step="1" value={data.trigger.midiController} onChange={event => updateTriggerMidi({ midiController: Number(event.target.value) })} />
+                        <input type="number" min="0" max="127" step="1" data-default="0" value={data.trigger.midiController} onChange={event => updateTriggerMidi({ midiController: Number(event.target.value) })} />
                       </label>
                     )}
                   </div>
@@ -7807,26 +7807,22 @@ function App() {
                 </details>
               </>
             )}
-          </section>
+          </InspectorSection>
         )}
 
-        <section className="iannix-section">
-          <div className="iannix-section-heading-row">
-            <div className="iannix-section-title">Object time</div>
-            <span className="iannix-progress-readout">{timeState.localTime.toFixed(2)}s · {(timeState.progress * 100).toFixed(1)}%</span>
-          </div>
+        <InspectorSection title="Object time" className="iannix-section" aside={<span className="iannix-progress-readout">{timeState.localTime.toFixed(2)}s · {(timeState.progress * 100).toFixed(1)}%</span>}>
           <div className="iannix-two-column">
             <label className="iannix-field">
               <span>Start (s)</span>
-              <input type="number" min="0" step="0.1" value={data.time.start} onChange={event => setNumber("time", "start", event.target.value)} />
+              <input type="number" min="0" step="0.1" data-default="0" value={data.time.start} onChange={event => setNumber("time", "start", event.target.value)} />
             </label>
             <label className="iannix-field">
               <span>Duration (s)</span>
-              <input type="number" min="0.001" step="0.1" value={data.time.duration} onChange={event => setNumber("time", "duration", event.target.value)} />
+              <input type="number" min="0.001" step="0.1" data-default="5" value={data.time.duration} onChange={event => setNumber("time", "duration", event.target.value)} />
             </label>
             <label className="iannix-field">
               <span>Rate</span>
-              <input type="number" min="0" step="0.1" value={data.time.rate} onChange={event => setNumber("time", "rate", event.target.value)} />
+              <input type="number" min="0" step="0.1" data-default="1" value={data.time.rate} onChange={event => setNumber("time", "rate", event.target.value)} />
             </label>
             <label className="iannix-field">
               <span>Loop</span>
@@ -7847,14 +7843,10 @@ function App() {
             <span style={{ width: `${Math.max(0, Math.min(100, timeState.progress * 100))}%` }} />
           </div>
           <div className="iannix-hint">This role-independent clock will also drive object draw-on animation in the next phase.</div>
-        </section>
+        </InspectorSection>
 
         {scoreEvents.length > 0 && (
-          <section className="iannix-section compact">
-            <div className="iannix-section-heading-row">
-              <div className="iannix-section-title">Recent triggers</div>
-              <button type="button" className="iannix-text-button" onClick={() => setScoreEvents([])}>Clear</button>
-            </div>
+          <InspectorSection title="Recent triggers" className="iannix-section compact" aside={<button type="button" className="iannix-text-button" onClick={() => setScoreEvents([])}>Clear</button>}>
             <div className="iannix-event-list">
               {scoreEvents.slice(0, 5).map(event => (
                 <div key={event.id}>
@@ -7867,7 +7859,7 @@ function App() {
                 </div>
               ))}
             </div>
-          </section>
+          </InspectorSection>
         )}
       </div>
     );
@@ -7999,15 +7991,13 @@ function App() {
                   key={parameter.name}
                   title={[parameter.category, parameter.name].filter(Boolean).join(" · ")}
                 >
-                  <span className="iannix-script-parameter-header">
-                    <span>{parameter.label || parameter.name}</span>
-                    <strong>{Number(parameter.value).toFixed(Number(parameter.step) < 1 ? 2 : 0)}</strong>
-                  </span>
+                  <span className="iannix-script-parameter-header">{parameter.label || parameter.name}</span>
                   <input
-                    type="range"
+                    type="number"
                     min={parameter.min}
                     max={parameter.max}
                     step={parameter.step}
+                    data-default={parameter.default}
                     value={parameter.value}
                     onChange={event => updateScriptParameter(parameter.name, event.target.value)}
                     disabled={!activeScript}
@@ -8900,16 +8890,16 @@ function App() {
                                       <>
                                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
                                           <span>{sp.name}:</span>
-                                          <strong>{val}</strong>
                                         </div>
-                                        <input 
-                                          type="range"
+                                        <input
+                                          type="number"
                                           min={sp.min}
                                           max={sp.max}
                                           step={sp.step}
+                                          data-default={sp.default ?? sp.min ?? 0}
                                           value={val}
                                           onChange={(e) => handleUpdateModifierParams(index, sp.name, parseFloat(e.target.value))}
-                                          style={{ width: "100%", cursor: "pointer", accentColor: "var(--color-primary)" }}
+                                          style={{ width: "100%" }}
                                         />
                                       </>
                                     )}
@@ -9523,11 +9513,11 @@ function App() {
 
         <div className="iannix-transport-tempo">
           <button type="button" onClick={tapTempo} disabled={midiClockMode === "receive" && followMidiClockTempo} title="Tap repeatedly to set tempo">BPM</button>
-          <input type="text" inputMode="decimal" value={scoreTempoDraft} disabled={midiClockMode === "receive" && followMidiClockTempo} onChange={updateTempoDraft} onBlur={commitTempoDraft} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} aria-label="Tempo in BPM" />
+          <input type="number" min="20" max="400" step="1" data-default="120" value={scoreTempoDraft} disabled={midiClockMode === "receive" && followMidiClockTempo} onChange={updateTempoDraft} onBlur={commitTempoDraft} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} aria-label="Tempo in BPM" />
         </div>
 
         <div className="iannix-transport-signature" aria-label="Time signature">
-          <input aria-label="Time signature numerator" type="number" min="1" max="32" value={scoreTimeSignature.numerator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, numerator: event.target.value }))} />
+          <input aria-label="Time signature numerator" type="number" min="1" max="32" step="1" data-default="4" value={scoreTimeSignature.numerator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, numerator: event.target.value }))} />
           <span>/</span>
           <select aria-label="Time signature denominator" value={scoreTimeSignature.denominator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, denominator: event.target.value }))}>
             {[1, 2, 4, 8, 16].map(value => <option key={value} value={value}>{value}</option>)}
@@ -9545,9 +9535,9 @@ function App() {
         </button>
 
         <div className="iannix-transport-range">
-          <input key={`start-${transportDisplayMode}-${transportLoopStart}`} aria-label={`Loop start in ${transportDisplayMode}`} type="text" defaultValue={formatTimelinePosition(transportLoopStart, transportDisplayMode, timelineOptions)} onBlur={event => commitLoopBoundary(event, "start")} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+          <input key={`start-${transportDisplayMode}-${transportLoopStart}`} aria-label={`Loop start in ${transportDisplayMode}`} type={transportDisplayMode === "frame" ? "number" : "text"} min={transportDisplayMode === "frame" ? 0 : undefined} step={transportDisplayMode === "frame" ? 1 : undefined} data-default={transportDisplayMode === "frame" ? 0 : undefined} defaultValue={formatTimelinePosition(transportLoopStart, transportDisplayMode, timelineOptions)} onBlur={event => commitLoopBoundary(event, "start")} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} />
           <span>–</span>
-          <input key={`end-${transportDisplayMode}-${transportLoopEnd}`} aria-label={`Loop end in ${transportDisplayMode}`} type="text" defaultValue={formatTimelinePosition(transportLoopEnd, transportDisplayMode, timelineOptions)} onBlur={event => commitLoopBoundary(event, "end")} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+          <input key={`end-${transportDisplayMode}-${transportLoopEnd}`} aria-label={`Loop end in ${transportDisplayMode}`} type={transportDisplayMode === "frame" ? "number" : "text"} min={transportDisplayMode === "frame" ? 1 : undefined} step={transportDisplayMode === "frame" ? 1 : undefined} data-default={transportDisplayMode === "frame" ? Math.round(scoreEnd * transportFps) : undefined} defaultValue={formatTimelinePosition(transportLoopEnd, transportDisplayMode, timelineOptions)} onBlur={event => commitLoopBoundary(event, "end")} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} />
         </div>
 
         <TransportTimeline
@@ -9608,6 +9598,7 @@ function App() {
 
         {activeSettingsTab === "ai" && (
           <div className="settings-panel-section">
+            <InspectorSection title="Connection" className="settings-inspector-section">
             <label className="settings-panel-field">
               <span>API provider</span>
               <select
@@ -9647,18 +9638,20 @@ function App() {
               </span>
               <button type="button" className="iannix-flat-button" onClick={saveSettings}>Save &amp; test</button>
             </div>
+            </InspectorSection>
           </div>
         )}
 
         {activeSettingsTab === "preferences" && (
           <div className="settings-panel-section">
+            <InspectorSection title="Appearance" className="settings-inspector-section">
             <label className="settings-panel-field">
               <span>Accent color</span>
               <div className="settings-color-control">
                 <input type="color" value={accentColor} onChange={event => { setAccentColor(event.target.value); localStorage.setItem("drawerator_accent_color", event.target.value); }} aria-label="Accent color" />
                 <input key={accentColor} type="text" defaultValue={accentColor} onBlur={event => { if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) { setAccentColor(event.currentTarget.value); localStorage.setItem("drawerator_accent_color", event.currentTarget.value); } else event.currentTarget.value = accentColor; }} aria-label="Accent hex color" />
-                <input type="range" min="0" max="100" value={accentOpacity} onChange={event => { const value = Number(event.target.value); setAccentOpacity(value); localStorage.setItem("drawerator_accent_opacity", String(value)); }} aria-label="Accent opacity" />
-                <output>{accentOpacity}%</output>
+                <input type="number" min="0" max="100" step="1" data-default="100" value={accentOpacity} onChange={event => { const value = Number(event.target.value); setAccentOpacity(value); localStorage.setItem("drawerator_accent_opacity", String(value)); }} aria-label="Accent opacity" />
+                <output>%</output>
               </div>
             </label>
             <label className="settings-panel-field">
@@ -9666,8 +9659,8 @@ function App() {
               <div className="settings-color-control">
                 <input type="color" value={highlightColor} onChange={event => { setHighlightColor(event.target.value); localStorage.setItem("drawerator_highlight_color", event.target.value); }} aria-label="Hover highlight color" />
                 <input key={highlightColor} type="text" defaultValue={highlightColor} onBlur={event => { if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) { setHighlightColor(event.currentTarget.value); localStorage.setItem("drawerator_highlight_color", event.currentTarget.value); } else event.currentTarget.value = highlightColor; }} aria-label="Hover highlight hex color" />
-                <input type="range" min="0" max="100" value={highlightOpacity} onChange={event => { const value = Number(event.target.value); setHighlightOpacity(value); localStorage.setItem("drawerator_highlight_opacity", String(value)); }} aria-label="Hover highlight opacity" />
-                <output>{highlightOpacity}%</output>
+                <input type="number" min="0" max="100" step="1" data-default="100" value={highlightOpacity} onChange={event => { const value = Number(event.target.value); setHighlightOpacity(value); localStorage.setItem("drawerator_highlight_opacity", String(value)); }} aria-label="Hover highlight opacity" />
+                <output>%</output>
               </div>
             </label>
             <details className="settings-role-theme">
@@ -9693,8 +9686,8 @@ function App() {
                           if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: event.currentTarget.value } }));
                           else event.currentTarget.value = entry.color;
                         }} aria-label={`${label} hex color`} />
-                        <input type="range" min="0" max="100" value={entry.opacity} onChange={event => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], opacity: Number(event.target.value) } }))} aria-label={`${label} opacity`} />
-                        <output>{entry.opacity}%</output>
+                        <input type="number" min="0" max="100" step="1" data-default={DEFAULT_ROLE_THEME[key].opacity} value={entry.opacity} onChange={event => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], opacity: Number(event.target.value) } }))} aria-label={`${label} opacity`} />
+                        <output>%</output>
                       </div>
                     </label>
                   );
@@ -9703,6 +9696,8 @@ function App() {
                 <div className="settings-panel-hint">Enabled/disabled follows the object's score switch. Trigger pulse is the temporary collision highlight. Original object colors restore when the override is disabled.</div>
               </div>
             </details>
+            </InspectorSection>
+            <InspectorSection title="Interface" className="settings-inspector-section">
             {[
               ["Force desktop layout", forceDesktopLayout, value => { setForceDesktopLayout(value); localStorage.setItem("drawerator_force_desktop_layout", value); }],
               ["Show toolbar hints", showToolbarHints, value => { setShowToolbarHints(value); localStorage.setItem("drawerator_show_toolbar_hints", value); }],
@@ -9715,8 +9710,8 @@ function App() {
               </label>
             ))}
             <label className="settings-panel-field">
-              <span>Default stabilizer damping <strong>{defaultStabilizerDamping.toFixed(2)}</strong></span>
-              <input type="range" min="0.01" max="0.5" step="0.01" value={defaultStabilizerDamping} onChange={event => {
+              <span>Default stabilizer damping</span>
+              <input type="number" min="0.01" max="0.5" step="0.01" data-default="0.12" value={defaultStabilizerDamping} onChange={event => {
                 const value = Number(event.target.value);
                 setDefaultStabilizerDamping(value);
                 localStorage.setItem("drawerator_default_stabilizer_damping", value);
@@ -9732,6 +9727,7 @@ function App() {
                 <input type="checkbox" checked={checked} onChange={event => excalidrawAPI?.updateScene({ appState: { [field]: event.target.checked } })} />
               </label>
             ))}
+            </InspectorSection>
           </div>
         )}
 
@@ -9745,17 +9741,18 @@ function App() {
 
         {activeSettingsTab === "score" && (
           <div className="settings-panel-section">
+            <InspectorSection title="Transport" className="settings-inspector-section">
             <div className="settings-panel-two-column">
               <label className="settings-panel-field">
                 <span>Tempo (BPM)</span>
-                <input type="number" min="20" max="400" step="1" value={scoreTempo} onChange={event => {
+                <input type="number" min="20" max="400" step="1" data-default="120" value={scoreTempo} onChange={event => {
                   const value = Math.min(400, Math.max(20, Number(event.target.value) || 120));
                   setScoreTempo(value);
                 }} />
               </label>
               <label className="settings-panel-field">
                 <span>Playback rate</span>
-                <input type="number" min="0.05" max="8" step="0.05" value={scoreRate} onChange={event => {
+                <input type="number" min="0.05" max="8" step="0.05" data-default="1" value={scoreRate} onChange={event => {
                   const value = Number(event.target.value);
                   if (Number.isFinite(value) && value > 0) setScoreRate(value);
                 }} />
@@ -9780,7 +9777,7 @@ function App() {
             <div className="settings-panel-two-column">
               <label className="settings-panel-field">
                 <span>Meter numerator</span>
-                <input type="number" min="1" max="32" value={scoreTimeSignature.numerator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, numerator: event.target.value }))} />
+                <input type="number" min="1" max="32" step="1" data-default="4" value={scoreTimeSignature.numerator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, numerator: event.target.value }))} />
               </label>
               <label className="settings-panel-field">
                 <span>Meter denominator</span>
@@ -9811,8 +9808,8 @@ function App() {
               <span>Show score-object labels</span>
               <input type="checkbox" checked={showIannixLabels} onChange={event => setShowIannixLabels(event.target.checked)} />
             </label>
-            <div className="settings-panel-divider" />
-            <div className="settings-panel-heading">MIDI &amp; clock</div>
+            </InspectorSection>
+            <InspectorSection title="MIDI & clock" className="settings-inspector-section">
             <label className="settings-panel-field">
               <span>Clock synchronization</span>
               <select value={midiClockMode} onChange={event => setMidiClockMode(event.target.value)}>
@@ -9914,6 +9911,7 @@ function App() {
               <span className="settings-panel-hint">{scoreTime.toFixed(2)}s · {(scoreTime * scoreTempo / 60).toFixed(2)} beats</span>
               <button type="button" className="iannix-flat-button" onClick={() => { setScorePlaying(false); setScoreTime(0); }}>Rewind</button>
             </div>
+            </InspectorSection>
           </div>
         )}
       </div>
@@ -10174,6 +10172,10 @@ function App() {
         "--horizontal-dock-height": `${bottomDockHeight}px`,
       }}
     >
+      <NumberInputController onRouteRequest={detail => {
+        eventBus.emit("parameter.route.request", detail, { source: "number-box" });
+        setSceneExchangeStatus(`Route request: ${detail.label}`);
+      }} />
       <div 
         id="canvas-container" 
         onPointerDownCapture={handleCanvasPointerDown}
@@ -10722,62 +10724,29 @@ function App() {
             <div className="drawerator-panel-secondary-header">
               <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px", gap: "10px" }}>
                 {/* Model Selector Pill */}
-                <div style={{ 
-                  display: "flex", 
-                  alignItems: "center", 
-                  gap: "4px",
-                  background: "var(--button-hover-bg, rgba(0, 0, 0, 0.05))",
-                  padding: "4px 8px 4px 6px",
-                  borderRadius: "12px",
-                  cursor: "pointer",
-                  position: "relative",
-                  overflow: "hidden"
-                }}>
+                <div className="ai-model-picker">
                   <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" style={{ color: "var(--color-secondary)", flexShrink: 0 }}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
-                  <select 
+                  <select
+                    className="ai-model-select"
                     value={aiSettings.model} 
                     onChange={(e) => {
                       const updated = { ...aiSettings, model: e.target.value };
                       setAiSettings(updated);
                       localStorage.setItem("drawerator_ai_settings", JSON.stringify(updated));
                     }}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      fontSize: "11px",
-                      fontWeight: "600",
-                      color: "var(--color-secondary)",
-                      cursor: "pointer",
-                      outline: "none",
-                      padding: "0 10px 0 0",
-                      margin: 0,
-                      width: "auto",
-                      maxWidth: "150px",
-                      appearance: "none",
-                      WebkitAppearance: "none",
-                      MozAppearance: "none"
-                    }}
                   >
                     {modelsList.length > 0 ? (
                       modelsList.map((m, idx) => (
-                        <option key={idx} value={m} style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>{m}</option>
+                        <option key={idx} value={m}>{m}</option>
                       ))
                     ) : (
-                      <option value="" style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>{aiSettings.model || "Select Model"}</option>
+                      <option value="">{aiSettings.model || "Select Model"}</option>
                     )}
                   </select>
                   {/* Custom tiny down arrow */}
-                  <span style={{ 
-                    position: "absolute", 
-                    right: "6px", 
-                    top: "50%", 
-                    transform: "translateY(-50%)", 
-                    fontSize: "7px", 
-                    color: "var(--color-secondary)",
-                    pointerEvents: "none"
-                  }}>▼</span>
+                  <span className="ai-model-picker-arrow">▼</span>
                 </div>
                 <div style={{ display: "flex", gap: "6px" }}>
                   <button className="header-btn" onClick={clearChat} title="Reset chat history">
@@ -11698,23 +11667,23 @@ function App() {
             </DraweratorPanel>
           )}
 
-          {shouldRenderHorizontalPanel("grid") && (
+          {shouldRenderPanel("grid") && (
             <DraweratorPanel
               id="grid"
               title="Grid"
               placement={panelLayouts.grid.placement}
               layout={panelLayouts.grid}
-              dockTabs={panelLayouts.grid.placement === PANEL_PLACEMENTS.BOTTOM ? bottomDockTabs : []}
-              onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, bottom: panelId }))}
+              dockTabs={getPanelDockTabs("grid")}
+              onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.grid.placement]: panelId }))}
               onDockTabPlacementChange={setPanelPlacement}
-              onDockTabDragStart={startHorizontalPanelDrag}
-              onCloseDockTab={closeHorizontalPanel}
+              onDockTabDragStart={startSidebarPanelDrag}
+              onCloseDockTab={closeDraweratorPanel}
               onPlacementChange={placement => setPanelPlacement("grid", placement)}
-              onDragStart={event => startHorizontalPanelDrag("grid", event)}
-              onClose={() => closeHorizontalPanel("grid")}
+              onDragStart={event => startSidebarPanelDrag("grid", event)}
+              onClose={() => closeDraweratorPanel("grid")}
               onResizeStart={handlePanelResizeMouseDown}
-              allowBottom
-              bottomHeight={144}
+              collapsed={panelLayouts.grid.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.grid.placement]}
+              onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.grid.placement]: false }))}
             >
               <GridPanel
                 grid={globalGrid}
