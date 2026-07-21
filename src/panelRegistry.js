@@ -8,7 +8,7 @@ export const DRAWERATOR_PANELS = Object.freeze([
   Object.freeze({ id: "properties", label: "Properties", slash: "/properties", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "outliner", label: "Outliner", slash: "/outliner", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "transport", label: "Timeline", slash: "/transport", kind: "dockable", placements: ["floating", "bottom"], dockedHeight: 114 }),
-  Object.freeze({ id: "grid", label: "Grid", slash: "/grid", kind: "dockable", placements: ["floating", "bottom"], dockedHeight: 144 }),
+  Object.freeze({ id: "grid", label: "Grid", slash: "/grid", kind: "dockable", placements: ["left", "floating", "right"] }),
 ]);
 
 export const getDraweratorPanel = id => DRAWERATOR_PANELS.find(panel => panel.id === id) || null;

@@ -2051,6 +2051,21 @@ body .excalidraw .sidebar {
   opacity: 0.42;
 }
 
+/* The scene exporter is an anchor so the browser can download its generated
+   JSON. Give it the same box model and neutral link treatment as its button
+   siblings. */
+a.iannix-flat-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  color: inherit !important;
+  font-family: Arial, sans-serif !important;
+  font-weight: 700 !important;
+  text-align: center;
+  text-decoration: none;
+}
+
 .iannix-data-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -3016,12 +3031,13 @@ body .excalidraw .sidebar {
 
 .grid-panel {
   display: flex;
+  flex-direction: column;
   align-items: stretch;
-  min-width: max-content;
+  min-width: 0;
   height: 100%;
   padding: 5px 7px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   color: var(--color-primary);
   background: transparent;
   font-size: 10px;
@@ -3029,27 +3045,21 @@ body .excalidraw .sidebar {
 
 .grid-panel-group {
   box-sizing: border-box;
-  display: grid;
-  grid-template-rows: 14px repeat(3, minmax(0, 1fr));
-  align-items: center;
-  gap: 2px 7px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   min-width: 0;
-  padding: 0 10px;
-  border-left: 1px solid var(--border-color, rgba(128, 128, 128, 0.24));
+  width: auto;
+  padding: 10px 3px;
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.24));
 }
 
 .grid-panel-group:first-child {
-  padding-left: 3px;
-  border-left: 0;
+  border-top: 0;
 }
 
-.grid-panel-geometry { width: 405px; }
-.grid-panel-snap { width: 345px; }
-.grid-panel-selection { width: 185px; }
-.grid-panel-time { width: 295px; }
-
 .grid-panel-group-title {
-  align-self: end;
   color: var(--color-secondary);
   font-size: 9px;
   font-weight: 750;
@@ -3059,9 +3069,10 @@ body .excalidraw .sidebar {
 }
 
 .grid-panel-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
-  gap: 6px;
+  gap: 6px 10px;
   min-width: 0;
 }
 
@@ -3093,14 +3104,9 @@ body .excalidraw .sidebar {
 .grid-panel-field select { width: 78px; }
 
 .grid-panel-snap .grid-panel-field {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1px;
-  line-height: 1;
-}
-
-.grid-panel-snap .grid-panel-field input,
-.grid-panel-snap .grid-panel-field select {
-  width: 72px;
+  grid-template-columns: auto minmax(42px, 1fr);
+  gap: 4px;
+  line-height: normal;
 }
 
 .grid-panel-field input:focus,
@@ -3155,10 +3161,11 @@ body .excalidraw .sidebar {
 }
 
 .grid-panel-targets {
-  gap: 10px;
+  gap: 7px 10px;
 }
 
 .grid-panel-actions {
+  display: flex;
   justify-content: flex-end;
 }
 
@@ -3437,4 +3444,42 @@ body .excalidraw .sidebar {
 
 .drawerator-bezier-editor-overlay g.selected .bezier-anchor-point {
   fill: var(--drawerator-accent);
+}
+
+/* Numeric fields support horizontal scrubbing without changing the existing
+   panel styling. The context menu reuses Drawerator's current menu surface. */
+.drawerator-shell input[type="number"]:not(:disabled),
+.number-box-global-dragging,
+.number-box-global-dragging * {
+  cursor: ew-resize !important;
+}
+
+.number-box-global-dragging,
+.number-box-global-dragging * {
+  user-select: none !important;
+}
+
+.number-box-menu-title {
+  padding: 6px 12px;
+  color: var(--color-secondary);
+  font-size: 11px;
+}
+
+.number-box-menu {
+  min-width: 270px;
+}
+
+.number-box-menu .custom-floating-context-menu-btn {
+  gap: 6px;
+}
+
+.number-box-menu-icon {
+  width: 18px;
+  flex: 0 0 18px;
+}
+
+.number-box-menu kbd {
+  margin-left: auto;
+  color: var(--color-secondary);
+  font: inherit;
 }

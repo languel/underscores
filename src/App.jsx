@@ -3,9 +3,10 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Excalidraw, MainMenu, exportToSvg, exportToCanvas, loadFromBlob, serializeAsJSON, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
 import "./App.css";
 import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, isDrawableTrack, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
-import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, isRuntimeCursor, normalizeIannixData, snapCursorHostToCurveStart, transformPaths } from "./iannixEngine.js";
+import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, isRuntimeCursor, normalizeIannixData, reconcileRuntimeCursorHosts, snapCursorHostToCurveStart, transformPaths } from "./iannixEngine.js";
 import { createIannixMidiVoiceTracker, describeIannixMidiMessage, getIannixMidiTemplatePattern, getIannixTriggerMidiContext, IANNIX_MIDI_TEMPLATES, parseIannixMidiPattern, selectIannixTriggerCursor } from "./iannixMidi.js";
 import { expandIndexedLabelTemplate } from "./iannixBulkEdit.js";
+import NumberInputController from "./NumberInputController.jsx";
 import { attachDraweratorExchangeMetadata, getSelectionExchangeElements, parseDraweratorExchange, remapSelectionForImport } from "./sceneExchange.js";
 import { DRAWERATOR_PANELS } from "./panelRegistry.js";
 import { getDockTarget, getOpenPanelsForPlacement, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
@@ -6486,9 +6487,10 @@ function App() {
     if (!excalidrawAPI) return;
     const { score, grid } = parseDraweratorExchange(text, "scene");
     const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
+    const restoredElements = reconcileRuntimeCursorHosts(restored.elements || []);
     if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
     excalidrawAPI.updateScene({
-      elements: restored.elements || [],
+      elements: restoredElements,
       appState: {
         ...(restored.appState || {}),
         selectedElementIds: {},
@@ -6515,7 +6517,7 @@ function App() {
     triggerCollisionLockoutsRef.current = new Map();
     visualCursorTransformsRef.current = new Map();
     setModifierUpdateNonce(nonce => nonce + 1);
-    setSceneExchangeStatus(`Imported ${restored.elements?.filter(element => !element.isDeleted).length || 0} scene objects.`);
+    setSceneExchangeStatus(`Imported ${restoredElements.filter(element => !element.isDeleted).length} scene objects.`);
   };
 
   const copyDraweratorScene = async () => {
@@ -7034,15 +7036,19 @@ function App() {
       const existing = excalidrawAPI.getSceneElementsIncludingDeleted();
       const imported = remapSelectionForImport(restored.elements || [], existing);
       if (imported.elements.length === 0) throw new Error("The selection JSON contains no objects.");
+      const importedElements = reconcileRuntimeCursorHosts(
+        imported.elements,
+        [...existing, ...imported.elements],
+      );
       if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
-      const importedIds = Object.fromEntries(imported.elements.map(element => [element.id, true]));
+      const importedIds = Object.fromEntries(importedElements.map(element => [element.id, true]));
       excalidrawAPI.updateScene({
-        elements: [...existing, ...imported.elements],
+        elements: [...existing, ...importedElements],
         appState: { selectedElementIds: importedIds },
         commitToHistory: true,
       });
       setModifierUpdateNonce(nonce => nonce + 1);
-      setSceneExchangeStatus(`Pasted ${imported.elements.length} objects with new IDs and preserved Drawerator metadata.`);
+      setSceneExchangeStatus(`Pasted ${importedElements.length} objects with new IDs and preserved Drawerator metadata.`);
     } catch (error) {
       setSceneExchangeStatus(error.message || "Could not paste selection JSON.");
     }
@@ -7623,13 +7629,14 @@ function App() {
                 }))}
               />
             </label>
-            <label className="iannix-range-field">
-              <span><span>Visual smoothing</span><strong>{Math.round(data.cursor.visualSmoothing * 100)}%</strong></span>
+            <label className="iannix-field">
+              <span>Visual smoothing</span>
               <input
-                type="range"
+                type="number"
                 min="0"
                 max="0.95"
                 step="0.05"
+                data-default="0.65"
                 value={data.cursor.visualSmoothing}
                 onChange={event => updateIannixElement(element.id, current => ({
                   ...current,
@@ -7641,11 +7648,11 @@ function App() {
             <div className="iannix-two-column">
               <label className="iannix-field">
                 <span>MIDI base note</span>
-                <input type="number" min="0" max="127" step="1" value={data.midi.baseNote} onChange={event => setNumber("midi", "baseNote", event.target.value)} />
+                <input type="number" min="0" max="127" step="1" data-default="60" value={data.midi.baseNote} onChange={event => setNumber("midi", "baseNote", event.target.value)} />
               </label>
               <label className="iannix-field">
                 <span>Pitch range ± oct.</span>
-                <input type="number" min="0" max="5" step="0.25" value={data.midi.pitchRangeOctaves} onChange={event => setNumber("midi", "pitchRangeOctaves", event.target.value)} />
+                <input type="number" min="0" max="5" step="0.25" data-default="2" value={data.midi.pitchRangeOctaves} onChange={event => setNumber("midi", "pitchRangeOctaves", event.target.value)} />
               </label>
             </div>
             <div className="iannix-hint">Used by the Cursor-relative pitch template. The cursor center is the base note; either end of its shape reaches the selected octave range.</div>
@@ -7662,11 +7669,11 @@ function App() {
             <div className="iannix-two-column">
               <label className="iannix-field">
                 <span>MIDI base note</span>
-                <input type="number" min="0" max="127" step="1" value={data.midi.baseNote} onChange={event => setNumber("midi", "baseNote", event.target.value)} />
+                <input type="number" min="0" max="127" step="1" data-default="60" value={data.midi.baseNote} onChange={event => setNumber("midi", "baseNote", event.target.value)} />
               </label>
               <label className="iannix-field">
                 <span>Pitch range ± oct.</span>
-                <input type="number" min="0" max="5" step="0.25" value={data.midi.pitchRangeOctaves} onChange={event => setNumber("midi", "pitchRangeOctaves", event.target.value)} />
+                <input type="number" min="0" max="5" step="0.25" data-default="2" value={data.midi.pitchRangeOctaves} onChange={event => setNumber("midi", "pitchRangeOctaves", event.target.value)} />
               </label>
             </div>
             <div className="iannix-hint">Playback follows this object's core geometry; Mods &amp; FX remain a rendering layer.</div>
@@ -7682,6 +7689,7 @@ function App() {
                 type="number"
                 min="0"
                 step="0.05"
+                data-default="0.35"
                 value={data.trigger.duration}
                 onChange={event => setNumber("trigger", "duration", event.target.value)}
               />
@@ -7715,24 +7723,24 @@ function App() {
                   <div className="iannix-two-column">
                     <label className="iannix-field">
                       <span>Channel</span>
-                      <input type="number" min="1" max="16" step="1" value={data.trigger.midiChannel} onChange={event => updateTriggerMidi({ midiChannel: Number(event.target.value) })} />
+                      <input type="number" min="1" max="16" step="1" data-default="1" value={data.trigger.midiChannel} onChange={event => updateTriggerMidi({ midiChannel: Number(event.target.value) })} />
                     </label>
                     {(data.trigger.midiTemplate === "relativePitch" || data.trigger.midiTemplate === "fixedNote") && (
                       <label className="iannix-field">
                         <span>Velocity</span>
-                        <input type="number" min="0" max="127" step="1" value={data.trigger.midiVelocity} onChange={event => updateTriggerMidi({ midiVelocity: Number(event.target.value) })} />
+                        <input type="number" min="0" max="127" step="1" data-default="100" value={data.trigger.midiVelocity} onChange={event => updateTriggerMidi({ midiVelocity: Number(event.target.value) })} />
                       </label>
                     )}
                     {data.trigger.midiTemplate === "fixedNote" && (
                       <label className="iannix-field">
                         <span>Note</span>
-                        <input type="number" min="0" max="127" step="1" value={data.trigger.midiFixedNote} onChange={event => updateTriggerMidi({ midiFixedNote: Number(event.target.value) })} />
+                        <input type="number" min="0" max="127" step="1" data-default="69" value={data.trigger.midiFixedNote} onChange={event => updateTriggerMidi({ midiFixedNote: Number(event.target.value) })} />
                       </label>
                     )}
                     {data.trigger.midiTemplate === "cursorCC" && (
                       <label className="iannix-field">
                         <span>Controller</span>
-                        <input type="number" min="0" max="127" step="1" value={data.trigger.midiController} onChange={event => updateTriggerMidi({ midiController: Number(event.target.value) })} />
+                        <input type="number" min="0" max="127" step="1" data-default="0" value={data.trigger.midiController} onChange={event => updateTriggerMidi({ midiController: Number(event.target.value) })} />
                       </label>
                     )}
                   </div>
@@ -7818,15 +7826,15 @@ function App() {
           <div className="iannix-two-column">
             <label className="iannix-field">
               <span>Start (s)</span>
-              <input type="number" min="0" step="0.1" value={data.time.start} onChange={event => setNumber("time", "start", event.target.value)} />
+              <input type="number" min="0" step="0.1" data-default="0" value={data.time.start} onChange={event => setNumber("time", "start", event.target.value)} />
             </label>
             <label className="iannix-field">
               <span>Duration (s)</span>
-              <input type="number" min="0.001" step="0.1" value={data.time.duration} onChange={event => setNumber("time", "duration", event.target.value)} />
+              <input type="number" min="0.001" step="0.1" data-default="5" value={data.time.duration} onChange={event => setNumber("time", "duration", event.target.value)} />
             </label>
             <label className="iannix-field">
               <span>Rate</span>
-              <input type="number" min="0" step="0.1" value={data.time.rate} onChange={event => setNumber("time", "rate", event.target.value)} />
+              <input type="number" min="0" step="0.1" data-default="1" value={data.time.rate} onChange={event => setNumber("time", "rate", event.target.value)} />
             </label>
             <label className="iannix-field">
               <span>Loop</span>
@@ -7999,15 +8007,13 @@ function App() {
                   key={parameter.name}
                   title={[parameter.category, parameter.name].filter(Boolean).join(" · ")}
                 >
-                  <span className="iannix-script-parameter-header">
-                    <span>{parameter.label || parameter.name}</span>
-                    <strong>{Number(parameter.value).toFixed(Number(parameter.step) < 1 ? 2 : 0)}</strong>
-                  </span>
+                  <span className="iannix-script-parameter-header">{parameter.label || parameter.name}</span>
                   <input
-                    type="range"
+                    type="number"
                     min={parameter.min}
                     max={parameter.max}
                     step={parameter.step}
+                    data-default={parameter.default}
                     value={parameter.value}
                     onChange={event => updateScriptParameter(parameter.name, event.target.value)}
                     disabled={!activeScript}
@@ -8900,16 +8906,16 @@ function App() {
                                       <>
                                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
                                           <span>{sp.name}:</span>
-                                          <strong>{val}</strong>
                                         </div>
-                                        <input 
-                                          type="range"
+                                        <input
+                                          type="number"
                                           min={sp.min}
                                           max={sp.max}
                                           step={sp.step}
+                                          data-default={sp.default ?? sp.min ?? 0}
                                           value={val}
                                           onChange={(e) => handleUpdateModifierParams(index, sp.name, parseFloat(e.target.value))}
-                                          style={{ width: "100%", cursor: "pointer", accentColor: "var(--color-primary)" }}
+                                          style={{ width: "100%" }}
                                         />
                                       </>
                                     )}
@@ -9527,7 +9533,7 @@ function App() {
         </div>
 
         <div className="iannix-transport-signature" aria-label="Time signature">
-          <input aria-label="Time signature numerator" type="number" min="1" max="32" value={scoreTimeSignature.numerator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, numerator: event.target.value }))} />
+          <input aria-label="Time signature numerator" type="number" min="1" max="32" step="1" data-default="4" value={scoreTimeSignature.numerator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, numerator: event.target.value }))} />
           <span>/</span>
           <select aria-label="Time signature denominator" value={scoreTimeSignature.denominator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, denominator: event.target.value }))}>
             {[1, 2, 4, 8, 16].map(value => <option key={value} value={value}>{value}</option>)}
@@ -9657,8 +9663,8 @@ function App() {
               <div className="settings-color-control">
                 <input type="color" value={accentColor} onChange={event => { setAccentColor(event.target.value); localStorage.setItem("drawerator_accent_color", event.target.value); }} aria-label="Accent color" />
                 <input key={accentColor} type="text" defaultValue={accentColor} onBlur={event => { if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) { setAccentColor(event.currentTarget.value); localStorage.setItem("drawerator_accent_color", event.currentTarget.value); } else event.currentTarget.value = accentColor; }} aria-label="Accent hex color" />
-                <input type="range" min="0" max="100" value={accentOpacity} onChange={event => { const value = Number(event.target.value); setAccentOpacity(value); localStorage.setItem("drawerator_accent_opacity", String(value)); }} aria-label="Accent opacity" />
-                <output>{accentOpacity}%</output>
+                <input type="number" min="0" max="100" step="1" data-default="100" value={accentOpacity} onChange={event => { const value = Number(event.target.value); setAccentOpacity(value); localStorage.setItem("drawerator_accent_opacity", String(value)); }} aria-label="Accent opacity" />
+                <output>%</output>
               </div>
             </label>
             <label className="settings-panel-field">
@@ -9666,8 +9672,8 @@ function App() {
               <div className="settings-color-control">
                 <input type="color" value={highlightColor} onChange={event => { setHighlightColor(event.target.value); localStorage.setItem("drawerator_highlight_color", event.target.value); }} aria-label="Hover highlight color" />
                 <input key={highlightColor} type="text" defaultValue={highlightColor} onBlur={event => { if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) { setHighlightColor(event.currentTarget.value); localStorage.setItem("drawerator_highlight_color", event.currentTarget.value); } else event.currentTarget.value = highlightColor; }} aria-label="Hover highlight hex color" />
-                <input type="range" min="0" max="100" value={highlightOpacity} onChange={event => { const value = Number(event.target.value); setHighlightOpacity(value); localStorage.setItem("drawerator_highlight_opacity", String(value)); }} aria-label="Hover highlight opacity" />
-                <output>{highlightOpacity}%</output>
+                <input type="number" min="0" max="100" step="1" data-default="100" value={highlightOpacity} onChange={event => { const value = Number(event.target.value); setHighlightOpacity(value); localStorage.setItem("drawerator_highlight_opacity", String(value)); }} aria-label="Hover highlight opacity" />
+                <output>%</output>
               </div>
             </label>
             <details className="settings-role-theme">
@@ -9693,8 +9699,8 @@ function App() {
                           if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: event.currentTarget.value } }));
                           else event.currentTarget.value = entry.color;
                         }} aria-label={`${label} hex color`} />
-                        <input type="range" min="0" max="100" value={entry.opacity} onChange={event => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], opacity: Number(event.target.value) } }))} aria-label={`${label} opacity`} />
-                        <output>{entry.opacity}%</output>
+                        <input type="number" min="0" max="100" step="1" data-default={DEFAULT_ROLE_THEME[key].opacity} value={entry.opacity} onChange={event => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], opacity: Number(event.target.value) } }))} aria-label={`${label} opacity`} />
+                        <output>%</output>
                       </div>
                     </label>
                   );
@@ -9715,8 +9721,8 @@ function App() {
               </label>
             ))}
             <label className="settings-panel-field">
-              <span>Default stabilizer damping <strong>{defaultStabilizerDamping.toFixed(2)}</strong></span>
-              <input type="range" min="0.01" max="0.5" step="0.01" value={defaultStabilizerDamping} onChange={event => {
+              <span>Default stabilizer damping</span>
+              <input type="number" min="0.01" max="0.5" step="0.01" data-default="0.12" value={defaultStabilizerDamping} onChange={event => {
                 const value = Number(event.target.value);
                 setDefaultStabilizerDamping(value);
                 localStorage.setItem("drawerator_default_stabilizer_damping", value);
@@ -9748,14 +9754,14 @@ function App() {
             <div className="settings-panel-two-column">
               <label className="settings-panel-field">
                 <span>Tempo (BPM)</span>
-                <input type="number" min="20" max="400" step="1" value={scoreTempo} onChange={event => {
+                <input type="number" min="20" max="400" step="1" data-default="120" value={scoreTempo} onChange={event => {
                   const value = Math.min(400, Math.max(20, Number(event.target.value) || 120));
                   setScoreTempo(value);
                 }} />
               </label>
               <label className="settings-panel-field">
                 <span>Playback rate</span>
-                <input type="number" min="0.05" max="8" step="0.05" value={scoreRate} onChange={event => {
+                <input type="number" min="0.05" max="8" step="0.05" data-default="1" value={scoreRate} onChange={event => {
                   const value = Number(event.target.value);
                   if (Number.isFinite(value) && value > 0) setScoreRate(value);
                 }} />
@@ -9780,7 +9786,7 @@ function App() {
             <div className="settings-panel-two-column">
               <label className="settings-panel-field">
                 <span>Meter numerator</span>
-                <input type="number" min="1" max="32" value={scoreTimeSignature.numerator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, numerator: event.target.value }))} />
+                <input type="number" min="1" max="32" step="1" data-default="4" value={scoreTimeSignature.numerator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, numerator: event.target.value }))} />
               </label>
               <label className="settings-panel-field">
                 <span>Meter denominator</span>
@@ -10174,6 +10180,10 @@ function App() {
         "--horizontal-dock-height": `${bottomDockHeight}px`,
       }}
     >
+      <NumberInputController onRouteRequest={detail => {
+        eventBus.emit("parameter.route.request", detail, { source: "number-box" });
+        setSceneExchangeStatus(`Route request: ${detail.label}`);
+      }} />
       <div 
         id="canvas-container" 
         onPointerDownCapture={handleCanvasPointerDown}
@@ -11698,23 +11708,23 @@ function App() {
             </DraweratorPanel>
           )}
 
-          {shouldRenderHorizontalPanel("grid") && (
+          {shouldRenderPanel("grid") && (
             <DraweratorPanel
               id="grid"
               title="Grid"
               placement={panelLayouts.grid.placement}
               layout={panelLayouts.grid}
-              dockTabs={panelLayouts.grid.placement === PANEL_PLACEMENTS.BOTTOM ? bottomDockTabs : []}
-              onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, bottom: panelId }))}
+              dockTabs={getPanelDockTabs("grid")}
+              onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.grid.placement]: panelId }))}
               onDockTabPlacementChange={setPanelPlacement}
-              onDockTabDragStart={startHorizontalPanelDrag}
-              onCloseDockTab={closeHorizontalPanel}
+              onDockTabDragStart={startSidebarPanelDrag}
+              onCloseDockTab={closeDraweratorPanel}
               onPlacementChange={placement => setPanelPlacement("grid", placement)}
-              onDragStart={event => startHorizontalPanelDrag("grid", event)}
-              onClose={() => closeHorizontalPanel("grid")}
+              onDragStart={event => startSidebarPanelDrag("grid", event)}
+              onClose={() => closeDraweratorPanel("grid")}
               onResizeStart={handlePanelResizeMouseDown}
-              allowBottom
-              bottomHeight={144}
+              collapsed={panelLayouts.grid.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.grid.placement]}
+              onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.grid.placement]: false }))}
             >
               <GridPanel
                 grid={globalGrid}

@@ -207,6 +207,29 @@ export const enforceRuntimeCursorHostVisibility = (element) => {
   };
 };
 
+// Rebuild the authored host state of imported runtime cursors before the
+// elements enter Excalidraw. Doing this synchronously avoids a frame where a
+// pasted cursor can be evaluated from stale geometry (or remain invisible if
+// the post-import React effect does not run before the next scene change).
+// `supportElements` may include objects already in the destination scene when
+// importing a selection whose cursor links to an existing curve.
+export const reconcileRuntimeCursorHosts = (elements, supportElements = elements) => {
+  const supportById = new Map(
+    (supportElements || [])
+      .filter(element => element && !element.isDeleted)
+      .map(element => [element.id, element]),
+  );
+  return (elements || []).map(element => {
+    if (!isRuntimeCursor(element)) return element;
+    const data = normalizeIannixData(element.customData?.iannix);
+    const supportCurve = supportById.get(data.cursor.curveId);
+    const snapped = supportCurve
+      ? snapCursorHostToCurveStart(element, supportCurve, data.cursor.followTangent)
+      : element;
+    return enforceRuntimeCursorHostVisibility(snapped);
+  });
+};
+
 export const getObjectTimeState = (globalTime, timing) => {
   const normalized = normalizeIannixData({ time: timing }).time;
   const elapsed = (Math.max(0, Number(globalTime) || 0) - normalized.start) * normalized.rate;

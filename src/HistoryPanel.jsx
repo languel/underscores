@@ -149,8 +149,8 @@ const HistoryPanel = memo(function HistoryPanel({
       </div>
       {actions.length > 0 ? (
         <div className="history-range-save">
-          <label><span>From</span><input type="number" min="0" step="0.01" value={rangeStart} onChange={event => setRangeStart(Number(event.target.value) || 0)} /></label>
-          <label><span>To</span><input type="number" min="0" step="0.01" value={rangeEnd} onChange={event => setRangeEnd(Number(event.target.value) || 0)} /></label>
+          <label><span>From</span><input type="number" min="0" step="0.01" data-default="0" value={rangeStart} onChange={event => setRangeStart(Number(event.target.value) || 0)} /></label>
+          <label><span>To</span><input type="number" min="0" step="0.01" data-default="0" value={rangeEnd} onChange={event => setRangeEnd(Number(event.target.value) || 0)} /></label>
           <button type="button" onClick={() => onSaveMacro({ start: Math.min(rangeStart, rangeEnd), end: Math.max(rangeStart, rangeEnd) })}>Save range</button>
         </div>
       ) : null}

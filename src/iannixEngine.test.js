@@ -14,6 +14,7 @@ import {
   isRuntimeCursor,
   normalizeIannixData,
   pathsIntersect,
+  reconcileRuntimeCursorHosts,
   samplePath,
   snapCursorHostToCurveStart,
   sweptPathsIntersect,
@@ -73,6 +74,41 @@ test("runtime cursor hosts remain invisible even when an interaction restores th
   assert.equal(hidden.customData.iannix.cursor.sourceOpacity, 100);
   assert.equal(hidden.customData.iannix.cursor.sourceStrokeColor, "#00ff00");
   assert.equal(enforceRuntimeCursorHostVisibility(hidden), hidden);
+});
+
+test("scene import reconciliation restores a linked cursor host before installation", () => {
+  const curve = line("curve", [[20, 30], [120, 30]], createDefaultIannixData({ role: "curve" }));
+  const cursor = line("cursor", [[300, 400], [300, 440]], createDefaultIannixData({
+    role: "cursor",
+    cursor: { curveId: "curve", sourceOpacity: 75, sourceStrokeColor: "#ff3300" },
+  }));
+  cursor.opacity = 0;
+  cursor.strokeColor = "transparent";
+
+  const reconciled = reconcileRuntimeCursorHosts([curve, cursor]);
+  const restoredCursor = reconciled[1];
+  assert.deepEqual(getElementCenter(restoredCursor), [20, 30]);
+  assert.equal(restoredCursor.opacity, 0);
+  assert.equal(restoredCursor.strokeColor, "transparent");
+  assert.equal(restoredCursor.customData.iannix.cursor.curveId, "curve");
+  assert.equal(restoredCursor.customData.iannix.cursor.sourceOpacity, 75);
+  assert.equal(restoredCursor.customData.iannix.cursor.sourceStrokeColor, "#ff3300");
+});
+
+test("selection import reconciliation can resolve a cursor against destination support", () => {
+  const curve = line("existing-curve", [[50, 60], [150, 160]], createDefaultIannixData({ role: "curve" }));
+  const cursor = line("pasted-cursor", [[500, 500], [500, 520]], createDefaultIannixData({
+    role: "cursor",
+    cursor: { curveId: "existing-curve" },
+  }));
+  cursor.opacity = 100;
+  cursor.strokeColor = "#00ff00";
+
+  const [restoredCursor] = reconcileRuntimeCursorHosts([cursor], [curve, cursor]);
+  assert.deepEqual(getElementCenter(restoredCursor), [50, 60]);
+  assert.equal(restoredCursor.opacity, 0);
+  assert.equal(restoredCursor.strokeColor, "transparent");
+  assert.equal(restoredCursor.customData.iannix.cursor.sourceStrokeColor, "#00ff00");
 });
 
 test("normalizes role-independent timing without discarding role settings", () => {
