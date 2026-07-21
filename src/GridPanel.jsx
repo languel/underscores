@@ -1,5 +1,6 @@
 import React from "react";
 import { formatGridTimeMapping } from "./gridSystem.js";
+import InspectorSection from "./InspectorSection.jsx";
 
 const NumberField = ({ label, value, onChange, defaultValue, ...inputProps }) => (
   <label className="grid-panel-field">
@@ -17,8 +18,8 @@ const SelectField = ({ label, value, onChange, children }) => (
 
 const Check = ({ label, checked, onChange }) => (
   <label className="grid-panel-check">
-    <input type="checkbox" checked={checked} onChange={onChange} />
     <span>{label}</span>
+    <input type="checkbox" checked={checked} onChange={onChange} />
   </label>
 );
 
@@ -35,8 +36,7 @@ export default function GridPanel({
 }) {
   return (
     <div className="grid-panel" role="form" aria-label="Global grid controls">
-      <section className="grid-panel-group grid-panel-geometry" aria-label="Grid geometry">
-        <div className="grid-panel-group-title">Geometry</div>
+      <InspectorSection title="Geometry" className="grid-panel-group grid-panel-geometry" aria-label="Grid geometry">
         <div className="grid-panel-row">
           <Check label="Visible" checked={grid.appearance.visible} onChange={event => onUpdate({ appearance: { visible: event.target.checked } })} />
           <NumberField label="Spacing X" aria-label="Global grid spacing X" min="1" step="1" defaultValue="100" value={grid.spacing.x} onChange={event => onUpdate({ spacing: { x: event.target.value } })} />
@@ -55,10 +55,9 @@ export default function GridPanel({
           <Check label="Axes" checked={grid.appearance.showAxes} onChange={event => onUpdate({ appearance: { showAxes: event.target.checked } })} />
           <label className="grid-panel-field"><span>Opacity %</span><input aria-label="Global grid opacity" type="number" min="2" max="100" step="1" data-default="32" value={Math.round(grid.appearance.opacity * 100)} onChange={event => onUpdate({ appearance: { opacity: Number(event.target.value) / 100 } })} /></label>
         </div>
-      </section>
+      </InspectorSection>
 
-      <section className="grid-panel-group grid-panel-snap" aria-label="Grid snapping">
-        <div className="grid-panel-group-title">Snap</div>
+      <InspectorSection title="Snap" className="grid-panel-group grid-panel-snap" aria-label="Grid snapping">
         <div className="grid-panel-row">
           <SelectField label="Mode" value={grid.snap.mode} onChange={event => onUpdate({ snap: { mode: event.target.value } })}>
             <option value="off">Off</option><option value="hard">Hard</option><option value="magnetic">Magnetic</option>
@@ -79,10 +78,9 @@ export default function GridPanel({
         <div className="grid-panel-row grid-panel-actions">
           <button type="button" onClick={onQuantizeSelection}>Quantize selection</button>
         </div>
-      </section>
+      </InspectorSection>
 
-      <section className="grid-panel-group grid-panel-selection" aria-label="Selection filter">
-        <div className="grid-panel-group-title">Select</div>
+      <InspectorSection title="Select" className="grid-panel-group grid-panel-selection" aria-label="Selection filter">
         <div className="grid-panel-selection-options">
           {[["Anything", "anything"], ["Curve", "curve"], ["Cursor", "cursor"], ["Trigger", "trigger"]].map(([label, key]) => (
             <Check key={key} label={label} checked={selectionFilter[key]} onChange={() => onToggleSelectionFilter(key)} />
@@ -91,10 +89,9 @@ export default function GridPanel({
         <div className="grid-panel-selection-summary">
           {selectionFilter.anything ? "All canvas objects" : "Only checked roles"}
         </div>
-      </section>
+      </InspectorSection>
 
-      <section className="grid-panel-group grid-panel-time" aria-label="Grid time mapping">
-        <div className="grid-panel-group-title">Time mapping</div>
+      <InspectorSection title="Time mapping" className="grid-panel-group grid-panel-time" aria-label="Grid time mapping">
         <div className="grid-panel-row">
           <NumberField label="Per cell" aria-label="Global grid time amount" min="0.000001" step="0.25" defaultValue="1" value={grid.time.amount} onChange={event => onUpdate({ time: { amount: event.target.value } })} />
           <SelectField label="Unit" value={grid.time.unit} onChange={event => onUpdate({ time: { unit: event.target.value } })}>
@@ -109,7 +106,7 @@ export default function GridPanel({
         <div className="grid-panel-row grid-panel-actions">
           <button type="button" onClick={onReset}>Reset grid</button>
         </div>
-      </section>
+      </InspectorSection>
     </div>
   );
 }

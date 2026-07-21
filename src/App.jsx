@@ -7,6 +7,7 @@ import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransfo
 import { createIannixMidiVoiceTracker, describeIannixMidiMessage, getIannixMidiTemplatePattern, getIannixTriggerMidiContext, IANNIX_MIDI_TEMPLATES, parseIannixMidiPattern, selectIannixTriggerCursor } from "./iannixMidi.js";
 import { expandIndexedLabelTemplate } from "./iannixBulkEdit.js";
 import NumberInputController from "./NumberInputController.jsx";
+import InspectorSection from "./InspectorSection.jsx";
 import { attachDraweratorExchangeMetadata, getSelectionExchangeElements, parseDraweratorExchange, remapSelectionForImport } from "./sceneExchange.js";
 import { DRAWERATOR_PANELS } from "./panelRegistry.js";
 import { getDockTarget, getOpenPanelsForPlacement, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
@@ -7418,8 +7419,7 @@ function App() {
   const renderSceneExchangeTools = () => {
     const selectedCount = getSelectedElements().length;
     return (
-      <section className="iannix-section compact iannix-data-section">
-        <div className="iannix-section-title">Scene data</div>
+      <InspectorSection title="Scene data" className="iannix-section compact iannix-data-section">
         <input
           ref={sceneImportInputRef}
           type="file"
@@ -7437,7 +7437,7 @@ function App() {
         </div>
         <div className="iannix-hint">Scene exchange preserves Drawerator metadata. Trusted .iannix compatibility executes familiar run()/load() scripts, reports unsupported commands, and is not a security sandbox.</div>
         {sceneExchangeStatus && <div className="iannix-midi-status" role="status">{sceneExchangeStatus}</div>}
-      </section>
+      </InspectorSection>
     );
   };
 
@@ -7470,11 +7470,7 @@ function App() {
       return (
         <div className="iannix-properties">
           {renderSceneExchangeTools()}
-          <section className="iannix-section">
-            <div className="iannix-section-heading-row">
-              <div className="iannix-section-title">Score role</div>
-              <span className="iannix-selection-count">{selectedElements.length} objects</span>
-            </div>
+          <InspectorSection title="Score role" className="iannix-section" aside={<span className="iannix-selection-count">{selectedElements.length} objects</span>}>
             <div className="iannix-role-grid" role="radiogroup" aria-label="IanniX role for selected objects">
               {roleOptions.map(option => (
                 <button
@@ -7493,7 +7489,7 @@ function App() {
               {selectedRoles.size > 1 ? "Mixed roles. " : ""}
               Assigning a role gives every selected object a unique label. Same-role selections can be edited together below.
             </div>
-          </section>
+          </InspectorSection>
           {sharedRole ? (
             <div className="iannix-object-shared-editor">
               <IannixDataPanel elements={selectedElements} onChange={updateIannixDataPath} />
@@ -7560,8 +7556,7 @@ function App() {
     return (
       <div className="iannix-properties">
         {renderSceneExchangeTools()}
-        <section className="iannix-section">
-          <div className="iannix-section-title">Score role</div>
+        <InspectorSection title="Score role" className="iannix-section">
           <div className="iannix-role-grid" role="radiogroup" aria-label="IanniX object role">
             {roleOptions.map(option => (
               <button
@@ -7593,11 +7588,10 @@ function App() {
               onChange={event => updateIannixElement(element.id, current => ({ ...current, active: event.target.checked }))}
             />
           </label>
-        </section>
+        </InspectorSection>
 
         {data.role === "cursor" && (
-          <section className="iannix-section">
-            <div className="iannix-section-title">Cursor</div>
+          <InspectorSection title="Cursor" className="iannix-section">
             <label className="iannix-field">
               <span>Support curve</span>
               <select
@@ -7659,12 +7653,11 @@ function App() {
             {curves.length === 0 && (
               <div className="iannix-hint">Assign another object as a Curve before linking this cursor.</div>
             )}
-          </section>
+          </InspectorSection>
         )}
 
         {data.role === "curve" && (
-          <section className="iannix-section">
-            <div className="iannix-section-title">Curve</div>
+          <InspectorSection title="Curve" className="iannix-section">
             <div className="iannix-readout-row"><span>Linked cursors</span><strong>{linkedCursorCount}</strong></div>
             <div className="iannix-two-column">
               <label className="iannix-field">
@@ -7677,12 +7670,11 @@ function App() {
               </label>
             </div>
             <div className="iannix-hint">Playback follows this object's core geometry; Mods &amp; FX remain a rendering layer.</div>
-          </section>
+          </InspectorSection>
         )}
 
         {data.role === "trigger" && (
-          <section className="iannix-section">
-            <div className="iannix-section-title">Trigger</div>
+          <InspectorSection title="Trigger" className="iannix-section">
             <label className="iannix-field">
               <span>Pulse duration (s)</span>
               <input
@@ -7815,14 +7807,10 @@ function App() {
                 </details>
               </>
             )}
-          </section>
+          </InspectorSection>
         )}
 
-        <section className="iannix-section">
-          <div className="iannix-section-heading-row">
-            <div className="iannix-section-title">Object time</div>
-            <span className="iannix-progress-readout">{timeState.localTime.toFixed(2)}s · {(timeState.progress * 100).toFixed(1)}%</span>
-          </div>
+        <InspectorSection title="Object time" className="iannix-section" aside={<span className="iannix-progress-readout">{timeState.localTime.toFixed(2)}s · {(timeState.progress * 100).toFixed(1)}%</span>}>
           <div className="iannix-two-column">
             <label className="iannix-field">
               <span>Start (s)</span>
@@ -7855,14 +7843,10 @@ function App() {
             <span style={{ width: `${Math.max(0, Math.min(100, timeState.progress * 100))}%` }} />
           </div>
           <div className="iannix-hint">This role-independent clock will also drive object draw-on animation in the next phase.</div>
-        </section>
+        </InspectorSection>
 
         {scoreEvents.length > 0 && (
-          <section className="iannix-section compact">
-            <div className="iannix-section-heading-row">
-              <div className="iannix-section-title">Recent triggers</div>
-              <button type="button" className="iannix-text-button" onClick={() => setScoreEvents([])}>Clear</button>
-            </div>
+          <InspectorSection title="Recent triggers" className="iannix-section compact" aside={<button type="button" className="iannix-text-button" onClick={() => setScoreEvents([])}>Clear</button>}>
             <div className="iannix-event-list">
               {scoreEvents.slice(0, 5).map(event => (
                 <div key={event.id}>
@@ -7875,7 +7859,7 @@ function App() {
                 </div>
               ))}
             </div>
-          </section>
+          </InspectorSection>
         )}
       </div>
     );
@@ -9529,7 +9513,7 @@ function App() {
 
         <div className="iannix-transport-tempo">
           <button type="button" onClick={tapTempo} disabled={midiClockMode === "receive" && followMidiClockTempo} title="Tap repeatedly to set tempo">BPM</button>
-          <input type="text" inputMode="decimal" value={scoreTempoDraft} disabled={midiClockMode === "receive" && followMidiClockTempo} onChange={updateTempoDraft} onBlur={commitTempoDraft} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} aria-label="Tempo in BPM" />
+          <input type="number" min="20" max="400" step="1" data-default="120" value={scoreTempoDraft} disabled={midiClockMode === "receive" && followMidiClockTempo} onChange={updateTempoDraft} onBlur={commitTempoDraft} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} aria-label="Tempo in BPM" />
         </div>
 
         <div className="iannix-transport-signature" aria-label="Time signature">
@@ -9551,9 +9535,9 @@ function App() {
         </button>
 
         <div className="iannix-transport-range">
-          <input key={`start-${transportDisplayMode}-${transportLoopStart}`} aria-label={`Loop start in ${transportDisplayMode}`} type="text" defaultValue={formatTimelinePosition(transportLoopStart, transportDisplayMode, timelineOptions)} onBlur={event => commitLoopBoundary(event, "start")} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+          <input key={`start-${transportDisplayMode}-${transportLoopStart}`} aria-label={`Loop start in ${transportDisplayMode}`} type={transportDisplayMode === "frame" ? "number" : "text"} min={transportDisplayMode === "frame" ? 0 : undefined} step={transportDisplayMode === "frame" ? 1 : undefined} data-default={transportDisplayMode === "frame" ? 0 : undefined} defaultValue={formatTimelinePosition(transportLoopStart, transportDisplayMode, timelineOptions)} onBlur={event => commitLoopBoundary(event, "start")} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} />
           <span>–</span>
-          <input key={`end-${transportDisplayMode}-${transportLoopEnd}`} aria-label={`Loop end in ${transportDisplayMode}`} type="text" defaultValue={formatTimelinePosition(transportLoopEnd, transportDisplayMode, timelineOptions)} onBlur={event => commitLoopBoundary(event, "end")} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+          <input key={`end-${transportDisplayMode}-${transportLoopEnd}`} aria-label={`Loop end in ${transportDisplayMode}`} type={transportDisplayMode === "frame" ? "number" : "text"} min={transportDisplayMode === "frame" ? 1 : undefined} step={transportDisplayMode === "frame" ? 1 : undefined} data-default={transportDisplayMode === "frame" ? Math.round(scoreEnd * transportFps) : undefined} defaultValue={formatTimelinePosition(transportLoopEnd, transportDisplayMode, timelineOptions)} onBlur={event => commitLoopBoundary(event, "end")} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} />
         </div>
 
         <TransportTimeline
@@ -9614,6 +9598,7 @@ function App() {
 
         {activeSettingsTab === "ai" && (
           <div className="settings-panel-section">
+            <InspectorSection title="Connection" className="settings-inspector-section">
             <label className="settings-panel-field">
               <span>API provider</span>
               <select
@@ -9653,11 +9638,13 @@ function App() {
               </span>
               <button type="button" className="iannix-flat-button" onClick={saveSettings}>Save &amp; test</button>
             </div>
+            </InspectorSection>
           </div>
         )}
 
         {activeSettingsTab === "preferences" && (
           <div className="settings-panel-section">
+            <InspectorSection title="Appearance" className="settings-inspector-section">
             <label className="settings-panel-field">
               <span>Accent color</span>
               <div className="settings-color-control">
@@ -9709,6 +9696,8 @@ function App() {
                 <div className="settings-panel-hint">Enabled/disabled follows the object's score switch. Trigger pulse is the temporary collision highlight. Original object colors restore when the override is disabled.</div>
               </div>
             </details>
+            </InspectorSection>
+            <InspectorSection title="Interface" className="settings-inspector-section">
             {[
               ["Force desktop layout", forceDesktopLayout, value => { setForceDesktopLayout(value); localStorage.setItem("drawerator_force_desktop_layout", value); }],
               ["Show toolbar hints", showToolbarHints, value => { setShowToolbarHints(value); localStorage.setItem("drawerator_show_toolbar_hints", value); }],
@@ -9738,6 +9727,7 @@ function App() {
                 <input type="checkbox" checked={checked} onChange={event => excalidrawAPI?.updateScene({ appState: { [field]: event.target.checked } })} />
               </label>
             ))}
+            </InspectorSection>
           </div>
         )}
 
@@ -9751,6 +9741,7 @@ function App() {
 
         {activeSettingsTab === "score" && (
           <div className="settings-panel-section">
+            <InspectorSection title="Transport" className="settings-inspector-section">
             <div className="settings-panel-two-column">
               <label className="settings-panel-field">
                 <span>Tempo (BPM)</span>
@@ -9817,8 +9808,8 @@ function App() {
               <span>Show score-object labels</span>
               <input type="checkbox" checked={showIannixLabels} onChange={event => setShowIannixLabels(event.target.checked)} />
             </label>
-            <div className="settings-panel-divider" />
-            <div className="settings-panel-heading">MIDI &amp; clock</div>
+            </InspectorSection>
+            <InspectorSection title="MIDI & clock" className="settings-inspector-section">
             <label className="settings-panel-field">
               <span>Clock synchronization</span>
               <select value={midiClockMode} onChange={event => setMidiClockMode(event.target.value)}>
@@ -9920,6 +9911,7 @@ function App() {
               <span className="settings-panel-hint">{scoreTime.toFixed(2)}s · {(scoreTime * scoreTempo / 60).toFixed(2)} beats</span>
               <button type="button" className="iannix-flat-button" onClick={() => { setScorePlaying(false); setScoreTime(0); }}>Rewind</button>
             </div>
+            </InspectorSection>
           </div>
         )}
       </div>
@@ -10732,62 +10724,29 @@ function App() {
             <div className="drawerator-panel-secondary-header">
               <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px", gap: "10px" }}>
                 {/* Model Selector Pill */}
-                <div style={{ 
-                  display: "flex", 
-                  alignItems: "center", 
-                  gap: "4px",
-                  background: "var(--button-hover-bg, rgba(0, 0, 0, 0.05))",
-                  padding: "4px 8px 4px 6px",
-                  borderRadius: "12px",
-                  cursor: "pointer",
-                  position: "relative",
-                  overflow: "hidden"
-                }}>
+                <div className="ai-model-picker">
                   <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" style={{ color: "var(--color-secondary)", flexShrink: 0 }}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
-                  <select 
+                  <select
+                    className="ai-model-select"
                     value={aiSettings.model} 
                     onChange={(e) => {
                       const updated = { ...aiSettings, model: e.target.value };
                       setAiSettings(updated);
                       localStorage.setItem("drawerator_ai_settings", JSON.stringify(updated));
                     }}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      fontSize: "11px",
-                      fontWeight: "600",
-                      color: "var(--color-secondary)",
-                      cursor: "pointer",
-                      outline: "none",
-                      padding: "0 10px 0 0",
-                      margin: 0,
-                      width: "auto",
-                      maxWidth: "150px",
-                      appearance: "none",
-                      WebkitAppearance: "none",
-                      MozAppearance: "none"
-                    }}
                   >
                     {modelsList.length > 0 ? (
                       modelsList.map((m, idx) => (
-                        <option key={idx} value={m} style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>{m}</option>
+                        <option key={idx} value={m}>{m}</option>
                       ))
                     ) : (
-                      <option value="" style={{ background: "var(--island-bg-color)", color: "var(--color-primary)" }}>{aiSettings.model || "Select Model"}</option>
+                      <option value="">{aiSettings.model || "Select Model"}</option>
                     )}
                   </select>
                   {/* Custom tiny down arrow */}
-                  <span style={{ 
-                    position: "absolute", 
-                    right: "6px", 
-                    top: "50%", 
-                    transform: "translateY(-50%)", 
-                    fontSize: "7px", 
-                    color: "var(--color-secondary)",
-                    pointerEvents: "none"
-                  }}>▼</span>
+                  <span className="ai-model-picker-arrow">▼</span>
                 </div>
                 <div style={{ display: "flex", gap: "6px" }}>
                   <button className="header-btn" onClick={clearChat} title="Reset chat history">
