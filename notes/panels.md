@@ -42,4 +42,10 @@ Dense parameter panels use the shared `InspectorSection` disclosure pattern. Sec
 
 The Grid panel is a vertical inspector rather than a horizontal extension of the timeline. Timeline and inspector controls share the same compact type and control-height tokens; neither establishes a competing visual scale.
 
+## Contextual help and shortcuts
+
+Info is a normal panel, not an inspector card. It may float or join the bottom dock. Controls annotated with `data-info-title` and `data-info` update it on hover or keyboard focus while retaining a concise native hover title. This carries stable explanations for panel options; live errors, transport state, and changing values remain adjacent to their controls.
+
+The editable **Settings → Shortcuts** view is the source of truth for Drawerator-specific key bindings. In addition to canvas tools and grid actions, it includes panel toggles, left/right/bottom dock collapse, transport, history, theme, modifier, geometry, and stroke-width actions. New actions must be registered there before they receive an application keyboard handler.
+
 The detailed control and styling contract lives in [UI guidelines](ui-guidelines.md).

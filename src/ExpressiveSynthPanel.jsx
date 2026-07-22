@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import InspectorSection from "./InspectorSection.jsx";
+import { infoProps } from "./uiInfo.js";
 import {
   DEFAULT_EXPRESSIVE_SYNTH_CONFIG,
   EXPRESSIVE_SYNTH_PRESETS,
   getExpressiveSynthPrograms,
 } from "./expressiveSynth.js";
-
-const infoProps = (title, body) => ({ title, "data-info-title": title, "data-info": body });
 
 const NumericField = ({ label, value, min, max, step, defaultValue, unit, onChange, help }) => (
   <label className="settings-panel-field expressive-synth-field" {...infoProps(label, help)}>

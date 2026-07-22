@@ -1,4 +1,5 @@
 import { GM_PROGRAMS, isPercussionChannel } from "./generalMidi.js";
+import { infoProps } from "./uiInfo.js";
 import {
   externalMixerDestination,
   getExternalMixerOutputId,
@@ -39,9 +40,9 @@ export default function MixerPanel({
       <div className="mixer-toolbar">
         <span>{tracks.length} tracks · {expressiveVoiceCount} expressive voices</span>
         <div className="mixer-toolbar-actions">
-          <button type="button" className="iannix-flat-button" onClick={onConnectMidi}>MIDI</button>
-          <button type="button" className="iannix-flat-button" onClick={onPanic}>Panic</button>
-          <button type="button" className="iannix-flat-button" onClick={onAddTrack}>Add track</button>
+          <button type="button" className="iannix-flat-button" onClick={onConnectMidi} {...infoProps("MIDI devices", "Request or refresh browser access to external MIDI inputs and outputs.")}>MIDI</button>
+          <button type="button" className="iannix-flat-button" onClick={onPanic} {...infoProps("Panic", "Immediately release notes on every internal and external mixer destination.")}>Panic</button>
+          <button type="button" className="iannix-flat-button" onClick={onAddTrack} {...infoProps("Add track", "Create another mixer track. Tracks route score MIDI channels to internal or external instruments.")}>Add track</button>
         </div>
       </div>
       <div className="mixer-track-list">
@@ -54,11 +55,11 @@ export default function MixerPanel({
                 <span className="mixer-track-number">{index + 1}</span>
                 <span className="mixer-track-summary-name">{track.name}</span>
                 <span className="mixer-track-summary-route">Ch {track.midiChannel} · {destinationLabel(track, midiOutputs)} · {instrumentLabel(track)}</span>
-                <button type="button" className={track.solo ? "active" : ""} aria-label={`Solo ${track.name}`} aria-pressed={track.solo} onClick={event => { event.preventDefault(); onUpdateTrack(track.id, { solo: !track.solo }); }}>S</button>
-                <button type="button" className={track.muted ? "active" : ""} aria-label={`Mute ${track.name}`} aria-pressed={track.muted} onClick={event => { event.preventDefault(); onUpdateTrack(track.id, { muted: !track.muted }); }}>M</button>
+                <button type="button" className={track.solo ? "active" : ""} aria-label={`Solo ${track.name}`} aria-pressed={track.solo} onClick={event => { event.preventDefault(); onUpdateTrack(track.id, { solo: !track.solo }); }} {...infoProps("Solo track", "Hear this track while suppressing non-solo tracks.")}>S</button>
+                <button type="button" className={track.muted ? "active" : ""} aria-label={`Mute ${track.name}`} aria-pressed={track.muted} onClick={event => { event.preventDefault(); onUpdateTrack(track.id, { muted: !track.muted }); }} {...infoProps("Mute track", "Suppress this track without changing its routing or program.")}>M</button>
               </summary>
               <div className="mixer-track-controls">
-                <label className="mixer-field">
+                <label className="mixer-field" {...infoProps("Destination", "Choose no output, the browser's internal audio engines, or a connected external MIDI port.")}>
                   <span>Destination</span>
                   <select value={track.destination} onChange={event => {
                     const destination = event.target.value;
@@ -74,7 +75,7 @@ export default function MixerPanel({
                     {midiOutputs.map(output => <option key={output.id} value={externalMixerDestination(output.id)}>{output.name}{output.manufacturer ? ` — ${output.manufacturer}` : ""}</option>)}
                   </select>
                 </label>
-                <label className="mixer-field">
+                <label className="mixer-field" {...infoProps("Instrument", "Choose General MIDI or Expressive Synth for internal audio. External destinations send MIDI bytes to the selected device.")}>
                   <span>Instrument</span>
                   {track.destination === MIXER_DESTINATION_INTERNAL ? (
                     <select value={track.instrument} onChange={event => onUpdateTrack(track.id, {
@@ -115,12 +116,12 @@ export default function MixerPanel({
                     </select>
                   )}
                 </label>
-                <label className="mixer-field mixer-channel-field">
+                <label className="mixer-field mixer-channel-field" {...infoProps("MIDI channel", "Score events on this MIDI channel are routed through this track. Multiple tracks may listen to the same channel.")}>
                   <span>MIDI channel</span>
                   <input type="number" min="1" max="16" step="1" data-default={index % 16 + 1} value={track.midiChannel} onChange={event => onUpdateTrack(track.id, { midiChannel: Number(event.target.value) })} />
                 </label>
                 <div className="mixer-track-actions-row">
-                  <label className="mixer-track-enabled">
+                  <label className="mixer-track-enabled" {...infoProps("Track enabled", "Disable this track without removing its destination, instrument, program, or MIDI channel settings.")}>
                     <span>Enabled</span>
                     <input type="checkbox" checked={track.enabled} onChange={event => onUpdateTrack(track.id, { enabled: event.target.checked })} />
                   </label>

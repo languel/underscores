@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef } from "react";
 import { normalizeIannixData } from "./iannixEngine.js";
 import { getBulkIannixEditorValue, getSharedPrimitiveValue } from "./iannixBulkEdit.js";
+import { infoProps } from "./uiInfo.js";
 
 const roleName = (role, count) => {
   const name = `${role.charAt(0).toUpperCase()}${role.slice(1)}`;
@@ -131,12 +132,7 @@ const IannixDataPanel = memo(function IannixDataPanel({ elements = [], onChange 
         <strong>{bulk ? `${values.length} ${roleName(role, values.length)}` : (iannixElements[0].data.label || roleName(role, 1))}</strong>
         <code>{bulk ? "shared properties" : iannixElements[0].element.id}</code>
       </div>
-      {bulk ? (
-        <div className="iannix-data-bulk-note">
-          Mixed fields are blank. Use <code>{"${n}"}</code> in the label template for 1-based numbering.
-          {excludedCount > 0 ? ` ${excludedCount} non-IanniX object${excludedCount === 1 ? " was" : "s were"} excluded.` : ""}
-        </div>
-      ) : null}
+      {bulk ? <span tabIndex={0} className="iannix-info-anchor" {...infoProps("Bulk score editing", `Mixed fields are blank. Use \${n} in the label template for 1-based numbering.${excludedCount > 0 ? ` ${excludedCount} non-IanniX object${excludedCount === 1 ? " was" : "s were"} excluded.` : ""}`)}>ⓘ</span> : null}
       <DataNode
         name="iannix"
         values={values}

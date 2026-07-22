@@ -42,6 +42,13 @@ Do not use sliders for ordinary scalar parameters. Keep formatted values such as
 - Longer explanations belong in the dockable/floating `/info` view and concise native hover titles, not as permanent prose between controls. Annotated controls expose `data-info-title` and `data-info`; hovering or focusing them updates Info without changing layout.
 - Specialized controls such as the AI model picker must still use the shared select styling and constrain long menus to the viewport with scrolling.
 
+## Contextual help and shortcuts
+
+- Put stable control explanations in concise native hover titles and the dockable/floating **Info** panel, rather than leaving explanatory paragraphs in inspectors.
+- Use the shared `infoProps(title, body)` helper so a control supplies both `title` and the `data-info-title` / `data-info` pair consumed by Info on hover or keyboard focus.
+- Use a small `ⓘ` or `?` help anchor only where no existing control can naturally carry the explanation. Dynamic errors, live status, and values that change while playing remain inline.
+- Keep the editable Shortcuts panel dense: shortcut rows are compact label/binding pairs, not large button cards. Register every Drawerator action in the shared shortcut registry so its default is visible and rebindable there; do not add a hard-coded duplicate listener.
+
 ## Buttons and toggles
 
 - Transport icon buttons share one footprint; active state must never change a button's size or shape.
@@ -68,3 +75,5 @@ Before landing UI changes, verify:
 5. numeric inputs support typing, coarse drag, fine drag, reset, and their context menu;
 6. the timeline remains one compact row at supported desktop widths;
 7. light and dark themes preserve contrast without stronger borders or fills.
+8. stable control help appears in a hover title and Info, while dynamic status remains inline;
+9. newly introduced Drawerator actions are present in the editable Shortcuts panel.

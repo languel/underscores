@@ -150,6 +150,10 @@ Canonical paths are hosted by native Excalidraw linear elements whose first deri
 
 The native Excalidraw polyline is derived data, not a second source of truth. Converting a selected line or freehand path clears any active native linear-point editor before the canonical Bézier editor is used. Command-click editing exposes anchors and handles; ordinary selection-mode drags on a canonical anchor are routed through the same canonical geometry update and therefore honor the Drawerator Global Grid's point snapping. Native non-canonical line point edits preserve the selected point index so release quantization can update the authored point without transforming the whole element.
 
+The Grid panel keeps snapping targets intentionally distinct: **Input** snaps a newly authored pointer sample, **Transforms** applies one shared snap delta to a moved or resized selection, **Points** quantizes native and canonical path point edits, and **Generated** is opt-in for modifier or generated geometry. The visual grid is dotted while snapping is off and solid while hard or magnetic snapping is active, so the canvas state is legible without relying only on the panel.
+
+Shift-right-click offers the same geometry conversion workflow for lines, freehand paths, rectangles, diamonds, and ellipses. **Convert to Path** makes a clean closed native line, **Convert to Spline** makes an editable canonical Bézier path, and **Convert to Freehand Pencil** makes a closed pressure-neutral freedraw stroke. These conversions preserve the real selectable geometry, use zero sloppiness, and never leave a snapped overlay over stale source points. New rectangles and diamonds default to sharp corners; all newly authored shapes default to sloppiness `0`.
+
 ## Runtime evaluation
 
 `src/iannixEngine.js` is a pure score kernel. For each frame it:

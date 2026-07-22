@@ -44,7 +44,9 @@ const GlobalGridCanvas = memo(function GlobalGridCanvas({ grid: gridValue, appSt
         maxY: Math.max(topLeft.y, bottomRight.y),
       }, { zoom: appState.zoom?.value || 1, maxLines: 240 });
 
-      context.lineCap = "square";
+      const snapping = grid.snap.mode !== "off";
+      context.setLineDash(snapping ? [] : [1, 4]);
+      context.lineCap = snapping ? "square" : "round";
       for (const line of lines) {
         const start = sceneCoordsToViewportCoords({ sceneX: line.start[0], sceneY: line.start[1] }, appState);
         const end = sceneCoordsToViewportCoords({ sceneX: line.end[0], sceneY: line.end[1] }, appState);
