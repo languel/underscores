@@ -22,6 +22,18 @@ export const getNumberInputDefault = input => {
   return minimum !== undefined && minimum !== "" ? finite(minimum) : 0;
 };
 
+export const isNumberInputResetShortcut = event => (
+  event?.key === "Backspace"
+  && event.shiftKey === true
+  && !event.metaKey
+  && !event.ctrlKey
+  && !event.altKey
+);
+
+export const isTransientNumberInputValue = value => (
+  value === "" || value === "-" || value === "+" || value === "." || value === "-." || value === "+."
+);
+
 export const valueFromNumberDrag = ({ startValue, deltaX, step = 1, fine = false, min, max }) => {
   const safeStep = Math.abs(finite(step, 1)) || 1;
   const precision = Math.max(decimalPlaces(safeStep), fine ? decimalPlaces(safeStep) + 1 : 0);

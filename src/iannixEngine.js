@@ -30,12 +30,14 @@ export const createDefaultIannixData = (overrides = {}) => ({
     ...(overrides.cursor || {}),
   },
   midi: {
+    midiChannel: 1,
     baseNote: 60,
     pitchRangeOctaves: 2,
     velocity: 100,
     ...(overrides.midi || {}),
   },
   trigger: {
+    behavior: "pulse",
     duration: 0.35,
     midiEnabled: false,
     midiTemplate: "iannixXY",
@@ -89,6 +91,9 @@ export const normalizeIannixData = (data) => {
     midi: {
       ...defaults.midi,
       ...(data?.midi || {}),
+      midiChannel: Math.min(16, Math.max(1, Math.round(
+        Number.isFinite(Number(data?.midi?.midiChannel)) ? Number(data.midi.midiChannel) : defaults.midi.midiChannel
+      ))),
       baseNote: Math.min(127, Math.max(0, Math.round(
         Number.isFinite(Number(data?.midi?.baseNote)) ? Number(data.midi.baseNote) : defaults.midi.baseNote
       ))),
@@ -104,6 +109,7 @@ export const normalizeIannixData = (data) => {
     trigger: {
       ...defaults.trigger,
       ...(data?.trigger || {}),
+      behavior: data?.trigger?.behavior === "glissando" ? "glissando" : "pulse",
       duration: Math.max(0, Number.isFinite(Number(data?.trigger?.duration))
         ? Number(data.trigger.duration)
         : defaults.trigger.duration),

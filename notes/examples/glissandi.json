@@ -1,0 +1,862 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "drawerator-example:glissandi",
+  "elements": [
+    {
+      "id": "glissandi_timeline",
+      "type": "line",
+      "x": 30,
+      "y": 240,
+      "width": 600,
+      "height": 0,
+      "angle": 0,
+      "strokeColor": "#f08c00",
+      "backgroundColor": "transparent",
+      "fillStyle": "hachure",
+      "strokeWidth": 2.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 1,
+      "version": 1,
+      "versionNonce": 1001,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 0,
+      "link": null,
+      "locked": false,
+      "startBinding": null,
+      "endBinding": null,
+      "lastCommittedPoint": null,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          600,
+          0
+        ]
+      ],
+      "customData": {
+        "iannix": {
+          "version": 1,
+          "role": "curve",
+          "active": true,
+          "label": "Timeline",
+          "time": {
+            "start": 0,
+            "duration": 12,
+            "rate": 1,
+            "loopMode": "loop"
+          },
+          "cursor": {
+            "curveId": null,
+            "followTangent": true,
+            "visualSmoothing": 0.65,
+            "boundsSource": null,
+            "boundsTarget": [
+              0,
+              1,
+              0,
+              1,
+              0,
+              1
+            ]
+          },
+          "midi": {
+            "midiChannel": 16,
+            "baseNote": 60,
+            "pitchRangeOctaves": 2.5,
+            "velocity": 100
+          },
+          "trigger": {
+            "behavior": "pulse",
+            "duration": 0.35,
+            "midiEnabled": false,
+            "midiTemplate": "iannixXY",
+            "midiChannel": 1,
+            "midiBaseSource": "cursor",
+            "midiVelocity": 100,
+            "midiFixedNote": 69,
+            "midiController": 0,
+            "midiPattern": "midi://midi_out/notef 1 trigger_value_y trigger_value_x trigger_duration"
+          }
+        }
+      }
+    },
+    {
+      "id": "glissandi_cursor",
+      "type": "line",
+      "x": 30,
+      "y": 50,
+      "width": 0,
+      "height": 380,
+      "angle": 0,
+      "strokeColor": "transparent",
+      "backgroundColor": "transparent",
+      "fillStyle": "hachure",
+      "strokeWidth": 2.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 0,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 2,
+      "version": 1,
+      "versionNonce": 1002,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 0,
+      "link": null,
+      "locked": false,
+      "startBinding": null,
+      "endBinding": null,
+      "lastCommittedPoint": null,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          380
+        ]
+      ],
+      "customData": {
+        "iannix": {
+          "version": 1,
+          "role": "cursor",
+          "active": true,
+          "label": "Time cursor",
+          "time": {
+            "start": 0,
+            "duration": 12,
+            "rate": 1,
+            "loopMode": "loop"
+          },
+          "cursor": {
+            "curveId": "glissandi_timeline",
+            "followTangent": true,
+            "visualSmoothing": 0.2,
+            "boundsSource": null,
+            "boundsTarget": [
+              0,
+              1,
+              0,
+              1,
+              0,
+              1
+            ],
+            "sourceOpacity": 100,
+            "sourceStrokeColor": "#1b1b1f"
+          },
+          "midi": {
+            "midiChannel": 16,
+            "baseNote": 60,
+            "pitchRangeOctaves": 2.5,
+            "velocity": 100
+          },
+          "trigger": {
+            "behavior": "pulse",
+            "duration": 0.35,
+            "midiEnabled": false,
+            "midiTemplate": "iannixXY",
+            "midiChannel": 1,
+            "midiBaseSource": "cursor",
+            "midiVelocity": 100,
+            "midiFixedNote": 69,
+            "midiController": 0,
+            "midiPattern": "midi://midi_out/notef 1 trigger_value_y trigger_value_x trigger_duration"
+          }
+        }
+      }
+    },
+    {
+      "id": "glissandi_glissando_1",
+      "type": "line",
+      "x": 48,
+      "y": 50,
+      "width": 564,
+      "height": 319.20000000000005,
+      "angle": 0,
+      "strokeColor": "#12aeea",
+      "backgroundColor": "transparent",
+      "fillStyle": "hachure",
+      "strokeWidth": 1.5,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 3,
+      "version": 1,
+      "versionNonce": 1003,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 0,
+      "link": null,
+      "locked": false,
+      "startBinding": null,
+      "endBinding": null,
+      "lastCommittedPoint": null,
+      "points": [
+        [
+          0,
+          319.20000000000005
+        ],
+        [
+          564,
+          0
+        ]
+      ],
+      "customData": {
+        "iannix": {
+          "version": 1,
+          "role": "trigger",
+          "active": true,
+          "label": "Glissando 1",
+          "time": {
+            "start": 0,
+            "duration": 5,
+            "rate": 1,
+            "loopMode": "once"
+          },
+          "cursor": {
+            "curveId": null,
+            "followTangent": true,
+            "visualSmoothing": 0.65,
+            "boundsSource": null,
+            "boundsTarget": [
+              0,
+              1,
+              0,
+              1,
+              0,
+              1
+            ]
+          },
+          "midi": {
+            "midiChannel": 1,
+            "baseNote": 60,
+            "pitchRangeOctaves": 2,
+            "velocity": 100
+          },
+          "trigger": {
+            "behavior": "glissando",
+            "duration": 0.35,
+            "midiEnabled": true,
+            "midiTemplate": "iannixXY",
+            "midiChannel": 1,
+            "midiBaseSource": "cursor",
+            "midiVelocity": 88,
+            "midiFixedNote": 69,
+            "midiController": 0,
+            "midiPattern": "midi://midi_out/notef 1 trigger_value_y trigger_value_x trigger_duration"
+          }
+        }
+      }
+    },
+    {
+      "id": "glissandi_glissando_2",
+      "type": "line",
+      "x": 60,
+      "y": 27.19999999999999,
+      "width": 402,
+      "height": 456.00000000000006,
+      "angle": 0,
+      "strokeColor": "#12aeea",
+      "backgroundColor": "transparent",
+      "fillStyle": "hachure",
+      "strokeWidth": 1.85,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 4,
+      "version": 1,
+      "versionNonce": 1004,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 0,
+      "link": null,
+      "locked": false,
+      "startBinding": null,
+      "endBinding": null,
+      "lastCommittedPoint": null,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          402,
+          456.00000000000006
+        ]
+      ],
+      "customData": {
+        "iannix": {
+          "version": 1,
+          "role": "trigger",
+          "active": true,
+          "label": "Glissando 2",
+          "time": {
+            "start": 0,
+            "duration": 5,
+            "rate": 1,
+            "loopMode": "once"
+          },
+          "cursor": {
+            "curveId": null,
+            "followTangent": true,
+            "visualSmoothing": 0.65,
+            "boundsSource": null,
+            "boundsTarget": [
+              0,
+              1,
+              0,
+              1,
+              0,
+              1
+            ]
+          },
+          "midi": {
+            "midiChannel": 1,
+            "baseNote": 60,
+            "pitchRangeOctaves": 2,
+            "velocity": 100
+          },
+          "trigger": {
+            "behavior": "glissando",
+            "duration": 0.35,
+            "midiEnabled": true,
+            "midiTemplate": "iannixXY",
+            "midiChannel": 2,
+            "midiBaseSource": "cursor",
+            "midiVelocity": 93,
+            "midiFixedNote": 69,
+            "midiController": 0,
+            "midiPattern": "midi://midi_out/notef 1 trigger_value_y trigger_value_x trigger_duration"
+          }
+        }
+      }
+    },
+    {
+      "id": "glissandi_glissando_3",
+      "type": "line",
+      "x": 150,
+      "y": 148.8,
+      "width": 438,
+      "height": 136.8,
+      "angle": 0,
+      "strokeColor": "#12aeea",
+      "backgroundColor": "transparent",
+      "fillStyle": "hachure",
+      "strokeWidth": 2.2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 5,
+      "version": 1,
+      "versionNonce": 1005,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 0,
+      "link": null,
+      "locked": false,
+      "startBinding": null,
+      "endBinding": null,
+      "lastCommittedPoint": null,
+      "points": [
+        [
+          0,
+          136.8
+        ],
+        [
+          438,
+          0
+        ]
+      ],
+      "customData": {
+        "iannix": {
+          "version": 1,
+          "role": "trigger",
+          "active": true,
+          "label": "Glissando 3",
+          "time": {
+            "start": 0,
+            "duration": 5,
+            "rate": 1,
+            "loopMode": "once"
+          },
+          "cursor": {
+            "curveId": null,
+            "followTangent": true,
+            "visualSmoothing": 0.65,
+            "boundsSource": null,
+            "boundsTarget": [
+              0,
+              1,
+              0,
+              1,
+              0,
+              1
+            ]
+          },
+          "midi": {
+            "midiChannel": 1,
+            "baseNote": 60,
+            "pitchRangeOctaves": 2,
+            "velocity": 100
+          },
+          "trigger": {
+            "behavior": "glissando",
+            "duration": 0.35,
+            "midiEnabled": true,
+            "midiTemplate": "iannixXY",
+            "midiChannel": 3,
+            "midiBaseSource": "cursor",
+            "midiVelocity": 98,
+            "midiFixedNote": 69,
+            "midiController": 0,
+            "midiPattern": "midi://midi_out/notef 1 trigger_value_y trigger_value_x trigger_duration"
+          }
+        }
+      }
+    },
+    {
+      "id": "glissandi_glissando_4",
+      "type": "line",
+      "x": 54,
+      "y": 133.6,
+      "width": 564,
+      "height": 266,
+      "angle": 0,
+      "strokeColor": "#12aeea",
+      "backgroundColor": "transparent",
+      "fillStyle": "hachure",
+      "strokeWidth": 2.55,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 6,
+      "version": 1,
+      "versionNonce": 1006,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 0,
+      "link": null,
+      "locked": false,
+      "startBinding": null,
+      "endBinding": null,
+      "lastCommittedPoint": null,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          564,
+          266
+        ]
+      ],
+      "customData": {
+        "iannix": {
+          "version": 1,
+          "role": "trigger",
+          "active": true,
+          "label": "Glissando 4",
+          "time": {
+            "start": 0,
+            "duration": 5,
+            "rate": 1,
+            "loopMode": "once"
+          },
+          "cursor": {
+            "curveId": null,
+            "followTangent": true,
+            "visualSmoothing": 0.65,
+            "boundsSource": null,
+            "boundsTarget": [
+              0,
+              1,
+              0,
+              1,
+              0,
+              1
+            ]
+          },
+          "midi": {
+            "midiChannel": 1,
+            "baseNote": 60,
+            "pitchRangeOctaves": 2,
+            "velocity": 100
+          },
+          "trigger": {
+            "behavior": "glissando",
+            "duration": 0.35,
+            "midiEnabled": true,
+            "midiTemplate": "iannixXY",
+            "midiChannel": 4,
+            "midiBaseSource": "cursor",
+            "midiVelocity": 103,
+            "midiFixedNote": 69,
+            "midiController": 0,
+            "midiPattern": "midi://midi_out/notef 1 trigger_value_y trigger_value_x trigger_duration"
+          }
+        }
+      }
+    },
+    {
+      "id": "glissandi_glissando_5",
+      "type": "line",
+      "x": 222,
+      "y": 316,
+      "width": 144,
+      "height": 159.60000000000002,
+      "angle": 0,
+      "strokeColor": "#12aeea",
+      "backgroundColor": "transparent",
+      "fillStyle": "hachure",
+      "strokeWidth": 2.9,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 7,
+      "version": 1,
+      "versionNonce": 1007,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 0,
+      "link": null,
+      "locked": false,
+      "startBinding": null,
+      "endBinding": null,
+      "lastCommittedPoint": null,
+      "points": [
+        [
+          0,
+          159.60000000000002
+        ],
+        [
+          144,
+          0
+        ]
+      ],
+      "customData": {
+        "iannix": {
+          "version": 1,
+          "role": "trigger",
+          "active": true,
+          "label": "Glissando 5",
+          "time": {
+            "start": 0,
+            "duration": 5,
+            "rate": 1,
+            "loopMode": "once"
+          },
+          "cursor": {
+            "curveId": null,
+            "followTangent": true,
+            "visualSmoothing": 0.65,
+            "boundsSource": null,
+            "boundsTarget": [
+              0,
+              1,
+              0,
+              1,
+              0,
+              1
+            ]
+          },
+          "midi": {
+            "midiChannel": 1,
+            "baseNote": 60,
+            "pitchRangeOctaves": 2,
+            "velocity": 100
+          },
+          "trigger": {
+            "behavior": "glissando",
+            "duration": 0.35,
+            "midiEnabled": true,
+            "midiTemplate": "iannixXY",
+            "midiChannel": 5,
+            "midiBaseSource": "cursor",
+            "midiVelocity": 108,
+            "midiFixedNote": 69,
+            "midiController": 0,
+            "midiPattern": "midi://midi_out/notef 1 trigger_value_y trigger_value_x trigger_duration"
+          }
+        }
+      }
+    },
+    {
+      "id": "glissandi_glissando_6",
+      "type": "line",
+      "x": 426,
+      "y": 376.79999999999995,
+      "width": 156,
+      "height": 91.20000000000005,
+      "angle": 0,
+      "strokeColor": "#12aeea",
+      "backgroundColor": "transparent",
+      "fillStyle": "hachure",
+      "strokeWidth": 3.25,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "roundness": null,
+      "seed": 8,
+      "version": 1,
+      "versionNonce": 1008,
+      "isDeleted": false,
+      "boundElements": null,
+      "updated": 0,
+      "link": null,
+      "locked": false,
+      "startBinding": null,
+      "endBinding": null,
+      "lastCommittedPoint": null,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          156,
+          91.20000000000005
+        ]
+      ],
+      "customData": {
+        "iannix": {
+          "version": 1,
+          "role": "trigger",
+          "active": true,
+          "label": "Glissando 6",
+          "time": {
+            "start": 0,
+            "duration": 5,
+            "rate": 1,
+            "loopMode": "once"
+          },
+          "cursor": {
+            "curveId": null,
+            "followTangent": true,
+            "visualSmoothing": 0.65,
+            "boundsSource": null,
+            "boundsTarget": [
+              0,
+              1,
+              0,
+              1,
+              0,
+              1
+            ]
+          },
+          "midi": {
+            "midiChannel": 1,
+            "baseNote": 60,
+            "pitchRangeOctaves": 2,
+            "velocity": 100
+          },
+          "trigger": {
+            "behavior": "glissando",
+            "duration": 0.35,
+            "midiEnabled": true,
+            "midiTemplate": "iannixXY",
+            "midiChannel": 6,
+            "midiBaseSource": "cursor",
+            "midiVelocity": 113,
+            "midiFixedNote": 69,
+            "midiController": 0,
+            "midiPattern": "midi://midi_out/notef 1 trigger_value_y trigger_value_x trigger_duration"
+          }
+        }
+      }
+    }
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff",
+    "gridSize": null
+  },
+  "files": {},
+  "drawerator": {
+    "version": 4,
+    "kind": "scene",
+    "score": {
+      "time": 0,
+      "rate": 1,
+      "tempo": 120,
+      "timeSignature": {
+        "numerator": 4,
+        "denominator": 4
+      },
+      "displayMode": "timecode",
+      "fps": 30,
+      "loop": {
+        "enabled": true,
+        "start": 0,
+        "end": 12
+      }
+    },
+    "grid": {
+      "version": 1,
+      "id": "global",
+      "kind": "global",
+      "topology": "rectangular",
+      "transform": {
+        "origin": [
+          0,
+          0
+        ],
+        "rotation": 0
+      },
+      "spacing": {
+        "x": 100,
+        "y": 100,
+        "subdivisionsX": 5,
+        "subdivisionsY": 5
+      },
+      "appearance": {
+        "visible": false,
+        "showMinor": true,
+        "showMajor": true,
+        "showAxes": true,
+        "opacity": 0.32
+      },
+      "snap": {
+        "mode": "off",
+        "resolution": "minor",
+        "axes": "both",
+        "thresholdPx": 8,
+        "targets": {
+          "input": true,
+          "transforms": true,
+          "points": true,
+          "generated": false
+        }
+      },
+      "time": {
+        "amount": 1,
+        "unit": "beat",
+        "customSeconds": 1,
+        "customLabel": "unit"
+      }
+    },
+    "expressiveSynth": {
+      "version": 1,
+      "preset": "bowed",
+      "masterGain": 0.2,
+      "voiceGain": 0.38,
+      "attack": 0.06,
+      "decay": 0.16,
+      "sustain": 0.78,
+      "release": 0.35,
+      "brightness": 0.56,
+      "damping": 0.38,
+      "pressure": 0.55,
+      "vibratoDepth": 0.08,
+      "vibratoRate": 5.2,
+      "transpose": 0,
+      "referenceNote": 60,
+      "referenceY": 240,
+      "pixelsPerOctave": 180,
+      "glideMs": 20,
+      "strokeWidthAmount": 0.45,
+      "speedAmount": 0.2,
+      "cursorVoices": true,
+      "triggerVoices": true,
+      "maxVoices": 64
+    },
+    "mixer": {
+      "version": 1,
+      "tracks": [
+        {
+          "id": "glissando-1",
+          "name": "Glissando 1",
+          "enabled": true,
+          "muted": false,
+          "solo": false,
+          "midiChannel": 1,
+          "destination": "internal",
+          "instrument": "expressive",
+          "program": "bowed"
+        },
+        {
+          "id": "glissando-2",
+          "name": "Glissando 2",
+          "enabled": true,
+          "muted": false,
+          "solo": false,
+          "midiChannel": 2,
+          "destination": "internal",
+          "instrument": "expressive",
+          "program": "bowed"
+        },
+        {
+          "id": "glissando-3",
+          "name": "Glissando 3",
+          "enabled": true,
+          "muted": false,
+          "solo": false,
+          "midiChannel": 3,
+          "destination": "internal",
+          "instrument": "expressive",
+          "program": "bowed"
+        },
+        {
+          "id": "glissando-4",
+          "name": "Glissando 4",
+          "enabled": true,
+          "muted": false,
+          "solo": false,
+          "midiChannel": 4,
+          "destination": "internal",
+          "instrument": "expressive",
+          "program": "bowed"
+        },
+        {
+          "id": "glissando-5",
+          "name": "Glissando 5",
+          "enabled": true,
+          "muted": false,
+          "solo": false,
+          "midiChannel": 5,
+          "destination": "internal",
+          "instrument": "expressive",
+          "program": "bowed"
+        },
+        {
+          "id": "glissando-6",
+          "name": "Glissando 6",
+          "enabled": true,
+          "muted": false,
+          "solo": false,
+          "midiChannel": 6,
+          "destination": "internal",
+          "instrument": "expressive",
+          "program": "bowed"
+        }
+      ]
+    }
+  }
+}

@@ -4,7 +4,7 @@ import { Excalidraw, MainMenu, exportToSvg, exportToCanvas, loadFromBlob, serial
 import "./App.css";
 import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, isDrawableTrack, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
 import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, isRuntimeCursor, normalizeIannixData, reconcileRuntimeCursorHosts, snapCursorHostToCurveStart, transformPaths } from "./iannixEngine.js";
-import { createIannixMidiVoiceTracker, describeIannixMidiMessage, getIannixMidiTemplatePattern, getIannixTriggerMidiContext, IANNIX_MIDI_TEMPLATES, parseIannixMidiPattern, selectIannixTriggerCursor } from "./iannixMidi.js";
+import { createIannixMidiVoiceTracker, describeIannixMidiMessage, getIannixMidiTemplatePattern, getIannixPathIntersectionPoint, getIannixTriggerMidiContext, IANNIX_MIDI_TEMPLATES, parseIannixMidiPattern, selectIannixTriggerCursor } from "./iannixMidi.js";
 import { expandIndexedLabelTemplate } from "./iannixBulkEdit.js";
 import NumberInputController from "./NumberInputController.jsx";
 import InspectorSection from "./InspectorSection.jsx";
@@ -25,21 +25,39 @@ import { createDraweratorMacro, DRAWERATOR_MACRO_TYPE, DraweratorLibraryStore, D
 import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCursorLoopMode, getIannixCurveStartAngle, serializeBezierElementToIannixCommands, tokenizeIannixCommand } from "./iannixScript.js";
 import { bezierWorldPointToLocal, createBezierGeometryFromElement, createBezierHostGeometry, findNearestBezierLocation, getBezierWorldAnchors, getBezierWorldPath, hasCubicBezierGeometry, normalizeBezierGeometry, normalizeBezierHostElement, reframeBezierElement, removeBezierAnchor, setBezierAnchorMode, setElementBezierGeometry, splitBezierSegment, updateBezierAnchor } from "./bezierGeometry.js";
 import { getScriptParameterValues, parseScriptParameters } from "./scriptParameters.js";
-import { GM_PROGRAMS, isPercussionChannel, normalizeGmPrograms } from "./generalMidi.js";
+import { normalizeGmPrograms } from "./generalMidi.js";
 import { createInternalMidiSynth, disposeInternalMidiSynth, isInternalMidiSynthSupported, resumeInternalMidiSynth } from "./internalMidiSynth.js";
 import { playWebAudioTestTone } from "./audioDiagnostics.js";
-import { INTERNAL_MIDI_SYNTH_ID, MIDI_PORT_ALL, MIDI_PORT_NONE, resolveExternalMidiOutputs, resolveMidiOutputRoute } from "./midiOutputRouting.js";
+import { INTERNAL_MIDI_SYNTH_ID, MIDI_PORT_ALL, MIDI_PORT_NONE, resolveExternalMidiOutputs } from "./midiOutputRouting.js";
 import GlobalGridCanvas from "./GlobalGridCanvas.jsx";
 import GridPanel from "./GridPanel.jsx";
 import ExpressiveSynthPanel from "./ExpressiveSynthPanel.jsx";
+import MixerPanel from "./MixerPanel.jsx";
+import InfoPanel from "./InfoPanel.jsx";
+import {
+  addMixerTrack,
+  getExternalMixerOutputId,
+  getMixerTracksForChannel,
+  getMixerTracksForInstrument,
+  MIXER_DESTINATION_INTERNAL,
+  MIXER_INSTRUMENT_EXPRESSIVE,
+  MIXER_INSTRUMENT_GM,
+  MIXER_STORAGE_KEY,
+  mixerProgramsByChannel,
+  normalizeMixer,
+  removeMixerTrack,
+  updateMixerTrack,
+} from "./mixerSystem.js";
 import {
   createExpressiveSynth,
   DEFAULT_EXPRESSIVE_SYNTH_CONFIG,
-  EXPRESSIVE_SYNTH_ID,
   EXPRESSIVE_SYNTH_STORAGE_KEY,
+  getExpressiveSynthPrograms,
   isExpressiveSynthSupported,
   mergeExpressiveSynthConfig,
   normalizeExpressiveSynthConfig,
+  removeExpressiveSynthProgram,
+  upsertExpressiveSynthProgram,
 } from "./expressiveSynth.js";
 import { createExpressiveSynthDemoScore } from "./expressiveSynthDemo.js";
 import ShortcutsPanel from "./ShortcutsPanel.jsx";
@@ -56,6 +74,14 @@ import {
   secondsToGridUnits,
   snapPointToGrid,
 } from "./gridSystem.js";
+
+const DEFAULT_INFO_VIEW = Object.freeze({
+  title: "Info",
+  body: "Hover or focus a control to see what it does. This view can be docked on either side, docked at the bottom, or kept as a floating reference.",
+});
+const COLLAPSED_DOCK_EDGE_SIZE = 5;
+const BOTTOM_DOCK_COLLAPSE_THRESHOLD = 72;
+const BOTTOM_DOCK_MIN_HEIGHT = 112;
 
 // System Prompt guiding the local LLM on drawing tools
 const SYSTEM_PROMPT = `You are "Drawerator", an autonomous, high-performance drawing assistant.
@@ -1411,9 +1437,9 @@ function App() {
   });
   const [openPanels, setOpenPanels] = useState(() => {
     try {
-      return { chat: false, settings: false, mods: true, iannix: false, synth: false, console: false, history: false, properties: false, outliner: false, grid: true, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
+      return { chat: false, settings: false, mods: true, iannix: false, mixer: false, synth: false, info: false, console: false, history: false, properties: false, outliner: false, grid: true, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
     } catch {
-      return { chat: false, settings: false, mods: true, iannix: false, synth: false, console: false, history: false, properties: false, outliner: false, grid: true };
+      return { chat: false, settings: false, mods: true, iannix: false, mixer: false, synth: false, info: false, console: false, history: false, properties: false, outliner: false, grid: true };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
@@ -1425,12 +1451,13 @@ function App() {
   });
   const [collapsedDocks, setCollapsedDocks] = useState(() => {
     try {
-      return { left: false, right: false, ...JSON.parse(localStorage.getItem("drawerator_collapsed_docks_v1") || "null") };
+      return { left: false, right: false, bottom: false, ...JSON.parse(localStorage.getItem("drawerator_collapsed_docks_v1") || "null") };
     } catch {
-      return { left: false, right: false };
+      return { left: false, right: false, bottom: false };
     }
   });
   const [draggingPanelId, setDraggingPanelId] = useState(null);
+  const [infoView, setInfoView] = useState(DEFAULT_INFO_VIEW);
   const [dockPreview, setDockPreview] = useState(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandSearch, setCommandSearch] = useState("");
@@ -1527,12 +1554,10 @@ function App() {
   const [scoreEvents, setScoreEvents] = useState([]);
   const [midiAccess, setMidiAccess] = useState(null);
   const [midiOutputs, setMidiOutputs] = useState([]);
-  const [midiOutputId, setMidiOutputId] = useState(() =>
-    localStorage.getItem("drawerator_iannix_midi_output") || ""
-  );
-  const [midiFallbackEnabled, setMidiFallbackEnabled] = useState(() =>
-    localStorage.getItem("drawerator_midi_internal_fallback") !== "false"
-  );
+  const [midiOutputId, setMidiOutputId] = useState(() => {
+    const saved = localStorage.getItem("drawerator_iannix_midi_output") || "";
+    return saved === INTERNAL_MIDI_SYNTH_ID || saved === "__drawerator_expressive_synth__" ? MIDI_PORT_NONE : saved;
+  });
   const [internalGmPrograms, setInternalGmPrograms] = useState(() => {
     try {
       return normalizeGmPrograms(JSON.parse(localStorage.getItem("drawerator_internal_gm_programs") || "null"));
@@ -1540,10 +1565,21 @@ function App() {
       return normalizeGmPrograms(null);
     }
   });
-  const [internalProgramsExpanded, setInternalProgramsExpanded] = useState(false);
+  const [mixer, setMixer] = useState(() => {
+    try {
+      return normalizeMixer(JSON.parse(localStorage.getItem(MIXER_STORAGE_KEY) || "null"), {
+        legacyOutputId: localStorage.getItem("drawerator_iannix_midi_output") || "",
+        gmPrograms: internalGmPrograms,
+      });
+    } catch {
+      return normalizeMixer(null, {
+        legacyOutputId: localStorage.getItem("drawerator_iannix_midi_output") || "",
+        gmPrograms: internalGmPrograms,
+      });
+    }
+  });
   const [internalSynthStatus, setInternalSynthStatus] = useState(() => (
-    midiOutputId === INTERNAL_MIDI_SYNTH_ID
-    || (midiFallbackEnabled && midiOutputId !== MIDI_PORT_NONE && midiOutputId !== MIDI_PORT_ALL && midiOutputId !== EXPRESSIVE_SYNTH_ID)
+    mixer.tracks.some(track => track.enabled && track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_GM)
       ? "Audio suspended"
       : "Off"
   ));
@@ -1556,7 +1592,9 @@ function App() {
     }
   });
   const [expressiveSynthStatus, setExpressiveSynthStatus] = useState(() => (
-    midiOutputId === EXPRESSIVE_SYNTH_ID ? "Audio suspended" : "Off"
+    mixer.tracks.some(track => track.enabled && track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_EXPRESSIVE)
+      ? "Audio suspended"
+      : "Off"
   ));
   const [expressiveSynthError, setExpressiveSynthError] = useState("");
   const [expressiveVoiceCount, setExpressiveVoiceCount] = useState(0);
@@ -1572,6 +1610,7 @@ function App() {
   const activeScoreCollisionsRef = useRef(new Set());
   const triggerCollisionLockoutsRef = useRef(new Map());
   const triggerPulseUntilRef = useRef(new Map());
+  const activeMidiTriggerGatesRef = useRef(new Map());
   const midiAccessRef = useRef(null);
   const globalGridRef = useRef(globalGrid);
   const selectionFilterRef = useRef(selectionFilter);
@@ -1582,8 +1621,9 @@ function App() {
   const multiElementGridRef = useRef(null);
   const activeGridToolRef = useRef(null);
   const midiOutputIdRef = useRef(midiOutputId);
-  const midiFallbackEnabledRef = useRef(midiFallbackEnabled);
   const internalGmProgramsRef = useRef(internalGmPrograms);
+  const mixerRef = useRef(mixer);
+  const mixerOutputAdaptersRef = useRef(new Map());
   const internalSynthRef = useRef(null);
   const expressiveSynthConfigRef = useRef(expressiveSynthConfig);
   const expressiveSynthRef = useRef(null);
@@ -1725,13 +1765,37 @@ function App() {
     setExpressiveVoiceCount(0);
   }, []);
 
-  const getScoreMidiRoute = useCallback(() => resolveMidiOutputRoute({
-    midiAccess: midiAccessRef.current,
-    selectedOutputId: midiOutputIdRef.current,
-    fallbackEnabled: midiFallbackEnabledRef.current,
-    internalOutput: internalSynthRef.current?.getState?.() !== "off" ? internalSynthRef.current : null,
-    expressiveOutput: expressiveSynthRef.current?.getState?.() !== "off" ? expressiveSynthRef.current : null,
-  }), []);
+  const getMixerTrackOutput = useCallback(track => {
+    if (!track) return null;
+    if (track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_GM) {
+      return internalSynthRef.current?.getState?.() !== "off" ? internalSynthRef.current : null;
+    }
+    if (track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_EXPRESSIVE) {
+      const synth = expressiveSynthRef.current;
+      if (!synth || synth.getState?.() === "off") return null;
+      let adapter = mixerOutputAdaptersRef.current.get(track.id);
+      if (!adapter) {
+        adapter = {
+          id: `expressive-track:${track.id}`,
+          name: `Expressive Synth · ${track.name}`,
+          send(data, timestamp) {
+            const current = mixerRef.current.tracks.find(candidate => candidate.id === track.id);
+            if (!current) return;
+            expressiveSynthRef.current?.sendRouted?.(current.id, data, timestamp, { program: current.program });
+          },
+        };
+        mixerOutputAdaptersRef.current.set(track.id, adapter);
+      }
+      return adapter;
+    }
+    const outputId = getExternalMixerOutputId(track.destination);
+    return outputId ? midiAccessRef.current?.outputs?.get?.(outputId) || null : null;
+  }, []);
+
+  const getMixerOutputsForChannel = useCallback(midiChannel =>
+    getMixerTracksForChannel(mixerRef.current, midiChannel)
+      .map(track => ({ track, output: getMixerTrackOutput(track) }))
+      .filter(route => route.output), [getMixerTrackOutput]);
 
   const ensureInternalSynth = useCallback(async () => {
     if (!isInternalMidiSynthSupported()) {
@@ -1826,11 +1890,23 @@ function App() {
     return replacement;
   }, [ensureExpressiveSynth, panicMidi]);
 
-  const testExpressiveSynthAudio = useCallback(async () => {
+  const ensureMixerOutputsForChannel = useCallback(async midiChannel => {
+    const tracks = getMixerTracksForChannel(mixerRef.current, midiChannel);
+    if (tracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_GM)) {
+      await ensureInternalSynth();
+    }
+    if (tracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_EXPRESSIVE)) {
+      await ensureExpressiveSynth();
+    }
+    return getMixerOutputsForChannel(midiChannel);
+  }, [ensureExpressiveSynth, ensureInternalSynth, getMixerOutputsForChannel]);
+
+  const testExpressiveSynthAudio = useCallback(async program => {
     const output = await ensureExpressiveSynth();
     if (!output) return;
-    output.startVoice("test", { frequency: 220, gain: 0.45, pressure: 0.6, brightness: 0.58, pan: 0 });
-    output.updateVoice("test", { frequency: 440 });
+    const programConfig = program ? mergeExpressiveSynthConfig(expressiveSynthConfigRef.current, program) : expressiveSynthConfigRef.current;
+    output.startVoice("test", { frequency: 220, gain: 0.45, pressure: 0.6, brightness: 0.58, pan: 0 }, programConfig);
+    output.updateVoice("test", { frequency: 440 }, programConfig);
     window.setTimeout(() => {
       output.stopVoice("test");
       setExpressiveVoiceCount(output.getVoiceCount());
@@ -1841,6 +1917,18 @@ function App() {
 
   const updateExpressiveSynthConfig = useCallback(patch => {
     setExpressiveSynthConfig(current => mergeExpressiveSynthConfig(current, patch));
+  }, []);
+
+  const saveExpressiveSynthProgram = useCallback(program => {
+    setExpressiveSynthConfig(current => upsertExpressiveSynthProgram(current, program));
+  }, []);
+
+  const deleteExpressiveSynthProgram = useCallback(programId => {
+    setExpressiveSynthConfig(current => removeExpressiveSynthProgram(current, programId));
+    setMixer(current => normalizeMixer({
+      ...current,
+      tracks: current.tracks.map(track => track.program === programId ? { ...track, program: "bowed" } : track),
+    }));
   }, []);
 
   const testRawWebAudio = useCallback(async () => {
@@ -2024,6 +2112,7 @@ function App() {
     }
     if (placement === PANEL_PLACEMENTS.BOTTOM) {
       setActiveDockPanels(previous => ({ ...previous, bottom: panelId }));
+      setCollapsedDocks(previous => ({ ...previous, bottom: false }));
     }
   }, [updatePanelLayout]);
 
@@ -2187,22 +2276,39 @@ function App() {
     midiOutputIdRef.current = midiOutputId;
     localStorage.setItem("drawerator_iannix_midi_output", midiOutputId);
     panicMidi();
-    if (midiOutputId === MIDI_PORT_NONE) setInternalSynthStatus("Off");
-    else if (midiOutputId === INTERNAL_MIDI_SYNTH_ID && !internalSynthRef.current) setInternalSynthStatus("Audio suspended");
-    else if (midiOutputId === EXPRESSIVE_SYNTH_ID && !expressiveSynthRef.current) setExpressiveSynthStatus("Audio suspended");
-    else if (midiOutputId !== MIDI_PORT_ALL && midiFallbackEnabledRef.current && getScoreMidiRoute().kind === "internal-unavailable") setInternalSynthStatus("Audio suspended");
-  }, [getScoreMidiRoute, midiOutputId, panicMidi]);
-
-  useEffect(() => {
-    midiFallbackEnabledRef.current = midiFallbackEnabled;
-    localStorage.setItem("drawerator_midi_internal_fallback", String(midiFallbackEnabled));
-    panicMidi();
-  }, [midiFallbackEnabled, panicMidi]);
+  }, [midiOutputId, panicMidi]);
 
   useEffect(() => {
     internalGmProgramsRef.current = internalGmPrograms;
     localStorage.setItem("drawerator_internal_gm_programs", JSON.stringify(internalGmPrograms));
   }, [internalGmPrograms]);
+
+  useEffect(() => {
+    mixerRef.current = mixer;
+    localStorage.setItem(MIXER_STORAGE_KEY, JSON.stringify(mixer));
+    const routedPrograms = normalizeGmPrograms({
+      ...internalGmProgramsRef.current,
+      ...mixerProgramsByChannel(mixer),
+    });
+    internalGmProgramsRef.current = routedPrograms;
+    setInternalGmPrograms(current => JSON.stringify(current) === JSON.stringify(routedPrograms) ? current : routedPrograms);
+    internalSynthRef.current?.setPrograms?.(routedPrograms);
+
+    const audibleTracks = mixer.tracks.filter(track => track.enabled && !track.muted && track.destination !== "none");
+    if (audibleTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_GM)) {
+      void ensureInternalSynth();
+    }
+    if (audibleTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_EXPRESSIVE)) {
+      void ensureExpressiveSynth();
+    }
+    audibleTracks.forEach(track => {
+      const outputId = getExternalMixerOutputId(track.destination);
+      const output = outputId ? midiAccessRef.current?.outputs?.get?.(outputId) : null;
+      if (output && Number.isInteger(Number(track.program))) {
+        output.send([0xc0 | (track.midiChannel - 1), Number(track.program) & 0x7f]);
+      }
+    });
+  }, [ensureExpressiveSynth, ensureInternalSynth, mixer]);
 
   useEffect(() => {
     expressiveSynthConfigRef.current = expressiveSynthConfig;
@@ -2408,8 +2514,9 @@ function App() {
       }
       const width = drag.width;
       const height = drag.height;
-      const target = getDockTarget(event.clientX, event.clientY, window.innerWidth, window.innerHeight, { allowBottom: true, transport: true });
-      setDockPreview(target === PANEL_PLACEMENTS.BOTTOM ? target : null);
+      const transportOnly = drag.panelId === "transport";
+      const target = getDockTarget(event.clientX, event.clientY, window.innerWidth, window.innerHeight, { allowBottom: true, transport: transportOnly });
+      setDockPreview(target === PANEL_PLACEMENTS.FLOATING ? null : target);
       updatePanelLayout(drag.panelId, {
         placement: PANEL_PLACEMENTS.FLOATING,
         x: Math.max(8, Math.min(window.innerWidth - width - 8, event.clientX - drag.offsetX)),
@@ -2419,8 +2526,9 @@ function App() {
     const handleUp = () => {
       const drag = transportDragRef.current;
       if (drag?.started) {
-        const target = getDockTarget(drag.clientX, drag.clientY, window.innerWidth, window.innerHeight, { allowBottom: true, transport: true });
-        if (target === PANEL_PLACEMENTS.BOTTOM) setPanelPlacement(drag.panelId, PANEL_PLACEMENTS.BOTTOM);
+        const transportOnly = drag.panelId === "transport";
+        const target = getDockTarget(drag.clientX, drag.clientY, window.innerWidth, window.innerHeight, { allowBottom: true, transport: transportOnly });
+        if (target !== PANEL_PLACEMENTS.FLOATING) setPanelPlacement(drag.panelId, target);
       }
       transportDragRef.current = null;
       setTransportDragging(false);
@@ -2443,16 +2551,56 @@ function App() {
       previousCursorStatesRef.current,
     );
     previousCursorStatesRef.current = frame.nextCursorPaths;
+    const elementMap = new Map(elements.map(element => [element.id, element]));
 
     const expressiveOutput = expressiveSynthRef.current;
-    if (midiOutputIdRef.current === EXPRESSIVE_SYNTH_ID && expressiveOutput) {
-      if (scorePlaying) expressiveOutput.syncCursorVoices(frame.cursors, performance.now());
-      else expressiveOutput.stopCursorVoices();
+    if (expressiveOutput) {
+      const expressiveTracks = getMixerTracksForInstrument(mixerRef.current, MIXER_INSTRUMENT_EXPRESSIVE)
+        .filter(track => track.destination === MIXER_DESTINATION_INTERNAL);
+      const cursorAssignments = frame.cursors.flatMap(cursor => {
+        const channel = normalizeIannixData(cursor.element.customData?.iannix).midi.midiChannel;
+        return expressiveTracks.filter(track => track.midiChannel === channel).map(track => ({ cursor, track }));
+      });
+      const glissandoAssignments = [...frame.collisions].flatMap(key => {
+        const [cursorId, triggerId] = key.split(":");
+        const cursor = frame.cursors.find(candidate => candidate.element.id === cursorId);
+        const triggerElement = elementMap.get(triggerId);
+        const triggerData = normalizeIannixData(triggerElement?.customData?.iannix);
+        if (!cursor || !triggerElement || triggerData.trigger.behavior !== "glissando" || !triggerData.trigger.midiEnabled) return [];
+        const triggerPaths = getElementCorePaths(triggerElement);
+        const pitchPaths = triggerPaths[0]?.length > 1 ? [triggerPaths[0]] : triggerPaths;
+        const position = getIannixPathIntersectionPoint(
+          cursor.paths,
+          pitchPaths,
+          cursor.transform?.position || [0, 0],
+        );
+        if (!position) return [];
+        const context = getIannixTriggerMidiContext(cursor, triggerData, triggerElement, position);
+        return expressiveTracks
+          .filter(track => track.midiChannel === triggerData.trigger.midiChannel)
+          .map(track => ({
+            cursor,
+            trigger: { element: triggerElement, data: triggerData },
+            track,
+            note: context.trigger_note_float,
+            velocity: context.trigger_velocity,
+            position,
+            modulation: {
+              y: context.trigger_value_relative,
+              x: context.trigger_value_x,
+            },
+          }));
+      });
+      if (scorePlaying) {
+        expressiveOutput.syncRoutedCursorVoices(cursorAssignments, performance.now());
+        expressiveOutput.syncRoutedGlissandoVoices(glissandoAssignments, performance.now());
+      } else {
+        expressiveOutput.stopCursorVoices();
+        expressiveOutput.stopGlissandoVoices();
+      }
       const nextVoiceCount = expressiveOutput.getVoiceCount();
       setExpressiveVoiceCount(current => current === nextVoiceCount ? current : nextVoiceCount);
     }
-
-    const elementMap = new Map(elements.map(element => [element.id, element]));
 
     const collisionState = advanceScoreCollisionState(
       frame.collisions,
@@ -2467,7 +2615,19 @@ function App() {
     );
     activeScoreCollisionsRef.current = collisionState.active;
     triggerCollisionLockoutsRef.current = collisionState.lockouts;
-    if (!scorePlaying) return;
+    const activeMidiScopes = new Set([...collisionState.active].map(key => (
+      latchTriggersAcrossCursors ? key.split(":")[1] : key
+    )));
+    const gateReleaseTime = performance.now();
+    activeMidiTriggerGatesRef.current.forEach((gate, gateId) => {
+      if (scorePlaying && activeMidiScopes.has(gate.scopeId)) return;
+      midiVoiceTrackerRef.current.endGate(gateId, gateReleaseTime, { force: !scorePlaying });
+      activeMidiTriggerGatesRef.current.delete(gateId);
+    });
+    if (!scorePlaying) {
+      triggerPulseUntilRef.current = new Map();
+      return;
+    }
 
     const entered = collisionState.entered;
     if (entered.length === 0) return;
@@ -2483,19 +2643,30 @@ function App() {
       let midi = null;
       let midiPattern = null;
       let midiContext = null;
-      if (triggerData.trigger.midiEnabled) {
+      if (triggerData.trigger.midiEnabled && triggerData.trigger.behavior !== "glissando") {
         try {
           const cursor = frame.cursors.find(candidate => candidate.element.id === cursorId);
           midiContext = getIannixTriggerMidiContext(cursor, triggerData, trigger);
           midiPattern = triggerData.trigger.midiPattern;
           const message = parseIannixMidiPattern(midiPattern, midiContext);
-          const outputs = getScoreMidiRoute().outputs;
-          if (outputs.length === 0) throw new Error("No MIDI output is selected.");
-          outputs.forEach(output => midiVoiceTrackerRef.current.send(output, message, performance.now()));
+          const routes = getMixerOutputsForChannel(message.channel);
+          if (routes.length === 0) throw new Error(`No enabled mixer track is routed from MIDI channel ${message.channel}.`);
+          const midiTimestamp = performance.now();
+          routes.forEach(({ track, output }) => {
+            if (message.kind === "note") {
+              const scopeId = latchTriggersAcrossCursors ? triggerId : key;
+              const gateId = `${scopeId}:${track.id}`;
+              if (midiVoiceTrackerRef.current.startGate(output, message, gateId, midiTimestamp, message.duration)) {
+                activeMidiTriggerGatesRef.current.set(gateId, { scopeId, triggerId, trackId: track.id });
+              }
+            } else {
+              midiVoiceTrackerRef.current.send(output, message, midiTimestamp);
+            }
+          });
           midi = message.kind === "cc"
             ? { kind: "cc", channel: message.channel, controller: message.controller, value: message.value }
             : { kind: "note", channel: message.channel, note: message.note, velocity: message.velocity };
-          setMidiStatus(`Sent ${describeIannixMidiMessage(message)}`);
+          setMidiStatus(`Sent ${describeIannixMidiMessage(message)} · ${routes.length} mixer track${routes.length === 1 ? "" : "s"}`);
           historyController.record({
             kind: "midi",
             transportTime: scoreTime,
@@ -2528,7 +2699,7 @@ function App() {
     }));
     setScoreEvents(events => [...nextEvents, ...events].slice(0, 20));
     setScoreRuntimeNonce(nonce => nonce + 1);
-  }, [excalidrawAPI, getScoreMidiRoute, historyController, latchTriggersAcrossCursors, modifierUpdateNonce, scorePlaying, scoreTime]);
+  }, [excalidrawAPI, getMixerOutputsForChannel, historyController, latchTriggersAcrossCursors, modifierUpdateNonce, scorePlaying, scoreTime]);
 
   useEffect(() => {
     if (!excalidrawAPI || autoKeyApplyingRef.current || isMouseDownRef.current) return;
@@ -3529,6 +3700,18 @@ function App() {
         });
         return;
       }
+      if (placement === PANEL_PLACEMENTS.BOTTOM) {
+        const rawHeight = window.innerHeight - moveEvent.clientY;
+        if (rawHeight < BOTTOM_DOCK_COLLAPSE_THRESHOLD) {
+          setCollapsedDocks(previous => ({ ...previous, bottom: true }));
+          return;
+        }
+        setCollapsedDocks(previous => ({ ...previous, bottom: false }));
+        updatePanelLayout(panelId, {
+          height: Math.max(BOTTOM_DOCK_MIN_HEIGHT, Math.min(window.innerHeight - 80, rawHeight)),
+        });
+        return;
+      }
       const rawWidth = placement === PANEL_PLACEMENTS.LEFT
         ? moveEvent.clientX
         : window.innerWidth - moveEvent.clientX;
@@ -3558,7 +3741,8 @@ function App() {
         if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return;
         drag.started = true;
       }
-      const target = getDockTarget(event.clientX, event.clientY, window.innerWidth, window.innerHeight);
+      const allowBottom = DRAWERATOR_PANELS.find(panel => panel.id === drag.panelId)?.placements.includes(PANEL_PLACEMENTS.BOTTOM);
+      const target = getDockTarget(event.clientX, event.clientY, window.innerWidth, window.innerHeight, { allowBottom });
       setDockPreview(target === PANEL_PLACEMENTS.FLOATING ? null : target);
       updatePanelLayout(drag.panelId, {
         placement: PANEL_PLACEMENTS.FLOATING,
@@ -3569,7 +3753,8 @@ function App() {
     const handleUp = () => {
       const drag = panelDragRef.current;
       if (drag?.started) {
-        const target = getDockTarget(drag.clientX, drag.clientY, window.innerWidth, window.innerHeight);
+        const allowBottom = DRAWERATOR_PANELS.find(panel => panel.id === drag.panelId)?.placements.includes(PANEL_PLACEMENTS.BOTTOM);
+        const target = getDockTarget(drag.clientX, drag.clientY, window.innerWidth, window.innerHeight, { allowBottom });
         if (target !== PANEL_PLACEMENTS.FLOATING) setPanelPlacement(drag.panelId, target);
       }
       panelDragRef.current = null;
@@ -5398,9 +5583,17 @@ function App() {
     const forceOpen = Boolean(options.settingsTab || options.modsTab || options.open);
     const placement = panelLayouts[panelId]?.placement;
     if (placement === PANEL_PLACEMENTS.BOTTOM) {
-      const isFrontmost = Boolean(openPanels[panelId] && activeDockPanels.bottom === panelId);
-      setOpenPanels(previous => ({ ...previous, [panelId]: forceOpen ? true : !isFrontmost }));
-      if (forceOpen || !isFrontmost) setActiveDockPanels(previous => ({ ...previous, bottom: panelId }));
+      const isFrontmostExpandedPanel = Boolean(
+        openPanels[panelId] &&
+        activeDockPanels.bottom === panelId &&
+        !collapsedDocks.bottom
+      );
+      setOpenPanels(previous => ({ ...previous, [panelId]: true }));
+      setActiveDockPanels(previous => ({ ...previous, bottom: panelId }));
+      setCollapsedDocks(previous => ({
+        ...previous,
+        bottom: forceOpen ? false : isFrontmostExpandedPanel,
+      }));
       return;
     }
     if (placement === PANEL_PLACEMENTS.LEFT || placement === PANEL_PLACEMENTS.RIGHT) {
@@ -5444,6 +5637,7 @@ function App() {
   }));
   const COMMANDS = [
     ...PANEL_COMMANDS,
+    { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => { applyingRecordedUiStateRef.current = true; setSatoriMode(prev => !prev); finishApplyingRecordedUiState(); } },
     { id: "toggle-theme", name: "Toggle Dark/Light Theme", category: "View", action: (api) => { applyingRecordedUiStateRef.current = true; const next = theme === "dark" ? "light" : "dark"; setTheme(next); api?.updateScene({ appState: { theme: next } }); finishApplyingRecordedUiState(); } },
     { id: "toggle-chat", name: "Toggle AI Assistant Chat", category: "AI Chat", action: () => toggleDraweratorPanel("chat") },
@@ -5662,7 +5856,7 @@ function App() {
         commandRegistry.execute("panel-chat", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
       }
       // Cmd + B collapses/reveals the left dock; Cmd + Option + B does the right dock.
-      if (e.metaKey && !e.ctrlKey && e.code === "KeyB") {
+      if (e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === "KeyB") {
         e.preventDefault();
         e.stopPropagation();
         const side = e.altKey ? PANEL_PLACEMENTS.RIGHT : PANEL_PLACEMENTS.LEFT;
@@ -6422,8 +6616,6 @@ function App() {
     panicMidi();
     midiOutputIdRef.current = nextOutputId;
     setMidiOutputId(nextOutputId);
-    if (nextOutputId === INTERNAL_MIDI_SYNTH_ID) await ensureInternalSynth();
-    if (nextOutputId === EXPRESSIVE_SYNTH_ID) await ensureExpressiveSynth();
   };
 
   const addExpressiveSynthDemo = async () => {
@@ -6438,7 +6630,7 @@ function App() {
       strokeColor: theme === "dark" ? "#f1f3f5" : "#1b1b1f",
     });
     const currentElements = excalidrawAPI.getSceneElementsIncludingDeleted();
-    const demoSelection = Object.fromEntries(demo.curves.map(curve => [curve.id, true]));
+    const demoSelection = Object.fromEntries(demo.triggers.map(trigger => [trigger.id, true]));
     runtimeCursorSelectionRef.current = {};
     excalidrawAPI.updateScene({
       elements: [...currentElements, ...demo.elements],
@@ -6466,13 +6658,28 @@ function App() {
       referenceY: demo.center[1],
       pixelsPerOctave: 180,
       cursorVoices: true,
+      triggerVoices: true,
       strokeWidthAmount: 0.45,
       speedAmount: 0.2,
     });
     expressiveSynthConfigRef.current = demoConfig;
     setExpressiveSynthConfig(demoConfig);
-    await handleMidiOutputChange(EXPRESSIVE_SYNTH_ID);
-    excalidrawAPI.scrollToContent(demo.curves, { fitToContent: true, animate: true });
+    const demoMixer = normalizeMixer({
+      ...mixerRef.current,
+      tracks: mixerRef.current.tracks.map((track, index) => index < demo.voiceCount ? {
+        ...track,
+        destination: MIXER_DESTINATION_INTERNAL,
+        instrument: MIXER_INSTRUMENT_EXPRESSIVE,
+        program: "bowed",
+        midiChannel: index + 1,
+        enabled: true,
+        muted: false,
+      } : track),
+    });
+    mixerRef.current = demoMixer;
+    setMixer(demoMixer);
+    await ensureExpressiveSynth();
+    excalidrawAPI.scrollToContent([demo.timelineCurve, ...demo.triggers], { fitToContent: true, animate: true });
     scoreTimeRef.current = 0;
     setScoreTime(0);
     setScorePlaying(true);
@@ -6480,28 +6687,6 @@ function App() {
     setSceneExchangeStatus(`Added a ${demo.voiceCount}-voice glissando study. Undo removes the generated score.`);
     setModifierUpdateNonce(nonce => nonce + 1);
     return demo.elements.map(element => element.id);
-  };
-
-  const handleMidiFallbackChange = async enabled => {
-    panicMidi();
-    midiFallbackEnabledRef.current = enabled;
-    setMidiFallbackEnabled(enabled);
-    if (enabled) {
-      const route = resolveMidiOutputRoute({
-        midiAccess: midiAccessRef.current,
-        selectedOutputId: midiOutputIdRef.current,
-        fallbackEnabled: true,
-        internalOutput: internalSynthRef.current?.getState?.() !== "off" ? internalSynthRef.current : null,
-      });
-      if (route.kind === "internal-unavailable") await ensureInternalSynth();
-    }
-  };
-
-  const handleInternalProgramChange = (channel, program) => {
-    const next = normalizeGmPrograms({ ...internalGmProgramsRef.current, [channel]: program });
-    internalGmProgramsRef.current = next;
-    setInternalGmPrograms(next);
-    internalSynthRef.current?.setProgram?.(channel, next[channel]);
   };
 
   const connectIannixMidi = async () => {
@@ -6537,19 +6722,12 @@ function App() {
   const emitIannixMidiPattern = async (pattern, context, { userGesture = false } = {}) => {
     try {
       const message = parseIannixMidiPattern(pattern, context);
-      let route = getScoreMidiRoute();
-      if (userGesture && route.kind === "internal-unavailable") {
-        await ensureInternalSynth();
-        route = getScoreMidiRoute();
-      }
-      if (userGesture && route.kind === "expressive-unavailable") {
-        await ensureExpressiveSynth();
-        route = getScoreMidiRoute();
-      }
-      const outputs = route.outputs;
-      if (outputs.length === 0) throw new Error("No MIDI output is selected.");
-      outputs.forEach(output => midiVoiceTrackerRef.current.send(output, message, performance.now()));
-      setMidiStatus(`Sent ${describeIannixMidiMessage(message)}${route.fallback ? " · internal fallback" : ""}`);
+      const routes = userGesture
+        ? await ensureMixerOutputsForChannel(message.channel)
+        : getMixerOutputsForChannel(message.channel);
+      if (routes.length === 0) throw new Error(`No enabled mixer track is routed from MIDI channel ${message.channel}.`);
+      routes.forEach(({ output }) => midiVoiceTrackerRef.current.send(output, message, performance.now()));
+      setMidiStatus(`Sent ${describeIannixMidiMessage(message)} · ${routes.length} mixer track${routes.length === 1 ? "" : "s"}`);
     } catch (error) {
       setMidiStatus(error.message || "MIDI send failed");
     }
@@ -6560,9 +6738,9 @@ function App() {
       setScorePlaying(false);
       return;
     }
-    const route = getScoreMidiRoute();
-    if (route.kind === "internal-unavailable") await ensureInternalSynth();
-    if (route.kind === "expressive-unavailable") await ensureExpressiveSynth();
+    const activeTracks = mixerRef.current.tracks.filter(track => track.enabled && !track.muted);
+    if (activeTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_GM)) await ensureInternalSynth();
+    if (activeTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_EXPRESSIVE)) await ensureExpressiveSynth();
     setScorePlaying(true);
   };
 
@@ -6582,7 +6760,7 @@ function App() {
       displayMode: transportDisplayMode,
       fps: transportFps,
       loop: { enabled: transportLoopEnabled, start: transportLoopStart, end: transportLoopEnd },
-    }, kind === "scene" ? globalGridRef.current : null, kind === "scene" ? expressiveSynthConfigRef.current : null), null, 2);
+    }, kind === "scene" ? globalGridRef.current : null, kind === "scene" ? expressiveSynthConfigRef.current : null, kind === "scene" ? mixerRef.current : null), null, 2);
   };
 
   const downloadTextFile = (text, filename, mimeType = "application/json") => {
@@ -6624,6 +6802,8 @@ function App() {
     activeScoreCollisionsRef.current = new Set();
     triggerCollisionLockoutsRef.current = new Map();
     triggerPulseUntilRef.current = new Map();
+    midiVoiceTrackerRef.current?.endAllGates?.(performance.now(), { force: true });
+    activeMidiTriggerGatesRef.current = new Map();
     setScoreEvents([]);
     if (resetTransport) {
       setScorePlaying(false);
@@ -6663,7 +6843,7 @@ function App() {
 
   const importDraweratorSceneText = async (text, { commitToHistory = true } = {}) => {
     if (!excalidrawAPI) return;
-    const { score, grid, expressiveSynth } = parseDraweratorExchange(text, "scene");
+    const { score, grid, expressiveSynth, mixer: importedMixer } = parseDraweratorExchange(text, "scene");
     const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
     const restoredElements = reconcileRuntimeCursorHosts(restored.elements || []);
     if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
@@ -6680,6 +6860,8 @@ function App() {
     });
     setGlobalGrid(grid);
     setExpressiveSynthConfig(expressiveSynth);
+    mixerRef.current = importedMixer;
+    setMixer(importedMixer);
     if (Number.isFinite(score?.time)) setScoreTime(score.time);
     if (Number.isFinite(score?.rate) && score.rate > 0) setScoreRate(score.rate);
     if (Number.isFinite(score?.tempo) && score.tempo >= 20 && score.tempo <= 400) setScoreTempo(score.tempo);
@@ -7106,7 +7288,7 @@ function App() {
 
   useEffect(() => {
     const api = {
-      apiVersion: 2,
+      apiVersion: 3,
       commands: {
         list: () => commandRegistry.list(),
         describe: id => commandRegistry.describe(id),
@@ -7166,6 +7348,17 @@ function App() {
           signature: scoreTimeSignature,
           fps: transportFps,
         }),
+      },
+      mixer: {
+        get: () => normalizeMixer(mixerRef.current),
+        updateTrack: (trackId, patch) => setMixer(current => updateMixerTrack(current, trackId, patch)),
+        addTrack: overrides => setMixer(current => {
+          const added = addMixerTrack(current);
+          if (!overrides || added.tracks.length === current.tracks.length) return added;
+          const track = added.tracks.at(-1);
+          return updateMixerTrack(added, track.id, overrides);
+        }),
+        removeTrack: trackId => setMixer(current => removeMixerTrack(current, trackId)),
       },
     };
     window.drawerator = api;
@@ -7709,8 +7902,15 @@ function App() {
         const preferredCursorId = collisionKey?.split(":")[0] || null;
         const cursor = selectIannixTriggerCursor(frame.cursors, element, preferredCursorId);
         if (!cursor) throw new Error("No active cursor is linked to a curve, so this trigger has no event context yet.");
-        const context = getIannixTriggerMidiContext(cursor, data, element);
-        const message = parseIannixMidiPattern(data.trigger.midiPattern, context);
+        const triggerPaths = getElementCorePaths(element);
+        const pitchPaths = triggerPaths[0]?.length > 1 ? [triggerPaths[0]] : triggerPaths;
+        const intersectionPoint = data.trigger.behavior === "glissando"
+          ? getIannixPathIntersectionPoint(cursor.paths, pitchPaths, cursor.transform?.position || [0, 0])
+          : null;
+        const context = getIannixTriggerMidiContext(cursor, data, element, intersectionPoint);
+        const message = data.trigger.behavior === "glissando"
+          ? null
+          : parseIannixMidiPattern(data.trigger.midiPattern, context);
         const cursorData = normalizeIannixData(cursor.element.customData?.iannix);
         midiPreview = {
           context,
@@ -7819,6 +8019,10 @@ function App() {
             <div className="iannix-hint">Display-only position and angle damping. Trigger timing continues to use the exact cursor path.</div>
             <div className="iannix-two-column">
               <label className="iannix-field">
+                <span>MIDI channel</span>
+                <input type="number" min="1" max="16" step="1" data-default="1" value={data.midi.midiChannel} onChange={event => setNumber("midi", "midiChannel", event.target.value)} />
+              </label>
+              <label className="iannix-field">
                 <span>MIDI base note</span>
                 <input type="number" min="0" max="127" step="1" data-default="60" value={data.midi.baseNote} onChange={event => setNumber("midi", "baseNote", event.target.value)} />
               </label>
@@ -7839,6 +8043,10 @@ function App() {
             <div className="iannix-readout-row"><span>Linked cursors</span><strong>{linkedCursorCount}</strong></div>
             <div className="iannix-two-column">
               <label className="iannix-field">
+                <span>MIDI channel</span>
+                <input type="number" min="1" max="16" step="1" data-default="1" value={data.midi.midiChannel} onChange={event => setNumber("midi", "midiChannel", event.target.value)} />
+              </label>
+              <label className="iannix-field">
                 <span>MIDI base note</span>
                 <input type="number" min="0" max="127" step="1" data-default="60" value={data.midi.baseNote} onChange={event => setNumber("midi", "baseNote", event.target.value)} />
               </label>
@@ -7854,19 +8062,38 @@ function App() {
         {data.role === "trigger" && (
           <InspectorSection title="Trigger" className="iannix-section">
             <label className="iannix-field">
-              <span>Pulse duration (s)</span>
-              <input
-                type="number"
-                min="0"
-                step="0.05"
-                data-default="0.35"
-                value={data.trigger.duration}
-                onChange={event => setNumber("trigger", "duration", event.target.value)}
-              />
+              <span>Behavior</span>
+              <select
+                value={data.trigger.behavior}
+                onChange={event => updateIannixElement(element.id, current => ({
+                  ...current,
+                  trigger: { ...current.trigger, behavior: event.target.value },
+                }))}
+              >
+                <option value="pulse">Pulse</option>
+                <option value="glissando">Continuous glissando</option>
+              </select>
             </label>
-            <div className="iannix-hint">Fires once when a cursor enters this object's core geometry and rearms after exit.</div>
+            {data.trigger.behavior === "pulse" ? (
+              <>
+                <label className="iannix-field">
+                  <span>Minimum duration (s)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.05"
+                    data-default="0.35"
+                    value={data.trigger.duration}
+                    onChange={event => setNumber("trigger", "duration", event.target.value)}
+                  />
+                </label>
+                <div className="iannix-hint">Starts on entry and releases on geometric exit. This value is the minimum/fallback duration for shorter contacts.</div>
+              </>
+            ) : (
+              <div className="iannix-hint">Starts a sustained track voice on entry, maps the exact cursor intersection to pitch every frame, and releases on exit. The trigger's geometric length determines note duration.</div>
+            )}
             <label className="iannix-check-row">
-              <span>Send MIDI on trigger</span>
+              <span>{data.trigger.behavior === "glissando" ? "Send continuous voice to Mixer" : "Send MIDI on trigger"}</span>
               <input
                 type="checkbox"
                 checked={data.trigger.midiEnabled}
@@ -7878,24 +8105,26 @@ function App() {
             </label>
             {data.trigger.midiEnabled && (
               <>
-                <label className="iannix-field">
-                  <span>Message template</span>
-                  <select
-                    value={data.trigger.midiTemplate}
-                    onChange={event => updateTriggerMidi({ midiTemplate: event.target.value })}
-                  >
-                    {IANNIX_MIDI_TEMPLATES.map(template => (
-                      <option key={template.id} value={template.id}>{template.label}</option>
-                    ))}
-                  </select>
-                </label>
-                {data.trigger.midiTemplate !== "custom" && (
+                {data.trigger.behavior === "pulse" && (
+                  <label className="iannix-field">
+                    <span>Message template</span>
+                    <select
+                      value={data.trigger.midiTemplate}
+                      onChange={event => updateTriggerMidi({ midiTemplate: event.target.value })}
+                    >
+                      {IANNIX_MIDI_TEMPLATES.map(template => (
+                        <option key={template.id} value={template.id}>{template.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {(data.trigger.behavior === "glissando" || data.trigger.midiTemplate !== "custom") && (
                   <div className="iannix-two-column">
                     <label className="iannix-field">
                       <span>Channel</span>
                       <input type="number" min="1" max="16" step="1" data-default="1" value={data.trigger.midiChannel} onChange={event => updateTriggerMidi({ midiChannel: Number(event.target.value) })} />
                     </label>
-                    {(data.trigger.midiTemplate === "relativePitch" || data.trigger.midiTemplate === "fixedNote") && (
+                    {(data.trigger.behavior === "glissando" || data.trigger.midiTemplate === "relativePitch" || data.trigger.midiTemplate === "fixedNote") && (
                       <label className="iannix-field">
                         <span>Velocity</span>
                         <input type="number" min="0" max="127" step="1" data-default="100" value={data.trigger.midiVelocity} onChange={event => updateTriggerMidi({ midiVelocity: Number(event.target.value) })} />
@@ -7915,7 +8144,7 @@ function App() {
                     )}
                   </div>
                 )}
-                {data.trigger.midiTemplate === "relativePitch" && (
+                {(data.trigger.behavior === "glissando" || data.trigger.midiTemplate === "relativePitch") && (
                   <>
                     <label className="iannix-field">
                       <span>Base note from</span>
@@ -7927,37 +8156,45 @@ function App() {
                     <div className="iannix-hint">Pitch is the signed intersection offset along the cursor shape. Its center is the chosen object's base note; its ends use that object's ± octave range.</div>
                   </>
                 )}
-                <label className="iannix-field">
-                  <span>IanniX MIDI pattern</span>
-                  <input
-                    type="text"
-                    value={data.trigger.midiPattern}
-                    onChange={event => updateTriggerMidi({ midiTemplate: "custom", midiPattern: event.target.value }, false)}
-                  />
-                </label>
+                {data.trigger.behavior === "pulse" && (
+                  <label className="iannix-field">
+                    <span>IanniX MIDI pattern</span>
+                    <input
+                      type="text"
+                      value={data.trigger.midiPattern}
+                      onChange={event => updateTriggerMidi({ midiTemplate: "custom", midiPattern: event.target.value }, false)}
+                    />
+                  </label>
+                )}
                 <div className="iannix-midi-actions">
                   <button
                     type="button"
                     className="iannix-flat-button"
-                    onClick={() => toggleDraweratorPanel("settings", { settingsTab: "score" })}
+                    onClick={() => toggleDraweratorPanel("mixer")}
                   >
-                    Score &amp; MIDI settings
+                    Open Mixer
                   </button>
-                  <button
-                    type="button"
-                    className="iannix-flat-button"
-                    disabled={!midiPreview}
-                    onClick={() => emitIannixMidiPattern(data.trigger.midiPattern, midiPreview.context, { userGesture: true })}
-                  >
-                    Test message
-                  </button>
+                  {data.trigger.behavior === "pulse" && (
+                    <button
+                      type="button"
+                      className="iannix-flat-button"
+                      disabled={!midiPreview}
+                      onClick={() => emitIannixMidiPattern(data.trigger.midiPattern, midiPreview.context, { userGesture: true })}
+                    >
+                      Test message
+                    </button>
+                  )}
                 </div>
-                <div className="iannix-hint">MIDI destination and tempo are global score settings.</div>
+                <div className="iannix-hint">{data.trigger.behavior === "glissando"
+                  ? "The selected MIDI channel addresses matching internal Expressive Synth tracks. Solo, mute, instrument, and program remain Mixer concerns."
+                  : "The message's MIDI channel is routed through every matching enabled Mixer track."}</div>
                 {midiPreview ? (
                   <div className="iannix-midi-preview">
-                    <span>Would emit via {midiPreview.cursorLabel}</span>
-                    <strong>{describeIannixMidiMessage(midiPreview.message)}</strong>
-                    {data.trigger.midiTemplate === "relativePitch" && (
+                    <span>{data.trigger.behavior === "glissando" ? "Continuous voice via" : "Would emit via"} {midiPreview.cursorLabel}</span>
+                    <strong>{data.trigger.behavior === "glissando"
+                      ? `ch ${data.trigger.midiChannel} · note ${midiPreview.context.trigger_note_float.toFixed(2)}`
+                      : describeIannixMidiMessage(midiPreview.message)}</strong>
+                    {(data.trigger.behavior === "glissando" || data.trigger.midiTemplate === "relativePitch") && (
                       <small>offset {midiPreview.context.trigger_offset.toFixed(3)} · base {midiPreview.context.midi_base_note}</small>
                     )}
                   </div>
@@ -7965,7 +8202,7 @@ function App() {
                   <div className="iannix-hint warning">{midiPreviewError}</div>
                 )}
                 <div className="iannix-midi-status" role="status">{midiStatus}</div>
-                <details className="iannix-protocol-docs">
+                {data.trigger.behavior === "pulse" && <details className="iannix-protocol-docs">
                   <summary>MIDI protocol reference</summary>
                   <div className="iannix-protocol-body">
                     <code>midi://device/notef channel note velocity duration</code>
@@ -7977,12 +8214,12 @@ function App() {
                       <dt>trigger_offset</dt><dd>Signed −1…1 intersection offset along the cursor shape.</dd>
                       <dt>trigger_note</dt><dd>Cursor-relative pitch after applying base note and octave range.</dd>
                       <dt>cursor_value_y</dt><dd>Current cursor Y in its expanded IanniX curve bounds.</dd>
-                      <dt>trigger_duration</dt><dd>This trigger's pulse duration in seconds.</dd>
+                      <dt>trigger_duration</dt><dd>Minimum/fallback duration; geometric exit determines longer MIDI notes.</dd>
                       <dt>midi_out</dt><dd>Alias for the MIDI output selected above.</dd>
                     </dl>
                     <p>IanniX XY preserves the original template. Cursor-relative pitch is a Drawerator extension built on IanniX's configurable cursor bounds idea. Test Message uses the same selected-trigger and nearest-cursor context as playback.</p>
                   </div>
-                </details>
+                </details>}
               </>
             )}
           </InspectorSection>
@@ -9538,7 +9775,9 @@ function App() {
 
         {scoreObjects.filter(element => element.customData.iannix.role === "trigger").map(element => {
           const pulseUntil = triggerPulseUntilRef.current.get(element.id) || 0;
-          if (pulseUntil <= now) return null;
+          const geometricallyActive = scorePlaying && [...activeScoreCollisionsRef.current]
+            .some(key => key.split(":")[1] === element.id);
+          if (!geometricallyActive && pulseUntil <= now) return null;
           return getElementCorePaths(element).map((path, index) => {
             const points = path
               .map(point => mapCanvasToScreen(point[0], point[1]))
@@ -10021,13 +10260,11 @@ function App() {
                 </select>
               </label>
               <label className="settings-panel-field">
-                <span>Score output</span>
+                <span>Clock output</span>
                 <select value={midiOutputId} onChange={event => void handleMidiOutputChange(event.target.value)}>
                   <option value={MIDI_PORT_NONE}>None</option>
                   <option value={MIDI_PORT_ALL}>All MIDI Outputs</option>
-                  <option value={INTERNAL_MIDI_SYNTH_ID}>Internal GM Synth</option>
-                  <option value={EXPRESSIVE_SYNTH_ID}>Expressive Synth</option>
-                  {midiOutputId && midiOutputId !== MIDI_PORT_ALL && midiOutputId !== INTERNAL_MIDI_SYNTH_ID && midiOutputId !== EXPRESSIVE_SYNTH_ID && !midiOutputs.some(output => output.id === midiOutputId) && (
+                  {midiOutputId && midiOutputId !== MIDI_PORT_ALL && !midiOutputs.some(output => output.id === midiOutputId) && (
                     <option value={midiOutputId}>Unavailable output ({midiOutputId})</option>
                   )}
                   {midiOutputs.map(output => (
@@ -10037,32 +10274,10 @@ function App() {
               </label>
               <button type="button" className="settings-panel-midi-refresh" title={midiAccess ? "Refresh MIDI access" : "Connect MIDI"} aria-label={midiAccess ? "Refresh MIDI access" : "Connect MIDI"} onClick={connectIannixMidi}>↻</button>
             </div>
-            <label className="settings-panel-check settings-panel-midi-fallback">
-              <span>Use Internal GM Synth if the selected external output disappears</span>
-              <input type="checkbox" checked={midiFallbackEnabled} onChange={event => void handleMidiFallbackChange(event.target.checked)} />
-            </label>
-            <details className="settings-panel-gm-programs" open={internalProgramsExpanded} onToggle={event => setInternalProgramsExpanded(event.currentTarget.open)}>
-              <summary>Internal GM programs</summary>
-              <div className="settings-panel-gm-program-list">
-                {Array.from({ length: 16 }, (_, index) => {
-                  const channel = index + 1;
-                  return (
-                    <label key={channel} className={isPercussionChannel(channel) ? "settings-panel-gm-program percussion" : "settings-panel-gm-program"}>
-                      <span>Ch {channel}</span>
-                      {isPercussionChannel(channel) ? (
-                        <strong>Percussion</strong>
-                      ) : (
-                        <select value={internalGmPrograms[channel]} onChange={event => handleInternalProgramChange(channel, Number(event.target.value))}>
-                          {GM_PROGRAMS.map((name, program) => (
-                            <option key={program} value={program}>{String(program + 1).padStart(3, "0")} {name}</option>
-                          ))}
-                        </select>
-                      )}
-                    </label>
-                  );
-                })}
-              </div>
-            </details>
+            <div className="settings-panel-actions">
+              <button type="button" className="iannix-flat-button" onClick={() => toggleDraweratorPanel("mixer")}>Open Mixer</button>
+              <span className="settings-panel-hint">Score destinations, instruments, programs, and MIDI channels are assigned per mixer track.</span>
+            </div>
             <div className="settings-panel-synth-status" role="status">
               <span>Internal synth: <strong>{internalSynthStatus}</strong></span>
               {(internalSynthStatus === "Audio suspended" || internalSynthStatus === "Error") && (
@@ -10074,7 +10289,7 @@ function App() {
               <button type="button" className="iannix-flat-button" onClick={panicMidi}>Panic</button>
             </div>
             {internalSynthError && <div className="settings-panel-hint warning">{internalSynthError}</div>}
-            <div className="settings-panel-hint">Channel 10 is percussion. Programs are saved locally and apply only to the embedded synth.</div>
+            <div className="settings-panel-hint">MIDI clock has one transport destination. Score events use the Mixer; channel 10 remains percussion for General MIDI tracks.</div>
             <label className="settings-panel-check" title="On: one voice per trigger for its duration. Off: each cursor can voice the same trigger independently, with a separate duration latch per cursor.">
               <span>Latch each trigger across cursors</span>
               <input type="checkbox" checked={latchTriggersAcrossCursors} onChange={event => {
@@ -10307,7 +10522,7 @@ function App() {
     }
   });
 
-  const sidePanels = DRAWERATOR_PANELS.filter(panel => !panel.placements.includes(PANEL_PLACEMENTS.BOTTOM));
+  const sidePanels = DRAWERATOR_PANELS.filter(panel => panel.placements.includes(PANEL_PLACEMENTS.LEFT) || panel.placements.includes(PANEL_PLACEMENTS.RIGHT));
   const horizontalPanels = DRAWERATOR_PANELS.filter(panel => panel.placements.includes(PANEL_PLACEMENTS.BOTTOM));
   const getDockTabs = placement => getOpenPanelsForPlacement(sidePanels, openPanels, panelLayouts, placement);
   const leftDockTabs = getDockTabs(PANEL_PLACEMENTS.LEFT);
@@ -10337,19 +10552,35 @@ function App() {
     if (panelId === "transport") setShowIannixTransport(false);
     else closeDraweratorPanel(panelId);
   };
-  const anySidePanelOpen = sidePanels.some(panel => openPanels[panel.id]);
+  const anySidePanelOpen = sidePanels.some(panel => openPanels[panel.id] && [PANEL_PLACEMENTS.LEFT, PANEL_PLACEMENTS.RIGHT].includes(panelLayouts[panel.id]?.placement));
   const bottomDockOpen = bottomDockTabs.length > 0;
-  const bottomDockHeight = horizontalPanels.find(panel => panel.id === activeBottomPanelId)?.dockedHeight || 144;
+  const activeBottomPanel = horizontalPanels.find(panel => panel.id === activeBottomPanelId);
+  const bottomDockExpandedHeight = Math.max(
+    BOTTOM_DOCK_MIN_HEIGHT,
+    Number(panelLayouts[activeBottomPanelId]?.height) || activeBottomPanel?.dockedHeight || 144,
+  );
+  const bottomDockHeight = collapsedDocks.bottom ? COLLAPSED_DOCK_EDGE_SIZE : bottomDockExpandedHeight;
+  const expressivePrograms = getExpressiveSynthPrograms(expressiveSynthConfig);
+  const updateInfoViewFromEvent = event => {
+    const target = event.target?.closest?.("[data-info]");
+    if (!target) return;
+    setInfoView({
+      title: target.dataset.infoTitle || target.getAttribute("aria-label") || target.getAttribute("title") || "Info",
+      body: target.dataset.info || DEFAULT_INFO_VIEW.body,
+    });
+  };
 
   return (
     <div 
       id="root" 
-      className={`drawerator-shell ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} ${bottomDockOpen ? "horizontal-dock-open" : ""} ${draggingPanelId || transportDragging ? "panel-is-dragging" : ""}`}
+      className={`drawerator-shell drawerator-theme-${theme} ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} ${bottomDockOpen ? "horizontal-dock-open" : ""} ${collapsedDocks.bottom ? "bottom-dock-collapsed" : ""} ${draggingPanelId || transportDragging ? "panel-is-dragging" : ""}`}
       style={{
         "--drawerator-accent": colorWithOpacity(accentColor, accentOpacity),
         "--drawerator-highlight": colorWithOpacity(highlightColor, highlightOpacity),
         "--horizontal-dock-height": `${bottomDockHeight}px`,
       }}
+      onPointerOverCapture={updateInfoViewFromEvent}
+      onFocusCapture={updateInfoViewFromEvent}
     >
       <NumberInputController onRouteRequest={detail => {
         eventBus.emit("parameter.route.request", detail, { source: "number-box" });
@@ -10856,8 +11087,14 @@ function App() {
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-iannix", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               IanniX
             </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-mixer", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              Mixer
+            </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-synth", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Expressive Synth
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-info", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              Info
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-settings", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Settings
@@ -11827,6 +12064,42 @@ function App() {
           </DraweratorPanel>
           )}
 
+          {(panelLayouts.mixer.placement === PANEL_PLACEMENTS.BOTTOM ? shouldRenderHorizontalPanel("mixer") : shouldRenderPanel("mixer")) && (
+          <DraweratorPanel
+            id="mixer"
+            title="Mixer"
+            placement={panelLayouts.mixer.placement}
+            layout={panelLayouts.mixer}
+            dockTabs={panelLayouts.mixer.placement === PANEL_PLACEMENTS.BOTTOM ? bottomDockTabs : getPanelDockTabs("mixer")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.mixer.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={panelLayouts.mixer.placement === PANEL_PLACEMENTS.BOTTOM ? startHorizontalPanelDrag : startSidebarPanelDrag}
+            onCloseDockTab={closeHorizontalPanel}
+            onPlacementChange={placement => setPanelPlacement("mixer", placement)}
+            onDragStart={event => panelLayouts.mixer.placement === PANEL_PLACEMENTS.BOTTOM ? startHorizontalPanelDrag("mixer", event) : startSidebarPanelDrag("mixer", event)}
+            onClose={() => closeHorizontalPanel("mixer")}
+            onResizeStart={handlePanelResizeMouseDown}
+            allowBottom
+            bottomHeight={286}
+            collapsed={panelLayouts.mixer.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.mixer.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.mixer.placement]: false }))}
+          >
+            <MixerPanel
+              mixer={mixer}
+              midiOutputs={midiOutputs}
+              expressiveVoiceCount={expressiveVoiceCount}
+              expressivePrograms={expressivePrograms}
+              internalStatus={internalSynthStatus}
+              expressiveStatus={expressiveSynthStatus}
+              onUpdateTrack={(trackId, patch) => setMixer(current => updateMixerTrack(current, trackId, patch))}
+              onAddTrack={() => setMixer(current => addMixerTrack(current))}
+              onRemoveTrack={trackId => setMixer(current => removeMixerTrack(current, trackId))}
+              onConnectMidi={connectIannixMidi}
+              onPanic={panicMidi}
+            />
+          </DraweratorPanel>
+          )}
+
           {shouldRenderPanel("synth") && (
           <DraweratorPanel
             id="synth"
@@ -11849,17 +12122,41 @@ function App() {
               config={expressiveSynthConfig}
               status={expressiveSynthStatus}
               error={expressiveSynthError}
-              selected={midiOutputId === EXPRESSIVE_SYNTH_ID}
               voiceCount={expressiveVoiceCount}
-              onSelect={() => void handleMidiOutputChange(EXPRESSIVE_SYNTH_ID)}
+              onOpenMixer={() => toggleDraweratorPanel("mixer")}
               onEnable={() => void ensureExpressiveSynth()}
-              onTest={() => void testExpressiveSynthAudio()}
+              onTest={program => void testExpressiveSynthAudio(program)}
               onResetAudio={() => void resetExpressiveSynth()}
               onPanic={panicMidi}
-              onCreateDemo={() => void commandRegistry.execute("expressiveSynth.demo.create", {}, { source: "synth-panel", transportTime: scoreTimeRef.current })}
               onUpdate={updateExpressiveSynthConfig}
+              onSaveProgram={saveExpressiveSynthProgram}
+              onDeleteProgram={deleteExpressiveSynthProgram}
               onResetConfig={() => setExpressiveSynthConfig({ ...DEFAULT_EXPRESSIVE_SYNTH_CONFIG })}
             />
+          </DraweratorPanel>
+          )}
+
+          {(panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? shouldRenderHorizontalPanel("info") : shouldRenderPanel("info")) && (
+          <DraweratorPanel
+            id="info"
+            title="Info"
+            placement={panelLayouts.info.placement}
+            layout={panelLayouts.info}
+            dockTabs={panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? bottomDockTabs : getPanelDockTabs("info")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.info.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? startHorizontalPanelDrag : startSidebarPanelDrag}
+            onCloseDockTab={panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? closeHorizontalPanel : closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("info", placement)}
+            onDragStart={event => panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? startHorizontalPanelDrag("info", event) : startSidebarPanelDrag("info", event)}
+            onClose={() => panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? closeHorizontalPanel("info") : closeDraweratorPanel("info")}
+            onResizeStart={handlePanelResizeMouseDown}
+            allowBottom
+            bottomHeight={240}
+            collapsed={panelLayouts.info.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.info.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.info.placement]: false }))}
+          >
+            <InfoPanel info={infoView} />
           </DraweratorPanel>
           )}
 
@@ -11880,6 +12177,8 @@ function App() {
               onResizeStart={handlePanelResizeMouseDown}
               allowBottom
               bottomHeight={114}
+              collapsed={panelLayouts.transport.placement === PANEL_PLACEMENTS.BOTTOM && collapsedDocks.bottom}
+              onExpand={() => setCollapsedDocks(previous => ({ ...previous, bottom: false }))}
             >
               {renderIannixTransport()}
             </DraweratorPanel>

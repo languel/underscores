@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createIannixMidiVoiceTracker,
+  getIannixPathIntersectionPoint,
   getIannixTriggerMidiContext,
   getIannixMidiTemplatePattern,
   parseIannixMidiPattern,
@@ -87,6 +88,61 @@ test("voice tracking does not let an older same-note expiry cut off a retrigger"
   assert.deepEqual(sent.slice(0, 2).map(event => event.bytes), [message.noteOn, message.noteOn]);
 });
 
+test("geometric MIDI gates hold notes until exit while honoring pulse duration as a minimum", () => {
+  let now = 1000;
+  let timerId = 0;
+  const timers = new Map();
+  const sent = [];
+  const output = { send: (bytes, time) => sent.push({ bytes, time: time ?? now }) };
+  const tracker = createIannixMidiVoiceTracker({
+    now: () => now,
+    setTimer: (callback, delay) => {
+      const id = ++timerId;
+      timers.set(id, { callback, due: now + delay });
+      return id;
+    },
+    clearTimer: id => timers.delete(id),
+  });
+  const runTo = target => {
+    now = target;
+    [...timers.entries()]
+      .filter(([, timer]) => timer.due <= target)
+      .sort((a, b) => a[1].due - b[1].due)
+      .forEach(([id, timer]) => {
+        timers.delete(id);
+        timer.callback();
+      });
+  };
+  const message = parseIannixMidiPattern("midi://midi_out/note 1 60 100 0.25");
+
+  tracker.startGate(output, message, "short", 1000);
+  now = 1100;
+  tracker.endGate("short", 1100);
+  assert.equal(sent.filter(event => event.bytes[0] === 0x80).length, 0);
+  runTo(1250);
+  assert.equal(sent.filter(event => event.bytes[0] === 0x80).length, 1);
+
+  tracker.startGate(output, message, "long", 1250);
+  runTo(1750);
+  assert.equal(sent.filter(event => event.bytes[0] === 0x80).length, 1);
+  tracker.endGate("long", 1750);
+  assert.equal(sent.filter(event => event.bytes[0] === 0x80).length, 2);
+  assert.equal(tracker.getActiveGateCount(), 0);
+});
+
+test("overlapping geometric gates sharing a note release only after the final exit", () => {
+  const sent = [];
+  const output = { send: bytes => sent.push(bytes) };
+  const tracker = createIannixMidiVoiceTracker();
+  const message = parseIannixMidiPattern("midi://midi_out/note 1 64 90 0");
+  tracker.startGate(output, message, "a", 1000);
+  tracker.startGate(output, message, "b", 1000);
+  tracker.endGate("a", 1200);
+  assert.equal(sent.filter(bytes => bytes[0] === 0x80).length, 0);
+  tracker.endGate("b", 1300);
+  assert.equal(sent.filter(bytes => bytes[0] === 0x80).length, 1);
+});
+
 test("trigger context maps curve bounds to IanniX-style normalized values", () => {
   const context = getIannixTriggerMidiContext({
     curveElement: { type: "line", x: 10, y: 20, width: 100, height: 100, angle: 0, points: [[0, 0], [100, 100]], customData: {} },
@@ -127,4 +183,29 @@ test("cursor-relative pitch maps signed cursor hits around its base note", () =>
   assert.deepEqual([low.trigger_note, center.trigger_note, high.trigger_note], [36, 60, 84]);
   assert.equal(center.trigger_velocity, 90);
   assert.equal(getIannixMidiTemplatePattern("relativePitch", { midiChannel: 2, midiVelocity: 91 }), "midi://midi_out/note 2 trigger_note 91 trigger_duration");
+});
+
+test("continuous glissando pitch follows the exact moving cursor intersection", () => {
+  const cursor = {
+    element: {
+      id: "cursor",
+      width: 0,
+      height: 200,
+      customData: { iannix: { role: "cursor", midi: { baseNote: 60, pitchRangeOctaves: 2 } } },
+    },
+    curveElement: { type: "line", x: 0, y: 100, points: [[0, 0], [100, 0]], customData: { iannix: { role: "curve" } } },
+    transform: { position: [50, 100] },
+    paths: [[[50, 0], [50, 200]]],
+  };
+  const triggerPaths = [[[0, 175], [100, 25]]];
+  const hit = getIannixPathIntersectionPoint(cursor.paths, triggerPaths, cursor.transform.position);
+  assert.deepEqual(hit, [50, 100]);
+  const context = getIannixTriggerMidiContext(
+    cursor,
+    { trigger: { behavior: "glissando", midiBaseSource: "cursor", midiVelocity: 96 } },
+    { x: 0, y: 25, width: 100, height: 150 },
+    hit,
+  );
+  assert.equal(context.trigger_note_float, 60);
+  assert.equal(context.trigger_velocity, 96);
 });

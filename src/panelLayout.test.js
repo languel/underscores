@@ -12,6 +12,8 @@ test("normalizes panel layout storage independently per panel", () => {
   assert.equal(layouts.transport.placement, PANEL_PLACEMENTS.BOTTOM);
   assert.deepEqual(layouts.grid, { placement: PANEL_PLACEMENTS.LEFT, x: 8, y: 9, width: 360, height: 720 });
   assert.deepEqual(layouts.synth, { placement: PANEL_PLACEMENTS.RIGHT, x: 120, y: 136, width: 360, height: 720 });
+  assert.deepEqual(layouts.info, { placement: PANEL_PLACEMENTS.LEFT, x: 32, y: 520, width: 320, height: 240 });
+  assert.equal(normalizePanelLayouts({ info: { placement: "bottom" } }).info.placement, PANEL_PLACEMENTS.BOTTOM);
   assert.equal(normalizePanelLayouts({ grid: { placement: "bottom" } }).grid.placement, PANEL_PLACEMENTS.RIGHT);
   assert.deepEqual(
     normalizePanelLayouts({ grid: { placement: "floating", width: 1120, height: 144 } }).grid,
@@ -23,6 +25,7 @@ test("detects sidebar and transport drop zones", () => {
   assert.equal(getDockTarget(12, 300, 1200, 800), PANEL_PLACEMENTS.LEFT);
   assert.equal(getDockTarget(1190, 300, 1200, 800), PANEL_PLACEMENTS.RIGHT);
   assert.equal(getDockTarget(600, 790, 1200, 800, { allowBottom: true, transport: true }), PANEL_PLACEMENTS.BOTTOM);
+  assert.equal(getDockTarget(600, 790, 1200, 800, { allowBottom: true }), PANEL_PLACEMENTS.BOTTOM);
   assert.equal(getDockTarget(600, 300, 1200, 800), PANEL_PLACEMENTS.FLOATING);
 });
 

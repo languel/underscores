@@ -10,7 +10,9 @@ export const DEFAULT_PANEL_LAYOUTS = Object.freeze({
   settings: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 48, y: 88, width: 380, height: 760 }),
   mods: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 72, y: 104, width: 380, height: 760 }),
   iannix: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 96, y: 120, width: 380, height: 760 }),
+  mixer: Object.freeze({ placement: PANEL_PLACEMENTS.BOTTOM, x: 72, y: 120, width: 1040, height: 286 }),
   synth: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 120, y: 136, width: 360, height: 720 }),
+  info: Object.freeze({ placement: PANEL_PLACEMENTS.LEFT, x: 32, y: 520, width: 320, height: 240 }),
   console: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 96, y: 120, width: 340, height: 420 }),
   history: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 120, y: 136, width: 420, height: 720 }),
   properties: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 144, y: 152, width: 380, height: 720 }),
@@ -36,7 +38,9 @@ export const normalizePanelLayouts = value => {
     );
     const allowed = id === "transport"
       ? new Set([PANEL_PLACEMENTS.BOTTOM, PANEL_PLACEMENTS.FLOATING])
-      : SIDEBAR_PLACEMENTS;
+      : id === "mixer" || id === "info"
+        ? new Set([...SIDEBAR_PLACEMENTS, PANEL_PLACEMENTS.BOTTOM])
+        : SIDEBAR_PLACEMENTS;
     return [id, {
       placement: !legacyHorizontalGrid && allowed.has(candidate.placement) ? candidate.placement : fallback.placement,
       x: Number.isFinite(candidate.x) ? candidate.x : fallback.x,

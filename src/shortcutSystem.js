@@ -7,6 +7,7 @@ export const SHORTCUT_ACTIONS = Object.freeze([
   { id: "grid.visible.toggle", commandId: "grid.visible.toggle", label: "Grid visibility", defaultBinding: "Mod+Shift+Quote" },
   { id: "grid.snap.toggle", label: "Grid snapping", defaultBinding: "Mod+Alt+Quote" },
   { id: "panel-grid", label: "Grid panel", defaultBinding: "Mod+Shift+KeyG" },
+  { id: "dock.bottom.toggle", commandId: "dock.bottom.toggle", label: "Bottom dock collapse", defaultBinding: "Mod+Shift+KeyB" },
 ]);
 
 export const DEFAULT_SHORTCUTS = Object.freeze(Object.fromEntries(

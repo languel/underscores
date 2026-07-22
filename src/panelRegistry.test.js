@@ -14,5 +14,7 @@ test("panel lookup and slash matching share one registry", () => {
   assert.equal(getDraweratorPanel("transport")?.label, "Timeline");
   assert.deepEqual(getDraweratorPanel("grid")?.placements, ["left", "floating", "right"]);
   assert.equal(getDraweratorPanel("synth")?.label, "Synth");
+  assert.equal(getDraweratorPanel("info")?.slash, "/info");
+  assert.deepEqual(getDraweratorPanel("info")?.placements, ["left", "floating", "right", "bottom"]);
   assert.equal(matchesDraweratorPanel(getDraweratorPanel("settings"), "midi"), false);
 });

@@ -34,102 +34,125 @@ const makeBaseElement = (type, id, x, y, width, height, strokeColor) => ({
   lastCommittedPoint: null,
 });
 
-const makeIdFactory = prefix => {
-  let index = 0;
-  return kind => `${prefix}_${kind}_${index++}`;
+const makeLine = ({ id, start, end, strokeColor, strokeWidth = 2, iannix }) => {
+  const x = Math.min(start[0], end[0]);
+  const y = Math.min(start[1], end[1]);
+  return {
+    ...makeBaseElement("line", id, x, y, Math.abs(end[0] - start[0]), Math.abs(end[1] - start[1]), strokeColor),
+    points: [[start[0] - x, start[1] - y], [end[0] - x, end[1] - y]],
+    strokeWidth,
+    customData: { iannix: normalizeIannixData(iannix) },
+  };
 };
 
-const DEMO_PATHS = Object.freeze([
-  [-1.00, -0.18, 0.72, -0.48],
-  [-0.66, -0.11, 0.46, -0.24],
-  [-0.32, -0.04, 0.20, 0.02],
-  [0.32, 0.04, -0.20, -0.02],
-  [0.66, 0.11, -0.46, 0.24],
-  [1.00, 0.18, -0.72, 0.48],
+const GLISSANDO_LINES = Object.freeze([
+  Object.freeze([-0.47, 0.34, 0.47, -0.50]),
+  Object.freeze([-0.45, -0.56, 0.22, 0.64]),
+  Object.freeze([-0.30, 0.12, 0.43, -0.24]),
+  Object.freeze([-0.46, -0.28, 0.48, 0.42]),
+  Object.freeze([-0.18, 0.62, 0.06, 0.20]),
+  Object.freeze([0.16, 0.36, 0.42, 0.60]),
 ]);
 
 /**
- * Builds a compact Metastaseis-inspired study: six independent polyline
- * glissandi, each with its own linked runtime cursor and therefore its own
- * Expressive Synth voice. The returned objects use the same IanniX metadata
- * and real cursor-host geometry as manually authored score objects.
+ * Builds a Metastaseis-inspired continuous glissando study. One cursor sweeps
+ * a horizontal timeline. Every blue Trigger is a geometric gate: intersection
+ * with the moving vertical cursor starts and sustains one Mixer-track voice,
+ * its Y intersection supplies fractional pitch, and leaving its X extent
+ * releases the voice.
  */
 export const createExpressiveSynthDemoScore = ({
   center = [0, 0],
   width = 720,
-  height = 360,
-  strokeColor = "#1b1b1f",
-  cursorColor = "#ff3b0a",
+  height = 420,
+  timelineColor = "#f08c00",
+  cursorColor = "#1b1b1f",
+  triggerColor = "#12aeea",
   duration = EXPRESSIVE_SYNTH_DEMO_DURATION,
   idPrefix = `expressive_demo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
 } = {}) => {
   const safeCenter = [Number(center[0]) || 0, Number(center[1]) || 0];
   const safeWidth = Math.max(240, Number(width) || 720);
-  const safeHeight = Math.max(160, Number(height) || 360);
+  const safeHeight = Math.max(160, Number(height) || 420);
   const safeDuration = Math.max(0.1, Number(duration) || EXPRESSIVE_SYNTH_DEMO_DURATION);
-  const nextId = makeIdFactory(idPrefix);
-  const curves = [];
-  const cursors = [];
-
-  DEMO_PATHS.forEach((shape, index) => {
-    const worldPoints = shape.map((vertical, pointIndex) => [
-      safeCenter[0] - safeWidth / 2 + safeWidth * pointIndex / (shape.length - 1),
-      safeCenter[1] + vertical * safeHeight * 0.42,
-    ]);
-    const minX = Math.min(...worldPoints.map(point => point[0]));
-    const minY = Math.min(...worldPoints.map(point => point[1]));
-    const maxX = Math.max(...worldPoints.map(point => point[0]));
-    const maxY = Math.max(...worldPoints.map(point => point[1]));
-    const curveId = nextId("curve");
-    const cursorId = nextId("cursor");
-    const curveWidth = 1 + index * 0.55;
-    const curve = {
-      ...makeBaseElement("line", curveId, minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY), strokeColor),
-      points: worldPoints.map(point => [point[0] - minX, point[1] - minY]),
-      strokeWidth: curveWidth,
-      customData: {
-        iannix: normalizeIannixData({
-          role: "curve",
-          active: true,
-          label: `Glissando ${index + 1}`,
-          time: { start: 0, duration: safeDuration, rate: 1, loopMode: "pingPong" },
-        }),
-      },
-    };
-    const cursorLength = 20;
-    const cursor = {
-      ...makeBaseElement("line", cursorId, worldPoints[0][0], worldPoints[0][1] - cursorLength / 2, 0, cursorLength, "transparent"),
-      points: [[0, 0], [0, cursorLength]],
-      strokeWidth: Math.max(1.5, curveWidth),
-      strokeColor: "transparent",
-      opacity: 0,
-      customData: {
-        iannix: normalizeIannixData({
-          role: "cursor",
-          active: true,
-          label: `Voice ${index + 1}`,
-          time: { start: 0, duration: safeDuration, rate: 1, loopMode: "pingPong" },
-          cursor: {
-            curveId,
-            followTangent: true,
-            visualSmoothing: 0.45,
-            sourceOpacity: 100,
-            sourceStrokeColor: cursorColor,
-          },
-        }),
-      },
-    };
-    curves.push(curve);
-    cursors.push(cursor);
+  const timelineStart = [safeCenter[0] - safeWidth / 2, safeCenter[1]];
+  const timelineEnd = [safeCenter[0] + safeWidth / 2, safeCenter[1]];
+  const timelineCurve = makeLine({
+    id: `${idPrefix}_timeline`,
+    start: timelineStart,
+    end: timelineEnd,
+    strokeColor: timelineColor,
+    strokeWidth: 2.5,
+    iannix: {
+      role: "curve",
+      active: true,
+      label: "Timeline",
+      midi: { midiChannel: 16, baseNote: 60, pitchRangeOctaves: 2.5 },
+      time: { start: 0, duration: safeDuration, rate: 1, loopMode: "loop" },
+    },
   });
 
-  const elements = reconcileRuntimeCursorHosts(cursors, [...curves, ...cursors]);
+  const cursorId = `${idPrefix}_cursor`;
+  const cursor = makeLine({
+    id: cursorId,
+    start: [timelineStart[0], safeCenter[1] - safeHeight / 2],
+    end: [timelineStart[0], safeCenter[1] + safeHeight / 2],
+    strokeColor: "transparent",
+    strokeWidth: 2.5,
+    iannix: {
+      role: "cursor",
+      active: true,
+      label: "Time cursor",
+      midi: { midiChannel: 16, baseNote: 60, pitchRangeOctaves: 2.5, velocity: 100 },
+      time: { start: 0, duration: safeDuration, rate: 1, loopMode: "loop" },
+      cursor: {
+        curveId: timelineCurve.id,
+        followTangent: true,
+        visualSmoothing: 0.2,
+        sourceOpacity: 100,
+        sourceStrokeColor: cursorColor,
+      },
+    },
+  });
+  cursor.opacity = 0;
+  cursor.strokeColor = "transparent";
+
+  const triggers = GLISSANDO_LINES.map((line, index) => makeLine({
+    id: `${idPrefix}_glissando_${index + 1}`,
+    start: [
+      safeCenter[0] + line[0] * safeWidth,
+      safeCenter[1] + line[1] * safeHeight,
+    ],
+    end: [
+      safeCenter[0] + line[2] * safeWidth,
+      safeCenter[1] + line[3] * safeHeight,
+    ],
+    strokeColor: triggerColor,
+    strokeWidth: 1.5 + index * 0.35,
+    iannix: {
+      role: "trigger",
+      active: true,
+      label: `Glissando ${index + 1}`,
+      trigger: {
+        behavior: "glissando",
+        midiEnabled: true,
+        midiChannel: index + 1,
+        midiBaseSource: "cursor",
+        midiVelocity: 88 + index * 5,
+      },
+    },
+  }));
+
+  const [preparedCursor] = reconcileRuntimeCursorHosts([cursor], [timelineCurve, cursor, ...triggers]);
   return {
-    elements: [...curves, ...elements],
-    curves,
-    cursors: elements,
+    elements: [timelineCurve, preparedCursor, ...triggers],
+    curves: [timelineCurve],
+    timelineCurve,
+    cursors: [preparedCursor],
+    cursor: preparedCursor,
+    triggers,
     duration: safeDuration,
     center: safeCenter,
-    voiceCount: elements.length,
+    voiceCount: triggers.length,
   };
 };

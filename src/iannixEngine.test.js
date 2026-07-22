@@ -122,6 +122,12 @@ test("normalizes role-independent timing without discarding role settings", () =
   assert.equal(data.time.start, 0);
   assert.equal(data.cursor.curveId, "curve-1");
   assert.equal(data.trigger.duration, 0.35);
+  assert.equal(data.trigger.behavior, "pulse");
+});
+
+test("normalizes continuous glissando triggers without changing legacy pulse triggers", () => {
+  assert.equal(normalizeIannixData({ role: "trigger", trigger: { behavior: "glissando" } }).trigger.behavior, "glissando");
+  assert.equal(normalizeIannixData({ role: "trigger", trigger: { behavior: "unknown" } }).trigger.behavior, "pulse");
 });
 
 test("legacy edited MIDI patterns remain custom when templates are introduced", () => {
