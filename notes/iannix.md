@@ -1,6 +1,6 @@
 # IanniX Score Engine Notes
 
-Last updated: 2026-07-17
+Last updated: 2026-07-22
 
 This note records Drawerator's first IanniX-inspired score slice. It adapts the concepts from the local IanniX project without coupling score semantics to its original renderer or OSC layer.
 
@@ -71,11 +71,11 @@ Drawerator's first MIDI slice follows IanniX's message URL convention and its de
 - `/note` accepts channel `1..16`, MIDI note `0..127`, velocity `0..127`, and duration in seconds.
 - `/notef` uses the same argument order but scales note and velocity from `0..1` to `0..127`, matching `InterfaceMidi::send()`.
 - `/cc` accepts channel, controller, and value as MIDI integers. `/ccf` scales its value from `0..1` to `0..127`, matching IanniX's cursor-to-controller template.
-- Note-on uses status `0x90 + channel - 1`; a scheduled note-off uses `0x80 + channel - 1` after `trigger_duration`.
-- Overlapping notes are tracked per output, channel, and pitch. A stale timer from an earlier occurrence cannot end a newer overlapping voice; the final note-off is emitted only when the last active occurrence expires.
-- `midi_out` resolves to the output selected in Drawerator's global **Settings → Score & MIDI** panel. Browser permission is requested only when **Connect MIDI** is pressed there.
+- Note-on uses status `0x90 + channel - 1`. During score playback, note-off uses `0x80 + channel - 1` when the cursor exits the trigger geometry. `trigger_duration` is the minimum/fallback: a shorter or swept contact is held until that duration, while a longer geometric contact remains sounding until exit. Test messages and non-geometric callers retain scheduled-duration behavior.
+- Overlapping notes are tracked per output, channel, and pitch. One cursor/trigger gate cannot end another overlapping occurrence; the final note-off is emitted only when the last active gate exits or reaches its minimum duration.
+- `midi_out` resolves through every audible Mixer track whose MIDI channel matches the message. Browser permission is requested only when **Connect MIDI** is pressed; internal tracks need no hardware permission.
 - Matching IanniX `NxCursor::getCursorValue(triggerPos)`, `trigger_value_x` and `trigger_value_y` are the trigger's position mapped through the colliding cursor's curve bounds. Drawerator also mirrors IanniX's default bounds-source mode by expanding those bounds by half the cursor dimensions; this avoids collapsing ordinary edge intersections immediately to `0` or `1`. Y is inverted so upward is higher.
-- Collision entry remains the event source. Visual cursor damping never changes MIDI or trigger timing.
+- Collision entry remains the note-on source and collision exit is the note-off source. The activity highlight follows the same gate and uses the same minimum fallback. Visual cursor damping never changes MIDI, highlight, or trigger timing.
 - **Test Message** resolves the current collision cursor when possible, otherwise the cursor whose support curve is nearest the selected trigger. Its preview and emitted bytes are therefore the same message that trigger would emit during playback rather than a fixed middle-C test.
 
 The Trigger panel provides these templates while keeping the URL pattern editable:
@@ -88,7 +88,7 @@ The Trigger panel provides these templates while keeping the URL pattern editabl
 
 IanniX JavaScript expressions and the `/pgm` and `/bend` message families remain future extensions.
 
-Trigger entry policy is configurable in **Settings → Score & MIDI**. The default latched policy treats a trigger as one shared voice source across all cursors and applies a duration lockout, matching the reference scores' non-retriggering behavior. Disabling latching permits independent cursor-trigger pairs to retrigger the same trigger.
+Trigger entry policy is configurable in **Settings → Score & MIDI**. The default latched policy treats a trigger as one shared voice source across all cursors and applies the configured minimum-duration lockout, matching the reference scores' non-retriggering behavior. Disabling latching permits independent cursor-trigger pairs to retrigger the same trigger.
 
 ### Trusted `.iannix` import
 
@@ -161,7 +161,7 @@ The native Excalidraw polyline is derived data, not a second source of truth. Co
 5. transforms cursor core paths for collision and overlay rendering;
 6. tests both the current cursor paths and the swept paths since the previous frame against every active trigger.
 
-Swept testing prevents a fast cursor from tunneling through a narrow trigger between animation frames. Loop discontinuities do not create a false sweep across the canvas. Collision state supports both shared-trigger latching and independent cursor-trigger entry, with duration lockouts preventing accidental rapid retriggers.
+Swept testing prevents a fast cursor from tunneling through a narrow trigger between animation frames. Loop discontinuities do not create a false sweep across the canvas. Collision state supports both shared-trigger latching and independent cursor-trigger entry. Geometry supplies the normal activity and note duration; the configured minimum handles contacts too brief to remain active for a complete frame and prevents accidental rapid retriggers.
 
 Freedraw triggers are an additive Drawerator geometry extension. Excalidraw may persist a click as one sample or several coincident samples; Drawerator recognizes either representation. A point-like trigger's authored point remains the score position and grid-snapping anchor, while collision evaluation creates a circular footprint matching Excalidraw's rendered freedraw diameter (`strokeWidth × 4.25`). Non-degenerate freedraw triggers retain their authored centerline and add a rendered stroke envelope with segment bodies and rounded end caps. Collision therefore respects stroke thickness even for zero-width vertical paths or a cursor traveling inside a parallel stroke. Imported IanniX geometry and non-trigger paths keep their existing semantics.
 
@@ -189,11 +189,11 @@ The IanniX panel's **Data** tab adds an explicit exchange layer:
 - **Copy selection JSON** serializes Drawerator's combined native/runtime selection, modifier-generated children, and the linked cursor–curve component to the clipboard. A hidden runtime cursor therefore cannot silently disappear from a copied score.
 - **Paste selection JSON** assigns collision-safe element/group IDs, remaps parent and cursor-to-curve links, offsets the pasted copy, and selects it.
 
-The selected MIDI hardware output is intentionally not serialized because it is a local browser/device choice.
+The scene's normalized track routing is serialized. Concrete hardware availability remains browser/device-local, so an imported external route may appear as unavailable until that port exists on the current machine.
 
-### Internal GM fallback output
+### Mixer and internal GM output
 
-`src/midiOutputRouting.js` resolves one shared raw-MIDI output contract for trigger playback and History replay. **None** is always silent, **All MIDI Outputs** includes connected Web MIDI outputs only, a connected selected device wins over fallback, and a missing selected device may resolve to **Internal GM Synth** without discarding the saved device ID. Reconnection therefore restores the external route and first panics the old route. MIDI clock continues to target external outputs only.
+`src/mixerSystem.js` resolves score events by MIDI channel across one or more tracks. A track chooses None, Internal audio, or a concrete Web MIDI output plus an instrument and program. Enabled, Mute, and Solo state filter the fan-out. MIDI clock continues to target external outputs only through the separate Clock output preference.
 
 `src/internalMidiSynth.js` is the only TinySynth-specific layer. It lazy-loads `jzz` and `jzz-synth-tiny` from the bundle after a user gesture, adapts raw `send(data, timestamp)` calls, filters system realtime messages, converts future DOM timestamps to cancellable timers, and owns Web Audio resume/dispose behavior. TinySynth supports note on/off (including velocity-zero note-on), program change, pitch bend, sustain and the common panic controllers; unsupported messages are harmlessly ignored by the backend. Timer scheduling is browser-main-thread scheduling, so it is less precise than a native Web MIDI destination under heavy load.
 
@@ -201,17 +201,17 @@ The Score & MIDI panel exposes a direct **Test audio** C4 independent of score l
 
 Web MIDI remains a browser-owned capability. Drawerator requests standard non-SysEx access only and reports the browser's rejection without weakening its permission model. The current Codex/ChatGPT browser profile can persist an allow entry for the Drawerator origin while still rejecting `requestMIDIAccess()` before port enumeration; external Chromium browsers enumerate the same hardware correctly. Use the internal GM synth for embedded-harness audio testing and an external browser for physical MIDI until the host permission/service integration is corrected.
 
-The complete GM Level 1 program table and one-based UI-channel helpers live in `src/generalMidi.js`. Stored programs remain zero-based MIDI values; channel 3 defaults to Acoustic Bass, other melodic channels default to Acoustic Grand Piano, and channel 10 is fixed as percussion. Programs are reapplied on initialization and audio resume. Output choice, fallback policy, GM programs, and History's MIDI-armed toggle use local browser storage and are normalized for older or invalid saved values. No audio context is created on page load.
+The complete GM Level 1 program table and one-based UI-channel helpers live in `src/generalMidi.js`. Stored programs remain zero-based MIDI values and channel 10 is fixed as percussion. Mixer programs are reapplied on initialization and audio resume. Mixer state and History's MIDI-armed toggle use local browser storage and are normalized for older or invalid saved values.
 
-History actions continue to store the IanniX pattern and resolved context, not an output ID or TinySynth event. The same recording can therefore replay through either an external output or the internal synth according to the current route.
+History actions continue to store the IanniX pattern and resolved context, not an output ID or TinySynth event. The same recording can therefore replay through the current mixer configuration.
 
 ### Expressive Web Audio output
 
-`src/expressiveSynth.js` provides a second internal output for scores that require independently continuous pitch, such as dense string glissandi. Every active cursor owns a Web Audio voice keyed by cursor identity; world-space Y maps to continuous MIDI pitch and frequency, while cursor speed and host stroke width can independently drive brightness and pressure. Because voices are not multiplexed through MIDI channels, simultaneous curves can glide without sharing pitch bend.
+`src/expressiveSynth.js` provides an internal Mixer instrument for scores that require independently continuous pitch, such as dense string glissandi. Every active cursor owns a Web Audio voice keyed by mixer-track and cursor identity; world-space Y maps to continuous MIDI pitch and frequency, while cursor speed and host stroke width can independently drive brightness and pressure. Because voices are not multiplexed through MIDI pitch bend, simultaneous curves can glide independently.
 
-The separate `/synth` inspector exposes pure-tone, subtractive, FM, bowed-string, and reed/wind presets plus envelope, filter, damping, vibrato, glide, polyphony, and visual-mapping controls. Trigger patterns can also target the same engine through the shared raw-MIDI adapter. The selected score output remains a local workspace choice, while normalized synth configuration is remembered locally and serialized in Drawerator scene metadata so authored visual-to-sound mappings travel with a scene.
+The separate `/synth` inspector exposes shared synthesis and mapping defaults; `/mixer` chooses an Expressive Synth preset per track. Trigger patterns can target the same engine through its route-scoped raw-MIDI adapter. Normalized synth and mixer configuration are remembered locally and serialized in Drawerator scene metadata.
 
-No manual voice routing is required: one active linked cursor is one independently pitched voice. **Add & play 6-voice glissando demo** or `/synth demo` creates a compact Metastaseis-inspired score using six real curves and six real cursor hosts, installs a safe bowed preset and visual mapping, and loops the 12-second study at 1×. The generator and complete construction, synthesis, persistence, and QA details are documented in [Expressive Synth architecture and glissando study](expressive-synth.md).
+Routing is channel-based. A linked Cursor may sound continuously through matching expressive tracks, while a Trigger set to **Continuous glissando** acts as a geometric gate: cursor entry starts the voice, the exact intersection Y drives fractional pitch, and exit releases it. Trigger length is therefore note duration, and each trigger's MIDI channel selects one or more Mixer tracks. Ordinary Pulse triggers retain their existing MIDI event behavior. The development command `/synth demo` creates a compact Metastaseis-inspired score using one timeline curve, one moving cursor, six geometric trigger contours, and six expressive tracks on channels 1–6. The generator and complete construction, synthesis, persistence, and QA details are documented in [Expressive Synth architecture and glissando study](expressive-synth.md); the track model is documented in [Mixer and score-output routing](mixer.md).
 
 ## Extension points
 

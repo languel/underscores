@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { getNumberInputDefault, numberInputDataPath, valueFromNumberDrag } from "./numberInputSystem.js";
+import {
+  getNumberInputDefault,
+  isNumberInputResetShortcut,
+  isTransientNumberInputValue,
+  numberInputDataPath,
+  valueFromNumberDrag,
+} from "./numberInputSystem.js";
 
 const nativeValueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
 const isNumberInput = target => target instanceof HTMLInputElement && target.type === "number" && !target.disabled;
@@ -21,6 +27,7 @@ const getLabel = input => {
 
 export default function NumberInputController({ onRouteRequest }) {
   const defaultsRef = useRef(new WeakMap());
+  const editStartValuesRef = useRef(new WeakMap());
   const dragRef = useRef(null);
   const [menu, setMenu] = useState(null);
 
@@ -87,10 +94,36 @@ export default function NumberInputController({ onRouteRequest }) {
     const keyDown = event => {
       if (!isNumberInput(event.target)) return;
       rememberDefault(event.target);
-      if (event.key === "Backspace" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      if (isNumberInputResetShortcut(event)) {
         event.preventDefault();
+        event.stopPropagation();
         reset(event.target);
       }
+    };
+    const focusIn = event => {
+      if (!isNumberInput(event.target)) return;
+      rememberDefault(event.target);
+      editStartValuesRef.current.set(event.target, event.target.value);
+    };
+    const input = event => {
+      if (!isNumberInput(event.target)) return;
+      if (!isTransientNumberInputValue(event.target.value)) return;
+
+      // A controlled React number input commonly turns an empty native value
+      // straight back into zero via Number(""). Keep the browser's temporary
+      // editing state local until it becomes a complete number instead.
+      event.stopPropagation();
+    };
+    const focusOut = event => {
+      if (!isNumberInput(event.target)) return;
+      if (isTransientNumberInputValue(event.target.value)) {
+        const startValue = editStartValuesRef.current.get(event.target);
+        const fallback = startValue !== undefined && startValue !== ""
+          ? startValue
+          : rememberDefault(event.target);
+        setInputValue(event.target, fallback);
+      }
+      editStartValuesRef.current.delete(event.target);
     };
     const contextMenu = event => {
       if (!isNumberInput(event.target)) return;
@@ -116,6 +149,9 @@ export default function NumberInputController({ onRouteRequest }) {
     document.addEventListener("pointerup", pointerUp, true);
     document.addEventListener("pointercancel", pointerUp, true);
     document.addEventListener("keydown", keyDown, true);
+    document.addEventListener("focusin", focusIn, true);
+    document.addEventListener("input", input, true);
+    document.addEventListener("focusout", focusOut, true);
     document.addEventListener("contextmenu", contextMenu, true);
     document.addEventListener("keydown", dismiss, true);
     document.addEventListener("pointerdown", closeOnPointer);
@@ -125,6 +161,9 @@ export default function NumberInputController({ onRouteRequest }) {
       document.removeEventListener("pointerup", pointerUp, true);
       document.removeEventListener("pointercancel", pointerUp, true);
       document.removeEventListener("keydown", keyDown, true);
+      document.removeEventListener("focusin", focusIn, true);
+      document.removeEventListener("input", input, true);
+      document.removeEventListener("focusout", focusOut, true);
       document.removeEventListener("contextmenu", contextMenu, true);
       document.removeEventListener("keydown", dismiss, true);
       document.removeEventListener("pointerdown", closeOnPointer);
@@ -154,7 +193,7 @@ export default function NumberInputController({ onRouteRequest }) {
       {menu ? (
         <div className="custom-floating-context-menu number-box-menu" style={{ left: menu.x, top: menu.y }} role="menu" aria-label={`${menu.label} options`}>
           <div className="number-box-menu-title">{menu.label}</div>
-          <button className="custom-floating-context-menu-btn" type="button" role="menuitem" onClick={resetMenuValue}><span className="number-box-menu-icon">↶</span><span>Reset to Default Value</span><kbd>Backspace</kbd></button>
+          <button className="custom-floating-context-menu-btn" type="button" role="menuitem" onClick={resetMenuValue}><span className="number-box-menu-icon">↶</span><span>Reset to Default Value</span><kbd>Shift+Backspace</kbd></button>
           <div className="custom-floating-context-menu-separator" />
           <button className="custom-floating-context-menu-btn" type="button" role="menuitem" onClick={copyPath}><span className="number-box-menu-icon">⌘</span><span>Copy Data Path</span><kbd>⇧⌘C</kbd></button>
           <button className="custom-floating-context-menu-btn" type="button" role="menuitem" onClick={addRoute}><span className="number-box-menu-icon">◎</span><span>Add Route…</span><kbd>R</kbd></button>

@@ -1,6 +1,6 @@
 # Drawerator UI Guidelines
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 Drawerator's interface should feel dense, quiet, and predictable. Ableton Live is the reference for information density and Blender is the reference for managing many editable parameters. The application keeps its minimal color scheme and uses structure, alignment, and restrained state fills instead of decorative framing.
 
@@ -12,6 +12,7 @@ Drawerator's interface should feel dense, quiet, and predictable. Ableton Live i
 - Keep labels short and align repeated label/value rows consistently.
 - Use segmented tabs for peer views. Do not introduce another visual hierarchy when a tab or disclosure section is sufficient.
 - Keep the Grid panel vertical. Keep the timeline horizontal and compact.
+- Bottom-docked Mixer, Timeline, and Info views share one tab group and one collapsible top resize edge. Match the side handles: a single full-width line thickens on hover; do not add a centered grip or notch.
 
 ## Typography and dimensions
 
@@ -27,8 +28,9 @@ Use semantic `<input type="number">` controls for ordinary numeric values and pr
 - click focuses and selects the value for direct entry;
 - horizontal drag changes the value using its declared step;
 - Shift-drag uses one tenth of that step for fine adjustment;
-- Backspace resets to the declared default;
+- Shift+Backspace resets to the declared default; ordinary Backspace remains available for editing;
 - right-click opens Reset to Default, Copy Data Path, and Add Route actions.
+- Context menus use the active Drawerator light/dark surface, text, separator, hover, and shortcut-hint colors.
 
 Do not use sliders for ordinary scalar parameters. Keep formatted values such as SMPTE timecode as text inputs when they cannot truthfully be represented by a native number field.
 
@@ -37,6 +39,7 @@ Do not use sliders for ordinary scalar parameters. Keep formatted values such as
 - Closed selects use the same flat border, height, typography, and background as number boxes.
 - Opening a select must not add a thick focus frame or blurred shadow.
 - Picker options are vertically centered with consistent padding and selected/hover states.
+- Longer explanations belong in the dockable/floating `/info` view and concise native hover titles, not as permanent prose between controls. Annotated controls expose `data-info-title` and `data-info`; hovering or focusing them updates Info without changing layout.
 - Specialized controls such as the AI model picker must still use the shared select styling and constrain long menus to the viewport with scrolling.
 
 ## Buttons and toggles

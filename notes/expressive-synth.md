@@ -1,33 +1,39 @@
 # Expressive Synth architecture and glissando study
 
-Drawerator's **Expressive Synth** is a native Web Audio output for scores whose simultaneous voices need independent, continuously changing pitch. It complements the Internal GM Synth: GM remains useful for familiar instruments and discrete MIDI notes, while Expressive Synth avoids MIDI's channel-wide pitch-bend constraint by giving every active score cursor its own audio graph.
+Last updated: 2026-07-22
+
+Drawerator's **Expressive Synth** is a native Web Audio output for scores whose simultaneous voices need independent, continuously changing pitch. It complements the Internal GM Synth: GM remains useful for familiar instruments and discrete MIDI notes, while Expressive Synth avoids MIDI's channel-wide pitch-bend constraint by giving every active cursor or continuous trigger route its own audio graph.
 
 ## Authoring model
 
-There is deliberately no separate voice-assignment matrix.
+There is deliberately no separate per-object voice matrix. Mixer tracks provide the reusable routing layer, while the Synth panel owns a scene-level program library.
 
 1. Draw or select a line, freehand path, or canonical Bézier curve.
 2. Use **Add Cursor to Selected Curves** from the context menu or `/add cursor to selected curves`.
-3. Select **Expressive Synth** as the score output and press Play.
+3. In `/synth`, choose a factory program or save a scene program with its own model, envelope, gain, tone, vibrato, transpose, and glide settings.
+4. In `/mixer`, route the cursor's MIDI channel to **Internal audio → Expressive Synth**, choose that program, and press Play.
 
-Each active cursor linked to a curve becomes one voice. The cursor's stable element ID is also the synth voice key, so voices remain independent even when several curves cross, share the same nominal pitch, or glide in opposite directions. Pausing playback releases cursor voices; resuming recreates only the voices active at that score time.
+Each active cursor linked to a curve becomes one voice per matching expressive mixer track. A trigger whose Behavior is **Continuous glissando** provides a second authoring model: entry starts a voice, the exact cursor/trigger centerline intersection supplies fractional pitch on every frame, and exit releases the voice. The trigger's geometric extent along the timeline therefore determines note duration. Its MIDI channel selects the Mixer track; no separate per-object voice assignment is required.
+
+Stable track, cursor, and trigger IDs form the synth voice keys, so voices remain independent even when several contours cross, share a MIDI channel, layer different programs, or glide in opposite directions. Tracks store a program ID rather than an inline patch: several tracks may share one program, or each track may choose a different one. Editing a saved scene program updates every track that references it; **Save As** creates a new independent program. Pausing playback releases both cursor and glissando voices; resuming recreates only voices whose geometry is active at that score time. Ordinary Pulse triggers keep their discrete MIDI note behavior.
 
 The default visual mappings are:
 
-- cursor world-space Y → continuous pitch;
-- support-curve stroke width → pressure and gain;
+- cursor world-space Y, or the continuous trigger intersection Y → fractional pitch;
+- support-curve or trigger stroke width → pressure and gain;
 - cursor world-space speed → filter brightness.
 
-These are global synth mappings in v1. Curve/cursor metadata remains the durable authored source, which leaves room for per-object overrides and arbitrary routed parameters later.
+These remain global score-to-synth mappings in configuration version 2; voice and envelope values now belong to programs. Curve/cursor metadata remains the durable authored source, which leaves room for per-object overrides and arbitrary routed parameters later.
 
 ## Source layout
 
 - `src/expressiveSynth.js` owns configuration normalization, visual-to-sound mapping, Web Audio voice graphs, lifecycle, the raw-MIDI compatibility adapter, and local-storage identity.
-- `src/ExpressiveSynthPanel.jsx` is the dockable `/synth` inspector. It contains engine recovery/testing, presets, envelope controls, visual mappings, modulation, and the built-in demo action.
+- `src/ExpressiveSynthPanel.jsx` is the dockable `/synth` program editor. It contains engine recovery/testing, the factory/scene program library, envelope and model controls, and shared score mappings.
+- `src/InfoPanel.jsx` is the dockable/floating `/info` view. Hovering or focusing annotated controls sends their longer explanation there while the ordinary browser title remains available as a compact tooltip.
 - `src/expressiveSynthDemo.js` is a pure scene generator for the six-voice glissando study. It returns ordinary Excalidraw elements with normalized IanniX metadata; it does not manipulate React or the canvas directly.
-- `src/App.jsx` owns the user-gesture boundary, selected output, playback synchronization, scene installation, transport setup, and persistence integration.
-- `src/midiOutputRouting.js` resolves Expressive Synth as an explicit output independently of the GM fallback route.
-- `src/sceneExchange.js` stores normalized synth configuration in Drawerator scene metadata version 3. The selected hardware/audio output remains a local browser choice.
+- `src/mixerSystem.js` and `src/MixerPanel.jsx` own track identity, destination/instrument/program/channel assignment, and routing UI.
+- `src/App.jsx` owns the user-gesture boundary, mixer fan-out, playback synchronization, scene installation, transport setup, and persistence integration.
+- `src/sceneExchange.js` stores normalized synth and mixer configuration in Drawerator scene metadata version 4. Hardware MIDI port identity remains a local/browser capability unless explicitly assigned to a local mixer track.
 
 ## Pitch and expression mapping
 
@@ -54,7 +60,7 @@ Every voice owns:
 carrier/source(s) → low-pass filter → ADSR envelope → expression gain → stereo panner → master
 ```
 
-Available preset models are intentionally small and dependency-free:
+The five factory programs are immutable and intentionally small and dependency-free:
 
 - **Pure tone:** sine carrier.
 - **Warm subtractive:** sawtooth carrier through the shared filter/envelope architecture.
@@ -62,41 +68,43 @@ Available preset models are intentionally small and dependency-free:
 - **Bowed string:** sawtooth carrier, slightly detuned triangle companion, and low-level pressure-dependent noise.
 - **Reed / wind:** square carrier, second-harmonic sine companion, and lower-level breath noise.
 
-All presets add a sine vibrato oscillator. Continuous frequency updates use the configured glide time; gain, filter, and pan use short smoothing constants. The voice limit evicts the oldest voice when required. **Panic** releases all current voices, while **Reset audio** closes the old context and constructs a fresh engine.
+All programs add a sine vibrato oscillator. Factory programs can be auditioned and used as **Save As** starting points. Scene programs store a factory synthesis model plus normalized voice gain, ADSR, brightness, damping, pressure, transpose, glide, and vibrato values. Continuous frequency updates use the program's glide time; gain, filter, and pan use short smoothing constants. The voice limit evicts the oldest voice when required. **Panic** releases all current voices, while **Reset audio** closes the old context and constructs a fresh engine.
 
 The raw-MIDI adapter exists so trigger patterns and History replay can target the same output contract. It supports note on/off, CC 74 brightness, CC 11 expression, and channel pitch bend with a two-semitone range. Cursor voices do not pass through that adapter and therefore do not share MIDI-channel pitch bend.
 
 ## How the Metastaseis-inspired demo is built
 
-The demo uses six voices rather than attempting to reproduce the complete orchestral reference. `DEMO_PATHS` contains six mirrored arrays of four normalized Y values. For each array, `createExpressiveSynthDemoScore()`:
+The demo uses six voices rather than attempting to reproduce the complete orchestral reference. `createExpressiveSynthDemoScore()` creates only eight ordinary scene objects:
 
-1. Places four X positions evenly across a `720 × 360` scene-space region centered in the visible canvas.
-2. Converts the normalized Y values into a convergence/divergence polyline.
-3. Creates a real Excalidraw line with IanniX role `curve`, a unique `Glissando n` label, increasing stroke width, and a 12-second ping-pong clock.
-4. Creates a corresponding hidden line host with IanniX role `cursor`, a unique `Voice n` label, and `cursor.curveId` pointing to that curve.
-5. Calls `reconcileRuntimeCursorHosts()` so each authored cursor host is actually baked onto its curve's start pose before runtime hiding and animation.
+1. One orange horizontal IanniX Curve is the 12-second timeline.
+2. One black Cursor is linked to that curve and crosses the score from left to right.
+3. Six blue line Triggers cross the timeline. Each uses Behavior `glissando`, has its own MIDI channel `1..6`, and remains an editable geometric pitch contour.
+4. Runtime collision uses the trigger's visible stroke footprint, but pitch comes from the authored centerline so thick and freehand contours do not wobble between outline edges.
+5. Entry emits internal note-on semantics, the live intersection Y updates fractional pitch, trigger velocity and width shape pressure/gain, and exit emits note-off semantics.
 
-The stable command `expressiveSynth.demo.create` is exposed as `/synth demo` and by **Add & play 6-voice glissando demo**. The App command handler appends the twelve real elements to the current scene, frames the six curves, selects the bowed preset, centers middle C on the demo's Y origin, uses 180 pixels per octave, lowers gain for six simultaneous voices, enables the `0..12 s` transport loop, forces a reproducible 1× rate, selects Expressive Synth, and starts playback. The complete addition is one normal scene-history operation, so Undo removes it.
+The stable command `expressiveSynth.demo.create` remains exposed as `/synth demo` for development and regression work, but is no longer a permanent Synth-panel control. The App command handler appends the eight elements, frames them, configures the first six mixer tracks as internal bowed Expressive Synth routes on channels 1–6, centers middle C on the demo's Y origin, lowers gain for simultaneous voices, enables the `0..12 s` transport loop, forces a reproducible 1× rate, and starts playback. The complete geometry addition is one normal scene-history operation, so Undo removes it.
 
-The same pattern can be used for an authored score: create one curve and one linked cursor per independent sounding line. Triggers are optional; they are not needed for sustained glissandi.
+The corresponding portable scene fixture is [`examples/glissandi.json`](examples/glissandi.json). It is useful for testing the complete scene import path, including linked cursor hosts, transport state, grid metadata, and the Expressive Synth configuration.
+
+The same pattern can be used for an authored score: draw one timeline Curve and Cursor, set each sounding contour to Trigger → Continuous glissando, and assign its Mixer channel. The `modulation.x` and `modulation.y` values are already carried with each active route for future general parameter routing; v1 directly applies pitch, trigger velocity, stroke width, and cursor speed. Continuous external MIDI/MPE output is future work; this geometry-gated mode currently targets internal Expressive Synth tracks.
 
 ## Persistence
 
-Normalized synth settings are written to `drawerator_expressive_synth_v1` in local storage and become the starting point for the next browser session. Scene export stores the same normalized configuration in Drawerator scene metadata so the pitch scale and timbral mapping travel with the score. Importing a scene applies its synth configuration; selection-only exchange does not replace scene-global settings. The active output ID is intentionally local and is restored through Drawerator's existing output preference.
+Normalized synth settings and user programs are written to `drawerator_expressive_synth_v1`; mixer tracks are written to `drawerator_mixer_v1`. Scene export stores both normalized configurations so programs, pitch mapping, and track routing travel with the score. Factory programs are code-owned defaults and are not duplicated into scene JSON. Importing a scene applies both; selection-only exchange does not replace scene-global settings. See [Mixer and score-output routing](mixer.md).
 
 ## Verification
 
-Unit coverage checks configuration clamps, continuous Y-to-pitch polarity, stroke-width and speed expression, durable curve/cursor links, real cursor-host placement, unique IDs, and six independent moving runtime cursors.
+Unit coverage checks configuration clamps, continuous Y-to-pitch polarity, exact path intersection, stroke-width and speed expression, durable curve/cursor links, unique IDs, six independently routed trigger contours, and scene persistence.
 
 Browser QA for this checkpoint used the actual `/synth` panel in the embedded browser:
 
-1. Click **Add & play 6-voice glissando demo**.
-2. Confirm the panel reports `Ready · 6 voices`.
+1. Run `/synth demo` from the command palette.
+2. Confirm the panel reports active voices only while the cursor intersects one or more blue triggers.
 3. Confirm the bowed preset and demo mapping values are installed.
-4. Confirm all six cursor marks move independently on their visible support curves.
+4. Confirm the single black cursor moves on the orange timeline while the six blue contours remain editable.
 5. Confirm the transport is playing at 1× with loop range `0..12 s`.
-6. Let playback cross the loop boundary and confirm it continues with six voices.
-7. Pause and confirm cursor voices release.
+6. Confirm overlapping trigger contours produce simultaneous independently pitched voices.
+7. Pause and confirm all glissando voices release.
 8. Check the browser console for audio or scene errors.
 
-At the documented checkpoint the complete Node test suite passes with 166 tests, both the regular Vite build and single-file build complete, and browser QA reports no console errors.
+The regression suite covers synth and user-program normalization, continuous pitch mapping, routed scene metadata, and the six-channel example. Browser QA should confirm program Save/Save As/Delete, Mixer factory/scene program assignment, the dockable Info view, six simultaneous demo voices, transport looping, and clean console output.

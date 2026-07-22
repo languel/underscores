@@ -15,6 +15,12 @@ test("uses a portable Mod modifier and distinguishes shifted quote", () => {
   assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, event)?.id, "grid.visible.toggle");
 });
 
+test("bottom dock collapse defaults to Mod+Shift+B", () => {
+  const event = { code: "KeyB", metaKey: true, ctrlKey: false, altKey: false, shiftKey: true };
+  assert.equal(shortcutFromEvent(event), "Mod+Shift+KeyB");
+  assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, event)?.id, "dock.bottom.toggle");
+});
+
 test("ignores bare modifier presses", () => {
   assert.equal(shortcutFromEvent({ code: "ShiftLeft", shiftKey: true }), null);
 });

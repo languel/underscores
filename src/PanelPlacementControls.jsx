@@ -19,12 +19,14 @@ const DockIcon = ({ side }) => (
   </svg>
 );
 
-export default function PanelPlacementControls({ label, placement, onPlacementChange, onDragStart, onActivate, onClose, allowBottom = false, dragIcon = null }) {
+export default function PanelPlacementControls({ label, placement, onPlacementChange, onDragStart, onActivate, onClose, allowBottom = false, allowedPlacements = null, dragIcon = null }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const controlsRef = useRef(null);
-  const placements = allowBottom
-    ? [PANEL_PLACEMENTS.FLOATING, PANEL_PLACEMENTS.BOTTOM]
-    : [PANEL_PLACEMENTS.LEFT, PANEL_PLACEMENTS.FLOATING, PANEL_PLACEMENTS.RIGHT];
+  const placements = Array.isArray(allowedPlacements) && allowedPlacements.length
+    ? allowedPlacements
+    : allowBottom
+      ? [PANEL_PLACEMENTS.FLOATING, PANEL_PLACEMENTS.BOTTOM]
+      : [PANEL_PLACEMENTS.LEFT, PANEL_PLACEMENTS.FLOATING, PANEL_PLACEMENTS.RIGHT];
 
   useEffect(() => {
     if (!menuOpen) return undefined;

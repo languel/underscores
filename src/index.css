@@ -56,6 +56,24 @@ body, html {
   accent-color: var(--drawerator-accent, #6b7173);
 }
 
+.drawerator-shell {
+  --drawerator-menu-bg: #ffffff;
+  --drawerator-menu-text: hsl(190, 5%, 32%);
+  --drawerator-menu-muted: hsl(190, 5%, 46%);
+  --drawerator-menu-border: rgba(73, 80, 82, 0.24);
+  --drawerator-menu-hover: var(--drawerator-highlight, rgba(107, 113, 115, 0.12));
+  --drawerator-menu-shadow: 0 8px 24px rgba(28, 31, 32, 0.16);
+}
+
+.drawerator-shell.drawerator-theme-dark {
+  --drawerator-menu-bg: #232329;
+  --drawerator-menu-text: hsl(190, 5%, 82%);
+  --drawerator-menu-muted: hsl(190, 5%, 64%);
+  --drawerator-menu-border: rgba(205, 210, 211, 0.18);
+  --drawerator-menu-hover: var(--drawerator-highlight, rgba(205, 210, 211, 0.1));
+  --drawerator-menu-shadow: 0 8px 24px rgba(0, 0, 0, 0.34);
+}
+
 .drawerator-shell input[type="checkbox"] {
   appearance: none;
   width: 16px;
@@ -763,6 +781,12 @@ body .excalidraw .sidebar {
   background: var(--island-bg-color, var(--bg-sidebar, #fff));
 }
 
+.drawerator-panel-bottom.drawerator-panel-collapsed {
+  min-height: 5px;
+  height: 5px !important;
+  overflow: visible;
+}
+
 .drawerator-panel-bottom .drawerator-panel-body {
   min-width: 0;
   overflow: hidden;
@@ -1129,6 +1153,34 @@ body .excalidraw .sidebar {
 
 .drawerator-panel-resize-left { right: -3px; }
 .drawerator-panel-resize-right { left: -3px; }
+
+.drawerator-panel-resize-bottom {
+  top: -3px;
+  right: 0;
+  bottom: auto;
+  left: 0;
+  width: auto;
+  height: 7px;
+  cursor: ns-resize;
+}
+
+.drawerator-panel-resize-bottom::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--border-color, rgba(128, 128, 128, 0.32));
+  transition: top 120ms ease, height 120ms ease, background-color 120ms ease;
+}
+
+.drawerator-panel-resize-bottom:hover::after,
+.drawerator-panel-resize-bottom:active::after {
+  top: 2px;
+  height: 3px;
+  background: var(--color-primary, currentColor);
+}
 
 .drawerator-floating-resize-handle {
   position: absolute;
@@ -1594,10 +1646,11 @@ body .excalidraw .sidebar {
 /* Custom Right-Click Context Menu Styles */
 .custom-floating-context-menu {
   position: fixed;
-  background: var(--island-bg-color, #232329);
-  border: 1px solid var(--border-color, var(--default-border-color, #36363c));
+  color: var(--drawerator-menu-text);
+  background: var(--drawerator-menu-bg);
+  border: 1px solid var(--drawerator-menu-border);
   border-radius: 6px;
-  box-shadow: var(--shadow-md, 0 10px 25px -5px rgba(0, 0, 0, 0.4));
+  box-shadow: var(--drawerator-menu-shadow);
   padding: 4px 0;
   min-width: 215px;
   z-index: 99999;
@@ -1610,7 +1663,7 @@ body .excalidraw .sidebar {
   background: transparent;
   border: none !important;
   outline: none !important;
-  color: var(--popup-text-color, #ececec);
+  color: var(--drawerator-menu-text);
   padding: 8px 12px;
   text-align: left;
   cursor: pointer;
@@ -1623,12 +1676,12 @@ body .excalidraw .sidebar {
 }
 
 .custom-floating-context-menu-btn:hover {
-  background-color: var(--button-hover-bg, rgba(255, 255, 255, 0.08));
+  background-color: var(--drawerator-menu-hover);
 }
 
 .custom-floating-context-menu-separator {
   height: 1px;
-  background-color: var(--border-color, var(--default-border-color, #36363c));
+  background-color: var(--drawerator-menu-border);
   margin: 4px 0;
 }
 
@@ -3468,7 +3521,7 @@ a.iannix-flat-button {
 
 .number-box-menu-title {
   padding: 6px 12px;
-  color: var(--color-secondary);
+  color: var(--drawerator-menu-muted);
   font-size: 11px;
 }
 
@@ -3487,7 +3540,7 @@ a.iannix-flat-button {
 
 .number-box-menu kbd {
   margin-left: auto;
-  color: var(--color-secondary);
+  color: var(--drawerator-menu-muted);
   font: inherit;
 }
 
@@ -3606,6 +3659,157 @@ a.iannix-flat-button {
   display: flex;
   align-items: center;
   font-size: 10px;
+}
+
+/* Mixer */
+.mixer-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  color: var(--color-primary);
+  font-size: 11px;
+}
+
+.mixer-toolbar,
+.mixer-status {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-color, rgba(128, 128, 128, 0.24));
+}
+
+.mixer-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mixer-toolbar .iannix-flat-button,
+.mixer-track .iannix-flat-button {
+  min-height: 24px;
+  padding: 2px 7px;
+}
+
+.mixer-track-list {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  gap: 1px;
+  overflow: auto;
+  background: var(--border-color, rgba(128, 128, 128, 0.18));
+}
+
+.mixer-track {
+  flex: 0 0 190px;
+  min-width: 190px;
+  background: var(--island-bg-color, var(--color-surface-low, #fff));
+}
+
+.mixer-track.muted {
+  opacity: 0.58;
+}
+
+.mixer-track > summary {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 24px 24px;
+  grid-template-areas: "number name solo mute" "number route solo mute";
+  align-items: center;
+  gap: 1px 5px;
+  min-height: 42px;
+  padding: 4px 5px;
+  cursor: pointer;
+  list-style: none;
+  border-bottom: 1px solid var(--border-color, rgba(128, 128, 128, 0.18));
+}
+
+.mixer-track > summary::-webkit-details-marker { display: none; }
+.mixer-track-number { grid-area: number; font-weight: 700; text-align: center; }
+.mixer-track-summary-name { grid-area: name; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
+.mixer-track-summary-route { grid-area: route; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--color-text-secondary); font-size: 9px; }
+
+.mixer-track > summary button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.mixer-track > summary button:first-of-type { grid-area: solo; }
+.mixer-track > summary button:last-of-type { grid-area: mute; }
+.mixer-track > summary button:hover { background: color-mix(in srgb, currentColor 7%, transparent); }
+.mixer-track > summary button.active { background: color-mix(in srgb, var(--color-primary) 12%, transparent); }
+
+.mixer-track-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+}
+
+.mixer-field,
+.mixer-track-enabled {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.mixer-field > span:first-child,
+.mixer-track-enabled > span:first-child {
+  color: var(--color-text-secondary);
+}
+
+.mixer-field input,
+.mixer-field select,
+.mixer-field-readout {
+  width: 100%;
+  min-width: 0;
+  height: 25px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.28));
+  border-radius: 3px;
+  background: var(--input-bg-color, transparent);
+  color: inherit;
+  font: inherit;
+}
+
+.mixer-field-readout {
+  display: flex;
+  align-items: center;
+}
+
+.mixer-track-enabled input { justify-self: end; }
+.mixer-track-actions-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+}
+
+.mixer-track-actions-row .mixer-track-enabled {
+  grid-template-columns: 64px auto;
+}
+
+.mixer-remove-track { margin: 0; }
+.mixer-status { justify-content: flex-start; border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.24)); border-bottom: 0; color: var(--color-text-secondary); }
+
+.drawerator-panel-shell:not(.drawerator-panel-bottom) .mixer-track-list {
+  flex-direction: column;
+}
+
+.drawerator-panel-shell:not(.drawerator-panel-bottom) .mixer-track {
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
 .inspector-section {
@@ -3875,6 +4079,39 @@ a.iannix-flat-button {
 .expressive-synth-actions .iannix-flat-button,
 .expressive-output-button {
   min-height: var(--drawerator-ui-control-height);
+}
+
+.expressive-program-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.expressive-program-actions .iannix-flat-button {
+  width: auto;
+  min-width: 68px;
+}
+
+.info-panel {
+  height: 100%;
+  min-height: 0;
+  padding: 10px 12px;
+  color: var(--color-primary);
+  background: var(--bg-sidebar);
+  overflow: auto;
+}
+
+.info-panel-title {
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 650;
+}
+
+.info-panel-body {
+  color: var(--color-secondary);
+  line-height: 1.45;
 }
 
 .expressive-output-button.active {

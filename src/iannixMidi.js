@@ -118,6 +118,7 @@ export const createIannixMidiVoiceTracker = ({
 } = {}) => {
   const outputIds = new WeakMap();
   const voices = new Map();
+  const gates = new Map();
   let nextOutputId = 1;
 
   const getOutputId = output => {
@@ -125,6 +126,31 @@ export const createIannixMidiVoiceTracker = ({
     return outputIds.get(output);
   };
   const voiceKey = (output, message) => `${getOutputId(output)}:${message.channel}:${message.note}`;
+
+  const addVoice = (output, message) => {
+    const key = voiceKey(output, message);
+    const voice = voices.get(key) || {
+      count: 0,
+      output,
+      noteOff: message.noteOff,
+      timers: new Set(),
+    };
+    voice.count += 1;
+    voices.set(key, voice);
+    return { key, voice };
+  };
+
+  const releaseVoice = (key, timestamp = 0) => {
+    const current = voices.get(key);
+    if (!current) return;
+    current.count -= 1;
+    if (current.count > 0) return;
+    try {
+      current.output.send(current.noteOff, timestamp || undefined);
+    } finally {
+      voices.delete(key);
+    }
+  };
 
   const send = (output, message, timestamp = 0) => {
     if (!output?.send) throw new Error("No MIDI output is connected.");
@@ -137,33 +163,69 @@ export const createIannixMidiVoiceTracker = ({
     output.send(message.noteOn, timestamp || undefined);
     if (!(message.duration > 0)) return;
 
-    const key = voiceKey(output, message);
-    const voice = voices.get(key) || {
-      count: 0,
-      output,
-      noteOff: message.noteOff,
-      timers: new Set(),
-    };
-    voice.count += 1;
-    voices.set(key, voice);
+    const { key, voice } = addVoice(output, message);
 
     let timer = null;
     timer = setTimer(() => {
       const current = voices.get(key);
       if (!current) return;
       current.timers.delete(timer);
-      current.count -= 1;
-      if (current.count > 0) return;
-      try {
-        current.output.send(current.noteOff);
-      } finally {
-        voices.delete(key);
-      }
+      releaseVoice(key);
     }, Math.max(0, sentAt + message.duration * 1000 - now()));
     voice.timers.add(timer);
   };
 
+  const finishGate = (gateId, timestamp = 0) => {
+    const gate = gates.get(gateId);
+    if (!gate) return false;
+    if (gate.timer !== null) clearTimer(gate.timer);
+    gates.delete(gateId);
+    releaseVoice(gate.voiceKey, timestamp);
+    return true;
+  };
+
+  const startGate = (output, message, gateId, timestamp = 0, minimumDuration = message?.duration || 0) => {
+    if (!output?.send) throw new Error("No MIDI output is connected.");
+    if (message.kind === "cc") {
+      output.send(message.data, timestamp || undefined);
+      return false;
+    }
+    const id = String(gateId || "");
+    if (!id || gates.has(id)) return false;
+    const sentAt = timestamp || now();
+    output.send(message.noteOn, timestamp || undefined);
+    const { key } = addVoice(output, message);
+    gates.set(id, {
+      voiceKey: key,
+      minimumUntil: sentAt + Math.max(0, Number(minimumDuration) || 0) * 1000,
+      timer: null,
+    });
+    return true;
+  };
+
+  const endGate = (gateId, timestamp = 0, { force = false } = {}) => {
+    const id = String(gateId || "");
+    const gate = gates.get(id);
+    if (!gate) return false;
+    const releasedAt = timestamp || now();
+    if (!force && releasedAt < gate.minimumUntil) {
+      if (gate.timer === null) {
+        gate.timer = setTimer(() => finishGate(id), Math.max(0, gate.minimumUntil - now()));
+      }
+      return false;
+    }
+    return finishGate(id, timestamp);
+  };
+
+  const endAllGates = (timestamp = 0, options = {}) => {
+    [...gates.keys()].forEach(gateId => endGate(gateId, timestamp, options));
+  };
+
   const panic = () => {
+    gates.forEach(gate => {
+      if (gate.timer !== null) clearTimer(gate.timer);
+    });
+    gates.clear();
     voices.forEach(voice => {
       voice.timers.forEach(clearTimer);
       try {
@@ -178,8 +240,12 @@ export const createIannixMidiVoiceTracker = ({
 
   return {
     send,
+    startGate,
+    endGate,
+    endAllGates,
     panic,
     getActiveVoiceCount: () => voices.size,
+    getActiveGateCount: () => gates.size,
   };
 };
 
@@ -217,15 +283,57 @@ const closestPointOnPaths = (point, paths) => {
   return closest;
 };
 
-export const getIannixTriggerMidiContext = (cursor, triggerData, triggerElement = null) => {
+const segmentIntersectionPoint = (a, b, c, d) => {
+  const rx = b[0] - a[0];
+  const ry = b[1] - a[1];
+  const sx = d[0] - c[0];
+  const sy = d[1] - c[1];
+  const denominator = rx * sy - ry * sx;
+  const qx = c[0] - a[0];
+  const qy = c[1] - a[1];
+  if (Math.abs(denominator) <= 0.000001) {
+    const candidates = [a, b, c, d];
+    return candidates.find(point =>
+      pointToSegmentDistanceSquared(point, a, b) <= 0.000001 &&
+      pointToSegmentDistanceSquared(point, c, d) <= 0.000001
+    ) || null;
+  }
+  const t = (qx * sy - qy * sx) / denominator;
+  const u = (qx * ry - qy * rx) / denominator;
+  if (t < -0.000001 || t > 1.000001 || u < -0.000001 || u > 1.000001) return null;
+  return [a[0] + t * rx, a[1] + t * ry];
+};
+
+export const getIannixPathIntersectionPoint = (pathsA, pathsB, anchor = [0, 0]) => {
+  const intersections = [];
+  for (const pathA of pathsA || []) {
+    for (let aIndex = 1; aIndex < (pathA?.length || 0); aIndex += 1) {
+      for (const pathB of pathsB || []) {
+        for (let bIndex = 1; bIndex < (pathB?.length || 0); bIndex += 1) {
+          const point = segmentIntersectionPoint(
+            pathA[aIndex - 1], pathA[aIndex], pathB[bIndex - 1], pathB[bIndex],
+          );
+          if (point) intersections.push(point);
+        }
+      }
+    }
+  }
+  if (intersections.length === 0) return null;
+  return intersections.reduce((nearest, point) => {
+    const distance = (point[0] - anchor[0]) ** 2 + (point[1] - anchor[1]) ** 2;
+    return !nearest || distance < nearest.distance ? { point, distance } : nearest;
+  }, null).point;
+};
+
+export const getIannixTriggerMidiContext = (cursor, triggerData, triggerElement = null, intersectionPoint = null) => {
   const points = cursor?.curveElement ? getElementCorePaths(cursor.curveElement)[0] : [];
   const cursorData = cursor?.data || normalizeIannixData(cursor?.element?.customData?.iannix);
   // IanniX maps trigger_value_* from the triggered trigger's position through
   // the colliding cursor's source/target bounds. The cursor position remains a
   // fallback for older callers that do not provide the trigger element.
-  const position = triggerElement
+  const position = intersectionPoint || (triggerElement
     ? getElementCenter(triggerElement)
-    : (cursor?.transform?.position || [0, 0]);
+    : (cursor?.transform?.position || [0, 0]));
   const xs = points.map(point => point[0]);
   const ys = points.map(point => point[1]);
   // IanniX's default bounds-source mode expands the curve bounds by the
@@ -270,7 +378,7 @@ export const getIannixTriggerMidiContext = (cursor, triggerData, triggerElement 
   const cursorValue = mapThroughCursorBounds(cursorPosition);
 
   const cursorPaths = cursor?.paths || [];
-  const hitPoint = closestPointOnPaths(position, cursorPaths);
+  const hitPoint = intersectionPoint || closestPointOnPaths(position, cursorPaths);
   const center = cursorPosition;
   const primaryPath = cursorPaths.find(path => path.length > 1) || [];
   const axisStart = primaryPath[0] || center;
@@ -294,7 +402,8 @@ export const getIannixTriggerMidiContext = (cursor, triggerData, triggerElement 
   const sourceData = triggerData?.trigger?.midiBaseSource === "curve" ? curveData : cursorData;
   const baseNote = sourceData.midi.baseNote;
   const pitchRange = sourceData.midi.pitchRangeOctaves * 12;
-  const triggerNote = Math.round(clamp(baseNote + relativeOffset * pitchRange, 0, 127));
+  const triggerNoteFloat = clamp(baseNote + relativeOffset * pitchRange, 0, 127);
+  const triggerNote = Math.round(triggerNoteFloat);
   return {
     trigger_value_x: triggerValue.x,
     trigger_value_y: triggerValue.y,
@@ -304,6 +413,7 @@ export const getIannixTriggerMidiContext = (cursor, triggerData, triggerElement 
     trigger_offset: relativeOffset,
     trigger_value_relative: (relativeOffset + 1) / 2,
     trigger_note: triggerNote,
+    trigger_note_float: triggerNoteFloat,
     trigger_velocity: triggerData?.trigger?.midiVelocity ?? sourceData.midi.velocity,
     cursor_value_x: cursorValue.x,
     cursor_value_y: cursorValue.y,

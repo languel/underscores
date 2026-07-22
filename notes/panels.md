@@ -1,8 +1,8 @@
 # Panel System Notes
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
-Drawerator owns one persistent panel model for **AI Assistant**, **Mods & FX**, **IanniX**, **Expressive Synth**, **Settings**, **Console / Info**, and **Transport**. Side panels support left dock, floating, and right dock placement. Transport supports floating and bottom-docked placement.
+Drawerator owns one persistent panel model for **AI Assistant**, **Mods & FX**, **IanniX**, **Mixer**, **Expressive Synth**, **Info**, **Settings**, **Console**, and **Transport**. Side panels support left dock, floating, and right dock placement. Mixer and Info additionally support the bottom dock; Transport supports floating and bottom-docked placement.
 
 ## Identity icon contract
 
@@ -20,7 +20,7 @@ When multiple panels share a side, they render as one tab row. The active tab sh
 
 Panel dimensions are stored per panel; resizing one never changes another. Floating panels resize in both axes from the lower-right proximity handle. Docked panels resize from the canvas-facing edge.
 
-Dragging a side panel below its minimum width collapses the complete dock. A collapsed dock leaves no persistent visible rail; its thin panel-colored edge appears only near the border. Drag that edge or double-click it to restore the dock. Hover alone never expands it. `Cmd+B` toggles the left dock and `Cmd+Opt+B` toggles the right dock.
+Dragging a side panel below its minimum width collapses the complete dock. Dragging the bottom dock's top resize bar below its minimum height does the same. A collapsed dock leaves only its thin resize edge; drag that edge or double-click it to restore the dock. The bottom edge uses the same quiet treatment as the side handles: one full-width line at rest that thickens across the edge on hover, without an extra center notch. Hover alone never expands it. `Cmd+B` toggles the left dock, `Cmd+Opt+B` toggles the right dock, and `Cmd+Shift+B` toggles the bottom dock.
 
 Invoking a docked panel from its shortcut, main menu, or command palette makes it the active tab and expands its dock. Invoking the already frontmost expanded panel collapses that dock. Floating panels instead toggle visibility.
 
@@ -30,8 +30,8 @@ The following state persists independently:
 
 - per-panel visibility and placement;
 - per-panel floating position, width, and height;
-- active panel for each side dock;
-- collapsed state for each side dock;
+- active panel for each side and bottom dock;
+- collapsed state for each side and bottom dock;
 - transport placement and dimensions.
 
 Every panel is available from the main menu and command palette, including `/chat`, `/mods`, `/iannix`, `/synth`, `/settings`, `/console`, and `/transport`. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.

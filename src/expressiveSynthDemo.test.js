@@ -7,33 +7,38 @@ import {
   EXPRESSIVE_SYNTH_DEMO_VOICE_COUNT,
 } from "./expressiveSynthDemo.js";
 
-test("expressive demo creates one durable cursor voice for every glissando", () => {
+test("expressive demo creates one timeline cursor and six continuous trigger voices", () => {
   const demo = createExpressiveSynthDemoScore({ center: [100, 200], idPrefix: "test" });
-  assert.equal(demo.curves.length, EXPRESSIVE_SYNTH_DEMO_VOICE_COUNT);
-  assert.equal(demo.cursors.length, EXPRESSIVE_SYNTH_DEMO_VOICE_COUNT);
-  assert.equal(demo.elements.length, EXPRESSIVE_SYNTH_DEMO_VOICE_COUNT * 2);
+  assert.equal(demo.curves.length, 1);
+  assert.equal(demo.cursors.length, 1);
+  assert.equal(demo.triggers.length, EXPRESSIVE_SYNTH_DEMO_VOICE_COUNT);
+  assert.equal(demo.elements.length, EXPRESSIVE_SYNTH_DEMO_VOICE_COUNT + 2);
   assert.equal(new Set(demo.elements.map(element => element.id)).size, demo.elements.length);
 
-  demo.cursors.forEach((cursor, index) => {
-    const cursorData = normalizeIannixData(cursor.customData?.iannix);
-    assert.equal(cursorData.role, "cursor");
-    assert.equal(cursorData.cursor.curveId, demo.curves[index].id);
-    assert.equal(cursorData.time.duration, EXPRESSIVE_SYNTH_DEMO_DURATION);
-    assert.equal(cursorData.time.loopMode, "pingPong");
-    assert.equal(cursor.opacity, 0);
-    assert.equal(cursor.strokeColor, "transparent");
-    assert.deepEqual(getElementCenter(cursor), demo.curves[index].points[0].map((value, axis) => value + (axis === 0 ? demo.curves[index].x : demo.curves[index].y)));
+  const cursorData = normalizeIannixData(demo.cursor.customData?.iannix);
+  assert.equal(cursorData.role, "cursor");
+  assert.equal(cursorData.cursor.curveId, demo.timelineCurve.id);
+  assert.equal(cursorData.time.duration, EXPRESSIVE_SYNTH_DEMO_DURATION);
+  assert.equal(cursorData.time.loopMode, "loop");
+  assert.equal(demo.cursor.opacity, 0);
+  assert.equal(demo.cursor.strokeColor, "transparent");
+  assert.deepEqual(getElementCenter(demo.cursor), [demo.timelineCurve.x, demo.timelineCurve.y]);
+
+  demo.triggers.forEach((trigger, index) => {
+    const data = normalizeIannixData(trigger.customData?.iannix);
+    assert.equal(data.role, "trigger");
+    assert.equal(data.trigger.behavior, "glissando");
+    assert.equal(data.trigger.midiEnabled, true);
+    assert.equal(data.trigger.midiChannel, index + 1);
   });
 });
 
-test("expressive demo evaluates as six independent moving voices", () => {
+test("expressive demo derives active voice gates from timeline geometry", () => {
   const demo = createExpressiveSynthDemoScore({ center: [0, 0], idPrefix: "frame" });
-  const start = evaluateScoreFrame(demo.elements, 0, undefined, { detectCollisions: false });
-  const middle = evaluateScoreFrame(demo.elements, demo.duration / 2, undefined, { detectCollisions: false });
-  assert.equal(start.cursors.length, EXPRESSIVE_SYNTH_DEMO_VOICE_COUNT);
-  assert.equal(middle.cursors.length, EXPRESSIVE_SYNTH_DEMO_VOICE_COUNT);
-  start.cursors.forEach((cursor, index) => {
-    assert.equal(cursor.element.id, demo.cursors[index].id);
-    assert.notDeepEqual(cursor.transform.position, middle.cursors[index].transform.position);
-  });
+  const start = evaluateScoreFrame(demo.elements, 0);
+  const middle = evaluateScoreFrame(demo.elements, demo.duration / 2);
+  assert.equal(start.cursors.length, 1);
+  assert.equal(middle.cursors.length, 1);
+  assert.notDeepEqual(start.cursors[0].transform.position, middle.cursors[0].transform.position);
+  assert.ok(middle.collisions.size > 0);
 });
