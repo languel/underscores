@@ -31,6 +31,17 @@ import { playWebAudioTestTone } from "./audioDiagnostics.js";
 import { INTERNAL_MIDI_SYNTH_ID, MIDI_PORT_ALL, MIDI_PORT_NONE, resolveExternalMidiOutputs, resolveMidiOutputRoute } from "./midiOutputRouting.js";
 import GlobalGridCanvas from "./GlobalGridCanvas.jsx";
 import GridPanel from "./GridPanel.jsx";
+import ExpressiveSynthPanel from "./ExpressiveSynthPanel.jsx";
+import {
+  createExpressiveSynth,
+  DEFAULT_EXPRESSIVE_SYNTH_CONFIG,
+  EXPRESSIVE_SYNTH_ID,
+  EXPRESSIVE_SYNTH_STORAGE_KEY,
+  isExpressiveSynthSupported,
+  mergeExpressiveSynthConfig,
+  normalizeExpressiveSynthConfig,
+} from "./expressiveSynth.js";
+import { createExpressiveSynthDemoScore } from "./expressiveSynthDemo.js";
 import ShortcutsPanel from "./ShortcutsPanel.jsx";
 import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
@@ -1400,9 +1411,9 @@ function App() {
   });
   const [openPanels, setOpenPanels] = useState(() => {
     try {
-      return { chat: false, settings: false, mods: true, iannix: false, console: false, history: false, properties: false, outliner: false, grid: true, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
+      return { chat: false, settings: false, mods: true, iannix: false, synth: false, console: false, history: false, properties: false, outliner: false, grid: true, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
     } catch {
-      return { chat: false, settings: false, mods: true, iannix: false, console: false, history: false, properties: false, outliner: false, grid: true };
+      return { chat: false, settings: false, mods: true, iannix: false, synth: false, console: false, history: false, properties: false, outliner: false, grid: true };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
@@ -1532,11 +1543,23 @@ function App() {
   const [internalProgramsExpanded, setInternalProgramsExpanded] = useState(false);
   const [internalSynthStatus, setInternalSynthStatus] = useState(() => (
     midiOutputId === INTERNAL_MIDI_SYNTH_ID
-    || (midiFallbackEnabled && midiOutputId !== MIDI_PORT_NONE && midiOutputId !== MIDI_PORT_ALL)
+    || (midiFallbackEnabled && midiOutputId !== MIDI_PORT_NONE && midiOutputId !== MIDI_PORT_ALL && midiOutputId !== EXPRESSIVE_SYNTH_ID)
       ? "Audio suspended"
       : "Off"
   ));
   const [internalSynthError, setInternalSynthError] = useState("");
+  const [expressiveSynthConfig, setExpressiveSynthConfig] = useState(() => {
+    try {
+      return normalizeExpressiveSynthConfig(JSON.parse(localStorage.getItem(EXPRESSIVE_SYNTH_STORAGE_KEY) || "null"));
+    } catch {
+      return { ...DEFAULT_EXPRESSIVE_SYNTH_CONFIG };
+    }
+  });
+  const [expressiveSynthStatus, setExpressiveSynthStatus] = useState(() => (
+    midiOutputId === EXPRESSIVE_SYNTH_ID ? "Audio suspended" : "Off"
+  ));
+  const [expressiveSynthError, setExpressiveSynthError] = useState("");
+  const [expressiveVoiceCount, setExpressiveVoiceCount] = useState(0);
   const [midiStatus, setMidiStatus] = useState(() =>
     typeof navigator !== "undefined" && navigator.requestMIDIAccess
       ? "MIDI not connected"
@@ -1562,6 +1585,8 @@ function App() {
   const midiFallbackEnabledRef = useRef(midiFallbackEnabled);
   const internalGmProgramsRef = useRef(internalGmPrograms);
   const internalSynthRef = useRef(null);
+  const expressiveSynthConfigRef = useRef(expressiveSynthConfig);
+  const expressiveSynthRef = useRef(null);
   const midiInputIdRef = useRef(midiInputId);
   const midiClockTempoRef = useRef(scoreTempo);
   const midiClockReceiverRef = useRef(createMidiClockReceiverState(scoreTempo));
@@ -1696,6 +1721,8 @@ function App() {
   const panicMidi = useCallback(() => {
     midiVoiceTrackerRef.current?.panic();
     internalSynthRef.current?.clear?.();
+    expressiveSynthRef.current?.clear?.();
+    setExpressiveVoiceCount(0);
   }, []);
 
   const getScoreMidiRoute = useCallback(() => resolveMidiOutputRoute({
@@ -1703,6 +1730,7 @@ function App() {
     selectedOutputId: midiOutputIdRef.current,
     fallbackEnabled: midiFallbackEnabledRef.current,
     internalOutput: internalSynthRef.current?.getState?.() !== "off" ? internalSynthRef.current : null,
+    expressiveOutput: expressiveSynthRef.current?.getState?.() !== "off" ? expressiveSynthRef.current : null,
   }), []);
 
   const ensureInternalSynth = useCallback(async () => {
@@ -1758,6 +1786,63 @@ function App() {
     }
   }, [ensureInternalSynth]);
 
+  const ensureExpressiveSynth = useCallback(async () => {
+    if (!isExpressiveSynthSupported()) {
+      setExpressiveSynthStatus("Unavailable");
+      setExpressiveSynthError("Web Audio is unavailable in this browser.");
+      return null;
+    }
+    try {
+      setExpressiveSynthError("");
+      if (!expressiveSynthRef.current) {
+        expressiveSynthRef.current = createExpressiveSynth({ config: expressiveSynthConfigRef.current });
+      }
+      const output = expressiveSynthRef.current;
+      output.setConfig(expressiveSynthConfigRef.current);
+      const state = await output.resume();
+      if (state === "closed") throw new Error("The Expressive Synth audio context is closed. Reset audio to create a new one.");
+      setExpressiveSynthStatus(state === "running" ? "Ready" : "Audio suspended");
+      return output;
+    } catch (error) {
+      setExpressiveSynthStatus("Error");
+      setExpressiveSynthError(error?.message || "Expressive Synth initialization failed.");
+      return null;
+    }
+  }, []);
+
+  const resetExpressiveSynth = useCallback(async () => {
+    panicMidi();
+    const previous = expressiveSynthRef.current;
+    expressiveSynthRef.current = null;
+    setExpressiveSynthStatus("Resetting…");
+    setExpressiveSynthError("");
+    try {
+      await previous?.close?.();
+    } catch {
+      // A failed AudioContext close must not block a clean replacement.
+    }
+    const replacement = await ensureExpressiveSynth();
+    if (replacement) setMidiStatus("Expressive Synth reset and ready.");
+    return replacement;
+  }, [ensureExpressiveSynth, panicMidi]);
+
+  const testExpressiveSynthAudio = useCallback(async () => {
+    const output = await ensureExpressiveSynth();
+    if (!output) return;
+    output.startVoice("test", { frequency: 220, gain: 0.45, pressure: 0.6, brightness: 0.58, pan: 0 });
+    output.updateVoice("test", { frequency: 440 });
+    window.setTimeout(() => {
+      output.stopVoice("test");
+      setExpressiveVoiceCount(output.getVoiceCount());
+    }, 650);
+    setExpressiveVoiceCount(output.getVoiceCount());
+    setMidiStatus("Playing Expressive Synth glissando test.");
+  }, [ensureExpressiveSynth]);
+
+  const updateExpressiveSynthConfig = useCallback(patch => {
+    setExpressiveSynthConfig(current => mergeExpressiveSynthConfig(current, patch));
+  }, []);
+
   const testRawWebAudio = useCallback(async () => {
     try {
       setMidiStatus("Playing raw Web Audio test tone…");
@@ -1777,6 +1862,8 @@ function App() {
     panicMidi();
     void disposeInternalMidiSynth(internalSynthRef.current);
     internalSynthRef.current = null;
+    void expressiveSynthRef.current?.close?.();
+    expressiveSynthRef.current = null;
   }, [panicMidi]);
 
   useEffect(() => historyController.subscribe((snapshot, eventName) => {
@@ -2102,6 +2189,7 @@ function App() {
     panicMidi();
     if (midiOutputId === MIDI_PORT_NONE) setInternalSynthStatus("Off");
     else if (midiOutputId === INTERNAL_MIDI_SYNTH_ID && !internalSynthRef.current) setInternalSynthStatus("Audio suspended");
+    else if (midiOutputId === EXPRESSIVE_SYNTH_ID && !expressiveSynthRef.current) setExpressiveSynthStatus("Audio suspended");
     else if (midiOutputId !== MIDI_PORT_ALL && midiFallbackEnabledRef.current && getScoreMidiRoute().kind === "internal-unavailable") setInternalSynthStatus("Audio suspended");
   }, [getScoreMidiRoute, midiOutputId, panicMidi]);
 
@@ -2115,6 +2203,12 @@ function App() {
     internalGmProgramsRef.current = internalGmPrograms;
     localStorage.setItem("drawerator_internal_gm_programs", JSON.stringify(internalGmPrograms));
   }, [internalGmPrograms]);
+
+  useEffect(() => {
+    expressiveSynthConfigRef.current = expressiveSynthConfig;
+    localStorage.setItem(EXPRESSIVE_SYNTH_STORAGE_KEY, JSON.stringify(expressiveSynthConfig));
+    expressiveSynthRef.current?.setConfig?.(expressiveSynthConfig);
+  }, [expressiveSynthConfig]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_history_midi_armed", String(historyMidiArmed));
@@ -2349,6 +2443,14 @@ function App() {
       previousCursorStatesRef.current,
     );
     previousCursorStatesRef.current = frame.nextCursorPaths;
+
+    const expressiveOutput = expressiveSynthRef.current;
+    if (midiOutputIdRef.current === EXPRESSIVE_SYNTH_ID && expressiveOutput) {
+      if (scorePlaying) expressiveOutput.syncCursorVoices(frame.cursors, performance.now());
+      else expressiveOutput.stopCursorVoices();
+      const nextVoiceCount = expressiveOutput.getVoiceCount();
+      setExpressiveVoiceCount(current => current === nextVoiceCount ? current : nextVoiceCount);
+    }
 
     const elementMap = new Map(elements.map(element => [element.id, element]));
 
@@ -5372,6 +5474,7 @@ function App() {
     { id: "convert-to-line", name: "Convert Selected Strokes to Straight Lines", category: "Brushes", action: () => handleConvertType("line") },
     { id: "convert-to-freedraw", name: "Convert Selected Lines to Freehand Pencil", category: "Brushes", action: () => handleConvertType("freedraw") },
     { id: "iannix.cursor.addToSelectedCurves", name: "Add Cursor to Selected Curves /add cursor to selected curves", aliases: ["/add cursor to selected curves", "Add Cursor to Selected Curves"], category: "IanniX", action: () => addCursorsToSelectedCurves() },
+    { id: "expressiveSynth.demo.create", name: "Add and Play Expressive Synth Demo /synth demo", aliases: ["/synth demo", "Expressive Synth Demo"], category: "IanniX", action: () => addExpressiveSynthDemo() },
     { id: "geometry.bezier.convert", name: "Convert Selection to Bézier /bezier convert", aliases: ["/bezier convert", "Convert to Bézier"], category: "Geometry", action: () => convertSelectedToBezier() },
     { id: "geometry.bezier.edit", name: "Edit Selected Bézier /bezier edit", aliases: ["/bezier edit", "Edit Bézier"], category: "Geometry", action: () => enterBezierEditMode() },
     { id: "geometry.bezier.close", name: "Close Selected Bézier Path /bezier close", aliases: ["/bezier close"], category: "Geometry", action: () => setSelectedBezierClosed(true) },
@@ -6320,6 +6423,63 @@ function App() {
     midiOutputIdRef.current = nextOutputId;
     setMidiOutputId(nextOutputId);
     if (nextOutputId === INTERNAL_MIDI_SYNTH_ID) await ensureInternalSynth();
+    if (nextOutputId === EXPRESSIVE_SYNTH_ID) await ensureExpressiveSynth();
+  };
+
+  const addExpressiveSynthDemo = async () => {
+    if (!excalidrawAPI) throw new Error("The canvas is not ready.");
+    const appState = excalidrawAPI.getAppState();
+    const viewportCenter = viewportCoordsToSceneCoords({
+      clientX: Math.max(200, (window.innerWidth - 320) / 2),
+      clientY: Math.max(180, (window.innerHeight - 120) / 2),
+    }, appState);
+    const demo = createExpressiveSynthDemoScore({
+      center: [viewportCenter.x, viewportCenter.y],
+      strokeColor: theme === "dark" ? "#f1f3f5" : "#1b1b1f",
+    });
+    const currentElements = excalidrawAPI.getSceneElementsIncludingDeleted();
+    const demoSelection = Object.fromEntries(demo.curves.map(curve => [curve.id, true]));
+    runtimeCursorSelectionRef.current = {};
+    excalidrawAPI.updateScene({
+      elements: [...currentElements, ...demo.elements],
+      appState: {
+        selectedElementIds: demoSelection,
+        selectedGroupIds: {},
+        editingLinearElement: null,
+        selectedLinearElement: null,
+        activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false },
+      },
+      commitToHistory: true,
+    });
+    setSelectedElementIds(demoSelection);
+    resetIannixRuntime({ resetTransport: true });
+    setScoreRate(1);
+    setTransportLoopStart(0);
+    setTransportLoopEnd(demo.duration);
+    setTransportLoopEnabled(true);
+
+    const demoConfig = mergeExpressiveSynthConfig(expressiveSynthConfigRef.current, {
+      preset: "bowed",
+      masterGain: 0.2,
+      voiceGain: 0.38,
+      referenceNote: 60,
+      referenceY: demo.center[1],
+      pixelsPerOctave: 180,
+      cursorVoices: true,
+      strokeWidthAmount: 0.45,
+      speedAmount: 0.2,
+    });
+    expressiveSynthConfigRef.current = demoConfig;
+    setExpressiveSynthConfig(demoConfig);
+    await handleMidiOutputChange(EXPRESSIVE_SYNTH_ID);
+    excalidrawAPI.scrollToContent(demo.curves, { fitToContent: true, animate: true });
+    scoreTimeRef.current = 0;
+    setScoreTime(0);
+    setScorePlaying(true);
+    setMidiStatus(`Playing ${demo.voiceCount} independent Expressive Synth voices. Each cursor is one voice; no manual assignment is needed.`);
+    setSceneExchangeStatus(`Added a ${demo.voiceCount}-voice glissando study. Undo removes the generated score.`);
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return demo.elements.map(element => element.id);
   };
 
   const handleMidiFallbackChange = async enabled => {
@@ -6382,6 +6542,10 @@ function App() {
         await ensureInternalSynth();
         route = getScoreMidiRoute();
       }
+      if (userGesture && route.kind === "expressive-unavailable") {
+        await ensureExpressiveSynth();
+        route = getScoreMidiRoute();
+      }
       const outputs = route.outputs;
       if (outputs.length === 0) throw new Error("No MIDI output is selected.");
       outputs.forEach(output => midiVoiceTrackerRef.current.send(output, message, performance.now()));
@@ -6398,6 +6562,7 @@ function App() {
     }
     const route = getScoreMidiRoute();
     if (route.kind === "internal-unavailable") await ensureInternalSynth();
+    if (route.kind === "expressive-unavailable") await ensureExpressiveSynth();
     setScorePlaying(true);
   };
 
@@ -6417,7 +6582,7 @@ function App() {
       displayMode: transportDisplayMode,
       fps: transportFps,
       loop: { enabled: transportLoopEnabled, start: transportLoopStart, end: transportLoopEnd },
-    }, kind === "scene" ? globalGridRef.current : null), null, 2);
+    }, kind === "scene" ? globalGridRef.current : null, kind === "scene" ? expressiveSynthConfigRef.current : null), null, 2);
   };
 
   const downloadTextFile = (text, filename, mimeType = "application/json") => {
@@ -6498,7 +6663,7 @@ function App() {
 
   const importDraweratorSceneText = async (text, { commitToHistory = true } = {}) => {
     if (!excalidrawAPI) return;
-    const { score, grid } = parseDraweratorExchange(text, "scene");
+    const { score, grid, expressiveSynth } = parseDraweratorExchange(text, "scene");
     const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
     const restoredElements = reconcileRuntimeCursorHosts(restored.elements || []);
     if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
@@ -6514,6 +6679,7 @@ function App() {
       commitToHistory,
     });
     setGlobalGrid(grid);
+    setExpressiveSynthConfig(expressiveSynth);
     if (Number.isFinite(score?.time)) setScoreTime(score.time);
     if (Number.isFinite(score?.rate) && score.rate > 0) setScoreRate(score.rate);
     if (Number.isFinite(score?.tempo) && score.tempo >= 20 && score.tempo <= 400) setScoreTempo(score.tempo);
@@ -9855,12 +10021,13 @@ function App() {
                 </select>
               </label>
               <label className="settings-panel-field">
-                <span>MIDI out</span>
+                <span>Score output</span>
                 <select value={midiOutputId} onChange={event => void handleMidiOutputChange(event.target.value)}>
                   <option value={MIDI_PORT_NONE}>None</option>
                   <option value={MIDI_PORT_ALL}>All MIDI Outputs</option>
                   <option value={INTERNAL_MIDI_SYNTH_ID}>Internal GM Synth</option>
-                  {midiOutputId && midiOutputId !== MIDI_PORT_ALL && midiOutputId !== INTERNAL_MIDI_SYNTH_ID && !midiOutputs.some(output => output.id === midiOutputId) && (
+                  <option value={EXPRESSIVE_SYNTH_ID}>Expressive Synth</option>
+                  {midiOutputId && midiOutputId !== MIDI_PORT_ALL && midiOutputId !== INTERNAL_MIDI_SYNTH_ID && midiOutputId !== EXPRESSIVE_SYNTH_ID && !midiOutputs.some(output => output.id === midiOutputId) && (
                     <option value={midiOutputId}>Unavailable output ({midiOutputId})</option>
                   )}
                   {midiOutputs.map(output => (
@@ -10688,6 +10855,9 @@ function App() {
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-iannix", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               IanniX
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-synth", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              Expressive Synth
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-settings", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Settings
@@ -11654,6 +11824,42 @@ function App() {
                   ? <IannixDataPanel elements={getSelectedElements()} onChange={updateIannixDataPath} />
                   : renderIannixTab()}
             </div>
+          </DraweratorPanel>
+          )}
+
+          {shouldRenderPanel("synth") && (
+          <DraweratorPanel
+            id="synth"
+            title="Expressive Synth"
+            placement={panelLayouts.synth.placement}
+            layout={panelLayouts.synth}
+            dockTabs={getPanelDockTabs("synth")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.synth.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("synth", placement)}
+            onDragStart={event => startSidebarPanelDrag("synth", event)}
+            onClose={() => closeDraweratorPanel("synth")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.synth.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.synth.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.synth.placement]: false }))}
+          >
+            <ExpressiveSynthPanel
+              config={expressiveSynthConfig}
+              status={expressiveSynthStatus}
+              error={expressiveSynthError}
+              selected={midiOutputId === EXPRESSIVE_SYNTH_ID}
+              voiceCount={expressiveVoiceCount}
+              onSelect={() => void handleMidiOutputChange(EXPRESSIVE_SYNTH_ID)}
+              onEnable={() => void ensureExpressiveSynth()}
+              onTest={() => void testExpressiveSynthAudio()}
+              onResetAudio={() => void resetExpressiveSynth()}
+              onPanic={panicMidi}
+              onCreateDemo={() => void commandRegistry.execute("expressiveSynth.demo.create", {}, { source: "synth-panel", transportTime: scoreTimeRef.current })}
+              onUpdate={updateExpressiveSynthConfig}
+              onResetConfig={() => setExpressiveSynthConfig({ ...DEFAULT_EXPRESSIVE_SYNTH_CONFIG })}
+            />
           </DraweratorPanel>
           )}
 

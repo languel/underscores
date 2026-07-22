@@ -1,8 +1,9 @@
 import { normalizeGlobalGrid } from "./gridSystem.js";
+import { normalizeExpressiveSynthConfig } from "./expressiveSynth.js";
 
-const DRAWERATOR_EXCHANGE_VERSION = 2;
+const DRAWERATOR_EXCHANGE_VERSION = 3;
 
-export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = {}, grid = null) => {
+export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = {}, grid = null, expressiveSynth = null) => {
   const payload = typeof serializedScene === "string"
     ? JSON.parse(serializedScene)
     : structuredClone(serializedScene);
@@ -27,7 +28,10 @@ export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = 
           end: Number.isFinite(score.loop?.end) ? Math.max(0.1, score.loop.end) : 10,
         },
       },
-      ...(kind === "scene" ? { grid: normalizeGlobalGrid(grid) } : {}),
+      ...(kind === "scene" ? {
+        grid: normalizeGlobalGrid(grid),
+        expressiveSynth: normalizeExpressiveSynthConfig(expressiveSynth),
+      } : {}),
     },
   };
 };
@@ -46,6 +50,7 @@ export const parseDraweratorExchange = (text, expectedKind = null) => {
     kind,
     score: payload.drawerator?.score || null,
     grid: kind === "scene" ? normalizeGlobalGrid(payload.drawerator?.grid) : null,
+    expressiveSynth: kind === "scene" ? normalizeExpressiveSynthConfig(payload.drawerator?.expressiveSynth) : null,
   };
 };
 

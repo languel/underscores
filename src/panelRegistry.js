@@ -2,6 +2,7 @@ export const DRAWERATOR_PANELS = Object.freeze([
   Object.freeze({ id: "chat", label: "AI Assistant", slash: "/chat", kind: "dockable", sidebarName: "ai-sidebar", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "mods", label: "Mods & FX", slash: "/mods", kind: "dockable", sidebarName: "modifiers-sidebar", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "iannix", label: "IanniX", slash: "/iannix", kind: "dockable", placements: ["left", "floating", "right"] }),
+  Object.freeze({ id: "synth", label: "Synth", slash: "/synth", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "settings", label: "Settings", slash: "/settings", kind: "dockable", sidebarName: "settings-sidebar", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "console", label: "Console", slash: "/console", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "history", label: "History", slash: "/history", kind: "dockable", placements: ["left", "floating", "right"] }),

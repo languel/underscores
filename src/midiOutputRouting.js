@@ -1,3 +1,5 @@
+import { EXPRESSIVE_SYNTH_ID } from "./expressiveSynth.js";
+
 export const MIDI_PORT_NONE = "";
 export const MIDI_PORT_ALL = "__all__";
 export const INTERNAL_MIDI_SYNTH_ID = "__internal_gm_synth__";
@@ -11,6 +13,7 @@ export const resolveMidiOutputRoute = ({
   selectedOutputId,
   fallbackEnabled = false,
   internalOutput = null,
+  expressiveOutput = null,
 } = {}) => {
   if (selectedOutputId === MIDI_PORT_NONE) return { outputs: [], kind: "none", fallback: false };
   if (selectedOutputId === MIDI_PORT_ALL) {
@@ -20,6 +23,13 @@ export const resolveMidiOutputRoute = ({
     return {
       outputs: internalOutput ? [internalOutput] : [],
       kind: internalOutput ? "internal" : "internal-unavailable",
+      fallback: false,
+    };
+  }
+  if (selectedOutputId === EXPRESSIVE_SYNTH_ID) {
+    return {
+      outputs: expressiveOutput ? [expressiveOutput] : [],
+      kind: expressiveOutput ? "expressive" : "expressive-unavailable",
       fallback: false,
     };
   }
@@ -38,7 +48,7 @@ export const resolveMidiOutputRoute = ({
 };
 
 export const resolveExternalMidiOutputs = (midiAccess, selectedOutputId) => {
-  if (selectedOutputId === MIDI_PORT_NONE || selectedOutputId === INTERNAL_MIDI_SYNTH_ID || !midiAccess) return [];
+  if (selectedOutputId === MIDI_PORT_NONE || selectedOutputId === INTERNAL_MIDI_SYNTH_ID || selectedOutputId === EXPRESSIVE_SYNTH_ID || !midiAccess) return [];
   if (selectedOutputId === MIDI_PORT_ALL) return connectedOutputs(midiAccess);
   const output = midiAccess.outputs?.get?.(selectedOutputId);
   return output && output.state !== "disconnected" ? [output] : [];
