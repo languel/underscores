@@ -205,6 +205,14 @@ The complete GM Level 1 program table and one-based UI-channel helpers live in `
 
 History actions continue to store the IanniX pattern and resolved context, not an output ID or TinySynth event. The same recording can therefore replay through either an external output or the internal synth according to the current route.
 
+### Expressive Web Audio output
+
+`src/expressiveSynth.js` provides a second internal output for scores that require independently continuous pitch, such as dense string glissandi. Every active cursor owns a Web Audio voice keyed by cursor identity; world-space Y maps to continuous MIDI pitch and frequency, while cursor speed and host stroke width can independently drive brightness and pressure. Because voices are not multiplexed through MIDI channels, simultaneous curves can glide without sharing pitch bend.
+
+The separate `/synth` inspector exposes pure-tone, subtractive, FM, bowed-string, and reed/wind presets plus envelope, filter, damping, vibrato, glide, polyphony, and visual-mapping controls. Trigger patterns can also target the same engine through the shared raw-MIDI adapter. The selected score output remains a local workspace choice, while normalized synth configuration is remembered locally and serialized in Drawerator scene metadata so authored visual-to-sound mappings travel with a scene.
+
+No manual voice routing is required: one active linked cursor is one independently pitched voice. **Add & play 6-voice glissando demo** or `/synth demo` creates a compact Metastaseis-inspired score using six real curves and six real cursor hosts, installs a safe bowed preset and visual mapping, and loops the 12-second study at 1×. The generator and complete construction, synthesis, persistence, and QA details are documented in [Expressive Synth architecture and glissando study](expressive-synth.md).
+
 ## Extension points
 
 The current model is designed to grow in these directions without changing its core boundary:

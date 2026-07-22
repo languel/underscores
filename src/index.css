@@ -3839,6 +3839,49 @@ a.iannix-flat-button {
   line-height: inherit;
 }
 
+.expressive-synth-panel {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px 12px;
+}
+
+.expressive-synth-panel .inspector-section-body {
+  padding-left: 21px;
+}
+
+.expressive-synth-value {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+}
+
+.expressive-synth-value input {
+  width: 100%;
+}
+
+.expressive-synth-value small {
+  color: var(--color-secondary);
+  font-size: var(--drawerator-ui-font-size-small);
+}
+
+.expressive-synth-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.expressive-synth-actions .iannix-flat-button,
+.expressive-output-button {
+  min-height: var(--drawerator-ui-control-height);
+}
+
+.expressive-output-button.active {
+  background: color-mix(in srgb, var(--drawerator-highlight) 50%, transparent);
+  border-color: transparent;
+}
+
 .settings-panel-heading,
 .grid-panel-group-title,
 .inspector-section-toggle,

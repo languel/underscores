@@ -34,6 +34,9 @@ export const PanelIcon = ({ id }) => {
   if (id === "grid") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM9.3 4v16M14.7 4v16M4 9.3h16M4 14.7h16"/></svg>;
   }
+  if (id === "synth") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h3l2.2-6 3.6 12 2.4-8 2 5H21"/><path d="M3 4v16M21 4v16"/></svg>;
+  }
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 5 4.5 4.5M13 6.5l4.5 4.5M4 20l7.5-7.5M14 3l7 7-9.5 9.5-7-7L14 3Z"/></svg>;
 };
 

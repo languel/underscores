@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-21
 
-Drawerator owns one persistent panel model for **AI Assistant**, **Mods & FX**, **Settings**, **Console / Info**, and **Transport**. Side panels support left dock, floating, and right dock placement. Transport supports floating and bottom-docked placement.
+Drawerator owns one persistent panel model for **AI Assistant**, **Mods & FX**, **IanniX**, **Expressive Synth**, **Settings**, **Console / Info**, and **Transport**. Side panels support left dock, floating, and right dock placement. Transport supports floating and bottom-docked placement.
 
 ## Identity icon contract
 
@@ -34,7 +34,7 @@ The following state persists independently:
 - collapsed state for each side dock;
 - transport placement and dimensions.
 
-Every panel is available from the main menu and command palette: `/chat`, `/mods`, `/settings`, `/console`, and `/transport`. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
+Every panel is available from the main menu and command palette, including `/chat`, `/mods`, `/iannix`, `/synth`, `/settings`, `/console`, and `/transport`. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
 
 ## Inspector layout
 
