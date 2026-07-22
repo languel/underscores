@@ -63,7 +63,9 @@ import { createExpressiveSynthDemoScore } from "./expressiveSynthDemo.js";
 import ShortcutsPanel from "./ShortcutsPanel.jsx";
 import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
-import { getStrokeWidthShortcut, stepStrokeWidth } from "./strokeWidthShortcuts.js";
+import { stepStrokeWidth } from "./strokeWidthShortcuts.js";
+import { infoProps } from "./uiInfo.js";
+import { convertShapeElementToPath, getCanvasContextMenuCapabilities, setSelectedElementRoundness } from "./canvasContextMenu.js";
 import { DEFAULT_SELECTION_FILTER, filterSelectedElementIds, normalizeSelectionFilter, selectionFilterAllowsElement, selectionMapsEqual, SELECTION_FILTER_STORAGE_KEY, toggleSelectionFilter } from "./selectionFilter.js";
 import {
   DEFAULT_GLOBAL_GRID,
@@ -135,7 +137,7 @@ function createBaseElement(type, x, y, width, height, strokeColor = "#f8fafc") {
     fillStyle: "hachure",
     strokeWidth: 2,
     strokeStyle: "solid",
-    roughness: 1,
+    roughness: 0,
     opacity: 100,
     groupIds: [],
     frameId: null,
@@ -3913,6 +3915,10 @@ function App() {
       const isSelected = selectedIds[el.id];
       const isInSelectedGroup = el.groupIds && el.groupIds.some(gId => selectedGroupIds.has(gId));
       if ((isSelected || isInSelectedGroup) && !el.isDeleted) {
+        if (["rectangle", "ellipse", "diamond"].includes(el.type) && ["line", "freedraw"].includes(targetType)) {
+          count++;
+          return convertShapeElementToPath(el, targetType);
+        }
         const isSpline = hasCubicBezierGeometry(el);
         const isSplineToLine = isSpline && targetType === "line";
         const isSplineToFreehand = isSpline && targetType === "freedraw";
@@ -4154,11 +4160,13 @@ function App() {
     const selectedIds = appState.selectedElementIds || {};
     const elements = excalidrawAPI.getSceneElements();
 
-    const selectedStrokeElements = elements.filter(el => 
-      selectedIds[el.id] && (el.type === "freedraw" || el.type === "line") && !el.isDeleted
+    const capabilities = getCanvasContextMenuCapabilities(
+      elements.filter(element => selectedIds[element.id])
     );
+    const selectedContextElements = capabilities.selected;
+    const selectedStrokeElements = capabilities.paths;
 
-    if (selectedStrokeElements.length > 0) {
+    if (selectedContextElements.length > 0) {
       e.preventDefault();
       e.stopPropagation();
 
@@ -4167,20 +4175,39 @@ function App() {
       const hasLine = selectedStrokeElements.some(el => el.type === "line");
       const hasSpline = selectedStrokeElements.some(hasCubicBezierGeometry);
       const hasConvertiblePath = selectedStrokeElements.some(el => !hasCubicBezierGeometry(el));
+      const hasShapes = capabilities.hasShapes;
 
       setCustomContextMenu({
         x: e.clientX,
         y: e.clientY,
-        showAddCursor: selectedStrokeElements.length > 0,
+        showAddCursor: selectedContextElements.length > 0,
         showRestore: hasBrush,
+        showToPath: hasShapes,
         showToLine: hasFreehand || hasSpline,
-        showToFreehand: hasLine || hasSpline,
-        showToSpline: hasConvertiblePath,
+        showToFreehand: hasLine || hasSpline || hasShapes,
+        showToSpline: hasConvertiblePath || hasShapes,
         showFromSpline: hasSpline,
+        showPathOperations: capabilities.showPathOperations,
+        showSharpRound: capabilities.showSharpRound,
+        allSharp: capabilities.allSharp,
+        allRound: capabilities.allRound,
       });
     } else {
       setCustomContextMenu(null);
     }
+  };
+
+  const handleSetSelectedSharpness = sharpness => {
+    if (!excalidrawAPI) return;
+    const appState = excalidrawAPI.getAppState();
+    const result = setSelectedElementRoundness(
+      excalidrawAPI.getSceneElements(),
+      appState.selectedElementIds || {},
+      sharpness
+    );
+    if (!result.changed) return;
+    excalidrawAPI.updateScene({ elements: result.elements, commitToHistory: true });
+    setModifierUpdateNonce(nonce => nonce + 1);
   };
 
   const evaluateModifierStack = (originalPoints, modifiers, globals) => {
@@ -5787,6 +5814,78 @@ function App() {
         }
         e.preventDefault();
         e.stopPropagation();
+        if (shortcutAction.id === "transport.play.toggle") {
+          setScorePlaying(playing => !playing);
+          return;
+        }
+        if (shortcutAction.id === "command.palette.toggle") {
+          setShowCommandPalette(previous => !previous);
+          return;
+        }
+        if (shortcutAction.id === "dock.left.toggle" || shortcutAction.id === "dock.right.toggle") {
+          const side = shortcutAction.id === "dock.left.toggle" ? PANEL_PLACEMENTS.LEFT : PANEL_PLACEMENTS.RIGHT;
+          setCollapsedDocks(previous => ({ ...previous, [side]: !previous[side] }));
+          return;
+        }
+        if (shortcutAction.id === "mods.script.open") {
+          setModsPanelTab("script");
+          commandRegistry.execute("panel-mods", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
+          return;
+        }
+        if (shortcutAction.id === "mods.float.toggle") {
+          setPanelLayouts(previous => ({
+            ...previous,
+            mods: {
+              ...previous.mods,
+              placement: previous.mods.placement === PANEL_PLACEMENTS.FLOATING ? PANEL_PLACEMENTS.RIGHT : PANEL_PLACEMENTS.FLOATING,
+            },
+          }));
+          setOpenPanels(previous => ({ ...previous, mods: true }));
+          return;
+        }
+        if (shortcutAction.id === "history.record.toggle") {
+          const commandId = historyController.status.startsWith("recording") ? "history.record.stop" : "history.record.start";
+          commandRegistry.execute(commandId, {}, { source: "shortcut", record: false, transportTime: scoreTimeRef.current });
+          return;
+        }
+        if (shortcutAction.id === "modpen.toggle") {
+          const nextState = !customBrushActive;
+          setCustomBrushActive(nextState);
+          excalidrawAPI?.updateScene({ appState: { activeTool: { type: nextState ? "freedraw" : "selection", ...(nextState ? { locked: true } : {}) } } });
+          return;
+        }
+        if (shortcutAction.id === "brush.apply.selected") {
+          handleApplyBrushToSelected();
+          return;
+        }
+        if (shortcutAction.id === "geometry.roundness.toggle" && excalidrawAPI) {
+          const appState = excalidrawAPI.getAppState();
+          const selectedIds = appState.selectedElementIds || {};
+          let count = 0;
+          const elements = excalidrawAPI.getSceneElements().map(element => {
+            if (!selectedIds[element.id] || element.isDeleted || !["freedraw", "line", "rectangle", "diamond"].includes(element.type)) return element;
+            count += 1;
+            return { ...element, roundness: element.roundness ? null : { type: 2 }, version: element.version + 1, versionNonce: Math.floor(Math.random() * 1000000), updated: Date.now() };
+          });
+          if (count) excalidrawAPI.updateScene({ elements, commitToHistory: true });
+          else {
+            setCustomBrushRoundness(previous => !previous);
+            excalidrawAPI.updateScene({ appState: { currentItemRoundnessType: appState.currentItemRoundnessType === 2 ? 1 : 2 } });
+          }
+          return;
+        }
+        if (shortcutAction.id.startsWith("stroke.width.") && excalidrawAPI) {
+          const appState = excalidrawAPI.getAppState();
+          const selectedElements = excalidrawAPI.getSceneElements().filter(element => !element.isDeleted && appState.selectedElementIds?.[element.id]);
+          const canAdjustWidth = ["freedraw", "line"].includes(appState.activeTool?.type) || selectedElements.some(element => ["freedraw", "line"].includes(element.type));
+          if (!canAdjustWidth) return;
+          const direction = shortcutAction.id.includes("decrease") ? -1 : 1;
+          const fine = shortcutAction.id.endsWith("Fine");
+          const newWidth = stepStrokeWidth(appState.currentItemStrokeWidth ?? 1, direction, fine);
+          const elements = excalidrawAPI.getSceneElements().map(element => appState.selectedElementIds?.[element.id] && ["freedraw", "line"].includes(element.type) ? { ...element, strokeWidth: newWidth } : element);
+          excalidrawAPI.updateScene({ elements, appState: { currentItemStrokeWidth: newWidth } });
+          return;
+        }
         commandRegistry.execute(shortcutAction.commandId || shortcutAction.id, {}, {
           source: "shortcut",
           transportTime: scoreTimeRef.current,
@@ -5797,106 +5896,6 @@ function App() {
       if (e.code === "Enter" && !isTextControlFocused && excalidrawAPI?.getAppState()?.activeTool?.type === "line" && nativeLineGridPointsRef.current?.points?.length >= 2) {
         finalizeCapturedNativeLine();
       }
-      if (e.code === "Space" && !isTextControlFocused && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        setScorePlaying(playing => !playing);
-        return;
-      }
-
-      // Keep H deterministic across browsers; Excalidraw's hand tool uses the
-      // same activeTool value and still handles its normal temporary hand mode.
-      if (e.code === "KeyH" && !isTextControlFocused && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        excalidrawAPI?.updateScene({ appState: { activeTool: { type: "hand", locked: false } } });
-        return;
-      }
-
-      // Cmd + / or Ctrl + /
-      if ((e.metaKey || e.ctrlKey) && e.key === "/") {
-        e.preventDefault();
-        e.stopPropagation();
-        setShowCommandPalette(prev => !prev);
-      }
-      // Cmd + Ctrl + Z
-      if (e.metaKey && e.ctrlKey && e.code === "KeyZ") {
-        e.preventDefault();
-        e.stopPropagation();
-        setSatoriMode(prev => !prev);
-      }
-      // Ctrl + Option + T, with legacy Cmd + Ctrl + T support (Toggle transport)
-      if (((e.ctrlKey && e.altKey) || (e.metaKey && e.ctrlKey)) && e.code === "KeyT") {
-        e.preventDefault();
-        e.stopPropagation();
-        commandRegistry.execute("panel-transport", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
-      }
-      // Opt + Shift + D (Theme toggle)
-      if (e.altKey && e.shiftKey && e.code === "KeyD") {
-        e.preventDefault();
-        e.stopPropagation();
-        commandRegistry.execute("toggle-theme", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
-      }
-      // Cmd + Shift + 0 or Ctrl + Shift + 0 (Toggle background transparency)
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === "Digit0") {
-        e.preventDefault();
-        e.stopPropagation();
-        toggleBackgroundTransparency(excalidrawAPI);
-      }
-      // Cmd + Shift + , or Cmd + , (Toggle Settings Panel)
-      if ((e.metaKey || e.ctrlKey) && (e.key === "," || e.code === "Comma")) {
-        e.preventDefault();
-        e.stopPropagation();
-        commandRegistry.execute("panel-settings", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
-      }
-      // Ctrl + Option + A (Toggle AI Chat Panel)
-      if (e.ctrlKey && e.altKey && e.code === "KeyA") {
-        e.preventDefault();
-        e.stopPropagation();
-        commandRegistry.execute("panel-chat", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
-      }
-      // Cmd + B collapses/reveals the left dock; Cmd + Option + B does the right dock.
-      if (e.metaKey && !e.ctrlKey && !e.shiftKey && e.code === "KeyB") {
-        e.preventDefault();
-        e.stopPropagation();
-        const side = e.altKey ? PANEL_PLACEMENTS.RIGHT : PANEL_PLACEMENTS.LEFT;
-        setCollapsedDocks(previous => ({ ...previous, [side]: !previous[side] }));
-      }
-      // Ctrl + Option + B (Open the script editor in Mods & FX)
-      if (e.ctrlKey && e.altKey && e.code === "KeyB") {
-        e.preventDefault();
-        e.stopPropagation();
-        setModsPanelTab("script");
-        commandRegistry.execute("panel-mods", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
-      }
-      // Ctrl + Option + P (Toggle Modifiers/Properties Sidebar Panel)
-      if (e.ctrlKey && e.altKey && e.code === "KeyP") {
-        e.preventDefault();
-        e.stopPropagation();
-        commandRegistry.execute("panel-mods", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
-      }
-      // Ctrl + Option + R toggles session recording without changing transport playback.
-      if (e.ctrlKey && e.altKey && e.code === "KeyR") {
-        e.preventDefault();
-        e.stopPropagation();
-        const commandId = historyController.status.startsWith("recording") ? "history.record.stop" : "history.record.start";
-        commandRegistry.execute(commandId, {}, { source: "shortcut", record: false, transportTime: scoreTimeRef.current });
-      }
-      // Cmd + Option + P (Pin / unpin Modifiers sidebar)
-      if (e.metaKey && e.altKey && !e.ctrlKey && e.code === "KeyP") {
-        e.preventDefault();
-        e.stopPropagation();
-        setPanelLayouts(previous => ({
-          ...previous,
-          mods: {
-            ...previous.mods,
-            placement: previous.mods.placement === PANEL_PLACEMENTS.FLOATING
-              ? PANEL_PLACEMENTS.RIGHT
-              : PANEL_PLACEMENTS.FLOATING,
-          },
-        }));
-        setOpenPanels(previous => ({ ...previous, mods: true }));
-      }
 
       // Keyboard shortcuts check for non-input focus
       const activeEl = document.activeElement;
@@ -5906,15 +5905,6 @@ function App() {
         activeEl.contentEditable === "true" ||
         activeEl.closest?.(".cm-editor")
       );
-
-      if (!isInputFocused && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "Home") {
-        e.preventDefault();
-        e.stopPropagation();
-        commandRegistry.execute(e.shiftKey ? "view.frameSelected" : "view.frameAll", {}, {
-          source: "shortcut",
-          transportTime: scoreTimeRef.current,
-        });
-      }
 
       if (!isInputFocused && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "NumpadDecimal") {
         e.preventDefault();
@@ -5933,134 +5923,6 @@ function App() {
         refreshCanvasToolCursor();
       }
 
-      if (!isInputFocused) {
-        // Shift + P (Toggle Custom Brush Mode)
-        if (e.shiftKey && !e.ctrlKey && !e.altKey && e.code === "KeyP") {
-          e.preventDefault();
-          e.stopPropagation();
-          const nextState = !customBrushActive;
-          setCustomBrushActive(nextState);
-          if (nextState) {
-            excalidrawAPI?.updateScene({ appState: { activeTool: { type: "freedraw", locked: true } } });
-          } else {
-            excalidrawAPI?.updateScene({ appState: { activeTool: { type: "selection" } } });
-          }
-        }
-        
-        // Ctrl + Shift + P (Apply active brush style to selected strokes)
-        if (e.ctrlKey && e.shiftKey && !e.altKey && e.code === "KeyP") {
-          e.preventDefault();
-          e.stopPropagation();
-          handleApplyBrushToSelected();
-        }
-
-        // Shift + R (Toggle sharp / smooth edges)
-        if (e.shiftKey && !e.ctrlKey && !e.altKey && e.code === "KeyR" && excalidrawAPI) {
-          e.preventDefault();
-          e.stopPropagation();
-          const appState = excalidrawAPI.getAppState();
-          const selectedIds = appState.selectedElementIds || {};
-          const elements = excalidrawAPI.getSceneElements();
-          
-          let count = 0;
-          const nextElements = elements.map(el => {
-            if (selectedIds[el.id] && !el.isDeleted) {
-              if (
-                el.type === "freedraw" ||
-                el.type === "line" ||
-                el.type === "rectangle" ||
-                el.type === "diamond"
-              ) {
-                count++;
-                return {
-                  ...el,
-                  roundness: el.roundness ? null : { type: 2 },
-                  version: el.version + 1,
-                  versionNonce: Math.floor(Math.random() * 1000000),
-                  updated: Date.now()
-                };
-              }
-            }
-            return el;
-          });
-          
-          if (count > 0) {
-            excalidrawAPI.updateScene({
-              elements: nextElements,
-              commitToHistory: true
-            });
-          } else {
-            // Toggle our global custom brush roundness switch!
-            setCustomBrushRoundness(prev => !prev);
-
-            // Toggle currentItemRoundnessType in appState: 2 is smooth, 1 is sharp
-            const currentType = appState.currentItemRoundnessType;
-            const nextType = currentType === 2 ? 1 : 2;
-            excalidrawAPI.updateScene({
-              appState: {
-                currentItemRoundnessType: nextType
-              }
-            });
-          }
-        }
-      }
-
-      // Brackets adjust stroke width; Shift uses a one-tenth step.
-      const strokeWidthShortcut = getStrokeWidthShortcut(e);
-      if (strokeWidthShortcut && excalidrawAPI) {
-        const activeEl = document.activeElement;
-        if (
-          !activeEl ||
-          (activeEl.tagName !== "INPUT" &&
-            activeEl.tagName !== "TEXTAREA" &&
-            activeEl.contentEditable !== "true")
-        ) {
-          const appState = excalidrawAPI.getAppState();
-          const activeTool = appState.activeTool?.type;
-          
-          const selectedElements = excalidrawAPI.getSceneElements().filter(
-            (el) => !el.isDeleted && appState.selectedElementIds?.[el.id]
-          );
-          const hasSelectedPenOrLine = selectedElements.some(
-            (el) => el.type === "freedraw" || el.type === "line"
-          );
-          
-          const isPenOrLine =
-            activeTool === "freedraw" ||
-            activeTool === "line" ||
-            hasSelectedPenOrLine;
-
-          if (isPenOrLine) {
-            e.preventDefault();
-            e.stopPropagation();
-            const currentWidth = appState.currentItemStrokeWidth ?? 1;
-            const newWidth = stepStrokeWidth(
-              currentWidth,
-              strokeWidthShortcut.direction,
-              strokeWidthShortcut.fine,
-            );
-
-            if (newWidth !== currentWidth) {
-              const updatedElements = excalidrawAPI.getSceneElements().map((el) => {
-                if (
-                  appState.selectedElementIds?.[el.id] &&
-                  (el.type === "freedraw" || el.type === "line")
-                ) {
-                  return { ...el, strokeWidth: newWidth };
-                }
-                return el;
-              });
-
-              excalidrawAPI.updateScene({
-                elements: updatedElements,
-                appState: {
-                  currentItemStrokeWidth: newWidth
-                }
-              });
-            }
-          }
-        }
-      }
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
@@ -6251,20 +6113,21 @@ function App() {
 
   const convertSelectedToBezier = () => {
     if (!excalidrawAPI) return [];
-    const selected = getSelectedElements().filter(element => ["line", "freedraw"].includes(element.type));
-    if (!selected.length) throw new Error("Select at least one line or freehand path to convert.");
+    const selected = getSelectedElements().filter(element => ["line", "freedraw", "rectangle", "ellipse", "diamond"].includes(element.type));
+    if (!selected.length) throw new Error("Select at least one path or geometric shape to convert.");
     const targets = new Map();
     for (const element of selected) {
-      const geometry = hasCubicBezierGeometry(element)
-        ? normalizeBezierGeometry(element.customData.draweratorGeometry)
-        : createBezierGeometryFromElement(element);
-      if (geometry) targets.set(element.id, geometry);
+      const host = ["rectangle", "ellipse", "diamond"].includes(element.type) ? convertShapeElementToPath(element, "line") : element;
+      const geometry = hasCubicBezierGeometry(host)
+        ? normalizeBezierGeometry(host.customData.draweratorGeometry)
+        : createBezierGeometryFromElement(host);
+      if (geometry) targets.set(element.id, { geometry, host });
     }
     const nextElements = excalidrawAPI.getSceneElementsIncludingDeleted().map(element => {
-      const geometry = targets.get(element.id);
-      if (!geometry) return element;
-      const nextVersion = (element.version || 0) + 1;
-      const next = setElementBezierGeometry(element, geometry);
+      const target = targets.get(element.id);
+      if (!target) return element;
+      const nextVersion = (target.host.version || element.version || 0) + 1;
+      const next = setElementBezierGeometry(target.host, target.geometry);
       return {
         ...next,
         version: nextVersion,
@@ -6519,7 +6382,7 @@ function App() {
     const candidates = sceneElements.filter(element => (
       selectedIds[element.id] &&
       !element.isDeleted &&
-      (element.type === "line" || element.type === "freedraw") &&
+      ["line", "freedraw", "ellipse", "rectangle", "diamond"].includes(element.type) &&
       !isRuntimeCursor(element) &&
       !sceneElements.some(candidate => (
         !candidate.isDeleted &&
@@ -6527,7 +6390,7 @@ function App() {
         normalizeIannixData(candidate.customData?.iannix).cursor?.curveId === element.id
       ))
     ));
-    if (!candidates.length) throw new Error("Select one or more lines or freehand paths first.");
+    if (!candidates.length) throw new Error("Select one or more paths or basic shapes first.");
 
     const curveLabels = allocateIannixRoleLabels(sceneElements, candidates.map(element => element.id), "curve");
     const updates = new Map();
@@ -7790,7 +7653,7 @@ function App() {
   const renderSceneExchangeTools = () => {
     const selectedCount = getSelectedElements().length;
     return (
-      <InspectorSection title="Scene data" className="iannix-section compact iannix-data-section">
+      <InspectorSection title="Scene data" className="iannix-section compact iannix-data-section" {...infoProps("Scene data", "Scene exchange preserves Drawerator metadata. Trusted .iannix compatibility executes familiar run()/load() scripts, reports unsupported commands, and is not a security sandbox.")}>
         <input
           ref={sceneImportInputRef}
           type="file"
@@ -7806,7 +7669,6 @@ function App() {
           <button type="button" className="iannix-flat-button" onClick={copyDraweratorSelection} disabled={selectedCount === 0}>Copy selection JSON</button>
           <button type="button" className="iannix-flat-button" onClick={pasteDraweratorSelection}>Paste selection JSON</button>
         </div>
-        <div className="iannix-hint">Scene exchange preserves Drawerator metadata. Trusted .iannix compatibility executes familiar run()/load() scripts, reports unsupported commands, and is not a security sandbox.</div>
         {sceneExchangeStatus && <div className="iannix-midi-status" role="status">{sceneExchangeStatus}</div>}
       </InspectorSection>
     );
@@ -7819,9 +7681,7 @@ function App() {
       return (
         <div className="iannix-properties">
           {renderSceneExchangeTools()}
-          <div className="iannix-empty-state">
-            Select any canvas object to assign a score role and object time.
-          </div>
+          <div className="iannix-empty-state" {...infoProps("No score object selected", "Select one or more canvas objects to assign score roles and edit object timing.")}>No selection.</div>
         </div>
       );
     }
@@ -7841,7 +7701,7 @@ function App() {
       return (
         <div className="iannix-properties">
           {renderSceneExchangeTools()}
-          <InspectorSection title="Score role" className="iannix-section" aside={<span className="iannix-selection-count">{selectedElements.length} objects</span>}>
+          <InspectorSection title="Score role" className="iannix-section" aside={<span className="iannix-selection-count">{selectedElements.length} objects</span>} {...infoProps("Score role", "Assigning a role gives every selected object a unique label. Same-role selections can be edited together below.")}>
             <div className="iannix-role-grid" role="radiogroup" aria-label="IanniX role for selected objects">
               {roleOptions.map(option => (
                 <button
@@ -7855,10 +7715,6 @@ function App() {
                   {option.label}
                 </button>
               ))}
-            </div>
-            <div className="iannix-hint">
-              {selectedRoles.size > 1 ? "Mixed roles. " : ""}
-              Assigning a role gives every selected object a unique label. Same-role selections can be edited together below.
             </div>
           </InspectorSection>
           {sharedRole ? (
@@ -7970,7 +7826,7 @@ function App() {
 
         {data.role === "cursor" && (
           <InspectorSection title="Cursor" className="iannix-section">
-            <label className="iannix-field">
+            <label className="iannix-field" {...infoProps("Support curve", "Choose the curve that drives this cursor's position and timing.")}>
               <span>Support curve</span>
               <select
                 value={data.cursor.curveId || ""}
@@ -7990,7 +7846,7 @@ function App() {
                 })}
               </select>
             </label>
-            <label className="iannix-check-row">
+            <label className="iannix-check-row" {...infoProps("Follow curve tangent", "Rotate the cursor so its orientation follows the support curve's tangent.")}>
               <span>Follow curve tangent</span>
               <input
                 type="checkbox"
@@ -8001,7 +7857,7 @@ function App() {
                 }))}
               />
             </label>
-            <label className="iannix-field">
+            <label className="iannix-field" {...infoProps("Visual smoothing", "Display-only position and angle damping. Trigger timing continues to use the exact cursor path.")}>
               <span>Visual smoothing</span>
               <input
                 type="number"
@@ -8016,22 +7872,20 @@ function App() {
                 }))}
               />
             </label>
-            <div className="iannix-hint">Display-only position and angle damping. Trigger timing continues to use the exact cursor path.</div>
             <div className="iannix-two-column">
-              <label className="iannix-field">
+              <label className="iannix-field" {...infoProps("MIDI channel", "Mixer tracks listening to this MIDI channel receive score output from the object.")}>
                 <span>MIDI channel</span>
                 <input type="number" min="1" max="16" step="1" data-default="1" value={data.midi.midiChannel} onChange={event => setNumber("midi", "midiChannel", event.target.value)} />
               </label>
-              <label className="iannix-field">
+              <label className="iannix-field" {...infoProps("MIDI base note", "Pitch at the cursor center for cursor-relative pitch mapping.")}>
                 <span>MIDI base note</span>
                 <input type="number" min="0" max="127" step="1" data-default="60" value={data.midi.baseNote} onChange={event => setNumber("midi", "baseNote", event.target.value)} />
               </label>
-              <label className="iannix-field">
+              <label className="iannix-field" {...infoProps("Pitch range", "The cursor's two ends span this many octaves below and above its base note.")}>
                 <span>Pitch range ± oct.</span>
                 <input type="number" min="0" max="5" step="0.25" data-default="2" value={data.midi.pitchRangeOctaves} onChange={event => setNumber("midi", "pitchRangeOctaves", event.target.value)} />
               </label>
             </div>
-            <div className="iannix-hint">Used by the Cursor-relative pitch template. The cursor center is the base note; either end of its shape reaches the selected octave range.</div>
             {curves.length === 0 && (
               <div className="iannix-hint">Assign another object as a Curve before linking this cursor.</div>
             )}
@@ -8039,7 +7893,7 @@ function App() {
         )}
 
         {data.role === "curve" && (
-          <InspectorSection title="Curve" className="iannix-section">
+          <InspectorSection title="Curve" className="iannix-section" {...infoProps("Curve", "Playback follows the object's authored core geometry. Mods & FX remain a separate rendering layer.")}>
             <div className="iannix-readout-row"><span>Linked cursors</span><strong>{linkedCursorCount}</strong></div>
             <div className="iannix-two-column">
               <label className="iannix-field">
@@ -8055,13 +7909,12 @@ function App() {
                 <input type="number" min="0" max="5" step="0.25" data-default="2" value={data.midi.pitchRangeOctaves} onChange={event => setNumber("midi", "pitchRangeOctaves", event.target.value)} />
               </label>
             </div>
-            <div className="iannix-hint">Playback follows this object's core geometry; Mods &amp; FX remain a rendering layer.</div>
           </InspectorSection>
         )}
 
         {data.role === "trigger" && (
           <InspectorSection title="Trigger" className="iannix-section">
-            <label className="iannix-field">
+            <label className="iannix-field" {...infoProps("Trigger behavior", "Pulse sends a note or message while the cursor intersects the trigger. Continuous glissando sustains and updates pitch until geometric exit.")}>
               <span>Behavior</span>
               <select
                 value={data.trigger.behavior}
@@ -8076,7 +7929,7 @@ function App() {
             </label>
             {data.trigger.behavior === "pulse" ? (
               <>
-                <label className="iannix-field">
+                <label className="iannix-field" {...infoProps("Minimum duration", "Starts on entry and releases on geometric exit. This value is the minimum or fallback duration for shorter contacts.")}>
                   <span>Minimum duration (s)</span>
                   <input
                     type="number"
@@ -8087,12 +7940,11 @@ function App() {
                     onChange={event => setNumber("trigger", "duration", event.target.value)}
                   />
                 </label>
-                <div className="iannix-hint">Starts on entry and releases on geometric exit. This value is the minimum/fallback duration for shorter contacts.</div>
               </>
             ) : (
-              <div className="iannix-hint">Starts a sustained track voice on entry, maps the exact cursor intersection to pitch every frame, and releases on exit. The trigger's geometric length determines note duration.</div>
+              <span tabIndex={0} className="iannix-info-anchor" {...infoProps("Continuous glissando", "Starts a sustained track voice on entry, maps the exact cursor intersection to pitch every frame, and releases on exit. Geometric length determines duration.")}>ⓘ</span>
             )}
-            <label className="iannix-check-row">
+            <label className="iannix-check-row" {...infoProps("Trigger output", data.trigger.behavior === "glissando" ? "Send a sustained expressive voice through matching Mixer tracks." : "Send the configured MIDI message through matching Mixer tracks on contact.")}>
               <span>{data.trigger.behavior === "glissando" ? "Send continuous voice to Mixer" : "Send MIDI on trigger"}</span>
               <input
                 type="checkbox"
@@ -8120,7 +7972,7 @@ function App() {
                 )}
                 {(data.trigger.behavior === "glissando" || data.trigger.midiTemplate !== "custom") && (
                   <div className="iannix-two-column">
-                    <label className="iannix-field">
+                    <label className="iannix-field" {...infoProps("Base note source", "Pitch uses the signed intersection offset along the cursor shape. The chosen object's base note is at center; its ends use the configured octave range.")}>
                       <span>Channel</span>
                       <input type="number" min="1" max="16" step="1" data-default="1" value={data.trigger.midiChannel} onChange={event => updateTriggerMidi({ midiChannel: Number(event.target.value) })} />
                     </label>
@@ -8153,7 +8005,6 @@ function App() {
                         <option value="curve">Curve</option>
                       </select>
                     </label>
-                    <div className="iannix-hint">Pitch is the signed intersection offset along the cursor shape. Its center is the chosen object's base note; its ends use that object's ± octave range.</div>
                   </>
                 )}
                 {data.trigger.behavior === "pulse" && (
@@ -8185,9 +8036,9 @@ function App() {
                     </button>
                   )}
                 </div>
-                <div className="iannix-hint">{data.trigger.behavior === "glissando"
+                <span tabIndex={0} className="iannix-info-anchor" {...infoProps("Mixer routing", data.trigger.behavior === "glissando"
                   ? "The selected MIDI channel addresses matching internal Expressive Synth tracks. Solo, mute, instrument, and program remain Mixer concerns."
-                  : "The message's MIDI channel is routed through every matching enabled Mixer track."}</div>
+                  : "The message's MIDI channel is routed through every matching enabled Mixer track.")}>ⓘ</span>
                 {midiPreview ? (
                   <div className="iannix-midi-preview">
                     <span>{data.trigger.behavior === "glissando" ? "Continuous voice via" : "Would emit via"} {midiPreview.cursorLabel}</span>
@@ -8225,7 +8076,7 @@ function App() {
           </InspectorSection>
         )}
 
-        <InspectorSection title="Object time" className="iannix-section" aside={<span className="iannix-progress-readout">{timeState.localTime.toFixed(2)}s · {(timeState.progress * 100).toFixed(1)}%</span>}>
+        <InspectorSection title="Object time" className="iannix-section" aside={<span className="iannix-progress-readout">{timeState.localTime.toFixed(2)}s · {(timeState.progress * 100).toFixed(1)}%</span>} {...infoProps("Object time", "A role-independent local clock controlling start, duration, rate, and looping for this object.")}>
           <div className="iannix-two-column">
             <label className="iannix-field">
               <span>Start (s)</span>
@@ -8257,7 +8108,6 @@ function App() {
           <div className="iannix-time-bar" aria-label="Object time progress">
             <span style={{ width: `${Math.max(0, Math.min(100, timeState.progress * 100))}%` }} />
           </div>
-          <div className="iannix-hint">This role-independent clock will also drive object draw-on animation in the next phase.</div>
         </InspectorSection>
 
         {scoreEvents.length > 0 && (
@@ -8429,7 +8279,7 @@ function App() {
             <button type="button" className="palette-action-btn secondary script-icon-button" title="Import trusted .iannix" aria-label="Import trusted .iannix" onClick={() => iannixImportInputRef.current?.click()}><ScriptActionIcon type="import" /></button>
             <button type="button" className="palette-action-btn danger script-icon-button" title="Delete script" aria-label="Delete script" onClick={deleteScript} disabled={!activeScript}><ScriptActionIcon type="remove" /></button>
           </div>
-          <form className="iannix-command-line" onSubmit={event => { event.preventDefault(); runCommand(); }}>
+          <form className="iannix-command-line" onSubmit={event => { event.preventDefault(); runCommand(); }} {...infoProps("IanniX command line", "Cmd/Ctrl+Enter runs the editor. Scripts are saved in this browser's localStorage. The command line executes its value as run(\"...\").")}>
             <input
               type="text"
               value={iannixCommandSource}
@@ -8446,7 +8296,6 @@ function App() {
             />
             <button type="submit" className="palette-action-btn primary script-icon-button" title="Run IanniX command" aria-label="Run IanniX command" disabled={!iannixCommandSource.trim()}><ScriptActionIcon type="run" /></button>
           </form>
-          <div className="iannix-hint">Cmd/Ctrl+Enter runs the editor. Scripts are saved in this browser's localStorage. The command line executes its value as <code>run("...")</code>.</div>
           {sceneExchangeStatus && <div className="iannix-midi-status" role="status">{sceneExchangeStatus}</div>}
       </div>
     );
@@ -8456,64 +8305,7 @@ function App() {
 
   const convertShapeToPath = (element) => {
     if (!excalidrawAPI) return;
-    const { x, y, width, height, strokeColor, strokeWidth, backgroundColor, fillStyle, strokeStyle, roughness, roundness, opacity, groupIds, angle } = element;
-
-    let points = [];
-    if (element.type === "rectangle") {
-      points = [[0, 0], [width, 0], [width, height], [0, height], [0, 0]];
-    } else if (element.type === "diamond") {
-      points = [[width/2, 0], [width, height/2], [width/2, height], [0, height/2], [width/2, 0]];
-    } else if (element.type === "ellipse") {
-      const steps = 36;
-      for (let i = 0; i <= steps; i++) {
-        const angle = (i * 2 * Math.PI) / steps;
-        points.push([
-          width / 2 + (width / 2) * Math.cos(angle),
-          height / 2 + (height / 2) * Math.sin(angle)
-        ]);
-      }
-    } else {
-      return;
-    }
-
-    const convertedElement = {
-      type: "line",
-      x,
-      y,
-      width,
-      height,
-      points,
-      strokeColor,
-      strokeWidth,
-      backgroundColor,
-      fillStyle,
-      strokeStyle,
-      roughness,
-      roundness,
-      opacity,
-      groupIds,
-      angle,
-      id: element.id,
-      seed: element.seed,
-      version: element.version + 1,
-      versionNonce: Math.floor(Math.random() * 1000000),
-      isDeleted: false,
-      updated: Date.now(),
-      boundElements: null,
-      link: null,
-      locked: element.locked,
-      frameId: element.frameId,
-      lastCommittedPoint: null,
-      startBinding: null,
-      endBinding: null
-    };
-
-    const nextElements = excalidrawAPI.getSceneElements().map(el => {
-      if (el.id === element.id) {
-        return convertedElement;
-      }
-      return el;
-    });
+    const nextElements = excalidrawAPI.getSceneElements().map(el => el.id === element.id ? convertShapeElementToPath(el, "line") : el);
 
     excalidrawAPI.updateScene({
       elements: nextElements,
@@ -10016,7 +9808,7 @@ function App() {
         {activeSettingsTab === "ai" && (
           <div className="settings-panel-section">
             <InspectorSection title="Connection" className="settings-inspector-section">
-            <label className="settings-panel-field">
+            <label className="settings-panel-field" {...infoProps("API provider", "Choose the local or OpenAI-compatible backend used by the AI Assistant.")}>
               <span>API provider</span>
               <select
                 value={aiSettings.provider}
@@ -10035,11 +9827,11 @@ function App() {
                 <option value="openai">OpenAI Compatible</option>
               </select>
             </label>
-            <label className="settings-panel-field">
+            <label className="settings-panel-field" {...infoProps("API endpoint URL", "Base URL of the selected AI backend. Drawerator queries models and sends chat requests here.")}>
               <span>API endpoint URL</span>
               <input type="text" value={aiSettings.url} onChange={event => setAiSettings({ ...aiSettings, url: event.target.value })} />
             </label>
-            <label className="settings-panel-field">
+            <label className="settings-panel-field" {...infoProps("Active model", "Model identifier used for new AI Assistant requests.")}>
               <span>Active model</span>
               {aiSettings.provider !== "openai" && modelsList.length > 0 ? (
                 <select value={aiSettings.model} onChange={event => setAiSettings({ ...aiSettings, model: event.target.value })}>
@@ -10062,7 +9854,7 @@ function App() {
         {activeSettingsTab === "preferences" && (
           <div className="settings-panel-section">
             <InspectorSection title="Appearance" className="settings-inspector-section">
-            <label className="settings-panel-field">
+            <label className="settings-panel-field" {...infoProps("Accent color", "Color and opacity used for active controls and Drawerator accents.")}>
               <span>Accent color</span>
               <div className="settings-color-control">
                 <input type="color" value={accentColor} onChange={event => { setAccentColor(event.target.value); localStorage.setItem("drawerator_accent_color", event.target.value); }} aria-label="Accent color" />
@@ -10071,7 +9863,7 @@ function App() {
                 <output>%</output>
               </div>
             </label>
-            <label className="settings-panel-field">
+            <label className="settings-panel-field" {...infoProps("Hover highlight", "Color and opacity used for passive hover and toggle highlights.")}>
               <span>Hover highlight</span>
               <div className="settings-color-control">
                 <input type="color" value={highlightColor} onChange={event => { setHighlightColor(event.target.value); localStorage.setItem("drawerator_highlight_color", event.target.value); }} aria-label="Hover highlight color" />
@@ -10080,7 +9872,7 @@ function App() {
                 <output>%</output>
               </div>
             </label>
-            <details className="settings-role-theme">
+            <details className="settings-role-theme" {...infoProps("Score object theme", "Enabled and disabled colors follow each object's score switch. Trigger pulse is the temporary collision highlight. Disabling the override restores authored colors.")}>
               <summary>Score object theme</summary>
               <div className="settings-role-theme-body">
                 <label className="settings-panel-check">
@@ -10110,7 +9902,6 @@ function App() {
                   );
                 })}
                 <button type="button" className="iannix-flat-button" onClick={() => setRoleTheme(previous => ({ ...DEFAULT_ROLE_THEME, enabled: previous.enabled }))}>Reset to IanniX-compatible palette</button>
-                <div className="settings-panel-hint">Enabled/disabled follows the object's score switch. Trigger pulse is the temporary collision highlight. Original object colors restore when the override is disabled.</div>
               </div>
             </details>
             </InspectorSection>
@@ -10121,12 +9912,12 @@ function App() {
               ["Show bottom alerts", showBottomNotifications, value => { setShowBottomNotifications(value); localStorage.setItem("drawerator_show_bottom_notifications", value); }],
               ["Show modifier debug coordinates", showDebugLayer, setShowDebugLayer],
             ].map(([label, checked, update]) => (
-              <label className="settings-panel-check" key={label}>
+              <label className="settings-panel-check" key={label} {...infoProps(label, label === "Force desktop layout" ? "Keep the full docked desktop interface at smaller viewport sizes." : label === "Show toolbar hints" ? "Show native hover labels for toolbar controls." : label === "Show bottom alerts" ? "Show transient status messages along the bottom edge." : "Overlay modifier coordinate diagnostics on the canvas.")}>
                 <span>{label}</span>
                 <input type="checkbox" checked={checked} onChange={event => update(event.target.checked)} />
               </label>
             ))}
-            <label className="settings-panel-field">
+            <label className="settings-panel-field" {...infoProps("Default stabilizer damping", "Default smoothing strength for newly stabilized strokes. Higher values follow the pointer more slowly.")}>
               <span>Default stabilizer damping</span>
               <input type="number" min="0.01" max="0.5" step="0.01" data-default="0.12" value={defaultStabilizerDamping} onChange={event => {
                 const value = Number(event.target.value);
@@ -10160,14 +9951,14 @@ function App() {
           <div className="settings-panel-section">
             <InspectorSection title="Transport" className="settings-inspector-section">
             <div className="settings-panel-two-column">
-              <label className="settings-panel-field">
+              <label className="settings-panel-field" {...infoProps("Tempo", "Global score tempo in beats per minute.")}>
                 <span>Tempo (BPM)</span>
                 <input type="number" min="20" max="400" step="1" data-default="120" value={scoreTempo} onChange={event => {
                   const value = Math.min(400, Math.max(20, Number(event.target.value) || 120));
                   setScoreTempo(value);
                 }} />
               </label>
-              <label className="settings-panel-field">
+              <label className="settings-panel-field" {...infoProps("Playback rate", "Multiplier applied to global score-time progression without changing the stored timeline.")}>
                 <span>Playback rate</span>
                 <input type="number" min="0.05" max="8" step="0.05" data-default="1" value={scoreRate} onChange={event => {
                   const value = Number(event.target.value);
@@ -10176,7 +9967,7 @@ function App() {
               </label>
             </div>
             <div className="settings-panel-two-column">
-              <label className="settings-panel-field">
+              <label className="settings-panel-field" {...infoProps("Transport display", "Display timeline positions as frames, timecode, or bars and beats.")}>
                 <span>Transport display</span>
                 <select value={transportDisplayMode} onChange={event => setTransportDisplayMode(event.target.value)}>
                   <option value="frame">Frames</option>
@@ -10184,7 +9975,7 @@ function App() {
                   <option value="beats">Bars · Beats · 16ths</option>
                 </select>
               </label>
-              <label className="settings-panel-field">
+              <label className="settings-panel-field" {...infoProps("Timecode FPS", "Frame rate used for frame numbering and timecode conversion.")}>
                 <span>Timecode FPS</span>
                 <select value={transportFps} onChange={event => setTransportFps(Number(event.target.value))}>
                   {[24, 25, 30, 50, 60].map(value => <option key={value} value={value}>{value}</option>)}
@@ -10227,7 +10018,7 @@ function App() {
             </label>
             </InspectorSection>
             <InspectorSection title="MIDI & clock" className="settings-inspector-section">
-            <label className="settings-panel-field">
+            <label className="settings-panel-field" {...infoProps("Clock synchronization", "Use Drawerator's internal clock, send MIDI Clock, or follow incoming MIDI Clock.")}>
               <span>Clock synchronization</span>
               <select value={midiClockMode} onChange={event => setMidiClockMode(event.target.value)}>
                 <option value="internal">Internal</option>
@@ -10237,7 +10028,7 @@ function App() {
             </label>
             {midiClockMode === "receive" && (
               <>
-                <label className="settings-panel-check">
+                <label className="settings-panel-check" {...infoProps("Estimate tempo from clock", "MIDI Clock carries pulses rather than numeric BPM. Enable this to estimate tempo from incoming pulse intervals; leave it off to keep the BPM field fixed.")}>
                   <span>Follow MIDI transport</span>
                   <input type="checkbox" checked={followMidiTransport} onChange={event => setFollowMidiTransport(event.target.checked)} />
                 </label>
@@ -10245,9 +10036,6 @@ function App() {
                   <span>Estimate tempo from clock</span>
                   <input type="checkbox" checked={followMidiClockTempo} onChange={event => setFollowMidiClockTempo(event.target.checked)} />
                 </label>
-                <div className="settings-panel-hint">
-                  MIDI Clock carries pulses, not a numeric BPM. Leave tempo estimation off to keep the BPM field fixed and match the sender manually.
-                </div>
               </>
             )}
             <div className="settings-panel-midi-routing">
@@ -10275,8 +10063,7 @@ function App() {
               <button type="button" className="settings-panel-midi-refresh" title={midiAccess ? "Refresh MIDI access" : "Connect MIDI"} aria-label={midiAccess ? "Refresh MIDI access" : "Connect MIDI"} onClick={connectIannixMidi}>↻</button>
             </div>
             <div className="settings-panel-actions">
-              <button type="button" className="iannix-flat-button" onClick={() => toggleDraweratorPanel("mixer")}>Open Mixer</button>
-              <span className="settings-panel-hint">Score destinations, instruments, programs, and MIDI channels are assigned per mixer track.</span>
+              <button type="button" className="iannix-flat-button" onClick={() => toggleDraweratorPanel("mixer")} {...infoProps("Open Mixer", "Score destinations, instruments, programs, and MIDI channels are assigned per mixer track.")}>Open Mixer</button>
             </div>
             <div className="settings-panel-synth-status" role="status">
               <span>Internal synth: <strong>{internalSynthStatus}</strong></span>
@@ -10289,7 +10076,7 @@ function App() {
               <button type="button" className="iannix-flat-button" onClick={panicMidi}>Panic</button>
             </div>
             {internalSynthError && <div className="settings-panel-hint warning">{internalSynthError}</div>}
-            <div className="settings-panel-hint">MIDI clock has one transport destination. Score events use the Mixer; channel 10 remains percussion for General MIDI tracks.</div>
+            <span tabIndex={0} className="settings-info-anchor" {...infoProps("MIDI routing", "MIDI clock has one transport destination. Score events use the Mixer; channel 10 remains percussion for General MIDI tracks.")}>ⓘ</span>
             <label className="settings-panel-check" title="On: one voice per trigger for its duration. Off: each cursor can voice the same trigger independently, with a separate duration latch per cursor.">
               <span>Latch each trigger across cursors</span>
               <input type="checkbox" checked={latchTriggersAcrossCursors} onChange={event => {
@@ -10609,6 +10396,7 @@ function App() {
           initialData={{
             appState: {
               currentItemRoughness: 0,
+              currentItemRoundnessType: 1,
               gridSize: null,
               gridModeEnabled: false,
               objectsSnapModeEnabled: false,
@@ -12441,6 +12229,23 @@ function App() {
               Restore Original Stroke
             </button>
           )}
+          {customContextMenu.showToPath && (
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                handleConvertType("line");
+                setCustomContextMenu(null);
+              }}
+              className="custom-floating-context-menu-btn"
+              title="Convert selected rectangles, ellipses, and diamonds to editable native paths"
+            >
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 18 8 6l8 12 4-9" />
+              </svg>
+              Convert to Path
+            </button>
+          )}
           {customContextMenu.showToLine && (
             <button
               onPointerDown={(e) => {
@@ -12517,7 +12322,7 @@ function App() {
                 setCustomContextMenu(null);
               }}
               className="custom-floating-context-menu-btn"
-              title="Mark selected paths as curves and attach perpendicular runtime cursors"
+              title="Mark selected paths or shapes as curves and attach perpendicular runtime cursors"
             >
               <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
                 <circle cx="12" cy="12" r="3" />
@@ -12527,9 +12332,49 @@ function App() {
             </button>
           )}
 
-          {/* Separator and Curve Operations */}
-          <div className="custom-floating-context-menu-separator" />
-          <button
+          {customContextMenu.showSharpRound && (
+            <>
+              <div className="custom-floating-context-menu-separator" />
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleSetSelectedSharpness("sharp");
+                  setCustomContextMenu(null);
+                }}
+                className="custom-floating-context-menu-btn"
+                disabled={customContextMenu.allSharp}
+                title="Use sharp corners on selected lines, freehand paths, rectangles, and diamonds"
+              >
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 20h16V4" />
+                </svg>
+                Sharp Corners
+              </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleSetSelectedSharpness("round");
+                  setCustomContextMenu(null);
+                }}
+                className="custom-floating-context-menu-btn"
+                disabled={customContextMenu.allRound}
+                title="Use rounded corners on selected lines, freehand paths, rectangles, and diamonds"
+              >
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 20c8 0 16-8 16-16" />
+                </svg>
+                Rounded Corners
+              </button>
+            </>
+          )}
+
+          {customContextMenu.showPathOperations && (
+            <>
+              {/* Separator and Curve Operations */}
+              <div className="custom-floating-context-menu-separator" />
+              <button
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -12633,7 +12478,9 @@ function App() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 14h18M10 3v18M14 3v18" />
             </svg>
             Snap Points to Grid
-          </button>
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

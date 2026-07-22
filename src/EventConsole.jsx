@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { parseGenericCommandSlash } from "./commandSystem.js";
+import { infoProps } from "./uiInfo.js";
 
 const MAX_VISIBLE_EVENTS = 500;
 const LOGGING_STORAGE_KEY = "drawerator_console_logging";
@@ -133,18 +134,18 @@ export default function EventConsole({ eventBus, commandRegistry, transportTime 
       <div className="event-console-toolbar">
         <span>{events.length} events</span>
         <div className="event-console-toolbar-controls">
-          <label>
+          <label {...infoProps("Event type", "Show all captured events or only one event category.")}>
             <span>Type</span>
             <select value={eventFilter} onChange={event => setEventFilter(event.target.value)}>
               <option value="all">All</option>
               {EVENT_CATEGORIES.map(category => <option key={category} value={category}>{category}</option>)}
             </select>
           </label>
-          <label>
+          <label {...infoProps("Event logging", "Start or stop collecting Drawerator event-bus messages in this console.")}>
             <input type="checkbox" checked={loggingEnabled} onChange={event => updateLogging(event.target.checked)} />
             <span>Log</span>
           </label>
-          <label>
+          <label {...infoProps("Polling interval", "How often the console reads newly emitted events. Faster polling updates sooner but performs more UI work.")}>
             <span>Poll</span>
             <select value={pollFrequency} onChange={event => updatePollFrequency(Number(event.target.value))} disabled={!loggingEnabled}>
               <option value={50}>50 ms</option>
@@ -182,6 +183,7 @@ export default function EventConsole({ eventBus, commandRegistry, transportTime 
           placeholder="Paste /command … or event JSON"
           aria-label="Console input"
           rows={2}
+          {...infoProps("Console input", "Run a /command invocation, replay copied event JSON, or emit an event object. Enter runs; Shift+Enter adds a line.")}
         />
         <button type="button" onClick={runInput}>Run</button>
       </div>

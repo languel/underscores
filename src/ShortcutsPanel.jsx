@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { SHORTCUT_ACTIONS, shortcutFromEvent, shortcutLabel } from "./shortcutSystem.js";
+import { infoProps } from "./uiInfo.js";
 
 export default function ShortcutsPanel({ bindings, onChange, onReset }) {
   const [recordingId, setRecordingId] = useState(null);
@@ -25,7 +26,7 @@ export default function ShortcutsPanel({ bindings, onChange, onReset }) {
 
   return (
     <div className="settings-panel-section shortcuts-panel">
-      <div className="settings-panel-hint">Click a shortcut, then press the new keys. Delete clears it.</div>
+      <div className="shortcut-help" tabIndex={0} {...infoProps("Editing shortcuts", "Click a shortcut and press the new keys. Escape cancels; Delete or Backspace clears the binding. Conflicting bindings are marked.")}>?</div>
       {SHORTCUT_ACTIONS.map(action => {
         const binding = bindings[action.id];
         return (

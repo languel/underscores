@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { infoProps } from "./uiInfo.js";
 
 const formatSeconds = value => `${Math.max(0, Number(value) || 0).toFixed(3)}s`;
 
@@ -114,7 +115,7 @@ const HistoryPanel = memo(function HistoryPanel({
       </div>
 
       <div className="history-options">
-        <label title="Choose how global History time advances while recording">
+        <label {...infoProps("History clock", "Choose how global History time advances while recording: wall-clock time, time only during actions, or a held playhead.")}>
           <span>Clock</span>
           <select value={clockMode} onChange={event => onClockModeChange(event.target.value)} disabled={isRecording}>
             <option value="realtime">Real time</option>
@@ -122,9 +123,9 @@ const HistoryPanel = memo(function HistoryPanel({
             <option value="hold">Hold</option>
           </select>
         </label>
-        <label><span>Presentation</span><input type="checkbox" checked={includePresentation} onChange={event => onIncludePresentationChange(event.target.checked)} /></label>
-        <label title="Recorded MIDI is sent to the currently selected route only while this is armed"><span>MIDI armed</span><input type="checkbox" checked={emitMidi} onChange={event => onEmitMidiChange(event.target.checked)} /></label>
-        <label><span>Pointer</span><input type="checkbox" checked={showPointer} onChange={event => onShowPointerChange(event.target.checked)} /></label>
+        <label {...infoProps("Presentation", "Include panel, view, and other presentation-only actions in the recording.")}><span>Presentation</span><input type="checkbox" checked={includePresentation} onChange={event => onIncludePresentationChange(event.target.checked)} /></label>
+        <label {...infoProps("MIDI armed", "Recorded MIDI is sent to the currently selected route only while this is armed.")}><span>MIDI armed</span><input type="checkbox" checked={emitMidi} onChange={event => onEmitMidiChange(event.target.checked)} /></label>
+        <label {...infoProps("Pointer", "Show the recorded pointer position during History playback.")}><span>Pointer</span><input type="checkbox" checked={showPointer} onChange={event => onShowPointerChange(event.target.checked)} /></label>
         <div className="history-file-actions">
           <button type="button" onClick={onClear} disabled={!actions.length || isRecording || isPlaying}>Clear</button>
           <button type="button" onClick={onExport} disabled={!actions.length}>Export</button>
@@ -140,7 +141,7 @@ const HistoryPanel = memo(function HistoryPanel({
       <div className="history-section-heading">
         <span>Actions</span>
         <span className="history-section-controls">
-          <select value={recordFilter} onChange={event => onRecordFilterChange(event.target.value)} aria-label="Choose which History action type to record">
+          <select value={recordFilter} onChange={event => onRecordFilterChange(event.target.value)} aria-label="Choose which History action type to record" {...infoProps("Record filter", "Record every action or restrict the session to one action category.")}>
             <option value="all">Record all</option>
             {['stroke', 'command', 'scene', 'midi', 'presentation'].map(kind => <option key={kind} value={kind}>{kind}</option>)}
           </select>

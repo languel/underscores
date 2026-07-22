@@ -1679,6 +1679,15 @@ body .excalidraw .sidebar {
   background-color: var(--drawerator-menu-hover);
 }
 
+.custom-floating-context-menu-btn:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.custom-floating-context-menu-btn:disabled:hover {
+  background: transparent;
+}
+
 .custom-floating-context-menu-separator {
   height: 1px;
   background-color: var(--drawerator-menu-border);
@@ -2952,6 +2961,7 @@ a.iannix-flat-button {
 .outliner-toggle.inactive { opacity: .35; }
 .outliner-delete:hover { color: var(--color-danger, #e03131); }
 .outliner-toggle svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+.outliner-lock-icon path { stroke-linecap: round; }
 .outliner-type { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1px solid var(--border-color); border-radius: 3px; color: var(--color-secondary); font-size: 9px; }
 .outliner-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: capitalize; }
 .outliner-label-input { min-width: 0; flex: 1; border: 1px solid var(--color-primary); border-radius: 4px; background: var(--island-bg-color); color: var(--color-primary); padding: 2px 5px; font: inherit; }
@@ -3270,7 +3280,7 @@ a.iannix-flat-button {
 }
 
 .shortcuts-panel {
-  gap: 8px;
+  gap: 3px;
 }
 
 .shortcut-row {
@@ -3278,14 +3288,24 @@ a.iannix-flat-button {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  min-height: 32px;
+  min-height: 25px;
   color: var(--color-primary);
   font-size: 12px;
 }
 
+.shortcut-help,
+.iannix-info-anchor,
+.settings-info-anchor {
+  align-self: flex-end;
+  color: var(--color-secondary);
+  cursor: help;
+  font-size: var(--drawerator-ui-font-size);
+  line-height: 1;
+}
+
 .shortcut-binding {
   min-width: 92px;
-  padding: 5px 9px;
+  padding: 3px 8px;
   border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
   border-radius: 6px;
   background: var(--input-bg-color, rgba(128, 128, 128, 0.08));

@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { infoProps } from "./uiInfo.js";
 
 const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedElementIds = {}, onSelect, onDelete, onVisibilityChange, onLockChange, onRename }) {
   const [query, setQuery] = useState("");
@@ -86,7 +87,7 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
   return (
     <div className="outliner-panel">
       <div className="outliner-toolbar">
-        <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter scene" aria-label="Filter scene objects" />
+        <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter scene" aria-label="Filter scene objects" {...infoProps("Filter scene", "Filter Outliner rows by object type, ID, or score label.")} />
         <button
           type="button"
           className="outliner-name-mode"
@@ -96,6 +97,8 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
             return next;
           })}
           title={`Showing ${nameMode}. Click to show ${nameMode === "labels" ? "IDs" : "labels"}.`}
+          data-info-title="Outliner names"
+          data-info="Switch between human-readable score labels and stable element IDs."
         >
           {nameMode === "labels" ? "Labels" : "IDs"}
         </button>
@@ -116,11 +119,15 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
                 <input ref={editingRef} className="outliner-label-input" value={editingValue} placeholder={element.id} onChange={event => setEditingValue(event.target.value)} onBlur={() => finishRename(element)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); finishRename(element); } if (event.key === "Escape") { event.preventDefault(); finishRename(element, false); } }} aria-label={`Rename ${element.id}`} />
               ) : <span className="outliner-label">{nameMode === "labels" && element.customData?.iannix?.label ? element.customData.iannix.label : element.id}</span>}
             </button>
-            <button type="button" className={element.customData?.outlinerHidden ? "outliner-toggle inactive" : "outliner-toggle"} onClick={() => onVisibilityChange(element.id)} title={element.customData?.outlinerHidden ? "Show object" : "Hide object"} aria-label={element.customData?.outlinerHidden ? `Show ${element.id}` : `Hide ${element.id}`}>
+            <button type="button" className={element.customData?.outlinerHidden ? "outliner-toggle inactive" : "outliner-toggle"} onClick={() => onVisibilityChange(element.id)} title={element.customData?.outlinerHidden ? "Show object" : "Hide object"} aria-label={element.customData?.outlinerHidden ? `Show ${element.id}` : `Hide ${element.id}`} data-info-title="Object visibility" data-info="Hide or show the authored object without deleting it or changing its score role.">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg>
             </button>
-            <button type="button" className={element.locked ? "outliner-toggle active" : "outliner-toggle"} onClick={() => onLockChange(element.id)} title={element.locked ? "Unlock object" : "Lock object"} aria-label={element.locked ? `Unlock ${element.id}` : `Lock ${element.id}`}>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+            <button type="button" className={element.locked ? "outliner-toggle active" : "outliner-toggle"} onClick={() => onLockChange(element.id)} title={element.locked ? "Unlock object" : "Lock object"} aria-label={element.locked ? `Unlock ${element.id}` : `Lock ${element.id}`} aria-pressed={element.locked} data-info-title="Object lock" data-info="Locked objects remain visible and active but cannot be selected or transformed on the canvas.">
+              {element.locked ? (
+                <svg className="outliner-lock-icon locked" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+              ) : (
+                <svg className="outliner-lock-icon unlocked" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 7.8-1.2"/></svg>
+              )}
             </button>
             <button type="button" className="outliner-toggle outliner-delete" onClick={() => deleteSelection(element.id)} title="Delete object" aria-label={`Delete ${element.id}`}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>
