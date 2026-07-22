@@ -3050,12 +3050,15 @@ function App() {
       targetElement.tagName === "INPUT" ||
       targetElement.tagName === "TEXTAREA" ||
       targetElement.tagName === "SELECT" ||
+      targetElement.tagName === "OPTION" ||
       targetElement.tagName === "BUTTON" ||
       targetElement.closest("button") ||
       targetElement.closest("input") ||
       targetElement.closest("textarea") ||
+      targetElement.closest("select") ||
       targetElement.closest(".sidebar") ||
       targetElement.closest(".excalidraw-sidebar") ||
+      targetElement.closest(".drawerator-panel-shell") ||
       targetElement.closest("#settings-overlay") ||
       targetElement.closest(".settings-modal") ||
       targetElement.closest(".context-menu") ||
@@ -6294,13 +6297,22 @@ function App() {
         updated: Date.now(),
       };
     });
+    const preparedCursors = reconcileRuntimeCursorHosts(cursors, [...nextElements, ...cursors]);
+    const cursorSelection = Object.fromEntries(preparedCursors.map(cursor => [cursor.id, true]));
+    runtimeCursorSelectionRef.current = cursorSelection;
     excalidrawAPI.updateScene({
-      elements: [...nextElements, ...cursors],
-      appState: { selectedElementIds: Object.fromEntries(candidates.map(element => [element.id, true])) },
+      elements: [...nextElements, ...preparedCursors],
+      appState: {
+        selectedElementIds: {},
+        selectedGroupIds: {},
+        editingLinearElement: null,
+        selectedLinearElement: null,
+      },
       commitToHistory: true,
     });
+    setSelectedElementIds(cursorSelection);
     setModifierUpdateNonce(nonce => nonce + 1);
-    return cursors;
+    return preparedCursors;
   };
 
   const handleMidiOutputChange = async nextOutputId => {
