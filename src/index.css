@@ -3057,18 +3057,29 @@ a.iannix-flat-button {
 .settings-color-control input[type="color"] {
   width: 36px;
   height: 30px;
-  padding: 2px;
+  box-sizing: border-box;
+  appearance: none;
+  padding: 0;
+  overflow: hidden;
   border: 1px solid var(--border-color);
   border-radius: 5px;
-  background: transparent;
+  background-clip: border-box;
   cursor: pointer;
+}
+
+.settings-color-control input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.settings-color-control input[type="color"]::-webkit-color-swatch {
+  border: 0;
+  border-radius: inherit;
 }
 
 .settings-color-control input[type="text"] {
   min-width: 0;
   padding: 5px 6px;
   font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
-  text-transform: uppercase;
 }
 
 .settings-color-control input[type="range"] {
@@ -3282,15 +3293,17 @@ a.iannix-flat-button {
 }
 
 .shortcuts-panel {
-  gap: 3px;
+  gap: 1px;
+  padding-top: 9px;
+  padding-bottom: 9px;
 }
 
 .shortcut-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  min-height: 25px;
+  gap: 8px;
+  min-height: 22px;
   color: var(--color-primary);
   font-size: 12px;
 }
@@ -3307,10 +3320,11 @@ a.iannix-flat-button {
 
 .shortcut-binding {
   min-width: 92px;
-  padding: 3px 8px;
-  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
-  border-radius: 6px;
-  background: var(--input-bg-color, rgba(128, 128, 128, 0.08));
+  height: 22px;
+  padding: 1px 8px;
+  border: 1px solid var(--drawerator-input-border, var(--border-color, rgba(128, 128, 128, 0.3)));
+  border-radius: var(--drawerator-ui-control-radius, 5px);
+  background: var(--drawerator-input-bg, var(--input-bg-color, rgba(128, 128, 128, 0.08)));
   color: inherit;
   font: inherit;
   text-align: center;

@@ -225,23 +225,68 @@ const cleanApiUrl = (url, provider) => {
   return clean;
 };
 
-const colorWithOpacity = (hex, opacity) => {
-  const value = String(hex || "").replace("#", "");
-  if (!/^[0-9a-f]{6}$/i.test(value)) return hex;
-  const channels = [0, 2, 4].map(index => parseInt(value.slice(index, index + 2), 16));
-  return `rgba(${channels.join(", ")}, ${Math.min(100, Math.max(0, Number(opacity))) / 100})`;
+const CSS_COLOR_HELP = "Accepts CSS color values: hex (#rgb, #rrggbb, #rrggbbaa), named colors (red), rgb()/rgba(), hsl()/hsla(), hwb(), lab(), lch(), oklab(), and oklch(). The separate percentage multiplies the color's own alpha.";
+
+const resolveCssColor = color => {
+  const source = String(color || "").trim();
+  if (!source) return null;
+  const shortHex = source.match(/^#([0-9a-f]{3,4})$/i);
+  const longHex = source.match(/^#([0-9a-f]{6})([0-9a-f]{2})?$/i);
+  if (shortHex || longHex) {
+    const hex = (shortHex
+      ? shortHex[1].split("").map(channel => channel + channel).join("")
+      : `${longHex[1]}${longHex[2] || ""}`).toLowerCase();
+    return {
+      red: parseInt(hex.slice(0, 2), 16),
+      green: parseInt(hex.slice(2, 4), 16),
+      blue: parseInt(hex.slice(4, 6), 16),
+      alpha: hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1,
+    };
+  }
+  if (typeof document === "undefined") return null;
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  const sentinel = "#010203";
+  context.fillStyle = sentinel;
+  context.fillStyle = source;
+  const resolved = String(context.fillStyle || "");
+  if (resolved === sentinel && source.toLowerCase() !== sentinel) return null;
+  const match = resolved.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/i);
+  if (!match) return resolveCssColor(resolved);
+  return {
+    red: Math.round(Number(match[1])),
+    green: Math.round(Number(match[2])),
+    blue: Math.round(Number(match[3])),
+    alpha: match[4] === undefined ? 1 : Math.min(1, Math.max(0, Number(match[4]))),
+  };
+};
+
+const isCssColor = color => Boolean(resolveCssColor(color));
+
+const colorInputHex = (color, fallback = "#000000") => {
+  const resolved = resolveCssColor(color);
+  if (!resolved) return fallback;
+  return `#${[resolved.red, resolved.green, resolved.blue]
+    .map(channel => Math.min(255, Math.max(0, channel)).toString(16).padStart(2, "0"))
+    .join("")}`;
+};
+
+const colorWithOpacity = (color, opacity) => {
+  const resolved = resolveCssColor(color);
+  if (!resolved) return color;
+  const alpha = resolved.alpha * Math.min(100, Math.max(0, Number(opacity))) / 100;
+  return `rgba(${resolved.red}, ${resolved.green}, ${resolved.blue}, ${alpha})`;
 };
 
 // Excalidraw filters its entire drawing canvas in dark mode. Pre-transform the
 // authored canvas color so the visible result still matches the theme swatch.
-const canvasColorForExcalidraw = (hex, opacity, theme) => {
-  const value = String(hex || "").replace("#", "");
-  if (!/^[0-9a-f]{6}$/i.test(value)) return hex;
-  const alpha = Math.round(Math.min(100, Math.max(0, Number(opacity))) / 100 * 255)
-    .toString(16)
-    .padStart(2, "0");
-  if (theme !== "dark") return `#${value}${alpha}`;
-  const desired = [0, 2, 4].map(index => parseInt(value.slice(index, index + 2), 16) / 255);
+const canvasColorForExcalidraw = (color, opacity, theme) => {
+  const resolved = resolveCssColor(color);
+  if (!resolved) return color;
+  const alpha = resolved.alpha * Math.min(100, Math.max(0, Number(opacity)));
+  if (theme !== "dark") return `rgba(${resolved.red}, ${resolved.green}, ${resolved.blue}, ${alpha / 100})`;
+  const desired = [resolved.red, resolved.green, resolved.blue].map(channel => channel / 255);
   const invertAmount = 0.93;
   const invertScale = 1 - 2 * invertAmount;
   const beforeHue = desired.map(channel => (channel - invertAmount) / invertScale);
@@ -251,7 +296,8 @@ const canvasColorForExcalidraw = (hex, opacity, theme) => {
     [0.426, 1.43, -0.856],
   ];
   const source = hue180.map(row => row.reduce((sum, coefficient, index) => sum + coefficient * beforeHue[index], 0));
-  return `#${source.map(channel => Math.round(Math.min(1, Math.max(0, channel)) * 255).toString(16).padStart(2, "0")).join("")}${alpha}`;
+  const channels = source.map(channel => Math.round(Math.min(1, Math.max(0, channel)) * 255));
+  return `rgba(${channels.join(", ")}, ${alpha / 100})`;
 };
 
 const DEFAULT_ROLE_THEME = {
@@ -290,6 +336,32 @@ const INTERFACE_THEME_PRESETS = {
       timeline: { color: "#121212", opacity: 100 },
       canvas: { color: "#121212", opacity: 100 },
       grid: { color: "#c9cdd2", opacity: 24 },
+    },
+  },
+  transparentLight: {
+    label: "Transparent Light",
+    theme: "light",
+    accent: { color: "#353a3f", opacity: 50 },
+    highlight: { color: "#353a3f", opacity: 10 },
+    surfaces: {
+      panel: { color: "#f4f4f4", opacity: 0 },
+      input: { color: "#f4f4f4", opacity: 0 },
+      timeline: { color: "#f4f4f4", opacity: 0 },
+      canvas: { color: "#f4f4f4", opacity: 0 },
+      grid: { color: "#353a3f", opacity: 25 },
+    },
+  },
+  transparentDark: {
+    label: "Transparent Dark",
+    theme: "dark",
+    accent: { color: "#c9cdd2", opacity: 50 },
+    highlight: { color: "#c9cdd2", opacity: 10 },
+    surfaces: {
+      panel: { color: "#121212", opacity: 0 },
+      input: { color: "#121212", opacity: 0 },
+      timeline: { color: "#121212", opacity: 0 },
+      canvas: { color: "#121212", opacity: 0 },
+      grid: { color: "#c9cdd2", opacity: 25 },
     },
   },
   draweratorLight: {
@@ -371,11 +443,11 @@ const normalizeCustomThemes = value => {
       label,
       theme: preset.theme,
       accent: {
-        color: /^#[0-9a-f]{6}$/i.test(preset.accent?.color || "") ? preset.accent.color : "#6b7173",
+        color: isCssColor(preset.accent?.color) ? String(preset.accent.color).trim() : "#6b7173",
         opacity: Math.min(100, Math.max(0, Number(preset.accent?.opacity) || 0)),
       },
       highlight: {
-        color: /^#[0-9a-f]{6}$/i.test(preset.highlight?.color || "") ? preset.highlight.color : "#8f9698",
+        color: isCssColor(preset.highlight?.color) ? String(preset.highlight.color).trim() : "#8f9698",
         opacity: Math.min(100, Math.max(0, Number(preset.highlight?.opacity) || 0)),
       },
       surfaces: normalizeInterfaceTheme(preset.surfaces, preset.theme),
@@ -392,7 +464,7 @@ const normalizeInterfaceTheme = (value, theme = "dark") => {
   return Object.fromEntries(["panel", "input", "timeline", "canvas", "grid"].map(key => {
     const entry = source[key] && typeof source[key] === "object" ? source[key] : {};
     return [key, {
-      color: /^#[0-9a-f]{6}$/i.test(entry.color || "") ? entry.color : fallback[key].color,
+      color: isCssColor(entry.color) ? String(entry.color).trim() : fallback[key].color,
       opacity: Number.isFinite(Number(entry.opacity)) ? Math.min(100, Math.max(0, Number(entry.opacity))) : fallback[key].opacity,
     }];
   }));
@@ -5946,6 +6018,24 @@ function App() {
     finishApplyingRecordedUiState();
   };
 
+  const pairedInterfaceThemePreset = targetTheme => {
+    if (!['light', 'dark'].includes(targetTheme) || interfaceThemePreset.startsWith('user:')) {
+      return targetTheme === 'light' ? 'monoLight' : DEFAULT_INTERFACE_THEME_PRESET;
+    }
+    const current = INTERFACE_THEME_PRESETS[interfaceThemePreset];
+    if (!current) return targetTheme === 'light' ? 'monoLight' : DEFAULT_INTERFACE_THEME_PRESET;
+    const family = current.label.replace(/\s+(light|dark)$/i, '').trim().toLocaleLowerCase();
+    const paired = Object.entries(INTERFACE_THEME_PRESETS).find(([, preset]) => (
+      preset.theme === targetTheme &&
+      preset.label.replace(/\s+(light|dark)$/i, '').trim().toLocaleLowerCase() === family
+    ));
+    return paired?.[0] || (targetTheme === 'light' ? 'monoLight' : DEFAULT_INTERFACE_THEME_PRESET);
+  };
+
+  const toggleDraweratorTheme = (api = excalidrawAPI, targetTheme = theme === 'dark' ? 'light' : 'dark') => {
+    applyDraweratorThemePreset(pairedInterfaceThemePreset(targetTheme), api);
+  };
+
   const saveCurrentCustomTheme = () => {
     const label = customThemeName.trim();
     if (!label) return;
@@ -5997,7 +6087,7 @@ function App() {
     { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => { applyingRecordedUiStateRef.current = true; setSatoriMode(prev => !prev); finishApplyingRecordedUiState(); } },
     { id: "toggle-theme", name: "Toggle Dark/Light Theme", category: "View", action: (api) => {
-      applyDraweratorThemePreset(theme === "dark" ? "draweratorLight" : "draweratorDark", api);
+      toggleDraweratorTheme(api);
     } },
     { id: "toggle-chat", name: "Toggle AI Assistant Chat", category: "AI Chat", action: () => toggleDraweratorPanel("chat") },
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
@@ -10330,6 +10420,16 @@ function App() {
       updateGlobalGridSetting({ appearance: { opacity: nextEntry.opacity / 100 } });
     }
   };
+  const commitCssColor = (event, currentValue, commit) => {
+    const nextValue = event.currentTarget.value.trim();
+    if (isCssColor(nextValue)) commit(nextValue);
+    else event.currentTarget.value = currentValue;
+  };
+  const commitCssColorOnEnter = (event, currentValue, commit) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    commitCssColor(event, currentValue, commit);
+  };
   const applyInterfaceThemePreset = presetId => {
     applyDraweratorThemePreset(presetId);
   };
@@ -10438,20 +10538,20 @@ function App() {
                 <button type="button" className="iannix-flat-button" onClick={deleteSelectedCustomTheme}>Delete</button>
               )}
             </div>
-            <label className="settings-panel-field" {...infoProps("Accent color", "Color and opacity used for active controls and Drawerator accents.")}>
+            <label className="settings-panel-field" {...infoProps("Accent color", `Color and opacity used for active controls and Drawerator accents. ${CSS_COLOR_HELP}`)}>
               <span>Accent color</span>
-              <div className="settings-color-control">
-                <input type="color" value={accentColor} onChange={event => { setInterfaceThemePreset("custom"); setAccentColor(event.target.value); localStorage.setItem("drawerator_accent_color", event.target.value); }} aria-label="Accent color" />
-                <input key={accentColor} type="text" defaultValue={accentColor} onBlur={event => { if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) { setInterfaceThemePreset("custom"); setAccentColor(event.currentTarget.value); localStorage.setItem("drawerator_accent_color", event.currentTarget.value); } else event.currentTarget.value = accentColor; }} aria-label="Accent hex color" />
+              <div className="settings-color-control" {...infoProps("Accent color", CSS_COLOR_HELP)}>
+                <input type="color" value={colorInputHex(accentColor)} style={{ backgroundColor: accentColor }} onChange={event => { setInterfaceThemePreset("custom"); setAccentColor(event.target.value); localStorage.setItem("drawerator_accent_color", event.target.value); }} aria-label="Accent color picker" {...infoProps("Accent color", CSS_COLOR_HELP)} />
+                <input key={accentColor} type="text" defaultValue={accentColor} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, accentColor, value => { setInterfaceThemePreset("custom"); setAccentColor(value); localStorage.setItem("drawerator_accent_color", value); })} onKeyDown={event => commitCssColorOnEnter(event, accentColor, value => { setInterfaceThemePreset("custom"); setAccentColor(value); localStorage.setItem("drawerator_accent_color", value); })} aria-label="Accent color value" {...infoProps("Accent color", CSS_COLOR_HELP)} />
                 <input type="number" min="0" max="100" step="1" data-default="100" value={accentOpacity} onChange={event => { const value = Number(event.target.value); setInterfaceThemePreset("custom"); setAccentOpacity(value); localStorage.setItem("drawerator_accent_opacity", String(value)); }} aria-label="Accent opacity" />
                 <output>%</output>
               </div>
             </label>
-            <label className="settings-panel-field" {...infoProps("Hover highlight", "Color and opacity used for passive hover and toggle highlights.")}>
+            <label className="settings-panel-field" {...infoProps("Hover highlight", `Color and opacity used for passive hover and toggle highlights. ${CSS_COLOR_HELP}`)}>
               <span>Hover highlight</span>
-              <div className="settings-color-control">
-                <input type="color" value={highlightColor} onChange={event => { setInterfaceThemePreset("custom"); setHighlightColor(event.target.value); localStorage.setItem("drawerator_highlight_color", event.target.value); }} aria-label="Hover highlight color" />
-                <input key={highlightColor} type="text" defaultValue={highlightColor} onBlur={event => { if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) { setInterfaceThemePreset("custom"); setHighlightColor(event.currentTarget.value); localStorage.setItem("drawerator_highlight_color", event.currentTarget.value); } else event.currentTarget.value = highlightColor; }} aria-label="Hover highlight hex color" />
+              <div className="settings-color-control" {...infoProps("Hover highlight", CSS_COLOR_HELP)}>
+                <input type="color" value={colorInputHex(highlightColor)} style={{ backgroundColor: highlightColor }} onChange={event => { setInterfaceThemePreset("custom"); setHighlightColor(event.target.value); localStorage.setItem("drawerator_highlight_color", event.target.value); }} aria-label="Hover highlight color picker" {...infoProps("Hover highlight", CSS_COLOR_HELP)} />
+                <input key={highlightColor} type="text" defaultValue={highlightColor} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, highlightColor, value => { setInterfaceThemePreset("custom"); setHighlightColor(value); localStorage.setItem("drawerator_highlight_color", value); })} onKeyDown={event => commitCssColorOnEnter(event, highlightColor, value => { setInterfaceThemePreset("custom"); setHighlightColor(value); localStorage.setItem("drawerator_highlight_color", value); })} aria-label="Hover highlight color value" {...infoProps("Hover highlight", CSS_COLOR_HELP)} />
                 <input type="number" min="0" max="100" step="1" data-default="100" value={highlightOpacity} onChange={event => { const value = Number(event.target.value); setInterfaceThemePreset("custom"); setHighlightOpacity(value); localStorage.setItem("drawerator_highlight_opacity", String(value)); }} aria-label="Hover highlight opacity" />
                 <output>%</output>
               </div>
@@ -10467,14 +10567,11 @@ function App() {
                 ? { ...interfaceTheme.grid, opacity: Math.round(globalGrid.appearance.opacity * 100) }
                 : interfaceTheme[key];
               return (
-                <label className="settings-panel-field" key={key} {...infoProps(label, help)}>
+                <label className="settings-panel-field" key={key} {...infoProps(label, `${help} ${CSS_COLOR_HELP}`)}>
                   <span>{label}</span>
-                  <div className="settings-color-control">
-                    <input type="color" value={entry.color} onChange={event => updateInterfaceThemeEntry(key, { color: event.target.value })} aria-label={`${label} color`} />
-                    <input key={entry.color} type="text" defaultValue={entry.color} onBlur={event => {
-                      if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) updateInterfaceThemeEntry(key, { color: event.currentTarget.value });
-                      else event.currentTarget.value = entry.color;
-                    }} aria-label={`${label} hex color`} />
+                  <div className="settings-color-control" {...infoProps(`${label} color`, CSS_COLOR_HELP)}>
+                    <input type="color" value={colorInputHex(entry.color)} style={{ backgroundColor: entry.color }} onChange={event => updateInterfaceThemeEntry(key, { color: event.target.value })} aria-label={`${label} color picker`} {...infoProps(label, CSS_COLOR_HELP)} />
+                    <input key={entry.color} type="text" defaultValue={entry.color} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, entry.color, value => updateInterfaceThemeEntry(key, { color: value }))} onKeyDown={event => commitCssColorOnEnter(event, entry.color, value => updateInterfaceThemeEntry(key, { color: value }))} aria-label={`${label} color value`} {...infoProps(label, CSS_COLOR_HELP)} />
                     <input type="number" min="0" max="100" step="1" data-default={key === "grid" ? "32" : "100"} value={entry.opacity} onChange={event => updateInterfaceThemeEntry(key, { opacity: Number(event.target.value) })} aria-label={key === "grid" ? "Global grid opacity" : `${label} opacity`} />
                     <output>%</output>
                   </div>
@@ -10496,14 +10593,11 @@ function App() {
                 ].map(([key, label]) => {
                   const entry = roleTheme[key];
                   return (
-                    <label className="settings-panel-field" key={key}>
+                    <label className="settings-panel-field" key={key} {...infoProps(label, CSS_COLOR_HELP)}>
                       <span>{label}</span>
-                      <div className="settings-color-control">
-                        <input type="color" value={entry.color} onChange={event => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: event.target.value } }))} aria-label={`${label} color`} />
-                        <input key={entry.color} type="text" defaultValue={entry.color} onBlur={event => {
-                          if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: event.currentTarget.value } }));
-                          else event.currentTarget.value = entry.color;
-                        }} aria-label={`${label} hex color`} />
+                      <div className="settings-color-control" {...infoProps(`${label} color`, CSS_COLOR_HELP)}>
+                        <input type="color" value={colorInputHex(entry.color)} style={{ backgroundColor: entry.color }} onChange={event => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: event.target.value } }))} aria-label={`${label} color picker`} {...infoProps(label, CSS_COLOR_HELP)} />
+                        <input key={entry.color} type="text" defaultValue={entry.color} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, entry.color, value => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: value } })))} onKeyDown={event => commitCssColorOnEnter(event, entry.color, value => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: value } })))} aria-label={`${label} color value`} {...infoProps(label, CSS_COLOR_HELP)} />
                         <input type="number" min="0" max="100" step="1" data-default={DEFAULT_ROLE_THEME[key].opacity} value={entry.opacity} onChange={event => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], opacity: Number(event.target.value) } }))} aria-label={`${label} opacity`} />
                         <output>%</output>
                       </div>
@@ -11449,7 +11543,9 @@ function App() {
               lastStrokeColorRef.current = appState.currentItemStrokeColor;
             }
             if (!applyingRecordedUiStateRef.current && appState.theme && appState.theme !== theme) {
-              setTheme(appState.theme);
+              // Excalidraw's native theme shortcut only changes its color mode.
+              // Keep Drawerator's surface palette paired with that mode instead.
+              toggleDraweratorTheme(excalidrawAPI, appState.theme);
             }
              if (
               appState.viewBackgroundColor &&
