@@ -1,4 +1,4 @@
-export const DRAWERATOR_SESSION_VERSION = 1;
+export const DRAWERATOR_SESSION_VERSION = 2;
 export const DRAWERATOR_SESSION_TYPE = "drawerator-session";
 export const DRAWERATOR_MACRO_TYPE = "drawerator-macro";
 
@@ -11,24 +11,31 @@ const cloneValue = value => {
 const createId = () => crypto.randomUUID();
 const numeric = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const normalizeHistoryClockMode = value => ["realtime", "active", "hold"].includes(value) ? value : "realtime";
+const fixedTimeValue = seconds => ({ version: 1, expression: `${seconds} s`, fallbackSeconds: seconds });
 
-export const normalizeSessionAction = (action, sequence = 0) => ({
-  id: action.id || createId(),
-  sequence: Number.isFinite(action.sequence) ? action.sequence : sequence,
-  kind: action.kind || "command",
-  at: Math.max(0, numeric(action.at)),
-  transportTime: Math.max(0, numeric(action.transportTime)),
-  duration: Math.max(0, numeric(action.duration)),
-  commandId: action.commandId || null,
-  commandVersion: numeric(action.commandVersion, 1),
-  args: cloneValue(action.args || {}),
-  source: action.source || "app",
-  groupId: action.groupId || null,
-  track: action.track || (action.presentation ? "presentation" : "world"),
-  presentation: !!action.presentation,
-  enabled: action.enabled !== false,
-  result: cloneValue(action.result),
-});
+export const normalizeSessionAction = (action, sequence = 0) => {
+  const at = Math.max(0, numeric(action.at));
+  const duration = Math.max(0, numeric(action.duration));
+  return {
+    id: action.id || createId(),
+    sequence: Number.isFinite(action.sequence) ? action.sequence : sequence,
+    kind: action.kind || "command",
+    at,
+    atValue: cloneValue(action.atValue || fixedTimeValue(at)),
+    transportTime: Math.max(0, numeric(action.transportTime)),
+    duration,
+    durationValue: cloneValue(action.durationValue || fixedTimeValue(duration)),
+    commandId: action.commandId || null,
+    commandVersion: numeric(action.commandVersion, 1),
+    args: cloneValue(action.args || {}),
+    source: action.source || "app",
+    groupId: action.groupId || null,
+    track: action.track || (action.presentation ? "presentation" : "world"),
+    presentation: !!action.presentation,
+    enabled: action.enabled !== false,
+    result: cloneValue(action.result),
+  };
+};
 
 export const createDraweratorSession = ({ baseline = null, clock = {}, includePresentation = true, name = "Untitled session", seed } = {}) => ({
   type: DRAWERATOR_SESSION_TYPE,
@@ -41,6 +48,7 @@ export const createDraweratorSession = ({ baseline = null, clock = {}, includePr
     fps: numeric(clock.fps, 30),
     tempo: numeric(clock.tempo, 120),
     signature: cloneValue(clock.signature || { numerator: 4, denominator: 4 }),
+    sampleRate: Math.min(768000, Math.max(8000, numeric(clock.sampleRate, 48000))),
     historyMode: normalizeHistoryClockMode(clock.historyMode),
   },
   includePresentation,
@@ -56,9 +64,12 @@ export const parseDraweratorSession = payload => {
   if (value.version > DRAWERATOR_SESSION_VERSION) {
     throw new Error(`Session version ${value.version} is newer than this Drawerator build.`);
   }
+  const migrated = createDraweratorSession(value);
   return {
-    ...createDraweratorSession(value),
+    ...migrated,
     ...value,
+    version: DRAWERATOR_SESSION_VERSION,
+    clock: { ...migrated.clock, ...(value.clock || {}), sampleRate: migrated.clock.sampleRate },
     actions: value.actions.map(normalizeSessionAction).sort((a, b) => a.at - b.at || a.sequence - b.sequence),
   };
 };
@@ -282,6 +293,16 @@ export class DraweratorSessionController {
     return cloneValue(this.session);
   }
 
+  updateClock(clock = {}) {
+    this.session.clock = {
+      ...this.session.clock,
+      ...cloneValue(clock),
+      sampleRate: Math.min(768000, Math.max(8000, numeric(clock.sampleRate, this.session.clock.sampleRate || 48000))),
+    };
+    this.notify("clock.updated", this.session.clock);
+    return cloneValue(this.session.clock);
+  }
+
   updateAction(id, patch) {
     const index = this.session.actions.findIndex(action => action.id === id);
     if (index < 0) return null;
@@ -301,7 +322,8 @@ export class DraweratorSessionController {
   duplicateAction(id) {
     const source = this.session.actions.find(action => action.id === id);
     if (!source) return null;
-    const copy = normalizeSessionAction({ ...cloneValue(source), id: createId(), at: source.at + 0.01 }, this.session.actions.length);
+    const at = source.at + 0.01;
+    const copy = normalizeSessionAction({ ...cloneValue(source), id: createId(), at, atValue: fixedTimeValue(at) }, this.session.actions.length);
     this.session.actions.push(copy);
     this.session.actions.sort((a, b) => a.at - b.at || a.sequence - b.sequence);
     this.notify("action.duplicated", copy);
@@ -316,6 +338,8 @@ export class DraweratorSessionController {
     const firstTime = ordered[index].at;
     ordered[index].at = ordered[target].at;
     ordered[target].at = firstTime;
+    ordered[index].atValue = fixedTimeValue(ordered[index].at);
+    ordered[target].atValue = fixedTimeValue(ordered[target].at);
     ordered.forEach((action, sequence) => { action.sequence = sequence; });
     this.session.actions = ordered;
     this.notify("action.moved", { id, direction });

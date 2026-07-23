@@ -2,6 +2,7 @@ import { memo, useEffect, useRef } from "react";
 import { normalizeIannixData } from "./iannixEngine.js";
 import { getBulkIannixEditorValue, getSharedPrimitiveValue } from "./iannixBulkEdit.js";
 import { infoProps } from "./uiInfo.js";
+import TimeValueInput from "./TimeValueInput.jsx";
 
 const roleName = (role, count) => {
   const name = `${role.charAt(0).toUpperCase()}${role.slice(1)}`;
@@ -67,9 +68,27 @@ const PrimitiveEditor = ({ name, value, mixed, onChange, isLabelTemplate = false
   return <code>{value === null ? "null" : String(value)}</code>;
 };
 
-const DataNode = ({ name, values, path = [], depth = 0, onChange, bulk, labelTemplatePlaceholder }) => {
+const DataNode = ({ name, values, path = [], depth = 0, onChange, bulk, labelTemplatePlaceholder, timeContext }) => {
   const value = values[0];
   const nested = value && typeof value === "object";
+  const timeValues = values.every(item => item && typeof item === "object" && item.version === 1 && typeof item.expression === "string");
+  if (timeValues) {
+    const sharedExpression = getSharedPrimitiveValue(values.map(item => item.expression));
+    return (
+      <div className="iannix-data-row" {...(sharedExpression.mixed ? infoProps(name, "The selected objects use different time expressions. Editing applies this first expression to all selected objects.") : {})}>
+        <span>{name}</span>
+        <TimeValueInput
+          aria-label={name}
+          data-route-path={path.join(".")}
+          value={value}
+          context={timeContext}
+          defaultValue="0 s"
+          minSeconds={name.toLowerCase().includes("offset") ? -Infinity : 0}
+          onChange={next => onChange(path, next)}
+        />
+      </div>
+    );
+  }
   if (!nested) {
     const shared = getSharedPrimitiveValue(values);
     const labelTemplate = bulk && path.length === 1 && path[0] === "label";
@@ -102,6 +121,7 @@ const DataNode = ({ name, values, path = [], depth = 0, onChange, bulk, labelTem
             onChange={onChange}
             bulk={bulk}
             labelTemplatePlaceholder={labelTemplatePlaceholder}
+            timeContext={timeContext}
           />
         ))}
       </div>
@@ -109,7 +129,7 @@ const DataNode = ({ name, values, path = [], depth = 0, onChange, bulk, labelTem
   );
 };
 
-const IannixDataPanel = memo(function IannixDataPanel({ elements = [], onChange }) {
+const IannixDataPanel = memo(function IannixDataPanel({ elements = [], onChange, timeContext }) {
   const iannixElements = elements
     .map(element => ({ element, data: normalizeIannixData(element.customData?.iannix) }))
     .filter(item => item.data.role);
@@ -138,6 +158,7 @@ const IannixDataPanel = memo(function IannixDataPanel({ elements = [], onChange 
         values={values}
         bulk={bulk}
         labelTemplatePlaceholder={`${role}_${"${n}"}`}
+        timeContext={timeContext}
         onChange={(path, value) => onChange(elementIds, path, value)}
       />
     </div>

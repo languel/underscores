@@ -4,12 +4,14 @@ import {
   hasCubicBezierGeometry,
   sampleBezierElement,
 } from "./bezierGeometry.js";
+import { createTimeValue, migrateNumericTimeValue, resolveTimeValue } from "./timeValue.js";
+import { createDefaultGridBinding, normalizeCursorTiming, normalizeGridBinding, resolveScoreTiming, SCORE_TIMING_SCHEMA_VERSION } from "./scoreTiming.js";
 
 export const IANNIX_ROLES = ["curve", "cursor", "trigger"];
 export const IANNIX_LOOP_MODES = ["once", "loop", "pingPong"];
 
 export const createDefaultIannixData = (overrides = {}) => ({
-  version: 1,
+  version: SCORE_TIMING_SCHEMA_VERSION,
   role: null,
   active: true,
   label: "",
@@ -19,14 +21,26 @@ export const createDefaultIannixData = (overrides = {}) => ({
     duration: 5,
     rate: 1,
     loopMode: "once",
+    startValue: migrateNumericTimeValue(overrides.time?.start, 0),
+    durationValue: migrateNumericTimeValue(overrides.time?.duration, 5),
+    startMode: Object.prototype.hasOwnProperty.call(overrides.time || {}, "start")
+      ? "manual"
+      : overrides.role === "cursor" ? "curve" : "manual",
+    durationMode: Object.prototype.hasOwnProperty.call(overrides.time || {}, "duration")
+      ? "manual"
+      : overrides.role ? (overrides.role === "cursor" ? "curve" : "geometry") : "manual",
     ...(overrides.time || {}),
   },
+  gridBinding: createDefaultGridBinding(overrides.gridBinding),
   cursor: {
     curveId: null,
     followTangent: true,
     visualSmoothing: 0.65,
     boundsSource: null,
     boundsTarget: [0, 1, 0, 1, 0, 1],
+    range: [0, 1],
+    startOffsetValue: createTimeValue("0 s", 0),
+    durationRatio: 1,
     ...(overrides.cursor || {}),
   },
   midi: {
@@ -39,6 +53,7 @@ export const createDefaultIannixData = (overrides = {}) => ({
   trigger: {
     behavior: "pulse",
     duration: 0.35,
+    durationValue: createTimeValue("350 ms", 0.35),
     midiEnabled: false,
     midiTemplate: "iannixXY",
     midiChannel: 1,
@@ -63,6 +78,19 @@ export const normalizeIannixData = (data) => {
   const midiTemplate = midiTemplates.includes(data?.trigger?.midiTemplate)
     ? data.trigger.midiTemplate
     : hasLegacyCustomPattern ? "custom" : defaults.trigger.midiTemplate;
+  const sourceTime = data?.time && typeof data.time === "object" ? data.time : {};
+  const isLegacyTiming = !sourceTime.startValue && !sourceTime.durationValue && !data?.gridBinding;
+  const start = Number.isFinite(Number(sourceTime.start)) ? Number(sourceTime.start) : defaults.time.start;
+  const duration = Math.max(0.001, Number(sourceTime.duration) || defaults.time.duration);
+  const startValue = createTimeValue(sourceTime.startValue || migrateNumericTimeValue(start), start);
+  const durationValue = createTimeValue(sourceTime.durationValue || migrateNumericTimeValue(duration), duration);
+  const startMode = sourceTime.startMode === "curve" ? "curve" : "manual";
+  const durationMode = ["geometry", "manual", "curve", "ratio"].includes(sourceTime.durationMode)
+    ? sourceTime.durationMode
+    : isLegacyTiming ? "manual" : defaults.time.durationMode;
+  const triggerDuration = Math.max(0, Number.isFinite(Number(data?.trigger?.duration))
+    ? Number(data.trigger.duration)
+    : defaults.trigger.duration);
 
   return {
     ...defaults,
@@ -72,11 +100,16 @@ export const normalizeIannixData = (data) => {
     time: {
       ...defaults.time,
       ...(data?.time || {}),
-      start: Number.isFinite(Number(data?.time?.start)) ? Number(data.time.start) : defaults.time.start,
-      duration: Math.max(0.001, Number(data?.time?.duration) || defaults.time.duration),
+      start,
+      duration,
       rate: Math.max(0, Number.isFinite(Number(data?.time?.rate)) ? Number(data.time.rate) : defaults.time.rate),
       loopMode,
+      startValue,
+      durationValue,
+      startMode,
+      durationMode,
     },
+    gridBinding: normalizeGridBinding(data?.gridBinding),
     cursor: {
       ...defaults.cursor,
       ...(data?.cursor || {}),
@@ -87,6 +120,7 @@ export const normalizeIannixData = (data) => {
           ? Number(data.cursor.visualSmoothing)
           : defaults.cursor.visualSmoothing
       )),
+      ...normalizeCursorTiming(data?.cursor),
     },
     midi: {
       ...defaults.midi,
@@ -110,9 +144,8 @@ export const normalizeIannixData = (data) => {
       ...defaults.trigger,
       ...(data?.trigger || {}),
       behavior: data?.trigger?.behavior === "glissando" ? "glissando" : "pulse",
-      duration: Math.max(0, Number.isFinite(Number(data?.trigger?.duration))
-        ? Number(data.trigger.duration)
-        : defaults.trigger.duration),
+      duration: triggerDuration,
+      durationValue: createTimeValue(data?.trigger?.durationValue || migrateNumericTimeValue(triggerDuration), triggerDuration),
       midiEnabled: data?.trigger?.midiEnabled === true,
       midiTemplate,
       midiChannel: Math.min(16, Math.max(1, Math.round(
@@ -272,6 +305,14 @@ export const getObjectTimeState = (globalTime, timing) => {
     beforeStart,
     complete: normalized.loopMode === "once" && rawProgress >= 1,
   };
+};
+
+export const resolveIannixObjectTiming = (element, options = {}) => {
+  const data = normalizeIannixData(element?.customData?.iannix);
+  return resolveScoreTiming(data, {
+    ...options,
+    paths: options.paths || getElementCorePaths(element),
+  });
 };
 
 const rotatePoint = (point, center, angle) => {
@@ -844,10 +885,26 @@ export const evaluateScoreFrame = (
   elements,
   globalTime,
   previousCursorStates = new Map(),
-  { detectCollisions = true } = {},
+  { detectCollisions = true, timeContext, globalGrid } = {},
 ) => {
   const scoreObjects = getScoreObjects(elements);
   const byId = new Map((elements || []).filter(element => !element.isDeleted).map(element => [element.id, element]));
+  const resolvedTimings = new Map();
+  const resolveElementTiming = element => {
+    if (!element) return null;
+    if (resolvedTimings.has(element.id)) return resolvedTimings.get(element.id);
+    const data = getNormalizedElementData(element);
+    const curveElement = data.role === "cursor" ? byId.get(data.cursor.curveId) : null;
+    const curveTiming = curveElement && curveElement.id !== element.id ? resolveElementTiming(curveElement) : null;
+    const timing = resolveScoreTiming(data, {
+      context: timeContext,
+      grid: data.gridBinding.gridId === "global" ? globalGrid : null,
+      paths: getElementCorePaths(element),
+      curveTiming,
+    });
+    resolvedTimings.set(element.id, timing);
+    return timing;
+  };
   const triggerObjects = scoreObjects
     .filter(element => element.customData.iannix.role === "trigger")
     .map(element => ({ element, data: getNormalizedElementData(element) }))
@@ -861,15 +918,21 @@ export const evaluateScoreFrame = (
   const cursors = [];
   const collisions = new Set();
   const nextCursorPaths = new Map();
-  const triggerDurations = new Map(triggerObjects.map(trigger => [trigger.element.id, trigger.data.trigger.duration]));
+  const triggerDurations = new Map(triggerObjects.map(trigger => [
+    trigger.element.id,
+    Math.max(trigger.data.trigger.duration, resolveTimeValue(trigger.data.trigger.durationValue, timeContext)),
+  ]));
 
   for (const cursorElement of scoreObjects.filter(element => element.customData.iannix.role === "cursor")) {
     const data = getNormalizedElementData(cursorElement);
     if (!data.active || !data.cursor.curveId) continue;
     const curveElement = byId.get(data.cursor.curveId);
     if (!curveElement || curveElement.customData?.iannix?.role !== "curve") continue;
-    const timeState = getObjectTimeState(globalTime, data.time);
-    const transform = getCursorTransform(cursorElement, curveElement, timeState.progress, data.cursor.followTangent);
+    const resolvedTiming = resolveElementTiming(cursorElement);
+    const timeState = getObjectTimeState(globalTime, resolvedTiming);
+    const range = resolvedTiming.cursorRange || [0, 1];
+    const curveProgress = range[0] + (range[1] - range[0]) * timeState.progress;
+    const transform = getCursorTransform(cursorElement, curveElement, curveProgress, data.cursor.followTangent);
     if (!transform) continue;
     const paths = transformPaths(getElementCorePaths(cursorElement), transform);
     const previousState = previousCursorStates.get(cursorElement.id);
@@ -882,7 +945,7 @@ export const evaluateScoreFrame = (
       iteration: timeState.iteration,
       progress: timeState.progress,
     });
-    cursors.push({ element: cursorElement, curveElement, data, timeState, transform, paths });
+    cursors.push({ element: cursorElement, curveElement, data, timeState, resolvedTiming, transform, paths });
 
     if (!timeState.active) continue;
     for (const trigger of triggers) {
@@ -892,5 +955,5 @@ export const evaluateScoreFrame = (
     }
   }
 
-  return { cursors, collisions, nextCursorPaths, triggerDurations };
+  return { cursors, collisions, nextCursorPaths, triggerDurations, resolvedTimings };
 };

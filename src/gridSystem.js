@@ -1,12 +1,27 @@
-export const GRID_SCHEMA_VERSION = 1;
+import { createTimeValue, formatTimeValue, resolveTimeValue } from "./timeValue.js";
+
+export const GRID_SCHEMA_VERSION = 2;
 export const GLOBAL_GRID_ID = "global";
-export const GRID_STORAGE_KEY = "drawerator_global_grid_v1";
+export const GRID_STORAGE_KEY = "drawerator_global_grid_v2";
+export const LEGACY_GRID_STORAGE_KEY = "drawerator_global_grid_v1";
 
 const SNAP_MODES = new Set(["off", "hard", "magnetic"]);
 const SNAP_RESOLUTIONS = new Set(["minor", "major"]);
 const SNAP_AXES = new Set(["both", "x", "y"]);
-const TIME_UNITS = new Set(["beat", "bar", "second", "millisecond", "frame", "custom"]);
+const VALUE_AXES = new Set(["x", "y"]);
+const VALUE_DIRECTIONS = new Set(["up", "down", "left", "right", "positive", "negative"]);
+const VALUE_UNITS = new Set(["semitone", "cent", "hertz", "ratio", "scaleDegree"]);
 const EPSILON = 1e-8;
+
+export const GRID_SCALE_PRESETS = Object.freeze({
+  chromatic: Object.freeze({ id: "chromatic", root: 0, degrees: Object.freeze([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), octave: 12 }),
+  major: Object.freeze({ id: "major", root: 0, degrees: Object.freeze([0, 2, 4, 5, 7, 9, 11]), octave: 12 }),
+  naturalMinor: Object.freeze({ id: "naturalMinor", root: 0, degrees: Object.freeze([0, 2, 3, 5, 7, 8, 10]), octave: 12 }),
+  harmonicMinor: Object.freeze({ id: "harmonicMinor", root: 0, degrees: Object.freeze([0, 2, 3, 5, 7, 8, 11]), octave: 12 }),
+  melodicMinor: Object.freeze({ id: "melodicMinor", root: 0, degrees: Object.freeze([0, 2, 3, 5, 7, 9, 11]), octave: 12 }),
+  majorPentatonic: Object.freeze({ id: "majorPentatonic", root: 0, degrees: Object.freeze([0, 2, 4, 7, 9]), octave: 12 }),
+  minorPentatonic: Object.freeze({ id: "minorPentatonic", root: 0, degrees: Object.freeze([0, 3, 5, 7, 10]), octave: 12 }),
+});
 
 export const DEFAULT_GLOBAL_GRID = Object.freeze({
   version: GRID_SCHEMA_VERSION,
@@ -23,7 +38,17 @@ export const DEFAULT_GLOBAL_GRID = Object.freeze({
     thresholdPx: 8,
     targets: Object.freeze({ input: true, transforms: true, points: true, generated: false }),
   }),
-  time: Object.freeze({ amount: 1, unit: "beat", customSeconds: 1, customLabel: "unit" }),
+  time: Object.freeze({ perCell: Object.freeze({ version: 1, expression: "1 beat", fallbackSeconds: 0.5 }) }),
+  value: Object.freeze({
+    axis: "y",
+    direction: "up",
+    amount: 1,
+    unit: "semitone",
+    originCell: 0,
+    originValue: 60,
+    tuningHz: 440,
+    scale: GRID_SCALE_PRESETS.chromatic,
+  }),
 });
 
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
@@ -49,8 +74,38 @@ export const mergeGridPatch = (grid, patch = {}) => normalizeGlobalGrid({
     ...(patch?.snap || {}),
     targets: { ...(grid?.snap?.targets || {}), ...(patch?.snap?.targets || {}) },
   },
-  time: { ...(grid?.time || {}), ...(patch?.time || {}) },
+  time: patch?.time && !Object.prototype.hasOwnProperty.call(patch.time, "perCell") && (
+    Object.prototype.hasOwnProperty.call(patch.time, "amount") || Object.prototype.hasOwnProperty.call(patch.time, "unit")
+  ) ? { ...(patch.time || {}) } : { ...(grid?.time || {}), ...(patch?.time || {}) },
+  value: {
+    ...(grid?.value || {}),
+    ...(patch?.value || {}),
+    scale: { ...(grid?.value?.scale || {}), ...(patch?.value?.scale || {}) },
+  },
 });
+
+const legacyTimeExpression = time => {
+  const amount = clamp(time?.amount, 0.000001, 1000000, 1);
+  if (time?.unit === "bar") return `${amount} bars`;
+  if (time?.unit === "second") return `${amount} s`;
+  if (time?.unit === "millisecond") return `${amount} ms`;
+  if (time?.unit === "frame") return `${amount} f`;
+  if (time?.unit === "custom") return `${amount * clamp(time?.customSeconds, 0.000001, 1000000, 1)} s`;
+  return `${amount} beat${amount === 1 ? "" : "s"}`;
+};
+
+const normalizeScale = scaleValue => {
+  const source = scaleValue && typeof scaleValue === "object" ? scaleValue : GRID_SCALE_PRESETS.chromatic;
+  const preset = GRID_SCALE_PRESETS[source.id] || null;
+  const degreesSource = preset?.degrees || (Array.isArray(source.degrees) ? source.degrees : GRID_SCALE_PRESETS.chromatic.degrees);
+  const degrees = degreesSource.map(value => finite(value)).filter((value, index, values) => index === 0 || value > values[index - 1]);
+  return {
+    id: preset ? preset.id : "custom",
+    root: finite(source.root, preset?.root || 0),
+    degrees: degrees.length ? degrees : [...GRID_SCALE_PRESETS.chromatic.degrees],
+    octave: clamp(source.octave, 0.000001, 1200, preset?.octave || 12),
+  };
+};
 
 export const normalizeGlobalGrid = value => {
   const source = value && typeof value === "object" ? value : {};
@@ -60,6 +115,7 @@ export const normalizeGlobalGrid = value => {
   const snap = source.snap && typeof source.snap === "object" ? source.snap : {};
   const targets = snap.targets && typeof snap.targets === "object" ? snap.targets : {};
   const time = source.time && typeof source.time === "object" ? source.time : {};
+  const valueMapping = source.value && typeof source.value === "object" ? source.value : {};
   const origin = Array.isArray(transform.origin) ? transform.origin : DEFAULT_GLOBAL_GRID.transform.origin;
   return {
     version: GRID_SCHEMA_VERSION,
@@ -96,10 +152,17 @@ export const normalizeGlobalGrid = value => {
       },
     },
     time: {
-      amount: clamp(time.amount, 0.000001, 1000000, DEFAULT_GLOBAL_GRID.time.amount),
-      unit: TIME_UNITS.has(time.unit) ? time.unit : DEFAULT_GLOBAL_GRID.time.unit,
-      customSeconds: clamp(time.customSeconds, 0.000001, 1000000, DEFAULT_GLOBAL_GRID.time.customSeconds),
-      customLabel: String(time.customLabel || DEFAULT_GLOBAL_GRID.time.customLabel).trim().slice(0, 40) || "unit",
+      perCell: createTimeValue(time.perCell || legacyTimeExpression(time), DEFAULT_GLOBAL_GRID.time.perCell.fallbackSeconds),
+    },
+    value: {
+      axis: VALUE_AXES.has(valueMapping.axis) ? valueMapping.axis : DEFAULT_GLOBAL_GRID.value.axis,
+      direction: VALUE_DIRECTIONS.has(valueMapping.direction) ? valueMapping.direction : DEFAULT_GLOBAL_GRID.value.direction,
+      amount: clamp(valueMapping.amount, 0.000001, 1000000, DEFAULT_GLOBAL_GRID.value.amount),
+      unit: VALUE_UNITS.has(valueMapping.unit) ? valueMapping.unit : DEFAULT_GLOBAL_GRID.value.unit,
+      originCell: finite(valueMapping.originCell, DEFAULT_GLOBAL_GRID.value.originCell),
+      originValue: finite(valueMapping.originValue, DEFAULT_GLOBAL_GRID.value.originValue),
+      tuningHz: clamp(valueMapping.tuningHz, 1, 40000, DEFAULT_GLOBAL_GRID.value.tuningHz),
+      scale: normalizeScale(valueMapping.scale),
     },
   };
 };
@@ -165,36 +228,115 @@ export const snapPointToGrid = (gridValue, point, options = {}) => {
 
 export const snapPointsToGrid = (grid, points, options) => (points || []).map(point => snapPointToGrid(grid, point, options).point);
 
-const normalizeClock = clock => ({
-  tempo: clamp(clock?.tempo, 20, 400, 120),
-  signature: {
-    numerator: integer(clock?.signature?.numerator, 1, 32, 4),
-    denominator: [1, 2, 4, 8, 16].includes(Number(clock?.signature?.denominator)) ? Number(clock.signature.denominator) : 4,
-  },
-  fps: [24, 25, 30, 50, 60].includes(Number(clock?.fps)) ? Number(clock.fps) : 30,
-});
-
 export const gridTimeUnitSeconds = (gridValue, clockValue = {}) => {
   const grid = normalizeGlobalGrid(gridValue);
-  const clock = normalizeClock(clockValue);
-  const quarterNote = 60 / clock.tempo;
-  const meterBeat = quarterNote * 4 / clock.signature.denominator;
-  if (grid.time.unit === "beat") return meterBeat;
-  if (grid.time.unit === "bar") return meterBeat * clock.signature.numerator;
-  if (grid.time.unit === "millisecond") return 0.001;
-  if (grid.time.unit === "frame") return 1 / clock.fps;
-  if (grid.time.unit === "custom") return grid.time.customSeconds;
-  return 1;
+  return resolveTimeValue(grid.time.perCell, clockValue);
 };
 
 export const gridUnitsToSeconds = (units, gridValue, clock) => {
   const grid = normalizeGlobalGrid(gridValue);
-  return finite(units) * grid.time.amount * gridTimeUnitSeconds(grid, clock);
+  return finite(units) * gridTimeUnitSeconds(grid, clock);
 };
 
 export const secondsToGridUnits = (seconds, gridValue, clock) => {
   const grid = normalizeGlobalGrid(gridValue);
-  return finite(seconds) / Math.max(EPSILON, grid.time.amount * gridTimeUnitSeconds(grid, clock));
+  return finite(seconds) / Math.max(EPSILON, gridTimeUnitSeconds(grid, clock));
+};
+
+const valueAxisCoordinate = (grid, local) => {
+  const axisIndex = grid.value.axis === "x" ? 0 : 1;
+  const coordinate = finite(local?.[axisIndex]);
+  const negative = grid.value.direction === "up" || grid.value.direction === "left" || grid.value.direction === "negative";
+  return (negative ? -coordinate : coordinate) - grid.value.originCell;
+};
+
+const midiToFrequency = (note, tuningHz) => tuningHz * 2 ** ((note - 69) / 12);
+
+const scaleOffsetAt = (degree, scale) => {
+  const count = scale.degrees.length;
+  if (!count) return degree;
+  const lower = Math.floor(degree);
+  const fraction = degree - lower;
+  const offset = index => {
+    const octaveIndex = Math.floor(index / count);
+    const wrapped = ((index % count) + count) % count;
+    return octaveIndex * scale.octave + scale.root + scale.degrees[wrapped];
+  };
+  return offset(lower) + (offset(lower + 1) - offset(lower)) * fraction;
+};
+
+export const gridCoordinateToValue = (coordinate, gridValue) => {
+  const grid = normalizeGlobalGrid(gridValue);
+  const delta = finite(coordinate) * grid.value.amount;
+  if (grid.value.unit === "hertz") {
+    const frequency = Math.max(0, grid.value.originValue + delta);
+    return { kind: "frequency", unit: "hertz", value: frequency, frequency };
+  }
+  if (grid.value.unit === "ratio") {
+    const base = midiToFrequency(grid.value.originValue, grid.value.tuningHz);
+    const frequency = base * grid.value.amount ** finite(coordinate);
+    return { kind: "frequency", unit: "ratio", value: frequency, frequency };
+  }
+  const midi = grid.value.unit === "cent"
+    ? grid.value.originValue + delta / 100
+    : grid.value.unit === "scaleDegree"
+      ? grid.value.originValue + scaleOffsetAt(delta, grid.value.scale) - scaleOffsetAt(0, grid.value.scale)
+      : grid.value.originValue + delta;
+  return { kind: "midi", unit: grid.value.unit, value: midi, midi, frequency: midiToFrequency(midi, grid.value.tuningHz) };
+};
+
+export const worldToGridValue = (gridValue, point) => {
+  const grid = normalizeGlobalGrid(gridValue);
+  const local = worldToGridPoint(grid, point);
+  const coordinate = valueAxisCoordinate(grid, local);
+  return { ...gridCoordinateToValue(coordinate, grid), coordinate, local };
+};
+
+export const gridValueToCoordinate = (mappedValue, gridValue) => {
+  const grid = normalizeGlobalGrid(gridValue);
+  const target = finite(mappedValue?.value ?? mappedValue);
+  if (grid.value.unit === "hertz") return (target - grid.value.originValue) / grid.value.amount;
+  if (grid.value.unit === "ratio") {
+    const base = midiToFrequency(grid.value.originValue, grid.value.tuningHz);
+    const divisor = Math.log(grid.value.amount);
+    return Math.abs(divisor) < EPSILON ? 0 : Math.log(Math.max(EPSILON, target) / base) / divisor;
+  }
+  if (grid.value.unit === "cent") return (target - grid.value.originValue) * 100 / grid.value.amount;
+  if (grid.value.unit === "semitone") return (target - grid.value.originValue) / grid.value.amount;
+  const targetOffset = target - grid.value.originValue + scaleOffsetAt(0, grid.value.scale);
+  let low = -4096;
+  let high = 4096;
+  for (let index = 0; index < 48; index += 1) {
+    const middle = (low + high) / 2;
+    if (scaleOffsetAt(middle * grid.value.amount, grid.value.scale) < targetOffset) low = middle;
+    else high = middle;
+  }
+  return (low + high) / 2;
+};
+
+export const gridValueToWorld = (mappedValue, gridValue, options = {}) => {
+  const grid = normalizeGlobalGrid(gridValue);
+  const coordinate = gridValueToCoordinate(mappedValue, grid);
+  const negative = grid.value.direction === "up" || grid.value.direction === "left" || grid.value.direction === "negative";
+  const axisCoordinate = (negative ? -coordinate : coordinate) + (negative ? -grid.value.originCell : grid.value.originCell);
+  const local = Array.isArray(options.local) ? [...options.local] : [0, 0];
+  local[grid.value.axis === "x" ? 0 : 1] = axisCoordinate;
+  return gridToWorldPoint(grid, local);
+};
+
+export const quantizeGridValue = (mappedValue, gridValue) => {
+  const grid = normalizeGlobalGrid(gridValue);
+  const value = finite(mappedValue?.value ?? mappedValue);
+  let step = grid.value.amount;
+  if (grid.value.unit === "cent") step /= 100;
+  if (grid.value.unit === "scaleDegree" || grid.value.unit === "ratio") {
+    const coordinate = Math.round(gridValueToCoordinate(value, grid));
+    return gridCoordinateToValue(coordinate, grid);
+  }
+  const quantized = grid.value.originValue + Math.round((value - grid.value.originValue) / step) * step;
+  return grid.value.unit === "hertz"
+    ? { kind: "frequency", unit: "hertz", value: quantized, frequency: quantized }
+    : { kind: "midi", unit: grid.value.unit, value: quantized, midi: quantized, frequency: midiToFrequency(quantized, grid.value.tuningHz) };
 };
 
 const lineType = (coordinate, showAxes) => {
@@ -248,6 +390,5 @@ export const createVisibleGridLines = (gridValue, viewport, options = {}) => {
 export const formatGridTimeMapping = (gridValue, clock) => {
   const grid = normalizeGlobalGrid(gridValue);
   const seconds = gridUnitsToSeconds(1, grid, clock);
-  const label = grid.time.unit === "custom" ? grid.time.customLabel : grid.time.unit;
-  return `1 cell = ${grid.time.amount} ${label}${grid.time.amount === 1 ? "" : "s"} = ${seconds.toFixed(seconds < 0.1 ? 3 : 2)} s`;
+  return `1 cell = ${formatTimeValue(grid.time.perCell)} = ${seconds.toFixed(seconds < 0.1 ? 3 : 2)} s`;
 };

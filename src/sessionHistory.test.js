@@ -6,6 +6,7 @@ import {
   DraweratorSessionController,
   instantiateDraweratorMacro,
   mergeSceneMutation,
+  normalizeSessionAction,
   parseDraweratorSession,
 } from "./sessionHistory.js";
 
@@ -28,6 +29,21 @@ test("session controller records monotonic command and stroke actions", () => {
   assert.equal(session.actions[0].at, 0.25);
   assert.equal(session.actions[0].track, "presentation");
   assert.equal(session.actions[1].at, 0.5);
+});
+
+test("session clocks persist score sample rate and migrate legacy sessions", () => {
+  const session = createDraweratorSession({ clock: { fps: 25, tempo: 90, sampleRate: 96000 } });
+  assert.equal(session.version, 2);
+  assert.equal(session.clock.sampleRate, 96000);
+  const legacy = { ...session, version: 1, clock: { fps: 30, tempo: 120, signature: { numerator: 4, denominator: 4 } } };
+  assert.equal(parseDraweratorSession(legacy).clock.sampleRate, 48000);
+});
+
+test("history actions retain authored time expressions while keeping numeric compatibility", () => {
+  const action = normalizeSessionAction({ kind: "command", at: 1, duration: 0.5, atValue: { version: 1, expression: "2 beats", fallbackSeconds: 1 } });
+  assert.equal(action.at, 1);
+  assert.equal(action.atValue.expression, "2 beats");
+  assert.equal(action.durationValue.expression, "0.5 s");
 });
 
 test("playback restores baseline and suppresses disabled and presentation actions", async () => {

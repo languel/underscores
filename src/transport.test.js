@@ -75,7 +75,8 @@ test("loop positions round-trip through every timeline display mode", () => {
   const options = { fps: 30, tempo: 120, signature: { numerator: 4, denominator: 4 } };
   assert.equal(parseTimelinePosition("90", "frame", options), 3);
   assert.equal(parseTimelinePosition("00:00:03:00", "timecode", options), 3);
-  assert.equal(parseTimelinePosition("2.3.1", "beats", options), 3);
+  assert.equal(parseTimelinePosition("1.2.0", "beats", options), 3);
+  assert.equal(formatTimelinePosition(3, "beats", options), "1.2.0");
 });
 
 test("timeline ticks cover the complete visible range", () => {

@@ -2,13 +2,16 @@ import { memo, useEffect, useRef } from "react";
 import { sceneCoordsToViewportCoords, viewportCoordsToSceneCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
 import { createVisibleGridLines, normalizeGlobalGrid } from "./gridSystem.js";
 
-const lineColor = (theme, type, opacity) => {
-  const light = theme === "dark" ? "238, 240, 244" : "42, 46, 52";
+const lineColor = (color, theme, type, opacity) => {
+  const normalized = String(color || "").replace("#", "");
+  const channels = /^[0-9a-f]{6}$/i.test(normalized)
+    ? [0, 2, 4].map(index => parseInt(normalized.slice(index, index + 2), 16)).join(", ")
+    : theme === "dark" ? "238, 240, 244" : "42, 46, 52";
   const weight = type === "axis" ? 0.72 : type === "major" ? 0.42 : 0.2;
-  return `rgba(${light}, ${Math.min(0.82, opacity * weight)})`;
+  return `rgba(${channels}, ${Math.min(0.82, opacity * weight)})`;
 };
 
-const GlobalGridCanvas = memo(function GlobalGridCanvas({ grid: gridValue, appState, theme, renderNonce }) {
+const GlobalGridCanvas = memo(function GlobalGridCanvas({ grid: gridValue, appState, theme, color, renderNonce }) {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -53,7 +56,7 @@ const GlobalGridCanvas = memo(function GlobalGridCanvas({ grid: gridValue, appSt
         context.beginPath();
         context.moveTo(start.x - rect.left, start.y - rect.top);
         context.lineTo(end.x - rect.left, end.y - rect.top);
-        context.strokeStyle = lineColor(theme, line.type, grid.appearance.opacity);
+        context.strokeStyle = lineColor(color, theme, line.type, grid.appearance.opacity);
         context.lineWidth = line.type === "axis" ? 1.35 : line.type === "major" ? 1 : 0.7;
         context.stroke();
       }
@@ -71,7 +74,7 @@ const GlobalGridCanvas = memo(function GlobalGridCanvas({ grid: gridValue, appSt
       observer?.disconnect();
       window.removeEventListener("resize", schedule);
     };
-  }, [appState, gridValue, renderNonce, theme]);
+  }, [appState, color, gridValue, renderNonce, theme]);
 
   return <canvas ref={canvasRef} className="drawerator-global-grid-canvas" aria-hidden="true" />;
 });

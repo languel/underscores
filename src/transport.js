@@ -80,13 +80,13 @@ export const parseTimecode = (value, fps = 30) => {
 
 export const formatTimelinePosition = (seconds, mode, { fps = 30, tempo = 120, signature } = {}) => {
   if (mode === "frame") return String(secondsToFrame(seconds, fps));
-  if (mode === "beats") return formatMusicalPosition(seconds, tempo, signature);
+  if (mode === "beats") return formatSecondsAsBBU(seconds, { tempo, signature, fps });
   return formatTimecode(seconds, fps);
 };
 
 export const parseTimelinePosition = (value, mode, { fps = 30, tempo = 120, signature } = {}) => {
   if (mode === "frame") return frameToSeconds(value, fps);
-  if (mode === "beats") return musicalPositionToSeconds(value, tempo, signature);
+  if (mode === "beats") return Math.max(0, resolveTimeValue(String(value), { tempo, signature, fps }));
   return parseTimecode(value, fps);
 };
 
@@ -179,3 +179,4 @@ export const advanceMidiClockReceiver = (
     ready,
   };
 };
+import { formatSecondsAsBBU, resolveTimeValue } from "./timeValue.js";

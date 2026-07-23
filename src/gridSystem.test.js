@@ -5,10 +5,13 @@ import {
   createVisibleGridLines,
   gridToWorldPoint,
   gridUnitsToSeconds,
+  gridValueToWorld,
   mergeGridPatch,
   normalizeGlobalGrid,
+  quantizeGridValue,
   secondsToGridUnits,
   snapPointToGrid,
+  worldToGridValue,
   worldToGridPoint,
 } from "./gridSystem.js";
 
@@ -62,26 +65,56 @@ test("magnetic snapping uses a screen-pixel threshold and independent axes", () 
   assert.deepEqual(snapPointToGrid(grid, [23, 39], { axes: "y" }).point.slice(0, 2), [23, 40]);
 });
 
-test("time mappings round-trip for meter beats, bars, frames, and custom units", () => {
-  const clock = { tempo: 120, signature: { numerator: 6, denominator: 8 }, fps: 25 };
-  const beatGrid = mergeGridPatch(DEFAULT_GLOBAL_GRID, { time: { amount: 2, unit: "beat" } });
+test("time mappings round-trip for live musical, frame, and fixed expressions", () => {
+  const clock = { tempo: 120, signature: { numerator: 6, denominator: 8 }, fps: 25, sampleRate: 48000 };
+  const beatGrid = mergeGridPatch(DEFAULT_GLOBAL_GRID, { time: { perCell: { version: 1, expression: "2 beats", fallbackSeconds: 0.5 } } });
   assert.equal(gridUnitsToSeconds(3, beatGrid, clock), 1.5);
   assert.equal(secondsToGridUnits(1.5, beatGrid, clock), 3);
-  assert.equal(gridUnitsToSeconds(1, mergeGridPatch(beatGrid, { time: { amount: 1, unit: "bar" } }), clock), 1.5);
-  assert.equal(gridUnitsToSeconds(2, mergeGridPatch(beatGrid, { time: { amount: 5, unit: "frame" } }), clock), 0.4);
-  assert.equal(gridUnitsToSeconds(2, mergeGridPatch(beatGrid, { time: { amount: 3, unit: "custom", customSeconds: 0.25 } }), clock), 1.5);
-  assert.equal(gridUnitsToSeconds(2, mergeGridPatch(beatGrid, { time: { amount: 1.5, unit: "second" } }), clock), 3);
-  assert.equal(gridUnitsToSeconds(4, mergeGridPatch(beatGrid, { time: { amount: 250, unit: "millisecond" } }), clock), 1);
-  for (const time of [
-    { amount: 3, unit: "beat" }, { amount: 2, unit: "bar" },
-    { amount: 1.25, unit: "second" }, { amount: 125, unit: "millisecond" },
-    { amount: 7, unit: "frame" }, { amount: 1.5, unit: "custom", customSeconds: 0.375 },
+  assert.equal(gridUnitsToSeconds(1, mergeGridPatch(beatGrid, { time: { perCell: "1 bar" } }), clock), 1.5);
+  assert.equal(gridUnitsToSeconds(2, mergeGridPatch(beatGrid, { time: { perCell: "5 f" } }), clock), 0.4);
+  assert.equal(gridUnitsToSeconds(2, mergeGridPatch(beatGrid, { time: { perCell: "0.75 s" } }), clock), 1.5);
+  assert.equal(gridUnitsToSeconds(4, mergeGridPatch(beatGrid, { time: { perCell: "250 ms" } }), clock), 1);
+  for (const expression of [
+    "3 beats", "2 bars", "1.25 s", "125 ms", "7 f", "18000 samples",
   ]) {
-    const mapped = mergeGridPatch(beatGrid, { time });
-    for (const changingClock of [clock, { tempo: 87, signature: { numerator: 7, denominator: 8 }, fps: 60 }]) {
+    const mapped = mergeGridPatch(beatGrid, { time: { perCell: expression } });
+    for (const changingClock of [clock, { tempo: 87, signature: { numerator: 7, denominator: 8 }, fps: 60, sampleRate: 44100 }]) {
       assert.ok(Math.abs(secondsToGridUnits(gridUnitsToSeconds(2.75, mapped, changingClock), mapped, changingClock) - 2.75) < 1e-9);
     }
   }
+});
+
+test("legacy grid time mappings migrate to equivalent TimeValue expressions", () => {
+  assert.equal(normalizeGlobalGrid({ time: { amount: 2, unit: "bar" } }).time.perCell.expression, "2 bars");
+  assert.equal(normalizeGlobalGrid({ time: { amount: 250, unit: "millisecond" } }).time.perCell.expression, "250 ms");
+  assert.equal(normalizeGlobalGrid({ time: { amount: 3, unit: "custom", customSeconds: 0.25 } }).time.perCell.expression, "0.75 s");
+});
+
+test("grid value mapping follows upward polarity and round-trips semitone values", () => {
+  const grid = mergeGridPatch(DEFAULT_GLOBAL_GRID, {
+    transform: { origin: [10, 20], rotation: Math.PI / 6 },
+    value: { axis: "y", direction: "up", amount: 1, unit: "semitone", originValue: 60 },
+  });
+  const point = gridToWorldPoint(grid, [0, -7.25]);
+  const mapped = worldToGridValue(grid, point);
+  assert.ok(Math.abs(mapped.value - 67.25) < 1e-9);
+  const world = gridValueToWorld(mapped, grid);
+  const local = worldToGridPoint(grid, world);
+  assert.ok(Math.abs(local[1] + 7.25) < 1e-8);
+  assert.equal(quantizeGridValue(mapped, grid).value, 67);
+});
+
+test("grid value mapping supports cents, additive Hz, ratio, and custom scales", () => {
+  const cents = mergeGridPatch(DEFAULT_GLOBAL_GRID, { value: { amount: 50, unit: "cent" } });
+  assert.equal(worldToGridValue(cents, [0, -200]).value, 61);
+  const hz = mergeGridPatch(DEFAULT_GLOBAL_GRID, { value: { amount: 10, unit: "hertz", originValue: 440 } });
+  assert.equal(worldToGridValue(hz, [0, -300]).frequency, 470);
+  const ratio = mergeGridPatch(DEFAULT_GLOBAL_GRID, { value: { amount: 2, unit: "ratio", originValue: 69 } });
+  assert.ok(Math.abs(worldToGridValue(ratio, [0, -100]).frequency - 880) < 1e-8);
+  const scale = mergeGridPatch(DEFAULT_GLOBAL_GRID, { value: { amount: 1, unit: "scaleDegree", scale: { id: "custom", degrees: [0, 2, 3, 7], octave: 12 } } });
+  assert.equal(worldToGridValue(scale, [0, -300]).value, 67);
+  const major = mergeGridPatch(scale, { value: { scale: { id: "major" } } });
+  assert.deepEqual(major.value.scale.degrees, [0, 2, 4, 5, 7, 9, 11]);
 });
 
 test("visible line generation classifies axes and caps dense viewports", () => {

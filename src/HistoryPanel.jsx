@@ -1,5 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { infoProps } from "./uiInfo.js";
+import TimeValueInput from "./TimeValueInput.jsx";
+import { createTimeValue, resolveTimeValue } from "./timeValue.js";
 
 const formatSeconds = value => `${Math.max(0, Number(value) || 0).toFixed(3)}s`;
 
@@ -24,6 +26,7 @@ const HistoryPanel = memo(function HistoryPanel({
   showPointer,
   clockMode,
   recordFilter,
+  timeContext,
   onIncludePresentationChange,
   onEmitMidiChange,
   onShowPointerChange,
@@ -51,8 +54,8 @@ const HistoryPanel = memo(function HistoryPanel({
   const [selectedActionId, setSelectedActionId] = useState(null);
   const [draft, setDraft] = useState("");
   const [draftError, setDraftError] = useState("");
-  const [rangeStart, setRangeStart] = useState(0);
-  const [rangeEnd, setRangeEnd] = useState(0);
+  const [rangeStart, setRangeStart] = useState(() => createTimeValue("0 s"));
+  const [rangeEnd, setRangeEnd] = useState(() => createTimeValue("0 s"));
   const commandNames = useMemo(() => new Map(commands.map(command => [command.id, command.title || command.name || command.id])), [commands]);
   const session = snapshot.session;
   const actions = session?.actions || [];
@@ -83,7 +86,7 @@ const HistoryPanel = memo(function HistoryPanel({
   const isPlaying = snapshot.status === "playing" || snapshot.status === "playback-paused";
 
   useEffect(() => {
-    setRangeEnd(snapshot.duration);
+    setRangeEnd(createTimeValue(`${snapshot.duration} s`, snapshot.duration));
   }, [snapshot.duration]);
 
   return (
@@ -108,7 +111,7 @@ const HistoryPanel = memo(function HistoryPanel({
           onChange={event => onSeek(Number(event.target.value))}
           aria-label="Session playhead"
         />
-        <span className="history-time">{formatSeconds(snapshot.playhead)}</span>
+        <TimeValueInput className="history-time-input" aria-label="History playhead" data-route-path="history.playhead" value={`${snapshot.playhead} s`} context={timeContext} defaultValue="0 s" minSeconds={0} onChange={(next, seconds) => onSeek(seconds)} />
         <select value={snapshot.playbackRate} onChange={event => onRateChange(Number(event.target.value))} aria-label="History playback rate">
           {[0.25, 0.5, 1, 2, 4].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
         </select>
@@ -150,9 +153,9 @@ const HistoryPanel = memo(function HistoryPanel({
       </div>
       {actions.length > 0 ? (
         <div className="history-range-save">
-          <label><span>From</span><input type="number" min="0" step="0.01" data-default="0" value={rangeStart} onChange={event => setRangeStart(Number(event.target.value) || 0)} /></label>
-          <label><span>To</span><input type="number" min="0" step="0.01" data-default="0" value={rangeEnd} onChange={event => setRangeEnd(Number(event.target.value) || 0)} /></label>
-          <button type="button" onClick={() => onSaveMacro({ start: Math.min(rangeStart, rangeEnd), end: Math.max(rangeStart, rangeEnd) })}>Save range</button>
+          <label><span>From</span><TimeValueInput aria-label="History range start" data-route-path="history.range.start" value={rangeStart} context={timeContext} defaultValue="0 s" minSeconds={0} onChange={setRangeStart} /></label>
+          <label><span>To</span><TimeValueInput aria-label="History range end" data-route-path="history.range.end" value={rangeEnd} context={timeContext} defaultValue="0 s" minSeconds={0} onChange={setRangeEnd} /></label>
+          <button type="button" onClick={() => { const start = resolveTimeValue(rangeStart, timeContext); const end = resolveTimeValue(rangeEnd, timeContext); onSaveMacro({ start: Math.min(start, end), end: Math.max(start, end) }); }}>Save range</button>
         </div>
       ) : null}
       <div className="history-action-list" role="listbox" aria-label="Recorded actions">
@@ -187,6 +190,8 @@ const HistoryPanel = memo(function HistoryPanel({
       {selectedAction ? (
         <div className="history-editor">
           <div className="history-section-heading"><span>Edit action JSON</span><span>{selectedAction.kind}</span></div>
+          <label className="history-action-time"><span>Action time</span><TimeValueInput aria-label="History action time" data-route-path={`history.actions.${selectedAction.id}.at`} value={selectedAction.atValue || `${selectedAction.at} s`} context={timeContext} defaultValue="0 s" minSeconds={0} onChange={(next, seconds) => onUpdateAction(selectedAction.id, { at: seconds, atValue: next })} /></label>
+          <label className="history-action-time"><span>Duration</span><TimeValueInput aria-label="History action duration" data-route-path={`history.actions.${selectedAction.id}.duration`} value={selectedAction.durationValue || `${selectedAction.duration} s`} context={timeContext} defaultValue="0 s" minSeconds={0} onChange={(next, seconds) => onUpdateAction(selectedAction.id, { duration: seconds, durationValue: next })} /></label>
           <textarea value={draft} onChange={event => setDraft(event.target.value)} spellCheck="false" />
           {draftError ? <div className="history-error">{draftError}</div> : null}
           <div className="history-editor-actions">

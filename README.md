@@ -15,6 +15,7 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 - **Autocomplete Popover:** Typing `@` inside the prompt opens a dropdown suggestion list; navigate via `ArrowUp`/`ArrowDown` and select using `Enter`/`Tab`.
 - **Add Context (+) Drop-up Menu:** A quick-select footer menu to insert mentions, media elements, or skill actions into your prompt.
 - **Command Palette:** Instantly run commands, toggle states, change tools, or ask questions to the AI.
+- **Mono Themes & Transparent Canvas:** Mono Dark is the fresh-session default, with a matching Mono Light preset. Appearance settings can save complete named local themes, including panel/input/canvas/grid surfaces and role colors; canvas opacity can be set to zero for transparent-overlay hosts.
 - **Recordable Sessions & Automation:** `/history` records commands, world-coordinate strokes, coalesced scene edits, score/MIDI events, and optional presentation state. Sessions can be edited, sought, replayed from their captured baseline, exported, or saved as reusable relative/absolute sequences.
 - **Object Auto-keying:** The transport records position, rotation, scale, opacity, styles, modifier/IanniX properties, and geometry snapshots into editable object automation tracks.
 - **Independent Dockable Panels:** AI Assistant, Mods & FX, IanniX, Mixer, Expressive Synth, Info, Settings, and Console each keep their own visibility and placement. Floating panels can coexist; panels docked to the same side become one compact tab group. Mixer, Timeline, and Info can share the bottom dock. Visibility, active tabs, collapsed docks, and layouts persist independently; toggle panels with `/chat`, `/mods`, `/iannix`, `/mixer`, `/synth`, `/info`, `/settings`, `/console`, and `/transport`.
@@ -28,6 +29,7 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 - **Selection Filter:** The bottom Grid panel can limit canvas and Outliner selection to any combination of IanniX curves, cursors, and triggers. “Anything” restores normal all-object selection, and the workspace preference is remembered locally.
 - **IanniX Score Objects:** Give any selected canvas object one score role—Curve, Cursor, or Trigger—from the dockable **IanniX** panel. A compact global transport drives each object's local clock while cursor motion and trigger evaluation continue to use the editable core geometry beneath Mods & FX.
 - **Trusted IanniX Script Import:** Explicitly trusted `.iannix` scripts use deterministic IanniX-style `run()` and math helpers, map supported score commands through Drawerator's recorder, and report unsupported commands.
+- **IanniX Command Palette Bridge:** `/ix <command>` runs a trusted one-line IanniX command through the same compatibility route as the IanniX panel. `/ix clear` clears the scene without invoking Excalidraw's confirmation or changing the themed canvas background.
 - **Cached Score Playback:** Canonical Bézier metrics, prepared trigger paths, metadata, and bounds are cached during playback; collision checks use broad-phase rejection and transport/MIDI updates are throttled without reducing imported curve fidelity.
 - **Custom Canvas Backgrounds:** Set custom colors (including presets and hex input) from the hamburger main menu.
 - **Toggles for Interface Elements:** Control the visibility of toolbar hints and bottom alerts right from the main menu.
@@ -48,6 +50,7 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 | `Cmd + B` | Collapse / reveal the left dock |
 | `Cmd + Opt + B` | Collapse / reveal the right dock |
 | `Cmd + Shift + B` | Collapse / reveal the bottom dock |
+| `Ctrl + Shift + Backspace` | Clear the scene through the no-popup IanniX route |
 | `Cmd + Opt + P` | Pin / unpin Modifiers sidebar |
 | `Opt + Shift + D` | Toggle Dark / Light Theme |
 | `[` | Decrease stroke width (for Pen and Line tools) |
@@ -56,6 +59,8 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 | `Shift` + `]` | Increase stroke width by 0.1 |
 | `Cmd + Shift + 0` or `Ctrl + Shift + 0` | Toggle Canvas Background Transparency |
 | `Escape` | Dismiss Command Palette, Context overlays, and Autocomplete popups |
+
+Fresh sessions start in Mono Dark Satori pen mode with left, right, and bottom docks collapsed, the global grid hidden, and snapping off. Any local workspace preferences restore on later launches.
 
 ## Mods & FX workflow
 

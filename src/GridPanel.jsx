@@ -2,6 +2,7 @@ import React from "react";
 import { formatGridTimeMapping } from "./gridSystem.js";
 import InspectorSection from "./InspectorSection.jsx";
 import { infoProps } from "./uiInfo.js";
+import TimeValueInput from "./TimeValueInput.jsx";
 
 const NumberField = ({ label, value, onChange, defaultValue, help, ...inputProps }) => (
   <label className="grid-panel-field" {...(help ? infoProps(label, help) : {})}>
@@ -30,6 +31,7 @@ export default function GridPanel({
   tempo,
   signature,
   fps,
+  sampleRate = 48000,
   onUpdate,
   onReset,
   onQuantizeSelection,
@@ -54,7 +56,6 @@ export default function GridPanel({
           <Check label="Minor" checked={grid.appearance.showMinor} onChange={event => onUpdate({ appearance: { showMinor: event.target.checked } })} />
           <Check label="Major" checked={grid.appearance.showMajor} onChange={event => onUpdate({ appearance: { showMajor: event.target.checked } })} />
           <Check label="Axes" checked={grid.appearance.showAxes} onChange={event => onUpdate({ appearance: { showAxes: event.target.checked } })} />
-          <label className="grid-panel-field"><span>Opacity %</span><input aria-label="Global grid opacity" type="number" min="2" max="100" step="1" data-default="32" value={Math.round(grid.appearance.opacity * 100)} onChange={event => onUpdate({ appearance: { opacity: Number(event.target.value) / 100 } })} /></label>
         </div>
       </InspectorSection>
 
@@ -96,16 +97,56 @@ export default function GridPanel({
 
       <InspectorSection title="Time mapping" className="grid-panel-group grid-panel-time" aria-label="Grid time mapping">
         <div className="grid-panel-row">
-          <NumberField label="Per cell" help="Time represented by the distance of one major grid cell." aria-label="Global grid time amount" min="0.000001" step="0.25" defaultValue="1" value={grid.time.amount} onChange={event => onUpdate({ time: { amount: event.target.value } })} />
-          <SelectField label="Unit" help="Map major-cell distance to musical, clock, frame, or custom duration units." value={grid.time.unit} onChange={event => onUpdate({ time: { unit: event.target.value } })}>
-            <option value="beat">Beats</option><option value="bar">Bars</option><option value="second">Seconds</option><option value="millisecond">Milliseconds</option><option value="frame">Frames</option><option value="custom">Custom</option>
-          </SelectField>
-          {grid.time.unit === "custom" ? <>
-            <NumberField label="Seconds" aria-label="Global grid custom seconds" min="0.000001" step="0.01" defaultValue="1" value={grid.time.customSeconds} onChange={event => onUpdate({ time: { customSeconds: event.target.value } })} />
-            <label className="grid-panel-field"><span>Name</span><input aria-label="Global grid custom duration name" type="text" value={grid.time.customLabel} onChange={event => onUpdate({ time: { customLabel: event.target.value } })} /></label>
-          </> : null}
+          <label className="grid-panel-field" {...infoProps("Per cell", "Time represented by one major grid cell. Accepts seconds, milliseconds, frames, samples, clock time, bars, beats, BBU, and note values.")}>
+            <span>Per cell</span>
+            <TimeValueInput aria-label="Global grid time per cell" data-route-path="grid.time.perCell" value={grid.time.perCell} context={{ tempo, signature, fps, sampleRate }} defaultValue="1 beat" minSeconds={0.000001} onChange={next => onUpdate({ time: { perCell: next } })} />
+          </label>
         </div>
-        <div className="grid-panel-mapping">{formatGridTimeMapping(grid, { tempo, signature, fps })}</div>
+        <div className="grid-panel-mapping">{formatGridTimeMapping(grid, { tempo, signature, fps, sampleRate })}</div>
+      </InspectorSection>
+
+      <InspectorSection title="Value mapping" className="grid-panel-group grid-panel-value" aria-label="Grid value mapping">
+        <div className="grid-panel-row">
+          <SelectField label="Axis" help="Grid-local axis used to derive mapped values from object positions." value={grid.value.axis} onChange={event => onUpdate({ value: { axis: event.target.value } })}>
+            <option value="y">Y</option><option value="x">X</option>
+          </SelectField>
+          <SelectField label="Direction" help="Direction in which mapped values increase. Up compensates for the canvas Y axis pointing downward." value={grid.value.direction} onChange={event => onUpdate({ value: { direction: event.target.value } })}>
+            <option value="up">Up</option><option value="down">Down</option><option value="right">Right</option><option value="left">Left</option>
+          </SelectField>
+          <NumberField label="Per cell" help="Value change across one major cell." aria-label="Grid value per cell" step="0.01" defaultValue="1" value={grid.value.amount} onChange={event => onUpdate({ value: { amount: event.target.value } })} />
+          <SelectField label="Unit" help="Semitone and scale modes produce MIDI-note values; Hz and ratio modes produce frequencies." value={grid.value.unit} onChange={event => onUpdate({ value: { unit: event.target.value } })}>
+            <option value="semitone">Semitone</option><option value="cent">Cent</option><option value="scaleDegree">Scale degree</option><option value="hertz">Hertz</option><option value="ratio">Ratio</option>
+          </SelectField>
+        </div>
+        <div className="grid-panel-row">
+          <NumberField label="Origin cell" help="Grid coordinate treated as the value origin." aria-label="Grid value origin cell" step="1" defaultValue="0" value={grid.value.originCell} onChange={event => onUpdate({ value: { originCell: event.target.value } })} />
+          <NumberField label="Origin value" help="MIDI note or frequency at the mapping origin, depending on the selected unit." aria-label="Grid value origin" step="0.01" defaultValue="60" value={grid.value.originValue} onChange={event => onUpdate({ value: { originValue: event.target.value } })} />
+          <NumberField label="A4 Hz" help="Concert tuning used when converting fractional MIDI notes to frequency." aria-label="Grid tuning frequency" min="1" step="0.1" defaultValue="440" value={grid.value.tuningHz} onChange={event => onUpdate({ value: { tuningHz: event.target.value } })} />
+          {grid.value.unit === "scaleDegree" ? (
+            <SelectField label="Scale" help="Degree map used by scale-degree conversion. Custom maps remain serialized with the scene." value={grid.value.scale.id} onChange={event => onUpdate({ value: { scale: { id: event.target.value } } })}>
+              <option value="chromatic">Chromatic</option><option value="major">Major</option><option value="naturalMinor">Natural minor</option><option value="harmonicMinor">Harmonic minor</option><option value="melodicMinor">Melodic minor</option><option value="majorPentatonic">Major pentatonic</option><option value="minorPentatonic">Minor pentatonic</option><option value="custom">Custom</option>
+            </SelectField>
+          ) : null}
+          {grid.value.unit === "scaleDegree" ? <NumberField label="Scale root" help="Semitone offset applied before scale degrees." aria-label="Grid scale root" step="1" defaultValue="0" value={grid.value.scale.root} onChange={event => onUpdate({ value: { scale: { root: event.target.value } } })} /> : null}
+        </div>
+        {grid.value.unit === "scaleDegree" && grid.value.scale.id === "custom" ? (
+          <div className="grid-panel-row">
+            <label className="grid-panel-field" {...infoProps("Custom degrees", "Ascending pitch offsets inside one octave, separated by commas. Fractional values are supported.")}>
+              <span>Degrees</span>
+              <input
+                key={grid.value.scale.degrees.join(",")}
+                type="text"
+                aria-label="Custom scale degrees"
+                defaultValue={grid.value.scale.degrees.join(", ")}
+                onBlur={event => {
+                  const degrees = event.currentTarget.value.split(/[\s,]+/).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+                  if (degrees.length) onUpdate({ value: { scale: { id: "custom", degrees } } });
+                }}
+              />
+            </label>
+            <NumberField label="Octave" help="Pitch span after the final custom degree." aria-label="Custom scale octave" min="0.000001" step="0.01" defaultValue="12" value={grid.value.scale.octave} onChange={event => onUpdate({ value: { scale: { id: "custom", octave: event.target.value } } })} />
+          </div>
+        ) : null}
         <div className="grid-panel-row grid-panel-actions">
           <button type="button" onClick={onReset}>Reset grid</button>
         </div>

@@ -63,6 +63,7 @@ body, html {
   --drawerator-menu-border: rgba(73, 80, 82, 0.24);
   --drawerator-menu-hover: var(--drawerator-highlight, rgba(107, 113, 115, 0.12));
   --drawerator-menu-shadow: 0 8px 24px rgba(28, 31, 32, 0.16);
+  --drawerator-input-border: var(--drawerator-highlight, rgba(107, 113, 115, 0.12));
 }
 
 .drawerator-shell.drawerator-theme-dark {
@@ -472,7 +473,6 @@ body, html {
   width: 100vw;
   height: 100vh;
   background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -481,7 +481,7 @@ body, html {
 }
 
 .command-palette-card {
-  background: var(--island-bg-color);
+  background: var(--drawerator-panel-bg, var(--island-bg-color));
   border: 1px solid var(--border-color);
   border-radius: 12px;
   width: 600px;
@@ -560,7 +560,13 @@ body, html {
   display: none !important;
 }
 
-/* Style Excalidraw's exit-zen-mode button to render as a subtle dot */
+/* Satori mode is deliberately chrome-free. It is exited through Drawerator's
+   shortcut or command palette, never through Excalidraw's escape affordance. */
+.satori-mode .excalidraw .disable-zen-mode {
+  display: none !important;
+}
+
+/* Outside Satori, keep Excalidraw's exit-zen-mode affordance unobtrusive. */
 .excalidraw .disable-zen-mode {
   font-size: 0 !important;
   background: transparent !important;
@@ -588,33 +594,6 @@ body, html {
 .excalidraw .disable-zen-mode:hover::after {
   opacity: 1;
   color: var(--color-primary) !important;
-}
-
-/* Style Satori Mode custom exit button as a dot */
-#btn-exit-satori {
-  position: fixed;
-  bottom: 8px;
-  right: 12px;
-  z-index: 1500;
-  background: transparent;
-  border: none;
-  color: var(--color-secondary);
-  font-size: 28px;
-  line-height: 1;
-  cursor: pointer;
-  opacity: 0.25;
-  transition: opacity var(--transition-fast), color var(--transition-fast);
-  padding: 4px;
-}
-
-#btn-exit-satori:hover {
-  opacity: 1;
-  color: var(--color-primary);
-}
-
-/* Shift Exit Satori Mode button to the left of the AI sidebar when open */
-.sidebar-open #btn-exit-satori {
-  right: calc(12px + var(--sidebar-width, 380px));
 }
 
 /* --- BRAND ACCENT OVERRIDES (5% SATURATED CYAN) --- */
@@ -743,7 +722,7 @@ body .excalidraw .sidebar {
   min-height: 0;
   overflow: hidden;
   color: var(--color-primary, #1b1b1f);
-  background: var(--island-bg-color, var(--bg-sidebar, #fff));
+  background: var(--drawerator-panel-bg, var(--island-bg-color, var(--bg-sidebar, #fff)));
   border: 1px solid var(--border-color, rgba(128, 128, 128, 0.32));
   box-shadow: none;
   pointer-events: auto;
@@ -778,7 +757,7 @@ body .excalidraw .sidebar {
   flex-direction: row;
   border-width: 1px 0 0;
   border-radius: 0;
-  background: var(--island-bg-color, var(--bg-sidebar, #fff));
+  background: var(--drawerator-panel-bg, var(--island-bg-color, var(--bg-sidebar, #fff)));
 }
 
 .drawerator-panel-bottom.drawerator-panel-collapsed {
@@ -861,11 +840,11 @@ body .excalidraw .sidebar {
 }
 
 .drawerator-panel-left.drawerator-panel-collapsed:hover {
-  background: var(--island-bg-color, var(--bg-sidebar, #2d2e32));
+  background: var(--drawerator-panel-bg, var(--island-bg-color, var(--bg-sidebar, #2d2e32)));
 }
 
 .drawerator-panel-right.drawerator-panel-collapsed:hover {
-  background: var(--island-bg-color, var(--bg-sidebar, #2d2e32));
+  background: var(--drawerator-panel-bg, var(--island-bg-color, var(--bg-sidebar, #2d2e32)));
 }
 
 .drawerator-panel-header {
@@ -920,6 +899,7 @@ body .excalidraw .sidebar {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  background: var(--drawerator-panel-bg, transparent);
 }
 
 .drawerator-panel-body > .settings-panel-content,
@@ -932,7 +912,7 @@ body .excalidraw .sidebar {
   flex: 1 1 auto;
   min-height: 0;
   flex-direction: column;
-  background: var(--island-bg-color);
+  background: transparent;
   color: var(--color-primary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
@@ -1179,6 +1159,15 @@ body .excalidraw .sidebar {
 .drawerator-panel-resize-bottom:active::after {
   top: 2px;
   height: 3px;
+  background: var(--color-primary, currentColor);
+}
+
+.drawerator-panel-bottom.drawerator-panel-collapsed .drawerator-panel-resize-bottom::after {
+  background: transparent;
+}
+
+.drawerator-panel-bottom.drawerator-panel-collapsed .drawerator-panel-resize-bottom:hover::after,
+.drawerator-panel-bottom.drawerator-panel-collapsed .drawerator-panel-resize-bottom:active::after {
   background: var(--color-primary, currentColor);
 }
 
@@ -1647,7 +1636,7 @@ body .excalidraw .sidebar {
 .custom-floating-context-menu {
   position: fixed;
   color: var(--drawerator-menu-text);
-  background: var(--drawerator-menu-bg);
+  background: var(--drawerator-panel-bg, var(--drawerator-menu-bg));
   border: 1px solid var(--drawerator-menu-border);
   border-radius: 6px;
   box-shadow: var(--drawerator-menu-shadow);
@@ -2247,18 +2236,18 @@ a.iannix-flat-button {
 }
 
 .iannix-transport {
-  --transport-bg: var(--island-bg-color, var(--bg-sidebar, #fff));
-  --transport-field-bg: #ffffff;
-  --transport-lane-bg: #e8e8ec;
+  --transport-bg: var(--drawerator-panel-bg, var(--island-bg-color, var(--bg-sidebar, #fff)));
+  --transport-field-bg: var(--drawerator-input-bg, #ffffff);
+  --transport-lane-bg: var(--drawerator-timeline-lane-bg, #e8e8ec);
   --transport-hover-bg: #e1e1e6;
   --transport-border: #c8c8d0;
   --transport-grid: #d2d2d8;
   --transport-text: #1b1b1f;
   --transport-secondary: #666872;
   --transport-accent: var(--drawerator-accent, #6b7173);
-  --transport-accent-soft: color-mix(in srgb, var(--transport-accent) 18%, transparent);
+  --transport-accent-soft: var(--drawerator-highlight, rgba(143, 143, 143, 0.1));
   display: grid;
-  grid-template-columns: 92px 180px 64px 132px 108px 86px 82px 46px minmax(120px, 1fr);
+  grid-template-columns: 92px 180px 90px 132px 108px 86px 82px 46px minmax(120px, 1fr);
   align-items: center;
   gap: 3px;
   width: 100%;
@@ -2275,9 +2264,9 @@ a.iannix-flat-button {
 }
 
 .iannix-transport.theme-dark {
-  --transport-bg: var(--island-bg-color, var(--bg-sidebar, #2d2e32));
-  --transport-field-bg: #222328;
-  --transport-lane-bg: #25262b;
+  --transport-bg: var(--drawerator-panel-bg, var(--island-bg-color, var(--bg-sidebar, #2d2e32)));
+  --transport-field-bg: var(--drawerator-input-bg, #222328);
+  --transport-lane-bg: var(--drawerator-timeline-lane-bg, #25262b);
   --transport-hover-bg: #3c3e43;
   --transport-border: #4b4d54;
   --transport-grid: #3b3d43;
@@ -2391,15 +2380,18 @@ a.iannix-flat-button {
 .iannix-transport-display {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 7px;
   min-width: 0;
-  padding: 0 9px;
-  border: 1px solid var(--transport-border);
-  border-radius: 3px;
-  background: var(--transport-field-bg);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--transport-text);
   font-variant-numeric: tabular-nums;
+}
+
+.iannix-transport-display .time-value-input-shell,
+.iannix-transport-display .time-value-input-shell > input {
+  height: 100%;
 }
 
 .iannix-transport-display strong {
@@ -2420,8 +2412,8 @@ a.iannix-flat-button {
 .iannix-transport-frame {
   display: flex;
   align-items: center;
-  justify-content: center;
-  place-items: center;
+  justify-content: space-between;
+  gap: 5px;
   min-width: 0;
   padding: 3px 5px;
   border: 1px solid var(--transport-border);
@@ -2611,6 +2603,7 @@ a.iannix-flat-button {
 
 .iannix-timeline-gridline {
   position: absolute;
+  z-index: 1;
   inset-block: 0;
   width: 1px;
   background: var(--transport-grid);
@@ -2620,6 +2613,7 @@ a.iannix-flat-button {
 .iannix-timeline-event-lane,
 .iannix-timeline-key-lane {
   position: absolute;
+  z-index: 2;
   inset-inline: 0;
   height: 50%;
   pointer-events: none;
@@ -2653,7 +2647,7 @@ a.iannix-flat-button {
 
 .iannix-timeline-loop-range {
   position: absolute;
-  z-index: 2;
+  z-index: 0;
   inset-block: 5px;
   min-width: 2px;
   padding: 0;
@@ -2741,7 +2735,7 @@ a.iannix-flat-button {
 
 @media (max-width: 980px) {
   .iannix-transport {
-    grid-template-columns: 82px 170px 58px 132px 100px 78px 72px 42px minmax(90px, 1fr);
+    grid-template-columns: 82px 170px 82px 132px 100px 78px 72px 42px minmax(90px, 1fr);
   }
 
   .iannix-transport-status {
@@ -2751,7 +2745,7 @@ a.iannix-flat-button {
 
 @media (max-width: 720px) {
   .iannix-transport {
-    grid-template-columns: 70px minmax(112px, 1fr) 52px 132px 90px;
+    grid-template-columns: 70px minmax(112px, 1fr) 76px 132px 90px;
   }
 
   .iannix-transport-signature,
@@ -2929,10 +2923,16 @@ a.iannix-flat-button {
 
 .scene-panel-empty.compact { padding: 14px; }
 
+.properties-panel { display: flex; flex-direction: column; overflow: hidden; }
+.properties-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.24)); }
+.properties-toolbar input { min-width: 0; flex: 1; padding: 6px 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--color-primary); }
+.properties-toolbar span { min-width: 24px; color: var(--color-secondary); text-align: right; }
+.properties-list { min-height: 0; overflow: auto; }
 .properties-object { border-bottom: 1px solid var(--border-color, rgba(128,128,128,.24)); }
-.properties-object-heading { display: flex; flex-direction: column; gap: 3px; padding: 11px 12px; background: var(--button-hover-bg, rgba(128,128,128,.08)); }
-.properties-object-heading strong { text-transform: capitalize; }
-.properties-object-heading code { overflow: hidden; color: var(--color-secondary); font-size: 9px; text-overflow: ellipsis; }
+.properties-object-heading { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: center; gap: 6px; padding: 8px; background: var(--drawerator-highlight, rgba(128,128,128,.08)); }
+.properties-object-name { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.properties-object-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.properties-object-name code { overflow: hidden; color: var(--color-secondary); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .properties-group { border-top: 1px solid var(--border-color, rgba(128,128,128,.16)); }
 .properties-group summary { display: flex; align-items: center; gap: 7px; padding: 6px 9px; cursor: pointer; }
 .properties-group summary small { margin-left: auto; color: var(--color-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -2941,7 +2941,8 @@ a.iannix-flat-button {
 .properties-row > span { overflow: hidden; color: var(--color-secondary); text-overflow: ellipsis; }
 .properties-row code { overflow-wrap: anywhere; color: var(--color-primary); }
 .properties-row input[type="text"],
-.properties-row input[type="number"] { min-width: 0; width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--color-primary); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.properties-row input[type="number"],
+.properties-row select { min-width: 0; width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--color-primary); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .properties-row input[type="checkbox"] { justify-self: start; accent-color: var(--drawerator-accent); }
 .properties-row.readonly code { opacity: .72; }
 
@@ -2962,6 +2963,7 @@ a.iannix-flat-button {
 .outliner-delete:hover { color: var(--color-danger, #e03131); }
 .outliner-toggle svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7; }
 .outliner-lock-icon path { stroke-linecap: round; }
+.outliner-lock-icon.locked .outliner-lock-body { fill: currentColor; }
 .outliner-type { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1px solid var(--border-color); border-radius: 3px; color: var(--color-secondary); font-size: 9px; }
 .outliner-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: capitalize; }
 .outliner-label-input { min-width: 0; flex: 1; border: 1px solid var(--color-primary); border-radius: 4px; background: var(--island-bg-color); color: var(--color-primary); padding: 2px 5px; font: inherit; }
@@ -3366,6 +3368,32 @@ a.iannix-flat-button {
   flex: 0 0 auto;
 }
 
+.settings-theme-save {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.settings-theme-save input {
+  box-sizing: border-box;
+  min-width: 0;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--drawerator-input-border);
+  border-radius: 5px;
+  background: var(--drawerator-input-bg);
+  color: var(--color-primary);
+  font: inherit;
+}
+
+.settings-theme-save .iannix-flat-button {
+  width: auto;
+  min-width: 54px;
+  height: 30px;
+  padding: 0 10px;
+}
+
 .settings-panel-two-column {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3529,9 +3557,43 @@ a.iannix-flat-button {
 /* Numeric fields support horizontal scrubbing without changing the existing
    panel styling. The context menu reuses Drawerator's current menu surface. */
 .drawerator-shell input[type="number"]:not(:disabled),
+.drawerator-shell input[data-time-value="true"]:not(:disabled),
 .number-box-global-dragging,
 .number-box-global-dragging * {
   cursor: ew-resize !important;
+}
+
+.time-value-input-shell {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  width: 100%;
+}
+
+.time-value-input-shell > input {
+  width: 100%;
+  min-width: 0;
+}
+
+.time-value-scrub-arrows {
+  position: absolute;
+  top: 50%;
+  right: 7px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  color: var(--color-primary);
+  font-size: 10px;
+}
+
+.time-value-input-shell:hover .time-value-scrub-arrows,
+.time-value-input-shell:focus-within .time-value-scrub-arrows {
+  opacity: 0.55;
+}
+
+.time-value-menu {
+  position: fixed;
+  z-index: 10020;
 }
 
 .number-box-global-dragging,
@@ -3587,6 +3649,13 @@ a.iannix-flat-button {
 .mods-panel-tabs,
 .settings-panel-tabs {
   border-radius: 3px;
+}
+
+.iannix-transport-frame span {
+  color: var(--transport-secondary);
+  font-size: 8px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .mods-panel-tab,
@@ -3727,7 +3796,7 @@ a.iannix-flat-button {
 .mixer-track {
   flex: 0 0 190px;
   min-width: 190px;
-  background: var(--island-bg-color, var(--color-surface-low, #fff));
+  background: var(--drawerator-timeline-lane-bg, var(--island-bg-color, var(--color-surface-low, #fff)));
 }
 
 .mixer-track.muted {
@@ -4029,8 +4098,15 @@ a.iannix-flat-button {
 }
 
 .drawerator-panel-body input:not([type="checkbox"]):not([type="range"]):not([type="color"]),
-.drawerator-panel-body select {
+.drawerator-panel-body select,
+.drawerator-panel-body textarea {
   box-sizing: border-box;
+  background-color: var(--drawerator-input-bg, var(--input-bg-color, rgba(128, 128, 128, 0.08)));
+  border-color: var(--drawerator-input-border);
+}
+
+.drawerator-panel-body input:not([type="checkbox"]):not([type="range"]):not([type="color"]),
+.drawerator-panel-body select {
   height: var(--drawerator-ui-control-height);
   min-height: var(--drawerator-ui-control-height);
   padding-block: 0;
@@ -4118,7 +4194,7 @@ a.iannix-flat-button {
   min-height: 0;
   padding: 10px 12px;
   color: var(--color-primary);
-  background: var(--bg-sidebar);
+  background: var(--drawerator-panel-bg, transparent);
   overflow: auto;
 }
 
@@ -4183,9 +4259,9 @@ a.iannix-flat-button {
   height: var(--drawerator-ui-control-height) !important;
   min-height: var(--drawerator-ui-control-height);
   padding: 0 var(--drawerator-ui-control-padding-x) !important;
-  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+  border: 1px solid var(--drawerator-input-border);
   border-radius: var(--drawerator-ui-control-radius) !important;
-  background: var(--input-bg-color, var(--island-bg-color)) !important;
+  background: var(--drawerator-input-bg, var(--input-bg-color, var(--island-bg-color))) !important;
   color: var(--color-primary);
   font-weight: 400;
 }
@@ -4297,9 +4373,9 @@ a.iannix-flat-button {
   align-items: center;
   gap: 5px;
   padding: 0 6px;
-  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+  border: 1px solid var(--drawerator-input-border);
   border-radius: var(--drawerator-ui-control-radius);
-  background: var(--input-bg-color, var(--island-bg-color));
+  background: var(--drawerator-input-bg, var(--input-bg-color, var(--island-bg-color)));
   color: var(--color-secondary);
 }
 
@@ -4346,7 +4422,7 @@ a.iannix-flat-button {
 .iannix-transport select:focus-visible,
 .iannix-transport select:open {
   outline: none;
-  border-color: var(--border-color, rgba(128, 128, 128, 0.3));
+  border-color: var(--drawerator-input-border);
   box-shadow: none;
 }
 
@@ -4367,9 +4443,9 @@ a.iannix-flat-button {
   .iannix-transport select::picker(select) {
     margin-top: 2px;
     padding: 2px;
-    border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+    border: 1px solid var(--drawerator-input-border);
     border-radius: var(--drawerator-ui-control-radius);
-    background: var(--island-bg-color, var(--bg-sidebar, #fff));
+    background: var(--drawerator-input-bg, var(--input-bg-color, var(--bg-sidebar, #fff)));
     color: var(--color-primary);
     box-shadow: none;
     font-family: var(--font-sans);
@@ -4398,11 +4474,18 @@ a.iannix-flat-button {
 
   .drawerator-panel-shell select option:hover,
   .drawerator-panel-shell select option:focus,
-  .drawerator-panel-shell select option:checked,
   .iannix-transport select option:hover,
-  .iannix-transport select option:focus,
-  .iannix-transport select option:checked {
+  .iannix-transport select option:focus {
     background: var(--button-hover-bg, rgba(128, 128, 128, 0.14));
+    color: var(--color-primary);
+    font-weight: 600;
+  }
+
+  .drawerator-panel-shell select option:checked,
+  .iannix-transport select option:checked {
+    outline: 0;
+    background: transparent;
+    box-shadow: none;
     color: var(--color-primary);
     font-weight: 600;
   }
@@ -4427,4 +4510,88 @@ a.iannix-flat-button {
     overflow-y: auto;
     position-area: block-end span-inline-end;
   }
+}
+
+/* All Drawerator form controls share the configured input surface and the
+   hover-highlight-derived frame. Native number steppers keep their affordance
+   without introducing a browser-colored tile. */
+.drawerator-panel-body input:not([type="checkbox"]):not([type="range"]):not([type="color"]),
+.drawerator-panel-body select,
+.drawerator-panel-body textarea,
+.iannix-transport input,
+.iannix-transport select {
+  background-color: var(--drawerator-input-bg, var(--input-bg-color, transparent)) !important;
+  border-color: var(--drawerator-input-border) !important;
+}
+
+.drawerator-panel-body input:not([type="checkbox"]):not([type="range"]):not([type="color"]):focus,
+.drawerator-panel-body select:focus,
+.drawerator-panel-body textarea:focus,
+.iannix-transport input:focus,
+.iannix-transport select:focus {
+  border-color: var(--drawerator-input-border) !important;
+  outline: none;
+  box-shadow: none;
+}
+
+.drawerator-shell input[type="number"]::-webkit-inner-spin-button,
+.drawerator-shell input[type="number"]::-webkit-outer-spin-button {
+  appearance: none;
+  display: none;
+}
+
+.drawerator-shell input[type="number"] {
+  appearance: textfield;
+  padding-right: 21px !important;
+}
+
+.number-box-stepper {
+  position: fixed;
+  z-index: 10040;
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  width: 18px;
+  min-height: 20px;
+  background: transparent;
+  color: var(--color-secondary, currentColor);
+  pointer-events: auto;
+}
+
+.number-box-stepper button {
+  position: relative;
+  width: 18px;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.number-box-stepper button:hover {
+  background: var(--drawerator-highlight, rgba(128, 128, 128, 0.12));
+}
+
+.number-box-stepper button span {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  border-inline: 3px solid transparent;
+  transform: translate(-50%, -50%);
+}
+
+.number-box-stepper button:first-child span {
+  border-bottom: 4px solid currentColor;
+}
+
+.number-box-stepper button:last-child span {
+  border-top: 4px solid currentColor;
 }

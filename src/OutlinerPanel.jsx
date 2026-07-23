@@ -124,9 +124,9 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
             </button>
             <button type="button" className={element.locked ? "outliner-toggle active" : "outliner-toggle"} onClick={() => onLockChange(element.id)} title={element.locked ? "Unlock object" : "Lock object"} aria-label={element.locked ? `Unlock ${element.id}` : `Lock ${element.id}`} aria-pressed={element.locked} data-info-title="Object lock" data-info="Locked objects remain visible and active but cannot be selected or transformed on the canvas.">
               {element.locked ? (
-                <svg className="outliner-lock-icon locked" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+                <svg className="outliner-lock-icon locked" viewBox="0 0 24 24" aria-hidden="true"><rect className="outliner-lock-body" x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
               ) : (
-                <svg className="outliner-lock-icon unlocked" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 7.8-1.2"/></svg>
+                <svg className="outliner-lock-icon unlocked" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M7.5 10V7a4.5 4.5 0 0 1 8.7-2.5"/></svg>
               )}
             </button>
             <button type="button" className="outliner-toggle outliner-delete" onClick={() => deleteSelection(element.id)} title="Delete object" aria-label={`Delete ${element.id}`}>

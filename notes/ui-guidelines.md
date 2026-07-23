@@ -60,6 +60,9 @@ Do not use sliders for ordinary scalar parameters. Keep formatted values such as
 ## Color and framing
 
 - Preserve the minimal neutral palette and existing accent variables.
+- Appearance presets must define one coordinated accent, hover, panel, input, timeline, canvas, and grid palette. Mono Dark is the neutral fresh-session baseline; Mono Light is its light counterpart. Saved custom themes are local named snapshots of the complete appearance state.
+- Context menus and command palette cards use the active panel surface. Command-palette overlays may dim the canvas, but never blur it.
+- Canvas opacity is a first-class theme setting. An opacity of `0%` is reserved for transparent-overlay hosts; surrounding panel opacity remains independently configurable.
 - Prefer separators, spacing, and background changes over extra frames.
 - Avoid shadows except where a floating surface genuinely needs separation from the canvas.
 - Validate both light and dark themes whenever changing shared controls.
