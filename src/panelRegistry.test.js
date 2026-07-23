@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DRAWERATOR_PANELS, getDraweratorPanel, matchesDraweratorPanel } from "./panelRegistry.js";
+import { DRAWERATOR_PANELS, getDraweratorPanel, getNaturalPanelPlacement, matchesDraweratorPanel } from "./panelRegistry.js";
 
 test("every Drawerator panel has a unique slash command", () => {
   const slashes = DRAWERATOR_PANELS.map(panel => panel.slash);
@@ -14,7 +14,15 @@ test("panel lookup and slash matching share one registry", () => {
   assert.equal(getDraweratorPanel("transport")?.label, "Timeline");
   assert.deepEqual(getDraweratorPanel("grid")?.placements, ["left", "floating", "right"]);
   assert.equal(getDraweratorPanel("synth")?.label, "Synth");
+  assert.equal(getDraweratorPanel("script")?.slash, "/script");
   assert.equal(getDraweratorPanel("info")?.slash, "/info");
   assert.deepEqual(getDraweratorPanel("info")?.placements, ["left", "floating", "right", "bottom"]);
   assert.equal(matchesDraweratorPanel(getDraweratorPanel("settings"), "midi"), false);
+});
+
+test("natural panel placement sends horizontal panels bottom and vertical panels right", () => {
+  assert.equal(getNaturalPanelPlacement(getDraweratorPanel("script")), "right");
+  assert.equal(getNaturalPanelPlacement(getDraweratorPanel("info")), "right");
+  assert.equal(getNaturalPanelPlacement(getDraweratorPanel("mixer")), "bottom");
+  assert.equal(getNaturalPanelPlacement(getDraweratorPanel("transport")), "bottom");
 });

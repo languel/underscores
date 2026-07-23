@@ -1,8 +1,8 @@
 # Panel System Notes
 
-Last updated: 2026-07-22
+Last updated: 2026-07-23
 
-Drawerator owns one persistent panel model for **AI Assistant**, **Mods & FX**, **IanniX**, **Mixer**, **Expressive Synth**, **Info**, **Settings**, **Console**, and **Transport**. Side panels support left dock, floating, and right dock placement. Mixer and Info additionally support the bottom dock; Transport supports floating and bottom-docked placement.
+Drawerator owns one persistent panel model for **AI Assistant**, **Mods & FX**, **Script**, **IanniX**, **Mixer**, **Expressive Synth**, **Info**, **Settings**, **Console**, and **Transport**. Side panels support left dock, floating, and right dock placement. Mixer and Info additionally support the bottom dock; Transport supports floating and bottom-docked placement.
 
 ## Identity icon contract
 
@@ -12,6 +12,9 @@ The panel identity icon is the only visible placement control:
 - click without pointer movement never changes placement;
 - drag begins only after a small movement threshold, then detaches the panel and previews eligible dock targets;
 - right-click opens the explicit placement and close menu;
+- floating-panel menus include **Minimize**, which reduces the panel to its draggable identity icon without losing its saved size;
+- Shift-double-click toggles that icon-only minimized state while floating;
+- Option-double-click returns the panel to its natural dock: right for vertical panels and bottom for Mixer and Timeline;
 - the same icon and interaction remain available while floating.
 
 When multiple panels share a side, they render as one tab row. The active tab shows **icon + label** and inactive tabs show only their icons. The active tab replaces the otherwise redundant panel-title row. Each tab icon retains its own drag and context-menu behavior, so an inactive panel can be detached without first expanding a second header.
@@ -30,11 +33,25 @@ The following state persists independently:
 
 - per-panel visibility and placement;
 - per-panel floating position, width, and height;
+- per-panel floating minimized state;
 - active panel for each side and bottom dock;
 - collapsed state for each side and bottom dock;
 - transport placement and dimensions.
 
-Every panel is available from the main menu and command palette, including `/chat`, `/mods`, `/iannix`, `/synth`, `/settings`, `/console`, and `/transport`. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
+Every panel is available from the main menu and command palette, including `/chat`, `/mods`, `/script`, `/iannix`, `/synth`, `/settings`, `/console`, and `/transport`. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
+
+## Script panel
+
+Script editing is a standalone dockable concern rather than a tab embedded in a feature panel. The panel persists its selected script type and currently exposes two adapters:
+
+- **Brush / modifier** retains the brush catalog, JavaScript editor, compilation feedback, shared `@param` controls, Save, Save As, New, Delete, and attached-modifier editing.
+- **IanniX** retains the trusted script catalog, editable names, `ask()` / `@param` controls, Run, Save, New, Import, Delete, and one-line IanniX command execution.
+
+The type selector changes the catalog, execution environment, and available actions together. `src/scriptTypes.js` is the registry boundary for future adapters; each adapter continues to own its existing persistence and runtime semantics. Opening a modifier's edit action selects Brush / modifier mode. Importing a trusted `.iannix` file selects IanniX mode. `Ctrl+Opt+B`, `/script`, the main menu, and the command palette open the independent panel.
+
+Both adapters follow one compact editor layout: catalog and parameters first, then the action toolbar with a shared persistent monospace font-size control, a code editor that consumes the remaining height, and adapter status or command input at the bottom. Script selectors inherit the panel surface; code editors use the configurable **Subpanel background** surface. Compilation feedback is unframed text—green for success and red for errors—rather than another nested panel.
+
+Mods & FX now owns only the ordered modifier stack and its rendering controls. IanniX owns only score-object and data editing. This prevents either feature panel from becoming the lifetime or placement owner of the shared editor.
 
 Fresh workspaces begin in Satori freehand mode with the left, right, and bottom docks collapsed. The normal default keeps the Mods/Grid dock tabs and Timeline available behind those reveal edges, while restored local layouts always win after first launch.
 

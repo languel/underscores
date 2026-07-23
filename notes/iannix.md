@@ -1,6 +1,6 @@
 # IanniX Score Engine Notes
 
-Last updated: 2026-07-22
+Last updated: 2026-07-23
 
 This note records Drawerator's first IanniX-inspired score slice. It adapts the concepts from the local IanniX project without coupling score semantics to its original renderer or OSC layer.
 
@@ -40,7 +40,7 @@ Score metadata lives beside modifier metadata in `element.customData.iannix`:
 }
 ```
 
-The independent dockable **IanniX** panel edits these properties. Its Object, Data, and Script tabs separate role configuration, compact custom data, trusted script catalogs, and one-line commands from the Mods & FX rendering stack. A multi-selection exposes batch role assignment and allocates conflict-free role labels such as `Curve 1`, `Curve 2`, and `Cursor 1` in one history transaction. Same-role selections also expose a shared Data editor: mixed primitive values appear blank, edits apply atomically to every compatible selected object, and `${n}` label templates expand in stable one-based scene order.
+The independent dockable **IanniX** panel edits these properties. Its Object and Data tabs separate role configuration and compact custom data from the Mods & FX rendering stack. Trusted script catalogs and one-line commands live in the standalone typed **Script** panel under the **IanniX** script type. A multi-selection exposes batch role assignment and allocates conflict-free role labels such as `Curve 1`, `Curve 2`, and `Cursor 1` in one history transaction. Same-role selections also expose a shared Data editor: mixed primitive values appear blank, edits apply atomically to every compatible selected object, and `${n}` label templates expand in stable one-based scene order.
 
 ## Global and local time
 
@@ -108,7 +108,7 @@ Brush and IanniX editors use the same typed script-parameter parser. A native Ia
 ask("Lines", "Quantity", "indexMax", 30);
 ```
 
-automatically creates a slider in the IanniX Script tab, persists its value with that saved script, and supplies the selected value to `ask()` during execution. Drawerator infers a useful range when the IanniX source provides only a default. Authors can refine the slider with the same annotation used by brush scripts:
+automatically creates a themed numeric field for the IanniX adapter in the standalone Script panel, persists its value with that saved script, and supplies the selected value to `ask()` during execution. Drawerator infers a useful range when the IanniX source provides only a default. Authors can refine the field with the same annotation used by brush scripts:
 
 ```js
 // @param indexMax = 30 (1..100, step: 1)

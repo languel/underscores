@@ -820,6 +820,31 @@ body .excalidraw .sidebar {
   border-radius: 6px;
 }
 
+.drawerator-panel-floating-minimized {
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
+}
+
+.drawerator-panel-floating-minimized .drawerator-panel-header {
+  width: 42px;
+  height: 42px;
+  min-height: 42px;
+  padding: 8px;
+  justify-content: center;
+  border-bottom: 0;
+}
+
+.drawerator-panel-floating-minimized .drawerator-panel-heading {
+  gap: 0;
+}
+
+.drawerator-panel-floating-minimized .drawerator-panel-heading > span,
+.drawerator-panel-floating-minimized .drawerator-panel-body,
+.drawerator-panel-floating-minimized .drawerator-floating-resize-handle {
+  display: none;
+}
+
 .drawerator-panel-left.drawerator-panel-collapsed {
   transform: translateX(calc(-100% + 5px));
 }
@@ -1301,7 +1326,9 @@ body .excalidraw .sidebar {
   padding: 3px;
   border: 1px solid var(--border-color, rgba(128, 128, 128, 0.35));
   border-radius: 5px;
-  background: var(--island-bg-color, #ffffff);
+  background: var(--drawerator-panel-bg, var(--island-bg-color, #ffffff));
+  color: var(--color-primary, currentColor);
+  box-shadow: none;
 }
 
 .panel-placement-menu.menu-up {
@@ -1464,7 +1491,7 @@ body .excalidraw .sidebar {
   width: 100%;
   padding: 6px 8px;
   border-radius: 6px;
-  background: var(--color-bg-hover, rgba(255, 255, 255, 0.05));
+  background: var(--drawerator-panel-bg, var(--island-bg-color, rgba(255, 255, 255, 0.05)));
   color: var(--color-primary);
   border: 1px solid var(--border-color);
   font-size: 12px;
@@ -1498,26 +1525,27 @@ body .excalidraw .sidebar {
 }
 
 .custom-brush-status-success {
-  padding: 6px 10px;
-  background: rgba(16, 185, 129, 0.08);
-  border: 1px solid rgba(16, 185, 129, 0.2);
-  border-radius: 6px;
+  padding: 2px 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   color: var(--color-success, #10b981);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: inherit;
+  font-weight: 400;
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
 .custom-brush-status-error {
-  padding: 6px 10px;
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  border-radius: 6px;
+  padding: 2px 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   color: var(--color-danger, #ef4444);
-  font-size: 11px;
-  font-family: monospace;
+  font-size: inherit;
+  font-family: inherit;
+  font-weight: 400;
   white-space: pre-wrap;
   display: flex;
   flex-direction: column;
@@ -1594,9 +1622,40 @@ body .excalidraw .sidebar {
 
 .script-icon-toolbar {
   display: flex;
+  align-items: center;
   flex-wrap: nowrap;
   gap: 6px;
   margin-top: 2px;
+}
+
+.script-font-size-control {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  color: var(--color-secondary);
+  font-size: 10px;
+}
+
+.script-font-size-control input {
+  width: 48px;
+  height: 28px;
+}
+
+.script-font-size-control input,
+.iannix-script-parameter input[type="number"] {
+  color: var(--color-primary);
+  background: var(--drawerator-input-bg, var(--input-bg-color, transparent));
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.drawerator-theme-light .script-panel-editor input[type="number"] {
+  color-scheme: light;
+}
+
+.drawerator-theme-dark .script-panel-editor input[type="number"] {
+  color-scheme: dark;
 }
 
 .script-icon-button {
@@ -1726,6 +1785,78 @@ body .excalidraw .sidebar {
 
 .iannix-script-pane {
   gap: 8px;
+}
+
+.script-panel {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  color: var(--color-primary);
+}
+
+.script-panel-type {
+  display: grid;
+  grid-template-columns: minmax(86px, 0.7fr) minmax(0, 1.3fr);
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  color: var(--color-secondary);
+  font-size: 11px;
+}
+
+.script-panel-type select {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+}
+
+.script-panel-editor select.custom-brush-select,
+.script-panel-editor select.custom-brush-select option {
+  background-color: var(--drawerator-panel-bg, var(--island-bg-color)) !important;
+}
+
+.script-panel-description {
+  flex: 0 0 auto;
+  margin: 0;
+  color: var(--color-secondary);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.script-panel-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.script-panel-editor > * {
+  min-height: 100%;
+}
+
+.script-panel-editor .custom-brush-textarea {
+  order: 99;
+  flex: 1 1 auto;
+  min-height: 0;
+  resize: none;
+  font-family: monospace;
+  font-size: var(--script-editor-font-size, 12px);
+  background: var(--drawerator-timeline-lane-bg, var(--input-bg-color, rgba(0, 0, 0, 0.1)));
+}
+
+.script-panel-editor .custom-brush-status-success,
+.script-panel-editor .custom-brush-status-error,
+.script-panel-editor .iannix-command-line,
+.script-panel-editor .iannix-midi-status {
+  order: 100;
+  flex: 0 0 auto;
+}
+
+.script-panel-editor .iannix-script-pane {
+  height: 100%;
+  min-height: 0;
 }
 
 .iannix-script-parameters {
@@ -2307,7 +2438,7 @@ a.iannix-flat-button {
 
 .iannix-transport .panel-placement-menu {
   border-color: var(--transport-border);
-  background: var(--transport-bg);
+  background: var(--drawerator-panel-bg, var(--transport-bg));
   color: var(--transport-text);
 }
 
@@ -3057,18 +3188,29 @@ a.iannix-flat-button {
 .settings-color-control input[type="color"] {
   width: 36px;
   height: 30px;
-  padding: 2px;
+  box-sizing: border-box;
+  appearance: none;
+  padding: 0;
+  overflow: hidden;
   border: 1px solid var(--border-color);
   border-radius: 5px;
-  background: transparent;
+  background-clip: border-box;
   cursor: pointer;
+}
+
+.settings-color-control input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.settings-color-control input[type="color"]::-webkit-color-swatch {
+  border: 0;
+  border-radius: inherit;
 }
 
 .settings-color-control input[type="text"] {
   min-width: 0;
   padding: 5px 6px;
   font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
-  text-transform: uppercase;
 }
 
 .settings-color-control input[type="range"] {
@@ -3282,15 +3424,17 @@ a.iannix-flat-button {
 }
 
 .shortcuts-panel {
-  gap: 3px;
+  gap: 1px;
+  padding-top: 9px;
+  padding-bottom: 9px;
 }
 
 .shortcut-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  min-height: 25px;
+  gap: 8px;
+  min-height: 22px;
   color: var(--color-primary);
   font-size: 12px;
 }
@@ -3307,10 +3451,11 @@ a.iannix-flat-button {
 
 .shortcut-binding {
   min-width: 92px;
-  padding: 3px 8px;
-  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
-  border-radius: 6px;
-  background: var(--input-bg-color, rgba(128, 128, 128, 0.08));
+  height: 22px;
+  padding: 1px 8px;
+  border: 1px solid var(--drawerator-input-border, var(--border-color, rgba(128, 128, 128, 0.3)));
+  border-radius: var(--drawerator-ui-control-radius, 5px);
+  background: var(--drawerator-input-bg, var(--input-bg-color, rgba(128, 128, 128, 0.08)));
   color: inherit;
   font: inherit;
   text-align: center;

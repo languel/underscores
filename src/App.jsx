@@ -63,6 +63,8 @@ import {
 } from "./expressiveSynth.js";
 import { createExpressiveSynthDemoScore } from "./expressiveSynthDemo.js";
 import ShortcutsPanel from "./ShortcutsPanel.jsx";
+import ScriptPanel from "./ScriptPanel.jsx";
+import { normalizeScriptType } from "./scriptTypes.js";
 import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
 import { stepStrokeWidth } from "./strokeWidthShortcuts.js";
@@ -225,23 +227,68 @@ const cleanApiUrl = (url, provider) => {
   return clean;
 };
 
-const colorWithOpacity = (hex, opacity) => {
-  const value = String(hex || "").replace("#", "");
-  if (!/^[0-9a-f]{6}$/i.test(value)) return hex;
-  const channels = [0, 2, 4].map(index => parseInt(value.slice(index, index + 2), 16));
-  return `rgba(${channels.join(", ")}, ${Math.min(100, Math.max(0, Number(opacity))) / 100})`;
+const CSS_COLOR_HELP = "Accepts CSS color values: hex (#rgb, #rrggbb, #rrggbbaa), named colors (red), rgb()/rgba(), hsl()/hsla(), hwb(), lab(), lch(), oklab(), and oklch(). The separate percentage multiplies the color's own alpha.";
+
+const resolveCssColor = color => {
+  const source = String(color || "").trim();
+  if (!source) return null;
+  const shortHex = source.match(/^#([0-9a-f]{3,4})$/i);
+  const longHex = source.match(/^#([0-9a-f]{6})([0-9a-f]{2})?$/i);
+  if (shortHex || longHex) {
+    const hex = (shortHex
+      ? shortHex[1].split("").map(channel => channel + channel).join("")
+      : `${longHex[1]}${longHex[2] || ""}`).toLowerCase();
+    return {
+      red: parseInt(hex.slice(0, 2), 16),
+      green: parseInt(hex.slice(2, 4), 16),
+      blue: parseInt(hex.slice(4, 6), 16),
+      alpha: hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1,
+    };
+  }
+  if (typeof document === "undefined") return null;
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  const sentinel = "#010203";
+  context.fillStyle = sentinel;
+  context.fillStyle = source;
+  const resolved = String(context.fillStyle || "");
+  if (resolved === sentinel && source.toLowerCase() !== sentinel) return null;
+  const match = resolved.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/i);
+  if (!match) return resolveCssColor(resolved);
+  return {
+    red: Math.round(Number(match[1])),
+    green: Math.round(Number(match[2])),
+    blue: Math.round(Number(match[3])),
+    alpha: match[4] === undefined ? 1 : Math.min(1, Math.max(0, Number(match[4]))),
+  };
+};
+
+const isCssColor = color => Boolean(resolveCssColor(color));
+
+const colorInputHex = (color, fallback = "#000000") => {
+  const resolved = resolveCssColor(color);
+  if (!resolved) return fallback;
+  return `#${[resolved.red, resolved.green, resolved.blue]
+    .map(channel => Math.min(255, Math.max(0, channel)).toString(16).padStart(2, "0"))
+    .join("")}`;
+};
+
+const colorWithOpacity = (color, opacity) => {
+  const resolved = resolveCssColor(color);
+  if (!resolved) return color;
+  const alpha = resolved.alpha * Math.min(100, Math.max(0, Number(opacity))) / 100;
+  return `rgba(${resolved.red}, ${resolved.green}, ${resolved.blue}, ${alpha})`;
 };
 
 // Excalidraw filters its entire drawing canvas in dark mode. Pre-transform the
 // authored canvas color so the visible result still matches the theme swatch.
-const canvasColorForExcalidraw = (hex, opacity, theme) => {
-  const value = String(hex || "").replace("#", "");
-  if (!/^[0-9a-f]{6}$/i.test(value)) return hex;
-  const alpha = Math.round(Math.min(100, Math.max(0, Number(opacity))) / 100 * 255)
-    .toString(16)
-    .padStart(2, "0");
-  if (theme !== "dark") return `#${value}${alpha}`;
-  const desired = [0, 2, 4].map(index => parseInt(value.slice(index, index + 2), 16) / 255);
+const canvasColorForExcalidraw = (color, opacity, theme) => {
+  const resolved = resolveCssColor(color);
+  if (!resolved) return color;
+  const alpha = resolved.alpha * Math.min(100, Math.max(0, Number(opacity)));
+  if (theme !== "dark") return `rgba(${resolved.red}, ${resolved.green}, ${resolved.blue}, ${alpha / 100})`;
+  const desired = [resolved.red, resolved.green, resolved.blue].map(channel => channel / 255);
   const invertAmount = 0.93;
   const invertScale = 1 - 2 * invertAmount;
   const beforeHue = desired.map(channel => (channel - invertAmount) / invertScale);
@@ -251,7 +298,8 @@ const canvasColorForExcalidraw = (hex, opacity, theme) => {
     [0.426, 1.43, -0.856],
   ];
   const source = hue180.map(row => row.reduce((sum, coefficient, index) => sum + coefficient * beforeHue[index], 0));
-  return `#${source.map(channel => Math.round(Math.min(1, Math.max(0, channel)) * 255).toString(16).padStart(2, "0")).join("")}${alpha}`;
+  const channels = source.map(channel => Math.round(Math.min(1, Math.max(0, channel)) * 255));
+  return `rgba(${channels.join(", ")}, ${alpha / 100})`;
 };
 
 const DEFAULT_ROLE_THEME = {
@@ -290,6 +338,32 @@ const INTERFACE_THEME_PRESETS = {
       timeline: { color: "#121212", opacity: 100 },
       canvas: { color: "#121212", opacity: 100 },
       grid: { color: "#c9cdd2", opacity: 24 },
+    },
+  },
+  transparentLight: {
+    label: "Transparent Light",
+    theme: "light",
+    accent: { color: "#353a3f", opacity: 50 },
+    highlight: { color: "#353a3f", opacity: 10 },
+    surfaces: {
+      panel: { color: "#f4f4f4", opacity: 0 },
+      input: { color: "#f4f4f4", opacity: 0 },
+      timeline: { color: "#f4f4f4", opacity: 0 },
+      canvas: { color: "#f4f4f4", opacity: 0 },
+      grid: { color: "#353a3f", opacity: 25 },
+    },
+  },
+  transparentDark: {
+    label: "Transparent Dark",
+    theme: "dark",
+    accent: { color: "#c9cdd2", opacity: 50 },
+    highlight: { color: "#c9cdd2", opacity: 10 },
+    surfaces: {
+      panel: { color: "#121212", opacity: 0 },
+      input: { color: "#121212", opacity: 0 },
+      timeline: { color: "#121212", opacity: 0 },
+      canvas: { color: "#121212", opacity: 0 },
+      grid: { color: "#c9cdd2", opacity: 25 },
     },
   },
   draweratorLight: {
@@ -371,11 +445,11 @@ const normalizeCustomThemes = value => {
       label,
       theme: preset.theme,
       accent: {
-        color: /^#[0-9a-f]{6}$/i.test(preset.accent?.color || "") ? preset.accent.color : "#6b7173",
+        color: isCssColor(preset.accent?.color) ? String(preset.accent.color).trim() : "#6b7173",
         opacity: Math.min(100, Math.max(0, Number(preset.accent?.opacity) || 0)),
       },
       highlight: {
-        color: /^#[0-9a-f]{6}$/i.test(preset.highlight?.color || "") ? preset.highlight.color : "#8f9698",
+        color: isCssColor(preset.highlight?.color) ? String(preset.highlight.color).trim() : "#8f9698",
         opacity: Math.min(100, Math.max(0, Number(preset.highlight?.opacity) || 0)),
       },
       surfaces: normalizeInterfaceTheme(preset.surfaces, preset.theme),
@@ -392,7 +466,7 @@ const normalizeInterfaceTheme = (value, theme = "dark") => {
   return Object.fromEntries(["panel", "input", "timeline", "canvas", "grid"].map(key => {
     const entry = source[key] && typeof source[key] === "object" ? source[key] : {};
     return [key, {
-      color: /^#[0-9a-f]{6}$/i.test(entry.color || "") ? entry.color : fallback[key].color,
+      color: isCssColor(entry.color) ? String(entry.color).trim() : fallback[key].color,
       opacity: Number.isFinite(Number(entry.opacity)) ? Math.min(100, Math.max(0, Number(entry.opacity))) : fallback[key].opacity,
     }];
   }));
@@ -409,6 +483,21 @@ const ScriptActionIcon = ({ type }) => {
   };
   return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[type]}</svg>;
 };
+
+const ScriptFontSizeControl = ({ value, onChange }) => (
+  <label className="script-font-size-control" title="Script editor font size">
+    <span>Font</span>
+    <input
+      type="number"
+      min="8"
+      max="32"
+      step="1"
+      value={value}
+      onChange={event => onChange(Number(event.target.value))}
+      aria-label="Script editor font size"
+    />
+  </label>
+);
 
 const PRESET_BRUSHES = {
   simple: {
@@ -1620,9 +1709,9 @@ function App() {
   });
   const [openPanels, setOpenPanels] = useState(() => {
     try {
-      return { chat: false, settings: false, mods: true, iannix: false, mixer: false, synth: false, info: false, console: false, history: false, properties: false, outliner: false, grid: true, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
+      return { chat: false, settings: false, mods: true, script: false, iannix: false, mixer: false, synth: false, info: false, console: false, history: false, properties: false, outliner: false, grid: true, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
     } catch {
-      return { chat: false, settings: false, mods: true, iannix: false, mixer: false, synth: false, info: false, console: false, history: false, properties: false, outliner: false, grid: true };
+      return { chat: false, settings: false, mods: true, script: false, iannix: false, mixer: false, synth: false, info: false, console: false, history: false, properties: false, outliner: false, grid: true };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
@@ -1666,6 +1755,11 @@ function App() {
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
   const [modsPanelTab, setModsPanelTab] = useState("stack");
   const [iannixPanelTab, setIannixPanelTab] = useState("data");
+  const [scriptPanelType, setScriptPanelType] = useState(() => normalizeScriptType(localStorage.getItem("drawerator_script_panel_type")));
+  const [scriptEditorFontSize, setScriptEditorFontSize] = useState(() => {
+    const saved = Number(localStorage.getItem("drawerator_script_editor_font_size"));
+    return Number.isFinite(saved) && saved >= 8 && saved <= 32 ? saved : 12;
+  });
   const [iannixScriptSource, setIannixScriptSource] = useState("");
   const [iannixCommandSource, setIannixCommandSource] = useState("");
   const [iannixScripts, setIannixScripts] = useState(() => {
@@ -2466,6 +2560,10 @@ function App() {
     localStorage.setItem("drawerator_panel_layout_v1", JSON.stringify(panelLayouts));
     localStorage.removeItem("drawerator_transport_position");
   }, [panelLayouts]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_script_panel_type", scriptPanelType);
+  }, [scriptPanelType]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_iannix_scripts", JSON.stringify(iannixScripts));
@@ -5875,7 +5973,10 @@ function App() {
     if (panel.id === "mods" && options.modsTab) {
       setModsPanelTab(options.modsTab);
     }
-    const forceOpen = Boolean(options.settingsTab || options.modsTab || options.open);
+    if (panel.id === "script" && options.scriptType) {
+      setScriptPanelType(normalizeScriptType(options.scriptType));
+    }
+    const forceOpen = Boolean(options.settingsTab || options.modsTab || options.scriptType || options.open);
     const placement = panelLayouts[panelId]?.placement;
     if (placement === PANEL_PLACEMENTS.BOTTOM) {
       const isFrontmostExpandedPanel = Boolean(
@@ -5946,6 +6047,24 @@ function App() {
     finishApplyingRecordedUiState();
   };
 
+  const pairedInterfaceThemePreset = targetTheme => {
+    if (!['light', 'dark'].includes(targetTheme) || interfaceThemePreset.startsWith('user:')) {
+      return targetTheme === 'light' ? 'monoLight' : DEFAULT_INTERFACE_THEME_PRESET;
+    }
+    const current = INTERFACE_THEME_PRESETS[interfaceThemePreset];
+    if (!current) return targetTheme === 'light' ? 'monoLight' : DEFAULT_INTERFACE_THEME_PRESET;
+    const family = current.label.replace(/\s+(light|dark)$/i, '').trim().toLocaleLowerCase();
+    const paired = Object.entries(INTERFACE_THEME_PRESETS).find(([, preset]) => (
+      preset.theme === targetTheme &&
+      preset.label.replace(/\s+(light|dark)$/i, '').trim().toLocaleLowerCase() === family
+    ));
+    return paired?.[0] || (targetTheme === 'light' ? 'monoLight' : DEFAULT_INTERFACE_THEME_PRESET);
+  };
+
+  const toggleDraweratorTheme = (api = excalidrawAPI, targetTheme = theme === 'dark' ? 'light' : 'dark') => {
+    applyDraweratorThemePreset(pairedInterfaceThemePreset(targetTheme), api);
+  };
+
   const saveCurrentCustomTheme = () => {
     const label = customThemeName.trim();
     if (!label) return;
@@ -5997,7 +6116,7 @@ function App() {
     { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => { applyingRecordedUiStateRef.current = true; setSatoriMode(prev => !prev); finishApplyingRecordedUiState(); } },
     { id: "toggle-theme", name: "Toggle Dark/Light Theme", category: "View", action: (api) => {
-      applyDraweratorThemePreset(theme === "dark" ? "draweratorLight" : "draweratorDark", api);
+      toggleDraweratorTheme(api);
     } },
     { id: "toggle-chat", name: "Toggle AI Assistant Chat", category: "AI Chat", action: () => toggleDraweratorPanel("chat") },
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
@@ -6169,8 +6288,8 @@ function App() {
           return;
         }
         if (shortcutAction.id === "mods.script.open") {
-          setModsPanelTab("script");
-          commandRegistry.execute("panel-mods", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
+          setScriptPanelType("brush");
+          commandRegistry.execute("panel-script", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
           return;
         }
         if (shortcutAction.id === "mods.float.toggle") {
@@ -7214,6 +7333,7 @@ function App() {
         collapsedDocks,
         activeSettingsTab,
         modsPanelTab,
+        scriptPanelType,
       },
     };
   };
@@ -7231,6 +7351,7 @@ function App() {
         if (presentation.collapsedDocks) setCollapsedDocks(presentation.collapsedDocks);
         if (presentation.activeSettingsTab) setActiveSettingsTab(presentation.activeSettingsTab);
         if (presentation.modsPanelTab) setModsPanelTab(presentation.modsPanelTab);
+        if (presentation.scriptPanelType) setScriptPanelType(normalizeScriptType(presentation.scriptPanelType));
         excalidrawAPIRef.current.updateScene({
           appState: {
             selectedElementIds: presentation.selectedElementIds || {},
@@ -7464,6 +7585,7 @@ function App() {
     if (state.collapsedDocks) setCollapsedDocks(state.collapsedDocks);
     if (typeof state.activeSettingsTab === "string") setActiveSettingsTab(state.activeSettingsTab);
     if (typeof state.modsPanelTab === "string") setModsPanelTab(state.modsPanelTab);
+    if (typeof state.scriptPanelType === "string") setScriptPanelType(normalizeScriptType(state.scriptPanelType));
     finishApplyingRecordedUiState();
   };
   runtimeCallbacksRef.current.boardSettingsUpdate = state => {
@@ -7555,7 +7677,7 @@ function App() {
   }, [commandRegistry, followMidiClockTempo, followMidiTransport, historyController, midiClockMode, scorePlaying, scoreRate, scoreSampleRate, scoreTempo, scoreTimeSignature, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopEndValue, transportLoopStart, transportLoopStartValue]);
 
   useEffect(() => {
-    const state = { openPanels, panelLayouts, activeDockPanels, collapsedDocks, activeSettingsTab, modsPanelTab };
+    const state = { openPanels, panelLayouts, activeDockPanels, collapsedDocks, activeSettingsTab, modsPanelTab, scriptPanelType };
     const signature = JSON.stringify(state);
     const previous = panelStateRecordingRef.current?.signature ?? null;
     window.clearTimeout(panelStateRecordingRef.current?.timer);
@@ -7571,7 +7693,7 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record panel presentation", error));
     }, 180);
-  }, [activeDockPanels, activeSettingsTab, collapsedDocks, commandRegistry, historyController, historyIncludePresentation, modsPanelTab, openPanels, panelLayouts]);
+  }, [activeDockPanels, activeSettingsTab, collapsedDocks, commandRegistry, historyController, historyIncludePresentation, modsPanelTab, openPanels, panelLayouts, scriptPanelType]);
 
   useEffect(() => {
     const state = {
@@ -8105,7 +8227,7 @@ function App() {
       );
       setActiveIannixScriptId(scriptId);
       setIannixScriptSource(source);
-      setIannixPanelTab("script");
+      toggleDraweratorPanel("script", { open: true, scriptType: "iannix" });
       await commandRegistry.execute("iannix.import.trusted", {
         source,
         filename: file.name,
@@ -8750,7 +8872,6 @@ function App() {
     };
     return (
       <div className="iannix-properties iannix-script-pane">
-          <label className="iannix-section-title" htmlFor="iannix-script-select">IanniX Script</label>
           <select id="iannix-script-select" className="custom-brush-select" value={activeIannixScriptId} onChange={event => {
             const script = iannixScripts.find(candidate => candidate.id === event.target.value);
             setActiveIannixScriptId(event.target.value);
@@ -8818,6 +8939,11 @@ function App() {
             <button type="button" className="palette-action-btn secondary script-icon-button" title="New script" aria-label="New script" onClick={createScript}><ScriptActionIcon type="add" /></button>
             <button type="button" className="palette-action-btn secondary script-icon-button" title="Import trusted .iannix" aria-label="Import trusted .iannix" onClick={() => iannixImportInputRef.current?.click()}><ScriptActionIcon type="import" /></button>
             <button type="button" className="palette-action-btn danger script-icon-button" title="Delete script" aria-label="Delete script" onClick={deleteScript} disabled={!activeScript}><ScriptActionIcon type="remove" /></button>
+            <ScriptFontSizeControl value={scriptEditorFontSize} onChange={value => {
+              if (!Number.isFinite(value) || value < 8 || value > 32) return;
+              setScriptEditorFontSize(value);
+              localStorage.setItem("drawerator_script_editor_font_size", String(value));
+            }} />
           </div>
           <form className="iannix-command-line" onSubmit={event => { event.preventDefault(); runCommand(); }} {...infoProps("IanniX command line", "Cmd/Ctrl+Enter runs the editor. Scripts are saved in this browser's localStorage. The command line executes its value as run(\"...\").")}>
             <input
@@ -9521,7 +9647,7 @@ function App() {
                             setActiveBrushId(brushId);
                             setActiveBrushCode(editorCode);
                             setBrushParams(editorParams);
-                            setModsPanelTab("script");
+                            toggleDraweratorPanel("script", { open: true, scriptType: "brush" });
                           }}
                           style={{
                             background: "none",
@@ -10330,6 +10456,16 @@ function App() {
       updateGlobalGridSetting({ appearance: { opacity: nextEntry.opacity / 100 } });
     }
   };
+  const commitCssColor = (event, currentValue, commit) => {
+    const nextValue = event.currentTarget.value.trim();
+    if (isCssColor(nextValue)) commit(nextValue);
+    else event.currentTarget.value = currentValue;
+  };
+  const commitCssColorOnEnter = (event, currentValue, commit) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    commitCssColor(event, currentValue, commit);
+  };
   const applyInterfaceThemePreset = presetId => {
     applyDraweratorThemePreset(presetId);
   };
@@ -10438,20 +10574,20 @@ function App() {
                 <button type="button" className="iannix-flat-button" onClick={deleteSelectedCustomTheme}>Delete</button>
               )}
             </div>
-            <label className="settings-panel-field" {...infoProps("Accent color", "Color and opacity used for active controls and Drawerator accents.")}>
+            <label className="settings-panel-field" {...infoProps("Accent color", `Color and opacity used for active controls and Drawerator accents. ${CSS_COLOR_HELP}`)}>
               <span>Accent color</span>
-              <div className="settings-color-control">
-                <input type="color" value={accentColor} onChange={event => { setInterfaceThemePreset("custom"); setAccentColor(event.target.value); localStorage.setItem("drawerator_accent_color", event.target.value); }} aria-label="Accent color" />
-                <input key={accentColor} type="text" defaultValue={accentColor} onBlur={event => { if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) { setInterfaceThemePreset("custom"); setAccentColor(event.currentTarget.value); localStorage.setItem("drawerator_accent_color", event.currentTarget.value); } else event.currentTarget.value = accentColor; }} aria-label="Accent hex color" />
+              <div className="settings-color-control" {...infoProps("Accent color", CSS_COLOR_HELP)}>
+                <input type="color" value={colorInputHex(accentColor)} style={{ backgroundColor: accentColor }} onChange={event => { setInterfaceThemePreset("custom"); setAccentColor(event.target.value); localStorage.setItem("drawerator_accent_color", event.target.value); }} aria-label="Accent color picker" {...infoProps("Accent color", CSS_COLOR_HELP)} />
+                <input key={accentColor} type="text" defaultValue={accentColor} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, accentColor, value => { setInterfaceThemePreset("custom"); setAccentColor(value); localStorage.setItem("drawerator_accent_color", value); })} onKeyDown={event => commitCssColorOnEnter(event, accentColor, value => { setInterfaceThemePreset("custom"); setAccentColor(value); localStorage.setItem("drawerator_accent_color", value); })} aria-label="Accent color value" {...infoProps("Accent color", CSS_COLOR_HELP)} />
                 <input type="number" min="0" max="100" step="1" data-default="100" value={accentOpacity} onChange={event => { const value = Number(event.target.value); setInterfaceThemePreset("custom"); setAccentOpacity(value); localStorage.setItem("drawerator_accent_opacity", String(value)); }} aria-label="Accent opacity" />
                 <output>%</output>
               </div>
             </label>
-            <label className="settings-panel-field" {...infoProps("Hover highlight", "Color and opacity used for passive hover and toggle highlights.")}>
+            <label className="settings-panel-field" {...infoProps("Hover highlight", `Color and opacity used for passive hover and toggle highlights. ${CSS_COLOR_HELP}`)}>
               <span>Hover highlight</span>
-              <div className="settings-color-control">
-                <input type="color" value={highlightColor} onChange={event => { setInterfaceThemePreset("custom"); setHighlightColor(event.target.value); localStorage.setItem("drawerator_highlight_color", event.target.value); }} aria-label="Hover highlight color" />
-                <input key={highlightColor} type="text" defaultValue={highlightColor} onBlur={event => { if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) { setInterfaceThemePreset("custom"); setHighlightColor(event.currentTarget.value); localStorage.setItem("drawerator_highlight_color", event.currentTarget.value); } else event.currentTarget.value = highlightColor; }} aria-label="Hover highlight hex color" />
+              <div className="settings-color-control" {...infoProps("Hover highlight", CSS_COLOR_HELP)}>
+                <input type="color" value={colorInputHex(highlightColor)} style={{ backgroundColor: highlightColor }} onChange={event => { setInterfaceThemePreset("custom"); setHighlightColor(event.target.value); localStorage.setItem("drawerator_highlight_color", event.target.value); }} aria-label="Hover highlight color picker" {...infoProps("Hover highlight", CSS_COLOR_HELP)} />
+                <input key={highlightColor} type="text" defaultValue={highlightColor} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, highlightColor, value => { setInterfaceThemePreset("custom"); setHighlightColor(value); localStorage.setItem("drawerator_highlight_color", value); })} onKeyDown={event => commitCssColorOnEnter(event, highlightColor, value => { setInterfaceThemePreset("custom"); setHighlightColor(value); localStorage.setItem("drawerator_highlight_color", value); })} aria-label="Hover highlight color value" {...infoProps("Hover highlight", CSS_COLOR_HELP)} />
                 <input type="number" min="0" max="100" step="1" data-default="100" value={highlightOpacity} onChange={event => { const value = Number(event.target.value); setInterfaceThemePreset("custom"); setHighlightOpacity(value); localStorage.setItem("drawerator_highlight_opacity", String(value)); }} aria-label="Hover highlight opacity" />
                 <output>%</output>
               </div>
@@ -10459,7 +10595,7 @@ function App() {
             {[
               ["panel", "Panel background", "Background shared by docked and floating Drawerator panels."],
               ["input", "Input field", "Background used by number boxes, text fields, dropdowns, and other editable controls."],
-              ["timeline", "Timeline lane", "Background behind events and automation keyframes. The active loop remains a subtle accent overlay."],
+              ["timeline", "Subpanel background", "Background shared by nested work areas, including timeline lanes, mixer tracks, and script editors. The active loop remains a subtle accent overlay."],
               ["canvas", "Canvas", "Background of the Excalidraw drawing surface."],
               ["grid", "Grid", "Color and opacity shared by minor, major, and axis grid lines."],
             ].map(([key, label, help]) => {
@@ -10467,14 +10603,11 @@ function App() {
                 ? { ...interfaceTheme.grid, opacity: Math.round(globalGrid.appearance.opacity * 100) }
                 : interfaceTheme[key];
               return (
-                <label className="settings-panel-field" key={key} {...infoProps(label, help)}>
+                <label className="settings-panel-field" key={key} {...infoProps(label, `${help} ${CSS_COLOR_HELP}`)}>
                   <span>{label}</span>
-                  <div className="settings-color-control">
-                    <input type="color" value={entry.color} onChange={event => updateInterfaceThemeEntry(key, { color: event.target.value })} aria-label={`${label} color`} />
-                    <input key={entry.color} type="text" defaultValue={entry.color} onBlur={event => {
-                      if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) updateInterfaceThemeEntry(key, { color: event.currentTarget.value });
-                      else event.currentTarget.value = entry.color;
-                    }} aria-label={`${label} hex color`} />
+                  <div className="settings-color-control" {...infoProps(`${label} color`, CSS_COLOR_HELP)}>
+                    <input type="color" value={colorInputHex(entry.color)} style={{ backgroundColor: entry.color }} onChange={event => updateInterfaceThemeEntry(key, { color: event.target.value })} aria-label={`${label} color picker`} {...infoProps(label, CSS_COLOR_HELP)} />
+                    <input key={entry.color} type="text" defaultValue={entry.color} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, entry.color, value => updateInterfaceThemeEntry(key, { color: value }))} onKeyDown={event => commitCssColorOnEnter(event, entry.color, value => updateInterfaceThemeEntry(key, { color: value }))} aria-label={`${label} color value`} {...infoProps(label, CSS_COLOR_HELP)} />
                     <input type="number" min="0" max="100" step="1" data-default={key === "grid" ? "32" : "100"} value={entry.opacity} onChange={event => updateInterfaceThemeEntry(key, { opacity: Number(event.target.value) })} aria-label={key === "grid" ? "Global grid opacity" : `${label} opacity`} />
                     <output>%</output>
                   </div>
@@ -10496,14 +10629,11 @@ function App() {
                 ].map(([key, label]) => {
                   const entry = roleTheme[key];
                   return (
-                    <label className="settings-panel-field" key={key}>
+                    <label className="settings-panel-field" key={key} {...infoProps(label, CSS_COLOR_HELP)}>
                       <span>{label}</span>
-                      <div className="settings-color-control">
-                        <input type="color" value={entry.color} onChange={event => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: event.target.value } }))} aria-label={`${label} color`} />
-                        <input key={entry.color} type="text" defaultValue={entry.color} onBlur={event => {
-                          if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: event.currentTarget.value } }));
-                          else event.currentTarget.value = entry.color;
-                        }} aria-label={`${label} hex color`} />
+                      <div className="settings-color-control" {...infoProps(`${label} color`, CSS_COLOR_HELP)}>
+                        <input type="color" value={colorInputHex(entry.color)} style={{ backgroundColor: entry.color }} onChange={event => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: event.target.value } }))} aria-label={`${label} color picker`} {...infoProps(label, CSS_COLOR_HELP)} />
+                        <input key={entry.color} type="text" defaultValue={entry.color} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, entry.color, value => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: value } })))} onKeyDown={event => commitCssColorOnEnter(event, entry.color, value => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: value } })))} aria-label={`${label} color value`} {...infoProps(label, CSS_COLOR_HELP)} />
                         <input type="number" min="0" max="100" step="1" data-default={DEFAULT_ROLE_THEME[key].opacity} value={entry.opacity} onChange={event => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], opacity: Number(event.target.value) } }))} aria-label={`${label} opacity`} />
                         <output>%</output>
                       </div>
@@ -10714,7 +10844,6 @@ function App() {
       <div style={{ display: "flex", flexDirection: "column", gap: "10px", height: "100%" }}>
         {/* Script selector */}
         <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-          <label style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-primary)", opacity: 0.8 }}>Brush Script</label>
           <select
               value={activeBrushId}
               onChange={(e) => {
@@ -10754,16 +10883,11 @@ function App() {
               onBlur={() => syncEditorDraftToModifier(true)}
               className="custom-brush-textarea"
               style={{
-                fontFamily: "monospace",
-                fontSize: "11px",
                 padding: "8px",
                 borderRadius: "6px",
                 border: "1px solid var(--border-color)",
-                background: "var(--input-bg-color, rgba(0, 0, 0, 0.05))",
                 color: "var(--color-primary)",
-                resize: "vertical",
                 width: "100%",
-                minHeight: "420px",
                 flexGrow: 1,
                 outline: "none"
               }}
@@ -10817,6 +10941,11 @@ function App() {
                   title="Delete this custom brush"
                 ><ScriptActionIcon type="remove" /></button>
               )}
+              <ScriptFontSizeControl value={scriptEditorFontSize} onChange={value => {
+                if (!Number.isFinite(value) || value < 8 || value > 32) return;
+                setScriptEditorFontSize(value);
+                localStorage.setItem("drawerator_script_editor_font_size", String(value));
+              }} />
             </div>
 
             {saveAsBrushName !== null && (
@@ -11449,7 +11578,9 @@ function App() {
               lastStrokeColorRef.current = appState.currentItemStrokeColor;
             }
             if (!applyingRecordedUiStateRef.current && appState.theme && appState.theme !== theme) {
-              setTheme(appState.theme);
+              // Excalidraw's native theme shortcut only changes its color mode.
+              // Keep Drawerator's surface palette paired with that mode instead.
+              toggleDraweratorTheme(excalidrawAPI, appState.theme);
             }
              if (
               appState.viewBackgroundColor &&
@@ -11484,6 +11615,9 @@ function App() {
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-mods", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Mods &amp; FX
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-script", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              Script
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-iannix", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               IanniX
@@ -12226,8 +12360,6 @@ function App() {
 
                   return (
                     <div className="modifiers-header-actions">
-                      {modsPanelTab === "stack" && (
-                        <>
                           <button
                             className={`header-btn ${customBrushActive ? "active" : ""}`}
                             onClick={() => {
@@ -12343,37 +12475,13 @@ function App() {
                               </svg>
                             </button>
                           )}
-                        </>
-                      )}
                     </div>
                   );
                 })()}
               </div>
             </div>
             <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "16px", height: "calc(100% - 50px)", overflowY: "auto" }}>
-              <div
-                role="tablist"
-                aria-label="Mods and effects views"
-                className="mods-panel-tabs"
-              >
-                {[
-                  { id: "stack", label: "Stack" },
-                  { id: "script", label: "Script" },
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={modsPanelTab === tab.id}
-                    onClick={() => setModsPanelTab(tab.id)}
-                    className={`mods-panel-tab ${modsPanelTab === tab.id ? "active" : ""}`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              {modsPanelTab === "script" ? renderBrushConfigForm() : (() => {
+              {(() => {
                 const selectedElements = getSelectedElements();
                 if (selectedElements.length > 1) {
                   return (
@@ -12434,6 +12542,35 @@ function App() {
           </DraweratorPanel>
           )}
 
+          {shouldRenderPanel("script") && (
+          <DraweratorPanel
+            id="script"
+            title="Script"
+            placement={panelLayouts.script.placement}
+            layout={panelLayouts.script}
+            dockTabs={getPanelDockTabs("script")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.script.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("script", placement)}
+            onDragStart={event => startSidebarPanelDrag("script", event)}
+            onClose={() => closeDraweratorPanel("script")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.script.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.script.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.script.placement]: false }))}
+          >
+            <input ref={iannixImportInputRef} type="file" accept=".iannix,.js,text/javascript" hidden onChange={handleTrustedIannixFile} />
+            <ScriptPanel
+              type={scriptPanelType}
+              onTypeChange={value => setScriptPanelType(normalizeScriptType(value))}
+              editorFontSize={scriptEditorFontSize}
+            >
+              {scriptPanelType === "iannix" ? renderIannixScriptTab() : renderBrushConfigForm()}
+            </ScriptPanel>
+          </DraweratorPanel>
+          )}
+
           {shouldRenderPanel("iannix") && (
           <DraweratorPanel
             id="iannix"
@@ -12452,20 +12589,17 @@ function App() {
             collapsed={panelLayouts.iannix.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.iannix.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.iannix.placement]: false }))}
           >
-            <input ref={iannixImportInputRef} type="file" accept=".iannix,.js,text/javascript" hidden onChange={handleTrustedIannixFile} />
             <div className="drawerator-panel-secondary-header">
               <div role="tablist" aria-label="IanniX views" className="mods-panel-tabs">
-                {[{ id: "object", label: "Object" }, { id: "data", label: "Data" }, { id: "script", label: "Script" }].map(tab => (
+                {[{ id: "object", label: "Object" }, { id: "data", label: "Data" }].map(tab => (
                   <button key={tab.id} type="button" role="tab" aria-selected={iannixPanelTab === tab.id} className={`mods-panel-tab ${iannixPanelTab === tab.id ? "active" : ""}`} onClick={() => setIannixPanelTab(tab.id)}>{tab.label}</button>
                 ))}
               </div>
             </div>
             <div style={{ padding: "16px", height: "calc(100% - 50px)", overflowY: "auto" }}>
-              {iannixPanelTab === "script"
-                ? renderIannixScriptTab()
-                : iannixPanelTab === "data"
-                  ? <IannixDataPanel elements={getSelectedElements()} onChange={updateIannixDataPath} timeContext={timeContext} />
-                  : renderIannixTab()}
+              {iannixPanelTab === "data"
+                ? <IannixDataPanel elements={getSelectedElements()} onChange={updateIannixDataPath} timeContext={timeContext} />
+                : renderIannixTab()}
             </div>
           </DraweratorPanel>
           )}

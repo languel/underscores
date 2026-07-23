@@ -15,15 +15,16 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 - **Autocomplete Popover:** Typing `@` inside the prompt opens a dropdown suggestion list; navigate via `ArrowUp`/`ArrowDown` and select using `Enter`/`Tab`.
 - **Add Context (+) Drop-up Menu:** A quick-select footer menu to insert mentions, media elements, or skill actions into your prompt.
 - **Command Palette:** Instantly run commands, toggle states, change tools, or ask questions to the AI.
-- **Mono Themes & Transparent Canvas:** Mono Dark is the fresh-session default, with a matching Mono Light preset. Appearance settings can save complete named local themes, including panel/input/canvas/grid surfaces and role colors; canvas opacity can be set to zero for transparent-overlay hosts.
+- **Mono & Transparent Themes:** Mono Dark is the fresh-session default, with matching Mono Light plus paired Transparent Dark/Light presets for overlay use. Appearance settings can save complete named local themes, including panel/input/canvas/grid surfaces and role colors; switching light/dark preserves a matching built-in theme family when available. Theme colors accept CSS values such as named colors, hex, `rgb()`, `rgba()`, and modern CSS color functions.
 - **Recordable Sessions & Automation:** `/history` records commands, world-coordinate strokes, coalesced scene edits, score/MIDI events, and optional presentation state. Sessions can be edited, sought, replayed from their captured baseline, exported, or saved as reusable relative/absolute sequences.
 - **Object Auto-keying:** The transport records position, rotation, scale, opacity, styles, modifier/IanniX properties, and geometry snapshots into editable object automation tracks.
-- **Independent Dockable Panels:** AI Assistant, Mods & FX, IanniX, Mixer, Expressive Synth, Info, Settings, and Console each keep their own visibility and placement. Floating panels can coexist; panels docked to the same side become one compact tab group. Mixer, Timeline, and Info can share the bottom dock. Visibility, active tabs, collapsed docks, and layouts persist independently; toggle panels with `/chat`, `/mods`, `/iannix`, `/mixer`, `/synth`, `/info`, `/settings`, `/console`, and `/transport`.
+- **Independent Dockable Panels:** AI Assistant, Mods & FX, Script, IanniX, Mixer, Expressive Synth, Info, Settings, and Console each keep their own visibility and placement. Floating panels can coexist; panels docked to the same side become one compact tab group. Mixer, Timeline, and Info can share the bottom dock. Visibility, active tabs, collapsed docks, and layouts persist independently; toggle panels with `/chat`, `/mods`, `/script`, `/iannix`, `/mixer`, `/synth`, `/info`, `/settings`, `/console`, and `/transport`.
 - **Non-destructive Mods & FX:** Attach ordered geometric filters and multi-track brushes to freehand strokes or lines while retaining editable source points.
 - **Modifier Baking:** Bake a complete stack or one modifier at a time. Partial bakes become independently selectable artwork while the remaining stack stays live.
 - **Evolving Brushes:** Time-aware brushes can animate while the pointer is down, freeze per stroke on release, and optionally use a shared global clock.
 - **Shared Script Parameters:** Brush `@param` annotations and native IanniX `ask()` declarations use one typed parameter model, producing persistent sliders that are injected into script execution.
-- **Scriptable Brushes:** Edit or fork brush JavaScript in the Mods & FX **Script** tab. The editor is inert until its script is saved into the active stack.
+- **Typed Script Panel:** `/script` opens one dockable editor with Brush / modifier and IanniX adapters. Each type retains its own catalog, actions, execution environment, and shared parameter controls while the panel remains extensible to future script types.
+- **Scriptable Brushes:** Edit or fork brush JavaScript in the standalone **Script** panel. The editor is inert until its script is saved into the active stack.
 - **Canonical Bézier Paths:** Explicitly convert native lines or freehand paths into editable cubic Béziers. Versioned local-space anchors and handles remain canonical while an adaptive Excalidraw polyline supplies native selection, transforms, exports, and hit-testing.
 - **Drawerator Global Grid:** A scene-wide rectangular grid supports independent spacing and subdivisions, rotated origins, major/minor rendering, hard or magnetic snapping, configurable input/transform/point/generated targets, and beat/bar/second/frame conversion. It renders dotted while snapping is off and solid while snapping is active. Grid state is persisted with scenes and restored locally for new scenes.
 - **Selection Filter:** The bottom Grid panel can limit canvas and Outliner selection to any combination of IanniX curves, cursors, and triggers. “Anything” restores normal all-object selection, and the workspace preference is remembered locally.
@@ -46,7 +47,7 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 | `Cmd + ,` | Toggle the Settings sidebar |
 | `Ctrl + Opt + A` | Toggle AI Assistant Chat Sidebar |
 | `Ctrl + Opt + P` | Toggle Mods & FX Sidebar |
-| `Ctrl + Opt + B` | Open the Mods & FX Script tab |
+| `Ctrl + Opt + B` | Open the Script panel in Brush / modifier mode |
 | `Cmd + B` | Collapse / reveal the left dock |
 | `Cmd + Opt + B` | Collapse / reveal the right dock |
 | `Cmd + Shift + B` | Collapse / reveal the bottom dock |
@@ -73,7 +74,7 @@ Fresh sessions start in Mono Dark Satori pen mode with left, right, and bottom d
 
 Modifier operations participate in Excalidraw undo/redo. The panel icon is the unified placement control: click to activate its dock tab, drag to float or dock, and right-click for explicit placement or close actions. A click alone never detaches a panel. Resize a side dock from its canvas-facing edge, the bottom dock from its top edge, or a floating panel from its lower-right corner. Dragging a dock below its minimum size collapses it; drag or double-click its hidden edge handle to restore it. `Cmd + Opt + P` toggles Mods & FX between floating and right-docked placement.
 
-The **Script** tab is a code editor, not a second drawing mode. **Save** updates the attached modifier currently being edited. Built-in presets remain locked; **Save As** creates a user brush and, when editing a modifier, replaces only that modifier in the stack with the new brush.
+The standalone **Script** panel is a code editor, not a second drawing mode. Choose **Brush / modifier** as its script type. **Save** updates the attached modifier currently being edited. Built-in presets remain locked; **Save As** creates a user brush and, when editing a modifier, replaces only that modifier in the stack with the new brush.
 
 ## IanniX score workflow
 
