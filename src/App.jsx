@@ -63,6 +63,8 @@ import {
 } from "./expressiveSynth.js";
 import { createExpressiveSynthDemoScore } from "./expressiveSynthDemo.js";
 import ShortcutsPanel from "./ShortcutsPanel.jsx";
+import ScriptPanel from "./ScriptPanel.jsx";
+import { normalizeScriptType } from "./scriptTypes.js";
 import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
 import { stepStrokeWidth } from "./strokeWidthShortcuts.js";
@@ -481,6 +483,21 @@ const ScriptActionIcon = ({ type }) => {
   };
   return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[type]}</svg>;
 };
+
+const ScriptFontSizeControl = ({ value, onChange }) => (
+  <label className="script-font-size-control" title="Script editor font size">
+    <span>Font</span>
+    <input
+      type="number"
+      min="8"
+      max="32"
+      step="1"
+      value={value}
+      onChange={event => onChange(Number(event.target.value))}
+      aria-label="Script editor font size"
+    />
+  </label>
+);
 
 const PRESET_BRUSHES = {
   simple: {
@@ -1692,9 +1709,9 @@ function App() {
   });
   const [openPanels, setOpenPanels] = useState(() => {
     try {
-      return { chat: false, settings: false, mods: true, iannix: false, mixer: false, synth: false, info: false, console: false, history: false, properties: false, outliner: false, grid: true, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
+      return { chat: false, settings: false, mods: true, script: false, iannix: false, mixer: false, synth: false, info: false, console: false, history: false, properties: false, outliner: false, grid: true, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
     } catch {
-      return { chat: false, settings: false, mods: true, iannix: false, mixer: false, synth: false, info: false, console: false, history: false, properties: false, outliner: false, grid: true };
+      return { chat: false, settings: false, mods: true, script: false, iannix: false, mixer: false, synth: false, info: false, console: false, history: false, properties: false, outliner: false, grid: true };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
@@ -1738,6 +1755,11 @@ function App() {
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
   const [modsPanelTab, setModsPanelTab] = useState("stack");
   const [iannixPanelTab, setIannixPanelTab] = useState("data");
+  const [scriptPanelType, setScriptPanelType] = useState(() => normalizeScriptType(localStorage.getItem("drawerator_script_panel_type")));
+  const [scriptEditorFontSize, setScriptEditorFontSize] = useState(() => {
+    const saved = Number(localStorage.getItem("drawerator_script_editor_font_size"));
+    return Number.isFinite(saved) && saved >= 8 && saved <= 32 ? saved : 12;
+  });
   const [iannixScriptSource, setIannixScriptSource] = useState("");
   const [iannixCommandSource, setIannixCommandSource] = useState("");
   const [iannixScripts, setIannixScripts] = useState(() => {
@@ -2538,6 +2560,10 @@ function App() {
     localStorage.setItem("drawerator_panel_layout_v1", JSON.stringify(panelLayouts));
     localStorage.removeItem("drawerator_transport_position");
   }, [panelLayouts]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_script_panel_type", scriptPanelType);
+  }, [scriptPanelType]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_iannix_scripts", JSON.stringify(iannixScripts));
@@ -5947,7 +5973,10 @@ function App() {
     if (panel.id === "mods" && options.modsTab) {
       setModsPanelTab(options.modsTab);
     }
-    const forceOpen = Boolean(options.settingsTab || options.modsTab || options.open);
+    if (panel.id === "script" && options.scriptType) {
+      setScriptPanelType(normalizeScriptType(options.scriptType));
+    }
+    const forceOpen = Boolean(options.settingsTab || options.modsTab || options.scriptType || options.open);
     const placement = panelLayouts[panelId]?.placement;
     if (placement === PANEL_PLACEMENTS.BOTTOM) {
       const isFrontmostExpandedPanel = Boolean(
@@ -6259,8 +6288,8 @@ function App() {
           return;
         }
         if (shortcutAction.id === "mods.script.open") {
-          setModsPanelTab("script");
-          commandRegistry.execute("panel-mods", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
+          setScriptPanelType("brush");
+          commandRegistry.execute("panel-script", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
           return;
         }
         if (shortcutAction.id === "mods.float.toggle") {
@@ -7304,6 +7333,7 @@ function App() {
         collapsedDocks,
         activeSettingsTab,
         modsPanelTab,
+        scriptPanelType,
       },
     };
   };
@@ -7321,6 +7351,7 @@ function App() {
         if (presentation.collapsedDocks) setCollapsedDocks(presentation.collapsedDocks);
         if (presentation.activeSettingsTab) setActiveSettingsTab(presentation.activeSettingsTab);
         if (presentation.modsPanelTab) setModsPanelTab(presentation.modsPanelTab);
+        if (presentation.scriptPanelType) setScriptPanelType(normalizeScriptType(presentation.scriptPanelType));
         excalidrawAPIRef.current.updateScene({
           appState: {
             selectedElementIds: presentation.selectedElementIds || {},
@@ -7554,6 +7585,7 @@ function App() {
     if (state.collapsedDocks) setCollapsedDocks(state.collapsedDocks);
     if (typeof state.activeSettingsTab === "string") setActiveSettingsTab(state.activeSettingsTab);
     if (typeof state.modsPanelTab === "string") setModsPanelTab(state.modsPanelTab);
+    if (typeof state.scriptPanelType === "string") setScriptPanelType(normalizeScriptType(state.scriptPanelType));
     finishApplyingRecordedUiState();
   };
   runtimeCallbacksRef.current.boardSettingsUpdate = state => {
@@ -7645,7 +7677,7 @@ function App() {
   }, [commandRegistry, followMidiClockTempo, followMidiTransport, historyController, midiClockMode, scorePlaying, scoreRate, scoreSampleRate, scoreTempo, scoreTimeSignature, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopEndValue, transportLoopStart, transportLoopStartValue]);
 
   useEffect(() => {
-    const state = { openPanels, panelLayouts, activeDockPanels, collapsedDocks, activeSettingsTab, modsPanelTab };
+    const state = { openPanels, panelLayouts, activeDockPanels, collapsedDocks, activeSettingsTab, modsPanelTab, scriptPanelType };
     const signature = JSON.stringify(state);
     const previous = panelStateRecordingRef.current?.signature ?? null;
     window.clearTimeout(panelStateRecordingRef.current?.timer);
@@ -7661,7 +7693,7 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record panel presentation", error));
     }, 180);
-  }, [activeDockPanels, activeSettingsTab, collapsedDocks, commandRegistry, historyController, historyIncludePresentation, modsPanelTab, openPanels, panelLayouts]);
+  }, [activeDockPanels, activeSettingsTab, collapsedDocks, commandRegistry, historyController, historyIncludePresentation, modsPanelTab, openPanels, panelLayouts, scriptPanelType]);
 
   useEffect(() => {
     const state = {
@@ -8195,7 +8227,7 @@ function App() {
       );
       setActiveIannixScriptId(scriptId);
       setIannixScriptSource(source);
-      setIannixPanelTab("script");
+      toggleDraweratorPanel("script", { open: true, scriptType: "iannix" });
       await commandRegistry.execute("iannix.import.trusted", {
         source,
         filename: file.name,
@@ -8840,7 +8872,6 @@ function App() {
     };
     return (
       <div className="iannix-properties iannix-script-pane">
-          <label className="iannix-section-title" htmlFor="iannix-script-select">IanniX Script</label>
           <select id="iannix-script-select" className="custom-brush-select" value={activeIannixScriptId} onChange={event => {
             const script = iannixScripts.find(candidate => candidate.id === event.target.value);
             setActiveIannixScriptId(event.target.value);
@@ -8908,6 +8939,11 @@ function App() {
             <button type="button" className="palette-action-btn secondary script-icon-button" title="New script" aria-label="New script" onClick={createScript}><ScriptActionIcon type="add" /></button>
             <button type="button" className="palette-action-btn secondary script-icon-button" title="Import trusted .iannix" aria-label="Import trusted .iannix" onClick={() => iannixImportInputRef.current?.click()}><ScriptActionIcon type="import" /></button>
             <button type="button" className="palette-action-btn danger script-icon-button" title="Delete script" aria-label="Delete script" onClick={deleteScript} disabled={!activeScript}><ScriptActionIcon type="remove" /></button>
+            <ScriptFontSizeControl value={scriptEditorFontSize} onChange={value => {
+              if (!Number.isFinite(value) || value < 8 || value > 32) return;
+              setScriptEditorFontSize(value);
+              localStorage.setItem("drawerator_script_editor_font_size", String(value));
+            }} />
           </div>
           <form className="iannix-command-line" onSubmit={event => { event.preventDefault(); runCommand(); }} {...infoProps("IanniX command line", "Cmd/Ctrl+Enter runs the editor. Scripts are saved in this browser's localStorage. The command line executes its value as run(\"...\").")}>
             <input
@@ -9611,7 +9647,7 @@ function App() {
                             setActiveBrushId(brushId);
                             setActiveBrushCode(editorCode);
                             setBrushParams(editorParams);
-                            setModsPanelTab("script");
+                            toggleDraweratorPanel("script", { open: true, scriptType: "brush" });
                           }}
                           style={{
                             background: "none",
@@ -10559,7 +10595,7 @@ function App() {
             {[
               ["panel", "Panel background", "Background shared by docked and floating Drawerator panels."],
               ["input", "Input field", "Background used by number boxes, text fields, dropdowns, and other editable controls."],
-              ["timeline", "Timeline lane", "Background behind events and automation keyframes. The active loop remains a subtle accent overlay."],
+              ["timeline", "Subpanel background", "Background shared by nested work areas, including timeline lanes, mixer tracks, and script editors. The active loop remains a subtle accent overlay."],
               ["canvas", "Canvas", "Background of the Excalidraw drawing surface."],
               ["grid", "Grid", "Color and opacity shared by minor, major, and axis grid lines."],
             ].map(([key, label, help]) => {
@@ -10808,7 +10844,6 @@ function App() {
       <div style={{ display: "flex", flexDirection: "column", gap: "10px", height: "100%" }}>
         {/* Script selector */}
         <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-          <label style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-primary)", opacity: 0.8 }}>Brush Script</label>
           <select
               value={activeBrushId}
               onChange={(e) => {
@@ -10848,16 +10883,11 @@ function App() {
               onBlur={() => syncEditorDraftToModifier(true)}
               className="custom-brush-textarea"
               style={{
-                fontFamily: "monospace",
-                fontSize: "11px",
                 padding: "8px",
                 borderRadius: "6px",
                 border: "1px solid var(--border-color)",
-                background: "var(--input-bg-color, rgba(0, 0, 0, 0.05))",
                 color: "var(--color-primary)",
-                resize: "vertical",
                 width: "100%",
-                minHeight: "420px",
                 flexGrow: 1,
                 outline: "none"
               }}
@@ -10911,6 +10941,11 @@ function App() {
                   title="Delete this custom brush"
                 ><ScriptActionIcon type="remove" /></button>
               )}
+              <ScriptFontSizeControl value={scriptEditorFontSize} onChange={value => {
+                if (!Number.isFinite(value) || value < 8 || value > 32) return;
+                setScriptEditorFontSize(value);
+                localStorage.setItem("drawerator_script_editor_font_size", String(value));
+              }} />
             </div>
 
             {saveAsBrushName !== null && (
@@ -11580,6 +11615,9 @@ function App() {
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-mods", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Mods &amp; FX
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-script", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              Script
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-iannix", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               IanniX
@@ -12322,8 +12360,6 @@ function App() {
 
                   return (
                     <div className="modifiers-header-actions">
-                      {modsPanelTab === "stack" && (
-                        <>
                           <button
                             className={`header-btn ${customBrushActive ? "active" : ""}`}
                             onClick={() => {
@@ -12439,37 +12475,13 @@ function App() {
                               </svg>
                             </button>
                           )}
-                        </>
-                      )}
                     </div>
                   );
                 })()}
               </div>
             </div>
             <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "16px", height: "calc(100% - 50px)", overflowY: "auto" }}>
-              <div
-                role="tablist"
-                aria-label="Mods and effects views"
-                className="mods-panel-tabs"
-              >
-                {[
-                  { id: "stack", label: "Stack" },
-                  { id: "script", label: "Script" },
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={modsPanelTab === tab.id}
-                    onClick={() => setModsPanelTab(tab.id)}
-                    className={`mods-panel-tab ${modsPanelTab === tab.id ? "active" : ""}`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              {modsPanelTab === "script" ? renderBrushConfigForm() : (() => {
+              {(() => {
                 const selectedElements = getSelectedElements();
                 if (selectedElements.length > 1) {
                   return (
@@ -12530,6 +12542,35 @@ function App() {
           </DraweratorPanel>
           )}
 
+          {shouldRenderPanel("script") && (
+          <DraweratorPanel
+            id="script"
+            title="Script"
+            placement={panelLayouts.script.placement}
+            layout={panelLayouts.script}
+            dockTabs={getPanelDockTabs("script")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.script.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("script", placement)}
+            onDragStart={event => startSidebarPanelDrag("script", event)}
+            onClose={() => closeDraweratorPanel("script")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.script.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.script.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.script.placement]: false }))}
+          >
+            <input ref={iannixImportInputRef} type="file" accept=".iannix,.js,text/javascript" hidden onChange={handleTrustedIannixFile} />
+            <ScriptPanel
+              type={scriptPanelType}
+              onTypeChange={value => setScriptPanelType(normalizeScriptType(value))}
+              editorFontSize={scriptEditorFontSize}
+            >
+              {scriptPanelType === "iannix" ? renderIannixScriptTab() : renderBrushConfigForm()}
+            </ScriptPanel>
+          </DraweratorPanel>
+          )}
+
           {shouldRenderPanel("iannix") && (
           <DraweratorPanel
             id="iannix"
@@ -12548,20 +12589,17 @@ function App() {
             collapsed={panelLayouts.iannix.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.iannix.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.iannix.placement]: false }))}
           >
-            <input ref={iannixImportInputRef} type="file" accept=".iannix,.js,text/javascript" hidden onChange={handleTrustedIannixFile} />
             <div className="drawerator-panel-secondary-header">
               <div role="tablist" aria-label="IanniX views" className="mods-panel-tabs">
-                {[{ id: "object", label: "Object" }, { id: "data", label: "Data" }, { id: "script", label: "Script" }].map(tab => (
+                {[{ id: "object", label: "Object" }, { id: "data", label: "Data" }].map(tab => (
                   <button key={tab.id} type="button" role="tab" aria-selected={iannixPanelTab === tab.id} className={`mods-panel-tab ${iannixPanelTab === tab.id ? "active" : ""}`} onClick={() => setIannixPanelTab(tab.id)}>{tab.label}</button>
                 ))}
               </div>
             </div>
             <div style={{ padding: "16px", height: "calc(100% - 50px)", overflowY: "auto" }}>
-              {iannixPanelTab === "script"
-                ? renderIannixScriptTab()
-                : iannixPanelTab === "data"
-                  ? <IannixDataPanel elements={getSelectedElements()} onChange={updateIannixDataPath} timeContext={timeContext} />
-                  : renderIannixTab()}
+              {iannixPanelTab === "data"
+                ? <IannixDataPanel elements={getSelectedElements()} onChange={updateIannixDataPath} timeContext={timeContext} />
+                : renderIannixTab()}
             </div>
           </DraweratorPanel>
           )}

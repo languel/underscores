@@ -9,6 +9,7 @@ export const DEFAULT_PANEL_LAYOUTS = Object.freeze({
   chat: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 24, y: 72, width: 380, height: 760 }),
   settings: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 48, y: 88, width: 380, height: 760 }),
   mods: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 72, y: 104, width: 380, height: 760 }),
+  script: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 84, y: 112, width: 440, height: 760 }),
   iannix: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 96, y: 120, width: 380, height: 760 }),
   mixer: Object.freeze({ placement: PANEL_PLACEMENTS.BOTTOM, x: 72, y: 120, width: 1040, height: 286 }),
   synth: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 120, y: 136, width: 360, height: 720 }),

@@ -11,6 +11,7 @@ test("normalizes panel layout storage independently per panel", () => {
   assert.deepEqual(layouts.mods, { placement: PANEL_PLACEMENTS.LEFT, x: 100, y: 80, width: 380, height: 760 });
   assert.equal(layouts.transport.placement, PANEL_PLACEMENTS.BOTTOM);
   assert.deepEqual(layouts.grid, { placement: PANEL_PLACEMENTS.LEFT, x: 8, y: 9, width: 360, height: 720 });
+  assert.deepEqual(layouts.script, { placement: PANEL_PLACEMENTS.RIGHT, x: 84, y: 112, width: 440, height: 760 });
   assert.deepEqual(layouts.synth, { placement: PANEL_PLACEMENTS.RIGHT, x: 120, y: 136, width: 360, height: 720 });
   assert.deepEqual(layouts.info, { placement: PANEL_PLACEMENTS.LEFT, x: 32, y: 520, width: 320, height: 240 });
   assert.equal(normalizePanelLayouts({ info: { placement: "bottom" } }).info.placement, PANEL_PLACEMENTS.BOTTOM);

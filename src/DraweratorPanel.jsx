@@ -1,7 +1,7 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import PanelPlacementControls from "./PanelPlacementControls.jsx";
 import { PANEL_PLACEMENTS } from "./panelLayout.js";
-import { getDraweratorPanel } from "./panelRegistry.js";
+import { getDraweratorPanel, getNaturalPanelPlacement } from "./panelRegistry.js";
 
 export const PanelIcon = ({ id }) => {
   if (id === "chat") {
@@ -12,6 +12,9 @@ export const PanelIcon = ({ id }) => {
   }
   if (id === "console") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m7 10 3 2-3 2M12 15h5"/></svg>;
+  }
+  if (id === "script") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 6-5 6 5 6M16 6l5 6-5 6M14 3l-4 18"/></svg>;
   }
   if (id === "history") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.5"/><path d="M4 4v4.5h4.5M12 7v5l3 2"/></svg>;
@@ -68,9 +71,33 @@ export default function DraweratorPanel({
   children,
 }) {
   const floating = placement === PANEL_PLACEMENTS.FLOATING;
+  const panelDefinition = getDraweratorPanel(id);
+  const [floatingMinimized, setFloatingMinimized] = useState(() => (
+    typeof localStorage !== "undefined" && localStorage.getItem(`drawerator_panel_minimized_${id}`) === "true"
+  ));
   const grouped = !floating && dockTabs.length > 1;
   const bottom = placement === PANEL_PLACEMENTS.BOTTOM;
-  const allowedPlacements = getDraweratorPanel(id)?.placements;
+  const allowedPlacements = panelDefinition?.placements;
+  const minimized = floating && floatingMinimized;
+
+  useEffect(() => {
+    if (!floating && floatingMinimized) setFloatingMinimized(false);
+  }, [floating, floatingMinimized]);
+
+  useEffect(() => {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(`drawerator_panel_minimized_${id}`, String(floatingMinimized));
+  }, [floatingMinimized, id]);
+
+  const toggleFloatingMinimized = () => {
+    if (floating) setFloatingMinimized(value => !value);
+  };
+
+  const dockNaturally = () => {
+    setFloatingMinimized(false);
+    onPlacementChange(getNaturalPanelPlacement(panelDefinition));
+  };
+
   const style = {
     ...(!bottom ? { width: `${layout?.width ?? 380}px` } : { height: `${collapsed ? 5 : layout?.height ?? bottomHeight}px` }),
     ...(floating ? {
@@ -78,11 +105,12 @@ export default function DraweratorPanel({
       top: `${layout?.y ?? 72}px`,
       height: `${allowBottom ? Math.max(layout?.height ?? 0, bottomHeight + 50) : layout?.height ?? 760}px`,
     } : {}),
+    ...(minimized ? { width: "42px", height: "42px" } : {}),
   };
 
   return (
     <section
-      className={`drawerator-panel-shell drawerator-panel-${placement} ${collapsed ? "drawerator-panel-collapsed" : ""}`}
+      className={`drawerator-panel-shell drawerator-panel-${placement} ${collapsed ? "drawerator-panel-collapsed" : ""} ${minimized ? "drawerator-panel-floating-minimized" : ""}`}
       data-panel-id={id}
       style={style}
       aria-label={`${title} panel`}
@@ -125,6 +153,7 @@ export default function DraweratorPanel({
                 onDragStart={event => onDockTabDragStart(panel.id, event)}
                 onActivate={active ? undefined : () => onSelectDockTab(panel.id)}
                 onClose={() => onCloseDockTab(panel.id)}
+                onNaturalDock={() => onDockTabPlacementChange(panel.id, getNaturalPanelPlacement(panel))}
                 allowBottom={allowBottom}
                 allowedPlacements={panel.placements}
                 dragIcon={<PanelIcon id={panel.id} />}
@@ -143,6 +172,9 @@ export default function DraweratorPanel({
             onPlacementChange={onPlacementChange}
             onDragStart={onDragStart}
             onClose={onClose}
+            onMinimizeToggle={toggleFloatingMinimized}
+            onNaturalDock={dockNaturally}
+            minimized={minimized}
             allowBottom={allowBottom}
             allowedPlacements={allowedPlacements}
             dragIcon={<PanelIcon id={id} />}

@@ -20,7 +20,7 @@ export const SHORTCUT_ACTIONS = Object.freeze([
   { id: "dock.left.toggle", label: "Left dock collapse", defaultBinding: "Mod+KeyB" },
   { id: "dock.right.toggle", label: "Right dock collapse", defaultBinding: "Mod+Alt+KeyB" },
   { id: "dock.bottom.toggle", commandId: "dock.bottom.toggle", label: "Bottom dock collapse", defaultBinding: "Mod+Shift+KeyB" },
-  { id: "mods.script.open", label: "Mods script editor", defaultBinding: "Ctrl+Alt+KeyB" },
+  { id: "mods.script.open", label: "Script panel", defaultBinding: "Ctrl+Alt+KeyB" },
   { id: "mods.float.toggle", label: "Float / dock Mods panel", defaultBinding: "Mod+Alt+KeyP" },
   { id: "history.record.toggle", label: "Session recording", defaultBinding: "Ctrl+Alt+KeyR" },
   { id: "toggle-theme", commandId: "toggle-theme", label: "Light / dark theme", defaultBinding: "Alt+Shift+KeyD" },

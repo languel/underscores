@@ -19,7 +19,28 @@ const DockIcon = ({ side }) => (
   </svg>
 );
 
-export default function PanelPlacementControls({ label, placement, onPlacementChange, onDragStart, onActivate, onClose, allowBottom = false, allowedPlacements = null, dragIcon = null }) {
+const MinimizeIcon = ({ minimized }) => (
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+    {minimized
+      ? <><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M5 8h6M8 5v6"/></>
+      : <><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M5 10h6"/></>}
+  </svg>
+);
+
+export default function PanelPlacementControls({
+  label,
+  placement,
+  onPlacementChange,
+  onDragStart,
+  onActivate,
+  onClose,
+  onMinimizeToggle,
+  onNaturalDock,
+  minimized = false,
+  allowBottom = false,
+  allowedPlacements = null,
+  dragIcon = null,
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
   const controlsRef = useRef(null);
   const placements = Array.isArray(allowedPlacements) && allowedPlacements.length
@@ -66,10 +87,19 @@ export default function PanelPlacementControls({ label, placement, onPlacementCh
         onMouseDown={onDragStart}
         onClick={onActivate}
         onContextMenu={openMenu}
+        onDoubleClick={event => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.altKey) {
+            onNaturalDock?.();
+            return;
+          }
+          if (event.shiftKey && placement === PANEL_PLACEMENTS.FLOATING) onMinimizeToggle?.();
+        }}
         onKeyDown={event => {
           if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openMenu(event);
         }}
-        title={`Drag ${label} to move · right-click for placement`}
+        title={`Drag ${label} to move · right-click for actions · Shift-double-click to minimize · Option-double-click to dock`}
         aria-label={`Move ${label} panel`}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
@@ -78,6 +108,19 @@ export default function PanelPlacementControls({ label, placement, onPlacementCh
       </button>
       {menuOpen && (
         <div className={`panel-placement-menu ${placement === PANEL_PLACEMENTS.BOTTOM ? "menu-up" : ""}`} role="menu" aria-label={`${label} placement options`}>
+          {placement === PANEL_PLACEMENTS.FLOATING && onMinimizeToggle && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                onMinimizeToggle();
+              }}
+            >
+              <MinimizeIcon minimized={minimized} />
+              <span>{minimized ? "Restore" : "Minimize"}</span>
+            </button>
+          )}
           {placements.map(target => (
             <button
               type="button"
