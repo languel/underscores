@@ -1,3 +1,5 @@
+import { createTimeValue, resolveTimeValue } from "./timeValue.js";
+
 export const EXPRESSIVE_SYNTH_ID = "__drawerator_expressive_synth__";
 export const EXPRESSIVE_SYNTH_STORAGE_KEY = "drawerator_expressive_synth_v1";
 
@@ -17,6 +19,7 @@ const DEFAULT_PROGRAM_PARAMETERS = Object.freeze({
 });
 
 export const EXPRESSIVE_SYNTH_PROGRAM_FIELDS = Object.freeze(Object.keys(DEFAULT_PROGRAM_PARAMETERS));
+const EXPRESSIVE_SYNTH_TIME_VALUE_FIELDS = Object.freeze(["attackValue", "decayValue", "releaseValue", "glideValue"]);
 
 export const EXPRESSIVE_SYNTH_PRESETS = Object.freeze([
   Object.freeze({ id: "sine", label: "Pure tone", waveform: "sine", model: "oscillator", ...DEFAULT_PROGRAM_PARAMETERS, attack: 0.012, decay: 0.08, sustain: 0.9, release: 0.18, brightness: 0.72, damping: 0.64, pressure: 0.42, vibratoDepth: 0 }),
@@ -58,7 +61,26 @@ const normalizeProgramParameters = (source, fallback = DEFAULT_PROGRAM_PARAMETER
   vibratoRate: clamp(finite(source?.vibratoRate, fallback.vibratoRate), 0.05, 20),
   transpose: clamp(finite(source?.transpose, fallback.transpose), -48, 48),
   glideMs: clamp(finite(source?.glideMs, fallback.glideMs), 0, 2000),
+  attackValue: createTimeValue(source?.attackValue || `${finite(source?.attack, fallback.attack)} s`, finite(source?.attack, fallback.attack)),
+  decayValue: createTimeValue(source?.decayValue || `${finite(source?.decay, fallback.decay)} s`, finite(source?.decay, fallback.decay)),
+  releaseValue: createTimeValue(source?.releaseValue || `${finite(source?.release, fallback.release)} s`, finite(source?.release, fallback.release)),
+  glideValue: createTimeValue(source?.glideValue || `${finite(source?.glideMs, fallback.glideMs)} ms`, finite(source?.glideMs, fallback.glideMs) / 1000),
 });
+
+export const resolveExpressiveSynthTiming = (value, context) => {
+  const normalized = normalizeExpressiveSynthConfig(value);
+  const resolveParameters = source => ({
+    ...source,
+    attack: clamp(resolveTimeValue(source.attackValue, context), 0.001, 10),
+    decay: clamp(resolveTimeValue(source.decayValue, context), 0.001, 10),
+    release: clamp(resolveTimeValue(source.releaseValue, context), 0.005, 20),
+    glideMs: clamp(resolveTimeValue(source.glideValue, context) * 1000, 0, 2000),
+  });
+  return {
+    ...resolveParameters(normalized),
+    userPrograms: normalized.userPrograms.map(resolveParameters),
+  };
+};
 
 export const normalizeExpressiveSynthProgram = (value, index = 0) => {
   const source = value && typeof value === "object" ? value : {};
@@ -130,7 +152,7 @@ export const resolveExpressiveSynthProgram = (config, programId) => {
     || programs.find(candidate => candidate.id === "bowed");
   return mergeExpressiveSynthConfig(normalized, {
     preset: program.preset,
-    ...Object.fromEntries(EXPRESSIVE_SYNTH_PROGRAM_FIELDS.map(field => [field, program[field]])),
+    ...Object.fromEntries([...EXPRESSIVE_SYNTH_PROGRAM_FIELDS, ...EXPRESSIVE_SYNTH_TIME_VALUE_FIELDS].map(field => [field, program[field]])),
   });
 };
 

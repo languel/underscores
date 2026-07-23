@@ -21,6 +21,12 @@ test("bottom dock collapse defaults to Mod+Shift+B", () => {
   assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, event)?.id, "dock.bottom.toggle");
 });
 
+test("clear scene uses the explicit Ctrl+Shift+Backspace binding", () => {
+  const event = { code: "Backspace", metaKey: false, ctrlKey: true, altKey: false, shiftKey: true };
+  assert.equal(shortcutFromEvent(event), "Ctrl+Shift+Backspace");
+  assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, event)?.id, "iannix.command.clear");
+});
+
 test("ignores bare modifier presses", () => {
   assert.equal(shortcutFromEvent({ code: "ShiftLeft", shiftKey: true }), null);
 });

@@ -20,7 +20,7 @@ When multiple panels share a side, they render as one tab row. The active tab sh
 
 Panel dimensions are stored per panel; resizing one never changes another. Floating panels resize in both axes from the lower-right proximity handle. Docked panels resize from the canvas-facing edge.
 
-Dragging a side panel below its minimum width collapses the complete dock. Dragging the bottom dock's top resize bar below its minimum height does the same. A collapsed dock leaves only its thin resize edge; drag that edge or double-click it to restore the dock. The bottom edge uses the same quiet treatment as the side handles: one full-width line at rest that thickens across the edge on hover, without an extra center notch. Hover alone never expands it. `Cmd+B` toggles the left dock, `Cmd+Opt+B` toggles the right dock, and `Cmd+Shift+B` toggles the bottom dock.
+Dragging a side panel below its minimum width collapses the complete dock. Dragging the bottom dock's top resize bar below its minimum height does the same. A collapsed dock leaves only its thin resize edge; drag that edge or double-click it to restore the dock. In transparent-overlay workspaces the bottom edge is invisible at rest and appears only on hover, where it thickens without an extra center notch. Hover alone never expands it. `Cmd+B` toggles the left dock, `Cmd+Opt+B` toggles the right dock, and `Cmd+Shift+B` toggles the bottom dock.
 
 Invoking a docked panel from its shortcut, main menu, or command palette makes it the active tab and expands its dock. Invoking the already frontmost expanded panel collapses that dock. Floating panels instead toggle visibility.
 
@@ -35,6 +35,8 @@ The following state persists independently:
 - transport placement and dimensions.
 
 Every panel is available from the main menu and command palette, including `/chat`, `/mods`, `/iannix`, `/synth`, `/settings`, `/console`, and `/transport`. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
+
+Fresh workspaces begin in Satori freehand mode with the left, right, and bottom docks collapsed. The normal default keeps the Mods/Grid dock tabs and Timeline available behind those reveal edges, while restored local layouts always win after first launch.
 
 ## Inspector layout
 

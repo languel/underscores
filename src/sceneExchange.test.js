@@ -7,7 +7,7 @@ import {
   remapSelectionForImport,
 } from "./sceneExchange.js";
 import { mergeGridPatch, DEFAULT_GLOBAL_GRID } from "./gridSystem.js";
-import { DEFAULT_EXPRESSIVE_SYNTH_CONFIG, mergeExpressiveSynthConfig, upsertExpressiveSynthProgram } from "./expressiveSynth.js";
+import { DEFAULT_EXPRESSIVE_SYNTH_CONFIG, mergeExpressiveSynthConfig, normalizeExpressiveSynthConfig, upsertExpressiveSynthProgram } from "./expressiveSynth.js";
 import { MIXER_DESTINATION_INTERNAL, MIXER_INSTRUMENT_EXPRESSIVE, normalizeMixer } from "./mixerSystem.js";
 
 test("scene exchange metadata preserves Drawerator score state", () => {
@@ -28,6 +28,7 @@ test("scene exchange metadata preserves Drawerator score state", () => {
     timeSignature: { numerator: 7, denominator: 8 },
     displayMode: "beats",
     fps: 25,
+    sampleRate: 48000,
     loop: { enabled: true, start: 2, end: 12 },
   });
 });
@@ -38,7 +39,7 @@ test("scene exchange preserves frame timeline display mode", () => {
   assert.equal(payload.drawerator.score.fps, 24);
 });
 
-test("scene exchange version 4 preserves global configuration and migrates legacy scenes", () => {
+test("scene exchange version 5 preserves global configuration and migrates legacy scenes", () => {
   const grid = mergeGridPatch(DEFAULT_GLOBAL_GRID, {
     appearance: { visible: true },
     spacing: { x: 120, y: 80, subdivisionsX: 6, subdivisionsY: 4 },
@@ -50,16 +51,16 @@ test("scene exchange version 4 preserves global configuration and migrates legac
   );
   const mixer = normalizeMixer({ tracks: [{ id: "fm", midiChannel: 3, destination: MIXER_DESTINATION_INTERNAL, instrument: MIXER_INSTRUMENT_EXPRESSIVE, program: "user-glass" }] });
   const payload = attachDraweratorExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, grid, synth, mixer);
-  assert.equal(payload.drawerator.version, 4);
+  assert.equal(payload.drawerator.version, 5);
   assert.deepEqual(parseDraweratorExchange(payload, "scene").grid, grid);
-  assert.deepEqual(parseDraweratorExchange(payload, "scene").expressiveSynth, synth);
+  assert.deepEqual(parseDraweratorExchange(payload, "scene").expressiveSynth, normalizeExpressiveSynthConfig(synth));
   assert.deepEqual(parseDraweratorExchange(payload, "scene").mixer, mixer);
 
   const legacy = { type: "excalidraw", elements: [], drawerator: { version: 1, kind: "scene", score: {} } };
   const migrated = parseDraweratorExchange(legacy, "scene").grid;
   assert.equal(migrated.appearance.visible, false);
   assert.equal(migrated.snap.mode, "off");
-  assert.deepEqual(parseDraweratorExchange(legacy, "scene").expressiveSynth, DEFAULT_EXPRESSIVE_SYNTH_CONFIG);
+  assert.deepEqual(parseDraweratorExchange(legacy, "scene").expressiveSynth, normalizeExpressiveSynthConfig(DEFAULT_EXPRESSIVE_SYNTH_CONFIG));
   assert.equal(parseDraweratorExchange(legacy, "scene").mixer.tracks.length, 16);
 });
 

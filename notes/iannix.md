@@ -96,6 +96,10 @@ The Scene data section can execute an explicitly trusted `.iannix`/JavaScript sc
 
 This is trusted executable compatibility mode, not a sandbox or security boundary. Drawerator always presents a warning before file execution.
 
+### One-line commands from the command palette
+
+The command palette accepts `/ix <command>` (and the longer `/iannix <command>`) and passes the remaining text to the same trusted interactive compatibility executor used by the IanniX panel. For example, `/ix clear` is also listed as **IanniX: Clear Scene** and clears objects, score runtime state, and selection without the browser confirmation used by Excalidraw's native clear action. It preserves the active Drawerator canvas/theme background. Commands that target the current object, `@selection`, or `#id` / `#label` use the same selection expansion rules as the IanniX command line.
+
 ### Shared script parameters
 
 Brush and IanniX editors use the same typed script-parameter parser. A native IanniX declaration such as:

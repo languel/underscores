@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import InspectorSection from "./InspectorSection.jsx";
 import { infoProps } from "./uiInfo.js";
+import TimeValueInput from "./TimeValueInput.jsx";
+import { createTimeValue } from "./timeValue.js";
 import {
   DEFAULT_EXPRESSIVE_SYNTH_CONFIG,
   EXPRESSIVE_SYNTH_PRESETS,
@@ -26,6 +28,13 @@ const NumericField = ({ label, value, min, max, step, defaultValue, unit, onChan
   </label>
 );
 
+const TimeField = ({ label, value, context, defaultValue, minSeconds, routePath, onChange, help }) => (
+  <label className="settings-panel-field expressive-synth-field" {...infoProps(label, help)}>
+    <span>{label}</span>
+    <TimeValueInput aria-label={label} data-route-path={routePath} value={value} context={context} defaultValue={defaultValue} minSeconds={minSeconds} onChange={onChange} />
+  </label>
+);
+
 const programDraft = program => ({
   id: program.id,
   label: program.label,
@@ -42,6 +51,10 @@ const programDraft = program => ({
   vibratoRate: program.vibratoRate,
   transpose: program.transpose,
   glideMs: program.glideMs,
+  attackValue: program.attackValue || createTimeValue(`${program.attack} s`, program.attack),
+  decayValue: program.decayValue || createTimeValue(`${program.decay} s`, program.decay),
+  releaseValue: program.releaseValue || createTimeValue(`${program.release} s`, program.release),
+  glideValue: program.glideValue || createTimeValue(`${program.glideMs} ms`, program.glideMs / 1000),
 });
 
 const createProgramId = label => {
@@ -63,6 +76,7 @@ export default function ExpressiveSynthPanel({
   onSaveProgram,
   onDeleteProgram,
   onResetConfig,
+  timeContext,
 }) {
   const defaults = DEFAULT_EXPRESSIVE_SYNTH_CONFIG;
   const programs = useMemo(() => getExpressiveSynthPrograms(config), [config]);
@@ -157,14 +171,14 @@ export default function ExpressiveSynthPanel({
         <NumericField label="Damping" value={draft.damping} min="0" max="1" step="0.01" defaultValue={selectedProgram.damping} help="Controls resonance and energy loss in the voice model." onChange={value => updateDraft({ damping: value })} />
         <NumericField label="Pressure" value={draft.pressure} min="0" max="1" step="0.01" defaultValue={selectedProgram.pressure} help="Base excitation pressure before stroke-width modulation." onChange={value => updateDraft({ pressure: value })} />
         <NumericField label="Transpose" value={draft.transpose} min="-48" max="48" step="1" defaultValue={selectedProgram.transpose} unit="st" help="Program pitch offset in semitones." onChange={value => updateDraft({ transpose: value })} />
-        <NumericField label="Glide" value={draft.glideMs} min="0" max="2000" step="1" defaultValue={selectedProgram.glideMs} unit="ms" help="Pitch smoothing time for continuously moving score voices." onChange={value => updateDraft({ glideMs: value })} />
+        <TimeField label="Glide" value={draft.glideValue} context={timeContext} defaultValue="24 ms" minSeconds={0} routePath={`synth.programs.${selectedProgram.id}.glide`} help="Pitch smoothing time for continuously moving score voices." onChange={(next, seconds) => updateDraft({ glideValue: next, glideMs: seconds * 1000 })} />
       </InspectorSection>
 
       <InspectorSection title="Envelope">
-        <NumericField label="Attack" value={draft.attack} min="0.001" max="10" step="0.01" defaultValue={selectedProgram.attack} unit="s" help="Time for a new voice to reach full level." onChange={value => updateDraft({ attack: value })} />
-        <NumericField label="Decay" value={draft.decay} min="0.001" max="10" step="0.01" defaultValue={selectedProgram.decay} unit="s" help="Time from full level to the sustain level." onChange={value => updateDraft({ decay: value })} />
+        <TimeField label="Attack" value={draft.attackValue} context={timeContext} defaultValue="60 ms" minSeconds={0.001} routePath={`synth.programs.${selectedProgram.id}.attack`} help="Time for a new voice to reach full level." onChange={(next, seconds) => updateDraft({ attackValue: next, attack: seconds })} />
+        <TimeField label="Decay" value={draft.decayValue} context={timeContext} defaultValue="160 ms" minSeconds={0.001} routePath={`synth.programs.${selectedProgram.id}.decay`} help="Time from full level to the sustain level." onChange={(next, seconds) => updateDraft({ decayValue: next, decay: seconds })} />
         <NumericField label="Sustain" value={draft.sustain} min="0" max="1" step="0.01" defaultValue={selectedProgram.sustain} help="Held level while the trigger or cursor voice remains active." onChange={value => updateDraft({ sustain: value })} />
-        <NumericField label="Release" value={draft.release} min="0.005" max="20" step="0.01" defaultValue={selectedProgram.release} unit="s" help="Fade time after the geometric note gate ends." onChange={value => updateDraft({ release: value })} />
+        <TimeField label="Release" value={draft.releaseValue} context={timeContext} defaultValue="350 ms" minSeconds={0.005} routePath={`synth.programs.${selectedProgram.id}.release`} help="Fade time after the geometric note gate ends." onChange={(next, seconds) => updateDraft({ releaseValue: next, release: seconds })} />
       </InspectorSection>
 
       <InspectorSection title="Modulation" defaultOpen={false}>

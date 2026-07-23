@@ -2,7 +2,7 @@ import { normalizeGlobalGrid } from "./gridSystem.js";
 import { normalizeExpressiveSynthConfig } from "./expressiveSynth.js";
 import { normalizeMixer } from "./mixerSystem.js";
 
-const DRAWERATOR_EXCHANGE_VERSION = 4;
+const DRAWERATOR_EXCHANGE_VERSION = 5;
 
 export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = {}, grid = null, expressiveSynth = null, mixer = null) => {
   const payload = typeof serializedScene === "string"
@@ -23,10 +23,13 @@ export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = 
         },
         displayMode: ["frame", "timecode", "beats"].includes(score.displayMode) ? score.displayMode : "timecode",
         fps: [24, 25, 30, 50, 60].includes(score.fps) ? score.fps : 30,
+        sampleRate: Number.isFinite(score.sampleRate) && score.sampleRate >= 8000 && score.sampleRate <= 768000 ? score.sampleRate : 48000,
         loop: {
           enabled: !!score.loop?.enabled,
           start: Number.isFinite(score.loop?.start) ? Math.max(0, score.loop.start) : 0,
           end: Number.isFinite(score.loop?.end) ? Math.max(0.1, score.loop.end) : 10,
+          ...(score.loop?.startValue ? { startValue: structuredClone(score.loop.startValue) } : {}),
+          ...(score.loop?.endValue ? { endValue: structuredClone(score.loop.endValue) } : {}),
         },
       },
       ...(kind === "scene" ? {

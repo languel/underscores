@@ -29,9 +29,22 @@ export default function NumberInputController({ onRouteRequest }) {
   const defaultsRef = useRef(new WeakMap());
   const editStartValuesRef = useRef(new WeakMap());
   const dragRef = useRef(null);
+  const stepperInputRef = useRef(null);
   const [menu, setMenu] = useState(null);
+  const [stepper, setStepper] = useState(null);
 
   useEffect(() => {
+    const showStepper = input => {
+      if (!isNumberInput(input)) return;
+      stepperInputRef.current = input;
+      const rect = input.getBoundingClientRect();
+      setStepper({
+        input,
+        left: rect.right - 18,
+        top: rect.top,
+        height: rect.height,
+      });
+    };
     const rememberDefault = input => {
       if (!defaultsRef.current.has(input)) {
         const explicit = input.dataset.default;
@@ -60,9 +73,24 @@ export default function NumberInputController({ onRouteRequest }) {
       };
       input.setPointerCapture?.(event.pointerId);
     };
+    const pointerOver = event => {
+      if (isNumberInput(event.target)) showStepper(event.target);
+    };
+    const pointerOut = event => {
+      if (!isNumberInput(event.target)) return;
+      if (event.relatedTarget?.closest?.(".number-box-stepper")) return;
+      if (document.activeElement !== event.target) {
+        stepperInputRef.current = null;
+        setStepper(null);
+      }
+    };
     const pointerMove = event => {
       const drag = dragRef.current;
-      if (!drag || drag.pointerId !== event.pointerId) return;
+      if (!drag) {
+        if (isNumberInput(event.target) && stepperInputRef.current !== event.target) showStepper(event.target);
+        return;
+      }
+      if (drag.pointerId !== event.pointerId) return;
       const deltaX = event.clientX - drag.startX;
       if (!drag.dragged && Math.abs(deltaX) < 3) return;
       drag.dragged = true;
@@ -104,6 +132,7 @@ export default function NumberInputController({ onRouteRequest }) {
       if (!isNumberInput(event.target)) return;
       rememberDefault(event.target);
       editStartValuesRef.current.set(event.target, event.target.value);
+      showStepper(event.target);
     };
     const input = event => {
       if (!isNumberInput(event.target)) return;
@@ -124,6 +153,10 @@ export default function NumberInputController({ onRouteRequest }) {
         setInputValue(event.target, fallback);
       }
       editStartValuesRef.current.delete(event.target);
+      if (!event.relatedTarget?.closest?.(".number-box-stepper")) {
+        stepperInputRef.current = null;
+        setStepper(null);
+      }
     };
     const contextMenu = event => {
       if (!isNumberInput(event.target)) return;
@@ -145,6 +178,8 @@ export default function NumberInputController({ onRouteRequest }) {
     };
 
     document.addEventListener("pointerdown", pointerDown, true);
+    document.addEventListener("pointerover", pointerOver, true);
+    document.addEventListener("pointerout", pointerOut, true);
     document.addEventListener("pointermove", pointerMove, { capture: true, passive: false });
     document.addEventListener("pointerup", pointerUp, true);
     document.addEventListener("pointercancel", pointerUp, true);
@@ -157,6 +192,8 @@ export default function NumberInputController({ onRouteRequest }) {
     document.addEventListener("pointerdown", closeOnPointer);
     return () => {
       document.removeEventListener("pointerdown", pointerDown, true);
+      document.removeEventListener("pointerover", pointerOver, true);
+      document.removeEventListener("pointerout", pointerOut, true);
       document.removeEventListener("pointermove", pointerMove, true);
       document.removeEventListener("pointerup", pointerUp, true);
       document.removeEventListener("pointercancel", pointerUp, true);
@@ -169,6 +206,19 @@ export default function NumberInputController({ onRouteRequest }) {
       document.removeEventListener("pointerdown", closeOnPointer);
     };
   }, []);
+
+  const stepValue = direction => {
+    const input = stepper?.input;
+    if (!isNumberInput(input) || !input.isConnected) return;
+    const step = Number(input.step);
+    const increment = Number.isFinite(step) && step > 0 ? step : 1;
+    const current = Number(input.value);
+    const min = input.min === "" ? -Infinity : Number(input.min);
+    const max = input.max === "" ? Infinity : Number(input.max);
+    const base = Number.isFinite(current) ? current : getNumberInputDefault(input);
+    setInputValue(input, Math.min(max, Math.max(min, base + direction * increment)));
+    input.focus();
+  };
 
   const resetMenuValue = () => {
     if (!menu?.input?.isConnected) return;
@@ -190,6 +240,22 @@ export default function NumberInputController({ onRouteRequest }) {
 
   return (
     <>
+      {stepper?.input?.isConnected ? (
+        <div
+          className="number-box-stepper"
+          style={{ left: stepper.left, top: stepper.top, height: stepper.height }}
+          onPointerLeave={() => {
+            if (document.activeElement !== stepper.input) {
+              stepperInputRef.current = null;
+              setStepper(null);
+            }
+          }}
+          aria-hidden="true"
+        >
+          <button type="button" tabIndex={-1} onPointerDown={event => { event.preventDefault(); stepValue(1); }} aria-label="Increase value"><span /></button>
+          <button type="button" tabIndex={-1} onPointerDown={event => { event.preventDefault(); stepValue(-1); }} aria-label="Decrease value"><span /></button>
+        </div>
+      ) : null}
       {menu ? (
         <div className="custom-floating-context-menu number-box-menu" style={{ left: menu.x, top: menu.y }} role="menu" aria-label={`${menu.label} options`}>
           <div className="number-box-menu-title">{menu.label}</div>

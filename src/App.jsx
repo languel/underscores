@@ -1,12 +1,13 @@
 // Force rebuild timestamp: 2026-07-06T11:15:00
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Excalidraw, MainMenu, exportToSvg, exportToCanvas, loadFromBlob, serializeAsJSON, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
 import "./App.css";
 import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, isDrawableTrack, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
-import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, isRuntimeCursor, normalizeIannixData, reconcileRuntimeCursorHosts, snapCursorHostToCurveStart, transformPaths } from "./iannixEngine.js";
+import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, isRuntimeCursor, normalizeIannixData, reconcileRuntimeCursorHosts, resolveIannixObjectTiming, snapCursorHostToCurveStart, transformPaths } from "./iannixEngine.js";
 import { createIannixMidiVoiceTracker, describeIannixMidiMessage, getIannixMidiTemplatePattern, getIannixPathIntersectionPoint, getIannixTriggerMidiContext, IANNIX_MIDI_TEMPLATES, parseIannixMidiPattern, selectIannixTriggerCursor } from "./iannixMidi.js";
 import { expandIndexedLabelTemplate } from "./iannixBulkEdit.js";
 import NumberInputController from "./NumberInputController.jsx";
+import TimeValueInput from "./TimeValueInput.jsx";
 import InspectorSection from "./InspectorSection.jsx";
 import { attachDraweratorExchangeMetadata, getSelectionExchangeElements, parseDraweratorExchange, remapSelectionForImport } from "./sceneExchange.js";
 import { DRAWERATOR_PANELS } from "./panelRegistry.js";
@@ -57,6 +58,7 @@ import {
   mergeExpressiveSynthConfig,
   normalizeExpressiveSynthConfig,
   removeExpressiveSynthProgram,
+  resolveExpressiveSynthTiming,
   upsertExpressiveSynthProgram,
 } from "./expressiveSynth.js";
 import { createExpressiveSynthDemoScore } from "./expressiveSynthDemo.js";
@@ -70,12 +72,18 @@ import { DEFAULT_SELECTION_FILTER, filterSelectedElementIds, normalizeSelectionF
 import {
   DEFAULT_GLOBAL_GRID,
   GRID_STORAGE_KEY,
+  LEGACY_GRID_STORAGE_KEY,
+  gridValueToWorld,
   gridUnitsToSeconds,
   mergeGridPatch,
   normalizeGlobalGrid,
+  quantizeGridValue,
   secondsToGridUnits,
   snapPointToGrid,
+  worldToGridValue,
 } from "./gridSystem.js";
+import { createTimeValue, formatSecondsAsBBU, formatTimeValue, parseTimeValue, quantizeTimeValue, resolveTimeValue } from "./timeValue.js";
+import { gridTimeQuantumCells } from "./scoreTiming.js";
 
 const DEFAULT_INFO_VIEW = Object.freeze({
   title: "Info",
@@ -224,6 +232,28 @@ const colorWithOpacity = (hex, opacity) => {
   return `rgba(${channels.join(", ")}, ${Math.min(100, Math.max(0, Number(opacity))) / 100})`;
 };
 
+// Excalidraw filters its entire drawing canvas in dark mode. Pre-transform the
+// authored canvas color so the visible result still matches the theme swatch.
+const canvasColorForExcalidraw = (hex, opacity, theme) => {
+  const value = String(hex || "").replace("#", "");
+  if (!/^[0-9a-f]{6}$/i.test(value)) return hex;
+  const alpha = Math.round(Math.min(100, Math.max(0, Number(opacity))) / 100 * 255)
+    .toString(16)
+    .padStart(2, "0");
+  if (theme !== "dark") return `#${value}${alpha}`;
+  const desired = [0, 2, 4].map(index => parseInt(value.slice(index, index + 2), 16) / 255);
+  const invertAmount = 0.93;
+  const invertScale = 1 - 2 * invertAmount;
+  const beforeHue = desired.map(channel => (channel - invertAmount) / invertScale);
+  const hue180 = [
+    [-0.574, 1.43, 0.144],
+    [0.426, 0.43, 0.144],
+    [0.426, 1.43, -0.856],
+  ];
+  const source = hue180.map(row => row.reduce((sum, coefficient, index) => sum + coefficient * beforeHue[index], 0));
+  return `#${source.map(channel => Math.round(Math.min(1, Math.max(0, channel)) * 255).toString(16).padStart(2, "0")).join("")}${alpha}`;
+};
+
 const DEFAULT_ROLE_THEME = {
   enabled: false,
   curveActive: { color: "#333333", opacity: 100 },
@@ -233,6 +263,139 @@ const DEFAULT_ROLE_THEME = {
   triggerActive: { color: "#00b8e8", opacity: 100 },
   triggerInactive: { color: "#888888", opacity: 35 },
   triggerPulse: { color: "#ff8a3d", opacity: 85 },
+};
+
+const INTERFACE_THEME_PRESETS = {
+  monoLight: {
+    label: "Mono Light",
+    theme: "light",
+    accent: { color: "#353a3f", opacity: 100 },
+    highlight: { color: "#353a3f", opacity: 10 },
+    surfaces: {
+      panel: { color: "#f4f4f4", opacity: 100 },
+      input: { color: "#f4f4f4", opacity: 100 },
+      timeline: { color: "#f4f4f4", opacity: 100 },
+      canvas: { color: "#f4f4f4", opacity: 100 },
+      grid: { color: "#353a3f", opacity: 24 },
+    },
+  },
+  monoDark: {
+    label: "Mono Dark",
+    theme: "dark",
+    accent: { color: "#c9cdd2", opacity: 100 },
+    highlight: { color: "#c9cdd2", opacity: 10 },
+    surfaces: {
+      panel: { color: "#121212", opacity: 100 },
+      input: { color: "#121212", opacity: 100 },
+      timeline: { color: "#121212", opacity: 100 },
+      canvas: { color: "#121212", opacity: 100 },
+      grid: { color: "#c9cdd2", opacity: 24 },
+    },
+  },
+  draweratorLight: {
+    label: "Drawerator Light",
+    theme: "light",
+    accent: { color: "#6b7173", opacity: 100 },
+    highlight: { color: "#8f9698", opacity: 10 },
+    surfaces: {
+      panel: { color: "#ffffff", opacity: 100 },
+      input: { color: "#ffffff", opacity: 100 },
+      timeline: { color: "#e8e8ec", opacity: 100 },
+      canvas: { color: "#ffffff", opacity: 100 },
+      grid: { color: "#2a2e34", opacity: 32 },
+    },
+  },
+  draweratorDark: {
+    label: "Drawerator Dark",
+    theme: "dark",
+    accent: { color: "#6b7173", opacity: 100 },
+    highlight: { color: "#8f8f8f", opacity: 10 },
+    surfaces: {
+      panel: { color: "#232329", opacity: 100 },
+      input: { color: "#111113", opacity: 100 },
+      timeline: { color: "#25262b", opacity: 100 },
+      canvas: { color: "#121212", opacity: 100 },
+      grid: { color: "#eef0f4", opacity: 32 },
+    },
+  },
+  flatLight: {
+    label: "Flat Light",
+    theme: "light",
+    accent: { color: "#6b7173", opacity: 100 },
+    highlight: { color: "#8f9698", opacity: 8 },
+    surfaces: {
+      panel: { color: "#ffffff", opacity: 100 },
+      input: { color: "#ffffff", opacity: 100 },
+      timeline: { color: "#ffffff", opacity: 100 },
+      canvas: { color: "#ffffff", opacity: 100 },
+      grid: { color: "#5f646a", opacity: 24 },
+    },
+  },
+  flatDark: {
+    label: "Flat Dark",
+    theme: "dark",
+    accent: { color: "#7d8588", opacity: 100 },
+    highlight: { color: "#a2a7aa", opacity: 8 },
+    surfaces: {
+      panel: { color: "#232329", opacity: 100 },
+      input: { color: "#232329", opacity: 100 },
+      timeline: { color: "#232329", opacity: 100 },
+      canvas: { color: "#232329", opacity: 100 },
+      grid: { color: "#c9cdd2", opacity: 24 },
+    },
+  },
+  studioDark: {
+    label: "Studio Dark",
+    theme: "dark",
+    accent: { color: "#8b969a", opacity: 100 },
+    highlight: { color: "#a8b1b5", opacity: 12 },
+    surfaces: {
+      panel: { color: "#202228", opacity: 100 },
+      input: { color: "#30333a", opacity: 100 },
+      timeline: { color: "#17191e", opacity: 100 },
+      canvas: { color: "#17191e", opacity: 100 },
+      grid: { color: "#aab4ba", opacity: 28 },
+    },
+  },
+};
+
+const DEFAULT_INTERFACE_THEME_PRESET = "monoDark";
+const CUSTOM_THEME_STORAGE_KEY = "drawerator_custom_themes_v1";
+const normalizeCustomThemes = value => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([id, preset]) => {
+    if (!preset || typeof preset !== "object" || !["light", "dark"].includes(preset.theme)) return [];
+    const label = String(preset.label || "").trim();
+    if (!label) return [];
+    return [[id, {
+      label,
+      theme: preset.theme,
+      accent: {
+        color: /^#[0-9a-f]{6}$/i.test(preset.accent?.color || "") ? preset.accent.color : "#6b7173",
+        opacity: Math.min(100, Math.max(0, Number(preset.accent?.opacity) || 0)),
+      },
+      highlight: {
+        color: /^#[0-9a-f]{6}$/i.test(preset.highlight?.color || "") ? preset.highlight.color : "#8f9698",
+        opacity: Math.min(100, Math.max(0, Number(preset.highlight?.opacity) || 0)),
+      },
+      surfaces: normalizeInterfaceTheme(preset.surfaces, preset.theme),
+      roleTheme: preset.roleTheme && typeof preset.roleTheme === "object"
+        ? { ...DEFAULT_ROLE_THEME, ...preset.roleTheme }
+        : { ...DEFAULT_ROLE_THEME },
+    }]];
+  }));
+};
+
+const normalizeInterfaceTheme = (value, theme = "dark") => {
+  const fallback = INTERFACE_THEME_PRESETS[theme === "light" ? "draweratorLight" : "draweratorDark"].surfaces;
+  const source = value && typeof value === "object" ? value : {};
+  return Object.fromEntries(["panel", "input", "timeline", "canvas", "grid"].map(key => {
+    const entry = source[key] && typeof source[key] === "object" ? source[key] : {};
+    return [key, {
+      color: /^#[0-9a-f]{6}$/i.test(entry.color || "") ? entry.color : fallback[key].color,
+      opacity: Number.isFinite(Number(entry.opacity)) ? Math.min(100, Math.max(0, Number(entry.opacity))) : fallback[key].opacity,
+    }];
+  }));
 };
 
 const ScriptActionIcon = ({ type }) => {
@@ -1391,9 +1554,10 @@ function App() {
   const [autoKeyEnabled, setAutoKeyEnabled] = useState(false);
   const [sessionPlaybackOverlay, setSessionPlaybackOverlay] = useState([]);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
+  const defaultInterfaceThemePreset = theme === "light" ? "monoLight" : DEFAULT_INTERFACE_THEME_PRESET;
   const [globalGrid, setGlobalGrid] = useState(() => {
     try {
-      return normalizeGlobalGrid(JSON.parse(localStorage.getItem(GRID_STORAGE_KEY) || "null"));
+      return normalizeGlobalGrid(JSON.parse(localStorage.getItem(GRID_STORAGE_KEY) || localStorage.getItem(LEGACY_GRID_STORAGE_KEY) || "null"));
     } catch {
       return normalizeGlobalGrid(null);
     }
@@ -1412,10 +1576,27 @@ function App() {
       return normalizeShortcutBindings(null);
     }
   });
-  const [accentColor, setAccentColor] = useState(() => localStorage.getItem("drawerator_accent_color") || "#6b7173");
-  const [accentOpacity, setAccentOpacity] = useState(() => Number(localStorage.getItem("drawerator_accent_opacity") || 100));
-  const [highlightColor, setHighlightColor] = useState(() => localStorage.getItem("drawerator_highlight_color") || (theme === "dark" ? "#33323b" : "#f1f0ff"));
-  const [highlightOpacity, setHighlightOpacity] = useState(() => Number(localStorage.getItem("drawerator_highlight_opacity") || 100));
+  const [accentColor, setAccentColor] = useState(() => localStorage.getItem("drawerator_accent_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].accent.color);
+  const [accentOpacity, setAccentOpacity] = useState(() => Number(localStorage.getItem("drawerator_accent_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].accent.opacity));
+  const [highlightColor, setHighlightColor] = useState(() => localStorage.getItem("drawerator_highlight_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].highlight.color);
+  const [highlightOpacity, setHighlightOpacity] = useState(() => Number(localStorage.getItem("drawerator_highlight_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].highlight.opacity));
+  const [interfaceThemePreset, setInterfaceThemePreset] = useState(() => localStorage.getItem("drawerator_interface_theme_preset") || defaultInterfaceThemePreset);
+  const [interfaceTheme, setInterfaceTheme] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("drawerator_interface_theme") || "null");
+      return normalizeInterfaceTheme(stored || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].surfaces, theme);
+    } catch {
+      return normalizeInterfaceTheme(null, theme);
+    }
+  });
+  const [customThemes, setCustomThemes] = useState(() => {
+    try {
+      return normalizeCustomThemes(JSON.parse(localStorage.getItem(CUSTOM_THEME_STORAGE_KEY) || "null"));
+    } catch {
+      return {};
+    }
+  });
+  const [customThemeName, setCustomThemeName] = useState("");
   const [roleTheme, setRoleTheme] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("drawerator_role_theme") || "null");
@@ -1453,9 +1634,9 @@ function App() {
   });
   const [collapsedDocks, setCollapsedDocks] = useState(() => {
     try {
-      return { left: false, right: false, bottom: false, ...JSON.parse(localStorage.getItem("drawerator_collapsed_docks_v1") || "null") };
+      return { left: true, right: true, bottom: true, ...JSON.parse(localStorage.getItem("drawerator_collapsed_docks_v1") || "null") };
     } catch {
-      return { left: false, right: false, bottom: false };
+      return { left: true, right: true, bottom: true };
     }
   });
   const [draggingPanelId, setDraggingPanelId] = useState(null);
@@ -1521,14 +1702,34 @@ function App() {
     const saved = Number(localStorage.getItem("drawerator_transport_fps"));
     return [24, 25, 30, 50, 60].includes(saved) ? saved : 30;
   });
+  const [scoreSampleRate, setScoreSampleRate] = useState(() => {
+    const saved = Number(localStorage.getItem("drawerator_score_sample_rate"));
+    return Number.isFinite(saved) && saved >= 8000 && saved <= 768000 ? saved : 48000;
+  });
+  const timeContext = useMemo(() => ({
+    tempo: scoreTempo,
+    signature: scoreTimeSignature,
+    fps: transportFps,
+    sampleRate: scoreSampleRate,
+  }), [scoreSampleRate, scoreTempo, scoreTimeSignature, transportFps]);
   const [transportLoopEnabled, setTransportLoopEnabled] = useState(() =>
     localStorage.getItem("drawerator_transport_loop") === "true"
   );
   const [transportLoopStart, setTransportLoopStart] = useState(() => Math.max(0, Number(localStorage.getItem("drawerator_transport_loop_start")) || 0));
   const [transportLoopEnd, setTransportLoopEnd] = useState(() => Math.max(1, Number(localStorage.getItem("drawerator_transport_loop_end")) || 10));
+  const [transportLoopStartValue, setTransportLoopStartValue] = useState(() => {
+    try { return createTimeValue(JSON.parse(localStorage.getItem("drawerator_transport_loop_start_value") || "null") || `${Math.max(0, Number(localStorage.getItem("drawerator_transport_loop_start")) || 0)} s`); }
+    catch { return createTimeValue("0 s"); }
+  });
+  const [transportLoopEndValue, setTransportLoopEndValue] = useState(() => {
+    try { return createTimeValue(JSON.parse(localStorage.getItem("drawerator_transport_loop_end_value") || "null") || `${Math.max(1, Number(localStorage.getItem("drawerator_transport_loop_end")) || 10)} s`); }
+    catch { return createTimeValue("10 s"); }
+  });
   const updateTransportLoop = useCallback((start, end) => {
     setTransportLoopStart(Math.max(0, start));
     setTransportLoopEnd(Math.max(start + 0.001, end));
+    setTransportLoopStartValue(createTimeValue(`${Math.max(0, start)} s`, Math.max(0, start)));
+    setTransportLoopEndValue(createTimeValue(`${Math.max(start + 0.001, end)} s`, Math.max(start + 0.001, end)));
   }, []);
   const [midiClockMode, setMidiClockMode] = useState(() => {
     const saved = localStorage.getItem("drawerator_midi_clock_mode");
@@ -1861,10 +2062,10 @@ function App() {
     try {
       setExpressiveSynthError("");
       if (!expressiveSynthRef.current) {
-        expressiveSynthRef.current = createExpressiveSynth({ config: expressiveSynthConfigRef.current });
+        expressiveSynthRef.current = createExpressiveSynth({ config: resolveExpressiveSynthTiming(expressiveSynthConfigRef.current, timeContext) });
       }
       const output = expressiveSynthRef.current;
-      output.setConfig(expressiveSynthConfigRef.current);
+      output.setConfig(resolveExpressiveSynthTiming(expressiveSynthConfigRef.current, timeContext));
       const state = await output.resume();
       if (state === "closed") throw new Error("The Expressive Synth audio context is closed. Reset audio to create a new one.");
       setExpressiveSynthStatus(state === "running" ? "Ready" : "Audio suspended");
@@ -1874,7 +2075,7 @@ function App() {
       setExpressiveSynthError(error?.message || "Expressive Synth initialization failed.");
       return null;
     }
-  }, []);
+  }, [timeContext]);
 
   const resetExpressiveSynth = useCallback(async () => {
     panicMidi();
@@ -2230,14 +2431,36 @@ function App() {
     localStorage.setItem("drawerator_time_signature", JSON.stringify(scoreTimeSignature));
     localStorage.setItem("drawerator_transport_display", transportDisplayMode);
     localStorage.setItem("drawerator_transport_fps", String(transportFps));
+    localStorage.setItem("drawerator_score_sample_rate", String(scoreSampleRate));
     localStorage.setItem("drawerator_transport_loop", String(transportLoopEnabled));
     localStorage.setItem("drawerator_transport_loop_start", String(transportLoopStart));
     localStorage.setItem("drawerator_transport_loop_end", String(transportLoopEnd));
+    localStorage.setItem("drawerator_transport_loop_start_value", JSON.stringify(transportLoopStartValue));
+    localStorage.setItem("drawerator_transport_loop_end_value", JSON.stringify(transportLoopEndValue));
     localStorage.setItem("drawerator_midi_clock_mode", midiClockMode);
     localStorage.setItem("drawerator_follow_midi_clock_tempo", String(followMidiClockTempo));
     localStorage.setItem("drawerator_follow_midi_transport", String(followMidiTransport));
     localStorage.setItem("drawerator_latch_triggers_across_cursors", String(latchTriggersAcrossCursors));
-  }, [followMidiClockTempo, followMidiTransport, latchTriggersAcrossCursors, midiClockMode, scoreTimeSignature, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopStart]);
+  }, [followMidiClockTempo, followMidiTransport, latchTriggersAcrossCursors, midiClockMode, scoreSampleRate, scoreTimeSignature, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopEndValue, transportLoopStart, transportLoopStartValue]);
+
+  useEffect(() => {
+    const start = Math.max(0, resolveTimeValue(transportLoopStartValue, timeContext));
+    const end = Math.max(start + 1 / transportFps, resolveTimeValue(transportLoopEndValue, timeContext));
+    setTransportLoopStart(start);
+    setTransportLoopEnd(end);
+  }, [timeContext, transportFps, transportLoopEndValue, transportLoopStartValue]);
+
+  useEffect(() => {
+    historyController.updateClock({ ...timeContext, historyMode: historyClockMode });
+    const session = historyController.get();
+    for (const action of session.actions || []) {
+      const at = Math.max(0, resolveTimeValue(action.atValue || `${action.at} s`, timeContext));
+      const duration = Math.max(0, resolveTimeValue(action.durationValue || `${action.duration} s`, timeContext));
+      if (Math.abs(at - action.at) > 1e-9 || Math.abs(duration - action.duration) > 1e-9) {
+        historyController.updateAction(action.id, { at, duration });
+      }
+    }
+  }, [historyClockMode, timeContext]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_panel_layout_v1", JSON.stringify(panelLayouts));
@@ -2315,8 +2538,8 @@ function App() {
   useEffect(() => {
     expressiveSynthConfigRef.current = expressiveSynthConfig;
     localStorage.setItem(EXPRESSIVE_SYNTH_STORAGE_KEY, JSON.stringify(expressiveSynthConfig));
-    expressiveSynthRef.current?.setConfig?.(expressiveSynthConfig);
-  }, [expressiveSynthConfig]);
+    expressiveSynthRef.current?.setConfig?.(resolveExpressiveSynthTiming(expressiveSynthConfig, timeContext));
+  }, [expressiveSynthConfig, timeContext]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_history_midi_armed", String(historyMidiArmed));
@@ -2551,6 +2774,7 @@ function App() {
       elements,
       scoreTime,
       previousCursorStatesRef.current,
+      { timeContext, globalGrid: globalGridRef.current },
     );
     previousCursorStatesRef.current = frame.nextCursorPaths;
     const elementMap = new Map(elements.map(element => [element.id, element]));
@@ -2639,7 +2863,7 @@ function App() {
       const [cursorId, triggerId] = key.split(":");
       const trigger = elementMap.get(triggerId);
       const triggerData = normalizeIannixData(trigger?.customData?.iannix);
-      const pulseMs = Math.max(80, triggerData.trigger.duration * 1000);
+      const pulseMs = Math.max(80, (frame.triggerDurations.get(triggerId) || triggerData.trigger.duration) * 1000);
       triggerPulseUntilRef.current.set(triggerId, now + pulseMs);
       window.setTimeout(() => setScoreRuntimeNonce(nonce => nonce + 1), pulseMs + 16);
       let midi = null;
@@ -2701,7 +2925,7 @@ function App() {
     }));
     setScoreEvents(events => [...nextEvents, ...events].slice(0, 20));
     setScoreRuntimeNonce(nonce => nonce + 1);
-  }, [excalidrawAPI, getMixerOutputsForChannel, historyController, latchTriggersAcrossCursors, modifierUpdateNonce, scorePlaying, scoreTime]);
+  }, [excalidrawAPI, getMixerOutputsForChannel, historyController, latchTriggersAcrossCursors, modifierUpdateNonce, scorePlaying, scoreTime, timeContext]);
 
   useEffect(() => {
     if (!excalidrawAPI || autoKeyApplyingRef.current || isMouseDownRef.current) return;
@@ -3369,7 +3593,7 @@ function App() {
         if (enterBezierEditAtPointer(e, [selectedBezier])) return;
       }
       const elements = excalidrawAPI.getSceneElements();
-      const frame = evaluateScoreFrame(elements, scoreTime, undefined, { detectCollisions: false });
+      const frame = evaluateScoreFrame(elements, scoreTime, undefined, { detectCollisions: false, timeContext, globalGrid: globalGridRef.current });
       const zoom = excalidrawAPI.getAppState().zoom.value || 1;
       let nearest = null;
       const distanceToSegment = (point, start, end) => {
@@ -3601,13 +3825,18 @@ function App() {
     if (!excalidrawAPI) return {};
     const appState = excalidrawAPI.getAppState() || {};
     const grid = globalGridRef.current;
-    const clock = { tempo: scoreTempo, signature: scoreTimeSignature, fps: transportFps };
+    const clock = timeContext;
     return {
       gridSize: grid.spacing.x / grid.spacing.subdivisionsX,
       grid,
       snapToGrid: (point, options = {}) => snapPointToGrid(grid, point, { zoom: appState.zoom?.value || 1, ...options }).point,
       gridUnitsToSeconds: units => gridUnitsToSeconds(units, grid, clock),
       secondsToGridUnits: seconds => secondsToGridUnits(seconds, grid, clock),
+      gridWorldToValue: point => worldToGridValue(grid, point),
+      gridValueToWorld: (value, options = {}) => gridValueToWorld(value, grid, options),
+      quantizeGridValue: value => quantizeGridValue(value, grid),
+      parseTimeValue: expression => parseTimeValue(expression, clock),
+      resolveTimeValue: value => resolveTimeValue(value, clock),
       strokeColor: lastStrokeColorRef.current || "#000000",
       strokeWidth: appState.currentItemStrokeWidth || 2,
       opacity: appState.currentItemOpacity ?? 100,
@@ -4620,7 +4849,6 @@ function App() {
 
   const scheduleNativeGridQuantization = () => {
     const grid = globalGridRef.current;
-    if (grid.snap.mode === "off" || (!grid.snap.targets.transforms && !grid.snap.targets.points)) return;
     if (nativeLineGridPointsRef.current && excalidrawAPIRef.current?.getAppState()?.activeTool?.type === "line") return;
     // Let Excalidraw commit its pointer-up edit before quantizing the authored point.
     window.setTimeout(() => {
@@ -4632,22 +4860,39 @@ function App() {
       if (appState.multiElement?.id && appState.activeTool?.type === "line") return;
       const selectedIds = Object.keys(appState.selectedElementIds || {}).filter(id => appState.selectedElementIds[id]);
       const editingLinearId = appState.editingLinearElement?.elementId || (interaction.pointEditing ? editingLinearGridRef.current : null);
-      const eligibleIds = api.getSceneElements().filter(element =>
+      const candidates = api.getSceneElements().filter(element =>
         (selectedIds.includes(element.id) || element.id === editingLinearId) && (!element.customData?.parentId || grid.snap.targets.generated)
-      ).map(element => element.id);
+      );
       const isPointEdit = interaction.pointEditing || Boolean(appState.editingLinearElement || bezierEditElementId);
       const isCreation = appState.activeTool?.type && appState.activeTool.type !== "selection";
       const isResize = interaction.resizing;
+      const isTransform = interaction.moving || isResize;
       const allowed = isPointEdit
         ? grid.snap.targets.points
-        : isCreation ? grid.snap.targets.input : grid.snap.targets.transforms;
-      if (!allowed) return;
-      quantizeGlobalGridElements({
-        elementIds: eligibleIds,
-        transformOnly: eligibleIds.length > 1 || (!isPointEdit && !isCreation && !isResize),
+        : isCreation ? grid.snap.targets.input : isTransform && grid.snap.targets.transforms;
+      // A click that only changes selection must never rewrite authored geometry.
+      // Bound score objects still quantize when their geometry is actually edited.
+      const hasGeometryEdit = isPointEdit || isCreation || isTransform;
+      const boundIds = hasGeometryEdit
+        ? candidates.filter(element => normalizeIannixData(element.customData?.iannix).gridBinding.quantize.geometry).map(element => element.id)
+        : [];
+      const globallyEligibleIds = allowed && grid.snap.mode !== "off"
+        ? candidates.filter(element => !boundIds.includes(element.id)).map(element => element.id)
+        : [];
+      const quantizeGlobalIds = () => globallyEligibleIds.length && quantizeGlobalGridElements({
+        elementIds: globallyEligibleIds,
+        transformOnly: globallyEligibleIds.length > 1 || (!isPointEdit && !isCreation && !isResize),
         forceHard: false,
         pointIndices: isPointEdit && interaction.pointIndices?.length ? interaction.pointIndices : null,
       });
+      if (boundIds.length) quantizeGlobalGridElements({
+        elementIds: boundIds,
+        transformOnly: boundIds.length > 1 || (!isPointEdit && !isCreation && !isResize),
+        forceHard: true,
+        pointIndices: isPointEdit && interaction.pointIndices?.length ? interaction.pointIndices : null,
+      });
+      if (boundIds.length && globallyEligibleIds.length) window.setTimeout(quantizeGlobalIds, 1);
+      else quantizeGlobalIds();
     }, 32);
   };
 
@@ -4939,6 +5184,29 @@ function App() {
     }
     localStorage.setItem("drawerator_theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_interface_theme", JSON.stringify(interfaceTheme));
+    localStorage.setItem("drawerator_interface_theme_preset", interfaceThemePreset);
+  }, [interfaceTheme, interfaceThemePreset]);
+
+  useEffect(() => {
+    localStorage.setItem(CUSTOM_THEME_STORAGE_KEY, JSON.stringify(customThemes));
+  }, [customThemes]);
+
+  useEffect(() => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+    const viewBackgroundColor = canvasColorForExcalidraw(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme);
+    if (api.getAppState()?.viewBackgroundColor !== viewBackgroundColor) {
+      api.updateScene({
+        elements: api.getSceneElementsIncludingDeleted(),
+        appState: { viewBackgroundColor },
+        commitToHistory: false,
+      });
+    }
+    api.refresh?.();
+  }, [excalidrawAPI, interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme]);
 
   // Scroll chat messages to bottom
   useEffect(() => {
@@ -5648,6 +5916,68 @@ function App() {
     excalidrawAPI?.toggleSidebar({ name: "library" });
   };
 
+  const applyDraweratorThemePreset = (presetId, api = excalidrawAPI) => {
+    const customThemeId = presetId.startsWith("user:") ? presetId.slice(5) : null;
+    const preset = customThemeId ? customThemes[customThemeId] : INTERFACE_THEME_PRESETS[presetId];
+    if (!preset) return;
+    applyingRecordedUiStateRef.current = true;
+    setInterfaceThemePreset(presetId);
+    setTheme(preset.theme);
+    api?.updateScene({
+      appState: {
+        theme: preset.theme,
+        viewBackgroundColor: canvasColorForExcalidraw(preset.surfaces.canvas.color, preset.surfaces.canvas.opacity, preset.theme),
+      },
+      commitToHistory: false,
+    });
+    setAccentColor(preset.accent.color);
+    setAccentOpacity(preset.accent.opacity);
+    setHighlightColor(preset.highlight.color);
+    setHighlightOpacity(preset.highlight.opacity);
+    setInterfaceTheme(normalizeInterfaceTheme(preset.surfaces, preset.theme));
+    if (preset.roleTheme) setRoleTheme({ ...DEFAULT_ROLE_THEME, ...preset.roleTheme });
+    runtimeCallbacksRef.current.globalGridUpdate({
+      appearance: { opacity: preset.surfaces.grid.opacity / 100 },
+    });
+    localStorage.setItem("drawerator_accent_color", preset.accent.color);
+    localStorage.setItem("drawerator_accent_opacity", String(preset.accent.opacity));
+    localStorage.setItem("drawerator_highlight_color", preset.highlight.color);
+    localStorage.setItem("drawerator_highlight_opacity", String(preset.highlight.opacity));
+    finishApplyingRecordedUiState();
+  };
+
+  const saveCurrentCustomTheme = () => {
+    const label = customThemeName.trim();
+    if (!label) return;
+    const existing = Object.entries(customThemes).find(([, preset]) => preset.label.toLocaleLowerCase() === label.toLocaleLowerCase());
+    const id = existing?.[0] || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const preset = {
+      label,
+      theme,
+      accent: { color: accentColor, opacity: accentOpacity },
+      highlight: { color: highlightColor, opacity: highlightOpacity },
+      surfaces: normalizeInterfaceTheme({
+        ...interfaceTheme,
+        grid: { ...interfaceTheme.grid, opacity: Math.round(globalGridRef.current.appearance.opacity * 100) },
+      }, theme),
+      roleTheme: { ...roleTheme },
+    };
+    setCustomThemes(previous => ({ ...previous, [id]: preset }));
+    setInterfaceThemePreset(`user:${id}`);
+    setCustomThemeName("");
+  };
+
+  const deleteSelectedCustomTheme = () => {
+    if (!interfaceThemePreset.startsWith("user:")) return;
+    const id = interfaceThemePreset.slice(5);
+    setCustomThemes(previous => {
+      const next = { ...previous };
+      delete next[id];
+      return next;
+    });
+    setInterfaceThemePreset("custom");
+  };
+
   // --- COMMAND PALETTE LOGIC ---
   const PANEL_COMMANDS = DRAWERATOR_PANELS.map(panel => ({
     id: `panel-${panel.id}`,
@@ -5666,7 +5996,9 @@ function App() {
     ...PANEL_COMMANDS,
     { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => { applyingRecordedUiStateRef.current = true; setSatoriMode(prev => !prev); finishApplyingRecordedUiState(); } },
-    { id: "toggle-theme", name: "Toggle Dark/Light Theme", category: "View", action: (api) => { applyingRecordedUiStateRef.current = true; const next = theme === "dark" ? "light" : "dark"; setTheme(next); api?.updateScene({ appState: { theme: next } }); finishApplyingRecordedUiState(); } },
+    { id: "toggle-theme", name: "Toggle Dark/Light Theme", category: "View", action: (api) => {
+      applyDraweratorThemePreset(theme === "dark" ? "draweratorLight" : "draweratorDark", api);
+    } },
     { id: "toggle-chat", name: "Toggle AI Assistant Chat", category: "AI Chat", action: () => toggleDraweratorPanel("chat") },
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
@@ -5709,7 +6041,9 @@ function App() {
     { id: "scene.update", name: "Update Scene Objects", category: "Scene", args: { elements: "element[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.update", args) },
     { id: "scene.delete", name: "Delete Scene Objects", category: "Scene", args: { elementIds: "string[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.delete", args) },
     { id: "transport.update", name: "Update Transport State", category: "Transport", args: { state: "transportState" }, action: (_api, args) => runtimeCallbacksRef.current.transportUpdate(args?.state || args) },
-    { id: "transport.seek", name: "Seek Global Transport", category: "Transport", args: { seconds: "number" }, action: (_api, args) => runtimeCallbacksRef.current.transportSeek(Number(args?.seconds) || 0) },
+    { id: "transport.seek", name: "Seek Global Transport", category: "Transport", args: { seconds: "number|timeValue" }, action: (_api, args) => runtimeCallbacksRef.current.transportSeek(resolveTimeValue(args?.value ?? args?.seconds ?? 0, timeContext)) },
+    { id: "transport.jump.start", name: "Jump to Timeline or Loop Start", category: "Transport", action: () => runtimeCallbacksRef.current.transportJump("start") },
+    { id: "transport.jump.end", name: "Jump to Timeline or Loop End", category: "Transport", action: () => runtimeCallbacksRef.current.transportJump("end") },
     { id: "presentation.panels", name: "Update Panel Presentation", category: "Panels", record: "presentation", args: { state: "panelState" }, action: (_api, args) => runtimeCallbacksRef.current.panelStateUpdate(args?.state || args) },
     { id: "settings.board.update", name: "Update Board Settings", category: "Settings", record: "presentation", args: { state: "boardSettings" }, sensitiveArgs: ["state.credentials", "state.apiKey", "state.token"], action: (_api, args) => runtimeCallbacksRef.current.boardSettingsUpdate(args?.state || args) },
     { id: "grid.global.update", name: "Update Global Grid /grid update", aliases: ["/grid update"], category: "Grid", args: { patch: "gridPatch" }, action: (_api, args) => runtimeCallbacksRef.current.globalGridUpdate(args?.patch || args) },
@@ -5717,6 +6051,11 @@ function App() {
     { id: "grid.visible.toggle", name: "Toggle Global Grid Visibility /grid visible", aliases: ["/grid visible"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridUpdate({ appearance: { visible: !globalGridRef.current.appearance.visible } }) },
     { id: "grid.snap.toggle", name: "Toggle Global Grid Snapping /grid snap", aliases: ["/grid snap"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridUpdate({ snap: { mode: globalGridRef.current.snap.mode === "off" ? "hard" : "off" } }) },
     { id: "grid.quantize.selection", name: "Quantize Selection to Global Grid /grid quantize", aliases: ["/grid quantize"], category: "Grid", args: { elementIds: "string[]?", resolution: "minor|major?", axes: "x|y|both?" }, action: (_api, args) => runtimeCallbacksRef.current.gridQuantizeSelection(args) },
+    { id: "score.time.update", name: "Update Score Object Time /score time", aliases: ["/score time"], category: "IanniX", args: { elementIds: "string[]?", start: "number|timeValue?", duration: "number|timeValue?", rate: "number?", loopMode: "once|loop|pingPong?" }, action: (_api, args) => updateScoreObjectTiming(args) },
+    { id: "score.time.restoreAuto", name: "Restore Geometry-derived Duration /score duration auto", aliases: ["/score duration auto"], category: "IanniX", args: { elementIds: "string[]?" }, action: (_api, args) => restoreScoreAutoDuration(args) },
+    { id: "score.grid.assign", name: "Assign Score Object Grid /score grid", aliases: ["/score grid"], category: "Grid", args: { elementIds: "string[]?", gridId: "string", metric: "string?" }, action: (_api, args) => updateScoreGridBinding(args) },
+    { id: "score.grid.metric", name: "Change Score Timing Metric /score metric", aliases: ["/score metric"], category: "Grid", args: { elementIds: "string[]?", metric: "auto|xSpan|ySpan|arcLength|manhattan" }, action: (_api, args) => updateScoreGridBinding(args) },
+    { id: "score.grid.quantization", name: "Set Score Quantization /score quantize", aliases: ["/score quantize"], category: "Grid", args: { elementIds: "string[]?", quantize: "object" }, action: (_api, args) => updateScoreGridBinding(args) },
     { id: "history.record.start", name: "Start Session Recording /record start", aliases: ["/record start"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyStart({ play: false }) },
     { id: "history.record.play", name: "Record and Play /record play", aliases: ["/record play"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyStart({ play: true }) },
     { id: "history.record.pause", name: "Pause or Resume Recording /record pause", aliases: ["/record pause"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyPause() },
@@ -5727,6 +6066,7 @@ function App() {
     { id: "macro.save", name: "Save Session as Sequence /macro save", aliases: ["/macro save"], category: "History", record: "never", args: { name: "string?" }, action: (_api, args) => runtimeCallbacksRef.current.macroSave(null, args?.name) },
     { id: "macro.insert", name: "Insert Sequence /macro insert", aliases: ["/macro insert"], category: "History", args: { id: "string", mode: "relative|absolute" }, action: (_api, args) => runtimeCallbacksRef.current.macroInsert(args) },
     { id: "iannix.import.trusted", name: "Import Trusted IanniX Script /iannix import", aliases: ["/iannix import"], category: "IanniX", args: { source: "string", filename: "string?", seed: "number?", anchor: "point?", scale: "number?", importId: "string?", parameters: "object?" }, validate: args => ({ ...args, importId: args?.importId || crypto.randomUUID() }), action: (_api, args) => runtimeCallbacksRef.current.iannixImport(args) },
+    { id: "iannix.command.clear", name: "IanniX: Clear Scene /ix clear", aliases: ["/ix clear", "/iannix clear", "IanniX clear"], category: "IanniX", action: () => runtimeCallbacksRef.current.iannixCommand("clear") },
     { id: "iannix.command.execute", name: "Execute IanniX Command", category: "IanniX", args: { command: "string" }, action: (_api, args) => runtimeCallbacksRef.current.iannixCommand(args?.command) },
     { id: "ai.prompt", name: "Send AI Prompt", category: "AI Chat", args: { prompt: "string" }, action: (_api, args) => { openAISidebar(); return sendChatMessage(args?.prompt || ""); } },
   ];
@@ -5814,6 +6154,7 @@ function App() {
         }
         e.preventDefault();
         e.stopPropagation();
+        if (shortcutAction.id === "toggle-theme") e.stopImmediatePropagation();
         if (shortcutAction.id === "transport.play.toggle") {
           setScorePlaying(playing => !playing);
           return;
@@ -6026,6 +6367,16 @@ function App() {
       cmd.category.toLowerCase().includes(query) ||
       cmd.aliases?.some(alias => alias.toLowerCase().includes(query))
     );
+    const inlineIannixMatch = /^\/(?:ix|iannix)\s+(.+)$/i.exec(commandSearch.trim());
+    if (inlineIannixMatch && !matches.some(command => command.aliases?.some(alias => alias.toLowerCase() === query))) {
+      const command = inlineIannixMatch[1].trim();
+      matches.unshift({
+        id: `iannix-inline:${command}`,
+        name: `Run IanniX: ${command}`,
+        category: "IanniX",
+        inlineIannixCommand: command,
+      });
+    }
     
     if (commandSearch.trim() !== "" && !query.startsWith("/")) {
       matches.unshift({
@@ -6041,9 +6392,14 @@ function App() {
   const parseSlashInvocation = value => {
     const input = String(value || "").trim();
     if (!input.startsWith("/")) return null;
-    const exact = COMMANDS.find(command => command.aliases?.includes(input));
+    const exact = COMMANDS.find(command => command.aliases?.some(alias => alias.toLowerCase() === input.toLowerCase()));
     if (exact) return { command: exact, args: {} };
-    let match = /^\/history\s+seek\s+([0-9.]+)$/i.exec(input);
+    let match = /^\/(?:ix|iannix)\s+(.+)$/i.exec(input);
+    if (match) return {
+      command: COMMANDS.find(command => command.id === "iannix.command.execute"),
+      args: { command: match[1].trim() },
+    };
+    match = /^\/history\s+seek\s+([0-9.]+)$/i.exec(input);
     if (match) return { command: COMMANDS.find(command => command.id === "history.seek"), args: { seconds: Number(match[1]) } };
     match = /^\/macro\s+save(?:\s+(.+))?$/i.exec(input);
     if (match) return { command: COMMANDS.find(command => command.id === "macro.save"), args: { name: match[1]?.trim() || "" } };
@@ -6074,6 +6430,9 @@ function App() {
       return commandRegistry.execute("ai.prompt", { prompt: commandSearch }, { source, transportTime: scoreTimeRef.current });
     }
     try {
+      if (cmd.inlineIannixCommand) {
+        return await commandRegistry.execute("iannix.command.execute", { command: cmd.inlineIannixCommand }, { source, transportTime: scoreTimeRef.current });
+      }
       return await commandRegistry.execute(cmd.id, args, { source, transportTime: scoreTimeRef.current });
     } catch (error) {
       console.error("Drawerator command failed", error);
@@ -6359,16 +6718,79 @@ function App() {
     });
   };
 
+  const updateScoreObjectTiming = (args = {}) => {
+    const ids = args.elementIds?.length ? args.elementIds : getSelectedElements().map(element => element.id);
+    if (!ids.length) throw new Error("Select one or more score objects first.");
+    updateIannixElements(ids, current => {
+      const nextTime = { ...current.time };
+      const quantumCells = gridTimeQuantumCells(globalGridRef.current, current.gridBinding.metric, args.resolution);
+      const quantumSeconds = gridUnitsToSeconds(quantumCells, globalGridRef.current, timeContext);
+      if (args.start !== undefined) {
+        let value = createTimeValue(typeof args.start === "number" ? `${args.start} s` : args.start, current.time.start, timeContext);
+        if (current.gridBinding.quantize.time || args.quantize === true) value = quantizeTimeValue(value, quantumSeconds, timeContext);
+        nextTime.startValue = value;
+        nextTime.start = Math.max(0, resolveTimeValue(value, timeContext));
+        nextTime.startMode = "manual";
+      }
+      if (args.duration !== undefined) {
+        let value = createTimeValue(typeof args.duration === "number" ? `${args.duration} s` : args.duration, current.time.duration, timeContext);
+        if (current.gridBinding.quantize.time || args.quantize === true) value = quantizeTimeValue(value, quantumSeconds, timeContext);
+        nextTime.durationValue = value;
+        nextTime.duration = Math.max(0.001, resolveTimeValue(value, timeContext));
+        nextTime.durationMode = "manual";
+      }
+      if (Number.isFinite(Number(args.rate))) nextTime.rate = Math.max(0, Number(args.rate));
+      if (["once", "loop", "pingPong"].includes(args.loopMode)) nextTime.loopMode = args.loopMode;
+      return { ...current, time: nextTime };
+    });
+    return ids;
+  };
+
+  const updateScoreGridBinding = (args = {}) => {
+    const ids = args.elementIds?.length ? args.elementIds : getSelectedElements().map(element => element.id);
+    if (!ids.length) throw new Error("Select one or more score objects first.");
+    updateIannixElements(ids, current => ({
+      ...current,
+      gridBinding: {
+        ...current.gridBinding,
+        ...(args.gridId ? { gridId: args.gridId } : {}),
+        ...(args.metric ? { metric: args.metric } : {}),
+        quantize: { ...current.gridBinding.quantize, ...(args.quantize || {}) },
+      },
+    }));
+    return ids;
+  };
+
+  const restoreScoreAutoDuration = (args = {}) => {
+    const ids = args.elementIds?.length ? args.elementIds : getSelectedElements().map(element => element.id);
+    if (!ids.length) throw new Error("Select one or more score objects first.");
+    updateIannixElements(ids, current => ({ ...current, time: { ...current.time, durationMode: current.role === "cursor" ? "curve" : "geometry" } }));
+    return ids;
+  };
+
   const assignIannixRole = (elements, role) => {
     if (!excalidrawAPI || elements.length === 0) return;
     const sceneElements = excalidrawAPI.getSceneElements();
     const elementIds = elements.map(element => element.id);
     const labels = allocateIannixRoleLabels(sceneElements, elementIds, role);
-    updateIannixElements(elementIds, (current, element) => ({
-      ...current,
-      role,
-      label: labels.get(element.id) ?? current.label,
-    }));
+    updateIannixElements(elementIds, (current, element) => {
+      const isNewScoreObject = !current.role && Boolean(role);
+      return {
+        ...current,
+        role,
+        label: labels.get(element.id) ?? current.label,
+        ...(isNewScoreObject ? {
+          time: {
+            ...current.time,
+            start: 0,
+            startValue: createTimeValue("0 s", 0, timeContext),
+            startMode: role === "cursor" ? "curve" : "manual",
+            durationMode: role === "cursor" ? "curve" : "geometry",
+          },
+          gridBinding: { ...current.gridBinding, gridId: "global" },
+        } : {}),
+      };
+    });
   };
 
   // Create one hidden, runtime-linked cursor for every selected path. As with
@@ -6418,12 +6840,16 @@ function App() {
         role: "curve",
         active: true,
         label: curveLabels.get(source.id) || source.customData?.iannix?.label || `Curve ${index + 1}`,
+        gridBinding: { gridId: "global", metric: "auto", quantize: { geometry: false, time: false, value: false } },
+        time: { start: 0, startValue: createTimeValue("0 s"), startMode: "manual", durationMode: "geometry" },
       });
       updates.set(source.id, sourceData);
       const cursorData = normalizeIannixData({
         role: "cursor",
         active: true,
         label: `Cursor ${index + 1}`,
+        gridBinding: { gridId: "global", metric: "auto", quantize: { geometry: false, time: false, value: false } },
+        time: { startMode: "curve", durationMode: "curve" },
         cursor: {
           curveId: source.id,
           followTangent: true,
@@ -6622,7 +7048,8 @@ function App() {
       timeSignature: scoreTimeSignature,
       displayMode: transportDisplayMode,
       fps: transportFps,
-      loop: { enabled: transportLoopEnabled, start: transportLoopStart, end: transportLoopEnd },
+      sampleRate: scoreSampleRate,
+      loop: { enabled: transportLoopEnabled, start: transportLoopStart, end: transportLoopEnd, startValue: transportLoopStartValue, endValue: transportLoopEndValue },
     }, kind === "scene" ? globalGridRef.current : null, kind === "scene" ? expressiveSynthConfigRef.current : null, kind === "scene" ? mixerRef.current : null), null, 2);
   };
 
@@ -6731,10 +7158,13 @@ function App() {
     if (score?.timeSignature) setScoreTimeSignature(normalizeTimeSignature(score.timeSignature));
     if (["frame", "timecode", "beats"].includes(score?.displayMode)) setTransportDisplayMode(score.displayMode);
     if ([24, 25, 30, 50, 60].includes(score?.fps)) setTransportFps(score.fps);
+    if (Number.isFinite(score?.sampleRate) && score.sampleRate >= 8000 && score.sampleRate <= 768000) setScoreSampleRate(score.sampleRate);
     if (score?.loop) {
       setTransportLoopEnabled(!!score.loop.enabled);
-      if (Number.isFinite(score.loop.start)) setTransportLoopStart(Math.max(0, score.loop.start));
-      if (Number.isFinite(score.loop.end)) setTransportLoopEnd(Math.max(0.1, score.loop.end));
+      if (score.loop.startValue) setTransportLoopStartValue(createTimeValue(score.loop.startValue, score.loop.start, timeContext));
+      else if (Number.isFinite(score.loop.start)) setTransportLoopStartValue(createTimeValue(`${Math.max(0, score.loop.start)} s`, score.loop.start));
+      if (score.loop.endValue) setTransportLoopEndValue(createTimeValue(score.loop.endValue, score.loop.end, timeContext));
+      else if (Number.isFinite(score.loop.end)) setTransportLoopEndValue(createTimeValue(`${Math.max(0.1, score.loop.end)} s`, score.loop.end));
     }
     previousCursorStatesRef.current = new Map();
     activeScoreCollisionsRef.current = new Set();
@@ -6885,7 +7315,7 @@ function App() {
     historyController.start({
       baseline,
       includePresentation: historyIncludePresentation,
-      clock: { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature, historyMode: historyClockMode },
+      clock: { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature, sampleRate: scoreSampleRate, historyMode: historyClockMode },
       name: `Session ${new Date().toLocaleString()}`,
     });
     if (play) setScorePlaying(true);
@@ -6919,7 +7349,7 @@ function App() {
     historyController.clear({
       baseline: captureSessionBaseline(),
       includePresentation: historyIncludePresentation,
-      clock: { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature, historyMode: historyClockMode },
+      clock: { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature, sampleRate: scoreSampleRate, historyMode: historyClockMode },
       name: `Session ${new Date().toLocaleString()}`,
     });
   };
@@ -6981,6 +7411,27 @@ function App() {
     triggerCollisionLockoutsRef.current = new Map();
     finishApplyingRecordedUiState();
   };
+  runtimeCallbacksRef.current.transportJump = edge => {
+    if (transportLoopEnabled) {
+      runtimeCallbacksRef.current.transportSeek(edge === "start" ? transportLoopStart : transportLoopEnd);
+      return;
+    }
+    if (edge === "start") {
+      runtimeCallbacksRef.current.transportSeek(0);
+      return;
+    }
+    const elements = excalidrawAPIRef.current?.getSceneElements() || [];
+    const scoreEnd = Math.max(
+      10,
+      scoreTimeRef.current + 1,
+      historySnapshot.duration,
+      ...elements.filter(element => !element.isDeleted && element.customData?.iannix?.role).map(element => {
+        const timing = resolveIannixObjectTiming(element, { context: timeContext, grid: globalGridRef.current });
+        return timing.start + timing.duration / Math.max(0.001, timing.rate || 1);
+      }),
+    );
+    runtimeCallbacksRef.current.transportSeek(scoreEnd);
+  };
   runtimeCallbacksRef.current.transportUpdate = state => {
     if (!state || typeof state !== "object") return;
     applyingRecordedUiStateRef.current = true;
@@ -6992,6 +7443,7 @@ function App() {
     if (state.timeSignature) setScoreTimeSignature(normalizeTimeSignature(state.timeSignature));
     if (["frame", "timecode", "beats"].includes(state.displayMode)) setTransportDisplayMode(state.displayMode);
     if ([24, 25, 30, 50, 60].includes(Number(state.fps))) setTransportFps(Number(state.fps));
+    if (Number.isFinite(Number(state.sampleRate)) && Number(state.sampleRate) >= 8000 && Number(state.sampleRate) <= 768000) setScoreSampleRate(Number(state.sampleRate));
     if (state.loop && typeof state.loop === "object") {
       if (typeof state.loop.enabled === "boolean") setTransportLoopEnabled(state.loop.enabled);
       if (Number.isFinite(Number(state.loop.start)) && Number.isFinite(Number(state.loop.end))) {
@@ -7037,6 +7489,10 @@ function App() {
       setHighlightOpacity(Number(state.highlightOpacity));
       localStorage.setItem("drawerator_highlight_opacity", String(state.highlightOpacity));
     }
+    if (state.interfaceTheme && typeof state.interfaceTheme === "object") {
+      setInterfaceTheme(normalizeInterfaceTheme(state.interfaceTheme, state.theme || theme));
+      setInterfaceThemePreset(typeof state.interfaceThemePreset === "string" ? state.interfaceThemePreset : "custom");
+    }
     if (state.roleTheme && typeof state.roleTheme === "object") setRoleTheme(previous => ({ ...previous, ...state.roleTheme }));
     if (typeof state.satoriMode === "boolean") setSatoriMode(state.satoriMode);
     if (typeof state.showToolbarHints === "boolean") setShowToolbarHints(state.showToolbarHints);
@@ -7077,7 +7533,7 @@ function App() {
       timeSignature: scoreTimeSignature,
       displayMode: transportDisplayMode,
       fps: transportFps,
-      loop: { enabled: transportLoopEnabled, start: transportLoopStart, end: transportLoopEnd },
+      loop: { enabled: transportLoopEnabled, start: transportLoopStart, end: transportLoopEnd, startValue: transportLoopStartValue, endValue: transportLoopEndValue },
       midiClockMode,
       followMidiClockTempo,
       followMidiTransport,
@@ -7096,7 +7552,7 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record transport state", error));
     }, 180);
-  }, [commandRegistry, followMidiClockTempo, followMidiTransport, historyController, midiClockMode, scorePlaying, scoreRate, scoreTempo, scoreTimeSignature, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopStart]);
+  }, [commandRegistry, followMidiClockTempo, followMidiTransport, historyController, midiClockMode, scorePlaying, scoreRate, scoreSampleRate, scoreTempo, scoreTimeSignature, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopEndValue, transportLoopStart, transportLoopStartValue]);
 
   useEffect(() => {
     const state = { openPanels, panelLayouts, activeDockPanels, collapsedDocks, activeSettingsTab, modsPanelTab };
@@ -7124,6 +7580,8 @@ function App() {
       accentOpacity,
       highlightColor,
       highlightOpacity,
+      interfaceTheme,
+      interfaceThemePreset,
       roleTheme,
       satoriMode,
       showToolbarHints,
@@ -7147,11 +7605,11 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record board settings", error));
     }, 180);
-  }, [accentColor, accentOpacity, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, highlightColor, highlightOpacity, historyController, historyIncludePresentation, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
+  }, [accentColor, accentOpacity, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceTheme, interfaceThemePreset, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
 
   useEffect(() => {
     const api = {
-      apiVersion: 3,
+      apiVersion: 4,
       commands: {
         list: () => commandRegistry.list(),
         describe: id => commandRegistry.describe(id),
@@ -7194,6 +7652,12 @@ function App() {
         get: () => excalidrawAPIRef.current?.getSceneElementsIncludingDeleted() || [],
         getAppState: () => excalidrawAPIRef.current?.getAppState() || null,
       },
+      time: {
+        parse: expression => parseTimeValue(expression, timeContext),
+        resolve: (value, context = timeContext) => resolveTimeValue(value, context),
+        format: value => formatTimeValue(value),
+        quantize: (value, quantum, context = timeContext) => quantizeTimeValue(value, quantum, context),
+      },
       grid: {
         getGlobal: () => normalizeGlobalGrid(globalGridRef.current),
         updateGlobal: patch => commandRegistry.execute("grid.global.update", { patch }, { source: "api", transportTime: scoreTimeRef.current }),
@@ -7201,16 +7665,19 @@ function App() {
           zoom: excalidrawAPIRef.current?.getAppState()?.zoom?.value || 1,
           ...options,
         }),
-        unitsToSeconds: units => gridUnitsToSeconds(units, globalGridRef.current, {
-          tempo: scoreTempo,
-          signature: scoreTimeSignature,
-          fps: transportFps,
-        }),
-        secondsToUnits: seconds => secondsToGridUnits(seconds, globalGridRef.current, {
-          tempo: scoreTempo,
-          signature: scoreTimeSignature,
-          fps: transportFps,
-        }),
+        unitsToSeconds: units => gridUnitsToSeconds(units, globalGridRef.current, timeContext),
+        secondsToUnits: seconds => secondsToGridUnits(seconds, globalGridRef.current, timeContext),
+        worldToValue: (point, options = {}) => {
+          const grid = options.grid || globalGridRef.current;
+          const mapped = worldToGridValue(grid, point);
+          return options.quantize ? { ...quantizeGridValue(mapped, grid), coordinate: mapped.coordinate, local: mapped.local, quantized: true } : mapped;
+        },
+        valueToWorld: (value, options = {}) => gridValueToWorld(value, options.grid || globalGridRef.current, options),
+        resolveObjectTiming: elementId => {
+          const elements = excalidrawAPIRef.current?.getSceneElements() || [];
+          const frame = evaluateScoreFrame(elements, scoreTimeRef.current, undefined, { detectCollisions: false, timeContext, globalGrid: globalGridRef.current });
+          return frame.resolvedTimings.get(elementId) || null;
+        },
       },
       mixer: {
         get: () => normalizeMixer(mixerRef.current),
@@ -7229,7 +7696,7 @@ function App() {
     return () => {
       if (window.drawerator === api) delete window.drawerator;
     };
-  }, [commandRegistry, eventBus, historyController, historyIncludePresentation, historyLibrary, historyMidiArmed, inputBus, refreshHistoryMacros, scoreTempo, scoreTimeSignature, transportFps]);
+  }, [commandRegistry, eventBus, historyController, historyIncludePresentation, historyLibrary, historyMidiArmed, inputBus, refreshHistoryMacros, timeContext]);
 
   const handleDraweratorSceneFile = async (event) => {
     const file = event.target.files?.[0];
@@ -7580,7 +8047,10 @@ function App() {
         if (operation.type === "group") iannixImport.group = operation.value;
         else if (operation.type === "label") iannix = { ...iannix, label: operation.value };
         else if (operation.type === "active") iannix = { ...iannix, active: operation.value };
-        else if (operation.type === "speed") iannix = { ...iannix, time: { ...iannix.time, duration: Math.max(0.001, operation.value) } };
+        else if (operation.type === "speed") {
+          const duration = Math.max(0.001, operation.value);
+          iannix = { ...iannix, time: { ...iannix.time, duration, durationValue: createTimeValue(`${duration} s`, duration), durationMode: "manual" } };
+        }
         else if (operation.type === "width") strokeWidth = Math.max(0.5, operation.value);
         else if (operation.type === "color") {
           const [r = 0, g = 0, b = 0] = operation.value;
@@ -7719,7 +8189,7 @@ function App() {
           </InspectorSection>
           {sharedRole ? (
             <div className="iannix-object-shared-editor">
-              <IannixDataPanel elements={selectedElements} onChange={updateIannixDataPath} />
+              <IannixDataPanel elements={selectedElements} onChange={updateIannixDataPath} timeContext={timeContext} />
             </div>
           ) : (
             <div className="iannix-empty-state iannix-object-shared-empty">
@@ -7732,7 +8202,12 @@ function App() {
 
     const element = selectedElements[0];
     const data = normalizeIannixData(element.customData?.iannix);
-    const timeState = getObjectTimeState(scoreTime, data.time);
+    const timingFrame = evaluateScoreFrame(excalidrawAPI.getSceneElements(), scoreTime, undefined, { detectCollisions: false, timeContext, globalGrid: globalGridRef.current });
+    const resolvedTiming = timingFrame.resolvedTimings.get(element.id) || resolveIannixObjectTiming(element, {
+      context: timeContext,
+      grid: data.gridBinding.gridId === "global" ? globalGridRef.current : null,
+    });
+    const timeState = getObjectTimeState(scoreTime, resolvedTiming);
     const curves = excalidrawAPI.getSceneElements().filter(candidate =>
       !candidate.isDeleted && candidate.customData?.iannix?.role === "curve"
     );
@@ -7753,7 +8228,7 @@ function App() {
     let midiPreviewError = "";
     if (data.role === "trigger" && data.trigger.midiEnabled) {
       try {
-        const frame = evaluateScoreFrame(excalidrawAPI.getSceneElements(), scoreTime);
+        const frame = evaluateScoreFrame(excalidrawAPI.getSceneElements(), scoreTime, undefined, { timeContext, globalGrid: globalGridRef.current });
         const collisionKey = [...frame.collisions].find(key => key.endsWith(`:${element.id}`));
         const preferredCursorId = collisionKey?.split(":")[0] || null;
         const cursor = selectIannixTriggerCursor(frame.cursors, element, preferredCursorId);
@@ -7930,14 +8405,18 @@ function App() {
             {data.trigger.behavior === "pulse" ? (
               <>
                 <label className="iannix-field" {...infoProps("Minimum duration", "Starts on entry and releases on geometric exit. This value is the minimum or fallback duration for shorter contacts.")}>
-                  <span>Minimum duration (s)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.05"
-                    data-default="0.35"
-                    value={data.trigger.duration}
-                    onChange={event => setNumber("trigger", "duration", event.target.value)}
+                  <span>Minimum duration</span>
+                  <TimeValueInput
+                    aria-label="Trigger minimum duration"
+                    data-route-path={`objects.${element.id}.trigger.duration`}
+                    value={data.trigger.durationValue}
+                    context={timeContext}
+                    defaultValue="350 ms"
+                    minSeconds={0}
+                    onChange={(next, seconds) => updateIannixElement(element.id, current => ({
+                      ...current,
+                      trigger: { ...current.trigger, duration: seconds, durationValue: next },
+                    }))}
                   />
                 </label>
               </>
@@ -8076,15 +8555,31 @@ function App() {
           </InspectorSection>
         )}
 
-        <InspectorSection title="Object time" className="iannix-section" aside={<span className="iannix-progress-readout">{timeState.localTime.toFixed(2)}s · {(timeState.progress * 100).toFixed(1)}%</span>} {...infoProps("Object time", "A role-independent local clock controlling start, duration, rate, and looping for this object.")}>
+        <InspectorSection title="Object time" className="iannix-section" aside={<span className="iannix-progress-readout">{timeState.localTime.toFixed(2)}s · {(timeState.progress * 100).toFixed(1)}%</span>} {...infoProps("Object time", "Live time expressions follow the score tempo, meter, FPS, and sample rate. Geometry-derived duration follows the assigned grid until manually overridden.")}>
           <div className="iannix-two-column">
             <label className="iannix-field">
-              <span>Start (s)</span>
-              <input type="number" min="0" step="0.1" data-default="0" value={data.time.start} onChange={event => setNumber("time", "start", event.target.value)} />
+              <span>Start</span>
+              <TimeValueInput
+                aria-label="Object start"
+                data-route-path={`objects.${element.id}.time.start`}
+                value={data.time.startMode === "curve" ? createTimeValue(`${resolvedTiming.start} s`, resolvedTiming.start) : data.time.startValue}
+                context={timeContext}
+                defaultValue="0 s"
+                minSeconds={0}
+                onChange={next => updateScoreObjectTiming({ elementIds: [element.id], start: next })}
+              />
             </label>
             <label className="iannix-field">
-              <span>Duration (s)</span>
-              <input type="number" min="0.001" step="0.1" data-default="5" value={data.time.duration} onChange={event => setNumber("time", "duration", event.target.value)} />
+              <span>Duration</span>
+              <TimeValueInput
+                aria-label="Object duration"
+                data-route-path={`objects.${element.id}.time.duration`}
+                value={data.time.durationMode === "manual" ? data.time.durationValue : createTimeValue(`${resolvedTiming.duration} s`, resolvedTiming.duration)}
+                context={timeContext}
+                defaultValue="1 beat"
+                minSeconds={0.001}
+                onChange={next => updateScoreObjectTiming({ elementIds: [element.id], duration: next })}
+              />
             </label>
             <label className="iannix-field">
               <span>Rate</span>
@@ -8105,6 +8600,51 @@ function App() {
               </select>
             </label>
           </div>
+          <div className="iannix-two-column">
+            <label className="iannix-field" {...infoProps("Timing metric", "Auto uses the dominant grid-local bounds axis. Arc length measures the core path; Manhattan sums horizontal and vertical grid-cell travel.")}>
+              <span>Grid metric</span>
+              <select value={data.gridBinding.metric} onChange={event => updateIannixElement(element.id, current => ({ ...current, gridBinding: { ...current.gridBinding, metric: event.target.value } }))}>
+                <option value="auto">Auto</option><option value="xSpan">X span</option><option value="ySpan">Y span</option><option value="arcLength">Arc length</option><option value="manhattan">Manhattan</option>
+              </select>
+            </label>
+            <div className="iannix-field">
+              <span>Duration source</span>
+              <button type="button" onClick={() => updateIannixElement(element.id, current => ({ ...current, time: { ...current.time, durationMode: current.role === "cursor" ? "curve" : "geometry" } }))}>
+                Restore Auto Duration
+              </button>
+            </div>
+          </div>
+          <div className="iannix-two-column">
+            {[["Geometry", "geometry"], ["Time", "time"], ["Value", "value"]].map(([label, key]) => (
+              <label key={key} className="iannix-check-row" {...infoProps(`${label} quantization`, key === "geometry" ? "Move real authored geometry to the assigned grid." : key === "time" ? "Round Start and Duration to the assigned grid time quantum without changing their authored unit." : "Quantize the mapped value without moving geometry.")}>
+                <span>{label} quantize</span>
+                <input type="checkbox" checked={data.gridBinding.quantize[key]} onChange={event => {
+                  const checked = event.target.checked;
+                  updateIannixElement(element.id, current => ({ ...current, gridBinding: { ...current.gridBinding, quantize: { ...current.gridBinding.quantize, [key]: checked } } }));
+                  if (key === "geometry" && checked) window.setTimeout(() => quantizeGlobalGridElements({ elementIds: [element.id], forceHard: true }), 0);
+                  if (key === "time" && checked) window.setTimeout(() => updateScoreObjectTiming({
+                    elementIds: [element.id],
+                    ...(data.time.startMode === "manual" ? { start: data.time.startValue } : {}),
+                    ...(data.time.durationMode === "manual" ? { duration: data.time.durationValue } : {}),
+                    quantize: true,
+                  }), 0);
+                }} />
+              </label>
+            ))}
+          </div>
+          {resolvedTiming.resolvedValue ? (
+            <div className="iannix-progress-readout" {...infoProps("Mapped grid value", "The score object's center mapped through the assigned grid. Value quantization affects this result without moving geometry.")}>
+              Grid value {Number(resolvedTiming.resolvedValue.value).toFixed(3)} · {Number(resolvedTiming.resolvedValue.frequency).toFixed(2)} Hz{resolvedTiming.resolvedValue.quantized ? " · quantized" : ""}
+            </div>
+          ) : null}
+          {data.role === "cursor" ? (
+            <div className="iannix-two-column">
+              <label className="iannix-field"><span>Curve range start</span><input type="number" min="0" max="1" step="0.01" data-default="0" value={data.cursor.range[0]} onChange={event => updateIannixElement(element.id, current => ({ ...current, cursor: { ...current.cursor, range: [Number(event.target.value), current.cursor.range[1]] } }))} /></label>
+              <label className="iannix-field"><span>Curve range end</span><input type="number" min="0" max="1" step="0.01" data-default="1" value={data.cursor.range[1]} onChange={event => updateIannixElement(element.id, current => ({ ...current, cursor: { ...current.cursor, range: [current.cursor.range[0], Number(event.target.value)] } }))} /></label>
+              <label className="iannix-field"><span>Curve start offset</span><TimeValueInput aria-label="Cursor curve start offset" data-route-path={`objects.${element.id}.cursor.startOffset`} value={data.cursor.startOffsetValue} context={timeContext} defaultValue="0 s" minSeconds={-Infinity} onChange={next => updateIannixElement(element.id, current => ({ ...current, cursor: { ...current.cursor, startOffsetValue: next }, time: { ...current.time, startMode: "curve" } }))} /></label>
+              <label className="iannix-field"><span>Duration ratio</span><input type="number" min="0" step="0.1" data-default="1" value={data.cursor.durationRatio} onChange={event => updateIannixElement(element.id, current => ({ ...current, cursor: { ...current.cursor, durationRatio: Number(event.target.value) }, time: { ...current.time, durationMode: "ratio" } }))} /></label>
+            </div>
+          ) : null}
           <div className="iannix-time-bar" aria-label="Object time progress">
             <span style={{ width: `${Math.max(0, Math.min(100, timeState.progress * 100))}%` }} />
           </div>
@@ -9509,7 +10049,7 @@ function App() {
     );
     if (scoreObjects.length === 0) return null;
 
-    const frame = evaluateScoreFrame(elements, scoreTime, undefined, { detectCollisions: false });
+    const frame = evaluateScoreFrame(elements, scoreTime, undefined, { detectCollisions: false, timeContext, globalGrid: globalGridRef.current });
     const zoom = excalidrawAPI.getAppState().zoom.value || 1;
     const now = Date.now();
     const roleColors = { curve: "#7c9cff", cursor: "#19c3ff", trigger: "#ff8a3d" };
@@ -9618,13 +10158,14 @@ function App() {
     const scoreObjects = excalidrawAPI.getSceneElements().filter(element =>
       !element.isDeleted && ["curve", "cursor", "trigger"].includes(element.customData?.iannix?.role)
     );
+    const timingFrame = evaluateScoreFrame(excalidrawAPI.getSceneElements(), scoreTime, undefined, { detectCollisions: false, timeContext, globalGrid: globalGridRef.current });
     const scoreEnd = Math.max(
       transportLoopEnd,
       10,
       scoreTime + 1,
       historySnapshot.duration,
       ...scoreObjects.map(element => {
-        const timing = normalizeIannixData(element.customData?.iannix).time;
+        const timing = timingFrame.resolvedTimings.get(element.id) || resolveIannixObjectTiming(element, { context: timeContext, grid: globalGridRef.current });
         return timing.start + timing.duration / Math.max(0.001, timing.rate || 1);
       }),
     );
@@ -9667,16 +10208,6 @@ function App() {
       setScoreTempo(nextTempo);
       setScoreTempoDraft(String(nextTempo));
     };
-    const commitLoopBoundary = (event, boundary) => {
-      const parsed = parseTimelinePosition(event.currentTarget.value, transportDisplayMode, timelineOptions);
-      const minimumSpan = 1 / transportFps;
-      if (boundary === "start") {
-        setTransportLoopStart(Math.max(0, Math.min(parsed, transportLoopEnd - minimumSpan)));
-      } else {
-        setTransportLoopEnd(Math.max(transportLoopStart + minimumSpan, parsed));
-      }
-      setTransportLoopEnabled(true);
-    };
     return (
       <div
         className={`iannix-transport theme-${theme}`}
@@ -9689,13 +10220,21 @@ function App() {
           <option value="beats">Beats</option>
         </select>
 
-        <div className="iannix-transport-display" aria-label={transportDisplayMode === "beats" ? "Bars beats sixteenths" : transportDisplayMode === "frame" ? "Frame" : "Timecode"}>
-          <strong>{displayValue}</strong>
-          <span>{transportDisplayMode === "beats" ? `${scoreTimeSignature.numerator}/${scoreTimeSignature.denominator}` : `${transportFps} FPS`}</span>
+        <div className="iannix-transport-display" aria-label={transportDisplayMode === "beats" ? "Bars beats units" : transportDisplayMode === "frame" ? "Frame" : "Timecode"}>
+          <TimeValueInput
+            aria-label="Transport playhead"
+            data-route-path="transport.time"
+            value={transportDisplayMode === "frame" ? `${currentFrame} f` : transportDisplayMode === "timecode" ? displayValue : formatSecondsAsBBU(scoreTime, timeContext)}
+            context={timeContext}
+            defaultValue="0 s"
+            minSeconds={0}
+            onChange={(next, seconds) => commitTransportSeek(seconds)}
+          />
         </div>
 
         <div className="iannix-transport-frame" aria-label={`Current frame ${currentFrame}`}>
           <strong>{currentFrame}</strong>
+          <span>{transportFps} FPS</span>
         </div>
 
         <div className="iannix-transport-controls">
@@ -9744,9 +10283,9 @@ function App() {
         </button>
 
         <div className="iannix-transport-range">
-          <input key={`start-${transportDisplayMode}-${transportLoopStart}`} aria-label={`Loop start in ${transportDisplayMode}`} type={transportDisplayMode === "frame" ? "number" : "text"} min={transportDisplayMode === "frame" ? 0 : undefined} step={transportDisplayMode === "frame" ? 1 : undefined} data-default={transportDisplayMode === "frame" ? 0 : undefined} defaultValue={formatTimelinePosition(transportLoopStart, transportDisplayMode, timelineOptions)} onBlur={event => commitLoopBoundary(event, "start")} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+          <TimeValueInput aria-label="Loop start" data-route-path="transport.loop.start" value={transportLoopStartValue} context={timeContext} defaultValue="0 s" minSeconds={0} onChange={(next, seconds) => { setTransportLoopStartValue(next); setTransportLoopStart(Math.max(0, Math.min(seconds, transportLoopEnd - 1 / transportFps))); setTransportLoopEnabled(true); }} />
           <span>–</span>
-          <input key={`end-${transportDisplayMode}-${transportLoopEnd}`} aria-label={`Loop end in ${transportDisplayMode}`} type={transportDisplayMode === "frame" ? "number" : "text"} min={transportDisplayMode === "frame" ? 1 : undefined} step={transportDisplayMode === "frame" ? 1 : undefined} data-default={transportDisplayMode === "frame" ? Math.round(scoreEnd * transportFps) : undefined} defaultValue={formatTimelinePosition(transportLoopEnd, transportDisplayMode, timelineOptions)} onBlur={event => commitLoopBoundary(event, "end")} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+          <TimeValueInput aria-label="Loop end" data-route-path="transport.loop.end" value={transportLoopEndValue} context={timeContext} defaultValue="10 s" minSeconds={1 / transportFps} onChange={(next, seconds) => { setTransportLoopEndValue(next); setTransportLoopEnd(Math.max(transportLoopStart + 1 / transportFps, seconds)); setTransportLoopEnabled(true); }} />
         </div>
 
         <TransportTimeline
@@ -9779,6 +10318,20 @@ function App() {
       source: "settings",
       transportTime: scoreTimeRef.current,
     }).catch(error => setSceneExchangeStatus(error.message || "Could not reset the global grid."));
+  };
+  const updateInterfaceThemeEntry = (key, patch) => {
+    const nextEntry = { ...interfaceTheme[key], ...patch };
+    setInterfaceThemePreset("custom");
+    setInterfaceTheme(previous => normalizeInterfaceTheme({
+      ...previous,
+      [key]: { ...previous[key], ...patch },
+    }, theme));
+    if (key === "grid" && Object.hasOwn(patch, "opacity")) {
+      updateGlobalGridSetting({ appearance: { opacity: nextEntry.opacity / 100 } });
+    }
+  };
+  const applyInterfaceThemePreset = presetId => {
+    applyDraweratorThemePreset(presetId);
   };
   const renderSettingsContent = () => {
     const boardState = excalidrawAPI?.getAppState() || {};
@@ -9854,24 +10407,80 @@ function App() {
         {activeSettingsTab === "preferences" && (
           <div className="settings-panel-section">
             <InspectorSection title="Appearance" className="settings-inspector-section">
+            <label className="settings-panel-field" {...infoProps("Theme preset", "Apply a coordinated light, dark, flat, or higher-contrast interface palette. Individual edits switch the preset to Custom.")}>
+              <span>Theme preset</span>
+              <select value={interfaceThemePreset} onChange={event => applyInterfaceThemePreset(event.target.value)}>
+                <option value="custom">Custom</option>
+                {Object.entries(INTERFACE_THEME_PRESETS).map(([id, preset]) => <option key={id} value={id}>{preset.label}</option>)}
+                {Object.keys(customThemes).length > 0 && (
+                  <optgroup label="Saved themes">
+                    {Object.entries(customThemes).map(([id, preset]) => <option key={id} value={`user:${id}`}>{preset.label}</option>)}
+                  </optgroup>
+                )}
+              </select>
+            </label>
+            <div className="settings-theme-save" {...infoProps("Saved themes", "Save the complete current appearance locally, including colors, surface opacity, grid styling, and score-role colors. Saving an existing name updates it.")}>
+              <input
+                type="text"
+                value={customThemeName}
+                onChange={event => setCustomThemeName(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    saveCurrentCustomTheme();
+                  }
+                }}
+                placeholder="Theme name"
+                aria-label="Custom theme name"
+              />
+              <button type="button" className="iannix-flat-button" disabled={!customThemeName.trim()} onClick={saveCurrentCustomTheme}>Save</button>
+              {interfaceThemePreset.startsWith("user:") && (
+                <button type="button" className="iannix-flat-button" onClick={deleteSelectedCustomTheme}>Delete</button>
+              )}
+            </div>
             <label className="settings-panel-field" {...infoProps("Accent color", "Color and opacity used for active controls and Drawerator accents.")}>
               <span>Accent color</span>
               <div className="settings-color-control">
-                <input type="color" value={accentColor} onChange={event => { setAccentColor(event.target.value); localStorage.setItem("drawerator_accent_color", event.target.value); }} aria-label="Accent color" />
-                <input key={accentColor} type="text" defaultValue={accentColor} onBlur={event => { if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) { setAccentColor(event.currentTarget.value); localStorage.setItem("drawerator_accent_color", event.currentTarget.value); } else event.currentTarget.value = accentColor; }} aria-label="Accent hex color" />
-                <input type="number" min="0" max="100" step="1" data-default="100" value={accentOpacity} onChange={event => { const value = Number(event.target.value); setAccentOpacity(value); localStorage.setItem("drawerator_accent_opacity", String(value)); }} aria-label="Accent opacity" />
+                <input type="color" value={accentColor} onChange={event => { setInterfaceThemePreset("custom"); setAccentColor(event.target.value); localStorage.setItem("drawerator_accent_color", event.target.value); }} aria-label="Accent color" />
+                <input key={accentColor} type="text" defaultValue={accentColor} onBlur={event => { if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) { setInterfaceThemePreset("custom"); setAccentColor(event.currentTarget.value); localStorage.setItem("drawerator_accent_color", event.currentTarget.value); } else event.currentTarget.value = accentColor; }} aria-label="Accent hex color" />
+                <input type="number" min="0" max="100" step="1" data-default="100" value={accentOpacity} onChange={event => { const value = Number(event.target.value); setInterfaceThemePreset("custom"); setAccentOpacity(value); localStorage.setItem("drawerator_accent_opacity", String(value)); }} aria-label="Accent opacity" />
                 <output>%</output>
               </div>
             </label>
             <label className="settings-panel-field" {...infoProps("Hover highlight", "Color and opacity used for passive hover and toggle highlights.")}>
               <span>Hover highlight</span>
               <div className="settings-color-control">
-                <input type="color" value={highlightColor} onChange={event => { setHighlightColor(event.target.value); localStorage.setItem("drawerator_highlight_color", event.target.value); }} aria-label="Hover highlight color" />
-                <input key={highlightColor} type="text" defaultValue={highlightColor} onBlur={event => { if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) { setHighlightColor(event.currentTarget.value); localStorage.setItem("drawerator_highlight_color", event.currentTarget.value); } else event.currentTarget.value = highlightColor; }} aria-label="Hover highlight hex color" />
-                <input type="number" min="0" max="100" step="1" data-default="100" value={highlightOpacity} onChange={event => { const value = Number(event.target.value); setHighlightOpacity(value); localStorage.setItem("drawerator_highlight_opacity", String(value)); }} aria-label="Hover highlight opacity" />
+                <input type="color" value={highlightColor} onChange={event => { setInterfaceThemePreset("custom"); setHighlightColor(event.target.value); localStorage.setItem("drawerator_highlight_color", event.target.value); }} aria-label="Hover highlight color" />
+                <input key={highlightColor} type="text" defaultValue={highlightColor} onBlur={event => { if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) { setInterfaceThemePreset("custom"); setHighlightColor(event.currentTarget.value); localStorage.setItem("drawerator_highlight_color", event.currentTarget.value); } else event.currentTarget.value = highlightColor; }} aria-label="Hover highlight hex color" />
+                <input type="number" min="0" max="100" step="1" data-default="100" value={highlightOpacity} onChange={event => { const value = Number(event.target.value); setInterfaceThemePreset("custom"); setHighlightOpacity(value); localStorage.setItem("drawerator_highlight_opacity", String(value)); }} aria-label="Hover highlight opacity" />
                 <output>%</output>
               </div>
             </label>
+            {[
+              ["panel", "Panel background", "Background shared by docked and floating Drawerator panels."],
+              ["input", "Input field", "Background used by number boxes, text fields, dropdowns, and other editable controls."],
+              ["timeline", "Timeline lane", "Background behind events and automation keyframes. The active loop remains a subtle accent overlay."],
+              ["canvas", "Canvas", "Background of the Excalidraw drawing surface."],
+              ["grid", "Grid", "Color and opacity shared by minor, major, and axis grid lines."],
+            ].map(([key, label, help]) => {
+              const entry = key === "grid"
+                ? { ...interfaceTheme.grid, opacity: Math.round(globalGrid.appearance.opacity * 100) }
+                : interfaceTheme[key];
+              return (
+                <label className="settings-panel-field" key={key} {...infoProps(label, help)}>
+                  <span>{label}</span>
+                  <div className="settings-color-control">
+                    <input type="color" value={entry.color} onChange={event => updateInterfaceThemeEntry(key, { color: event.target.value })} aria-label={`${label} color`} />
+                    <input key={entry.color} type="text" defaultValue={entry.color} onBlur={event => {
+                      if (/^#[0-9a-f]{6}$/i.test(event.currentTarget.value)) updateInterfaceThemeEntry(key, { color: event.currentTarget.value });
+                      else event.currentTarget.value = entry.color;
+                    }} aria-label={`${label} hex color`} />
+                    <input type="number" min="0" max="100" step="1" data-default={key === "grid" ? "32" : "100"} value={entry.opacity} onChange={event => updateInterfaceThemeEntry(key, { opacity: Number(event.target.value) })} aria-label={key === "grid" ? "Global grid opacity" : `${label} opacity`} />
+                    <output>%</output>
+                  </div>
+                </label>
+              );
+            })}
             <details className="settings-role-theme" {...infoProps("Score object theme", "Enabled and disabled colors follow each object's score switch. Trigger pulse is the temporary collision highlight. Disabling the override restores authored colors.")}>
               <summary>Score object theme</summary>
               <div className="settings-role-theme-body">
@@ -9982,6 +10591,10 @@ function App() {
                 </select>
               </label>
             </div>
+            <label className="settings-panel-field" {...infoProps("Score sample rate", "Persisted sample rate used to resolve authored sample-count time expressions.")}>
+              <span>Score sample rate</span>
+              <input type="number" min="8000" max="768000" step="1" data-default="48000" value={scoreSampleRate} onChange={event => setScoreSampleRate(Math.min(768000, Math.max(8000, Number(event.target.value) || 48000)))} />
+            </label>
             <div className="settings-panel-two-column">
               <label className="settings-panel-field">
                 <span>Meter numerator</span>
@@ -9999,14 +10612,8 @@ function App() {
               <input type="checkbox" checked={transportLoopEnabled} onChange={event => setTransportLoopEnabled(event.target.checked)} />
             </label>
             <div className="settings-panel-two-column">
-              <label className="settings-panel-field"><span>Loop start ({transportDisplayMode})</span><input key={`settings-start-${transportDisplayMode}-${transportLoopStart}`} type="text" defaultValue={formatTimelinePosition(transportLoopStart, transportDisplayMode, { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature })} onBlur={event => {
-                const parsed = parseTimelinePosition(event.currentTarget.value, transportDisplayMode, { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature });
-                setTransportLoopStart(Math.max(0, Math.min(parsed, transportLoopEnd - 1 / transportFps)));
-              }} /></label>
-              <label className="settings-panel-field"><span>Loop end ({transportDisplayMode})</span><input key={`settings-end-${transportDisplayMode}-${transportLoopEnd}`} type="text" defaultValue={formatTimelinePosition(transportLoopEnd, transportDisplayMode, { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature })} onBlur={event => {
-                const parsed = parseTimelinePosition(event.currentTarget.value, transportDisplayMode, { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature });
-                setTransportLoopEnd(Math.max(transportLoopStart + 1 / transportFps, parsed));
-              }} /></label>
+              <label className="settings-panel-field"><span>Loop start</span><TimeValueInput aria-label="Settings loop start" data-route-path="transport.loop.start" value={transportLoopStartValue} context={timeContext} defaultValue="0 s" minSeconds={0} onChange={(next, seconds) => { setTransportLoopStartValue(next); setTransportLoopStart(Math.max(0, Math.min(seconds, transportLoopEnd - 1 / transportFps))); }} /></label>
+              <label className="settings-panel-field"><span>Loop end</span><TimeValueInput aria-label="Settings loop end" data-route-path="transport.loop.end" value={transportLoopEndValue} context={timeContext} defaultValue="10 s" minSeconds={1 / transportFps} onChange={(next, seconds) => { setTransportLoopEndValue(next); setTransportLoopEnd(Math.max(transportLoopStart + 1 / transportFps, seconds)); }} /></label>
             </div>
             <label className="settings-panel-check">
               <span>Show Timeline panel</span>
@@ -10364,6 +10971,11 @@ function App() {
       style={{
         "--drawerator-accent": colorWithOpacity(accentColor, accentOpacity),
         "--drawerator-highlight": colorWithOpacity(highlightColor, highlightOpacity),
+        "--drawerator-panel-bg": colorWithOpacity(interfaceTheme.panel.color, interfaceTheme.panel.opacity),
+        "--drawerator-input-bg": colorWithOpacity(interfaceTheme.input.color, interfaceTheme.input.opacity),
+        "--drawerator-timeline-lane-bg": colorWithOpacity(interfaceTheme.timeline.color, interfaceTheme.timeline.opacity),
+        "--drawerator-canvas-bg": colorWithOpacity(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity),
+        "--drawerator-grid-color": interfaceTheme.grid.color,
         "--horizontal-dock-height": `${bottomDockHeight}px`,
       }}
       onPointerOverCapture={updateInfoViewFromEvent}
@@ -10397,6 +11009,7 @@ function App() {
             appState: {
               currentItemRoughness: 0,
               currentItemRoundnessType: 1,
+              viewBackgroundColor: canvasColorForExcalidraw(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme),
               gridSize: null,
               gridModeEnabled: false,
               objectsSnapModeEnabled: false,
@@ -10835,7 +11448,7 @@ function App() {
             if (appState.currentItemStrokeColor && appState.currentItemStrokeColor !== "transparent") {
               lastStrokeColorRef.current = appState.currentItemStrokeColor;
             }
-            if (appState.theme && appState.theme !== theme) {
+            if (!applyingRecordedUiStateRef.current && appState.theme && appState.theme !== theme) {
               setTheme(appState.theme);
             }
              if (
@@ -10976,7 +11589,7 @@ function App() {
               </div>
             </div>
             
-            <div style={{ display: "flex", flexDirection: "column", height: "calc(100% - 50px)", overflow: "hidden", background: "var(--bg-sidebar)" }}>
+            <div style={{ display: "flex", flexDirection: "column", height: "calc(100% - 50px)", overflow: "hidden", background: "var(--drawerator-panel-bg, transparent)" }}>
               {/* Messages Stream */}
               <div id="chat-messages" style={{ flex: 1, overflowY: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
                 {chatHistory
@@ -11431,6 +12044,7 @@ function App() {
               showPointer={historyShowPointer}
               clockMode={historyClockMode}
               recordFilter={historyRecordFilter}
+              timeContext={timeContext}
               onIncludePresentationChange={setHistoryIncludePresentation}
               onEmitMidiChange={setHistoryMidiArmed}
               onShowPointerChange={setHistoryShowPointer}
@@ -11484,6 +12098,10 @@ function App() {
             <PropertiesPanel
               elements={(excalidrawAPI?.getSceneElementsIncludingDeleted() || []).filter(element => selectedElementIds[element.id])}
               onChange={updateSceneObjectProperty}
+              onRename={(elementId, label) => updateIannixElements([elementId], current => ({
+                ...current,
+                label: label || undefined,
+              }))}
             />
           </DraweratorPanel>
           )}
@@ -11846,7 +12464,7 @@ function App() {
               {iannixPanelTab === "script"
                 ? renderIannixScriptTab()
                 : iannixPanelTab === "data"
-                  ? <IannixDataPanel elements={getSelectedElements()} onChange={updateIannixDataPath} />
+                  ? <IannixDataPanel elements={getSelectedElements()} onChange={updateIannixDataPath} timeContext={timeContext} />
                   : renderIannixTab()}
             </div>
           </DraweratorPanel>
@@ -11911,6 +12529,7 @@ function App() {
               status={expressiveSynthStatus}
               error={expressiveSynthError}
               voiceCount={expressiveVoiceCount}
+              timeContext={timeContext}
               onOpenMixer={() => toggleDraweratorPanel("mixer")}
               onEnable={() => void ensureExpressiveSynth()}
               onTest={program => void testExpressiveSynthAudio(program)}
@@ -11996,6 +12615,7 @@ function App() {
                 tempo={scoreTempo}
                 signature={scoreTimeSignature}
                 fps={transportFps}
+                sampleRate={scoreSampleRate}
                 onUpdate={updateGlobalGridSetting}
                 onReset={resetGlobalGridSetting}
                 onQuantizeSelection={() => commandRegistry.execute("grid.quantize.selection", {}, { source: "grid-panel", transportTime: scoreTimeRef.current }).catch(error => setSceneExchangeStatus(error.message || "Could not quantize the selection."))}
@@ -12009,6 +12629,7 @@ function App() {
           grid={globalGrid}
           appState={excalidrawAPI?.getAppState() || null}
           theme={theme}
+          color={interfaceTheme.grid.color}
           renderNonce={modifierUpdateNonce}
         />
 
@@ -12191,16 +12812,6 @@ function App() {
             </div>
           </div>
         </div>
-      )}
-
-      {satoriMode && (
-        <button 
-          id="btn-exit-satori" 
-          onClick={() => setSatoriMode(false)} 
-          title="Exit Satori Mode"
-        >
-          .
-        </button>
       )}
 
       {/* Custom Right-Click Context Menu */}
