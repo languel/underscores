@@ -1770,6 +1770,8 @@ function App() {
     }
   });
   const [activeIannixScriptId, setActiveIannixScriptId] = useState("");
+  const [editingIannixScriptName, setEditingIannixScriptName] = useState(false);
+  const [iannixScriptNameDraft, setIannixScriptNameDraft] = useState("");
   const [scoreTime, setScoreTime] = useState(0);
   const [scorePlaying, setScorePlaying] = useState(false);
   const [scoreRate, setScoreRate] = useState(() => {
@@ -1936,6 +1938,7 @@ function App() {
   const panelDragRef = useRef(null);
   const sceneImportInputRef = useRef(null);
   const iannixImportInputRef = useRef(null);
+  const brushImportInputRef = useRef(null);
   const excalidrawAPIRef = useRef(null);
   const scoreTimeRef = useRef(scoreTime);
   const historySuppressSceneRef = useRef(0);
@@ -3158,6 +3161,8 @@ function App() {
   const [brushCompileError, setBrushCompileError] = useState("");
   const [brushParams, setBrushParams] = useState([]);
   const [saveAsBrushName, setSaveAsBrushName] = useState(null);
+  const [editingBrushName, setEditingBrushName] = useState(false);
+  const [brushNameDraft, setBrushNameDraft] = useState("");
   const [brushSaveMessage, setBrushSaveMessage] = useState("");
   const [editingModifierTarget, setEditingModifierTarget] = useState(null);
   const pendingBrushParamsRef = useRef(null);
@@ -3311,7 +3316,7 @@ function App() {
     const id = `user-${Date.now()}`;
     const brush = {
       id,
-      name: "Untitled Brush",
+      name: "Untitled Script",
       code: `(points, globals) => {\n  return [points];\n}`,
       isPreset: false,
       type: "brush",
@@ -3320,7 +3325,63 @@ function App() {
     setBrushPalette(previous => [...previous, brush]);
     setActiveBrushId(id);
     setActiveBrushCode(brush.code);
+    setBrushNameDraft(brush.name);
+    setEditingBrushName(true);
     setBrushSaveMessage("Created a new brush script.");
+  };
+
+  const handleBrushScriptFile = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const source = await file.text();
+      let imported = { code: source };
+      if (file.name.toLowerCase().endsWith(".json")) {
+        const parsed = JSON.parse(source);
+        imported = Array.isArray(parsed) ? parsed[0] || {} : parsed || {};
+      }
+      const code = String(imported.code || imported.source || source || "").trim();
+      if (!code) throw new Error("The imported script is empty.");
+      const fallbackName = file.name.replace(/\.[^.]+$/, "") || "Untitled Script";
+      const brush = {
+        id: `user-${Date.now()}`,
+        name: String(imported.name || fallbackName),
+        code,
+        isPreset: false,
+        type: imported.type === "filter" ? "filter" : "brush",
+      };
+      setBrushPalette(previous => [...previous, brush]);
+      setActiveBrushId(brush.id);
+      setActiveBrushCode(brush.code);
+      setEditingModifierTarget(null);
+      setBrushSaveMessage(`Imported “${brush.name}”.`);
+    } catch (error) {
+      setBrushSaveMessage(error.message || "Could not import the brush script.");
+    }
+  };
+
+  const beginBrushRename = () => {
+    const brush = brushPalette.find(candidate => candidate.id === activeBrushId);
+    if (!brush) return;
+    if (brush.isPreset) {
+      setBrushSaveMessage("Built-in brush scripts cannot be renamed. Save a copy to make an editable script.");
+      return;
+    }
+    setBrushNameDraft(brush.name || "Untitled Script");
+    setEditingBrushName(true);
+  };
+
+  const commitBrushRename = () => {
+    const nextName = brushNameDraft.trim();
+    const brush = brushPalette.find(candidate => candidate.id === activeBrushId);
+    setEditingBrushName(false);
+    if (!brush || !nextName || nextName === brush.name) return;
+    setBrushPalette(previous => previous.map(candidate => candidate.id === activeBrushId
+      ? { ...candidate, name: nextName }
+      : candidate,
+    ));
+    setBrushSaveMessage(`Renamed script to “${nextName}”.`);
   };
 
   const [customBrushActive, setCustomBrushActive] = useState(false);
@@ -8829,10 +8890,12 @@ function App() {
     };
     const createScript = () => {
       const id = `iannix-script-${crypto.randomUUID()}`;
-      const script = { id, name: "Untitled IanniX Script", source: "// IanniX commands\n", parameters: {}, createdAt: Date.now(), updatedAt: Date.now() };
+      const script = { id, name: "Untitled Script", source: "// IanniX commands\n", parameters: {}, createdAt: Date.now(), updatedAt: Date.now() };
       setIannixScripts(previous => [...previous, script]);
       setActiveIannixScriptId(id);
       setIannixScriptSource(script.source);
+      setIannixScriptNameDraft(script.name);
+      setEditingIannixScriptName(true);
     };
     const saveScript = () => {
       if (!activeScript) return;
@@ -8841,6 +8904,25 @@ function App() {
         : script
       ));
       setSceneExchangeStatus(`Saved “${activeScript.name}” in this browser.`);
+    };
+    const duplicateScript = () => {
+      if (!activeScript) return;
+      const id = `iannix-script-${crypto.randomUUID()}`;
+      const script = {
+        ...activeScript,
+        id,
+        name: `Copy of ${activeScript.name}`,
+        source: iannixScriptSource,
+        parameters: { ...(activeScript.parameters || {}) },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      setIannixScripts(previous => [...previous, script]);
+      setActiveIannixScriptId(id);
+      setIannixScriptSource(script.source);
+      setIannixScriptNameDraft(script.name);
+      setEditingIannixScriptName(true);
+      setSceneExchangeStatus(`Duplicated “${activeScript.name}”.`);
     };
     const renameScript = name => {
       if (!activeScript) return;
@@ -8851,6 +8933,15 @@ function App() {
         : script
       ));
       setSceneExchangeStatus(`Renamed script to “${trimmed}”.`);
+    };
+    const beginIannixScriptRename = () => {
+      if (!activeScript) return;
+      setIannixScriptNameDraft(activeScript.name || "Untitled Script");
+      setEditingIannixScriptName(true);
+    };
+    const commitIannixScriptRename = () => {
+      renameScript(iannixScriptNameDraft);
+      setEditingIannixScriptName(false);
     };
     const deleteScript = () => {
       if (!activeScript || !window.confirm(`Delete “${activeScript.name}”?`)) return;
@@ -8872,30 +8963,41 @@ function App() {
     };
     return (
       <div className="iannix-properties iannix-script-pane">
-          <select id="iannix-script-select" className="custom-brush-select" value={activeIannixScriptId} onChange={event => {
+          {editingIannixScriptName ? <input
+            type="text"
+            className="custom-brush-select"
+            value={iannixScriptNameDraft}
+            onChange={event => setIannixScriptNameDraft(event.target.value)}
+            onBlur={commitIannixScriptRename}
+            onKeyDown={event => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitIannixScriptRename();
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setEditingIannixScriptName(false);
+              }
+            }}
+            aria-label="Script name"
+            autoFocus
+          /> : <select id="iannix-script-select" className="custom-brush-select" value={activeIannixScriptId} onChange={event => {
             const script = iannixScripts.find(candidate => candidate.id === event.target.value);
+            setEditingIannixScriptName(false);
             setActiveIannixScriptId(event.target.value);
             setIannixScriptSource(script?.source || "");
+          }} onKeyDown={event => {
+            if (event.key !== "F2") return;
+            event.preventDefault();
+            beginIannixScriptRename();
+          }} onDoubleClick={event => {
+            if (!event.shiftKey) return;
+            event.preventDefault();
+            beginIannixScriptRename();
           }}>
             <option value="">— Choose script —</option>
             {iannixScripts.map(script => <option key={script.id} value={script.id}>{script.name}</option>)}
-          </select>
-          <input
-            type="text"
-            className="custom-brush-select"
-            defaultValue={activeScript?.name || ""}
-            key={activeScript?.id || "no-script"}
-            onBlur={event => renameScript(event.target.value)}
-            onKeyDown={event => {
-              if (event.key !== "Enter") return;
-              event.preventDefault();
-              renameScript(event.currentTarget.value);
-              event.currentTarget.blur();
-            }}
-            placeholder="Script name"
-            aria-label="Script name"
-            disabled={!activeScript}
-          />
+          </select>}
           <textarea
             className="iannix-script-editor custom-brush-textarea"
             value={iannixScriptSource}
@@ -8936,6 +9038,7 @@ function App() {
           <div className="script-icon-toolbar">
             <button type="button" className="palette-action-btn primary script-icon-button" title="Run script (Cmd/Ctrl+Enter)" aria-label="Run script" onClick={runScript}><ScriptActionIcon type="run" /></button>
             <button type="button" className="palette-action-btn secondary script-icon-button" title="Save script" aria-label="Save script" onClick={saveScript} disabled={!activeScript}><ScriptActionIcon type="save" /></button>
+            <button type="button" className="palette-action-btn secondary script-icon-button" title="Duplicate script" aria-label="Duplicate script" onClick={duplicateScript} disabled={!activeScript}><ScriptActionIcon type="copy" /></button>
             <button type="button" className="palette-action-btn secondary script-icon-button" title="New script" aria-label="New script" onClick={createScript}><ScriptActionIcon type="add" /></button>
             <button type="button" className="palette-action-btn secondary script-icon-button" title="Import trusted .iannix" aria-label="Import trusted .iannix" onClick={() => iannixImportInputRef.current?.click()}><ScriptActionIcon type="import" /></button>
             <button type="button" className="palette-action-btn danger script-icon-button" title="Delete script" aria-label="Delete script" onClick={deleteScript} disabled={!activeScript}><ScriptActionIcon type="remove" /></button>
@@ -10839,20 +10942,70 @@ function App() {
   const renderBrushConfigForm = () => {
     const activeBrush = brushPalette.find(b => b.id === activeBrushId) || {};
     const editingActiveModifier = editingModifierTarget?.brushId === activeBrushId;
+    const selectedBrushTargets = getSelectedElements().filter(element =>
+      !element.isDeleted && (element.type === "freedraw" || element.type === "line")
+    );
+    const applyActiveBrushToSelection = () => {
+      if (!activeBrush.id || selectedBrushTargets.length === 0) return;
+      const params = Object.fromEntries(brushParams.map(parameter => [parameter.name, parameter.value]));
+      const modifier = {
+        id: `custom-${activeBrush.id}`,
+        name: activeBrush.name,
+        type: activeBrush.type || "brush",
+        enabled: true,
+        params,
+        codeOverride: activeBrushCode,
+      };
+      selectedBrushTargets.forEach(element => {
+        const modifiers = [...(element.customData?.modifiers || []), modifier];
+        updateModifiedElementInScene(element.id, modifiers);
+      });
+      setBrushSaveMessage(`Applied “${activeBrush.name}” to ${selectedBrushTargets.length} selected ${selectedBrushTargets.length === 1 ? "path" : "paths"}.`);
+    };
     
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "10px", height: "100%" }}>
         {/* Script selector */}
         <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-          <select
+          {editingBrushName ? (
+            <input
+              className="custom-brush-select"
+              aria-label="Brush script name"
+              autoFocus
+              value={brushNameDraft}
+              onChange={event => setBrushNameDraft(event.target.value)}
+              onBlur={commitBrushRename}
+              onKeyDown={event => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commitBrushRename();
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setEditingBrushName(false);
+                }
+              }}
+            />
+          ) : <select
               value={activeBrushId}
               onChange={(e) => {
                 const val = e.target.value;
+                setEditingBrushName(false);
                 setEditingModifierTarget(null);
                 pendingBrushParamsRef.current = null;
                 setSaveAsBrushName(null);
                 setBrushSaveMessage("");
                 setActiveBrushId(val);
+            }}
+            onKeyDown={event => {
+              if (event.key !== "F2") return;
+              event.preventDefault();
+              beginBrushRename();
+            }}
+            onDoubleClick={event => {
+              if (!event.shiftKey) return;
+              event.preventDefault();
+              beginBrushRename();
             }}
             className="custom-brush-select"
           >
@@ -10861,18 +11014,12 @@ function App() {
                 {brush.name} {brush.isPreset ? "" : "⭐"}
               </option>
             ))}
-          </select>
+          </select>}
         </div>
 
         {/* Script editor */}
         {activeBrushId !== "normal" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "8px", flexGrow: 1, minHeight: 0 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: "11px", fontWeight: "600", color: "var(--color-primary)", opacity: 0.8 }}>
-                JavaScript modifier code
-              </span>
-            </div>
-
             {/* Monospace Code Editor Textarea */}
             <textarea
               value={activeBrushCode}
@@ -10896,6 +11043,16 @@ function App() {
 
             {/* Action buttons row */}
             <div className="script-icon-toolbar">
+              <button
+                type="button"
+                onClick={applyActiveBrushToSelection}
+                disabled={selectedBrushTargets.length === 0}
+                className="palette-action-btn primary script-icon-button"
+                aria-label="Apply brush script to selected paths"
+                title={selectedBrushTargets.length === 0
+                  ? "Select one or more lines or freehand paths to apply this brush"
+                  : `Apply this brush to ${selectedBrushTargets.length} selected ${selectedBrushTargets.length === 1 ? "path" : "paths"}`}
+              ><ScriptActionIcon type="run" /></button>
               <button
                 onClick={() => {
                   if (editingActiveModifier) {
@@ -10933,14 +11090,21 @@ function App() {
                 aria-label="New brush script"
                 title="Create a new editable brush script"
               ><ScriptActionIcon type="add" /></button>
-              {!activeBrush.isPreset && (
-                <button
-                  onClick={deleteBrush}
-                  className="palette-action-btn danger script-icon-button"
-                  aria-label="Delete brush script"
-                  title="Delete this custom brush"
-                ><ScriptActionIcon type="remove" /></button>
-              )}
+              <button
+                type="button"
+                onClick={() => brushImportInputRef.current?.click()}
+                className="palette-action-btn secondary script-icon-button"
+                aria-label="Import brush script"
+                title="Import a JavaScript or JSON brush script"
+              ><ScriptActionIcon type="import" /></button>
+              <button
+                type="button"
+                onClick={deleteBrush}
+                disabled={Boolean(activeBrush.isPreset)}
+                className="palette-action-btn danger script-icon-button"
+                aria-label="Delete brush script"
+                title={activeBrush.isPreset ? "Built-in brush scripts cannot be deleted" : "Delete this custom brush"}
+              ><ScriptActionIcon type="remove" /></button>
               <ScriptFontSizeControl value={scriptEditorFontSize} onChange={value => {
                 if (!Number.isFinite(value) || value < 8 || value > 32) return;
                 setScriptEditorFontSize(value);
@@ -10985,12 +11149,6 @@ function App() {
               </div>
             )}
 
-            {brushSaveMessage && (
-              <div role="status" style={{ fontSize: "10px", color: "var(--color-primary)", opacity: 0.8 }}>
-                {brushSaveMessage}
-              </div>
-            )}
-
             {/* Compilation banner */}
             {brushCompileError ? (
               <div className="custom-brush-status-error" style={{ marginTop: "2px" }}>
@@ -11003,6 +11161,12 @@ function App() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
                 <span>Compiled successfully!</span>
+              </div>
+            )}
+
+            {brushSaveMessage && (
+              <div className="custom-brush-status-message" role="status">
+                {brushSaveMessage}
               </div>
             )}
           </div>
@@ -12561,6 +12725,7 @@ function App() {
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.script.placement]: false }))}
           >
             <input ref={iannixImportInputRef} type="file" accept=".iannix,.js,text/javascript" hidden onChange={handleTrustedIannixFile} />
+            <input ref={brushImportInputRef} type="file" accept=".js,.json,text/javascript,application/json" hidden onChange={handleBrushScriptFile} />
             <ScriptPanel
               type={scriptPanelType}
               onTypeChange={value => setScriptPanelType(normalizeScriptType(value))}

@@ -1552,6 +1552,12 @@ body .excalidraw .sidebar {
   gap: 4px;
 }
 
+.custom-brush-status-message {
+  padding: 2px 0;
+  color: var(--color-secondary);
+  font-size: 10px;
+}
+
 /* Context Menu & Autocomplete Items Hover/Active Styling */
 .context-menu-item:hover,
 .autocomplete-item:hover,
@@ -1626,6 +1632,10 @@ body .excalidraw .sidebar {
   flex-wrap: nowrap;
   gap: 6px;
   margin-top: 2px;
+}
+
+.iannix-script-pane > .script-icon-toolbar {
+  margin: 4px 0;
 }
 
 .script-font-size-control {
@@ -1807,10 +1817,78 @@ body .excalidraw .sidebar {
   font-size: 11px;
 }
 
-.script-panel-type select {
+.script-panel-type-picker {
+  position: relative;
+  min-width: 0;
+}
+
+.script-panel-type-picker > summary {
+  display: flex;
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
   height: 30px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px;
+  color: var(--color-primary);
+  background: var(--drawerator-panel-bg, var(--island-bg-color));
+  border: 1px solid var(--border-color);
+  border-radius: var(--drawerator-ui-control-radius, 3px);
+  cursor: pointer;
+  list-style: none;
+}
+
+.script-panel-type-picker > summary::-webkit-details-marker {
+  display: none;
+}
+
+.script-panel-type-picker > summary::marker {
+  content: "";
+}
+
+.script-panel-type-picker > summary:hover,
+.script-panel-type-picker[open] > summary {
+  background: var(--drawerator-hover-bg, var(--button-hover-bg));
+}
+
+.script-panel-type-caret {
+  flex: 0 0 auto;
+  font-size: 10px;
+}
+
+.script-panel-type-options {
+  position: absolute;
+  z-index: 10020;
+  top: calc(100% + 2px);
+  right: 0;
+  left: 0;
+  display: grid;
+  gap: 1px;
+  padding: 2px;
+  background: var(--drawerator-panel-bg, var(--island-bg-color));
+  border: 1px solid var(--border-color);
+  border-radius: var(--drawerator-ui-control-radius, 3px);
+  box-shadow: none;
+}
+
+.script-panel-type-options button {
+  width: 100%;
+  min-height: 28px;
+  padding: 0 6px;
+  color: var(--color-primary);
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.script-panel-type-options button:hover,
+.script-panel-type-options button[aria-selected="true"] {
+  background: var(--drawerator-hover-bg, var(--button-hover-bg));
 }
 
 .script-panel-editor select.custom-brush-select,
@@ -1848,10 +1926,15 @@ body .excalidraw .sidebar {
 
 .script-panel-editor .custom-brush-status-success,
 .script-panel-editor .custom-brush-status-error,
+.script-panel-editor .custom-brush-status-message,
 .script-panel-editor .iannix-command-line,
 .script-panel-editor .iannix-midi-status {
   order: 100;
   flex: 0 0 auto;
+}
+
+.script-panel-editor .iannix-midi-status {
+  padding: 4px 0 2px 2px;
 }
 
 .script-panel-editor .iannix-script-pane {

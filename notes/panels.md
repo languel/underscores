@@ -44,12 +44,12 @@ Every panel is available from the main menu and command palette, including `/cha
 
 Script editing is a standalone dockable concern rather than a tab embedded in a feature panel. The panel persists its selected script type and currently exposes two adapters:
 
-- **Brush / modifier** retains the brush catalog, JavaScript editor, compilation feedback, shared `@param` controls, Save, Save As, New, Delete, and attached-modifier editing.
-- **IanniX** retains the trusted script catalog, editable names, `ask()` / `@param` controls, Run, Save, New, Import, Delete, and one-line IanniX command execution.
+- **Brush / modifier** retains the brush catalog, JavaScript editor, compilation feedback, shared `@param` controls, Run/apply-to-selection, Save, Duplicate, New, Import, Delete, and attached-modifier editing.
+- **IanniX** retains the trusted script catalog, editable names, `ask()` / `@param` controls, Run, Save, Duplicate, New, Import, Delete, and one-line IanniX command execution.
 
 The type selector changes the catalog, execution environment, and available actions together. `src/scriptTypes.js` is the registry boundary for future adapters; each adapter continues to own its existing persistence and runtime semantics. Opening a modifier's edit action selects Brush / modifier mode. Importing a trusted `.iannix` file selects IanniX mode. `Ctrl+Opt+B`, `/script`, the main menu, and the command palette open the independent panel.
 
-Both adapters follow one compact editor layout: catalog and parameters first, then the action toolbar with a shared persistent monospace font-size control, a code editor that consumes the remaining height, and adapter status or command input at the bottom. Script selectors inherit the panel surface; code editors use the configurable **Subpanel background** surface. Compilation feedback is unframed text—green for success and red for errors—rather than another nested panel.
+Both adapters follow one compact editor layout: catalog and parameters first, then the action toolbar with a shared persistent monospace font-size control, a code editor that consumes the remaining height, and adapter status or command input at the bottom. Script selectors inherit the panel surface; code editors use the configurable **Subpanel background** surface. Compilation feedback is unframed text—green for success and red for errors—rather than another nested panel. `F2` or Shift-double-click on a selected custom script opens the selector in-place for renaming; new scripts do this automatically. Brush Run remains disabled until one or more compatible freehand or line paths are selected, then appends the active editor draft and its current parameter values as a live modifier.
 
 Mods & FX now owns only the ordered modifier stack and its rendering controls. IanniX owns only score-object and data editing. This prevents either feature panel from becoming the lifetime or placement owner of the shared editor.
 
