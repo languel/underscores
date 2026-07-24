@@ -7,6 +7,7 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 - **Infinite Canvas & Advanced Tools:** Standard straight line, rectangles, freehand drawing, and shapes.
 - **Satori Mode:** Auto-locking properties (e.g. 0 sloppiness for straight lines/architect-mode).
 - **AI Side Panel:** Chat with an integrated assistant that can help with design, concepts, or canvas queries.
+- **AI Provider Routes:** Use local Ollama/LM Studio, OpenAI-compatible servers, OpenRouter, NVIDIA NIM, OpenAI, Anthropic, GitHub Copilot, or Google API-key connections. Provider-specific credentials remain in browser local storage for this development-oriented release; the Info panel explains the security trade-off and each provider's setup. NVIDIA's hosted NIM endpoint is relayed automatically when Drawerator runs through its local Vite server because that endpoint does not permit direct browser CORS requests; static deployments require a CORS-capable proxy or self-hosted endpoint.
 - **Context Tagging System (@):** Reference specific canvas elements inside the chat input block:
   - `@selection` / `@canvas` (as JSON context)
   - `@selection-as-svg` / `@canvas-as-svg` (as inline SVG vectors)

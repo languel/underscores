@@ -69,6 +69,19 @@ import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
 import { stepStrokeWidth } from "./strokeWidthShortcuts.js";
 import { infoProps } from "./uiInfo.js";
+import {
+  AI_PROVIDER_OPTIONS,
+  aiProviderNeedsCredential,
+  buildAIChatRequest,
+  buildAIModelsRequest,
+  filterAIModels,
+  getAIProvider,
+  getAIProviderCredential,
+  getAIProviderHelp,
+  normalizeAISettings,
+  parseAIModelList,
+  readAITextStream,
+} from "./aiProviders.js";
 import { convertShapeElementToPath, getCanvasContextMenuCapabilities, setSelectedElementRoundness } from "./canvasContextMenu.js";
 import { DEFAULT_SELECTION_FILTER, filterSelectedElementIds, normalizeSelectionFilter, selectionFilterAllowsElement, selectionMapsEqual, SELECTION_FILTER_STORAGE_KEY, toggleSelectionFilter } from "./selectionFilter.js";
 import {
@@ -94,6 +107,39 @@ const DEFAULT_INFO_VIEW = Object.freeze({
 const COLLAPSED_DOCK_EDGE_SIZE = 5;
 const BOTTOM_DOCK_COLLAPSE_THRESHOLD = 72;
 const BOTTOM_DOCK_MIN_HEIGHT = 112;
+const AI_MODEL_FAVORITES_STORAGE_KEY = "drawerator_ai_model_favorites";
+
+function ModelCatalogFilter({ modelCount, resetKey, onFilterChange }) {
+  const [draft, setDraft] = useState("");
+  const debounceRef = useRef(null);
+
+  useEffect(() => {
+    setDraft("");
+    onFilterChange("");
+  }, [onFilterChange, resetKey]);
+
+  useEffect(() => () => clearTimeout(debounceRef.current), []);
+
+  const handleChange = event => {
+    const nextValue = event.target.value;
+    setDraft(nextValue);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => onFilterChange(nextValue), 90);
+  };
+
+  return (
+    <input
+      type="search"
+      value={draft}
+      onChange={handleChange}
+      onKeyDown={event => event.stopPropagation()}
+      placeholder={`Search ${modelCount} models`}
+      autoCapitalize="none"
+      autoCorrect="off"
+      spellCheck={false}
+    />
+  );
+}
 
 // System Prompt guiding the local LLM on drawing tools
 const SYSTEM_PROMPT = `You are "Drawerator", an autonomous, high-performance drawing assistant.
@@ -214,17 +260,6 @@ const makeColorOpaque = (color, fallback) => {
     }
   }
   return fallback;
-};
-
-const cleanApiUrl = (url, provider) => {
-  if (!url) return "";
-  let clean = url.trim().replace(/\/+$/, "");
-  if (provider === "lmstudio" || provider === "openai") {
-    if (clean.endsWith("/v1")) {
-      clean = clean.slice(0, -3);
-    }
-  }
-  return clean;
 };
 
 const CSS_COLOR_HELP = "Accepts CSS color values: hex (#rgb, #rrggbb, #rrggbbaa), named colors (red), rgb()/rgba(), hsl()/hsla(), hwb(), lab(), lch(), oklab(), and oklch(). The separate percentage multiplies the color's own alpha.";
@@ -5345,19 +5380,50 @@ function App() {
   const [aiSettings, setAiSettings] = useState(() => {
     const saved = localStorage.getItem("drawerator_ai_settings");
     if (saved) {
-      try { return JSON.parse(saved); } catch (e) {}
+      try { return normalizeAISettings(JSON.parse(saved)); } catch (e) {}
     }
-    return {
-      provider: "ollama",
-      url: "http://localhost:11434",
-      model: ""
-    };
+    return normalizeAISettings();
   });
   const [modelsList, setModelsList] = useState([]);
+  const [modelFilter, setModelFilter] = useState("");
+  const [favoriteModelsOnly, setFavoriteModelsOnly] = useState(false);
+  const [favoriteModels, setFavoriteModels] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(AI_MODEL_FAVORITES_STORAGE_KEY) || "{}");
+      return stored && typeof stored === "object" ? stored : {};
+    } catch {
+      return {};
+    }
+  });
   const [connectionStatus, setConnectionStatus] = useState("pending");
   const [toolLogs, setToolLogs] = useState([]);
   
   const messagesEndRef = useRef(null);
+  const activeModelFavorites = useMemo(() => (
+    Array.isArray(favoriteModels[aiSettings.provider]) ? favoriteModels[aiSettings.provider] : []
+  ), [aiSettings.provider, favoriteModels]);
+  const orderedModelsList = useMemo(() => filterAIModels(modelsList, {
+    favorites: activeModelFavorites,
+  }), [activeModelFavorites, modelsList]);
+  const filteredModelsList = useMemo(() => filterAIModels(modelsList, {
+    query: modelFilter,
+    favorites: activeModelFavorites,
+    favoritesOnly: favoriteModelsOnly,
+  }), [activeModelFavorites, favoriteModelsOnly, modelFilter, modelsList]);
+  const visibleModelOptions = useMemo(() => {
+    if (!aiSettings.model || filteredModelsList.includes(aiSettings.model)) return filteredModelsList;
+    return [aiSettings.model, ...filteredModelsList];
+  }, [aiSettings.model, filteredModelsList]);
+  const toggleFavoriteModel = useCallback(model => {
+    const normalizedModel = String(model || "").trim();
+    if (!normalizedModel) return;
+    setFavoriteModels(previous => {
+      const current = new Set(Array.isArray(previous[aiSettings.provider]) ? previous[aiSettings.provider] : []);
+      if (current.has(normalizedModel)) current.delete(normalizedModel);
+      else current.add(normalizedModel);
+      return { ...previous, [aiSettings.provider]: [...current] };
+    });
+  }, [aiSettings.provider]);
 
   // Sync theme to body class
   useEffect(() => {
@@ -5377,6 +5443,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem(CUSTOM_THEME_STORAGE_KEY, JSON.stringify(customThemes));
   }, [customThemes]);
+
+  useEffect(() => {
+    localStorage.setItem(AI_MODEL_FAVORITES_STORAGE_KEY, JSON.stringify(favoriteModels));
+  }, [favoriteModels]);
 
   useEffect(() => {
     const api = excalidrawAPIRef.current;
@@ -5401,37 +5471,21 @@ function App() {
   const testAIConnection = async (settings = aiSettings) => {
     setConnectionStatus("pending");
     const { provider } = settings;
-    const url = cleanApiUrl(settings.url, provider);
-    
+    if (aiProviderNeedsCredential(provider) && !getAIProviderCredential(settings)) {
+      setModelsList([]);
+      setConnectionStatus("auth");
+      return;
+    }
     try {
-      if (provider === "ollama") {
-        const res = await fetch(`${url}/api/tags`);
-        if (res.ok) {
-          const data = await res.json();
-          const list = data.models ? data.models.map(m => m.name) : [];
-          setModelsList(list);
-          setConnectionStatus("ok");
-          if (list.length > 0 && !settings.model) {
-            setAiSettings(prev => ({ ...prev, model: list[0] }));
-          }
-        } else {
-          setConnectionStatus("error");
-        }
-      } else if (provider === "lmstudio") {
-        const res = await fetch(`${url}/v1/models`);
-        if (res.ok) {
-          const data = await res.json();
-          const list = data.data ? data.data.map(m => m.id) : [];
-          setModelsList(list);
-          setConnectionStatus("ok");
-          if (list.length > 0 && !settings.model) {
-            setAiSettings(prev => ({ ...prev, model: list[0] }));
-          }
-        } else {
-          setConnectionStatus("error");
-        }
-      } else {
-        setConnectionStatus("ok");
+      const request = buildAIModelsRequest(settings, window.location.origin);
+      const res = await fetch(request.url, request.options);
+      if (!res.ok) throw new Error(`Model list request failed (${res.status})`);
+      const data = await res.json();
+      const list = parseAIModelList(provider, data);
+      setModelsList(list);
+      setConnectionStatus("ok");
+      if (list.length > 0 && !settings.model) {
+        setAiSettings(prev => ({ ...prev, model: list[0] }));
       }
     } catch (e) {
       setConnectionStatus("error");
@@ -5569,6 +5623,8 @@ function App() {
   };
 
   useEffect(() => {
+    setModelFilter("");
+    setFavoriteModelsOnly(false);
     testAIConnection();
   }, [aiSettings.provider, aiSettings.url]);
 
@@ -5596,8 +5652,10 @@ function App() {
   }, [showContextDropdown, showAutocomplete]);
 
   const saveSettings = () => {
-    localStorage.setItem("drawerator_ai_settings", JSON.stringify(aiSettings));
-    testAIConnection(aiSettings);
+    const normalized = normalizeAISettings(aiSettings);
+    setAiSettings(normalized);
+    localStorage.setItem("drawerator_ai_settings", JSON.stringify(normalized));
+    testAIConnection(normalized);
   };
 
   const logToolAction = (msg, status = "ok") => {
@@ -5868,8 +5926,6 @@ function App() {
     setChatHistory(prev => [...prev, { role: "assistant", content: "Thinking..." }]);
 
     const provider = aiSettings.provider;
-    const url = cleanApiUrl(aiSettings.url, provider);
-    const model = aiSettings.model || "default";
 
     const aiCommandCatalog = commandRegistry.list().map(command => ({
       id: command.id,
@@ -5914,74 +5970,29 @@ function App() {
     });
 
     try {
-      let response;
-      if (provider === "ollama") {
-        response = await fetch(`${url}/api/chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model, messages: messagesPayload, stream: true })
-        });
-      } else {
-        response = await fetch(`${url}/v1/chat/completions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model, messages: messagesPayload, stream: true })
-        });
+      if (aiProviderNeedsCredential(provider) && !getAIProviderCredential(aiSettings)) {
+        throw new Error(`${getAIProvider(provider).credentialLabel} is required.`);
       }
+      const request = buildAIChatRequest(aiSettings, messagesPayload, window.location.origin);
+      const response = await fetch(request.url, request.options);
 
       if (!response.ok) {
-        throw new Error("API call failed");
+        let detail = "";
+        try {
+          const payload = await response.json();
+          detail = payload?.error?.message || payload?.message || "";
+        } catch {}
+        throw new Error(detail || `API call failed (${response.status})`);
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder("utf-8");
-      let fullResponse = "";
-
-      if (provider === "ollama") {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunks = decoder.decode(value, { stream: true }).split("\n");
-          chunks.forEach(chunk => {
-            if (!chunk.trim()) return;
-            try {
-              const parsed = JSON.parse(chunk);
-              if (parsed.message?.content) {
-                fullResponse += parsed.message.content;
-                setChatHistory(prev => {
-                  const updated = [...prev];
-                  updated[updated.length - 1] = { role: "assistant", content: fullResponse };
-                  return updated;
-                });
-              }
-            } catch (e) {}
-          });
-        }
-      } else {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const raw = decoder.decode(value, { stream: true });
-          const lines = raw.split("\n");
-          lines.forEach(line => {
-            if (line.startsWith("data: ")) {
-              const dataStr = line.slice(6).trim();
-              if (dataStr === "[DONE]") return;
-              try {
-                const parsed = JSON.parse(dataStr);
-                if (parsed.choices?.[0].delta?.content) {
-                  fullResponse += parsed.choices[0].delta.content;
-                  setChatHistory(prev => {
-                    const updated = [...prev];
-                    updated[updated.length - 1] = { role: "assistant", content: fullResponse };
-                    return updated;
-                  });
-                }
-              } catch (e) {}
-            }
-          });
-        }
-      }
+      const fullResponse = await readAITextStream(response, request.streamFormat, streamedText => {
+        setChatHistory(prev => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { role: "assistant", content: streamedText };
+          return updated;
+        });
+      });
+      if (!fullResponse) throw new Error("The provider returned an empty response.");
 
       executeAIToolCalls(fullResponse, excalidrawAPI);
 
@@ -5989,7 +6000,7 @@ function App() {
       console.error(e);
       setChatHistory(prev => {
         const updated = [...prev];
-        updated[updated.length - 1] = { role: "assistant", content: "Error: Unreachable local LLM endpoint. Please verify your connection settings." };
+        updated[updated.length - 1] = { role: "assistant", content: `Error: ${e?.message || "The AI provider could not be reached. Check its endpoint, credentials, and browser access policy."}` };
         return updated;
       });
     } finally {
@@ -10651,6 +10662,8 @@ function App() {
   };
   const renderSettingsContent = () => {
     const boardState = excalidrawAPI?.getAppState() || {};
+    const activeAIProvider = getAIProvider(aiSettings.provider);
+    const activeAIProviderHelp = getAIProviderHelp(aiSettings.provider);
     const settingTabs = [
       { id: "ai", label: "AI" },
       { id: "preferences", label: "Board" },
@@ -10677,44 +10690,101 @@ function App() {
         {activeSettingsTab === "ai" && (
           <div className="settings-panel-section">
             <InspectorSection title="Connection" className="settings-inspector-section">
-            <label className="settings-panel-field" {...infoProps("API provider", "Choose the local or OpenAI-compatible backend used by the AI Assistant.")}>
+            <label className="settings-panel-field" {...infoProps(`${activeAIProvider.label} setup`, activeAIProviderHelp)}>
               <span>API provider</span>
               <select
                 value={aiSettings.provider}
                 onChange={event => {
                   const provider = event.target.value;
-                  const url = provider === "lmstudio"
-                    ? "http://localhost:1234"
-                    : provider === "openai" ? "https://api.openai.com" : "http://localhost:11434";
-                  const updated = { ...aiSettings, provider, url, model: "" };
+                  const definition = getAIProvider(provider);
+                  const url = definition.defaultUrl;
+                  const updated = normalizeAISettings({ ...aiSettings, provider, url, model: "" });
+                  setModelsList([]);
                   setAiSettings(updated);
-                  testAIConnection(updated);
+                  setInfoView({ title: `${definition.label} setup`, body: getAIProviderHelp(provider) });
                 }}
               >
-                <option value="ollama">Ollama</option>
-                <option value="lmstudio">LM Studio</option>
-                <option value="openai">OpenAI Compatible</option>
+                {AI_PROVIDER_OPTIONS.map(provider => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
               </select>
             </label>
-            <label className="settings-panel-field" {...infoProps("API endpoint URL", "Base URL of the selected AI backend. Drawerator queries models and sends chat requests here.")}>
+            <label className="settings-panel-field" {...infoProps(`${activeAIProvider.label} endpoint`, `${activeAIProviderHelp} The default base URL is ${activeAIProvider.defaultUrl}.`)}>
               <span>API endpoint URL</span>
               <input type="text" value={aiSettings.url} onChange={event => setAiSettings({ ...aiSettings, url: event.target.value })} />
             </label>
-            <label className="settings-panel-field" {...infoProps("Active model", "Model identifier used for new AI Assistant requests.")}>
+            {activeAIProvider.credentialLabel && (
+              <label className="settings-panel-field" {...infoProps(`${activeAIProvider.label} authentication`, activeAIProviderHelp)}>
+                <span className="settings-field-label-with-info">
+                  {activeAIProvider.credentialLabel}
+                  <span className="settings-info-anchor" tabIndex={0} aria-label={`${activeAIProvider.label} authentication help`} {...infoProps(`${activeAIProvider.label} authentication`, activeAIProviderHelp)}>ⓘ</span>
+                </span>
+                <input
+                  type="password"
+                  value={getAIProviderCredential(aiSettings)}
+                  onChange={event => setAiSettings(previous => ({
+                    ...previous,
+                    apiKeys: { ...previous.apiKeys, [previous.provider]: event.target.value },
+                  }))}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  autoComplete="off"
+                  placeholder={aiSettings.provider === "openai-compatible" ? "Optional bearer token" : "Required"}
+                />
+              </label>
+            )}
+            <label className="settings-panel-field" {...infoProps("Active model", `Model identifier used for new AI Assistant requests through ${activeAIProvider.label}. Favorites are stored separately for each provider.`)}>
               <span>Active model</span>
-              {aiSettings.provider !== "openai" && modelsList.length > 0 ? (
-                <select value={aiSettings.model} onChange={event => setAiSettings({ ...aiSettings, model: event.target.value })}>
-                  {modelsList.map(model => <option key={model} value={model}>{model}</option>)}
-                </select>
+              {modelsList.length > 0 ? (
+                <div className="settings-model-control">
+                  <select value={aiSettings.model} onChange={event => setAiSettings({ ...aiSettings, model: event.target.value })}>
+                    {visibleModelOptions.map(model => <option key={model} value={model}>{activeModelFavorites.includes(model) ? "★ " : ""}{model}</option>)}
+                  </select>
+                  <button
+                    type="button"
+                    className={`settings-model-favorite${activeModelFavorites.includes(aiSettings.model) ? " active" : ""}`}
+                    disabled={!aiSettings.model}
+                    onClick={() => toggleFavoriteModel(aiSettings.model)}
+                    aria-label={activeModelFavorites.includes(aiSettings.model) ? "Remove active model from favorites" : "Add active model to favorites"}
+                    {...infoProps("Favorite model", "Favorite models are stored per provider in this browser and sort to the top of both model selectors.")}
+                  >{activeModelFavorites.includes(aiSettings.model) ? "★" : "☆"}</button>
+                </div>
               ) : (
                 <input type="text" value={aiSettings.model} onChange={event => setAiSettings({ ...aiSettings, model: event.target.value })} placeholder="Model name" />
               )}
             </label>
-            <div className="settings-panel-actions">
-              <span className={`settings-panel-status ${connectionStatus}`}>
-                {connectionStatus === "ok" ? "Backend reachable" : connectionStatus === "error" ? "Connection failed" : "Checking…"}
-              </span>
+            {modelsList.length > 0 && (
+              <label className="settings-panel-field" {...infoProps("Model filter", `Filter ${modelsList.length} models returned by ${activeAIProvider.label}, or restrict the selector to favorites.`)}>
+                <span>Model filter</span>
+                <div className="settings-model-control">
+                  <ModelCatalogFilter
+                    modelCount={modelsList.length}
+                    resetKey={`${aiSettings.provider}:${aiSettings.url}`}
+                    onFilterChange={setModelFilter}
+                  />
+                  <button
+                    type="button"
+                    className={`settings-model-favorite settings-model-filter-toggle${favoriteModelsOnly ? " active" : ""}`}
+                    onClick={() => setFavoriteModelsOnly(previous => !previous)}
+                    aria-pressed={favoriteModelsOnly}
+                    aria-label={favoriteModelsOnly ? "Show all matching models" : "Show favorite models only"}
+                    {...infoProps("Favorites filter", "Show only favorite models. Turn this off to return to the complete filtered catalog.")}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M4 5h16l-6.3 7.2v5.1l-3.4 1.7v-6.8z" />
+                    </svg>
+                  </button>
+                </div>
+              </label>
+            )}
+            <div className="settings-panel-actions settings-ai-actions">
+              <span aria-hidden="true" />
               <button type="button" className="iannix-flat-button" onClick={saveSettings}>Save &amp; test</button>
+            </div>
+            <div className="settings-ai-report" role="status" aria-live="polite">
+              <span className={`settings-panel-status ${connectionStatus}`}>
+                {connectionStatus === "ok" ? "Backend reachable" : connectionStatus === "auth" ? "Credential required" : connectionStatus === "error" ? "Connection failed" : "Checking…"}
+              </span>
+              {modelsList.length > 0 && <span>Showing {filteredModelsList.length} of {modelsList.length} models · {activeModelFavorites.length} favorites</span>}
             </div>
             </InspectorSection>
           </div>
@@ -11938,9 +12008,23 @@ function App() {
                     }}
                   >
                     {modelsList.length > 0 ? (
-                      modelsList.map((m, idx) => (
-                        <option key={idx} value={m}>{m}</option>
-                      ))
+                      <>
+                        {aiSettings.model && !orderedModelsList.includes(aiSettings.model) && (
+                          <option value={aiSettings.model}>{aiSettings.model}</option>
+                        )}
+                        {activeModelFavorites.length > 0 && (
+                          <optgroup label="Favorites">
+                            {orderedModelsList.filter(model => activeModelFavorites.includes(model)).map(model => (
+                              <option key={`favorite:${model}`} value={model}>★ {model}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                        <optgroup label={activeModelFavorites.length > 0 ? "All models" : "Models"}>
+                          {orderedModelsList.filter(model => !activeModelFavorites.includes(model)).map(model => (
+                            <option key={model} value={model}>{model}</option>
+                          ))}
+                        </optgroup>
+                      </>
                     ) : (
                       <option value="">{aiSettings.model || "Select Model"}</option>
                     )}
