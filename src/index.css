@@ -3648,6 +3648,125 @@ a.iannix-flat-button {
   width: 100%;
 }
 
+.settings-api-key-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-api-key-control input {
+  min-width: 0;
+}
+
+.settings-api-key-control .settings-info-anchor {
+  align-self: center;
+  padding: 4px;
+}
+
+.settings-field-label-with-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-field-label-with-info .settings-info-anchor {
+  align-self: center;
+  flex: 0 0 auto;
+}
+
+.settings-model-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 27px;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-model-control > input,
+.settings-model-control > select {
+  min-width: 0;
+}
+
+.drawerator-panel-body .settings-model-favorite {
+  box-sizing: border-box;
+  width: 27px;
+  height: 27px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--drawerator-input-border, var(--border-color));
+  border-radius: 3px;
+  background: var(--drawerator-input-bg, var(--input-bg-color));
+  color: var(--color-secondary);
+  line-height: 1;
+}
+
+.drawerator-panel-body .settings-model-favorite:hover,
+.drawerator-panel-body .settings-model-favorite.active {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--drawerator-highlight) 50%, transparent);
+  color: var(--color-primary);
+}
+
+.drawerator-panel-body .settings-model-favorite:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.drawerator-panel-body .settings-model-filter-toggle svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  margin: auto;
+  overflow: visible;
+}
+
+.drawerator-panel-body .settings-model-filter-toggle path {
+  fill: transparent;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+}
+
+.drawerator-panel-body .settings-model-filter-toggle.active path {
+  fill: currentColor;
+}
+
+.settings-ai-actions {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.9fr) minmax(0, 1.1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-ai-report {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  min-height: 22px;
+  gap: 10px;
+  padding-top: 5px;
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.24));
+  color: var(--color-secondary);
+  font-size: var(--drawerator-ui-font-size-small, 10px);
+}
+
+.settings-ai-report > :last-child:not(:first-child) {
+  min-width: 0;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-ai-actions > button {
+  width: 100%;
+}
+
 .settings-panel-check,
 .settings-panel-actions {
   display: flex;
@@ -3805,6 +3924,10 @@ a.iannix-flat-button {
 
 .settings-panel-status.error {
   color: #e5534b;
+}
+
+.settings-panel-status.auth {
+  color: var(--color-warning, #c69026);
 }
 
 @media (max-width: 720px) {
@@ -4014,6 +4137,13 @@ a.iannix-flat-button {
 .settings-panel-actions {
   min-height: 28px;
   font-size: 10px;
+}
+
+.settings-panel-actions.settings-ai-actions {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.9fr) minmax(0, 1.1fr);
+  align-items: center;
+  gap: 8px;
 }
 
 .settings-panel-midi-routing {

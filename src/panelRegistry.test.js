@@ -8,6 +8,18 @@ test("every Drawerator panel has a unique slash command", () => {
   assert.ok(slashes.every(slash => slash.startsWith("/")));
 });
 
+test("dock registry keeps the requested primary right and bottom tab order", () => {
+  const rightDockOrder = DRAWERATOR_PANELS
+    .filter(panel => panel.placements.includes("right"))
+    .map(panel => panel.id);
+  assert.deepEqual(rightDockOrder, [
+    "grid", "outliner", "properties", "iannix", "mods", "synth", "script", "chat", "history", "console", "settings", "mixer", "info",
+  ]);
+  assert.deepEqual(DRAWERATOR_PANELS
+    .filter(panel => panel.naturalPlacement === "bottom")
+    .map(panel => panel.id), ["transport", "mixer", "info"]);
+});
+
 test("panel lookup and slash matching share one registry", () => {
   assert.equal(getDraweratorPanel("mods")?.sidebarName, "modifiers-sidebar");
   assert.equal(matchesDraweratorPanel(getDraweratorPanel("transport"), "/trans"), true);

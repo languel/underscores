@@ -3,6 +3,14 @@ import react from '@vitejs/plugin-react'
 import { viteSingleFile } from 'vite-plugin-singlefile'
 
 const buildSingle = process.env.BUILD_SINGLE === 'true'
+const nvidiaProxy = {
+  '/api/nvidia': {
+    target: 'https://integrate.api.nvidia.com',
+    changeOrigin: true,
+    secure: true,
+    rewrite: path => path.replace(/^\/api\/nvidia/, '')
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -13,7 +21,11 @@ export default defineConfig({
   ].filter(Boolean),
   server: {
     port: 8089,
-    strictPort: true
+    strictPort: true,
+    proxy: nvidiaProxy
+  },
+  preview: {
+    proxy: nvidiaProxy
   },
   // The internal synth is lazy-loaded on first use. Pre-bundle both CommonJS
   // packages at dev-server startup so a first click cannot race Vite's
