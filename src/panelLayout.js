@@ -13,7 +13,7 @@ export const DEFAULT_PANEL_LAYOUTS = Object.freeze({
   iannix: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 96, y: 120, width: 380, height: 760 }),
   mixer: Object.freeze({ placement: PANEL_PLACEMENTS.BOTTOM, x: 72, y: 120, width: 1040, height: 286 }),
   synth: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 120, y: 136, width: 360, height: 720 }),
-  info: Object.freeze({ placement: PANEL_PLACEMENTS.LEFT, x: 32, y: 520, width: 320, height: 240 }),
+  info: Object.freeze({ placement: PANEL_PLACEMENTS.BOTTOM, x: 32, y: 520, width: 720, height: 240 }),
   console: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 96, y: 120, width: 340, height: 420 }),
   history: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 120, y: 136, width: 420, height: 720 }),
   properties: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 144, y: 152, width: 380, height: 720 }),
@@ -21,6 +21,26 @@ export const DEFAULT_PANEL_LAYOUTS = Object.freeze({
   transport: Object.freeze({ placement: PANEL_PLACEMENTS.BOTTOM, x: 32, y: 32, width: 960, height: 114 }),
   grid: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 48, y: 88, width: 360, height: 720 }),
 });
+
+export const DEFAULT_DOCK_SIZES = Object.freeze({
+  left: 380,
+  right: 380,
+  bottom: 286,
+});
+
+const clampDockSize = (value, fallback, minimum, maximum) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(minimum, Math.min(maximum, numeric)) : fallback;
+};
+
+export const normalizeDockSizes = value => {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    left: clampDockSize(source.left, DEFAULT_DOCK_SIZES.left, 280, 800),
+    right: clampDockSize(source.right, DEFAULT_DOCK_SIZES.right, 280, 800),
+    bottom: clampDockSize(source.bottom, DEFAULT_DOCK_SIZES.bottom, 112, 1200),
+  };
+};
 
 const SIDEBAR_PLACEMENTS = new Set([
   PANEL_PLACEMENTS.LEFT,

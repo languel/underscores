@@ -772,10 +772,10 @@ body .excalidraw .sidebar {
 }
 
 .drawerator-panel-bottom .drawerator-dock-tabs {
-  width: 42px;
+  width: 36px;
   min-height: 0;
   height: 100%;
-  padding: 6px 5px;
+  padding: 2px 0 2px 2px;
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
@@ -785,13 +785,13 @@ body .excalidraw .sidebar {
 
 .drawerator-panel-bottom .drawerator-dock-tab {
   width: 100%;
-  height: 32px;
+  height: 30px;
   justify-content: center;
 }
 
 .drawerator-panel-bottom .drawerator-dock-tab.active {
-  padding-right: 3px;
-  border-radius: 4px;
+  padding-right: 0;
+  border-radius: 4px 0 0 4px;
 }
 
 .drawerator-panel-bottom .drawerator-panel-heading {
@@ -1105,18 +1105,18 @@ body .excalidraw .sidebar {
 
 .drawerator-dock-tabs {
   min-height: 40px;
-  padding: 5px 8px 0;
+  padding: 5px 4px 0;
   display: flex;
   align-items: flex-end;
-  gap: 3px;
+  gap: 0;
   flex: 0 0 auto;
   border-bottom: 1px solid var(--border-color, rgba(128, 128, 128, 0.26));
 }
 
 .drawerator-dock-tab {
-  min-width: 30px;
+  min-width: 26px;
   height: 30px;
-  padding: 0 3px;
+  padding: 0 1px;
   border-radius: 4px;
   color: var(--color-secondary, currentColor);
   background: transparent;
@@ -1133,12 +1133,12 @@ body .excalidraw .sidebar {
 }
 
 .drawerator-dock-tab.active {
-  padding-right: 9px;
+  padding-right: 1px;
   border-radius: 4px 4px 0 0;
 }
 
 .drawerator-dock-tab .panel-drag-handle {
-  width: 24px;
+  width: 22px;
   height: 24px;
 }
 
@@ -2462,12 +2462,14 @@ a.iannix-flat-button {
   --transport-accent-soft: var(--drawerator-highlight, rgba(143, 143, 143, 0.1));
   display: grid;
   grid-template-columns: 92px 180px 90px 132px 108px 86px 82px 46px minmax(120px, 1fr);
-  align-items: center;
+  grid-template-rows: var(--drawerator-ui-control-height) minmax(0, 1fr);
+  align-items: start;
+  align-content: start;
   gap: 3px;
   width: 100%;
   height: 100%;
   min-height: 0;
-  padding: 4px;
+  padding: 0 4px 4px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -2761,7 +2763,9 @@ a.iannix-flat-button {
 .iannix-timeline {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-rows: 24px 40px;
+  grid-template-rows: 24px minmax(40px, 1fr) 12px;
+  align-self: stretch;
+  height: 100%;
   min-width: 0;
   width: 100%;
   max-width: 100%;
@@ -2784,7 +2788,16 @@ a.iannix-flat-button {
   position: absolute;
   inset-block: 0;
   width: 1px;
+  background: color-mix(in srgb, var(--transport-grid) 42%, transparent);
+}
+
+.iannix-timeline-tick.major,
+.iannix-timeline-gridline.major {
   background: var(--transport-grid);
+}
+
+.iannix-timeline-tick.minor span {
+  color: color-mix(in srgb, var(--transport-secondary) 72%, transparent);
 }
 
 .iannix-timeline-tick span {
@@ -2820,7 +2833,7 @@ a.iannix-flat-button {
   z-index: 1;
   inset-block: 0;
   width: 1px;
-  background: var(--transport-grid);
+  background: color-mix(in srgb, var(--transport-grid) 42%, transparent);
   pointer-events: none;
 }
 
@@ -2880,8 +2893,9 @@ a.iannix-flat-button {
   position: absolute;
   z-index: 4;
   top: 0;
+  bottom: 0;
   width: 9px;
-  height: 40px;
+  height: 100%;
   padding: 0;
   border: 0;
   background: transparent;
@@ -2939,12 +2953,64 @@ a.iannix-flat-button {
   left: 5px;
   padding: 1px 3px;
   border-radius: 2px;
-  background: var(--transport-accent);
-  color: #fff;
+  background: var(--transport-lane-bg);
+  color: var(--transport-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 7px;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.iannix-timeline-zoom {
+  position: relative;
+  margin: 2px 8px 3px;
+  min-height: 7px;
+  border-top: 1px solid color-mix(in srgb, var(--transport-border) 72%, transparent);
+  cursor: default;
+  touch-action: none;
+}
+
+.iannix-timeline-zoom-window {
+  position: absolute;
+  top: 2px;
+  bottom: 0;
+  min-width: 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--transport-secondary) 48%, transparent);
+  cursor: grab;
+  touch-action: none;
+}
+
+.iannix-timeline-zoom-window:active {
+  cursor: grabbing;
+}
+
+.iannix-timeline-zoom-handle {
+  position: absolute;
+  z-index: 1;
+  top: -2px;
+  bottom: -1px;
+  width: 9px;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.iannix-timeline-zoom-handle.start { left: -3px; }
+.iannix-timeline-zoom-handle.end { right: -3px; }
+
+.iannix-timeline-zoom-handle::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 4px;
+  width: 1px;
+  background: color-mix(in srgb, var(--transport-text) 72%, transparent);
 }
 
 @media (max-width: 980px) {

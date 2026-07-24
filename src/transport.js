@@ -90,9 +90,97 @@ export const parseTimelinePosition = (value, mode, { fps = 30, tempo = 120, sign
   return parseTimecode(value, fps);
 };
 
-export const createTimelineTicks = (duration, count = 12) => {
+const niceTimelineStep = rawStep => {
+  const safeStep = Math.max(Number.EPSILON, Number(rawStep) || 1);
+  const magnitude = 10 ** Math.floor(Math.log10(safeStep));
+  const normalized = safeStep / magnitude;
+  const factor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return factor * magnitude;
+};
+
+export const getTimelineSubdivision = (
+  duration,
+  mode = "timecode",
+  { fps = 30, tempo = 120, signature } = {},
+  targetCount = 12,
+) => {
+  const safeDuration = Math.max(0.001, Number(duration) || 0.001);
+  const safeTarget = Math.max(2, Math.floor(Number(targetCount) || 12));
+  if (mode === "beats") {
+    const meter = normalizeTimeSignature(signature);
+    const beatSeconds = 60 / clampTempo(tempo) * 4 / meter.denominator;
+    return { minor: beatSeconds, major: beatSeconds * meter.numerator };
+  }
+  if (mode === "frame") {
+    const safeFps = [24, 25, 30, 50, 60].includes(Number(fps)) ? Number(fps) : 30;
+    return { minor: 1 / safeFps, major: 1 };
+  }
+  const minor = niceTimelineStep(safeDuration / safeTarget);
+  return { minor, major: minor * 5 };
+};
+
+export const snapTimelineTime = (time, duration, mode, options = {}, subdivision = "major") => {
+  const safeDuration = Math.max(0, Number(duration) || 0);
+  const divisions = getTimelineSubdivision(safeDuration, mode, options);
+  const quantum = subdivision === "minor" ? divisions.minor : divisions.major;
+  const snapped = Math.round((Number(time) || 0) / quantum) * quantum;
+  return Math.min(safeDuration, Math.max(0, Number(snapped.toFixed(9))));
+};
+
+export const createTimelineTicks = (duration, count = 12, options = {}) => {
   const safeDuration = Math.max(0.001, Number(duration) || 0.001);
   const safeCount = Math.max(2, Math.floor(Number(count) || 12));
+  const mode = options.mode;
+  if (mode) {
+    const rangeStart = Math.max(0, Math.min(safeDuration, Number(options.rangeStart) || 0));
+    const rangeEnd = Math.max(rangeStart + Number.EPSILON, Math.min(safeDuration, Number(options.rangeEnd) || safeDuration));
+    const visibleDuration = Math.max(Number.EPSILON, rangeEnd - rangeStart);
+    const pixelWidth = Math.max(1, Number(options.pixelWidth) || safeCount * 64);
+    const minLineSpacing = Math.max(2, Number(options.minLineSpacing) || 8);
+    const minLabelSpacing = Math.max(minLineSpacing, Number(options.minLabelSpacing) || 52);
+    const { minor, major } = getTimelineSubdivision(visibleDuration, mode, options, safeCount);
+    const epsilon = minor * 1e-6;
+    const minorPixels = minor / visibleDuration * pixelWidth;
+    const minorStride = Math.max(1, Math.ceil(minLineSpacing / Math.max(Number.EPSILON, minorPixels)));
+    const renderedMinor = minor * minorStride;
+    const tickMap = new Map();
+    const addTick = (time, forceMajor = false) => {
+      const safeTime = Math.min(rangeEnd, Math.max(rangeStart, time));
+      const key = Number(safeTime.toFixed(9));
+      const majorIndex = Math.round(safeTime / major);
+      const isMajor = forceMajor || Math.abs(safeTime - majorIndex * major) <= epsilon;
+      const existing = tickMap.get(key);
+      tickMap.set(key, {
+        time: safeTime,
+        percent: (safeTime - rangeStart) / visibleDuration * 100,
+        major: isMajor || existing?.major || false,
+        showLabel: existing?.showLabel || false,
+      });
+    };
+
+    const firstMinor = Math.ceil((rangeStart - epsilon) / renderedMinor) * renderedMinor;
+    for (let time = firstMinor, index = 0; time <= rangeEnd + epsilon && index < 4097; time += renderedMinor, index += 1) {
+      addTick(time);
+    }
+
+    const majorPixels = major / visibleDuration * pixelWidth;
+    const majorStride = Math.max(1, Math.ceil(minLineSpacing / Math.max(Number.EPSILON, majorPixels)));
+    const renderedMajor = major * majorStride;
+    const firstMajor = Math.ceil((rangeStart - epsilon) / renderedMajor) * renderedMajor;
+    for (let time = firstMajor, index = 0; time <= rangeEnd + epsilon && index < 4097; time += renderedMajor, index += 1) {
+      addTick(time, true);
+    }
+
+    const ticks = [...tickMap.values()].sort((a, b) => a.time - b.time);
+    const labelFromMinor = minorPixels >= minLabelSpacing;
+    const labelQuantum = labelFromMinor
+      ? minor
+      : major * Math.max(1, Math.ceil(minLabelSpacing / Math.max(Number.EPSILON, majorPixels)));
+    return ticks.map(tick => ({
+      ...tick,
+      showLabel: Math.abs(tick.time / labelQuantum - Math.round(tick.time / labelQuantum)) <= 1e-6,
+    }));
+  }
   return Array.from({ length: safeCount + 1 }, (_, index) => ({
     time: safeDuration * index / safeCount,
     percent: index * 100 / safeCount,

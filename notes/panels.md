@@ -1,8 +1,8 @@
 # Panel System Notes
 
-Last updated: 2026-07-23
+Last updated: 2026-07-24
 
-Drawerator owns one persistent panel model for **AI Assistant**, **Mods & FX**, **Script**, **IanniX**, **Mixer**, **Expressive Synth**, **Info**, **Settings**, **Console**, and **Transport**. Side panels support left dock, floating, and right dock placement. Mixer and Info additionally support the bottom dock; Transport supports floating and bottom-docked placement.
+Drawerator owns one persistent panel model for **AI Assistant**, **Mods & FX**, **Script**, **IanniX**, **Mixer**, **Expressive Synth**, **Info**, **Settings**, **Console**, and **Transport**. Side panels support left dock, floating, and right dock placement. Mixer and Info additionally support the bottom dock; Transport supports floating and bottom-docked placement. Timeline, Mixer, and Info use the bottom as their natural home; all other panels use the right dock.
 
 ## Identity icon contract
 
@@ -11,7 +11,7 @@ The panel identity icon is the only visible placement control:
 - click activates an inactive dock tab;
 - click without pointer movement never changes placement;
 - drag begins only after a small movement threshold, then detaches the panel and previews eligible dock targets;
-- right-click opens the explicit placement and close menu;
+- right-click opens the explicit placement and close menu; Close now returns the panel to its natural dock instead of removing it from the workspace;
 - floating-panel menus include **Minimize**, which reduces the panel to its draggable identity icon without losing its saved size;
 - Shift-double-click toggles that icon-only minimized state while floating;
 - Option-double-click returns the panel to its natural dock: right for vertical panels and bottom for Mixer and Timeline;
@@ -21,7 +21,7 @@ When multiple panels share a side, they render as one tab row. The active tab sh
 
 ## Sizing and collapse
 
-Panel dimensions are stored per panel; resizing one never changes another. Floating panels resize in both axes from the lower-right proximity handle. Docked panels resize from the canvas-facing edge.
+Floating dimensions remain per panel and resize in both axes from the lower-right proximity handle. Each dock owns one persistent shared width or height, so changing tabs never resizes the canvas; dock dimensions change only when the user drags the canvas-facing resize edge.
 
 Dragging a side panel below its minimum width collapses the complete dock. Dragging the bottom dock's top resize bar below its minimum height does the same. A collapsed dock leaves only its thin resize edge; drag that edge or double-click it to restore the dock. In transparent-overlay workspaces the bottom edge is invisible at rest and appears only on hover, where it thickens without an extra center notch. Hover alone never expands it. `Cmd+B` toggles the left dock, `Cmd+Opt+B` toggles the right dock, and `Cmd+Shift+B` toggles the bottom dock.
 
@@ -40,6 +40,8 @@ The following state persists independently:
 
 Every panel is available from the main menu and command palette, including `/chat`, `/mods`, `/script`, `/iannix`, `/synth`, `/settings`, `/console`, and `/transport`. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
 
+**Settings → Board → Reset to defaults**, `/reset defaults`, and `Ctrl+Opt+Shift+D` share the stable `workspace.reset.defaults` command. It returns every panel to its natural dock, resets shared dock dimensions, keeps every panel available as a dock tab, collapses all three docks and Excalidraw chrome, restores Mono Dark, selects the unlocked pen, restores sharp zero-sloppiness authoring, and disables Drawerator/native grid snapping.
+
 ## Script panel
 
 Script editing is a standalone dockable concern rather than a tab embedded in a feature panel. The panel persists its selected script type and currently exposes two adapters:
@@ -53,7 +55,7 @@ Both adapters follow one compact editor layout: catalog and parameters first, th
 
 Mods & FX now owns only the ordered modifier stack and its rendering controls. IanniX owns only score-object and data editing. This prevents either feature panel from becoming the lifetime or placement owner of the shared editor.
 
-Fresh workspaces begin in Satori freehand mode with the left, right, and bottom docks collapsed. The normal default keeps the Mods/Grid dock tabs and Timeline available behind those reveal edges, while restored local layouts always win after first launch.
+Fresh workspaces begin in Satori freehand mode with the left, right, and bottom docks collapsed. The normal default keeps all panel tabs available behind those reveal edges, while restored local layouts always win after first launch.
 
 ## Inspector layout
 

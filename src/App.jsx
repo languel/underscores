@@ -10,8 +10,8 @@ import NumberInputController from "./NumberInputController.jsx";
 import TimeValueInput from "./TimeValueInput.jsx";
 import InspectorSection from "./InspectorSection.jsx";
 import { attachDraweratorExchangeMetadata, getSelectionExchangeElements, parseDraweratorExchange, remapSelectionForImport } from "./sceneExchange.js";
-import { DRAWERATOR_PANELS } from "./panelRegistry.js";
-import { getDockTarget, getOpenPanelsForPlacement, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
+import { DRAWERATOR_PANELS, getDraweratorPanel, getNaturalPanelPlacement } from "./panelRegistry.js";
+import { getDockTarget, getOpenPanelsForPlacement, normalizeDockSizes, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
 import { advanceMidiClockReceiver, createMidiClockReceiverState, formatTimelinePosition, MIDI_REALTIME, midiClockIntervalMs, normalizeTimeSignature, parseTimelinePosition, secondsToFrame, songPositionToSeconds } from "./transport.js";
 import DraweratorPanel from "./DraweratorPanel.jsx";
 import TransportTimeline from "./TransportTimeline.jsx";
@@ -1707,11 +1707,25 @@ function App() {
       return normalizePanelLayouts(null);
     }
   });
+  const [dockSizes, setDockSizes] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("drawerator_dock_sizes_v1") || "null");
+      if (saved) return normalizeDockSizes(saved);
+      const activeTabs = { left: "mods", right: "mods", bottom: "transport", ...JSON.parse(localStorage.getItem("drawerator_panel_dock_tabs_v1") || "null") };
+      return normalizeDockSizes({
+        left: panelLayouts[activeTabs.left]?.width,
+        right: panelLayouts[activeTabs.right]?.width,
+        bottom: panelLayouts[activeTabs.bottom]?.height,
+      });
+    } catch {
+      return normalizeDockSizes(null);
+    }
+  });
   const [openPanels, setOpenPanels] = useState(() => {
     try {
-      return { chat: false, settings: false, mods: true, script: false, iannix: false, mixer: false, synth: false, info: false, console: false, history: false, properties: false, outliner: false, grid: true, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
+      return { chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
     } catch {
-      return { chat: false, settings: false, mods: true, script: false, iannix: false, mixer: false, synth: false, info: false, console: false, history: false, properties: false, outliner: false, grid: true };
+      return { chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
@@ -2395,7 +2409,7 @@ function App() {
   const [globalModifiers, setGlobalModifiers] = useState([]);
   const [globalMuteStack, setGlobalMuteStack] = useState(false);
   const [nextStrokeHideOriginal, setNextStrokeHideOriginal] = useState(false);
-  const [globalRoundness, setGlobalRoundness] = useState(true);
+  const [globalRoundness, setGlobalRoundness] = useState(false);
 
   const updatePanelLayout = useCallback((panelId, nextLayout) => {
     setPanelLayouts(previous => ({
@@ -2423,20 +2437,25 @@ function App() {
     if (!rect) return;
     event.preventDefault();
     event.stopPropagation();
+    const layout = panelLayouts[panelId];
+    const height = Math.min(
+      Math.max(Number(layout?.height) || 720, 220),
+      Math.max(220, window.innerHeight - 16),
+    );
     panelDragRef.current = {
       panelId,
       started: false,
       startX: event.clientX,
       startY: event.clientY,
       offsetX: event.clientX - rect.left,
-      offsetY: event.clientY - rect.top,
+      offsetY: Math.min(event.clientY - rect.top, height - 24),
       width: rect.width,
-      height: rect.height,
+      height,
       clientX: event.clientX,
       clientY: event.clientY,
     };
     setDraggingPanelId(panelId);
-  }, []);
+  }, [panelLayouts]);
 
   const startHorizontalPanelDrag = useCallback((panelId, event) => {
     if (event.button !== 0) return;
@@ -2563,6 +2582,10 @@ function App() {
     localStorage.setItem("drawerator_panel_layout_v1", JSON.stringify(panelLayouts));
     localStorage.removeItem("drawerator_transport_position");
   }, [panelLayouts]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_dock_sizes_v1", JSON.stringify(dockSizes));
+  }, [dockSizes]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_script_panel_type", scriptPanelType);
@@ -3386,7 +3409,7 @@ function App() {
 
   const [customBrushActive, setCustomBrushActive] = useState(false);
   const modifierDrawingActive = customBrushActive && globalModifiers.length > 0;
-  const [customBrushRoundness, setCustomBrushRoundness] = useState(() => localStorage.getItem("drawerator_custom_brush_roundness") !== "false");
+  const [customBrushRoundness, setCustomBrushRoundness] = useState(() => localStorage.getItem("drawerator_custom_brush_roundness") === "true");
   
   useEffect(() => {
     localStorage.setItem("drawerator_custom_brush_roundness", customBrushRoundness);
@@ -4097,9 +4120,10 @@ function App() {
           return;
         }
         setCollapsedDocks(previous => ({ ...previous, bottom: false }));
-        updatePanelLayout(panelId, {
-          height: Math.max(BOTTOM_DOCK_MIN_HEIGHT, Math.min(window.innerHeight - 80, rawHeight)),
-        });
+        setDockSizes(previous => ({
+          ...previous,
+          bottom: Math.max(BOTTOM_DOCK_MIN_HEIGHT, Math.min(window.innerHeight - 80, rawHeight)),
+        }));
         return;
       }
       const rawWidth = placement === PANEL_PLACEMENTS.LEFT
@@ -4110,7 +4134,7 @@ function App() {
         return;
       }
       setCollapsedDocks(previous => ({ ...previous, [placement]: false }));
-      updatePanelLayout(panelId, { width: Math.max(280, Math.min(800, rawWidth)) });
+      setDockSizes(previous => ({ ...previous, [placement]: Math.max(280, Math.min(800, rawWidth)) }));
     };
     const handleMouseUp = () => {
       document.removeEventListener("mousemove", handleMouseMove);
@@ -4138,6 +4162,7 @@ function App() {
         placement: PANEL_PLACEMENTS.FLOATING,
         x: Math.max(8, Math.min(window.innerWidth - drag.width - 8, event.clientX - drag.offsetX)),
         y: Math.max(8, Math.min(window.innerHeight - drag.height - 8, event.clientY - drag.offsetY)),
+        height: drag.height,
       });
     };
     const handleUp = () => {
@@ -6067,11 +6092,15 @@ function App() {
       }));
       return;
     }
-    setOpenPanels(previous => ({ ...previous, [panelId]: forceOpen ? true : !previous[panelId] }));
+    setOpenPanels(previous => ({ ...previous, [panelId]: true }));
   };
 
   const closeDraweratorPanel = panelId => {
-    setOpenPanels(previous => ({ ...previous, [panelId]: false }));
+    const panel = getDraweratorPanel(panelId);
+    if (!panel) return;
+    setOpenPanels(previous => ({ ...previous, [panelId]: true }));
+    if (panelId === "transport") setShowIannixTransport(true);
+    setPanelPlacement(panelId, getNaturalPanelPlacement(panel));
   };
 
   const toggleLibrary = () => {
@@ -6175,6 +6204,7 @@ function App() {
   const COMMANDS = [
     ...PANEL_COMMANDS,
     { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
+    { id: "workspace.reset.defaults", name: "Reset Workspace to Defaults /reset defaults", aliases: ["/reset defaults", "/workspace reset", "Reset to defaults"], category: "Settings", record: "presentation", action: () => resetBoardSettingsToDefaults() },
     { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => { applyingRecordedUiStateRef.current = true; setSatoriMode(prev => !prev); finishApplyingRecordedUiState(); } },
     { id: "toggle-theme", name: "Toggle Dark/Light Theme", category: "View", action: (api) => {
       toggleDraweratorTheme(api);
@@ -6390,8 +6420,9 @@ function App() {
           });
           if (count) excalidrawAPI.updateScene({ elements, commitToHistory: true });
           else {
-            setCustomBrushRoundness(previous => !previous);
-            excalidrawAPI.updateScene({ appState: { currentItemRoundnessType: appState.currentItemRoundnessType === 2 ? 1 : 2 } });
+            const nextRoundness = appState.currentItemRoundness === "round" ? "sharp" : "round";
+            setCustomBrushRoundness(nextRoundness === "round");
+            excalidrawAPI.updateScene({ appState: { currentItemRoundness: nextRoundness } });
           }
           return;
         }
@@ -7390,6 +7421,7 @@ function App() {
         },
         openPanels,
         panelLayouts,
+        dockSizes,
         activeDockPanels,
         collapsedDocks,
         activeSettingsTab,
@@ -7408,6 +7440,7 @@ function App() {
         if (presentation.theme) setTheme(presentation.theme);
         if (presentation.openPanels) setOpenPanels(presentation.openPanels);
         if (presentation.panelLayouts) setPanelLayouts(normalizePanelLayouts(presentation.panelLayouts));
+        if (presentation.dockSizes) setDockSizes(normalizeDockSizes(presentation.dockSizes));
         if (presentation.activeDockPanels) setActiveDockPanels(presentation.activeDockPanels);
         if (presentation.collapsedDocks) setCollapsedDocks(presentation.collapsedDocks);
         if (presentation.activeSettingsTab) setActiveSettingsTab(presentation.activeSettingsTab);
@@ -7642,6 +7675,7 @@ function App() {
     applyingRecordedUiStateRef.current = true;
     if (state.openPanels) setOpenPanels(state.openPanels);
     if (state.panelLayouts) setPanelLayouts(normalizePanelLayouts(state.panelLayouts));
+    if (state.dockSizes) setDockSizes(normalizeDockSizes(state.dockSizes));
     if (state.activeDockPanels) setActiveDockPanels(state.activeDockPanels);
     if (state.collapsedDocks) setCollapsedDocks(state.collapsedDocks);
     if (typeof state.activeSettingsTab === "string") setActiveSettingsTab(state.activeSettingsTab);
@@ -7738,7 +7772,7 @@ function App() {
   }, [commandRegistry, followMidiClockTempo, followMidiTransport, historyController, midiClockMode, scorePlaying, scoreRate, scoreSampleRate, scoreTempo, scoreTimeSignature, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopEndValue, transportLoopStart, transportLoopStartValue]);
 
   useEffect(() => {
-    const state = { openPanels, panelLayouts, activeDockPanels, collapsedDocks, activeSettingsTab, modsPanelTab, scriptPanelType };
+    const state = { openPanels, panelLayouts, dockSizes, activeDockPanels, collapsedDocks, activeSettingsTab, modsPanelTab, scriptPanelType };
     const signature = JSON.stringify(state);
     const previous = panelStateRecordingRef.current?.signature ?? null;
     window.clearTimeout(panelStateRecordingRef.current?.timer);
@@ -7754,7 +7788,7 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record panel presentation", error));
     }, 180);
-  }, [activeDockPanels, activeSettingsTab, collapsedDocks, commandRegistry, historyController, historyIncludePresentation, modsPanelTab, openPanels, panelLayouts, scriptPanelType]);
+  }, [activeDockPanels, activeSettingsTab, collapsedDocks, commandRegistry, dockSizes, historyController, historyIncludePresentation, modsPanelTab, openPanels, panelLayouts, scriptPanelType]);
 
   useEffect(() => {
     const state = {
@@ -10391,7 +10425,6 @@ function App() {
     const scoreEnd = Math.max(
       transportLoopEnd,
       10,
-      scoreTime + 1,
       historySnapshot.duration,
       ...scoreObjects.map(element => {
         const timing = timingFrame.resolvedTimings.get(element.id) || resolveIannixObjectTiming(element, { context: timeContext, grid: globalGridRef.current });
@@ -10571,6 +10604,50 @@ function App() {
   };
   const applyInterfaceThemePreset = presetId => {
     applyDraweratorThemePreset(presetId);
+  };
+  const resetBoardSettingsToDefaults = () => {
+    applyingRecordedUiStateRef.current = true;
+    applyDraweratorThemePreset(DEFAULT_INTERFACE_THEME_PRESET);
+    setRoleTheme({ ...DEFAULT_ROLE_THEME });
+    setPanelLayouts(normalizePanelLayouts(null));
+    setDockSizes(normalizeDockSizes(null));
+    setOpenPanels(Object.fromEntries(DRAWERATOR_PANELS.map(panel => [panel.id, true])));
+    setActiveDockPanels({ left: "mods", right: "mods", bottom: "transport" });
+    setCollapsedDocks({ left: true, right: true, bottom: true });
+    setShowIannixTransport(true);
+    setDraggingPanelId(null);
+    setDockPreview(null);
+    setShowCommandPalette(false);
+    setSatoriMode(true);
+    setForceDesktopLayout(true);
+    setShowToolbarHints(false);
+    setShowBottomNotifications(false);
+    setShowDebugLayer(false);
+    setDefaultStabilizerDamping(0.12);
+    setGlobalRoundness(false);
+    setCustomBrushRoundness(false);
+    setCustomBrushActive(false);
+    runtimeCallbacksRef.current.globalGridReset();
+    localStorage.setItem("drawerator_force_desktop_layout", "true");
+    localStorage.setItem("drawerator_show_toolbar_hints", "false");
+    localStorage.setItem("drawerator_show_bottom_notifications", "false");
+    localStorage.setItem("drawerator_show_debug_layer", "false");
+    localStorage.setItem("drawerator_default_stabilizer_damping", "0.12");
+    localStorage.setItem("drawerator_custom_brush_roundness", "false");
+    excalidrawAPI?.updateScene({
+      appState: {
+        currentItemRoughness: 0,
+        currentItemRoundness: "sharp",
+        activeTool: { type: "freedraw", locked: false },
+        gridSize: null,
+        gridModeEnabled: false,
+        objectsSnapModeEnabled: false,
+        zenModeEnabled: false,
+        viewModeEnabled: false,
+      },
+      commitToHistory: false,
+    });
+    finishApplyingRecordedUiState();
   };
   const renderSettingsContent = () => {
     const boardState = excalidrawAPI?.getAppState() || {};
@@ -10777,6 +10854,14 @@ function App() {
                 <input type="checkbox" checked={checked} onChange={event => excalidrawAPI?.updateScene({ appState: { [field]: event.target.checked } })} />
               </label>
             ))}
+            <button
+              type="button"
+              className="iannix-flat-button"
+              onClick={() => commandRegistry.execute("workspace.reset.defaults", {}, { source: "settings", transportTime: scoreTimeRef.current })}
+              {...infoProps("Reset workspace to defaults", "Return every panel to its natural dock, collapse the docks and canvas chrome, select the pen, restore Mono Dark with sharp zero-sloppiness shapes, and disable grid snapping.")}
+            >
+              Reset to defaults
+            </button>
             </InspectorSection>
           </div>
         )}
@@ -11236,16 +11321,11 @@ function App() {
     return panelLayouts[panelId]?.placement === PANEL_PLACEMENTS.FLOATING || activeBottomPanelId === panelId;
   };
   const closeHorizontalPanel = panelId => {
-    if (panelId === "transport") setShowIannixTransport(false);
-    else closeDraweratorPanel(panelId);
+    closeDraweratorPanel(panelId);
   };
   const anySidePanelOpen = sidePanels.some(panel => openPanels[panel.id] && [PANEL_PLACEMENTS.LEFT, PANEL_PLACEMENTS.RIGHT].includes(panelLayouts[panel.id]?.placement));
   const bottomDockOpen = bottomDockTabs.length > 0;
-  const activeBottomPanel = horizontalPanels.find(panel => panel.id === activeBottomPanelId);
-  const bottomDockExpandedHeight = Math.max(
-    BOTTOM_DOCK_MIN_HEIGHT,
-    Number(panelLayouts[activeBottomPanelId]?.height) || activeBottomPanel?.dockedHeight || 144,
-  );
+  const bottomDockExpandedHeight = Math.max(BOTTOM_DOCK_MIN_HEIGHT, dockSizes.bottom);
   const bottomDockHeight = collapsedDocks.bottom ? COLLAPSED_DOCK_EDGE_SIZE : bottomDockExpandedHeight;
   const expressivePrograms = getExpressiveSynthPrograms(expressiveSynthConfig);
   const updateInfoViewFromEvent = event => {
@@ -11269,6 +11349,8 @@ function App() {
         "--drawerator-timeline-lane-bg": colorWithOpacity(interfaceTheme.timeline.color, interfaceTheme.timeline.opacity),
         "--drawerator-canvas-bg": colorWithOpacity(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity),
         "--drawerator-grid-color": interfaceTheme.grid.color,
+        "--drawerator-left-dock-width": `${dockSizes.left}px`,
+        "--drawerator-right-dock-width": `${dockSizes.right}px`,
         "--horizontal-dock-height": `${bottomDockHeight}px`,
       }}
       onPointerOverCapture={updateInfoViewFromEvent}
@@ -11301,7 +11383,7 @@ function App() {
           initialData={{
             appState: {
               currentItemRoughness: 0,
-              currentItemRoundnessType: 1,
+              currentItemRoundness: "sharp",
               viewBackgroundColor: canvasColorForExcalidraw(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme),
               gridSize: null,
               gridModeEnabled: false,

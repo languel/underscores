@@ -99,7 +99,9 @@ export default function PanelPlacementControls({
         onKeyDown={event => {
           if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openMenu(event);
         }}
-        title={`Drag ${label} to move · right-click for actions · Shift-double-click to minimize · Option-double-click to dock`}
+        title={placement === PANEL_PLACEMENTS.FLOATING
+          ? `Drag ${label} to move · right-click for actions · Shift-double-click to minimize · Option-double-click to dock`
+          : label}
         aria-label={`Move ${label} panel`}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
