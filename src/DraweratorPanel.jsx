@@ -98,13 +98,18 @@ export default function DraweratorPanel({
     onPlacementChange(getNaturalPanelPlacement(panelDefinition));
   };
 
+  const dockWidthVariable = placement === PANEL_PLACEMENTS.LEFT
+    ? "--drawerator-left-dock-width"
+    : "--drawerator-right-dock-width";
   const style = {
-    ...(!bottom ? { width: `${layout?.width ?? 380}px` } : { height: `${collapsed ? 5 : layout?.height ?? bottomHeight}px` }),
     ...(floating ? {
+      width: `${layout?.width ?? 380}px`,
       left: `${layout?.x ?? 24}px`,
       top: `${layout?.y ?? 72}px`,
       height: `${allowBottom ? Math.max(layout?.height ?? 0, bottomHeight + 50) : layout?.height ?? 760}px`,
-    } : {}),
+    } : bottom
+      ? { height: collapsed ? "5px" : "var(--horizontal-dock-height, 144px)" }
+      : { width: `var(${dockWidthVariable}, 380px)` }),
     ...(minimized ? { width: "42px", height: "42px" } : {}),
   };
 
@@ -158,7 +163,6 @@ export default function DraweratorPanel({
                 allowedPlacements={panel.placements}
                 dragIcon={<PanelIcon id={panel.id} />}
               />
-              {active && !bottom && <span>{panel.label}</span>}
             </div>
             );
           })}
@@ -179,7 +183,7 @@ export default function DraweratorPanel({
             allowedPlacements={allowedPlacements}
             dragIcon={<PanelIcon id={id} />}
           />
-          {!bottom && <span>{title}</span>}
+          {floating && <span>{title}</span>}
         </div>
       </header>}
       <div className="drawerator-panel-body">{children}</div>

@@ -22,7 +22,7 @@ test("panel lookup and slash matching share one registry", () => {
 
 test("natural panel placement sends horizontal panels bottom and vertical panels right", () => {
   assert.equal(getNaturalPanelPlacement(getDraweratorPanel("script")), "right");
-  assert.equal(getNaturalPanelPlacement(getDraweratorPanel("info")), "right");
+  assert.equal(getNaturalPanelPlacement(getDraweratorPanel("info")), "bottom");
   assert.equal(getNaturalPanelPlacement(getDraweratorPanel("mixer")), "bottom");
   assert.equal(getNaturalPanelPlacement(getDraweratorPanel("transport")), "bottom");
 });

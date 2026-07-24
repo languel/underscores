@@ -4,6 +4,7 @@ import {
   advanceMidiClockReceiver,
   createMidiClockReceiverState,
   createTimelineTicks,
+  getTimelineSubdivision,
   estimateMidiClockTempo,
   formatMusicalPosition,
   formatTimelinePosition,
@@ -15,6 +16,7 @@ import {
   secondsToFrame,
   secondsToMusicalPosition,
   songPositionToSeconds,
+  snapTimelineTime,
 } from "./transport.js";
 
 test("formats non-drop timecode at common frame rates", () => {
@@ -84,4 +86,56 @@ test("timeline ticks cover the complete visible range", () => {
   assert.equal(ticks.length, 7);
   assert.deepEqual(ticks[0], { time: 0, percent: 0 });
   assert.deepEqual(ticks.at(-1), { time: 12, percent: 100 });
+});
+
+test("beat timeline uses bars as major ticks and meter beats as subdivisions", () => {
+  const options = { mode: "beats", tempo: 120, signature: { numerator: 4, denominator: 4 } };
+  const ticks = createTimelineTicks(4, 12, options);
+  assert.deepEqual(ticks.map(tick => [tick.time, tick.major]), [
+    [0, true], [0.5, false], [1, false], [1.5, false], [2, true],
+    [2.5, false], [3, false], [3.5, false], [4, true],
+  ]);
+  assert.deepEqual(getTimelineSubdivision(4, "beats", options), { minor: 0.5, major: 2 });
+});
+
+test("timeline modifier snapping follows the active display subdivision", () => {
+  const beatOptions = { tempo: 120, signature: { numerator: 4, denominator: 4 } };
+  assert.equal(snapTimelineTime(1.26, 8, "beats", beatOptions, "major"), 2);
+  assert.equal(snapTimelineTime(1.26, 8, "beats", beatOptions, "minor"), 1.5);
+  assert.ok(Math.abs(snapTimelineTime(1.26, 8, "frame", { fps: 30 }, "minor") - 38 / 30) < 1e-8);
+  assert.equal(snapTimelineTime(1.26, 8, "timecode", { fps: 30 }, "minor"), 1);
+});
+
+test("frame timeline uses FPS multiples as majors and individual frames as minors", () => {
+  const options = { mode: "frame", fps: 30 };
+  const divisions = getTimelineSubdivision(10, "frame", options);
+  assert.deepEqual(divisions, { minor: 1 / 30, major: 1 });
+  const ticks = createTimelineTicks(2, 12, options);
+  assert.equal(ticks.length, 61);
+  assert.deepEqual(ticks.filter(tick => tick.major).map(tick => tick.time), [0, 1, 2]);
+  assert.deepEqual(ticks.filter(tick => tick.showLabel).map(tick => secondsToFrame(tick.time, 30)), [0, 30, 60]);
+});
+
+test("timeline ticks use the visible window and adapt detail to its pixel width", () => {
+  const options = { mode: "frame", fps: 30, rangeStart: 10, rangeEnd: 12, pixelWidth: 600 };
+  const zoomed = createTimelineTicks(60, 12, options);
+  assert.equal(zoomed[0].time, 10);
+  assert.equal(zoomed.at(-1).time, 12);
+  assert.equal(zoomed.length, 61, "two visible seconds retain individual frame lines");
+  assert.deepEqual(zoomed.filter(tick => tick.major).map(tick => tick.time), [10, 11, 12]);
+
+  const fitted = createTimelineTicks(60, 12, { ...options, rangeStart: 0, rangeEnd: 60 });
+  assert.ok(fitted.length < 200, `expected adaptive detail, received ${fitted.length} ticks`);
+  assert.ok(fitted.every(tick => tick.time >= 0 && tick.time <= 60));
+});
+
+test("beat timeline labels bars when beats are too dense and beats when zoomed in", () => {
+  const base = { mode: "beats", tempo: 120, signature: { numerator: 4, denominator: 4 }, pixelWidth: 400 };
+  const fitted = createTimelineTicks(20, 12, { ...base, rangeStart: 0, rangeEnd: 20 });
+  assert.ok(fitted.filter(tick => tick.showLabel).every(tick => tick.major));
+
+  const zoomed = createTimelineTicks(20, 12, { ...base, rangeStart: 4, rangeEnd: 6 });
+  assert.ok(zoomed.some(tick => tick.showLabel && !tick.major));
+  assert.equal(zoomed[0].percent, 0);
+  assert.equal(zoomed.at(-1).percent, 100);
 });

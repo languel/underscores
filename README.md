@@ -18,7 +18,7 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 - **Mono & Transparent Themes:** Mono Dark is the fresh-session default, with matching Mono Light plus paired Transparent Dark/Light presets for overlay use. Appearance settings can save complete named local themes, including panel/input/canvas/grid surfaces and role colors; switching light/dark preserves a matching built-in theme family when available. Theme colors accept CSS values such as named colors, hex, `rgb()`, `rgba()`, and modern CSS color functions.
 - **Recordable Sessions & Automation:** `/history` records commands, world-coordinate strokes, coalesced scene edits, score/MIDI events, and optional presentation state. Sessions can be edited, sought, replayed from their captured baseline, exported, or saved as reusable relative/absolute sequences.
 - **Object Auto-keying:** The transport records position, rotation, scale, opacity, styles, modifier/IanniX properties, and geometry snapshots into editable object automation tracks.
-- **Independent Dockable Panels:** AI Assistant, Mods & FX, Script, IanniX, Mixer, Expressive Synth, Info, Settings, and Console each keep their own visibility and placement. Floating panels can coexist; panels docked to the same side become one compact tab group. Mixer, Timeline, and Info can share the bottom dock. Visibility, active tabs, collapsed docks, and layouts persist independently; toggle panels with `/chat`, `/mods`, `/script`, `/iannix`, `/mixer`, `/synth`, `/info`, `/settings`, `/console`, and `/transport`.
+- **Independent Dockable Panels:** AI Assistant, Mods & FX, Script, IanniX, Mixer, Expressive Synth, Info, Settings, and Console each keep their own placement. Floating panels can coexist; panels docked to the same side become one compact icon tab group. Timeline, Mixer, and Info naturally return to the bottom dock; every other panel returns to the right dock. Shared dock dimensions remain stable while switching tabs and change only through the dock resize edges. Closing a panel returns it to its natural dock rather than removing it from the workspace.
 - **Non-destructive Mods & FX:** Attach ordered geometric filters and multi-track brushes to freehand strokes or lines while retaining editable source points.
 - **Modifier Baking:** Bake a complete stack or one modifier at a time. Partial bakes become independently selectable artwork while the remaining stack stays live.
 - **Evolving Brushes:** Time-aware brushes can animate while the pointer is down, freeze per stroke on release, and optionally use a shared global clock.
@@ -52,12 +52,15 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 | `Cmd + Opt + B` | Collapse / reveal the right dock |
 | `Cmd + Shift + B` | Collapse / reveal the bottom dock |
 | `Ctrl + Shift + Backspace` | Clear the scene through the no-popup IanniX route |
+| `Ctrl + Opt + Shift + D` | Reset the complete workspace to its initial Mono Dark pen-mode state |
 | `Cmd + Opt + P` | Pin / unpin Modifiers sidebar |
 | `Opt + Shift + D` | Toggle Dark / Light Theme |
 | `[` | Decrease stroke width (for Pen and Line tools) |
 | `]` | Increase stroke width (for Pen and Line tools) |
 | `Shift` + `[` | Decrease stroke width by 0.1 |
 | `Shift` + `]` | Increase stroke width by 0.1 |
+
+The same complete reset is available from **Settings → Board → Reset to defaults** and `/reset defaults`. It restores every panel to its natural dock, collapses all docks and canvas chrome, selects the unlocked pen, restores sharp zero-sloppiness shapes, and disables the spatial grid and snapping.
 | `Cmd + Shift + 0` or `Ctrl + Shift + 0` | Toggle Canvas Background Transparency |
 | `Escape` | Dismiss Command Palette, Context overlays, and Autocomplete popups |
 

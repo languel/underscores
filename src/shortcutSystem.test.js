@@ -27,6 +27,12 @@ test("clear scene uses the explicit Ctrl+Shift+Backspace binding", () => {
   assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, event)?.id, "iannix.command.clear");
 });
 
+test("workspace reset uses Ctrl+Alt+Shift+D", () => {
+  const event = { code: "KeyD", ctrlKey: true, altKey: true, shiftKey: true };
+  assert.equal(shortcutFromEvent(event), "Ctrl+Alt+Shift+KeyD");
+  assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, event)?.id, "workspace.reset.defaults");
+});
+
 test("ignores bare modifier presses", () => {
   assert.equal(shortcutFromEvent({ code: "ShiftLeft", shiftKey: true }), null);
 });

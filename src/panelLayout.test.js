@@ -1,6 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getDockTarget, getOpenPanelsForPlacement, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
+import { getDockTarget, getOpenPanelsForPlacement, normalizeDockSizes, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
+
+test("normalizes persistent dock dimensions independently from panel layouts", () => {
+  assert.deepEqual(normalizeDockSizes(null), { left: 380, right: 380, bottom: 286 });
+  assert.deepEqual(
+    normalizeDockSizes({ left: 420, right: 610, bottom: 180 }),
+    { left: 420, right: 610, bottom: 180 },
+  );
+  assert.deepEqual(
+    normalizeDockSizes({ left: 20, right: 900, bottom: 40 }),
+    { left: 280, right: 800, bottom: 112 },
+  );
+});
 
 test("normalizes panel layout storage independently per panel", () => {
   const layouts = normalizePanelLayouts({
@@ -13,7 +25,7 @@ test("normalizes panel layout storage independently per panel", () => {
   assert.deepEqual(layouts.grid, { placement: PANEL_PLACEMENTS.LEFT, x: 8, y: 9, width: 360, height: 720 });
   assert.deepEqual(layouts.script, { placement: PANEL_PLACEMENTS.RIGHT, x: 84, y: 112, width: 440, height: 760 });
   assert.deepEqual(layouts.synth, { placement: PANEL_PLACEMENTS.RIGHT, x: 120, y: 136, width: 360, height: 720 });
-  assert.deepEqual(layouts.info, { placement: PANEL_PLACEMENTS.LEFT, x: 32, y: 520, width: 320, height: 240 });
+  assert.deepEqual(layouts.info, { placement: PANEL_PLACEMENTS.BOTTOM, x: 32, y: 520, width: 720, height: 240 });
   assert.equal(normalizePanelLayouts({ info: { placement: "bottom" } }).info.placement, PANEL_PLACEMENTS.BOTTOM);
   assert.equal(normalizePanelLayouts({ grid: { placement: "bottom" } }).grid.placement, PANEL_PLACEMENTS.RIGHT);
   assert.deepEqual(

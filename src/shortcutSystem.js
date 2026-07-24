@@ -9,6 +9,7 @@ export const SHORTCUT_ACTIONS = Object.freeze([
   { id: "transport.jump.start", commandId: "transport.jump.start", label: "Jump to timeline / loop start", defaultBinding: "Shift+ArrowLeft" },
   { id: "transport.jump.end", commandId: "transport.jump.end", label: "Jump to timeline / loop end", defaultBinding: "Shift+ArrowRight" },
   { id: "command.palette.toggle", label: "Command palette", defaultBinding: "Mod+Slash" },
+  { id: "workspace.reset.defaults", commandId: "workspace.reset.defaults", label: "Reset workspace to defaults", defaultBinding: "Ctrl+Alt+Shift+KeyD" },
   { id: "iannix.command.clear", commandId: "iannix.command.clear", label: "Clear scene", defaultBinding: "Ctrl+Shift+Backspace" },
   { id: "grid.visible.toggle", commandId: "grid.visible.toggle", label: "Grid visibility", defaultBinding: "Mod+Shift+Quote" },
   { id: "grid.snap.toggle", label: "Grid snapping", defaultBinding: "Mod+Alt+Quote" },
