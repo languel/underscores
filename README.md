@@ -113,6 +113,16 @@ Mods & FX remains the rendering layer: changing or baking a brush does not redef
 
 The same registry powers menu, shortcut, slash, API, and AI execution. Any stable command ID can be invoked with `/command <id> <json>`. External tools can subscribe to events or register normalized input adapters through `window.drawerator`. See `notes/history-automation.md` for the session format, API, interpolation rules, and adapter contract.
 
+### AI automation
+
+The AI Assistant receives a curated, execution-enforced subset of Drawerator's stable command registry. It emits ordered actions as command tags, for example:
+
+```xml
+<drawerator-command id="scene.create.objects">{"objects":[{"type":"rectangle","x":120,"y":160,"width":200,"height":100}]}</drawerator-command>
+```
+
+This surface supports creating, patching, and deleting scene objects; assigning score roles; updating timing, transport, grid, and safe board appearance settings; and creating, updating, applying, or running Brush and IanniX scripts. Commands share the same application routes as the UI, API, history, and slash-command paths. Credentials, provider endpoints, browser permissions, and all commands not explicitly marked for AI remain unavailable to models.
+
 ## Development
 
 ```bash

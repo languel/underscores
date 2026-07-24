@@ -11,6 +11,8 @@ test("command registry validates, executes, and publishes metadata", async () =>
     id: "math.add",
     title: "Add",
     aliases: ["/add"],
+    description: "Add two values.",
+    ai: { expose: true, description: "Add a value." },
     validate: args => ({ amount: Number(args.amount) }),
     execute: (args, context) => args.amount + context.value,
   });
@@ -19,6 +21,8 @@ test("command registry validates, executes, and publishes metadata", async () =>
   assert.equal(registry.find("/add")[0].id, "math.add");
   assert.equal(completed[0].metadata.source, "slash");
   assert.equal(completed[0].args.amount, 3);
+  assert.equal(registry.describe("math.add").description, "Add two values.");
+  assert.deepEqual(registry.describe("math.add").ai, { expose: true, description: "Add a value." });
   assert.deepEqual(bus.recent().map(event => event.name), ["command.before", "command.after"]);
 });
 

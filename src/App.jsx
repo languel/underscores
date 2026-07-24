@@ -21,6 +21,7 @@ import PropertiesPanel from "./PropertiesPanel.jsx";
 import OutlinerPanel from "./OutlinerPanel.jsx";
 import IannixDataPanel from "./IannixDataPanel.jsx";
 import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, parseGenericCommandSlash } from "./commandSystem.js";
+import { buildAIAutomationGuide, isAICommandAllowed, parseDraweratorCommandTags } from "./aiTooling.js";
 import { autoKeyElement, collectAutomationKeys, evaluateElementAutomation } from "./automation.js";
 import { createDraweratorMacro, DRAWERATOR_MACRO_TYPE, DraweratorLibraryStore, DraweratorSessionController, instantiateDraweratorMacro, mergeSceneMutation, parseDraweratorSession } from "./sessionHistory.js";
 import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCursorLoopMode, getIannixCurveStartAngle, serializeBezierElementToIannixCommands, tokenizeIannixCommand } from "./iannixScript.js";
@@ -143,11 +144,11 @@ function ModelCatalogFilter({ modelCount, resetKey, onFilterChange }) {
 
 // System Prompt guiding the local LLM on drawing tools
 const SYSTEM_PROMPT = `You are "Drawerator", an autonomous, high-performance drawing assistant.
-You drive a collaborative sketchboard (Excalidraw) programmatically by issuing precise XML tool tags inside your markdown responses.
+You drive a collaborative sketchboard (Excalidraw) programmatically through registered Drawerator commands. The current action catalog is appended to your context.
 
 CRITICAL: You MUST write your text explanation FIRST, then output any tool XML tags.
 
-Available Drawing XML tags:
+Use high-level <drawerator-command> tags for all new work. Legacy drawing XML tags remain available only for compatibility:
 1. Draw Rectangle:
    <rect x="[coord]" y="[coord]" w="[width]" h="[height]" color="[hex_color]" fill="[hex_color/transparent]"/>
 2. Draw Circle/Ellipse:
@@ -160,13 +161,14 @@ Available Drawing XML tags:
    <erase id="[element_id]"/>
 6. Clear Entire Canvas:
    <clear/>
-7. Execute any registered Drawerator command:
+7. Execute a registered Drawerator command:
    <drawerator-command id="[stable_command_id]">{"argument":"value"}</drawerator-command>
 
 Guidelines:
 - All shapes should be sized logically (typical screen coords range from 0 to 1000).
 - If the user selected a shape or path, you will receive its coordinates in the context. Use this context to duplicate, resize, move, or offset the shape.
-- To move a shape, you can erase the old id using <erase id="[id]"/> and redraw it at the new coordinates!
+- Create objects with scene.create.objects and modify them with scene.patch.objects; use score.roles.assign for score roles.
+- Create and edit scripts through script.brush.* and script.iannix.* commands. Change application settings only through the exposed settings/grid/transport commands.
 - Keep your conversational text responses extremely concise and to the point.
 `;
 
@@ -1968,6 +1970,11 @@ function App() {
   const editingLinearGridRef = useRef(null);
   const multiElementGridRef = useRef(null);
   const activeGridToolRef = useRef(null);
+  // React state updates do not synchronously refresh the closures used by an
+  // ordered AI command response. Keep only newly-created scripts here so a
+  // response can safely create then apply/run its own script in one turn.
+  const aiCreatedBrushesRef = useRef(new Map());
+  const aiCreatedIannixScriptsRef = useRef(new Map());
   const midiOutputIdRef = useRef(midiOutputId);
   const internalGmProgramsRef = useRef(internalGmPrograms);
   const mixerRef = useRef(mixer);
@@ -5662,8 +5669,10 @@ function App() {
     setToolLogs(prev => [...prev, { msg, status, id: Date.now() + Math.random() }]);
   };
 
-  // XML Parser that executes AI Tool tags in Excalidraw
-  const executeAIToolCalls = (text, api) => {
+  // XML Parser that executes AI Tool tags in Excalidraw. Stable Drawerator
+  // commands are awaited in order so a model can create a script/object and
+  // act on it later in the same response.
+  const executeAIToolCalls = async (text, api) => {
     if (!api) return;
     
     if (/<clear\s*\/>/i.test(text)) {
@@ -5684,19 +5693,23 @@ function App() {
       return attrs;
     };
 
-    const draweratorCommandRegex = /<drawerator-command\s+id="([^"]+)"\s*>([\s\S]*?)<\/drawerator-command>/gi;
-    let commandMatch;
-    while ((commandMatch = draweratorCommandRegex.exec(text)) !== null) {
+    for (const call of parseDraweratorCommandTags(text)) {
+      if (call.error) {
+        logToolAction(`command(${call.id}): ${call.error}`, "error");
+        continue;
+      }
+      if (!isAICommandAllowed(call.id, commandRegistry.list())) {
+        logToolAction(`command(${call.id}): not available to AI`, "error");
+        continue;
+      }
       try {
-        const commandId = commandMatch[1];
-        const args = commandMatch[2].trim() ? JSON.parse(commandMatch[2]) : {};
-        commandRegistry.execute(commandId, args, {
+        await commandRegistry.execute(call.id, call.args, {
           source: "ai",
           transportTime: scoreTimeRef.current,
-        }).then(() => logToolAction(`command(${commandId})`, "ok"))
-          .catch(error => logToolAction(`command(${commandId}): ${error.message}`, "error"));
+        });
+        logToolAction(`command(${call.id})`, "ok");
       } catch (error) {
-        logToolAction(`command(${commandMatch[1]}): ${error.message}`, "error");
+        logToolAction(`command(${call.id}): ${error.message}`, "error");
       }
     }
 
@@ -5927,16 +5940,12 @@ function App() {
 
     const provider = aiSettings.provider;
 
-    const aiCommandCatalog = commandRegistry.list().map(command => ({
-      id: command.id,
-      name: command.name,
-      args: command.args,
-    }));
+    const aiAutomationGuide = buildAIAutomationGuide(commandRegistry.list());
     const messagesPayload = newHistory.map(h => {
       if (h.role === "system") {
         return {
           role: "system",
-          content: `${h.content}\n\nRegistered Drawerator commands (generated from the live registry):\n${JSON.stringify(aiCommandCatalog)}`,
+          content: `${h.content}\n\n${aiAutomationGuide}`,
         };
       }
       if (h.role === "user") {
@@ -5994,7 +6003,7 @@ function App() {
       });
       if (!fullResponse) throw new Error("The provider returned an empty response.");
 
-      executeAIToolCalls(fullResponse, excalidrawAPI);
+      await executeAIToolCalls(fullResponse, excalidrawAPI);
 
     } catch (e) {
       console.error(e);
@@ -6260,19 +6269,22 @@ function App() {
     { id: "iannix.export.bezier", name: "Export Selected Bézier Curves as IanniX /iannix export", aliases: ["/iannix export"], category: "IanniX", action: () => exportSelectedBezierIannix() },
     { id: "scene.create", name: "Create Scene Objects", category: "Scene", args: { elements: "element[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.create", args) },
     { id: "scene.update", name: "Update Scene Objects", category: "Scene", args: { elements: "element[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.update", args) },
-    { id: "scene.delete", name: "Delete Scene Objects", category: "Scene", args: { elementIds: "string[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.delete", args) },
-    { id: "transport.update", name: "Update Transport State", category: "Transport", args: { state: "transportState" }, action: (_api, args) => runtimeCallbacksRef.current.transportUpdate(args?.state || args) },
+    { id: "scene.create.objects", name: "AI: Create Scene Objects", category: "AI Actions", args: { objects: "{id?,type,x,y,width?,height?,x2?,y2?,points?,strokeColor?,backgroundColor?,role?,label?}[]", select: "boolean?" }, ai: { expose: true, description: "Create rectangles, ellipses, diamonds, lines, or freedraw paths. Freedraw points are absolute [x,y] pairs. Give objects explicit ids when later commands need them.", example: { objects: [{ id: "curve-a", type: "line", x: 100, y: 120, x2: 420, y2: 220, strokeColor: "#00b8e8", role: "curve", label: "AI curve" }] } }, action: (_api, args) => createAIObjects(args) },
+    { id: "scene.patch.objects", name: "AI: Patch Scene Objects", category: "AI Actions", args: { patches: "{id,patch:{x?,y?,width?,height?,angle?,strokeColor?,backgroundColor?,fillStyle?,strokeWidth?,strokeStyle?,roughness?,opacity?,locked?}}[]" }, ai: { expose: true, description: "Move or restyle existing objects using only the supplied shallow patch fields. Use ids from scene context or objects created earlier in this response.", example: { patches: [{ id: "curve-a", patch: { strokeColor: "#ff8a3d", strokeWidth: 4 } }] } }, action: (_api, args) => patchAIObjects(args) },
+    { id: "scene.delete", name: "Delete Scene Objects", category: "Scene", args: { elementIds: "string[]" }, ai: { expose: true, description: "Delete objects by id.", example: { elementIds: ["curve-a"] } }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.delete", args) },
+    { id: "score.roles.assign", name: "AI: Assign Score Roles", category: "AI Actions", args: { elementIds: "string[]?", role: "none|curve|cursor|trigger", label: "string?", active: "boolean?" }, ai: { expose: true, description: "Assign or clear IanniX score roles. Without elementIds, applies to the current selection.", example: { elementIds: ["curve-a"], role: "curve", label: "Main curve" } }, action: (_api, args) => assignAIObjectRoles(args) },
+    { id: "transport.update", name: "Update Transport State", category: "Transport", args: { state: "transportState" }, ai: { expose: true, description: "Update transport tempo, meter, play state, display mode, fps, or loop range. Do not change MIDI credentials or providers.", example: { state: { tempo: 96, timeSignature: "4/4", displayMode: "beats" } } }, action: (_api, args) => runtimeCallbacksRef.current.transportUpdate(args?.state || args) },
     { id: "transport.seek", name: "Seek Global Transport", category: "Transport", args: { seconds: "number|timeValue" }, action: (_api, args) => runtimeCallbacksRef.current.transportSeek(resolveTimeValue(args?.value ?? args?.seconds ?? 0, timeContext)) },
     { id: "transport.jump.start", name: "Jump to Timeline or Loop Start", category: "Transport", action: () => runtimeCallbacksRef.current.transportJump("start") },
     { id: "transport.jump.end", name: "Jump to Timeline or Loop End", category: "Transport", action: () => runtimeCallbacksRef.current.transportJump("end") },
     { id: "presentation.panels", name: "Update Panel Presentation", category: "Panels", record: "presentation", args: { state: "panelState" }, action: (_api, args) => runtimeCallbacksRef.current.panelStateUpdate(args?.state || args) },
-    { id: "settings.board.update", name: "Update Board Settings", category: "Settings", record: "presentation", args: { state: "boardSettings" }, sensitiveArgs: ["state.credentials", "state.apiKey", "state.token"], action: (_api, args) => runtimeCallbacksRef.current.boardSettingsUpdate(args?.state || args) },
-    { id: "grid.global.update", name: "Update Global Grid /grid update", aliases: ["/grid update"], category: "Grid", args: { patch: "gridPatch" }, action: (_api, args) => runtimeCallbacksRef.current.globalGridUpdate(args?.patch || args) },
+    { id: "settings.board.update", name: "Update Board Settings", category: "Settings", record: "presentation", args: { state: "boardSettings" }, sensitiveArgs: ["state.credentials", "state.apiKey", "state.token"], ai: { expose: true, description: "Change visual board settings such as theme, toolbar hints, accent/highlight colors, or interface theme. Never set credentials, API keys, tokens, endpoints, or permissions.", example: { state: { theme: "dark", accentColor: "#7d8588", accentOpacity: 70 } } }, action: (_api, args) => runtimeCallbacksRef.current.boardSettingsUpdate(args?.state || args) },
+    { id: "grid.global.update", name: "Update Global Grid /grid update", aliases: ["/grid update"], category: "Grid", args: { patch: "gridPatch" }, ai: { expose: true, description: "Update the global grid, including appearance, spacing, subdivisions, snapping, time mapping, or value mapping.", example: { patch: { appearance: { visible: true }, snap: { mode: "hard" }, spacing: { x: 100, y: 100 } } } }, action: (_api, args) => runtimeCallbacksRef.current.globalGridUpdate(args?.patch || args) },
     { id: "grid.global.reset", name: "Reset Global Grid /grid reset", aliases: ["/grid reset"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridReset() },
     { id: "grid.visible.toggle", name: "Toggle Global Grid Visibility /grid visible", aliases: ["/grid visible"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridUpdate({ appearance: { visible: !globalGridRef.current.appearance.visible } }) },
     { id: "grid.snap.toggle", name: "Toggle Global Grid Snapping /grid snap", aliases: ["/grid snap"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridUpdate({ snap: { mode: globalGridRef.current.snap.mode === "off" ? "hard" : "off" } }) },
     { id: "grid.quantize.selection", name: "Quantize Selection to Global Grid /grid quantize", aliases: ["/grid quantize"], category: "Grid", args: { elementIds: "string[]?", resolution: "minor|major?", axes: "x|y|both?" }, action: (_api, args) => runtimeCallbacksRef.current.gridQuantizeSelection(args) },
-    { id: "score.time.update", name: "Update Score Object Time /score time", aliases: ["/score time"], category: "IanniX", args: { elementIds: "string[]?", start: "number|timeValue?", duration: "number|timeValue?", rate: "number?", loopMode: "once|loop|pingPong?" }, action: (_api, args) => updateScoreObjectTiming(args) },
+    { id: "score.time.update", name: "Update Score Object Time /score time", aliases: ["/score time"], category: "IanniX", args: { elementIds: "string[]?", start: "number|timeValue?", duration: "number|timeValue?", rate: "number?", loopMode: "once|loop|pingPong?" }, ai: { expose: true, description: "Set score object start, duration, rate, or loop mode. Time values accept Drawerator expressions such as 4n, 2 bars, 500 ms, or 30 f.", example: { elementIds: ["curve-a"], duration: "2 bars", loopMode: "loop" } }, action: (_api, args) => updateScoreObjectTiming(args) },
     { id: "score.time.restoreAuto", name: "Restore Geometry-derived Duration /score duration auto", aliases: ["/score duration auto"], category: "IanniX", args: { elementIds: "string[]?" }, action: (_api, args) => restoreScoreAutoDuration(args) },
     { id: "score.grid.assign", name: "Assign Score Object Grid /score grid", aliases: ["/score grid"], category: "Grid", args: { elementIds: "string[]?", gridId: "string", metric: "string?" }, action: (_api, args) => updateScoreGridBinding(args) },
     { id: "score.grid.metric", name: "Change Score Timing Metric /score metric", aliases: ["/score metric"], category: "Grid", args: { elementIds: "string[]?", metric: "auto|xSpan|ySpan|arcLength|manhattan" }, action: (_api, args) => updateScoreGridBinding(args) },
@@ -6286,6 +6298,12 @@ function App() {
     { id: "automation.autokey.toggle", name: "Toggle Auto-key /autokey", aliases: ["/autokey"], category: "History", record: "presentation", action: () => setAutoKeyEnabled(enabled => !enabled) },
     { id: "macro.save", name: "Save Session as Sequence /macro save", aliases: ["/macro save"], category: "History", record: "never", args: { name: "string?" }, action: (_api, args) => runtimeCallbacksRef.current.macroSave(null, args?.name) },
     { id: "macro.insert", name: "Insert Sequence /macro insert", aliases: ["/macro insert"], category: "History", args: { id: "string", mode: "relative|absolute" }, action: (_api, args) => runtimeCallbacksRef.current.macroInsert(args) },
+    { id: "script.brush.create", name: "AI: Create Brush Script", category: "AI Actions", args: { name: "string", code: "JavaScript source", type: "brush|filter?", activate: "boolean?" }, ai: { expose: true, description: "Create an editable Brush / modifier JavaScript script in the local script catalog.", example: { name: "Offset lines", code: "(points, globals) => [points]" } }, action: (_api, args) => createAIBrushScript(args) },
+    { id: "script.brush.update", name: "AI: Update Brush Script", category: "AI Actions", args: { id: "string?", name: "string?", code: "JavaScript source?" }, ai: { expose: true, description: "Rename or replace an editable brush script. Built-in presets are read-only.", example: { id: "user-example", name: "Soft offset", code: "(points, globals) => [points]" } }, action: (_api, args) => updateAIBrushScript(args) },
+    { id: "script.brush.apply", name: "AI: Apply Brush Script", category: "AI Actions", args: { id: "string?", elementIds: "string[]?", params: "object?" }, ai: { expose: true, description: "Apply a brush script as a modifier to selected or listed line/freedraw paths.", example: { id: "user-example", elementIds: ["curve-a"] } }, action: (_api, args) => applyAIBrushScript(args) },
+    { id: "script.iannix.create", name: "AI: Create IanniX Script", category: "AI Actions", args: { name: "string", source: "IanniX source", parameters: "object?", activate: "boolean?" }, ai: { expose: true, description: "Create an editable trusted IanniX source script in the local script catalog. Creation does not run it.", example: { name: "AI score", source: "// IanniX commands\\n" } }, action: (_api, args) => createAIIannixScript(args) },
+    { id: "script.iannix.update", name: "AI: Update IanniX Script", category: "AI Actions", args: { id: "string?", name: "string?", source: "IanniX source?", parameters: "object?" }, ai: { expose: true, description: "Rename or replace a local IanniX script without running it.", example: { id: "iannix-script-example", source: "// updated IanniX commands\\n" } }, action: (_api, args) => updateAIIannixScript(args) },
+    { id: "script.iannix.run", name: "AI: Run IanniX Script", category: "AI Actions", args: { id: "string?", source: "IanniX source?", filename: "string?", parameters: "object?" }, ai: { expose: true, description: "Run a trusted IanniX script. Only use when the user explicitly asks to execute the generated script.", example: { id: "iannix-script-example" } }, action: (_api, args) => runAIIannixScript(args) },
     { id: "iannix.import.trusted", name: "Import Trusted IanniX Script /iannix import", aliases: ["/iannix import"], category: "IanniX", args: { source: "string", filename: "string?", seed: "number?", anchor: "point?", scale: "number?", importId: "string?", parameters: "object?" }, validate: args => ({ ...args, importId: args?.importId || crypto.randomUUID() }), action: (_api, args) => runtimeCallbacksRef.current.iannixImport(args) },
     { id: "iannix.command.clear", name: "IanniX: Clear Scene /ix clear", aliases: ["/ix clear", "/iannix clear", "IanniX clear"], category: "IanniX", action: () => runtimeCallbacksRef.current.iannixCommand("clear") },
     { id: "iannix.command.execute", name: "Execute IanniX Command", category: "IanniX", args: { command: "string" }, action: (_api, args) => runtimeCallbacksRef.current.iannixCommand(args?.command) },
@@ -6988,6 +7006,240 @@ function App() {
     if (!ids.length) throw new Error("Select one or more score objects first.");
     updateIannixElements(ids, current => ({ ...current, time: { ...current.time, durationMode: current.role === "cursor" ? "curve" : "geometry" } }));
     return ids;
+  };
+
+  const normalizeAIObjectId = value => String(value || "").trim().replace(/[^a-zA-Z0-9_.-]/g, "-").slice(0, 96);
+  const aiObjectTypes = new Set(["rectangle", "ellipse", "diamond", "line", "freedraw"]);
+  const aiPatchKeys = new Set([
+    "x", "y", "width", "height", "angle", "strokeColor", "backgroundColor",
+    "fillStyle", "strokeWidth", "strokeStyle", "roughness", "opacity", "locked",
+  ]);
+
+  const createAIObjectElement = (spec, existingIds) => {
+    const type = spec?.type === "circle" ? "ellipse" : spec?.type;
+    if (!aiObjectTypes.has(type)) throw new Error(`Unsupported object type: ${spec?.type || "(missing)"}.`);
+    const x = Number(spec.x);
+    const y = Number(spec.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("Every object needs finite x and y coordinates.");
+    const width = Number.isFinite(Number(spec.width)) ? Number(spec.width) : 100;
+    const height = Number.isFinite(Number(spec.height)) ? Number(spec.height) : 100;
+    const strokeColor = typeof spec.strokeColor === "string"
+      ? spec.strokeColor
+      : (theme === "light" ? "#1e1e1e" : "#f8fafc");
+    const requestedId = normalizeAIObjectId(spec.id);
+    const id = requestedId && !existingIds.has(requestedId)
+      ? requestedId
+      : `ai-${type}-${crypto.randomUUID()}`;
+    existingIds.add(id);
+    const base = {
+      ...createBaseElement(type, x, y, Math.max(1, width), Math.max(1, height), strokeColor),
+      id,
+      ...(typeof spec.backgroundColor === "string" ? { backgroundColor: spec.backgroundColor } : {}),
+      ...(typeof spec.fillStyle === "string" ? { fillStyle: spec.fillStyle } : {}),
+      ...(Number.isFinite(Number(spec.strokeWidth)) ? { strokeWidth: Math.max(1, Number(spec.strokeWidth)) } : {}),
+      ...(typeof spec.strokeStyle === "string" ? { strokeStyle: spec.strokeStyle } : {}),
+      ...(Number.isFinite(Number(spec.roughness)) ? { roughness: Math.max(0, Number(spec.roughness)) } : {}),
+      ...(Number.isFinite(Number(spec.opacity)) ? { opacity: Math.max(0, Math.min(100, Number(spec.opacity))) } : {}),
+    };
+    if (type === "line") {
+      const x2 = Number.isFinite(Number(spec.x2)) ? Number(spec.x2) : x + width;
+      const y2 = Number.isFinite(Number(spec.y2)) ? Number(spec.y2) : y + height;
+      base.width = Math.max(1, Math.abs(x2 - x));
+      base.height = Math.max(1, Math.abs(y2 - y));
+      base.points = [[0, 0], [x2 - x, y2 - y]];
+    }
+    if (type === "freedraw") {
+      const points = Array.isArray(spec.points) ? spec.points
+        .map(point => Array.isArray(point) ? [Number(point[0]), Number(point[1])] : null)
+        .filter(point => point && Number.isFinite(point[0]) && Number.isFinite(point[1]))
+        : [];
+      if (points.length < 2) throw new Error("Freedraw objects require at least two [x, y] points.");
+      const minX = Math.min(...points.map(point => point[0]));
+      const minY = Math.min(...points.map(point => point[1]));
+      const maxX = Math.max(...points.map(point => point[0]));
+      const maxY = Math.max(...points.map(point => point[1]));
+      base.x = minX;
+      base.y = minY;
+      base.width = Math.max(1, maxX - minX);
+      base.height = Math.max(1, maxY - minY);
+      base.points = points.map(point => [point[0] - minX, point[1] - minY]);
+      base.pressures = new Array(points.length).fill(0.5);
+      base.simulatePressure = true;
+    }
+    return base;
+  };
+
+  const createAIObjects = (args = {}) => {
+    if (!excalidrawAPI) throw new Error("The canvas is not ready.");
+    const specs = Array.isArray(args.objects) ? args.objects.slice(0, 50) : [];
+    if (!specs.length) throw new Error("Provide one or more objects.");
+    const scene = excalidrawAPI.getSceneElements();
+    const existingIds = new Set(scene.map(element => element.id));
+    const created = specs.map(spec => ({ spec, element: createAIObjectElement(spec, existingIds) }));
+    excalidrawAPI.updateScene({
+      elements: [...scene, ...created.map(item => item.element)],
+      appState: args.select === false ? undefined : {
+        selectedElementIds: Object.fromEntries(created.map(item => [item.element.id, true])),
+      },
+      commitToHistory: true,
+    });
+    for (const role of ["curve", "cursor", "trigger"]) {
+      const group = created.filter(item => item.spec.role === role);
+      if (!group.length) continue;
+      assignIannixRole(group.map(item => item.element), role);
+      group.forEach(item => {
+        if (typeof item.spec.label === "string" && item.spec.label.trim()) {
+          updateIannixDataPath([item.element.id], ["label"], item.spec.label.trim());
+        }
+      });
+    }
+    return { elementIds: created.map(item => item.element.id) };
+  };
+
+  const patchAIObjects = (args = {}) => {
+    if (!excalidrawAPI) throw new Error("The canvas is not ready.");
+    const patches = Array.isArray(args.patches) ? args.patches.slice(0, 100) : [];
+    if (!patches.length) throw new Error("Provide one or more object patches.");
+    const patchById = new Map(patches
+      .filter(item => typeof item?.id === "string" && item.patch && typeof item.patch === "object")
+      .map(item => [item.id, item.patch]));
+    if (!patchById.size) throw new Error("Every patch needs an id and a patch object.");
+    const updatedIds = [];
+    const next = excalidrawAPI.getSceneElements().map(element => {
+      const patch = patchById.get(element.id);
+      if (!patch || element.isDeleted) return element;
+      const nextPatch = {};
+      for (const [key, value] of Object.entries(patch)) {
+        if (!aiPatchKeys.has(key)) continue;
+        if (["x", "y", "width", "height", "angle", "strokeWidth", "roughness", "opacity"].includes(key)) {
+          if (!Number.isFinite(Number(value))) continue;
+          nextPatch[key] = key === "opacity" ? Math.max(0, Math.min(100, Number(value))) : Number(value);
+        } else if (["strokeColor", "backgroundColor", "fillStyle", "strokeStyle"].includes(key)) {
+          if (typeof value === "string") nextPatch[key] = value;
+        } else if (key === "locked" && typeof value === "boolean") nextPatch[key] = value;
+      }
+      if (!Object.keys(nextPatch).length) return element;
+      updatedIds.push(element.id);
+      return {
+        ...element,
+        ...nextPatch,
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 1000000),
+        updated: Date.now(),
+      };
+    });
+    if (!updatedIds.length) throw new Error("No editable objects matched the provided patch ids.");
+    excalidrawAPI.updateScene({ elements: next, commitToHistory: true });
+    return { elementIds: updatedIds };
+  };
+
+  const assignAIObjectRoles = (args = {}) => {
+    const role = args.role === "none" ? null : args.role;
+    if (![null, "curve", "cursor", "trigger"].includes(role)) throw new Error("Role must be none, curve, cursor, or trigger.");
+    const ids = Array.isArray(args.elementIds) && args.elementIds.length
+      ? args.elementIds
+      : getSelectedElements().map(element => element.id);
+    if (!ids.length) throw new Error("Provide elementIds or select an object first.");
+    const targets = (excalidrawAPI?.getSceneElements() || []).filter(element => ids.includes(element.id) && !element.isDeleted);
+    if (!targets.length) throw new Error("No matching objects were found.");
+    if (role) assignIannixRole(targets, role);
+    else updateIannixElements(targets.map(element => element.id), current => ({ ...current, role: null, label: "" }));
+    if (typeof args.label === "string" && args.label.trim()) updateIannixDataPath(targets.map(element => element.id), ["label"], args.label.trim());
+    if (typeof args.active === "boolean") updateIannixDataPath(targets.map(element => element.id), ["active"], args.active);
+    return { elementIds: targets.map(element => element.id) };
+  };
+
+  const createAIBrushScript = (args = {}) => {
+    const name = String(args.name || "Untitled Script").trim().slice(0, 120) || "Untitled Script";
+    const code = String(args.code || "(points, globals) => [points]").trim();
+    if (!code) throw new Error("Brush script code is required.");
+    const id = `user-${crypto.randomUUID()}`;
+    const brush = { id, name, code, isPreset: false, type: args.type === "filter" ? "filter" : "brush" };
+    aiCreatedBrushesRef.current.set(id, brush);
+    setBrushPalette(previous => [...previous, brush]);
+    if (args.activate !== false) {
+      setActiveBrushId(id);
+      setActiveBrushCode(code);
+    }
+    setBrushSaveMessage(`Created “${name}”.`);
+    return { id, name };
+  };
+
+  const updateAIBrushScript = (args = {}) => {
+    const requestedId = args.id || activeBrushId;
+    const brush = brushPalette.find(candidate => candidate.id === requestedId)
+      || aiCreatedBrushesRef.current.get(requestedId);
+    if (!brush) throw new Error("Brush script not found.");
+    if (brush.isPreset) throw new Error("Built-in brush scripts cannot be changed. Create a copy instead.");
+    const name = typeof args.name === "string" && args.name.trim() ? args.name.trim().slice(0, 120) : brush.name;
+    const code = typeof args.code === "string" && args.code.trim() ? args.code : brush.code;
+    const nextBrush = { ...brush, name, code };
+    aiCreatedBrushesRef.current.set(brush.id, nextBrush);
+    setBrushPalette(previous => previous.map(candidate => candidate.id === brush.id ? nextBrush : candidate));
+    if (activeBrushId === brush.id) setActiveBrushCode(code);
+    setBrushSaveMessage(`Updated “${name}”.`);
+    return { id: brush.id, name };
+  };
+
+  const applyAIBrushScript = (args = {}) => {
+    const requestedId = args.id || args.brushId || activeBrushId;
+    const brush = brushPalette.find(candidate => candidate.id === requestedId)
+      || aiCreatedBrushesRef.current.get(requestedId);
+    if (!brush) throw new Error("Brush script not found.");
+    const requestedIds = Array.isArray(args.elementIds) && args.elementIds.length ? args.elementIds : getSelectedElements().map(element => element.id);
+    const targets = (excalidrawAPI?.getSceneElements() || []).filter(element => requestedIds.includes(element.id) && !element.isDeleted && ["line", "freedraw"].includes(element.type));
+    if (!targets.length) throw new Error("Select or provide one or more line or freedraw element ids.");
+    const parsed = parseParameters(brush.code);
+    const supplied = args.params && typeof args.params === "object" ? args.params : {};
+    const params = Object.fromEntries(parsed.map(parameter => [parameter.name, supplied[parameter.name] ?? parameter.value]));
+    const modifier = { id: `custom-${brush.id}`, name: brush.name, type: brush.type || "brush", enabled: true, params, codeOverride: brush.code };
+    targets.forEach(element => updateModifiedElementInScene(element.id, [...(element.customData?.modifiers || []), modifier]));
+    setBrushSaveMessage(`Applied “${brush.name}” to ${targets.length} ${targets.length === 1 ? "path" : "paths"}.`);
+    return { elementIds: targets.map(element => element.id), brushId: brush.id };
+  };
+
+  const createAIIannixScript = (args = {}) => {
+    const name = String(args.name || "Untitled Script").trim().slice(0, 120) || "Untitled Script";
+    const source = String(args.source || "// IanniX commands\n");
+    const id = `iannix-script-${crypto.randomUUID()}`;
+    const script = { id, name, source, parameters: args.parameters && typeof args.parameters === "object" ? args.parameters : {}, createdAt: Date.now(), updatedAt: Date.now() };
+    aiCreatedIannixScriptsRef.current.set(id, script);
+    setIannixScripts(previous => [...previous, script]);
+    if (args.activate !== false) {
+      setActiveIannixScriptId(id);
+      setIannixScriptSource(source);
+    }
+    setSceneExchangeStatus(`Created “${name}” in this browser.`);
+    return { id, name };
+  };
+
+  const updateAIIannixScript = (args = {}) => {
+    const requestedId = args.id || activeIannixScriptId;
+    const script = iannixScripts.find(candidate => candidate.id === requestedId)
+      || aiCreatedIannixScriptsRef.current.get(requestedId);
+    if (!script) throw new Error("IanniX script not found.");
+    const name = typeof args.name === "string" && args.name.trim() ? args.name.trim().slice(0, 120) : script.name;
+    const source = typeof args.source === "string" ? args.source : script.source;
+    const parameters = args.parameters && typeof args.parameters === "object" ? { ...script.parameters, ...args.parameters } : script.parameters;
+    const nextScript = { ...script, name, source, parameters, updatedAt: Date.now() };
+    aiCreatedIannixScriptsRef.current.set(script.id, nextScript);
+    setIannixScripts(previous => previous.map(candidate => candidate.id === script.id ? nextScript : candidate));
+    if (activeIannixScriptId === script.id) setIannixScriptSource(source);
+    setSceneExchangeStatus(`Updated “${name}” in this browser.`);
+    return { id: script.id, name };
+  };
+
+  const runAIIannixScript = (args = {}) => {
+    const requestedId = args.id || activeIannixScriptId;
+    const script = iannixScripts.find(candidate => candidate.id === requestedId)
+      || aiCreatedIannixScriptsRef.current.get(requestedId);
+    const source = typeof args.source === "string" ? args.source : script?.source;
+    if (!String(source || "").trim()) throw new Error("IanniX script source is required.");
+    return runtimeCallbacksRef.current.iannixImport({
+      source,
+      filename: args.filename || script?.name || "AI IanniX script",
+      parameters: args.parameters && typeof args.parameters === "object" ? args.parameters : (script?.parameters || {}),
+    });
   };
 
   const assignIannixRole = (elements, role) => {
