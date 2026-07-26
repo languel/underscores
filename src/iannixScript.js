@@ -420,13 +420,26 @@ export const buildIannixObjectModel = operations => {
   const objects = new Map();
   let clear = false;
   const presentation = [];
+  const colorOperations = [];
   const ensure = externalId => {
-    if (!objects.has(externalId)) objects.set(externalId, { externalId, role: null, position: [0, 0, 0], points: [], controls: [], size: 1, width: 1, active: true, equationParams: {} });
+    // IanniX's native default is effectively a hairline. That disappears too
+    // easily against Drawerator's dark canvas, especially for AI-authored
+    // scores that do not explicitly style every curve. Keep explicit
+    // `setWidth` values untouched, but give unstyled model objects a readable
+    // two-pixel default.
+    if (!objects.has(externalId)) objects.set(externalId, { externalId, role: null, position: [0, 0, 0], points: [], controls: [], size: 1, width: 2, active: true, equationParams: {} });
     return objects.get(externalId);
   };
   for (const operation of operations || []) {
-    if (operation.type === "clear") { clear = true; objects.clear(); continue; }
+    if (operation.type === "clear") { clear = true; objects.clear(); colorOperations.length = 0; continue; }
     if (operation.type === "presentation") { presentation.push(operation); continue; }
+    // IanniX accepts either an object ID or a group ID for setColor and
+    // setColorHue. Defer these operations until every object and its group
+    // membership are known; otherwise a group name becomes a phantom object.
+    if (operation.type === "color" || operation.type === "colorHue") {
+      colorOperations.push(operation);
+      continue;
+    }
     const object = ensure(operation.externalId);
     if (operation.type === "add") {
       object.role = operation.role;
@@ -457,9 +470,28 @@ export const buildIannixObjectModel = operations => {
     else if (operation.type === "group") object.group = operation.value;
     else if (operation.type === "label") object.label = operation.value;
     else if (operation.type === "active") object.active = operation.value;
-    else if (operation.type === "color" || operation.type === "colorHue") object[operation.type] = operation.value;
     else if (operation.type === "message" || operation.type === "pattern") object[operation.type] = operation.value;
     else if (operation.type === "offset" || operation.type === "triggerOff") object[operation.type] = operation.value;
+  }
+  // Group colours establish a default for every member. Explicit object
+  // colours always win, irrespective of command order, matching IanniX's
+  // useful "group style, then local override" authoring pattern.
+  const objectIds = new Set(objects.keys());
+  const groupColorOperations = colorOperations.filter(operation => !objectIds.has(operation.externalId));
+  const objectColorOperations = colorOperations.filter(operation => objectIds.has(operation.externalId));
+  const applyColor = (object, operation) => {
+    object[operation.type] = operation.value;
+    if (operation.type === "color") delete object.colorHue;
+    else delete object.color;
+  };
+  for (const operation of groupColorOperations) {
+    for (const object of objects.values()) {
+      if (object.group === operation.externalId) applyColor(object, operation);
+    }
+  }
+  for (const operation of objectColorOperations) {
+    const object = objects.get(operation.externalId);
+    if (object) applyColor(object, operation);
   }
   for (const object of objects.values()) {
     if (object.role !== "curve" || !object.equationExpressions) continue;

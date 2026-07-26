@@ -10,6 +10,7 @@ import NumberInputController from "./NumberInputController.jsx";
 import TimeValueInput from "./TimeValueInput.jsx";
 import InspectorSection from "./InspectorSection.jsx";
 import { attachDraweratorExchangeMetadata, getSelectionExchangeElements, parseDraweratorExchange, remapSelectionForImport } from "./sceneExchange.js";
+import { attachDraweratorSvgMetadata, cleanSvgMarkup, extractDraweratorSvgMetadata, extractSvgMarkup, getSvgDrawableBounds, offsetSvgDrawableSpecs, parseSvgToDrawableSpecs } from "./svgImport.js";
 import { DRAWERATOR_PANELS, getDraweratorPanel, getNaturalPanelPlacement } from "./panelRegistry.js";
 import { getDockTarget, getOpenPanelsForPlacement, normalizeDockSizes, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
 import { advanceMidiClockReceiver, createMidiClockReceiverState, formatTimelinePosition, MIDI_REALTIME, midiClockIntervalMs, normalizeTimeSignature, parseTimelinePosition, secondsToFrame, songPositionToSeconds } from "./transport.js";
@@ -22,7 +23,8 @@ import OutlinerPanel from "./OutlinerPanel.jsx";
 import IannixDataPanel from "./IannixDataPanel.jsx";
 import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, parseGenericCommandSlash } from "./commandSystem.js";
 import { buildAIAutomationGuide, isAICommandAllowed, parseDraweratorCommandTags } from "./aiTooling.js";
-import { autoKeyElement, collectAutomationKeys, evaluateElementAutomation } from "./automation.js";
+import { autoKeyElement, AUTO_KEY_PATHS, collectAutomationKeys, evaluateElementAutomation, interpolationForPath, upsertAutomationKey } from "./automation.js";
+import { formatAIScriptSource, validateAIBrushSource, validateAIIannixSource } from "./scriptAuthoring.js";
 import { createDraweratorMacro, DRAWERATOR_MACRO_TYPE, DraweratorLibraryStore, DraweratorSessionController, instantiateDraweratorMacro, mergeSceneMutation, parseDraweratorSession } from "./sessionHistory.js";
 import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCursorLoopMode, getIannixCurveStartAngle, serializeBezierElementToIannixCommands, tokenizeIannixCommand } from "./iannixScript.js";
 import { bezierWorldPointToLocal, createBezierGeometryFromElement, createBezierHostGeometry, findNearestBezierLocation, getBezierWorldAnchors, getBezierWorldPath, hasCubicBezierGeometry, normalizeBezierGeometry, normalizeBezierHostElement, reframeBezierElement, removeBezierAnchor, setBezierAnchorMode, setElementBezierGeometry, splitBezierSegment, updateBezierAnchor } from "./bezierGeometry.js";
@@ -340,8 +342,11 @@ const canvasColorForExcalidraw = (color, opacity, theme) => {
 };
 
 const DEFAULT_ROLE_THEME = {
+  // Authored colour is the normal score appearance. This palette is an
+  // explicit role override, useful for score visualisation but never a reason
+  // to discard a script's setColor/setColorHue decision.
   enabled: false,
-  curveActive: { color: "#333333", opacity: 100 },
+  curveActive: { color: "#c9cdd2", opacity: 100 },
   curveInactive: { color: "#888888", opacity: 35 },
   cursorActive: { color: "#ff3b0a", opacity: 100 },
   cursorInactive: { color: "#888888", opacity: 35 },
@@ -350,12 +355,36 @@ const DEFAULT_ROLE_THEME = {
   triggerPulse: { color: "#ff8a3d", opacity: 85 },
 };
 
+const normalizeThemeColorToken = (value, fallback) => {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    color: isCssColor(source.color) ? String(source.color).trim() : fallback.color,
+    opacity: Number.isFinite(Number(source.opacity))
+      ? Math.min(100, Math.max(0, Number(source.opacity)))
+      : fallback.opacity,
+  };
+};
+
+const normalizeRoleTheme = value => {
+  const saved = value && typeof value === "object" ? value : {};
+  const next = { ...DEFAULT_ROLE_THEME, ...saved };
+  // Migrate the old built-in dark curve swatch. Preserve any other custom
+  // role choices; this only repairs the exact legacy default that makes a
+  // score effectively disappear against Mono Dark.
+  if (saved.enabled === true && String(saved.curveActive?.color || "").toLowerCase() === "#333333" && Number(saved.curveActive?.opacity) === 100) {
+    next.curveActive = { ...DEFAULT_ROLE_THEME.curveActive };
+  }
+  return next;
+};
+
 const INTERFACE_THEME_PRESETS = {
   monoLight: {
     label: "Mono Light",
     theme: "light",
     accent: { color: "#353a3f", opacity: 100 },
     highlight: { color: "#353a3f", opacity: 10 },
+    foreground: { color: "#353a3f", opacity: 100 },
+    muted: { color: "#6e7479", opacity: 100 },
     surfaces: {
       panel: { color: "#f4f4f4", opacity: 100 },
       input: { color: "#f4f4f4", opacity: 100 },
@@ -363,12 +392,18 @@ const INTERFACE_THEME_PRESETS = {
       canvas: { color: "#f4f4f4", opacity: 100 },
       grid: { color: "#353a3f", opacity: 24 },
     },
+    roleTheme: {
+      ...DEFAULT_ROLE_THEME,
+      curveActive: { color: "#353a3f", opacity: 100 },
+    },
   },
   monoDark: {
     label: "Mono Dark",
     theme: "dark",
     accent: { color: "#c9cdd2", opacity: 100 },
     highlight: { color: "#c9cdd2", opacity: 10 },
+    foreground: { color: "#c9cdd2", opacity: 100 },
+    muted: { color: "#92989f", opacity: 100 },
     surfaces: {
       panel: { color: "#121212", opacity: 100 },
       input: { color: "#121212", opacity: 100 },
@@ -376,12 +411,15 @@ const INTERFACE_THEME_PRESETS = {
       canvas: { color: "#121212", opacity: 100 },
       grid: { color: "#c9cdd2", opacity: 24 },
     },
+    roleTheme: { ...DEFAULT_ROLE_THEME },
   },
   transparentLight: {
     label: "Transparent Light",
     theme: "light",
     accent: { color: "#353a3f", opacity: 50 },
     highlight: { color: "#353a3f", opacity: 10 },
+    foreground: { color: "#353a3f", opacity: 100 },
+    muted: { color: "#6e7479", opacity: 100 },
     surfaces: {
       panel: { color: "#f4f4f4", opacity: 0 },
       input: { color: "#f4f4f4", opacity: 0 },
@@ -395,6 +433,8 @@ const INTERFACE_THEME_PRESETS = {
     theme: "dark",
     accent: { color: "#c9cdd2", opacity: 50 },
     highlight: { color: "#c9cdd2", opacity: 10 },
+    foreground: { color: "#c9cdd2", opacity: 100 },
+    muted: { color: "#92989f", opacity: 100 },
     surfaces: {
       panel: { color: "#121212", opacity: 0 },
       input: { color: "#121212", opacity: 0 },
@@ -408,6 +448,8 @@ const INTERFACE_THEME_PRESETS = {
     theme: "light",
     accent: { color: "#6b7173", opacity: 100 },
     highlight: { color: "#8f9698", opacity: 10 },
+    foreground: { color: "#30363b", opacity: 100 },
+    muted: { color: "#70777c", opacity: 100 },
     surfaces: {
       panel: { color: "#ffffff", opacity: 100 },
       input: { color: "#ffffff", opacity: 100 },
@@ -421,6 +463,8 @@ const INTERFACE_THEME_PRESETS = {
     theme: "dark",
     accent: { color: "#6b7173", opacity: 100 },
     highlight: { color: "#8f8f8f", opacity: 10 },
+    foreground: { color: "#d8dde2", opacity: 100 },
+    muted: { color: "#9aa1a7", opacity: 100 },
     surfaces: {
       panel: { color: "#232329", opacity: 100 },
       input: { color: "#111113", opacity: 100 },
@@ -434,6 +478,8 @@ const INTERFACE_THEME_PRESETS = {
     theme: "light",
     accent: { color: "#6b7173", opacity: 100 },
     highlight: { color: "#8f9698", opacity: 8 },
+    foreground: { color: "#30363b", opacity: 100 },
+    muted: { color: "#70777c", opacity: 100 },
     surfaces: {
       panel: { color: "#ffffff", opacity: 100 },
       input: { color: "#ffffff", opacity: 100 },
@@ -447,6 +493,8 @@ const INTERFACE_THEME_PRESETS = {
     theme: "dark",
     accent: { color: "#7d8588", opacity: 100 },
     highlight: { color: "#a2a7aa", opacity: 8 },
+    foreground: { color: "#d4d9dd", opacity: 100 },
+    muted: { color: "#979fa5", opacity: 100 },
     surfaces: {
       panel: { color: "#232329", opacity: 100 },
       input: { color: "#232329", opacity: 100 },
@@ -460,6 +508,8 @@ const INTERFACE_THEME_PRESETS = {
     theme: "dark",
     accent: { color: "#8b969a", opacity: 100 },
     highlight: { color: "#a8b1b5", opacity: 12 },
+    foreground: { color: "#dce3e7", opacity: 100 },
+    muted: { color: "#9fa9af", opacity: 100 },
     surfaces: {
       panel: { color: "#202228", opacity: 100 },
       input: { color: "#30333a", opacity: 100 },
@@ -489,10 +539,10 @@ const normalizeCustomThemes = value => {
         color: isCssColor(preset.highlight?.color) ? String(preset.highlight.color).trim() : "#8f9698",
         opacity: Math.min(100, Math.max(0, Number(preset.highlight?.opacity) || 0)),
       },
+      foreground: normalizeThemeColorToken(preset.foreground, INTERFACE_THEME_PRESETS[preset.theme === "light" ? "draweratorLight" : "draweratorDark"].foreground),
+      muted: normalizeThemeColorToken(preset.muted, INTERFACE_THEME_PRESETS[preset.theme === "light" ? "draweratorLight" : "draweratorDark"].muted),
       surfaces: normalizeInterfaceTheme(preset.surfaces, preset.theme),
-      roleTheme: preset.roleTheme && typeof preset.roleTheme === "object"
-        ? { ...DEFAULT_ROLE_THEME, ...preset.roleTheme }
-        : { ...DEFAULT_ROLE_THEME },
+      roleTheme: normalizeRoleTheme(preset.roleTheme),
     }]];
   }));
 };
@@ -1706,6 +1756,10 @@ function App() {
   const [accentOpacity, setAccentOpacity] = useState(() => Number(localStorage.getItem("drawerator_accent_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].accent.opacity));
   const [highlightColor, setHighlightColor] = useState(() => localStorage.getItem("drawerator_highlight_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].highlight.color);
   const [highlightOpacity, setHighlightOpacity] = useState(() => Number(localStorage.getItem("drawerator_highlight_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].highlight.opacity));
+  const [foregroundColor, setForegroundColor] = useState(() => localStorage.getItem("drawerator_foreground_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].foreground.color);
+  const [foregroundOpacity, setForegroundOpacity] = useState(() => Number(localStorage.getItem("drawerator_foreground_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].foreground.opacity));
+  const [mutedColor, setMutedColor] = useState(() => localStorage.getItem("drawerator_muted_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].muted.color);
+  const [mutedOpacity, setMutedOpacity] = useState(() => Number(localStorage.getItem("drawerator_muted_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].muted.opacity));
   const [interfaceThemePreset, setInterfaceThemePreset] = useState(() => localStorage.getItem("drawerator_interface_theme_preset") || defaultInterfaceThemePreset);
   const [interfaceTheme, setInterfaceTheme] = useState(() => {
     try {
@@ -1726,9 +1780,9 @@ function App() {
   const [roleTheme, setRoleTheme] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("drawerator_role_theme") || "null");
-      return { ...DEFAULT_ROLE_THEME, ...(saved || {}) };
+      return normalizeRoleTheme(saved);
     } catch {
-      return DEFAULT_ROLE_THEME;
+      return { ...DEFAULT_ROLE_THEME };
     }
   });
   const [panelLayouts, setPanelLayouts] = useState(() => {
@@ -1996,6 +2050,8 @@ function App() {
   const iannixImportInputRef = useRef(null);
   const brushImportInputRef = useRef(null);
   const excalidrawAPIRef = useRef(null);
+  const importSvgMarkupRef = useRef(null);
+  const svgClipboardCacheRef = useRef(null);
   const scoreTimeRef = useRef(scoreTime);
   const historySuppressSceneRef = useRef(0);
   const lastSceneElementsRef = useRef(new Map());
@@ -2033,7 +2089,8 @@ function App() {
       const role = element.customData?.score?.role || element.customData?.iannix?.role;
       if (!["curve", "cursor", "trigger"].includes(role)) return element;
       const savedColor = element.customData?.roleThemeSourceStrokeColor;
-      if (!roleTheme.enabled) {
+      const authoredIannixColor = element.customData?.iannixImport?.authoredColor === true;
+      if (!roleTheme.enabled || authoredIannixColor) {
         if (role === "cursor" && isRuntimeCursor(element)) {
           const data = normalizeIannixData(element.customData?.iannix);
           const sourceStrokeColor = savedColor || data.cursor.sourceStrokeColor || element.strokeColor;
@@ -3534,7 +3591,7 @@ function App() {
         color === "rgb(0,0,0)" ||
         color === "black"
       ) {
-        return "#ffffff";
+        return foregroundColor;
       }
     } else {
       if (
@@ -3542,7 +3599,7 @@ function App() {
         color === "rgb(255,255,255)" ||
         color === "white"
       ) {
-        return "#000000";
+        return foregroundColor;
       }
     }
     return color;
@@ -4621,9 +4678,13 @@ function App() {
     const selectedContextElements = capabilities.selected;
     const selectedStrokeElements = capabilities.paths;
 
+    // Shift+right-click is Drawerator's own canvas menu. Keep SVG clipboard
+    // actions here even with no selected element: this direct click pathway
+    // retains user activation and does not rely on browser paste event routing.
+    e.preventDefault();
+    e.stopPropagation();
+
     if (selectedContextElements.length > 0) {
-      e.preventDefault();
-      e.stopPropagation();
 
       const hasBrush = selectedStrokeElements.some(el => el.id.includes("-brush-") || (el.groupIds && el.groupIds.some(gId => gId.endsWith("-group"))));
       const hasFreehand = selectedStrokeElements.some(el => el.type === "freedraw");
@@ -4646,9 +4707,16 @@ function App() {
         showSharpRound: capabilities.showSharpRound,
         allSharp: capabilities.allSharp,
         allRound: capabilities.allRound,
+        showSvgActions: true,
+        hasSelection: true,
       });
     } else {
-      setCustomContextMenu(null);
+      setCustomContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        showSvgActions: true,
+        hasSelection: false,
+      });
     }
   };
 
@@ -5673,7 +5741,8 @@ function App() {
   // commands are awaited in order so a model can create a script/object and
   // act on it later in the same response.
   const executeAIToolCalls = async (text, api) => {
-    if (!api) return;
+    if (!api) return { errors: [] };
+    const errors = [];
     
     if (/<clear\s*\/>/i.test(text)) {
       api.updateScene({ elements: [] });
@@ -5696,10 +5765,12 @@ function App() {
     for (const call of parseDraweratorCommandTags(text)) {
       if (call.error) {
         logToolAction(`command(${call.id}): ${call.error}`, "error");
+        errors.push(`command(${call.id}): ${call.error}`);
         continue;
       }
       if (!isAICommandAllowed(call.id, commandRegistry.list())) {
         logToolAction(`command(${call.id}): not available to AI`, "error");
+        errors.push(`command(${call.id}): not available to AI`);
         continue;
       }
       try {
@@ -5710,6 +5781,7 @@ function App() {
         logToolAction(`command(${call.id})`, "ok");
       } catch (error) {
         logToolAction(`command(${call.id}): ${error.message}`, "error");
+        errors.push(`command(${call.id}): ${error.message}`);
       }
     }
 
@@ -5827,6 +5899,7 @@ function App() {
     if (didChange) {
       api.updateScene({ elements });
     }
+    return { errors };
   };
 
   // Submit chat text to Local LLM
@@ -5940,7 +6013,7 @@ function App() {
 
     const provider = aiSettings.provider;
 
-    const aiAutomationGuide = buildAIAutomationGuide(commandRegistry.list());
+    const aiAutomationGuide = buildAIAutomationGuide(commandRegistry.list(), { prompt: userMessage });
     const messagesPayload = newHistory.map(h => {
       if (h.role === "system") {
         return {
@@ -6003,7 +6076,21 @@ function App() {
       });
       if (!fullResponse) throw new Error("The provider returned an empty response.");
 
-      await executeAIToolCalls(fullResponse, excalidrawAPI);
+      const toolResult = await executeAIToolCalls(fullResponse, excalidrawAPI);
+      if (toolResult.errors.length) {
+        const report = toolResult.errors.slice(0, 3).join("\n- ");
+        setChatHistory(prev => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last?.role === "assistant") {
+            updated[updated.length - 1] = {
+              ...last,
+              content: `${last.content}\n\n> Drawerator rejected an action; nothing unsafe was saved or run.\n> - ${report}\n> Ask me to repair the script using the IanniX or Brush contract.`,
+            };
+          }
+          return updated;
+        });
+      }
 
     } catch (e) {
       console.error(e);
@@ -6145,8 +6232,12 @@ function App() {
     setAccentOpacity(preset.accent.opacity);
     setHighlightColor(preset.highlight.color);
     setHighlightOpacity(preset.highlight.opacity);
+    setForegroundColor(preset.foreground.color);
+    setForegroundOpacity(preset.foreground.opacity);
+    setMutedColor(preset.muted.color);
+    setMutedOpacity(preset.muted.opacity);
     setInterfaceTheme(normalizeInterfaceTheme(preset.surfaces, preset.theme));
-    if (preset.roleTheme) setRoleTheme({ ...DEFAULT_ROLE_THEME, ...preset.roleTheme });
+    if (preset.roleTheme) setRoleTheme(normalizeRoleTheme(preset.roleTheme));
     runtimeCallbacksRef.current.globalGridUpdate({
       appearance: { opacity: preset.surfaces.grid.opacity / 100 },
     });
@@ -6154,6 +6245,10 @@ function App() {
     localStorage.setItem("drawerator_accent_opacity", String(preset.accent.opacity));
     localStorage.setItem("drawerator_highlight_color", preset.highlight.color);
     localStorage.setItem("drawerator_highlight_opacity", String(preset.highlight.opacity));
+    localStorage.setItem("drawerator_foreground_color", preset.foreground.color);
+    localStorage.setItem("drawerator_foreground_opacity", String(preset.foreground.opacity));
+    localStorage.setItem("drawerator_muted_color", preset.muted.color);
+    localStorage.setItem("drawerator_muted_opacity", String(preset.muted.opacity));
     finishApplyingRecordedUiState();
   };
 
@@ -6185,6 +6280,8 @@ function App() {
       theme,
       accent: { color: accentColor, opacity: accentOpacity },
       highlight: { color: highlightColor, opacity: highlightOpacity },
+      foreground: { color: foregroundColor, opacity: foregroundOpacity },
+      muted: { color: mutedColor, opacity: mutedOpacity },
       surfaces: normalizeInterfaceTheme({
         ...interfaceTheme,
         grid: { ...interfaceTheme.grid, opacity: Math.round(globalGridRef.current.appearance.opacity * 100) },
@@ -6233,6 +6330,8 @@ function App() {
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
+    { id: "svg.copy.selection", name: "Copy Selection as Editable SVG /copy svg", aliases: ["/copy svg", "Copy selection SVG"], category: "Canvas", action: () => copySelectionAsSvg() },
+    { id: "svg.paste.editable", name: "Paste SVG as Editable Paths /paste svg", aliases: ["/paste svg", "Paste SVG as paths"], category: "Canvas", action: () => pasteSvgAsEditable() },
     { id: "settings-ai", name: "Open AI Configuration /settings-ai", aliases: ["/settings-ai"], category: "Panels", action: () => toggleDraweratorPanel("settings", { settingsTab: "ai" }) },
     { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
     { id: "toggle-transparency", name: "Toggle Canvas Background Transparency", category: "Canvas", action: (api) => toggleBackgroundTransparency(api) },
@@ -6271,6 +6370,7 @@ function App() {
     { id: "scene.update", name: "Update Scene Objects", category: "Scene", args: { elements: "element[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.update", args) },
     { id: "scene.create.objects", name: "AI: Create Scene Objects", category: "AI Actions", args: { objects: "{id?,type,x,y,width?,height?,x2?,y2?,points?,strokeColor?,backgroundColor?,role?,label?}[]", select: "boolean?" }, ai: { expose: true, description: "Create rectangles, ellipses, diamonds, lines, or freedraw paths. Freedraw points are absolute [x,y] pairs. Give objects explicit ids when later commands need them.", example: { objects: [{ id: "curve-a", type: "line", x: 100, y: 120, x2: 420, y2: 220, strokeColor: "#00b8e8", role: "curve", label: "AI curve" }] } }, action: (_api, args) => createAIObjects(args) },
     { id: "scene.patch.objects", name: "AI: Patch Scene Objects", category: "AI Actions", args: { patches: "{id,patch:{x?,y?,width?,height?,angle?,strokeColor?,backgroundColor?,fillStyle?,strokeWidth?,strokeStyle?,roughness?,opacity?,locked?}}[]" }, ai: { expose: true, description: "Move or restyle existing objects using only the supplied shallow patch fields. Use ids from scene context or objects created earlier in this response.", example: { patches: [{ id: "curve-a", patch: { strokeColor: "#ff8a3d", strokeWidth: 4 } }] } }, action: (_api, args) => patchAIObjects(args) },
+    { id: "automation.keyframes.set", name: "AI: Set Object Keyframes", category: "AI Actions", args: { keyframes: "{elementId,path,time|seconds,value,interpolation?}[]" }, ai: { expose: true, description: "Animate supported Excalidraw object properties by adding or replacing keyframes. Supported paths are x, y, angle, width, height, opacity, strokeWidth, strokeColor, backgroundColor, points, customData.modifiers, customData.iannix, and customData.draweratorGeometry. Time accepts Drawerator time expressions.", example: { keyframes: [{ elementId: "curve-a", path: "x", time: "0 s", value: 100 }, { elementId: "curve-a", path: "x", time: "2 bars", value: 600 }] } }, action: (_api, args) => setAIAutomationKeyframes(args) },
     { id: "scene.delete", name: "Delete Scene Objects", category: "Scene", args: { elementIds: "string[]" }, ai: { expose: true, description: "Delete objects by id.", example: { elementIds: ["curve-a"] } }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.delete", args) },
     { id: "score.roles.assign", name: "AI: Assign Score Roles", category: "AI Actions", args: { elementIds: "string[]?", role: "none|curve|cursor|trigger", label: "string?", active: "boolean?" }, ai: { expose: true, description: "Assign or clear IanniX score roles. Without elementIds, applies to the current selection.", example: { elementIds: ["curve-a"], role: "curve", label: "Main curve" } }, action: (_api, args) => assignAIObjectRoles(args) },
     { id: "transport.update", name: "Update Transport State", category: "Transport", args: { state: "transportState" }, ai: { expose: true, description: "Update transport tempo, meter, play state, display mode, fps, or loop range. Do not change MIDI credentials or providers.", example: { state: { tempo: 96, timeSignature: "4/4", displayMode: "beats" } } }, action: (_api, args) => runtimeCallbacksRef.current.transportUpdate(args?.state || args) },
@@ -6301,8 +6401,8 @@ function App() {
     { id: "script.brush.create", name: "AI: Create Brush Script", category: "AI Actions", args: { name: "string", code: "JavaScript source", type: "brush|filter?", activate: "boolean?" }, ai: { expose: true, description: "Create an editable Brush / modifier JavaScript script in the local script catalog.", example: { name: "Offset lines", code: "(points, globals) => [points]" } }, action: (_api, args) => createAIBrushScript(args) },
     { id: "script.brush.update", name: "AI: Update Brush Script", category: "AI Actions", args: { id: "string?", name: "string?", code: "JavaScript source?" }, ai: { expose: true, description: "Rename or replace an editable brush script. Built-in presets are read-only.", example: { id: "user-example", name: "Soft offset", code: "(points, globals) => [points]" } }, action: (_api, args) => updateAIBrushScript(args) },
     { id: "script.brush.apply", name: "AI: Apply Brush Script", category: "AI Actions", args: { id: "string?", elementIds: "string[]?", params: "object?" }, ai: { expose: true, description: "Apply a brush script as a modifier to selected or listed line/freedraw paths.", example: { id: "user-example", elementIds: ["curve-a"] } }, action: (_api, args) => applyAIBrushScript(args) },
-    { id: "script.iannix.create", name: "AI: Create IanniX Script", category: "AI Actions", args: { name: "string", source: "IanniX source", parameters: "object?", activate: "boolean?" }, ai: { expose: true, description: "Create an editable trusted IanniX source script in the local script catalog. Creation does not run it.", example: { name: "AI score", source: "// IanniX commands\\n" } }, action: (_api, args) => createAIIannixScript(args) },
-    { id: "script.iannix.update", name: "AI: Update IanniX Script", category: "AI Actions", args: { id: "string?", name: "string?", source: "IanniX source?", parameters: "object?" }, ai: { expose: true, description: "Rename or replace a local IanniX script without running it.", example: { id: "iannix-script-example", source: "// updated IanniX commands\\n" } }, action: (_api, args) => updateAIIannixScript(args) },
+    { id: "script.iannix.create", name: "AI: Create IanniX Script", category: "AI Actions", args: { name: "string", source: "IanniX source", parameters: "object?", activate: "boolean?" }, ai: { expose: true, description: "Create an editable trusted IanniX source script in the local script catalog. Source must define makeWithScript() or madeThroughGUI(), use Drawerator-supported run() commands, and put one statement per line. Creation does not run it. IanniX coordinates are model units, not canvas pixels: for visible default-scale geometry use setPos current 12 -8 0 and local points/radii near 0..8; do not use 480-style screen coordinates.", example: { name: "Two-point orbit", source: "function makeWithScript() {\n  run(\\\"clear\\\");\n  run(\\\"add curve orbit\\\");\n  run(\\\"setPos current 12 -8 0\\\");\n  run(\\\"setPointAt current 0 0 0\\\");\n  run(\\\"setPointAt current 1 8 0\\\");\n  run(\\\"add cursor traveler\\\");\n  run(\\\"setCurve current lastCurve\\\");\n}" } }, action: (_api, args) => createAIIannixScript(args) },
+    { id: "script.iannix.update", name: "AI: Update IanniX Script", category: "AI Actions", args: { id: "string?", name: "string?", source: "IanniX source?", parameters: "object?" }, ai: { expose: true, description: "Rename or replace a local IanniX script without running it. Replacement source must follow the Drawerator IanniX lifecycle/run-command contract and use one statement per line.", example: { id: "iannix-script-example", source: "function makeWithScript() {\n  run(\\\"add curve orbit\\\");\n  run(\\\"setPos current 12 -8 0\\\");\n  run(\\\"setPointAt current 0 0 0\\\");\n  run(\\\"setPointAt current 1 8 0\\\");\n}" } }, action: (_api, args) => updateAIIannixScript(args) },
     { id: "script.iannix.run", name: "AI: Run IanniX Script", category: "AI Actions", args: { id: "string?", source: "IanniX source?", filename: "string?", parameters: "object?" }, ai: { expose: true, description: "Run a trusted IanniX script. Only use when the user explicitly asks to execute the generated script.", example: { id: "iannix-script-example" } }, action: (_api, args) => runAIIannixScript(args) },
     { id: "iannix.import.trusted", name: "Import Trusted IanniX Script /iannix import", aliases: ["/iannix import"], category: "IanniX", args: { source: "string", filename: "string?", seed: "number?", anchor: "point?", scale: "number?", importId: "string?", parameters: "object?" }, validate: args => ({ ...args, importId: args?.importId || crypto.randomUUID() }), action: (_api, args) => runtimeCallbacksRef.current.iannixImport(args) },
     { id: "iannix.command.clear", name: "IanniX: Clear Scene /ix clear", aliases: ["/ix clear", "/iannix clear", "IanniX clear"], category: "IanniX", action: () => runtimeCallbacksRef.current.iannixCommand("clear") },
@@ -7018,14 +7118,23 @@ function App() {
   const createAIObjectElement = (spec, existingIds) => {
     const type = spec?.type === "circle" ? "ellipse" : spec?.type;
     if (!aiObjectTypes.has(type)) throw new Error(`Unsupported object type: ${spec?.type || "(missing)"}.`);
-    const x = Number(spec.x);
-    const y = Number(spec.y);
+    // SVG path/polyline import describes freehand geometry as absolute points.
+    // Derive its origin here before validating coordinates; otherwise a valid
+    // imported path is rejected before the freedraw branch below can normalize
+    // those points into Excalidraw-local coordinates.
+    const sourcePoints = type === "freedraw" && Array.isArray(spec.points)
+      ? spec.points
+        .map(point => Array.isArray(point) ? [Number(point[0]), Number(point[1])] : null)
+        .filter(point => point && Number.isFinite(point[0]) && Number.isFinite(point[1]))
+      : null;
+    const x = Number.isFinite(Number(spec.x)) ? Number(spec.x) : sourcePoints?.[0]?.[0];
+    const y = Number.isFinite(Number(spec.y)) ? Number(spec.y) : sourcePoints?.[0]?.[1];
     if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("Every object needs finite x and y coordinates.");
     const width = Number.isFinite(Number(spec.width)) ? Number(spec.width) : 100;
     const height = Number.isFinite(Number(spec.height)) ? Number(spec.height) : 100;
     const strokeColor = typeof spec.strokeColor === "string"
       ? spec.strokeColor
-      : (theme === "light" ? "#1e1e1e" : "#f8fafc");
+      : foregroundColor;
     const requestedId = normalizeAIObjectId(spec.id);
     const id = requestedId && !existingIds.has(requestedId)
       ? requestedId
@@ -7049,10 +7158,7 @@ function App() {
       base.points = [[0, 0], [x2 - x, y2 - y]];
     }
     if (type === "freedraw") {
-      const points = Array.isArray(spec.points) ? spec.points
-        .map(point => Array.isArray(point) ? [Number(point[0]), Number(point[1])] : null)
-        .filter(point => point && Number.isFinite(point[0]) && Number.isFinite(point[1]))
-        : [];
+      const points = sourcePoints || [];
       if (points.length < 2) throw new Error("Freedraw objects require at least two [x, y] points.");
       const minX = Math.min(...points.map(point => point[0]));
       const minY = Math.min(...points.map(point => point[1]));
@@ -7064,7 +7170,11 @@ function App() {
       base.height = Math.max(1, maxY - minY);
       base.points = points.map(point => [point[0] - minX, point[1] - minY]);
       base.pressures = new Array(points.length).fill(0.5);
-      base.simulatePressure = true;
+      // Imported SVG outlines must retain their declared constant width. New
+      // hand/AI freedraw remains pressure-simulated unless explicitly disabled.
+      base.simulatePressure = typeof spec.simulatePressure === "boolean"
+        ? spec.simulatePressure
+        : true;
     }
     return base;
   };
@@ -7133,6 +7243,54 @@ function App() {
     return { elementIds: updatedIds };
   };
 
+  const setAIAutomationKeyframes = (args = {}) => {
+    if (!excalidrawAPI) throw new Error("The canvas is not ready.");
+    const keyframes = Array.isArray(args.keyframes) ? args.keyframes.slice(0, 200) : [];
+    if (!keyframes.length) throw new Error("Provide one or more keyframes.");
+    const keysByElement = new Map();
+    for (const keyframe of keyframes) {
+      const elementId = String(keyframe?.elementId || "");
+      const path = String(keyframe?.path || "");
+      if (!elementId || !AUTO_KEY_PATHS.includes(path)) {
+        throw new Error("Each keyframe needs an elementId and a supported path.");
+      }
+      const time = Math.max(0, resolveTimeValue(keyframe.time ?? keyframe.seconds ?? 0, timeContext));
+      if (!Number.isFinite(time)) throw new Error(`Invalid keyframe time for ${elementId}.`);
+      if (!keysByElement.has(elementId)) keysByElement.set(elementId, []);
+      keysByElement.get(elementId).push({
+        path,
+        time,
+        value: keyframe.value,
+        interpolation: ["linear", "step", "angle"].includes(keyframe.interpolation)
+          ? keyframe.interpolation
+          : interpolationForPath(path),
+      });
+    }
+    const updatedIds = [];
+    const next = excalidrawAPI.getSceneElements().map(element => {
+      const entries = keysByElement.get(element.id);
+      if (!entries || element.isDeleted) return element;
+      let tracks = element.customData?.draweratorAutomation?.tracks || {};
+      for (const entry of entries) {
+        tracks = upsertAutomationKey(tracks, entry.path, entry.time, entry.value, entry.interpolation);
+      }
+      updatedIds.push(element.id);
+      return {
+        ...element,
+        customData: {
+          ...(element.customData || {}),
+          draweratorAutomation: { version: 1, tracks },
+        },
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 1000000),
+        updated: Date.now(),
+      };
+    });
+    if (!updatedIds.length) throw new Error("No editable objects matched the supplied element ids.");
+    excalidrawAPI.updateScene({ elements: next, commitToHistory: true });
+    return { elementIds: updatedIds, keyframeCount: keyframes.length };
+  };
+
   const assignAIObjectRoles = (args = {}) => {
     const role = args.role === "none" ? null : args.role;
     if (![null, "curve", "cursor", "trigger"].includes(role)) throw new Error("Role must be none, curve, cursor, or trigger.");
@@ -7151,8 +7309,10 @@ function App() {
 
   const createAIBrushScript = (args = {}) => {
     const name = String(args.name || "Untitled Script").trim().slice(0, 120) || "Untitled Script";
-    const code = String(args.code || "(points, globals) => [points]").trim();
+    const code = formatAIScriptSource(String(args.code || "(points, globals) => [points]"));
     if (!code) throw new Error("Brush script code is required.");
+    const validation = validateAIBrushSource(code);
+    if (!validation.valid) throw new Error(`Brush script validation failed: ${validation.errors.join(" ")}`);
     const id = `user-${crypto.randomUUID()}`;
     const brush = { id, name, code, isPreset: false, type: args.type === "filter" ? "filter" : "brush" };
     aiCreatedBrushesRef.current.set(id, brush);
@@ -7162,7 +7322,7 @@ function App() {
       setActiveBrushCode(code);
     }
     setBrushSaveMessage(`Created “${name}”.`);
-    return { id, name };
+    return { id, name, warnings: validation.warnings };
   };
 
   const updateAIBrushScript = (args = {}) => {
@@ -7172,13 +7332,15 @@ function App() {
     if (!brush) throw new Error("Brush script not found.");
     if (brush.isPreset) throw new Error("Built-in brush scripts cannot be changed. Create a copy instead.");
     const name = typeof args.name === "string" && args.name.trim() ? args.name.trim().slice(0, 120) : brush.name;
-    const code = typeof args.code === "string" && args.code.trim() ? args.code : brush.code;
+    const code = typeof args.code === "string" && args.code.trim() ? formatAIScriptSource(args.code) : brush.code;
+    const validation = typeof args.code === "string" ? validateAIBrushSource(code) : { warnings: [] };
+    if (typeof args.code === "string" && !validation.valid) throw new Error(`Brush script validation failed: ${validation.errors.join(" ")}`);
     const nextBrush = { ...brush, name, code };
     aiCreatedBrushesRef.current.set(brush.id, nextBrush);
     setBrushPalette(previous => previous.map(candidate => candidate.id === brush.id ? nextBrush : candidate));
     if (activeBrushId === brush.id) setActiveBrushCode(code);
     setBrushSaveMessage(`Updated “${name}”.`);
-    return { id: brush.id, name };
+    return { id: brush.id, name, warnings: validation.warnings };
   };
 
   const applyAIBrushScript = (args = {}) => {
@@ -7200,7 +7362,9 @@ function App() {
 
   const createAIIannixScript = (args = {}) => {
     const name = String(args.name || "Untitled Script").trim().slice(0, 120) || "Untitled Script";
-    const source = String(args.source || "// IanniX commands\n");
+    const source = formatAIScriptSource(String(args.source || ""));
+    const validation = validateAIIannixSource(source);
+    if (!validation.valid) throw new Error(`IanniX script validation failed: ${validation.errors.join(" ")}`);
     const id = `iannix-script-${crypto.randomUUID()}`;
     const script = { id, name, source, parameters: args.parameters && typeof args.parameters === "object" ? args.parameters : {}, createdAt: Date.now(), updatedAt: Date.now() };
     aiCreatedIannixScriptsRef.current.set(id, script);
@@ -7210,7 +7374,7 @@ function App() {
       setIannixScriptSource(source);
     }
     setSceneExchangeStatus(`Created “${name}” in this browser.`);
-    return { id, name };
+    return { id, name, commands: validation.commands, warnings: validation.warnings };
   };
 
   const updateAIIannixScript = (args = {}) => {
@@ -7219,14 +7383,16 @@ function App() {
       || aiCreatedIannixScriptsRef.current.get(requestedId);
     if (!script) throw new Error("IanniX script not found.");
     const name = typeof args.name === "string" && args.name.trim() ? args.name.trim().slice(0, 120) : script.name;
-    const source = typeof args.source === "string" ? args.source : script.source;
+    const source = typeof args.source === "string" ? formatAIScriptSource(args.source) : script.source;
+    const validation = typeof args.source === "string" ? validateAIIannixSource(source) : { commands: [], warnings: [] };
+    if (typeof args.source === "string" && !validation.valid) throw new Error(`IanniX script validation failed: ${validation.errors.join(" ")}`);
     const parameters = args.parameters && typeof args.parameters === "object" ? { ...script.parameters, ...args.parameters } : script.parameters;
     const nextScript = { ...script, name, source, parameters, updatedAt: Date.now() };
     aiCreatedIannixScriptsRef.current.set(script.id, nextScript);
     setIannixScripts(previous => previous.map(candidate => candidate.id === script.id ? nextScript : candidate));
     if (activeIannixScriptId === script.id) setIannixScriptSource(source);
     setSceneExchangeStatus(`Updated “${name}” in this browser.`);
-    return { id: script.id, name };
+    return { id: script.id, name, commands: validation.commands, warnings: validation.warnings };
   };
 
   const runAIIannixScript = (args = {}) => {
@@ -7235,6 +7401,8 @@ function App() {
       || aiCreatedIannixScriptsRef.current.get(requestedId);
     const source = typeof args.source === "string" ? args.source : script?.source;
     if (!String(source || "").trim()) throw new Error("IanniX script source is required.");
+    const validation = validateAIIannixSource(source);
+    if (!validation.valid) throw new Error(`IanniX script validation failed: ${validation.errors.join(" ")}`);
     return runtimeCallbacksRef.current.iannixImport({
       source,
       filename: args.filename || script?.name || "AI IanniX script",
@@ -7390,7 +7558,7 @@ function App() {
     }, appState);
     const demo = createExpressiveSynthDemoScore({
       center: [viewportCenter.x, viewportCenter.y],
-      strokeColor: theme === "dark" ? "#f1f3f5" : "#1b1b1f",
+      strokeColor: foregroundColor,
     });
     const currentElements = excalidrawAPI.getSceneElementsIncludingDeleted();
     const demoSelection = Object.fromEntries(demo.triggers.map(trigger => [trigger.id, true]));
@@ -7969,6 +8137,22 @@ function App() {
       setHighlightOpacity(Number(state.highlightOpacity));
       localStorage.setItem("drawerator_highlight_opacity", String(state.highlightOpacity));
     }
+    if (typeof state.foregroundColor === "string" && isCssColor(state.foregroundColor)) {
+      setForegroundColor(state.foregroundColor);
+      localStorage.setItem("drawerator_foreground_color", state.foregroundColor);
+    }
+    if (Number.isFinite(Number(state.foregroundOpacity))) {
+      setForegroundOpacity(Number(state.foregroundOpacity));
+      localStorage.setItem("drawerator_foreground_opacity", String(state.foregroundOpacity));
+    }
+    if (typeof state.mutedColor === "string" && isCssColor(state.mutedColor)) {
+      setMutedColor(state.mutedColor);
+      localStorage.setItem("drawerator_muted_color", state.mutedColor);
+    }
+    if (Number.isFinite(Number(state.mutedOpacity))) {
+      setMutedOpacity(Number(state.mutedOpacity));
+      localStorage.setItem("drawerator_muted_opacity", String(state.mutedOpacity));
+    }
     if (state.interfaceTheme && typeof state.interfaceTheme === "object") {
       setInterfaceTheme(normalizeInterfaceTheme(state.interfaceTheme, state.theme || theme));
       setInterfaceThemePreset(typeof state.interfaceThemePreset === "string" ? state.interfaceThemePreset : "custom");
@@ -8060,6 +8244,10 @@ function App() {
       accentOpacity,
       highlightColor,
       highlightOpacity,
+      foregroundColor,
+      foregroundOpacity,
+      mutedColor,
+      mutedOpacity,
       interfaceTheme,
       interfaceThemePreset,
       roleTheme,
@@ -8085,7 +8273,7 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record board settings", error));
     }, 180);
-  }, [accentColor, accentOpacity, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceTheme, interfaceThemePreset, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
+  }, [accentColor, accentOpacity, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
 
   useEffect(() => {
     const api = {
@@ -8236,6 +8424,167 @@ function App() {
     }
   };
 
+  const createSvgElements = (specs, { select = true, anchor = null } = {}) => {
+    if (!excalidrawAPI) throw new Error("The canvas is not ready.");
+    if (!specs.length) throw new Error("This SVG does not contain editable paths or shapes.");
+    const appState = excalidrawAPI.getAppState();
+    const bounds = getSvgDrawableBounds(specs);
+    const target = anchor || viewportCoordsToSceneCoords({
+      clientX: window.innerWidth / 2,
+      clientY: window.innerHeight / 2,
+    }, appState);
+    const positioned = bounds
+      ? offsetSvgDrawableSpecs(specs, target.x - (bounds.minX + bounds.width / 2), target.y - (bounds.minY + bounds.height / 2))
+      : specs;
+    const scene = excalidrawAPI.getSceneElementsIncludingDeleted();
+    const existingIds = new Set(scene.map(element => element.id));
+    const created = positioned.map(spec => createAIObjectElement({ ...spec, roughness: 0 }, existingIds));
+    excalidrawAPI.updateScene({
+      elements: [...scene, ...created],
+      appState: select ? { selectedElementIds: Object.fromEntries(created.map(element => [element.id, true])) } : undefined,
+      commitToHistory: true,
+    });
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return created;
+  };
+
+  const pasteDraweratorSvgElements = (elements, { select = true, anchor = null } = {}) => {
+    if (!excalidrawAPI) throw new Error("The canvas is not ready.");
+    const scene = excalidrawAPI.getSceneElementsIncludingDeleted();
+    const source = (elements || []).filter(element => element && !element.isDeleted);
+    if (!source.length) throw new Error("This Drawerator SVG contains no editable objects.");
+    const minX = Math.min(...source.map(element => Math.min(element.x || 0, (element.x || 0) + (element.width || 0))));
+    const maxX = Math.max(...source.map(element => Math.max(element.x || 0, (element.x || 0) + (element.width || 0))));
+    const minY = Math.min(...source.map(element => Math.min(element.y || 0, (element.y || 0) + (element.height || 0))));
+    const maxY = Math.max(...source.map(element => Math.max(element.y || 0, (element.y || 0) + (element.height || 0))));
+    const appState = excalidrawAPI.getAppState();
+    const target = anchor || viewportCoordsToSceneCoords({
+      clientX: window.innerWidth / 2,
+      clientY: window.innerHeight / 2,
+    }, appState);
+    const imported = remapSelectionForImport(source, scene, undefined, {
+      x: target.x - (minX + maxX) / 2,
+      y: target.y - (minY + maxY) / 2,
+    });
+    const importedElements = reconcileRuntimeCursorHosts(imported.elements, [...scene, ...imported.elements]);
+    excalidrawAPI.updateScene({
+      elements: [...scene, ...importedElements],
+      appState: select ? { selectedElementIds: Object.fromEntries(importedElements.map(element => [element.id, true])) } : undefined,
+      commitToHistory: true,
+    });
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return importedElements;
+  };
+
+  const importSvgMarkup = async (markup, options = {}) => {
+    const svg = cleanSvgMarkup(markup);
+    if (!svg) throw new Error("Clipboard content is not SVG.");
+    const draweratorMetadata = extractDraweratorSvgMetadata(svg);
+    if (draweratorMetadata) {
+      const restored = pasteDraweratorSvgElements(draweratorMetadata.elements, options);
+      setSceneExchangeStatus(`Pasted ${restored.length} original Drawerator SVG ${restored.length === 1 ? "object" : "objects"} with editable stroke data intact.`);
+      return restored;
+    }
+    const specs = parseSvgToDrawableSpecs(svg);
+    const created = createSvgElements(specs, options);
+    setSceneExchangeStatus(`Pasted ${created.length} editable SVG ${created.length === 1 ? "object" : "objects"}. Assign Curve, Cursor, or Trigger roles as needed.`);
+    return created;
+  };
+  importSvgMarkupRef.current = importSvgMarkup;
+
+  const copySelectionAsSvg = async () => {
+    if (!excalidrawAPI) return;
+    try {
+      const appState = excalidrawAPI.getAppState();
+      const selected = getSelectionExchangeElements(
+        excalidrawAPI.getSceneElementsIncludingDeleted(),
+        { ...appState.selectedElementIds, ...runtimeCursorSelectionRef.current, ...selectedElementIdsRef.current },
+      );
+      if (!selected.length) throw new Error("Select one or more objects to copy as SVG.");
+      const svg = attachDraweratorSvgMetadata((await exportToSvg({
+        elements: selected,
+        appState: { ...appState, exportBackground: false },
+        files: excalidrawAPI.getFiles(),
+      })).outerHTML, selected);
+      svgClipboardCacheRef.current = svg;
+      try {
+        if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) throw new Error("Typed clipboard unavailable");
+        await navigator.clipboard.write([new ClipboardItem({
+          "image/svg+xml": new Blob([svg], { type: "image/svg+xml" }),
+          "text/plain": new Blob([svg], { type: "text/plain" }),
+        })]);
+      } catch {
+        // Safari and some embedded Chromium shells expose ClipboardItem but do
+        // not accept image/svg+xml. Plain text still transports real SVG.
+        await navigator.clipboard.writeText(svg);
+      }
+      setSceneExchangeStatus(`Copied ${selected.length} selected ${selected.length === 1 ? "object" : "objects"} as editable SVG.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not copy selection as SVG.");
+    }
+  };
+
+  const readSvgClipboard = async () => {
+    if (navigator.clipboard?.read) {
+      try {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          for (const type of ["image/svg+xml", "text/html", "text/plain"]) {
+            if (!item.types.includes(type)) continue;
+            const text = await (await item.getType(type)).text();
+            const svg = extractSvgMarkup(text);
+            if (svg) return svg;
+          }
+        }
+      } catch { /* fall through to the broadly supported text API */ }
+    }
+    try {
+      const text = await navigator.clipboard?.readText?.();
+      const svg = extractSvgMarkup(text);
+      if (svg) return svg;
+    } catch { /* restrictive embedded shells can still use the app-owned copy */ }
+    return svgClipboardCacheRef.current;
+  };
+
+  const pasteSvgAsEditable = async () => {
+    try {
+      const svg = await readSvgClipboard();
+      if (!svg) throw new Error("No SVG was found on the clipboard.");
+      await importSvgMarkup(svg);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not paste SVG as editable paths.");
+    }
+  };
+
+  useEffect(() => {
+    const isTextEditor = target => target instanceof Element && Boolean(target.closest("input, textarea, select, [contenteditable='true'], .cm-editor"));
+    const onPaste = event => {
+      if (isTextEditor(event.target)) return;
+      const clipboard = event.clipboardData;
+      const svg = extractSvgMarkup(clipboard?.getData("image/svg+xml"))
+        || extractSvgMarkup(clipboard?.getData("text/html"))
+        || extractSvgMarkup(clipboard?.getData("text/plain"));
+      const svgFile = [...(clipboard?.files || [])].find(file => file.type === "image/svg+xml");
+      if (!svg && !svgFile) return;
+      event.preventDefault();
+      // Also prevent listeners registered on window after Drawerator. This is
+      // important in host shells that install clipboard bridges alongside
+      // Excalidraw and otherwise consume an SVG paste as an image.
+      event.stopImmediatePropagation();
+      event.stopPropagation();
+      if (svg) {
+        void importSvgMarkupRef.current?.(svg).catch(error => setSceneExchangeStatus(error.message || "Could not paste SVG as editable paths."));
+      } else {
+        void svgFile.text().then(value => importSvgMarkupRef.current?.(value)).catch(error => setSceneExchangeStatus(error.message || "Could not paste SVG as editable paths."));
+      }
+    };
+    // Excalidraw registers its own document-level paste listener. Listen one
+    // level earlier so external SVG is converted before Excalidraw can fall
+    // back to treating it as a raster image (or consume the event entirely).
+    window.addEventListener("paste", onPaste, true);
+    return () => window.removeEventListener("paste", onPaste, true);
+  }, [excalidrawAPI]);
+
   const colorFromIannix = object => {
     if (object.color?.length >= 3) {
       const [r, g, b] = object.color.map(value => Math.min(255, Math.max(0, Math.round(value))));
@@ -8245,7 +8594,7 @@ function App() {
       const [h, s, lightness] = object.colorHue;
       return `hsl(${((h % 360) + 360) % 360} ${Math.min(100, Math.max(0, s / 2.55))}% ${Math.min(80, Math.max(20, lightness / 5.1))}%)`;
     }
-    return theme === "light" ? "#1b1b1f" : "#e7e7e9";
+    return colorWithOpacity(foregroundColor, foregroundOpacity);
   };
 
   const applyTrustedIannixImport = async (args = {}) => {
@@ -8340,6 +8689,7 @@ function App() {
           version: 1,
           externalId: object.externalId,
           group: object.group || "",
+          authoredColor: Boolean(object.color?.length >= 3 || object.colorHue?.length >= 3),
           pattern: object.pattern || "",
           source: args.filename || "IanniX script",
           scale,
@@ -8517,7 +8867,11 @@ function App() {
     if (unsupportedOperation) throw new Error(`Interactive ${unsupportedOperation.type} commands are not supported yet; run a full script for structural score changes.`);
     let changed = 0;
     const nextElements = elements.map(element => {
-      const relevant = operations.filter(operation => String(operation.externalId) === externalIdFor(element));
+      const relevant = operations.filter(operation => (
+        String(operation.externalId) === externalIdFor(element)
+        || (["color", "colorHue"].includes(operation.type)
+          && String(element.customData?.iannixImport?.group || "") === String(operation.externalId))
+      ));
       if (!relevant.length) return element;
       let iannix = normalizeIannixData(element.customData?.iannix);
       let iannixImport = { ...(element.customData?.iannixImport || {}) };
@@ -8535,9 +8889,11 @@ function App() {
         else if (operation.type === "color") {
           const [r = 0, g = 0, b = 0] = operation.value;
           strokeColor = `#${[r, g, b].map(value => Math.min(255, Math.max(0, Math.round(value))).toString(16).padStart(2, "0")).join("")}`;
+          iannixImport.authoredColor = true;
         } else if (operation.type === "colorHue") {
           const [h = 0, s = 0, lightness = 0] = operation.value;
           strokeColor = `hsl(${((h % 360) + 360) % 360} ${Math.min(100, Math.max(0, s / 2.55))}% ${Math.min(80, Math.max(20, lightness / 5.1))}%)`;
+          iannixImport.authoredColor = true;
         } else if (operation.type === "message") iannix = { ...iannix, trigger: { ...iannix.trigger, midiPattern: operation.value, midiEnabled: String(operation.value).includes("midi://") } };
         else if (operation.type === "pattern") iannixImport.pattern = operation.value;
         else if (operation.type === "curve") {
@@ -8618,6 +8974,8 @@ function App() {
           <button type="button" className="iannix-flat-button" onClick={() => void pasteDraweratorScene()}>Paste scene JSON</button>
           <button type="button" className="iannix-flat-button" onClick={copyDraweratorSelection} disabled={selectedCount === 0}>Copy selection JSON</button>
           <button type="button" className="iannix-flat-button" onClick={pasteDraweratorSelection}>Paste selection JSON</button>
+          <button type="button" className="iannix-flat-button" onClick={() => void copySelectionAsSvg()} disabled={selectedCount === 0}>Copy selection SVG</button>
+          <button type="button" className="iannix-flat-button" onClick={() => void pasteSvgAsEditable()}>Paste SVG as paths</button>
         </div>
         {sceneExchangeStatus && <div className="iannix-midi-status" role="status">{sceneExchangeStatus}</div>}
       </InspectorSection>
@@ -11095,6 +11453,20 @@ function App() {
               </div>
             </label>
             {[
+              ["Foreground", "Primary text and default canvas-line color used throughout Drawerator and Excalidraw. Score roles can still override it in Score object theme.", foregroundColor, foregroundOpacity, setForegroundColor, setForegroundOpacity, "drawerator_foreground"],
+              ["Muted foreground", "Secondary color for dimmed labels, metadata, and less prominent interface detail.", mutedColor, mutedOpacity, setMutedColor, setMutedOpacity, "drawerator_muted"],
+            ].map(([label, help, color, opacity, setColor, setOpacity, storageKey]) => (
+              <label className="settings-panel-field" key={storageKey} {...infoProps(label, `${help} ${CSS_COLOR_HELP}`)}>
+                <span>{label}</span>
+                <div className="settings-color-control" {...infoProps(`${label} color`, CSS_COLOR_HELP)}>
+                  <input type="color" value={colorInputHex(color)} style={{ backgroundColor: color }} onChange={event => { setInterfaceThemePreset("custom"); setColor(event.target.value); localStorage.setItem(`${storageKey}_color`, event.target.value); }} aria-label={`${label} color picker`} {...infoProps(label, CSS_COLOR_HELP)} />
+                  <input key={color} type="text" defaultValue={color} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, color, value => { setInterfaceThemePreset("custom"); setColor(value); localStorage.setItem(`${storageKey}_color`, value); })} onKeyDown={event => commitCssColorOnEnter(event, color, value => { setInterfaceThemePreset("custom"); setColor(value); localStorage.setItem(`${storageKey}_color`, value); })} aria-label={`${label} color value`} {...infoProps(label, CSS_COLOR_HELP)} />
+                  <input type="number" min="0" max="100" step="1" data-default="100" value={opacity} onChange={event => { const value = Number(event.target.value); setInterfaceThemePreset("custom"); setOpacity(value); localStorage.setItem(`${storageKey}_opacity`, String(value)); }} aria-label={`${label} opacity`} />
+                  <output>%</output>
+                </div>
+              </label>
+            ))}
+            {[
               ["panel", "Panel background", "Background shared by docked and floating Drawerator panels."],
               ["input", "Input field", "Background used by number boxes, text fields, dropdowns, and other editable controls."],
               ["timeline", "Subpanel background", "Background shared by nested work areas, including timeline lanes, mixer tracks, and script editors. The active loop remains a subtle accent overlay."],
@@ -11604,17 +11976,65 @@ function App() {
     setModifierUpdateNonce(nonce => nonce + 1);
   };
 
-  const updateSceneObjectProperty = (elementId, path, value) => updateSceneObject(elementId, element => {
-    let target = element;
-    for (let index = 0; index < path.length - 1; index += 1) target = target[path[index]];
-    target[path.at(-1)] = value;
-    if (path[0] === "customData" && path.includes("modifiers")) {
-      element.customData.version = (element.customData.version || 0) + 1;
-    }
-    if (path[0] === "customData" && path[1] === "draweratorGeometry") {
-      Object.assign(element, setElementBezierGeometry(element, element.customData.draweratorGeometry));
-    }
-  });
+  const updateSceneObjectProperty = (elementIds, path, value) => {
+    if (!excalidrawAPI) return;
+    const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+    const hasEditablePath = element => {
+      let target = element;
+      for (let index = 0; index < path.length - 1; index += 1) {
+        if (target == null || !Object.prototype.hasOwnProperty.call(target, path[index])) return false;
+        target = target[path[index]];
+      }
+      const lastKey = path.at(-1);
+      return target != null && Object.prototype.hasOwnProperty.call(target, lastKey);
+    };
+    const requestedIds = Array.isArray(elementIds) ? elementIds : [elementIds];
+    const selectedElements = elements.filter(element => selectedElementIds[element.id] && !element.isDeleted);
+    const selectedValues = selectedElements.map(element => {
+      let target = element;
+      for (const segment of path) target = target?.[segment];
+      return target;
+    });
+    // The property list is rendered once per selected element. Prefer the live
+    // Excalidraw selection whenever every selected element has a compatible
+    // editable field, so editing any of the duplicate rows updates the whole
+    // shared selection instead of just the row that initiated the edit.
+    const selectionHasSharedPath = selectedElements.length > 1
+      && selectedElements.every(hasEditablePath)
+      && selectedValues.every(candidate => typeof candidate === typeof value);
+    const ids = new Set(selectionHasSharedPath
+      ? selectedElements.map(element => element.id)
+      : requestedIds);
+    let changed = false;
+    const nextElements = elements.map(element => {
+      if (!ids.has(element.id)) return element;
+      let source = element;
+      for (let index = 0; index < path.length - 1; index += 1) {
+        if (source == null || !Object.prototype.hasOwnProperty.call(source, path[index])) return element;
+        source = source[path[index]];
+      }
+      const lastKey = path.at(-1);
+      if (source == null || !Object.prototype.hasOwnProperty.call(source, lastKey)) return element;
+      const next = structuredClone(element);
+      let target = next;
+      for (let index = 0; index < path.length - 1; index += 1) target = target[path[index]];
+      target[lastKey] = value;
+      if (path[0] === "customData" && path.includes("modifiers")) {
+        next.customData.version = (next.customData.version || 0) + 1;
+      }
+      if (path[0] === "customData" && path[1] === "draweratorGeometry") {
+        Object.assign(next, setElementBezierGeometry(next, next.customData.draweratorGeometry));
+      }
+      next.version = (element.version || 0) + 1;
+      next.versionNonce = Math.floor(Math.random() * 0x7fffffff);
+      next.updated = Date.now();
+      changed = true;
+      return next;
+    });
+    if (!changed) return;
+    excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
+    setModifierUpdateNonce(nonce => nonce + 1);
+  };
 
   const sidePanels = DRAWERATOR_PANELS.filter(panel => panel.placements.includes(PANEL_PLACEMENTS.LEFT) || panel.placements.includes(PANEL_PLACEMENTS.RIGHT));
   const horizontalPanels = DRAWERATOR_PANELS.filter(panel => panel.placements.includes(PANEL_PLACEMENTS.BOTTOM));
@@ -11666,6 +12086,8 @@ function App() {
       style={{
         "--drawerator-accent": colorWithOpacity(accentColor, accentOpacity),
         "--drawerator-highlight": colorWithOpacity(highlightColor, highlightOpacity),
+        "--drawerator-foreground": colorWithOpacity(foregroundColor, foregroundOpacity),
+        "--drawerator-muted": colorWithOpacity(mutedColor, mutedOpacity),
         "--drawerator-panel-bg": colorWithOpacity(interfaceTheme.panel.color, interfaceTheme.panel.opacity),
         "--drawerator-input-bg": colorWithOpacity(interfaceTheme.input.color, interfaceTheme.input.opacity),
         "--drawerator-timeline-lane-bg": colorWithOpacity(interfaceTheme.timeline.color, interfaceTheme.timeline.opacity),
@@ -13541,6 +13963,43 @@ function App() {
           }}
           onPointerDown={(e) => e.stopPropagation()}
         >
+          {customContextMenu.showSvgActions && (
+            <>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void copySelectionAsSvg();
+                  setCustomContextMenu(null);
+                }}
+                className="custom-floating-context-menu-btn"
+                disabled={!customContextMenu.hasSelection}
+                title="Copy the selected Drawerator objects as editable SVG paths"
+              >
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                  <rect x="9" y="9" width="11" height="11" rx="1" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 9V5a1 1 0 00-1-1H5a1 1 0 00-1 1v9a1 1 0 001 1h4" />
+                </svg>
+                Copy Selection as SVG
+              </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void pasteSvgAsEditable();
+                  setCustomContextMenu(null);
+                }}
+                className="custom-floating-context-menu-btn"
+                title="Read SVG from the system clipboard and add it as editable Drawerator paths"
+              >
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v10m0 0l-4-4m4 4l4-4M5 20h14" />
+                </svg>
+                Paste SVG as Editable Paths
+              </button>
+              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showAddCursor || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
+            </>
+          )}
           {customContextMenu.showRestore && (
             <button
               onPointerDown={(e) => {

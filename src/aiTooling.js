@@ -1,3 +1,5 @@
+import { buildRelevantScriptAuthoringGuide } from "./scriptAuthoring.js";
+
 const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 
 /**
@@ -40,14 +42,17 @@ export const isAICommandAllowed = (id, commands) => (commands || []).some(comman
   command?.id === id && command?.ai?.expose === true
 ));
 
-export const buildAIAutomationGuide = commands => {
+export const buildAIAutomationGuide = (commands, options = {}) => {
   const catalog = buildAICommandCatalog(commands);
+  const scriptGuide = buildRelevantScriptAuthoringGuide(options.prompt);
   return [
     "Drawerator automation",
     "Use only <drawerator-command id=\"stable.id\">JSON</drawerator-command> tags for actions.",
     "Commands run in the order written. Use high-level scene.create.objects and scene.patch.objects; do not construct raw Excalidraw snapshots.",
+    "For visual drawing, use scene.create.objects (rectangle, ellipse, diamond, line, or freedraw), then scene.patch.objects, score.roles.assign, script.brush.apply, or automation.keyframes.set as needed.",
     "Never request, expose, or alter credentials, API keys, tokens, provider endpoints, local storage, or browser permissions.",
     "Give a brief explanation before action tags. If an action needs an object id, use the id from scene context or give a new object an explicit id.",
+    scriptGuide,
     `Available actions: ${JSON.stringify(catalog)}`,
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 };

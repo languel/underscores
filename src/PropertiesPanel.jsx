@@ -15,6 +15,18 @@ const primitiveText = value => {
 
 const canEditPath = path => !path.some(segment => READ_ONLY_KEYS.has(String(segment)));
 
+const readPath = (value, path) => path.reduce((current, segment) => (
+  current != null && Object.prototype.hasOwnProperty.call(current, segment) ? current[segment] : undefined
+), value);
+
+const isSharedEditablePath = (elements, path) => {
+  if (elements.length < 2 || !canEditPath(path)) return false;
+  const values = elements.map(element => readPath(element, path));
+  if (values.some(value => value === undefined)) return false;
+  const types = new Set(values.map(value => typeof value));
+  return types.size === 1 && (["boolean", "number", "string"].includes(values[0]) || Boolean(enumOptionsForPath(path)));
+};
+
 const enumOptionsForPath = path => {
   const key = String(path.at(-1) || "");
   const joined = path.map(String).join(".");
@@ -46,6 +58,12 @@ const collectLeafPaths = (value, path = []) => {
   return entries.flatMap(([key, item]) => collectLeafPaths(item, [...path, key]));
 };
 
+const collectLeafEntries = (value, path = []) => {
+  if (value === null || typeof value !== "object") return [{ path, value }];
+  const entries = Array.isArray(value) ? value.map((item, index) => [index, item]) : Object.entries(value);
+  return entries.flatMap(([key, item]) => collectLeafEntries(item, [...path, key]));
+};
+
 const pathMatches = (path, query) => {
   if (!query?.needle) return true;
   const segments = path.map(segment => String(segment).toLowerCase());
@@ -54,8 +72,16 @@ const pathMatches = (path, query) => {
   return segments.some(segment => segment.includes(query.needle)) || fullPath.includes(query.needle);
 };
 
+const leafMatches = (value, path, query) => {
+  if (pathMatches(path, query)) return true;
+  // A non-field query is also useful for retained imported metadata such as
+  // customData.iannixImport.group = "lines". Exact field-name filtering keeps
+  // its existing narrow behaviour once a field name is recognised.
+  return Boolean(query?.needle && !query.exactOnly && String(value ?? "").toLowerCase().includes(query.needle));
+};
+
 const nodeMatches = (value, path, query) => {
-  if (value === null || typeof value !== "object") return pathMatches(path, query);
+  if (value === null || typeof value !== "object") return leafMatches(value, path, query);
   const entries = Array.isArray(value) ? value.map((item, index) => [index, item]) : Object.entries(value);
   return entries.some(([key, item]) => nodeMatches(item, [...path, key], query));
 };
@@ -94,13 +120,13 @@ const EditableValue = ({ value, path, onChange }) => {
   return <code>{primitiveText(value)}</code>;
 };
 
-const PropertyNode = ({ name, value, depth = 0, path = [], query, onChange }) => {
+const PropertyNode = ({ name, value, depth = 0, path = [], query, onChange, isSharedPath }) => {
   const nested = value !== null && typeof value === "object";
   if (!nested) {
-    if (!pathMatches(path, query)) return null;
+    if (!leafMatches(value, path, query)) return null;
     const editable = canEditPath(path) && (Boolean(enumOptionsForPath(path)) || ["boolean", "number", "string"].includes(typeof value));
     return <div className={`properties-row ${editable ? "editable" : "readonly"}`}><span>{name}</span>{editable
-      ? <EditableValue value={value} path={path} onChange={next => onChange(path, next)} />
+      ? <EditableValue value={value} path={path} onChange={next => onChange(path, next, isSharedPath?.(path))} />
       : <code>{primitiveText(value)}</code>}</div>;
   }
   const entries = Array.isArray(value) ? value.map((item, index) => [index, item]) : Object.entries(value);
@@ -112,7 +138,7 @@ const PropertyNode = ({ name, value, depth = 0, path = [], query, onChange }) =>
     <details className="properties-group" open={query?.needle ? true : depth < 1}>
       <summary><span>{name}</span><small>{Array.isArray(value) ? `[${visibleEntries.length}]` : `{${visibleEntries.length}}`}</small></summary>
       <div className="properties-children">
-        {visibleEntries.map(([key, item]) => <PropertyNode key={key} name={String(key)} value={item} depth={depth + 1} path={[...path, key]} query={query} onChange={onChange} />)}
+        {visibleEntries.map(([key, item]) => <PropertyNode key={key} name={String(key)} value={item} depth={depth + 1} path={[...path, key]} query={query} onChange={onChange} isSharedPath={isSharedPath} />)}
       </div>
     </details>
   );
@@ -135,8 +161,9 @@ const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange,
     return { needle, exactOnly };
   }, [elements, filter]);
   const matchingFieldCount = useMemo(() => elements.reduce((count, element) => (
-    count + collectLeafPaths(element).filter(path => pathMatches(path, query)).length
+    count + collectLeafEntries(element).filter(entry => leafMatches(entry.value, entry.path, query)).length
   ), 0), [elements, query]);
+  const sharedPath = path => isSharedEditablePath(elements, path);
 
   const beginRename = element => {
     setActiveObjectId(element.id);
@@ -168,7 +195,7 @@ const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange,
       </div>
       <div className="properties-list">
         {matchingFieldCount ? elements.map(element => {
-          const elementMatchCount = collectLeafPaths(element).filter(path => pathMatches(path, query)).length;
+          const elementMatchCount = collectLeafEntries(element).filter(entry => leafMatches(entry.value, entry.path, query)).length;
           if (!elementMatchCount) return null;
           const label = element.customData?.iannix?.label;
           return (
@@ -185,7 +212,13 @@ const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange,
                   <code>{element.type}{label ? ` · ${element.id}` : ""}</code>
                 </div>
               </div>
-              <PropertyNode name="object" value={element} query={query} onChange={(path, value) => onChange(element.id, path, value)} />
+              <PropertyNode
+                name="object"
+                value={element}
+                query={query}
+                isSharedPath={sharedPath}
+                onChange={(path, value, shared) => onChange(shared ? elements.map(item => item.id) : [element.id], path, value)}
+              />
             </section>
           );
         }) : <div className="scene-panel-empty compact">No matching properties.</div>}

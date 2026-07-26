@@ -13,7 +13,9 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
     const needle = query.trim().toLowerCase();
     return elements
       .filter(element => !element.isDeleted)
-      .filter(element => !needle || `${element.type} ${element.id} ${element.customData?.iannix?.label || ""}`.toLowerCase().includes(needle));
+      .filter(element => !needle || `${
+        element.type
+      } ${element.id} ${element.customData?.iannix?.label || ""} ${element.customData?.iannixImport?.externalId || ""} ${element.customData?.iannixImport?.group || ""}`.toLowerCase().includes(needle));
   }, [elements, query]);
 
   useEffect(() => {
@@ -87,7 +89,7 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
   return (
     <div className="outliner-panel">
       <div className="outliner-toolbar">
-        <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter scene" aria-label="Filter scene objects" {...infoProps("Filter scene", "Filter Outliner rows by object type, ID, or score label.")} />
+        <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter scene" aria-label="Filter scene objects" {...infoProps("Filter scene", "Filter Outliner rows by object type, ID, score label, IanniX external ID, or IanniX group.")} />
         <button
           type="button"
           className="outliner-name-mode"

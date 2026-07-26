@@ -30,3 +30,11 @@ test("AI catalog exposes only explicitly allowed commands", () => {
   assert.equal(isAICommandAllowed("scene.create.objects", commands), true);
   assert.equal(isAICommandAllowed("settings.secret", commands), false);
 });
+
+test("AI guide injects the relevant script contract only for a script request", () => {
+  const commands = [{ id: "script.iannix.create", ai: { expose: true, description: "Create IanniX script" } }];
+  const iannixGuide = buildAIAutomationGuide(commands, { prompt: "Write an IanniX score script for three orbits" });
+  assert.match(iannixGuide, /IanniX-compatible script contract/);
+  assert.match(iannixGuide, /makeWithScript/);
+  assert.doesNotMatch(buildAIAutomationGuide(commands, { prompt: "Draw a blue circle" }), /IanniX-compatible script contract/);
+});

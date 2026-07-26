@@ -96,6 +96,10 @@ The Scene data section can execute an explicitly trusted `.iannix`/JavaScript sc
 
 This is trusted executable compatibility mode, not a sandbox or security boundary. Drawerator always presents a warning before file execution.
 
+### AI-authored scripts
+
+The AI Assistant receives a compact IanniX-specific authoring contract only for IanniX or score-script requests. AI source must define `makeWithScript()` or `madeThroughGUI()` and create the score through supported `run("command …")` families; it must not use browser APIs, `Date`, storage, network access, or generic JavaScript return values as a substitute for IanniX commands. Drawerator compiles and statically checks AI source before saving or running it, reports unsupported commands to the chat, and leaves existing scripts untouched on failure. Brush/modifier source is checked similarly: it must be a `(points, globals) => tracks` function that returns drawable tracks.
+
 ### One-line commands from the command palette
 
 The command palette accepts `/ix <command>` (and the longer `/iannix <command>`) and passes the remaining text to the same trusted interactive compatibility executor used by the IanniX panel. For example, `/ix clear` is also listed as **IanniX: Clear Scene** and clears objects, score runtime state, and selection without the browser confirmation used by Excalidraw's native clear action. It preserves the active Drawerator canvas/theme background. Commands that target the current object, `@selection`, or `#id` / `#label` use the same selection expansion rules as the IanniX command line.
