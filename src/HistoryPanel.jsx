@@ -22,12 +22,14 @@ const HistoryPanel = memo(function HistoryPanel({
   commands = [],
   macros = [],
   includePresentation,
+  presentationMode = false,
   emitMidi,
   showPointer,
   clockMode,
   recordFilter,
   timeContext,
   onIncludePresentationChange,
+  onPresentationModeChange,
   onEmitMidiChange,
   onShowPointerChange,
   onClockModeChange,
@@ -127,6 +129,7 @@ const HistoryPanel = memo(function HistoryPanel({
           </select>
         </label>
         <label {...infoProps("Presentation", "Include panel, view, and other presentation-only actions in the recording.")}><span>Presentation</span><input type="checkbox" checked={includePresentation} onChange={event => onIncludePresentationChange(event.target.checked)} /></label>
+        <label {...infoProps("Live presentation mode", "Show embeds configured as Presentation only. Use this for lectures or playback; web pages remain hidden when it is off.")}><span>Live presentation</span><input type="checkbox" checked={presentationMode} onChange={event => onPresentationModeChange?.(event.target.checked)} /></label>
         <label {...infoProps("MIDI armed", "Recorded MIDI is sent to the currently selected route only while this is armed.")}><span>MIDI armed</span><input type="checkbox" checked={emitMidi} onChange={event => onEmitMidiChange(event.target.checked)} /></label>
         <label {...infoProps("Pointer", "Show the recorded pointer position during History playback.")}><span>Pointer</span><input type="checkbox" checked={showPointer} onChange={event => onShowPointerChange(event.target.checked)} /></label>
         <div className="history-file-actions">

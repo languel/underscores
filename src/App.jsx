@@ -19,6 +19,7 @@ import TransportTimeline from "./TransportTimeline.jsx";
 import HistoryPanel from "./HistoryPanel.jsx";
 import EventConsole from "./EventConsole.jsx";
 import PropertiesPanel from "./PropertiesPanel.jsx";
+import { embedPolicyForElement, isAllowedEmbedURL, sanitizeEmbedURL, shouldRenderEmbed } from "./embedPolicy.js";
 import OutlinerPanel from "./OutlinerPanel.jsx";
 import IannixDataPanel from "./IannixDataPanel.jsx";
 import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, parseGenericCommandSlash } from "./commandSystem.js";
@@ -1840,6 +1841,7 @@ function App() {
   const [commandSearch, setCommandSearch] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [satoriMode, setSatoriMode] = useState(true);
+  const [presentationMode, setPresentationMode] = useState(() => localStorage.getItem("drawerator_presentation_mode") === "true");
   const [zenMode, setZenMode] = useState(false);
   const [showToolbarHints, setShowToolbarHints] = useState(() => {
     const saved = localStorage.getItem("drawerator_show_toolbar_hints");
@@ -1857,6 +1859,9 @@ function App() {
     const saved = localStorage.getItem("drawerator_default_stabilizer_damping");
     return saved ? parseFloat(saved) : 0.12;
   });
+  useEffect(() => {
+    localStorage.setItem("drawerator_presentation_mode", String(presentationMode));
+  }, [presentationMode]);
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
   const [modsPanelTab, setModsPanelTab] = useState("stack");
   const [iannixPanelTab, setIannixPanelTab] = useState("data");
@@ -3822,6 +3827,12 @@ function App() {
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
     if (e.button !== 0) return;
     gridInteractionRef.current = { moving: false, resizing: false, pointEditing: false, pointIndices: null };
+
+    // An interactive embed owns its pointer session. Without this guard our
+    // canvas capture handler can still begin a selection/drawing operation as
+    // the iframe receives focus, which makes interactive presentation embeds
+    // feel unreliable.
+    if (e.target?.closest?.(".drawerator-embed-interactive")) return;
 
     if (handleBezierPointerDown(e)) return;
 
@@ -6323,6 +6334,7 @@ function App() {
     { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "workspace.reset.defaults", name: "Reset Workspace to Defaults /reset defaults", aliases: ["/reset defaults", "/workspace reset", "Reset to defaults"], category: "Settings", record: "presentation", action: () => resetBoardSettingsToDefaults() },
     { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => { applyingRecordedUiStateRef.current = true; setSatoriMode(prev => !prev); finishApplyingRecordedUiState(); } },
+    { id: "presentation.toggle", name: "Toggle Presentation Mode /presentation", aliases: ["/presentation", "/present", "Presentation mode"], category: "View", record: "presentation", action: () => setPresentationMode(previous => { const next = !previous; localStorage.setItem("drawerator_presentation_mode", String(next)); return next; }) },
     { id: "toggle-theme", name: "Toggle Dark/Light Theme", category: "View", action: (api) => {
       toggleDraweratorTheme(api);
     } },
@@ -11240,6 +11252,7 @@ function App() {
     setDockPreview(null);
     setShowCommandPalette(false);
     setSatoriMode(true);
+    setPresentationMode(false);
     setForceDesktopLayout(true);
     setShowToolbarHints(false);
     setShowBottomNotifications(false);
@@ -11255,6 +11268,7 @@ function App() {
     localStorage.setItem("drawerator_show_debug_layer", "false");
     localStorage.setItem("drawerator_default_stabilizer_damping", "0.12");
     localStorage.setItem("drawerator_custom_brush_roundness", "false");
+    localStorage.setItem("drawerator_presentation_mode", "false");
     excalidrawAPI?.updateScene({
       appState: {
         currentItemRoughness: 0,
@@ -11980,6 +11994,7 @@ function App() {
     if (!excalidrawAPI) return;
     const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
     const hasEditablePath = element => {
+      if (path[0] === "customData" && path.length > 1) return true;
       let target = element;
       for (let index = 0; index < path.length - 1; index += 1) {
         if (target == null || !Object.prototype.hasOwnProperty.call(target, path[index])) return false;
@@ -12008,16 +12023,14 @@ function App() {
     let changed = false;
     const nextElements = elements.map(element => {
       if (!ids.has(element.id)) return element;
-      let source = element;
-      for (let index = 0; index < path.length - 1; index += 1) {
-        if (source == null || !Object.prototype.hasOwnProperty.call(source, path[index])) return element;
-        source = source[path[index]];
-      }
       const lastKey = path.at(-1);
-      if (source == null || !Object.prototype.hasOwnProperty.call(source, lastKey)) return element;
       const next = structuredClone(element);
       let target = next;
-      for (let index = 0; index < path.length - 1; index += 1) target = target[path[index]];
+      for (let index = 0; index < path.length - 1; index += 1) {
+        const segment = path[index];
+        if (target[segment] == null || typeof target[segment] !== "object") target[segment] = {};
+        target = target[segment];
+      }
       target[lastKey] = value;
       if (path[0] === "customData" && path.includes("modifiers")) {
         next.customData.version = (next.customData.version || 0) + 1;
@@ -12070,6 +12083,53 @@ function App() {
   const bottomDockExpandedHeight = Math.max(BOTTOM_DOCK_MIN_HEIGHT, dockSizes.bottom);
   const bottomDockHeight = collapsedDocks.bottom ? COLLAPSED_DOCK_EDGE_SIZE : bottomDockExpandedHeight;
   const expressivePrograms = getExpressiveSynthPrograms(expressiveSynthConfig);
+  const renderEmbeddable = (element) => {
+    const policy = embedPolicyForElement(element);
+    const url = sanitizeEmbedURL(element?.link);
+    const visible = shouldRenderEmbed(policy, presentationMode);
+    const label = visible ? "Embedded web content" : (policy.display === "presentation" ? "Embed hidden outside presentation mode" : "Embed disabled");
+    if (!url || !visible) return <div className="drawerator-embed-placeholder" aria-label={label}>{label}</div>;
+    const crop = {
+      top: policy.cropTop,
+      right: policy.cropRight,
+      bottom: policy.cropBottom,
+      left: policy.cropLeft,
+    };
+    const applySameOriginCSS = iframe => {
+      if (!iframe || !policy.css.trim()) return;
+      try {
+        const document = iframe.contentDocument;
+        if (!document || document.location.origin !== window.location.origin) return;
+        let style = document.querySelector("style[data-drawerator-embed-css]");
+        if (!style) {
+          style = document.createElement("style");
+          style.dataset.draweratorEmbedCss = "";
+          document.head?.appendChild(style);
+        }
+        style.textContent = policy.css;
+      } catch {
+        // Cross-origin documents are intentionally inaccessible to the host.
+      }
+    };
+    return <div className={`drawerator-embed-viewport ${policy.allowInteraction ? "drawerator-embed-interactive" : ""}`}>
+      <iframe
+        className="drawerator-embed-frame"
+        title={label}
+        src={url}
+        style={{
+          width: `calc(100% + ${crop.left + crop.right}px)`,
+          height: `calc(100% + ${crop.top + crop.bottom}px)`,
+          transform: `translate(${-crop.left}px, ${-crop.top}px)`,
+          pointerEvents: policy.allowInteraction ? "auto" : "none",
+        }}
+        onLoad={event => applySameOriginCSS(event.currentTarget)}
+        sandbox="allow-scripts allow-same-origin allow-presentation allow-forms"
+        allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+        allowFullScreen
+        referrerPolicy="no-referrer-when-downgrade"
+      />
+    </div>;
+  };
   const updateInfoViewFromEvent = event => {
     const target = event.target?.closest?.("[data-info]");
     if (!target) return;
@@ -12117,6 +12177,8 @@ function App() {
         <Excalidraw 
           theme={theme} 
           gridModeEnabled={false}
+          validateEmbeddable={isAllowedEmbedURL}
+          renderEmbeddable={renderEmbeddable}
           excalidrawAPI={(api) => setExcalidrawAPI(api)} 
           getFormFactor={(width, height) => {
             if (forceDesktopLayout) {
@@ -13178,12 +13240,14 @@ function App() {
               commands={commandRegistry.list()}
               macros={historyMacros}
               includePresentation={historyIncludePresentation}
+              presentationMode={presentationMode}
               emitMidi={historyMidiArmed}
               showPointer={historyShowPointer}
               clockMode={historyClockMode}
               recordFilter={historyRecordFilter}
               timeContext={timeContext}
               onIncludePresentationChange={setHistoryIncludePresentation}
+              onPresentationModeChange={setPresentationMode}
               onEmitMidiChange={setHistoryMidiArmed}
               onShowPointerChange={setHistoryShowPointer}
               onClockModeChange={mode => {

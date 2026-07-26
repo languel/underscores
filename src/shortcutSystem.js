@@ -27,6 +27,7 @@ export const SHORTCUT_ACTIONS = Object.freeze([
   { id: "toggle-theme", commandId: "toggle-theme", label: "Light / dark theme", defaultBinding: "Alt+Shift+KeyD" },
   { id: "toggle-transparency", commandId: "toggle-transparency", label: "Canvas transparency", defaultBinding: "Mod+Shift+Digit0" },
   { id: "toggle-satori", commandId: "toggle-satori", label: "Satori mode", defaultBinding: "Mod+Ctrl+KeyZ" },
+  { id: "presentation.toggle", commandId: "presentation.toggle", label: "Presentation mode", defaultBinding: "Mod+Ctrl+KeyP" },
   { id: "view.frameAll", commandId: "view.frameAll", label: "Frame all objects", defaultBinding: "Home" },
   { id: "view.frameSelected", commandId: "view.frameSelected", label: "Frame selection", defaultBinding: "Shift+Home" },
   { id: "modpen.toggle", label: "Mod Pen", defaultBinding: "Shift+KeyP" },

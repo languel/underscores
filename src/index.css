@@ -3230,9 +3230,19 @@ a.iannix-flat-button {
 .properties-row code { overflow-wrap: anywhere; color: var(--color-primary); }
 .properties-row input[type="text"],
 .properties-row input[type="number"],
+.properties-row input[type="url"],
 .properties-row select { min-width: 0; width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--color-primary); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.properties-row input.properties-embed-url { color: var(--drawerator-foreground, var(--color-primary)) !important; caret-color: var(--drawerator-foreground, var(--color-primary)); -webkit-text-fill-color: var(--drawerator-foreground, var(--color-primary)); }
 .properties-row input[type="checkbox"] { justify-self: start; accent-color: var(--drawerator-accent); }
 .properties-row.readonly code { opacity: .72; }
+.properties-embed-group { background: color-mix(in srgb, var(--drawerator-panel-bg, transparent) 92%, var(--drawerator-highlight, transparent)); }
+.properties-embed-note { margin: 0; padding: 4px 9px 8px; color: var(--color-secondary); font-size: 10px; line-height: 1.35; }
+.properties-row.properties-embed-css { align-items: start; }
+.properties-embed-css textarea { width: 100%; min-height: 54px; resize: vertical; box-sizing: border-box; padding: 4px 5px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--drawerator-foreground, var(--color-primary)); font: 10px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.drawerator-embed-viewport { position: relative; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+.drawerator-embed-frame { display: block; border: 0; background: transparent; }
+.drawerator-embed-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; min-height: 48px; box-sizing: border-box; padding: 12px; color: var(--color-secondary); background: var(--drawerator-panel-bg, transparent); font-size: 12px; text-align: center; }
 
 .outliner-panel { display: flex; flex-direction: column; overflow: hidden; }
 .outliner-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.24)); }

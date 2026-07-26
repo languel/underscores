@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { EMBED_DISPLAY_MODES, embedPolicyForElement, getEmbedProvider } from "./embedPolicy.js";
 
 const READ_ONLY_KEYS = new Set([
   "id", "type", "width", "height", "version", "versionNonce", "updated", "index", "seed",
@@ -144,6 +145,34 @@ const PropertyNode = ({ name, value, depth = 0, path = [], query, onChange, isSh
   );
 };
 
+const EmbedControls = ({ element, query, onChange }) => {
+  if (element?.type !== "embeddable") return null;
+  const policy = embedPolicyForElement(element);
+  const matches = name => !query?.needle || ["embed", "link", "url", "provider", "enabled", "display", "interaction", "crop", "css", name].some(value => value.includes(query.needle));
+  if (query?.needle && !matches("embed")) return null;
+  return (
+    <details className="properties-group properties-embed-group" open>
+      <summary><span>embed</span><small>{getEmbedProvider(element.link)}</small></summary>
+      <div className="properties-children">
+        {matches("link") && <div className="properties-row editable"><span>url</span><input className="properties-embed-url" type="url" value={element.link || ""} onChange={event => onChange(["link"], event.target.value)} /></div>}
+        {matches("enabled") && <div className="properties-row editable"><span>enabled</span><input type="checkbox" checked={policy.enabled} onChange={event => onChange(["customData", "draweratorEmbed", "enabled"], event.target.checked)} /></div>}
+        {matches("display") && <div className="properties-row editable"><span>display</span><select value={policy.display} onChange={event => onChange(["customData", "draweratorEmbed", "display"], event.target.value)}>{EMBED_DISPLAY_MODES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>}
+        {matches("interaction") && <div className="properties-row editable"><span>interact</span><input type="checkbox" checked={policy.allowInteraction} onChange={event => onChange(["customData", "draweratorEmbed", "allowInteraction"], event.target.checked)} /></div>}
+        {matches("crop") && [["cropTop", "crop top"], ["cropRight", "crop right"], ["cropBottom", "crop bottom"], ["cropLeft", "crop left"]].map(([key, label]) => <div className="properties-row editable" key={key}><span>{label} px</span><input type="number" min="0" step="1" value={policy[key]} onChange={event => onChange(["customData", "draweratorEmbed", key], Number.isFinite(event.target.valueAsNumber) ? event.target.valueAsNumber : 0)} /></div>)}
+        {matches("css") && <div className="properties-row properties-embed-css editable"><span>inject CSS</span><textarea value={policy.css} onChange={event => onChange(["customData", "draweratorEmbed", "css"], event.target.value)} placeholder="body { margin: 0; }" /></div>}
+        {!query?.needle && <p className="properties-embed-note">HTTP(S) only. “Presentation only” embeds appear when Live presentation mode is enabled. Interact passes mouse input to the page; turn it off to select or transform the embed. Crop hides fixed page chrome. CSS is injected only into same-origin embeds—browser security prevents it for external sites such as p5.js.</p>}
+      </div>
+    </details>
+  );
+};
+
+const embedMatchesQuery = (element, query) => {
+  if (element?.type !== "embeddable") return false;
+  if (!query?.needle) return true;
+  return ["embed", "link", "url", "provider", "enabled", "display", "interaction", "crop", "css"]
+    .some(value => value.includes(query.needle));
+};
+
 const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange, onRename }) {
   const [filter, setFilter] = useState("");
   const [activeObjectId, setActiveObjectId] = useState(null);
@@ -161,7 +190,9 @@ const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange,
     return { needle, exactOnly };
   }, [elements, filter]);
   const matchingFieldCount = useMemo(() => elements.reduce((count, element) => (
-    count + collectLeafEntries(element).filter(entry => leafMatches(entry.value, entry.path, query)).length
+    count
+      + collectLeafEntries(element).filter(entry => leafMatches(entry.value, entry.path, query)).length
+      + (embedMatchesQuery(element, query) ? 4 : 0)
   ), 0), [elements, query]);
   const sharedPath = path => isSharedEditablePath(elements, path);
 
@@ -195,7 +226,8 @@ const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange,
       </div>
       <div className="properties-list">
         {matchingFieldCount ? elements.map(element => {
-          const elementMatchCount = collectLeafEntries(element).filter(entry => leafMatches(entry.value, entry.path, query)).length;
+          const elementMatchCount = collectLeafEntries(element).filter(entry => leafMatches(entry.value, entry.path, query)).length
+            + (embedMatchesQuery(element, query) ? 4 : 0);
           if (!elementMatchCount) return null;
           const label = element.customData?.iannix?.label;
           return (
@@ -212,6 +244,7 @@ const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange,
                   <code>{element.type}{label ? ` · ${element.id}` : ""}</code>
                 </div>
               </div>
+              <EmbedControls element={element} query={query} onChange={(path, value) => onChange([element.id], path, value)} />
               <PropertyNode
                 name="object"
                 value={element}
