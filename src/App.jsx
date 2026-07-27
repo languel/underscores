@@ -69,8 +69,9 @@ import { createExpressiveSynthDemoScore } from "./expressiveSynthDemo.js";
 import ShortcutsPanel from "./ShortcutsPanel.jsx";
 import ScriptPanel from "./ScriptPanel.jsx";
 import { normalizeScriptType } from "./scriptTypes.js";
-import P5Frame from "./P5Frame.jsx";
-import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_FRAME_STORAGE_KEY, canHostP5Frame, isP5FrameElement, normalizeP5Frame, normalizeP5SourceMode } from "./p5Frame.js";
+import { P5FrameOverlay } from "./P5Frame.jsx";
+import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_FRAME_STORAGE_KEY, canHostP5Frame, getP5HostElementType, isP5FrameElement, normalizeP5Frame, normalizeP5Scripts, normalizeP5SourceMode, reconcileP5ScriptsWithElements, validateP5Source } from "./p5Frame.js";
+import { downloadCanvasAsPng, exportDraweratorPng } from "./p5Export.js";
 import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
 import { stepStrokeWidth } from "./strokeWidthShortcuts.js";
@@ -1733,6 +1734,7 @@ function App() {
   const [autoKeyEnabled, setAutoKeyEnabled] = useState(false);
   const [sessionPlaybackOverlay, setSessionPlaybackOverlay] = useState([]);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
+  const [transparentBoardExport, setTransparentBoardExport] = useState(() => localStorage.getItem("drawerator_export_transparent") === "true");
   const defaultInterfaceThemePreset = theme === "light" ? "monoLight" : DEFAULT_INTERFACE_THEME_PRESET;
   const [globalGrid, setGlobalGrid] = useState(() => {
     try {
@@ -1887,14 +1889,7 @@ function App() {
   const [p5Scripts, setP5Scripts] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(P5_FRAME_STORAGE_KEY) || "[]");
-      return Array.isArray(saved) ? saved.filter(script => script && typeof script === "object").map(script => ({
-        id: String(script.id || `p5-script-${crypto.randomUUID()}`),
-        name: String(script.name || "Untitled p5 sketch"),
-        source: typeof script.source === "string" ? script.source : DEFAULT_P5_SOURCE,
-        mode: normalizeP5SourceMode(script.mode),
-        createdAt: Number(script.createdAt) || Date.now(),
-        updatedAt: Number(script.updatedAt) || Date.now(),
-      })) : [];
+      return normalizeP5Scripts(saved);
     } catch {
       return [];
     }
@@ -1903,8 +1898,31 @@ function App() {
   const [p5ScriptSource, setP5ScriptSource] = useState("");
   const [p5ScriptMode, setP5ScriptMode] = useState("auto");
   const [p5ScriptStatus, setP5ScriptStatus] = useState("");
+  const [p5ScriptStatusKind, setP5ScriptStatusKind] = useState("info");
   const [editingP5ScriptName, setEditingP5ScriptName] = useState(false);
   const [p5ScriptNameDraft, setP5ScriptNameDraft] = useState("");
+  const [p5OverlayScene, setP5OverlayScene] = useState({ elements: [], appState: null });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const receiveP5Status = event => {
+      const detail = event.detail || {};
+      if (detail.scriptId && activeP5ScriptId && detail.scriptId !== activeP5ScriptId) return;
+      setP5ScriptStatus(String(detail.message || ""));
+      setP5ScriptStatusKind(detail.kind === "error" ? "error" : detail.kind === "success" ? "success" : "info");
+    };
+    window.addEventListener("drawerator:p5-status", receiveP5Status);
+    return () => window.removeEventListener("drawerator:p5-status", receiveP5Status);
+  }, [activeP5ScriptId]);
+
+  // The trust warning is introductory copy, not a second persistent status.
+  // A newly selected sketch starts with it, then compiler/runtime feedback owns
+  // this single footer line until the user changes scripts again.
+  useEffect(() => {
+    setP5ScriptStatus("");
+    setP5ScriptStatusKind("info");
+  }, [activeP5ScriptId]);
+
   const [scoreTime, setScoreTime] = useState(0);
   const [scorePlaying, setScorePlaying] = useState(false);
   const [scoreRate, setScoreRate] = useState(() => {
@@ -2079,6 +2097,7 @@ function App() {
   const brushImportInputRef = useRef(null);
   const p5ImportInputRef = useRef(null);
   const excalidrawAPIRef = useRef(null);
+  const p5OverlaySyncRef = useRef({ signature: "", pending: null, raf: 0 });
   const importSvgMarkupRef = useRef(null);
   const svgClipboardCacheRef = useRef(null);
   const scoreTimeRef = useRef(scoreTime);
@@ -2726,6 +2745,39 @@ function App() {
   useEffect(() => {
     localStorage.setItem(P5_FRAME_STORAGE_KEY, JSON.stringify(p5Scripts));
   }, [p5Scripts]);
+
+  // Earlier builds represented p5 runners as Excalidraw embeddables backed by
+  // synthetic drawerator.local URLs. Convert any still-live legacy runner as
+  // soon as the canvas is available so its URL card and link affordances never
+  // reappear after a refresh.
+  useEffect(() => {
+    if (!excalidrawAPI) return;
+    const elements = excalidrawAPI.getSceneElementsIncludingDeleted?.() || excalidrawAPI.getSceneElements();
+    const hasLegacyP5Embed = elements.some(element => (
+      !element.isDeleted
+      && isP5FrameElement(element)
+      && (element.type === "embeddable" || Boolean(element.link) || Boolean(element.validated))
+    ));
+    if (!hasLegacyP5Embed) return;
+    const reconciled = reconcileP5ScriptsWithElements(p5Scripts, elements);
+    excalidrawAPI.updateScene({ elements: reconciled.elements, commitToHistory: false });
+    setP5Scripts(reconciled.scripts);
+  }, [excalidrawAPI, p5Scripts]);
+
+  // Excalidraw normally emits an initial onChange, but explicitly seed the
+  // Drawerator p5 overlay as well. This keeps imported/opened p5 hosts live
+  // even when a host environment delays that first scene notification.
+  useEffect(() => {
+    if (!excalidrawAPI) return;
+    const elements = excalidrawAPI.getSceneElementsIncludingDeleted?.() || excalidrawAPI.getSceneElements();
+    syncP5Overlay(elements, excalidrawAPI.getAppState());
+  }, [excalidrawAPI]);
+
+  useEffect(() => () => {
+    if (p5OverlaySyncRef.current.raf) {
+      cancelAnimationFrame(p5OverlaySyncRef.current.raf);
+    }
+  }, []);
 
   useEffect(() => {
     if (activeIannixScriptId || iannixScripts.length === 0) return;
@@ -3545,8 +3597,10 @@ function App() {
       setP5ScriptNameDraft(script.name);
       setEditingP5ScriptName(true);
       setP5ScriptStatus(`Imported “${script.name}”.`);
+      setP5ScriptStatusKind("success");
     } catch (error) {
       setP5ScriptStatus(error.message || "Could not import the p5 sketch.");
+      setP5ScriptStatusKind("error");
     }
   };
 
@@ -4783,6 +4837,8 @@ function App() {
         allSharp: capabilities.allSharp,
         allRound: capabilities.allRound,
         showSvgActions: true,
+        showBoardExport: true,
+        showP5FrameExport: selectedContextElements.some(isP5FrameElement),
         hasSelection: true,
       });
     } else {
@@ -4790,6 +4846,8 @@ function App() {
         x: e.clientX,
         y: e.clientY,
         showSvgActions: true,
+        showBoardExport: true,
+        showP5FrameExport: false,
         hasSelection: false,
       });
     }
@@ -5586,6 +5644,10 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
+    localStorage.setItem("drawerator_export_transparent", String(transparentBoardExport));
+  }, [transparentBoardExport]);
+
+  useEffect(() => {
     localStorage.setItem("drawerator_interface_theme", JSON.stringify(interfaceTheme));
     localStorage.setItem("drawerator_interface_theme_preset", interfaceThemePreset);
   }, [interfaceTheme, interfaceThemePreset]);
@@ -5702,10 +5764,11 @@ function App() {
 
     if (type === "selection-as-png" || type === "canvas-as-png") {
       try {
-        const canvas = await exportToCanvas({
+        const { canvas } = await exportDraweratorPng({
+          exportToCanvas,
           elements: targetElements,
-          appState: { ...activeState, exportBackground: true },
-          files
+          appState: activeState,
+          files,
         });
         const dataUrl = canvas.toDataURL("image/png");
         return { dataUrl, type: "png" };
@@ -6393,8 +6456,266 @@ function App() {
       finishApplyingRecordedUiState();
     },
   }));
+  // Keep this catalog on the public Excalidraw API surface. Drawerator's
+  // Excalidraw build deliberately does not reach into Excalidraw's internal
+  // action manager, which makes these commands stable for both people and AI
+  // clients across dependency upgrades.
+  const EXCALIDRAW_TOOL_DEFINITIONS = [
+    ["selection", "Selection"],
+    ["rectangle", "Rectangle"],
+    ["diamond", "Diamond"],
+    ["ellipse", "Ellipse"],
+    ["arrow", "Arrow"],
+    ["line", "Line"],
+    ["freedraw", "Freehand"],
+    ["text", "Text"],
+    ["image", "Image"],
+    ["eraser", "Eraser"],
+    ["hand", "Hand"],
+    ["frame", "Frame"],
+    ["embeddable", "Web Embed"],
+    ["laser", "Laser Pointer"],
+  ];
+  const EXCALIDRAW_TOOL_COMMANDS = EXCALIDRAW_TOOL_DEFINITIONS.map(([type, label]) => ({
+    id: `excalidraw.tool.${type}`,
+    name: `Excalidraw: ${label} Tool /ex tool ${type}`,
+    aliases: [`/ex tool ${type}`, `/ex ${type}`, `excalidraw ${label}`],
+    category: "Excalidraw",
+    ai: { expose: true, description: `Activate Excalidraw's ${label.toLowerCase()} tool.` },
+    action: api => {
+      if (!api) return;
+      const activeTool = api.getAppState().activeTool || {};
+      api.updateScene({ appState: { activeTool: { ...activeTool, type, locked: activeTool.locked ?? false } } });
+    },
+  }));
+  const EXCALIDRAW_COMMANDS = [
+    {
+      id: "excalidraw.commands",
+      name: "Excalidraw Commands /ex",
+      aliases: ["/ex", "/ex help", "excalidraw commands"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Open the namespaced Excalidraw slash-command catalog." },
+      action: () => window.setTimeout(() => {
+        setCommandSearch("/ex ");
+        setSelectedIndex(0);
+        setShowCommandPalette(true);
+      }, 0),
+    },
+    {
+      id: "excalidraw.file.open",
+      name: "Excalidraw: Open / Import Scene /ex open",
+      aliases: ["/ex open", "/ex import", "/ex load"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Open a local Drawerator or Excalidraw scene picker. The user must select the file." },
+      action: () => sceneImportInputRef.current?.click(),
+    },
+    {
+      id: "excalidraw.file.save",
+      name: "Excalidraw: Save Scene /ex save",
+      aliases: ["/ex save", "/ex export scene"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Download the current Drawerator scene with its metadata." },
+      action: () => exportDraweratorScene(),
+    },
+    {
+      id: "excalidraw.file.saveAs",
+      name: "Excalidraw: Save Scene As /ex save as",
+      aliases: ["/ex save as"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Download the current Drawerator scene as a new file." },
+      action: () => exportDraweratorScene(),
+    },
+    {
+      id: "excalidraw.file.exportPng",
+      name: "Excalidraw: Export Board PNG /ex export png",
+      aliases: ["/ex export png", "/ex png", "/export png"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Export the current board as PNG using the saved transparent-export preference, including live p5 frames when available." },
+      action: () => void exportDraweratorBoardPng(),
+    },
+    {
+      id: "excalidraw.file.exportSvg",
+      name: "Excalidraw: Export Board SVG /ex export svg",
+      aliases: ["/ex export svg", "/ex svg", "/export svg"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Export the current static board geometry as SVG using the saved transparent-export preference." },
+      action: () => void exportDraweratorBoardSvg(),
+    },
+    {
+      id: "excalidraw.file.exportPngTheme",
+      name: "Excalidraw: Export Board PNG with Theme /ex export png theme",
+      aliases: ["/ex export png theme", "/ex png theme", "/export png theme"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Export the board as PNG with the current canvas/theme background, including live p5 frames." },
+      action: () => void exportDraweratorBoardPng({ transparent: false }),
+    },
+    {
+      id: "excalidraw.file.exportPngTransparent",
+      name: "Excalidraw: Export Board PNG Transparent /ex export png transparent",
+      aliases: ["/ex export png transparent", "/ex png transparent", "/export png transparent"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Export the board as a transparent PNG, including live p5 frames." },
+      action: () => void exportDraweratorBoardPng({ transparent: true }),
+    },
+    {
+      id: "excalidraw.file.exportSvgTheme",
+      name: "Excalidraw: Export Board SVG with Theme /ex export svg theme",
+      aliases: ["/ex export svg theme", "/ex svg theme", "/export svg theme"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Export board geometry as SVG with the current canvas/theme background." },
+      action: () => void exportDraweratorBoardSvg({ transparent: false }),
+    },
+    {
+      id: "excalidraw.file.exportSvgTransparent",
+      name: "Excalidraw: Export Board SVG Transparent /ex export svg transparent",
+      aliases: ["/ex export svg transparent", "/ex svg transparent", "/export svg transparent"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Export board geometry as SVG with no canvas background." },
+      action: () => void exportDraweratorBoardSvg({ transparent: true }),
+    },
+    {
+      id: "excalidraw.file.transparentExport",
+      name: `Excalidraw: ${transparentBoardExport ? "Disable" : "Enable"} Transparent Export /ex export transparent`,
+      aliases: ["/ex export transparent", "/export transparent", "Toggle transparent export"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Toggle the saved default background mode for board and p5-frame exports. Explicit theme/transparent export commands override it once." },
+      action: () => setTransparentBoardExport(previous => {
+        const next = !previous;
+        setSceneExchangeStatus(`Default board exports will use ${next ? "a transparent background" : "the current canvas theme"}.`);
+        return next;
+      }),
+    },
+    {
+      id: "excalidraw.scene.clear",
+      name: "Excalidraw: Clear Scene /ex clear",
+      aliases: ["/ex clear", "/ex new"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Clear every scene object without a popup." },
+      action: api => api?.updateScene({ elements: [] }),
+    },
+    {
+      id: "excalidraw.selection.all",
+      name: "Excalidraw: Select All /ex select all",
+      aliases: ["/ex select all"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Select every live scene object." },
+      action: api => {
+        if (!api) return;
+        const selectedElementIds = Object.fromEntries(api.getSceneElements().filter(element => !element.isDeleted).map(element => [element.id, true]));
+        api.updateScene({ appState: { selectedElementIds } });
+      },
+    },
+    {
+      id: "excalidraw.selection.none",
+      name: "Excalidraw: Deselect All /ex deselect",
+      aliases: ["/ex deselect", "/ex select none"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Clear the current selection." },
+      action: api => api?.updateScene({ appState: { selectedElementIds: {} } }),
+    },
+    {
+      id: "excalidraw.selection.delete",
+      name: "Excalidraw: Delete Selection /ex delete",
+      aliases: ["/ex delete", "/ex delete selected"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Delete the currently selected scene objects." },
+      action: api => {
+        if (!api) return;
+        const selectedElementIds = api.getAppState().selectedElementIds || {};
+        if (!Object.keys(selectedElementIds).length) return;
+        const elements = api.getSceneElementsIncludingDeleted().map(element => selectedElementIds[element.id] ? { ...element, isDeleted: true } : element);
+        api.updateScene({ elements, appState: { selectedElementIds: {} }, commitToHistory: true });
+      },
+    },
+    {
+      id: "excalidraw.view.reset",
+      name: "Excalidraw: Reset View /ex reset view",
+      aliases: ["/ex reset view", "/ex view reset"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Reset the Excalidraw canvas zoom and pan." },
+      action: api => api?.updateScene({ appState: { zoom: { value: 1 }, scrollX: 0, scrollY: 0 } }),
+    },
+    {
+      id: "excalidraw.view.frameAll",
+      name: "Excalidraw: Frame All /ex frame all",
+      aliases: ["/ex frame all"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Fit all live scene objects into the canvas view." },
+      action: api => {
+        const elements = api?.getSceneElements().filter(element => !element.isDeleted) || [];
+        if (elements.length) api.scrollToContent(elements, { fitToContent: true, animate: true });
+      },
+    },
+    {
+      id: "excalidraw.view.frameSelected",
+      name: "Excalidraw: Frame Selection /ex frame selected",
+      aliases: ["/ex frame selected"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Fit the current selection into the canvas view." },
+      action: api => {
+        if (!api) return;
+        const selectedElementIds = api.getAppState().selectedElementIds || {};
+        const elements = api.getSceneElements().filter(element => !element.isDeleted && selectedElementIds[element.id]);
+        if (elements.length) api.scrollToContent(elements, { fitToContent: true, animate: true });
+      },
+    },
+    {
+      id: "excalidraw.mode.view",
+      name: "Excalidraw: Toggle View Mode /ex view mode",
+      aliases: ["/ex view mode", "/ex mode view"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Toggle Excalidraw view-only mode." },
+      action: api => api?.updateScene({ appState: { viewModeEnabled: !api.getAppState().viewModeEnabled } }),
+    },
+    {
+      id: "excalidraw.mode.zen",
+      name: "Excalidraw: Toggle Zen Mode /ex zen",
+      aliases: ["/ex zen", "/ex mode zen"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Toggle Excalidraw's built-in zen mode." },
+      action: api => api?.updateScene({ appState: { zenModeEnabled: !api.getAppState().zenModeEnabled } }),
+    },
+    {
+      id: "excalidraw.tool.lock",
+      name: "Excalidraw: Toggle Tool Lock /ex tool lock",
+      aliases: ["/ex tool lock", "/ex lock tool"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Toggle whether the active Excalidraw tool remains selected after use." },
+      action: api => {
+        if (!api) return;
+        const activeTool = api.getAppState().activeTool || {};
+        api.updateScene({ appState: { activeTool: { ...activeTool, locked: !activeTool.locked } } });
+      },
+    },
+    {
+      id: "excalidraw.theme.toggle",
+      name: "Excalidraw: Toggle Light / Dark Theme /ex theme",
+      aliases: ["/ex theme", "/ex toggle theme"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Toggle Drawerator's paired light or dark theme." },
+      action: api => toggleDraweratorTheme(api),
+    },
+    {
+      id: "excalidraw.canvas.transparent",
+      name: "Excalidraw: Toggle Canvas Transparency /ex transparent",
+      aliases: ["/ex transparency", "/ex transparent"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Toggle the canvas background transparency." },
+      action: api => toggleBackgroundTransparency(api),
+    },
+    {
+      id: "excalidraw.library.toggle",
+      name: "Excalidraw: Toggle Library /ex library",
+      aliases: ["/ex library"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Toggle Excalidraw's library sidebar." },
+      action: () => toggleLibrary(),
+    },
+    ...EXCALIDRAW_TOOL_COMMANDS,
+  ];
   const COMMANDS = [
     ...PANEL_COMMANDS,
+    ...EXCALIDRAW_COMMANDS,
     { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "workspace.reset.defaults", name: "Reset Workspace to Defaults /reset defaults", aliases: ["/reset defaults", "/workspace reset", "Reset to defaults"], category: "Settings", record: "presentation", action: () => resetBoardSettingsToDefaults() },
     { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => { applyingRecordedUiStateRef.current = true; setSatoriMode(prev => !prev); finishApplyingRecordedUiState(); } },
@@ -6408,6 +6729,8 @@ function App() {
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
     { id: "svg.copy.selection", name: "Copy Selection as Editable SVG /copy svg", aliases: ["/copy svg", "Copy selection SVG"], category: "Canvas", action: () => copySelectionAsSvg() },
     { id: "svg.paste.editable", name: "Paste SVG as Editable Paths /paste svg", aliases: ["/paste svg", "Paste SVG as paths"], category: "Canvas", action: () => pasteSvgAsEditable() },
+    { id: "export.board.png", name: "Export Board as PNG /export board", aliases: ["/export board", "/export png", "Export Drawerator board"], category: "Canvas", action: () => void exportDraweratorBoardPng() },
+    { id: "export.p5.frame.png", name: "Export Selected p5 Frame as PNG /export p5", aliases: ["/export p5", "/export p5 frame", "Export selected p5 frame"], category: "Canvas", action: () => void exportSelectedP5FramesPng() },
     { id: "webembed.create", name: "Create Web Embed /webembed", aliases: ["/webembed", "Create web embed", "Web embed"], category: "Canvas", args: { url: "URL?" }, action: (_api, args) => createWebEmbed(args) },
     { id: "p5.frame.create", name: "Create p5 Frame /p5", aliases: ["/p5", "Create p5 frame", "p5 frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", source: "p5 source?", mode: "auto|instance|global?", runtime: "bundled|cdn?", cdnUrl: "string?" }, ai: { expose: true, description: "Create a trusted, interactive p5.js frame. Use mode: instance for p.setup/p.draw code, or mode: global for classic function setup()/draw() code. Omit mode for auto-detection. The bundled runtime is the default; only use runtime: cdn when the user specifically requests a remote p5 build. Keep the sketch self-contained and do not use HTML or script tags.", example: { name: "Pulsing circle", width: 640, height: 360, mode: "global", source: "function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(230);\n  strokeWeight(3);\n  const radius = 60 + 24 * Math.sin(millis() / 500);\n  circle(width / 2, height / 2, radius * 2);\n}" } }, action: (_api, args) => createP5Frame(args) },
     { id: "p5.frame.attach", name: "Attach p5 Sketch to Selection /attach p5", aliases: ["/attach p5", "Attach p5 sketch", "p5 attach"], category: "Canvas", args: { source: "p5 source?", mode: "auto|instance|global?", name: "string?" }, ai: { expose: true, description: "Attach a p5 sketch to each selected rectangle, frame, or existing p5 canvas. The selected objects become live p5 hosts; use a self-contained p5 source and choose global mode for classic setup()/draw() code.", example: { mode: "global", source: "function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  circle(width / 2, height / 2, 80);\n}" } }, action: (_api, args) => attachP5ScriptToSelection(args) },
@@ -6533,6 +6856,12 @@ function App() {
       }));
     };
     const handleKeyDown = (e) => {
+      // An interactive p5 runner owns keyboard input after it has been
+      // clicked. Its p5 instance listens at document level, so consuming a
+      // Drawerator shortcut here would otherwise prevent keyPressed(),
+      // keyReleased(), and keyTyped() from seeing the event.
+      if (document.activeElement?.closest?.(".drawerator-p5-host")) return;
+
       // Escape is a global cancel/clear gesture: close transient UI, blur any
       // focused control, leave Bézier editing, and clear the canvas selection.
       // Keep this capture-phase so it also works from number boxes and menus.
@@ -6816,6 +7145,19 @@ function App() {
     }
     
     return matches;
+  };
+
+  const getSlashCompletion = (value, commands = getFilteredCommands()) => {
+    const query = String(value || "").trim().toLowerCase();
+    if (!query.startsWith("/")) return "";
+    const candidates = [...commands, ...COMMANDS.filter(command => !commands.includes(command))];
+    for (const command of candidates) {
+      const completion = (command.aliases || [])
+        .filter(alias => alias.toLowerCase().startsWith(query) && alias.toLowerCase() !== query)
+        .sort((left, right) => left.length - right.length)[0];
+      if (completion) return completion;
+    }
+    return "";
   };
 
   const parseSlashInvocation = value => {
@@ -7377,11 +7719,14 @@ function App() {
       elements: elements.map(element => {
         if (!selectedIds.has(element.id)) return element;
         const prior = normalizeP5Frame(element.customData?.draweratorP5);
+        const hostType = isP5FrameElement(element)
+          ? getP5HostElementType(prior)
+          : (element.type === "frame" ? "frame" : "rectangle");
         return {
           ...element,
-          type: "embeddable",
+          type: hostType,
           link: null,
-          validated: true,
+          validated: false,
           strokeWidth: 0,
           fillStyle: "solid",
           backgroundColor: "transparent",
@@ -7392,7 +7737,7 @@ function App() {
               source: resolvedSource,
               mode: resolvedMode,
               scriptId: script.id,
-              hostType: isP5FrameElement(element) ? prior.hostType : element.type,
+              hostType,
               reloadNonce: nonce,
             }),
           },
@@ -7418,6 +7763,9 @@ function App() {
         if (!matched.some(candidate => candidate.id === element.id)) return element;
         return {
           ...element,
+          type: getP5HostElementType(element),
+          link: null,
+          validated: false,
           customData: {
             ...(element.customData || {}),
             draweratorP5: normalizeP5Frame({
@@ -7459,10 +7807,11 @@ function App() {
       cdnUrl: args.cdnUrl,
       reloadNonce: Date.now(),
     });
+    const baseElement = createBaseElement("rectangle", center.x - width / 2, center.y - height / 2, width, height, foregroundColor);
     const element = {
-      ...createBaseElement("embeddable", center.x - width / 2, center.y - height / 2, width, height, foregroundColor),
+      ...baseElement,
       link: null,
-      validated: true,
+      validated: false,
       strokeWidth: 0,
       fillStyle: "solid",
       backgroundColor: "transparent",
@@ -7995,7 +8344,7 @@ function App() {
       fps: transportFps,
       sampleRate: scoreSampleRate,
       loop: { enabled: transportLoopEnabled, start: transportLoopStart, end: transportLoopEnd, startValue: transportLoopStartValue, endValue: transportLoopEndValue },
-    }, kind === "scene" ? globalGridRef.current : null, kind === "scene" ? expressiveSynthConfigRef.current : null, kind === "scene" ? mixerRef.current : null), null, 2);
+    }, kind === "scene" ? globalGridRef.current : null, kind === "scene" ? expressiveSynthConfigRef.current : null, kind === "scene" ? mixerRef.current : null, kind === "scene" ? p5Scripts : []), null, 2);
   };
 
   const downloadTextFile = (text, filename, mimeType = "application/json") => {
@@ -8078,9 +8427,11 @@ function App() {
 
   const importDraweratorSceneText = async (text, { commitToHistory = true } = {}) => {
     if (!excalidrawAPI) return;
-    const { score, grid, expressiveSynth, mixer: importedMixer } = parseDraweratorExchange(text, "scene");
+    const { score, grid, expressiveSynth, mixer: importedMixer, p5Scripts: importedP5Scripts } = parseDraweratorExchange(text, "scene");
     const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
-    const restoredElements = reconcileRuntimeCursorHosts(restored.elements || []);
+    const restoredRuntimeElements = reconcileRuntimeCursorHosts(restored.elements || []);
+    const restoredP5 = reconcileP5ScriptsWithElements(importedP5Scripts, restoredRuntimeElements);
+    const restoredElements = restoredP5.elements;
     if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
     excalidrawAPI.updateScene({
       elements: restoredElements,
@@ -8097,6 +8448,11 @@ function App() {
     setExpressiveSynthConfig(expressiveSynth);
     mixerRef.current = importedMixer;
     setMixer(importedMixer);
+    setP5Scripts(restoredP5.scripts);
+    const restoredActiveP5Script = restoredP5.scripts[0];
+    setActiveP5ScriptId(restoredActiveP5Script?.id || "");
+    setP5ScriptSource(restoredActiveP5Script?.source || "");
+    setP5ScriptMode(normalizeP5SourceMode(restoredActiveP5Script?.mode));
     if (Number.isFinite(score?.time)) setScoreTime(score.time);
     if (Number.isFinite(score?.rate) && score.rate > 0) setScoreRate(score.rate);
     if (Number.isFinite(score?.tempo) && score.tempo >= 20 && score.tempo <= 400) setScoreTempo(score.tempo);
@@ -8859,6 +9215,85 @@ function App() {
     }
   };
 
+  const getSelectedP5FramesForExport = () => {
+    if (!excalidrawAPI) return [];
+    const appState = excalidrawAPI.getAppState();
+    return getSelectionExchangeElements(
+      excalidrawAPI.getSceneElementsIncludingDeleted(),
+      { ...appState.selectedElementIds, ...runtimeCursorSelectionRef.current, ...selectedElementIdsRef.current },
+    ).filter(isP5FrameElement);
+  };
+
+  // Keep Excalidraw's raw scene state here. The PNG exporter applies the same
+  // dark-theme display filter as the live canvas before compositing p5 frames.
+  const getDraweratorExportAppState = ({ transparent = transparentBoardExport } = {}) => ({
+    ...excalidrawAPI.getAppState(),
+    exportBackground: !transparent,
+  });
+
+  const exportDraweratorBoardPng = async ({ transparent = transparentBoardExport } = {}) => {
+    if (!excalidrawAPI) return;
+    try {
+      const { canvas, capturedP5Frames } = await exportDraweratorPng({
+        exportToCanvas,
+        elements: excalidrawAPI.getSceneElementsIncludingDeleted(),
+        appState: getDraweratorExportAppState({ transparent }),
+        files: excalidrawAPI.getFiles(),
+        exportBackground: !transparent,
+      });
+      downloadCanvasAsPng(canvas, { filename: `drawerator-board${transparent ? "-transparent" : "-theme"}.png` });
+      setSceneExchangeStatus(`Exported board PNG${transparent ? " with a transparent background" : " with the current canvas theme"}${capturedP5Frames ? ` and ${capturedP5Frames} live p5 ${capturedP5Frames === 1 ? "frame" : "frames"}` : ""}.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not export the board PNG.");
+    }
+  };
+
+  const exportDraweratorBoardSvg = async ({ transparent = transparentBoardExport } = {}) => {
+    if (!excalidrawAPI) return;
+    try {
+      const elements = excalidrawAPI.getSceneElements().filter(element => !element.isDeleted);
+      const svg = await exportToSvg({
+        elements,
+        appState: getDraweratorExportAppState({ transparent }),
+        files: excalidrawAPI.getFiles(),
+        exportPadding: 10,
+      });
+      downloadTextFile(
+        svg.outerHTML,
+        `drawerator-board${transparent ? "-transparent" : "-theme"}-${new Date().toISOString().slice(0, 10)}.svg`,
+        "image/svg+xml",
+      );
+      setSceneExchangeStatus(`Exported ${elements.length} board objects as SVG${transparent ? " with a transparent background" : " with the current canvas theme"}.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not export the board SVG.");
+    }
+  };
+
+  const exportSelectedP5FramesPng = async () => {
+    if (!excalidrawAPI) return;
+    try {
+      const selectedFrames = getSelectedP5FramesForExport();
+      if (!selectedFrames.length) throw new Error("Select one or more p5 frames to export.");
+      let exported = 0;
+      for (const [index, frame] of selectedFrames.entries()) {
+        const { canvas, capturedP5Frames } = await exportDraweratorPng({
+          exportToCanvas,
+          elements: [frame],
+          appState: getDraweratorExportAppState(),
+          files: excalidrawAPI.getFiles(),
+          exportBackground: !transparentBoardExport,
+        });
+        if (!capturedP5Frames) continue;
+        downloadCanvasAsPng(canvas, { filename: `drawerator-p5-frame-${index + 1}${transparentBoardExport ? "-transparent" : ""}.png` });
+        exported += 1;
+      }
+      if (!exported) throw new Error("The selected p5 frame is not currently running.");
+      setSceneExchangeStatus(`Exported ${exported} live p5 ${exported === 1 ? "frame" : "frames"} as PNG.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not export the selected p5 frame.");
+    }
+  };
+
   useEffect(() => {
     const isTextEditor = target => target instanceof Element && Boolean(target.closest("input, textarea, select, [contenteditable='true'], .cm-editor"));
     const onPaste = event => {
@@ -9263,13 +9698,6 @@ function App() {
     const selectedCount = getSelectedElements().length;
     return (
       <InspectorSection title="Scene data" className="iannix-section compact iannix-data-section" {...infoProps("Scene data", "Scene exchange preserves Drawerator metadata. Trusted .iannix compatibility executes familiar run()/load() scripts, reports unsupported commands, and is not a security sandbox.")}>
-        <input
-          ref={sceneImportInputRef}
-          type="file"
-          accept=".excalidraw,.json,application/json"
-          hidden
-          onChange={handleDraweratorSceneFile}
-        />
         <div className="iannix-data-actions">
           <a className="iannix-flat-button" href="#" download onClick={prepareDraweratorSceneDownload}>Export scene</a>
           <button type="button" className="iannix-flat-button" onClick={() => sceneImportInputRef.current?.click()}>Import scene</button>
@@ -10031,6 +10459,10 @@ function App() {
   const getScriptParams = code => parseScriptParameters(code);
 
   const renderP5ScriptTab = () => {
+    const setP5LiveStatus = (message, kind = "info") => {
+      setP5ScriptStatus(message);
+      setP5ScriptStatusKind(kind);
+    };
     const selectedP5Frames = getSelectedElements().filter(isP5FrameElement);
     const selectedP5Host = selectedP5Frames.length === 1 ? selectedP5Frames[0] : null;
     const selectedP5Config = selectedP5Host ? normalizeP5Frame(selectedP5Host.customData?.draweratorP5) : null;
@@ -10057,6 +10489,13 @@ function App() {
       });
     };
     const updateScriptLive = patch => {
+      if (Object.hasOwn(patch, "source")) {
+        const validation = validateP5Source(patch.source);
+        if (!validation.valid) {
+          setP5LiveStatus(`p5 error: ${validation.error}`, "error");
+          return false;
+        }
+      }
       if (activeScript) {
         setP5Scripts(previous => previous.map(script => script.id === activeScript.id
           ? { ...script, ...patch, updatedAt: Date.now() }
@@ -10066,14 +10505,20 @@ function App() {
       } else {
         syncSelectedLegacyFrames(patch);
       }
+      return true;
     };
     const saveScript = () => {
+      const validation = validateP5Source(p5ScriptSource);
+      if (!validation.valid) {
+        setP5LiveStatus(`p5 error: ${validation.error}`, "error");
+        return;
+      }
       if (!activeScript) {
         const created = createP5CatalogScript({ source: p5ScriptSource, mode: p5ScriptMode });
         if (selectedP5Frames.length) {
           attachP5ScriptToSelection({ script: created, source: created.source, mode: created.mode, name: created.name });
         }
-        setP5ScriptStatus(`Saved “${created.name}” in this browser.`);
+        setP5LiveStatus(`Saved “${created.name}” in this browser.`, "success");
         return;
       }
       setP5Scripts(previous => previous.map(script => script.id === activeScript.id
@@ -10081,7 +10526,7 @@ function App() {
         : script
       ));
       syncP5ScriptHosts(activeScript.id, { source: p5ScriptSource, mode: normalizeP5SourceMode(p5ScriptMode) });
-      setP5ScriptStatus(`Saved “${activeScript.name}” in this browser.`);
+      setP5LiveStatus(`Saved “${activeScript.name}” in this browser.`, "success");
     };
     const createScript = () => {
       const script = {
@@ -10098,7 +10543,7 @@ function App() {
       setP5ScriptMode(script.mode);
       setP5ScriptNameDraft(script.name);
       setEditingP5ScriptName(true);
-      setP5ScriptStatus("Created a new p5 sketch.");
+      setP5LiveStatus("Created a new p5 sketch.");
     };
     const duplicateScript = () => {
       if (!activeScript) return;
@@ -10117,7 +10562,7 @@ function App() {
       setP5ScriptMode(script.mode);
       setP5ScriptNameDraft(script.name);
       setEditingP5ScriptName(true);
-      setP5ScriptStatus(`Duplicated “${activeScript.name}”.`);
+      setP5LiveStatus(`Duplicated “${activeScript.name}”.`);
     };
     const commitRename = () => {
       const name = p5ScriptNameDraft.trim();
@@ -10126,7 +10571,7 @@ function App() {
           ? { ...script, name, updatedAt: Date.now() }
           : script
         ));
-        setP5ScriptStatus(`Renamed sketch to “${name}”.`);
+        setP5LiveStatus(`Renamed sketch to “${name}”.`);
       }
       setEditingP5ScriptName(false);
     };
@@ -10142,19 +10587,22 @@ function App() {
       setActiveP5ScriptId(remaining[0]?.id || "");
       setP5ScriptSource(remaining[0]?.source || "");
       setP5ScriptMode(normalizeP5SourceMode(remaining[0]?.mode));
-      setP5ScriptStatus(`Deleted “${activeScript.name}”.`);
+      setP5LiveStatus(`Deleted “${activeScript.name}”.`);
     };
     const applyToSelection = () => {
       try {
+        const source = activeScript?.source || p5ScriptSource;
+        const validation = validateP5Source(source);
+        if (!validation.valid) throw new Error(`p5 error: ${validation.error}`);
         const result = attachP5ScriptToSelection({
           scriptId: activeScript?.id,
-          source: p5ScriptSource,
-          mode: p5ScriptMode,
+          source,
+          mode: activeScript?.mode || p5ScriptMode,
           name: activeScript?.name,
         });
-        setP5ScriptStatus(`Applied this sketch to ${result.count} selected p5 host${result.count === 1 ? "" : "s"}.`);
+        setP5LiveStatus(`Applied this sketch to ${result.count} selected p5 host${result.count === 1 ? "" : "s"}.`);
       } catch (error) {
-        setP5ScriptStatus(error.message || "Select a rectangle, frame, or p5 canvas first.");
+        setP5LiveStatus(error.message || "Select a rectangle, frame, or p5 canvas first.", "error");
       }
     };
     return (
@@ -10188,9 +10636,9 @@ function App() {
                   mode: script.mode,
                   targetIds: [selectedP5Host.id],
                 });
-                setP5ScriptStatus(`Attached “${script.name}” to this p5 frame.`);
+                setP5LiveStatus(`Attached “${script.name}” to this p5 frame.`);
               } catch (error) {
-                setP5ScriptStatus(error.message || "Could not attach that p5 sketch.");
+                setP5LiveStatus(error.message || "Could not attach that p5 sketch.", "error");
               }
             }
           }}
@@ -10209,8 +10657,7 @@ function App() {
             onChange={event => {
               const mode = normalizeP5SourceMode(event.target.value);
               setP5ScriptMode(mode);
-              updateScriptLive({ mode });
-              setP5ScriptStatus("");
+              if (updateScriptLive({ mode })) setP5LiveStatus("Compiled successfully.", "success");
             }}
           >
             <option value="auto">Auto detect</option>
@@ -10237,14 +10684,14 @@ function App() {
           onChange={event => {
             const source = event.target.value;
             setP5ScriptSource(source);
-            updateScriptLive({ source });
-            setP5ScriptStatus("");
+            if (updateScriptLive({ source })) setP5LiveStatus("Compiled successfully.", "success");
           }}
           placeholder={p5ScriptMode === "global" ? "function setup() { … }\nfunction draw() { … }" : "p.setup = () => { … };\np.draw = () => { … };"}
           spellCheck="false"
         />
-        <p className="p5-script-warning">Trusted local code: p5 sketches run directly in Drawerator with access to the page and <code>drawerator</code>. Use only code you trust.</p>
-        {p5ScriptStatus && <div className="iannix-midi-status" role="status">{p5ScriptStatus}</div>}
+        <p className={`p5-script-status ${p5ScriptStatusKind}`} role="status" aria-live="polite">
+          {p5ScriptStatus || <>Trusted local code: p5 sketches run directly in Drawerator with access to the page and <code>drawerator</code>. Use only code you trust.</>}
+        </p>
       </div>
     );
   };
@@ -11768,6 +12215,7 @@ function App() {
     setShowBottomNotifications(false);
     setShowDebugLayer(false);
     setDefaultStabilizerDamping(0.12);
+    setTransparentBoardExport(false);
     setGlobalRoundness(false);
     setCustomBrushRoundness(false);
     setCustomBrushActive(false);
@@ -11777,6 +12225,7 @@ function App() {
     localStorage.setItem("drawerator_show_bottom_notifications", "false");
     localStorage.setItem("drawerator_show_debug_layer", "false");
     localStorage.setItem("drawerator_default_stabilizer_damping", "0.12");
+    localStorage.setItem("drawerator_export_transparent", "false");
     localStorage.setItem("drawerator_custom_brush_roundness", "false");
     localStorage.setItem("drawerator_presentation_mode", "false");
     excalidrawAPI?.updateScene({
@@ -12594,9 +13043,6 @@ function App() {
   const bottomDockHeight = collapsedDocks.bottom ? COLLAPSED_DOCK_EDGE_SIZE : bottomDockExpandedHeight;
   const expressivePrograms = getExpressiveSynthPrograms(expressiveSynthConfig);
   const renderEmbeddable = (element) => {
-    if (isP5FrameElement(element)) {
-      return <P5Frame element={element} config={element.customData.draweratorP5} />;
-    }
     const policy = embedPolicyForElement(element);
     const url = sanitizeEmbedURL(element?.link);
     const visible = shouldRenderEmbed(policy, presentationMode);
@@ -12644,6 +13090,50 @@ function App() {
       />
     </div>;
   };
+  const syncP5Overlay = (elements, appState) => {
+    const frames = (elements || []).filter(element => !element.isDeleted && isP5FrameElement(element));
+    const camera = {
+      scrollX: Number(appState?.scrollX) || 0,
+      scrollY: Number(appState?.scrollY) || 0,
+      zoom: { value: Number(appState?.zoom?.value) || 1 },
+    };
+    const signature = [
+      camera.scrollX,
+      camera.scrollY,
+      camera.zoom.value,
+      ...frames.map(element => {
+        const frame = normalizeP5Frame(element.customData?.draweratorP5);
+        return [
+          element.id,
+          element.x,
+          element.y,
+          element.width,
+          element.height,
+          element.angle,
+          element.version,
+          element.versionNonce,
+          frame.scriptId,
+          frame.mode,
+          frame.runtime,
+          frame.cdnUrl,
+          frame.autoplay,
+          frame.fps,
+          frame.transparent,
+          frame.allowInteraction,
+          frame.reloadNonce,
+          frame.source.length,
+        ].join(",");
+      }),
+    ].join("|");
+    if (p5OverlaySyncRef.current.signature === signature) return;
+    p5OverlaySyncRef.current.signature = signature;
+    p5OverlaySyncRef.current.pending = { elements: frames, appState: camera };
+    if (p5OverlaySyncRef.current.raf) return;
+    p5OverlaySyncRef.current.raf = requestAnimationFrame(() => {
+      p5OverlaySyncRef.current.raf = 0;
+      setP5OverlayScene(p5OverlaySyncRef.current.pending);
+    });
+  };
   const updateInfoViewFromEvent = event => {
     const target = event.target?.closest?.("[data-info]");
     if (!target) return;
@@ -12678,6 +13168,13 @@ function App() {
         eventBus.emit("parameter.route.request", detail, { source: "number-box" });
         setSceneExchangeStatus(`Route request: ${detail.label}`);
       }} />
+      <input
+        ref={sceneImportInputRef}
+        type="file"
+        accept=".excalidraw,.json,application/json"
+        hidden
+        onChange={handleDraweratorSceneFile}
+      />
       <div 
         id="canvas-container" 
         onPointerDownCapture={handleCanvasPointerDown}
@@ -12712,6 +13209,7 @@ function App() {
           }}
           onChange={(elements, appState) => {
             applyForceDesktopOverride(false);
+            syncP5Overlay(elements, appState);
 
             const nativeBezierEditId = appState.editingLinearElement?.elementId || null;
             const nativeBezierEditElement = nativeBezierEditId
@@ -14343,6 +14841,11 @@ function App() {
           )}
         </Excalidraw>
 
+        <P5FrameOverlay
+          elements={p5OverlayScene.elements}
+          appState={p5OverlayScene.appState}
+        />
+
         <GlobalGridCanvas
           grid={globalGrid}
           appState={excalidrawAPI?.getAppState() || null}
@@ -14480,7 +14983,7 @@ function App() {
                     setCommandSearch(e.target.value);
                     setSelectedIndex(0);
                   }}
-                  placeholder="Type a command or ask AI (e.g. 'draw a flow chart')..."
+                  placeholder="Type a command (e.g. /ex tool rectangle) or ask AI..."
                   onKeyDown={(e) => {
                     const filtered = getFilteredCommands();
                     if (e.key === "ArrowDown") {
@@ -14489,6 +14992,13 @@ function App() {
                     } else if (e.key === "ArrowUp") {
                       e.preventDefault();
                       setSelectedIndex(prev => (prev - 1 + filtered.length) % filtered.length);
+                    } else if (e.key === "Tab") {
+                      const completion = getSlashCompletion(commandSearch, filtered);
+                      if (completion) {
+                        e.preventDefault();
+                        setCommandSearch(`${completion} `);
+                        setSelectedIndex(0);
+                      }
                     } else if (e.key === "Enter") {
                       e.preventDefault();
                       const slashInvocation = parseSlashInvocation(commandSearch);
@@ -14576,6 +15086,41 @@ function App() {
                 </svg>
                 Paste SVG as Editable Paths
               </button>
+              {customContextMenu.showBoardExport && (
+                <button
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    void exportDraweratorBoardPng();
+                    setCustomContextMenu(null);
+                  }}
+                  className="custom-floating-context-menu-btn"
+                  title="Export the complete Drawerator board, including live p5 frames, as a PNG"
+                >
+                  <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" />
+                  </svg>
+                  Export Board as PNG
+                </button>
+              )}
+              {customContextMenu.showP5FrameExport && (
+                <button
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    void exportSelectedP5FramesPng();
+                    setCustomContextMenu(null);
+                  }}
+                  className="custom-floating-context-menu-btn"
+                  title="Export the selected live p5 frame as a PNG"
+                >
+                  <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                    <rect x="3" y="5" width="18" height="14" rx="1" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 12l2.5 2.5L16 9" />
+                  </svg>
+                  Export Selected p5 Frame as PNG
+                </button>
+              )}
               {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
             </>
           )}
@@ -14707,8 +15252,10 @@ function App() {
                   const result = attachP5ScriptToSelection();
                   setScriptPanelType("p5");
                   setP5ScriptStatus(`Attached p5 sketch to ${result.count} selected host${result.count === 1 ? "" : "s"}.`);
+                  setP5ScriptStatusKind("success");
                 } catch (error) {
                   setP5ScriptStatus(error.message || "Unable to attach p5 sketch.");
+                  setP5ScriptStatusKind("error");
                 }
                 setCustomContextMenu(null);
               }}

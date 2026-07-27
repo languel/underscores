@@ -1955,17 +1955,26 @@ body .excalidraw .sidebar {
   min-height: 0;
 }
 
-.p5-script-warning {
+.p5-script-status {
   order: 100;
   flex: 0 0 auto;
   margin: 0;
-  padding: 3px 1px;
+  padding: 3px 1px 0;
   color: var(--color-secondary);
   font-size: 10px;
   line-height: 1.35;
 }
 
-.p5-script-warning code {
+.p5-script-status.success {
+  color: var(--color-success, #10b981);
+}
+
+.p5-script-status.error {
+  color: var(--color-danger, #ef4444);
+  white-space: pre-wrap;
+}
+
+.p5-script-status code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -3270,8 +3279,11 @@ a.iannix-flat-button {
 .drawerator-embed-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; min-height: 48px; box-sizing: border-box; padding: 12px; color: var(--color-secondary); background: var(--drawerator-panel-bg, transparent); font-size: 12px; text-align: center; }
 .drawerator-p5-frame { position: relative; width: 100%; height: 100%; overflow: hidden; background: transparent; }
 .drawerator-p5-host { width: 100%; height: 100%; }
+.drawerator-p5-host:focus { outline: none; }
 .drawerator-p5-host canvas { display: block; width: 100% !important; height: 100% !important; }
-.drawerator-p5-error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; box-sizing: border-box; padding: 10px; color: #d84e4e; background: color-mix(in srgb, var(--drawerator-panel-bg, #111) 88%, #7f1d1d); font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: center; pointer-events: none; }
+.drawerator-p5-overlay { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
+.drawerator-p5-overlay-frame { position: absolute; overflow: hidden; pointer-events: none; }
+.drawerator-p5-overlay-frame.drawerator-p5-overlay-interactive { pointer-events: auto; }
 
 .outliner-panel { display: flex; flex-direction: column; overflow: hidden; }
 .outliner-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.24)); }
