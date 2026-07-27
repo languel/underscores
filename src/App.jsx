@@ -10,6 +10,7 @@ import NumberInputController from "./NumberInputController.jsx";
 import TimeValueInput from "./TimeValueInput.jsx";
 import InspectorSection from "./InspectorSection.jsx";
 import { attachDraweratorExchangeMetadata, getSelectionExchangeElements, parseDraweratorExchange, remapSelectionForImport } from "./sceneExchange.js";
+import { attachDraweratorSvgMetadata, cleanSvgMarkup, extractDraweratorSvgMetadata, extractSvgMarkup, getSvgDrawableBounds, offsetSvgDrawableSpecs, parseSvgToDrawableSpecs } from "./svgImport.js";
 import { DRAWERATOR_PANELS, getDraweratorPanel, getNaturalPanelPlacement } from "./panelRegistry.js";
 import { getDockTarget, getOpenPanelsForPlacement, normalizeDockSizes, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
 import { advanceMidiClockReceiver, createMidiClockReceiverState, formatTimelinePosition, MIDI_REALTIME, midiClockIntervalMs, normalizeTimeSignature, parseTimelinePosition, secondsToFrame, songPositionToSeconds } from "./transport.js";
@@ -18,10 +19,13 @@ import TransportTimeline from "./TransportTimeline.jsx";
 import HistoryPanel from "./HistoryPanel.jsx";
 import EventConsole from "./EventConsole.jsx";
 import PropertiesPanel from "./PropertiesPanel.jsx";
+import { embedPolicyForElement, isAllowedEmbedURL, sanitizeEmbedURL, shouldRenderEmbed } from "./embedPolicy.js";
 import OutlinerPanel from "./OutlinerPanel.jsx";
 import IannixDataPanel from "./IannixDataPanel.jsx";
 import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, parseGenericCommandSlash } from "./commandSystem.js";
-import { autoKeyElement, collectAutomationKeys, evaluateElementAutomation } from "./automation.js";
+import { buildAIAutomationGuide, isAICommandAllowed, parseDraweratorCommandTags } from "./aiTooling.js";
+import { autoKeyElement, AUTO_KEY_PATHS, collectAutomationKeys, evaluateElementAutomation, interpolationForPath, upsertAutomationKey } from "./automation.js";
+import { formatAIScriptSource, validateAIBrushSource, validateAIIannixSource } from "./scriptAuthoring.js";
 import { createDraweratorMacro, DRAWERATOR_MACRO_TYPE, DraweratorLibraryStore, DraweratorSessionController, instantiateDraweratorMacro, mergeSceneMutation, parseDraweratorSession } from "./sessionHistory.js";
 import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCursorLoopMode, getIannixCurveStartAngle, serializeBezierElementToIannixCommands, tokenizeIannixCommand } from "./iannixScript.js";
 import { bezierWorldPointToLocal, createBezierGeometryFromElement, createBezierHostGeometry, findNearestBezierLocation, getBezierWorldAnchors, getBezierWorldPath, hasCubicBezierGeometry, normalizeBezierGeometry, normalizeBezierHostElement, reframeBezierElement, removeBezierAnchor, setBezierAnchorMode, setElementBezierGeometry, splitBezierSegment, updateBezierAnchor } from "./bezierGeometry.js";
@@ -65,6 +69,9 @@ import { createExpressiveSynthDemoScore } from "./expressiveSynthDemo.js";
 import ShortcutsPanel from "./ShortcutsPanel.jsx";
 import ScriptPanel from "./ScriptPanel.jsx";
 import { normalizeScriptType } from "./scriptTypes.js";
+import { P5FrameOverlay } from "./P5Frame.jsx";
+import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_FRAME_STORAGE_KEY, canHostP5Frame, getP5HostElementType, isP5FrameElement, normalizeP5Frame, normalizeP5Scripts, normalizeP5SourceMode, reconcileP5ScriptsWithElements, validateP5Source } from "./p5Frame.js";
+import { downloadCanvasAsPng, exportDraweratorPng } from "./p5Export.js";
 import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
 import { stepStrokeWidth } from "./strokeWidthShortcuts.js";
@@ -143,11 +150,11 @@ function ModelCatalogFilter({ modelCount, resetKey, onFilterChange }) {
 
 // System Prompt guiding the local LLM on drawing tools
 const SYSTEM_PROMPT = `You are "Drawerator", an autonomous, high-performance drawing assistant.
-You drive a collaborative sketchboard (Excalidraw) programmatically by issuing precise XML tool tags inside your markdown responses.
+You drive a collaborative sketchboard (Excalidraw) programmatically through registered Drawerator commands. The current action catalog is appended to your context.
 
 CRITICAL: You MUST write your text explanation FIRST, then output any tool XML tags.
 
-Available Drawing XML tags:
+Use high-level <drawerator-command> tags for all new work. Legacy drawing XML tags remain available only for compatibility:
 1. Draw Rectangle:
    <rect x="[coord]" y="[coord]" w="[width]" h="[height]" color="[hex_color]" fill="[hex_color/transparent]"/>
 2. Draw Circle/Ellipse:
@@ -160,13 +167,14 @@ Available Drawing XML tags:
    <erase id="[element_id]"/>
 6. Clear Entire Canvas:
    <clear/>
-7. Execute any registered Drawerator command:
+7. Execute a registered Drawerator command:
    <drawerator-command id="[stable_command_id]">{"argument":"value"}</drawerator-command>
 
 Guidelines:
 - All shapes should be sized logically (typical screen coords range from 0 to 1000).
 - If the user selected a shape or path, you will receive its coordinates in the context. Use this context to duplicate, resize, move, or offset the shape.
-- To move a shape, you can erase the old id using <erase id="[id]"/> and redraw it at the new coordinates!
+- Create objects with scene.create.objects and modify them with scene.patch.objects; use score.roles.assign for score roles.
+- Create and edit scripts through script.brush.* and script.iannix.* commands. Create interactive p5 canvas frames through p5.frame.create. p5 supports instance mode (p.setup, p.draw, and p.* calls) and classic global mode (function setup(), function draw(), and ordinary p5 calls); set mode: "global" for classic source, or omit it for safe auto-detection. Change application settings only through the exposed settings/grid/transport commands.
 - Keep your conversational text responses extremely concise and to the point.
 `;
 
@@ -338,8 +346,11 @@ const canvasColorForExcalidraw = (color, opacity, theme) => {
 };
 
 const DEFAULT_ROLE_THEME = {
+  // Authored colour is the normal score appearance. This palette is an
+  // explicit role override, useful for score visualisation but never a reason
+  // to discard a script's setColor/setColorHue decision.
   enabled: false,
-  curveActive: { color: "#333333", opacity: 100 },
+  curveActive: { color: "#c9cdd2", opacity: 100 },
   curveInactive: { color: "#888888", opacity: 35 },
   cursorActive: { color: "#ff3b0a", opacity: 100 },
   cursorInactive: { color: "#888888", opacity: 35 },
@@ -348,12 +359,36 @@ const DEFAULT_ROLE_THEME = {
   triggerPulse: { color: "#ff8a3d", opacity: 85 },
 };
 
+const normalizeThemeColorToken = (value, fallback) => {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    color: isCssColor(source.color) ? String(source.color).trim() : fallback.color,
+    opacity: Number.isFinite(Number(source.opacity))
+      ? Math.min(100, Math.max(0, Number(source.opacity)))
+      : fallback.opacity,
+  };
+};
+
+const normalizeRoleTheme = value => {
+  const saved = value && typeof value === "object" ? value : {};
+  const next = { ...DEFAULT_ROLE_THEME, ...saved };
+  // Migrate the old built-in dark curve swatch. Preserve any other custom
+  // role choices; this only repairs the exact legacy default that makes a
+  // score effectively disappear against Mono Dark.
+  if (saved.enabled === true && String(saved.curveActive?.color || "").toLowerCase() === "#333333" && Number(saved.curveActive?.opacity) === 100) {
+    next.curveActive = { ...DEFAULT_ROLE_THEME.curveActive };
+  }
+  return next;
+};
+
 const INTERFACE_THEME_PRESETS = {
   monoLight: {
     label: "Mono Light",
     theme: "light",
     accent: { color: "#353a3f", opacity: 100 },
     highlight: { color: "#353a3f", opacity: 10 },
+    foreground: { color: "#353a3f", opacity: 100 },
+    muted: { color: "#6e7479", opacity: 100 },
     surfaces: {
       panel: { color: "#f4f4f4", opacity: 100 },
       input: { color: "#f4f4f4", opacity: 100 },
@@ -361,12 +396,18 @@ const INTERFACE_THEME_PRESETS = {
       canvas: { color: "#f4f4f4", opacity: 100 },
       grid: { color: "#353a3f", opacity: 24 },
     },
+    roleTheme: {
+      ...DEFAULT_ROLE_THEME,
+      curveActive: { color: "#353a3f", opacity: 100 },
+    },
   },
   monoDark: {
     label: "Mono Dark",
     theme: "dark",
     accent: { color: "#c9cdd2", opacity: 100 },
     highlight: { color: "#c9cdd2", opacity: 10 },
+    foreground: { color: "#c9cdd2", opacity: 100 },
+    muted: { color: "#92989f", opacity: 100 },
     surfaces: {
       panel: { color: "#121212", opacity: 100 },
       input: { color: "#121212", opacity: 100 },
@@ -374,12 +415,15 @@ const INTERFACE_THEME_PRESETS = {
       canvas: { color: "#121212", opacity: 100 },
       grid: { color: "#c9cdd2", opacity: 24 },
     },
+    roleTheme: { ...DEFAULT_ROLE_THEME },
   },
   transparentLight: {
     label: "Transparent Light",
     theme: "light",
     accent: { color: "#353a3f", opacity: 50 },
     highlight: { color: "#353a3f", opacity: 10 },
+    foreground: { color: "#353a3f", opacity: 100 },
+    muted: { color: "#6e7479", opacity: 100 },
     surfaces: {
       panel: { color: "#f4f4f4", opacity: 0 },
       input: { color: "#f4f4f4", opacity: 0 },
@@ -393,6 +437,8 @@ const INTERFACE_THEME_PRESETS = {
     theme: "dark",
     accent: { color: "#c9cdd2", opacity: 50 },
     highlight: { color: "#c9cdd2", opacity: 10 },
+    foreground: { color: "#c9cdd2", opacity: 100 },
+    muted: { color: "#92989f", opacity: 100 },
     surfaces: {
       panel: { color: "#121212", opacity: 0 },
       input: { color: "#121212", opacity: 0 },
@@ -406,6 +452,8 @@ const INTERFACE_THEME_PRESETS = {
     theme: "light",
     accent: { color: "#6b7173", opacity: 100 },
     highlight: { color: "#8f9698", opacity: 10 },
+    foreground: { color: "#30363b", opacity: 100 },
+    muted: { color: "#70777c", opacity: 100 },
     surfaces: {
       panel: { color: "#ffffff", opacity: 100 },
       input: { color: "#ffffff", opacity: 100 },
@@ -419,6 +467,8 @@ const INTERFACE_THEME_PRESETS = {
     theme: "dark",
     accent: { color: "#6b7173", opacity: 100 },
     highlight: { color: "#8f8f8f", opacity: 10 },
+    foreground: { color: "#d8dde2", opacity: 100 },
+    muted: { color: "#9aa1a7", opacity: 100 },
     surfaces: {
       panel: { color: "#232329", opacity: 100 },
       input: { color: "#111113", opacity: 100 },
@@ -432,6 +482,8 @@ const INTERFACE_THEME_PRESETS = {
     theme: "light",
     accent: { color: "#6b7173", opacity: 100 },
     highlight: { color: "#8f9698", opacity: 8 },
+    foreground: { color: "#30363b", opacity: 100 },
+    muted: { color: "#70777c", opacity: 100 },
     surfaces: {
       panel: { color: "#ffffff", opacity: 100 },
       input: { color: "#ffffff", opacity: 100 },
@@ -445,6 +497,8 @@ const INTERFACE_THEME_PRESETS = {
     theme: "dark",
     accent: { color: "#7d8588", opacity: 100 },
     highlight: { color: "#a2a7aa", opacity: 8 },
+    foreground: { color: "#d4d9dd", opacity: 100 },
+    muted: { color: "#979fa5", opacity: 100 },
     surfaces: {
       panel: { color: "#232329", opacity: 100 },
       input: { color: "#232329", opacity: 100 },
@@ -458,6 +512,8 @@ const INTERFACE_THEME_PRESETS = {
     theme: "dark",
     accent: { color: "#8b969a", opacity: 100 },
     highlight: { color: "#a8b1b5", opacity: 12 },
+    foreground: { color: "#dce3e7", opacity: 100 },
+    muted: { color: "#9fa9af", opacity: 100 },
     surfaces: {
       panel: { color: "#202228", opacity: 100 },
       input: { color: "#30333a", opacity: 100 },
@@ -487,10 +543,10 @@ const normalizeCustomThemes = value => {
         color: isCssColor(preset.highlight?.color) ? String(preset.highlight.color).trim() : "#8f9698",
         opacity: Math.min(100, Math.max(0, Number(preset.highlight?.opacity) || 0)),
       },
+      foreground: normalizeThemeColorToken(preset.foreground, INTERFACE_THEME_PRESETS[preset.theme === "light" ? "draweratorLight" : "draweratorDark"].foreground),
+      muted: normalizeThemeColorToken(preset.muted, INTERFACE_THEME_PRESETS[preset.theme === "light" ? "draweratorLight" : "draweratorDark"].muted),
       surfaces: normalizeInterfaceTheme(preset.surfaces, preset.theme),
-      roleTheme: preset.roleTheme && typeof preset.roleTheme === "object"
-        ? { ...DEFAULT_ROLE_THEME, ...preset.roleTheme }
-        : { ...DEFAULT_ROLE_THEME },
+      roleTheme: normalizeRoleTheme(preset.roleTheme),
     }]];
   }));
 };
@@ -1678,6 +1734,7 @@ function App() {
   const [autoKeyEnabled, setAutoKeyEnabled] = useState(false);
   const [sessionPlaybackOverlay, setSessionPlaybackOverlay] = useState([]);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
+  const [transparentBoardExport, setTransparentBoardExport] = useState(() => localStorage.getItem("drawerator_export_transparent") === "true");
   const defaultInterfaceThemePreset = theme === "light" ? "monoLight" : DEFAULT_INTERFACE_THEME_PRESET;
   const [globalGrid, setGlobalGrid] = useState(() => {
     try {
@@ -1704,6 +1761,10 @@ function App() {
   const [accentOpacity, setAccentOpacity] = useState(() => Number(localStorage.getItem("drawerator_accent_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].accent.opacity));
   const [highlightColor, setHighlightColor] = useState(() => localStorage.getItem("drawerator_highlight_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].highlight.color);
   const [highlightOpacity, setHighlightOpacity] = useState(() => Number(localStorage.getItem("drawerator_highlight_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].highlight.opacity));
+  const [foregroundColor, setForegroundColor] = useState(() => localStorage.getItem("drawerator_foreground_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].foreground.color);
+  const [foregroundOpacity, setForegroundOpacity] = useState(() => Number(localStorage.getItem("drawerator_foreground_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].foreground.opacity));
+  const [mutedColor, setMutedColor] = useState(() => localStorage.getItem("drawerator_muted_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].muted.color);
+  const [mutedOpacity, setMutedOpacity] = useState(() => Number(localStorage.getItem("drawerator_muted_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].muted.opacity));
   const [interfaceThemePreset, setInterfaceThemePreset] = useState(() => localStorage.getItem("drawerator_interface_theme_preset") || defaultInterfaceThemePreset);
   const [interfaceTheme, setInterfaceTheme] = useState(() => {
     try {
@@ -1724,9 +1785,9 @@ function App() {
   const [roleTheme, setRoleTheme] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("drawerator_role_theme") || "null");
-      return { ...DEFAULT_ROLE_THEME, ...(saved || {}) };
+      return normalizeRoleTheme(saved);
     } catch {
-      return DEFAULT_ROLE_THEME;
+      return { ...DEFAULT_ROLE_THEME };
     }
   });
   const [panelLayouts, setPanelLayouts] = useState(() => {
@@ -1784,6 +1845,7 @@ function App() {
   const [commandSearch, setCommandSearch] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [satoriMode, setSatoriMode] = useState(true);
+  const [presentationMode, setPresentationMode] = useState(() => localStorage.getItem("drawerator_presentation_mode") === "true");
   const [zenMode, setZenMode] = useState(false);
   const [showToolbarHints, setShowToolbarHints] = useState(() => {
     const saved = localStorage.getItem("drawerator_show_toolbar_hints");
@@ -1801,6 +1863,9 @@ function App() {
     const saved = localStorage.getItem("drawerator_default_stabilizer_damping");
     return saved ? parseFloat(saved) : 0.12;
   });
+  useEffect(() => {
+    localStorage.setItem("drawerator_presentation_mode", String(presentationMode));
+  }, [presentationMode]);
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
   const [modsPanelTab, setModsPanelTab] = useState("stack");
   const [iannixPanelTab, setIannixPanelTab] = useState("data");
@@ -1821,6 +1886,43 @@ function App() {
   const [activeIannixScriptId, setActiveIannixScriptId] = useState("");
   const [editingIannixScriptName, setEditingIannixScriptName] = useState(false);
   const [iannixScriptNameDraft, setIannixScriptNameDraft] = useState("");
+  const [p5Scripts, setP5Scripts] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(P5_FRAME_STORAGE_KEY) || "[]");
+      return normalizeP5Scripts(saved);
+    } catch {
+      return [];
+    }
+  });
+  const [activeP5ScriptId, setActiveP5ScriptId] = useState("");
+  const [p5ScriptSource, setP5ScriptSource] = useState("");
+  const [p5ScriptMode, setP5ScriptMode] = useState("auto");
+  const [p5ScriptStatus, setP5ScriptStatus] = useState("");
+  const [p5ScriptStatusKind, setP5ScriptStatusKind] = useState("info");
+  const [editingP5ScriptName, setEditingP5ScriptName] = useState(false);
+  const [p5ScriptNameDraft, setP5ScriptNameDraft] = useState("");
+  const [p5OverlayScene, setP5OverlayScene] = useState({ elements: [], appState: null });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const receiveP5Status = event => {
+      const detail = event.detail || {};
+      if (detail.scriptId && activeP5ScriptId && detail.scriptId !== activeP5ScriptId) return;
+      setP5ScriptStatus(String(detail.message || ""));
+      setP5ScriptStatusKind(detail.kind === "error" ? "error" : detail.kind === "success" ? "success" : "info");
+    };
+    window.addEventListener("drawerator:p5-status", receiveP5Status);
+    return () => window.removeEventListener("drawerator:p5-status", receiveP5Status);
+  }, [activeP5ScriptId]);
+
+  // The trust warning is introductory copy, not a second persistent status.
+  // A newly selected sketch starts with it, then compiler/runtime feedback owns
+  // this single footer line until the user changes scripts again.
+  useEffect(() => {
+    setP5ScriptStatus("");
+    setP5ScriptStatusKind("info");
+  }, [activeP5ScriptId]);
+
   const [scoreTime, setScoreTime] = useState(0);
   const [scorePlaying, setScorePlaying] = useState(false);
   const [scoreRate, setScoreRate] = useState(() => {
@@ -1968,6 +2070,11 @@ function App() {
   const editingLinearGridRef = useRef(null);
   const multiElementGridRef = useRef(null);
   const activeGridToolRef = useRef(null);
+  // React state updates do not synchronously refresh the closures used by an
+  // ordered AI command response. Keep only newly-created scripts here so a
+  // response can safely create then apply/run its own script in one turn.
+  const aiCreatedBrushesRef = useRef(new Map());
+  const aiCreatedIannixScriptsRef = useRef(new Map());
   const midiOutputIdRef = useRef(midiOutputId);
   const internalGmProgramsRef = useRef(internalGmPrograms);
   const mixerRef = useRef(mixer);
@@ -1988,7 +2095,11 @@ function App() {
   const sceneImportInputRef = useRef(null);
   const iannixImportInputRef = useRef(null);
   const brushImportInputRef = useRef(null);
+  const p5ImportInputRef = useRef(null);
   const excalidrawAPIRef = useRef(null);
+  const p5OverlaySyncRef = useRef({ signature: "", pending: null, raf: 0 });
+  const importSvgMarkupRef = useRef(null);
+  const svgClipboardCacheRef = useRef(null);
   const scoreTimeRef = useRef(scoreTime);
   const historySuppressSceneRef = useRef(0);
   const lastSceneElementsRef = useRef(new Map());
@@ -2026,7 +2137,8 @@ function App() {
       const role = element.customData?.score?.role || element.customData?.iannix?.role;
       if (!["curve", "cursor", "trigger"].includes(role)) return element;
       const savedColor = element.customData?.roleThemeSourceStrokeColor;
-      if (!roleTheme.enabled) {
+      const authoredIannixColor = element.customData?.iannixImport?.authoredColor === true;
+      if (!roleTheme.enabled || authoredIannixColor) {
         if (role === "cursor" && isRuntimeCursor(element)) {
           const data = normalizeIannixData(element.customData?.iannix);
           const sourceStrokeColor = savedColor || data.cursor.sourceStrokeColor || element.strokeColor;
@@ -2631,10 +2743,54 @@ function App() {
   }, [iannixScripts]);
 
   useEffect(() => {
+    localStorage.setItem(P5_FRAME_STORAGE_KEY, JSON.stringify(p5Scripts));
+  }, [p5Scripts]);
+
+  // Earlier builds represented p5 runners as Excalidraw embeddables backed by
+  // synthetic drawerator.local URLs. Convert any still-live legacy runner as
+  // soon as the canvas is available so its URL card and link affordances never
+  // reappear after a refresh.
+  useEffect(() => {
+    if (!excalidrawAPI) return;
+    const elements = excalidrawAPI.getSceneElementsIncludingDeleted?.() || excalidrawAPI.getSceneElements();
+    const hasLegacyP5Embed = elements.some(element => (
+      !element.isDeleted
+      && isP5FrameElement(element)
+      && (element.type === "embeddable" || Boolean(element.link) || Boolean(element.validated))
+    ));
+    if (!hasLegacyP5Embed) return;
+    const reconciled = reconcileP5ScriptsWithElements(p5Scripts, elements);
+    excalidrawAPI.updateScene({ elements: reconciled.elements, commitToHistory: false });
+    setP5Scripts(reconciled.scripts);
+  }, [excalidrawAPI, p5Scripts]);
+
+  // Excalidraw normally emits an initial onChange, but explicitly seed the
+  // Drawerator p5 overlay as well. This keeps imported/opened p5 hosts live
+  // even when a host environment delays that first scene notification.
+  useEffect(() => {
+    if (!excalidrawAPI) return;
+    const elements = excalidrawAPI.getSceneElementsIncludingDeleted?.() || excalidrawAPI.getSceneElements();
+    syncP5Overlay(elements, excalidrawAPI.getAppState());
+  }, [excalidrawAPI]);
+
+  useEffect(() => () => {
+    if (p5OverlaySyncRef.current.raf) {
+      cancelAnimationFrame(p5OverlaySyncRef.current.raf);
+    }
+  }, []);
+
+  useEffect(() => {
     if (activeIannixScriptId || iannixScripts.length === 0) return;
     setActiveIannixScriptId(iannixScripts[0].id);
     setIannixScriptSource(iannixScripts[0].source || "");
   }, [activeIannixScriptId, iannixScripts]);
+
+  useEffect(() => {
+    if (activeP5ScriptId || p5Scripts.length === 0) return;
+    setActiveP5ScriptId(p5Scripts[0].id);
+    setP5ScriptSource(p5Scripts[0].source || "");
+    setP5ScriptMode(normalizeP5SourceMode(p5Scripts[0].mode));
+  }, [activeP5ScriptId, p5Scripts]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_panel_visibility_v1", JSON.stringify(openPanels));
@@ -3419,6 +3575,35 @@ function App() {
     }
   };
 
+  const handleP5ScriptFile = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const source = await file.text();
+      if (!source.trim()) throw new Error("The imported p5 sketch is empty.");
+      const script = {
+        id: `p5-script-${crypto.randomUUID()}`,
+        name: file.name.replace(/\.[^.]+$/, "") || "Untitled p5 sketch",
+        source,
+        mode: "auto",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      setP5Scripts(previous => [...previous, script]);
+      setActiveP5ScriptId(script.id);
+      setP5ScriptSource(script.source);
+      setP5ScriptMode(script.mode);
+      setP5ScriptNameDraft(script.name);
+      setEditingP5ScriptName(true);
+      setP5ScriptStatus(`Imported “${script.name}”.`);
+      setP5ScriptStatusKind("success");
+    } catch (error) {
+      setP5ScriptStatus(error.message || "Could not import the p5 sketch.");
+      setP5ScriptStatusKind("error");
+    }
+  };
+
   const beginBrushRename = () => {
     const brush = brushPalette.find(candidate => candidate.id === activeBrushId);
     if (!brush) return;
@@ -3527,7 +3712,7 @@ function App() {
         color === "rgb(0,0,0)" ||
         color === "black"
       ) {
-        return "#ffffff";
+        return foregroundColor;
       }
     } else {
       if (
@@ -3535,7 +3720,7 @@ function App() {
         color === "rgb(255,255,255)" ||
         color === "white"
       ) {
-        return "#000000";
+        return foregroundColor;
       }
     }
     return color;
@@ -3758,6 +3943,12 @@ function App() {
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
     if (e.button !== 0) return;
     gridInteractionRef.current = { moving: false, resizing: false, pointEditing: false, pointIndices: null };
+
+    // An interactive embed owns its pointer session. Without this guard our
+    // canvas capture handler can still begin a selection/drawing operation as
+    // the iframe receives focus, which makes interactive presentation embeds
+    // feel unreliable.
+    if (e.target?.closest?.(".drawerator-embed-interactive")) return;
 
     if (handleBezierPointerDown(e)) return;
 
@@ -4614,9 +4805,13 @@ function App() {
     const selectedContextElements = capabilities.selected;
     const selectedStrokeElements = capabilities.paths;
 
+    // Shift+right-click is Drawerator's own canvas menu. Keep SVG clipboard
+    // actions here even with no selected element: this direct click pathway
+    // retains user activation and does not rely on browser paste event routing.
+    e.preventDefault();
+    e.stopPropagation();
+
     if (selectedContextElements.length > 0) {
-      e.preventDefault();
-      e.stopPropagation();
 
       const hasBrush = selectedStrokeElements.some(el => el.id.includes("-brush-") || (el.groupIds && el.groupIds.some(gId => gId.endsWith("-group"))));
       const hasFreehand = selectedStrokeElements.some(el => el.type === "freedraw");
@@ -4624,11 +4819,13 @@ function App() {
       const hasSpline = selectedStrokeElements.some(hasCubicBezierGeometry);
       const hasConvertiblePath = selectedStrokeElements.some(el => !hasCubicBezierGeometry(el));
       const hasShapes = capabilities.hasShapes;
+      const hasP5HostCandidate = selectedContextElements.some(canHostP5Frame);
 
       setCustomContextMenu({
         x: e.clientX,
         y: e.clientY,
         showAddCursor: selectedContextElements.length > 0,
+        showAttachP5: hasP5HostCandidate,
         showRestore: hasBrush,
         showToPath: hasShapes,
         showToLine: hasFreehand || hasSpline,
@@ -4639,9 +4836,20 @@ function App() {
         showSharpRound: capabilities.showSharpRound,
         allSharp: capabilities.allSharp,
         allRound: capabilities.allRound,
+        showSvgActions: true,
+        showBoardExport: true,
+        showP5FrameExport: selectedContextElements.some(isP5FrameElement),
+        hasSelection: true,
       });
     } else {
-      setCustomContextMenu(null);
+      setCustomContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        showSvgActions: true,
+        showBoardExport: true,
+        showP5FrameExport: false,
+        hasSelection: false,
+      });
     }
   };
 
@@ -5436,6 +5644,10 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
+    localStorage.setItem("drawerator_export_transparent", String(transparentBoardExport));
+  }, [transparentBoardExport]);
+
+  useEffect(() => {
     localStorage.setItem("drawerator_interface_theme", JSON.stringify(interfaceTheme));
     localStorage.setItem("drawerator_interface_theme_preset", interfaceThemePreset);
   }, [interfaceTheme, interfaceThemePreset]);
@@ -5552,10 +5764,11 @@ function App() {
 
     if (type === "selection-as-png" || type === "canvas-as-png") {
       try {
-        const canvas = await exportToCanvas({
+        const { canvas } = await exportDraweratorPng({
+          exportToCanvas,
           elements: targetElements,
-          appState: { ...activeState, exportBackground: true },
-          files
+          appState: activeState,
+          files,
         });
         const dataUrl = canvas.toDataURL("image/png");
         return { dataUrl, type: "png" };
@@ -5662,9 +5875,12 @@ function App() {
     setToolLogs(prev => [...prev, { msg, status, id: Date.now() + Math.random() }]);
   };
 
-  // XML Parser that executes AI Tool tags in Excalidraw
-  const executeAIToolCalls = (text, api) => {
-    if (!api) return;
+  // XML Parser that executes AI Tool tags in Excalidraw. Stable Drawerator
+  // commands are awaited in order so a model can create a script/object and
+  // act on it later in the same response.
+  const executeAIToolCalls = async (text, api) => {
+    if (!api) return { errors: [] };
+    const errors = [];
     
     if (/<clear\s*\/>/i.test(text)) {
       api.updateScene({ elements: [] });
@@ -5684,19 +5900,26 @@ function App() {
       return attrs;
     };
 
-    const draweratorCommandRegex = /<drawerator-command\s+id="([^"]+)"\s*>([\s\S]*?)<\/drawerator-command>/gi;
-    let commandMatch;
-    while ((commandMatch = draweratorCommandRegex.exec(text)) !== null) {
+    for (const call of parseDraweratorCommandTags(text)) {
+      if (call.error) {
+        logToolAction(`command(${call.id}): ${call.error}`, "error");
+        errors.push(`command(${call.id}): ${call.error}`);
+        continue;
+      }
+      if (!isAICommandAllowed(call.id, commandRegistry.list())) {
+        logToolAction(`command(${call.id}): not available to AI`, "error");
+        errors.push(`command(${call.id}): not available to AI`);
+        continue;
+      }
       try {
-        const commandId = commandMatch[1];
-        const args = commandMatch[2].trim() ? JSON.parse(commandMatch[2]) : {};
-        commandRegistry.execute(commandId, args, {
+        await commandRegistry.execute(call.id, call.args, {
           source: "ai",
           transportTime: scoreTimeRef.current,
-        }).then(() => logToolAction(`command(${commandId})`, "ok"))
-          .catch(error => logToolAction(`command(${commandId}): ${error.message}`, "error"));
+        });
+        logToolAction(`command(${call.id})`, "ok");
       } catch (error) {
-        logToolAction(`command(${commandMatch[1]}): ${error.message}`, "error");
+        logToolAction(`command(${call.id}): ${error.message}`, "error");
+        errors.push(`command(${call.id}): ${error.message}`);
       }
     }
 
@@ -5814,6 +6037,7 @@ function App() {
     if (didChange) {
       api.updateScene({ elements });
     }
+    return { errors };
   };
 
   // Submit chat text to Local LLM
@@ -5927,16 +6151,12 @@ function App() {
 
     const provider = aiSettings.provider;
 
-    const aiCommandCatalog = commandRegistry.list().map(command => ({
-      id: command.id,
-      name: command.name,
-      args: command.args,
-    }));
+    const aiAutomationGuide = buildAIAutomationGuide(commandRegistry.list(), { prompt: userMessage });
     const messagesPayload = newHistory.map(h => {
       if (h.role === "system") {
         return {
           role: "system",
-          content: `${h.content}\n\nRegistered Drawerator commands (generated from the live registry):\n${JSON.stringify(aiCommandCatalog)}`,
+          content: `${h.content}\n\n${aiAutomationGuide}`,
         };
       }
       if (h.role === "user") {
@@ -5994,7 +6214,21 @@ function App() {
       });
       if (!fullResponse) throw new Error("The provider returned an empty response.");
 
-      executeAIToolCalls(fullResponse, excalidrawAPI);
+      const toolResult = await executeAIToolCalls(fullResponse, excalidrawAPI);
+      if (toolResult.errors.length) {
+        const report = toolResult.errors.slice(0, 3).join("\n- ");
+        setChatHistory(prev => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last?.role === "assistant") {
+            updated[updated.length - 1] = {
+              ...last,
+              content: `${last.content}\n\n> Drawerator rejected an action; nothing unsafe was saved or run.\n> - ${report}\n> Ask me to repair the script using the IanniX or Brush contract.`,
+            };
+          }
+          return updated;
+        });
+      }
 
     } catch (e) {
       console.error(e);
@@ -6136,8 +6370,12 @@ function App() {
     setAccentOpacity(preset.accent.opacity);
     setHighlightColor(preset.highlight.color);
     setHighlightOpacity(preset.highlight.opacity);
+    setForegroundColor(preset.foreground.color);
+    setForegroundOpacity(preset.foreground.opacity);
+    setMutedColor(preset.muted.color);
+    setMutedOpacity(preset.muted.opacity);
     setInterfaceTheme(normalizeInterfaceTheme(preset.surfaces, preset.theme));
-    if (preset.roleTheme) setRoleTheme({ ...DEFAULT_ROLE_THEME, ...preset.roleTheme });
+    if (preset.roleTheme) setRoleTheme(normalizeRoleTheme(preset.roleTheme));
     runtimeCallbacksRef.current.globalGridUpdate({
       appearance: { opacity: preset.surfaces.grid.opacity / 100 },
     });
@@ -6145,6 +6383,10 @@ function App() {
     localStorage.setItem("drawerator_accent_opacity", String(preset.accent.opacity));
     localStorage.setItem("drawerator_highlight_color", preset.highlight.color);
     localStorage.setItem("drawerator_highlight_opacity", String(preset.highlight.opacity));
+    localStorage.setItem("drawerator_foreground_color", preset.foreground.color);
+    localStorage.setItem("drawerator_foreground_opacity", String(preset.foreground.opacity));
+    localStorage.setItem("drawerator_muted_color", preset.muted.color);
+    localStorage.setItem("drawerator_muted_opacity", String(preset.muted.opacity));
     finishApplyingRecordedUiState();
   };
 
@@ -6176,6 +6418,8 @@ function App() {
       theme,
       accent: { color: accentColor, opacity: accentOpacity },
       highlight: { color: highlightColor, opacity: highlightOpacity },
+      foreground: { color: foregroundColor, opacity: foregroundOpacity },
+      muted: { color: mutedColor, opacity: mutedOpacity },
       surfaces: normalizeInterfaceTheme({
         ...interfaceTheme,
         grid: { ...interfaceTheme.grid, opacity: Math.round(globalGridRef.current.appearance.opacity * 100) },
@@ -6212,11 +6456,270 @@ function App() {
       finishApplyingRecordedUiState();
     },
   }));
+  // Keep this catalog on the public Excalidraw API surface. Drawerator's
+  // Excalidraw build deliberately does not reach into Excalidraw's internal
+  // action manager, which makes these commands stable for both people and AI
+  // clients across dependency upgrades.
+  const EXCALIDRAW_TOOL_DEFINITIONS = [
+    ["selection", "Selection"],
+    ["rectangle", "Rectangle"],
+    ["diamond", "Diamond"],
+    ["ellipse", "Ellipse"],
+    ["arrow", "Arrow"],
+    ["line", "Line"],
+    ["freedraw", "Freehand"],
+    ["text", "Text"],
+    ["image", "Image"],
+    ["eraser", "Eraser"],
+    ["hand", "Hand"],
+    ["frame", "Frame"],
+    ["embeddable", "Web Embed"],
+    ["laser", "Laser Pointer"],
+  ];
+  const EXCALIDRAW_TOOL_COMMANDS = EXCALIDRAW_TOOL_DEFINITIONS.map(([type, label]) => ({
+    id: `excalidraw.tool.${type}`,
+    name: `Excalidraw: ${label} Tool /ex tool ${type}`,
+    aliases: [`/ex tool ${type}`, `/ex ${type}`, `excalidraw ${label}`],
+    category: "Excalidraw",
+    ai: { expose: true, description: `Activate Excalidraw's ${label.toLowerCase()} tool.` },
+    action: api => {
+      if (!api) return;
+      const activeTool = api.getAppState().activeTool || {};
+      api.updateScene({ appState: { activeTool: { ...activeTool, type, locked: activeTool.locked ?? false } } });
+    },
+  }));
+  const EXCALIDRAW_COMMANDS = [
+    {
+      id: "excalidraw.commands",
+      name: "Excalidraw Commands /ex",
+      aliases: ["/ex", "/ex help", "excalidraw commands"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Open the namespaced Excalidraw slash-command catalog." },
+      action: () => window.setTimeout(() => {
+        setCommandSearch("/ex ");
+        setSelectedIndex(0);
+        setShowCommandPalette(true);
+      }, 0),
+    },
+    {
+      id: "excalidraw.file.open",
+      name: "Excalidraw: Open / Import Scene /ex open",
+      aliases: ["/ex open", "/ex import", "/ex load"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Open a local Drawerator or Excalidraw scene picker. The user must select the file." },
+      action: () => sceneImportInputRef.current?.click(),
+    },
+    {
+      id: "excalidraw.file.save",
+      name: "Excalidraw: Save Scene /ex save",
+      aliases: ["/ex save", "/ex export scene"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Download the current Drawerator scene with its metadata." },
+      action: () => exportDraweratorScene(),
+    },
+    {
+      id: "excalidraw.file.saveAs",
+      name: "Excalidraw: Save Scene As /ex save as",
+      aliases: ["/ex save as"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Download the current Drawerator scene as a new file." },
+      action: () => exportDraweratorScene(),
+    },
+    {
+      id: "excalidraw.file.exportPng",
+      name: "Excalidraw: Export Board PNG /ex export png",
+      aliases: ["/ex export png", "/ex png", "/export png"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Export the current board as PNG using the saved transparent-export preference, including live p5 frames when available." },
+      action: () => void exportDraweratorBoardPng(),
+    },
+    {
+      id: "excalidraw.file.exportSvg",
+      name: "Excalidraw: Export Board SVG /ex export svg",
+      aliases: ["/ex export svg", "/ex svg", "/export svg"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Export the current static board geometry as SVG using the saved transparent-export preference." },
+      action: () => void exportDraweratorBoardSvg(),
+    },
+    {
+      id: "excalidraw.file.exportPngTheme",
+      name: "Excalidraw: Export Board PNG with Theme /ex export png theme",
+      aliases: ["/ex export png theme", "/ex png theme", "/export png theme"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Export the board as PNG with the current canvas/theme background, including live p5 frames." },
+      action: () => void exportDraweratorBoardPng({ transparent: false }),
+    },
+    {
+      id: "excalidraw.file.exportPngTransparent",
+      name: "Excalidraw: Export Board PNG Transparent /ex export png transparent",
+      aliases: ["/ex export png transparent", "/ex png transparent", "/export png transparent"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Export the board as a transparent PNG, including live p5 frames." },
+      action: () => void exportDraweratorBoardPng({ transparent: true }),
+    },
+    {
+      id: "excalidraw.file.exportSvgTheme",
+      name: "Excalidraw: Export Board SVG with Theme /ex export svg theme",
+      aliases: ["/ex export svg theme", "/ex svg theme", "/export svg theme"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Export board geometry as SVG with the current canvas/theme background." },
+      action: () => void exportDraweratorBoardSvg({ transparent: false }),
+    },
+    {
+      id: "excalidraw.file.exportSvgTransparent",
+      name: "Excalidraw: Export Board SVG Transparent /ex export svg transparent",
+      aliases: ["/ex export svg transparent", "/ex svg transparent", "/export svg transparent"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Export board geometry as SVG with no canvas background." },
+      action: () => void exportDraweratorBoardSvg({ transparent: true }),
+    },
+    {
+      id: "excalidraw.file.transparentExport",
+      name: `Excalidraw: ${transparentBoardExport ? "Disable" : "Enable"} Transparent Export /ex export transparent`,
+      aliases: ["/ex export transparent", "/export transparent", "Toggle transparent export"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Toggle the saved default background mode for board and p5-frame exports. Explicit theme/transparent export commands override it once." },
+      action: () => setTransparentBoardExport(previous => {
+        const next = !previous;
+        setSceneExchangeStatus(`Default board exports will use ${next ? "a transparent background" : "the current canvas theme"}.`);
+        return next;
+      }),
+    },
+    {
+      id: "excalidraw.scene.clear",
+      name: "Excalidraw: Clear Scene /ex clear",
+      aliases: ["/ex clear", "/ex new"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Clear every scene object without a popup." },
+      action: api => api?.updateScene({ elements: [] }),
+    },
+    {
+      id: "excalidraw.selection.all",
+      name: "Excalidraw: Select All /ex select all",
+      aliases: ["/ex select all"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Select every live scene object." },
+      action: api => {
+        if (!api) return;
+        const selectedElementIds = Object.fromEntries(api.getSceneElements().filter(element => !element.isDeleted).map(element => [element.id, true]));
+        api.updateScene({ appState: { selectedElementIds } });
+      },
+    },
+    {
+      id: "excalidraw.selection.none",
+      name: "Excalidraw: Deselect All /ex deselect",
+      aliases: ["/ex deselect", "/ex select none"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Clear the current selection." },
+      action: api => api?.updateScene({ appState: { selectedElementIds: {} } }),
+    },
+    {
+      id: "excalidraw.selection.delete",
+      name: "Excalidraw: Delete Selection /ex delete",
+      aliases: ["/ex delete", "/ex delete selected"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Delete the currently selected scene objects." },
+      action: api => {
+        if (!api) return;
+        const selectedElementIds = api.getAppState().selectedElementIds || {};
+        if (!Object.keys(selectedElementIds).length) return;
+        const elements = api.getSceneElementsIncludingDeleted().map(element => selectedElementIds[element.id] ? { ...element, isDeleted: true } : element);
+        api.updateScene({ elements, appState: { selectedElementIds: {} }, commitToHistory: true });
+      },
+    },
+    {
+      id: "excalidraw.view.reset",
+      name: "Excalidraw: Reset View /ex reset view",
+      aliases: ["/ex reset view", "/ex view reset"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Reset the Excalidraw canvas zoom and pan." },
+      action: api => api?.updateScene({ appState: { zoom: { value: 1 }, scrollX: 0, scrollY: 0 } }),
+    },
+    {
+      id: "excalidraw.view.frameAll",
+      name: "Excalidraw: Frame All /ex frame all",
+      aliases: ["/ex frame all"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Fit all live scene objects into the canvas view." },
+      action: api => {
+        const elements = api?.getSceneElements().filter(element => !element.isDeleted) || [];
+        if (elements.length) api.scrollToContent(elements, { fitToContent: true, animate: true });
+      },
+    },
+    {
+      id: "excalidraw.view.frameSelected",
+      name: "Excalidraw: Frame Selection /ex frame selected",
+      aliases: ["/ex frame selected"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Fit the current selection into the canvas view." },
+      action: api => {
+        if (!api) return;
+        const selectedElementIds = api.getAppState().selectedElementIds || {};
+        const elements = api.getSceneElements().filter(element => !element.isDeleted && selectedElementIds[element.id]);
+        if (elements.length) api.scrollToContent(elements, { fitToContent: true, animate: true });
+      },
+    },
+    {
+      id: "excalidraw.mode.view",
+      name: "Excalidraw: Toggle View Mode /ex view mode",
+      aliases: ["/ex view mode", "/ex mode view"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Toggle Excalidraw view-only mode." },
+      action: api => api?.updateScene({ appState: { viewModeEnabled: !api.getAppState().viewModeEnabled } }),
+    },
+    {
+      id: "excalidraw.mode.zen",
+      name: "Excalidraw: Toggle Zen Mode /ex zen",
+      aliases: ["/ex zen", "/ex mode zen"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Toggle Excalidraw's built-in zen mode." },
+      action: api => api?.updateScene({ appState: { zenModeEnabled: !api.getAppState().zenModeEnabled } }),
+    },
+    {
+      id: "excalidraw.tool.lock",
+      name: "Excalidraw: Toggle Tool Lock /ex tool lock",
+      aliases: ["/ex tool lock", "/ex lock tool"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Toggle whether the active Excalidraw tool remains selected after use." },
+      action: api => {
+        if (!api) return;
+        const activeTool = api.getAppState().activeTool || {};
+        api.updateScene({ appState: { activeTool: { ...activeTool, locked: !activeTool.locked } } });
+      },
+    },
+    {
+      id: "excalidraw.theme.toggle",
+      name: "Excalidraw: Toggle Light / Dark Theme /ex theme",
+      aliases: ["/ex theme", "/ex toggle theme"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Toggle Drawerator's paired light or dark theme." },
+      action: api => toggleDraweratorTheme(api),
+    },
+    {
+      id: "excalidraw.canvas.transparent",
+      name: "Excalidraw: Toggle Canvas Transparency /ex transparent",
+      aliases: ["/ex transparency", "/ex transparent"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Toggle the canvas background transparency." },
+      action: api => toggleBackgroundTransparency(api),
+    },
+    {
+      id: "excalidraw.library.toggle",
+      name: "Excalidraw: Toggle Library /ex library",
+      aliases: ["/ex library"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Toggle Excalidraw's library sidebar." },
+      action: () => toggleLibrary(),
+    },
+    ...EXCALIDRAW_TOOL_COMMANDS,
+  ];
   const COMMANDS = [
     ...PANEL_COMMANDS,
+    ...EXCALIDRAW_COMMANDS,
     { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "workspace.reset.defaults", name: "Reset Workspace to Defaults /reset defaults", aliases: ["/reset defaults", "/workspace reset", "Reset to defaults"], category: "Settings", record: "presentation", action: () => resetBoardSettingsToDefaults() },
     { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => { applyingRecordedUiStateRef.current = true; setSatoriMode(prev => !prev); finishApplyingRecordedUiState(); } },
+    { id: "presentation.toggle", name: "Toggle Presentation Mode /presentation", aliases: ["/presentation", "/present", "Presentation mode"], category: "View", record: "presentation", action: () => setPresentationMode(previous => { const next = !previous; localStorage.setItem("drawerator_presentation_mode", String(next)); return next; }) },
     { id: "toggle-theme", name: "Toggle Dark/Light Theme", category: "View", action: (api) => {
       toggleDraweratorTheme(api);
     } },
@@ -6224,6 +6727,13 @@ function App() {
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
+    { id: "svg.copy.selection", name: "Copy Selection as Editable SVG /copy svg", aliases: ["/copy svg", "Copy selection SVG"], category: "Canvas", action: () => copySelectionAsSvg() },
+    { id: "svg.paste.editable", name: "Paste SVG as Editable Paths /paste svg", aliases: ["/paste svg", "Paste SVG as paths"], category: "Canvas", action: () => pasteSvgAsEditable() },
+    { id: "export.board.png", name: "Export Board as PNG /export board", aliases: ["/export board", "/export png", "Export Drawerator board"], category: "Canvas", action: () => void exportDraweratorBoardPng() },
+    { id: "export.p5.frame.png", name: "Export Selected p5 Frame as PNG /export p5", aliases: ["/export p5", "/export p5 frame", "Export selected p5 frame"], category: "Canvas", action: () => void exportSelectedP5FramesPng() },
+    { id: "webembed.create", name: "Create Web Embed /webembed", aliases: ["/webembed", "Create web embed", "Web embed"], category: "Canvas", args: { url: "URL?" }, action: (_api, args) => createWebEmbed(args) },
+    { id: "p5.frame.create", name: "Create p5 Frame /p5", aliases: ["/p5", "Create p5 frame", "p5 frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", source: "p5 source?", mode: "auto|instance|global?", runtime: "bundled|cdn?", cdnUrl: "string?" }, ai: { expose: true, description: "Create a trusted, interactive p5.js frame. Use mode: instance for p.setup/p.draw code, or mode: global for classic function setup()/draw() code. Omit mode for auto-detection. The bundled runtime is the default; only use runtime: cdn when the user specifically requests a remote p5 build. Keep the sketch self-contained and do not use HTML or script tags.", example: { name: "Pulsing circle", width: 640, height: 360, mode: "global", source: "function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(230);\n  strokeWeight(3);\n  const radius = 60 + 24 * Math.sin(millis() / 500);\n  circle(width / 2, height / 2, radius * 2);\n}" } }, action: (_api, args) => createP5Frame(args) },
+    { id: "p5.frame.attach", name: "Attach p5 Sketch to Selection /attach p5", aliases: ["/attach p5", "Attach p5 sketch", "p5 attach"], category: "Canvas", args: { source: "p5 source?", mode: "auto|instance|global?", name: "string?" }, ai: { expose: true, description: "Attach a p5 sketch to each selected rectangle, frame, or existing p5 canvas. The selected objects become live p5 hosts; use a self-contained p5 source and choose global mode for classic setup()/draw() code.", example: { mode: "global", source: "function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  circle(width / 2, height / 2, 80);\n}" } }, action: (_api, args) => attachP5ScriptToSelection(args) },
     { id: "settings-ai", name: "Open AI Configuration /settings-ai", aliases: ["/settings-ai"], category: "Panels", action: () => toggleDraweratorPanel("settings", { settingsTab: "ai" }) },
     { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
     { id: "toggle-transparency", name: "Toggle Canvas Background Transparency", category: "Canvas", action: (api) => toggleBackgroundTransparency(api) },
@@ -6260,19 +6770,23 @@ function App() {
     { id: "iannix.export.bezier", name: "Export Selected Bézier Curves as IanniX /iannix export", aliases: ["/iannix export"], category: "IanniX", action: () => exportSelectedBezierIannix() },
     { id: "scene.create", name: "Create Scene Objects", category: "Scene", args: { elements: "element[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.create", args) },
     { id: "scene.update", name: "Update Scene Objects", category: "Scene", args: { elements: "element[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.update", args) },
-    { id: "scene.delete", name: "Delete Scene Objects", category: "Scene", args: { elementIds: "string[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.delete", args) },
-    { id: "transport.update", name: "Update Transport State", category: "Transport", args: { state: "transportState" }, action: (_api, args) => runtimeCallbacksRef.current.transportUpdate(args?.state || args) },
+    { id: "scene.create.objects", name: "AI: Create Scene Objects", category: "AI Actions", args: { objects: "{id?,type,x,y,width?,height?,x2?,y2?,points?,strokeColor?,backgroundColor?,role?,label?}[]", select: "boolean?" }, ai: { expose: true, description: "Create rectangles, ellipses, diamonds, lines, or freedraw paths. Freedraw points are absolute [x,y] pairs. Give objects explicit ids when later commands need them.", example: { objects: [{ id: "curve-a", type: "line", x: 100, y: 120, x2: 420, y2: 220, strokeColor: "#00b8e8", role: "curve", label: "AI curve" }] } }, action: (_api, args) => createAIObjects(args) },
+    { id: "scene.patch.objects", name: "AI: Patch Scene Objects", category: "AI Actions", args: { patches: "{id,patch:{x?,y?,width?,height?,angle?,strokeColor?,backgroundColor?,fillStyle?,strokeWidth?,strokeStyle?,roughness?,opacity?,locked?}}[]" }, ai: { expose: true, description: "Move or restyle existing objects using only the supplied shallow patch fields. Use ids from scene context or objects created earlier in this response.", example: { patches: [{ id: "curve-a", patch: { strokeColor: "#ff8a3d", strokeWidth: 4 } }] } }, action: (_api, args) => patchAIObjects(args) },
+    { id: "automation.keyframes.set", name: "AI: Set Object Keyframes", category: "AI Actions", args: { keyframes: "{elementId,path,time|seconds,value,interpolation?}[]" }, ai: { expose: true, description: "Animate supported Excalidraw object properties by adding or replacing keyframes. Supported paths are x, y, angle, width, height, opacity, strokeWidth, strokeColor, backgroundColor, points, customData.modifiers, customData.iannix, and customData.draweratorGeometry. Time accepts Drawerator time expressions.", example: { keyframes: [{ elementId: "curve-a", path: "x", time: "0 s", value: 100 }, { elementId: "curve-a", path: "x", time: "2 bars", value: 600 }] } }, action: (_api, args) => setAIAutomationKeyframes(args) },
+    { id: "scene.delete", name: "Delete Scene Objects", category: "Scene", args: { elementIds: "string[]" }, ai: { expose: true, description: "Delete objects by id.", example: { elementIds: ["curve-a"] } }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.delete", args) },
+    { id: "score.roles.assign", name: "AI: Assign Score Roles", category: "AI Actions", args: { elementIds: "string[]?", role: "none|curve|cursor|trigger", label: "string?", active: "boolean?" }, ai: { expose: true, description: "Assign or clear IanniX score roles. Without elementIds, applies to the current selection.", example: { elementIds: ["curve-a"], role: "curve", label: "Main curve" } }, action: (_api, args) => assignAIObjectRoles(args) },
+    { id: "transport.update", name: "Update Transport State", category: "Transport", args: { state: "transportState" }, ai: { expose: true, description: "Update transport tempo, meter, play state, display mode, fps, or loop range. Do not change MIDI credentials or providers.", example: { state: { tempo: 96, timeSignature: "4/4", displayMode: "beats" } } }, action: (_api, args) => runtimeCallbacksRef.current.transportUpdate(args?.state || args) },
     { id: "transport.seek", name: "Seek Global Transport", category: "Transport", args: { seconds: "number|timeValue" }, action: (_api, args) => runtimeCallbacksRef.current.transportSeek(resolveTimeValue(args?.value ?? args?.seconds ?? 0, timeContext)) },
     { id: "transport.jump.start", name: "Jump to Timeline or Loop Start", category: "Transport", action: () => runtimeCallbacksRef.current.transportJump("start") },
     { id: "transport.jump.end", name: "Jump to Timeline or Loop End", category: "Transport", action: () => runtimeCallbacksRef.current.transportJump("end") },
     { id: "presentation.panels", name: "Update Panel Presentation", category: "Panels", record: "presentation", args: { state: "panelState" }, action: (_api, args) => runtimeCallbacksRef.current.panelStateUpdate(args?.state || args) },
-    { id: "settings.board.update", name: "Update Board Settings", category: "Settings", record: "presentation", args: { state: "boardSettings" }, sensitiveArgs: ["state.credentials", "state.apiKey", "state.token"], action: (_api, args) => runtimeCallbacksRef.current.boardSettingsUpdate(args?.state || args) },
-    { id: "grid.global.update", name: "Update Global Grid /grid update", aliases: ["/grid update"], category: "Grid", args: { patch: "gridPatch" }, action: (_api, args) => runtimeCallbacksRef.current.globalGridUpdate(args?.patch || args) },
+    { id: "settings.board.update", name: "Update Board Settings", category: "Settings", record: "presentation", args: { state: "boardSettings" }, sensitiveArgs: ["state.credentials", "state.apiKey", "state.token"], ai: { expose: true, description: "Change visual board settings such as theme, toolbar hints, accent/highlight colors, or interface theme. Never set credentials, API keys, tokens, endpoints, or permissions.", example: { state: { theme: "dark", accentColor: "#7d8588", accentOpacity: 70 } } }, action: (_api, args) => runtimeCallbacksRef.current.boardSettingsUpdate(args?.state || args) },
+    { id: "grid.global.update", name: "Update Global Grid /grid update", aliases: ["/grid update"], category: "Grid", args: { patch: "gridPatch" }, ai: { expose: true, description: "Update the global grid, including appearance, spacing, subdivisions, snapping, time mapping, or value mapping.", example: { patch: { appearance: { visible: true }, snap: { mode: "hard" }, spacing: { x: 100, y: 100 } } } }, action: (_api, args) => runtimeCallbacksRef.current.globalGridUpdate(args?.patch || args) },
     { id: "grid.global.reset", name: "Reset Global Grid /grid reset", aliases: ["/grid reset"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridReset() },
     { id: "grid.visible.toggle", name: "Toggle Global Grid Visibility /grid visible", aliases: ["/grid visible"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridUpdate({ appearance: { visible: !globalGridRef.current.appearance.visible } }) },
     { id: "grid.snap.toggle", name: "Toggle Global Grid Snapping /grid snap", aliases: ["/grid snap"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridUpdate({ snap: { mode: globalGridRef.current.snap.mode === "off" ? "hard" : "off" } }) },
     { id: "grid.quantize.selection", name: "Quantize Selection to Global Grid /grid quantize", aliases: ["/grid quantize"], category: "Grid", args: { elementIds: "string[]?", resolution: "minor|major?", axes: "x|y|both?" }, action: (_api, args) => runtimeCallbacksRef.current.gridQuantizeSelection(args) },
-    { id: "score.time.update", name: "Update Score Object Time /score time", aliases: ["/score time"], category: "IanniX", args: { elementIds: "string[]?", start: "number|timeValue?", duration: "number|timeValue?", rate: "number?", loopMode: "once|loop|pingPong?" }, action: (_api, args) => updateScoreObjectTiming(args) },
+    { id: "score.time.update", name: "Update Score Object Time /score time", aliases: ["/score time"], category: "IanniX", args: { elementIds: "string[]?", start: "number|timeValue?", duration: "number|timeValue?", rate: "number?", loopMode: "once|loop|pingPong?" }, ai: { expose: true, description: "Set score object start, duration, rate, or loop mode. Time values accept Drawerator expressions such as 4n, 2 bars, 500 ms, or 30 f.", example: { elementIds: ["curve-a"], duration: "2 bars", loopMode: "loop" } }, action: (_api, args) => updateScoreObjectTiming(args) },
     { id: "score.time.restoreAuto", name: "Restore Geometry-derived Duration /score duration auto", aliases: ["/score duration auto"], category: "IanniX", args: { elementIds: "string[]?" }, action: (_api, args) => restoreScoreAutoDuration(args) },
     { id: "score.grid.assign", name: "Assign Score Object Grid /score grid", aliases: ["/score grid"], category: "Grid", args: { elementIds: "string[]?", gridId: "string", metric: "string?" }, action: (_api, args) => updateScoreGridBinding(args) },
     { id: "score.grid.metric", name: "Change Score Timing Metric /score metric", aliases: ["/score metric"], category: "Grid", args: { elementIds: "string[]?", metric: "auto|xSpan|ySpan|arcLength|manhattan" }, action: (_api, args) => updateScoreGridBinding(args) },
@@ -6286,6 +6800,12 @@ function App() {
     { id: "automation.autokey.toggle", name: "Toggle Auto-key /autokey", aliases: ["/autokey"], category: "History", record: "presentation", action: () => setAutoKeyEnabled(enabled => !enabled) },
     { id: "macro.save", name: "Save Session as Sequence /macro save", aliases: ["/macro save"], category: "History", record: "never", args: { name: "string?" }, action: (_api, args) => runtimeCallbacksRef.current.macroSave(null, args?.name) },
     { id: "macro.insert", name: "Insert Sequence /macro insert", aliases: ["/macro insert"], category: "History", args: { id: "string", mode: "relative|absolute" }, action: (_api, args) => runtimeCallbacksRef.current.macroInsert(args) },
+    { id: "script.brush.create", name: "AI: Create Brush Script", category: "AI Actions", args: { name: "string", code: "JavaScript source", type: "brush|filter?", activate: "boolean?" }, ai: { expose: true, description: "Create an editable Brush / modifier JavaScript script in the local script catalog.", example: { name: "Offset lines", code: "(points, globals) => [points]" } }, action: (_api, args) => createAIBrushScript(args) },
+    { id: "script.brush.update", name: "AI: Update Brush Script", category: "AI Actions", args: { id: "string?", name: "string?", code: "JavaScript source?" }, ai: { expose: true, description: "Rename or replace an editable brush script. Built-in presets are read-only.", example: { id: "user-example", name: "Soft offset", code: "(points, globals) => [points]" } }, action: (_api, args) => updateAIBrushScript(args) },
+    { id: "script.brush.apply", name: "AI: Apply Brush Script", category: "AI Actions", args: { id: "string?", elementIds: "string[]?", params: "object?" }, ai: { expose: true, description: "Apply a brush script as a modifier to selected or listed line/freedraw paths.", example: { id: "user-example", elementIds: ["curve-a"] } }, action: (_api, args) => applyAIBrushScript(args) },
+    { id: "script.iannix.create", name: "AI: Create IanniX Script", category: "AI Actions", args: { name: "string", source: "IanniX source", parameters: "object?", activate: "boolean?" }, ai: { expose: true, description: "Create an editable trusted IanniX source script in the local script catalog. Source must define makeWithScript() or madeThroughGUI(), use Drawerator-supported run() commands, and put one statement per line. Creation does not run it. IanniX coordinates are model units, not canvas pixels: for visible default-scale geometry use setPos current 12 -8 0 and local points/radii near 0..8; do not use 480-style screen coordinates.", example: { name: "Two-point orbit", source: "function makeWithScript() {\n  run(\\\"clear\\\");\n  run(\\\"add curve orbit\\\");\n  run(\\\"setPos current 12 -8 0\\\");\n  run(\\\"setPointAt current 0 0 0\\\");\n  run(\\\"setPointAt current 1 8 0\\\");\n  run(\\\"add cursor traveler\\\");\n  run(\\\"setCurve current lastCurve\\\");\n}" } }, action: (_api, args) => createAIIannixScript(args) },
+    { id: "script.iannix.update", name: "AI: Update IanniX Script", category: "AI Actions", args: { id: "string?", name: "string?", source: "IanniX source?", parameters: "object?" }, ai: { expose: true, description: "Rename or replace a local IanniX script without running it. Replacement source must follow the Drawerator IanniX lifecycle/run-command contract and use one statement per line.", example: { id: "iannix-script-example", source: "function makeWithScript() {\n  run(\\\"add curve orbit\\\");\n  run(\\\"setPos current 12 -8 0\\\");\n  run(\\\"setPointAt current 0 0 0\\\");\n  run(\\\"setPointAt current 1 8 0\\\");\n}" } }, action: (_api, args) => updateAIIannixScript(args) },
+    { id: "script.iannix.run", name: "AI: Run IanniX Script", category: "AI Actions", args: { id: "string?", source: "IanniX source?", filename: "string?", parameters: "object?" }, ai: { expose: true, description: "Run a trusted IanniX script. Only use when the user explicitly asks to execute the generated script.", example: { id: "iannix-script-example" } }, action: (_api, args) => runAIIannixScript(args) },
     { id: "iannix.import.trusted", name: "Import Trusted IanniX Script /iannix import", aliases: ["/iannix import"], category: "IanniX", args: { source: "string", filename: "string?", seed: "number?", anchor: "point?", scale: "number?", importId: "string?", parameters: "object?" }, validate: args => ({ ...args, importId: args?.importId || crypto.randomUUID() }), action: (_api, args) => runtimeCallbacksRef.current.iannixImport(args) },
     { id: "iannix.command.clear", name: "IanniX: Clear Scene /ix clear", aliases: ["/ix clear", "/iannix clear", "IanniX clear"], category: "IanniX", action: () => runtimeCallbacksRef.current.iannixCommand("clear") },
     { id: "iannix.command.execute", name: "Execute IanniX Command", category: "IanniX", args: { command: "string" }, action: (_api, args) => runtimeCallbacksRef.current.iannixCommand(args?.command) },
@@ -6336,6 +6856,12 @@ function App() {
       }));
     };
     const handleKeyDown = (e) => {
+      // An interactive p5 runner owns keyboard input after it has been
+      // clicked. Its p5 instance listens at document level, so consuming a
+      // Drawerator shortcut here would otherwise prevent keyPressed(),
+      // keyReleased(), and keyTyped() from seeing the event.
+      if (document.activeElement?.closest?.(".drawerator-p5-host")) return;
+
       // Escape is a global cancel/clear gesture: close transient UI, blur any
       // focused control, leave Bézier editing, and clear the canvas selection.
       // Keep this capture-phase so it also works from number boxes and menus.
@@ -6599,6 +7125,16 @@ function App() {
         inlineIannixCommand: command,
       });
     }
+    const inlineWebEmbedMatch = /^\/webembed\s+(.+)$/i.exec(commandSearch.trim());
+    if (inlineWebEmbedMatch) {
+      const url = inlineWebEmbedMatch[1].trim();
+      matches.unshift({
+        id: `webembed-inline:${url}`,
+        name: `Create Web Embed: ${url}`,
+        category: "Canvas",
+        inlineWebEmbedUrl: url,
+      });
+    }
     
     if (commandSearch.trim() !== "" && !query.startsWith("/")) {
       matches.unshift({
@@ -6611,6 +7147,19 @@ function App() {
     return matches;
   };
 
+  const getSlashCompletion = (value, commands = getFilteredCommands()) => {
+    const query = String(value || "").trim().toLowerCase();
+    if (!query.startsWith("/")) return "";
+    const candidates = [...commands, ...COMMANDS.filter(command => !commands.includes(command))];
+    for (const command of candidates) {
+      const completion = (command.aliases || [])
+        .filter(alias => alias.toLowerCase().startsWith(query) && alias.toLowerCase() !== query)
+        .sort((left, right) => left.length - right.length)[0];
+      if (completion) return completion;
+    }
+    return "";
+  };
+
   const parseSlashInvocation = value => {
     const input = String(value || "").trim();
     if (!input.startsWith("/")) return null;
@@ -6620,6 +7169,16 @@ function App() {
     if (match) return {
       command: COMMANDS.find(command => command.id === "iannix.command.execute"),
       args: { command: match[1].trim() },
+    };
+    match = /^\/webembed(?:\s+(.+))?$/i.exec(input);
+    if (match) return {
+      command: COMMANDS.find(command => command.id === "webembed.create"),
+      args: { url: match[1]?.trim() || "" },
+    };
+    match = /^\/p5(?:\s+(.+))?$/i.exec(input);
+    if (match) return {
+      command: COMMANDS.find(command => command.id === "p5.frame.create"),
+      args: { name: match[1]?.trim() || "" },
     };
     match = /^\/history\s+seek\s+([0-9.]+)$/i.exec(input);
     if (match) return { command: COMMANDS.find(command => command.id === "history.seek"), args: { seconds: Number(match[1]) } };
@@ -6655,6 +7214,9 @@ function App() {
       if (cmd.inlineIannixCommand) {
         return await commandRegistry.execute("iannix.command.execute", { command: cmd.inlineIannixCommand }, { source, transportTime: scoreTimeRef.current });
       }
+      if (cmd.inlineWebEmbedUrl) {
+        return await commandRegistry.execute("webembed.create", { url: cmd.inlineWebEmbedUrl }, { source, transportTime: scoreTimeRef.current });
+      }
       return await commandRegistry.execute(cmd.id, args, { source, transportTime: scoreTimeRef.current });
     } catch (error) {
       console.error("Drawerator command failed", error);
@@ -6667,6 +7229,20 @@ function App() {
     const elements = excalidrawAPI.getSceneElements();
     return elements.filter(el => selectedElementIds[el.id] && !el.isDeleted);
   };
+
+  useEffect(() => {
+    const selectedP5Frames = getSelectedElements().filter(isP5FrameElement);
+    if (selectedP5Frames.length !== 1) return;
+    const frame = normalizeP5Frame(selectedP5Frames[0].customData?.draweratorP5);
+    const script = frame.scriptId ? p5Scripts.find(candidate => candidate.id === frame.scriptId) : null;
+    setActiveP5ScriptId(script?.id || "");
+    setP5ScriptSource(script?.source || frame.source);
+    setP5ScriptMode(normalizeP5SourceMode(script?.mode || frame.mode));
+    setEditingP5ScriptName(false);
+  // Deliberately react only to selection. Including the catalog/source would
+  // overwrite text while a selected p5 host is being edited live.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedElementIds]);
 
   const commitBezierElement = (elementId, geometry, { commitToHistory = true } = {}) => {
     if (!excalidrawAPI) return null;
@@ -6990,6 +7566,502 @@ function App() {
     return ids;
   };
 
+  const normalizeAIObjectId = value => String(value || "").trim().replace(/[^a-zA-Z0-9_.-]/g, "-").slice(0, 96);
+  const aiObjectTypes = new Set(["rectangle", "ellipse", "diamond", "line", "freedraw"]);
+  const aiPatchKeys = new Set([
+    "x", "y", "width", "height", "angle", "strokeColor", "backgroundColor",
+    "fillStyle", "strokeWidth", "strokeStyle", "roughness", "opacity", "locked",
+  ]);
+
+  const createAIObjectElement = (spec, existingIds) => {
+    const type = spec?.type === "circle" ? "ellipse" : spec?.type;
+    if (!aiObjectTypes.has(type)) throw new Error(`Unsupported object type: ${spec?.type || "(missing)"}.`);
+    // SVG path/polyline import describes freehand geometry as absolute points.
+    // Derive its origin here before validating coordinates; otherwise a valid
+    // imported path is rejected before the freedraw branch below can normalize
+    // those points into Excalidraw-local coordinates.
+    const sourcePoints = type === "freedraw" && Array.isArray(spec.points)
+      ? spec.points
+        .map(point => Array.isArray(point) ? [Number(point[0]), Number(point[1])] : null)
+        .filter(point => point && Number.isFinite(point[0]) && Number.isFinite(point[1]))
+      : null;
+    const x = Number.isFinite(Number(spec.x)) ? Number(spec.x) : sourcePoints?.[0]?.[0];
+    const y = Number.isFinite(Number(spec.y)) ? Number(spec.y) : sourcePoints?.[0]?.[1];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("Every object needs finite x and y coordinates.");
+    const width = Number.isFinite(Number(spec.width)) ? Number(spec.width) : 100;
+    const height = Number.isFinite(Number(spec.height)) ? Number(spec.height) : 100;
+    const strokeColor = typeof spec.strokeColor === "string"
+      ? spec.strokeColor
+      : foregroundColor;
+    const requestedId = normalizeAIObjectId(spec.id);
+    const id = requestedId && !existingIds.has(requestedId)
+      ? requestedId
+      : `ai-${type}-${crypto.randomUUID()}`;
+    existingIds.add(id);
+    const base = {
+      ...createBaseElement(type, x, y, Math.max(1, width), Math.max(1, height), strokeColor),
+      id,
+      ...(typeof spec.backgroundColor === "string" ? { backgroundColor: spec.backgroundColor } : {}),
+      ...(typeof spec.fillStyle === "string" ? { fillStyle: spec.fillStyle } : {}),
+      ...(Number.isFinite(Number(spec.strokeWidth)) ? { strokeWidth: Math.max(1, Number(spec.strokeWidth)) } : {}),
+      ...(typeof spec.strokeStyle === "string" ? { strokeStyle: spec.strokeStyle } : {}),
+      ...(Number.isFinite(Number(spec.roughness)) ? { roughness: Math.max(0, Number(spec.roughness)) } : {}),
+      ...(Number.isFinite(Number(spec.opacity)) ? { opacity: Math.max(0, Math.min(100, Number(spec.opacity))) } : {}),
+    };
+    if (type === "line") {
+      const x2 = Number.isFinite(Number(spec.x2)) ? Number(spec.x2) : x + width;
+      const y2 = Number.isFinite(Number(spec.y2)) ? Number(spec.y2) : y + height;
+      base.width = Math.max(1, Math.abs(x2 - x));
+      base.height = Math.max(1, Math.abs(y2 - y));
+      base.points = [[0, 0], [x2 - x, y2 - y]];
+    }
+    if (type === "freedraw") {
+      const points = sourcePoints || [];
+      if (points.length < 2) throw new Error("Freedraw objects require at least two [x, y] points.");
+      const minX = Math.min(...points.map(point => point[0]));
+      const minY = Math.min(...points.map(point => point[1]));
+      const maxX = Math.max(...points.map(point => point[0]));
+      const maxY = Math.max(...points.map(point => point[1]));
+      base.x = minX;
+      base.y = minY;
+      base.width = Math.max(1, maxX - minX);
+      base.height = Math.max(1, maxY - minY);
+      base.points = points.map(point => [point[0] - minX, point[1] - minY]);
+      base.pressures = new Array(points.length).fill(0.5);
+      // Imported SVG outlines must retain their declared constant width. New
+      // hand/AI freedraw remains pressure-simulated unless explicitly disabled.
+      base.simulatePressure = typeof spec.simulatePressure === "boolean"
+        ? spec.simulatePressure
+        : true;
+    }
+    return base;
+  };
+
+  const createWebEmbed = (args = {}) => {
+    const rawUrl = String(args?.url || "").trim()
+      || window.prompt("Web embed URL (http or https)", "")?.trim();
+    if (!rawUrl) return null;
+    const url = sanitizeEmbedURL(rawUrl);
+    if (!url || !isAllowedEmbedURL(url)) {
+      throw new Error("Enter a valid http:// or https:// URL.");
+    }
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const appState = api.getAppState();
+    const center = viewportCoordsToSceneCoords({
+      clientX: window.innerWidth / 2,
+      clientY: window.innerHeight / 2,
+    }, appState);
+    const width = 720;
+    const height = 405;
+    const element = {
+      ...createBaseElement("embeddable", center.x - width / 2, center.y - height / 2, width, height, foregroundColor),
+      link: url,
+      validated: true,
+      strokeWidth: 0,
+      fillStyle: "solid",
+      customData: {
+        draweratorEmbed: embedPolicyForElement(null),
+      },
+    };
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    api.updateScene({
+      elements: [...elements, element],
+      appState: {
+        selectedElementIds: { [element.id]: true },
+        selectedGroupIds: {},
+        activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false },
+      },
+      commitToHistory: true,
+    });
+    setSelectedElementIds({ [element.id]: true });
+    return { elementIds: [element.id], url };
+  };
+
+  const createP5CatalogScript = ({ name, source, mode } = {}) => {
+    const script = {
+      id: `p5-script-${crypto.randomUUID()}`,
+      name: String(name || "Untitled p5 sketch").trim() || "Untitled p5 sketch",
+      source: typeof source === "string" && source.trim() ? source : DEFAULT_P5_SOURCE,
+      mode: normalizeP5SourceMode(mode),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    setP5Scripts(previous => [...previous, script]);
+    setActiveP5ScriptId(script.id);
+    setP5ScriptSource(script.source);
+    setP5ScriptMode(script.mode);
+    return script;
+  };
+
+  const attachP5ScriptToSelection = ({ source, mode, scriptId, name, script: suppliedScript, targetIds } = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const requestedIds = Array.isArray(targetIds) ? new Set(targetIds) : null;
+    const selected = getSelectedElements().filter(element => (
+      canHostP5Frame(element) && (!requestedIds || requestedIds.has(element.id))
+    ));
+    if (!selected.length) throw new Error("Select a rectangle, frame, or p5 canvas first.");
+
+    let script = suppliedScript || p5Scripts.find(candidate => candidate.id === (scriptId || activeP5ScriptId));
+    const resolvedSource = typeof source === "string" && source.trim()
+      ? source
+      : script?.source || p5ScriptSource || DEFAULT_P5_SOURCE;
+    const resolvedMode = normalizeP5SourceMode(mode || script?.mode || p5ScriptMode);
+    if (!script) {
+      script = createP5CatalogScript({ name, source: resolvedSource, mode: resolvedMode });
+    }
+
+    const selectedIds = new Set(selected.map(element => element.id));
+    const nonce = Date.now();
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    api.updateScene({
+      elements: elements.map(element => {
+        if (!selectedIds.has(element.id)) return element;
+        const prior = normalizeP5Frame(element.customData?.draweratorP5);
+        const hostType = isP5FrameElement(element)
+          ? getP5HostElementType(prior)
+          : (element.type === "frame" ? "frame" : "rectangle");
+        return {
+          ...element,
+          type: hostType,
+          link: null,
+          validated: false,
+          strokeWidth: 0,
+          fillStyle: "solid",
+          backgroundColor: "transparent",
+          customData: {
+            ...(element.customData || {}),
+            draweratorP5: normalizeP5Frame({
+              ...prior,
+              source: resolvedSource,
+              mode: resolvedMode,
+              scriptId: script.id,
+              hostType,
+              reloadNonce: nonce,
+            }),
+          },
+        };
+      }),
+      appState: { selectedElementIds: Object.fromEntries(selected.map(element => [element.id, true])) },
+      commitToHistory: true,
+    });
+    setSelectedElementIds(Object.fromEntries(selected.map(element => [element.id, true])));
+    return { count: selected.length, script };
+  };
+
+  const syncP5ScriptHosts = (scriptId, patch) => {
+    const api = excalidrawAPIRef.current;
+    if (!api || !scriptId) return;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const matched = elements.filter(element => !element.isDeleted && isP5FrameElement(element)
+      && normalizeP5Frame(element.customData?.draweratorP5).scriptId === scriptId);
+    if (!matched.length) return;
+    const nonce = Date.now();
+    api.updateScene({
+      elements: elements.map(element => {
+        if (!matched.some(candidate => candidate.id === element.id)) return element;
+        return {
+          ...element,
+          type: getP5HostElementType(element),
+          link: null,
+          validated: false,
+          customData: {
+            ...(element.customData || {}),
+            draweratorP5: normalizeP5Frame({
+              ...element.customData?.draweratorP5,
+              ...patch,
+              reloadNonce: nonce,
+            }),
+          },
+        };
+      }),
+      commitToHistory: false,
+    });
+  };
+
+  const createP5Frame = (args = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const appState = api.getAppState();
+    const center = viewportCoordsToSceneCoords({
+      clientX: window.innerWidth / 2,
+      clientY: window.innerHeight / 2,
+    }, appState);
+    const width = Math.max(120, Math.min(4096, Number(args.width) || 640));
+    const height = Math.max(90, Math.min(4096, Number(args.height) || 360));
+    const source = typeof args.source === "string" && args.source.trim()
+      ? args.source
+      : DEFAULT_P5_SOURCE;
+    const mode = normalizeP5SourceMode(args.mode);
+    // A newly-created p5 frame owns a fresh script by default. Sharing is
+    // deliberate: rebind a selected frame through the script selector, or
+    // use Apply on an explicit multi-selection.
+    const script = createP5CatalogScript({ name: args.name, source, mode });
+    const frame = normalizeP5Frame({
+      ...DEFAULT_P5_FRAME,
+      source,
+      mode,
+      scriptId: script.id,
+      runtime: args.runtime,
+      cdnUrl: args.cdnUrl,
+      reloadNonce: Date.now(),
+    });
+    const baseElement = createBaseElement("rectangle", center.x - width / 2, center.y - height / 2, width, height, foregroundColor);
+    const element = {
+      ...baseElement,
+      link: null,
+      validated: false,
+      strokeWidth: 0,
+      fillStyle: "solid",
+      backgroundColor: "transparent",
+      customData: { draweratorP5: frame },
+    };
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    api.updateScene({
+      elements: [...elements, element],
+      appState: {
+        selectedElementIds: { [element.id]: true },
+        selectedGroupIds: {},
+        activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false },
+      },
+      commitToHistory: true,
+    });
+    setSelectedElementIds({ [element.id]: true });
+    return { elementIds: [element.id], name: script.name };
+  };
+
+  const createAIObjects = (args = {}) => {
+    if (!excalidrawAPI) throw new Error("The canvas is not ready.");
+    const specs = Array.isArray(args.objects) ? args.objects.slice(0, 50) : [];
+    if (!specs.length) throw new Error("Provide one or more objects.");
+    const scene = excalidrawAPI.getSceneElements();
+    const existingIds = new Set(scene.map(element => element.id));
+    const created = specs.map(spec => ({ spec, element: createAIObjectElement(spec, existingIds) }));
+    excalidrawAPI.updateScene({
+      elements: [...scene, ...created.map(item => item.element)],
+      appState: args.select === false ? undefined : {
+        selectedElementIds: Object.fromEntries(created.map(item => [item.element.id, true])),
+      },
+      commitToHistory: true,
+    });
+    for (const role of ["curve", "cursor", "trigger"]) {
+      const group = created.filter(item => item.spec.role === role);
+      if (!group.length) continue;
+      assignIannixRole(group.map(item => item.element), role);
+      group.forEach(item => {
+        if (typeof item.spec.label === "string" && item.spec.label.trim()) {
+          updateIannixDataPath([item.element.id], ["label"], item.spec.label.trim());
+        }
+      });
+    }
+    return { elementIds: created.map(item => item.element.id) };
+  };
+
+  const patchAIObjects = (args = {}) => {
+    if (!excalidrawAPI) throw new Error("The canvas is not ready.");
+    const patches = Array.isArray(args.patches) ? args.patches.slice(0, 100) : [];
+    if (!patches.length) throw new Error("Provide one or more object patches.");
+    const patchById = new Map(patches
+      .filter(item => typeof item?.id === "string" && item.patch && typeof item.patch === "object")
+      .map(item => [item.id, item.patch]));
+    if (!patchById.size) throw new Error("Every patch needs an id and a patch object.");
+    const updatedIds = [];
+    const next = excalidrawAPI.getSceneElements().map(element => {
+      const patch = patchById.get(element.id);
+      if (!patch || element.isDeleted) return element;
+      const nextPatch = {};
+      for (const [key, value] of Object.entries(patch)) {
+        if (!aiPatchKeys.has(key)) continue;
+        if (["x", "y", "width", "height", "angle", "strokeWidth", "roughness", "opacity"].includes(key)) {
+          if (!Number.isFinite(Number(value))) continue;
+          nextPatch[key] = key === "opacity" ? Math.max(0, Math.min(100, Number(value))) : Number(value);
+        } else if (["strokeColor", "backgroundColor", "fillStyle", "strokeStyle"].includes(key)) {
+          if (typeof value === "string") nextPatch[key] = value;
+        } else if (key === "locked" && typeof value === "boolean") nextPatch[key] = value;
+      }
+      if (!Object.keys(nextPatch).length) return element;
+      updatedIds.push(element.id);
+      return {
+        ...element,
+        ...nextPatch,
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 1000000),
+        updated: Date.now(),
+      };
+    });
+    if (!updatedIds.length) throw new Error("No editable objects matched the provided patch ids.");
+    excalidrawAPI.updateScene({ elements: next, commitToHistory: true });
+    return { elementIds: updatedIds };
+  };
+
+  const setAIAutomationKeyframes = (args = {}) => {
+    if (!excalidrawAPI) throw new Error("The canvas is not ready.");
+    const keyframes = Array.isArray(args.keyframes) ? args.keyframes.slice(0, 200) : [];
+    if (!keyframes.length) throw new Error("Provide one or more keyframes.");
+    const keysByElement = new Map();
+    for (const keyframe of keyframes) {
+      const elementId = String(keyframe?.elementId || "");
+      const path = String(keyframe?.path || "");
+      if (!elementId || !AUTO_KEY_PATHS.includes(path)) {
+        throw new Error("Each keyframe needs an elementId and a supported path.");
+      }
+      const time = Math.max(0, resolveTimeValue(keyframe.time ?? keyframe.seconds ?? 0, timeContext));
+      if (!Number.isFinite(time)) throw new Error(`Invalid keyframe time for ${elementId}.`);
+      if (!keysByElement.has(elementId)) keysByElement.set(elementId, []);
+      keysByElement.get(elementId).push({
+        path,
+        time,
+        value: keyframe.value,
+        interpolation: ["linear", "step", "angle"].includes(keyframe.interpolation)
+          ? keyframe.interpolation
+          : interpolationForPath(path),
+      });
+    }
+    const updatedIds = [];
+    const next = excalidrawAPI.getSceneElements().map(element => {
+      const entries = keysByElement.get(element.id);
+      if (!entries || element.isDeleted) return element;
+      let tracks = element.customData?.draweratorAutomation?.tracks || {};
+      for (const entry of entries) {
+        tracks = upsertAutomationKey(tracks, entry.path, entry.time, entry.value, entry.interpolation);
+      }
+      updatedIds.push(element.id);
+      return {
+        ...element,
+        customData: {
+          ...(element.customData || {}),
+          draweratorAutomation: { version: 1, tracks },
+        },
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 1000000),
+        updated: Date.now(),
+      };
+    });
+    if (!updatedIds.length) throw new Error("No editable objects matched the supplied element ids.");
+    excalidrawAPI.updateScene({ elements: next, commitToHistory: true });
+    return { elementIds: updatedIds, keyframeCount: keyframes.length };
+  };
+
+  const assignAIObjectRoles = (args = {}) => {
+    const role = args.role === "none" ? null : args.role;
+    if (![null, "curve", "cursor", "trigger"].includes(role)) throw new Error("Role must be none, curve, cursor, or trigger.");
+    const ids = Array.isArray(args.elementIds) && args.elementIds.length
+      ? args.elementIds
+      : getSelectedElements().map(element => element.id);
+    if (!ids.length) throw new Error("Provide elementIds or select an object first.");
+    const targets = (excalidrawAPI?.getSceneElements() || []).filter(element => ids.includes(element.id) && !element.isDeleted);
+    if (!targets.length) throw new Error("No matching objects were found.");
+    if (role) assignIannixRole(targets, role);
+    else updateIannixElements(targets.map(element => element.id), current => ({ ...current, role: null, label: "" }));
+    if (typeof args.label === "string" && args.label.trim()) updateIannixDataPath(targets.map(element => element.id), ["label"], args.label.trim());
+    if (typeof args.active === "boolean") updateIannixDataPath(targets.map(element => element.id), ["active"], args.active);
+    return { elementIds: targets.map(element => element.id) };
+  };
+
+  const createAIBrushScript = (args = {}) => {
+    const name = String(args.name || "Untitled Script").trim().slice(0, 120) || "Untitled Script";
+    const code = formatAIScriptSource(String(args.code || "(points, globals) => [points]"));
+    if (!code) throw new Error("Brush script code is required.");
+    const validation = validateAIBrushSource(code);
+    if (!validation.valid) throw new Error(`Brush script validation failed: ${validation.errors.join(" ")}`);
+    const id = `user-${crypto.randomUUID()}`;
+    const brush = { id, name, code, isPreset: false, type: args.type === "filter" ? "filter" : "brush" };
+    aiCreatedBrushesRef.current.set(id, brush);
+    setBrushPalette(previous => [...previous, brush]);
+    if (args.activate !== false) {
+      setActiveBrushId(id);
+      setActiveBrushCode(code);
+    }
+    setBrushSaveMessage(`Created “${name}”.`);
+    return { id, name, warnings: validation.warnings };
+  };
+
+  const updateAIBrushScript = (args = {}) => {
+    const requestedId = args.id || activeBrushId;
+    const brush = brushPalette.find(candidate => candidate.id === requestedId)
+      || aiCreatedBrushesRef.current.get(requestedId);
+    if (!brush) throw new Error("Brush script not found.");
+    if (brush.isPreset) throw new Error("Built-in brush scripts cannot be changed. Create a copy instead.");
+    const name = typeof args.name === "string" && args.name.trim() ? args.name.trim().slice(0, 120) : brush.name;
+    const code = typeof args.code === "string" && args.code.trim() ? formatAIScriptSource(args.code) : brush.code;
+    const validation = typeof args.code === "string" ? validateAIBrushSource(code) : { warnings: [] };
+    if (typeof args.code === "string" && !validation.valid) throw new Error(`Brush script validation failed: ${validation.errors.join(" ")}`);
+    const nextBrush = { ...brush, name, code };
+    aiCreatedBrushesRef.current.set(brush.id, nextBrush);
+    setBrushPalette(previous => previous.map(candidate => candidate.id === brush.id ? nextBrush : candidate));
+    if (activeBrushId === brush.id) setActiveBrushCode(code);
+    setBrushSaveMessage(`Updated “${name}”.`);
+    return { id: brush.id, name, warnings: validation.warnings };
+  };
+
+  const applyAIBrushScript = (args = {}) => {
+    const requestedId = args.id || args.brushId || activeBrushId;
+    const brush = brushPalette.find(candidate => candidate.id === requestedId)
+      || aiCreatedBrushesRef.current.get(requestedId);
+    if (!brush) throw new Error("Brush script not found.");
+    const requestedIds = Array.isArray(args.elementIds) && args.elementIds.length ? args.elementIds : getSelectedElements().map(element => element.id);
+    const targets = (excalidrawAPI?.getSceneElements() || []).filter(element => requestedIds.includes(element.id) && !element.isDeleted && ["line", "freedraw"].includes(element.type));
+    if (!targets.length) throw new Error("Select or provide one or more line or freedraw element ids.");
+    const parsed = parseParameters(brush.code);
+    const supplied = args.params && typeof args.params === "object" ? args.params : {};
+    const params = Object.fromEntries(parsed.map(parameter => [parameter.name, supplied[parameter.name] ?? parameter.value]));
+    const modifier = { id: `custom-${brush.id}`, name: brush.name, type: brush.type || "brush", enabled: true, params, codeOverride: brush.code };
+    targets.forEach(element => updateModifiedElementInScene(element.id, [...(element.customData?.modifiers || []), modifier]));
+    setBrushSaveMessage(`Applied “${brush.name}” to ${targets.length} ${targets.length === 1 ? "path" : "paths"}.`);
+    return { elementIds: targets.map(element => element.id), brushId: brush.id };
+  };
+
+  const createAIIannixScript = (args = {}) => {
+    const name = String(args.name || "Untitled Script").trim().slice(0, 120) || "Untitled Script";
+    const source = formatAIScriptSource(String(args.source || ""));
+    const validation = validateAIIannixSource(source);
+    if (!validation.valid) throw new Error(`IanniX script validation failed: ${validation.errors.join(" ")}`);
+    const id = `iannix-script-${crypto.randomUUID()}`;
+    const script = { id, name, source, parameters: args.parameters && typeof args.parameters === "object" ? args.parameters : {}, createdAt: Date.now(), updatedAt: Date.now() };
+    aiCreatedIannixScriptsRef.current.set(id, script);
+    setIannixScripts(previous => [...previous, script]);
+    if (args.activate !== false) {
+      setActiveIannixScriptId(id);
+      setIannixScriptSource(source);
+    }
+    setSceneExchangeStatus(`Created “${name}” in this browser.`);
+    return { id, name, commands: validation.commands, warnings: validation.warnings };
+  };
+
+  const updateAIIannixScript = (args = {}) => {
+    const requestedId = args.id || activeIannixScriptId;
+    const script = iannixScripts.find(candidate => candidate.id === requestedId)
+      || aiCreatedIannixScriptsRef.current.get(requestedId);
+    if (!script) throw new Error("IanniX script not found.");
+    const name = typeof args.name === "string" && args.name.trim() ? args.name.trim().slice(0, 120) : script.name;
+    const source = typeof args.source === "string" ? formatAIScriptSource(args.source) : script.source;
+    const validation = typeof args.source === "string" ? validateAIIannixSource(source) : { commands: [], warnings: [] };
+    if (typeof args.source === "string" && !validation.valid) throw new Error(`IanniX script validation failed: ${validation.errors.join(" ")}`);
+    const parameters = args.parameters && typeof args.parameters === "object" ? { ...script.parameters, ...args.parameters } : script.parameters;
+    const nextScript = { ...script, name, source, parameters, updatedAt: Date.now() };
+    aiCreatedIannixScriptsRef.current.set(script.id, nextScript);
+    setIannixScripts(previous => previous.map(candidate => candidate.id === script.id ? nextScript : candidate));
+    if (activeIannixScriptId === script.id) setIannixScriptSource(source);
+    setSceneExchangeStatus(`Updated “${name}” in this browser.`);
+    return { id: script.id, name, commands: validation.commands, warnings: validation.warnings };
+  };
+
+  const runAIIannixScript = (args = {}) => {
+    const requestedId = args.id || activeIannixScriptId;
+    const script = iannixScripts.find(candidate => candidate.id === requestedId)
+      || aiCreatedIannixScriptsRef.current.get(requestedId);
+    const source = typeof args.source === "string" ? args.source : script?.source;
+    if (!String(source || "").trim()) throw new Error("IanniX script source is required.");
+    const validation = validateAIIannixSource(source);
+    if (!validation.valid) throw new Error(`IanniX script validation failed: ${validation.errors.join(" ")}`);
+    return runtimeCallbacksRef.current.iannixImport({
+      source,
+      filename: args.filename || script?.name || "AI IanniX script",
+      parameters: args.parameters && typeof args.parameters === "object" ? args.parameters : (script?.parameters || {}),
+    });
+  };
+
   const assignIannixRole = (elements, role) => {
     if (!excalidrawAPI || elements.length === 0) return;
     const sceneElements = excalidrawAPI.getSceneElements();
@@ -7138,7 +8210,7 @@ function App() {
     }, appState);
     const demo = createExpressiveSynthDemoScore({
       center: [viewportCenter.x, viewportCenter.y],
-      strokeColor: theme === "dark" ? "#f1f3f5" : "#1b1b1f",
+      strokeColor: foregroundColor,
     });
     const currentElements = excalidrawAPI.getSceneElementsIncludingDeleted();
     const demoSelection = Object.fromEntries(demo.triggers.map(trigger => [trigger.id, true]));
@@ -7272,7 +8344,7 @@ function App() {
       fps: transportFps,
       sampleRate: scoreSampleRate,
       loop: { enabled: transportLoopEnabled, start: transportLoopStart, end: transportLoopEnd, startValue: transportLoopStartValue, endValue: transportLoopEndValue },
-    }, kind === "scene" ? globalGridRef.current : null, kind === "scene" ? expressiveSynthConfigRef.current : null, kind === "scene" ? mixerRef.current : null), null, 2);
+    }, kind === "scene" ? globalGridRef.current : null, kind === "scene" ? expressiveSynthConfigRef.current : null, kind === "scene" ? mixerRef.current : null, kind === "scene" ? p5Scripts : []), null, 2);
   };
 
   const downloadTextFile = (text, filename, mimeType = "application/json") => {
@@ -7355,9 +8427,11 @@ function App() {
 
   const importDraweratorSceneText = async (text, { commitToHistory = true } = {}) => {
     if (!excalidrawAPI) return;
-    const { score, grid, expressiveSynth, mixer: importedMixer } = parseDraweratorExchange(text, "scene");
+    const { score, grid, expressiveSynth, mixer: importedMixer, p5Scripts: importedP5Scripts } = parseDraweratorExchange(text, "scene");
     const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
-    const restoredElements = reconcileRuntimeCursorHosts(restored.elements || []);
+    const restoredRuntimeElements = reconcileRuntimeCursorHosts(restored.elements || []);
+    const restoredP5 = reconcileP5ScriptsWithElements(importedP5Scripts, restoredRuntimeElements);
+    const restoredElements = restoredP5.elements;
     if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
     excalidrawAPI.updateScene({
       elements: restoredElements,
@@ -7374,6 +8448,11 @@ function App() {
     setExpressiveSynthConfig(expressiveSynth);
     mixerRef.current = importedMixer;
     setMixer(importedMixer);
+    setP5Scripts(restoredP5.scripts);
+    const restoredActiveP5Script = restoredP5.scripts[0];
+    setActiveP5ScriptId(restoredActiveP5Script?.id || "");
+    setP5ScriptSource(restoredActiveP5Script?.source || "");
+    setP5ScriptMode(normalizeP5SourceMode(restoredActiveP5Script?.mode));
     if (Number.isFinite(score?.time)) setScoreTime(score.time);
     if (Number.isFinite(score?.rate) && score.rate > 0) setScoreRate(score.rate);
     if (Number.isFinite(score?.tempo) && score.tempo >= 20 && score.tempo <= 400) setScoreTempo(score.tempo);
@@ -7717,6 +8796,22 @@ function App() {
       setHighlightOpacity(Number(state.highlightOpacity));
       localStorage.setItem("drawerator_highlight_opacity", String(state.highlightOpacity));
     }
+    if (typeof state.foregroundColor === "string" && isCssColor(state.foregroundColor)) {
+      setForegroundColor(state.foregroundColor);
+      localStorage.setItem("drawerator_foreground_color", state.foregroundColor);
+    }
+    if (Number.isFinite(Number(state.foregroundOpacity))) {
+      setForegroundOpacity(Number(state.foregroundOpacity));
+      localStorage.setItem("drawerator_foreground_opacity", String(state.foregroundOpacity));
+    }
+    if (typeof state.mutedColor === "string" && isCssColor(state.mutedColor)) {
+      setMutedColor(state.mutedColor);
+      localStorage.setItem("drawerator_muted_color", state.mutedColor);
+    }
+    if (Number.isFinite(Number(state.mutedOpacity))) {
+      setMutedOpacity(Number(state.mutedOpacity));
+      localStorage.setItem("drawerator_muted_opacity", String(state.mutedOpacity));
+    }
     if (state.interfaceTheme && typeof state.interfaceTheme === "object") {
       setInterfaceTheme(normalizeInterfaceTheme(state.interfaceTheme, state.theme || theme));
       setInterfaceThemePreset(typeof state.interfaceThemePreset === "string" ? state.interfaceThemePreset : "custom");
@@ -7808,6 +8903,10 @@ function App() {
       accentOpacity,
       highlightColor,
       highlightOpacity,
+      foregroundColor,
+      foregroundOpacity,
+      mutedColor,
+      mutedOpacity,
       interfaceTheme,
       interfaceThemePreset,
       roleTheme,
@@ -7833,7 +8932,7 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record board settings", error));
     }, 180);
-  }, [accentColor, accentOpacity, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceTheme, interfaceThemePreset, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
+  }, [accentColor, accentOpacity, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
 
   useEffect(() => {
     const api = {
@@ -7984,6 +9083,246 @@ function App() {
     }
   };
 
+  const createSvgElements = (specs, { select = true, anchor = null } = {}) => {
+    if (!excalidrawAPI) throw new Error("The canvas is not ready.");
+    if (!specs.length) throw new Error("This SVG does not contain editable paths or shapes.");
+    const appState = excalidrawAPI.getAppState();
+    const bounds = getSvgDrawableBounds(specs);
+    const target = anchor || viewportCoordsToSceneCoords({
+      clientX: window.innerWidth / 2,
+      clientY: window.innerHeight / 2,
+    }, appState);
+    const positioned = bounds
+      ? offsetSvgDrawableSpecs(specs, target.x - (bounds.minX + bounds.width / 2), target.y - (bounds.minY + bounds.height / 2))
+      : specs;
+    const scene = excalidrawAPI.getSceneElementsIncludingDeleted();
+    const existingIds = new Set(scene.map(element => element.id));
+    const created = positioned.map(spec => createAIObjectElement({ ...spec, roughness: 0 }, existingIds));
+    excalidrawAPI.updateScene({
+      elements: [...scene, ...created],
+      appState: select ? { selectedElementIds: Object.fromEntries(created.map(element => [element.id, true])) } : undefined,
+      commitToHistory: true,
+    });
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return created;
+  };
+
+  const pasteDraweratorSvgElements = (elements, { select = true, anchor = null } = {}) => {
+    if (!excalidrawAPI) throw new Error("The canvas is not ready.");
+    const scene = excalidrawAPI.getSceneElementsIncludingDeleted();
+    const source = (elements || []).filter(element => element && !element.isDeleted);
+    if (!source.length) throw new Error("This Drawerator SVG contains no editable objects.");
+    const minX = Math.min(...source.map(element => Math.min(element.x || 0, (element.x || 0) + (element.width || 0))));
+    const maxX = Math.max(...source.map(element => Math.max(element.x || 0, (element.x || 0) + (element.width || 0))));
+    const minY = Math.min(...source.map(element => Math.min(element.y || 0, (element.y || 0) + (element.height || 0))));
+    const maxY = Math.max(...source.map(element => Math.max(element.y || 0, (element.y || 0) + (element.height || 0))));
+    const appState = excalidrawAPI.getAppState();
+    const target = anchor || viewportCoordsToSceneCoords({
+      clientX: window.innerWidth / 2,
+      clientY: window.innerHeight / 2,
+    }, appState);
+    const imported = remapSelectionForImport(source, scene, undefined, {
+      x: target.x - (minX + maxX) / 2,
+      y: target.y - (minY + maxY) / 2,
+    });
+    const importedElements = reconcileRuntimeCursorHosts(imported.elements, [...scene, ...imported.elements]);
+    excalidrawAPI.updateScene({
+      elements: [...scene, ...importedElements],
+      appState: select ? { selectedElementIds: Object.fromEntries(importedElements.map(element => [element.id, true])) } : undefined,
+      commitToHistory: true,
+    });
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return importedElements;
+  };
+
+  const importSvgMarkup = async (markup, options = {}) => {
+    const svg = cleanSvgMarkup(markup);
+    if (!svg) throw new Error("Clipboard content is not SVG.");
+    const draweratorMetadata = extractDraweratorSvgMetadata(svg);
+    if (draweratorMetadata) {
+      const restored = pasteDraweratorSvgElements(draweratorMetadata.elements, options);
+      setSceneExchangeStatus(`Pasted ${restored.length} original Drawerator SVG ${restored.length === 1 ? "object" : "objects"} with editable stroke data intact.`);
+      return restored;
+    }
+    const specs = parseSvgToDrawableSpecs(svg);
+    const created = createSvgElements(specs, options);
+    setSceneExchangeStatus(`Pasted ${created.length} editable SVG ${created.length === 1 ? "object" : "objects"}. Assign Curve, Cursor, or Trigger roles as needed.`);
+    return created;
+  };
+  importSvgMarkupRef.current = importSvgMarkup;
+
+  const copySelectionAsSvg = async () => {
+    if (!excalidrawAPI) return;
+    try {
+      const appState = excalidrawAPI.getAppState();
+      const selected = getSelectionExchangeElements(
+        excalidrawAPI.getSceneElementsIncludingDeleted(),
+        { ...appState.selectedElementIds, ...runtimeCursorSelectionRef.current, ...selectedElementIdsRef.current },
+      );
+      if (!selected.length) throw new Error("Select one or more objects to copy as SVG.");
+      const svg = attachDraweratorSvgMetadata((await exportToSvg({
+        elements: selected,
+        appState: { ...appState, exportBackground: false },
+        files: excalidrawAPI.getFiles(),
+      })).outerHTML, selected);
+      svgClipboardCacheRef.current = svg;
+      try {
+        if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) throw new Error("Typed clipboard unavailable");
+        await navigator.clipboard.write([new ClipboardItem({
+          "image/svg+xml": new Blob([svg], { type: "image/svg+xml" }),
+          "text/plain": new Blob([svg], { type: "text/plain" }),
+        })]);
+      } catch {
+        // Safari and some embedded Chromium shells expose ClipboardItem but do
+        // not accept image/svg+xml. Plain text still transports real SVG.
+        await navigator.clipboard.writeText(svg);
+      }
+      setSceneExchangeStatus(`Copied ${selected.length} selected ${selected.length === 1 ? "object" : "objects"} as editable SVG.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not copy selection as SVG.");
+    }
+  };
+
+  const readSvgClipboard = async () => {
+    if (navigator.clipboard?.read) {
+      try {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          for (const type of ["image/svg+xml", "text/html", "text/plain"]) {
+            if (!item.types.includes(type)) continue;
+            const text = await (await item.getType(type)).text();
+            const svg = extractSvgMarkup(text);
+            if (svg) return svg;
+          }
+        }
+      } catch { /* fall through to the broadly supported text API */ }
+    }
+    try {
+      const text = await navigator.clipboard?.readText?.();
+      const svg = extractSvgMarkup(text);
+      if (svg) return svg;
+    } catch { /* restrictive embedded shells can still use the app-owned copy */ }
+    return svgClipboardCacheRef.current;
+  };
+
+  const pasteSvgAsEditable = async () => {
+    try {
+      const svg = await readSvgClipboard();
+      if (!svg) throw new Error("No SVG was found on the clipboard.");
+      await importSvgMarkup(svg);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not paste SVG as editable paths.");
+    }
+  };
+
+  const getSelectedP5FramesForExport = () => {
+    if (!excalidrawAPI) return [];
+    const appState = excalidrawAPI.getAppState();
+    return getSelectionExchangeElements(
+      excalidrawAPI.getSceneElementsIncludingDeleted(),
+      { ...appState.selectedElementIds, ...runtimeCursorSelectionRef.current, ...selectedElementIdsRef.current },
+    ).filter(isP5FrameElement);
+  };
+
+  // Keep Excalidraw's raw scene state here. The PNG exporter applies the same
+  // dark-theme display filter as the live canvas before compositing p5 frames.
+  const getDraweratorExportAppState = ({ transparent = transparentBoardExport } = {}) => ({
+    ...excalidrawAPI.getAppState(),
+    exportBackground: !transparent,
+  });
+
+  const exportDraweratorBoardPng = async ({ transparent = transparentBoardExport } = {}) => {
+    if (!excalidrawAPI) return;
+    try {
+      const { canvas, capturedP5Frames } = await exportDraweratorPng({
+        exportToCanvas,
+        elements: excalidrawAPI.getSceneElementsIncludingDeleted(),
+        appState: getDraweratorExportAppState({ transparent }),
+        files: excalidrawAPI.getFiles(),
+        exportBackground: !transparent,
+      });
+      downloadCanvasAsPng(canvas, { filename: `drawerator-board${transparent ? "-transparent" : "-theme"}.png` });
+      setSceneExchangeStatus(`Exported board PNG${transparent ? " with a transparent background" : " with the current canvas theme"}${capturedP5Frames ? ` and ${capturedP5Frames} live p5 ${capturedP5Frames === 1 ? "frame" : "frames"}` : ""}.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not export the board PNG.");
+    }
+  };
+
+  const exportDraweratorBoardSvg = async ({ transparent = transparentBoardExport } = {}) => {
+    if (!excalidrawAPI) return;
+    try {
+      const elements = excalidrawAPI.getSceneElements().filter(element => !element.isDeleted);
+      const svg = await exportToSvg({
+        elements,
+        appState: getDraweratorExportAppState({ transparent }),
+        files: excalidrawAPI.getFiles(),
+        exportPadding: 10,
+      });
+      downloadTextFile(
+        svg.outerHTML,
+        `drawerator-board${transparent ? "-transparent" : "-theme"}-${new Date().toISOString().slice(0, 10)}.svg`,
+        "image/svg+xml",
+      );
+      setSceneExchangeStatus(`Exported ${elements.length} board objects as SVG${transparent ? " with a transparent background" : " with the current canvas theme"}.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not export the board SVG.");
+    }
+  };
+
+  const exportSelectedP5FramesPng = async () => {
+    if (!excalidrawAPI) return;
+    try {
+      const selectedFrames = getSelectedP5FramesForExport();
+      if (!selectedFrames.length) throw new Error("Select one or more p5 frames to export.");
+      let exported = 0;
+      for (const [index, frame] of selectedFrames.entries()) {
+        const { canvas, capturedP5Frames } = await exportDraweratorPng({
+          exportToCanvas,
+          elements: [frame],
+          appState: getDraweratorExportAppState(),
+          files: excalidrawAPI.getFiles(),
+          exportBackground: !transparentBoardExport,
+        });
+        if (!capturedP5Frames) continue;
+        downloadCanvasAsPng(canvas, { filename: `drawerator-p5-frame-${index + 1}${transparentBoardExport ? "-transparent" : ""}.png` });
+        exported += 1;
+      }
+      if (!exported) throw new Error("The selected p5 frame is not currently running.");
+      setSceneExchangeStatus(`Exported ${exported} live p5 ${exported === 1 ? "frame" : "frames"} as PNG.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not export the selected p5 frame.");
+    }
+  };
+
+  useEffect(() => {
+    const isTextEditor = target => target instanceof Element && Boolean(target.closest("input, textarea, select, [contenteditable='true'], .cm-editor"));
+    const onPaste = event => {
+      if (isTextEditor(event.target)) return;
+      const clipboard = event.clipboardData;
+      const svg = extractSvgMarkup(clipboard?.getData("image/svg+xml"))
+        || extractSvgMarkup(clipboard?.getData("text/html"))
+        || extractSvgMarkup(clipboard?.getData("text/plain"));
+      const svgFile = [...(clipboard?.files || [])].find(file => file.type === "image/svg+xml");
+      if (!svg && !svgFile) return;
+      event.preventDefault();
+      // Also prevent listeners registered on window after Drawerator. This is
+      // important in host shells that install clipboard bridges alongside
+      // Excalidraw and otherwise consume an SVG paste as an image.
+      event.stopImmediatePropagation();
+      event.stopPropagation();
+      if (svg) {
+        void importSvgMarkupRef.current?.(svg).catch(error => setSceneExchangeStatus(error.message || "Could not paste SVG as editable paths."));
+      } else {
+        void svgFile.text().then(value => importSvgMarkupRef.current?.(value)).catch(error => setSceneExchangeStatus(error.message || "Could not paste SVG as editable paths."));
+      }
+    };
+    // Excalidraw registers its own document-level paste listener. Listen one
+    // level earlier so external SVG is converted before Excalidraw can fall
+    // back to treating it as a raster image (or consume the event entirely).
+    window.addEventListener("paste", onPaste, true);
+    return () => window.removeEventListener("paste", onPaste, true);
+  }, [excalidrawAPI]);
+
   const colorFromIannix = object => {
     if (object.color?.length >= 3) {
       const [r, g, b] = object.color.map(value => Math.min(255, Math.max(0, Math.round(value))));
@@ -7993,7 +9332,7 @@ function App() {
       const [h, s, lightness] = object.colorHue;
       return `hsl(${((h % 360) + 360) % 360} ${Math.min(100, Math.max(0, s / 2.55))}% ${Math.min(80, Math.max(20, lightness / 5.1))}%)`;
     }
-    return theme === "light" ? "#1b1b1f" : "#e7e7e9";
+    return colorWithOpacity(foregroundColor, foregroundOpacity);
   };
 
   const applyTrustedIannixImport = async (args = {}) => {
@@ -8088,6 +9427,7 @@ function App() {
           version: 1,
           externalId: object.externalId,
           group: object.group || "",
+          authoredColor: Boolean(object.color?.length >= 3 || object.colorHue?.length >= 3),
           pattern: object.pattern || "",
           source: args.filename || "IanniX script",
           scale,
@@ -8265,7 +9605,11 @@ function App() {
     if (unsupportedOperation) throw new Error(`Interactive ${unsupportedOperation.type} commands are not supported yet; run a full script for structural score changes.`);
     let changed = 0;
     const nextElements = elements.map(element => {
-      const relevant = operations.filter(operation => String(operation.externalId) === externalIdFor(element));
+      const relevant = operations.filter(operation => (
+        String(operation.externalId) === externalIdFor(element)
+        || (["color", "colorHue"].includes(operation.type)
+          && String(element.customData?.iannixImport?.group || "") === String(operation.externalId))
+      ));
       if (!relevant.length) return element;
       let iannix = normalizeIannixData(element.customData?.iannix);
       let iannixImport = { ...(element.customData?.iannixImport || {}) };
@@ -8283,9 +9627,11 @@ function App() {
         else if (operation.type === "color") {
           const [r = 0, g = 0, b = 0] = operation.value;
           strokeColor = `#${[r, g, b].map(value => Math.min(255, Math.max(0, Math.round(value))).toString(16).padStart(2, "0")).join("")}`;
+          iannixImport.authoredColor = true;
         } else if (operation.type === "colorHue") {
           const [h = 0, s = 0, lightness = 0] = operation.value;
           strokeColor = `hsl(${((h % 360) + 360) % 360} ${Math.min(100, Math.max(0, s / 2.55))}% ${Math.min(80, Math.max(20, lightness / 5.1))}%)`;
+          iannixImport.authoredColor = true;
         } else if (operation.type === "message") iannix = { ...iannix, trigger: { ...iannix.trigger, midiPattern: operation.value, midiEnabled: String(operation.value).includes("midi://") } };
         else if (operation.type === "pattern") iannixImport.pattern = operation.value;
         else if (operation.type === "curve") {
@@ -8352,13 +9698,6 @@ function App() {
     const selectedCount = getSelectedElements().length;
     return (
       <InspectorSection title="Scene data" className="iannix-section compact iannix-data-section" {...infoProps("Scene data", "Scene exchange preserves Drawerator metadata. Trusted .iannix compatibility executes familiar run()/load() scripts, reports unsupported commands, and is not a security sandbox.")}>
-        <input
-          ref={sceneImportInputRef}
-          type="file"
-          accept=".excalidraw,.json,application/json"
-          hidden
-          onChange={handleDraweratorSceneFile}
-        />
         <div className="iannix-data-actions">
           <a className="iannix-flat-button" href="#" download onClick={prepareDraweratorSceneDownload}>Export scene</a>
           <button type="button" className="iannix-flat-button" onClick={() => sceneImportInputRef.current?.click()}>Import scene</button>
@@ -8366,6 +9705,8 @@ function App() {
           <button type="button" className="iannix-flat-button" onClick={() => void pasteDraweratorScene()}>Paste scene JSON</button>
           <button type="button" className="iannix-flat-button" onClick={copyDraweratorSelection} disabled={selectedCount === 0}>Copy selection JSON</button>
           <button type="button" className="iannix-flat-button" onClick={pasteDraweratorSelection}>Paste selection JSON</button>
+          <button type="button" className="iannix-flat-button" onClick={() => void copySelectionAsSvg()} disabled={selectedCount === 0}>Copy selection SVG</button>
+          <button type="button" className="iannix-flat-button" onClick={() => void pasteSvgAsEditable()}>Paste SVG as paths</button>
         </div>
         {sceneExchangeStatus && <div className="iannix-midi-status" role="status">{sceneExchangeStatus}</div>}
       </InspectorSection>
@@ -9116,6 +10457,244 @@ function App() {
   };
 
   const getScriptParams = code => parseScriptParameters(code);
+
+  const renderP5ScriptTab = () => {
+    const setP5LiveStatus = (message, kind = "info") => {
+      setP5ScriptStatus(message);
+      setP5ScriptStatusKind(kind);
+    };
+    const selectedP5Frames = getSelectedElements().filter(isP5FrameElement);
+    const selectedP5Host = selectedP5Frames.length === 1 ? selectedP5Frames[0] : null;
+    const selectedP5Config = selectedP5Host ? normalizeP5Frame(selectedP5Host.customData?.draweratorP5) : null;
+    const activeScript = p5Scripts.find(script => script.id === (selectedP5Config?.scriptId || activeP5ScriptId));
+    const compatibleP5Hosts = getSelectedElements().filter(canHostP5Frame);
+    const syncSelectedLegacyFrames = patch => {
+      const api = excalidrawAPIRef.current;
+      if (!api || !selectedP5Frames.length) return;
+      const ids = new Set(selectedP5Frames.map(element => element.id));
+      const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+      api.updateScene({
+        elements: elements.map(element => ids.has(element.id) ? {
+          ...element,
+          customData: {
+            ...(element.customData || {}),
+            draweratorP5: normalizeP5Frame({
+              ...element.customData?.draweratorP5,
+              ...patch,
+              reloadNonce: Date.now(),
+            }),
+          },
+        } : element),
+        commitToHistory: false,
+      });
+    };
+    const updateScriptLive = patch => {
+      if (Object.hasOwn(patch, "source")) {
+        const validation = validateP5Source(patch.source);
+        if (!validation.valid) {
+          setP5LiveStatus(`p5 error: ${validation.error}`, "error");
+          return false;
+        }
+      }
+      if (activeScript) {
+        setP5Scripts(previous => previous.map(script => script.id === activeScript.id
+          ? { ...script, ...patch, updatedAt: Date.now() }
+          : script
+        ));
+        syncP5ScriptHosts(activeScript.id, patch);
+      } else {
+        syncSelectedLegacyFrames(patch);
+      }
+      return true;
+    };
+    const saveScript = () => {
+      const validation = validateP5Source(p5ScriptSource);
+      if (!validation.valid) {
+        setP5LiveStatus(`p5 error: ${validation.error}`, "error");
+        return;
+      }
+      if (!activeScript) {
+        const created = createP5CatalogScript({ source: p5ScriptSource, mode: p5ScriptMode });
+        if (selectedP5Frames.length) {
+          attachP5ScriptToSelection({ script: created, source: created.source, mode: created.mode, name: created.name });
+        }
+        setP5LiveStatus(`Saved “${created.name}” in this browser.`, "success");
+        return;
+      }
+      setP5Scripts(previous => previous.map(script => script.id === activeScript.id
+        ? { ...script, source: p5ScriptSource, mode: normalizeP5SourceMode(p5ScriptMode), updatedAt: Date.now() }
+        : script
+      ));
+      syncP5ScriptHosts(activeScript.id, { source: p5ScriptSource, mode: normalizeP5SourceMode(p5ScriptMode) });
+      setP5LiveStatus(`Saved “${activeScript.name}” in this browser.`, "success");
+    };
+    const createScript = () => {
+      const script = {
+        id: `p5-script-${crypto.randomUUID()}`,
+        name: "Untitled p5 sketch",
+        source: DEFAULT_P5_CLASSIC_SOURCE,
+        mode: "global",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      setP5Scripts(previous => [...previous, script]);
+      setActiveP5ScriptId(script.id);
+      setP5ScriptSource(script.source);
+      setP5ScriptMode(script.mode);
+      setP5ScriptNameDraft(script.name);
+      setEditingP5ScriptName(true);
+      setP5LiveStatus("Created a new p5 sketch.");
+    };
+    const duplicateScript = () => {
+      if (!activeScript) return;
+      const script = {
+        ...activeScript,
+        id: `p5-script-${crypto.randomUUID()}`,
+        name: `Copy of ${activeScript.name}`,
+        source: p5ScriptSource,
+        mode: normalizeP5SourceMode(p5ScriptMode),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      setP5Scripts(previous => [...previous, script]);
+      setActiveP5ScriptId(script.id);
+      setP5ScriptSource(script.source);
+      setP5ScriptMode(script.mode);
+      setP5ScriptNameDraft(script.name);
+      setEditingP5ScriptName(true);
+      setP5LiveStatus(`Duplicated “${activeScript.name}”.`);
+    };
+    const commitRename = () => {
+      const name = p5ScriptNameDraft.trim();
+      if (activeScript && name && name !== activeScript.name) {
+        setP5Scripts(previous => previous.map(script => script.id === activeScript.id
+          ? { ...script, name, updatedAt: Date.now() }
+          : script
+        ));
+        setP5LiveStatus(`Renamed sketch to “${name}”.`);
+      }
+      setEditingP5ScriptName(false);
+    };
+    const beginRename = () => {
+      if (!activeScript) return;
+      setP5ScriptNameDraft(activeScript.name || "Untitled p5 sketch");
+      setEditingP5ScriptName(true);
+    };
+    const deleteScript = () => {
+      if (!activeScript || !window.confirm(`Delete “${activeScript.name}”?`)) return;
+      const remaining = p5Scripts.filter(script => script.id !== activeScript.id);
+      setP5Scripts(remaining);
+      setActiveP5ScriptId(remaining[0]?.id || "");
+      setP5ScriptSource(remaining[0]?.source || "");
+      setP5ScriptMode(normalizeP5SourceMode(remaining[0]?.mode));
+      setP5LiveStatus(`Deleted “${activeScript.name}”.`);
+    };
+    const applyToSelection = () => {
+      try {
+        const source = activeScript?.source || p5ScriptSource;
+        const validation = validateP5Source(source);
+        if (!validation.valid) throw new Error(`p5 error: ${validation.error}`);
+        const result = attachP5ScriptToSelection({
+          scriptId: activeScript?.id,
+          source,
+          mode: activeScript?.mode || p5ScriptMode,
+          name: activeScript?.name,
+        });
+        setP5LiveStatus(`Applied this sketch to ${result.count} selected p5 host${result.count === 1 ? "" : "s"}.`);
+      } catch (error) {
+        setP5LiveStatus(error.message || "Select a rectangle, frame, or p5 canvas first.", "error");
+      }
+    };
+    return (
+      <div className="iannix-properties iannix-script-pane p5-script-pane">
+        {editingP5ScriptName ? <input
+          type="text"
+          className="custom-brush-select"
+          value={p5ScriptNameDraft}
+          onChange={event => setP5ScriptNameDraft(event.target.value)}
+          onBlur={commitRename}
+          onKeyDown={event => {
+            if (event.key === "Enter") { event.preventDefault(); commitRename(); }
+            if (event.key === "Escape") { event.preventDefault(); setEditingP5ScriptName(false); }
+          }}
+          aria-label="p5 sketch name"
+          autoFocus
+        /> : <select
+          className="custom-brush-select"
+          value={activeP5ScriptId}
+          onChange={event => {
+            const script = p5Scripts.find(candidate => candidate.id === event.target.value);
+            setEditingP5ScriptName(false);
+            setActiveP5ScriptId(event.target.value);
+            setP5ScriptSource(script?.source || "");
+            setP5ScriptMode(normalizeP5SourceMode(script?.mode));
+            if (selectedP5Host && script) {
+              try {
+                attachP5ScriptToSelection({
+                  script,
+                  source: script.source,
+                  mode: script.mode,
+                  targetIds: [selectedP5Host.id],
+                });
+                setP5LiveStatus(`Attached “${script.name}” to this p5 frame.`);
+              } catch (error) {
+                setP5LiveStatus(error.message || "Could not attach that p5 sketch.", "error");
+              }
+            }
+          }}
+          onKeyDown={event => { if (event.key === "F2") { event.preventDefault(); beginRename(); } }}
+          onDoubleClick={event => { if (event.shiftKey) { event.preventDefault(); beginRename(); } }}
+          aria-label="p5 sketch"
+        >
+          <option value="">— Choose sketch —</option>
+          {p5Scripts.map(script => <option key={script.id} value={script.id}>{script.name}</option>)}
+        </select>}
+        <label className="script-panel-script-type">
+          <span>p5 style</span>
+          <select
+            className="custom-brush-select"
+            value={p5ScriptMode}
+            onChange={event => {
+              const mode = normalizeP5SourceMode(event.target.value);
+              setP5ScriptMode(mode);
+              if (updateScriptLive({ mode })) setP5LiveStatus("Compiled successfully.", "success");
+            }}
+          >
+            <option value="auto">Auto detect</option>
+            <option value="global">Classic global (setup / draw)</option>
+            <option value="instance">Instance (p.setup / p.draw)</option>
+          </select>
+        </label>
+        <div className="script-icon-toolbar">
+          <button type="button" className="palette-action-btn primary script-icon-button" title={compatibleP5Hosts.length ? "Attach or apply sketch to selected p5 hosts" : "Select a rectangle, frame, or p5 canvas to attach this sketch"} aria-label="Attach p5 sketch to selected hosts" onClick={applyToSelection} disabled={!compatibleP5Hosts.length}><ScriptActionIcon type="run" /></button>
+          <button type="button" className="palette-action-btn secondary script-icon-button" title="Save p5 sketch" aria-label="Save p5 sketch" onClick={saveScript}><ScriptActionIcon type="save" /></button>
+          <button type="button" className="palette-action-btn secondary script-icon-button" title="Duplicate p5 sketch" aria-label="Duplicate p5 sketch" onClick={duplicateScript} disabled={!activeScript}><ScriptActionIcon type="copy" /></button>
+          <button type="button" className="palette-action-btn secondary script-icon-button" title="New p5 sketch" aria-label="New p5 sketch" onClick={createScript}><ScriptActionIcon type="add" /></button>
+          <button type="button" className="palette-action-btn secondary script-icon-button" title="Import p5 JavaScript" aria-label="Import p5 JavaScript" onClick={() => p5ImportInputRef.current?.click()}><ScriptActionIcon type="import" /></button>
+          <button type="button" className="palette-action-btn danger script-icon-button" title="Delete p5 sketch" aria-label="Delete p5 sketch" onClick={deleteScript} disabled={!activeScript}><ScriptActionIcon type="remove" /></button>
+          <ScriptFontSizeControl value={scriptEditorFontSize} onChange={value => {
+            if (!Number.isFinite(value) || value < 8 || value > 32) return;
+            setScriptEditorFontSize(value);
+            localStorage.setItem("drawerator_script_editor_font_size", String(value));
+          }} />
+        </div>
+        <textarea
+          className="custom-brush-textarea"
+          value={p5ScriptSource}
+          onChange={event => {
+            const source = event.target.value;
+            setP5ScriptSource(source);
+            if (updateScriptLive({ source })) setP5LiveStatus("Compiled successfully.", "success");
+          }}
+          placeholder={p5ScriptMode === "global" ? "function setup() { … }\nfunction draw() { … }" : "p.setup = () => { … };\np.draw = () => { … };"}
+          spellCheck="false"
+        />
+        <p className={`p5-script-status ${p5ScriptStatusKind}`} role="status" aria-live="polite">
+          {p5ScriptStatus || <>Trusted local code: p5 sketches run directly in Drawerator with access to the page and <code>drawerator</code>. Use only code you trust.</>}
+        </p>
+      </div>
+    );
+  };
 
   const convertShapeToPath = (element) => {
     if (!excalidrawAPI) return;
@@ -10630,11 +12209,13 @@ function App() {
     setDockPreview(null);
     setShowCommandPalette(false);
     setSatoriMode(true);
+    setPresentationMode(false);
     setForceDesktopLayout(true);
     setShowToolbarHints(false);
     setShowBottomNotifications(false);
     setShowDebugLayer(false);
     setDefaultStabilizerDamping(0.12);
+    setTransparentBoardExport(false);
     setGlobalRoundness(false);
     setCustomBrushRoundness(false);
     setCustomBrushActive(false);
@@ -10644,7 +12225,9 @@ function App() {
     localStorage.setItem("drawerator_show_bottom_notifications", "false");
     localStorage.setItem("drawerator_show_debug_layer", "false");
     localStorage.setItem("drawerator_default_stabilizer_damping", "0.12");
+    localStorage.setItem("drawerator_export_transparent", "false");
     localStorage.setItem("drawerator_custom_brush_roundness", "false");
+    localStorage.setItem("drawerator_presentation_mode", "false");
     excalidrawAPI?.updateScene({
       appState: {
         currentItemRoughness: 0,
@@ -10842,6 +12425,20 @@ function App() {
                 <output>%</output>
               </div>
             </label>
+            {[
+              ["Foreground", "Primary text and default canvas-line color used throughout Drawerator and Excalidraw. Score roles can still override it in Score object theme.", foregroundColor, foregroundOpacity, setForegroundColor, setForegroundOpacity, "drawerator_foreground"],
+              ["Muted foreground", "Secondary color for dimmed labels, metadata, and less prominent interface detail.", mutedColor, mutedOpacity, setMutedColor, setMutedOpacity, "drawerator_muted"],
+            ].map(([label, help, color, opacity, setColor, setOpacity, storageKey]) => (
+              <label className="settings-panel-field" key={storageKey} {...infoProps(label, `${help} ${CSS_COLOR_HELP}`)}>
+                <span>{label}</span>
+                <div className="settings-color-control" {...infoProps(`${label} color`, CSS_COLOR_HELP)}>
+                  <input type="color" value={colorInputHex(color)} style={{ backgroundColor: color }} onChange={event => { setInterfaceThemePreset("custom"); setColor(event.target.value); localStorage.setItem(`${storageKey}_color`, event.target.value); }} aria-label={`${label} color picker`} {...infoProps(label, CSS_COLOR_HELP)} />
+                  <input key={color} type="text" defaultValue={color} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, color, value => { setInterfaceThemePreset("custom"); setColor(value); localStorage.setItem(`${storageKey}_color`, value); })} onKeyDown={event => commitCssColorOnEnter(event, color, value => { setInterfaceThemePreset("custom"); setColor(value); localStorage.setItem(`${storageKey}_color`, value); })} aria-label={`${label} color value`} {...infoProps(label, CSS_COLOR_HELP)} />
+                  <input type="number" min="0" max="100" step="1" data-default="100" value={opacity} onChange={event => { const value = Number(event.target.value); setInterfaceThemePreset("custom"); setOpacity(value); localStorage.setItem(`${storageKey}_opacity`, String(value)); }} aria-label={`${label} opacity`} />
+                  <output>%</output>
+                </div>
+              </label>
+            ))}
             {[
               ["panel", "Panel background", "Background shared by docked and floating Drawerator panels."],
               ["input", "Input field", "Background used by number boxes, text fields, dropdowns, and other editable controls."],
@@ -11352,17 +12949,64 @@ function App() {
     setModifierUpdateNonce(nonce => nonce + 1);
   };
 
-  const updateSceneObjectProperty = (elementId, path, value) => updateSceneObject(elementId, element => {
-    let target = element;
-    for (let index = 0; index < path.length - 1; index += 1) target = target[path[index]];
-    target[path.at(-1)] = value;
-    if (path[0] === "customData" && path.includes("modifiers")) {
-      element.customData.version = (element.customData.version || 0) + 1;
-    }
-    if (path[0] === "customData" && path[1] === "draweratorGeometry") {
-      Object.assign(element, setElementBezierGeometry(element, element.customData.draweratorGeometry));
-    }
-  });
+  const updateSceneObjectProperty = (elementIds, path, value) => {
+    if (!excalidrawAPI) return;
+    const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+    const hasEditablePath = element => {
+      if (path[0] === "customData" && path.length > 1) return true;
+      let target = element;
+      for (let index = 0; index < path.length - 1; index += 1) {
+        if (target == null || !Object.prototype.hasOwnProperty.call(target, path[index])) return false;
+        target = target[path[index]];
+      }
+      const lastKey = path.at(-1);
+      return target != null && Object.prototype.hasOwnProperty.call(target, lastKey);
+    };
+    const requestedIds = Array.isArray(elementIds) ? elementIds : [elementIds];
+    const selectedElements = elements.filter(element => selectedElementIds[element.id] && !element.isDeleted);
+    const selectedValues = selectedElements.map(element => {
+      let target = element;
+      for (const segment of path) target = target?.[segment];
+      return target;
+    });
+    // The property list is rendered once per selected element. Prefer the live
+    // Excalidraw selection whenever every selected element has a compatible
+    // editable field, so editing any of the duplicate rows updates the whole
+    // shared selection instead of just the row that initiated the edit.
+    const selectionHasSharedPath = selectedElements.length > 1
+      && selectedElements.every(hasEditablePath)
+      && selectedValues.every(candidate => typeof candidate === typeof value);
+    const ids = new Set(selectionHasSharedPath
+      ? selectedElements.map(element => element.id)
+      : requestedIds);
+    let changed = false;
+    const nextElements = elements.map(element => {
+      if (!ids.has(element.id)) return element;
+      const lastKey = path.at(-1);
+      const next = structuredClone(element);
+      let target = next;
+      for (let index = 0; index < path.length - 1; index += 1) {
+        const segment = path[index];
+        if (target[segment] == null || typeof target[segment] !== "object") target[segment] = {};
+        target = target[segment];
+      }
+      target[lastKey] = value;
+      if (path[0] === "customData" && path.includes("modifiers")) {
+        next.customData.version = (next.customData.version || 0) + 1;
+      }
+      if (path[0] === "customData" && path[1] === "draweratorGeometry") {
+        Object.assign(next, setElementBezierGeometry(next, next.customData.draweratorGeometry));
+      }
+      next.version = (element.version || 0) + 1;
+      next.versionNonce = Math.floor(Math.random() * 0x7fffffff);
+      next.updated = Date.now();
+      changed = true;
+      return next;
+    });
+    if (!changed) return;
+    excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
+    setModifierUpdateNonce(nonce => nonce + 1);
+  };
 
   const sidePanels = DRAWERATOR_PANELS.filter(panel => panel.placements.includes(PANEL_PLACEMENTS.LEFT) || panel.placements.includes(PANEL_PLACEMENTS.RIGHT));
   const horizontalPanels = DRAWERATOR_PANELS.filter(panel => panel.placements.includes(PANEL_PLACEMENTS.BOTTOM));
@@ -11398,6 +13042,98 @@ function App() {
   const bottomDockExpandedHeight = Math.max(BOTTOM_DOCK_MIN_HEIGHT, dockSizes.bottom);
   const bottomDockHeight = collapsedDocks.bottom ? COLLAPSED_DOCK_EDGE_SIZE : bottomDockExpandedHeight;
   const expressivePrograms = getExpressiveSynthPrograms(expressiveSynthConfig);
+  const renderEmbeddable = (element) => {
+    const policy = embedPolicyForElement(element);
+    const url = sanitizeEmbedURL(element?.link);
+    const visible = shouldRenderEmbed(policy, presentationMode);
+    const label = visible ? "Embedded web content" : (policy.display === "presentation" ? "Embed hidden outside presentation mode" : "Embed disabled");
+    if (!url || !visible) return <div className="drawerator-embed-placeholder" aria-label={label}>{label}</div>;
+    const crop = {
+      top: policy.cropTop,
+      right: policy.cropRight,
+      bottom: policy.cropBottom,
+      left: policy.cropLeft,
+    };
+    const applySameOriginCSS = iframe => {
+      if (!iframe || !policy.css.trim()) return;
+      try {
+        const document = iframe.contentDocument;
+        if (!document || document.location.origin !== window.location.origin) return;
+        let style = document.querySelector("style[data-drawerator-embed-css]");
+        if (!style) {
+          style = document.createElement("style");
+          style.dataset.draweratorEmbedCss = "";
+          document.head?.appendChild(style);
+        }
+        style.textContent = policy.css;
+      } catch {
+        // Cross-origin documents are intentionally inaccessible to the host.
+      }
+    };
+    return <div className={`drawerator-embed-viewport ${policy.allowInteraction ? "drawerator-embed-interactive" : ""}`}>
+      <iframe
+        key={`${element.id}:${url}:${policy.reloadNonce}`}
+        className="drawerator-embed-frame"
+        title={label}
+        src={url}
+        style={{
+          width: `calc(100% + ${crop.left + crop.right}px)`,
+          height: `calc(100% + ${crop.top + crop.bottom}px)`,
+          transform: `translate(${-crop.left}px, ${-crop.top}px)`,
+          pointerEvents: policy.allowInteraction ? "auto" : "none",
+        }}
+        onLoad={event => applySameOriginCSS(event.currentTarget)}
+        sandbox="allow-scripts allow-same-origin allow-presentation allow-forms"
+        allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+        allowFullScreen
+        referrerPolicy="no-referrer-when-downgrade"
+      />
+    </div>;
+  };
+  const syncP5Overlay = (elements, appState) => {
+    const frames = (elements || []).filter(element => !element.isDeleted && isP5FrameElement(element));
+    const camera = {
+      scrollX: Number(appState?.scrollX) || 0,
+      scrollY: Number(appState?.scrollY) || 0,
+      zoom: { value: Number(appState?.zoom?.value) || 1 },
+    };
+    const signature = [
+      camera.scrollX,
+      camera.scrollY,
+      camera.zoom.value,
+      ...frames.map(element => {
+        const frame = normalizeP5Frame(element.customData?.draweratorP5);
+        return [
+          element.id,
+          element.x,
+          element.y,
+          element.width,
+          element.height,
+          element.angle,
+          element.version,
+          element.versionNonce,
+          frame.scriptId,
+          frame.mode,
+          frame.runtime,
+          frame.cdnUrl,
+          frame.autoplay,
+          frame.fps,
+          frame.transparent,
+          frame.allowInteraction,
+          frame.reloadNonce,
+          frame.source.length,
+        ].join(",");
+      }),
+    ].join("|");
+    if (p5OverlaySyncRef.current.signature === signature) return;
+    p5OverlaySyncRef.current.signature = signature;
+    p5OverlaySyncRef.current.pending = { elements: frames, appState: camera };
+    if (p5OverlaySyncRef.current.raf) return;
+    p5OverlaySyncRef.current.raf = requestAnimationFrame(() => {
+      p5OverlaySyncRef.current.raf = 0;
+      setP5OverlayScene(p5OverlaySyncRef.current.pending);
+    });
+  };
   const updateInfoViewFromEvent = event => {
     const target = event.target?.closest?.("[data-info]");
     if (!target) return;
@@ -11414,6 +13150,8 @@ function App() {
       style={{
         "--drawerator-accent": colorWithOpacity(accentColor, accentOpacity),
         "--drawerator-highlight": colorWithOpacity(highlightColor, highlightOpacity),
+        "--drawerator-foreground": colorWithOpacity(foregroundColor, foregroundOpacity),
+        "--drawerator-muted": colorWithOpacity(mutedColor, mutedOpacity),
         "--drawerator-panel-bg": colorWithOpacity(interfaceTheme.panel.color, interfaceTheme.panel.opacity),
         "--drawerator-input-bg": colorWithOpacity(interfaceTheme.input.color, interfaceTheme.input.opacity),
         "--drawerator-timeline-lane-bg": colorWithOpacity(interfaceTheme.timeline.color, interfaceTheme.timeline.opacity),
@@ -11430,6 +13168,13 @@ function App() {
         eventBus.emit("parameter.route.request", detail, { source: "number-box" });
         setSceneExchangeStatus(`Route request: ${detail.label}`);
       }} />
+      <input
+        ref={sceneImportInputRef}
+        type="file"
+        accept=".excalidraw,.json,application/json"
+        hidden
+        onChange={handleDraweratorSceneFile}
+      />
       <div 
         id="canvas-container" 
         onPointerDownCapture={handleCanvasPointerDown}
@@ -11443,6 +13188,8 @@ function App() {
         <Excalidraw 
           theme={theme} 
           gridModeEnabled={false}
+          validateEmbeddable={isAllowedEmbedURL}
+          renderEmbeddable={renderEmbeddable}
           excalidrawAPI={(api) => setExcalidrawAPI(api)} 
           getFormFactor={(width, height) => {
             if (forceDesktopLayout) {
@@ -11462,6 +13209,7 @@ function App() {
           }}
           onChange={(elements, appState) => {
             applyForceDesktopOverride(false);
+            syncP5Overlay(elements, appState);
 
             const nativeBezierEditId = appState.editingLinearElement?.elementId || null;
             const nativeBezierEditElement = nativeBezierEditId
@@ -12504,12 +14252,14 @@ function App() {
               commands={commandRegistry.list()}
               macros={historyMacros}
               includePresentation={historyIncludePresentation}
+              presentationMode={presentationMode}
               emitMidi={historyMidiArmed}
               showPointer={historyShowPointer}
               clockMode={historyClockMode}
               recordFilter={historyRecordFilter}
               timeContext={timeContext}
               onIncludePresentationChange={setHistoryIncludePresentation}
+              onPresentationModeChange={setPresentationMode}
               onEmitMidiChange={setHistoryMidiArmed}
               onShowPointerChange={setHistoryShowPointer}
               onClockModeChange={mode => {
@@ -12892,12 +14642,13 @@ function App() {
           >
             <input ref={iannixImportInputRef} type="file" accept=".iannix,.js,text/javascript" hidden onChange={handleTrustedIannixFile} />
             <input ref={brushImportInputRef} type="file" accept=".js,.json,text/javascript,application/json" hidden onChange={handleBrushScriptFile} />
+            <input ref={p5ImportInputRef} type="file" accept=".js,text/javascript,application/javascript" hidden onChange={handleP5ScriptFile} />
             <ScriptPanel
               type={scriptPanelType}
               onTypeChange={value => setScriptPanelType(normalizeScriptType(value))}
               editorFontSize={scriptEditorFontSize}
             >
-              {scriptPanelType === "iannix" ? renderIannixScriptTab() : renderBrushConfigForm()}
+              {scriptPanelType === "iannix" ? renderIannixScriptTab() : scriptPanelType === "p5" ? renderP5ScriptTab() : renderBrushConfigForm()}
             </ScriptPanel>
           </DraweratorPanel>
           )}
@@ -13090,6 +14841,11 @@ function App() {
           )}
         </Excalidraw>
 
+        <P5FrameOverlay
+          elements={p5OverlayScene.elements}
+          appState={p5OverlayScene.appState}
+        />
+
         <GlobalGridCanvas
           grid={globalGrid}
           appState={excalidrawAPI?.getAppState() || null}
@@ -13227,7 +14983,7 @@ function App() {
                     setCommandSearch(e.target.value);
                     setSelectedIndex(0);
                   }}
-                  placeholder="Type a command or ask AI (e.g. 'draw a flow chart')..."
+                  placeholder="Type a command (e.g. /ex tool rectangle) or ask AI..."
                   onKeyDown={(e) => {
                     const filtered = getFilteredCommands();
                     if (e.key === "ArrowDown") {
@@ -13236,6 +14992,13 @@ function App() {
                     } else if (e.key === "ArrowUp") {
                       e.preventDefault();
                       setSelectedIndex(prev => (prev - 1 + filtered.length) % filtered.length);
+                    } else if (e.key === "Tab") {
+                      const completion = getSlashCompletion(commandSearch, filtered);
+                      if (completion) {
+                        e.preventDefault();
+                        setCommandSearch(`${completion} `);
+                        setSelectedIndex(0);
+                      }
                     } else if (e.key === "Enter") {
                       e.preventDefault();
                       const slashInvocation = parseSlashInvocation(commandSearch);
@@ -13289,6 +15052,78 @@ function App() {
           }}
           onPointerDown={(e) => e.stopPropagation()}
         >
+          {customContextMenu.showSvgActions && (
+            <>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void copySelectionAsSvg();
+                  setCustomContextMenu(null);
+                }}
+                className="custom-floating-context-menu-btn"
+                disabled={!customContextMenu.hasSelection}
+                title="Copy the selected Drawerator objects as editable SVG paths"
+              >
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                  <rect x="9" y="9" width="11" height="11" rx="1" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 9V5a1 1 0 00-1-1H5a1 1 0 00-1 1v9a1 1 0 001 1h4" />
+                </svg>
+                Copy Selection as SVG
+              </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void pasteSvgAsEditable();
+                  setCustomContextMenu(null);
+                }}
+                className="custom-floating-context-menu-btn"
+                title="Read SVG from the system clipboard and add it as editable Drawerator paths"
+              >
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v10m0 0l-4-4m4 4l4-4M5 20h14" />
+                </svg>
+                Paste SVG as Editable Paths
+              </button>
+              {customContextMenu.showBoardExport && (
+                <button
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    void exportDraweratorBoardPng();
+                    setCustomContextMenu(null);
+                  }}
+                  className="custom-floating-context-menu-btn"
+                  title="Export the complete Drawerator board, including live p5 frames, as a PNG"
+                >
+                  <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" />
+                  </svg>
+                  Export Board as PNG
+                </button>
+              )}
+              {customContextMenu.showP5FrameExport && (
+                <button
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    void exportSelectedP5FramesPng();
+                    setCustomContextMenu(null);
+                  }}
+                  className="custom-floating-context-menu-btn"
+                  title="Export the selected live p5 frame as a PNG"
+                >
+                  <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                    <rect x="3" y="5" width="18" height="14" rx="1" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 12l2.5 2.5L16 9" />
+                  </svg>
+                  Export Selected p5 Frame as PNG
+                </button>
+              )}
+              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
+            </>
+          )}
           {customContextMenu.showRestore && (
             <button
               onPointerDown={(e) => {
@@ -13405,6 +15240,33 @@ function App() {
                 <path strokeLinecap="round" d="M12 2v5M12 17v5M2 12h5M17 12h5" />
               </svg>
               Add Cursor to Selected Curves
+            </button>
+          )}
+
+          {customContextMenu.showAttachP5 && (
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                  const result = attachP5ScriptToSelection();
+                  setScriptPanelType("p5");
+                  setP5ScriptStatus(`Attached p5 sketch to ${result.count} selected host${result.count === 1 ? "" : "s"}.`);
+                  setP5ScriptStatusKind("success");
+                } catch (error) {
+                  setP5ScriptStatus(error.message || "Unable to attach p5 sketch.");
+                  setP5ScriptStatusKind("error");
+                }
+                setCustomContextMenu(null);
+              }}
+              className="custom-floating-context-menu-btn"
+              title="Turn selected rectangles, frames, or p5 canvases into live p5 sketch hosts"
+            >
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
+                <rect x="4" y="4" width="16" height="16" rx="1" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 15c1.5-3 3-3 4.5 0s3 3 4.5-1" />
+              </svg>
+              Attach p5 Sketch
             </button>
           )}
 

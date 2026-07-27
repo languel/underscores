@@ -1,4 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { EMBED_DISPLAY_MODES, embedPolicyForElement, getEmbedProvider } from "./embedPolicy.js";
+import { DEFAULT_P5_CDN_URL, isP5FrameElement, normalizeP5Frame, resolveP5SourceMode } from "./p5Frame.js";
 
 const READ_ONLY_KEYS = new Set([
   "id", "type", "width", "height", "version", "versionNonce", "updated", "index", "seed",
@@ -14,6 +16,18 @@ const primitiveText = value => {
 };
 
 const canEditPath = path => !path.some(segment => READ_ONLY_KEYS.has(String(segment)));
+
+const readPath = (value, path) => path.reduce((current, segment) => (
+  current != null && Object.prototype.hasOwnProperty.call(current, segment) ? current[segment] : undefined
+), value);
+
+const isSharedEditablePath = (elements, path) => {
+  if (elements.length < 2 || !canEditPath(path)) return false;
+  const values = elements.map(element => readPath(element, path));
+  if (values.some(value => value === undefined)) return false;
+  const types = new Set(values.map(value => typeof value));
+  return types.size === 1 && (["boolean", "number", "string"].includes(values[0]) || Boolean(enumOptionsForPath(path)));
+};
 
 const enumOptionsForPath = path => {
   const key = String(path.at(-1) || "");
@@ -46,6 +60,12 @@ const collectLeafPaths = (value, path = []) => {
   return entries.flatMap(([key, item]) => collectLeafPaths(item, [...path, key]));
 };
 
+const collectLeafEntries = (value, path = []) => {
+  if (value === null || typeof value !== "object") return [{ path, value }];
+  const entries = Array.isArray(value) ? value.map((item, index) => [index, item]) : Object.entries(value);
+  return entries.flatMap(([key, item]) => collectLeafEntries(item, [...path, key]));
+};
+
 const pathMatches = (path, query) => {
   if (!query?.needle) return true;
   const segments = path.map(segment => String(segment).toLowerCase());
@@ -54,8 +74,16 @@ const pathMatches = (path, query) => {
   return segments.some(segment => segment.includes(query.needle)) || fullPath.includes(query.needle);
 };
 
+const leafMatches = (value, path, query) => {
+  if (pathMatches(path, query)) return true;
+  // A non-field query is also useful for retained imported metadata such as
+  // customData.iannixImport.group = "lines". Exact field-name filtering keeps
+  // its existing narrow behaviour once a field name is recognised.
+  return Boolean(query?.needle && !query.exactOnly && String(value ?? "").toLowerCase().includes(query.needle));
+};
+
 const nodeMatches = (value, path, query) => {
-  if (value === null || typeof value !== "object") return pathMatches(path, query);
+  if (value === null || typeof value !== "object") return leafMatches(value, path, query);
   const entries = Array.isArray(value) ? value.map((item, index) => [index, item]) : Object.entries(value);
   return entries.some(([key, item]) => nodeMatches(item, [...path, key], query));
 };
@@ -94,13 +122,13 @@ const EditableValue = ({ value, path, onChange }) => {
   return <code>{primitiveText(value)}</code>;
 };
 
-const PropertyNode = ({ name, value, depth = 0, path = [], query, onChange }) => {
+const PropertyNode = ({ name, value, depth = 0, path = [], query, onChange, isSharedPath }) => {
   const nested = value !== null && typeof value === "object";
   if (!nested) {
-    if (!pathMatches(path, query)) return null;
+    if (!leafMatches(value, path, query)) return null;
     const editable = canEditPath(path) && (Boolean(enumOptionsForPath(path)) || ["boolean", "number", "string"].includes(typeof value));
     return <div className={`properties-row ${editable ? "editable" : "readonly"}`}><span>{name}</span>{editable
-      ? <EditableValue value={value} path={path} onChange={next => onChange(path, next)} />
+      ? <EditableValue value={value} path={path} onChange={next => onChange(path, next, isSharedPath?.(path))} />
       : <code>{primitiveText(value)}</code>}</div>;
   }
   const entries = Array.isArray(value) ? value.map((item, index) => [index, item]) : Object.entries(value);
@@ -112,10 +140,84 @@ const PropertyNode = ({ name, value, depth = 0, path = [], query, onChange }) =>
     <details className="properties-group" open={query?.needle ? true : depth < 1}>
       <summary><span>{name}</span><small>{Array.isArray(value) ? `[${visibleEntries.length}]` : `{${visibleEntries.length}}`}</small></summary>
       <div className="properties-children">
-        {visibleEntries.map(([key, item]) => <PropertyNode key={key} name={String(key)} value={item} depth={depth + 1} path={[...path, key]} query={query} onChange={onChange} />)}
+        {visibleEntries.map(([key, item]) => <PropertyNode key={key} name={String(key)} value={item} depth={depth + 1} path={[...path, key]} query={query} onChange={onChange} isSharedPath={isSharedPath} />)}
       </div>
     </details>
   );
+};
+
+const EmbedControls = ({ element, query, onChange }) => {
+  if (element?.type !== "embeddable" || isP5FrameElement(element)) return null;
+  const policy = embedPolicyForElement(element);
+  const matches = name => !query?.needle || ["embed", "link", "url", "provider", "enabled", "display", "interaction", "crop", "css", "reload", name].some(value => value.includes(query.needle));
+  if (query?.needle && !matches("embed")) return null;
+  const preventCanvasDeletion = event => {
+    if (event.key !== "Delete" && event.key !== "Backspace") return;
+    event.stopPropagation();
+    // Excalidraw also has native document-level keyboard listeners. Stopping
+    // the underlying event prevents its canvas delete shortcut from seeing
+    // keystrokes intended to edit this URL.
+    event.nativeEvent?.stopImmediatePropagation?.();
+  };
+  return (
+    <details className="properties-group properties-embed-group" open>
+      <summary><span>embed</span><small>{getEmbedProvider(element.link)}</small></summary>
+      <div className="properties-children">
+        {matches("link") && <div className="properties-row editable"><span>url</span><input className="properties-embed-url" type="url" value={element.link || ""} onKeyDown={preventCanvasDeletion} onKeyUp={preventCanvasDeletion} onChange={event => onChange(["link"], event.target.value)} /></div>}
+        {matches("reload") && <div className="properties-row properties-embed-reload"><span>content</span><button type="button" className="iannix-flat-button" onClick={() => onChange(["customData", "draweratorEmbed", "reloadNonce"], Date.now())}>Reload embed</button></div>}
+        {matches("enabled") && <div className="properties-row editable"><span>enabled</span><input type="checkbox" checked={policy.enabled} onChange={event => onChange(["customData", "draweratorEmbed", "enabled"], event.target.checked)} /></div>}
+        {matches("display") && <div className="properties-row editable"><span>display</span><select value={policy.display} onChange={event => onChange(["customData", "draweratorEmbed", "display"], event.target.value)}>{EMBED_DISPLAY_MODES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>}
+        {matches("interaction") && <div className="properties-row editable"><span>interact</span><input type="checkbox" checked={policy.allowInteraction} onChange={event => onChange(["customData", "draweratorEmbed", "allowInteraction"], event.target.checked)} /></div>}
+        {matches("crop") && [["cropTop", "crop top"], ["cropRight", "crop right"], ["cropBottom", "crop bottom"], ["cropLeft", "crop left"]].map(([key, label]) => <div className="properties-row editable" key={key}><span>{label} px</span><input type="number" min="0" step="1" value={policy[key]} onChange={event => onChange(["customData", "draweratorEmbed", key], Number.isFinite(event.target.valueAsNumber) ? event.target.valueAsNumber : 0)} /></div>)}
+        {matches("css") && <div className="properties-row properties-embed-css editable"><span>inject CSS</span><textarea value={policy.css} onChange={event => onChange(["customData", "draweratorEmbed", "css"], event.target.value)} placeholder="body { margin: 0; }" /></div>}
+        {!query?.needle && <p className="properties-embed-note">HTTP(S) only. “Presentation only” embeds appear when Live presentation mode is enabled. Interact passes mouse input to the page; turn it off to select or transform the embed. Crop hides fixed page chrome. CSS is injected only into same-origin embeds—browser security prevents it for external sites such as p5.js.</p>}
+      </div>
+    </details>
+  );
+};
+
+const P5FrameControls = ({ element, query, onChange }) => {
+  if (!isP5FrameElement(element)) return null;
+  const frame = normalizeP5Frame(element.customData?.draweratorP5);
+  const matches = name => !query?.needle || ["p5", "sketch", "mode", "classic", "global", "runtime", "cdn", "autoplay", "fps", "transparent", "interaction", "reload", "source", name]
+    .some(value => value.includes(query.needle));
+  if (query?.needle && !matches("p5")) return null;
+  const stopCanvasKeys = event => {
+    event.stopPropagation();
+    if (["Delete", "Backspace", "Escape"].includes(event.key)) event.nativeEvent?.stopImmediatePropagation?.();
+  };
+  const update = patch => onChange(["customData", "draweratorP5"], normalizeP5Frame({ ...frame, ...patch }));
+  return (
+    <details className="properties-group properties-p5-group" open>
+      <summary><span>p5 sketch</span><small>{resolveP5SourceMode(frame)} · {frame.runtime}</small></summary>
+      <div className="properties-children">
+        {matches("mode") && <div className="properties-row editable"><span>source mode</span><select value={frame.mode} onChange={event => update({ mode: event.target.value })}><option value="auto">Auto detect</option><option value="instance">Instance mode (p.*)</option><option value="global">Classic global mode</option></select></div>}
+        {matches("runtime") && <div className="properties-row editable"><span>runtime</span><select value={frame.runtime} onChange={event => update({ runtime: event.target.value })}><option value="bundled">Bundled p5</option><option value="cdn">CDN URL</option></select></div>}
+        {frame.runtime === "cdn" && matches("cdn") && <div className="properties-row editable"><span>cdn url</span><input type="url" value={frame.cdnUrl || DEFAULT_P5_CDN_URL} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => update({ cdnUrl: event.target.value })} /></div>}
+        {matches("autoplay") && <div className="properties-row editable"><span>autoplay</span><input type="checkbox" checked={frame.autoplay} onChange={event => update({ autoplay: event.target.checked })} /></div>}
+        {matches("fps") && <div className="properties-row editable"><span>fps</span><input type="number" min="1" max="120" step="1" value={frame.fps} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => update({ fps: event.target.valueAsNumber })} /></div>}
+        {matches("transparent") && <div className="properties-row editable"><span>transparent</span><input type="checkbox" checked={frame.transparent} onChange={event => update({ transparent: event.target.checked })} /></div>}
+        {matches("interaction") && <div className="properties-row editable"><span>interact</span><input type="checkbox" checked={frame.allowInteraction} onChange={event => update({ allowInteraction: event.target.checked })} /></div>}
+        {matches("reload") && <div className="properties-row properties-embed-reload"><span>preview</span><button type="button" className="iannix-flat-button" onClick={() => update({ reloadNonce: Date.now() })}>Reload sketch</button></div>}
+        {matches("source") && <div className="properties-row properties-p5-source editable"><span>source</span><textarea value={frame.source} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => update({ source: event.target.value })} spellCheck="false" /></div>}
+        {!query?.needle && <p className="properties-p5-note">Trusted local code: this sketch runs directly in Drawerator with full page access. Use only scripts you trust. Bundled p5 is included with Drawerator; CDN mode loads a compatible runtime from the URL above.</p>}
+      </div>
+    </details>
+  );
+};
+
+const embedMatchesQuery = (element, query) => {
+  if (element?.type !== "embeddable") return false;
+  if (!query?.needle) return true;
+  return ["embed", "link", "url", "provider", "enabled", "display", "interaction", "crop", "css", "reload"]
+    .some(value => value.includes(query.needle));
+};
+
+const p5MatchesQuery = (element, query) => {
+  if (!isP5FrameElement(element)) return false;
+  if (!query?.needle) return true;
+  return ["p5", "sketch", "mode", "classic", "global", "runtime", "cdn", "autoplay", "fps", "transparent", "interaction", "reload", "source"]
+    .some(value => value.includes(query.needle));
 };
 
 const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange, onRename }) {
@@ -135,8 +237,12 @@ const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange,
     return { needle, exactOnly };
   }, [elements, filter]);
   const matchingFieldCount = useMemo(() => elements.reduce((count, element) => (
-    count + collectLeafPaths(element).filter(path => pathMatches(path, query)).length
+    count
+      + collectLeafEntries(element).filter(entry => leafMatches(entry.value, entry.path, query)).length
+      + (embedMatchesQuery(element, query) ? 4 : 0)
+      + (p5MatchesQuery(element, query) ? 6 : 0)
   ), 0), [elements, query]);
+  const sharedPath = path => isSharedEditablePath(elements, path);
 
   const beginRename = element => {
     setActiveObjectId(element.id);
@@ -168,7 +274,9 @@ const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange,
       </div>
       <div className="properties-list">
         {matchingFieldCount ? elements.map(element => {
-          const elementMatchCount = collectLeafPaths(element).filter(path => pathMatches(path, query)).length;
+          const elementMatchCount = collectLeafEntries(element).filter(entry => leafMatches(entry.value, entry.path, query)).length
+            + (embedMatchesQuery(element, query) ? 4 : 0)
+            + (p5MatchesQuery(element, query) ? 6 : 0);
           if (!elementMatchCount) return null;
           const label = element.customData?.iannix?.label;
           return (
@@ -185,7 +293,15 @@ const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange,
                   <code>{element.type}{label ? ` · ${element.id}` : ""}</code>
                 </div>
               </div>
-              <PropertyNode name="object" value={element} query={query} onChange={(path, value) => onChange(element.id, path, value)} />
+              <P5FrameControls element={element} query={query} onChange={(path, value) => onChange([element.id], path, value)} />
+              <EmbedControls element={element} query={query} onChange={(path, value) => onChange([element.id], path, value)} />
+              <PropertyNode
+                name="object"
+                value={element}
+                query={query}
+                isSharedPath={sharedPath}
+                onChange={(path, value, shared) => onChange(shared ? elements.map(item => item.id) : [element.id], path, value)}
+              />
             </section>
           );
         }) : <div className="scene-panel-empty compact">No matching properties.</div>}

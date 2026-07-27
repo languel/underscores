@@ -39,7 +39,7 @@ test("scene exchange preserves frame timeline display mode", () => {
   assert.equal(payload.drawerator.score.fps, 24);
 });
 
-test("scene exchange version 5 preserves global configuration and migrates legacy scenes", () => {
+test("scene exchange version 6 preserves global configuration, p5 scripts, and migrates legacy scenes", () => {
   const grid = mergeGridPatch(DEFAULT_GLOBAL_GRID, {
     appearance: { visible: true },
     spacing: { x: 120, y: 80, subdivisionsX: 6, subdivisionsY: 4 },
@@ -50,11 +50,13 @@ test("scene exchange version 5 preserves global configuration and migrates legac
     { id: "user-glass", label: "Glass", preset: "fm", brightness: 0.9 },
   );
   const mixer = normalizeMixer({ tracks: [{ id: "fm", midiChannel: 3, destination: MIXER_DESTINATION_INTERNAL, instrument: MIXER_INSTRUMENT_EXPRESSIVE, program: "user-glass" }] });
-  const payload = attachDraweratorExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, grid, synth, mixer);
-  assert.equal(payload.drawerator.version, 5);
+  const p5Scripts = [{ id: "orbit", name: "Orbit", source: "p.setup = () => {};", mode: "instance" }];
+  const payload = attachDraweratorExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, grid, synth, mixer, p5Scripts);
+  assert.equal(payload.drawerator.version, 6);
   assert.deepEqual(parseDraweratorExchange(payload, "scene").grid, grid);
   assert.deepEqual(parseDraweratorExchange(payload, "scene").expressiveSynth, normalizeExpressiveSynthConfig(synth));
   assert.deepEqual(parseDraweratorExchange(payload, "scene").mixer, mixer);
+  assert.equal(parseDraweratorExchange(payload, "scene").p5Scripts[0].id, "orbit");
 
   const legacy = { type: "excalidraw", elements: [], drawerator: { version: 1, kind: "scene", score: {} } };
   const migrated = parseDraweratorExchange(legacy, "scene").grid;

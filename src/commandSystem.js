@@ -141,6 +141,8 @@ export class DraweratorCommandRegistry {
       category: command.category,
       args: cloneValue(command.args || null),
       record: command.record,
+      description: command.description || "",
+      ai: cloneValue(command.ai || null),
     }));
   }
 

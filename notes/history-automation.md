@@ -78,7 +78,7 @@ window.drawerator.inputs.registerAdapter(adapter)
 window.drawerator.events.subscribe("input.*", listener)
 ```
 
-The complete namespaces are `commands`, `history`, `macros`, `inputs`, and `events`, all under `apiVersion: 1`. Every registry entry is reachable through the generic `/command` form as well as the API. The AI system prompt receives its command catalog from that same live registry and can emit `<drawerator-command>` tags, avoiding a parallel hand-maintained tool list. Credentials and command fields marked `record: never` are excluded. AI prompts can be recorded, but unrelated clipboard contents and API secrets are not captured.
+The complete namespaces are `commands`, `history`, `macros`, `inputs`, and `events`, all under `apiVersion: 1`. Every registry entry is reachable through the generic `/command` form as well as the API. The AI system prompt receives its command catalog from that same live registry and can emit `<drawerator-command>` tags, avoiding a parallel hand-maintained tool list. For drawing and animation, models should prefer `scene.create.objects`, `scene.patch.objects`, `script.brush.apply`, and `automation.keyframes.set` over raw Excalidraw internals. Credentials and command fields marked `record: never` are excluded. AI prompts can be recorded, but unrelated clipboard contents and API secrets are not captured.
 
 ## IanniX trusted-script compatibility
 

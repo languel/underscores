@@ -57,9 +57,11 @@ body, html {
 }
 
 .drawerator-shell {
+  --drawerator-foreground: hsl(190, 5%, 32%);
+  --drawerator-muted: hsl(190, 5%, 46%);
   --drawerator-menu-bg: #ffffff;
-  --drawerator-menu-text: hsl(190, 5%, 32%);
-  --drawerator-menu-muted: hsl(190, 5%, 46%);
+  --drawerator-menu-text: var(--drawerator-foreground);
+  --drawerator-menu-muted: var(--drawerator-muted);
   --drawerator-menu-border: rgba(73, 80, 82, 0.24);
   --drawerator-menu-hover: var(--drawerator-highlight, rgba(107, 113, 115, 0.12));
   --drawerator-menu-shadow: 0 8px 24px rgba(28, 31, 32, 0.16);
@@ -67,9 +69,11 @@ body, html {
 }
 
 .drawerator-shell.drawerator-theme-dark {
+  --drawerator-foreground: hsl(190, 5%, 82%);
+  --drawerator-muted: hsl(190, 5%, 64%);
   --drawerator-menu-bg: #232329;
-  --drawerator-menu-text: hsl(190, 5%, 82%);
-  --drawerator-menu-muted: hsl(190, 5%, 64%);
+  --drawerator-menu-text: var(--drawerator-foreground);
+  --drawerator-menu-muted: var(--drawerator-muted);
   --drawerator-menu-border: rgba(205, 210, 211, 0.18);
   --drawerator-menu-hover: var(--drawerator-highlight, rgba(205, 210, 211, 0.1));
   --drawerator-menu-shadow: 0 8px 24px rgba(0, 0, 0, 0.34);
@@ -601,11 +605,11 @@ body .excalidraw {
   accent-color: var(--drawerator-accent, #6b7173) !important;
   --button-hover-bg: var(--drawerator-highlight, hsl(244, 100%, 97%)) !important;
   --bg-hover-btn: var(--drawerator-highlight, hsl(244, 100%, 97%)) !important;
-  --color-primary: hsl(190, 5%, 45%) !important;
-  --color-primary-darker: hsl(190, 5%, 35%) !important;
-  --color-primary-darkest: hsl(190, 5%, 25%) !important;
-  --color-primary-light: hsl(190, 5%, 90%) !important;
-  --color-primary-light-darker: hsl(190, 5%, 80%) !important;
+  --color-primary: var(--drawerator-foreground, hsl(190, 5%, 45%)) !important;
+  --color-primary-darker: var(--drawerator-muted, hsl(190, 5%, 35%)) !important;
+  --color-primary-darkest: var(--drawerator-muted, hsl(190, 5%, 25%)) !important;
+  --color-primary-light: color-mix(in srgb, var(--drawerator-foreground, hsl(190, 5%, 45%)) 22%, transparent) !important;
+  --color-primary-light-darker: color-mix(in srgb, var(--drawerator-foreground, hsl(190, 5%, 45%)) 32%, transparent) !important;
   
   --color-brand: var(--drawerator-accent, #6b7173) !important;
   --color-brand-hover: color-mix(in srgb, var(--drawerator-accent, #6b7173) 82%, black) !important;
@@ -624,16 +628,18 @@ body .excalidraw {
   --color-surface-primary-container: hsl(190, 5%, 90%) !important;
   --color-on-primary-container: hsl(190, 5%, 35%) !important;
 
-  --text-primary-color: hsl(190, 5%, 45%) !important;
+  --text-primary-color: var(--drawerator-foreground, hsl(190, 5%, 45%)) !important;
+  --input-label-color: var(--drawerator-muted, hsl(190, 5%, 46%)) !important;
+  --popup-text-color: var(--drawerator-foreground, hsl(190, 5%, 45%)) !important;
   --color-accent: var(--drawerator-accent, #6b7173) !important;
 }
 
 body .excalidraw.theme--dark {
-  --color-primary: hsl(190, 5%, 65%) !important;
-  --color-primary-darker: hsl(190, 5%, 75%) !important;
-  --color-primary-darkest: hsl(190, 5%, 85%) !important;
-  --color-primary-light: hsl(190, 5%, 25%) !important;
-  --color-primary-light-darker: hsl(190, 5%, 35%) !important;
+  --color-primary: var(--drawerator-foreground, hsl(190, 5%, 65%)) !important;
+  --color-primary-darker: var(--drawerator-muted, hsl(190, 5%, 75%)) !important;
+  --color-primary-darkest: var(--drawerator-muted, hsl(190, 5%, 85%)) !important;
+  --color-primary-light: color-mix(in srgb, var(--drawerator-foreground, hsl(190, 5%, 65%)) 20%, transparent) !important;
+  --color-primary-light-darker: color-mix(in srgb, var(--drawerator-foreground, hsl(190, 5%, 65%)) 30%, transparent) !important;
   
   --color-brand: var(--drawerator-accent, #6b7173) !important;
   --color-brand-hover: color-mix(in srgb, var(--drawerator-accent, #6b7173) 82%, white) !important;
@@ -652,7 +658,9 @@ body .excalidraw.theme--dark {
   --color-surface-primary-container: hsl(190, 5%, 25%) !important;
   --color-on-primary-container: hsl(190, 5%, 75%) !important;
 
-  --text-primary-color: hsl(190, 5%, 65%) !important;
+  --text-primary-color: var(--drawerator-foreground, hsl(190, 5%, 65%)) !important;
+  --input-label-color: var(--drawerator-muted, hsl(190, 5%, 64%)) !important;
+  --popup-text-color: var(--drawerator-foreground, hsl(190, 5%, 65%)) !important;
   --color-accent: var(--drawerator-accent, #6b7173) !important;
 }
 
@@ -1942,6 +1950,34 @@ body .excalidraw .sidebar {
   min-height: 0;
 }
 
+.script-panel-editor .p5-script-pane {
+  height: 100%;
+  min-height: 0;
+}
+
+.p5-script-status {
+  order: 100;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 3px 1px 0;
+  color: var(--color-secondary);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.p5-script-status.success {
+  color: var(--color-success, #10b981);
+}
+
+.p5-script-status.error {
+  color: var(--color-danger, #ef4444);
+  white-space: pre-wrap;
+}
+
+.p5-script-status code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .iannix-script-parameters {
   display: flex;
   flex-direction: column;
@@ -3222,9 +3258,32 @@ a.iannix-flat-button {
 .properties-row code { overflow-wrap: anywhere; color: var(--color-primary); }
 .properties-row input[type="text"],
 .properties-row input[type="number"],
+.properties-row input[type="url"],
 .properties-row select { min-width: 0; width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--color-primary); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.properties-row input.properties-embed-url { color: var(--drawerator-foreground, var(--color-primary)) !important; caret-color: var(--drawerator-foreground, var(--color-primary)); -webkit-text-fill-color: var(--drawerator-foreground, var(--color-primary)); }
 .properties-row input[type="checkbox"] { justify-self: start; accent-color: var(--drawerator-accent); }
 .properties-row.readonly code { opacity: .72; }
+.properties-embed-group { background: color-mix(in srgb, var(--drawerator-panel-bg, transparent) 92%, var(--drawerator-highlight, transparent)); }
+.properties-embed-note { margin: 0; padding: 4px 9px 8px; color: var(--color-secondary); font-size: 10px; line-height: 1.35; }
+.properties-row.properties-embed-css { align-items: start; }
+.properties-row.properties-embed-reload { align-items: center; }
+.properties-embed-reload .iannix-flat-button { justify-self: start; min-width: 0; }
+.properties-embed-css textarea { width: 100%; min-height: 54px; resize: vertical; box-sizing: border-box; padding: 4px 5px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--drawerator-foreground, var(--color-primary)); font: 10px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.properties-p5-group { background: color-mix(in srgb, var(--drawerator-panel-bg, transparent) 92%, var(--drawerator-highlight, transparent)); }
+.properties-row.properties-p5-source { align-items: start; }
+.properties-p5-source textarea { width: 100%; min-height: 180px; resize: vertical; box-sizing: border-box; padding: 5px 6px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--drawerator-foreground, var(--color-primary)); font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.properties-p5-note { margin: 0; padding: 4px 9px 8px; color: var(--color-secondary); font-size: 10px; line-height: 1.35; }
+
+.drawerator-embed-viewport { position: relative; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+.drawerator-embed-frame { display: block; border: 0; background: transparent; }
+.drawerator-embed-placeholder { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; min-height: 48px; box-sizing: border-box; padding: 12px; color: var(--color-secondary); background: var(--drawerator-panel-bg, transparent); font-size: 12px; text-align: center; }
+.drawerator-p5-frame { position: relative; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+.drawerator-p5-host { width: 100%; height: 100%; }
+.drawerator-p5-host:focus { outline: none; }
+.drawerator-p5-host canvas { display: block; width: 100% !important; height: 100% !important; }
+.drawerator-p5-overlay { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
+.drawerator-p5-overlay-frame { position: absolute; overflow: hidden; pointer-events: none; }
+.drawerator-p5-overlay-frame.drawerator-p5-overlay-interactive { pointer-events: auto; }
 
 .outliner-panel { display: flex; flex-direction: column; overflow: hidden; }
 .outliner-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.24)); }

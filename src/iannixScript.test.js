@@ -96,6 +96,29 @@ test("runs saved GUI lifecycle and samples equation curves", () => {
   assert.equal(result.unsupported.length, 0);
 });
 
+test("uses a readable default width for unstyled IanniX objects", () => {
+  const result = executeTrustedIannixScript('run("add curve visible");', { trusted: true });
+  const curve = buildIannixObjectModel(result.operations).objects[0];
+  assert.equal(curve.width, 2);
+});
+
+test("applies IanniX group colours without creating a phantom group object", () => {
+  const result = executeTrustedIannixScript(`
+    run("add curve first");
+    run("setGroup current lines");
+    run("add curve second");
+    run("setGroup current lines");
+    run("setColor lines 0 187 255 255");
+    run("setColorHue second 300 255 128 255");
+  `, { trusted: true });
+  const model = buildIannixObjectModel(result.operations);
+  assert.equal(model.objects.length, 2);
+  assert.deepEqual(model.objects.find(object => object.externalId === "first").color, [0, 187, 255, 255]);
+  // Individual object colour takes precedence over its group default.
+  assert.deepEqual(model.objects.find(object => object.externalId === "second").colorHue, [300, 255, 128, 255]);
+  assert.equal(model.objects.find(object => object.externalId === "second").color, undefined);
+});
+
 test("derives imported cursor rotation from its linked curve start tangent", () => {
   const horizontal = { points: [[0, 0, 0], [10, 0, 0]] };
   const rising = { points: [[0, 0, 0], [10, 10, 0]] };
