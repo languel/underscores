@@ -69,6 +69,8 @@ import { createExpressiveSynthDemoScore } from "./expressiveSynthDemo.js";
 import ShortcutsPanel from "./ShortcutsPanel.jsx";
 import ScriptPanel from "./ScriptPanel.jsx";
 import { normalizeScriptType } from "./scriptTypes.js";
+import P5Frame from "./P5Frame.jsx";
+import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_FRAME_STORAGE_KEY, canHostP5Frame, isP5FrameElement, normalizeP5Frame, normalizeP5SourceMode } from "./p5Frame.js";
 import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
 import { stepStrokeWidth } from "./strokeWidthShortcuts.js";
@@ -171,7 +173,7 @@ Guidelines:
 - All shapes should be sized logically (typical screen coords range from 0 to 1000).
 - If the user selected a shape or path, you will receive its coordinates in the context. Use this context to duplicate, resize, move, or offset the shape.
 - Create objects with scene.create.objects and modify them with scene.patch.objects; use score.roles.assign for score roles.
-- Create and edit scripts through script.brush.* and script.iannix.* commands. Change application settings only through the exposed settings/grid/transport commands.
+- Create and edit scripts through script.brush.* and script.iannix.* commands. Create interactive p5 canvas frames through p5.frame.create. p5 supports instance mode (p.setup, p.draw, and p.* calls) and classic global mode (function setup(), function draw(), and ordinary p5 calls); set mode: "global" for classic source, or omit it for safe auto-detection. Change application settings only through the exposed settings/grid/transport commands.
 - Keep your conversational text responses extremely concise and to the point.
 `;
 
@@ -1882,6 +1884,27 @@ function App() {
   const [activeIannixScriptId, setActiveIannixScriptId] = useState("");
   const [editingIannixScriptName, setEditingIannixScriptName] = useState(false);
   const [iannixScriptNameDraft, setIannixScriptNameDraft] = useState("");
+  const [p5Scripts, setP5Scripts] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(P5_FRAME_STORAGE_KEY) || "[]");
+      return Array.isArray(saved) ? saved.filter(script => script && typeof script === "object").map(script => ({
+        id: String(script.id || `p5-script-${crypto.randomUUID()}`),
+        name: String(script.name || "Untitled p5 sketch"),
+        source: typeof script.source === "string" ? script.source : DEFAULT_P5_SOURCE,
+        mode: normalizeP5SourceMode(script.mode),
+        createdAt: Number(script.createdAt) || Date.now(),
+        updatedAt: Number(script.updatedAt) || Date.now(),
+      })) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [activeP5ScriptId, setActiveP5ScriptId] = useState("");
+  const [p5ScriptSource, setP5ScriptSource] = useState("");
+  const [p5ScriptMode, setP5ScriptMode] = useState("auto");
+  const [p5ScriptStatus, setP5ScriptStatus] = useState("");
+  const [editingP5ScriptName, setEditingP5ScriptName] = useState(false);
+  const [p5ScriptNameDraft, setP5ScriptNameDraft] = useState("");
   const [scoreTime, setScoreTime] = useState(0);
   const [scorePlaying, setScorePlaying] = useState(false);
   const [scoreRate, setScoreRate] = useState(() => {
@@ -2054,6 +2077,7 @@ function App() {
   const sceneImportInputRef = useRef(null);
   const iannixImportInputRef = useRef(null);
   const brushImportInputRef = useRef(null);
+  const p5ImportInputRef = useRef(null);
   const excalidrawAPIRef = useRef(null);
   const importSvgMarkupRef = useRef(null);
   const svgClipboardCacheRef = useRef(null);
@@ -2700,10 +2724,21 @@ function App() {
   }, [iannixScripts]);
 
   useEffect(() => {
+    localStorage.setItem(P5_FRAME_STORAGE_KEY, JSON.stringify(p5Scripts));
+  }, [p5Scripts]);
+
+  useEffect(() => {
     if (activeIannixScriptId || iannixScripts.length === 0) return;
     setActiveIannixScriptId(iannixScripts[0].id);
     setIannixScriptSource(iannixScripts[0].source || "");
   }, [activeIannixScriptId, iannixScripts]);
+
+  useEffect(() => {
+    if (activeP5ScriptId || p5Scripts.length === 0) return;
+    setActiveP5ScriptId(p5Scripts[0].id);
+    setP5ScriptSource(p5Scripts[0].source || "");
+    setP5ScriptMode(normalizeP5SourceMode(p5Scripts[0].mode));
+  }, [activeP5ScriptId, p5Scripts]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_panel_visibility_v1", JSON.stringify(openPanels));
@@ -3485,6 +3520,33 @@ function App() {
       setBrushSaveMessage(`Imported “${brush.name}”.`);
     } catch (error) {
       setBrushSaveMessage(error.message || "Could not import the brush script.");
+    }
+  };
+
+  const handleP5ScriptFile = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const source = await file.text();
+      if (!source.trim()) throw new Error("The imported p5 sketch is empty.");
+      const script = {
+        id: `p5-script-${crypto.randomUUID()}`,
+        name: file.name.replace(/\.[^.]+$/, "") || "Untitled p5 sketch",
+        source,
+        mode: "auto",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      setP5Scripts(previous => [...previous, script]);
+      setActiveP5ScriptId(script.id);
+      setP5ScriptSource(script.source);
+      setP5ScriptMode(script.mode);
+      setP5ScriptNameDraft(script.name);
+      setEditingP5ScriptName(true);
+      setP5ScriptStatus(`Imported “${script.name}”.`);
+    } catch (error) {
+      setP5ScriptStatus(error.message || "Could not import the p5 sketch.");
     }
   };
 
@@ -4703,11 +4765,13 @@ function App() {
       const hasSpline = selectedStrokeElements.some(hasCubicBezierGeometry);
       const hasConvertiblePath = selectedStrokeElements.some(el => !hasCubicBezierGeometry(el));
       const hasShapes = capabilities.hasShapes;
+      const hasP5HostCandidate = selectedContextElements.some(canHostP5Frame);
 
       setCustomContextMenu({
         x: e.clientX,
         y: e.clientY,
         showAddCursor: selectedContextElements.length > 0,
+        showAttachP5: hasP5HostCandidate,
         showRestore: hasBrush,
         showToPath: hasShapes,
         showToLine: hasFreehand || hasSpline,
@@ -6344,6 +6408,9 @@ function App() {
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
     { id: "svg.copy.selection", name: "Copy Selection as Editable SVG /copy svg", aliases: ["/copy svg", "Copy selection SVG"], category: "Canvas", action: () => copySelectionAsSvg() },
     { id: "svg.paste.editable", name: "Paste SVG as Editable Paths /paste svg", aliases: ["/paste svg", "Paste SVG as paths"], category: "Canvas", action: () => pasteSvgAsEditable() },
+    { id: "webembed.create", name: "Create Web Embed /webembed", aliases: ["/webembed", "Create web embed", "Web embed"], category: "Canvas", args: { url: "URL?" }, action: (_api, args) => createWebEmbed(args) },
+    { id: "p5.frame.create", name: "Create p5 Frame /p5", aliases: ["/p5", "Create p5 frame", "p5 frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", source: "p5 source?", mode: "auto|instance|global?", runtime: "bundled|cdn?", cdnUrl: "string?" }, ai: { expose: true, description: "Create a trusted, interactive p5.js frame. Use mode: instance for p.setup/p.draw code, or mode: global for classic function setup()/draw() code. Omit mode for auto-detection. The bundled runtime is the default; only use runtime: cdn when the user specifically requests a remote p5 build. Keep the sketch self-contained and do not use HTML or script tags.", example: { name: "Pulsing circle", width: 640, height: 360, mode: "global", source: "function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(230);\n  strokeWeight(3);\n  const radius = 60 + 24 * Math.sin(millis() / 500);\n  circle(width / 2, height / 2, radius * 2);\n}" } }, action: (_api, args) => createP5Frame(args) },
+    { id: "p5.frame.attach", name: "Attach p5 Sketch to Selection /attach p5", aliases: ["/attach p5", "Attach p5 sketch", "p5 attach"], category: "Canvas", args: { source: "p5 source?", mode: "auto|instance|global?", name: "string?" }, ai: { expose: true, description: "Attach a p5 sketch to each selected rectangle, frame, or existing p5 canvas. The selected objects become live p5 hosts; use a self-contained p5 source and choose global mode for classic setup()/draw() code.", example: { mode: "global", source: "function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  circle(width / 2, height / 2, 80);\n}" } }, action: (_api, args) => attachP5ScriptToSelection(args) },
     { id: "settings-ai", name: "Open AI Configuration /settings-ai", aliases: ["/settings-ai"], category: "Panels", action: () => toggleDraweratorPanel("settings", { settingsTab: "ai" }) },
     { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
     { id: "toggle-transparency", name: "Toggle Canvas Background Transparency", category: "Canvas", action: (api) => toggleBackgroundTransparency(api) },
@@ -6729,6 +6796,16 @@ function App() {
         inlineIannixCommand: command,
       });
     }
+    const inlineWebEmbedMatch = /^\/webembed\s+(.+)$/i.exec(commandSearch.trim());
+    if (inlineWebEmbedMatch) {
+      const url = inlineWebEmbedMatch[1].trim();
+      matches.unshift({
+        id: `webembed-inline:${url}`,
+        name: `Create Web Embed: ${url}`,
+        category: "Canvas",
+        inlineWebEmbedUrl: url,
+      });
+    }
     
     if (commandSearch.trim() !== "" && !query.startsWith("/")) {
       matches.unshift({
@@ -6750,6 +6827,16 @@ function App() {
     if (match) return {
       command: COMMANDS.find(command => command.id === "iannix.command.execute"),
       args: { command: match[1].trim() },
+    };
+    match = /^\/webembed(?:\s+(.+))?$/i.exec(input);
+    if (match) return {
+      command: COMMANDS.find(command => command.id === "webembed.create"),
+      args: { url: match[1]?.trim() || "" },
+    };
+    match = /^\/p5(?:\s+(.+))?$/i.exec(input);
+    if (match) return {
+      command: COMMANDS.find(command => command.id === "p5.frame.create"),
+      args: { name: match[1]?.trim() || "" },
     };
     match = /^\/history\s+seek\s+([0-9.]+)$/i.exec(input);
     if (match) return { command: COMMANDS.find(command => command.id === "history.seek"), args: { seconds: Number(match[1]) } };
@@ -6785,6 +6872,9 @@ function App() {
       if (cmd.inlineIannixCommand) {
         return await commandRegistry.execute("iannix.command.execute", { command: cmd.inlineIannixCommand }, { source, transportTime: scoreTimeRef.current });
       }
+      if (cmd.inlineWebEmbedUrl) {
+        return await commandRegistry.execute("webembed.create", { url: cmd.inlineWebEmbedUrl }, { source, transportTime: scoreTimeRef.current });
+      }
       return await commandRegistry.execute(cmd.id, args, { source, transportTime: scoreTimeRef.current });
     } catch (error) {
       console.error("Drawerator command failed", error);
@@ -6797,6 +6887,20 @@ function App() {
     const elements = excalidrawAPI.getSceneElements();
     return elements.filter(el => selectedElementIds[el.id] && !el.isDeleted);
   };
+
+  useEffect(() => {
+    const selectedP5Frames = getSelectedElements().filter(isP5FrameElement);
+    if (selectedP5Frames.length !== 1) return;
+    const frame = normalizeP5Frame(selectedP5Frames[0].customData?.draweratorP5);
+    const script = frame.scriptId ? p5Scripts.find(candidate => candidate.id === frame.scriptId) : null;
+    setActiveP5ScriptId(script?.id || "");
+    setP5ScriptSource(script?.source || frame.source);
+    setP5ScriptMode(normalizeP5SourceMode(script?.mode || frame.mode));
+    setEditingP5ScriptName(false);
+  // Deliberately react only to selection. Including the catalog/source would
+  // overwrite text while a selected p5 host is being edited live.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedElementIds]);
 
   const commitBezierElement = (elementId, geometry, { commitToHistory = true } = {}) => {
     if (!excalidrawAPI) return null;
@@ -7189,6 +7293,193 @@ function App() {
         : true;
     }
     return base;
+  };
+
+  const createWebEmbed = (args = {}) => {
+    const rawUrl = String(args?.url || "").trim()
+      || window.prompt("Web embed URL (http or https)", "")?.trim();
+    if (!rawUrl) return null;
+    const url = sanitizeEmbedURL(rawUrl);
+    if (!url || !isAllowedEmbedURL(url)) {
+      throw new Error("Enter a valid http:// or https:// URL.");
+    }
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const appState = api.getAppState();
+    const center = viewportCoordsToSceneCoords({
+      clientX: window.innerWidth / 2,
+      clientY: window.innerHeight / 2,
+    }, appState);
+    const width = 720;
+    const height = 405;
+    const element = {
+      ...createBaseElement("embeddable", center.x - width / 2, center.y - height / 2, width, height, foregroundColor),
+      link: url,
+      validated: true,
+      strokeWidth: 0,
+      fillStyle: "solid",
+      customData: {
+        draweratorEmbed: embedPolicyForElement(null),
+      },
+    };
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    api.updateScene({
+      elements: [...elements, element],
+      appState: {
+        selectedElementIds: { [element.id]: true },
+        selectedGroupIds: {},
+        activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false },
+      },
+      commitToHistory: true,
+    });
+    setSelectedElementIds({ [element.id]: true });
+    return { elementIds: [element.id], url };
+  };
+
+  const createP5CatalogScript = ({ name, source, mode } = {}) => {
+    const script = {
+      id: `p5-script-${crypto.randomUUID()}`,
+      name: String(name || "Untitled p5 sketch").trim() || "Untitled p5 sketch",
+      source: typeof source === "string" && source.trim() ? source : DEFAULT_P5_SOURCE,
+      mode: normalizeP5SourceMode(mode),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    setP5Scripts(previous => [...previous, script]);
+    setActiveP5ScriptId(script.id);
+    setP5ScriptSource(script.source);
+    setP5ScriptMode(script.mode);
+    return script;
+  };
+
+  const attachP5ScriptToSelection = ({ source, mode, scriptId, name, script: suppliedScript, targetIds } = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const requestedIds = Array.isArray(targetIds) ? new Set(targetIds) : null;
+    const selected = getSelectedElements().filter(element => (
+      canHostP5Frame(element) && (!requestedIds || requestedIds.has(element.id))
+    ));
+    if (!selected.length) throw new Error("Select a rectangle, frame, or p5 canvas first.");
+
+    let script = suppliedScript || p5Scripts.find(candidate => candidate.id === (scriptId || activeP5ScriptId));
+    const resolvedSource = typeof source === "string" && source.trim()
+      ? source
+      : script?.source || p5ScriptSource || DEFAULT_P5_SOURCE;
+    const resolvedMode = normalizeP5SourceMode(mode || script?.mode || p5ScriptMode);
+    if (!script) {
+      script = createP5CatalogScript({ name, source: resolvedSource, mode: resolvedMode });
+    }
+
+    const selectedIds = new Set(selected.map(element => element.id));
+    const nonce = Date.now();
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    api.updateScene({
+      elements: elements.map(element => {
+        if (!selectedIds.has(element.id)) return element;
+        const prior = normalizeP5Frame(element.customData?.draweratorP5);
+        return {
+          ...element,
+          type: "embeddable",
+          link: null,
+          validated: true,
+          strokeWidth: 0,
+          fillStyle: "solid",
+          backgroundColor: "transparent",
+          customData: {
+            ...(element.customData || {}),
+            draweratorP5: normalizeP5Frame({
+              ...prior,
+              source: resolvedSource,
+              mode: resolvedMode,
+              scriptId: script.id,
+              hostType: isP5FrameElement(element) ? prior.hostType : element.type,
+              reloadNonce: nonce,
+            }),
+          },
+        };
+      }),
+      appState: { selectedElementIds: Object.fromEntries(selected.map(element => [element.id, true])) },
+      commitToHistory: true,
+    });
+    setSelectedElementIds(Object.fromEntries(selected.map(element => [element.id, true])));
+    return { count: selected.length, script };
+  };
+
+  const syncP5ScriptHosts = (scriptId, patch) => {
+    const api = excalidrawAPIRef.current;
+    if (!api || !scriptId) return;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const matched = elements.filter(element => !element.isDeleted && isP5FrameElement(element)
+      && normalizeP5Frame(element.customData?.draweratorP5).scriptId === scriptId);
+    if (!matched.length) return;
+    const nonce = Date.now();
+    api.updateScene({
+      elements: elements.map(element => {
+        if (!matched.some(candidate => candidate.id === element.id)) return element;
+        return {
+          ...element,
+          customData: {
+            ...(element.customData || {}),
+            draweratorP5: normalizeP5Frame({
+              ...element.customData?.draweratorP5,
+              ...patch,
+              reloadNonce: nonce,
+            }),
+          },
+        };
+      }),
+      commitToHistory: false,
+    });
+  };
+
+  const createP5Frame = (args = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const appState = api.getAppState();
+    const center = viewportCoordsToSceneCoords({
+      clientX: window.innerWidth / 2,
+      clientY: window.innerHeight / 2,
+    }, appState);
+    const width = Math.max(120, Math.min(4096, Number(args.width) || 640));
+    const height = Math.max(90, Math.min(4096, Number(args.height) || 360));
+    const source = typeof args.source === "string" && args.source.trim()
+      ? args.source
+      : DEFAULT_P5_SOURCE;
+    const mode = normalizeP5SourceMode(args.mode);
+    // A newly-created p5 frame owns a fresh script by default. Sharing is
+    // deliberate: rebind a selected frame through the script selector, or
+    // use Apply on an explicit multi-selection.
+    const script = createP5CatalogScript({ name: args.name, source, mode });
+    const frame = normalizeP5Frame({
+      ...DEFAULT_P5_FRAME,
+      source,
+      mode,
+      scriptId: script.id,
+      runtime: args.runtime,
+      cdnUrl: args.cdnUrl,
+      reloadNonce: Date.now(),
+    });
+    const element = {
+      ...createBaseElement("embeddable", center.x - width / 2, center.y - height / 2, width, height, foregroundColor),
+      link: null,
+      validated: true,
+      strokeWidth: 0,
+      fillStyle: "solid",
+      backgroundColor: "transparent",
+      customData: { draweratorP5: frame },
+    };
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    api.updateScene({
+      elements: [...elements, element],
+      appState: {
+        selectedElementIds: { [element.id]: true },
+        selectedGroupIds: {},
+        activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false },
+      },
+      commitToHistory: true,
+    });
+    setSelectedElementIds({ [element.id]: true });
+    return { elementIds: [element.id], name: script.name };
   };
 
   const createAIObjects = (args = {}) => {
@@ -9739,6 +10030,225 @@ function App() {
 
   const getScriptParams = code => parseScriptParameters(code);
 
+  const renderP5ScriptTab = () => {
+    const selectedP5Frames = getSelectedElements().filter(isP5FrameElement);
+    const selectedP5Host = selectedP5Frames.length === 1 ? selectedP5Frames[0] : null;
+    const selectedP5Config = selectedP5Host ? normalizeP5Frame(selectedP5Host.customData?.draweratorP5) : null;
+    const activeScript = p5Scripts.find(script => script.id === (selectedP5Config?.scriptId || activeP5ScriptId));
+    const compatibleP5Hosts = getSelectedElements().filter(canHostP5Frame);
+    const syncSelectedLegacyFrames = patch => {
+      const api = excalidrawAPIRef.current;
+      if (!api || !selectedP5Frames.length) return;
+      const ids = new Set(selectedP5Frames.map(element => element.id));
+      const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+      api.updateScene({
+        elements: elements.map(element => ids.has(element.id) ? {
+          ...element,
+          customData: {
+            ...(element.customData || {}),
+            draweratorP5: normalizeP5Frame({
+              ...element.customData?.draweratorP5,
+              ...patch,
+              reloadNonce: Date.now(),
+            }),
+          },
+        } : element),
+        commitToHistory: false,
+      });
+    };
+    const updateScriptLive = patch => {
+      if (activeScript) {
+        setP5Scripts(previous => previous.map(script => script.id === activeScript.id
+          ? { ...script, ...patch, updatedAt: Date.now() }
+          : script
+        ));
+        syncP5ScriptHosts(activeScript.id, patch);
+      } else {
+        syncSelectedLegacyFrames(patch);
+      }
+    };
+    const saveScript = () => {
+      if (!activeScript) {
+        const created = createP5CatalogScript({ source: p5ScriptSource, mode: p5ScriptMode });
+        if (selectedP5Frames.length) {
+          attachP5ScriptToSelection({ script: created, source: created.source, mode: created.mode, name: created.name });
+        }
+        setP5ScriptStatus(`Saved “${created.name}” in this browser.`);
+        return;
+      }
+      setP5Scripts(previous => previous.map(script => script.id === activeScript.id
+        ? { ...script, source: p5ScriptSource, mode: normalizeP5SourceMode(p5ScriptMode), updatedAt: Date.now() }
+        : script
+      ));
+      syncP5ScriptHosts(activeScript.id, { source: p5ScriptSource, mode: normalizeP5SourceMode(p5ScriptMode) });
+      setP5ScriptStatus(`Saved “${activeScript.name}” in this browser.`);
+    };
+    const createScript = () => {
+      const script = {
+        id: `p5-script-${crypto.randomUUID()}`,
+        name: "Untitled p5 sketch",
+        source: DEFAULT_P5_CLASSIC_SOURCE,
+        mode: "global",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      setP5Scripts(previous => [...previous, script]);
+      setActiveP5ScriptId(script.id);
+      setP5ScriptSource(script.source);
+      setP5ScriptMode(script.mode);
+      setP5ScriptNameDraft(script.name);
+      setEditingP5ScriptName(true);
+      setP5ScriptStatus("Created a new p5 sketch.");
+    };
+    const duplicateScript = () => {
+      if (!activeScript) return;
+      const script = {
+        ...activeScript,
+        id: `p5-script-${crypto.randomUUID()}`,
+        name: `Copy of ${activeScript.name}`,
+        source: p5ScriptSource,
+        mode: normalizeP5SourceMode(p5ScriptMode),
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      setP5Scripts(previous => [...previous, script]);
+      setActiveP5ScriptId(script.id);
+      setP5ScriptSource(script.source);
+      setP5ScriptMode(script.mode);
+      setP5ScriptNameDraft(script.name);
+      setEditingP5ScriptName(true);
+      setP5ScriptStatus(`Duplicated “${activeScript.name}”.`);
+    };
+    const commitRename = () => {
+      const name = p5ScriptNameDraft.trim();
+      if (activeScript && name && name !== activeScript.name) {
+        setP5Scripts(previous => previous.map(script => script.id === activeScript.id
+          ? { ...script, name, updatedAt: Date.now() }
+          : script
+        ));
+        setP5ScriptStatus(`Renamed sketch to “${name}”.`);
+      }
+      setEditingP5ScriptName(false);
+    };
+    const beginRename = () => {
+      if (!activeScript) return;
+      setP5ScriptNameDraft(activeScript.name || "Untitled p5 sketch");
+      setEditingP5ScriptName(true);
+    };
+    const deleteScript = () => {
+      if (!activeScript || !window.confirm(`Delete “${activeScript.name}”?`)) return;
+      const remaining = p5Scripts.filter(script => script.id !== activeScript.id);
+      setP5Scripts(remaining);
+      setActiveP5ScriptId(remaining[0]?.id || "");
+      setP5ScriptSource(remaining[0]?.source || "");
+      setP5ScriptMode(normalizeP5SourceMode(remaining[0]?.mode));
+      setP5ScriptStatus(`Deleted “${activeScript.name}”.`);
+    };
+    const applyToSelection = () => {
+      try {
+        const result = attachP5ScriptToSelection({
+          scriptId: activeScript?.id,
+          source: p5ScriptSource,
+          mode: p5ScriptMode,
+          name: activeScript?.name,
+        });
+        setP5ScriptStatus(`Applied this sketch to ${result.count} selected p5 host${result.count === 1 ? "" : "s"}.`);
+      } catch (error) {
+        setP5ScriptStatus(error.message || "Select a rectangle, frame, or p5 canvas first.");
+      }
+    };
+    return (
+      <div className="iannix-properties iannix-script-pane p5-script-pane">
+        {editingP5ScriptName ? <input
+          type="text"
+          className="custom-brush-select"
+          value={p5ScriptNameDraft}
+          onChange={event => setP5ScriptNameDraft(event.target.value)}
+          onBlur={commitRename}
+          onKeyDown={event => {
+            if (event.key === "Enter") { event.preventDefault(); commitRename(); }
+            if (event.key === "Escape") { event.preventDefault(); setEditingP5ScriptName(false); }
+          }}
+          aria-label="p5 sketch name"
+          autoFocus
+        /> : <select
+          className="custom-brush-select"
+          value={activeP5ScriptId}
+          onChange={event => {
+            const script = p5Scripts.find(candidate => candidate.id === event.target.value);
+            setEditingP5ScriptName(false);
+            setActiveP5ScriptId(event.target.value);
+            setP5ScriptSource(script?.source || "");
+            setP5ScriptMode(normalizeP5SourceMode(script?.mode));
+            if (selectedP5Host && script) {
+              try {
+                attachP5ScriptToSelection({
+                  script,
+                  source: script.source,
+                  mode: script.mode,
+                  targetIds: [selectedP5Host.id],
+                });
+                setP5ScriptStatus(`Attached “${script.name}” to this p5 frame.`);
+              } catch (error) {
+                setP5ScriptStatus(error.message || "Could not attach that p5 sketch.");
+              }
+            }
+          }}
+          onKeyDown={event => { if (event.key === "F2") { event.preventDefault(); beginRename(); } }}
+          onDoubleClick={event => { if (event.shiftKey) { event.preventDefault(); beginRename(); } }}
+          aria-label="p5 sketch"
+        >
+          <option value="">— Choose sketch —</option>
+          {p5Scripts.map(script => <option key={script.id} value={script.id}>{script.name}</option>)}
+        </select>}
+        <label className="script-panel-script-type">
+          <span>p5 style</span>
+          <select
+            className="custom-brush-select"
+            value={p5ScriptMode}
+            onChange={event => {
+              const mode = normalizeP5SourceMode(event.target.value);
+              setP5ScriptMode(mode);
+              updateScriptLive({ mode });
+              setP5ScriptStatus("");
+            }}
+          >
+            <option value="auto">Auto detect</option>
+            <option value="global">Classic global (setup / draw)</option>
+            <option value="instance">Instance (p.setup / p.draw)</option>
+          </select>
+        </label>
+        <div className="script-icon-toolbar">
+          <button type="button" className="palette-action-btn primary script-icon-button" title={compatibleP5Hosts.length ? "Attach or apply sketch to selected p5 hosts" : "Select a rectangle, frame, or p5 canvas to attach this sketch"} aria-label="Attach p5 sketch to selected hosts" onClick={applyToSelection} disabled={!compatibleP5Hosts.length}><ScriptActionIcon type="run" /></button>
+          <button type="button" className="palette-action-btn secondary script-icon-button" title="Save p5 sketch" aria-label="Save p5 sketch" onClick={saveScript}><ScriptActionIcon type="save" /></button>
+          <button type="button" className="palette-action-btn secondary script-icon-button" title="Duplicate p5 sketch" aria-label="Duplicate p5 sketch" onClick={duplicateScript} disabled={!activeScript}><ScriptActionIcon type="copy" /></button>
+          <button type="button" className="palette-action-btn secondary script-icon-button" title="New p5 sketch" aria-label="New p5 sketch" onClick={createScript}><ScriptActionIcon type="add" /></button>
+          <button type="button" className="palette-action-btn secondary script-icon-button" title="Import p5 JavaScript" aria-label="Import p5 JavaScript" onClick={() => p5ImportInputRef.current?.click()}><ScriptActionIcon type="import" /></button>
+          <button type="button" className="palette-action-btn danger script-icon-button" title="Delete p5 sketch" aria-label="Delete p5 sketch" onClick={deleteScript} disabled={!activeScript}><ScriptActionIcon type="remove" /></button>
+          <ScriptFontSizeControl value={scriptEditorFontSize} onChange={value => {
+            if (!Number.isFinite(value) || value < 8 || value > 32) return;
+            setScriptEditorFontSize(value);
+            localStorage.setItem("drawerator_script_editor_font_size", String(value));
+          }} />
+        </div>
+        <textarea
+          className="custom-brush-textarea"
+          value={p5ScriptSource}
+          onChange={event => {
+            const source = event.target.value;
+            setP5ScriptSource(source);
+            updateScriptLive({ source });
+            setP5ScriptStatus("");
+          }}
+          placeholder={p5ScriptMode === "global" ? "function setup() { … }\nfunction draw() { … }" : "p.setup = () => { … };\np.draw = () => { … };"}
+          spellCheck="false"
+        />
+        <p className="p5-script-warning">Trusted local code: p5 sketches run directly in Drawerator with access to the page and <code>drawerator</code>. Use only code you trust.</p>
+        {p5ScriptStatus && <div className="iannix-midi-status" role="status">{p5ScriptStatus}</div>}
+      </div>
+    );
+  };
+
   const convertShapeToPath = (element) => {
     if (!excalidrawAPI) return;
     const nextElements = excalidrawAPI.getSceneElements().map(el => el.id === element.id ? convertShapeElementToPath(el, "line") : el);
@@ -12084,6 +12594,9 @@ function App() {
   const bottomDockHeight = collapsedDocks.bottom ? COLLAPSED_DOCK_EDGE_SIZE : bottomDockExpandedHeight;
   const expressivePrograms = getExpressiveSynthPrograms(expressiveSynthConfig);
   const renderEmbeddable = (element) => {
+    if (isP5FrameElement(element)) {
+      return <P5Frame element={element} config={element.customData.draweratorP5} />;
+    }
     const policy = embedPolicyForElement(element);
     const url = sanitizeEmbedURL(element?.link);
     const visible = shouldRenderEmbed(policy, presentationMode);
@@ -12113,6 +12626,7 @@ function App() {
     };
     return <div className={`drawerator-embed-viewport ${policy.allowInteraction ? "drawerator-embed-interactive" : ""}`}>
       <iframe
+        key={`${element.id}:${url}:${policy.reloadNonce}`}
         className="drawerator-embed-frame"
         title={label}
         src={url}
@@ -13630,12 +14144,13 @@ function App() {
           >
             <input ref={iannixImportInputRef} type="file" accept=".iannix,.js,text/javascript" hidden onChange={handleTrustedIannixFile} />
             <input ref={brushImportInputRef} type="file" accept=".js,.json,text/javascript,application/json" hidden onChange={handleBrushScriptFile} />
+            <input ref={p5ImportInputRef} type="file" accept=".js,text/javascript,application/javascript" hidden onChange={handleP5ScriptFile} />
             <ScriptPanel
               type={scriptPanelType}
               onTypeChange={value => setScriptPanelType(normalizeScriptType(value))}
               editorFontSize={scriptEditorFontSize}
             >
-              {scriptPanelType === "iannix" ? renderIannixScriptTab() : renderBrushConfigForm()}
+              {scriptPanelType === "iannix" ? renderIannixScriptTab() : scriptPanelType === "p5" ? renderP5ScriptTab() : renderBrushConfigForm()}
             </ScriptPanel>
           </DraweratorPanel>
           )}
@@ -14061,7 +14576,7 @@ function App() {
                 </svg>
                 Paste SVG as Editable Paths
               </button>
-              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showAddCursor || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
+              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
             </>
           )}
           {customContextMenu.showRestore && (
@@ -14180,6 +14695,31 @@ function App() {
                 <path strokeLinecap="round" d="M12 2v5M12 17v5M2 12h5M17 12h5" />
               </svg>
               Add Cursor to Selected Curves
+            </button>
+          )}
+
+          {customContextMenu.showAttachP5 && (
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                  const result = attachP5ScriptToSelection();
+                  setScriptPanelType("p5");
+                  setP5ScriptStatus(`Attached p5 sketch to ${result.count} selected host${result.count === 1 ? "" : "s"}.`);
+                } catch (error) {
+                  setP5ScriptStatus(error.message || "Unable to attach p5 sketch.");
+                }
+                setCustomContextMenu(null);
+              }}
+              className="custom-floating-context-menu-btn"
+              title="Turn selected rectangles, frames, or p5 canvases into live p5 sketch hosts"
+            >
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
+                <rect x="4" y="4" width="16" height="16" rx="1" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 15c1.5-3 3-3 4.5 0s3 3 4.5-1" />
+              </svg>
+              Attach p5 Sketch
             </button>
           )}
 

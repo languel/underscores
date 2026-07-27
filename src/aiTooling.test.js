@@ -38,3 +38,15 @@ test("AI guide injects the relevant script contract only for a script request", 
   assert.match(iannixGuide, /makeWithScript/);
   assert.doesNotMatch(buildAIAutomationGuide(commands, { prompt: "Draw a blue circle" }), /IanniX-compatible script contract/);
 });
+
+test("AI catalog can expose a focused p5 frame action", () => {
+  const commands = [{
+    id: "p5.frame.create",
+    args: { source: "p5 instance-mode source?" },
+    ai: { expose: true, description: "Create a trusted p5 frame", example: { source: "p.setup = () => {};" } },
+  }];
+  const guide = buildAIAutomationGuide(commands, { prompt: "Make an animated p5 sketch" });
+  assert.match(guide, /p5\.frame\.create/);
+  assert.match(guide, /Create a trusted p5 frame/);
+  assert.equal(isAICommandAllowed("p5.frame.create", commands), true);
+});

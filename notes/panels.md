@@ -70,3 +70,9 @@ Info is a normal panel, not an inspector card. It may float or join the bottom d
 The editable **Settings → Shortcuts** view is the source of truth for Drawerator-specific key bindings. In addition to canvas tools and grid actions, it includes panel toggles, left/right/bottom dock collapse, transport, history, theme, modifier, geometry, and stroke-width actions. New actions must be registered there before they receive an application keyboard handler.
 
 The detailed control and styling contract lives in [UI guidelines](ui-guidelines.md).
+
+## Trusted p5 frames
+
+The **Script** panel includes a `p5 sketch` type for interactive canvas frames. P5 is bundled with Drawerator by default, so a saved scene does not need a media asset or network connection to run its sketch. The editor accepts both p5 styles: instance mode (`p.setup`, `p.draw`, and `p.*` calls) and the familiar classic/global style (`function setup()`, `function draw()`, and ordinary p5 calls such as `circle()`). Auto mode detects either source form, while the explicit style picker lets a script pin its intended behavior. Classic sketches still execute inside their individual Drawerator frame, so multiple student sketches do not overwrite each other.
+
+P5 frames are intentionally trusted, local-author code like the existing IanniX editor: they run with page and `window.drawerator` access. New p5 frames receive their own catalog script, so editing one does not accidentally rewrite another. When one p5 frame is selected, choosing a sketch in the Script panel explicitly rebinds that frame; sharing is therefore deliberate. Run/apply only attaches the active sketch to the currently selected compatible frame or frames. The frame Properties expose its source, playback rate, transparency, interaction pass-through, reload action, and an optional CDN runtime URL for a deliberate remote-runtime override. Use `/p5` or the `p5.frame.create` command to create a frame.

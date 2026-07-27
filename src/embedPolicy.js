@@ -20,6 +20,7 @@ export const DEFAULT_EMBED_POLICY = Object.freeze({
   cropBottom: 0,
   cropLeft: 0,
   css: "",
+  reloadNonce: 0,
 });
 
 const nonNegativeNumber = (value, fallback = 0) => {
@@ -67,6 +68,7 @@ export const normalizeEmbedPolicy = value => {
     cropBottom: nonNegativeNumber(source.cropBottom),
     cropLeft: nonNegativeNumber(source.cropLeft),
     css: typeof source.css === "string" ? source.css : "",
+    reloadNonce: nonNegativeNumber(source.reloadNonce),
   };
 };
 
