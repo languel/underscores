@@ -8,6 +8,7 @@ import {
   updateSvgNodeAttribute,
   updateSvgRootDocument,
 } from "./svgObject.js";
+import { getEditableSvgPathNodes } from "./svgPathGeometry.js";
 
 const READ_ONLY_KEYS = new Set([
   "id", "type", "width", "height", "version", "versionNonce", "updated", "index", "seed",
@@ -213,14 +214,31 @@ const P5FrameControls = ({ element, query, onChange }) => {
   );
 };
 
-const SvgObjectControls = ({ element, query, onChange }) => {
-  const [selectedNodeIndex, setSelectedNodeIndex] = useState(0);
+const SvgObjectControls = ({
+  element,
+  query,
+  onChange,
+  selectedSvgNode,
+  onSelectSvgNode,
+  onExtractSvgSubpath,
+  svgJointConnectionCount = 0,
+  svgJointDetachArmed = false,
+  onDetachSvgJoint,
+}) => {
   const [newAttributeName, setNewAttributeName] = useState("");
   const [newAttributeValue, setNewAttributeValue] = useState("");
   if (!isSvgObjectElement(element)) return null;
   const svg = normalizeSvgObject(element.customData.draweratorSvg);
   const analysis = analyzeSvgSource(svg.source);
+  const pathsByNodeIndex = new Map(getEditableSvgPathNodes(svg.source).map(path => [path.node.index, path]));
+  const selectedNodeIndex = selectedSvgNode?.elementId === element.id ? selectedSvgNode.nodeIndex : 0;
+  const selectedSubpathIndex = selectedSvgNode?.elementId === element.id && Number.isInteger(selectedSvgNode?.subpathIndex)
+    ? selectedSvgNode.subpathIndex
+    : null;
   const selectedNode = analysis.nodes[selectedNodeIndex] || analysis.nodes[0] || null;
+  const selectedSubpath = Number.isInteger(selectedSubpathIndex)
+    ? pathsByNodeIndex.get(selectedNodeIndex)?.subpaths?.find(subpath => subpath.index === selectedSubpathIndex)
+    : null;
   const matches = name => !query?.needle || [
     "svg", "document", "name", "width", "height", "viewbox", "geometry", "element", "attribute",
     name,
@@ -255,18 +273,62 @@ const SvgObjectControls = ({ element, query, onChange }) => {
         {matches("height") && <div className="properties-row editable"><span>height</span><input type="number" min="1" max="16384" value={analysis.height} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => updateSource(updateSvgRootDocument(svg.source, { height: event.target.value }))} /></div>}
         {matches("viewbox") && <div className="properties-row editable"><span>viewBox</span><input type="text" value={analysis.viewBox.join(" ")} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => updateSource(updateSvgRootDocument(svg.source, { viewBox: event.target.value }))} /></div>}
         {matches("geometry") && <div className="properties-svg-tree" role="tree" aria-label="SVG geometry">
-          {analysis.nodes.map(node => <button
-            key={`${node.index}-${node.label}`}
+          {analysis.nodes.map(node => {
+            const path = pathsByNodeIndex.get(node.index);
+            const subpaths = path?.subpaths || [];
+            const hasSubpathChildren = subpaths.length > 1;
+            const nodeIsSelected = selectedNodeIndex === node.index
+              && (!Number.isInteger(selectedSubpathIndex) || !hasSubpathChildren);
+            return (
+              <div className="properties-svg-node-group" key={`${node.index}-${node.label}`}>
+                <button
+                  type="button"
+                  role="treeitem"
+                  aria-expanded={hasSubpathChildren ? true : undefined}
+                  aria-selected={nodeIsSelected}
+                  className={nodeIsSelected ? "selected" : ""}
+                  style={{ "--svg-node-depth": node.depth }}
+                  onClick={() => onSelectSvgNode?.(element.id, node.index, subpaths.length === 1 ? 0 : null)}
+                  title={node.tag.toLowerCase() === "path"
+                    ? `${node.label} · ${hasSubpathChildren ? `${subpaths.length} subpaths` : "select and edit on canvas"}`
+                    : `${node.label} · select SVG component`}
+                >
+                  <span className={`properties-svg-node-icon tag-${node.tag.toLowerCase()}`} />
+                  <span>{node.label}{hasSubpathChildren ? ` · ${subpaths.length}` : ""}</span>
+                </button>
+                {hasSubpathChildren && <div role="group" aria-label={`${node.label} subpaths`}>
+                  {subpaths.map(subpath => {
+                    const isSelected = selectedNodeIndex === node.index && selectedSubpathIndex === subpath.index;
+                    return <button
+                      type="button"
+                      role="treeitem"
+                      aria-selected={isSelected}
+                      className={`properties-svg-subpath ${isSelected ? "selected" : ""} ${subpath.valid ? "" : "invalid"}`}
+                      style={{ "--svg-node-depth": node.depth + 1 }}
+                      key={`${node.index}-${subpath.index}`}
+                      onClick={() => onSelectSvgNode?.(element.id, node.index, subpath.index)}
+                      title={subpath.valid ? `Edit subpath ${subpath.index + 1} on canvas` : subpath.error}
+                    >
+                      <span className="properties-svg-subpath-branch">↳</span>
+                      <span>Subpath {subpath.index + 1}</span>
+                    </button>;
+                  })}
+                </div>}
+              </div>
+            );
+          })}
+        </div>}
+        {selectedSubpath?.valid && matches("geometry") && <div className="properties-svg-subpath-actions" aria-label="Selected SVG subpath actions">
+          {svgJointConnectionCount > 1 && <button
             type="button"
-            role="treeitem"
-            aria-selected={selectedNodeIndex === node.index}
-            className={selectedNodeIndex === node.index ? "selected" : ""}
-            style={{ "--svg-node-depth": node.depth }}
-            onClick={() => setSelectedNodeIndex(node.index)}
-          >
-            <span className={`properties-svg-node-icon tag-${node.tag.toLowerCase()}`} />
-            <span>{node.label}</span>
-          </button>)}
+            className={svgJointDetachArmed ? "active" : ""}
+            onClick={() => onDetachSvgJoint?.()}
+            title="By default, coincident subpath endpoints move as one joint. Detach arms this endpoint to move independently on its next drag."
+          >{svgJointDetachArmed ? "Drag to detach" : `Detach joint · ${svgJointConnectionCount}`}</button>}
+          <button type="button" onClick={() => onExtractSvgSubpath?.(element.id, selectedNodeIndex, selectedSubpathIndex)}>Extract spline</button>
+          <button type="button" onClick={() => onExtractSvgSubpath?.(element.id, selectedNodeIndex, selectedSubpathIndex, "curve")}>Make curve</button>
+          <button type="button" onClick={() => onExtractSvgSubpath?.(element.id, selectedNodeIndex, selectedSubpathIndex, "cursor")}>Make cursor</button>
+          <button type="button" onClick={() => onExtractSvgSubpath?.(element.id, selectedNodeIndex, selectedSubpathIndex, "trigger")}>Make trigger</button>
         </div>}
         {selectedNode && matches("attribute") && <div className="properties-svg-attributes">
           {Object.entries(selectedNode.attributes).map(([attribute, value]) => <div className="properties-row editable" key={attribute}>
@@ -279,7 +341,7 @@ const SvgObjectControls = ({ element, query, onChange }) => {
             <button type="button" onClick={addAttribute} disabled={!newAttributeName.trim()}>Add</button>
           </div>
         </div>}
-        {!query?.needle && <p className="properties-svg-note">Draw and transform this SVG on the canvas. Edit its complete source from the SVG type in the Script panel.</p>}
+        {!query?.needle && <p className="properties-svg-note">Select a path or one of its subpaths for spline-style canvas editing. Extract a subpath as a native Drawerator spline when it needs a score role or interaction; source editing remains available from the SVG type in Script.</p>}
       </div>
     </details>
   );
@@ -323,7 +385,17 @@ const svgFieldCount = element => {
   return 4 + analysis.nodeCount + analysis.nodes.reduce((count, node) => count + Object.keys(node.attributes).length, 0);
 };
 
-const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange, onRename }) {
+const PropertiesPanel = memo(function PropertiesPanel({
+  elements = [],
+  selectedSvgNode = null,
+  onChange,
+  onRename,
+  onSelectSvgNode,
+  onExtractSvgSubpath,
+  svgJointConnectionCount = 0,
+  svgJointDetachArmed = false,
+  onDetachSvgJoint,
+}) {
   const [filter, setFilter] = useState("");
   const [activeObjectId, setActiveObjectId] = useState(null);
   const [editingId, setEditingId] = useState(null);
@@ -400,7 +472,17 @@ const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange,
                 </div>
               </div>
               <P5FrameControls element={element} query={query} onChange={(path, value) => onChange([element.id], path, value)} />
-              <SvgObjectControls element={element} query={query} onChange={(path, value) => onChange([element.id], path, value)} />
+              <SvgObjectControls
+                element={element}
+                query={query}
+                onChange={(path, value) => onChange([element.id], path, value)}
+                selectedSvgNode={selectedSvgNode}
+                onSelectSvgNode={onSelectSvgNode}
+                onExtractSvgSubpath={onExtractSvgSubpath}
+                svgJointConnectionCount={svgJointConnectionCount}
+                svgJointDetachArmed={svgJointDetachArmed}
+                onDetachSvgJoint={onDetachSvgJoint}
+              />
               <EmbedControls element={element} query={query} onChange={(path, value) => onChange([element.id], path, value)} />
               <PropertyNode
                 name="object"

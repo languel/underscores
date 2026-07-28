@@ -43,8 +43,8 @@ export const scanSvgNodes = source => {
     const tail = match[3] || "";
     if (closing) {
       const target = tag.toLowerCase();
-      while (stack.length && stack.at(-1) !== target) stack.pop();
-      if (stack.at(-1) === target) stack.pop();
+      while (stack.length && stack.at(-1).tag !== target) stack.pop();
+      if (stack.at(-1)?.tag === target) stack.pop();
       continue;
     }
     const attributes = parseSvgAttributes(tail);
@@ -53,13 +53,14 @@ export const scanSvgNodes = source => {
       index,
       tag,
       depth: stack.length,
+      parentIndex: stack.at(-1)?.index ?? null,
       id: attributes.id || "",
       label: `${tag}${attributes.id ? `#${attributes.id}` : ""}`,
       attributes,
       start: match.index,
       end: TAG.lastIndex,
     });
-    if (!/\/\s*$/.test(tail)) stack.push(tag.toLowerCase());
+    if (!/\/\s*$/.test(tail)) stack.push({ tag: tag.toLowerCase(), index });
   }
   return nodes;
 };
@@ -167,10 +168,6 @@ export const shouldRenderSvgObject = element => Boolean(
   && isSvgObjectElement(element)
 );
 
-export const svgSourceToDataUrl = source => (
-  `data:image/svg+xml;charset=utf-8,${encodeURIComponent(String(source || ""))}`
-);
-
 const escapeAttribute = value => String(value).replaceAll("&", "&amp;").replaceAll("\"", "&quot;");
 
 export const updateSvgNodeAttribute = (source, nodeIndex, name, value) => {
@@ -197,4 +194,72 @@ export const updateSvgRootDocument = (source, { width, height, viewBox } = {}) =
   if (height !== undefined) next = updateSvgNodeAttribute(next, 0, "height", height);
   if (viewBox !== undefined) next = updateSvgNodeAttribute(next, 0, "viewBox", viewBox);
   return next;
+};
+
+const CANVAS_FOREGROUND_COLORS = new Set([
+  "#000000",
+  "#1c1c1e",
+  "#1e1e1e",
+  "#121212",
+  "rgb(0,0,0)",
+  "black",
+]);
+
+const isCanvasForegroundColor = value => (
+  CANVAS_FOREGROUND_COLORS.has(String(value || "").trim().toLowerCase().replaceAll(" ", ""))
+);
+
+// Excalidraw stores its neutral foreground as a dark authored color and
+// resolves that color against the active canvas theme while rendering. A
+// source-preserving SVG cannot inherit that behavior automatically, so use
+// standard SVG `currentColor` for those exported neutral strokes/fills.
+export const makeSvgCanvasForegroundAdaptive = source => {
+  let next = String(source || "");
+  const nodes = scanSvgNodes(next);
+  for (const node of nodes) {
+    for (const attribute of ["fill", "stroke"]) {
+      if (isCanvasForegroundColor(node.attributes?.[attribute])) {
+        next = updateSvgNodeAttribute(next, node.index, attribute, "currentColor");
+      }
+    }
+    const style = node.attributes?.style;
+    if (style) {
+      const patchedStyle = String(style).replace(
+        /(^|;)(\s*(?:fill|stroke)\s*:\s*)(#000000|#1c1c1e|#1e1e1e|#121212|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\)|black)(?=\s*(?:;|$))/gi,
+        "$1$2currentColor",
+      );
+      if (patchedStyle !== style) next = updateSvgNodeAttribute(next, node.index, "style", patchedStyle);
+    }
+  }
+  return next;
+};
+
+export const resolveSvgCurrentColor = (source, currentColor) => {
+  const authored = String(source || "");
+  const color = String(currentColor || "").trim();
+  if (!color) return authored;
+  const root = scanSvgNodes(authored)[0];
+  if (!root || root.tag.toLowerCase() !== "svg" || root.attributes.color) return authored;
+  return updateSvgNodeAttribute(authored, root.index, "color", color);
+};
+
+export const svgSourceToDataUrl = (source, { currentColor = "" } = {}) => (
+  `data:image/svg+xml;charset=utf-8,${encodeURIComponent(resolveSvgCurrentColor(source, currentColor))}`
+);
+
+export const getSvgHostFrame = (selectionBounds, viewBox) => {
+  const [minX, minY, maxX, maxY] = selectionBounds;
+  const boundsWidth = Math.max(1, maxX - minX);
+  const boundsHeight = Math.max(1, maxY - minY);
+  // Excalidraw's exported SVG uses scene units in its viewBox and may include
+  // symmetric padding around the selection. Keep that padding without moving
+  // the selection's world-space center.
+  const width = Math.max(boundsWidth, Math.min(4096, Number(viewBox?.[2]) || boundsWidth));
+  const height = Math.max(boundsHeight, Math.min(4096, Number(viewBox?.[3]) || boundsHeight));
+  return {
+    x: minX - Math.max(0, width - boundsWidth) / 2,
+    y: minY - Math.max(0, height - boundsHeight) / 2,
+    width,
+    height,
+  };
 };

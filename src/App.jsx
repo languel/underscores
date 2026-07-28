@@ -1,6 +1,6 @@
 // Force rebuild timestamp: 2026-07-06T11:15:00
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Excalidraw, MainMenu, exportToSvg, exportToCanvas, loadFromBlob, serializeAsJSON, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
+import { Excalidraw, MainMenu, exportToSvg, exportToCanvas, getCommonBounds, loadFromBlob, serializeAsJSON, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
 import "./App.css";
 import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, isDrawableTrack, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
 import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, isRuntimeCursor, normalizeIannixData, reconcileRuntimeCursorHosts, resolveIannixObjectTiming, snapCursorHostToCurveStart, transformPaths } from "./iannixEngine.js";
@@ -70,6 +70,8 @@ import {
 import { createExpressiveSynthDemoScore } from "./expressiveSynthDemo.js";
 import ShortcutsPanel from "./ShortcutsPanel.jsx";
 import ScriptPanel from "./ScriptPanel.jsx";
+import DraweratorCodeEditor from "./DraweratorCodeEditor.jsx";
+import { sourceDiagnostic, validateJavascriptEditorSource } from "./scriptEditorDiagnostics.js";
 import { normalizeScriptType } from "./scriptTypes.js";
 import { P5FrameOverlay } from "./P5Frame.jsx";
 import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_EXAMPLES, P5_FRAME_STORAGE_KEY, canHostP5Frame, getP5Example, getP5HostElementType, isP5FrameElement, normalizeP5Frame, normalizeP5Scripts, normalizeP5SourceMode, reconcileP5ScriptsWithElements, validateP5Source } from "./p5Frame.js";
@@ -78,10 +80,26 @@ import {
   DEFAULT_SVG_SOURCE,
   SVG_SCRIPT_STORAGE_KEY,
   analyzeSvgSource,
+  getSvgHostFrame,
   isSvgObjectElement,
+  makeSvgCanvasForegroundAdaptive,
   normalizeSvgObject,
   normalizeSvgScripts,
+  updateSvgNodeAttribute,
 } from "./svgObject.js";
+import {
+  getEditableSvgPathNodes,
+  getSvgNodeWorldOutline,
+  getSvgPathEndpointConnections,
+  getSvgPathWorldControls,
+  getSvgPathWorldDetailed,
+  getSvgPathWorldPoints,
+  getSvgSubpathWorldAnchors,
+  replaceSvgPathSubpath,
+  replaceSvgPathSubpathWithConnectedEndpoint,
+  serializeSvgPathGeometry,
+  worldPointToSvg,
+} from "./svgPathGeometry.js";
 import { downloadCanvasAsPng, exportDraweratorPng } from "./p5Export.js";
 import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
@@ -1929,6 +1947,7 @@ function App() {
   const [svgScriptStatusKind, setSvgScriptStatusKind] = useState("info");
   const [svgEditorTargetId, setSvgEditorTargetId] = useState(null);
   const [svgLoadedRevision, setSvgLoadedRevision] = useState(-1);
+  const svgAutoCompileTimerRef = useRef(null);
   const [p5OverlayScene, setP5OverlayScene] = useState({ elements: [], appState: null });
   const [svgOverlayScene, setSvgOverlayScene] = useState({ elements: [], appState: null });
   const selectedSvgForEditor = useMemo(() => {
@@ -1952,6 +1971,47 @@ function App() {
       setSvgScriptStatusKind("info");
     }
   }, [selectedSvgForEditor, svgEditorTargetId, svgLoadedRevision, svgScripts]);
+
+  useEffect(() => {
+    if (svgAutoCompileTimerRef.current) {
+      window.clearTimeout(svgAutoCompileTimerRef.current);
+      svgAutoCompileTimerRef.current = null;
+    }
+    if (!svgEditorTargetId) return undefined;
+    const analysis = analyzeSvgSource(svgScriptSource);
+    if (!analysis.valid) return undefined;
+    const target = excalidrawAPIRef.current?.getSceneElements().find(element =>
+      element.id === svgEditorTargetId && !element.isDeleted && isSvgObjectElement(element)
+    );
+    if (!target || normalizeSvgObject(target.customData.draweratorSvg).source === analysis.source) return undefined;
+
+    svgAutoCompileTimerRef.current = window.setTimeout(() => {
+      svgAutoCompileTimerRef.current = null;
+      try {
+        const activeScript = svgScripts.find(script => script.id === activeSvgScriptId);
+        const result = runSvgObjectSource({
+          source: analysis.source,
+          name: activeScript?.name || svgScriptNameDraft || "Untitled SVG",
+          targetId: svgEditorTargetId,
+          scriptId: activeScript?.id || "",
+          commitToHistory: false,
+          select: false,
+        });
+        setSvgLoadedRevision(result.revision);
+        setSvgScriptStatus(`Canvas updated automatically · ${analysis.nodeCount} ${analysis.nodeCount === 1 ? "node" : "nodes"}`);
+        setSvgScriptStatusKind("success");
+      } catch (error) {
+        setSvgScriptStatus(error.message || "Could not update this SVG.");
+        setSvgScriptStatusKind("error");
+      }
+    }, 220);
+    return () => {
+      if (svgAutoCompileTimerRef.current) {
+        window.clearTimeout(svgAutoCompileTimerRef.current);
+        svgAutoCompileTimerRef.current = null;
+      }
+    };
+  }, [activeSvgScriptId, svgEditorTargetId, svgScriptNameDraft, svgScriptSource, svgScripts]);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -2196,6 +2256,12 @@ function App() {
   const [bezierSelectedAnchor, setBezierSelectedAnchor] = useState(null);
   const bezierDragRef = useRef(null);
   const lastBezierPointerDownRef = useRef(null);
+  const lastSvgPointerDownRef = useRef(null);
+  const [selectedSvgNode, setSelectedSvgNode] = useState(null);
+  const [svgPathEdit, setSvgPathEdit] = useState(null);
+  const [svgPathSelectedAnchor, setSvgPathSelectedAnchor] = useState(null);
+  const [svgDetachedEndpoint, setSvgDetachedEndpoint] = useState(null);
+  const svgPathDragRef = useRef(null);
   useEffect(() => {
     localStorage.setItem("drawerator_role_theme", JSON.stringify(roleTheme));
     if (!excalidrawAPI) return;
@@ -3939,6 +4005,7 @@ function App() {
   };
 
   const handleCanvasDoubleClick = e => {
+    if (enterSvgPathEditAtPointer(e)) return;
     enterBezierEditAtPointer(e);
   };
 
@@ -4043,6 +4110,200 @@ function App() {
     return true;
   };
 
+  const getSvgPathEditContext = (edit = svgPathEdit) => {
+    if (!edit || !excalidrawAPI) return null;
+    const element = excalidrawAPI.getSceneElements().find(candidate =>
+      candidate.id === edit.elementId && !candidate.isDeleted && isSvgObjectElement(candidate)
+    );
+    if (!element) return null;
+    const svg = normalizeSvgObject(element.customData.draweratorSvg);
+    const path = getEditableSvgPathNodes(svg.source).find(candidate => candidate.node.index === edit.nodeIndex);
+    const requestedSubpath = Number.isInteger(edit.subpathIndex) ? edit.subpathIndex : 0;
+    const subpath = path?.subpaths?.find(candidate => candidate.index === requestedSubpath);
+    return path && subpath ? { element, svg, path, subpath } : null;
+  };
+
+  const distanceToScreenSegment = (point, start, end) => {
+    const dx = end[0] - start[0];
+    const dy = end[1] - start[1];
+    const lengthSquared = dx * dx + dy * dy;
+    const amount = lengthSquared > 0
+      ? Math.max(0, Math.min(1, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / lengthSquared))
+      : 0;
+    return {
+      distance: Math.hypot(point[0] - (start[0] + dx * amount), point[1] - (start[1] + dy * amount)),
+      amount,
+    };
+  };
+
+  const findSvgPathAtPointer = (clientX, clientY, candidates = null) => {
+    const elements = candidates || excalidrawAPI?.getSceneElements().filter(candidate =>
+      !candidate.isDeleted && isSvgObjectElement(candidate)
+    ) || [];
+    let nearest = null;
+    for (const element of elements) {
+      if (!selectionFilterAllowsElement(selectionFilterRef.current, element)) continue;
+      const svg = normalizeSvgObject(element.customData.draweratorSvg);
+      for (const path of getEditableSvgPathNodes(svg.source)) {
+        for (const subpath of path.subpaths || []) {
+          if (!subpath.valid) continue;
+          const detailed = getSvgPathWorldDetailed(element, svg, subpath.geometry).map(entry => ({
+            ...entry,
+            screen: mapCanvasToScreen(entry.point[0], entry.point[1]),
+          }));
+          for (let index = 1; index < detailed.length; index += 1) {
+            const start = detailed[index - 1];
+            const end = detailed[index];
+            if (start.segmentIndex !== end.segmentIndex) continue;
+            const projection = distanceToScreenSegment([clientX, clientY], start.screen, end.screen);
+            if (!nearest || projection.distance < nearest.screenDistance) {
+              nearest = {
+                element,
+                svg,
+                path,
+                subpath,
+                screenDistance: projection.distance,
+                segmentIndex: end.segmentIndex,
+                t: start.t + (end.t - start.t) * projection.amount,
+              };
+            }
+          }
+        }
+      }
+    }
+    return nearest;
+  };
+
+  const enterSvgPathEditAtPointer = (event, candidates = null, { allowDistant = false } = {}) => {
+    if (!excalidrawAPI || excalidrawAPI.getAppState().activeTool?.type !== "selection") return false;
+    const hit = findSvgPathAtPointer(event.clientX, event.clientY, candidates);
+    if (!hit || (!allowDistant && hit.screenDistance > 12)) return false;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    const controls = getSvgPathWorldControls(hit.element, hit.svg, hit.subpath.geometry);
+    let selectedAnchor = Math.min(hit.segmentIndex + 1, controls.length - 1);
+    controls.forEach((control, index) => {
+      const screen = mapCanvasToScreen(control.anchor[0], control.anchor[1]);
+      const current = mapCanvasToScreen(
+        controls[selectedAnchor].anchor[0],
+        controls[selectedAnchor].anchor[1],
+      );
+      if (Math.hypot(screen[0] - event.clientX, screen[1] - event.clientY) <
+          Math.hypot(current[0] - event.clientX, current[1] - event.clientY)) selectedAnchor = index;
+    });
+    exitBezierEditMode();
+    setSvgDetachedEndpoint(null);
+    setSelectedSvgNode({ elementId: hit.element.id, nodeIndex: hit.path.node.index, subpathIndex: hit.subpath.index });
+    setSvgPathEdit({ elementId: hit.element.id, nodeIndex: hit.path.node.index, subpathIndex: hit.subpath.index });
+    setSvgPathSelectedAnchor(selectedAnchor);
+    const selectedIds = { [hit.element.id]: true };
+    selectedElementIdsRef.current = selectedIds;
+    setSelectedElementIds(selectedIds);
+    excalidrawAPI.updateScene({
+      appState: {
+        selectedElementIds: selectedIds,
+        selectedGroupIds: {},
+        editingLinearElement: null,
+        selectedLinearElement: null,
+      },
+    });
+    return true;
+  };
+
+  const findSvgPathControlAtPointer = (context, clientX, clientY) => {
+    if (!context?.subpath?.valid) return null;
+    let nearest = null;
+    getSvgPathWorldControls(context.element, context.svg, context.subpath.geometry).forEach((control, index) => {
+      [["anchor", control.anchor], ["in", control.in], ["out", control.out]].forEach(([part, world]) => {
+        if (!world) return;
+        const screen = mapCanvasToScreen(world[0], world[1]);
+        const distance = Math.hypot(screen[0] - clientX, screen[1] - clientY);
+        const threshold = part === "anchor" ? 11 : 9;
+        if (distance <= threshold && (!nearest || distance < nearest.distance)) nearest = { index, part, distance };
+      });
+    });
+    return nearest;
+  };
+
+  const handleSvgPathPointerDown = event => {
+    const context = getSvgPathEditContext();
+    if (!context || event.button !== 0 || !context.subpath.valid) return false;
+    const control = findSvgPathControlAtPointer(context, event.clientX, event.clientY);
+    if (control) {
+      event.preventDefault();
+      event.stopPropagation();
+      setSvgPathSelectedAnchor(control.index);
+      const detached = control.part === "anchor"
+        && svgDetachedEndpoint
+        && svgDetachedEndpoint.elementId === context.element.id
+        && svgDetachedEndpoint.nodeIndex === context.path.node.index
+        && svgDetachedEndpoint.subpathIndex === context.subpath.index
+        && svgDetachedEndpoint.anchorIndex === control.index;
+      if (control.part === "anchor" && svgDetachedEndpoint) setSvgDetachedEndpoint(null);
+      svgPathDragRef.current = {
+        elementId: context.element.id,
+        nodeIndex: context.path.node.index,
+        subpathIndex: context.subpath.index,
+        anchorIndex: control.index,
+        part: control.part,
+        preserveEndpointConnections: control.part === "anchor" && !detached,
+        pointerId: event.pointerId,
+      };
+      event.currentTarget?.setPointerCapture?.(event.pointerId);
+      return true;
+    }
+    const hit = findSvgPathAtPointer(event.clientX, event.clientY, [context.element]);
+    if (
+      event.detail >= 2
+      && hit
+      && hit.path.node.index === context.path.node.index
+      && hit.subpath.index === context.subpath.index
+      && hit.screenDistance <= 14
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      const geometry = splitBezierSegment(context.subpath.geometry, hit.segmentIndex, hit.t);
+      commitSvgPathGeometry(context.element.id, context.path.node.index, context.subpath.index, geometry);
+      setSvgPathSelectedAnchor(hit.segmentIndex + 1);
+      return true;
+    }
+    if (hit && hit.screenDistance <= 12) return enterSvgPathEditAtPointer(event, [context.element]);
+    return false;
+  };
+
+  const handleSvgPathPointerMove = event => {
+    const drag = svgPathDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+    const context = getSvgPathEditContext({ elementId: drag.elementId, nodeIndex: drag.nodeIndex, subpathIndex: drag.subpathIndex });
+    if (!context?.subpath?.valid) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    const world = getCanvasCoords(event.clientX, event.clientY, "points");
+    const local = worldPointToSvg(context.element, context.svg, world);
+    const anchor = context.subpath.geometry.anchors[drag.anchorIndex];
+    const value = drag.part === "anchor" ? local : [local[0] - anchor.x, local[1] - anchor.y];
+    const geometry = updateBezierAnchor(context.subpath.geometry, drag.anchorIndex, drag.part, value, { breakHandles: event.altKey });
+    commitSvgPathGeometry(context.element.id, context.path.node.index, context.subpath.index, geometry, {
+      commitToHistory: false,
+      connectedAnchorIndex: drag.preserveEndpointConnections ? drag.anchorIndex : null,
+    });
+    return true;
+  };
+
+  const handleSvgPathPointerUp = event => {
+    const drag = svgPathDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    svgPathDragRef.current = null;
+    const context = getSvgPathEditContext({ elementId: drag.elementId, nodeIndex: drag.nodeIndex, subpathIndex: drag.subpathIndex });
+    if (context?.subpath?.valid) {
+      commitSvgPathGeometry(context.element.id, context.path.node.index, context.subpath.index, context.subpath.geometry, { commitToHistory: true });
+    }
+    event.currentTarget?.releasePointerCapture?.(event.pointerId);
+    return true;
+  };
+
   const handleCanvasPointerDown = (e) => {
     if (!excalidrawAPI) return;
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
@@ -4055,6 +4316,7 @@ function App() {
     // feel unreliable.
     if (e.target?.closest?.(".drawerator-embed-interactive")) return;
 
+    if (handleSvgPathPointerDown(e)) return;
     if (handleBezierPointerDown(e)) return;
 
     const targetElement = e.target;
@@ -4086,9 +4348,24 @@ function App() {
     const activeTool = currentAppState.activeTool?.type;
     if (activeTool === "selection") {
       if (handleSelectedBezierAnchorPointerDown(e)) return;
+      const selectedSvg = excalidrawAPI.getSceneElements().find(element =>
+        !element.isDeleted &&
+        currentAppState.selectedElementIds?.[element.id] &&
+        isSvgObjectElement(element)
+      );
+      const now = Date.now();
+      const previousSvgPointer = lastSvgPointerDownRef.current;
+      const repeatedSvgPointer = previousSvgPointer &&
+        now - previousSvgPointer.time <= 450 &&
+        Math.hypot(e.clientX - previousSvgPointer.x, e.clientY - previousSvgPointer.y) <= 8;
+      lastSvgPointerDownRef.current = { time: now, x: e.clientX, y: e.clientY };
+      if (repeatedSvgPointer && selectedSvg && enterSvgPathEditAtPointer(e, [selectedSvg])) {
+        lastSvgPointerDownRef.current = null;
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && selectedSvg && enterSvgPathEditAtPointer(e, [selectedSvg])) return;
       const sceneBeziers = excalidrawAPI.getSceneElements().filter(element => !element.isDeleted && hasCubicBezierGeometry(element));
       const selectedBezier = sceneBeziers.find(element => currentAppState.selectedElementIds?.[element.id]);
-      const now = Date.now();
       const previousBezierPointer = lastBezierPointerDownRef.current;
       const repeatedPointer = previousBezierPointer &&
         now - previousBezierPointer.time <= 450 &&
@@ -4240,6 +4517,7 @@ function App() {
 
   const handleCanvasPointerMove = (e) => {
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
+    if (handleSvgPathPointerMove(e)) return;
     if (handleBezierPointerMove(e)) return;
     if (nativeLineGridPointsRef.current) {
       const state = excalidrawAPI?.getAppState();
@@ -4936,6 +5214,8 @@ function App() {
         x: e.clientX,
         y: e.clientY,
         showAddCursor: selectedContextElements.some(element => !isSvgObjectElement(element)),
+        showMakeRole: true,
+        showToSvg: selectedContextElements.some(element => !isSvgObjectElement(element) && !isP5FrameElement(element)),
         showAttachP5: hasP5HostCandidate,
         showRestore: hasBrush,
         showToPath: hasShapes,
@@ -5466,6 +5746,7 @@ function App() {
   };
 
   const handleCanvasPointerUp = (e) => {
+    if (handleSvgPathPointerUp(e)) return;
     if (handleBezierPointerUp(e)) return;
     scheduleNativeGridQuantization();
     if (passiveStrokeCaptureRef.current && !isDrawingRef.current) {
@@ -6807,6 +7088,8 @@ function App() {
     { id: "script.svg.open", name: "Open SVG Script Editor /svg", aliases: ["/svg", "SVG editor", "SVG script"], category: "SVG", record: "presentation", action: () => toggleDraweratorPanel("script", { scriptType: "svg" }) },
     { id: "svg.object.run", name: "Run SVG Source /svg run", aliases: ["/svg run", "Create SVG object", "Run SVG source"], category: "SVG", args: { source: "SVG markup", name: "string?", elementId: "string?", scriptId: "string?" }, ai: { expose: true, description: "Create a first-class SVG canvas object from complete raw <svg> markup, or update elementId when it already identifies an SVG object. The source remains editable and is not flattened into native paths.", example: { name: "Wave mark", source: "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 320 180\"><path d=\"M20 90 C80 20 140 160 300 90\" fill=\"none\" stroke=\"#1769e0\" stroke-width=\"5\"/></svg>" } }, action: (_api, args) => runSvgObjectSource(args) },
     { id: "svg.object.fromSelection", name: "Convert Selection to SVG Object /svg from selection", aliases: ["/svg from selection", "Convert selection to SVG object"], category: "SVG", action: () => convertSelectionToSvgObject() },
+    { id: "svg.path.edit", name: "Edit Selected SVG Path /svg path edit", aliases: ["/svg path edit", "Edit SVG path"], category: "SVG", action: () => enterSvgPathEditMode() },
+    { id: "svg.path.cubic", name: "Convert Selected SVG Path to Cubic /svg path cubic", aliases: ["/svg path cubic", "Convert SVG path to cubic"], category: "SVG", action: () => convertSelectedSvgPathToCubic() },
     { id: "svg.copy.selection", name: "Copy Selection as Editable SVG /copy svg", aliases: ["/copy svg", "Copy selection SVG"], category: "Canvas", action: () => copySelectionAsSvg() },
     { id: "svg.paste.editable", name: "Paste SVG as Editable Paths /paste svg", aliases: ["/paste svg", "Paste SVG as paths"], category: "Canvas", action: () => pasteSvgAsEditable() },
     { id: "export.board.png", name: "Export Board as PNG /export board", aliases: ["/export board", "/export png", "Export Drawerator board"], category: "Canvas", action: () => void exportDraweratorBoardPng() },
@@ -6946,6 +7229,7 @@ function App() {
         if (showCommandPalette) setShowCommandPalette(false);
         if (typeof activeElement?.blur === "function") activeElement.blur();
         if (bezierEditElementId) exitBezierEditMode();
+        if (svgPathEdit) exitSvgPathEditMode();
         selectedElementIdsRef.current = {};
         setSelectedElementIds({});
         runtimeCursorSelectionRef.current = {};
@@ -7095,7 +7379,7 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [theme, excalidrawAPI, customBrushActive, activeBrushId, shortcutBindings, commandRegistry, showContextDropdown, showAutocomplete, showCommandPalette, bezierEditElementId]);
+  }, [theme, excalidrawAPI, customBrushActive, activeBrushId, shortcutBindings, commandRegistry, showContextDropdown, showAutocomplete, showCommandPalette, bezierEditElementId, svgPathEdit]);
 
   // Autofocus input when Command Palette opens
   useEffect(() => {
@@ -7348,6 +7632,53 @@ function App() {
     return updated;
   };
 
+  const commitSvgPathGeometry = (
+    elementId,
+    nodeIndex,
+    subpathIndex,
+    geometry,
+    { commitToHistory = true, connectedAnchorIndex = null } = {},
+  ) => {
+    if (!excalidrawAPI) return null;
+    let updated = null;
+    const pathSource = serializeSvgPathGeometry(geometry);
+    const nextElements = excalidrawAPI.getSceneElementsIncludingDeleted().map(element => {
+      if (element.id !== elementId || element.isDeleted || !isSvgObjectElement(element)) return element;
+      const svg = normalizeSvgObject(element.customData.draweratorSvg);
+      const node = analyzeSvgSource(svg.source).nodes.find(candidate => candidate.index === nodeIndex);
+      if (!node?.attributes?.d) return element;
+      const nextPathSource = Number.isInteger(connectedAnchorIndex)
+        ? replaceSvgPathSubpathWithConnectedEndpoint(node.attributes.d, subpathIndex, connectedAnchorIndex, geometry)
+        : replaceSvgPathSubpath(node.attributes.d, subpathIndex, geometry);
+      const source = updateSvgNodeAttribute(svg.source, nodeIndex, "d", nextPathSource || pathSource);
+      const nextSvg = normalizeSvgObject({
+        ...svg,
+        source,
+        revision: svg.revision + 1,
+      });
+      updated = {
+        ...element,
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+        customData: {
+          ...(element.customData || {}),
+          draweratorSvg: nextSvg,
+        },
+      };
+      return updated;
+    });
+    if (!updated) return null;
+    excalidrawAPI.updateScene({ elements: nextElements, commitToHistory });
+    if (svgEditorTargetId === elementId) {
+      const nextSvg = normalizeSvgObject(updated.customData.draweratorSvg);
+      setSvgScriptSource(nextSvg.source);
+      setSvgLoadedRevision(nextSvg.revision);
+    }
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return updated;
+  };
+
   const convertSelectedToBezier = () => {
     if (!excalidrawAPI) return [];
     const selected = getSelectedElements().filter(element => ["line", "freedraw", "rectangle", "ellipse", "diamond"].includes(element.type));
@@ -7421,6 +7752,286 @@ function App() {
     const activeTool = excalidrawAPI.getAppState().activeTool || {};
     excalidrawAPI.updateScene({ appState: { activeTool: { ...activeTool, type: "selection" }, editingLinearElement: null, selectedLinearElement: null } });
     return selected.id;
+  };
+
+  const enterSvgPathEditMode = (requestedNodeIndex = null, requestedElementId = null, requestedSubpathIndex = null) => {
+    const selected = requestedElementId
+      ? excalidrawAPI?.getSceneElements().find(element => element.id === requestedElementId && !element.isDeleted && isSvgObjectElement(element))
+      : getSelectedElements().find(isSvgObjectElement);
+    if (!selected) throw new Error("Select an SVG object first.");
+    const svg = normalizeSvgObject(selected.customData.draweratorSvg);
+    const paths = getEditableSvgPathNodes(svg.source);
+    const path = Number.isInteger(requestedNodeIndex)
+      ? paths.find(candidate => candidate.node.index === requestedNodeIndex)
+      : paths.find(candidate => candidate.valid);
+    if (!path) throw new Error("This SVG has no path nodes to edit.");
+    const subpath = Number.isInteger(requestedSubpathIndex)
+      ? path.subpaths.find(candidate => candidate.index === requestedSubpathIndex)
+      : path.subpaths.find(candidate => candidate.valid);
+    if (!subpath) throw new Error("This SVG path has no subpaths to edit.");
+    if (!subpath.valid) throw new Error(subpath.error || "This SVG subpath is not editable on the canvas yet.");
+    exitBezierEditMode();
+    setSvgDetachedEndpoint(null);
+    setSelectedSvgNode({ elementId: selected.id, nodeIndex: path.node.index, subpathIndex: subpath.index });
+    setSvgPathEdit({ elementId: selected.id, nodeIndex: path.node.index, subpathIndex: subpath.index });
+    setSvgPathSelectedAnchor(0);
+    const selectedIds = { [selected.id]: true };
+    selectedElementIdsRef.current = selectedIds;
+    setSelectedElementIds(selectedIds);
+    const activeTool = excalidrawAPI.getAppState().activeTool || {};
+    excalidrawAPI.updateScene({
+      appState: {
+        activeTool: { ...activeTool, type: "selection" },
+        selectedElementIds: selectedIds,
+        selectedGroupIds: {},
+        editingLinearElement: null,
+        selectedLinearElement: null,
+      },
+    });
+    return { elementId: selected.id, nodeIndex: path.node.index, subpathIndex: subpath.index };
+  };
+
+  const exitSvgPathEditMode = () => {
+    svgPathDragRef.current = null;
+    setSvgDetachedEndpoint(null);
+    setSvgPathEdit(null);
+    setSvgPathSelectedAnchor(null);
+  };
+
+  const selectSvgNode = (elementId, nodeIndex, requestedSubpathIndex = null) => {
+    if (!excalidrawAPI) return null;
+    const element = excalidrawAPI.getSceneElements().find(candidate =>
+      candidate.id === elementId && !candidate.isDeleted && isSvgObjectElement(candidate)
+    );
+    if (!element || !selectionFilterAllowsElement(selectionFilterRef.current, element)) return null;
+    setSvgDetachedEndpoint(null);
+    const svg = normalizeSvgObject(element.customData.draweratorSvg);
+    const node = analyzeSvgSource(svg.source).nodes.find(candidate => candidate.index === nodeIndex);
+    if (!node) return null;
+    const selectedIds = { [element.id]: true };
+    selectedElementIdsRef.current = selectedIds;
+    setSelectedElementIds(selectedIds);
+    runtimeCursorSelectionRef.current = {};
+    const activeTool = excalidrawAPI.getAppState().activeTool || {};
+    excalidrawAPI.updateScene({
+      appState: {
+        activeTool: { ...activeTool, type: "selection" },
+        selectedElementIds: selectedIds,
+        selectedGroupIds: {},
+        editingLinearElement: null,
+        selectedLinearElement: null,
+      },
+    });
+    setSelectedSvgNode({
+      elementId,
+      nodeIndex,
+      ...(Number.isInteger(requestedSubpathIndex) ? { subpathIndex: requestedSubpathIndex } : {}),
+    });
+    if (node.tag.toLowerCase() === "path") {
+      const path = getEditableSvgPathNodes(svg.source).find(candidate => candidate.node.index === nodeIndex);
+      const subpathIndex = Number.isInteger(requestedSubpathIndex)
+        ? requestedSubpathIndex
+        : path?.subpaths?.length === 1 ? 0 : null;
+      if (Number.isInteger(subpathIndex)) {
+        try {
+          enterSvgPathEditMode(nodeIndex, elementId, subpathIndex);
+          setSceneExchangeStatus(`Editing ${node.label} · subpath ${subpathIndex + 1} on the canvas.`);
+        } catch (error) {
+          exitSvgPathEditMode();
+          setSceneExchangeStatus(error.message || "This SVG subpath cannot be edited on the canvas yet.");
+        }
+      } else {
+        exitSvgPathEditMode();
+        exitBezierEditMode();
+        setSceneExchangeStatus(`Selected ${node.label}. Choose one of its subpaths to edit or extract.`);
+      }
+    } else {
+      exitSvgPathEditMode();
+      exitBezierEditMode();
+      setSceneExchangeStatus(`Selected ${node.label} in the SVG document.`);
+    }
+    return node;
+  };
+
+  const getSelectedSvgJointConnections = () => {
+    const context = getSvgPathEditContext();
+    if (!context?.subpath?.valid || !Number.isInteger(svgPathSelectedAnchor)) return [];
+    return getSvgPathEndpointConnections(
+      context.path.node.attributes.d,
+      context.subpath.index,
+      svgPathSelectedAnchor,
+    );
+  };
+
+  const detachSelectedSvgJoint = () => {
+    const context = getSvgPathEditContext();
+    if (!context?.subpath?.valid || !Number.isInteger(svgPathSelectedAnchor)) {
+      throw new Error("Select a shared SVG endpoint first.");
+    }
+    const connections = getSelectedSvgJointConnections();
+    if (connections.length <= 1) throw new Error("The selected anchor is not a shared subpath joint.");
+    setSvgDetachedEndpoint({
+      elementId: context.element.id,
+      nodeIndex: context.path.node.index,
+      subpathIndex: context.subpath.index,
+      anchorIndex: svgPathSelectedAnchor,
+    });
+    setSceneExchangeStatus("Joint detached for its next endpoint drag. Drag the selected anchor to separate only this subpath.");
+    return connections;
+  };
+
+  const isSelectedSvgJointDetachArmed = () => {
+    const context = getSvgPathEditContext();
+    return Boolean(
+      context
+      && svgDetachedEndpoint
+      && svgDetachedEndpoint.elementId === context.element.id
+      && svgDetachedEndpoint.nodeIndex === context.path.node.index
+      && svgDetachedEndpoint.subpathIndex === context.subpath.index
+      && svgDetachedEndpoint.anchorIndex === svgPathSelectedAnchor
+    );
+  };
+
+  const extractSvgSubpathToDrawerator = (elementId, nodeIndex, subpathIndex, role = null) => {
+    if (!excalidrawAPI) throw new Error("The canvas is not ready.");
+    if (role && !["curve", "cursor", "trigger"].includes(role)) throw new Error(`Unsupported score role: ${role}.`);
+    const context = getSvgPathEditContext({ elementId, nodeIndex, subpathIndex });
+    if (!context?.subpath?.valid) throw new Error(context?.subpath?.error || "Select an editable SVG subpath first.");
+
+    const worldAnchors = getSvgSubpathWorldAnchors(context.element, context.svg, context.subpath.geometry);
+    if (worldAnchors.length < 2) throw new Error("The selected subpath needs at least two anchors.");
+    const host = createBezierHostGeometry(worldAnchors, context.subpath.geometry.closed);
+    const attributes = context.path.node.attributes || {};
+    const style = Object.fromEntries(String(attributes.style || "").split(";").map(declaration => {
+      const separator = declaration.indexOf(":");
+      return separator > 0
+        ? [declaration.slice(0, separator).trim().toLowerCase(), declaration.slice(separator + 1).trim()]
+        : ["", ""];
+    }).filter(([name]) => name));
+    const resolvePaint = value => {
+      const paint = String(value || "").trim();
+      if (!paint || paint === "none" || paint === "currentColor") return null;
+      return paint;
+    };
+    const strokeColor = resolvePaint(attributes.stroke || style.stroke)
+      || resolvePaint(attributes.fill || style.fill)
+      || foregroundColor;
+    const viewBoxWidth = Math.max(0.001, Math.abs(Number(context.svg.viewBox?.[2]) || context.element.width || 1));
+    const viewBoxHeight = Math.max(0.001, Math.abs(Number(context.svg.viewBox?.[3]) || context.element.height || 1));
+    const worldScale = Math.sqrt(
+      Math.abs((context.element.width / viewBoxWidth) * (context.element.height / viewBoxHeight)),
+    );
+    const declaredStrokeWidth = Number.parseFloat(attributes["stroke-width"] || style["stroke-width"] || "2");
+    const strokeWidth = Math.max(1, Math.min(64, (Number.isFinite(declaredStrokeWidth) ? declaredStrokeWidth : 2) * worldScale));
+    const declaredOpacity = Number.parseFloat(attributes.opacity || style.opacity || attributes["stroke-opacity"] || style["stroke-opacity"] || "1");
+    const opacity = Number.isFinite(declaredOpacity)
+      ? Math.max(0, Math.min(100, declaredOpacity <= 1 ? declaredOpacity * 100 : declaredOpacity))
+      : 100;
+    const scene = excalidrawAPI.getSceneElementsIncludingDeleted();
+    let element = {
+      ...createBaseElement("line", host.bounds.x, host.bounds.y, host.bounds.width, host.bounds.height, strokeColor),
+      points: host.points,
+      strokeWidth,
+      opacity,
+      customData: {
+        draweratorGeometry: host.geometry,
+        draweratorSvgSource: {
+          elementId: context.element.id,
+          nodeIndex: context.path.node.index,
+          subpathIndex: context.subpath.index,
+        },
+      },
+    };
+    element = setElementBezierGeometry(element, host.geometry);
+    if (role) {
+      const labels = allocateIannixRoleLabels([...scene.filter(candidate => !candidate.isDeleted), element], [element.id], role);
+      const current = normalizeIannixData(null);
+      element = {
+        ...element,
+        customData: {
+          ...element.customData,
+          iannix: normalizeIannixData({
+            ...current,
+            role,
+            label: labels.get(element.id) || current.label,
+            time: {
+              ...current.time,
+              start: 0,
+              startValue: createTimeValue("0 s", 0, timeContext),
+              startMode: role === "cursor" ? "curve" : "manual",
+              durationMode: role === "cursor" ? "curve" : "geometry",
+            },
+            gridBinding: { ...current.gridBinding, gridId: "global" },
+          }),
+        },
+      };
+    }
+    const selectedIds = { [element.id]: true };
+    excalidrawAPI.updateScene({
+      elements: [...scene, element],
+      appState: {
+        selectedElementIds: selectedIds,
+        selectedGroupIds: {},
+        editingLinearElement: null,
+        selectedLinearElement: null,
+        activeTool: { ...(excalidrawAPI.getAppState().activeTool || {}), type: "selection", locked: false },
+      },
+      commitToHistory: true,
+    });
+    selectedElementIdsRef.current = selectedIds;
+    setSelectedElementIds(selectedIds);
+    setSelectedSvgNode(null);
+    exitSvgPathEditMode();
+    setBezierEditElementId(element.id);
+    setBezierSelectedAnchor(0);
+    setModifierUpdateNonce(nonce => nonce + 1);
+    setSceneExchangeStatus(
+      role
+        ? `Extracted SVG subpath ${subpathIndex + 1} as a Drawerator ${role}.`
+        : `Extracted SVG subpath ${subpathIndex + 1} as a native spline.`,
+    );
+    return element;
+  };
+
+  const convertSelectedSvgPathToCubic = () => {
+    const edit = enterSvgPathEditMode();
+    const context = getSvgPathEditContext(edit);
+    if (!context?.subpath?.valid) throw new Error("The selected SVG subpath could not be converted.");
+    return commitSvgPathGeometry(context.element.id, context.path.node.index, context.subpath.index, context.subpath.geometry);
+  };
+
+  const selectSvgObjectFromOverlay = (elementId, event) => {
+    if (!excalidrawAPI) return false;
+    const element = excalidrawAPI.getSceneElements().find(candidate =>
+      candidate.id === elementId && !candidate.isDeleted && isSvgObjectElement(candidate)
+    );
+    if (!element || !selectionFilterAllowsElement(selectionFilterRef.current, element)) return false;
+    const additive = Boolean(event?.shiftKey);
+    const next = additive ? { ...selectedElementIdsRef.current } : {};
+    if (additive && next[elementId]) delete next[elementId];
+    else next[elementId] = true;
+    selectedElementIdsRef.current = next;
+    setSelectedElementIds(next);
+    runtimeCursorSelectionRef.current = {};
+    excalidrawAPI.updateScene({
+      appState: {
+        selectedElementIds: next,
+        selectedGroupIds: {},
+        editingLinearElement: null,
+        selectedLinearElement: null,
+      },
+    });
+    if (!next[elementId] && svgPathEdit?.elementId === elementId) exitSvgPathEditMode();
+    return true;
+  };
+
+  const editSvgPathFromOverlay = (elementId, event) => {
+    if (!excalidrawAPI) return false;
+    const element = excalidrawAPI.getSceneElements().find(candidate =>
+      candidate.id === elementId && !candidate.isDeleted && isSvgObjectElement(candidate)
+    );
+    if (!element || !selectionFilterAllowsElement(selectionFilterRef.current, element)) return false;
+    return enterSvgPathEditAtPointer(event, [element], { allowDistant: true });
   };
 
   const exitBezierEditMode = () => {
@@ -7505,8 +8116,42 @@ function App() {
   }, [bezierEditElementId, bezierSelectedAnchor, excalidrawAPI]);
 
   useEffect(() => {
+    if (!svgPathEdit) return undefined;
+    const handleKeyDown = event => {
+      const target = event.target;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        exitSvgPathEditMode();
+        return;
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && Number.isInteger(svgPathSelectedAnchor)) {
+        const context = getSvgPathEditContext();
+        if (!context?.subpath?.valid) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const geometry = removeBezierAnchor(context.subpath.geometry, svgPathSelectedAnchor);
+        commitSvgPathGeometry(context.element.id, context.path.node.index, context.subpath.index, geometry);
+        setSvgPathSelectedAnchor(Math.min(svgPathSelectedAnchor, geometry.anchors.length - 1));
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
+  }, [svgPathEdit, svgPathSelectedAnchor, excalidrawAPI]);
+
+  useEffect(() => {
     if (bezierEditElementId && !selectedElementIds[bezierEditElementId]) exitBezierEditMode();
   }, [bezierEditElementId, selectedElementIds]);
+
+  useEffect(() => {
+    if (svgPathEdit?.elementId && !selectedElementIds[svgPathEdit.elementId]) exitSvgPathEditMode();
+  }, [svgPathEdit, selectedElementIds]);
+
+  useEffect(() => {
+    if (selectedSvgNode?.elementId && !selectedElementIds[selectedSvgNode.elementId]) {
+      setSelectedSvgNode(null);
+    }
+  }, [selectedSvgNode, selectedElementIds]);
 
   const updateIannixElements = (elementIds, updater) => {
     if (!excalidrawAPI || !elementIds?.length) return;
@@ -7911,7 +8556,15 @@ function App() {
     return { elementIds: [element.id], name: script.name };
   };
 
-  const runSvgObjectSource = ({ source = DEFAULT_SVG_SOURCE, name = "Untitled SVG", targetId = null, elementId = null, scriptId = "" } = {}) => {
+  const runSvgObjectSource = ({
+    source = DEFAULT_SVG_SOURCE,
+    name = "Untitled SVG",
+    targetId = null,
+    elementId = null,
+    scriptId = "",
+    commitToHistory = true,
+    select = true,
+  } = {}) => {
     const api = excalidrawAPIRef.current;
     if (!api) throw new Error("The canvas is not ready.");
     const analysis = analyzeSvgSource(source);
@@ -7976,22 +8629,23 @@ function App() {
     const selection = { [element.id]: true };
     api.updateScene({
       elements: nextElements,
-      appState: {
+      appState: select ? {
         selectedElementIds: selection,
         selectedGroupIds: {},
         editingLinearElement: null,
         selectedLinearElement: null,
         activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false },
-      },
-      commitToHistory: true,
+      } : undefined,
+      commitToHistory,
     });
-    setSelectedElementIds(selection);
+    if (select) setSelectedElementIds(selection);
     setModifierUpdateNonce(nonce => nonce + 1);
     return {
       elementId: element.id,
       elementIds: [element.id],
       source: draweratorSvg.source,
       name: resolvedName,
+      revision: draweratorSvg.revision,
       message: existing ? `Updated “${resolvedName}”.` : `Created “${resolvedName}” from SVG source.`,
     };
   };
@@ -8012,21 +8666,15 @@ function App() {
       appState: { ...appState, exportBackground: false },
       files: api.getFiles(),
     });
-    const source = cleanSvgMarkup(exported.outerHTML);
+    const source = makeSvgCanvasForegroundAdaptive(cleanSvgMarkup(exported.outerHTML));
     const analysis = analyzeSvgSource(source);
     if (!analysis.valid) throw new Error(analysis.error || "The selection could not be represented as SVG.");
 
-    const minX = Math.min(...selected.map(element => Math.min(element.x || 0, (element.x || 0) + (element.width || 0))));
-    const maxX = Math.max(...selected.map(element => Math.max(element.x || 0, (element.x || 0) + (element.width || 0))));
-    const minY = Math.min(...selected.map(element => Math.min(element.y || 0, (element.y || 0) + (element.height || 0))));
-    const maxY = Math.max(...selected.map(element => Math.max(element.y || 0, (element.y || 0) + (element.height || 0))));
-    const boundsWidth = Math.max(1, maxX - minX);
-    const boundsHeight = Math.max(1, maxY - minY);
-    // Excalidraw exports SVG at a device-scaled pixel size while the viewBox
-    // remains in scene coordinates. Use viewBox dimensions for the canvas host
-    // so conversion does not make the object jump or double in size.
-    const width = Math.max(boundsWidth, Math.min(4096, analysis.viewBox[2]));
-    const height = Math.max(boundsHeight, Math.min(4096, analysis.viewBox[3]));
+    // The SVG exporter lays rotated elements out from their world-space common
+    // bounds. Using raw element x/y here loses that rotation offset and makes
+    // the converted host jump. Mirror the exporter's bounds, then distribute
+    // any viewBox padding equally around them.
+    const frame = getSvgHostFrame(getCommonBounds(selected), analysis.viewBox);
     const name = selected.length === 1
       ? `${selected[0].customData?.iannix?.label || selected[0].type} SVG`
       : `Selection SVG`;
@@ -8034,10 +8682,10 @@ function App() {
     const host = {
       ...createBaseElement(
         "rectangle",
-        minX - Math.max(0, width - boundsWidth) / 2,
-        minY - Math.max(0, height - boundsHeight) / 2,
-        width,
-        height,
+        frame.x,
+        frame.y,
+        frame.width,
+        frame.height,
         "transparent",
       ),
       strokeWidth: 0,
@@ -10694,18 +11342,16 @@ function App() {
             <option value="">— Choose script —</option>
             {iannixScripts.map(script => <option key={script.id} value={script.id}>{script.name}</option>)}
           </select>}
-          <textarea
-            className="iannix-script-editor custom-brush-textarea"
+          <DraweratorCodeEditor
             value={iannixScriptSource}
-            onChange={event => setIannixScriptSource(event.target.value)}
-            onKeyDown={event => {
-              if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
-              event.preventDefault();
-              event.stopPropagation();
-              runScript();
-            }}
+            onChange={setIannixScriptSource}
+            onRun={runScript}
+            scriptType="iannix"
+            ariaLabel="IanniX script source"
+            getDiagnostics={source => validateJavascriptEditorSource(source, {
+              label: "IanniX source",
+            })}
             placeholder="Paste a trusted .iannix script or a one-off run() command…"
-            spellCheck="false"
           />
           {scriptParameters.length > 0 && (
             <div className="iannix-script-parameters" aria-label="IanniX script parameters">
@@ -11057,16 +11703,22 @@ function App() {
             localStorage.setItem("drawerator_script_editor_font_size", String(value));
           }} />
         </div>
-        <textarea
-          className="custom-brush-textarea"
+        <DraweratorCodeEditor
           value={p5ScriptSource}
-          onChange={event => {
-            const source = event.target.value;
+          onChange={source => {
             setP5ScriptSource(source);
             if (updateScriptLive({ source })) setP5LiveStatus("Compiled successfully.", "success");
           }}
+          onRun={applyToSelection}
+          scriptType="p5"
+          ariaLabel="p5 script source"
+          getDiagnostics={source => {
+            const validation = validateP5Source(source);
+            return validation.valid
+              ? []
+              : [sourceDiagnostic(source, validation.error || "The p5 source is invalid.")];
+          }}
           placeholder={p5ScriptMode === "global" ? "function setup() { … }\nfunction draw() { … }" : "p.setup = () => { … };\np.draw = () => { … };"}
-          spellCheck="false"
         />
         <p className={`p5-script-status ${p5ScriptStatusKind}`} role="status" aria-live="polite">
           {p5ScriptStatus || <>Trusted local code: p5 sketches run directly in Drawerator with access to the page and <code>drawerator</code>. Use only code you trust.</>}
@@ -11253,26 +11905,23 @@ function App() {
             localStorage.setItem("drawerator_script_editor_font_size", String(value));
           }} />
         </div>
-        <textarea
-          className="custom-brush-textarea"
+        <DraweratorCodeEditor
           value={svgScriptSource}
-          onChange={event => {
-            const source = event.target.value;
+          onChange={source => {
             setSvgScriptSource(source);
             const nextAnalysis = analyzeSvgSource(source);
             setLiveStatus(nextAnalysis.valid
               ? `Valid SVG · ${nextAnalysis.nodeCount} ${nextAnalysis.nodeCount === 1 ? "node" : "nodes"}${nextAnalysis.hasScript ? " · script preserved, not executed" : ""}`
               : nextAnalysis.error, nextAnalysis.valid ? "info" : "error");
           }}
-          onKeyDown={event => {
-            if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
-            event.preventDefault();
-            event.stopPropagation();
-            play();
+          onRun={play}
+          scriptType="svg"
+          ariaLabel="SVG source"
+          getDiagnostics={source => {
+            const nextAnalysis = analyzeSvgSource(source);
+            return nextAnalysis.valid ? [] : [sourceDiagnostic(source, nextAnalysis.error)];
           }}
           placeholder="<svg viewBox=&quot;0 0 320 180&quot;>…</svg>"
-          aria-label="SVG source"
-          spellCheck="false"
         />
         <p className={`p5-script-status ${analysis.valid ? svgScriptStatusKind : "error"}`} role="status" aria-live="polite">
           {analysis.valid
@@ -12481,6 +13130,62 @@ function App() {
     );
   };
 
+  const renderSvgPathEditorOverlay = () => {
+    const context = getSvgPathEditContext();
+    if (!context?.path?.valid) return null;
+    const controls = getSvgPathWorldControls(context.element, context.svg, context.subpath.geometry).map(control => ({
+      ...control,
+      anchor: mapCanvasToScreen(control.anchor[0], control.anchor[1]),
+      in: control.in ? mapCanvasToScreen(control.in[0], control.in[1]) : null,
+      out: control.out ? mapCanvasToScreen(control.out[0], control.out[1]) : null,
+    }));
+    const pathPoints = getSvgPathWorldPoints(context.element, context.svg, context.subpath.geometry)
+      .map(point => mapCanvasToScreen(point[0], point[1]));
+    const PathOutline = context.subpath.geometry.closed ? "polygon" : "polyline";
+    return (
+      <svg className="drawerator-svg-path-editor-overlay" aria-label="SVG path editor">
+        <PathOutline
+          points={pathPoints.map(point => `${point[0]},${point[1]}`).join(" ")}
+          className="svg-edit-path-highlight"
+        />
+        {controls.map((control, index) => (
+          <g key={`${context.element.id}-svg-control-${index}`} className={svgPathSelectedAnchor === index ? "selected" : ""}>
+            {control.in && <line x1={control.anchor[0]} y1={control.anchor[1]} x2={control.in[0]} y2={control.in[1]} className="bezier-handle-line" />}
+            {control.out && <line x1={control.anchor[0]} y1={control.anchor[1]} x2={control.out[0]} y2={control.out[1]} className="bezier-handle-line" />}
+            {control.in && <circle cx={control.in[0]} cy={control.in[1]} r="4.5" className="bezier-handle-point" />}
+            {control.out && <circle cx={control.out[0]} cy={control.out[1]} r="4.5" className="bezier-handle-point" />}
+            <circle cx={control.anchor[0]} cy={control.anchor[1]} r="6" className="bezier-anchor-point" />
+          </g>
+        ))}
+      </svg>
+    );
+  };
+
+  const renderSvgNodeSelectionOverlay = () => {
+    if (!selectedSvgNode || (
+      svgPathEdit?.elementId === selectedSvgNode.elementId
+      && svgPathEdit?.nodeIndex === selectedSvgNode.nodeIndex
+      && svgPathEdit?.subpathIndex === selectedSvgNode.subpathIndex
+    )) return null;
+    const element = excalidrawAPI?.getSceneElements().find(candidate =>
+      candidate.id === selectedSvgNode.elementId && !candidate.isDeleted && isSvgObjectElement(candidate)
+    );
+    if (!element) return null;
+    const svg = normalizeSvgObject(element.customData.draweratorSvg);
+    const node = analyzeSvgSource(svg.source).nodes.find(candidate => candidate.index === selectedSvgNode.nodeIndex);
+    const outline = getSvgNodeWorldOutline(element, svg, svg.source, selectedSvgNode.nodeIndex)
+      ?.map(point => mapCanvasToScreen(point[0], point[1]));
+    if (!node || !outline) return null;
+    return (
+      <svg className="drawerator-svg-node-selection-overlay" aria-label={`Selected SVG ${node.label}`}>
+        <polygon
+          points={outline.map(point => `${point[0]},${point[1]}`).join(" ")}
+          className="svg-node-selection-outline"
+        />
+      </svg>
+    );
+  };
+
   const renderIannixOverlay = () => {
     if (!excalidrawAPI) return null;
     const elements = excalidrawAPI.getSceneElements();
@@ -13361,25 +14066,21 @@ function App() {
         {/* Script editor */}
         {activeBrushId !== "normal" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "8px", flexGrow: 1, minHeight: 0 }}>
-            {/* Monospace Code Editor Textarea */}
-            <textarea
+            {/* Shared CodeMirror script editor */}
+            <DraweratorCodeEditor
               value={activeBrushCode}
-              onChange={(e) => {
-                setActiveBrushCode(e.target.value);
+              onChange={source => {
+                setActiveBrushCode(source);
                 setBrushSaveMessage("");
               }}
               onBlur={() => syncEditorDraftToModifier(true)}
-              className="custom-brush-textarea"
-              style={{
-                padding: "8px",
-                borderRadius: "6px",
-                border: "1px solid var(--border-color)",
-                color: "var(--color-primary)",
-                width: "100%",
-                flexGrow: 1,
-                outline: "none"
-              }}
-              spellCheck="false"
+              onRun={applyActiveBrushToSelection}
+              scriptType="brush"
+              ariaLabel="Brush script source"
+              getDiagnostics={source => validateJavascriptEditorSource(source, {
+                expression: true,
+                label: "Brush source",
+              })}
             />
 
             {/* Action buttons row */}
@@ -13735,12 +14436,16 @@ function App() {
       scrollY: Number(appState?.scrollY) || 0,
       zoom: { value: Number(appState?.zoom?.value) || 1 },
       selectedElementIds: { ...(appState?.selectedElementIds || {}) },
+      activeTool: { type: appState?.activeTool?.type || "selection" },
+      svgForegroundColor: foregroundColor,
     };
     const selectedSignature = Object.keys(camera.selectedElementIds).filter(id => camera.selectedElementIds[id]).sort().join(",");
     const signature = [
       camera.scrollX,
       camera.scrollY,
       camera.zoom.value,
+      camera.activeTool.type,
+      camera.svgForegroundColor,
       selectedSignature,
       ...objects.map(element => {
         const svg = normalizeSvgObject(element.customData?.draweratorSvg);
@@ -14947,7 +15652,13 @@ function App() {
           >
             <PropertiesPanel
               elements={(excalidrawAPI?.getSceneElementsIncludingDeleted() || []).filter(element => selectedElementIds[element.id])}
+              selectedSvgNode={selectedSvgNode}
               onChange={updateSceneObjectProperty}
+              onSelectSvgNode={selectSvgNode}
+              onExtractSvgSubpath={extractSvgSubpathToDrawerator}
+              svgJointConnectionCount={getSelectedSvgJointConnections().length}
+              svgJointDetachArmed={isSelectedSvgJointDetachArmed()}
+              onDetachSvgJoint={detachSelectedSvgJoint}
               onRename={(elementId, label) => updateIannixElements([elementId], current => ({
                 ...current,
                 label: label || undefined,
@@ -14977,6 +15688,7 @@ function App() {
             <OutlinerPanel
               elements={excalidrawAPI?.getSceneElementsIncludingDeleted() || []}
               selectedElementIds={selectedElementIds}
+              selectedSvgNode={selectedSvgNode}
               onSelect={(elementId, selection = {}) => {
                 if (!excalidrawAPI) return;
                 const sceneElements = excalidrawAPI.getSceneElements();
@@ -15008,6 +15720,7 @@ function App() {
                 excalidrawAPI.updateScene({ appState: { selectedElementIds: nativeSelections, selectedGroupIds: {}, editingLinearElement: null, selectedLinearElement: null, activeTool: { ...activeTool, type: "selection" } } });
                 setSelectedElementIds(next);
               }}
+              onSelectSvgNode={selectSvgNode}
               onDelete={elementIds => {
                 if (!excalidrawAPI || !elementIds?.length) return;
                 const ids = new Set(elementIds);
@@ -15076,6 +15789,25 @@ function App() {
                   const { element, isShape, modifiers, isMuted, hideOriginalControl, canRestoreOriginal } = controlState;
                   if (isSvgObjectElement(element)) {
                     return <div className="modifiers-header-actions">
+                      <button
+                        className={`header-btn ${svgPathEdit?.elementId === element.id ? "active" : ""}`}
+                        onClick={() => {
+                          try {
+                            enterSvgPathEditMode();
+                            setSceneExchangeStatus("Editing SVG path anchors on the canvas.");
+                          } catch (error) {
+                            setSceneExchangeStatus(error.message || "This SVG path cannot be edited on the canvas yet.");
+                          }
+                        }}
+                        title="Edit the first supported SVG path on the canvas"
+                        aria-label="Edit SVG path"
+                      >
+                        <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 18C4 7 20 17 20 6" />
+                          <rect x="2.5" y="16.5" width="3" height="3" /><rect x="18.5" y="4.5" width="3" height="3" />
+                          <path d="M4 18 8 8M20 6l-5 10" opacity=".7" />
+                        </svg>
+                      </button>
                       <button className="header-btn" onClick={() => toggleDraweratorPanel("script", { scriptType: "svg" })} title="Open this SVG in the Script panel" aria-label="Edit selected SVG">
                         <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8"><path d="M4 4h16v16H4z"/><path d="M7 15c2-7 4-7 6-1s3 5 4-5"/></svg>
                       </button>
@@ -15225,7 +15957,7 @@ function App() {
                   if (isSvgObjectElement(element)) {
                     return (
                       <div style={{ textAlign: "center", padding: "24px 16px", opacity: 0.72, fontSize: "13px" }}>
-                        This is a source-preserving SVG object. Edit its source in the Script panel and its document properties in Properties.
+                        This SVG keeps its authored source. Use the path button above, or Command-click a visible path, to edit anchors on the canvas; source and document attributes remain in Script and Properties.
                       </div>
                     );
                   }
@@ -15513,6 +16245,8 @@ function App() {
         <SvgObjectOverlay
           elements={svgOverlayScene.elements}
           appState={svgOverlayScene.appState}
+          onSelect={selectSvgObjectFromOverlay}
+          onEditPath={editSvgPathFromOverlay}
         />
 
         <GlobalGridCanvas
@@ -15631,6 +16365,8 @@ function App() {
         {renderGlobalModifiersOverlay()}
         {renderIannixOverlay()}
         {renderBezierEditorOverlay()}
+        {renderSvgPathEditorOverlay()}
+        {renderSvgNodeSelectionOverlay()}
       </div>
 
       {dockPreview && (
@@ -15790,7 +16526,7 @@ function App() {
                   Export Selected p5 Frame as PNG
                 </button>
               )}
-              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
+              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showToSvg || customContextMenu.showMakeRole || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
             </>
           )}
           {customContextMenu.showRestore && (
@@ -15891,6 +16627,89 @@ function App() {
               </svg>
               Convert from Spline
             </button>
+          )}
+
+          {customContextMenu.showToSvg && (
+            <button
+              onPointerDown={async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setCustomContextMenu(null);
+                try {
+                  const result = await convertSelectionToSvgObject();
+                  setActiveSvgScriptId("");
+                  setSvgScriptSource(result.source);
+                  setSvgScriptNameDraft(result.name);
+                  setSvgEditorTargetId(result.elementId);
+                  setSvgLoadedRevision(1);
+                  setEditingSvgScriptName(false);
+                  setSvgScriptStatus(result.message);
+                  setSvgScriptStatusKind("success");
+                } catch (error) {
+                  setSceneExchangeStatus(error.message || "Could not convert the selection to SVG.");
+                }
+              }}
+              className="custom-floating-context-menu-btn"
+              title="Replace the selected native canvas objects with one source-preserving SVG object"
+            >
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7 3h8l4 4v14H7zM15 3v5h5" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 15c1.5-4 3-4 4.5 0" />
+              </svg>
+              Convert Selection to SVG
+            </button>
+          )}
+
+          {customContextMenu.showMakeRole && (
+            <>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  assignIannixRole(getSelectedElements(), "cursor");
+                  setCustomContextMenu(null);
+                }}
+                className="custom-floating-context-menu-btn"
+                title="Assign the Cursor score role to the selected objects"
+              >
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                  <circle cx="12" cy="12" r="3" />
+                  <path strokeLinecap="round" d="M12 2v5M12 17v5M2 12h5M17 12h5" />
+                </svg>
+                Make Cursor
+              </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  assignIannixRole(getSelectedElements(), "curve");
+                  setCustomContextMenu(null);
+                }}
+                className="custom-floating-context-menu-btn"
+                title="Assign the Curve score role to the selected objects"
+              >
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 17c4-9 7-9 11-2s6 5 7-8" />
+                </svg>
+                Make Curve
+              </button>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  assignIannixRole(getSelectedElements(), "trigger");
+                  setCustomContextMenu(null);
+                }}
+                className="custom-floating-context-menu-btn"
+                title="Assign the Trigger score role to the selected objects"
+              >
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                  <circle cx="12" cy="12" r="7" />
+                  <circle cx="12" cy="12" r="2" />
+                </svg>
+                Make Trigger
+              </button>
+            </>
           )}
 
           {customContextMenu.showAddCursor && (

@@ -1932,6 +1932,207 @@ body .excalidraw .sidebar {
   background: var(--drawerator-timeline-lane-bg, var(--input-bg-color, rgba(0, 0, 0, 0.1)));
 }
 
+.script-panel-editor .drawerator-code-editor {
+  order: 99;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--drawerator-timeline-lane-bg, var(--drawerator-input-bg, var(--input-bg-color)));
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  transition: border-color var(--transition-fast);
+}
+
+.script-panel-editor .drawerator-code-editor:focus-within {
+  border-color: var(--border-focus);
+}
+
+.drawerator-code-editor .cm-editor {
+  height: 100%;
+  min-height: 0;
+  color: var(--color-primary);
+  background: transparent;
+  outline: none;
+}
+
+.drawerator-code-editor .cm-scroller {
+  overflow: auto;
+  font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+  font-size: var(--script-editor-font-size, 12px);
+  line-height: 1.5;
+}
+
+.drawerator-code-editor .cm-content {
+  min-height: 100%;
+  padding: 7px 0 18px;
+  caret-color: var(--color-primary);
+}
+
+.drawerator-code-editor .cm-line {
+  padding: 0 9px;
+}
+
+.drawerator-code-editor .cm-gutters {
+  color: color-mix(in srgb, var(--color-secondary) 78%, transparent);
+  background: color-mix(in srgb, var(--drawerator-panel-bg, var(--island-bg-color)) 68%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+}
+
+.drawerator-code-editor .cm-lineNumbers .cm-gutterElement {
+  min-width: 28px;
+  padding: 0 7px 0 5px;
+}
+
+.drawerator-code-editor .cm-foldGutter .cm-gutterElement {
+  width: 13px;
+  padding: 0;
+  color: var(--color-secondary);
+  text-align: center;
+}
+
+.drawerator-code-editor .cm-activeLine,
+.drawerator-code-editor .cm-activeLineGutter {
+  background: color-mix(in srgb, var(--drawerator-hover-bg, var(--button-hover-bg)) 62%, transparent);
+}
+
+.drawerator-code-editor .cm-selectionBackground,
+.drawerator-code-editor .cm-content ::selection {
+  background: color-mix(in srgb, var(--drawerator-accent, var(--color-primary)) 26%, transparent) !important;
+}
+
+.drawerator-code-editor .cm-cursor,
+.drawerator-code-editor .cm-dropCursor {
+  border-left-color: var(--drawerator-accent, var(--color-primary));
+}
+
+.drawerator-code-editor .cm-matchingBracket {
+  color: inherit;
+  background: color-mix(in srgb, var(--drawerator-accent, var(--color-primary)) 18%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--drawerator-accent, var(--color-primary)) 50%, transparent);
+}
+
+.drawerator-code-editor .cm-placeholder {
+  color: var(--color-secondary);
+  font-style: normal;
+}
+
+.drawerator-code-editor .cm-panels {
+  color: var(--color-primary);
+  background: var(--drawerator-panel-bg, var(--island-bg-color));
+  border-color: var(--border-color);
+  font-family: var(--font-sans);
+  font-size: var(--drawerator-ui-font-size, 10px);
+}
+
+.drawerator-code-editor .cm-panel.cm-search {
+  padding: 5px;
+}
+
+.drawerator-code-editor .cm-panel.cm-search input,
+.drawerator-code-editor .cm-panel.cm-search button {
+  min-height: 24px;
+  color: var(--color-primary);
+  background: var(--drawerator-input-bg, var(--input-bg-color));
+  border: 1px solid var(--border-color);
+  border-radius: var(--drawerator-ui-control-radius, 3px);
+  font: inherit;
+}
+
+.drawerator-code-editor .cm-panel.cm-search input:focus {
+  border-color: var(--border-focus);
+  outline: none;
+}
+
+.drawerator-code-editor .cm-tooltip {
+  color: var(--drawerator-menu-text, var(--color-primary));
+  background: var(--drawerator-menu-bg, var(--drawerator-panel-bg, var(--island-bg-color)));
+  border: 1px solid var(--drawerator-menu-border, var(--border-color));
+  border-radius: 4px;
+  box-shadow: var(--drawerator-menu-shadow, var(--shadow-md));
+  font-family: var(--font-sans);
+  font-size: var(--drawerator-ui-font-size, 10px);
+  overflow: hidden;
+}
+
+.drawerator-code-editor .cm-tooltip-autocomplete > ul > li {
+  min-height: 23px;
+  padding: 3px 8px;
+}
+
+.drawerator-code-editor .cm-tooltip-autocomplete > ul > li[aria-selected] {
+  color: var(--color-primary);
+  background: var(--drawerator-menu-hover, var(--drawerator-hover-bg, var(--button-hover-bg)));
+}
+
+.drawerator-code-editor .cm-completionDetail {
+  margin-left: 9px;
+  color: var(--drawerator-menu-muted, var(--color-secondary));
+  font-style: normal;
+}
+
+.drawerator-code-editor .cm-diagnostic {
+  color: var(--color-primary);
+  background: var(--drawerator-menu-bg, var(--drawerator-panel-bg, var(--island-bg-color)));
+  border-color: var(--border-color);
+  font-family: var(--font-sans);
+  font-size: var(--drawerator-ui-font-size, 10px);
+}
+
+.drawerator-code-editor .cm-lintRange-error {
+  background-image: none;
+  text-decoration: underline wavy var(--color-danger);
+  text-decoration-skip-ink: none;
+}
+
+.drawerator-code-editor .cm-lintRange-warning {
+  background-image: none;
+  text-decoration: underline wavy color-mix(in srgb, var(--color-danger) 58%, #d9a441);
+  text-decoration-skip-ink: none;
+}
+
+.drawerator-code-editor .tok-comment {
+  color: color-mix(in srgb, var(--color-secondary) 82%, transparent);
+  font-style: italic;
+}
+
+.drawerator-code-editor .tok-keyword,
+.drawerator-code-editor .tok-operator,
+.drawerator-code-editor .tok-bool,
+.drawerator-code-editor .tok-null {
+  color: color-mix(in srgb, var(--drawerator-accent, var(--color-primary)) 72%, var(--color-primary));
+}
+
+.drawerator-code-editor .tok-string,
+.drawerator-code-editor .tok-regexp,
+.drawerator-code-editor .tok-attributeValue {
+  color: color-mix(in srgb, var(--color-success, #10b981) 70%, var(--color-primary));
+}
+
+.drawerator-code-editor .tok-number,
+.drawerator-code-editor .tok-unit {
+  color: color-mix(in srgb, var(--color-danger, #ef4444) 55%, var(--color-primary));
+}
+
+.drawerator-code-editor .tok-variableName,
+.drawerator-code-editor .tok-propertyName,
+.drawerator-code-editor .tok-labelName {
+  color: var(--color-primary);
+}
+
+.drawerator-code-editor .tok-typeName,
+.drawerator-code-editor .tok-className,
+.drawerator-code-editor .tok-tagName,
+.drawerator-code-editor .tok-heading {
+  color: color-mix(in srgb, var(--drawerator-accent, var(--color-primary)) 84%, var(--color-primary));
+}
+
+.drawerator-code-editor .tok-attributeName,
+.drawerator-code-editor .tok-definition,
+.drawerator-code-editor .tok-meta {
+  color: color-mix(in srgb, var(--color-secondary) 64%, var(--color-primary));
+}
+
 .script-panel-editor .custom-brush-status-success,
 .script-panel-editor .custom-brush-status-error,
 .script-panel-editor .custom-brush-status-message,
@@ -3287,6 +3488,7 @@ a.iannix-flat-button {
 
 .drawerator-svg-object-overlay { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
 .drawerator-svg-object-frame { position: absolute; overflow: hidden; pointer-events: none; }
+.drawerator-svg-object-frame.drawerator-svg-object-frame-interactive { pointer-events: auto; cursor: default; }
 .drawerator-svg-object-frame img { display: block; width: 100%; height: 100%; object-fit: fill; user-select: none; pointer-events: none; }
 
 .script-panel-editor .svg-script-pane { height: 100%; min-height: 0; }
@@ -3327,6 +3529,10 @@ a.iannix-flat-button {
 }
 .properties-svg-tree button:hover { background: var(--drawerator-hover-bg, var(--button-hover-bg)); }
 .properties-svg-tree button.selected { background: var(--drawerator-selected-bg, var(--button-selected-bg, rgba(128,128,128,.14))); }
+.properties-svg-node-group > [role="group"] { display: flex; flex-direction: column; }
+.properties-svg-subpath { color: var(--color-secondary) !important; }
+.properties-svg-subpath.invalid { opacity: .45; cursor: not-allowed; }
+.properties-svg-subpath-branch { width: 10px; color: var(--drawerator-accent); opacity: .75; }
 .properties-svg-node-icon { display: block; width: 10px; height: 10px; border: 1px solid currentColor; opacity: .65; }
 .properties-svg-node-icon.tag-path { height: 7px; border: 0; border-bottom: 2px solid currentColor; border-radius: 50%; transform: rotate(-12deg); }
 .properties-svg-node-icon.tag-circle,
@@ -3351,6 +3557,30 @@ a.iannix-flat-button {
 }
 .properties-svg-add-attribute button { cursor: pointer; }
 .properties-svg-add-attribute button:disabled { opacity: .4; cursor: default; }
+.properties-svg-subpath-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 6px 9px;
+  border-bottom: 1px solid var(--border-color, rgba(128,128,128,.16));
+}
+.properties-svg-subpath-actions button {
+  min-width: 0;
+  padding: 5px 6px;
+  color: var(--color-primary);
+  background: var(--button-bg, transparent);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.properties-svg-subpath-actions button:hover { background: var(--drawerator-hover-bg, var(--button-hover-bg)); }
+.properties-svg-subpath-actions button.active {
+  color: var(--drawerator-accent);
+  background: var(--drawerator-selected-bg, var(--button-selected-bg, rgba(128,128,128,.14)));
+  border-color: var(--drawerator-accent);
+}
 .properties-svg-note {
   margin: 0;
   padding: 6px 9px 8px;
@@ -3373,7 +3603,17 @@ a.iannix-flat-button {
 .outliner-row.dragging { opacity: .45; }
 .outliner-row.drop-front { box-shadow: inset 0 2px 0 var(--color-primary, currentColor); }
 .outliner-row.drop-back { box-shadow: inset 0 -2px 0 var(--color-primary, currentColor); }
-.outliner-object { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: center; gap: 6px; min-width: 0; padding: 6px 8px; border: 0; background: transparent; color: var(--color-primary); text-align: left; cursor: pointer; }
+.outliner-object { display: grid; grid-template-columns: 10px 22px minmax(0, 1fr); align-items: center; gap: 4px; min-width: 0; padding: 6px 8px; border: 0; background: transparent; color: var(--color-primary); text-align: left; cursor: pointer; }
+.outliner-disclosure { width: 10px; color: var(--color-secondary); font-size: 15px; line-height: 1; text-align: center; }
+.outliner-svg-tree { border-bottom: 1px solid var(--border-color, rgba(128,128,128,.13)); background: color-mix(in srgb, var(--input-bg-color, transparent) 55%, transparent); }
+.outliner-svg-node { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 6px; width: 100%; min-width: 0; padding: 4px 8px 4px calc(18px + (var(--outliner-svg-depth, 0) * 14px)); border: 0; background: transparent; color: var(--color-secondary); font: inherit; font-size: 10px; text-align: left; cursor: pointer; }
+.outliner-svg-node:hover { color: var(--color-primary); background: var(--button-hover-bg, rgba(128,128,128,.12)); }
+.outliner-svg-node.selected { color: var(--color-primary); background: var(--button-selected-bg, rgba(128,128,128,.2)); box-shadow: inset 2px 0 0 var(--drawerator-accent); }
+.outliner-svg-node > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outliner-svg-node-group > [role="group"] { display: flex; flex-direction: column; }
+.outliner-svg-subpath.invalid { opacity: .45; cursor: not-allowed; }
+.outliner-svg-subpath-branch { display: inline-flex; align-items: center; justify-content: center; width: 15px; color: var(--drawerator-accent); }
+.outliner-type.type-svg-node { width: 15px; height: 15px; border-radius: 2px; font-size: 8px; }
 .outliner-toggle { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 4px; border: 0; background: transparent; color: var(--color-secondary); cursor: pointer; }
 .outliner-toggle:hover, .outliner-toggle.active { color: var(--color-primary); background: var(--button-hover-bg, rgba(128,128,128,.12)); }
 .outliner-toggle.inactive { opacity: .35; }
@@ -4072,7 +4312,9 @@ a.iannix-flat-button {
     grid-template-columns: 1fr;
   }
 }
-.drawerator-bezier-editor-overlay {
+.drawerator-bezier-editor-overlay,
+.drawerator-svg-path-editor-overlay,
+.drawerator-svg-node-selection-overlay {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -4082,7 +4324,8 @@ a.iannix-flat-button {
   overflow: visible;
 }
 
-.drawerator-bezier-editor-overlay .bezier-handle-line {
+.drawerator-bezier-editor-overlay .bezier-handle-line,
+.drawerator-svg-path-editor-overlay .bezier-handle-line {
   stroke: color-mix(in srgb, var(--drawerator-accent) 72%, currentColor);
   stroke-width: 1.25;
   stroke-dasharray: 3 3;
@@ -4090,22 +4333,43 @@ a.iannix-flat-button {
 }
 
 .drawerator-bezier-editor-overlay .bezier-anchor-point,
-.drawerator-bezier-editor-overlay .bezier-handle-point {
+.drawerator-bezier-editor-overlay .bezier-handle-point,
+.drawerator-svg-path-editor-overlay .bezier-anchor-point,
+.drawerator-svg-path-editor-overlay .bezier-handle-point {
   vector-effect: non-scaling-stroke;
   stroke: var(--drawerator-accent);
   stroke-width: 1.75;
 }
 
-.drawerator-bezier-editor-overlay .bezier-anchor-point {
+.drawerator-bezier-editor-overlay .bezier-anchor-point,
+.drawerator-svg-path-editor-overlay .bezier-anchor-point {
   fill: var(--island-bg-color, #fff);
 }
 
-.drawerator-bezier-editor-overlay .bezier-handle-point {
+.drawerator-bezier-editor-overlay .bezier-handle-point,
+.drawerator-svg-path-editor-overlay .bezier-handle-point {
   fill: color-mix(in srgb, var(--drawerator-accent) 28%, var(--island-bg-color, #fff));
 }
 
-.drawerator-bezier-editor-overlay g.selected .bezier-anchor-point {
+.drawerator-bezier-editor-overlay g.selected .bezier-anchor-point,
+.drawerator-svg-path-editor-overlay g.selected .bezier-anchor-point {
   fill: var(--drawerator-accent);
+}
+
+.drawerator-svg-path-editor-overlay .svg-edit-path-highlight {
+  fill: none;
+  stroke: color-mix(in srgb, var(--drawerator-accent) 72%, transparent);
+  stroke-width: 1.25;
+  stroke-dasharray: 5 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.drawerator-svg-node-selection-overlay .svg-node-selection-outline {
+  fill: color-mix(in srgb, var(--drawerator-accent) 8%, transparent);
+  stroke: var(--drawerator-accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  vector-effect: non-scaling-stroke;
 }
 
 /* Numeric fields support horizontal scrubbing without changing the existing

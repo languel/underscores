@@ -3,10 +3,14 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_SVG_SOURCE,
   analyzeSvgSource,
+  getSvgHostFrame,
   isSvgObjectElement,
+  makeSvgCanvasForegroundAdaptive,
   normalizeSvgObject,
   normalizeSvgScripts,
+  resolveSvgCurrentColor,
   scanSvgNodes,
+  svgSourceToDataUrl,
   updateSvgNodeAttribute,
   updateSvgRootDocument,
 } from "./svgObject.js";
@@ -24,6 +28,7 @@ test("analyzes an authored SVG document without flattening its source", () => {
     ["path#curve", 2],
     ["circle", 2],
   ]);
+  assert.deepEqual(result.nodes.map(node => node.parentIndex), [null, 0, 1, 1]);
   assert.equal(result.source, source);
 });
 
@@ -64,4 +69,34 @@ test("normalizes the local SVG script catalog without accepting broken documents
   assert.equal(scripts[0].id, "wave");
   assert.notEqual(scripts[1].id, "wave");
   assert.equal(scripts[0].name, "Wave");
+});
+
+test("converts Excalidraw neutral foregrounds to theme-adaptive currentColor", () => {
+  const source = `<svg xmlns="http://www.w3.org/2000/svg"><g stroke="#1e1e1e"><path fill="#1e1e1e" d="M0 0L10 10"/><path style="fill:#121212;stroke:#1769e0" d="M0 10L10 0"/></g></svg>`;
+  const adaptive = makeSvgCanvasForegroundAdaptive(source);
+  assert.match(adaptive, /stroke="currentColor"/);
+  assert.match(adaptive, /fill="currentColor"/);
+  assert.match(adaptive, /style="fill:currentColor;stroke:#1769e0"/);
+  assert.match(adaptive, /stroke:#1769e0/);
+});
+
+test("injects the live canvas foreground for currentColor without overriding authored color", () => {
+  const source = `<svg xmlns="http://www.w3.org/2000/svg"><path fill="currentColor"/></svg>`;
+  const resolved = resolveSvgCurrentColor(source, "#d8dde2");
+  assert.match(resolved, /<svg[^>]+color="#d8dde2"/);
+  const explicit = `<svg xmlns="http://www.w3.org/2000/svg" color="#ff0000"><path fill="currentColor"/></svg>`;
+  assert.equal(resolveSvgCurrentColor(explicit, "#d8dde2"), explicit);
+  const dataSource = decodeURIComponent(svgSourceToDataUrl(source, { currentColor: "#d8dde2" }).split(",")[1]);
+  assert.equal(dataSource, resolved);
+});
+
+test("positions an exported SVG around the selection's rotated world bounds", () => {
+  assert.deepEqual(
+    getSvgHostFrame([120, -80, 320, 220], [0, 0, 220, 320]),
+    { x: 110, y: -90, width: 220, height: 320 },
+  );
+  assert.deepEqual(
+    getSvgHostFrame([120, -80, 320, 220], [0, 0, 180, 260]),
+    { x: 120, y: -80, width: 200, height: 300 },
+  );
 });
