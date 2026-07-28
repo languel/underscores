@@ -2123,6 +2123,8 @@ function App() {
   const panelStateRecordingRef = useRef(null);
   const boardSettingsRecordingRef = useRef(null);
   const applyingRecordedUiStateRef = useRef(false);
+  const presentationDefaultsAppliedRef = useRef(false);
+  const presentationWorkspaceRef = useRef(null);
   const commandActionsRef = useRef(new Map());
   const [selectedElementIds, setSelectedElementIds] = useState({});
   const selectedElementIdsRef = useRef(selectedElementIds);
@@ -5853,29 +5855,6 @@ function App() {
     testAIConnection();
   }, [aiSettings.provider, aiSettings.url]);
 
-  // Global Escape key listener to close context and autocomplete dropdowns
-  useEffect(() => {
-    const handleGlobalEscape = (e) => {
-      if (e.key === "Escape") {
-        let didClose = false;
-        if (showContextDropdown) {
-          setShowContextDropdown(false);
-          didClose = true;
-        }
-        if (showAutocomplete) {
-          setShowAutocomplete(false);
-          didClose = true;
-        }
-        if (didClose) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      }
-    };
-    window.addEventListener("keydown", handleGlobalEscape, true);
-    return () => window.removeEventListener("keydown", handleGlobalEscape, true);
-  }, [showContextDropdown, showAutocomplete]);
-
   const saveSettings = () => {
     const normalized = normalizeAISettings(aiSettings);
     setAiSettings(normalized);
@@ -6731,7 +6710,7 @@ function App() {
     { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "workspace.reset.defaults", name: "Reset Workspace to Defaults /reset defaults", aliases: ["/reset defaults", "/workspace reset", "Reset to defaults"], category: "Settings", record: "presentation", action: () => resetBoardSettingsToDefaults() },
     { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => { applyingRecordedUiStateRef.current = true; setSatoriMode(prev => !prev); finishApplyingRecordedUiState(); } },
-    { id: "presentation.toggle", name: "Toggle Presentation Mode /presentation", aliases: ["/presentation", "/present", "Presentation mode"], category: "View", record: "presentation", action: () => setPresentationMode(previous => { const next = !previous; localStorage.setItem("drawerator_presentation_mode", String(next)); return next; }) },
+    { id: "presentation.toggle", name: "Toggle Presentation Mode /presentation", aliases: ["/presentation", "/present", "Presentation mode"], category: "View", record: "presentation", action: () => setPresentationMode(previous => !previous) },
     { id: "toggle-theme", name: "Toggle Dark/Light Theme", category: "View", action: (api) => {
       toggleDraweratorTheme(api);
     } },
@@ -6868,33 +6847,33 @@ function App() {
       }));
     };
     const handleKeyDown = (e) => {
-      // An interactive p5 runner owns keyboard input after it has been
-      // clicked. Its p5 instance listens at document level, so consuming a
-      // Drawerator shortcut here would otherwise prevent keyPressed(),
-      // keyReleased(), and keyTyped() from seeing the event.
-      if (document.activeElement?.closest?.(".drawerator-p5-host")) return;
-
       // Escape is a global cancel/clear gesture: close transient UI, blur any
       // focused control, leave Bézier editing, and clear the canvas selection.
       // Keep this capture-phase so it also works from number boxes and menus.
       if (e.key === "Escape") {
         const activeElement = document.activeElement;
-        const hadFocus = activeElement && activeElement !== document.body;
         if (showContextDropdown) setShowContextDropdown(false);
         if (showAutocomplete) setShowAutocomplete(false);
         if (showCommandPalette) setShowCommandPalette(false);
-        if (hadFocus && typeof activeElement.blur === "function") activeElement.blur();
+        if (typeof activeElement?.blur === "function") activeElement.blur();
         if (bezierEditElementId) exitBezierEditMode();
+        selectedElementIdsRef.current = {};
+        setSelectedElementIds({});
+        runtimeCursorSelectionRef.current = {};
         if (excalidrawAPI) {
           excalidrawAPI.updateScene({ appState: { selectedElementIds: {} } });
         }
-        runtimeCursorSelectionRef.current = {};
-        if (hadFocus || showContextDropdown || showAutocomplete || showCommandPalette || bezierEditElementId) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation?.();
         return;
       }
+
+      // An interactive p5 runner owns keyboard input after it has been
+      // clicked. Its p5 instance listens at document level, so consuming a
+      // Drawerator shortcut here would otherwise prevent keyPressed(),
+      // keyReleased(), and keyTyped() from seeing the event.
+      if (document.activeElement?.closest?.(".drawerator-p5-host")) return;
 
       // Space controls score transport from the canvas/UI. Text controls keep
       // their native spacebar behavior so users can still type normally.
@@ -7027,7 +7006,7 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [theme, excalidrawAPI, customBrushActive, activeBrushId, shortcutBindings, commandRegistry]);
+  }, [theme, excalidrawAPI, customBrushActive, activeBrushId, shortcutBindings, commandRegistry, showContextDropdown, showAutocomplete, showCommandPalette, bezierEditElementId]);
 
   // Autofocus input when Command Palette opens
   useEffect(() => {
@@ -8859,6 +8838,65 @@ function App() {
     axes: args?.axes,
     forceHard: true,
   });
+
+  useEffect(() => {
+    if (!presentationMode) {
+      presentationDefaultsAppliedRef.current = false;
+      const workspace = presentationWorkspaceRef.current;
+      if (!workspace) return;
+
+      applyingRecordedUiStateRef.current = true;
+      setPanelLayouts(normalizePanelLayouts(workspace.panelLayouts));
+      setDockSizes(normalizeDockSizes(workspace.dockSizes));
+      setOpenPanels({ ...workspace.openPanels });
+      setActiveDockPanels({ ...workspace.activeDockPanels });
+      setCollapsedDocks({ ...workspace.collapsedDocks });
+      setShowIannixTransport(workspace.showIannixTransport);
+      setSatoriMode(workspace.satoriMode);
+      setShowCommandPalette(workspace.showCommandPalette);
+      const restoredGrid = normalizeGlobalGrid(workspace.globalGrid);
+      globalGridRef.current = restoredGrid;
+      setGlobalGrid(restoredGrid);
+      setModifierUpdateNonce(nonce => nonce + 1);
+      presentationWorkspaceRef.current = null;
+      finishApplyingRecordedUiState();
+      return;
+    }
+    if (presentationDefaultsAppliedRef.current) return;
+
+    // Presentation is a starting layout, not a lock: the normal panel and grid
+    // controls can immediately reveal any individual surface the user needs.
+    presentationWorkspaceRef.current = {
+      panelLayouts: normalizePanelLayouts(panelLayouts),
+      dockSizes: normalizeDockSizes(dockSizes),
+      openPanels: { ...openPanels },
+      activeDockPanels: { ...activeDockPanels },
+      collapsedDocks: { ...collapsedDocks },
+      showIannixTransport,
+      satoriMode,
+      showCommandPalette,
+      globalGrid: normalizeGlobalGrid(globalGridRef.current),
+    };
+    applyingRecordedUiStateRef.current = true;
+    setPanelLayouts(normalizePanelLayouts(null));
+    setActiveDockPanels({ left: "mods", right: "mods", bottom: "transport" });
+    setCollapsedDocks({ left: true, right: true, bottom: true });
+    setShowIannixTransport(true);
+    setSatoriMode(true);
+    setShowCommandPalette(false);
+    runtimeCallbacksRef.current.globalGridUpdate({ appearance: { visible: false } });
+    presentationDefaultsAppliedRef.current = true;
+    finishApplyingRecordedUiState();
+  }, [presentationMode]);
+
+  useEffect(() => {
+    if (!presentationMode) return;
+    document.activeElement?.blur?.();
+    selectedElementIdsRef.current = {};
+    setSelectedElementIds({});
+    runtimeCursorSelectionRef.current = {};
+    excalidrawAPI?.updateScene({ appState: { selectedElementIds: {} } });
+  }, [presentationMode, excalidrawAPI]);
 
   useEffect(() => {
     const state = {
@@ -12280,6 +12318,8 @@ function App() {
   };
   const resetBoardSettingsToDefaults = () => {
     applyingRecordedUiStateRef.current = true;
+    presentationWorkspaceRef.current = null;
+    presentationDefaultsAppliedRef.current = false;
     applyDraweratorThemePreset(DEFAULT_INTERFACE_THEME_PRESET);
     setRoleTheme({ ...DEFAULT_ROLE_THEME });
     setPanelLayouts(normalizePanelLayouts(null));
@@ -13120,8 +13160,13 @@ function App() {
   const closeHorizontalPanel = panelId => {
     closeDraweratorPanel(panelId);
   };
-  const anySidePanelOpen = sidePanels.some(panel => openPanels[panel.id] && [PANEL_PLACEMENTS.LEFT, PANEL_PLACEMENTS.RIGHT].includes(panelLayouts[panel.id]?.placement));
-  const bottomDockOpen = bottomDockTabs.length > 0;
+  const anySidePanelOpen = sidePanels.some(panel => {
+    const placement = panelLayouts[panel.id]?.placement;
+    return openPanels[panel.id] &&
+      [PANEL_PLACEMENTS.LEFT, PANEL_PLACEMENTS.RIGHT].includes(placement) &&
+      !collapsedDocks[placement];
+  });
+  const bottomDockOpen = bottomDockTabs.length > 0 && !collapsedDocks.bottom;
   const bottomDockExpandedHeight = Math.max(BOTTOM_DOCK_MIN_HEIGHT, dockSizes.bottom);
   const bottomDockHeight = collapsedDocks.bottom ? COLLAPSED_DOCK_EDGE_SIZE : bottomDockExpandedHeight;
   const expressivePrograms = getExpressiveSynthPrograms(expressiveSynthConfig);
