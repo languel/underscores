@@ -1,4 +1,5 @@
 const NUMBER_PATTERN = "-?(?:\\d+(?:\\.\\d*)?|\\.\\d+)";
+const OBJECT_PARAMETER_PATTERN = /^\s*\/\/\s*@param\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*(.*?)\s*\(\s*(?:object|canvas|element)\s*\)\s*$/i;
 
 const inferRange = defaultValue => {
   let min = defaultValue < 0 ? defaultValue * 2 : 0;
@@ -30,6 +31,22 @@ export const parseScriptParameters = (source, options = {}) => {
   const byName = new Map();
 
   for (const line of code.split("\n")) {
+    const objectMatch = OBJECT_PARAMETER_PATTERN.exec(line);
+    if (objectMatch) {
+      const name = objectMatch[1];
+      const rawDefault = String(objectMatch[2] ?? "").trim();
+      const quotedDefault = /^(?:"([\s\S]*)"|'([\s\S]*)')$/.exec(rawDefault);
+      const defaultValue = String(quotedDefault?.[1] ?? quotedDefault?.[2] ?? rawDefault).trim();
+      byName.set(name, {
+        name,
+        label: name,
+        category: "",
+        default: defaultValue,
+        type: "object",
+        source: "param-object",
+      });
+      continue;
+    }
     const match = new RegExp(`^\\s*//\\s*@param\\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\\s*=\\s*(${NUMBER_PATTERN})(?:\\s*\\(([^)]+)\\))?`).exec(line);
     if (!match) continue;
     const name = match[1];
@@ -81,10 +98,17 @@ export const parseScriptParameters = (source, options = {}) => {
 
   return [...byName.values()].map(parameter => ({
     ...parameter,
-    value: finiteValue(values[parameter.name], parameter.default),
+    value: parameter.type === "object"
+      ? String(values[parameter.name] ?? parameter.default ?? "")
+      : finiteValue(values[parameter.name], parameter.default),
   }));
 };
 
 export const getScriptParameterValues = parameters => Object.fromEntries(
-  (parameters || []).map(parameter => [parameter.name, finiteValue(parameter.value, parameter.default)]),
+  (parameters || []).map(parameter => [
+    parameter.name,
+    parameter.type === "object"
+      ? String(parameter.value ?? parameter.default ?? "")
+      : finiteValue(parameter.value, parameter.default),
+  ]),
 );

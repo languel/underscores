@@ -21,6 +21,7 @@ import EventConsole from "./EventConsole.jsx";
 import PropertiesPanel from "./PropertiesPanel.jsx";
 import { embedPolicyForElement, isAllowedEmbedURL, sanitizeEmbedURL, shouldRenderEmbed } from "./embedPolicy.js";
 import OutlinerPanel from "./OutlinerPanel.jsx";
+import { reorderSceneElements } from "./sceneLayers.js";
 import IannixDataPanel from "./IannixDataPanel.jsx";
 import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, parseGenericCommandSlash } from "./commandSystem.js";
 import { buildAIAutomationGuide, isAICommandAllowed, parseDraweratorCommandTags } from "./aiTooling.js";
@@ -30,6 +31,7 @@ import { createDraweratorMacro, DRAWERATOR_MACRO_TYPE, DraweratorLibraryStore, D
 import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCursorLoopMode, getIannixCurveStartAngle, serializeBezierElementToIannixCommands, tokenizeIannixCommand } from "./iannixScript.js";
 import { bezierWorldPointToLocal, createBezierGeometryFromElement, createBezierHostGeometry, findNearestBezierLocation, getBezierWorldAnchors, getBezierWorldPath, hasCubicBezierGeometry, normalizeBezierGeometry, normalizeBezierHostElement, reframeBezierElement, removeBezierAnchor, setBezierAnchorMode, setElementBezierGeometry, splitBezierSegment, updateBezierAnchor } from "./bezierGeometry.js";
 import { getScriptParameterValues, parseScriptParameters } from "./scriptParameters.js";
+import { createScriptCanvasApi, resolveScriptParameterValues } from "./scriptRuntime.js";
 import { normalizeGmPrograms } from "./generalMidi.js";
 import { createInternalMidiSynth, disposeInternalMidiSynth, isInternalMidiSynthSupported, resumeInternalMidiSynth } from "./internalMidiSynth.js";
 import { playWebAudioTestTone } from "./audioDiagnostics.js";
@@ -70,7 +72,7 @@ import ShortcutsPanel from "./ShortcutsPanel.jsx";
 import ScriptPanel from "./ScriptPanel.jsx";
 import { normalizeScriptType } from "./scriptTypes.js";
 import { P5FrameOverlay } from "./P5Frame.jsx";
-import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_FRAME_STORAGE_KEY, canHostP5Frame, getP5HostElementType, isP5FrameElement, normalizeP5Frame, normalizeP5Scripts, normalizeP5SourceMode, reconcileP5ScriptsWithElements, validateP5Source } from "./p5Frame.js";
+import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_EXAMPLES, P5_FRAME_STORAGE_KEY, canHostP5Frame, getP5Example, getP5HostElementType, isP5FrameElement, normalizeP5Frame, normalizeP5Scripts, normalizeP5SourceMode, reconcileP5ScriptsWithElements, validateP5Source } from "./p5Frame.js";
 import { downloadCanvasAsPng, exportDraweratorPng } from "./p5Export.js";
 import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
@@ -1661,18 +1663,20 @@ const parseParameters = code => parseScriptParameters(code);
 const updateCodeWithParamValues = (code, params) => {
   let updatedCode = code;
   params.forEach(p => {
+    if (p.type === "object") return;
     const regex = new RegExp(`(//\\s*@param\\s+${p.name}\\s*=\\s*)[0-9.-]+`, "g");
     updatedCode = updatedCode.replace(regex, `$1${p.value}`);
   });
   return updatedCode;
 };
 
-const compileUserBrush = (code, params = []) => {
+const compileUserBrush = (code, params = [], scriptRuntimeRef, canvasApi) => {
   try {
     const keys = params.map(p => p.name);
-    const values = params.map(p => p.value);
-    const maker = new Function(...keys, "return (" + code + ")");
-    const fn = maker(...values);
+    const canvas = canvasApi || createScriptCanvasApi(scriptRuntimeRef);
+    const values = resolveScriptParameterValues(params, scriptRuntimeRef, canvas);
+    const maker = new Function(...keys, "canvas", "events", "transport", "return (" + code + ")");
+    const fn = maker(...keys.map(key => values[key]), canvas, canvas.events, canvas.transport);
     if (typeof fn === "function") {
       return { generator: fn, error: "" };
     }
@@ -2123,6 +2127,19 @@ function App() {
   const [selectedElementIds, setSelectedElementIds] = useState({});
   const selectedElementIdsRef = useRef(selectedElementIds);
   selectedElementIdsRef.current = selectedElementIds;
+  const scriptRuntimeRef = useRef({});
+  const scriptCanvasApiRef = useRef(null);
+  scriptRuntimeRef.current = {
+    eventBus,
+    getElements: () => excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || [],
+    getSelectedIds: () => Object.entries(selectedElementIdsRef.current || {})
+      .filter(([, selected]) => selected)
+      .map(([id]) => id),
+    getTime: () => scoreTimeRef.current,
+    getTimeContext: () => timeContext,
+    getGrid: () => globalGridRef.current,
+  };
+  if (!scriptCanvasApiRef.current) scriptCanvasApiRef.current = createScriptCanvasApi(scriptRuntimeRef);
   const runtimeCursorSelectionRef = useRef({});
   const [modifierUpdateNonce, setModifierUpdateNonce] = useState(0);
   const [bezierEditElementId, setBezierEditElementId] = useState(null);
@@ -3460,7 +3477,7 @@ function App() {
       compiledGeneratorRef.current = null;
       return;
     }
-    const res = compileUserBrush(activeBrushCode, brushParams);
+    const res = compileUserBrush(activeBrushCode, brushParams, scriptRuntimeRef, scriptCanvasApiRef.current);
     setBrushCompileError(res.error);
     if (!res.error) {
       compiledGeneratorRef.current = res.generator;
@@ -4234,6 +4251,7 @@ function App() {
     const appState = excalidrawAPI.getAppState() || {};
     const grid = globalGridRef.current;
     const clock = timeContext;
+    const canvas = scriptCanvasApiRef.current || createScriptCanvasApi(scriptRuntimeRef);
     return {
       gridSize: grid.spacing.x / grid.spacing.subdivisionsX,
       grid,
@@ -4262,6 +4280,11 @@ function App() {
       resampleStrokeByDistance,
       closeAndSmoothJoint,
       solveHobbySpline,
+      canvas,
+      objects: canvas,
+      events: canvas.events,
+      transport: canvas.transport,
+      time: canvas.transport.time,
       ...overrides
     };
   };
@@ -4886,20 +4909,9 @@ function App() {
         const brush = brushPalette.find(b => b.id === brushId);
         const brushCode = mod.codeOverride || brush?.code;
         if (brushCode) {
-          const params = [];
-          if (brushCode) {
-            const lines = brushCode.split("\n");
-            lines.forEach(line => {
-              const match = line.match(/\/\/\s*@param\s+(\w+)\s*=\s*([0-9.-]+)/);
-              if (match) {
-                const pName = match[1];
-                const pVal = mod.params && mod.params[pName] !== undefined ? mod.params[pName] : parseFloat(match[2]);
-                params.push({ name: pName, value: pVal });
-              }
-            });
-          }
+          const params = parseScriptParameters(brushCode, { values: mod.params || {} });
           const processedCode = updateCodeWithParamValues(brushCode, params);
-          const { generator } = compileUserBrush(processedCode, params);
+          const { generator } = compileUserBrush(processedCode, params, scriptRuntimeRef, scriptCanvasApiRef.current);
           if (generator) {
             const res = generator(baseLine, globals);
             
@@ -5142,7 +5154,7 @@ function App() {
   const syncEditorDraftToModifier = (commitToHistory = false) => {
     if (!editingModifierTarget || editingModifierTarget.brushId !== activeBrushId) return false;
     const finalCode = updateCodeWithParamValues(activeBrushCode, brushParams);
-    const compiled = compileUserBrush(finalCode, brushParams);
+    const compiled = compileUserBrush(finalCode, brushParams, scriptRuntimeRef, scriptCanvasApiRef.current);
     if (!compiled.generator || compiled.error) return false;
     const nextParams = Object.fromEntries(brushParams.map(param => [param.name, param.value]));
     const paletteCode = brushPalette.find(brush => brush.id === activeBrushId)?.code || "";
@@ -8936,7 +8948,7 @@ function App() {
 
   useEffect(() => {
     const api = {
-      apiVersion: 4,
+      apiVersion: 5,
       commands: {
         list: () => commandRegistry.list(),
         describe: id => commandRegistry.describe(id),
@@ -8979,6 +8991,8 @@ function App() {
         get: () => excalidrawAPIRef.current?.getSceneElementsIncludingDeleted() || [],
         getAppState: () => excalidrawAPIRef.current?.getAppState() || null,
       },
+      canvas: scriptCanvasApiRef.current || createScriptCanvasApi(scriptRuntimeRef),
+      objects: scriptCanvasApiRef.current || createScriptCanvasApi(scriptRuntimeRef),
       time: {
         parse: expression => parseTimeValue(expression, timeContext),
         resolve: (value, context = timeContext) => resolveTimeValue(value, context),
@@ -10467,6 +10481,9 @@ function App() {
     const selectedP5Host = selectedP5Frames.length === 1 ? selectedP5Frames[0] : null;
     const selectedP5Config = selectedP5Host ? normalizeP5Frame(selectedP5Host.customData?.draweratorP5) : null;
     const activeScript = p5Scripts.find(script => script.id === (selectedP5Config?.scriptId || activeP5ScriptId));
+    const p5Parameters = parseScriptParameters(p5ScriptSource, {
+      values: selectedP5Config?.parameters || {},
+    });
     const compatibleP5Hosts = getSelectedElements().filter(canHostP5Frame);
     const syncSelectedLegacyFrames = patch => {
       const api = excalidrawAPIRef.current;
@@ -10486,6 +10503,15 @@ function App() {
           },
         } : element),
         commitToHistory: false,
+      });
+    };
+    const updateP5Parameters = patch => {
+      if (!selectedP5Host) return;
+      syncSelectedLegacyFrames({
+        parameters: {
+          ...(selectedP5Config?.parameters || {}),
+          ...patch,
+        },
       });
     };
     const updateScriptLive = patch => {
@@ -10605,6 +10631,31 @@ function App() {
         setP5LiveStatus(error.message || "Select a rectangle, frame, or p5 canvas first.", "error");
       }
     };
+    const loadP5Example = exampleId => {
+      const example = getP5Example(exampleId);
+      if (!example) return;
+      const script = createP5CatalogScript({
+        name: example.name,
+        source: example.source,
+        mode: example.mode,
+      });
+      if (selectedP5Host) {
+        try {
+          attachP5ScriptToSelection({
+            script,
+            source: script.source,
+            mode: script.mode,
+            targetIds: [selectedP5Host.id],
+          });
+          setP5LiveStatus(`Loaded and attached “${script.name}”.`, "success");
+          return;
+        } catch (error) {
+          setP5LiveStatus(error.message || `Loaded “${script.name}”.`, "info");
+          return;
+        }
+      }
+      setP5LiveStatus(`Loaded “${script.name}”. Select a rectangle or frame, then press Apply to run it.`, "success");
+    };
     return (
       <div className="iannix-properties iannix-script-pane p5-script-pane">
         {editingP5ScriptName ? <input
@@ -10650,6 +10701,18 @@ function App() {
           {p5Scripts.map(script => <option key={script.id} value={script.id}>{script.name}</option>)}
         </select>}
         <label className="script-panel-script-type">
+          <span>Example</span>
+          <select
+            className="custom-brush-select"
+            value=""
+            onChange={event => loadP5Example(event.target.value)}
+            aria-label="Load p5 example"
+          >
+            <option value="">Load a ready-made sketch…</option>
+            {P5_EXAMPLES.map(example => <option key={example.id} value={example.id}>{example.name}</option>)}
+          </select>
+        </label>
+        <label className="script-panel-script-type">
           <span>p5 style</span>
           <select
             className="custom-brush-select"
@@ -10665,6 +10728,26 @@ function App() {
             <option value="instance">Instance (p.setup / p.draw)</option>
           </select>
         </label>
+        {p5Parameters.length > 0 && <div className="iannix-script-parameters p5-script-parameters">
+          {p5Parameters.map(parameter => <label className="iannix-script-parameter" key={parameter.name}>
+            <span className="iannix-script-parameter-header">
+              <strong>{parameter.label}</strong>
+              {parameter.type === "object" && <em>Canvas object</em>}
+            </span>
+            <input
+              className="custom-brush-param-input"
+              type={parameter.type === "object" ? "text" : "number"}
+              value={parameter.value}
+              placeholder={parameter.type === "object" ? "Object id, label, or group" : undefined}
+              disabled={!selectedP5Host}
+              onChange={event => {
+                const value = parameter.type === "object" ? event.target.value : Number(event.target.value);
+                if (parameter.type !== "object" && !Number.isFinite(value)) return;
+                updateP5Parameters({ [parameter.name]: value });
+              }}
+            />
+          </label>)}
+        </div>}
         <div className="script-icon-toolbar">
           <button type="button" className="palette-action-btn primary script-icon-button" title={compatibleP5Hosts.length ? "Attach or apply sketch to selected p5 hosts" : "Select a rectangle, frame, or p5 canvas to attach this sketch"} aria-label="Attach p5 sketch to selected hosts" onClick={applyToSelection} disabled={!compatibleP5Hosts.length}><ScriptActionIcon type="run" /></button>
           <button type="button" className="palette-action-btn secondary script-icon-button" title="Save p5 sketch" aria-label="Save p5 sketch" onClick={saveScript}><ScriptActionIcon type="save" /></button>
@@ -14400,6 +14483,13 @@ function App() {
                 }
               })}
               onLockChange={elementId => updateSceneObject(elementId, element => { element.locked = !element.locked; })}
+              onReorder={(movedId, anchorId, placement) => {
+                if (!excalidrawAPI) return;
+                const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+                const nextElements = reorderSceneElements(elements, movedId, anchorId, placement);
+                if (nextElements === elements) return;
+                excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
+              }}
               onRename={(elementId, label) => updateIannixElements([elementId], current => ({
                 ...current,
                 label: label || undefined,
@@ -14844,6 +14934,7 @@ function App() {
         <P5FrameOverlay
           elements={p5OverlayScene.elements}
           appState={p5OverlayScene.appState}
+          scriptRuntimeRef={scriptRuntimeRef}
         />
 
         <GlobalGridCanvas

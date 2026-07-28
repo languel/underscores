@@ -1,6 +1,6 @@
 # Panel System Notes
 
-Last updated: 2026-07-24
+Last updated: 2026-07-27
 
 Drawerator owns one persistent panel model for **AI Assistant**, **Mods & FX**, **Script**, **IanniX**, **Mixer**, **Expressive Synth**, **Info**, **Settings**, **Console**, and **Transport**. Side panels support left dock, floating, and right dock placement. Mixer and Info additionally support the bottom dock; Transport supports floating and bottom-docked placement. Timeline, Mixer, and Info use the bottom as their natural home; all other panels use the right dock.
 
@@ -70,6 +70,12 @@ Info is a normal panel, not an inspector card. It may float or join the bottom d
 The editable **Settings → Shortcuts** view is the source of truth for Drawerator-specific key bindings. In addition to canvas tools and grid actions, it includes panel toggles, left/right/bottom dock collapse, transport, history, theme, modifier, geometry, and stroke-width actions. New actions must be registered there before they receive an application keyboard handler.
 
 The detailed control and styling contract lives in [UI guidelines](ui-guidelines.md).
+
+## Canonical scene layers
+
+Drawerator uses Excalidraw's scene array as the single canonical back-to-front paint order. The Outliner presents that same stack front-to-back, so the first visible row is the frontmost object. Drag an Outliner row above or below another row to move it in front of or behind that object; the updated scene array is committed through Excalidraw history and is therefore shared by canvas rendering, export, selection, and subsequent native ordering actions.
+
+Live p5 frames follow this stack relative to other p5 frames. They are rendered in Drawerator's DOM overlay above Excalidraw's native canvas, so an individual p5 frame cannot yet be interleaved between two native Excalidraw elements. That compositing boundary is deliberate for the current fast live-canvas runtime; a future unified compositor can remove it without changing the canonical order model.
 
 ## Trusted p5 frames
 

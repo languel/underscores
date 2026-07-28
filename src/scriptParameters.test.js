@@ -41,3 +41,30 @@ test("lets @param refine an IanniX ask range and restores persisted values", () 
   });
   assert.deepEqual(getScriptParameterValues(parameters), { indexMax: 45 });
 });
+
+test("parses object parameters without coercing their canvas references", () => {
+  const parameters = parseScriptParameters(`
+    // @param driver = "Main curve" (object)
+    // @param triggerGroup = pulses (canvas)
+    // @param gain = 0.5 (0..1, step: 0.05)
+  `, {
+    values: { driver: "curve-7", gain: 0.75 },
+  });
+  assert.deepEqual(parameters[0], {
+    name: "driver",
+    label: "driver",
+    category: "",
+    default: "Main curve",
+    type: "object",
+    source: "param-object",
+    value: "curve-7",
+  });
+  assert.equal(parameters[1].default, "pulses");
+  assert.equal(parameters[1].value, "pulses");
+  assert.equal(parameters[2].value, 0.75);
+  assert.deepEqual(getScriptParameterValues(parameters), {
+    driver: "curve-7",
+    triggerGroup: "pulses",
+    gain: 0.75,
+  });
+});

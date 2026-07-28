@@ -5,11 +5,13 @@ import {
   DEFAULT_P5_CDN_URL,
   DEFAULT_P5_SOURCE,
   detectP5SourceMode,
+  getP5Example,
   canHostP5Frame,
   getP5RunnerKey,
   getP5HostElementType,
   isP5FrameElement,
   normalizeP5Frame,
+  P5_EXAMPLES,
   reconcileP5ScriptsWithElements,
   resolveP5SourceMode,
   shouldRenderP5Frame,
@@ -30,6 +32,7 @@ test("normalizes p5 frame settings to the bundled trusted runtime", () => {
     transparent: false,
     allowInteraction: true,
     reloadNonce: 0,
+    parameters: {},
   });
 });
 
@@ -87,6 +90,22 @@ test("validates p5 source syntax without running a sketch", () => {
   const invalid = validateP5Source("function setup( {");
   assert.equal(invalid.valid, false);
   assert.match(invalid.error, /Unexpected|expected/i);
+});
+
+test("ships editable starter examples for both p5 styles and the Drawerator bridge", () => {
+  assert.equal(P5_EXAMPLES.length, 6);
+  assert.equal(new Set(P5_EXAMPLES.map(example => example.id)).size, P5_EXAMPLES.length);
+  assert.equal(getP5Example("bare-instance")?.mode, "instance");
+  assert.equal(getP5Example("bare-global")?.mode, "global");
+  assert.equal(getP5Example("missing"), null);
+
+  const bridge = getP5Example("drawerator-bridge");
+  assert.match(bridge.source, /drawerator\.canvas\.all\(\)/);
+  assert.match(bridge.source, /drawerator\.canvas\.selected\(\)/);
+  assert.match(bridge.source, /drawerator\.events\.on/);
+  assert.match(bridge.source, /drawerator\.transport\.time/);
+  assert.match(bridge.source, /@param driver/);
+  P5_EXAMPLES.forEach(example => assert.deepEqual(validateP5Source(example.source), { valid: true, error: "" }));
 });
 
 test("classic mode exposes pointer callbacks and the Drawerator drag compatibility flag", () => {

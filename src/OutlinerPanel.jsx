@@ -1,18 +1,20 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { infoProps } from "./uiInfo.js";
+import { getOutlinerLayerElements } from "./sceneLayers.js";
 
-const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedElementIds = {}, onSelect, onDelete, onVisibilityChange, onLockChange, onRename }) {
+const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedElementIds = {}, onSelect, onDelete, onVisibilityChange, onLockChange, onRename, onReorder }) {
   const [query, setQuery] = useState("");
   const [nameMode, setNameMode] = useState(() => localStorage.getItem("drawerator_outliner_name_mode") === "ids" ? "ids" : "labels");
   const rowRefs = useRef(new Map());
   const selectionAnchorRef = useRef(null);
   const [editingId, setEditingId] = useState(null);
   const [editingValue, setEditingValue] = useState("");
+  const [draggingId, setDraggingId] = useState(null);
+  const [dropTarget, setDropTarget] = useState(null);
   const editingRef = useRef(null);
   const visibleElements = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return elements
-      .filter(element => !element.isDeleted)
+    return getOutlinerLayerElements(elements)
       .filter(element => !needle || `${
         element.type
       } ${element.id} ${element.customData?.iannix?.label || ""} ${element.customData?.iannixImport?.externalId || ""} ${element.customData?.iannixImport?.group || ""}`.toLowerCase().includes(needle));
@@ -107,13 +109,41 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
         <span>{visibleElements.length}</span>
       </div>
       <div className="outliner-list" role="tree" tabIndex={0} aria-label="Scene objects" onKeyDown={handleKeyDown}>
-        {visibleElements.length ? visibleElements.map(element => (
+        {visibleElements.length ? visibleElements.map(element => {
+          const dropPlacement = dropTarget?.id === element.id ? dropTarget.placement : null;
+          return (
           <div
             role="treeitem"
             aria-selected={Boolean(selectedElementIds[element.id])}
-            className={`outliner-row ${selectedElementIds[element.id] ? "selected" : ""}`}
+            className={`outliner-row ${selectedElementIds[element.id] ? "selected" : ""} ${draggingId === element.id ? "dragging" : ""} ${dropPlacement ? `drop-${dropPlacement}` : ""}`}
             key={element.id}
             ref={node => node ? rowRefs.current.set(element.id, node) : rowRefs.current.delete(element.id)}
+            draggable={editingId !== element.id}
+            onDragStart={event => {
+              if (editingId === element.id) { event.preventDefault(); return; }
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", element.id);
+              setDraggingId(element.id);
+            }}
+            onDragEnd={() => { setDraggingId(null); setDropTarget(null); }}
+            onDragOver={event => {
+              if (!draggingId || draggingId === element.id) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              const rect = event.currentTarget.getBoundingClientRect();
+              setDropTarget({
+                id: element.id,
+                placement: event.clientY < rect.top + rect.height / 2 ? "front" : "back",
+              });
+            }}
+            onDrop={event => {
+              event.preventDefault();
+              const movedId = event.dataTransfer.getData("text/plain") || draggingId;
+              const placement = dropPlacement || "front";
+              if (movedId && movedId !== element.id) onReorder?.(movedId, element.id, placement);
+              setDraggingId(null);
+              setDropTarget(null);
+            }}
           >
             <button type="button" className="outliner-object" onClick={event => selectElement(element.id, event)} onDoubleClick={event => { if (event.shiftKey) { event.preventDefault(); beginRename(element); } }} title={`${element.type} · ${element.id}`}>
               <span className={`outliner-type type-${element.type}`}>{element.type.slice(0, 1).toUpperCase()}</span>
@@ -135,7 +165,8 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>
             </button>
           </div>
-        )) : <div className="scene-panel-empty compact">No scene objects.</div>}
+          );
+        }) : <div className="scene-panel-empty compact">No scene objects.</div>}
       </div>
     </div>
   );
