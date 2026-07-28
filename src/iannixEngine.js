@@ -6,6 +6,10 @@ import {
 } from "./bezierGeometry.js";
 import { createTimeValue, migrateNumericTimeValue, resolveTimeValue } from "./timeValue.js";
 import { createDefaultGridBinding, normalizeCursorTiming, normalizeGridBinding, resolveScoreTiming, SCORE_TIMING_SCHEMA_VERSION } from "./scoreTiming.js";
+import { migrateLegacyCurveReference } from "./draweratorObjectRef.js";
+import { draweratorObjectRefKey, svgNodeObjectRef } from "./draweratorObjectRef.js";
+import { getEditableSvgPathNodes, getSvgPathWorldPoints } from "./svgPathGeometry.js";
+import { isSvgObjectElement, normalizeSvgObject } from "./svgObject.js";
 
 export const IANNIX_ROLES = ["curve", "cursor", "trigger"];
 export const IANNIX_LOOP_MODES = ["once", "loop", "pingPong"];
@@ -110,7 +114,7 @@ export const normalizeIannixData = (data) => {
       durationMode,
     },
     gridBinding: normalizeGridBinding(data?.gridBinding),
-    cursor: {
+    cursor: migrateLegacyCurveReference({
       ...defaults.cursor,
       ...(data?.cursor || {}),
       curveId: data?.cursor?.curveId || null,
@@ -121,7 +125,7 @@ export const normalizeIannixData = (data) => {
           : defaults.cursor.visualSmoothing
       )),
       ...normalizeCursorTiming(data?.cursor),
-    },
+    }),
     midi: {
       ...defaults.midi,
       ...(data?.midi || {}),
@@ -831,8 +835,66 @@ export const sweptPathsIntersect = (previousPaths, currentPaths, targetPaths) =>
   return false;
 };
 
-export const getScoreObjects = (elements) => (elements || [])
-  .filter(element => !element.isDeleted && IANNIX_ROLES.includes(element.customData?.iannix?.role));
+const svgScoreObjectsCache = new WeakMap();
+
+const getSvgHostScoreObjects = host => {
+  if (host.isDeleted || !isSvgObjectElement(host)) return [];
+  const rawSvg = host.customData.draweratorSvg;
+  const cached = svgScoreObjectsCache.get(host);
+  if (
+    cached?.source === rawSvg?.source
+    && cached?.revision === rawSvg?.revision
+    && cached?.metadataMirror === rawSvg?.metadataMirror
+  ) {
+    return cached.objects;
+  }
+  const svg = normalizeSvgObject(rawSvg);
+  const pathsByNodeId = new Map(getEditableSvgPathNodes(svg.source)
+    .filter(path => path.node.draweratorId)
+    .map(path => [path.node.draweratorId, path]));
+  const objects = Object.entries(svg.metadataMirror?.nodes || {}).flatMap(([nodeId, nodeData]) => {
+    if (!IANNIX_ROLES.includes(nodeData?.iannix?.role)) return [];
+    const path = pathsByNodeId.get(nodeId);
+    const subpath = path?.subpaths?.find(candidate => (
+      String(candidate.index) === String(nodeData.subpathId ?? 0) && candidate.valid
+    ));
+    if (!path || !subpath) return [];
+    const worldPath = getSvgPathWorldPoints(host, svg, subpath.geometry, path.transform);
+    if (worldPath.length < 2) return [];
+    const ref = svgNodeObjectRef(host.id, nodeId, subpath.index);
+    return [{
+      id: draweratorObjectRefKey(ref),
+      type: "line",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      angle: 0,
+      strokeWidth: Number(path.node.attributes["stroke-width"]) || 2,
+      points: worldPath,
+      isDeleted: false,
+      customData: {
+        iannix: normalizeIannixData(nodeData.iannix),
+        draweratorObjectRef: ref,
+        draweratorSvgHostId: host.id,
+      },
+    }];
+  });
+  svgScoreObjectsCache.set(host, {
+    source: rawSvg?.source,
+    revision: rawSvg?.revision,
+    metadataMirror: rawSvg?.metadataMirror,
+    objects,
+  });
+  return objects;
+};
+
+const getSvgScoreObjects = elements => (elements || []).flatMap(getSvgHostScoreObjects);
+
+export const getScoreObjects = (elements) => [
+  ...(elements || []).filter(element => !element.isDeleted && IANNIX_ROLES.includes(element.customData?.iannix?.role)),
+  ...getSvgScoreObjects(elements),
+];
 
 const collisionTriggerId = key => String(key).split(":").slice(1).join(":");
 
@@ -888,13 +950,21 @@ export const evaluateScoreFrame = (
   { detectCollisions = true, timeContext, globalGrid } = {},
 ) => {
   const scoreObjects = getScoreObjects(elements);
-  const byId = new Map((elements || []).filter(element => !element.isDeleted).map(element => [element.id, element]));
+  const byId = new Map([
+    ...(elements || []).filter(element => !element.isDeleted).map(element => [element.id, element]),
+    ...scoreObjects.map(element => [element.id, element]),
+  ]);
+  const resolveCurveElement = data => {
+    const ref = data?.cursor?.curveRef;
+    if (ref?.kind === "svg-node") return byId.get(draweratorObjectRefKey(ref)) || null;
+    return byId.get(ref?.elementId || data?.cursor?.curveId) || null;
+  };
   const resolvedTimings = new Map();
   const resolveElementTiming = element => {
     if (!element) return null;
     if (resolvedTimings.has(element.id)) return resolvedTimings.get(element.id);
     const data = getNormalizedElementData(element);
-    const curveElement = data.role === "cursor" ? byId.get(data.cursor.curveId) : null;
+    const curveElement = data.role === "cursor" ? resolveCurveElement(data) : null;
     const curveTiming = curveElement && curveElement.id !== element.id ? resolveElementTiming(curveElement) : null;
     const timing = resolveScoreTiming(data, {
       context: timeContext,
@@ -925,8 +995,8 @@ export const evaluateScoreFrame = (
 
   for (const cursorElement of scoreObjects.filter(element => element.customData.iannix.role === "cursor")) {
     const data = getNormalizedElementData(cursorElement);
-    if (!data.active || !data.cursor.curveId) continue;
-    const curveElement = byId.get(data.cursor.curveId);
+    if (!data.active || (!data.cursor.curveId && !data.cursor.curveRef)) continue;
+    const curveElement = resolveCurveElement(data);
     if (!curveElement || curveElement.customData?.iannix?.role !== "curve") continue;
     const resolvedTiming = resolveElementTiming(cursorElement);
     const timeState = getObjectTimeState(globalTime, resolvedTiming);

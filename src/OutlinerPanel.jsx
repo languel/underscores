@@ -1,8 +1,10 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { infoProps } from "./uiInfo.js";
 import { getOutlinerLayerElements } from "./sceneLayers.js";
+import { analyzeSvgSource, normalizeSvgObject } from "./svgObject.js";
+import { getEditableSvgPathNodes } from "./svgPathGeometry.js";
 
-const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedElementIds = {}, onSelect, onDelete, onVisibilityChange, onLockChange, onRename, onReorder }) {
+const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedElementIds = {}, selectedSvgNode = null, onSelect, onDelete, onVisibilityChange, onLockChange, onRename, onReorder, onSelectSvgNode }) {
   const [query, setQuery] = useState("");
   const [nameMode, setNameMode] = useState(() => localStorage.getItem("drawerator_outliner_name_mode") === "ids" ? "ids" : "labels");
   const rowRefs = useRef(new Map());
@@ -11,6 +13,7 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
   const [editingValue, setEditingValue] = useState("");
   const [draggingId, setDraggingId] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
+  const [expandedSvgIds, setExpandedSvgIds] = useState(() => new Set());
   const editingRef = useRef(null);
   const visibleElements = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -112,12 +115,22 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
       <div className="outliner-list" role="tree" tabIndex={0} aria-label="Scene objects" onKeyDown={handleKeyDown}>
         {visibleElements.length ? visibleElements.map(element => {
           const dropPlacement = dropTarget?.id === element.id ? dropTarget.placement : null;
+          const isSvg = Boolean(element.customData?.draweratorSvg);
+          const svgNodes = isSvg
+            ? analyzeSvgSource(normalizeSvgObject(element.customData.draweratorSvg).source).nodes
+            : [];
+          const svgPaths = isSvg
+            ? new Map(getEditableSvgPathNodes(normalizeSvgObject(element.customData.draweratorSvg).source)
+              .map(path => [path.node.index, path]))
+            : new Map();
+          const svgExpanded = isSvg && expandedSvgIds.has(element.id);
           return (
+          <div className="outliner-entry" key={element.id}>
           <div
             role="treeitem"
+            aria-expanded={isSvg ? svgExpanded : undefined}
             aria-selected={Boolean(selectedElementIds[element.id])}
             className={`outliner-row ${selectedElementIds[element.id] ? "selected" : ""} ${draggingId === element.id ? "dragging" : ""} ${dropPlacement ? `drop-${dropPlacement}` : ""}`}
-            key={element.id}
             ref={node => node ? rowRefs.current.set(element.id, node) : rowRefs.current.delete(element.id)}
             draggable={editingId !== element.id}
             onDragStart={event => {
@@ -146,7 +159,27 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
               setDropTarget(null);
             }}
           >
-            <button type="button" className="outliner-object" onClick={event => selectElement(element.id, event)} onDoubleClick={event => { if (event.shiftKey) { event.preventDefault(); beginRename(element); } }} title={`${getElementTypeLabel(element)} · ${element.id}`}>
+            <button
+              type="button"
+              className={`outliner-object ${isSvg ? "has-children" : ""}`}
+              onClick={event => selectElement(element.id, event)}
+              onDoubleClick={event => {
+                if (event.shiftKey) {
+                  event.preventDefault();
+                  beginRename(element);
+                } else if (isSvg) {
+                  event.preventDefault();
+                  setExpandedSvgIds(current => {
+                    const next = new Set(current);
+                    if (next.has(element.id)) next.delete(element.id);
+                    else next.add(element.id);
+                    return next;
+                  });
+                }
+              }}
+              title={`${getElementTypeLabel(element)} · ${element.id}${isSvg ? " · double-click to expand document" : ""}`}
+            >
+              <span className="outliner-disclosure" aria-hidden="true">{isSvg ? (svgExpanded ? "⌄" : "›") : ""}</span>
               <span className={`outliner-type type-${element.customData?.draweratorSvg ? "svg" : element.type}`}>{element.customData?.draweratorSvg ? "S" : element.type.slice(0, 1).toUpperCase()}</span>
               {editingId === element.id ? (
                 <input ref={editingRef} className="outliner-label-input" value={editingValue} placeholder={element.id} onChange={event => setEditingValue(event.target.value)} onBlur={() => finishRename(element)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); finishRename(element); } if (event.key === "Escape") { event.preventDefault(); finishRename(element, false); } }} aria-label={`Rename ${element.id}`} />
@@ -165,6 +198,72 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
             <button type="button" className="outliner-toggle outliner-delete" onClick={() => deleteSelection(element.id)} title="Delete object" aria-label={`Delete ${element.id}`}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>
             </button>
+          </div>
+          {svgExpanded && (
+            <div className="outliner-svg-tree" role="group" aria-label={`${getElementTypeLabel(element)} document nodes`}>
+              {svgNodes.map(node => {
+                const path = svgPaths.get(node.index);
+                const subpaths = path?.subpaths || [];
+                const hasSubpathChildren = subpaths.length > 1;
+                const nodeSelected = selectedSvgNode?.elementId === element.id
+                  && selectedSvgNode?.nodeIndex === node.index
+                  && (!Number.isInteger(selectedSvgNode?.subpathIndex) || !hasSubpathChildren);
+                return (
+                  <div className="outliner-svg-node-group" key={`${element.id}-${node.index}`}>
+                    <button
+                      type="button"
+                      role="treeitem"
+                      aria-level={node.depth + 2}
+                      aria-expanded={hasSubpathChildren ? true : undefined}
+                      aria-selected={nodeSelected}
+                      className={`outliner-svg-node ${nodeSelected ? "selected" : ""}`}
+                      style={{ "--outliner-svg-depth": node.depth }}
+                      onClick={event => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onSelectSvgNode?.(element.id, node.index, subpaths.length === 1 ? 0 : null);
+                      }}
+                      title={node.tag.toLowerCase() === "path"
+                        ? `${node.label} · ${hasSubpathChildren ? `${subpaths.length} editable subpaths` : "select and edit path on canvas"}`
+                        : `${node.label} · select SVG component`}
+                    >
+                      <span className={`outliner-type type-svg-node tag-${node.tag.toLowerCase()}`}>{node.tag.slice(0, 1).toUpperCase()}</span>
+                      <span>{node.label}{hasSubpathChildren ? ` · ${subpaths.length}` : ""}</span>
+                    </button>
+                    {hasSubpathChildren && (
+                      <div role="group" aria-label={`${node.label} subpaths`}>
+                        {subpaths.map(subpath => {
+                          const subpathSelected = selectedSvgNode?.elementId === element.id
+                            && selectedSvgNode?.nodeIndex === node.index
+                            && selectedSvgNode?.subpathIndex === subpath.index;
+                          return (
+                            <button
+                              type="button"
+                              role="treeitem"
+                              aria-level={node.depth + 3}
+                              aria-selected={subpathSelected}
+                              className={`outliner-svg-node outliner-svg-subpath ${subpathSelected ? "selected" : ""} ${subpath.valid ? "" : "invalid"}`}
+                              style={{ "--outliner-svg-depth": node.depth + 1 }}
+                              key={`${element.id}-${node.index}-subpath-${subpath.index}`}
+                              onClick={event => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                onSelectSvgNode?.(element.id, node.index, subpath.index);
+                              }}
+                              title={subpath.valid ? `Edit ${node.label} subpath ${subpath.index + 1}` : subpath.error}
+                            >
+                              <span className="outliner-svg-subpath-branch">↳</span>
+                              <span>Subpath {subpath.index + 1}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           </div>
           );
         }) : <div className="scene-panel-empty compact">No scene objects.</div>}

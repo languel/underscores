@@ -1,9 +1,73 @@
-import { isSvgObjectElement, normalizeSvgObject, shouldRenderSvgObject, svgSourceToDataUrl } from "./svgObject.js";
+import { useEffect, useRef } from "react";
+import { isSvgObjectElement, normalizeSvgObject, shouldRenderSvgObject } from "./svgObject.js";
+import { resumeSvgDocument, sanitizeSvgForInertRender, seekSvgDocument } from "./svgRuntime.js";
+import SvgTrustedRuntime from "./SvgTrustedRuntime.jsx";
 
-export default function SvgObjectOverlay({ elements, appState }) {
+const SvgShadowDocument = ({ source, color, clock, time, interactive, onSelect, onEditNode }) => {
+  const hostRef = useRef(null);
+  const shadowRef = useRef(null);
+  const interactionRef = useRef({ interactive, onSelect, onEditNode });
+
+  interactionRef.current = { interactive, onSelect, onEditNode };
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return undefined;
+    const shadow = host.shadowRoot || host.attachShadow({ mode: "open" });
+    shadowRef.current = shadow;
+    const style = document.createElement("style");
+    style.textContent = `:host,.drawerator-svg-shadow-content{display:block;width:100%;height:100%}:host{color:${color || "currentColor"}}svg{display:block;width:100%;height:100%;overflow:visible}`;
+    const content = document.createElement("div");
+    content.className = "drawerator-svg-shadow-content";
+    content.innerHTML = sanitizeSvgForInertRender(source);
+    shadow.replaceChildren(style, content);
+
+    const nodeFromEvent = event => {
+      const target = event.composedPath?.().find(item => item instanceof Element && item.hasAttribute?.("data-drawerator-render-index"));
+      const nodeIndex = Number(target?.getAttribute?.("data-drawerator-render-index"));
+      return Number.isInteger(nodeIndex) ? nodeIndex : null;
+    };
+    const pointerDown = event => {
+      const interaction = interactionRef.current;
+      if (!interaction.interactive || event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const nodeIndex = nodeFromEvent(event);
+      if ((event.metaKey || event.ctrlKey) && Number.isInteger(nodeIndex)) {
+        interaction.onEditNode?.(nodeIndex, event);
+      } else {
+        interaction.onSelect?.(event);
+      }
+    };
+    const doubleClick = event => {
+      const interaction = interactionRef.current;
+      if (!interaction.interactive) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const nodeIndex = nodeFromEvent(event);
+      if (Number.isInteger(nodeIndex)) interaction.onEditNode?.(nodeIndex, event);
+    };
+    shadow.addEventListener("pointerdown", pointerDown, true);
+    shadow.addEventListener("dblclick", doubleClick, true);
+    return () => {
+      shadow.removeEventListener("pointerdown", pointerDown, true);
+      shadow.removeEventListener("dblclick", doubleClick, true);
+    };
+  }, [source, color]);
+
+  useEffect(() => {
+    if (clock === "free") resumeSvgDocument(shadowRef.current);
+    else seekSvgDocument(shadowRef.current, time);
+  }, [clock, source, time]);
+
+  return <div ref={hostRef} className="drawerator-svg-shadow-host" />;
+};
+
+export default function SvgObjectOverlay({ elements, appState, time = 0, onSelect, onEditPath, onEditNode }) {
   const zoom = Number(appState?.zoom?.value) || 1;
   const scrollX = Number(appState?.scrollX) || 0;
   const scrollY = Number(appState?.scrollY) || 0;
+  const selectionMode = appState?.activeTool?.type === "selection";
   const objects = (elements || []).filter(shouldRenderSvgObject);
   if (!objects.length) return null;
 
@@ -14,11 +78,20 @@ export default function SvgObjectOverlay({ elements, appState }) {
         const svg = normalizeSvgObject(element.customData.draweratorSvg);
         const elementOpacity = Number(element.opacity);
         const opacity = Number.isFinite(elementOpacity) ? elementOpacity : 100;
+        const selected = Boolean(appState?.selectedElementIds?.[element.id]);
+        const interactive = selectionMode && !selected && !element.locked;
+        const handlePointerDown = event => {
+          if (!interactive || event.button !== 0) return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.metaKey || event.ctrlKey) onEditPath?.(element.id, event);
+          else onSelect?.(element.id, event);
+        };
         return (
           <div
             key={element.id}
             data-drawerator-svg-element-id={element.id}
-            className="drawerator-svg-object-frame"
+            className={`drawerator-svg-object-frame ${interactive ? "drawerator-svg-object-frame-interactive" : ""}`}
             style={{
               left: ((Number(element.x) || 0) + scrollX) * zoom,
               top: ((Number(element.y) || 0) + scrollY) * zoom,
@@ -30,7 +103,27 @@ export default function SvgObjectOverlay({ elements, appState }) {
               transformOrigin: "center",
             }}
           >
-            <img src={svgSourceToDataUrl(svg.source)} alt="" draggable="false" />
+            {svg.runtime.trustedScripts ? (
+              <SvgTrustedRuntime
+                source={svg.source}
+                color={appState?.svgForegroundColor}
+                policy={svg.runtime}
+                time={time}
+              />
+            ) : (
+              <SvgShadowDocument
+                source={svg.source}
+                color={appState?.svgForegroundColor}
+                clock={svg.runtime.clock}
+                time={time}
+                interactive={interactive}
+                onSelect={handlePointerDown}
+                onEditNode={(nodeIndex, event) => {
+                  if (onEditNode) onEditNode(element.id, nodeIndex, event);
+                  else onEditPath?.(element.id, event);
+                }}
+              />
+            )}
           </div>
         );
       })}
