@@ -5,6 +5,7 @@ import {
   getSvgPathEndpointConnections,
   getSvgNodeBounds,
   getSvgNodeWorldOutline,
+  getSvgPathWorldControls,
   getSvgSubpathWorldAnchors,
   parseSvgPathCollection,
   parseSvgPathGeometry,
@@ -34,8 +35,10 @@ test("supports relative, quadratic, smooth, and closed SVG commands", () => {
   assert.match(serializeSvgPathGeometry(parsed.geometry), / Z$/);
 });
 
-test("reports path forms that require an explicit conversion", () => {
-  assert.match(parseSvgPathGeometry("M0 0 A10 10 0 0 1 20 20").error, /Arc commands/);
+test("supports arcs and still rejects multiple subpaths in a single geometry", () => {
+  const arc = parseSvgPathGeometry("M0 0 A10 10 0 0 1 20 20");
+  assert.equal(arc.valid, true);
+  assert.ok(arc.geometry.anchors.length >= 2);
   assert.match(parseSvgPathGeometry("M0 0 L10 0 M20 0 L30 0").error, /Multi-subpath/);
 });
 
@@ -98,7 +101,7 @@ test("maps SVG viewBox coordinates through the host transform", () => {
   assert.deepEqual(worldPointToSvg(element, svg, world), [20, 90]);
 });
 
-test("extracts editable path nodes while respecting nested transforms", () => {
+test("extracts editable path nodes with invertible nested transforms", () => {
   const nodes = getEditableSvgPathNodes(`
     <svg viewBox="0 0 100 100">
       <path id="plain" d="M0 0 L10 10"/>
@@ -107,8 +110,23 @@ test("extracts editable path nodes while respecting nested transforms", () => {
   `);
   assert.equal(nodes.length, 2);
   assert.equal(nodes[0].valid, true);
-  assert.equal(nodes[1].valid, false);
-  assert.match(nodes[1].error, /Transformed/);
+  assert.equal(nodes[1].valid, true);
+  const controls = getSvgPathWorldControls(
+    { x: 0, y: 0, width: 100, height: 100, angle: 0 },
+    { viewBox: [0, 0, 100, 100] },
+    nodes[1].subpaths[0].geometry,
+    nodes[1].transform,
+  );
+  assert.deepEqual(controls.map(control => control.anchor), [[10, 10], [20, 20]]);
+  assert.deepEqual(
+    worldPointToSvg(
+      { x: 0, y: 0, width: 100, height: 100, angle: 0 },
+      { viewBox: [0, 0, 100, 100] },
+      [20, 20],
+      nodes[1].inverseTransform,
+    ),
+    [10, 10],
+  );
 });
 
 test("exposes compound path subpaths as ordered editable children", () => {
@@ -121,8 +139,8 @@ test("exposes compound path subpaths as ordered editable children", () => {
   assert.equal(path.subpaths.length, 3);
   assert.equal(path.subpaths[0].valid, true);
   assert.equal(path.subpaths[1].valid, true);
-  assert.equal(path.subpaths[2].valid, false);
-  assert.match(path.subpaths[2].error, /Arc commands/);
+  assert.equal(path.subpaths[2].valid, true);
+  assert.ok(path.subpaths[2].geometry.anchors.length >= 2);
 });
 
 test("computes source-tree bounds for primitive nodes and groups", () => {

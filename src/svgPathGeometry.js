@@ -6,30 +6,18 @@ import {
   normalizeBezierGeometry,
 } from "./bezierGeometry.js";
 import { analyzeSvgSource } from "./svgObject.js";
+import { SVGPathData } from "svg-pathdata";
+import {
+  getSvgNodeTransform,
+  invertSvgTransform,
+  transformSvgPoint,
+} from "./svgTransform.js";
 
-const TOKEN = /[a-zA-Z]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?/g;
-const COMMAND_ARITY = Object.freeze({
-  M: 2,
-  L: 2,
-  H: 1,
-  V: 1,
-  C: 6,
-  S: 4,
-  Q: 4,
-  T: 2,
-  Z: 0,
-});
 const EPSILON = 1e-7;
 
 const finite = value => Number.isFinite(Number(value)) ? Number(value) : 0;
 const add = (a, b) => [a[0] + b[0], a[1] + b[1]];
 const subtract = (a, b) => [a[0] - b[0], a[1] - b[1]];
-const multiply = (value, amount) => [value[0] * amount, value[1] * amount];
-const reflect = (control, center) => [
-  center[0] * 2 - control[0],
-  center[1] * 2 - control[1],
-];
-
 const anchor = (point, incoming = null, outgoing = null, mode = "corner") => ({
   x: point[0],
   y: point[1],
@@ -37,20 +25,6 @@ const anchor = (point, incoming = null, outgoing = null, mode = "corner") => ({
   out: outgoing,
   mode,
 });
-
-const commandTokens = source => String(source || "").match(TOKEN) || [];
-
-const readNumbers = (tokens, index, count) => {
-  const values = tokens.slice(index, index + count).map(Number);
-  return values.length === count && values.every(Number.isFinite) ? values : null;
-};
-
-const makeAbsolute = (values, relative, current, command) => {
-  if (!relative) return values;
-  if (command === "H") return [values[0] + current[0]];
-  if (command === "V") return [values[0] + current[1]];
-  return values.map((value, index) => value + current[index % 2]);
-};
 
 const smoothMode = value => {
   if (!value?.in || !value?.out) return "corner";
@@ -60,113 +34,51 @@ const smoothMode = value => {
 };
 
 export const parseSvgPathGeometry = source => {
-  const tokens = commandTokens(source);
-  if (!tokens.length) return { valid: false, error: "The path has no geometry.", geometry: null };
-
+  const authored = String(source || "").trim();
+  if (!authored) return { valid: false, error: "The path has no geometry.", geometry: null };
   const anchors = [];
-  let index = 0;
-  let command = "";
-  let current = [0, 0];
-  let start = null;
-  let previousCommand = "";
-  let previousQuadraticControl = null;
   let closed = false;
+  let commands;
+  try {
+    commands = new SVGPathData(authored)
+      .toAbs()
+      .normalizeHVZ(false, true, true, false)
+      .normalizeST()
+      .qtToC()
+      .aToC()
+      .commands;
+  } catch (error) {
+    return {
+      valid: false,
+      error: error?.message || "The SVG path data is malformed.",
+      geometry: null,
+    };
+  }
 
-  const addLine = end => {
-    if (!anchors.length) anchors.push(anchor(current));
-    anchors.push(anchor(end));
-    current = end;
-    previousQuadraticControl = null;
-  };
-
-  const addCubic = (control1, control2, end) => {
-    if (!anchors.length) anchors.push(anchor(current));
-    const startAnchor = anchors.at(-1);
-    startAnchor.out = subtract(control1, current);
-    const nextAnchor = anchor(end, subtract(control2, end));
-    startAnchor.mode = smoothMode(startAnchor);
-    anchors.push(nextAnchor);
-    current = end;
-    previousQuadraticControl = null;
-  };
-
-  while (index < tokens.length) {
-    if (/^[a-zA-Z]$/.test(tokens[index])) command = tokens[index++];
-    if (!command) return { valid: false, error: "The SVG path is missing a command.", geometry: null };
-    const relative = command === command.toLowerCase();
-    const upper = command.toUpperCase();
-    const arity = COMMAND_ARITY[upper];
-    if (arity === undefined) {
-      return {
-        valid: false,
-        error: upper === "A"
-          ? "Arc commands must be converted to cubic curves before canvas editing."
-          : `SVG path command ${upper} is not supported by the canvas editor.`,
-        geometry: null,
-      };
-    }
-    if (upper === "Z") {
-      if (!start || anchors.length < 2) return { valid: false, error: "The path cannot close before it has two anchors.", geometry: null };
-      closed = true;
-      current = start;
-      previousCommand = upper;
-      command = "";
-      continue;
-    }
-
-    const values = readNumbers(tokens, index, arity);
-    if (!values) return { valid: false, error: `SVG path command ${upper} has incomplete coordinates.`, geometry: null };
-    index += arity;
-    const absolute = makeAbsolute(values, relative, current, upper);
-
-    if (upper === "M") {
-      if (start && anchors.length) {
+  for (const command of commands) {
+    if (command.type === SVGPathData.MOVE_TO) {
+      if (anchors.length) {
         return { valid: false, error: "Multi-subpath SVG paths must be split before canvas editing.", geometry: null };
       }
-      current = [absolute[0], absolute[1]];
-      start = current;
-      anchors.push(anchor(current));
-      previousQuadraticControl = null;
-      command = relative ? "l" : "L";
-    } else if (upper === "L") {
-      addLine([absolute[0], absolute[1]]);
-    } else if (upper === "H") {
-      addLine([absolute[0], current[1]]);
-    } else if (upper === "V") {
-      addLine([current[0], absolute[0]]);
-    } else if (upper === "C") {
-      addCubic(
-        [absolute[0], absolute[1]],
-        [absolute[2], absolute[3]],
-        [absolute[4], absolute[5]],
+      anchors.push(anchor([command.x, command.y]));
+    } else if (command.type === SVGPathData.LINE_TO) {
+      if (!anchors.length) return { valid: false, error: "The path must begin with a move command.", geometry: null };
+      anchors.push(anchor([command.x, command.y]));
+    } else if (command.type === SVGPathData.CURVE_TO) {
+      if (!anchors.length) return { valid: false, error: "The path must begin with a move command.", geometry: null };
+      const current = anchors.at(-1);
+      current.out = [command.x1 - current.x, command.y1 - current.y];
+      const next = anchor(
+        [command.x, command.y],
+        [command.x2 - command.x, command.y2 - command.y],
       );
-    } else if (upper === "S") {
-      const control1 = ["C", "S"].includes(previousCommand) && anchors.at(-1)?.in
-        ? reflect(add(current, anchors.at(-1).in), current)
-        : current;
-      addCubic(control1, [absolute[0], absolute[1]], [absolute[2], absolute[3]]);
-    } else if (upper === "Q") {
-      const control = [absolute[0], absolute[1]];
-      const end = [absolute[2], absolute[3]];
-      addCubic(
-        add(current, multiply(subtract(control, current), 2 / 3)),
-        add(end, multiply(subtract(control, end), 2 / 3)),
-        end,
-      );
-      previousQuadraticControl = control;
-    } else if (upper === "T") {
-      const control = ["Q", "T"].includes(previousCommand) && previousQuadraticControl
-        ? reflect(previousQuadraticControl, current)
-        : current;
-      const end = [absolute[0], absolute[1]];
-      addCubic(
-        add(current, multiply(subtract(control, current), 2 / 3)),
-        add(end, multiply(subtract(control, end), 2 / 3)),
-        end,
-      );
-      previousQuadraticControl = control;
+      current.mode = smoothMode(current);
+      anchors.push(next);
+    } else if (command.type === SVGPathData.CLOSE_PATH) {
+      closed = true;
+    } else {
+      return { valid: false, error: "The SVG path contains an unsupported command.", geometry: null };
     }
-    previousCommand = upper;
   }
 
   if (anchors.length < 2) return { valid: false, error: "The path needs at least two anchors.", geometry: null };
@@ -305,12 +217,20 @@ export const getSvgNodeBounds = (source, nodeIndex) => {
   };
   const candidates = [selected, ...analysis.nodes.filter(isDescendant)];
   return mergeBounds(candidates.map(node => {
-    let current = node;
-    while (current) {
-      if (current.attributes?.transform) return null;
-      current = Number.isInteger(current.parentIndex) ? nodesByIndex.get(current.parentIndex) : null;
+    const bounds = primitiveNodeBounds(node);
+    if (!bounds) return null;
+    try {
+      const transform = getSvgNodeTransform(analysis, node);
+      const [minX, minY, maxX, maxY] = bounds;
+      return boundsFromPoints([
+        transformSvgPoint(transform, [minX, minY]),
+        transformSvgPoint(transform, [maxX, minY]),
+        transformSvgPoint(transform, [maxX, maxY]),
+        transformSvgPoint(transform, [minX, maxY]),
+      ]);
+    } catch {
+      return null;
     }
-    return primitiveNodeBounds(node);
   }));
 };
 
@@ -427,13 +347,14 @@ const rotate = (value, center, angle) => {
   ];
 };
 
-export const svgPointToWorld = (element, svgObject, value) => {
+export const svgPointToWorld = (element, svgObject, value, nodeTransform = null) => {
+  const transformed = nodeTransform ? transformSvgPoint(nodeTransform, value) : value;
   const viewBox = svgObject?.viewBox || [0, 0, 1, 1];
   const width = Math.max(EPSILON, finite(viewBox[2]));
   const height = Math.max(EPSILON, finite(viewBox[3]));
   const point = [
-    finite(element?.x) + ((finite(value?.[0]) - finite(viewBox[0])) / width) * finite(element?.width),
-    finite(element?.y) + ((finite(value?.[1]) - finite(viewBox[1])) / height) * finite(element?.height),
+    finite(element?.x) + ((finite(transformed?.[0]) - finite(viewBox[0])) / width) * finite(element?.width),
+    finite(element?.y) + ((finite(transformed?.[1]) - finite(viewBox[1])) / height) * finite(element?.height),
   ];
   return rotate(point, [
     finite(element?.x) + finite(element?.width) / 2,
@@ -441,40 +362,41 @@ export const svgPointToWorld = (element, svgObject, value) => {
   ], finite(element?.angle));
 };
 
-export const worldPointToSvg = (element, svgObject, value) => {
+export const worldPointToSvg = (element, svgObject, value, inverseNodeTransform = null) => {
   const center = [
     finite(element?.x) + finite(element?.width) / 2,
     finite(element?.y) + finite(element?.height) / 2,
   ];
   const unrotated = rotate(value, center, -finite(element?.angle));
   const viewBox = svgObject?.viewBox || [0, 0, 1, 1];
-  return [
+  const svgPoint = [
     finite(viewBox[0]) + ((unrotated[0] - finite(element?.x)) / Math.max(EPSILON, finite(element?.width))) * finite(viewBox[2]),
     finite(viewBox[1]) + ((unrotated[1] - finite(element?.y)) / Math.max(EPSILON, finite(element?.height))) * finite(viewBox[3]),
   ];
+  return inverseNodeTransform ? transformSvgPoint(inverseNodeTransform, svgPoint) : svgPoint;
 };
 
-export const getSvgPathWorldControls = (element, svgObject, geometryValue) => {
+export const getSvgPathWorldControls = (element, svgObject, geometryValue, nodeTransform = null) => {
   const geometry = normalizeBezierGeometry(geometryValue);
   return geometry.anchors.map(value => {
     const point = [value.x, value.y];
     return {
-      anchor: svgPointToWorld(element, svgObject, point),
-      in: value.in ? svgPointToWorld(element, svgObject, add(point, value.in)) : null,
-      out: value.out ? svgPointToWorld(element, svgObject, add(point, value.out)) : null,
+      anchor: svgPointToWorld(element, svgObject, point, nodeTransform),
+      in: value.in ? svgPointToWorld(element, svgObject, add(point, value.in), nodeTransform) : null,
+      out: value.out ? svgPointToWorld(element, svgObject, add(point, value.out), nodeTransform) : null,
       mode: value.mode,
     };
   });
 };
 
-export const getSvgSubpathWorldAnchors = (element, svgObject, geometryValue) => {
+export const getSvgSubpathWorldAnchors = (element, svgObject, geometryValue, nodeTransform = null) => {
   const geometry = normalizeBezierGeometry(geometryValue);
   return geometry.anchors.map(value => {
     const anchorPoint = [value.x, value.y];
-    const anchorWorld = svgPointToWorld(element, svgObject, anchorPoint);
+    const anchorWorld = svgPointToWorld(element, svgObject, anchorPoint, nodeTransform);
     const mapVector = vector => {
       if (!vector) return null;
-      const controlWorld = svgPointToWorld(element, svgObject, add(anchorPoint, vector));
+      const controlWorld = svgPointToWorld(element, svgObject, add(anchorPoint, vector), nodeTransform);
       return subtract(controlWorld, anchorWorld);
     };
     return {
@@ -487,34 +409,36 @@ export const getSvgSubpathWorldAnchors = (element, svgObject, geometryValue) => 
   });
 };
 
-export const getSvgPathWorldPoints = (element, svgObject, geometryValue) => (
-  flattenBezierGeometry(geometryValue, 0.35).map(value => svgPointToWorld(element, svgObject, value))
+export const getSvgPathWorldPoints = (element, svgObject, geometryValue, nodeTransform = null) => (
+  flattenBezierGeometry(geometryValue, 0.35).map(value => svgPointToWorld(element, svgObject, value, nodeTransform))
 );
 
-export const getSvgPathWorldDetailed = (element, svgObject, geometryValue) => (
+export const getSvgPathWorldDetailed = (element, svgObject, geometryValue, nodeTransform = null) => (
   flattenBezierGeometryDetailed(geometryValue, 0.35).map(entry => ({
     ...entry,
-    point: svgPointToWorld(element, svgObject, entry.point),
+    point: svgPointToWorld(element, svgObject, entry.point, nodeTransform),
   }))
 );
 
 export const getEditableSvgPathNodes = source => {
   const analysis = analyzeSvgSource(source);
   if (!analysis.valid) return [];
-  const byIndex = new Map(analysis.nodes.map(node => [node.index, node]));
   return analysis.nodes.filter(node => node.tag.toLowerCase() === "path" && node.attributes.d).map(node => {
-    let current = node;
-    let transformed = false;
-    while (current) {
-      if (current.attributes?.transform) transformed = true;
-      current = Number.isInteger(current.parentIndex) ? byIndex.get(current.parentIndex) : null;
+    let transform;
+    let inverseTransform;
+    let transformError = "";
+    try {
+      transform = getSvgNodeTransform(analysis, node);
+      inverseTransform = invertSvgTransform(transform);
+    } catch (error) {
+      transformError = error?.message || "The path transform cannot be inverted.";
     }
     const collection = parseSvgPathCollection(node.attributes.d);
-    const subpaths = collection.subpaths.map(subpath => transformed
+    const subpaths = collection.subpaths.map(subpath => transformError
       ? {
         ...subpath,
         valid: false,
-        error: "Transformed SVG paths are not editable on the canvas yet.",
+        error: transformError,
         geometry: null,
       }
       : subpath
@@ -526,6 +450,8 @@ export const getEditableSvgPathNodes = source => {
       valid: Boolean(firstEditable),
       error: firstEditable ? "" : subpaths[0]?.error || collection.error,
       geometry: firstEditable?.geometry || null,
+      transform,
+      inverseTransform,
     };
   });
 };

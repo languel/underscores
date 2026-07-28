@@ -5,10 +5,12 @@ import {
   analyzeSvgSource,
   isSvgObjectElement,
   normalizeSvgObject,
-  updateSvgNodeAttribute,
-  updateSvgRootDocument,
+  updateStructuredSvgNodeAttribute,
+  updateStructuredSvgRootDocument,
 } from "./svgObject.js";
 import { getEditableSvgPathNodes } from "./svgPathGeometry.js";
+import { buildSvgTimingGraph } from "./svgAnimation.js";
+import { getSvgNodeStyleCascade, updateStructuredSvgStyleDeclaration } from "./svgStyleModel.js";
 
 const READ_ONLY_KEYS = new Set([
   "id", "type", "width", "height", "version", "versionNonce", "updated", "index", "seed",
@@ -221,6 +223,12 @@ const SvgObjectControls = ({
   selectedSvgNode,
   onSelectSvgNode,
   onExtractSvgSubpath,
+  onAssignSvgNodeRole,
+  onBindSvgNodeCurve,
+  svgCurveOptions = [],
+  onToggleSvgPathClosed,
+  onReverseSvgPath,
+  onDeleteSvgAnchor,
   svgJointConnectionCount = 0,
   svgJointDetachArmed = false,
   onDetachSvgJoint,
@@ -230,15 +238,22 @@ const SvgObjectControls = ({
   if (!isSvgObjectElement(element)) return null;
   const svg = normalizeSvgObject(element.customData.draweratorSvg);
   const analysis = analyzeSvgSource(svg.source);
+  const timingGraph = buildSvgTimingGraph(svg.source);
   const pathsByNodeIndex = new Map(getEditableSvgPathNodes(svg.source).map(path => [path.node.index, path]));
   const selectedNodeIndex = selectedSvgNode?.elementId === element.id ? selectedSvgNode.nodeIndex : 0;
   const selectedSubpathIndex = selectedSvgNode?.elementId === element.id && Number.isInteger(selectedSvgNode?.subpathIndex)
     ? selectedSvgNode.subpathIndex
     : null;
   const selectedNode = analysis.nodes[selectedNodeIndex] || analysis.nodes[0] || null;
+  const selectedStyleCascade = selectedNode
+    ? getSvgNodeStyleCascade(svg.source, selectedNodeIndex)
+    : null;
   const selectedSubpath = Number.isInteger(selectedSubpathIndex)
     ? pathsByNodeIndex.get(selectedNodeIndex)?.subpaths?.find(subpath => subpath.index === selectedSubpathIndex)
     : null;
+  const selectedNodeData = selectedNode?.draweratorId
+    ? svg.metadataMirror?.nodes?.[selectedNode.draweratorId] || {}
+    : {};
   const matches = name => !query?.needle || [
     "svg", "document", "name", "width", "height", "viewbox", "geometry", "element", "attribute",
     name,
@@ -255,7 +270,18 @@ const SvgObjectControls = ({
   );
   const updateSource = source => update({ source });
   const patchNodeAttribute = (attribute, value) => {
-    updateSource(updateSvgNodeAttribute(svg.source, selectedNodeIndex, attribute, value));
+    updateSource(updateStructuredSvgNodeAttribute(svg.source, selectedNodeIndex, attribute, value));
+  };
+  const patchLooomVariable = (nodeIndex, property, value) => {
+    const node = analysis.nodes[nodeIndex];
+    const style = String(node?.attributes?.style || "");
+    const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const expression = new RegExp(`(^|;)\\s*${escaped}\\s*:[^;]*`);
+    const declaration = `${property}:${value}`;
+    const nextStyle = expression.test(style)
+      ? style.replace(expression, (match, prefix) => `${prefix}${declaration}`)
+      : `${style}${style.trim() && !style.trim().endsWith(";") ? ";" : ""}${declaration}`;
+    updateSource(updateStructuredSvgNodeAttribute(svg.source, nodeIndex, "style", nextStyle));
   };
   const addAttribute = () => {
     const attribute = newAttributeName.trim();
@@ -269,9 +295,77 @@ const SvgObjectControls = ({
       <summary><span>SVG document</span><small>{analysis.nodeCount} nodes</small></summary>
       <div className="properties-children">
         {matches("name") && <div className="properties-row editable"><span>name</span><input type="text" value={svg.name} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => update({ name: event.target.value })} /></div>}
-        {matches("width") && <div className="properties-row editable"><span>width</span><input type="number" min="1" max="16384" value={analysis.width} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => updateSource(updateSvgRootDocument(svg.source, { width: event.target.value }))} /></div>}
-        {matches("height") && <div className="properties-row editable"><span>height</span><input type="number" min="1" max="16384" value={analysis.height} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => updateSource(updateSvgRootDocument(svg.source, { height: event.target.value }))} /></div>}
-        {matches("viewbox") && <div className="properties-row editable"><span>viewBox</span><input type="text" value={analysis.viewBox.join(" ")} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => updateSource(updateSvgRootDocument(svg.source, { viewBox: event.target.value }))} /></div>}
+        {matches("width") && <div className="properties-row editable"><span>width</span><input type="number" min="1" max="16384" value={analysis.width} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => updateSource(updateStructuredSvgRootDocument(svg.source, { width: event.target.value }))} /></div>}
+        {matches("height") && <div className="properties-row editable"><span>height</span><input type="number" min="1" max="16384" value={analysis.height} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => updateSource(updateStructuredSvgRootDocument(svg.source, { height: event.target.value }))} /></div>}
+        {matches("viewbox") && <div className="properties-row editable"><span>viewBox</span><input type="text" value={analysis.viewBox.join(" ")} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => updateSource(updateStructuredSvgRootDocument(svg.source, { viewBox: event.target.value }))} /></div>}
+        {matches("animation") && <details className="properties-svg-editor-section" open={timingGraph.lanes.length > 0}>
+          <summary><span>Animation</span><small>{timingGraph.lanes.length} lanes</small></summary>
+          <div className="properties-children">
+            <div className="properties-row editable">
+              <span>clock</span>
+              <select
+                value={svg.runtime.clock}
+                onKeyDown={stopCanvasKeys}
+                onChange={event => update({ runtime: { ...svg.runtime, clock: event.target.value } })}
+              >
+                <option value="transport">Drawerator transport</option>
+                <option value="free">Free run</option>
+              </select>
+            </div>
+            {timingGraph.lanes.map(lane => <div
+              className={`properties-svg-animation-lane kind-${lane.kind}`}
+              key={lane.id}
+              title={`${lane.kind.toUpperCase()} · ${lane.property || lane.name || "animation"}`}
+            >
+              <button type="button" onClick={() => Number.isInteger(lane.animationNodeIndex) && onSelectSvgNode?.(element.id, lane.animationNodeIndex)}>
+                <span>{lane.kind}</span>
+                <strong>{lane.property || lane.name || "animation"}</strong>
+                <small>{Number.isFinite(lane.duration) ? `${lane.duration.toFixed(3).replace(/\.?0+$/, "")} s` : "∞"}</small>
+              </button>
+              {lane.kind === "smil" && Number.isInteger(lane.animationNodeIndex) && <div className="properties-svg-animation-fields">
+                <label><span>begin</span><input aria-label="SVG animation begin" value={analysis.nodes[lane.animationNodeIndex]?.attributes?.begin || "0s"} onKeyDown={stopCanvasKeys} onChange={event => updateSource(updateStructuredSvgNodeAttribute(svg.source, lane.animationNodeIndex, "begin", event.target.value))} /></label>
+                <label><span>duration</span><input aria-label="SVG animation duration" value={analysis.nodes[lane.animationNodeIndex]?.attributes?.dur || ""} onKeyDown={stopCanvasKeys} onChange={event => updateSource(updateStructuredSvgNodeAttribute(svg.source, lane.animationNodeIndex, "dur", event.target.value))} /></label>
+                <label><span>repeat</span><input aria-label="SVG animation repeat count" value={analysis.nodes[lane.animationNodeIndex]?.attributes?.repeatCount || "1"} onKeyDown={stopCanvasKeys} onChange={event => updateSource(updateStructuredSvgNodeAttribute(svg.source, lane.animationNodeIndex, "repeatCount", event.target.value))} /></label>
+              </div>}
+              {lane.kind === "css" && Number.isInteger(lane.styleNodeIndex) && <div className="properties-svg-animation-fields">
+                <label><span>duration</span><input aria-label="CSS animation duration" value={`${lane.duration}s`} onKeyDown={stopCanvasKeys} onChange={event => updateSource(updateStructuredSvgStyleDeclaration(svg.source, lane.styleNodeIndex, lane.selector, "animation-duration", event.target.value))} /></label>
+                <label><span>delay</span><input aria-label="CSS animation delay" value={`${lane.begin}s`} onKeyDown={stopCanvasKeys} onChange={event => updateSource(updateStructuredSvgStyleDeclaration(svg.source, lane.styleNodeIndex, lane.selector, "animation-delay", event.target.value))} /></label>
+                <label><span>repeat</span><input aria-label="CSS animation iteration count" value={lane.repeatCount} onKeyDown={stopCanvasKeys} onChange={event => updateSource(updateStructuredSvgStyleDeclaration(svg.source, lane.styleNodeIndex, lane.selector, "animation-iteration-count", event.target.value))} /></label>
+              </div>}
+              {lane.kind === "looom" && Number.isInteger(lane.nodeIndex) && <div className="properties-svg-animation-fields">
+                <label><span>fps</span><input type="number" min="0.001" step="1" aria-label="Looom thread speed" value={lane.speed} onKeyDown={stopCanvasKeys} onChange={event => patchLooomVariable(lane.nodeIndex, "--speed", event.target.value)} /></label>
+                <label><span>offset</span><input type="number" step="1" aria-label="Looom thread offset" value={Math.round(lane.begin * lane.speed)} onKeyDown={stopCanvasKeys} onChange={event => patchLooomVariable(lane.nodeIndex, "--timeOffset", event.target.value)} /></label>
+                <label><span>play mode</span><input type="number" step="1" aria-label="Looom thread play mode" value={lane.playMode} onKeyDown={stopCanvasKeys} onChange={event => patchLooomVariable(lane.nodeIndex, "--playMode", event.target.value)} /></label>
+              </div>}
+            </div>)}
+            {analysis.hasScript && <>
+              <label className="properties-row editable">
+                <span>trusted scripts</span>
+                <input
+                  type="checkbox"
+                  checked={svg.runtime.trustedScripts}
+                  onChange={event => {
+                    const trustedScripts = event.target.checked
+                      ? window.confirm("Run this SVG’s embedded scripts in an isolated sandbox? Network access remains blocked.")
+                      : false;
+                    update({ runtime: { ...svg.runtime, trustedScripts } });
+                  }}
+                />
+              </label>
+              {svg.runtime.trustedScripts && <label className="properties-row editable">
+                <span>network</span>
+                <input
+                  type="checkbox"
+                  checked={svg.runtime.allowNetwork}
+                  onChange={event => update({ runtime: { ...svg.runtime, allowNetwork: event.target.checked } })}
+                />
+              </label>}
+              <p className="properties-p5-note">{svg.runtime.trustedScripts
+                ? "Scripts run in a sandboxed, cross-origin iframe. They cannot access Drawerator or mutate canonical source; only the limited cue/log/MIDI bridge is exposed."
+                : "Embedded scripts are preserved but inert until explicitly trusted."}</p>
+            </>}
+          </div>
+        </details>}
         {matches("geometry") && <div className="properties-svg-tree" role="tree" aria-label="SVG geometry">
           {analysis.nodes.map(node => {
             const path = pathsByNodeIndex.get(node.index);
@@ -325,10 +419,34 @@ const SvgObjectControls = ({
             onClick={() => onDetachSvgJoint?.()}
             title="By default, coincident subpath endpoints move as one joint. Detach arms this endpoint to move independently on its next drag."
           >{svgJointDetachArmed ? "Drag to detach" : `Detach joint · ${svgJointConnectionCount}`}</button>}
+          <button type="button" onClick={() => onToggleSvgPathClosed?.()}>{selectedSubpath.geometry.closed ? "Open path" : "Close path"}</button>
+          <button type="button" onClick={() => onReverseSvgPath?.()}>Reverse path</button>
+          <button type="button" onClick={() => onDeleteSvgAnchor?.()}>Delete anchor</button>
           <button type="button" onClick={() => onExtractSvgSubpath?.(element.id, selectedNodeIndex, selectedSubpathIndex)}>Extract spline</button>
-          <button type="button" onClick={() => onExtractSvgSubpath?.(element.id, selectedNodeIndex, selectedSubpathIndex, "curve")}>Make curve</button>
-          <button type="button" onClick={() => onExtractSvgSubpath?.(element.id, selectedNodeIndex, selectedSubpathIndex, "cursor")}>Make cursor</button>
-          <button type="button" onClick={() => onExtractSvgSubpath?.(element.id, selectedNodeIndex, selectedSubpathIndex, "trigger")}>Make trigger</button>
+          <button type="button" onClick={() => onAssignSvgNodeRole?.(element.id, selectedNodeIndex, selectedSubpathIndex, "curve")}>Assign curve</button>
+          <button type="button" onClick={() => onAssignSvgNodeRole?.(element.id, selectedNodeIndex, selectedSubpathIndex, "cursor")}>Assign cursor</button>
+          <button type="button" onClick={() => onAssignSvgNodeRole?.(element.id, selectedNodeIndex, selectedSubpathIndex, "trigger")}>Assign trigger</button>
+          {selectedNodeData.iannix?.role && <button type="button" onClick={() => onAssignSvgNodeRole?.(element.id, selectedNodeIndex, selectedSubpathIndex, null)}>Clear role · {selectedNodeData.iannix.role}</button>}
+          <button type="button" onClick={() => onExtractSvgSubpath?.(element.id, selectedNodeIndex, selectedSubpathIndex, "curve")}>Extract as curve</button>
+          <button type="button" onClick={() => onExtractSvgSubpath?.(element.id, selectedNodeIndex, selectedSubpathIndex, "cursor")}>Extract as cursor</button>
+          <button type="button" onClick={() => onExtractSvgSubpath?.(element.id, selectedNodeIndex, selectedSubpathIndex, "trigger")}>Extract as trigger</button>
+        </div>}
+        {selectedNodeData.iannix?.role === "cursor" && matches("curve") && <div className="properties-row editable">
+          <span>support curve</span>
+          <select
+            aria-label="SVG cursor support curve"
+            value={selectedNodeData.iannix?.cursor?.curveRef ? JSON.stringify(selectedNodeData.iannix.cursor.curveRef) : ""}
+            onKeyDown={stopCanvasKeys}
+            onChange={event => onBindSvgNodeCurve?.(
+              element.id,
+              selectedNodeIndex,
+              selectedSubpathIndex,
+              event.target.value ? JSON.parse(event.target.value) : null,
+            )}
+          >
+            <option value="">None</option>
+            {svgCurveOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
         </div>}
         {selectedNode && matches("attribute") && <div className="properties-svg-attributes">
           {Object.entries(selectedNode.attributes).map(([attribute, value]) => <div className="properties-row editable" key={attribute}>
@@ -341,7 +459,31 @@ const SvgObjectControls = ({
             <button type="button" onClick={addAttribute} disabled={!newAttributeName.trim()}>Add</button>
           </div>
         </div>}
-        {!query?.needle && <p className="properties-svg-note">Select a path or one of its subpaths for spline-style canvas editing. Extract a subpath as a native Drawerator spline when it needs a score role or interaction; source editing remains available from the SVG type in Script.</p>}
+        {selectedNode && selectedStyleCascade?.matchedRules?.length > 0 && matches("style") && <details className="properties-svg-editor-section" open>
+          <summary><span>Matched styles</span><small>{selectedStyleCascade.matchedRules.length}</small></summary>
+          <div className="properties-children">
+            {selectedStyleCascade.matchedRules.map(rule => <div className="properties-svg-style-rule" key={`${rule.styleNodeIndex}-${rule.selector}`}>
+              <code>{rule.selector}</code>
+              {Object.entries(rule.declarations).map(([property, value]) => <div className="properties-row editable" key={property}>
+                <span>{property}</span>
+                <input
+                  type="text"
+                  value={value}
+                  onKeyDown={stopCanvasKeys}
+                  onKeyUp={stopCanvasKeys}
+                  onChange={event => updateSource(updateStructuredSvgStyleDeclaration(
+                    svg.source,
+                    rule.styleNodeIndex,
+                    rule.selector,
+                    property,
+                    event.target.value,
+                  ))}
+                />
+              </div>)}
+            </div>)}
+          </div>
+        </details>}
+        {!query?.needle && <p className="properties-svg-note">Select a path or subpath for canvas editing. Score roles can live directly on SVG nodes; extraction creates a separate native Drawerator spline. Canonical source remains editable from the SVG type in Script.</p>}
       </div>
     </details>
   );
@@ -366,7 +508,7 @@ const svgMatchesQuery = (element, query) => {
   if (!query?.needle) return true;
   const svg = normalizeSvgObject(element.customData.draweratorSvg);
   const analysis = analyzeSvgSource(svg.source);
-  return ["svg", "document", "name", "width", "height", "viewbox", "geometry", "element", "attribute", svg.name,
+  return ["svg", "document", "name", "width", "height", "viewbox", "geometry", "element", "attribute", "style", "animation", svg.name,
     ...analysis.nodes.flatMap(node => [node.tag, node.id, node.label, ...Object.keys(node.attributes), ...Object.values(node.attributes)]),
   ].some(value => String(value || "").toLowerCase().includes(query.needle));
 };
@@ -387,11 +529,17 @@ const svgFieldCount = element => {
 
 const PropertiesPanel = memo(function PropertiesPanel({
   elements = [],
+  availableElements = elements,
   selectedSvgNode = null,
   onChange,
   onRename,
   onSelectSvgNode,
   onExtractSvgSubpath,
+  onAssignSvgNodeRole,
+  onBindSvgNodeCurve,
+  onToggleSvgPathClosed,
+  onReverseSvgPath,
+  onDeleteSvgAnchor,
   svgJointConnectionCount = 0,
   svgJointDetachArmed = false,
   onDetachSvgJoint,
@@ -419,6 +567,32 @@ const PropertiesPanel = memo(function PropertiesPanel({
       + (svgMatchesQuery(element, query) ? svgFieldCount(element) : 0)
   ), 0), [elements, query]);
   const sharedPath = path => isSharedEditablePath(elements, path);
+  const svgCurveOptions = useMemo(() => (availableElements || []).flatMap(element => {
+    if (element?.isDeleted) return [];
+    if (element.customData?.iannix?.role === "curve") {
+      return [{
+        value: JSON.stringify({ kind: "element", elementId: element.id }),
+        label: element.customData.iannix.label || element.id,
+      }];
+    }
+    if (!isSvgObjectElement(element)) return [];
+    const svg = normalizeSvgObject(element.customData.draweratorSvg);
+    const nodes = analyzeSvgSource(svg.source).nodes;
+    return Object.entries(svg.metadataMirror?.nodes || {}).flatMap(([nodeId, data]) => {
+      if (data?.iannix?.role !== "curve") return [];
+      const node = nodes.find(candidate => candidate.draweratorId === nodeId);
+      const ref = {
+        kind: "svg-node",
+        elementId: element.id,
+        nodeId,
+        ...(data.subpathId !== undefined ? { subpathId: data.subpathId } : {}),
+      };
+      return [{
+        value: JSON.stringify(ref),
+        label: data.iannix.label || `${element.customData?.iannix?.label || svg.name} · ${node?.label || nodeId}`,
+      }];
+    });
+  }), [availableElements]);
 
   const beginRename = element => {
     setActiveObjectId(element.id);
@@ -479,6 +653,12 @@ const PropertiesPanel = memo(function PropertiesPanel({
                 selectedSvgNode={selectedSvgNode}
                 onSelectSvgNode={onSelectSvgNode}
                 onExtractSvgSubpath={onExtractSvgSubpath}
+                onAssignSvgNodeRole={onAssignSvgNodeRole}
+                onBindSvgNodeCurve={onBindSvgNodeCurve}
+                svgCurveOptions={svgCurveOptions}
+                onToggleSvgPathClosed={onToggleSvgPathClosed}
+                onReverseSvgPath={onReverseSvgPath}
+                onDeleteSvgAnchor={onDeleteSvgAnchor}
                 svgJointConnectionCount={svgJointConnectionCount}
                 svgJointDetachArmed={svgJointDetachArmed}
                 onDetachSvgJoint={onDetachSvgJoint}

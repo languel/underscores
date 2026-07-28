@@ -20,6 +20,9 @@ import {
   sweptPathsIntersect,
 } from "./iannixEngine.js";
 import { createBezierHostGeometry } from "./bezierGeometry.js";
+import { prepareSvgForStructuredEditing, updateSvgNodeData } from "./svgDocumentModel.js";
+import { normalizeSvgObject } from "./svgObject.js";
+import { svgNodeObjectRef } from "./draweratorObjectRef.js";
 
 const line = (id, points, iannix = null) => {
   const xs = points.map(point => point[0]);
@@ -470,4 +473,36 @@ test("independent cursor latches allow multiple cursors to voice one trigger", (
     },
   );
   assert.deepEqual(earlyReentry.entered, []);
+});
+
+test("a native cursor can use an SVG subpath directly as its support curve", () => {
+  const prepared = prepareSvgForStructuredEditing(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 20"><path d="M0 10L100 10"/></svg>`,
+  );
+  const path = prepared.document.nodes.find(node => node.localName === "path");
+  const source = updateSvgNodeData(prepared.source, path.draweratorId, current => ({
+    ...current,
+    subpathId: "0",
+    iannix: createDefaultIannixData({ role: "curve", label: "SVG curve" }),
+  }));
+  const host = {
+    id: "svg-host",
+    type: "rectangle",
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 20,
+    angle: 0,
+    isDeleted: false,
+    customData: { draweratorSvg: normalizeSvgObject({ source, revision: 1 }) },
+  };
+  const cursor = line("cursor", [[0, 0], [4, 0]], createDefaultIannixData({
+    role: "cursor",
+    cursor: { curveRef: svgNodeObjectRef(host.id, path.draweratorId, 0) },
+  }));
+  const frame = evaluateScoreFrame([host, cursor], 2.5);
+  assert.equal(frame.cursors.length, 1);
+  assert.equal(frame.cursors[0].curveElement.customData.draweratorSvgHostId, host.id);
+  assert.ok(Math.abs(frame.cursors[0].transform.position[0] - 50) < 0.1);
+  assert.ok(Math.abs(frame.cursors[0].transform.position[1] - 10) < 0.1);
 });

@@ -25,11 +25,15 @@
     "@excalidraw/excalidraw": "^0.17.6",
     "@frankhommers/opencode-yolo": "^0.1.2",
     "@lezer/highlight": "^1.2.3",
+    "css-tree": "^3.2.1",
     "jzz": "^1.9.6",
     "jzz-synth-tiny": "^1.4.4",
     "p5": "^2.3.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "saxes": "^6.0.0",
+    "svg-pathdata": "^8.0.0",
+    "transformation-matrix": "^3.1.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.1",

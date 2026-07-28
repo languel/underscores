@@ -76,6 +76,8 @@ import { normalizeScriptType } from "./scriptTypes.js";
 import { P5FrameOverlay } from "./P5Frame.jsx";
 import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_EXAMPLES, P5_FRAME_STORAGE_KEY, canHostP5Frame, getP5Example, getP5HostElementType, isP5FrameElement, normalizeP5Frame, normalizeP5Scripts, normalizeP5SourceMode, reconcileP5ScriptsWithElements, validateP5Source } from "./p5Frame.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
+import { prepareSvgForStructuredEditing, updateSvgNodeData } from "./svgDocumentModel.js";
+import { executeSvgStructuredCommand } from "./svgCommandApi.js";
 import {
   DEFAULT_SVG_SOURCE,
   SVG_SCRIPT_STORAGE_KEY,
@@ -85,7 +87,7 @@ import {
   makeSvgCanvasForegroundAdaptive,
   normalizeSvgObject,
   normalizeSvgScripts,
-  updateSvgNodeAttribute,
+  updateStructuredSvgNodeAttribute,
 } from "./svgObject.js";
 import {
   getEditableSvgPathNodes,
@@ -100,6 +102,7 @@ import {
   serializeSvgPathGeometry,
   worldPointToSvg,
 } from "./svgPathGeometry.js";
+import { getSvgNodeTransform, invertSvgTransform } from "./svgTransform.js";
 import { downloadCanvasAsPng, exportDraweratorPng } from "./p5Export.js";
 import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
@@ -2262,6 +2265,7 @@ function App() {
   const [svgPathSelectedAnchor, setSvgPathSelectedAnchor] = useState(null);
   const [svgDetachedEndpoint, setSvgDetachedEndpoint] = useState(null);
   const svgPathDragRef = useRef(null);
+  const svgNodeDragRef = useRef(null);
   useEffect(() => {
     localStorage.setItem("drawerator_role_theme", JSON.stringify(roleTheme));
     if (!excalidrawAPI) return;
@@ -4147,7 +4151,7 @@ function App() {
       for (const path of getEditableSvgPathNodes(svg.source)) {
         for (const subpath of path.subpaths || []) {
           if (!subpath.valid) continue;
-          const detailed = getSvgPathWorldDetailed(element, svg, subpath.geometry).map(entry => ({
+          const detailed = getSvgPathWorldDetailed(element, svg, subpath.geometry, path.transform).map(entry => ({
             ...entry,
             screen: mapCanvasToScreen(entry.point[0], entry.point[1]),
           }));
@@ -4180,7 +4184,7 @@ function App() {
     if (!hit || (!allowDistant && hit.screenDistance > 12)) return false;
     event.preventDefault?.();
     event.stopPropagation?.();
-    const controls = getSvgPathWorldControls(hit.element, hit.svg, hit.subpath.geometry);
+    const controls = getSvgPathWorldControls(hit.element, hit.svg, hit.subpath.geometry, hit.path.transform);
     let selectedAnchor = Math.min(hit.segmentIndex + 1, controls.length - 1);
     controls.forEach((control, index) => {
       const screen = mapCanvasToScreen(control.anchor[0], control.anchor[1]);
@@ -4213,7 +4217,7 @@ function App() {
   const findSvgPathControlAtPointer = (context, clientX, clientY) => {
     if (!context?.subpath?.valid) return null;
     let nearest = null;
-    getSvgPathWorldControls(context.element, context.svg, context.subpath.geometry).forEach((control, index) => {
+    getSvgPathWorldControls(context.element, context.svg, context.subpath.geometry, context.path.transform).forEach((control, index) => {
       [["anchor", control.anchor], ["in", control.in], ["out", control.out]].forEach(([part, world]) => {
         if (!world) return;
         const screen = mapCanvasToScreen(world[0], world[1]);
@@ -4279,7 +4283,7 @@ function App() {
     event.preventDefault();
     event.stopPropagation();
     const world = getCanvasCoords(event.clientX, event.clientY, "points");
-    const local = worldPointToSvg(context.element, context.svg, world);
+    const local = worldPointToSvg(context.element, context.svg, world, context.path.inverseTransform);
     const anchor = context.subpath.geometry.anchors[drag.anchorIndex];
     const value = drag.part === "anchor" ? local : [local[0] - anchor.x, local[1] - anchor.y];
     const geometry = updateBezierAnchor(context.subpath.geometry, drag.anchorIndex, drag.part, value, { breakHandles: event.altKey });
@@ -4304,6 +4308,106 @@ function App() {
     return true;
   };
 
+  const pointInPolygon = (point, polygon) => {
+    let inside = false;
+    for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index, index += 1) {
+      const currentPoint = polygon[index];
+      const previousPoint = polygon[previous];
+      const intersects = ((currentPoint[1] > point[1]) !== (previousPoint[1] > point[1]))
+        && point[0] < ((previousPoint[0] - currentPoint[0]) * (point[1] - currentPoint[1]))
+          / ((previousPoint[1] - currentPoint[1]) || Number.EPSILON) + currentPoint[0];
+      if (intersects) inside = !inside;
+    }
+    return inside;
+  };
+
+  const handleSvgNodePointerDown = event => {
+    if (!event.metaKey && !event.ctrlKey) return false;
+    if (!selectedSvgNode || svgPathEdit || event.button !== 0 || !excalidrawAPI) return false;
+    const element = excalidrawAPI.getSceneElements().find(candidate => (
+      candidate.id === selectedSvgNode.elementId && !candidate.isDeleted && isSvgObjectElement(candidate)
+    ));
+    if (!element) return false;
+    const svg = normalizeSvgObject(element.customData.draweratorSvg);
+    const prepared = prepareSvgForStructuredEditing(svg.source);
+    const node = prepared.document?.nodes?.[selectedSvgNode.nodeIndex];
+    if (prepared.error || !node || node.index === prepared.document.rootIndex) return false;
+    const outline = getSvgNodeWorldOutline(element, svg, prepared.source, node.index);
+    const world = getCanvasCoords(event.clientX, event.clientY);
+    if (!outline || !pointInPolygon(world, outline)) return false;
+    const parentTransform = Number.isInteger(node.parentIndex)
+      ? getSvgNodeTransform(prepared.document, node.parentIndex)
+      : null;
+    const inverseParentTransform = invertSvgTransform(parentTransform);
+    event.preventDefault();
+    event.stopPropagation();
+    svgNodeDragRef.current = {
+      elementId: element.id,
+      nodeIndex: node.index,
+      nodeId: node.draweratorId,
+      pointerId: event.pointerId,
+      source: prepared.source,
+      start: worldPointToSvg(element, svg, world, inverseParentTransform),
+      inverseParentTransform,
+      originalTransform: node.attributes.transform || "",
+      latestSource: prepared.source,
+    };
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+    return true;
+  };
+
+  const handleSvgNodePointerMove = event => {
+    const drag = svgNodeDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !excalidrawAPI) return false;
+    const element = excalidrawAPI.getSceneElements().find(candidate => (
+      candidate.id === drag.elementId && !candidate.isDeleted && isSvgObjectElement(candidate)
+    ));
+    if (!element) return false;
+    const svg = normalizeSvgObject(element.customData.draweratorSvg);
+    const world = getCanvasCoords(event.clientX, event.clientY, "points");
+    const local = worldPointToSvg(element, svg, world, drag.inverseParentTransform);
+    const dx = Number((local[0] - drag.start[0]).toFixed(4));
+    const dy = Number((local[1] - drag.start[1]).toFixed(4));
+    const transform = `${dx || dy ? `translate(${dx} ${dy})` : ""}${drag.originalTransform ? `${dx || dy ? " " : ""}${drag.originalTransform}` : ""}`;
+    const source = updateStructuredSvgNodeAttribute(drag.source, drag.nodeIndex, "transform", transform);
+    drag.latestSource = source;
+    event.preventDefault();
+    event.stopPropagation();
+    runSvgObjectSource({
+      source,
+      targetId: element.id,
+      name: svg.name,
+      scriptId: svg.scriptId,
+      commitToHistory: false,
+      select: true,
+    });
+    return true;
+  };
+
+  const handleSvgNodePointerUp = event => {
+    const drag = svgNodeDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || !excalidrawAPI) return false;
+    svgNodeDragRef.current = null;
+    const element = excalidrawAPI.getSceneElements().find(candidate => (
+      candidate.id === drag.elementId && !candidate.isDeleted && isSvgObjectElement(candidate)
+    ));
+    if (element) {
+      const svg = normalizeSvgObject(element.customData.draweratorSvg);
+      runSvgObjectSource({
+        source: drag.latestSource,
+        targetId: element.id,
+        name: svg.name,
+        scriptId: svg.scriptId,
+        commitToHistory: true,
+        select: true,
+      });
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget?.releasePointerCapture?.(event.pointerId);
+    return true;
+  };
+
   const handleCanvasPointerDown = (e) => {
     if (!excalidrawAPI) return;
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
@@ -4317,6 +4421,7 @@ function App() {
     if (e.target?.closest?.(".drawerator-embed-interactive")) return;
 
     if (handleSvgPathPointerDown(e)) return;
+    if (handleSvgNodePointerDown(e)) return;
     if (handleBezierPointerDown(e)) return;
 
     const targetElement = e.target;
@@ -4518,6 +4623,7 @@ function App() {
   const handleCanvasPointerMove = (e) => {
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
     if (handleSvgPathPointerMove(e)) return;
+    if (handleSvgNodePointerMove(e)) return;
     if (handleBezierPointerMove(e)) return;
     if (nativeLineGridPointsRef.current) {
       const state = excalidrawAPI?.getAppState();
@@ -5747,6 +5853,7 @@ function App() {
 
   const handleCanvasPointerUp = (e) => {
     if (handleSvgPathPointerUp(e)) return;
+    if (handleSvgNodePointerUp(e)) return;
     if (handleBezierPointerUp(e)) return;
     scheduleNativeGridQuantization();
     if (passiveStrokeCaptureRef.current && !isDrawingRef.current) {
@@ -7087,9 +7194,28 @@ function App() {
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
     { id: "script.svg.open", name: "Open SVG Script Editor /svg", aliases: ["/svg", "SVG editor", "SVG script"], category: "SVG", record: "presentation", action: () => toggleDraweratorPanel("script", { scriptType: "svg" }) },
     { id: "svg.object.run", name: "Run SVG Source /svg run", aliases: ["/svg run", "Create SVG object", "Run SVG source"], category: "SVG", args: { source: "SVG markup", name: "string?", elementId: "string?", scriptId: "string?" }, ai: { expose: true, description: "Create a first-class SVG canvas object from complete raw <svg> markup, or update elementId when it already identifies an SVG object. The source remains editable and is not flattened into native paths.", example: { name: "Wave mark", source: "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 320 180\"><path d=\"M20 90 C80 20 140 160 300 90\" fill=\"none\" stroke=\"#1769e0\" stroke-width=\"5\"/></svg>" } }, action: (_api, args) => runSvgObjectSource(args) },
+    { id: "svg.document.get", name: "Get SVG Document", category: "SVG", args: { elementId: "string?" }, ai: { expose: true, description: "Read the canonical source and current revision of a first-class SVG document.", example: { elementId: "svg-host" } }, action: (_api, args) => executeCanvasSvgCommand("svg.document.get", args) },
+    { id: "svg.document.validate", name: "Validate SVG Document", category: "SVG", args: { elementId: "string?" }, ai: { expose: true, description: "Validate the canonical SVG document without changing it.", example: { elementId: "svg-host" } }, action: (_api, args) => executeCanvasSvgCommand("svg.document.validate", args) },
+    { id: "svg.document.patch", name: "Patch SVG Source Ranges", category: "SVG", args: { elementId: "string?", revision: "number", patches: "array" }, ai: { expose: true, description: "Apply non-overlapping revision-checked source-range patches that must leave a valid SVG document.", example: { elementId: "svg-host", revision: 2, patches: [{ start: 10, end: 10, text: " " }] } }, action: (_api, args) => executeCanvasSvgCommand("svg.document.patch", args) },
+    { id: "svg.node.list", name: "List SVG Nodes", category: "SVG", args: { elementId: "string?" }, ai: { expose: true, description: "List the stable addressable nodes in a first-class SVG object.", example: { elementId: "svg-host" } }, action: (_api, args) => executeCanvasSvgCommand("svg.node.list", args) },
+    { id: "svg.node.patch", name: "Patch SVG Node", category: "SVG", args: { elementId: "string?", revision: "number", nodeId: "string", attributes: "object" }, ai: { expose: true, description: "Apply a revision-checked attribute patch to one stable SVG node.", example: { elementId: "svg-host", revision: 2, nodeId: "svg-node-id", attributes: { stroke: "#1769e0" } } }, action: (_api, args) => executeCanvasSvgCommand("svg.node.patch", args) },
+    { id: "svg.node.create", name: "Create SVG Node", category: "SVG", args: { elementId: "string?", revision: "number", parentId: "string?", beforeId: "string?", markup: "string" }, ai: { expose: true, description: "Insert one SVG node without reserializing the surrounding source.", example: { elementId: "svg-host", revision: 2, markup: "<circle cx=\"20\" cy=\"20\" r=\"8\"/>" } }, action: (_api, args) => executeCanvasSvgCommand("svg.node.create", args) },
+    { id: "svg.node.delete", name: "Delete SVG Node", category: "SVG", args: { elementId: "string?", revision: "number", nodeId: "string" }, ai: { expose: true, description: "Delete one stable SVG node using a revision-checked structured edit.", example: { elementId: "svg-host", revision: 2, nodeId: "svg-node-id" } }, action: (_api, args) => executeCanvasSvgCommand("svg.node.delete", args) },
+    { id: "svg.node.reparent", name: "Reparent SVG Node", category: "SVG", args: { elementId: "string?", revision: "number", nodeId: "string", parentId: "string", beforeId: "string?" }, ai: { expose: true, description: "Move an SVG node under another group while preserving its authored markup.", example: { elementId: "svg-host", revision: 2, nodeId: "svg-node-id", parentId: "svg-group-id" } }, action: (_api, args) => executeCanvasSvgCommand("svg.node.reparent", args) },
+    { id: "svg.geometry.patchPath", name: "Patch SVG Path Geometry", category: "SVG", args: { elementId: "string?", revision: "number", nodeId: "string", d: "SVG path data" }, ai: { expose: true, description: "Replace one path node's d attribute through a revision-checked minimal patch.", example: { elementId: "svg-host", revision: 2, nodeId: "svg-node-id", d: "M0 0 C20 0 20 20 40 20" } }, action: (_api, args) => executeCanvasSvgCommand("svg.geometry.patchPath", args) },
+    { id: "svg.style.patchRule", name: "Patch SVG CSS Rule", category: "SVG", args: { elementId: "string?", revision: "number", styleNodeId: "string", selector: "string", property: "string", value: "string" }, ai: { expose: true, description: "Patch a declaration in its authored matched stylesheet rule.", example: { elementId: "svg-host", revision: 2, styleNodeId: "svg-style-id", selector: ".mark", property: "fill", value: "#1769e0" } }, action: (_api, args) => executeCanvasSvgCommand("svg.style.patchRule", args) },
+    { id: "svg.animation.list", name: "List SVG Animations", category: "SVG", args: { elementId: "string?" }, ai: { expose: true, description: "Read the common SMIL, CSS, and Looom timing graph for an SVG object.", example: { elementId: "svg-host" } }, action: (_api, args) => executeCanvasSvgCommand("svg.animation.list", args) },
+    { id: "svg.animation.upsert", name: "Create or Patch SVG Animation", category: "SVG", args: { elementId: "string?", revision: "number", parentId: "string?", animationNodeId: "string?", tag: "animate|set|animateTransform|animateMotion?", attributes: "object" }, ai: { expose: true, description: "Create a SMIL animation child or minimally patch an existing animation node.", example: { elementId: "svg-host", revision: 2, parentId: "svg-node-id", attributes: { attributeName: "opacity", values: "0;1", dur: "2s" } } }, action: (_api, args) => executeCanvasSvgCommand("svg.animation.upsert", args) },
+    { id: "svg.animation.delete", name: "Delete SVG Animation", category: "SVG", args: { elementId: "string?", revision: "number", animationNodeId: "string" }, ai: { expose: true, description: "Delete one SMIL animation node without reserializing its SVG document.", example: { elementId: "svg-host", revision: 2, animationNodeId: "svg-animation-id" } }, action: (_api, args) => executeCanvasSvgCommand("svg.animation.delete", args) },
+    { id: "svg.binding.attach", name: "Attach SVG Node Binding", category: "SVG", args: { elementId: "string?", revision: "number", nodeId: "string", binding: "object" }, ai: { expose: true, description: "Attach a stable Drawerator binding to an SVG node's embedded metadata.", example: { elementId: "svg-host", revision: 2, nodeId: "svg-node-id", binding: { id: "follow", target: { kind: "element", elementId: "curve-id" } } } }, action: (_api, args) => executeCanvasSvgCommand("svg.binding.attach", args) },
+    { id: "svg.binding.detach", name: "Detach SVG Node Binding", category: "SVG", args: { elementId: "string?", revision: "number", nodeId: "string", bindingId: "string" }, ai: { expose: true, description: "Remove a Drawerator binding from embedded SVG metadata.", example: { elementId: "svg-host", revision: 2, nodeId: "svg-node-id", bindingId: "follow" } }, action: (_api, args) => executeCanvasSvgCommand("svg.binding.detach", args) },
+    { id: "svg.node.role.assign", name: "Assign SVG Node Score Role", category: "SVG", args: { elementId: "string", nodeIndex: "number", subpathIndex: "number?", role: "curve|cursor|trigger|none" }, ai: { expose: true, description: "Attach a Curve, Cursor, or Trigger role directly to an SVG node or subpath.", example: { elementId: "svg-host", nodeIndex: 3, subpathIndex: 0, role: "curve" } }, action: (_api, args) => assignSvgNodeRole(args.elementId, Number(args.nodeIndex), Number.isInteger(args.subpathIndex) ? args.subpathIndex : null, args.role === "none" ? null : args.role) },
     { id: "svg.object.fromSelection", name: "Convert Selection to SVG Object /svg from selection", aliases: ["/svg from selection", "Convert selection to SVG object"], category: "SVG", action: () => convertSelectionToSvgObject() },
     { id: "svg.path.edit", name: "Edit Selected SVG Path /svg path edit", aliases: ["/svg path edit", "Edit SVG path"], category: "SVG", action: () => enterSvgPathEditMode() },
     { id: "svg.path.cubic", name: "Convert Selected SVG Path to Cubic /svg path cubic", aliases: ["/svg path cubic", "Convert SVG path to cubic"], category: "SVG", action: () => convertSelectedSvgPathToCubic() },
+    { id: "svg.path.toggleClosed", name: "Open or Close Selected SVG Path", category: "SVG", action: () => toggleSelectedSvgPathClosed() },
+    { id: "svg.path.reverse", name: "Reverse Selected SVG Path", category: "SVG", action: () => reverseSelectedSvgPath() },
+    { id: "svg.path.anchor.delete", name: "Delete Selected SVG Anchor", category: "SVG", action: () => deleteSelectedSvgAnchor() },
     { id: "svg.copy.selection", name: "Copy Selection as Editable SVG /copy svg", aliases: ["/copy svg", "Copy selection SVG"], category: "Canvas", action: () => copySelectionAsSvg() },
     { id: "svg.paste.editable", name: "Paste SVG as Editable Paths /paste svg", aliases: ["/paste svg", "Paste SVG as paths"], category: "Canvas", action: () => pasteSvgAsEditable() },
     { id: "export.board.png", name: "Export Board as PNG /export board", aliases: ["/export board", "/export png", "Export Drawerator board"], category: "Canvas", action: () => void exportDraweratorBoardPng() },
@@ -7650,7 +7776,7 @@ function App() {
       const nextPathSource = Number.isInteger(connectedAnchorIndex)
         ? replaceSvgPathSubpathWithConnectedEndpoint(node.attributes.d, subpathIndex, connectedAnchorIndex, geometry)
         : replaceSvgPathSubpath(node.attributes.d, subpathIndex, geometry);
-      const source = updateSvgNodeAttribute(svg.source, nodeIndex, "d", nextPathSource || pathSource);
+      const source = updateStructuredSvgNodeAttribute(svg.source, nodeIndex, "d", nextPathSource || pathSource);
       const nextSvg = normalizeSvgObject({
         ...svg,
         source,
@@ -7898,7 +8024,7 @@ function App() {
     const context = getSvgPathEditContext({ elementId, nodeIndex, subpathIndex });
     if (!context?.subpath?.valid) throw new Error(context?.subpath?.error || "Select an editable SVG subpath first.");
 
-    const worldAnchors = getSvgSubpathWorldAnchors(context.element, context.svg, context.subpath.geometry);
+    const worldAnchors = getSvgSubpathWorldAnchors(context.element, context.svg, context.subpath.geometry, context.path.transform);
     if (worldAnchors.length < 2) throw new Error("The selected subpath needs at least two anchors.");
     const host = createBezierHostGeometry(worldAnchors, context.subpath.geometry.closed);
     const attributes = context.path.node.attributes || {};
@@ -7993,11 +8119,98 @@ function App() {
     return element;
   };
 
+  const assignSvgNodeRole = (elementId, nodeIndex, subpathIndex, role = null, rolePatch = {}) => {
+    if (!excalidrawAPI) throw new Error("The canvas is not ready.");
+    if (![null, "curve", "cursor", "trigger"].includes(role)) throw new Error(`Unsupported score role: ${role}.`);
+    const scene = excalidrawAPI.getSceneElementsIncludingDeleted();
+    const element = scene.find(candidate => candidate.id === elementId && !candidate.isDeleted && isSvgObjectElement(candidate));
+    if (!element) throw new Error("The SVG object was not found.");
+    const svg = normalizeSvgObject(element.customData.draweratorSvg);
+    const prepared = prepareSvgForStructuredEditing(svg.source);
+    if (prepared.error) throw new Error(prepared.error);
+    const node = prepared.document.nodes[nodeIndex];
+    if (!node?.draweratorId) throw new Error("The selected SVG node cannot receive Drawerator data.");
+    const source = updateSvgNodeData(prepared.source, node.draweratorId, current => ({
+      ...current,
+      ...(Number.isInteger(subpathIndex) ? { subpathId: String(subpathIndex) } : {}),
+      iannix: normalizeIannixData({
+        ...(current.iannix || {}),
+        ...rolePatch,
+        role,
+        label: current.iannix?.label || node.label,
+        cursor: {
+          ...(current.iannix?.cursor || {}),
+          ...(rolePatch.cursor || {}),
+        },
+      }),
+    }));
+    const nextSvg = normalizeSvgObject({ ...svg, source, revision: svg.revision + 1 });
+    const updated = {
+      ...element,
+      version: (element.version || 0) + 1,
+      versionNonce: Math.floor(Math.random() * 0x7fffffff),
+      updated: Date.now(),
+      customData: { ...(element.customData || {}), draweratorSvg: nextSvg },
+    };
+    excalidrawAPI.updateScene({
+      elements: scene.map(candidate => candidate.id === elementId ? updated : candidate),
+      commitToHistory: true,
+    });
+    if (svgEditorTargetId === elementId) {
+      setSvgScriptSource(nextSvg.source);
+      setSvgLoadedRevision(nextSvg.revision);
+    }
+    setSelectedSvgNode({ elementId, nodeIndex, nodeId: node.draweratorId, ...(Number.isInteger(subpathIndex) ? { subpathIndex } : {}) });
+    setModifierUpdateNonce(nonce => nonce + 1);
+    setSceneExchangeStatus(role
+      ? `Assigned ${role} directly to ${node.label}${Number.isInteger(subpathIndex) ? ` subpath ${subpathIndex + 1}` : ""}.`
+      : `Cleared the direct SVG score role from ${node.label}.`);
+    return { elementId, nodeId: node.draweratorId, subpathId: subpathIndex, role };
+  };
+
   const convertSelectedSvgPathToCubic = () => {
     const edit = enterSvgPathEditMode();
     const context = getSvgPathEditContext(edit);
     if (!context?.subpath?.valid) throw new Error("The selected SVG subpath could not be converted.");
     return commitSvgPathGeometry(context.element.id, context.path.node.index, context.subpath.index, context.subpath.geometry);
+  };
+
+  const toggleSelectedSvgPathClosed = () => {
+    const context = getSvgPathEditContext();
+    if (!context?.subpath?.valid) throw new Error("Select an editable SVG subpath first.");
+    const geometry = normalizeBezierGeometry({
+      ...context.subpath.geometry,
+      closed: !context.subpath.geometry.closed,
+    });
+    return commitSvgPathGeometry(context.element.id, context.path.node.index, context.subpath.index, geometry);
+  };
+
+  const reverseSelectedSvgPath = () => {
+    const context = getSvgPathEditContext();
+    if (!context?.subpath?.valid) throw new Error("Select an editable SVG subpath first.");
+    const geometry = normalizeBezierGeometry({
+      ...context.subpath.geometry,
+      anchors: [...context.subpath.geometry.anchors].reverse().map(value => ({
+        ...value,
+        in: value.out ? [...value.out] : null,
+        out: value.in ? [...value.in] : null,
+      })),
+    });
+    setSvgPathSelectedAnchor(Number.isInteger(svgPathSelectedAnchor)
+      ? geometry.anchors.length - 1 - svgPathSelectedAnchor
+      : 0);
+    return commitSvgPathGeometry(context.element.id, context.path.node.index, context.subpath.index, geometry);
+  };
+
+  const deleteSelectedSvgAnchor = () => {
+    const context = getSvgPathEditContext();
+    if (!context?.subpath?.valid || !Number.isInteger(svgPathSelectedAnchor)) {
+      throw new Error("Select an SVG path anchor first.");
+    }
+    if (context.subpath.geometry.anchors.length <= 2) throw new Error("A path needs at least two anchors.");
+    const geometry = removeBezierAnchor(context.subpath.geometry, svgPathSelectedAnchor);
+    setSvgPathSelectedAnchor(Math.min(svgPathSelectedAnchor, geometry.anchors.length - 1));
+    return commitSvgPathGeometry(context.element.id, context.path.node.index, context.subpath.index, geometry);
   };
 
   const selectSvgObjectFromOverlay = (elementId, event) => {
@@ -8580,6 +8793,7 @@ function App() {
     const priorSvg = existing ? normalizeSvgObject(existing.customData.draweratorSvg) : null;
     const resolvedName = String(name || priorSvg?.name || "Untitled SVG").trim() || "Untitled SVG";
     const draweratorSvg = normalizeSvgObject({
+      ...(priorSvg || {}),
       source: analysis.source,
       name: resolvedName,
       scriptId: String(scriptId || priorSvg?.scriptId || ""),
@@ -8647,6 +8861,53 @@ function App() {
       name: resolvedName,
       revision: draweratorSvg.revision,
       message: existing ? `Updated “${resolvedName}”.` : `Created “${resolvedName}” from SVG source.`,
+    };
+  };
+
+  const executeCanvasSvgCommand = (command, args = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const selectedSvg = getSelectedElements().find(isSvgObjectElement);
+    const element = elements.find(candidate => (
+      !candidate.isDeleted
+      && isSvgObjectElement(candidate)
+      && candidate.id === (args.elementId || selectedSvg?.id)
+    ));
+    if (!element) throw new Error("Select an SVG object or provide elementId.");
+    const svg = normalizeSvgObject(element.customData.draweratorSvg);
+    const commandResult = executeSvgStructuredCommand(
+      { source: svg.source, revision: svg.revision },
+      command,
+      args,
+    );
+    if (commandResult.source !== svg.source) {
+      runSvgObjectSource({
+        source: commandResult.source,
+        name: svg.name,
+        targetId: element.id,
+        scriptId: svg.scriptId,
+        commitToHistory: true,
+        select: true,
+      });
+    }
+    return {
+      elementId: element.id,
+      source: commandResult.source,
+      revision: commandResult.revision,
+      valid: commandResult.valid,
+      error: commandResult.error || "",
+      changedNodeIds: commandResult.changedNodeIds || [],
+      nodes: commandResult.nodes?.map(node => ({
+        nodeId: node.draweratorId || null,
+        index: node.index,
+        parentIndex: node.parentIndex,
+        tag: node.tag,
+        id: node.id,
+        label: node.label,
+        attributes: node.attributes,
+      })),
+      timing: commandResult.timing,
     };
   };
 
@@ -13133,13 +13394,13 @@ function App() {
   const renderSvgPathEditorOverlay = () => {
     const context = getSvgPathEditContext();
     if (!context?.path?.valid) return null;
-    const controls = getSvgPathWorldControls(context.element, context.svg, context.subpath.geometry).map(control => ({
+    const controls = getSvgPathWorldControls(context.element, context.svg, context.subpath.geometry, context.path.transform).map(control => ({
       ...control,
       anchor: mapCanvasToScreen(control.anchor[0], control.anchor[1]),
       in: control.in ? mapCanvasToScreen(control.in[0], control.in[1]) : null,
       out: control.out ? mapCanvasToScreen(control.out[0], control.out[1]) : null,
     }));
-    const pathPoints = getSvgPathWorldPoints(context.element, context.svg, context.subpath.geometry)
+    const pathPoints = getSvgPathWorldPoints(context.element, context.svg, context.subpath.geometry, context.path.transform)
       .map(point => mapCanvasToScreen(point[0], point[1]));
     const PathOutline = context.subpath.geometry.closed ? "polygon" : "polyline";
     return (
@@ -15652,10 +15913,27 @@ function App() {
           >
             <PropertiesPanel
               elements={(excalidrawAPI?.getSceneElementsIncludingDeleted() || []).filter(element => selectedElementIds[element.id])}
+              availableElements={(excalidrawAPI?.getSceneElementsIncludingDeleted() || []).filter(element => !element.isDeleted)}
               selectedSvgNode={selectedSvgNode}
               onChange={updateSceneObjectProperty}
               onSelectSvgNode={selectSvgNode}
               onExtractSvgSubpath={extractSvgSubpathToDrawerator}
+              onAssignSvgNodeRole={assignSvgNodeRole}
+              onBindSvgNodeCurve={(elementId, nodeIndex, subpathIndex, curveRef) => assignSvgNodeRole(
+                elementId,
+                nodeIndex,
+                subpathIndex,
+                "cursor",
+                {
+                  cursor: {
+                    curveRef,
+                    curveId: curveRef?.kind === "element" ? curveRef.elementId : null,
+                  },
+                },
+              )}
+              onToggleSvgPathClosed={toggleSelectedSvgPathClosed}
+              onReverseSvgPath={reverseSelectedSvgPath}
+              onDeleteSvgAnchor={deleteSelectedSvgAnchor}
               svgJointConnectionCount={getSelectedSvgJointConnections().length}
               svgJointDetachArmed={isSelectedSvgJointDetachArmed()}
               onDetachSvgJoint={detachSelectedSvgJoint}
@@ -16245,8 +16523,10 @@ function App() {
         <SvgObjectOverlay
           elements={svgOverlayScene.elements}
           appState={svgOverlayScene.appState}
+          time={scoreTime}
           onSelect={selectSvgObjectFromOverlay}
           onEditPath={editSvgPathFromOverlay}
+          onEditNode={(elementId, nodeIndex) => selectSvgNode(elementId, nodeIndex)}
         />
 
         <GlobalGridCanvas

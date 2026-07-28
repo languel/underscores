@@ -1,51 +1,216 @@
-# SVG Object Architecture
+# First-Class SVG Editor and Runtime
 
 Last updated: 2026-07-28
 
-## Phase-one contract
+## Canonical document contract
 
-An SVG object is an ordinary Excalidraw rectangle host with versioned `customData.draweratorSvg`. The host supplies canonical scene identity, bounds, transform, opacity, selection, Outliner order, undo/redo, and scene persistence. Its SVG document is the authored visual source:
+An SVG object remains an ordinary transparent Excalidraw host so it participates in scene
+selection, transforms, opacity, ordering, history, copy/paste, and persistence. The authored SVG
+source is canonical. Visual editing, Properties, scripts, animation inspection, AI commands, and
+Drawerator bindings all patch that same source; the editor does not maintain a competing flattened
+scene graph.
+
+Version 2 of `customData.draweratorSvg` is:
 
 ```js
 {
-  version: 1,
+  version: 2,
+  documentId: "svg-document-…",
   name: "Untitled SVG",
-  source: "<svg ...>...</svg>",
-  revision: 1
+  source: "<svg …>…</svg>",
+  revision: 4,
+  runtime: {
+    clock: "transport",             // or "free"
+    trustedScripts: false,
+    allowNetwork: false,
+    allowForeignObjectInteraction: false
+  },
+  metadataMirror: {
+    version: 1,
+    sourceRevision: 4,
+    valid: true,
+    nodes: { /* rebuildable cache */ }
+  }
 }
 ```
 
-The host's native fill and stroke remain transparent. `SvgObjectOverlay` maps its scene bounds through the current Excalidraw camera and renders the source as an SVG data image. Resizing or rotating the host therefore transforms the authored document without rewriting its geometry.
+Version-1 hosts migrate when read. A raw source edit remains byte-for-byte authored source. The
+first structured edit performs one undoable normalization transaction that adds stable
+`data-drawerator-id` attributes to addressable nodes and, when needed, an embedded registry:
 
-## Editor and commands
+```xml
+<metadata data-drawerator="v1">
+  {"version":1,"nodes":{"svg-node-…":{"iannix":{"role":"curve"}}}}
+</metadata>
+```
 
-SVG is a type in Drawerator's existing Script panel alongside Brush, IanniX, and p5. It reuses the shared catalog, action toolbar, CodeMirror source editor, font-size control, import route, and theme-aware status treatment. The SVG profile uses HTML/XML syntax support plus SVG element, attribute, CSS, and SMIL completions. The adapter validates XML plus the root `<svg>` element. Play creates a new host; once a target exists, valid source changes update it automatically after a short debounce. Invalid or incomplete edits report the validation error and leave the last valid canvas render intact. Manual Play remains an explicit history checkpoint.
+Authored `id` attributes are never replaced. The embedded registry is canonical for Drawerator
+node data; the host mirror is an indexed cache keyed to the SVG revision and can always be rebuilt.
+Comments, processing instructions, whitespace, namespaces, unsupported elements, and unknown
+metadata outside a changed range survive normal edits.
 
-Visual editing has three related levels. A normal click selects the transparent native host through the SVG overlay and exposes Excalidraw's transform handles. Command-click or double-click a visible path enters SVG path edit mode; anchors and cubic handles use the same gestures as Drawerator splines. A compound `<path>` is parsed into ordered `M…` subpaths, and hit-testing chooses the nearest supported child. Coincident open-subpath endpoints are treated as one authored joint, so dragging any member updates every endpoint at that coordinate while preserving each branch's relative handles. This includes multi-way junctions. **Detach joint** in Properties arms the selected endpoint for one independent drag; once its coordinates separate, ordinary SVG geometry records the disconnection without hidden persistent state. Other edits serialize only the active child back into the parent `d` attribute, leaving unrelated sibling command text unchanged. Double-click inserts an exact cubic anchor, Delete removes the selected anchor, Option-drag breaks smooth handle coupling, and Escape exits.
+## Lossless document model
 
-SVG-specific document dimensions, viewBox, element tree, and attributes are extensions of the existing Properties panel. The Outliner keeps the SVG as one scene layer but can expand it to show the source document's nested nodes. Compound path nodes expose virtual subpath children in both trees; they are editor identities, not manufactured XML or Excalidraw objects. Both panels share one component selection with the canvas. Selecting a supported subpath immediately exposes its spline-style editor, while selecting the compound parent, root, group, or supported primitive shows source-derived bounds. The Properties tree follows an Outliner selection and vice versa. Attribute controls patch the matching start tag in the canonical source, so unsupported elements, metadata, styles, animation, and formatting outside the changed tag survive.
+`SvgDocumentModel` uses four complementary representations:
 
-The selected subpath can cross the source/native boundary deliberately. **Extract spline** creates a canonical native Drawerator Bézier at the same world-space position, including host rotation, viewBox scaling, handles, closure, paint, width, and opacity where those values can be resolved. **Make curve**, **Make cursor**, and **Make trigger** perform that extraction and assign the requested score role in the same scene change. The SVG remains unchanged, and the new spline records its source element, node, and subpath indices in `customData.draweratorSvgSource` for later round-trip tooling. This provides the score interaction seam without flattening the rest of the document.
+- `saxes` validates namespace-aware XML and records exact source ranges.
+- `css-tree` parses style blocks, selectors, declarations, custom properties, and keyframes.
+- `svg-pathdata` accepts the complete SVG path grammar, including compact syntax, relative
+  commands, smooth commands, and elliptical arcs.
+- `transformation-matrix` composes nested SVG transforms and provides inverse matrices for
+  pointer-to-local conversion.
 
-`/svg` selects the SVG Script adapter. `svg.object.run` exposes Play to the command palette, slash commands, `window.drawerator`, and approved AI actions. `svg.object.fromSelection` uses Excalidraw's established `exportToSvg` path, marks the original selected elements deleted, and inserts one SVG host in the same undoable scene commit. Neutral foreground colors produced by that export are normalized to standard SVG `currentColor`; the overlay resolves that semantic color from Drawerator's live foreground setting, so converted marks follow light/dark themes while explicitly colored artwork remains literal. `/svg path edit` enters the first supported path and subpath, and `/svg path cubic` canonicalizes its line, quadratic, smooth, and cubic commands to an absolute cubic representation before editing.
+Structured edits are non-overlapping source patches. Full serialization is reserved for an
+explicit future Format/Normalize command. Malformed source stays in CodeMirror while the last valid
+canvas revision remains visible.
 
-The first direct-edit slice deliberately supports one path node at a time. It accepts `M`, `L`, `H`, `V`, `C`, `S`, `Q`, `T`, and `Z`; paths with arc commands, multiple subpaths, or a `transform` on themselves or an ancestor remain source-editable but must be converted before direct canvas editing. Source-tree bounds are available for paths, rectangles, images, circles, ellipses, lines, polylines, polygons, and transform-free groups; unsupported nodes remain selectable and editable from their raw attributes/source even when they have no canvas bounds overlay.
+Stable cross-system references are either:
 
-## Hierarchy boundary
+```js
+{ kind: "element", elementId }
+{ kind: "svg-node", elementId, nodeId, subpathId? }
+```
 
-Drawerator maintains two related hierarchies without conflating them:
+Legacy cursor `curveId` links continue to serialize, while `curveRef` is authoritative when
+present. Native and SVG-node geometry enter IanniX through the same provider boundary, allowing an
+SVG subpath to be a Curve, Cursor, or Trigger without extracting a proxy object.
 
-- The scene hierarchy owns objects, groups, nesting, paint order, transforms, visibility, locking, selection, and history.
-- An SVG object's document hierarchy owns its `<svg>`, `<g>`, `<path>`, and other authored nodes inside one scene object.
+## Editing workflow
 
-The expandable SVG rows in Outliner expose the second hierarchy now, including virtual children for compound path subpaths. They do not manufacture separate Excalidraw objects for every source node or subpath, so source CSS, inheritance, definitions, metadata, and animation remain intact. Only an explicit extraction creates a first-class native Drawerator spline. General scene grouping and nested transforms can evolve independently and later host an SVG object exactly like any other scene object; it is not a prerequisite for SVG hit-testing or path editing.
+SVG source lives in the shared CodeMirror Script panel. Valid changes compile to the canvas after a
+short debounce; Play creates the first host or records an explicit history checkpoint. Editor
+focus owns text, shortcut, copy, and paste events before Excalidraw sees them.
 
-## Exchange and trust boundary
+A normal click selects the SVG host. Double-click or Command-click enters component mode and targets
+the rendered SVG node, not the transparent host rectangle. Paths and compound-path subpaths expose
+the spline editor:
 
-Complete scene JSON and `.excalidraw` files already preserve unknown `customData`, so SVG documents survive the normal Drawerator scene route. Copying one SVG object as SVG uses its authored document rather than exporting the transparent native host. Pasting ordinary SVG still takes the complementary path: it becomes native editable Drawerator geometry.
+- Drag an anchor or handle to edit in the node's local coordinate system.
+- Option-drag breaks smooth handle coupling.
+- Double-click a segment inserts an exact cubic anchor.
+- Delete removes the selected anchor.
+- Open/Close and Reverse are explicit Properties/command actions.
+- Coincident subpath endpoints move as one joint; **Detach joint** is required before separating a
+  connected branch.
+- Arc, quadratic, smooth, horizontal/vertical, relative, closed, and compact commands are accepted
+  and converted to editable absolute cubic geometry only when that path is visually changed.
+- Nested `translate`, `scale`, `rotate`, `skew`, and `matrix` transforms remain authored; pointer
+  movement is mapped through their inverse CTM rather than flattening them.
 
-The overlay uses an SVG image rather than injecting markup into the application DOM. CSS and declarative SMIL animation work inside that image. `<script>` content is preserved as author data but does not execute. Executable SVG JavaScript requires an explicit trusted runtime design comparable to IanniX/p5, including lifecycle, permissions, error isolation, and deterministic scene mutation.
+Properties and Outliner share the selected SVG node. They expose the authored tree, virtual compound
+subpaths, document attributes, geometry actions, matched CSS declarations, animation lanes, runtime
+policy, and embedded Drawerator data. Matched stylesheet declarations are patched in their existing
+rule instead of silently becoming inline styles.
 
-## Current compositor boundary
+Selected non-root groups and primitives expose their computed bounds. Command-dragging inside that
+outline writes a local translation before the node's existing transform; pointer deltas are mapped
+through the inverse parent transform, so transformed ancestors do not cause drift or flattening.
 
-SVG hosts share the canonical scene order and are ordered correctly relative to other SVG hosts, but the DOM overlay sits above Excalidraw's native canvas. A source-preserving SVG therefore cannot yet be interleaved between two native objects, and whole-board raster/vector export does not yet composite live SVG overlays. The next compositor phase should consume the same `draweratorSvg` payload so this data model and editor do not need to change.
+Extraction remains explicit: **Extract spline**, **Extract as curve**, **Extract as cursor**, and
+**Extract as trigger** create native canonical Béziers at the same world transform. **Assign curve**,
+**Assign cursor**, and **Assign trigger** instead attach the role directly to the selected SVG
+subpath through embedded metadata.
+
+## Rendering, animation, and Looom
+
+Normal rendering uses a script-free Shadow DOM document. Before insertion, executable scripts,
+event attributes, interactive `foreignObject` content, CSS imports, and remote resources are made
+inert without modifying canonical source. The live SVG DOM provides rendered-node hit testing,
+computed styling, SVG CTMs, SMIL seeking, and Web Animations inspection.
+
+Drawerator transport is the default master clock. SMIL is sought with
+`SVGSVGElement.setCurrentTime()` and CSS animations are sought through the Web Animations API.
+Selecting **Free run** lets that SVG use its own clock.
+
+The timing graph recognizes:
+
+- SMIL `animate`, `set`, `animateTransform`, `animateMotion`, and `mpath`
+- CSS `@keyframes`, longhand animation properties, and animation shorthand
+- Drawerator metadata automation lanes
+- Looom thread/frame groups and their speed, offset, play-mode, latch, mask, blend, and pressure
+  custom properties
+
+Looom is treated as an SVG dialect, not a separate renderer. Existing Looom SVGs remain valid
+source and retain style blocks, masks, blend modes, thread/frame hierarchy, and custom properties.
+The implementation was informed by
+[mattdesl/looom-tools](https://github.com/mattdesl/looom-tools), especially its
+[parser](https://github.com/mattdesl/looom-tools/blob/main/src/parse-looom-svg.js) and
+[timeline fixture](https://github.com/mattdesl/looom-tools/blob/main/test/fixtures/timeline.svg).
+No source was copied; Looom Tools is MIT licensed.
+
+## Trusted scripts and security
+
+SVG JavaScript and event attributes are preserved but inert by default. Trusting scripts is an
+explicit per-document action in Properties. Trusted execution occurs in a sandboxed iframe without
+same-origin access and with a restrictive content-security policy. Network access is separately
+disabled by default.
+
+The iframe receives only a token-scoped `postMessage` bridge. It may emit allowed `log`, `cue`, or
+`midi` messages and receive transport seeks; malformed, unknown, or wrong-token messages are
+ignored. It cannot directly mutate the canonical SVG source or application DOM. Disabling trust
+returns immediately to the inert renderer.
+
+## Structured command API
+
+The command registry exposes revision-checked operations to UI, scripts, `window.drawerator`, slash
+commands, and approved AI actions:
+
+```text
+svg.document.get
+svg.document.validate
+svg.document.patch
+svg.node.list
+svg.node.create
+svg.node.patch
+svg.node.delete
+svg.node.reparent
+svg.geometry.patchPath
+svg.style.patchRule
+svg.animation.list
+svg.animation.upsert
+svg.animation.delete
+svg.binding.attach
+svg.binding.detach
+svg.node.role.assign
+```
+
+Structured writes require the current SVG revision. A stale write fails with
+`SVG_STALE_REVISION`; it never overwrites newer source. Results include the new revision,
+changed-node IDs, and the parsed document.
+
+## Exchange and compatibility
+
+**From selection** converts native geometry to a source-preserving SVG at the same world position in
+one history change. Neutral foreground marks become `currentColor`, so they follow Drawerator's
+theme; deliberate colors stay literal. Copying an SVG host returns its authored SVG. Pasting an SVG
+can still use the existing native editable-path import route.
+
+Unsupported and future SVG/CSS constructs remain renderable and source-editable. The visual editor
+never discards or flattens markup solely because no specialized control exists.
+
+## Verification gate
+
+The SVG test corpus covers no-op source preservation, minimal patches, namespaces, malformed
+drafts, CSS rules and variables, the complete path grammar including arcs, nested transform stacks,
+metadata migration, stable references, IanniX SVG-node roles, animation clocks, Looom timing,
+trusted-runtime containment, and stale revision rejection.
+
+Before release, run:
+
+```bash
+npm test
+npm run build
+npm run build:single
+git diff --check
+```
+
+Browser acceptance must additionally cover direct hit testing, transformed path editing,
+source/visual synchronization, keyboard ownership, undo/redo, theme compliance, runtime seeking,
+role assignment, and scene reload.
+
+## Remaining compositor boundary
+
+SVG hosts share canonical scene order with native objects, but the current DOM renderer is still an
+overlay above Excalidraw's native canvas. True per-object native/SVG interleaving and time-specific
+PNG parity require the planned unified scene compositor. That compositor must reuse this canonical
+source, stable-node, security, and timing model rather than introduce a second SVG representation.

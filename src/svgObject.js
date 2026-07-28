@@ -1,6 +1,15 @@
+import {
+  SVG_DOCUMENT_SCHEMA_VERSION,
+  buildSvgMetadataMirror,
+  createSvgDocumentId,
+  normalizeSvgRuntimePolicy,
+  parseSvgDocument,
+  patchSvgNodeAttribute,
+  prepareSvgForStructuredEditing,
+} from "./svgDocumentModel.js";
+
 const NUMBER = "[-+]?(?:\\d*\\.\\d+|\\d+\\.?)(?:[eE][-+]?\\d+)?";
 const ATTRIBUTE = /([:\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
-const TAG = /<\s*(\/?)\s*([a-zA-Z][\w:-]*)([^>]*)>/g;
 
 export const DEFAULT_SVG_SOURCE = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180">
   <path id="wave" d="M20 90 C80 20 140 160 300 90" fill="none" stroke="#1769e0" stroke-width="5" stroke-linecap="round"/>
@@ -33,45 +42,19 @@ const parseViewBox = value => {
 };
 
 export const scanSvgNodes = source => {
-  const nodes = [];
-  const stack = [];
-  TAG.lastIndex = 0;
-  let match;
-  while ((match = TAG.exec(String(source || "")))) {
-    const closing = Boolean(match[1]);
-    const tag = match[2];
-    const tail = match[3] || "";
-    if (closing) {
-      const target = tag.toLowerCase();
-      while (stack.length && stack.at(-1).tag !== target) stack.pop();
-      if (stack.at(-1)?.tag === target) stack.pop();
-      continue;
-    }
-    const attributes = parseSvgAttributes(tail);
-    const index = nodes.length;
-    nodes.push({
-      index,
-      tag,
-      depth: stack.length,
-      parentIndex: stack.at(-1)?.index ?? null,
-      id: attributes.id || "",
-      label: `${tag}${attributes.id ? `#${attributes.id}` : ""}`,
-      attributes,
-      start: match.index,
-      end: TAG.lastIndex,
-    });
-    if (!/\/\s*$/.test(tail)) stack.push({ tag: tag.toLowerCase(), index });
-  }
-  return nodes;
+  return parseSvgDocument(String(source || "")).nodes.map(node => ({
+    ...node,
+    end: node.openEnd,
+  }));
 };
 
 export const analyzeSvgSource = source => {
-  const authored = typeof source === "string" ? source.trim() : "";
-  const rootMatch = authored.match(/<svg\b([^>]*)>/i);
-  if (!authored || !rootMatch || !/<\/svg\s*>/i.test(authored)) {
+  const authored = typeof source === "string" ? source : "";
+  const document = parseSvgDocument(authored);
+  if (!authored.trim() || !document.valid) {
     return {
       valid: false,
-      error: "Source must contain one complete <svg> document.",
+      error: document.error || "Source must contain one complete <svg> document.",
       source: authored,
       width: 320,
       height: 180,
@@ -83,9 +66,9 @@ export const analyzeSvgSource = source => {
   }
 
   if (typeof DOMParser !== "undefined") {
-    const document = new DOMParser().parseFromString(authored, "image/svg+xml");
-    const parserError = document.querySelector("parsererror");
-    if (parserError || document.documentElement?.localName?.toLowerCase() !== "svg") {
+    const domDocument = new DOMParser().parseFromString(authored, "image/svg+xml");
+    const parserError = domDocument.querySelector("parsererror");
+    if (parserError || domDocument.documentElement?.localName?.toLowerCase() !== "svg") {
       return {
         valid: false,
         error: parserError?.textContent?.split("\n")[0] || "The SVG document is not valid XML.",
@@ -100,14 +83,14 @@ export const analyzeSvgSource = source => {
     }
   }
 
-  const rootAttributes = parseSvgAttributes(rootMatch[1]);
+  const rootAttributes = document.root?.attributes || {};
   const authoredViewBox = parseViewBox(rootAttributes.viewBox);
   const authoredWidth = parseLength(rootAttributes.width);
   const authoredHeight = parseLength(rootAttributes.height);
   const width = clampDimension(authoredWidth ?? authoredViewBox?.[2] ?? 320);
   const height = clampDimension(authoredHeight ?? authoredViewBox?.[3] ?? 180);
   const viewBox = authoredViewBox || [0, 0, width, height];
-  const nodes = scanSvgNodes(authored);
+  const nodes = document.nodes;
 
   return {
     valid: true,
@@ -120,6 +103,8 @@ export const analyzeSvgSource = source => {
     nodes,
     nodeCount: nodes.length,
     hasScript: /<script\b/i.test(authored),
+    styles: document.styles,
+    duplicateDraweratorIds: document.duplicateDraweratorIds,
   };
 };
 
@@ -127,15 +112,24 @@ export const normalizeSvgObject = value => {
   const raw = value && typeof value === "object" ? value : {};
   const analysis = analyzeSvgSource(typeof raw.source === "string" ? raw.source : DEFAULT_SVG_SOURCE);
   const fallback = analysis.valid ? analysis : analyzeSvgSource(DEFAULT_SVG_SOURCE);
+  const revision = Math.max(0, finite(raw.revision, 0));
   return {
+    version: SVG_DOCUMENT_SCHEMA_VERSION,
+    documentId: typeof raw.documentId === "string" && raw.documentId.trim()
+      ? raw.documentId.trim()
+      : createSvgDocumentId(fallback.source),
     source: fallback.source,
     name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : "Untitled SVG",
     scriptId: typeof raw.scriptId === "string" ? raw.scriptId : "",
-    revision: Math.max(0, finite(raw.revision, 0)),
+    revision,
     width: fallback.width,
     height: fallback.height,
     viewBox: [...fallback.viewBox],
     nodeCount: fallback.nodeCount,
+    runtime: normalizeSvgRuntimePolicy(raw.runtime),
+    metadataMirror: raw.metadataMirror?.sourceRevision === revision
+      ? structuredClone(raw.metadataMirror)
+      : buildSvgMetadataMirror(fallback.source, revision),
   };
 };
 
@@ -168,24 +162,30 @@ export const shouldRenderSvgObject = element => Boolean(
   && isSvgObjectElement(element)
 );
 
-const escapeAttribute = value => String(value).replaceAll("&", "&amp;").replaceAll("\"", "&quot;");
-
 export const updateSvgNodeAttribute = (source, nodeIndex, name, value) => {
-  const nodes = scanSvgNodes(source);
-  const node = nodes[nodeIndex];
-  const attributeName = String(name || "").trim();
-  if (!node || !/^[A-Za-z_][:\w.-]*$/.test(attributeName)) return String(source || "");
-  const tagSource = String(source).slice(node.start, node.end);
-  const pattern = new RegExp(`(\\s)${attributeName.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+)`, "i");
-  let nextTag;
-  if (value === "" || value === null || value === undefined) {
-    nextTag = tagSource.replace(pattern, "");
-  } else if (pattern.test(tagSource)) {
-    nextTag = tagSource.replace(pattern, `$1${attributeName}="${escapeAttribute(value)}"`);
-  } else {
-    nextTag = tagSource.replace(/(\s*\/?>)$/, ` ${attributeName}="${escapeAttribute(value)}"$1`);
+  try {
+    return patchSvgNodeAttribute(source, nodeIndex, name, value);
+  } catch {
+    return String(source || "");
   }
-  return `${String(source).slice(0, node.start)}${nextTag}${String(source).slice(node.end)}`;
+};
+
+export const updateStructuredSvgNodeAttribute = (sourceValue, nodeReference, name, value) => {
+  const source = String(sourceValue || "");
+  try {
+    const original = parseSvgDocument(source);
+    const originalNode = Number.isInteger(nodeReference)
+      ? original.nodes[nodeReference]
+      : original.nodeByDraweratorId.get(typeof nodeReference === "string" ? nodeReference : nodeReference?.nodeId);
+    if (!originalNode) return source;
+    const prepared = prepareSvgForStructuredEditing(source);
+    if (prepared.error) return source;
+    const nodeId = originalNode.draweratorId
+      || prepared.assigned.find(item => item.nodeIndex === originalNode.index)?.nodeId;
+    return patchSvgNodeAttribute(prepared.source, nodeId || originalNode.index, name, value);
+  } catch {
+    return source;
+  }
 };
 
 export const updateSvgRootDocument = (source, { width, height, viewBox } = {}) => {
@@ -193,6 +193,14 @@ export const updateSvgRootDocument = (source, { width, height, viewBox } = {}) =
   if (width !== undefined) next = updateSvgNodeAttribute(next, 0, "width", width);
   if (height !== undefined) next = updateSvgNodeAttribute(next, 0, "height", height);
   if (viewBox !== undefined) next = updateSvgNodeAttribute(next, 0, "viewBox", viewBox);
+  return next;
+};
+
+export const updateStructuredSvgRootDocument = (source, { width, height, viewBox } = {}) => {
+  let next = String(source || "");
+  if (width !== undefined) next = updateStructuredSvgNodeAttribute(next, 0, "width", width);
+  if (height !== undefined) next = updateStructuredSvgNodeAttribute(next, 0, "height", height);
+  if (viewBox !== undefined) next = updateStructuredSvgNodeAttribute(next, 0, "viewBox", viewBox);
   return next;
 };
 
