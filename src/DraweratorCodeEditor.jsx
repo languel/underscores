@@ -1,6 +1,13 @@
 import React, { useEffect, useLayoutEffect, useRef } from "react";
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import {
+  defaultKeymap,
+  deleteCharBackward,
+  deleteCharForward,
+  history,
+  historyKeymap,
+  indentWithTab,
+} from "@codemirror/commands";
 import { html } from "@codemirror/lang-html";
 import { javascript } from "@codemirror/lang-javascript";
 import {
@@ -12,8 +19,9 @@ import {
 } from "@codemirror/language";
 import { forceLinting, lintGutter, lintKeymap, linter } from "@codemirror/lint";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
-import { Annotation, Compartment, EditorState } from "@codemirror/state";
+import { Annotation, Compartment, EditorState, StateEffect, StateField } from "@codemirror/state";
 import {
+  Decoration,
   EditorView,
   crosshairCursor,
   drawSelection,
@@ -31,6 +39,24 @@ import { sourceDiagnostic } from "./scriptEditorDiagnostics.js";
 import { getScriptEditorCompletions, getScriptEditorProfile } from "./scriptEditorProfiles.js";
 
 const externalDocumentUpdate = Annotation.define();
+const setExternalHighlight = StateEffect.define();
+const externalHighlightField = StateField.define({
+  create: () => Decoration.none,
+  update: (decorations, transaction) => {
+    let next = decorations.map(transaction.changes);
+    for (const effect of transaction.effects) {
+      if (!effect.is(setExternalHighlight)) continue;
+      const range = effect.value;
+      next = range && range.to > range.from
+        ? Decoration.set([
+          Decoration.mark({ class: "cm-drawerator-source-highlight" }).range(range.from, range.to),
+        ])
+        : Decoration.none;
+    }
+    return next;
+  },
+  provide: field => EditorView.decorations.from(field),
+});
 
 const languageExtension = profile => (
   profile.language === "html"
@@ -75,6 +101,8 @@ export default function DraweratorCodeEditor({
   onChange,
   onBlur,
   onRun,
+  onSelectionChange,
+  highlightRange = null,
   scriptType = "brush",
   placeholder = "",
   ariaLabel,
@@ -87,6 +115,7 @@ export default function DraweratorCodeEditor({
   const onChangeRef = useRef(onChange);
   const onBlurRef = useRef(onBlur);
   const onRunRef = useRef(onRun);
+  const onSelectionChangeRef = useRef(onSelectionChange);
   const scriptTypeRef = useRef(scriptType);
   const diagnosticsRef = useRef(getDiagnostics);
   const configurationRef = useRef(new Compartment());
@@ -94,6 +123,7 @@ export default function DraweratorCodeEditor({
   onChangeRef.current = onChange;
   onBlurRef.current = onBlur;
   onRunRef.current = onRun;
+  onSelectionChangeRef.current = onSelectionChange;
   scriptTypeRef.current = scriptType;
   diagnosticsRef.current = getDiagnostics;
 
@@ -156,6 +186,7 @@ export default function DraweratorCodeEditor({
           highlightSelectionMatches(),
           lintGutter(),
           linter(lintSource, { delay: 300 }),
+          externalHighlightField,
           EditorView.lineWrapping,
           keymap.of([
             { key: "Mod-Enter", run: runCommand, preventDefault: true },
@@ -169,10 +200,22 @@ export default function DraweratorCodeEditor({
             indentWithTab,
           ]),
           EditorView.updateListener.of(update => {
-            if (!update.docChanged || update.transactions.some(transaction => (
+            const isExternalUpdate = update.transactions.some(transaction => (
               transaction.annotation(externalDocumentUpdate)
-            ))) return;
-            onChangeRef.current?.(update.state.doc.toString(), update);
+            ));
+            if (isExternalUpdate) return;
+            const source = update.state.doc.toString();
+            if (update.docChanged) onChangeRef.current?.(source, update);
+            if (update.selectionSet || update.docChanged) {
+              const selection = update.state.selection.main;
+              onSelectionChangeRef.current?.({
+                anchor: selection.anchor,
+                head: selection.head,
+                from: selection.from,
+                to: selection.to,
+                source,
+              }, update);
+            }
           }),
           EditorView.domEventHandlers({
             blur: () => {
@@ -234,6 +277,31 @@ export default function DraweratorCodeEditor({
   }, []);
 
   useEffect(() => {
+    const ownDeletionKey = event => {
+      const view = viewRef.current;
+      if (
+        !view
+        || !view.hasFocus
+        || event.isComposing
+        || event.metaKey
+        || event.ctrlKey
+        || event.altKey
+        || (event.key !== "Backspace" && event.key !== "Delete")
+      ) return;
+      // Excalidraw owns a page-level Delete shortcut. Capture the unmodified
+      // deletion keys before they reach that handler, then execute the
+      // equivalent CodeMirror command directly so the selected canvas host is
+      // never deleted while source editing.
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (event.key === "Backspace") deleteCharBackward(view);
+      else deleteCharForward(view);
+    };
+    window.addEventListener("keydown", ownDeletionKey, { capture: true });
+    return () => window.removeEventListener("keydown", ownDeletionKey, { capture: true });
+  }, []);
+
+  useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
     const nextValue = String(value || "");
@@ -247,6 +315,20 @@ export default function DraweratorCodeEditor({
     });
     forceLinting(view);
   }, [value]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const docLength = view.state.doc.length;
+    const from = Math.max(0, Math.min(docLength, Number(highlightRange?.from) || 0));
+    const to = Math.max(from, Math.min(docLength, Number(highlightRange?.to) || 0));
+    const range = highlightRange && to > from ? { from, to } : null;
+    const effects = [setExternalHighlight.of(range)];
+    if (range && highlightRange?.scroll !== false) {
+      effects.push(EditorView.scrollIntoView(range.from, { y: "center" }));
+    }
+    view.dispatch({ effects });
+  }, [highlightRange]);
 
   useEffect(() => {
     const view = viewRef.current;

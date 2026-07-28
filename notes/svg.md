@@ -78,8 +78,10 @@ SVG subpath to be a Curve, Cursor, or Trigger without extracting a proxy object.
 ## Editing workflow
 
 SVG source lives in the shared CodeMirror Script panel. Valid changes compile to the canvas after a
-short debounce; Play creates the first host or records an explicit history checkpoint. Editor
-focus owns text, shortcut, copy, and paste events before Excalidraw sees them.
+650 ms typing pause; malformed and transient edits keep the last valid canvas revision. Play
+creates the first host or records an explicit history checkpoint. Editor focus owns text,
+shortcut, copy, paste, Delete, and Backspace events before Excalidraw sees them, so editing source
+never deletes or deselects the canvas host.
 
 A normal click selects the SVG host. Double-click or Command-click enters component mode and targets
 the rendered SVG node, not the transparent host rectangle. Paths and compound-path subpaths expose
@@ -88,7 +90,9 @@ the spline editor:
 - Drag an anchor or handle to edit in the node's local coordinate system.
 - Option-drag breaks smooth handle coupling.
 - Double-click a segment inserts an exact cubic anchor.
-- Delete removes the selected anchor.
+- **Insert point** adds a point halfway along the segment after the selected anchor.
+- Delete/Backspace or **Remove point** removes the selected anchor while retaining the required
+  two-anchor minimum.
 - Open/Close and Reverse are explicit Properties/command actions.
 - Coincident subpath endpoints move as one joint; **Detach joint** is required before separating a
   connected branch.
@@ -101,6 +105,12 @@ Properties and Outliner share the selected SVG node. They expose the authored tr
 subpaths, document attributes, geometry actions, matched CSS declarations, animation lanes, runtime
 policy, and embedded Drawerator data. Matched stylesheet declarations are patched in their existing
 rule instead of silently becoming inline styles.
+
+Canvas and source selection are bidirectional. Selecting a node or virtual subpath highlights its
+exact source range; moving a settled, collapsed CodeMirror cursor into SVG markup selects the
+corresponding deepest node or compound subpath. Typing and temporary whole-document selections do
+not replace the current canvas component selection. A live source compile preserves the host
+selection, active path/subpath, anchor handles, and CodeMirror focus.
 
 Selected non-root groups and primitives expose their computed bounds. Command-dragging inside that
 outline writes a local translation before the node's existing transform; pointer deltas are mapped
@@ -184,6 +194,11 @@ changed-node IDs, and the parsed document.
 one history change. Neutral foreground marks become `currentColor`, so they follow Drawerator's
 theme; deliberate colors stay literal. Copying an SVG host returns its authored SVG. Pasting an SVG
 can still use the existing native editable-path import route.
+
+Excalidraw may export one logical mark as multiple rough-rendering path passes. Conversion removes
+only exact duplicate subpaths by default. A single native two-point line is handled semantically:
+its rendered cubic passes become one `M … L …` SVG path with exactly two editable anchors and no
+Bézier handles. Intentional compound paths and distinct authored subpaths remain intact.
 
 Unsupported and future SVG/CSS constructs remain renderable and source-editable. The visual editor
 never discards or flattens markup solely because no specialized control exists.

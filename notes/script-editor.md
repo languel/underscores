@@ -16,6 +16,12 @@ The shared surface provides:
 - persistent font sizing and complete Mono/Transparent light/dark theme inheritance;
 - `Mod+Enter` as a common Run/Play gesture.
 
+When CodeMirror is focused it owns the complete editing session. Keyboard and clipboard events do
+not fall through to Excalidraw's single-key tools or canvas copy/paste handlers. In particular,
+unmodified Delete and Backspace are captured before Excalidraw's page-level deletion shortcut and
+run CodeMirror's character-deletion commands directly, preserving the selected canvas object while
+its source changes.
+
 ## Boundaries
 
 `src/DraweratorCodeEditor.jsx` owns CodeMirror state, controlled-source synchronization, configuration compartments, editor commands, and accessibility attributes. It does not save or execute scripts.
@@ -30,7 +36,15 @@ The adapter blocks in `src/App.jsx` continue to own:
 - runtime execution and trust boundaries;
 - status messages and any selection requirements.
 
-This separation preserves the live behavior that predates CodeMirror: p5 still recompiles edits into its trusted live frame, SVG still updates validity status while typing, Brush still syncs drafts to attached modifiers on blur, and IanniX still runs through its compatibility recorder.
+This separation preserves the live behavior that predates CodeMirror: p5 still recompiles edits
+into its trusted live frame, SVG validates immediately and applies valid source after a 650 ms
+typing pause, Brush still syncs drafts to attached modifiers on blur, and IanniX still runs through
+its compatibility recorder.
+
+SVG additionally uses the shared editor's selection callback and external range decoration. A
+settled collapsed source cursor selects the corresponding SVG node or compound subpath; canvas,
+Properties, and Outliner selection highlights the exact authored range without replacing editor
+focus or rewriting the document.
 
 ## Diagnostics and AI extension point
 

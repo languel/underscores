@@ -96,20 +96,49 @@ export const parseSvgPathGeometry = source => {
   };
 };
 
-export const splitSvgPathSubpathSources = source => {
-  const authored = String(source || "").trim();
+const getSvgPathSubpathRanges = source => {
+  const authored = String(source || "");
   const starts = [...authored.matchAll(/[Mm]/g)].map(match => match.index);
-  if (!starts.length) return authored ? [authored] : [];
-  return starts.map((start, index) => authored.slice(start, starts[index + 1] ?? authored.length).trim()).filter(Boolean);
+  if (!starts.length) {
+    const start = authored.search(/\S/);
+    if (start < 0) return [];
+    let end = authored.length;
+    while (end > start && /\s/.test(authored[end - 1])) end -= 1;
+    return [{ start, end, source: authored.slice(start, end) }];
+  }
+  return starts.flatMap((start, index) => {
+    let end = starts[index + 1] ?? authored.length;
+    while (end > start && /\s/.test(authored[end - 1])) end -= 1;
+    return end > start ? [{ start, end, source: authored.slice(start, end) }] : [];
+  });
+};
+
+export const splitSvgPathSubpathSources = source => (
+  getSvgPathSubpathRanges(source).map(subpath => subpath.source)
+);
+
+export const removeExactDuplicateSvgPathSubpaths = source => {
+  const subpaths = splitSvgPathSubpathSources(source);
+  if (subpaths.length < 2) return String(source || "");
+  const seen = new Set();
+  const unique = subpaths.filter(subpath => {
+    const signature = subpath.trim().replace(/\s+/g, " ");
+    if (seen.has(signature)) return false;
+    seen.add(signature);
+    return true;
+  });
+  return unique.length === subpaths.length ? String(source || "") : unique.join(" ");
 };
 
 export const parseSvgPathCollection = source => {
-  const sources = splitSvgPathSubpathSources(source);
-  if (!sources.length) return { valid: false, error: "The path has no geometry.", subpaths: [] };
-  const subpaths = sources.map((subpathSource, index) => ({
+  const ranges = getSvgPathSubpathRanges(source);
+  if (!ranges.length) return { valid: false, error: "The path has no geometry.", subpaths: [] };
+  const subpaths = ranges.map((range, index) => ({
     index,
-    source: subpathSource,
-    ...parseSvgPathGeometry(subpathSource),
+    start: range.start,
+    end: range.end,
+    source: range.source,
+    ...parseSvgPathGeometry(range.source),
   }));
   const invalid = subpaths.find(subpath => !subpath.valid);
   return {
@@ -125,6 +154,13 @@ const formatNumber = value => {
 };
 
 const formatPoint = value => `${formatNumber(value[0])} ${formatNumber(value[1])}`;
+
+export const convertFirstSvgSubpathToStraightLine = source => {
+  const first = parseSvgPathCollection(source).subpaths[0];
+  const anchors = first?.geometry?.anchors;
+  if (!first?.valid || anchors?.length !== 2) return String(source || "");
+  return `M ${formatNumber(anchors[0].x)} ${formatNumber(anchors[0].y)} L ${formatNumber(anchors[1].x)} ${formatNumber(anchors[1].y)}`;
+};
 
 const boundsFromPoints = points => {
   const finitePoints = points.filter(point =>

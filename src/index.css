@@ -1945,7 +1945,26 @@ body .excalidraw .sidebar {
 }
 
 .script-panel-editor .drawerator-code-editor:focus-within {
-  border-color: var(--border-focus);
+  border-color: var(--border-color);
+}
+
+.script-panel-editor .drawerator-code-editor.svg-live-updated {
+  animation: drawerator-svg-live-update 480ms ease-out;
+}
+
+@keyframes drawerator-svg-live-update {
+  0% {
+    border-color: var(--border-color);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  18% {
+    border-color: var(--drawerator-highlight, var(--drawerator-accent, var(--border-focus)));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--drawerator-highlight, var(--drawerator-accent, var(--border-focus))) 36%, transparent);
+  }
+  100% {
+    border-color: var(--border-color);
+    box-shadow: 0 0 0 0 transparent;
+  }
 }
 
 .drawerator-code-editor .cm-editor {
@@ -1999,6 +2018,12 @@ body .excalidraw .sidebar {
 .drawerator-code-editor .cm-selectionBackground,
 .drawerator-code-editor .cm-content ::selection {
   background: color-mix(in srgb, var(--drawerator-accent, var(--color-primary)) 26%, transparent) !important;
+}
+
+.drawerator-code-editor .cm-drawerator-source-highlight {
+  background: color-mix(in srgb, var(--drawerator-accent, var(--color-primary)) 14%, transparent);
+  box-shadow: inset 2px 0 color-mix(in srgb, var(--drawerator-accent, var(--color-primary)) 78%, transparent);
+  border-radius: 2px;
 }
 
 .drawerator-code-editor .cm-cursor,
@@ -5048,6 +5073,79 @@ a.iannix-flat-button {
 .info-panel-body {
   color: var(--color-secondary);
   line-height: 1.45;
+}
+
+.info-svg-guide {
+  display: grid;
+  gap: 14px;
+  padding-bottom: 8px;
+}
+
+.info-svg-guide section {
+  display: grid;
+  gap: 6px;
+}
+
+.info-svg-guide h3,
+.info-svg-guide p,
+.info-svg-guide ul,
+.info-svg-guide dl {
+  margin: 0;
+}
+
+.info-svg-guide h3 {
+  color: var(--color-primary);
+  font-size: var(--drawerator-ui-font-size-small);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.info-svg-guide pre {
+  margin: 0;
+  padding: 8px 9px;
+  overflow: auto;
+  color: var(--color-primary);
+  background: var(--drawerator-timeline-lane-bg, var(--drawerator-input-bg, var(--input-bg-color)));
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  font: 500 11px/1.45 ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+  white-space: pre;
+}
+
+.info-svg-guide :not(pre) > code {
+  color: var(--color-primary);
+  font: 500 0.92em/1.4 ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+}
+
+.info-svg-guide ul {
+  display: grid;
+  gap: 5px;
+  padding-left: 17px;
+}
+
+.info-svg-command-list {
+  display: grid;
+  gap: 1px;
+  border-top: 1px solid var(--border-color);
+}
+
+.info-svg-command-list > div {
+  display: grid;
+  grid-template-columns: minmax(88px, 0.8fr) minmax(140px, 1.6fr);
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 62%, transparent);
+}
+
+.info-svg-command-list dt,
+.info-svg-command-list dd {
+  margin: 0;
+}
+
+.info-svg-guide strong {
+  color: var(--color-primary);
+  font-weight: 650;
 }
 
 .expressive-output-button.active {

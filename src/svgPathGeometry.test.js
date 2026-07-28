@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  convertFirstSvgSubpathToStraightLine,
   getEditableSvgPathNodes,
   getSvgPathEndpointConnections,
   getSvgNodeBounds,
@@ -9,6 +10,7 @@ import {
   getSvgSubpathWorldAnchors,
   parseSvgPathCollection,
   parseSvgPathGeometry,
+  removeExactDuplicateSvgPathSubpaths,
   replaceSvgPathSubpath,
   replaceSvgPathSubpathWithConnectedEndpoint,
   serializeSvgPathGeometry,
@@ -57,6 +59,24 @@ test("parses and replaces ordered subpaths without changing their siblings", () 
   const replaced = replaceSvgPathSubpath(source, 0, moved);
   assert.match(replaced, /^M 5 0 C /);
   assert.match(replaced, /M40 40 L50 50 Z$/);
+});
+
+test("removes only exact duplicate exporter subpaths", () => {
+  const duplicate = "M0 0 C10 0 20 10 30 10 M0 0   C10 0 20 10 30 10";
+  assert.equal(
+    removeExactDuplicateSvgPathSubpaths(duplicate),
+    "M0 0 C10 0 20 10 30 10",
+  );
+  const compound = "M0 0 L10 10 M0 0 L10 11";
+  assert.equal(removeExactDuplicateSvgPathSubpaths(compound), compound);
+});
+
+test("reduces a two-point Excalidraw rough export to one semantic line", () => {
+  const exported = "M0 0 C38.5 -31.2, 77 -62.4, 107.5 -87.1 M0 0 C28.93 -23.44, 57.86 -46.88, 107.5 -87.1";
+  assert.equal(
+    convertFirstSvgSubpathToStraightLine(exported),
+    "M 0 0 L 107.5 -87.1",
+  );
 });
 
 test("moves every coincident compound-path endpoint as one joint", () => {

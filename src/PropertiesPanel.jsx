@@ -228,7 +228,9 @@ const SvgObjectControls = ({
   svgCurveOptions = [],
   onToggleSvgPathClosed,
   onReverseSvgPath,
+  onInsertSvgAnchor,
   onDeleteSvgAnchor,
+  svgPathSelectedAnchor = null,
   svgJointConnectionCount = 0,
   svgJointDetachArmed = false,
   onDetachSvgJoint,
@@ -421,7 +423,18 @@ const SvgObjectControls = ({
           >{svgJointDetachArmed ? "Drag to detach" : `Detach joint · ${svgJointConnectionCount}`}</button>}
           <button type="button" onClick={() => onToggleSvgPathClosed?.()}>{selectedSubpath.geometry.closed ? "Open path" : "Close path"}</button>
           <button type="button" onClick={() => onReverseSvgPath?.()}>Reverse path</button>
-          <button type="button" onClick={() => onDeleteSvgAnchor?.()}>Delete anchor</button>
+          <button
+            type="button"
+            disabled={!Number.isInteger(svgPathSelectedAnchor)}
+            onClick={() => onInsertSvgAnchor?.()}
+            title="Insert a point halfway along the segment after the selected point. Double-clicking a segment inserts at the clicked position."
+          >Insert point</button>
+          <button
+            type="button"
+            disabled={!Number.isInteger(svgPathSelectedAnchor) || selectedSubpath.geometry.anchors.length <= 2}
+            onClick={() => onDeleteSvgAnchor?.()}
+            title="Remove the selected point while preserving the path. Delete or Backspace uses the same action."
+          >Remove point</button>
           <button type="button" onClick={() => onExtractSvgSubpath?.(element.id, selectedNodeIndex, selectedSubpathIndex)}>Extract spline</button>
           <button type="button" onClick={() => onAssignSvgNodeRole?.(element.id, selectedNodeIndex, selectedSubpathIndex, "curve")}>Assign curve</button>
           <button type="button" onClick={() => onAssignSvgNodeRole?.(element.id, selectedNodeIndex, selectedSubpathIndex, "cursor")}>Assign cursor</button>
@@ -539,7 +552,9 @@ const PropertiesPanel = memo(function PropertiesPanel({
   onBindSvgNodeCurve,
   onToggleSvgPathClosed,
   onReverseSvgPath,
+  onInsertSvgAnchor,
   onDeleteSvgAnchor,
+  svgPathSelectedAnchor = null,
   svgJointConnectionCount = 0,
   svgJointDetachArmed = false,
   onDetachSvgJoint,
@@ -658,7 +673,9 @@ const PropertiesPanel = memo(function PropertiesPanel({
                 svgCurveOptions={svgCurveOptions}
                 onToggleSvgPathClosed={onToggleSvgPathClosed}
                 onReverseSvgPath={onReverseSvgPath}
+                onInsertSvgAnchor={onInsertSvgAnchor}
                 onDeleteSvgAnchor={onDeleteSvgAnchor}
+                svgPathSelectedAnchor={svgPathSelectedAnchor}
                 svgJointConnectionCount={svgJointConnectionCount}
                 svgJointDetachArmed={svgJointDetachArmed}
                 onDetachSvgJoint={onDetachSvgJoint}
