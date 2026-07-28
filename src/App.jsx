@@ -73,6 +73,15 @@ import ScriptPanel from "./ScriptPanel.jsx";
 import { normalizeScriptType } from "./scriptTypes.js";
 import { P5FrameOverlay } from "./P5Frame.jsx";
 import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_EXAMPLES, P5_FRAME_STORAGE_KEY, canHostP5Frame, getP5Example, getP5HostElementType, isP5FrameElement, normalizeP5Frame, normalizeP5Scripts, normalizeP5SourceMode, reconcileP5ScriptsWithElements, validateP5Source } from "./p5Frame.js";
+import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
+import {
+  DEFAULT_SVG_SOURCE,
+  SVG_SCRIPT_STORAGE_KEY,
+  analyzeSvgSource,
+  isSvgObjectElement,
+  normalizeSvgObject,
+  normalizeSvgScripts,
+} from "./svgObject.js";
 import { downloadCanvasAsPng, exportDraweratorPng } from "./p5Export.js";
 import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
@@ -1905,7 +1914,44 @@ function App() {
   const [p5ScriptStatusKind, setP5ScriptStatusKind] = useState("info");
   const [editingP5ScriptName, setEditingP5ScriptName] = useState(false);
   const [p5ScriptNameDraft, setP5ScriptNameDraft] = useState("");
+  const [svgScripts, setSvgScripts] = useState(() => {
+    try {
+      return normalizeSvgScripts(JSON.parse(localStorage.getItem(SVG_SCRIPT_STORAGE_KEY) || "[]"));
+    } catch {
+      return [];
+    }
+  });
+  const [activeSvgScriptId, setActiveSvgScriptId] = useState("");
+  const [svgScriptSource, setSvgScriptSource] = useState(DEFAULT_SVG_SOURCE);
+  const [svgScriptNameDraft, setSvgScriptNameDraft] = useState("Untitled SVG");
+  const [editingSvgScriptName, setEditingSvgScriptName] = useState(false);
+  const [svgScriptStatus, setSvgScriptStatus] = useState("");
+  const [svgScriptStatusKind, setSvgScriptStatusKind] = useState("info");
+  const [svgEditorTargetId, setSvgEditorTargetId] = useState(null);
+  const [svgLoadedRevision, setSvgLoadedRevision] = useState(-1);
   const [p5OverlayScene, setP5OverlayScene] = useState({ elements: [], appState: null });
+  const [svgOverlayScene, setSvgOverlayScene] = useState({ elements: [], appState: null });
+  const selectedSvgForEditor = useMemo(() => {
+    const selectedIds = svgOverlayScene.appState?.selectedElementIds || {};
+    return svgOverlayScene.elements.find(element => selectedIds[element.id] && isSvgObjectElement(element)) || null;
+  }, [svgOverlayScene.appState, svgOverlayScene.elements]);
+
+  useEffect(() => {
+    if (!selectedSvgForEditor) return;
+    const svg = normalizeSvgObject(selectedSvgForEditor.customData.draweratorSvg);
+    if (selectedSvgForEditor.id === svgEditorTargetId && svg.revision === svgLoadedRevision) return;
+    const changedTarget = selectedSvgForEditor.id !== svgEditorTargetId;
+    setSvgEditorTargetId(selectedSvgForEditor.id);
+    setSvgLoadedRevision(svg.revision);
+    setSvgScriptSource(svg.source);
+    setSvgScriptNameDraft(svg.name);
+    setActiveSvgScriptId(svg.scriptId && svgScripts.some(script => script.id === svg.scriptId) ? svg.scriptId : "");
+    setEditingSvgScriptName(false);
+    if (changedTarget) {
+      setSvgScriptStatus(`Editing “${svg.name}” from the canvas.`);
+      setSvgScriptStatusKind("info");
+    }
+  }, [selectedSvgForEditor, svgEditorTargetId, svgLoadedRevision, svgScripts]);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -2100,8 +2146,10 @@ function App() {
   const iannixImportInputRef = useRef(null);
   const brushImportInputRef = useRef(null);
   const p5ImportInputRef = useRef(null);
+  const svgImportInputRef = useRef(null);
   const excalidrawAPIRef = useRef(null);
   const p5OverlaySyncRef = useRef({ signature: "", pending: null, raf: 0 });
+  const svgOverlaySyncRef = useRef({ signature: "", pending: null, raf: 0 });
   const importSvgMarkupRef = useRef(null);
   const svgClipboardCacheRef = useRef(null);
   const scoreTimeRef = useRef(scoreTime);
@@ -2765,6 +2813,10 @@ function App() {
     localStorage.setItem(P5_FRAME_STORAGE_KEY, JSON.stringify(p5Scripts));
   }, [p5Scripts]);
 
+  useEffect(() => {
+    localStorage.setItem(SVG_SCRIPT_STORAGE_KEY, JSON.stringify(svgScripts));
+  }, [svgScripts]);
+
   // Earlier builds represented p5 runners as Excalidraw embeddables backed by
   // synthetic drawerator.local URLs. Convert any still-live legacy runner as
   // soon as the canvas is available so its URL card and link affordances never
@@ -2790,11 +2842,15 @@ function App() {
     if (!excalidrawAPI) return;
     const elements = excalidrawAPI.getSceneElementsIncludingDeleted?.() || excalidrawAPI.getSceneElements();
     syncP5Overlay(elements, excalidrawAPI.getAppState());
+    syncSvgOverlay(elements, excalidrawAPI.getAppState());
   }, [excalidrawAPI]);
 
   useEffect(() => () => {
     if (p5OverlaySyncRef.current.raf) {
       cancelAnimationFrame(p5OverlaySyncRef.current.raf);
+    }
+    if (svgOverlaySyncRef.current.raf) {
+      cancelAnimationFrame(svgOverlaySyncRef.current.raf);
     }
   }, []);
 
@@ -3620,6 +3676,36 @@ function App() {
     } catch (error) {
       setP5ScriptStatus(error.message || "Could not import the p5 sketch.");
       setP5ScriptStatusKind("error");
+    }
+  };
+
+  const handleSvgScriptFile = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const source = await file.text();
+      const analysis = analyzeSvgSource(source);
+      if (!analysis.valid) throw new Error(analysis.error || "The imported SVG is invalid.");
+      const script = {
+        id: `svg-script-${crypto.randomUUID()}`,
+        name: file.name.replace(/\.[^.]+$/, "") || "Untitled SVG",
+        source: analysis.source,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      setSvgScripts(previous => [...previous, script]);
+      setActiveSvgScriptId(script.id);
+      setSvgScriptSource(script.source);
+      setSvgScriptNameDraft(script.name);
+      setSvgEditorTargetId(null);
+      setSvgLoadedRevision(-1);
+      setEditingSvgScriptName(true);
+      setSvgScriptStatus(`Imported “${script.name}”. Press Play to create it on the canvas.`);
+      setSvgScriptStatusKind("success");
+    } catch (error) {
+      setSvgScriptStatus(error.message || "Could not import the SVG document.");
+      setSvgScriptStatusKind("error");
     }
   };
 
@@ -4578,7 +4664,7 @@ function App() {
     const nextElements = elements.map(el => {
       const isSelected = selectedIds[el.id];
       const isInSelectedGroup = el.groupIds && el.groupIds.some(gId => selectedGroupIds.has(gId));
-      if ((isSelected || isInSelectedGroup) && !el.isDeleted) {
+      if ((isSelected || isInSelectedGroup) && !el.isDeleted && !isSvgObjectElement(el)) {
         if (["rectangle", "ellipse", "diamond"].includes(el.type) && ["line", "freedraw"].includes(targetType)) {
           count++;
           return convertShapeElementToPath(el, targetType);
@@ -4824,10 +4910,10 @@ function App() {
     const selectedIds = appState.selectedElementIds || {};
     const elements = excalidrawAPI.getSceneElements();
 
+    const selectedContextElements = elements.filter(element => selectedIds[element.id] && !element.isDeleted);
     const capabilities = getCanvasContextMenuCapabilities(
-      elements.filter(element => selectedIds[element.id])
+      selectedContextElements.filter(element => !isSvgObjectElement(element))
     );
-    const selectedContextElements = capabilities.selected;
     const selectedStrokeElements = capabilities.paths;
 
     // Shift+right-click is Drawerator's own canvas menu. Keep SVG clipboard
@@ -4844,12 +4930,12 @@ function App() {
       const hasSpline = selectedStrokeElements.some(hasCubicBezierGeometry);
       const hasConvertiblePath = selectedStrokeElements.some(el => !hasCubicBezierGeometry(el));
       const hasShapes = capabilities.hasShapes;
-      const hasP5HostCandidate = selectedContextElements.some(canHostP5Frame);
+      const hasP5HostCandidate = selectedContextElements.some(element => !isSvgObjectElement(element) && canHostP5Frame(element));
 
       setCustomContextMenu({
         x: e.clientX,
         y: e.clientY,
-        showAddCursor: selectedContextElements.length > 0,
+        showAddCursor: selectedContextElements.some(element => !isSvgObjectElement(element)),
         showAttachP5: hasP5HostCandidate,
         showRestore: hasBrush,
         showToPath: hasShapes,
@@ -6718,6 +6804,9 @@ function App() {
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
+    { id: "script.svg.open", name: "Open SVG Script Editor /svg", aliases: ["/svg", "SVG editor", "SVG script"], category: "SVG", record: "presentation", action: () => toggleDraweratorPanel("script", { scriptType: "svg" }) },
+    { id: "svg.object.run", name: "Run SVG Source /svg run", aliases: ["/svg run", "Create SVG object", "Run SVG source"], category: "SVG", args: { source: "SVG markup", name: "string?", elementId: "string?", scriptId: "string?" }, ai: { expose: true, description: "Create a first-class SVG canvas object from complete raw <svg> markup, or update elementId when it already identifies an SVG object. The source remains editable and is not flattened into native paths.", example: { name: "Wave mark", source: "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 320 180\"><path d=\"M20 90 C80 20 140 160 300 90\" fill=\"none\" stroke=\"#1769e0\" stroke-width=\"5\"/></svg>" } }, action: (_api, args) => runSvgObjectSource(args) },
+    { id: "svg.object.fromSelection", name: "Convert Selection to SVG Object /svg from selection", aliases: ["/svg from selection", "Convert selection to SVG object"], category: "SVG", action: () => convertSelectionToSvgObject() },
     { id: "svg.copy.selection", name: "Copy Selection as Editable SVG /copy svg", aliases: ["/copy svg", "Copy selection SVG"], category: "Canvas", action: () => copySelectionAsSvg() },
     { id: "svg.paste.editable", name: "Paste SVG as Editable Paths /paste svg", aliases: ["/paste svg", "Paste SVG as paths"], category: "Canvas", action: () => pasteSvgAsEditable() },
     { id: "export.board.png", name: "Export Board as PNG /export board", aliases: ["/export board", "/export png", "Export Drawerator board"], category: "Canvas", action: () => void exportDraweratorBoardPng() },
@@ -7820,6 +7909,168 @@ function App() {
     });
     setSelectedElementIds({ [element.id]: true });
     return { elementIds: [element.id], name: script.name };
+  };
+
+  const runSvgObjectSource = ({ source = DEFAULT_SVG_SOURCE, name = "Untitled SVG", targetId = null, elementId = null, scriptId = "" } = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const analysis = analyzeSvgSource(source);
+    if (!analysis.valid) throw new Error(analysis.error || "The SVG source is invalid.");
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const requestedId = targetId || elementId;
+    const selectedSvg = getSelectedElements().find(isSvgObjectElement);
+    const existing = elements.find(element => (
+      !element.isDeleted
+      && isSvgObjectElement(element)
+      && element.id === (requestedId || selectedSvg?.id)
+    ));
+    const priorSvg = existing ? normalizeSvgObject(existing.customData.draweratorSvg) : null;
+    const resolvedName = String(name || priorSvg?.name || "Untitled SVG").trim() || "Untitled SVG";
+    const draweratorSvg = normalizeSvgObject({
+      source: analysis.source,
+      name: resolvedName,
+      scriptId: String(scriptId || priorSvg?.scriptId || ""),
+      revision: (priorSvg?.revision || 0) + 1,
+    });
+    const appState = api.getAppState();
+    let element;
+    let nextElements;
+
+    if (existing) {
+      const priorLabel = existing.customData?.iannix?.label;
+      element = {
+        ...existing,
+        version: (existing.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+        customData: {
+          ...(existing.customData || {}),
+          draweratorSvg,
+          iannix: {
+            ...(existing.customData?.iannix || {}),
+            ...(!priorLabel || priorLabel === priorSvg?.name ? { label: resolvedName } : {}),
+          },
+        },
+      };
+      nextElements = elements.map(candidate => candidate.id === existing.id ? element : candidate);
+    } else {
+      const center = viewportCoordsToSceneCoords({
+        clientX: window.innerWidth / 2,
+        clientY: window.innerHeight / 2,
+      }, appState);
+      const width = Math.max(24, Math.min(4096, analysis.width));
+      const height = Math.max(24, Math.min(4096, analysis.height));
+      element = {
+        ...createBaseElement("rectangle", center.x - width / 2, center.y - height / 2, width, height, "transparent"),
+        strokeWidth: 0,
+        fillStyle: "solid",
+        backgroundColor: "transparent",
+        customData: {
+          draweratorSvg,
+          iannix: { label: resolvedName },
+        },
+      };
+      nextElements = [...elements, element];
+    }
+
+    const selection = { [element.id]: true };
+    api.updateScene({
+      elements: nextElements,
+      appState: {
+        selectedElementIds: selection,
+        selectedGroupIds: {},
+        editingLinearElement: null,
+        selectedLinearElement: null,
+        activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false },
+      },
+      commitToHistory: true,
+    });
+    setSelectedElementIds(selection);
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return {
+      elementId: element.id,
+      elementIds: [element.id],
+      source: draweratorSvg.source,
+      name: resolvedName,
+      message: existing ? `Updated “${resolvedName}”.` : `Created “${resolvedName}” from SVG source.`,
+    };
+  };
+
+  const convertSelectionToSvgObject = async () => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const appState = api.getAppState();
+    const scene = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const selected = getSelectionExchangeElements(
+      scene,
+      { ...appState.selectedElementIds, ...runtimeCursorSelectionRef.current, ...selectedElementIdsRef.current },
+    ).filter(element => !isSvgObjectElement(element) && !isP5FrameElement(element));
+    if (!selected.length) throw new Error("Select one or more native canvas objects first.");
+
+    const exported = await exportToSvg({
+      elements: selected,
+      appState: { ...appState, exportBackground: false },
+      files: api.getFiles(),
+    });
+    const source = cleanSvgMarkup(exported.outerHTML);
+    const analysis = analyzeSvgSource(source);
+    if (!analysis.valid) throw new Error(analysis.error || "The selection could not be represented as SVG.");
+
+    const minX = Math.min(...selected.map(element => Math.min(element.x || 0, (element.x || 0) + (element.width || 0))));
+    const maxX = Math.max(...selected.map(element => Math.max(element.x || 0, (element.x || 0) + (element.width || 0))));
+    const minY = Math.min(...selected.map(element => Math.min(element.y || 0, (element.y || 0) + (element.height || 0))));
+    const maxY = Math.max(...selected.map(element => Math.max(element.y || 0, (element.y || 0) + (element.height || 0))));
+    const boundsWidth = Math.max(1, maxX - minX);
+    const boundsHeight = Math.max(1, maxY - minY);
+    // Excalidraw exports SVG at a device-scaled pixel size while the viewBox
+    // remains in scene coordinates. Use viewBox dimensions for the canvas host
+    // so conversion does not make the object jump or double in size.
+    const width = Math.max(boundsWidth, Math.min(4096, analysis.viewBox[2]));
+    const height = Math.max(boundsHeight, Math.min(4096, analysis.viewBox[3]));
+    const name = selected.length === 1
+      ? `${selected[0].customData?.iannix?.label || selected[0].type} SVG`
+      : `Selection SVG`;
+    const draweratorSvg = normalizeSvgObject({ source, name, revision: 1 });
+    const host = {
+      ...createBaseElement(
+        "rectangle",
+        minX - Math.max(0, width - boundsWidth) / 2,
+        minY - Math.max(0, height - boundsHeight) / 2,
+        width,
+        height,
+        "transparent",
+      ),
+      strokeWidth: 0,
+      fillStyle: "solid",
+      backgroundColor: "transparent",
+      customData: { draweratorSvg, iannix: { label: name } },
+    };
+    const convertedIds = new Set(selected.map(element => element.id));
+    const nextElements = scene.map(element => convertedIds.has(element.id)
+      ? { ...element, isDeleted: true, updated: Date.now() }
+      : element);
+    nextElements.push(host);
+    const selection = { [host.id]: true };
+    api.updateScene({
+      elements: nextElements,
+      appState: {
+        selectedElementIds: selection,
+        selectedGroupIds: {},
+        editingLinearElement: null,
+        selectedLinearElement: null,
+        activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false },
+      },
+      commitToHistory: true,
+    });
+    setSelectedElementIds(selection);
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return {
+      elementId: host.id,
+      elementIds: [host.id],
+      source,
+      name,
+      message: `Converted ${selected.length} canvas ${selected.length === 1 ? "object" : "objects"} to “${name}”. Undo restores the originals.`,
+    };
   };
 
   const createAIObjects = (args = {}) => {
@@ -9212,11 +9463,16 @@ function App() {
         { ...appState.selectedElementIds, ...runtimeCursorSelectionRef.current, ...selectedElementIdsRef.current },
       );
       if (!selected.length) throw new Error("Select one or more objects to copy as SVG.");
-      const svg = attachDraweratorSvgMetadata((await exportToSvg({
-        elements: selected,
-        appState: { ...appState, exportBackground: false },
-        files: excalidrawAPI.getFiles(),
-      })).outerHTML, selected);
+      const selectedSvgObject = selected.length === 1 && isSvgObjectElement(selected[0])
+        ? normalizeSvgObject(selected[0].customData.draweratorSvg)
+        : null;
+      const svg = selectedSvgObject
+        ? attachDraweratorSvgMetadata(selectedSvgObject.source, selected)
+        : attachDraweratorSvgMetadata((await exportToSvg({
+          elements: selected,
+          appState: { ...appState, exportBackground: false },
+          files: excalidrawAPI.getFiles(),
+        })).outerHTML, selected);
       svgClipboardCacheRef.current = svg;
       try {
         if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) throw new Error("Typed clipboard unavailable");
@@ -9229,7 +9485,9 @@ function App() {
         // not accept image/svg+xml. Plain text still transports real SVG.
         await navigator.clipboard.writeText(svg);
       }
-      setSceneExchangeStatus(`Copied ${selected.length} selected ${selected.length === 1 ? "object" : "objects"} as editable SVG.`);
+      setSceneExchangeStatus(selectedSvgObject
+        ? `Copied “${selectedSvgObject.name}” with its authored SVG source intact.`
+        : `Copied ${selected.length} selected ${selected.length === 1 ? "object" : "objects"} as editable SVG.`);
     } catch (error) {
       setSceneExchangeStatus(error.message || "Could not copy selection as SVG.");
     }
@@ -10812,6 +11070,214 @@ function App() {
         />
         <p className={`p5-script-status ${p5ScriptStatusKind}`} role="status" aria-live="polite">
           {p5ScriptStatus || <>Trusted local code: p5 sketches run directly in Drawerator with access to the page and <code>drawerator</code>. Use only code you trust.</>}
+        </p>
+      </div>
+    );
+  };
+
+  const renderSvgScriptTab = () => {
+    const analysis = analyzeSvgSource(svgScriptSource);
+    const activeScript = svgScripts.find(script => script.id === activeSvgScriptId);
+    const target = selectedSvgForEditor || (
+      svgEditorTargetId
+        ? svgOverlayScene.elements.find(element => element.id === svgEditorTargetId && isSvgObjectElement(element))
+        : null
+    );
+    const setLiveStatus = (message, kind = "info") => {
+      setSvgScriptStatus(message);
+      setSvgScriptStatusKind(kind);
+    };
+    const play = () => {
+      try {
+        const result = runSvgObjectSource({
+          source: svgScriptSource,
+          name: activeScript?.name || svgScriptNameDraft || "Untitled SVG",
+          targetId: target?.id || svgEditorTargetId,
+          scriptId: activeScript?.id || "",
+        });
+        setSvgEditorTargetId(result.elementId);
+        setSvgScriptNameDraft(result.name);
+        setLiveStatus(result.message, "success");
+      } catch (error) {
+        setLiveStatus(error.message || "Could not render this SVG.", "error");
+      }
+    };
+    const createScript = () => {
+      const script = {
+        id: `svg-script-${crypto.randomUUID()}`,
+        name: "Untitled SVG",
+        source: DEFAULT_SVG_SOURCE,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      setSvgScripts(previous => [...previous, script]);
+      setActiveSvgScriptId(script.id);
+      setSvgScriptSource(script.source);
+      setSvgScriptNameDraft(script.name);
+      setSvgEditorTargetId(null);
+      setSvgLoadedRevision(-1);
+      setEditingSvgScriptName(true);
+      setLiveStatus("Created a new SVG script. Press Play to draw it on the canvas.");
+    };
+    const saveScript = () => {
+      if (!analysis.valid) {
+        setLiveStatus(analysis.error, "error");
+        return;
+      }
+      if (!activeScript) {
+        const script = {
+          id: `svg-script-${crypto.randomUUID()}`,
+          name: svgScriptNameDraft.trim() || "Untitled SVG",
+          source: analysis.source,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        setSvgScripts(previous => [...previous, script]);
+        setActiveSvgScriptId(script.id);
+        setSvgScriptNameDraft(script.name);
+        setLiveStatus(`Saved “${script.name}” in this browser.`, "success");
+        return;
+      }
+      setSvgScripts(previous => previous.map(script => script.id === activeScript.id
+        ? { ...script, source: analysis.source, updatedAt: Date.now() }
+        : script
+      ));
+      setLiveStatus(`Saved “${activeScript.name}” in this browser.`, "success");
+    };
+    const duplicateScript = () => {
+      if (!analysis.valid) {
+        setLiveStatus(analysis.error, "error");
+        return;
+      }
+      const script = {
+        id: `svg-script-${crypto.randomUUID()}`,
+        name: `Copy of ${activeScript?.name || svgScriptNameDraft || "Untitled SVG"}`,
+        source: analysis.source,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      setSvgScripts(previous => [...previous, script]);
+      setActiveSvgScriptId(script.id);
+      setSvgScriptNameDraft(script.name);
+      setEditingSvgScriptName(true);
+      setLiveStatus(`Duplicated “${activeScript?.name || "SVG draft"}”.`, "success");
+    };
+    const beginRename = () => {
+      if (!activeScript) return;
+      setSvgScriptNameDraft(activeScript.name);
+      setEditingSvgScriptName(true);
+    };
+    const commitRename = () => {
+      const name = svgScriptNameDraft.trim();
+      if (activeScript && name && name !== activeScript.name) {
+        setSvgScripts(previous => previous.map(script => script.id === activeScript.id
+          ? { ...script, name, updatedAt: Date.now() }
+          : script
+        ));
+        setLiveStatus(`Renamed SVG script to “${name}”.`, "success");
+      }
+      setEditingSvgScriptName(false);
+    };
+    const deleteScript = () => {
+      if (!activeScript || !window.confirm(`Delete “${activeScript.name}”?`)) return;
+      const remaining = svgScripts.filter(script => script.id !== activeScript.id);
+      const next = remaining[0] || null;
+      setSvgScripts(remaining);
+      setActiveSvgScriptId(next?.id || "");
+      setSvgScriptSource(next?.source || DEFAULT_SVG_SOURCE);
+      setSvgScriptNameDraft(next?.name || "Untitled SVG");
+      setEditingSvgScriptName(false);
+      setLiveStatus(`Deleted “${activeScript.name}”. The canvas object keeps its source snapshot.`);
+    };
+    const fromSelection = async () => {
+      try {
+        const result = await convertSelectionToSvgObject();
+        if (!result) return;
+        setActiveSvgScriptId("");
+        setSvgScriptSource(result.source);
+        setSvgScriptNameDraft(result.name);
+        setSvgEditorTargetId(result.elementId);
+        setSvgLoadedRevision(1);
+        setEditingSvgScriptName(false);
+        setLiveStatus(result.message, "success");
+      } catch (error) {
+        setLiveStatus(error.message || "Could not convert the selection.", "error");
+      }
+    };
+    return (
+      <div className="iannix-properties iannix-script-pane svg-script-pane">
+        {editingSvgScriptName ? <input
+          type="text"
+          className="custom-brush-select"
+          value={svgScriptNameDraft}
+          onChange={event => setSvgScriptNameDraft(event.target.value)}
+          onBlur={commitRename}
+          onKeyDown={event => {
+            if (event.key === "Enter") { event.preventDefault(); commitRename(); }
+            if (event.key === "Escape") { event.preventDefault(); setEditingSvgScriptName(false); }
+          }}
+          aria-label="SVG script name"
+          autoFocus
+        /> : <select
+          className="custom-brush-select"
+          value={activeSvgScriptId}
+          onChange={event => {
+            const script = svgScripts.find(candidate => candidate.id === event.target.value);
+            setActiveSvgScriptId(event.target.value);
+            setSvgScriptSource(script?.source || target && normalizeSvgObject(target.customData.draweratorSvg).source || DEFAULT_SVG_SOURCE);
+            setSvgScriptNameDraft(script?.name || target && normalizeSvgObject(target.customData.draweratorSvg).name || "Untitled SVG");
+            setEditingSvgScriptName(false);
+            setLiveStatus(script ? `Loaded “${script.name}”.` : target ? "Editing the selected canvas SVG." : "New SVG draft.");
+          }}
+          onKeyDown={event => { if (event.key === "F2") { event.preventDefault(); beginRename(); } }}
+          onDoubleClick={event => { if (event.shiftKey) { event.preventDefault(); beginRename(); } }}
+          aria-label="SVG script"
+        >
+          <option value="">{target ? `Canvas · ${normalizeSvgObject(target.customData.draweratorSvg).name}` : "— SVG draft —"}</option>
+          {svgScripts.map(script => <option key={script.id} value={script.id}>{script.name}</option>)}
+        </select>}
+        <div className="svg-script-canvas-row">
+          <span>{target ? `Canvas: ${normalizeSvgObject(target.customData.draweratorSvg).name}` : "Canvas: new object"}</span>
+          <button type="button" className="iannix-flat-button" onClick={() => void fromSelection()}>From selection</button>
+        </div>
+        <div className="script-icon-toolbar">
+          <button type="button" className="palette-action-btn primary script-icon-button" title="Play SVG on canvas (Cmd/Ctrl+Enter)" aria-label="Play SVG on canvas" onClick={play} disabled={!analysis.valid}><ScriptActionIcon type="run" /></button>
+          <button type="button" className="palette-action-btn secondary script-icon-button" title="Save SVG script" aria-label="Save SVG script" onClick={saveScript} disabled={!analysis.valid}><ScriptActionIcon type="save" /></button>
+          <button type="button" className="palette-action-btn secondary script-icon-button" title="Duplicate SVG script" aria-label="Duplicate SVG script" onClick={duplicateScript} disabled={!analysis.valid}><ScriptActionIcon type="copy" /></button>
+          <button type="button" className="palette-action-btn secondary script-icon-button" title="New SVG script" aria-label="New SVG script" onClick={createScript}><ScriptActionIcon type="add" /></button>
+          <button type="button" className="palette-action-btn secondary script-icon-button" title="Import SVG document" aria-label="Import SVG document" onClick={() => svgImportInputRef.current?.click()}><ScriptActionIcon type="import" /></button>
+          <button type="button" className="palette-action-btn danger script-icon-button" title="Delete SVG script" aria-label="Delete SVG script" onClick={deleteScript} disabled={!activeScript}><ScriptActionIcon type="remove" /></button>
+          <ScriptFontSizeControl value={scriptEditorFontSize} onChange={value => {
+            if (!Number.isFinite(value) || value < 8 || value > 32) return;
+            setScriptEditorFontSize(value);
+            localStorage.setItem("drawerator_script_editor_font_size", String(value));
+          }} />
+        </div>
+        <textarea
+          className="custom-brush-textarea"
+          value={svgScriptSource}
+          onChange={event => {
+            const source = event.target.value;
+            setSvgScriptSource(source);
+            const nextAnalysis = analyzeSvgSource(source);
+            setLiveStatus(nextAnalysis.valid
+              ? `Valid SVG · ${nextAnalysis.nodeCount} ${nextAnalysis.nodeCount === 1 ? "node" : "nodes"}${nextAnalysis.hasScript ? " · script preserved, not executed" : ""}`
+              : nextAnalysis.error, nextAnalysis.valid ? "info" : "error");
+          }}
+          onKeyDown={event => {
+            if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            play();
+          }}
+          placeholder="<svg viewBox=&quot;0 0 320 180&quot;>…</svg>"
+          aria-label="SVG source"
+          spellCheck="false"
+        />
+        <p className={`p5-script-status ${analysis.valid ? svgScriptStatusKind : "error"}`} role="status" aria-live="polite">
+          {analysis.valid
+            ? svgScriptStatus || `Valid SVG · ${analysis.nodeCount} ${analysis.nodeCount === 1 ? "node" : "nodes"}`
+            : analysis.error}
         </p>
       </div>
     );
@@ -13262,6 +13728,47 @@ function App() {
       setP5OverlayScene(p5OverlaySyncRef.current.pending);
     });
   };
+  const syncSvgOverlay = (elements, appState) => {
+    const objects = (elements || []).filter(element => !element.isDeleted && isSvgObjectElement(element));
+    const camera = {
+      scrollX: Number(appState?.scrollX) || 0,
+      scrollY: Number(appState?.scrollY) || 0,
+      zoom: { value: Number(appState?.zoom?.value) || 1 },
+      selectedElementIds: { ...(appState?.selectedElementIds || {}) },
+    };
+    const selectedSignature = Object.keys(camera.selectedElementIds).filter(id => camera.selectedElementIds[id]).sort().join(",");
+    const signature = [
+      camera.scrollX,
+      camera.scrollY,
+      camera.zoom.value,
+      selectedSignature,
+      ...objects.map(element => {
+        const svg = normalizeSvgObject(element.customData?.draweratorSvg);
+        return [
+          element.id,
+          element.x,
+          element.y,
+          element.width,
+          element.height,
+          element.angle,
+          element.opacity,
+          element.version,
+          element.versionNonce,
+          element.customData?.outlinerHidden ? 1 : 0,
+          svg.revision,
+          svg.source.length,
+        ].join(",");
+      }),
+    ].join("|");
+    if (svgOverlaySyncRef.current.signature === signature) return;
+    svgOverlaySyncRef.current.signature = signature;
+    svgOverlaySyncRef.current.pending = { elements: objects, appState: camera };
+    if (svgOverlaySyncRef.current.raf) return;
+    svgOverlaySyncRef.current.raf = requestAnimationFrame(() => {
+      svgOverlaySyncRef.current.raf = 0;
+      setSvgOverlayScene(svgOverlaySyncRef.current.pending);
+    });
+  };
   const updateInfoViewFromEvent = event => {
     const target = event.target?.closest?.("[data-info]");
     if (!target) return;
@@ -13338,6 +13845,7 @@ function App() {
           onChange={(elements, appState) => {
             applyForceDesktopOverride(false);
             syncP5Overlay(elements, appState);
+            syncSvgOverlay(elements, appState);
 
             const nativeBezierEditId = appState.editingLinearElement?.elementId || null;
             const nativeBezierEditElement = nativeBezierEditId
@@ -14566,6 +15074,13 @@ function App() {
                 {(() => {
                   const controlState = getModifierPanelControlState();
                   const { element, isShape, modifiers, isMuted, hideOriginalControl, canRestoreOriginal } = controlState;
+                  if (isSvgObjectElement(element)) {
+                    return <div className="modifiers-header-actions">
+                      <button className="header-btn" onClick={() => toggleDraweratorPanel("script", { scriptType: "svg" })} title="Open this SVG in the Script panel" aria-label="Edit selected SVG">
+                        <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8"><path d="M4 4h16v16H4z"/><path d="M7 15c2-7 4-7 6-1s3 5 4-5"/></svg>
+                      </button>
+                    </div>;
+                  }
                   if (element && element.type !== "freedraw" && element.type !== "line" && !isShape) return null;
 
                   const isRound = element ? !!element.roundness : globalRoundness;
@@ -14707,6 +15222,13 @@ function App() {
                 }
                 const element = selectedElements[0];
                 if (element) {
+                  if (isSvgObjectElement(element)) {
+                    return (
+                      <div style={{ textAlign: "center", padding: "24px 16px", opacity: 0.72, fontSize: "13px" }}>
+                        This is a source-preserving SVG object. Edit its source in the Script panel and its document properties in Properties.
+                      </div>
+                    );
+                  }
                   const isShape = ["rectangle", "ellipse", "diamond"].includes(element.type);
                   if (isShape) {
                     return (
@@ -14778,12 +15300,19 @@ function App() {
             <input ref={iannixImportInputRef} type="file" accept=".iannix,.js,text/javascript" hidden onChange={handleTrustedIannixFile} />
             <input ref={brushImportInputRef} type="file" accept=".js,.json,text/javascript,application/json" hidden onChange={handleBrushScriptFile} />
             <input ref={p5ImportInputRef} type="file" accept=".js,text/javascript,application/javascript" hidden onChange={handleP5ScriptFile} />
+            <input ref={svgImportInputRef} type="file" accept=".svg,image/svg+xml,text/xml,application/xml" hidden onChange={handleSvgScriptFile} />
             <ScriptPanel
               type={scriptPanelType}
               onTypeChange={value => setScriptPanelType(normalizeScriptType(value))}
               editorFontSize={scriptEditorFontSize}
             >
-              {scriptPanelType === "iannix" ? renderIannixScriptTab() : scriptPanelType === "p5" ? renderP5ScriptTab() : renderBrushConfigForm()}
+              {scriptPanelType === "iannix"
+                ? renderIannixScriptTab()
+                : scriptPanelType === "p5"
+                  ? renderP5ScriptTab()
+                  : scriptPanelType === "svg"
+                    ? renderSvgScriptTab()
+                    : renderBrushConfigForm()}
             </ScriptPanel>
           </DraweratorPanel>
           )}
@@ -14980,6 +15509,10 @@ function App() {
           elements={p5OverlayScene.elements}
           appState={p5OverlayScene.appState}
           scriptRuntimeRef={scriptRuntimeRef}
+        />
+        <SvgObjectOverlay
+          elements={svgOverlayScene.elements}
+          appState={svgOverlayScene.appState}
         />
 
         <GlobalGridCanvas

@@ -1,6 +1,13 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { EMBED_DISPLAY_MODES, embedPolicyForElement, getEmbedProvider } from "./embedPolicy.js";
 import { DEFAULT_P5_CDN_URL, isP5FrameElement, normalizeP5Frame, resolveP5SourceMode } from "./p5Frame.js";
+import {
+  analyzeSvgSource,
+  isSvgObjectElement,
+  normalizeSvgObject,
+  updateSvgNodeAttribute,
+  updateSvgRootDocument,
+} from "./svgObject.js";
 
 const READ_ONLY_KEYS = new Set([
   "id", "type", "width", "height", "version", "versionNonce", "updated", "index", "seed",
@@ -206,6 +213,78 @@ const P5FrameControls = ({ element, query, onChange }) => {
   );
 };
 
+const SvgObjectControls = ({ element, query, onChange }) => {
+  const [selectedNodeIndex, setSelectedNodeIndex] = useState(0);
+  const [newAttributeName, setNewAttributeName] = useState("");
+  const [newAttributeValue, setNewAttributeValue] = useState("");
+  if (!isSvgObjectElement(element)) return null;
+  const svg = normalizeSvgObject(element.customData.draweratorSvg);
+  const analysis = analyzeSvgSource(svg.source);
+  const selectedNode = analysis.nodes[selectedNodeIndex] || analysis.nodes[0] || null;
+  const matches = name => !query?.needle || [
+    "svg", "document", "name", "width", "height", "viewbox", "geometry", "element", "attribute",
+    name,
+    ...analysis.nodes.flatMap(node => [node.tag, node.id, node.label, ...Object.keys(node.attributes), ...Object.values(node.attributes)]),
+  ].some(value => String(value || "").toLowerCase().includes(query.needle));
+  if (query?.needle && !matches("svg")) return null;
+  const stopCanvasKeys = event => {
+    event.stopPropagation();
+    if (["Delete", "Backspace", "Escape"].includes(event.key)) event.nativeEvent?.stopImmediatePropagation?.();
+  };
+  const update = patch => onChange(
+    ["customData", "draweratorSvg"],
+    normalizeSvgObject({ ...svg, ...patch, revision: svg.revision + 1 }),
+  );
+  const updateSource = source => update({ source });
+  const patchNodeAttribute = (attribute, value) => {
+    updateSource(updateSvgNodeAttribute(svg.source, selectedNodeIndex, attribute, value));
+  };
+  const addAttribute = () => {
+    const attribute = newAttributeName.trim();
+    if (!attribute || !selectedNode) return;
+    patchNodeAttribute(attribute, newAttributeValue);
+    setNewAttributeName("");
+    setNewAttributeValue("");
+  };
+  return (
+    <details className="properties-group properties-svg-group" open>
+      <summary><span>SVG document</span><small>{analysis.nodeCount} nodes</small></summary>
+      <div className="properties-children">
+        {matches("name") && <div className="properties-row editable"><span>name</span><input type="text" value={svg.name} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => update({ name: event.target.value })} /></div>}
+        {matches("width") && <div className="properties-row editable"><span>width</span><input type="number" min="1" max="16384" value={analysis.width} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => updateSource(updateSvgRootDocument(svg.source, { width: event.target.value }))} /></div>}
+        {matches("height") && <div className="properties-row editable"><span>height</span><input type="number" min="1" max="16384" value={analysis.height} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => updateSource(updateSvgRootDocument(svg.source, { height: event.target.value }))} /></div>}
+        {matches("viewbox") && <div className="properties-row editable"><span>viewBox</span><input type="text" value={analysis.viewBox.join(" ")} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => updateSource(updateSvgRootDocument(svg.source, { viewBox: event.target.value }))} /></div>}
+        {matches("geometry") && <div className="properties-svg-tree" role="tree" aria-label="SVG geometry">
+          {analysis.nodes.map(node => <button
+            key={`${node.index}-${node.label}`}
+            type="button"
+            role="treeitem"
+            aria-selected={selectedNodeIndex === node.index}
+            className={selectedNodeIndex === node.index ? "selected" : ""}
+            style={{ "--svg-node-depth": node.depth }}
+            onClick={() => setSelectedNodeIndex(node.index)}
+          >
+            <span className={`properties-svg-node-icon tag-${node.tag.toLowerCase()}`} />
+            <span>{node.label}</span>
+          </button>)}
+        </div>}
+        {selectedNode && matches("attribute") && <div className="properties-svg-attributes">
+          {Object.entries(selectedNode.attributes).map(([attribute, value]) => <div className="properties-row editable" key={attribute}>
+            <span title={attribute}>{attribute}</span>
+            <input type="text" value={value} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => patchNodeAttribute(attribute, event.target.value)} />
+          </div>)}
+          <div className="properties-svg-add-attribute">
+            <input type="text" value={newAttributeName} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => setNewAttributeName(event.target.value)} placeholder="attribute" aria-label="New SVG attribute name" />
+            <input type="text" value={newAttributeValue} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => setNewAttributeValue(event.target.value)} placeholder="value" aria-label="New SVG attribute value" />
+            <button type="button" onClick={addAttribute} disabled={!newAttributeName.trim()}>Add</button>
+          </div>
+        </div>}
+        {!query?.needle && <p className="properties-svg-note">Draw and transform this SVG on the canvas. Edit its complete source from the SVG type in the Script panel.</p>}
+      </div>
+    </details>
+  );
+};
+
 const embedMatchesQuery = (element, query) => {
   if (element?.type !== "embeddable") return false;
   if (!query?.needle) return true;
@@ -220,6 +299,30 @@ const p5MatchesQuery = (element, query) => {
     .some(value => value.includes(query.needle));
 };
 
+const svgMatchesQuery = (element, query) => {
+  if (!isSvgObjectElement(element)) return false;
+  if (!query?.needle) return true;
+  const svg = normalizeSvgObject(element.customData.draweratorSvg);
+  const analysis = analyzeSvgSource(svg.source);
+  return ["svg", "document", "name", "width", "height", "viewbox", "geometry", "element", "attribute", svg.name,
+    ...analysis.nodes.flatMap(node => [node.tag, node.id, node.label, ...Object.keys(node.attributes), ...Object.values(node.attributes)]),
+  ].some(value => String(value || "").toLowerCase().includes(query.needle));
+};
+
+const propertyTreeValue = element => {
+  if (!isSvgObjectElement(element)) return element;
+  const customData = { ...(element.customData || {}) };
+  delete customData.draweratorSvg;
+  return { ...element, customData };
+};
+
+const svgFieldCount = element => {
+  if (!isSvgObjectElement(element)) return 0;
+  const svg = normalizeSvgObject(element.customData.draweratorSvg);
+  const analysis = analyzeSvgSource(svg.source);
+  return 4 + analysis.nodeCount + analysis.nodes.reduce((count, node) => count + Object.keys(node.attributes).length, 0);
+};
+
 const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange, onRename }) {
   const [filter, setFilter] = useState("");
   const [activeObjectId, setActiveObjectId] = useState(null);
@@ -229,7 +332,7 @@ const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange,
   const query = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     if (!needle) return { needle: "", exactOnly: false };
-    const paths = elements.flatMap(element => collectLeafPaths(element));
+    const paths = elements.flatMap(element => collectLeafPaths(propertyTreeValue(element)));
     const exactOnly = paths.some(path => {
       const segments = path.map(segment => String(segment).toLowerCase());
       return segments.includes(needle) || segments.join(".") === needle;
@@ -238,9 +341,10 @@ const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange,
   }, [elements, filter]);
   const matchingFieldCount = useMemo(() => elements.reduce((count, element) => (
     count
-      + collectLeafEntries(element).filter(entry => leafMatches(entry.value, entry.path, query)).length
+      + collectLeafEntries(propertyTreeValue(element)).filter(entry => leafMatches(entry.value, entry.path, query)).length
       + (embedMatchesQuery(element, query) ? 4 : 0)
       + (p5MatchesQuery(element, query) ? 6 : 0)
+      + (svgMatchesQuery(element, query) ? svgFieldCount(element) : 0)
   ), 0), [elements, query]);
   const sharedPath = path => isSharedEditablePath(elements, path);
 
@@ -274,15 +378,17 @@ const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange,
       </div>
       <div className="properties-list">
         {matchingFieldCount ? elements.map(element => {
-          const elementMatchCount = collectLeafEntries(element).filter(entry => leafMatches(entry.value, entry.path, query)).length
+          const elementValue = propertyTreeValue(element);
+          const elementMatchCount = collectLeafEntries(elementValue).filter(entry => leafMatches(entry.value, entry.path, query)).length
             + (embedMatchesQuery(element, query) ? 4 : 0)
-            + (p5MatchesQuery(element, query) ? 6 : 0);
+            + (p5MatchesQuery(element, query) ? 6 : 0)
+            + (svgMatchesQuery(element, query) ? svgFieldCount(element) : 0);
           if (!elementMatchCount) return null;
           const label = element.customData?.iannix?.label;
           return (
             <section className="properties-object" key={element.id} onMouseDown={() => setActiveObjectId(element.id)}>
               <div className="properties-object-heading" onDoubleClick={() => beginRename(element)} title="Press F2 to edit the score label">
-                <span className={`outliner-type type-${element.type}`}>{element.type.slice(0, 1).toUpperCase()}</span>
+                <span className={`outliner-type type-${isSvgObjectElement(element) ? "svg" : element.type}`}>{isSvgObjectElement(element) ? "S" : element.type.slice(0, 1).toUpperCase()}</span>
                 <div className="properties-object-name">
                   {editingId === element.id ? (
                     <input ref={editingRef} className="outliner-label-input" value={editingValue} placeholder={element.id} onChange={event => setEditingValue(event.target.value)} onBlur={() => finishRename(element)} onKeyDown={event => {
@@ -294,10 +400,11 @@ const PropertiesPanel = memo(function PropertiesPanel({ elements = [], onChange,
                 </div>
               </div>
               <P5FrameControls element={element} query={query} onChange={(path, value) => onChange([element.id], path, value)} />
+              <SvgObjectControls element={element} query={query} onChange={(path, value) => onChange([element.id], path, value)} />
               <EmbedControls element={element} query={query} onChange={(path, value) => onChange([element.id], path, value)} />
               <PropertyNode
                 name="object"
-                value={element}
+                value={elementValue}
                 query={query}
                 isSharedPath={sharedPath}
                 onChange={(path, value, shared) => onChange(shared ? elements.map(item => item.id) : [element.id], path, value)}
