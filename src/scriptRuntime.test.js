@@ -1,0 +1,88 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createScriptCanvasApi, resolveScriptParameterValues } from "./scriptRuntime.js";
+import { createDefaultIannixData } from "./iannixEngine.js";
+
+const curve = {
+  id: "curve-1",
+  type: "line",
+  x: 10,
+  y: 20,
+  width: 180,
+  height: 0,
+  angle: 0,
+  points: [[0, 0], [180, 0]],
+  isDeleted: false,
+  customData: {
+    iannix: createDefaultIannixData({
+      role: "curve",
+      label: "Main curve",
+      time: { start: 1, duration: 4 },
+    }),
+    iannixImport: { group: "orbits" },
+  },
+};
+
+const trigger = {
+  id: "trigger-1",
+  type: "line",
+  x: 30,
+  y: 40,
+  width: 20,
+  height: 0,
+  angle: 0,
+  points: [[0, 0], [20, 0]],
+  isDeleted: false,
+  customData: {
+    iannix: createDefaultIannixData({ role: "trigger", label: "Pulse" }),
+    iannixImport: { group: "pulses" },
+  },
+};
+
+test("script canvas resolves canvas objects by id, label, and IanniX group", () => {
+  const events = [{ name: "trigger.enter", elementId: "trigger-1" }];
+  const runtimeRef = {
+    current: {
+      getElements: () => [curve, trigger],
+      getSelectedIds: () => ["curve-1"],
+      getTime: () => 3,
+      getTimeContext: () => ({ tempo: 120, signature: { beats: 4, beatUnit: 4 }, fps: 30, sampleRate: 48000 }),
+      getGrid: () => null,
+      eventBus: {
+        recent: () => events,
+        subscribe: () => () => {},
+      },
+    },
+  };
+  const canvas = createScriptCanvasApi(runtimeRef);
+  assert.equal(canvas.get("curve-1").label, "Main curve");
+  assert.equal(canvas.get("Main curve").id, "curve-1");
+  assert.equal(canvas.get("orbits").id, "curve-1");
+  assert.equal(canvas.get("pulses").id, "trigger-1");
+  assert.deepEqual(canvas.selected().map(object => object.id), ["curve-1"]);
+  assert.equal(canvas.get("Main curve").time.progress, 0.5);
+  assert.equal(canvas.events.latest("trigger.*").elementId, "trigger-1");
+});
+
+test("object parameters remain live views of the assigned canvas object", () => {
+  let time = 1;
+  const runtimeRef = {
+    current: {
+      getElements: () => [curve],
+      getTime: () => time,
+      getTimeContext: () => ({ tempo: 120, signature: { beats: 4, beatUnit: 4 }, fps: 30, sampleRate: 48000 }),
+      getGrid: () => null,
+    },
+  };
+  const canvas = createScriptCanvasApi(runtimeRef);
+  const params = resolveScriptParameterValues([{
+    name: "driver",
+    type: "object",
+    value: "Main curve",
+    default: "",
+  }], runtimeRef, canvas);
+  assert.equal(params.driver.id, "curve-1");
+  assert.equal(params.driver.time.progress, 0);
+  time = 5;
+  assert.equal(params.driver.time.progress, 1);
+});

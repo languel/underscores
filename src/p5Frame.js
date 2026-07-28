@@ -34,6 +34,166 @@ function draw() {
   line(width / 2 - radius, height / 2, width / 2 + radius, height / 2);
 }`;
 
+// These are deliberately small, readable starting points rather than a
+// gallery of opaque effects. Loading one creates an editable catalog script;
+// it never overwrites an existing sketch.
+export const P5_EXAMPLES = Object.freeze([
+  Object.freeze({
+    id: "bare-instance",
+    name: "Bare instance mode",
+    mode: "instance",
+    source: `// p5 instance-mode starter. Use p.* for p5 calls.
+p.setup = () => {
+  p.createCanvas(drawerator.element.width, drawerator.element.height);
+};
+
+p.draw = () => {
+  p.background(18);
+  p.noFill();
+  p.stroke(220);
+  p.circle(p.width / 2, p.height / 2, Math.min(p.width, p.height) * 0.4);
+};`,
+  }),
+  Object.freeze({
+    id: "bare-global",
+    name: "Bare classic global mode",
+    mode: "global",
+    source: `// Classic p5 global-mode starter. Use setup(), draw(), and ordinary p5 calls.
+function setup() {
+  createCanvas(drawerator.element.width, drawerator.element.height);
+}
+
+function draw() {
+  background(18);
+  noFill();
+  stroke(220);
+  circle(width / 2, height / 2, Math.min(width, height) * 0.4);
+}`,
+  }),
+  Object.freeze({
+    id: "ten-print",
+    name: "10 PRINT",
+    mode: "global",
+    source: `// 10 PRINT, adapted for a p5 frame. Press R to redraw.
+const cell = 18;
+
+function setup() {
+  createCanvas(drawerator.element.width, drawerator.element.height);
+  noLoop();
+  redrawPattern();
+}
+
+function redrawPattern() {
+  background(18);
+  stroke(220);
+  strokeWeight(2);
+  for (let y = 0; y < height; y += cell) {
+    for (let x = 0; x < width; x += cell) {
+      if (random() < 0.5) line(x, y, x + cell, y + cell);
+      else line(x + cell, y, x, y + cell);
+    }
+  }
+}
+
+function keyPressed() {
+  if (key === "r" || key === "R") redrawPattern();
+}`,
+  }),
+  Object.freeze({
+    id: "mouse-draw",
+    name: "Mouse drawing",
+    mode: "global",
+    source: `// Draw directly into this p5 frame. Press C to clear.
+function setup() {
+  createCanvas(drawerator.element.width, drawerator.element.height);
+  background(18);
+  stroke(220);
+  strokeWeight(3);
+}
+
+function mouseDragged() {
+  line(pmouseX, pmouseY, mouseX, mouseY);
+}
+
+function keyPressed() {
+  if (key === "c" || key === "C") background(18);
+}`,
+  }),
+  Object.freeze({
+    id: "random-lines",
+    name: "Random lines",
+    mode: "instance",
+    source: `// Animated instance-mode random lines.
+p.setup = () => {
+  p.createCanvas(drawerator.element.width, drawerator.element.height);
+  p.background(18);
+  p.stroke(220, 38);
+  p.strokeWeight(2);
+};
+
+p.draw = () => {
+  const x1 = p.random(p.width);
+  const y1 = p.random(p.height);
+  const x2 = p.random(p.width);
+  const y2 = p.random(p.height);
+  p.line(x1, y1, x2, y2);
+};`,
+  }),
+  Object.freeze({
+    id: "drawerator-bridge",
+    name: "Drawerator canvas and time",
+    mode: "instance",
+    source: `// Drawerator-aware p5 example.
+// Pick a curve, cursor, trigger, label, or group in the optional Driver field.
+// @param driver = "" (object)
+
+let latestEvent = null;
+
+const currentDriver = () => (
+  drawerator.params.driver
+  || drawerator.canvas.selected()[0]
+  || drawerator.canvas.find(object => object.role === "cursor")[0]
+  || null
+);
+
+p.setup = () => {
+  p.createCanvas(drawerator.element.width, drawerator.element.height);
+  p.textFont("monospace");
+  p.frameRate(drawerator.frame.fps || 60);
+  drawerator.events.on("*", event => { latestEvent = event; });
+};
+
+p.draw = () => {
+  const objects = drawerator.canvas.all();
+  const selected = drawerator.canvas.selected();
+  const driver = currentDriver();
+  const progress = Number(driver?.time?.progress);
+  const phase = Number.isFinite(progress)
+    ? progress
+    : (drawerator.transport.time % 4) / 4;
+  const radius = Math.min(p.width, p.height) * (0.12 + phase * 0.32);
+
+  p.background(18);
+  p.noFill();
+  p.stroke(90, 180, 255);
+  p.strokeWeight(2);
+  p.circle(p.width / 2, p.height / 2, radius * 2);
+  p.stroke(220, 120);
+  p.line(0, p.height / 2, p.width, p.height / 2);
+
+  p.noStroke();
+  p.fill(220);
+  p.text("canvas objects: " + objects.length, 12, 22);
+  p.text("selected: " + selected.length, 12, 40);
+  p.text("transport: " + drawerator.transport.time.toFixed(2) + " s", 12, 58);
+  p.text("driver: " + (driver?.label || driver?.id || "none"), 12, 76);
+  p.text("last event: " + (latestEvent?.name || latestEvent?.type || "waiting"), 12, 94);
+};`,
+  }),
+]);
+
+export const getP5Example = id => P5_EXAMPLES.find(example => example.id === id) || null;
+
 export const P5_SOURCE_MODES = Object.freeze({
   auto: "auto",
   instance: "instance",
@@ -126,6 +286,7 @@ export const DEFAULT_P5_FRAME = Object.freeze({
   fps: 60,
   transparent: false,
   allowInteraction: true,
+  parameters: {},
   reloadNonce: 0,
 });
 
@@ -213,6 +374,9 @@ export const normalizeP5Frame = value => {
     fps: Math.max(1, Math.min(120, Number(raw.fps) || DEFAULT_P5_FRAME.fps)),
     transparent: Boolean(raw.transparent),
     allowInteraction: raw.allowInteraction !== false,
+    parameters: raw.parameters && typeof raw.parameters === "object" && !Array.isArray(raw.parameters)
+      ? raw.parameters
+      : {},
     reloadNonce: Math.max(0, Number(raw.reloadNonce) || 0),
   };
 };
@@ -234,6 +398,7 @@ export const getP5ConfigKey = value => {
     frame.fps,
     frame.transparent,
     frame.allowInteraction,
+    frame.parameters,
     frame.reloadNonce,
   ]);
 };

@@ -10,6 +10,8 @@ import {
   shouldRenderP5Frame,
 } from "./p5Frame.js";
 import { createP5SerialBridge } from "./p5Serial.js";
+import { parseScriptParameters } from "./scriptParameters.js";
+import { createScriptCanvasApi, resolveScriptParameterValues } from "./scriptRuntime.js";
 
 const loadedCdnRuntimes = new Map();
 
@@ -38,7 +40,7 @@ const loadP5Runtime = async config => {
   return loadedCdnRuntimes.get(url);
 };
 
-export default function P5Frame({ element, config: rawConfig }) {
+export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }) {
   const hostRef = useRef(null);
   const config = normalizeP5Frame(rawConfig);
   const [runningConfig, setRunningConfig] = useState(config);
@@ -61,6 +63,7 @@ export default function P5Frame({ element, config: rawConfig }) {
     let instance = null;
     let observer = null;
     let serialBridge = null;
+    let subscriptions = [];
     let confirmed = false;
     const activeConfig = runningConfig;
     const activeConfigKey = getP5ConfigKey(activeConfig);
@@ -88,10 +91,23 @@ export default function P5Frame({ element, config: rawConfig }) {
         const P5 = await loadP5Runtime(activeConfig);
         if (disposed || !hostRef.current) return;
         const host = hostRef.current;
+        const canvas = createScriptCanvasApi(scriptRuntimeRef, {
+          onSubscription: unsubscribe => subscriptions.push(unsubscribe),
+        });
+        const parameters = parseScriptParameters(activeConfig.source, {
+          values: activeConfig.parameters || {},
+        });
+        const params = resolveScriptParameterValues(parameters, scriptRuntimeRef, canvas);
         const drawerator = {
           element: { id: element.id, width: element.width, height: element.height },
           frame: activeConfig,
-          get time() { return Number(window.drawerator?.transport?.getTime?.() || 0); },
+          canvas,
+          objects: canvas,
+          events: canvas.events,
+          transport: canvas.transport,
+          params,
+          get object() { return canvas.get(element.id); },
+          get time() { return canvas.transport.time; },
           api: window.drawerator,
         };
         const sketch = p => {
@@ -208,6 +224,7 @@ export default function P5Frame({ element, config: rawConfig }) {
     return () => {
       disposed = true;
       observer?.disconnect();
+      subscriptions.forEach(unsubscribe => unsubscribe?.());
       serialBridge?.dispose?.();
       instance?.remove?.();
     };
@@ -227,7 +244,7 @@ export default function P5Frame({ element, config: rawConfig }) {
 // p5 is rendered by Drawerator rather than Excalidraw's embeddable renderer.
 // That keeps the p5 surface first-class on the canvas without giving it a
 // synthetic URL, preview card, or external-link affordance.
-export function P5FrameOverlay({ elements, appState }) {
+export function P5FrameOverlay({ elements, appState, scriptRuntimeRef }) {
   const zoom = Number(appState?.zoom?.value) || 1;
   const scrollX = Number(appState?.scrollX) || 0;
   const scrollY = Number(appState?.scrollY) || 0;
@@ -237,7 +254,7 @@ export function P5FrameOverlay({ elements, appState }) {
 
   return (
     <div className="drawerator-p5-overlay">
-      {frames.map(element => {
+      {frames.map((element, layerIndex) => {
         const config = normalizeP5Frame(element.customData?.draweratorP5);
         const width = Math.max(1, (Number(element.width) || 1) * zoom);
         const height = Math.max(1, (Number(element.height) || 1) * zoom);
@@ -253,11 +270,12 @@ export function P5FrameOverlay({ elements, appState }) {
               top,
               width,
               height,
+              zIndex: layerIndex,
               transform: `rotate(${Number(element.angle) || 0}rad)`,
               transformOrigin: "center",
             }}
           >
-            <P5Frame element={element} config={config} />
+            <P5Frame element={element} config={config} scriptRuntimeRef={scriptRuntimeRef} />
           </div>
         );
       })}
