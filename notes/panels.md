@@ -38,22 +38,26 @@ The following state persists independently:
 - collapsed state for each side and bottom dock;
 - transport placement and dimensions.
 
-Every panel is available from the main menu and command palette, including `/chat`, `/mods`, `/script`, `/iannix`, `/synth`, `/settings`, `/console`, and `/transport`. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
+Every panel is available from the main menu and command palette, including `/chat`, `/mods`, `/script`, `/iannix`, `/synth`, `/settings`, `/console`, and `/transport`. `/svg` opens the Script panel with its SVG adapter selected. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
 
 **Settings → Board → Reset to defaults**, `/reset defaults`, and `Ctrl+Opt+Shift+D` share the stable `workspace.reset.defaults` command. It returns every panel to its natural dock, resets shared dock dimensions, keeps every panel available as a dock tab, collapses all three docks and Excalidraw chrome, restores Mono Dark, selects the unlocked pen, restores sharp zero-sloppiness authoring, and disables Drawerator/native grid snapping.
 
 ## Script panel
 
-Script editing is a standalone dockable concern rather than a tab embedded in a feature panel. The panel persists its selected script type and currently exposes two adapters:
+Script editing is a standalone dockable concern rather than a tab embedded in a feature panel. The panel persists its selected script type and currently exposes four adapters:
 
 - **Brush / modifier** retains the brush catalog, JavaScript editor, compilation feedback, shared `@param` controls, Run/apply-to-selection, Save, Duplicate, New, Import, Delete, and attached-modifier editing.
 - **IanniX** retains the trusted script catalog, editable names, `ask()` / `@param` controls, Run, Save, Duplicate, New, Import, Delete, and one-line IanniX command execution.
+- **p5 sketch** retains its local sketch catalog and trusted live-frame runtime.
+- **SVG** retains its local document catalog, source editor, validation, Play-to-canvas route, native-selection conversion, and SVG import.
 
 The type selector changes the catalog, execution environment, and available actions together. `src/scriptTypes.js` is the registry boundary for future adapters; each adapter continues to own its existing persistence and runtime semantics. Opening a modifier's edit action selects Brush / modifier mode. Importing a trusted `.iannix` file selects IanniX mode. `Ctrl+Opt+B`, `/script`, the main menu, and the command palette open the independent panel.
 
-Both adapters follow one compact editor layout: catalog and parameters first, then the action toolbar with a shared persistent monospace font-size control, a code editor that consumes the remaining height, and adapter status or command input at the bottom. Script selectors inherit the panel surface; code editors use the configurable **Subpanel background** surface. Compilation feedback is unframed text—green for success and red for errors—rather than another nested panel. `F2` or Shift-double-click on a selected custom script opens the selector in-place for renaming; new scripts do this automatically. Brush Run remains disabled until one or more compatible freehand or line paths are selected, then appends the active editor draft and its current parameter values as a live modifier.
+All four adapters follow one compact editor layout: catalog and parameters first, then the action toolbar with a shared persistent monospace font-size control, a code editor that consumes the remaining height, and adapter status or command input at the bottom. Script selectors inherit the panel surface; code editors use the configurable **Subpanel background** surface. Compilation feedback is unframed text—green for success and red for errors—rather than another nested panel. `F2` or Shift-double-click on a selected custom script opens the selector in-place for renaming; new scripts do this automatically. Brush Run remains disabled until one or more compatible freehand or line paths are selected, then appends the active editor draft and its current parameter values as a live modifier.
 
 Mods & FX now owns only the ordered modifier stack and its rendering controls. IanniX owns only score-object and data editing. This prevents either feature panel from becoming the lifetime or placement owner of the shared editor.
+
+SVG visual editing stays on the canvas: the SVG host uses normal selection and transform controls. The existing Properties panel owns SVG document dimensions, element selection, and attributes. Those property edits patch the same source shown by the Script adapter. The canvas runtime renders SVG through an inert image boundary: CSS and SMIL remain declarative and live, while embedded JavaScript is preserved but not executed.
 
 Fresh workspaces begin in Satori freehand mode with the left, right, and bottom docks collapsed. The normal default keeps all panel tabs available behind those reveal edges, while restored local layouts always win after first launch.
 

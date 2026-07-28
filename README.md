@@ -24,8 +24,9 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 - **Modifier Baking:** Bake a complete stack or one modifier at a time. Partial bakes become independently selectable artwork while the remaining stack stays live.
 - **Evolving Brushes:** Time-aware brushes can animate while the pointer is down, freeze per stroke on release, and optionally use a shared global clock.
 - **Shared Script Parameters:** Brush `@param` annotations and native IanniX `ask()` declarations use one typed parameter model, producing persistent sliders that are injected into script execution.
-- **Typed Script Panel:** `/script` opens one dockable editor with Brush / modifier and IanniX adapters. Each type retains its own catalog, actions, execution environment, and shared parameter controls while the panel remains extensible to future script types.
+- **Typed Script Panel:** `/script` opens one dockable editor with Brush / modifier, IanniX, p5 sketch, and SVG adapters. Each type retains its own catalog, actions, execution environment, and shared editor controls while the panel remains extensible to future script types.
 - **Scriptable Brushes:** Edit, import, rename, fork, or apply brush JavaScript in the standalone **Script** panel. The Run action applies the active brush draft to selected freehand or line paths.
+- **First-class SVG Objects:** `/svg` opens the existing Script panel in SVG mode. Press Play to create or update a scene-persisted SVG from authored markup, or use **From selection** to replace native canvas geometry with one source-preserving SVG object. The existing Properties panel owns document dimensions, the SVG element tree, and attributes; CSS and SMIL animation remain live, while SVG JavaScript is preserved but deliberately not executed.
 - **Canonical Layer Stack:** One back-to-front scene order drives native Excalidraw paint order, the front-to-back Outliner, and Drawerator ordering actions. Drag an Outliner row above or below another row to reorder it predictably; p5 overlays preserve the same relative ordering among themselves.
 - **Trusted p5 Frames & Themed Export:** Attach a bundled p5 sketch to a rectangle or frame for an interactive, scene-persisted canvas. PNG export captures the live p5 output alongside Excalidraw geometry, honors the active light/dark theme, uses device-pixel-ratio rendering for a sharp result, and can retain transparency when requested.
 - **Canonical Bézier Paths:** Explicitly convert native lines or freehand paths into editable cubic Béziers. Versioned local-space anchors and handles remain canonical while an adaptive Excalidraw polyline supplies native selection, transforms, exports, and hit-testing.
@@ -81,6 +82,15 @@ Fresh sessions start in Mono Dark Satori pen mode with left, right, and bottom d
 Modifier operations participate in Excalidraw undo/redo. The panel icon is the unified placement control: click to activate its dock tab, drag to float or dock, and right-click for explicit placement or close actions. A click alone never detaches a panel. Resize a side dock from its canvas-facing edge, the bottom dock from its top edge, or a floating panel from its lower-right corner. Dragging a dock below its minimum size collapses it; drag or double-click its hidden edge handle to restore it. `Cmd + Opt + P` toggles Mods & FX between floating and right-docked placement.
 
 The standalone **Script** panel is a code editor, not a second drawing mode. Choose **Brush / modifier** as its script type. **Run** is enabled for selected freehand or line paths and appends the active draft, including unsaved code and parameter values, to each selected path. **Save** updates the attached modifier currently being edited. Built-in presets remain locked; **Save As** creates a user brush and, when editing a modifier, replaces only that modifier in the stack with the new brush. Press `F2` or Shift-double-click a custom script selector to rename it in place; new scripts immediately enter rename mode.
+
+## SVG object workflow
+
+1. Open the existing **Script** panel in **SVG** mode with `/svg`, author a complete `<svg>` document, and press Play to create a selectable, transformable SVG host on the canvas. Press Play again to update the same object.
+2. Select native canvas geometry and choose **From selection** in the SVG script adapter to export it through Drawerator's existing vector exchange path, replace the originals in one undoable scene change, and continue with the exact exported markup.
+3. Open **Properties** for the selected SVG to edit document dimensions, viewBox, the element tree, and attributes. These controls patch the same source document rather than maintaining a second lossy representation.
+4. Scene JSON and `.excalidraw` exchange preserve the SVG source in the object's custom data. **Copy selection SVG** copies a selected SVG object's authored source intact; ordinary pasted SVG continues to import as native editable canvas geometry.
+
+SVG objects participate in selection, transforms, opacity, naming, Outliner order, history, and scene persistence. Their live overlay supports declarative SVG styling and SMIL animation. Embedded SVG JavaScript is retained as source for forward compatibility but does not execute in this phase; overlay-aware whole-board export and native/SVG layer interleaving remain compositor work. See [SVG object architecture](notes/svg.md).
 
 ## IanniX score workflow
 
@@ -147,6 +157,7 @@ Access the command palette using `Cmd + /` or `Ctrl + /` and select from options
 - **Toggle Mods & FX `/mods`**
 - **Toggle Settings `/settings`**
 - **Toggle Console / Info `/console`**
+- **Toggle SVG editor `/svg`**
 - **Toggle IanniX `/iannix`**
 - **Toggle Transport `/transport`**
 - **Convert / edit Bézier paths `/bezier convert`, `/bezier edit`**

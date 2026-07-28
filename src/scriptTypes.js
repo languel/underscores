@@ -14,6 +14,11 @@ export const SCRIPT_TYPES = Object.freeze({
     label: "p5 sketch",
     description: "Trusted p5.js sketch for interactive canvas frames. Supports classic global setup()/draw() and instance-mode p.setup/p.draw code, with local access to Drawerator and the page.",
   }),
+  svg: Object.freeze({
+    id: "svg",
+    label: "SVG",
+    description: "Source-preserving SVG document. Play creates a canvas object or updates the selected SVG object.",
+  }),
 });
 
 export const DEFAULT_SCRIPT_TYPE = "brush";

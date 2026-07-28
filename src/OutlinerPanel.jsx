@@ -19,6 +19,7 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
         element.type
       } ${element.id} ${element.customData?.iannix?.label || ""} ${element.customData?.iannixImport?.externalId || ""} ${element.customData?.iannixImport?.group || ""}`.toLowerCase().includes(needle));
   }, [elements, query]);
+  const getElementTypeLabel = element => element.customData?.draweratorSvg ? "SVG" : element.type;
 
   useEffect(() => {
     const selectedId = Object.keys(selectedElementIds).filter(id => selectedElementIds[id]).at(-1);
@@ -145,8 +146,8 @@ const OutlinerPanel = memo(function OutlinerPanel({ elements = [], selectedEleme
               setDropTarget(null);
             }}
           >
-            <button type="button" className="outliner-object" onClick={event => selectElement(element.id, event)} onDoubleClick={event => { if (event.shiftKey) { event.preventDefault(); beginRename(element); } }} title={`${element.type} · ${element.id}`}>
-              <span className={`outliner-type type-${element.type}`}>{element.type.slice(0, 1).toUpperCase()}</span>
+            <button type="button" className="outliner-object" onClick={event => selectElement(element.id, event)} onDoubleClick={event => { if (event.shiftKey) { event.preventDefault(); beginRename(element); } }} title={`${getElementTypeLabel(element)} · ${element.id}`}>
+              <span className={`outliner-type type-${element.customData?.draweratorSvg ? "svg" : element.type}`}>{element.customData?.draweratorSvg ? "S" : element.type.slice(0, 1).toUpperCase()}</span>
               {editingId === element.id ? (
                 <input ref={editingRef} className="outliner-label-input" value={editingValue} placeholder={element.id} onChange={event => setEditingValue(event.target.value)} onBlur={() => finishRename(element)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); finishRename(element); } if (event.key === "Escape") { event.preventDefault(); finishRename(element, false); } }} aria-label={`Rename ${element.id}`} />
               ) : <span className="outliner-label">{nameMode === "labels" && element.customData?.iannix?.label ? element.customData.iannix.label : element.id}</span>}
