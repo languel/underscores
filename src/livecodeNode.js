@@ -20,22 +20,22 @@ export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
     label: "Strudel",
     editorProfile: "strudel",
     defaultName: "Untitled Strudel",
-    defaultSource: `// Strudel node — native audio runtime arrives in the next phase.\n// The source is already portable and owned by this canvas node.\nnote("c3 e3 g3 b3").slow(2)`,
-    summary: "Pattern livecoding node. Native shared-scheduler playback is release-gated until licensing compliance is complete.",
+    defaultSource: `// Node-owned Strudel pattern. Linked nodes follow Drawerator transport.\nnote("c3 e3 g3 b3").slow(2)`,
+    summary: "Pattern livecoding node using the shared native scheduler. Public deployment stays release-gated until Strudel licensing compliance is complete.",
   }),
   [LIVECODE_KINDS.p5]: Object.freeze({
     label: "p5",
     editorProfile: "p5",
     defaultName: "Untitled p5 node",
     defaultSource: `function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(220);\n  circle(width / 2, height / 2, Math.min(width, height) * 0.45);\n}`,
-    summary: "Self-contained p5 sketch. It will use the existing trusted bundled p5 runtime in the next phase.",
+    summary: "Self-contained p5 sketch using the existing trusted bundled p5 runtime.",
   }),
   [LIVECODE_KINDS.playcore]: Object.freeze({
     label: "Play Core",
     editorProfile: "play",
     defaultName: "Untitled Play Core node",
     defaultSource: `export const settings = { fps: 30 };\n\nexport function main({ x, y }, context) {\n  return (x + y + Math.floor(context.time / 180)) % 4 === 0 ? "·" : " ";\n}`,
-    summary: "Self-contained ASCII program. It will use the existing portable Play Core runner in the next phase.",
+    summary: "Self-contained ASCII program using the existing portable Play Core runner.",
   }),
   [LIVECODE_KINDS.markdown]: Object.freeze({
     label: "Markdown",
@@ -68,8 +68,8 @@ export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
 });
 
 export const LIVE_CODE_FONT_OPTIONS = Object.freeze([
-  Object.freeze({ id: "mono", label: "Mono", family: "ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, monospace" }),
-  Object.freeze({ id: "sans", label: "Sans", family: "ui-sans-serif, system-ui, sans-serif" }),
+  Object.freeze({ id: "mono", label: "Fira Mono", family: '"Fira Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace' }),
+  Object.freeze({ id: "sans", label: "Inter", family: '"Inter", ui-sans-serif, system-ui, sans-serif' }),
   Object.freeze({ id: "serif", label: "Serif", family: "ui-serif, Georgia, serif" }),
 ]);
 

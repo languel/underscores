@@ -5,8 +5,9 @@ Last updated: 2026-07-29
 ## Release checkpoint
 
 Drawerator is currently a local, browser-based score and canvas environment built around
-Excalidraw-native objects, first-class SVG documents, IanniX score behavior, live scripts, and a
-shared scene hierarchy. This checkpoint is ready for the next repository-cleanup phase.
+Excalidraw-native objects, first-class SVG documents, IanniX score behavior, Livecode Nodes, and a
+shared scene hierarchy. This checkpoint is ready for the release/compliance review that precedes
+any public Strudel deployment.
 
 ### Available now
 
@@ -23,12 +24,19 @@ shared scene hierarchy. This checkpoint is ready for the next repository-cleanup
   locking, deletion, drag/reparenting, and batch actions with Option-click.
 - Play Core ASCII frames with offline module imports, original examples, `@param` controls, and the
   shared `drawerator` script bridge.
+- First-class Livecode Nodes: self-contained transparent scene hosts with one canonical source,
+  shared CodeMirror canvas/docked editing, node typography, and concurrent p5, Play Core, Strudel,
+  Markdown, LaTeX, HTML, and Orca adapters. See [Livecode Nodes](livecode.md).
+- Native Strudel shared scheduling and native Orca grids with Drawerator transport/Mixer integration.
+  Strudel public deployment remains intentionally blocked pending AGPL compliance; see
+  [Livecode licensing](livecode-licensing.md).
 
 ## Validation baseline
 
-This release gate passes `npm test` (356 tests), `npm run build`, `npm run build:single`, and
-`git diff --check`. Browser checks cover script-editor keyboard ownership, palette switching,
-transparent Teaching/Transparent surfaces, and adaptive VS Code light/dark switching.
+This release gate must pass `npm test`, `npm run build`, `npm run build:single`, `git diff --check`,
+focused browser checks for concurrent Livecode Nodes, code/dock source ownership, HTML sandboxing,
+and Orca keyboard containment. `npm run release:check` must fail until the Strudel release gate is
+actually satisfied; an explicit acknowledgement only validates the gate's completed-compliance path.
 
 ## Known boundary
 
@@ -39,6 +47,7 @@ true native/SVG per-object z-order and exact time-specific PNG parity. See
 
 ## Next phase
 
-Repository cleanup follows this checkpoint: consolidate the remaining branch/worktree history,
-remove only verified redundant artifacts, and preserve this release state before beginning the next
-editor phase.
+Before public deployment, complete the project licensing decision, publish corresponding source and
+build instructions, audit any Strudel samples/assets, and record the final notices. After that,
+continue Orca operator parity and Livecode deterministic export coverage without weakening node
+source ownership or keyboard containment.

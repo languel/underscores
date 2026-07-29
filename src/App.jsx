@@ -80,8 +80,9 @@ import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
 import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
 import { LivecodeNodeEditor, LivecodeNodeOverlay } from "./LivecodeNodeOverlay.jsx";
-import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeKindDefinition, isLivecodeNodeElement, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode } from "./livecodeNode.js";
+import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeKindDefinition, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode } from "./livecodeNode.js";
 import { describeLivecodeRuntime, hasNativeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
+import { getLivecodeHelp } from "./livecodeHelp.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
 import { insertSvgNode, prepareSvgForStructuredEditing, updateSvgNodeData } from "./svgDocumentModel.js";
@@ -13310,6 +13311,8 @@ function App() {
     </div>;
     const node = normalizeLivecodeNode(nodeElement.customData?.draweratorLivecode);
     const definition = getLivecodeKindDefinition(node.kind);
+    const help = getLivecodeHelp(node.kind);
+    const parameters = parseScriptParameters(node.source, { values: node.parameters });
     const selectNode = elementId => {
       const api = excalidrawAPIRef.current;
       if (!api) return;
@@ -13328,8 +13331,32 @@ function App() {
       <div className="livecode-panel-controls">
         <label>Kind <select value={node.kind} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { kind: event.target.value, name: defaultLivecodeName(event.target.value) }, { commitToHistory: true })}>{Object.entries(LIVECODE_KINDS).map(([key, value]) => <option key={key} value={value}>{getLivecodeKindDefinition(value).label}</option>)}</select></label>
         <label>View <select value={node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="code">Code</option><option value="preview">Preview</option></select></label>
-        <label>Font <select value={node.typography.font} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { font: event.target.value } }, { commitToHistory: true })}><option value="mono">Mono</option><option value="sans">Sans</option><option value="serif">Serif</option></select></label>
+        <label>Clock <select value={node.runtime.transportMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { transportMode: event.target.value } }, { commitToHistory: true })}><option value="linked">Linked</option><option value="free">Free</option></select></label>
+        <label>Font <select value={node.typography.font} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { font: event.target.value } }, { commitToHistory: true })}>{LIVE_CODE_FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label>
+        <label>Size <input type="number" min="8" max="72" step="1" value={node.typography.fontSize} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontSize: Number(event.target.value) } }, { commitToHistory: true })} /></label>
+        <label>Line <input type="number" min="0.8" max="3" step="0.05" value={node.typography.lineHeight} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { lineHeight: Number(event.target.value) } }, { commitToHistory: true })} /></label>
+        <label>Weight <select value={node.typography.fontWeight} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontWeight: Number(event.target.value) } }, { commitToHistory: true })}>{[300, 400, 500, 600, 700].map(weight => <option key={weight} value={weight}>{weight}</option>)}</select></label>
+        <label>Track <input type="number" min="-2" max="8" step="0.1" value={node.typography.letterSpacing} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { letterSpacing: Number(event.target.value) } }, { commitToHistory: true })} /></label>
       </div>
+      {parameters.length > 0 && <div className="iannix-script-parameters p5-script-parameters" aria-label="Livecode node parameters">
+        {parameters.map(parameter => <label className="iannix-script-parameter" key={parameter.name}>
+          <span className="iannix-script-parameter-header"><strong>{parameter.label}</strong>{parameter.type === "object" && <em>Canvas object</em>}</span>
+          <input
+            className="custom-brush-param-input"
+            type={parameter.type === "object" ? "text" : "number"}
+            min={parameter.min}
+            max={parameter.max}
+            step={parameter.step}
+            value={parameter.value}
+            placeholder={parameter.type === "object" ? "Object id, label, or group" : undefined}
+            onChange={event => {
+              const value = parameter.type === "object" ? event.target.value : Number(event.target.value);
+              if (parameter.type !== "object" && !Number.isFinite(value)) return;
+              patchLivecodeCanvasNode(nodeElement.id, { parameters: { [parameter.name]: value } }, { commitToHistory: true });
+            }}
+          />
+        </label>)}
+      </div>}
       <div className="script-icon-toolbar">
         <button type="button" className="palette-action-btn primary script-icon-button" onClick={() => toggleLivecodeNodeRun(nodeElement.id)} title={node.runtime.running ? "Stop this node" : "Run this node"} aria-label={node.runtime.running ? "Stop livecode node" : "Run livecode node"}><ScriptActionIcon type="run" /></button>
         <button type="button" className="palette-action-btn secondary script-icon-button" onClick={() => commitLivecodeCanvasNode(nodeElement.id)} title="Save source to the scene" aria-label="Save livecode source"><ScriptActionIcon type="save" /></button>
@@ -13355,6 +13382,12 @@ function App() {
         ariaLabel={`${definition.label} node source`}
       /> : <p className="livecode-panel-location">Editing this same node on the canvas. Dock it to move the editor here.</p>}
       <p className="p5-script-status" role="status" aria-live="polite">{livecodeStatus || definition.summary}</p>
+      <details className="livecode-help">
+        <summary>{help.title}</summary>
+        <p>{help.summary}</p>
+        <ul>{help.points.map(point => <li key={point}>{point}</li>)}</ul>
+        <small>{help.footer}</small>
+      </details>
     </div>;
   };
 

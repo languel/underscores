@@ -43,7 +43,10 @@ export function LivecodeNodeEditor({
 }) {
   const node = normalizeLivecodeNode(rawNode);
   const definition = getLivecodeKindDefinition(node.kind);
-  if (node.kind === "orca") return <OrcaNode
+  if (node.kind === "orca") return <div
+    className={`livecode-node-editor ${className}`.trim()}
+    style={editorStyleFor(node.typography)}
+  ><OrcaNode
     nodeId={element?.id || node.nodeId}
     source={node.source}
     revision={node.revision}
@@ -54,7 +57,7 @@ export function LivecodeNodeEditor({
     onMidiEvents={onMidiEvents}
     onBlur={onBlur}
     ariaLabel={ariaLabel || "Orca grid editor"}
-  />;
+  /></div>;
   return (
     <DraweratorCodeEditor
       value={node.source}

@@ -26,3 +26,26 @@ Licensed under the MIT License:
 > LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
+
+## Fira Mono and Inter fonts
+
+The Livecode Node typography bundles Fira Mono via `@fontsource/fira-mono` (copyright Google Inc.)
+and Inter via `@fontsource/inter` (copyright 2016 The Inter Project Authors). Both font packages
+are included at the pinned versions in `package.json` and licensed under the SIL Open Font License,
+Version 1.1. Their complete upstream license texts are retained in the corresponding installed
+packages at `node_modules/@fontsource/fira-mono/LICENSE` and `node_modules/@fontsource/inter/LICENSE`;
+source distributions and public release artifacts must preserve that notice and license.
+
+SIL Open Font License, Version 1.1 — 26 February 2007
+
+> Permission is hereby granted, free of charge, to any person obtaining a copy of the Font Software,
+> to use, study, copy, merge, embed, modify, redistribute, and sell modified and unmodified copies
+> of the Font Software, subject to the conditions of the SIL Open Font License, Version 1.1.
+>
+> Neither the Font Software nor any of its individual components, in Original or Modified Versions,
+> may be sold by itself. Original or Modified Versions may be bundled, redistributed, and/or sold
+> with software when each copy contains the relevant copyright notice and license. Modified versions
+> must not use reserved font names without permission and must remain under this license.
+
+The authoritative full text is included with the above font packages and is also available from the
+[SIL Open Font License](https://openfontlicense.org/).

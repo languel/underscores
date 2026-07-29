@@ -1,8 +1,9 @@
 # Drawerator Script API
 
-Drawerator exposes a versioned browser API as `window.drawerator`. p5 and Play Core frames receive
-the same application API as `drawerator.api`, plus a smaller live frame bridge directly as
-`drawerator`. Scripts are trusted local code, not third-party plugins or a security sandbox.
+Drawerator exposes a versioned browser API as `window.drawerator`. p5 and Play Core frames, and
+Livecode p5/Play Core/Strudel nodes, receive the same application API as `drawerator.api`, plus a
+smaller live frame bridge directly as `drawerator`. Scripts are trusted local code, not third-party
+plugins or a security sandbox.
 
 Check `drawerator.api.apiVersion` when requiring a particular public capability.
 
@@ -12,7 +13,7 @@ Check `drawerator.api.apiVersion` when requiring a particular public capability.
 | --- | --- |
 | `element` | Script host `{ id, width, height }`. |
 | `object` | Read-only current snapshot of that host in the Drawerator scene. |
-| `frame` | p5 or Play Core frame configuration. |
+| `frame` | p5/Play Core host configuration or a Livecode Node record. |
 | `params` | Values declared with `@param`; object params are live object snapshots. |
 | `currentColor`, `currentOpacity` | Active Drawerator foreground appearance. |
 | `colors` | `foreground`, `accent`, `highlight`, and `muted`, each `{ color, opacity, css }`. |
@@ -56,6 +57,7 @@ await drawerator.api.commands.execute("grid.global.update", {
 });
 ```
 
-The Script type hover/focus help points to the matching Info panel quick reference. The p5 and Play
-Core Info references include this API in-app, so the documentation remains available while writing a
-program.
+The Script type hover/focus help points to the matching Info panel quick reference. Livecode nodes
+also show an adapter-specific reference in their docked Script panel, including Strudel transport,
+presentation security, and Orca grid keys. See [Livecode Nodes](livecode.md) for their persisted
+model and lifecycle.

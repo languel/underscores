@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   LIVECODE_KINDS,
   createLivecodeNode,
+  getLivecodeFont,
   getLivecodeEditorProfile,
   isLivecodeNodeElement,
   normalizeLivecodeNode,
@@ -73,4 +74,6 @@ test("detects scene nodes and maps their source to established CodeMirror profil
   assert.equal(shouldRenderLivecodeNode({ ...element, customData: { ...element.customData, outlinerHidden: true } }), false);
   assert.equal(getLivecodeEditorProfile({ kind: "html" }), "html");
   assert.equal(getLivecodeEditorProfile({ kind: "orca" }), "orca");
+  assert.match(getLivecodeFont("mono").family, /Fira Mono/);
+  assert.match(getLivecodeFont("sans").family, /Inter/);
 });

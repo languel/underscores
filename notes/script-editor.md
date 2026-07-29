@@ -4,7 +4,7 @@ Last updated: 2026-07-29
 
 ## Scope
 
-The Script panel uses one CodeMirror 6 editing surface for Brush / modifier JavaScript, IanniX JavaScript, p5 JavaScript, Play Core JavaScript, and SVG documents. It is deliberately a compact live-coding editor inside Drawerator's existing panel system, not a second application shell. Catalogs, parameter controls, adapter actions, status, and the current panel placement model remain outside the editor.
+The Script panel uses one CodeMirror 6 editing surface for Brush / modifier JavaScript, IanniX JavaScript, p5 JavaScript, Play Core JavaScript, SVG documents, and every non-grid Livecode Node. It is deliberately a compact live-coding editor inside Drawerator's existing panel system, not a second application shell. Catalogs, parameter controls, adapter actions, status, and the current panel placement model remain outside the editor.
 
 The shared surface provides:
 
@@ -45,6 +45,15 @@ SVG additionally uses the shared editor's selection callback and external range 
 settled collapsed source cursor selects the corresponding SVG node or compound subpath; canvas,
 Properties, and Outliner selection highlights the exact authored range without replacing editor
 focus or rewriting the document.
+
+## Livecode Node placement
+
+`src/LivecodeNodeOverlay.jsx` places the exact same Livecode controller on the canvas or in the
+Script panel. The node's `source` remains the single scene-persisted draft; changing placement does
+not copy, reinitialize, or stop its adapter. A node's `view` and typography belong to the scene,
+while dock placement belongs to local workspace state. Orca is the intentional exception to the
+CodeMirror surface: it has a per-node grid editor whose focus captures all editing/navigation keys.
+See [Livecode Nodes](livecode.md) for adapter behavior and the in-app quick-reference contract.
 
 ## Play Core adapter
 
