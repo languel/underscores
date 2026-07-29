@@ -76,6 +76,8 @@ import { sourceDiagnostic, validateJavascriptEditorSource } from "./scriptEditor
 import { normalizeScriptType } from "./scriptTypes.js";
 import { P5FrameOverlay } from "./P5Frame.jsx";
 import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_EXAMPLES, P5_FRAME_STORAGE_KEY, canHostP5Frame, getP5Example, getP5HostElementType, isP5FrameElement, normalizeP5Frame, normalizeP5Scripts, normalizeP5SourceMode, reconcileP5ScriptsWithElements, validateP5Source } from "./p5Frame.js";
+import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
+import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
 import { insertSvgNode, prepareSvgForStructuredEditing, updateSvgNodeData } from "./svgDocumentModel.js";
 import { executeSvgStructuredCommand } from "./svgCommandApi.js";
@@ -1945,6 +1947,19 @@ function App() {
   const [p5ScriptStatusKind, setP5ScriptStatusKind] = useState("info");
   const [editingP5ScriptName, setEditingP5ScriptName] = useState(false);
   const [p5ScriptNameDraft, setP5ScriptNameDraft] = useState("");
+  const [playCoreScripts, setPlayCoreScripts] = useState(() => {
+    try {
+      return normalizePlayCoreScripts(JSON.parse(localStorage.getItem(PLAY_CORE_STORAGE_KEY) || "[]"));
+    } catch {
+      return [];
+    }
+  });
+  const [activePlayCoreScriptId, setActivePlayCoreScriptId] = useState("");
+  const [playCoreSource, setPlayCoreSource] = useState(DEFAULT_PLAY_CORE_SOURCE);
+  const [playCoreStatus, setPlayCoreStatus] = useState("");
+  const [playCoreStatusKind, setPlayCoreStatusKind] = useState("info");
+  const [editingPlayCoreScriptName, setEditingPlayCoreScriptName] = useState(false);
+  const [playCoreScriptNameDraft, setPlayCoreScriptNameDraft] = useState("");
   const [svgScripts, setSvgScripts] = useState(() => {
     try {
       return normalizeSvgScripts(JSON.parse(localStorage.getItem(SVG_SCRIPT_STORAGE_KEY) || "[]"));
@@ -2226,6 +2241,7 @@ function App() {
   const iannixImportInputRef = useRef(null);
   const brushImportInputRef = useRef(null);
   const p5ImportInputRef = useRef(null);
+  const playCoreImportInputRef = useRef(null);
   const svgImportInputRef = useRef(null);
   const excalidrawAPIRef = useRef(null);
   const p5OverlaySyncRef = useRef({ signature: "", pending: null, raf: 0 });
@@ -2258,6 +2274,18 @@ function App() {
   const [selectedElementIds, setSelectedElementIds] = useState({});
   const selectedElementIdsRef = useRef(selectedElementIds);
   selectedElementIdsRef.current = selectedElementIds;
+  const selectedP5FrameForEditor = useMemo(() => {
+    const matches = p5OverlayScene.elements.filter(element => (
+      selectedElementIds[element.id] && isP5FrameElement(element)
+    ));
+    return matches.length === 1 ? matches[0] : null;
+  }, [p5OverlayScene.elements, selectedElementIds]);
+  const selectedPlayCoreFrameForEditor = useMemo(() => {
+    const matches = p5OverlayScene.elements.filter(element => (
+      selectedElementIds[element.id] && isPlayCoreFrameElement(element)
+    ));
+    return matches.length === 1 ? matches[0] : null;
+  }, [p5OverlayScene.elements, selectedElementIds]);
   const scriptRuntimeRef = useRef({});
   const scriptCanvasApiRef = useRef(null);
   scriptRuntimeRef.current = {
@@ -2908,6 +2936,10 @@ function App() {
   }, [p5Scripts]);
 
   useEffect(() => {
+    localStorage.setItem(PLAY_CORE_STORAGE_KEY, JSON.stringify(playCoreScripts));
+  }, [playCoreScripts]);
+
+  useEffect(() => {
     localStorage.setItem(SVG_SCRIPT_STORAGE_KEY, JSON.stringify(svgScripts));
   }, [svgScripts]);
 
@@ -2960,6 +2992,36 @@ function App() {
     setP5ScriptSource(p5Scripts[0].source || "");
     setP5ScriptMode(normalizeP5SourceMode(p5Scripts[0].mode));
   }, [activeP5ScriptId, p5Scripts]);
+
+  // A selected live host is the source of truth for the script panel. Do not
+  // depend on the catalog here: a valid edit updates that catalog first, and
+  // the overlay scene arrives a frame later. Depending on it would briefly
+  // restore the old host source and steal the just-entered character.
+  useEffect(() => {
+    if (scriptPanelType !== "p5" || !selectedP5FrameForEditor) return;
+    const frame = normalizeP5Frame(selectedP5FrameForEditor.customData?.draweratorP5);
+    const script = p5Scripts.find(candidate => candidate.id === frame.scriptId);
+    setActiveP5ScriptId(script?.id || "");
+    setP5ScriptSource(previous => previous === frame.source ? previous : frame.source);
+    setP5ScriptMode(normalizeP5SourceMode(frame.mode));
+    setP5ScriptNameDraft(script?.name || "Untitled p5 sketch");
+  }, [scriptPanelType, selectedP5FrameForEditor]);
+
+  useEffect(() => {
+    if (activePlayCoreScriptId || playCoreScripts.length === 0) return;
+    setActivePlayCoreScriptId(playCoreScripts[0].id);
+    setPlayCoreSource(playCoreScripts[0].source || DEFAULT_PLAY_CORE_SOURCE);
+    setPlayCoreScriptNameDraft(playCoreScripts[0].name || "Untitled Play Core");
+  }, [activePlayCoreScriptId, playCoreScripts]);
+
+  useEffect(() => {
+    if (scriptPanelType !== "play" || !selectedPlayCoreFrameForEditor) return;
+    const frame = normalizePlayCoreFrame(selectedPlayCoreFrameForEditor.customData?.draweratorPlayCore);
+    const script = playCoreScripts.find(candidate => candidate.id === frame.scriptId);
+    setActivePlayCoreScriptId(script?.id || "");
+    setPlayCoreSource(previous => previous === frame.source ? previous : frame.source);
+    setPlayCoreScriptNameDraft(script?.name || "Untitled Play Core");
+  }, [scriptPanelType, selectedPlayCoreFrameForEditor]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_panel_visibility_v1", JSON.stringify(openPanels));
@@ -3770,6 +3832,32 @@ function App() {
     } catch (error) {
       setP5ScriptStatus(error.message || "Could not import the p5 sketch.");
       setP5ScriptStatusKind("error");
+    }
+  };
+
+  const handlePlayCoreScriptFile = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const source = await file.text();
+      if (!source.trim()) throw new Error("The imported Play Core program is empty.");
+      const validation = validatePlayCoreSource(source);
+      if (!validation.valid) throw new Error(`Play Core error: ${validation.error}`);
+      const script = createPlayCoreScript({
+        name: file.name.replace(/\.[^.]+$/, "") || "Untitled Play Core",
+        source,
+      });
+      setPlayCoreScripts(previous => [...previous, script]);
+      setActivePlayCoreScriptId(script.id);
+      setPlayCoreSource(script.source);
+      setPlayCoreScriptNameDraft(script.name);
+      setEditingPlayCoreScriptName(true);
+      setPlayCoreStatus(`Imported “${script.name}”.`);
+      setPlayCoreStatusKind("success");
+    } catch (error) {
+      setPlayCoreStatus(error.message || "Could not import the Play Core program.");
+      setPlayCoreStatusKind("error");
     }
   };
 
@@ -7502,6 +7590,7 @@ function App() {
     { id: "webembed.create", name: "Create Web Embed /webembed", aliases: ["/webembed", "Create web embed", "Web embed"], category: "Canvas", args: { url: "URL?" }, action: (_api, args) => createWebEmbed(args) },
     { id: "p5.frame.create", name: "Create p5 Frame /p5", aliases: ["/p5", "Create p5 frame", "p5 frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", source: "p5 source?", mode: "auto|instance|global?", runtime: "bundled|cdn?", cdnUrl: "string?" }, ai: { expose: true, description: "Create a trusted, interactive p5.js frame. Use mode: instance for p.setup/p.draw code, or mode: global for classic function setup()/draw() code. Omit mode for auto-detection. The bundled runtime is the default; only use runtime: cdn when the user specifically requests a remote p5 build. Keep the sketch self-contained and do not use HTML or script tags.", example: { name: "Pulsing circle", width: 640, height: 360, mode: "global", source: "function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(230);\n  strokeWeight(3);\n  const radius = 60 + 24 * Math.sin(millis() / 500);\n  circle(width / 2, height / 2, radius * 2);\n}" } }, action: (_api, args) => createP5Frame(args) },
     { id: "p5.frame.attach", name: "Attach p5 Sketch to Selection /attach p5", aliases: ["/attach p5", "Attach p5 sketch", "p5 attach"], category: "Canvas", args: { source: "p5 source?", mode: "auto|instance|global?", name: "string?" }, ai: { expose: true, description: "Attach a p5 sketch to each selected rectangle, frame, or existing p5 canvas. The selected objects become live p5 hosts; use a self-contained p5 source and choose global mode for classic setup()/draw() code.", example: { mode: "global", source: "function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  circle(width / 2, height / 2, 80);\n}" } }, action: (_api, args) => attachP5ScriptToSelection(args) },
+    { id: "play.core.frame.create", name: "Create Play Core Frame /play", aliases: ["/play", "Play Core frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", fps: "number?", source: "play.core source?" }, action: (_api, args) => createPlayCoreFrame(args) },
     { id: "settings-ai", name: "Open AI Configuration /settings-ai", aliases: ["/settings-ai"], category: "Panels", action: () => toggleDraweratorPanel("settings", { settingsTab: "ai" }) },
     { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
     { id: "toggle-transparency", name: "Toggle Canvas Background Transparency", category: "Canvas", action: (api) => toggleBackgroundTransparency(api) },
@@ -9159,6 +9248,108 @@ function App() {
       commitToHistory: true,
     });
     setSelectedElementIds({ [element.id]: true });
+    return { elementIds: [element.id], name: script.name };
+  };
+
+  const createPlayCoreCatalogScript = ({ name, source } = {}) => {
+    const script = createPlayCoreScript({ name, source });
+    setPlayCoreScripts(previous => [...previous, script]);
+    setActivePlayCoreScriptId(script.id);
+    setPlayCoreSource(script.source);
+    setPlayCoreScriptNameDraft(script.name);
+    return script;
+  };
+
+  const attachPlayCoreScriptToSelection = ({ source, scriptId, name, script: suppliedScript, targetIds } = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const requestedIds = Array.isArray(targetIds) ? new Set(targetIds) : null;
+    const selected = getSelectedElements().filter(element => (
+      canHostPlayCoreFrame(element) && (!requestedIds || requestedIds.has(element.id))
+    ));
+    if (!selected.length) throw new Error("Select a rectangle, frame, or Play Core canvas first.");
+
+    let script = suppliedScript || playCoreScripts.find(candidate => candidate.id === (scriptId || activePlayCoreScriptId));
+    const resolvedSource = typeof source === "string" && source.trim()
+      ? source
+      : script?.source || playCoreSource || DEFAULT_PLAY_CORE_SOURCE;
+    const validation = validatePlayCoreSource(resolvedSource);
+    if (!validation.valid) throw new Error(`Play Core error: ${validation.error}`);
+    if (!script) script = createPlayCoreCatalogScript({ name, source: resolvedSource });
+
+    const selectedIds = new Set(selected.map(element => element.id));
+    const nonce = Date.now();
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    api.updateScene({
+      elements: elements.map(element => {
+        if (!selectedIds.has(element.id)) return element;
+        const prior = normalizePlayCoreFrame(element.customData?.draweratorPlayCore);
+        return {
+          ...element,
+          strokeColor: "transparent",
+          strokeWidth: 0,
+          fillStyle: "solid",
+          backgroundColor: "transparent",
+          customData: {
+            ...(element.customData || {}),
+            draweratorPlayCore: normalizePlayCoreFrame({
+              ...prior,
+              source: resolvedSource,
+              scriptId: script.id,
+              reloadNonce: nonce,
+            }),
+          },
+        };
+      }),
+      appState: { selectedElementIds: Object.fromEntries(selected.map(element => [element.id, true])) },
+      commitToHistory: true,
+    });
+    setSelectedElementIds(Object.fromEntries(selected.map(element => [element.id, true])));
+    return { count: selected.length, script };
+  };
+
+  const syncPlayCoreScriptHosts = (scriptId, patch) => {
+    const api = excalidrawAPIRef.current;
+    if (!api || !scriptId) return;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const matched = elements.filter(element => !element.isDeleted && isPlayCoreFrameElement(element)
+      && normalizePlayCoreFrame(element.customData?.draweratorPlayCore).scriptId === scriptId);
+    if (!matched.length) return;
+    const nonce = Date.now();
+    api.updateScene({
+      elements: elements.map(element => !matched.some(candidate => candidate.id === element.id) ? element : {
+        ...element,
+        customData: {
+          ...(element.customData || {}),
+          draweratorPlayCore: normalizePlayCoreFrame({
+            ...element.customData?.draweratorPlayCore,
+            ...patch,
+            reloadNonce: nonce,
+          }),
+        },
+      }),
+      commitToHistory: false,
+    });
+  };
+
+  const createPlayCoreFrame = (args = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const appState = api.getAppState();
+    const center = viewportCoordsToSceneCoords({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 }, appState);
+    const width = Math.max(120, Math.min(4096, Number(args.width) || 640));
+    const height = Math.max(90, Math.min(4096, Number(args.height) || 360));
+    const source = typeof args.source === "string" && args.source.trim() ? args.source : DEFAULT_PLAY_CORE_SOURCE;
+    const validation = validatePlayCoreSource(source);
+    if (!validation.valid) throw new Error(`Play Core error: ${validation.error}`);
+    const script = createPlayCoreCatalogScript({ name: args.name, source });
+    const frame = normalizePlayCoreFrame({ ...DEFAULT_PLAY_CORE_FRAME, source, scriptId: script.id, fps: args.fps, reloadNonce: Date.now() });
+    const base = createBaseElement("rectangle", center.x - width / 2, center.y - height / 2, width, height, "transparent");
+    const element = { ...base, strokeColor: "transparent", strokeWidth: 0, backgroundColor: "transparent", fillStyle: "solid", customData: { draweratorPlayCore: frame } };
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    api.updateScene({ elements: [...elements, element], appState: { selectedElementIds: { [element.id]: true }, selectedGroupIds: {}, activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false } }, commitToHistory: true });
+    setSelectedElementIds({ [element.id]: true });
+    setPlayCoreSource(source);
     return { elementIds: [element.id], name: script.name };
   };
 
@@ -12464,6 +12655,228 @@ function App() {
     );
   };
 
+  const renderPlayCoreScriptTab = () => {
+    const selectedPlayFrames = getSelectedElements().filter(isPlayCoreFrameElement);
+    const selectedHost = selectedPlayFrames.length === 1 ? selectedPlayFrames[0] : null;
+    const selectedConfig = selectedHost ? normalizePlayCoreFrame(selectedHost.customData?.draweratorPlayCore) : null;
+    const activeScript = playCoreScripts.find(script => script.id === (selectedConfig?.scriptId || activePlayCoreScriptId));
+    const compatibleHosts = getSelectedElements().filter(canHostPlayCoreFrame);
+    const setPlayCoreLiveStatus = (message, kind = "info") => {
+      setPlayCoreStatus(message);
+      setPlayCoreStatusKind(kind);
+    };
+    const parameters = parseScriptParameters(playCoreSource, {
+      values: selectedConfig?.parameters || {},
+    });
+    const syncSelectedFrames = patch => {
+      if (!selectedPlayFrames.length) return false;
+      const api = excalidrawAPIRef.current;
+      if (!api) return false;
+      const ids = new Set(selectedPlayFrames.map(element => element.id));
+      const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+      const nonce = Date.now();
+      api.updateScene({
+        elements: elements.map(element => ids.has(element.id) ? {
+          ...element,
+          strokeColor: "transparent",
+          strokeWidth: 0,
+          backgroundColor: "transparent",
+          fillStyle: "solid",
+          customData: {
+            ...(element.customData || {}),
+            draweratorPlayCore: normalizePlayCoreFrame({
+              ...element.customData?.draweratorPlayCore,
+              ...patch,
+              reloadNonce: nonce,
+            }),
+          },
+        } : element),
+        commitToHistory: false,
+      });
+      return true;
+    };
+    const updateParameters = patch => syncSelectedFrames({
+      parameters: { ...(selectedConfig?.parameters || {}), ...patch },
+    });
+    const updateScriptLive = patch => {
+      if (Object.hasOwn(patch, "source")) {
+        const validation = validatePlayCoreSource(patch.source);
+        if (!validation.valid) {
+          setPlayCoreLiveStatus(`Play Core error: ${validation.error}`, "error");
+          return false;
+        }
+      }
+      if (activeScript) {
+        setPlayCoreScripts(previous => previous.map(script => script.id === activeScript.id
+          ? { ...script, ...patch, updatedAt: Date.now() }
+          : script
+        ));
+        syncPlayCoreScriptHosts(activeScript.id, patch);
+      } else {
+        syncSelectedFrames(patch);
+      }
+      return true;
+    };
+    const saveScript = () => {
+      const validation = validatePlayCoreSource(playCoreSource);
+      if (!validation.valid) { setPlayCoreLiveStatus(`Play Core error: ${validation.error}`, "error"); return; }
+      if (!activeScript) {
+        const created = createPlayCoreCatalogScript({ source: playCoreSource });
+        if (compatibleHosts.length) {
+          try {
+            attachPlayCoreScriptToSelection({ script: created, source: created.source, name: created.name });
+          } catch (error) {
+            setPlayCoreLiveStatus(error.message || "Saved the Play Core program.", "info");
+            return;
+          }
+        }
+        setPlayCoreLiveStatus(`Saved “${created.name}” in this browser.`, "success");
+        return;
+      }
+      setPlayCoreScripts(previous => previous.map(script => script.id === activeScript.id
+        ? { ...script, source: playCoreSource, updatedAt: Date.now() }
+        : script
+      ));
+      syncPlayCoreScriptHosts(activeScript.id, { source: playCoreSource });
+      setPlayCoreLiveStatus(`Saved “${activeScript.name}” in this browser.`, "success");
+    };
+    const createScript = () => {
+      const script = createPlayCoreCatalogScript({ name: "Untitled Play Core", source: DEFAULT_PLAY_CORE_SOURCE });
+      setEditingPlayCoreScriptName(true);
+      setPlayCoreLiveStatus("Created a new Play Core program.");
+      return script;
+    };
+    const duplicateScript = () => {
+      if (!activeScript) return;
+      const script = createPlayCoreCatalogScript({
+        name: `Copy of ${activeScript.name}`,
+        source: playCoreSource,
+      });
+      setEditingPlayCoreScriptName(true);
+      setPlayCoreLiveStatus(`Duplicated “${activeScript.name}”.`);
+      return script;
+    };
+    const beginRename = () => {
+      if (!activeScript) return;
+      setPlayCoreScriptNameDraft(activeScript.name || "Untitled Play Core");
+      setEditingPlayCoreScriptName(true);
+    };
+    const commitRename = () => {
+      const name = playCoreScriptNameDraft.trim();
+      if (activeScript && name && name !== activeScript.name) {
+        setPlayCoreScripts(previous => previous.map(script => script.id === activeScript.id
+          ? { ...script, name, updatedAt: Date.now() }
+          : script
+        ));
+        setPlayCoreLiveStatus(`Renamed Play Core program to “${name}”.`);
+      }
+      setEditingPlayCoreScriptName(false);
+    };
+    const deleteScript = () => {
+      if (!activeScript || !window.confirm(`Delete “${activeScript.name}”?`)) return;
+      const remaining = playCoreScripts.filter(script => script.id !== activeScript.id);
+      setPlayCoreScripts(remaining);
+      setActivePlayCoreScriptId(remaining[0]?.id || "");
+      setPlayCoreSource(remaining[0]?.source || DEFAULT_PLAY_CORE_SOURCE);
+      setPlayCoreScriptNameDraft(remaining[0]?.name || "");
+      setPlayCoreLiveStatus(`Deleted “${activeScript.name}”.`);
+    };
+    const applyToSelection = () => {
+      try {
+        const source = activeScript?.source || playCoreSource;
+        const validation = validatePlayCoreSource(source);
+        if (!validation.valid) throw new Error(`Play Core error: ${validation.error}`);
+        if (!compatibleHosts.length) {
+          const result = createPlayCoreFrame({ source, name: activeScript?.name });
+          setPlayCoreLiveStatus(`Created “${result.name}” on the canvas.`, "success");
+          return;
+        }
+        const result = attachPlayCoreScriptToSelection({
+          scriptId: activeScript?.id,
+          source,
+          name: activeScript?.name,
+        });
+        setPlayCoreLiveStatus(`Applied this program to ${result.count} selected Play Core host${result.count === 1 ? "" : "s"}.`, "success");
+      } catch (error) {
+        setPlayCoreLiveStatus(error.message || "Select a rectangle, frame, or Play Core host first.", "error");
+      }
+    };
+    return <div className="iannix-properties iannix-script-pane p5-script-pane">
+      <p className="p5-script-status">Play Core programs render ASCII cells in a Drawerator frame. Use <code>@param</code> with <code>drawerator.params</code>; <code>drawerator.canvas</code>, events, and transport are the same bridge exposed to p5.</p>
+      {editingPlayCoreScriptName ? <input
+        type="text"
+        className="custom-brush-select"
+        value={playCoreScriptNameDraft}
+        onChange={event => setPlayCoreScriptNameDraft(event.target.value)}
+        onBlur={commitRename}
+        onKeyDown={event => {
+          if (event.key === "Enter") { event.preventDefault(); commitRename(); }
+          if (event.key === "Escape") { event.preventDefault(); setEditingPlayCoreScriptName(false); }
+        }}
+        aria-label="Play Core program name"
+        autoFocus
+      /> : <select
+        className="custom-brush-select"
+        value={activePlayCoreScriptId}
+        onChange={event => {
+          const script = playCoreScripts.find(candidate => candidate.id === event.target.value);
+          setEditingPlayCoreScriptName(false);
+          setActivePlayCoreScriptId(event.target.value);
+          setPlayCoreSource(script?.source || DEFAULT_PLAY_CORE_SOURCE);
+          setPlayCoreScriptNameDraft(script?.name || "");
+          if (selectedHost && script) {
+            try {
+              attachPlayCoreScriptToSelection({ script, source: script.source, targetIds: [selectedHost.id] });
+              setPlayCoreLiveStatus(`Attached “${script.name}” to this Play Core frame.`, "success");
+            } catch (error) {
+              setPlayCoreLiveStatus(error.message || "Could not attach that Play Core program.", "error");
+            }
+          }
+        }}
+        onKeyDown={event => { if (event.key === "F2") { event.preventDefault(); beginRename(); } }}
+        onDoubleClick={event => { if (event.shiftKey) { event.preventDefault(); beginRename(); } }}
+        aria-label="Play Core program"
+      >
+        <option value="">— Play Core draft —</option>
+        {playCoreScripts.map(script => <option key={script.id} value={script.id}>{script.name}</option>)}
+      </select>}
+      {parameters.length > 0 && <div className="iannix-script-parameters p5-script-parameters" aria-label="Play Core parameters">
+        {parameters.map(parameter => <label className="iannix-script-parameter" key={parameter.name}>
+          <span className="iannix-script-parameter-header"><strong>{parameter.label}</strong>{parameter.type === "object" && <em>Canvas object</em>}</span>
+          <input
+            className="custom-brush-param-input"
+            type={parameter.type === "object" ? "text" : "number"}
+            min={parameter.min}
+            max={parameter.max}
+            step={parameter.step}
+            value={parameter.value}
+            placeholder={parameter.type === "object" ? "Object id, label, or group" : undefined}
+            disabled={!selectedConfig}
+            onChange={event => {
+              const value = parameter.type === "object" ? event.target.value : Number(event.target.value);
+              if (parameter.type !== "object" && !Number.isFinite(value)) return;
+              updateParameters({ [parameter.name]: value });
+            }}
+          />
+        </label>)}
+      </div>}
+      <div className="script-icon-toolbar">
+        <button type="button" className="palette-action-btn primary script-icon-button" onClick={applyToSelection} title={compatibleHosts.length ? "Attach or apply Play Core program to selected hosts" : "Create a Play Core frame"} aria-label={compatibleHosts.length ? "Attach Play Core program to selected hosts" : "Create Play Core frame"}><ScriptActionIcon type="run" /></button>
+        <button type="button" className="palette-action-btn secondary script-icon-button" title="Save Play Core program" aria-label="Save Play Core program" onClick={saveScript}><ScriptActionIcon type="save" /></button>
+        <button type="button" className="palette-action-btn secondary script-icon-button" title="Duplicate Play Core program" aria-label="Duplicate Play Core program" onClick={duplicateScript} disabled={!activeScript}><ScriptActionIcon type="copy" /></button>
+        <button type="button" className="palette-action-btn secondary script-icon-button" title="New Play Core program" aria-label="New Play Core program" onClick={createScript}><ScriptActionIcon type="add" /></button>
+        <button type="button" className="palette-action-btn secondary script-icon-button" title="Import Play Core JavaScript" aria-label="Import Play Core JavaScript" onClick={() => playCoreImportInputRef.current?.click()}><ScriptActionIcon type="import" /></button>
+        <button type="button" className="palette-action-btn danger script-icon-button" title="Delete Play Core program" aria-label="Delete Play Core program" onClick={deleteScript} disabled={!activeScript}><ScriptActionIcon type="remove" /></button>
+        <ScriptFontSizeControl value={scriptEditorFontSize} onChange={value => { if (!Number.isFinite(value) || value < 8 || value > 32) return; setScriptEditorFontSize(value); localStorage.setItem("drawerator_script_editor_font_size", String(value)); }} />
+      </div>
+      <DraweratorCodeEditor value={playCoreSource} onChange={source => {
+        setPlayCoreSource(source);
+        if (updateScriptLive({ source })) setPlayCoreLiveStatus("Compiled successfully.", "success");
+      }} onRun={applyToSelection} scriptType="play" ariaLabel="Play Core source" getDiagnostics={source => { const validation = validatePlayCoreSource(source); return validation.valid ? [] : [sourceDiagnostic(source, validation.error)]; }} />
+      <p className={`p5-script-status ${playCoreStatusKind}`} role="status" aria-live="polite">{playCoreStatus || <>Trusted local code: Play Core frames run directly in Drawerator with access to <code>drawerator</code>. Use only code you trust.</>}</p>
+    </div>;
+  };
+
   const renderSvgScriptTab = () => {
     const analysis = analyzeSvgSource(svgScriptSource);
     const activeScript = svgScripts.find(script => script.id === activeSvgScriptId);
@@ -15147,7 +15560,7 @@ function App() {
     </div>;
   };
   const syncP5Overlay = (elements, appState) => {
-    const frames = (elements || []).filter(element => !element.isDeleted && isP5FrameElement(element));
+    const frames = (elements || []).filter(element => !element.isDeleted && (isP5FrameElement(element) || isPlayCoreFrameElement(element)));
     const camera = {
       scrollX: Number(appState?.scrollX) || 0,
       scrollY: Number(appState?.scrollY) || 0,
@@ -15158,8 +15571,12 @@ function App() {
       camera.scrollY,
       camera.zoom.value,
       ...frames.map(element => {
-        const frame = normalizeP5Frame(element.customData?.draweratorP5);
+        const isP5 = isP5FrameElement(element);
+        const frame = isP5
+          ? normalizeP5Frame(element.customData?.draweratorP5)
+          : normalizePlayCoreFrame(element.customData?.draweratorPlayCore);
         return [
+          isP5 ? "p5" : "play",
           element.id,
           element.x,
           element.y,
@@ -15169,12 +15586,8 @@ function App() {
           element.version,
           element.versionNonce,
           frame.scriptId,
-          frame.mode,
-          frame.runtime,
-          frame.cdnUrl,
-          frame.autoplay,
+          ...(isP5 ? [frame.mode, frame.runtime, frame.cdnUrl, frame.autoplay, frame.transparent] : []),
           frame.fps,
-          frame.transparent,
           frame.allowInteraction,
           frame.reloadNonce,
           frame.source.length,
@@ -16817,6 +17230,7 @@ function App() {
             <input ref={iannixImportInputRef} type="file" accept=".iannix,.js,text/javascript" hidden onChange={handleTrustedIannixFile} />
             <input ref={brushImportInputRef} type="file" accept=".js,.json,text/javascript,application/json" hidden onChange={handleBrushScriptFile} />
             <input ref={p5ImportInputRef} type="file" accept=".js,text/javascript,application/javascript" hidden onChange={handleP5ScriptFile} />
+            <input ref={playCoreImportInputRef} type="file" accept=".js,text/javascript,application/javascript" hidden onChange={handlePlayCoreScriptFile} />
             <input ref={svgImportInputRef} type="file" accept=".svg,image/svg+xml,text/xml,application/xml" hidden onChange={handleSvgScriptFile} />
             <ScriptPanel
               type={scriptPanelType}
@@ -16827,6 +17241,8 @@ function App() {
                 ? renderIannixScriptTab()
                 : scriptPanelType === "p5"
                   ? renderP5ScriptTab()
+                  : scriptPanelType === "play"
+                    ? renderPlayCoreScriptTab()
                   : scriptPanelType === "svg"
                     ? renderSvgScriptTab()
                     : renderBrushConfigForm()}
@@ -17031,6 +17447,7 @@ function App() {
           appState={p5OverlayScene.appState}
           scriptRuntimeRef={scriptRuntimeRef}
         />
+        <PlayCoreFrameOverlay elements={p5OverlayScene.elements} appState={p5OverlayScene.appState} scriptRuntimeRef={scriptRuntimeRef} />
         <SvgObjectOverlay
           elements={svgOverlayScene.elements}
           appState={svgOverlayScene.appState}

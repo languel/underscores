@@ -62,6 +62,13 @@ const P5_COMPLETIONS = Object.freeze([
   completion("drawerator.transport", "Live transport state", "property", 70),
 ]);
 
+const PLAY_CORE_COMPLETIONS = Object.freeze([
+  snippet("settings", "export const settings = { fps: ${30}, cols: ${0}, rows: ${0}, backgroundColor: \"${#101010}\", color: \"${#e8e8e8}\" };", "Play Core renderer settings"),
+  snippet("main", "export function main({ x, y }, context, cursor, buffer, drawerator) {\n  return ${\"·\"};\n}", "Play Core cell renderer"),
+  snippet("@param", "// @param ${name} = ${1} (${0}..${10}, step: ${1})", "Editable Drawerator parameter"),
+  ...["settings", "boot", "pre", "main", "post", "context.time", "context.frame", "context.cols", "context.rows", "cursor", "buffer", "drawerator", "drawerator.params", "drawerator.canvas", "drawerator.transport"].map(label => completion(label, "Play Core program API", "function", 70)),
+]);
+
 const IANNIX_COMPLETIONS = Object.freeze([
   snippet("makeWithScript()", "function makeWithScript() {\n  ${run(\"clear\")};\n}", "IanniX score lifecycle"),
   snippet("askUserForParameters()", "function askUserForParameters() {\n  ${ask(\"General\", \"Value\", \"value\", 1)};\n}", "Declare editable IanniX parameters"),
@@ -113,6 +120,7 @@ export const SCRIPT_EDITOR_PROFILES = Object.freeze({
     label: "p5 JavaScript",
     completions: P5_COMPLETIONS,
   }),
+  play: Object.freeze({ id: "play", language: "javascript", label: "Play Core JavaScript", completions: PLAY_CORE_COMPLETIONS }),
   svg: Object.freeze({
     id: "svg",
     language: "html",
