@@ -98,6 +98,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
           values: activeConfig.parameters || {},
         });
         const params = resolveScriptParameterValues(parameters, scriptRuntimeRef, canvas);
+        const appearance = () => scriptRuntimeRef.current?.getAppearance?.() || { theme: "dark", currentColor: "#e8e8e8", currentOpacity: 1, colors: {} };
         const drawerator = {
           element: { id: element.id, width: element.width, height: element.height },
           frame: activeConfig,
@@ -108,6 +109,11 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
           params,
           get object() { return canvas.get(element.id); },
           get time() { return canvas.transport.time; },
+          get currentColor() { return appearance().currentColor; },
+          get currentOpacity() { return appearance().currentOpacity; },
+          get colors() { return appearance().colors; },
+          get theme() { return appearance().theme; },
+          get appearance() { return appearance(); },
           api: window.drawerator,
         };
         const sketch = p => {

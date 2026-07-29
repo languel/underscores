@@ -67,6 +67,63 @@ const EditorKeys = () => (
   </section>
 );
 
+const DraweratorApiGuide = () => (
+  <section>
+    <h3>Drawerator API</h3>
+    <p>The shared <code>drawerator</code> bridge is available in p5 and Play Core. It is live: scene queries, selection, transport, theme, and parameters reflect the current app state. Use <code>drawerator.api</code> for deliberate application-level operations.</p>
+    <details className="info-api-group" open>
+      <summary>Frame bridge</summary>
+      <dl className="info-svg-command-list">
+        <div><dt><code>element</code></dt><dd>The script host: <code>&#123; id, width, height &#125;</code>.</dd></div>
+        <div><dt><code>object</code></dt><dd>Live read-only snapshot of the host’s Drawerator scene object.</dd></div>
+        <div><dt><code>frame</code></dt><dd>The p5 or Play Core frame configuration.</dd></div>
+        <div><dt><code>params</code></dt><dd>Values declared with <code>@param</code>; object parameters resolve to live object snapshots.</dd></div>
+        <div><dt><code>currentColor</code></dt><dd>Current foreground CSS color. Use <code>colors.foreground.css</code> when opacity must be included.</dd></div>
+        <div><dt><code>currentOpacity</code></dt><dd>Foreground opacity from 0 to 1.</dd></div>
+        <div><dt><code>colors</code></dt><dd><code>foreground</code>, <code>accent</code>, <code>highlight</code>, and <code>muted</code>, each with <code>color</code>, <code>opacity</code>, and composited <code>css</code>.</dd></div>
+        <div><dt><code>theme</code> / <code>appearance</code></dt><dd>Current theme id, or the complete live appearance snapshot.</dd></div>
+        <div><dt><code>time</code></dt><dd>Shortcut for <code>transport.time</code>, in score seconds.</dd></div>
+      </dl>
+    </details>
+    <details className="info-api-group">
+      <summary>Scene, events, and transport</summary>
+      <dl className="info-svg-command-list">
+        <div><dt><code>canvas.all()</code></dt><dd>Read-only snapshots of all non-deleted scene objects.</dd></div>
+        <div><dt><code>canvas.get(id)</code></dt><dd>Get one object by element id, label, or IanniX group; returns <code>null</code> when absent.</dd></div>
+        <div><dt><code>canvas.find(query)</code></dt><dd>Search by text, or filter snapshots with a predicate. <code>objects</code> is an alias of <code>canvas</code>.</dd></div>
+        <div><dt><code>canvas.selected()</code></dt><dd>Read-only snapshots of the current canvas selection.</dd></div>
+        <div><dt><code>events.on(pattern, listener)</code></dt><dd>Subscribe to the event bus; supports a trailing <code>.*</code> wildcard and returns an unsubscribe function.</dd></div>
+        <div><dt><code>events.recent(limit)</code> / <code>latest(pattern)</code></dt><dd>Inspect captured Drawerator events.</dd></div>
+        <div><dt><code>transport.time</code> / <code>transport.context</code></dt><dd>Current score time and its timing context.</dd></div>
+      </dl>
+    </details>
+    <details className="info-api-group">
+      <summary>Application API · <code>drawerator.api</code></summary>
+      <dl className="info-svg-command-list">
+        <div><dt><code>api.apiVersion</code></dt><dd>Current public API version; use it when a script requires a particular capability.</dd></div>
+        <div><dt><code>api.commands</code></dt><dd><code>list()</code>, <code>describe(id)</code>, <code>execute(id, args, options)</code>, and <code>subscribe(listener)</code>.</dd></div>
+        <div><dt><code>api.scene</code></dt><dd><code>get()</code> returns scene elements; <code>getAppState()</code> returns Excalidraw application state.</dd></div>
+        <div><dt><code>api.canvas</code> / <code>api.objects</code></dt><dd>The same read-only scene-query bridge exposed locally.</dd></div>
+        <div><dt><code>api.time</code></dt><dd><code>parse()</code>, <code>resolve()</code>, <code>format()</code>, and <code>quantize()</code> score-time values.</dd></div>
+        <div><dt><code>api.grid</code></dt><dd>Read/update the global grid, snap points, convert grid units, map values to/from world space, and resolve object timing.</dd></div>
+        <div><dt><code>api.history</code> / <code>api.macros</code></dt><dd>Record, replay, import/export, save, insert, and remove reusable command history.</dd></div>
+        <div><dt><code>api.inputs</code> / <code>api.events</code></dt><dd>Register or emit input adapters, and subscribe to application events.</dd></div>
+        <div><dt><code>api.mixer</code></dt><dd>Read the mixer or add, update, and remove tracks.</dd></div>
+      </dl>
+    </details>
+    <pre><code>{`// Follow the current Drawerator foreground
+return { char: "●", color: drawerator.colors.foreground.css };
+
+// Read a selected score object
+const cursor = drawerator.canvas.selected()[0];
+
+// Invoke a documented app command
+await drawerator.api.commands.execute("grid.global.update", {
+  patch: { enabled: true }
+});`}</code></pre>
+  </section>
+);
+
 const P5InfoGuide = () => (
   <div className="info-svg-guide">
     <section>
@@ -82,6 +139,7 @@ function draw() {
 }`}</code></pre>
       <p>Use global p5 functions such as <code>stroke</code>, <code>fill</code>, <code>circle</code>, <code>line</code>, <code>translate</code>, and <code>noise</code>. <code>drawerator.element</code> is the host object; <code>drawerator.params</code> contains declared parameters.</p>
     </section>
+    <DraweratorApiGuide />
     <EditorKeys />
   </div>
 );
@@ -103,6 +161,7 @@ export function main({ x, y }, context, cursor, buffer, drawerator) {
       <h3>Programs and frames</h3>
       <ul>
         <li>The program selector is a local working-file catalog. <strong>Save</strong> creates or updates a file; <strong>Duplicate</strong>, <strong>New</strong>, <strong>Import</strong>, and <strong>Delete</strong> mirror the p5 workflow.</li>
+        <li>The separate <strong>Original play.core examples</strong> group loads a local, editable upstream starter as a saved Drawerator program. It never needs a network request after this app loads.</li>
         <li>A saved file can be attached to several frames. Saving it recompiles every linked frame; each host retains its own size, interaction setting, and <code>@param</code> values.</li>
         <li>Choose another saved program while one host is selected to attach it immediately. Press <strong>F2</strong> or Shift-double-click the selector to rename the selected saved program.</li>
       </ul>
@@ -120,16 +179,21 @@ export function main({ x, y }, context, cursor, buffer, drawerator) {
       <h3>Cells and input</h3>
       <ul>
         <li><code>main(&#123; x, y, index &#125;, context, cursor, buffer, drawerator)</code> runs for every cell. Return a character, or an object such as <code>&#123; char: &quot;·&quot; &#125;</code>.</li>
-        <li><code>context</code> includes <code>frame</code>, <code>time</code>, <code>cols</code>, <code>rows</code>, <code>width</code>, <code>height</code>, and resolved <code>settings</code>.</li>
+        <li><code>context</code> includes <code>frame</code>, <code>time</code>, <code>cols</code>, <code>rows</code>, <code>width</code>, <code>height</code>, resolved <code>settings</code>, and <code>metrics</code> (<code>cellWidth</code>, <code>cellHeight</code>, <code>aspect</code>).</li>
         <li><code>cursor</code> is measured in ASCII-cell coordinates and includes <code>x</code>, <code>y</code>, <code>pressed</code>, and the previous state in <code>cursor.p</code>.</li>
         <li>Use <code>pre</code> and <code>post</code> to prepare or inspect the shared <code>buffer</code>; pointer callbacks receive the same <code>context</code>, <code>cursor</code>, <code>buffer</code>, and bridge.</li>
       </ul>
     </section>
     <section>
-      <h3>Drawerator bridge</h3>
-      <p>Use <code>// @param name = value (min..max, step: value)</code> and read the current value through <code>drawerator.params.name</code>. The same score API available to p5 is present: <code>drawerator.canvas.all()</code>, <code>drawerator.canvas.selected()</code>, <code>drawerator.events.on()</code>, and <code>drawerator.transport.time</code>.</p>
-      <p>Programs run locally as trusted code. Valid source updates a selected Play Core frame immediately; invalid drafts remain editable without replacing the last working program.</p>
+      <h3>Bundled modules</h3>
+      <p>Use normal static ES imports. Drawerator carries these helpers in every scene and single-file build, so imports never fetch from the network:</p>
+      <pre><code>{`import { map, clamp, mix } from '/src/modules/num.js'
+import { vec2, rot, add, mulN, length } from '/src/modules/vec2.js'
+import { sort } from '/src/modules/sort.js'`}</code></pre>
+      <p>Available paths are <code>num.js</code>, <code>sort.js</code>, <code>vec2.js</code>, <code>vec3.js</code>, <code>sdf.js</code>, <code>string.js</code>, <code>buffer.js</code>, <code>drawbox.js</code>, and <code>color.js</code> under <code>/src/modules/</code>. Named, default, and namespace imports are supported. Dynamic imports and non-bundled paths are rejected with a diagnostic.</p>
     </section>
+    <DraweratorApiGuide />
+    <section><p>Programs run locally as trusted code. Valid source updates a selected Play Core frame immediately; invalid drafts remain editable without replacing the last working program.</p></section>
     <EditorKeys />
   </div>
 );

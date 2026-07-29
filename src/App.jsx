@@ -78,6 +78,7 @@ import { P5FrameOverlay } from "./P5Frame.jsx";
 import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_EXAMPLES, P5_FRAME_STORAGE_KEY, canHostP5Frame, getP5Example, getP5HostElementType, isP5FrameElement, normalizeP5Frame, normalizeP5Scripts, normalizeP5SourceMode, reconcileP5ScriptsWithElements, validateP5Source } from "./p5Frame.js";
 import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
 import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
+import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
 import { insertSvgNode, prepareSvgForStructuredEditing, updateSvgNodeData } from "./svgDocumentModel.js";
 import { executeSvgStructuredCommand } from "./svgCommandApi.js";
@@ -1947,6 +1948,8 @@ function App() {
   const [p5ScriptStatusKind, setP5ScriptStatusKind] = useState("info");
   const [editingP5ScriptName, setEditingP5ScriptName] = useState(false);
   const [p5ScriptNameDraft, setP5ScriptNameDraft] = useState("");
+  const p5ScriptsRef = useRef(p5Scripts);
+  p5ScriptsRef.current = p5Scripts;
   const [playCoreScripts, setPlayCoreScripts] = useState(() => {
     try {
       return normalizePlayCoreScripts(JSON.parse(localStorage.getItem(PLAY_CORE_STORAGE_KEY) || "[]"));
@@ -1960,6 +1963,8 @@ function App() {
   const [playCoreStatusKind, setPlayCoreStatusKind] = useState("info");
   const [editingPlayCoreScriptName, setEditingPlayCoreScriptName] = useState(false);
   const [playCoreScriptNameDraft, setPlayCoreScriptNameDraft] = useState("");
+  const playCoreScriptsRef = useRef(playCoreScripts);
+  playCoreScriptsRef.current = playCoreScripts;
   const [svgScripts, setSvgScripts] = useState(() => {
     try {
       return normalizeSvgScripts(JSON.parse(localStorage.getItem(SVG_SCRIPT_STORAGE_KEY) || "[]"));
@@ -2297,6 +2302,18 @@ function App() {
     getTime: () => scoreTimeRef.current,
     getTimeContext: () => timeContext,
     getGrid: () => globalGridRef.current,
+    getAppearance: () => Object.freeze({
+      theme,
+      interfaceThemePreset,
+      currentColor: foregroundColor,
+      currentOpacity: foregroundOpacity,
+      colors: Object.freeze({
+        foreground: Object.freeze({ color: foregroundColor, opacity: foregroundOpacity, css: colorWithOpacity(foregroundColor, foregroundOpacity) }),
+        accent: Object.freeze({ color: accentColor, opacity: accentOpacity, css: colorWithOpacity(accentColor, accentOpacity) }),
+        highlight: Object.freeze({ color: highlightColor, opacity: highlightOpacity, css: colorWithOpacity(highlightColor, highlightOpacity) }),
+        muted: Object.freeze({ color: mutedColor, opacity: mutedOpacity, css: colorWithOpacity(mutedColor, mutedOpacity) }),
+      }),
+    }),
   };
   if (!scriptCanvasApiRef.current) scriptCanvasApiRef.current = createScriptCanvasApi(scriptRuntimeRef);
   const runtimeCursorSelectionRef = useRef({});
@@ -3000,7 +3017,7 @@ function App() {
   useEffect(() => {
     if (scriptPanelType !== "p5" || !selectedP5FrameForEditor) return;
     const frame = normalizeP5Frame(selectedP5FrameForEditor.customData?.draweratorP5);
-    const script = p5Scripts.find(candidate => candidate.id === frame.scriptId);
+    const script = p5ScriptsRef.current.find(candidate => candidate.id === frame.scriptId);
     setActiveP5ScriptId(script?.id || "");
     setP5ScriptSource(previous => previous === frame.source ? previous : frame.source);
     setP5ScriptMode(normalizeP5SourceMode(frame.mode));
@@ -3017,7 +3034,7 @@ function App() {
   useEffect(() => {
     if (scriptPanelType !== "play" || !selectedPlayCoreFrameForEditor) return;
     const frame = normalizePlayCoreFrame(selectedPlayCoreFrameForEditor.customData?.draweratorPlayCore);
-    const script = playCoreScripts.find(candidate => candidate.id === frame.scriptId);
+    const script = playCoreScriptsRef.current.find(candidate => candidate.id === frame.scriptId);
     setActivePlayCoreScriptId(script?.id || "");
     setPlayCoreSource(previous => previous === frame.source ? previous : frame.source);
     setPlayCoreScriptNameDraft(script?.name || "Untitled Play Core");
@@ -12801,6 +12818,26 @@ function App() {
         setPlayCoreLiveStatus(error.message || "Select a rectangle, frame, or Play Core host first.", "error");
       }
     };
+    const loadOriginalExample = exampleId => {
+      const example = getPlayCoreExample(exampleId);
+      if (!example) return;
+      const script = createPlayCoreCatalogScript({
+        name: example.name,
+        source: example.source,
+      });
+      setEditingPlayCoreScriptName(false);
+      if (selectedHost) {
+        try {
+          attachPlayCoreScriptToSelection({ script, source: script.source, targetIds: [selectedHost.id] });
+          setPlayCoreLiveStatus(`Loaded original play.core example “${example.name}” in this frame.`, "success");
+          return;
+        } catch (error) {
+          setPlayCoreLiveStatus(error.message || `Loaded “${example.name}” in the editor.`, "info");
+          return;
+        }
+      }
+      setPlayCoreLiveStatus(`Loaded original play.core example “${example.name}”. Select a frame and press Run to attach it.`, "success");
+    };
     return <div className="iannix-properties iannix-script-pane p5-script-pane">
       <p className="p5-script-status">Play Core programs render ASCII cells in a Drawerator frame. Use <code>@param</code> with <code>drawerator.params</code>; <code>drawerator.canvas</code>, events, and transport are the same bridge exposed to p5.</p>
       {editingPlayCoreScriptName ? <input
@@ -12819,6 +12856,10 @@ function App() {
         className="custom-brush-select"
         value={activePlayCoreScriptId}
         onChange={event => {
+          if (event.target.value.startsWith("example:")) {
+            loadOriginalExample(event.target.value.slice("example:".length));
+            return;
+          }
           const script = playCoreScripts.find(candidate => candidate.id === event.target.value);
           setEditingPlayCoreScriptName(false);
           setActivePlayCoreScriptId(event.target.value);
@@ -12837,8 +12878,13 @@ function App() {
         onDoubleClick={event => { if (event.shiftKey) { event.preventDefault(); beginRename(); } }}
         aria-label="Play Core program"
       >
-        <option value="">— Play Core draft —</option>
-        {playCoreScripts.map(script => <option key={script.id} value={script.id}>{script.name}</option>)}
+        <optgroup label="Saved Play Core programs">
+          <option value="">— Play Core draft —</option>
+          {playCoreScripts.map(script => <option key={script.id} value={script.id}>{script.name}</option>)}
+        </optgroup>
+        <optgroup label="Original play.core examples">
+          {PLAY_CORE_EXAMPLES.map(example => <option key={example.id} value={`example:${example.id}`}>{example.category} · {example.name}</option>)}
+        </optgroup>
       </select>}
       {parameters.length > 0 && <div className="iannix-script-parameters p5-script-parameters" aria-label="Play Core parameters">
         {parameters.map(parameter => <label className="iannix-script-parameter" key={parameter.name}>
