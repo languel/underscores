@@ -1,10 +1,6 @@
-const IANNIX_COMMANDS = Object.freeze([
-  "add", "clear", "setpointat", "setsmoothpointat", "setpointslines", "setpointsellipse",
-  "setequation", "setequationparam", "setequationnbpoints", "setequationpoints", "setpos",
-  "setcurve", "setspeed", "setboundssource", "setboundstarget", "setsize", "setwidth",
-  "setgroup", "setlabel", "setname", "setactive", "setcolor", "setcolorhue", "setcoloractive",
-  "setoffset", "settriggeroff", "setmessage", "setpattern", "center", "zoom", "rotate",
-]);
+import { IANNIX_SUPPORTED_COMMANDS } from "./iannixCommandReference.js";
+
+const IANNIX_COMMANDS = IANNIX_SUPPORTED_COMMANDS;
 
 const FORBIDDEN_RUNTIME_REFERENCES = /\b(?:Date|document|window|fetch|XMLHttpRequest|localStorage|sessionStorage|navigator|process|require|importScripts)\b/;
 
@@ -278,4 +274,4 @@ export const buildRelevantScriptAuthoringGuide = prompt => {
   return types.map(type => SCRIPT_AUTHORING_GUIDES[type]).join("\n\n");
 };
 
-export const IANNIX_SUPPORTED_COMMANDS = IANNIX_COMMANDS;
+export { IANNIX_SUPPORTED_COMMANDS };

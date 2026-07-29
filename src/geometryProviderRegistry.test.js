@@ -23,6 +23,8 @@ test("resolves SVG subpaths through the same object-reference registry as native
   const registry = createDraweratorGeometryRegistry();
   const geometry = registry.resolve(svgNodeObjectRef(element.id, path.draweratorId, 0), { elements: [element] });
   assert.equal(geometry.paths.length, 1);
-  assert.deepEqual(geometry.paths[0][0], [120, 220]);
-  assert.deepEqual(geometry.bounds, { minX: 120, minY: 220, maxX: 160, maxY: 230 });
+  // Default xMidYMid meet centers the square viewBox horizontally in the
+  // 2:1 host before applying the nested SVG transform.
+  assert.deepEqual(geometry.paths[0][0], [160, 220]);
+  assert.deepEqual(geometry.bounds, { minX: 160, minY: 220, maxX: 180, maxY: 230 });
 });

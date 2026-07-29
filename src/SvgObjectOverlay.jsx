@@ -3,12 +3,12 @@ import { isSvgObjectElement, normalizeSvgObject, shouldRenderSvgObject } from ".
 import { resumeSvgDocument, sanitizeSvgForInertRender, seekSvgDocument } from "./svgRuntime.js";
 import SvgTrustedRuntime from "./SvgTrustedRuntime.jsx";
 
-const SvgShadowDocument = ({ source, color, clock, time, interactive, onSelect, onEditNode }) => {
+const SvgShadowDocument = ({ source, color, clock, time, interactive, onSelect, onEditNode, onConstructPath }) => {
   const hostRef = useRef(null);
   const shadowRef = useRef(null);
-  const interactionRef = useRef({ interactive, onSelect, onEditNode });
+  const interactionRef = useRef({ interactive, onSelect, onEditNode, onConstructPath });
 
-  interactionRef.current = { interactive, onSelect, onEditNode };
+  interactionRef.current = { interactive, onSelect, onEditNode, onConstructPath };
 
   useEffect(() => {
     const host = hostRef.current;
@@ -32,6 +32,10 @@ const SvgShadowDocument = ({ source, color, clock, time, interactive, onSelect, 
       if (!interaction.interactive || event.button !== 0) return;
       event.preventDefault();
       event.stopPropagation();
+      if (event.altKey) {
+        interaction.onConstructPath?.(event);
+        return;
+      }
       const nodeIndex = nodeFromEvent(event);
       if ((event.metaKey || event.ctrlKey) && Number.isInteger(nodeIndex)) {
         interaction.onEditNode?.(nodeIndex, event);
@@ -45,7 +49,9 @@ const SvgShadowDocument = ({ source, color, clock, time, interactive, onSelect, 
       event.preventDefault();
       event.stopPropagation();
       const nodeIndex = nodeFromEvent(event);
-      if (Number.isInteger(nodeIndex)) interaction.onEditNode?.(nodeIndex, event);
+      // Empty SVG documents have no rendered node to identify. Forward that
+      // double-click too so the canvas can create the first path in its host.
+      interaction.onEditNode?.(nodeIndex, event);
     };
     shadow.addEventListener("pointerdown", pointerDown, true);
     shadow.addEventListener("dblclick", doubleClick, true);
@@ -63,7 +69,7 @@ const SvgShadowDocument = ({ source, color, clock, time, interactive, onSelect, 
   return <div ref={hostRef} className="drawerator-svg-shadow-host" />;
 };
 
-export default function SvgObjectOverlay({ elements, appState, time = 0, onSelect, onEditPath, onEditNode }) {
+export default function SvgObjectOverlay({ elements, appState, time = 0, onSelect, onEditPath, onEditNode, onConstructPath }) {
   const zoom = Number(appState?.zoom?.value) || 1;
   const scrollX = Number(appState?.scrollX) || 0;
   const scrollY = Number(appState?.scrollY) || 0;
@@ -119,9 +125,14 @@ export default function SvgObjectOverlay({ elements, appState, time = 0, onSelec
                 interactive={interactive}
                 onSelect={handlePointerDown}
                 onEditNode={(nodeIndex, event) => {
-                  if (onEditNode) onEditNode(element.id, nodeIndex, event);
-                  else onEditPath?.(element.id, event);
+                  // A Shadow DOM double-click cannot bubble to the canvas
+                  // capture handler. Keep the node selection in sync, then
+                  // forward it to the same path-insertion gesture used by the
+                  // canvas so unselected and selected SVG hosts behave alike.
+                  onEditNode?.(element.id, nodeIndex, event);
+                  onEditPath?.(element.id, event);
                 }}
+                onConstructPath={event => onConstructPath?.(element.id, event)}
               />
             )}
           </div>

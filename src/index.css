@@ -3643,7 +3643,15 @@ a.iannix-flat-button {
 .outliner-row.dragging { opacity: .45; }
 .outliner-row.drop-front { box-shadow: inset 0 2px 0 var(--color-primary, currentColor); }
 .outliner-row.drop-back { box-shadow: inset 0 -2px 0 var(--color-primary, currentColor); }
-.outliner-object { display: grid; grid-template-columns: 10px 22px minmax(0, 1fr); align-items: center; gap: 4px; min-width: 0; padding: 6px 8px; border: 0; background: transparent; color: var(--color-primary); text-align: left; cursor: pointer; }
+.outliner-row.drop-inside { background: color-mix(in srgb, var(--drawerator-highlight) 16%, transparent); box-shadow: inset 3px 0 0 var(--drawerator-accent); }
+.outliner-object { display: grid; grid-template-columns: 10px 22px minmax(0, 1fr); align-items: center; gap: 4px; min-width: 0; padding: 6px 8px 6px calc(8px + (var(--outliner-depth, 0) * 14px)); border: 0; background: transparent; color: var(--color-primary); text-align: left; cursor: pointer; }
+.outliner-group-row { display: grid; grid-template-columns: 10px 22px minmax(0, 1fr) auto; align-items: center; gap: 4px; width: 100%; min-width: 0; padding: 6px 8px 6px calc(8px + (var(--outliner-depth, 0) * 14px)); border: 0; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.13)); background: color-mix(in srgb, var(--button-hover-bg, transparent) 42%, transparent); color: var(--color-secondary); font: inherit; text-align: left; cursor: pointer; }
+.outliner-group-row:hover { color: var(--color-primary); background: var(--button-hover-bg, rgba(128,128,128,.12)); }
+.outliner-type.type-group { color: var(--drawerator-accent); border-color: color-mix(in srgb, var(--drawerator-accent) 58%, var(--border-color)); }
+.outliner-type.type-score { color: var(--drawerator-highlight); border-color: color-mix(in srgb, var(--drawerator-highlight) 62%, var(--border-color)); }
+.outliner-type.type-iannix-group { color: color-mix(in srgb, var(--drawerator-highlight) 68%, var(--color-primary)); border-color: color-mix(in srgb, var(--drawerator-highlight) 52%, var(--border-color)); }
+.outliner-score > .outliner-group-row { background: color-mix(in srgb, var(--drawerator-highlight) 10%, var(--button-hover-bg, transparent)); color: var(--color-primary); }
+.outliner-group-count { color: var(--color-secondary); font-size: 9px; font-variant-numeric: tabular-nums; }
 .outliner-disclosure { width: 10px; color: var(--color-secondary); font-size: 15px; line-height: 1; text-align: center; }
 .outliner-svg-tree { border-bottom: 1px solid var(--border-color, rgba(128,128,128,.13)); background: color-mix(in srgb, var(--input-bg-color, transparent) 55%, transparent); }
 .outliner-svg-node { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 6px; width: 100%; min-width: 0; padding: 4px 8px 4px calc(18px + (var(--outliner-svg-depth, 0) * 14px)); border: 0; background: transparent; color: var(--color-secondary); font: inherit; font-size: 10px; text-align: left; cursor: pointer; }
@@ -4391,9 +4399,35 @@ a.iannix-flat-button {
   fill: color-mix(in srgb, var(--drawerator-accent) 28%, var(--island-bg-color, #fff));
 }
 
+.drawerator-svg-path-editor-overlay .svg-path-control {
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.drawerator-svg-path-editor-overlay .svg-path-control:active {
+  cursor: grabbing;
+}
+
+.drawerator-svg-path-editor-overlay g:not(.selected) .bezier-anchor-point {
+  fill: color-mix(in srgb, var(--island-bg-color, #fff) 78%, var(--drawerator-accent));
+  stroke: color-mix(in srgb, var(--drawerator-accent) 62%, var(--island-bg-color, #fff));
+  opacity: 0.82;
+}
+
+.drawerator-svg-path-editor-overlay .svg-selected-anchor-ring {
+  fill: none;
+  stroke: color-mix(in srgb, var(--drawerator-accent) 42%, var(--island-bg-color, #fff));
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
 .drawerator-bezier-editor-overlay g.selected .bezier-anchor-point,
 .drawerator-svg-path-editor-overlay g.selected .bezier-anchor-point {
   fill: var(--drawerator-accent);
+  stroke: var(--island-bg-color, #fff);
+  stroke-width: 2.75;
+  opacity: 1;
 }
 
 .drawerator-svg-path-editor-overlay .svg-edit-path-highlight {
@@ -5146,6 +5180,60 @@ a.iannix-flat-button {
 .info-svg-guide strong {
   color: var(--color-primary);
   font-weight: 650;
+}
+
+.info-iannix-command-group {
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.info-iannix-command-group summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: var(--drawerator-ui-font-size-small);
+  font-weight: 650;
+}
+
+.info-iannix-command-group summary span {
+  color: var(--color-secondary);
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+}
+
+.info-iannix-command-group .info-svg-command-list {
+  border-top: 1px solid var(--border-color);
+}
+
+.info-iannix-command-group .info-svg-command-list > div {
+  grid-template-columns: minmax(90px, 0.7fr) minmax(160px, 1.8fr);
+  padding: 7px 8px;
+}
+
+.info-iannix-command-group dd {
+  display: grid;
+  gap: 3px;
+}
+
+.info-iannix-command-group dd > span {
+  color: var(--color-secondary);
+}
+
+.info-iannix-command-group dd > code {
+  color: var(--color-secondary);
+  font-size: 0.88em;
+}
+
+.info-iannix-active-command {
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--drawerator-highlight) 58%, var(--border-color));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--drawerator-highlight) 10%, transparent);
 }
 
 .expressive-output-button.active {

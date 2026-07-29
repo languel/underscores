@@ -1,10 +1,11 @@
 import { snippetCompletion } from "@codemirror/autocomplete";
-import { IANNIX_SUPPORTED_COMMANDS } from "./scriptAuthoring.js";
+import { IANNIX_COMMAND_REFERENCE } from "./iannixCommandReference.js";
 import { normalizeScriptType } from "./scriptTypes.js";
 
 const completion = (label, detail, type = "variable", boost = 0) => ({
   label,
   detail,
+  info: `${detail}. Press Tab or Enter to insert it.`,
   type,
   boost,
 });
@@ -12,8 +13,17 @@ const completion = (label, detail, type = "variable", boost = 0) => ({
 const snippet = (label, template, detail) => snippetCompletion(template, {
   label,
   detail,
+  info: `${detail}. Press Tab or Enter to insert the snippet, then Tab through its fields.`,
   type: "snippet",
   boost: 90,
+});
+
+const iannixCommandCompletion = command => ({
+  label: command.command,
+  detail: command.syntax,
+  info: `${command.description}\n\nSyntax: ${command.syntax}\nExample: run("${command.example}")\n\nPress Tab or Enter to insert the command.`,
+  type: "keyword",
+  boost: 50,
 });
 
 const BRUSH_COMPLETIONS = Object.freeze([
@@ -57,12 +67,7 @@ const IANNIX_COMPLETIONS = Object.freeze([
   snippet("askUserForParameters()", "function askUserForParameters() {\n  ${ask(\"General\", \"Value\", \"value\", 1)};\n}", "Declare editable IanniX parameters"),
   snippet("run()", "run(\"${add curve orbit}\");", "Execute an IanniX command"),
   snippet("ask()", "ask(\"${General}\", \"${Value}\", \"${value}\", ${1});", "Declare a shared parameter"),
-  ...IANNIX_SUPPORTED_COMMANDS.map(command => completion(
-    command,
-    "Supported IanniX command",
-    "keyword",
-    50,
-  )),
+  ...IANNIX_COMMAND_REFERENCE.map(iannixCommandCompletion),
   ...[
     "run", "ask", "title", "load", "loadJSON", "sessionTime", "random", "range", "rangeMid",
     "norm", "map", "linexp", "constrain", "PI", "TWO_PI", "HALF_PI",

@@ -15,6 +15,7 @@ import {
   replaceSvgPathSubpathWithConnectedEndpoint,
   serializeSvgPathGeometry,
   svgPointToWorld,
+  transformSvgPathGeometry,
   worldPointToSvg,
 } from "./svgPathGeometry.js";
 
@@ -42,6 +43,52 @@ test("supports arcs and still rejects multiple subpaths in a single geometry", (
   assert.equal(arc.valid, true);
   assert.ok(arc.geometry.anchors.length >= 2);
   assert.match(parseSvgPathGeometry("M0 0 L10 0 M20 0 L30 0").error, /Multi-subpath/);
+});
+
+test("transforms selected SVG path geometry without changing its endpoint intent", () => {
+  const geometry = parseSvgPathGeometry("M 0 0 C 10.24 20.76 30.26 20.74 40.25 0.24").geometry;
+  const rounded = transformSvgPathGeometry(geometry, "round-integers");
+  assert.deepEqual(rounded.anchors.map(anchor => [anchor.x, anchor.y]), [[0, 0], [40, 0]]);
+  assert.deepEqual(rounded.anchors[0].out, [10, 21]);
+  assert.deepEqual(rounded.anchors[1].in, [-10, 21]);
+
+  const tenths = transformSvgPathGeometry(geometry, "round-tenths");
+  assert.deepEqual(tenths.anchors[1].in, [-10, 20.5]);
+
+  const straightened = transformSvgPathGeometry(geometry, "straighten");
+  assert.equal(straightened.anchors.every(anchor => !anchor.in && !anchor.out), true);
+  assert.deepEqual(straightened.anchors.map(anchor => [anchor.x, anchor.y]), [[0, 0], [40.25, 0.24]]);
+});
+
+test("smooth, resample, and simplify provide explicit editable path operations", () => {
+  const polyline = parseSvgPathGeometry("M 0 0 L 10 20 L 20 0 L 30 20 L 40 0").geometry;
+  const smoothed = transformSvgPathGeometry(polyline, "smooth");
+  assert.deepEqual(smoothed.anchors.map(anchor => [anchor.x, anchor.y]), polyline.anchors.map(anchor => [anchor.x, anchor.y]));
+  assert.ok(smoothed.anchors[1].in && smoothed.anchors[1].out);
+
+  const resampled = transformSvgPathGeometry(smoothed, "resample");
+  assert.equal(resampled.anchors.length, smoothed.anchors.length);
+  assert.deepEqual([resampled.anchors[0].x, resampled.anchors[0].y], [0, 0]);
+  assert.deepEqual([resampled.anchors.at(-1).x, resampled.anchors.at(-1).y], [40, 0]);
+  assert.equal(resampled.anchors.every(anchor => !anchor.in && !anchor.out), true);
+
+  const nearlyStraight = parseSvgPathGeometry("M 0 0 L 10 0.01 L 20 -0.01 L 30 0").geometry;
+  const simplified = transformSvgPathGeometry(nearlyStraight, "simplify");
+  assert.equal(simplified.anchors.length, 2);
+  assert.deepEqual([simplified.anchors[0].x, simplified.anchors.at(-1).x], [0, 30]);
+});
+
+test("relax reduces a curve without moving open endpoints", () => {
+  const curve = parseSvgPathGeometry("M 0 0 C 0 100 100 100 100 0").geometry;
+  const relaxed = transformSvgPathGeometry(curve, "relax");
+  assert.deepEqual([relaxed.anchors[0].x, relaxed.anchors[0].y], [0, 0]);
+  assert.deepEqual([relaxed.anchors[1].x, relaxed.anchors[1].y], [100, 0]);
+  assert.deepEqual(relaxed.anchors[0].out, [0, 65]);
+  assert.deepEqual(relaxed.anchors[1].in, [0, 65]);
+
+  const cornered = parseSvgPathGeometry("M 0 0 L 20 40 L 40 0").geometry;
+  const relaxedCorner = transformSvgPathGeometry(cornered, "relax");
+  assert.deepEqual([relaxedCorner.anchors[1].x, relaxedCorner.anchors[1].y], [20, 26]);
 });
 
 test("parses and replaces ordered subpaths without changing their siblings", () => {
@@ -119,6 +166,15 @@ test("maps SVG viewBox coordinates through the host transform", () => {
   const world = svgPointToWorld(element, svg, [20, 90]);
   assert.deepEqual(world, [120, 290]);
   assert.deepEqual(worldPointToSvg(element, svg, world), [20, 90]);
+});
+
+test("matches SVG's default meet aspect ratio inside a differently shaped host", () => {
+  const element = { x: 100, y: 200, width: 200, height: 300, angle: 0 };
+  const svg = { viewBox: [0, 0, 100, 100] };
+  // Default xMidYMid meet centers a 200 × 200 SVG viewport vertically.
+  assert.deepEqual(svgPointToWorld(element, svg, [0, 0]), [100, 250]);
+  assert.deepEqual(svgPointToWorld(element, svg, [100, 100]), [300, 450]);
+  assert.deepEqual(worldPointToSvg(element, svg, [100, 250]), [0, 0]);
 });
 
 test("extracts editable path nodes with invertible nested transforms", () => {

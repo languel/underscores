@@ -92,7 +92,20 @@ Trigger entry policy is configurable in **Settings → Score & MIDI**. The defau
 
 ### Trusted `.iannix` import
 
-The Scene data section can execute an explicitly trusted `.iannix`/JavaScript score. The compatibility runner provides IanniX's `run()`, `load()`, `loadJSON()`, `makeWithScript()`, common math helpers, deterministic session time, and seeded randomness. Supported object/geometry/link/property commands are collected into the recordable `iannix.import.trusted` command and translated to native Drawerator elements with stable import IDs. Missing or unsupported commands are reported through UI status and events instead of being silently discarded.
+The Scene data section can execute an explicitly trusted `.iannix`/JavaScript score. The compatibility runner provides IanniX's `run()`, `load()`, `loadJSON()`, `makeWithScript()`, common math helpers, deterministic session time, and seeded randomness. Supported object/geometry/link/property commands are collected into the recordable `iannix.import.trusted` command and translated to native Drawerator elements with stable import IDs. Each emitted element also stores `customData.iannixImport.scoreId` and `scoreLabel`, while `setGroup` stores the authored value in `customData.iannixImport.group`.
+
+The Outliner renders those fields as a virtual semantic tree:
+
+```text
+Score · <saved script name, file name, or title()>
+  IanniX · <setGroup value>
+    Canvas group · <Excalidraw groupId>
+      Curve / Cursor / Trigger
+```
+
+This is intentionally not encoded into Excalidraw `groupIds`: IanniX groups express score semantics and style targeting, whereas native groups own selection and transform behavior. Updating `setGroup` through the IanniX command line moves the object between the virtual group rows immediately. Re-running a saved score reuses its score identity, allowing the Outliner branch to remain stable.
+
+Missing or unsupported commands are reported through UI status and events instead of being silently discarded.
 
 This is trusted executable compatibility mode, not a sandbox or security boundary. Drawerator always presents a warning before file execution.
 

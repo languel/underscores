@@ -125,6 +125,9 @@ export const normalizeSvgObject = value => {
     width: fallback.width,
     height: fallback.height,
     viewBox: [...fallback.viewBox],
+    preserveAspectRatio: typeof fallback.rootAttributes?.preserveAspectRatio === "string"
+      ? fallback.rootAttributes.preserveAspectRatio
+      : "",
     nodeCount: fallback.nodeCount,
     runtime: normalizeSvgRuntimePolicy(raw.runtime),
     metadataMirror: raw.metadataMirror?.sourceRevision === revision

@@ -21,12 +21,13 @@ import EventConsole from "./EventConsole.jsx";
 import PropertiesPanel from "./PropertiesPanel.jsx";
 import { embedPolicyForElement, isAllowedEmbedURL, sanitizeEmbedURL, shouldRenderEmbed } from "./embedPolicy.js";
 import OutlinerPanel from "./OutlinerPanel.jsx";
-import { reorderSceneElements } from "./sceneLayers.js";
+import { groupSceneElements, moveSceneElementsToGroupParent, reorderSceneElements, ungroupSceneElements } from "./sceneLayers.js";
 import IannixDataPanel from "./IannixDataPanel.jsx";
 import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, parseGenericCommandSlash } from "./commandSystem.js";
 import { buildAIAutomationGuide, isAICommandAllowed, parseDraweratorCommandTags } from "./aiTooling.js";
 import { autoKeyElement, AUTO_KEY_PATHS, collectAutomationKeys, evaluateElementAutomation, interpolationForPath, upsertAutomationKey } from "./automation.js";
 import { formatAIScriptSource, validateAIBrushSource, validateAIIannixSource } from "./scriptAuthoring.js";
+import { getIannixCommandAtSourcePosition } from "./iannixCommandReference.js";
 import { createDraweratorMacro, DRAWERATOR_MACRO_TYPE, DraweratorLibraryStore, DraweratorSessionController, instantiateDraweratorMacro, mergeSceneMutation, parseDraweratorSession } from "./sessionHistory.js";
 import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCursorLoopMode, getIannixCurveStartAngle, serializeBezierElementToIannixCommands, tokenizeIannixCommand } from "./iannixScript.js";
 import { bezierWorldPointToLocal, createBezierGeometryFromElement, createBezierHostGeometry, findNearestBezierLocation, getBezierWorldAnchors, getBezierWorldPath, hasCubicBezierGeometry, normalizeBezierGeometry, normalizeBezierHostElement, reframeBezierElement, removeBezierAnchor, setBezierAnchorMode, setElementBezierGeometry, splitBezierSegment, updateBezierAnchor } from "./bezierGeometry.js";
@@ -76,7 +77,7 @@ import { normalizeScriptType } from "./scriptTypes.js";
 import { P5FrameOverlay } from "./P5Frame.jsx";
 import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_EXAMPLES, P5_FRAME_STORAGE_KEY, canHostP5Frame, getP5Example, getP5HostElementType, isP5FrameElement, normalizeP5Frame, normalizeP5Scripts, normalizeP5SourceMode, reconcileP5ScriptsWithElements, validateP5Source } from "./p5Frame.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
-import { prepareSvgForStructuredEditing, updateSvgNodeData } from "./svgDocumentModel.js";
+import { insertSvgNode, prepareSvgForStructuredEditing, updateSvgNodeData } from "./svgDocumentModel.js";
 import { executeSvgStructuredCommand } from "./svgCommandApi.js";
 import {
   DEFAULT_SVG_SOURCE,
@@ -103,6 +104,7 @@ import {
   replaceSvgPathSubpathWithConnectedEndpoint,
   removeExactDuplicateSvgPathSubpaths,
   serializeSvgPathGeometry,
+  transformSvgPathGeometry,
   worldPointToSvg,
 } from "./svgPathGeometry.js";
 import {
@@ -1916,6 +1918,7 @@ function App() {
     return Number.isFinite(saved) && saved >= 8 && saved <= 32 ? saved : 12;
   });
   const [iannixScriptSource, setIannixScriptSource] = useState("");
+  const [iannixCommandHelp, setIannixCommandHelp] = useState(null);
   const [iannixCommandSource, setIannixCommandSource] = useState("");
   const [iannixScripts, setIannixScripts] = useState(() => {
     try {
@@ -2237,6 +2240,7 @@ function App() {
   const lastPresentationStateRef = useRef(null);
   const pendingPresentationRef = useRef(null);
   const presentationTimerRef = useRef(null);
+  const presentationFitTimerRef = useRef(null);
   const autoKeyApplyingRef = useRef(false);
   const strokeInputSamplesRef = useRef([]);
   const strokeRecordingSuppressedRef = useRef(false);
@@ -2279,6 +2283,8 @@ function App() {
   const [svgPathSelectedAnchor, setSvgPathSelectedAnchor] = useState(null);
   const [svgDetachedEndpoint, setSvgDetachedEndpoint] = useState(null);
   const svgPathDragRef = useRef(null);
+  const svgPathAppendDragRef = useRef(null);
+  const svgPathPenSessionRef = useRef(null);
   const svgNodeDragRef = useRef(null);
   const svgCodeHighlightRange = useMemo(() => {
     if (!selectedSvgNode || selectedSvgNode.elementId !== svgEditorTargetId) return null;
@@ -4027,7 +4033,7 @@ function App() {
   };
 
   const handleCanvasDoubleClick = e => {
-    if (enterSvgPathEditAtPointer(e)) return;
+    if (insertSvgPathAnchorAtPointer(e)) return;
     enterBezierEditAtPointer(e);
   };
 
@@ -4232,6 +4238,191 @@ function App() {
     return true;
   };
 
+  // Keep SVG path insertion on the double-click event itself.  Pointer-down is
+  // too early here: Excalidraw and the Shadow DOM renderer can each consume one
+  // of the two clicks, which made the advertised gesture unreliable.
+  const insertSvgPathAnchorAtPointer = (event, candidates = null, { allowDistant = false } = {}) => {
+    if (!excalidrawAPI || excalidrawAPI.getAppState().activeTool?.type !== "selection") return false;
+    const hit = findSvgPathAtPointer(event.clientX, event.clientY, candidates);
+    if (!hit || (!allowDistant && hit.screenDistance > 14)) return false;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    const geometry = splitBezierSegment(hit.subpath.geometry, hit.segmentIndex, hit.t);
+    exitBezierEditMode();
+    setSvgDetachedEndpoint(null);
+    setSelectedSvgNode({ elementId: hit.element.id, nodeIndex: hit.path.node.index, subpathIndex: hit.subpath.index });
+    setSvgPathEdit({ elementId: hit.element.id, nodeIndex: hit.path.node.index, subpathIndex: hit.subpath.index });
+    setSvgPathSelectedAnchor(hit.segmentIndex + 1);
+    const selectedIds = { [hit.element.id]: true };
+    selectedElementIdsRef.current = selectedIds;
+    setSelectedElementIds(selectedIds);
+    excalidrawAPI.updateScene({
+      appState: {
+        selectedElementIds: selectedIds,
+        selectedGroupIds: {},
+        editingLinearElement: null,
+        selectedLinearElement: null,
+      },
+    });
+    commitSvgPathGeometry(hit.element.id, hit.path.node.index, hit.subpath.index, geometry);
+    return true;
+  };
+
+  const findSvgHostAtPointer = (clientX, clientY, candidates = null) => {
+    const world = getCanvasCoords(clientX, clientY);
+    const elements = (candidates || excalidrawAPI?.getSceneElements().filter(candidate => (
+      !candidate.isDeleted && isSvgObjectElement(candidate)
+    )) || []).filter(element => selectionFilterAllowsElement(selectionFilterRef.current, element));
+    for (const element of [...elements].reverse()) {
+      const centerX = (Number(element.x) || 0) + (Number(element.width) || 0) / 2;
+      const centerY = (Number(element.y) || 0) + (Number(element.height) || 0) / 2;
+      const angle = -(Number(element.angle) || 0);
+      const cosine = Math.cos(angle);
+      const sine = Math.sin(angle);
+      const dx = world[0] - centerX;
+      const dy = world[1] - centerY;
+      const localX = centerX + dx * cosine - dy * sine;
+      const localY = centerY + dx * sine + dy * cosine;
+      if (
+        localX >= (Number(element.x) || 0)
+        && localX <= (Number(element.x) || 0) + (Number(element.width) || 0)
+        && localY >= (Number(element.y) || 0)
+        && localY <= (Number(element.y) || 0) + (Number(element.height) || 0)
+      ) return { element, world };
+    }
+    return null;
+  };
+
+  const formatSvgPathCoordinate = value => String(Math.round(Number(value) * 1000) / 1000);
+
+  const createSvgPathAtPointer = (event, candidates = null) => {
+    if (!excalidrawAPI || excalidrawAPI.getAppState().activeTool?.type !== "selection") return false;
+    const host = findSvgHostAtPointer(event.clientX, event.clientY, candidates);
+    if (!host) return false;
+    const svg = normalizeSvgObject(host.element.customData.draweratorSvg);
+    const local = worldPointToSvg(host.element, svg, host.world);
+    const x = formatSvgPathCoordinate(local[0]);
+    const y = formatSvgPathCoordinate(local[1]);
+    const source = insertSvgNode(
+      svg.source,
+      0,
+      `<path d="M ${x} ${y} L ${x} ${y}" fill="none" stroke="currentColor"/>`,
+    );
+    const path = getEditableSvgPathNodes(source).at(-1);
+    const subpath = path?.subpaths?.[0];
+    if (!path || !subpath?.valid) return false;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    exitBezierEditMode();
+    setSvgDetachedEndpoint(null);
+    setSelectedSvgNode({ elementId: host.element.id, nodeIndex: path.node.index, subpathIndex: 0 });
+    setSvgPathEdit({ elementId: host.element.id, nodeIndex: path.node.index, subpathIndex: 0 });
+    setSvgPathSelectedAnchor(1);
+    svgPathPenSessionRef.current = { elementId: host.element.id, nodeIndex: path.node.index, subpathIndex: 0 };
+    const selectedIds = { [host.element.id]: true };
+    selectedElementIdsRef.current = selectedIds;
+    setSelectedElementIds(selectedIds);
+    runSvgObjectSource({
+      source,
+      targetId: host.element.id,
+      name: svg.name,
+      scriptId: svg.scriptId,
+      commitToHistory: true,
+      select: true,
+    });
+    setSceneExchangeStatus("Started an SVG pen path. Click to add anchors, drag to shape a curve, or press Enter/Escape to finish.");
+    return true;
+  };
+
+  const handleSvgPathConstructionPointerDown = (event, candidates = null) => {
+    // SVG pen construction is intentionally modifier-gated. Once a path has
+    // been closed or opened again, its last anchor remains an ordinary anchor:
+    // dragging it must never append a new point just because a prior pen
+    // session is still remembered.
+    if (event.button !== 0 || !event.altKey || !excalidrawAPI) return false;
+    const penSession = svgPathPenSessionRef.current;
+    const context = getSvgPathEditContext(penSession || undefined);
+    if (context && (!candidates || candidates.some(candidate => candidate.id === context.element.id))) {
+      const host = findSvgHostAtPointer(event.clientX, event.clientY, [context.element]);
+      if (host) {
+        const local = worldPointToSvg(context.element, context.svg, host.world, context.path.inverseTransform);
+        const anchors = context.subpath.geometry.anchors;
+        const first = anchors[0];
+        const second = anchors[1];
+        const isInitialPoint = !context.subpath.geometry.closed
+          && anchors.length === 2
+          && Math.hypot(first.x - second.x, first.y - second.y) <= 0.001;
+        const anchorIndex = isInitialPoint ? 1 : anchors.length;
+        const geometry = isInitialPoint
+          ? updateBezierAnchor(context.subpath.geometry, 1, "anchor", local)
+          : normalizeBezierGeometry({
+            ...context.subpath.geometry,
+            anchors: [...anchors, { x: local[0], y: local[1], in: null, out: null, mode: "corner" }],
+          });
+        event.preventDefault();
+        event.stopPropagation();
+        commitSvgPathGeometry(context.element.id, context.path.node.index, context.subpath.index, geometry, { commitToHistory: false });
+        setSvgPathSelectedAnchor(anchorIndex);
+        svgPathAppendDragRef.current = {
+          elementId: context.element.id,
+          nodeIndex: context.path.node.index,
+          subpathIndex: context.subpath.index,
+          anchorIndex,
+          start: local,
+          pointerId: event.pointerId,
+        };
+        event.currentTarget?.setPointerCapture?.(event.pointerId);
+        return true;
+      }
+    }
+    return createSvgPathAtPointer(event, candidates);
+  };
+
+  const handleSvgPathConstructionPointerMove = event => {
+    const drag = svgPathAppendDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+    const context = getSvgPathEditContext({
+      elementId: drag.elementId,
+      nodeIndex: drag.nodeIndex,
+      subpathIndex: drag.subpathIndex,
+    });
+    const anchor = context?.subpath?.geometry?.anchors?.[drag.anchorIndex];
+    if (!context || !anchor) return false;
+    const world = getCanvasCoords(event.clientX, event.clientY, "points");
+    const local = worldPointToSvg(context.element, context.svg, world, context.path.inverseTransform);
+    if (Math.hypot(local[0] - drag.start[0], local[1] - drag.start[1]) <= 0.1) return true;
+    event.preventDefault();
+    event.stopPropagation();
+    const geometry = updateBezierAnchor(
+      context.subpath.geometry,
+      drag.anchorIndex,
+      "in",
+      [local[0] - anchor.x, local[1] - anchor.y],
+      { breakHandles: true },
+    );
+    commitSvgPathGeometry(context.element.id, context.path.node.index, context.subpath.index, geometry, { commitToHistory: false });
+    return true;
+  };
+
+  const handleSvgPathConstructionPointerUp = event => {
+    const drag = svgPathAppendDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+    svgPathAppendDragRef.current = null;
+    const context = getSvgPathEditContext({
+      elementId: drag.elementId,
+      nodeIndex: drag.nodeIndex,
+      subpathIndex: drag.subpathIndex,
+    });
+    if (context?.subpath?.valid) {
+      commitSvgPathGeometry(context.element.id, context.path.node.index, context.subpath.index, context.subpath.geometry, { commitToHistory: true });
+      setSceneExchangeStatus("Added an SVG pen anchor. Click to continue, or press Enter/Escape to finish.");
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget?.releasePointerCapture?.(event.pointerId);
+    return true;
+  };
+
   const findSvgPathControlAtPointer = (context, clientX, clientY) => {
     if (!context?.subpath?.valid) return null;
     let nearest = null;
@@ -4275,22 +4466,34 @@ function App() {
       return true;
     }
     const hit = findSvgPathAtPointer(event.clientX, event.clientY, [context.element]);
-    if (
-      event.detail >= 2
-      && hit
-      && hit.path.node.index === context.path.node.index
-      && hit.subpath.index === context.subpath.index
-      && hit.screenDistance <= 14
-    ) {
-      event.preventDefault();
-      event.stopPropagation();
-      const geometry = splitBezierSegment(context.subpath.geometry, hit.segmentIndex, hit.t);
-      commitSvgPathGeometry(context.element.id, context.path.node.index, context.subpath.index, geometry);
-      setSvgPathSelectedAnchor(hit.segmentIndex + 1);
-      return true;
-    }
     if (hit && hit.screenDistance <= 12) return enterSvgPathEditAtPointer(event, [context.element]);
     return false;
+  };
+
+  const beginSvgPathControlDrag = (event, anchorIndex, part) => {
+    const context = getSvgPathEditContext();
+    if (!context?.subpath?.valid || event.button !== 0) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    setSvgPathSelectedAnchor(anchorIndex);
+    const detached = part === "anchor"
+      && svgDetachedEndpoint
+      && svgDetachedEndpoint.elementId === context.element.id
+      && svgDetachedEndpoint.nodeIndex === context.path.node.index
+      && svgDetachedEndpoint.subpathIndex === context.subpath.index
+      && svgDetachedEndpoint.anchorIndex === anchorIndex;
+    if (part === "anchor" && svgDetachedEndpoint) setSvgDetachedEndpoint(null);
+    svgPathDragRef.current = {
+      elementId: context.element.id,
+      nodeIndex: context.path.node.index,
+      subpathIndex: context.subpath.index,
+      anchorIndex,
+      part,
+      preserveEndpointConnections: part === "anchor" && !detached,
+      pointerId: event.pointerId,
+    };
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+    return true;
   };
 
   const handleSvgPathPointerMove = event => {
@@ -4438,6 +4641,11 @@ function App() {
     // feel unreliable.
     if (e.target?.closest?.(".drawerator-embed-interactive")) return;
 
+    // SVG control circles own their pointer session directly. This prevents a
+    // drag from also reaching Excalidraw's drawing tools.
+    if (e.target?.closest?.(".svg-path-control")) return;
+
+    if (handleSvgPathConstructionPointerDown(e)) return;
     if (handleSvgPathPointerDown(e)) return;
     if (handleSvgNodePointerDown(e)) return;
     if (handleBezierPointerDown(e)) return;
@@ -4640,6 +4848,7 @@ function App() {
 
   const handleCanvasPointerMove = (e) => {
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
+    if (handleSvgPathConstructionPointerMove(e)) return;
     if (handleSvgPathPointerMove(e)) return;
     if (handleSvgNodePointerMove(e)) return;
     if (handleBezierPointerMove(e)) return;
@@ -5333,6 +5542,10 @@ function App() {
       const hasConvertiblePath = selectedStrokeElements.some(el => !hasCubicBezierGeometry(el));
       const hasShapes = capabilities.hasShapes;
       const hasP5HostCandidate = selectedContextElements.some(element => !isSvgObjectElement(element) && canHostP5Frame(element));
+      const svgCodeHost = selectedContextElements.length === 1
+        && selectedContextElements[0].type === "rectangle"
+        && !isSvgObjectElement(selectedContextElements[0])
+        && !isP5FrameElement(selectedContextElements[0]);
 
       setCustomContextMenu({
         x: e.clientX,
@@ -5341,6 +5554,7 @@ function App() {
         showMakeRole: true,
         showToSvg: selectedContextElements.some(element => !isSvgObjectElement(element) && !isP5FrameElement(element)),
         showAttachP5: hasP5HostCandidate,
+        showAttachSvgCode: svgCodeHost,
         showRestore: hasBrush,
         showToPath: hasShapes,
         showToLine: hasFreehand || hasSpline,
@@ -5870,6 +6084,7 @@ function App() {
   };
 
   const handleCanvasPointerUp = (e) => {
+    if (handleSvgPathConstructionPointerUp(e)) return;
     if (handleSvgPathPointerUp(e)) return;
     if (handleSvgNodePointerUp(e)) return;
     if (handleBezierPointerUp(e)) return;
@@ -6925,6 +7140,49 @@ function App() {
     setInterfaceThemePreset("custom");
   };
 
+  const groupSceneSelection = (elementIds = null) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return null;
+    const selectedIds = elementIds?.length ? elementIds : Object.keys(api.getAppState().selectedElementIds || {});
+    const groupId = crypto.randomUUID();
+    const result = groupSceneElements(api.getSceneElementsIncludingDeleted(), selectedIds, groupId);
+    if (!result.groupId) {
+      setSceneExchangeStatus("Select at least two scene objects to create a group.");
+      return null;
+    }
+    const nextSelected = Object.fromEntries(selectedIds.map(id => [id, true]));
+    selectedElementIdsRef.current = nextSelected;
+    setSelectedElementIds(nextSelected);
+    api.updateScene({
+      elements: result.elements,
+      appState: { selectedElementIds: nextSelected, selectedGroupIds: { [result.groupId]: true } },
+      commitToHistory: true,
+    });
+    setSceneExchangeStatus(`Grouped ${selectedIds.length} scene objects.`);
+    return result.groupId;
+  };
+
+  const ungroupSceneSelection = (elementIds = null) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return null;
+    const selectedIds = elementIds?.length ? elementIds : Object.keys(api.getAppState().selectedElementIds || {});
+    const result = ungroupSceneElements(api.getSceneElementsIncludingDeleted(), selectedIds);
+    if (!result.groupId) {
+      setSceneExchangeStatus("Select a grouped scene object to ungroup it.");
+      return null;
+    }
+    const nextSelected = Object.fromEntries(selectedIds.map(id => [id, true]));
+    selectedElementIdsRef.current = nextSelected;
+    setSelectedElementIds(nextSelected);
+    api.updateScene({
+      elements: result.elements,
+      appState: { selectedElementIds: nextSelected, selectedGroupIds: {} },
+      commitToHistory: true,
+    });
+    setSceneExchangeStatus("Ungrouped scene objects.");
+    return result.groupId;
+  };
+
   // --- COMMAND PALETTE LOGIC ---
   const PANEL_COMMANDS = DRAWERATOR_PANELS.map(panel => ({
     id: `panel-${panel.id}`,
@@ -7235,6 +7493,8 @@ function App() {
     { id: "svg.path.reverse", name: "Reverse Selected SVG Path", category: "SVG", action: () => reverseSelectedSvgPath() },
     { id: "svg.path.anchor.insert", name: "Insert SVG Point After Selected Point", category: "SVG", action: () => insertSelectedSvgAnchor() },
     { id: "svg.path.anchor.delete", name: "Delete Selected SVG Anchor", category: "SVG", action: () => deleteSelectedSvgAnchor() },
+    { id: "scene.group", name: "Group Selected Scene Objects /group", aliases: ["/group", "Group selection"], category: "Scene", action: () => groupSceneSelection() },
+    { id: "scene.ungroup", name: "Ungroup Selected Scene Objects /ungroup", aliases: ["/ungroup", "Ungroup selection"], category: "Scene", action: () => ungroupSceneSelection() },
     { id: "svg.copy.selection", name: "Copy Selection as Editable SVG /copy svg", aliases: ["/copy svg", "Copy selection SVG"], category: "Canvas", action: () => copySelectionAsSvg() },
     { id: "svg.paste.editable", name: "Paste SVG as Editable Paths /paste svg", aliases: ["/paste svg", "Paste SVG as paths"], category: "Canvas", action: () => pasteSvgAsEditable() },
     { id: "export.board.png", name: "Export Board as PNG /export board", aliases: ["/export board", "/export png", "Export Drawerator board"], category: "Canvas", action: () => void exportDraweratorBoardPng() },
@@ -7314,7 +7574,7 @@ function App() {
     { id: "script.iannix.create", name: "AI: Create IanniX Script", category: "AI Actions", args: { name: "string", source: "IanniX source", parameters: "object?", activate: "boolean?" }, ai: { expose: true, description: "Create an editable trusted IanniX source script in the local script catalog. Source must define makeWithScript() or madeThroughGUI(), use Drawerator-supported run() commands, and put one statement per line. Creation does not run it. IanniX coordinates are model units, not canvas pixels: for visible default-scale geometry use setPos current 12 -8 0 and local points/radii near 0..8; do not use 480-style screen coordinates.", example: { name: "Two-point orbit", source: "function makeWithScript() {\n  run(\\\"clear\\\");\n  run(\\\"add curve orbit\\\");\n  run(\\\"setPos current 12 -8 0\\\");\n  run(\\\"setPointAt current 0 0 0\\\");\n  run(\\\"setPointAt current 1 8 0\\\");\n  run(\\\"add cursor traveler\\\");\n  run(\\\"setCurve current lastCurve\\\");\n}" } }, action: (_api, args) => createAIIannixScript(args) },
     { id: "script.iannix.update", name: "AI: Update IanniX Script", category: "AI Actions", args: { id: "string?", name: "string?", source: "IanniX source?", parameters: "object?" }, ai: { expose: true, description: "Rename or replace a local IanniX script without running it. Replacement source must follow the Drawerator IanniX lifecycle/run-command contract and use one statement per line.", example: { id: "iannix-script-example", source: "function makeWithScript() {\n  run(\\\"add curve orbit\\\");\n  run(\\\"setPos current 12 -8 0\\\");\n  run(\\\"setPointAt current 0 0 0\\\");\n  run(\\\"setPointAt current 1 8 0\\\");\n}" } }, action: (_api, args) => updateAIIannixScript(args) },
     { id: "script.iannix.run", name: "AI: Run IanniX Script", category: "AI Actions", args: { id: "string?", source: "IanniX source?", filename: "string?", parameters: "object?" }, ai: { expose: true, description: "Run a trusted IanniX script. Only use when the user explicitly asks to execute the generated script.", example: { id: "iannix-script-example" } }, action: (_api, args) => runAIIannixScript(args) },
-    { id: "iannix.import.trusted", name: "Import Trusted IanniX Script /iannix import", aliases: ["/iannix import"], category: "IanniX", args: { source: "string", filename: "string?", seed: "number?", anchor: "point?", scale: "number?", importId: "string?", parameters: "object?" }, validate: args => ({ ...args, importId: args?.importId || crypto.randomUUID() }), action: (_api, args) => runtimeCallbacksRef.current.iannixImport(args) },
+    { id: "iannix.import.trusted", name: "Import Trusted IanniX Script /iannix import", aliases: ["/iannix import"], category: "IanniX", args: { source: "string", filename: "string?", seed: "number?", anchor: "point?", scale: "number?", importId: "string?", scoreId: "string?", scoreLabel: "string?", parameters: "object?" }, validate: args => ({ ...args, importId: args?.importId || args?.scoreId || crypto.randomUUID() }), action: (_api, args) => runtimeCallbacksRef.current.iannixImport(args) },
     { id: "iannix.command.clear", name: "IanniX: Clear Scene /ix clear", aliases: ["/ix clear", "/iannix clear", "IanniX clear"], category: "IanniX", action: () => runtimeCallbacksRef.current.iannixCommand("clear") },
     { id: "iannix.command.execute", name: "Execute IanniX Command", category: "IanniX", args: { command: "string" }, action: (_api, args) => runtimeCallbacksRef.current.iannixCommand(args?.command) },
     { id: "ai.prompt", name: "Send AI Prompt", category: "AI Chat", args: { prompt: "string" }, action: (_api, args) => { openAISidebar(); return sendChatMessage(args?.prompt || ""); } },
@@ -7938,6 +8198,8 @@ function App() {
 
   const exitSvgPathEditMode = () => {
     svgPathDragRef.current = null;
+    svgPathAppendDragRef.current = null;
+    svgPathPenSessionRef.current = null;
     setSvgDetachedEndpoint(null);
     setSvgPathEdit(null);
     setSvgPathSelectedAnchor(null);
@@ -8197,6 +8459,11 @@ function App() {
   const toggleSelectedSvgPathClosed = () => {
     const context = getSvgPathEditContext();
     if (!context?.subpath?.valid) throw new Error("Select an editable SVG subpath first.");
+    // Closing/opening ends any temporary pen session. Further anchors are an
+    // explicit Option-click operation, while every existing point stays
+    // draggable in either state.
+    svgPathPenSessionRef.current = null;
+    svgPathAppendDragRef.current = null;
     const geometry = normalizeBezierGeometry({
       ...context.subpath.geometry,
       closed: !context.subpath.geometry.closed,
@@ -8219,6 +8486,25 @@ function App() {
       ? geometry.anchors.length - 1 - svgPathSelectedAnchor
       : 0);
     return commitSvgPathGeometry(context.element.id, context.path.node.index, context.subpath.index, geometry);
+  };
+
+  const transformSelectedSvgPath = operation => {
+    const context = getSvgPathEditContext();
+    if (!context?.subpath?.valid) throw new Error("Select an editable SVG subpath first.");
+    const geometry = transformSvgPathGeometry(context.subpath.geometry, operation);
+    setSvgPathSelectedAnchor(Math.min(svgPathSelectedAnchor ?? 0, geometry.anchors.length - 1));
+    const labels = {
+      simplify: "Simplified selected SVG path.",
+      resample: "Resampled selected SVG path.",
+      straighten: "Straightened selected SVG path.",
+      smooth: "Smoothed selected SVG path.",
+      relax: "Relaxed selected SVG path.",
+      "round-integers": "Rounded selected SVG path to whole coordinates.",
+      "round-tenths": "Rounded selected SVG path to one decimal place.",
+    };
+    const updated = commitSvgPathGeometry(context.element.id, context.path.node.index, context.subpath.index, geometry);
+    if (updated) setSceneExchangeStatus(labels[operation] || "Updated selected SVG path.");
+    return updated;
   };
 
   const deleteSelectedSvgAnchor = () => {
@@ -8280,7 +8566,16 @@ function App() {
       candidate.id === elementId && !candidate.isDeleted && isSvgObjectElement(candidate)
     );
     if (!element || !selectionFilterAllowsElement(selectionFilterRef.current, element)) return false;
-    return enterSvgPathEditAtPointer(event, [element], { allowDistant: true });
+    return insertSvgPathAnchorAtPointer(event, [element], { allowDistant: true });
+  };
+
+  const constructSvgPathFromOverlay = (elementId, event) => {
+    if (!excalidrawAPI) return false;
+    const element = excalidrawAPI.getSceneElements().find(candidate => (
+      candidate.id === elementId && !candidate.isDeleted && isSvgObjectElement(candidate)
+    ));
+    if (!element || !selectionFilterAllowsElement(selectionFilterRef.current, element)) return false;
+    return handleSvgPathConstructionPointerDown(event, [element]);
   };
 
   const exitBezierEditMode = () => {
@@ -8370,6 +8665,11 @@ function App() {
       const target = event.target;
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable) return;
       if (event.key === "Escape") {
+        event.preventDefault();
+        exitSvgPathEditMode();
+        return;
+      }
+      if (event.key === "Enter") {
         event.preventDefault();
         exitSvgPathEditMode();
         return;
@@ -8701,6 +9001,7 @@ function App() {
           type: hostType,
           link: null,
           validated: false,
+          strokeColor: "transparent",
           strokeWidth: 0,
           fillStyle: "solid",
           backgroundColor: "transparent",
@@ -8722,6 +9023,61 @@ function App() {
     });
     setSelectedElementIds(Object.fromEntries(selected.map(element => [element.id, true])));
     return { count: selected.length, script };
+  };
+
+  const attachSvgCodeToSelectedRectangle = () => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const selected = getSelectedElements().filter(element => (
+      element.type === "rectangle" && !isSvgObjectElement(element) && !isP5FrameElement(element)
+    ));
+    if (selected.length !== 1) throw new Error("Select one ordinary Excalidraw rectangle first.");
+    const target = selected[0];
+    const width = Math.max(1, Number(target.width) || 1);
+    const height = Math.max(1, Number(target.height) || 1);
+    const name = `${target.customData?.iannix?.label || "Rectangle"} SVG`;
+    const source = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n</svg>`;
+    const draweratorSvg = normalizeSvgObject({ source, name, revision: 1 });
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const selection = { [target.id]: true };
+    api.updateScene({
+      elements: elements.map(element => element.id !== target.id ? element : {
+        ...element,
+        strokeColor: "transparent",
+        backgroundColor: "transparent",
+        strokeWidth: 0,
+        fillStyle: "solid",
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+        customData: {
+          ...(element.customData || {}),
+          draweratorSvg,
+          iannix: { ...(element.customData?.iannix || {}), label: name },
+        },
+      }),
+      appState: {
+        selectedElementIds: selection,
+        selectedGroupIds: {},
+        editingLinearElement: null,
+        selectedLinearElement: null,
+        activeTool: { ...(api.getAppState().activeTool || {}), type: "selection", locked: false },
+      },
+      commitToHistory: true,
+    });
+    selectedElementIdsRef.current = selection;
+    setSelectedElementIds(selection);
+    setActiveSvgScriptId("");
+    setSvgScriptSource(draweratorSvg.source);
+    setSvgScriptNameDraft(name);
+    setSvgEditorTargetId(target.id);
+    setSvgLoadedRevision(draweratorSvg.revision);
+    setEditingSvgScriptName(false);
+    setSvgScriptStatus(`Attached a blank SVG matching this rectangle (${width} × ${height}).`);
+    setSvgScriptStatusKind("success");
+    setScriptPanelType("svg");
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return { elementId: target.id, source, name, width, height };
   };
 
   const syncP5ScriptHosts = (scriptId, patch) => {
@@ -8786,6 +9142,7 @@ function App() {
       ...baseElement,
       link: null,
       validated: false,
+      strokeColor: "transparent",
       strokeWidth: 0,
       fillStyle: "solid",
       backgroundColor: "transparent",
@@ -9272,6 +9629,8 @@ function App() {
     return runtimeCallbacksRef.current.iannixImport({
       source,
       filename: args.filename || script?.name || "AI IanniX script",
+      scoreId: args.id || script?.id,
+      scoreLabel: script?.name || args.filename || "AI IanniX script",
       parameters: args.parameters && typeof args.parameters === "object" ? args.parameters : (script?.parameters || {}),
     });
   };
@@ -10081,6 +10440,16 @@ function App() {
       globalGridRef.current = restoredGrid;
       setGlobalGrid(restoredGrid);
       setModifierUpdateNonce(nonce => nonce + 1);
+      if (workspace.camera && excalidrawAPI) {
+        excalidrawAPI.updateScene({
+          appState: {
+            scrollX: workspace.camera.scrollX,
+            scrollY: workspace.camera.scrollY,
+            zoom: { value: workspace.camera.zoom },
+          },
+          commitToHistory: false,
+        });
+      }
       presentationWorkspaceRef.current = null;
       finishApplyingRecordedUiState();
       return;
@@ -10099,6 +10468,14 @@ function App() {
       satoriMode,
       showCommandPalette,
       globalGrid: normalizeGlobalGrid(globalGridRef.current),
+      camera: excalidrawAPI ? (() => {
+        const appState = excalidrawAPI.getAppState();
+        return {
+          scrollX: appState.scrollX,
+          scrollY: appState.scrollY,
+          zoom: appState.zoom?.value || 1,
+        };
+      })() : null,
     };
     applyingRecordedUiStateRef.current = true;
     setPanelLayouts(normalizePanelLayouts(null));
@@ -10113,12 +10490,30 @@ function App() {
   }, [presentationMode]);
 
   useEffect(() => {
-    if (!presentationMode) return;
+    window.clearTimeout(presentationFitTimerRef.current);
+    if (!presentationMode || !excalidrawAPI) return undefined;
     document.activeElement?.blur?.();
     selectedElementIdsRef.current = {};
     setSelectedElementIds({});
     runtimeCursorSelectionRef.current = {};
     excalidrawAPI?.updateScene({ appState: { selectedElementIds: {} } });
+    // Wait for the collapsed presentation layout to occupy the browser window
+    // before measuring. All live scene elements, including SVG and p5 hosts,
+    // participate in the same Excalidraw camera fit.
+    presentationFitTimerRef.current = window.setTimeout(() => {
+      const elements = excalidrawAPI.getSceneElements().filter(element => !element.isDeleted);
+      if (elements.length) {
+        excalidrawAPI.scrollToContent(elements, {
+          fitToViewport: true,
+          // 1 means use the limiting viewport dimension at 100%. The other
+          // dimension is letterboxed naturally, so the full content bounds
+          // remain visible rather than being cropped by an oversized fit.
+          viewportZoomFactor: 1,
+          animate: true,
+        });
+      }
+    }, 120);
+    return () => window.clearTimeout(presentationFitTimerRef.current);
   }, [presentationMode, excalidrawAPI]);
 
   useEffect(() => {
@@ -10646,7 +11041,12 @@ function App() {
       x: Number(args.anchor?.x) || 0,
       y: Number(args.anchor?.y) || 0,
     };
-    const importId = String(args.importId || "iannix").replace(/[^a-z0-9_-]/gi, "_");
+    const importId = String(args.importId || args.scoreId || "iannix").replace(/[^a-z0-9_-]/gi, "_");
+    // Score provenance deliberately remains separate from Excalidraw groupIds:
+    // IanniX's setGroup is semantic score data, while canvas groups are
+    // transform/selection containers. The Outliner composes both hierarchies.
+    const scoreId = String(args.scoreId || importId).replace(/[^a-z0-9_-]/gi, "_");
+    const scoreLabel = String(args.scoreLabel || result.title || args.filename || "IanniX score").trim() || "IanniX score";
     const internalIds = new Map(model.objects.map(object => [
       object.externalId,
       `iannix_${importId}_${String(object.externalId).replace(/[^a-z0-9_-]/gi, "_")}`,
@@ -10706,9 +11106,11 @@ function App() {
       const customData = {
         iannix,
         iannixImport: {
-          version: 1,
+          version: 2,
           externalId: object.externalId,
           group: object.group || "",
+          scoreId,
+          scoreLabel,
           authoredColor: Boolean(object.color?.length >= 3 || object.colorHue?.length >= 3),
           pattern: object.pattern || "",
           source: args.filename || "IanniX script",
@@ -10965,6 +11367,8 @@ function App() {
       await commandRegistry.execute("iannix.import.trusted", {
         source,
         filename: file.name,
+        scoreId: scriptId,
+        scoreLabel: file.name,
         seed: historyController.get()?.seed || 1,
         // IanniX coordinates are model coordinates. Keep imports independent
         // of the current pointer, pan, zoom, viewport size, and panel layout.
@@ -11528,12 +11932,14 @@ function App() {
       values: activeScript?.parameters || {},
     });
     const scriptParameterValues = getScriptParameterValues(scriptParameters);
-    const runTrustedSource = (source, filename, parameters = {}) => {
+    const runTrustedSource = (source, filename, parameters = {}, score = null) => {
       const trimmed = String(source || "").trim();
       if (!trimmed) return Promise.resolve(null);
       return commandRegistry.execute("iannix.import.trusted", {
         source: trimmed,
         filename,
+        scoreId: score?.id,
+        scoreLabel: score?.name,
         parameters,
       }, {
         source: "iannix-panel",
@@ -11543,7 +11949,7 @@ function App() {
         return null;
       });
     };
-    const runScript = () => runTrustedSource(iannixScriptSource, activeScript?.name || "IanniX editor", scriptParameterValues);
+    const runScript = () => runTrustedSource(iannixScriptSource, activeScript?.name || "IanniX editor", scriptParameterValues, activeScript);
     const runCommand = async () => {
       const command = iannixCommandSource.trim();
       if (!command) return;
@@ -11562,6 +11968,7 @@ function App() {
       setIannixScripts(previous => [...previous, script]);
       setActiveIannixScriptId(id);
       setIannixScriptSource(script.source);
+      setIannixCommandHelp(null);
       setIannixScriptNameDraft(script.name);
       setEditingIannixScriptName(true);
     };
@@ -11588,6 +11995,7 @@ function App() {
       setIannixScripts(previous => [...previous, script]);
       setActiveIannixScriptId(id);
       setIannixScriptSource(script.source);
+      setIannixCommandHelp(null);
       setIannixScriptNameDraft(script.name);
       setEditingIannixScriptName(true);
       setSceneExchangeStatus(`Duplicated “${activeScript.name}”.`);
@@ -11617,6 +12025,7 @@ function App() {
       setIannixScripts(remaining);
       setActiveIannixScriptId(remaining[0]?.id || "");
       setIannixScriptSource(remaining[0]?.source || "");
+      setIannixCommandHelp(null);
     };
     const updateScriptParameter = (name, value) => {
       if (!activeScript || !Number.isFinite(Number(value))) return;
@@ -11654,6 +12063,7 @@ function App() {
             setEditingIannixScriptName(false);
             setActiveIannixScriptId(event.target.value);
             setIannixScriptSource(script?.source || "");
+            setIannixCommandHelp(null);
           }} onKeyDown={event => {
             if (event.key !== "F2") return;
             event.preventDefault();
@@ -11670,6 +12080,9 @@ function App() {
             value={iannixScriptSource}
             onChange={setIannixScriptSource}
             onRun={runScript}
+            onSelectionChange={selection => {
+              setIannixCommandHelp(getIannixCommandAtSourcePosition(selection.source, selection.head));
+            }}
             scriptType="iannix"
             ariaLabel="IanniX script source"
             getDiagnostics={source => validateJavascriptEditorSource(source, {
@@ -13497,11 +13910,12 @@ function App() {
         />
         {controls.map((control, index) => (
           <g key={`${context.element.id}-svg-control-${index}`} className={svgPathSelectedAnchor === index ? "selected" : ""}>
+            {svgPathSelectedAnchor === index && <circle cx={control.anchor[0]} cy={control.anchor[1]} r="10" className="svg-selected-anchor-ring" />}
             {control.in && <line x1={control.anchor[0]} y1={control.anchor[1]} x2={control.in[0]} y2={control.in[1]} className="bezier-handle-line" />}
             {control.out && <line x1={control.anchor[0]} y1={control.anchor[1]} x2={control.out[0]} y2={control.out[1]} className="bezier-handle-line" />}
-            {control.in && <circle cx={control.in[0]} cy={control.in[1]} r="4.5" className="bezier-handle-point" />}
-            {control.out && <circle cx={control.out[0]} cy={control.out[1]} r="4.5" className="bezier-handle-point" />}
-            <circle cx={control.anchor[0]} cy={control.anchor[1]} r="6" className="bezier-anchor-point" />
+            {control.in && <circle cx={control.in[0]} cy={control.in[1]} r="4.5" className="bezier-handle-point svg-path-control" onPointerDown={event => beginSvgPathControlDrag(event, index, "in")} />}
+            {control.out && <circle cx={control.out[0]} cy={control.out[1]} r="4.5" className="bezier-handle-point svg-path-control" onPointerDown={event => beginSvgPathControlDrag(event, index, "out")} />}
+            <circle cx={control.anchor[0]} cy={control.anchor[1]} r="6" className="bezier-anchor-point svg-path-control" onPointerDown={event => beginSvgPathControlDrag(event, index, "anchor")} />
           </g>
         ))}
       </svg>
@@ -16019,6 +16433,7 @@ function App() {
               )}
               onToggleSvgPathClosed={toggleSelectedSvgPathClosed}
               onReverseSvgPath={reverseSelectedSvgPath}
+              onTransformSvgPath={transformSelectedSvgPath}
               onInsertSvgAnchor={insertSelectedSvgAnchor}
               onDeleteSvgAnchor={deleteSelectedSvgAnchor}
               svgPathSelectedAnchor={svgPathSelectedAnchor}
@@ -16115,13 +16530,17 @@ function App() {
                 }
               })}
               onLockChange={elementId => updateSceneObject(elementId, element => { element.locked = !element.locked; })}
-              onReorder={(movedId, anchorId, placement) => {
+              onReorder={(movedId, anchorId, placement, { destinationGroupId = null } = {}) => {
                 if (!excalidrawAPI) return;
                 const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
-                const nextElements = reorderSceneElements(elements, movedId, anchorId, placement);
+                const movedIds = Array.isArray(movedId) ? movedId : [movedId];
+                const reparented = moveSceneElementsToGroupParent(elements, movedIds, destinationGroupId);
+                const nextElements = movedIds.reduce((current, id) => reorderSceneElements(current, id, anchorId, placement), reparented);
                 if (nextElements === elements) return;
                 excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
               }}
+              onGroup={elementIds => groupSceneSelection([...new Set(elementIds)])}
+              onUngroup={elementIds => ungroupSceneSelection(elementIds)}
               onRename={(elementId, label) => updateIannixElements([elementId], current => ({
                 ...current,
                 label: label || undefined,
@@ -16543,7 +16962,8 @@ function App() {
           >
             <InfoPanel
               info={infoView}
-              mode={scriptPanelType === "svg" && openPanels.script ? "svg" : "default"}
+              mode={openPanels.script ? scriptPanelType : "default"}
+              iannixCommand={iannixCommandHelp}
             />
           </DraweratorPanel>
           )}
@@ -16618,6 +17038,7 @@ function App() {
           onSelect={selectSvgObjectFromOverlay}
           onEditPath={editSvgPathFromOverlay}
           onEditNode={(elementId, nodeIndex) => selectSvgNode(elementId, nodeIndex)}
+          onConstructPath={constructSvgPathFromOverlay}
         />
 
         <GlobalGridCanvas
@@ -16897,7 +17318,7 @@ function App() {
                   Export Selected p5 Frame as PNG
                 </button>
               )}
-              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showToSvg || customContextMenu.showMakeRole || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
+              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showToSvg || customContextMenu.showMakeRole || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showAttachSvgCode || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
             </>
           )}
           {customContextMenu.showRestore && (
@@ -17126,6 +17547,30 @@ function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 15c1.5-3 3-3 4.5 0s3 3 4.5-1" />
               </svg>
               Attach p5 Sketch
+            </button>
+          )}
+
+          {customContextMenu.showAttachSvgCode && (
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                  attachSvgCodeToSelectedRectangle();
+                } catch (error) {
+                  setSvgScriptStatus(error.message || "Unable to attach SVG code.");
+                  setSvgScriptStatusKind("error");
+                }
+                setCustomContextMenu(null);
+              }}
+              className="custom-floating-context-menu-btn"
+              title="Replace this rectangle's appearance with a blank, editable SVG matched to its dimensions"
+            >
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                <rect x="4" y="4" width="16" height="16" rx="1" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 15c1.5-3 3-3 4.5 0S15.5 18 17 14" />
+              </svg>
+              Attach SVG Code
             </button>
           )}
 
