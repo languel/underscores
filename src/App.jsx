@@ -9570,7 +9570,7 @@ function App() {
     }
     patchLivecodeCanvasNode(elementId, {
       runtime: { running },
-      ...(running && hasNativeLivecodeRuntime(node) ? { view: "preview" } : {}),
+      ...(running && (hasNativeLivecodeRuntime(node) || [LIVECODE_KINDS.markdown, LIVECODE_KINDS.latex, LIVECODE_KINDS.html].includes(node.kind)) ? { view: "preview" } : {}),
     }, { commitToHistory: true });
     setLivecodeStatus(running
       ? `${getLivecodeKindDefinition(node.kind).label} node running · ${describeLivecodeRuntime(node)}`

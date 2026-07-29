@@ -2130,6 +2130,44 @@ body .excalidraw .sidebar {
   font: 10px/1 var(--font-sans);
 }
 
+.livecode-markdown,
+.livecode-latex,
+.livecode-html-frame {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--drawerator-panel-bg, var(--island-bg-color)) 24%, transparent);
+}
+
+.livecode-markdown {
+  padding: 18px;
+  font-family: var(--livecode-font-family, var(--font-sans));
+  font-size: var(--script-editor-font-size, 14px);
+  font-weight: var(--livecode-font-weight, 400);
+  line-height: var(--livecode-line-height, 1.45);
+  letter-spacing: var(--livecode-letter-spacing, 0);
+}
+
+.livecode-markdown > :first-child { margin-top: 0; }
+.livecode-markdown > :last-child { margin-bottom: 0; }
+.livecode-markdown :is(h1, h2, h3, h4, h5, h6) { font-family: var(--font-sans); }
+.livecode-markdown code,
+.livecode-latex-error { font-family: var(--font-mono); }
+
+.livecode-latex {
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  font-size: clamp(16px, 4vw, 42px);
+}
+
+.livecode-html-frame {
+  border: 0;
+}
+
 .livecode-node-runtime .drawerator-play-core-host {
   box-sizing: border-box;
   display: block;

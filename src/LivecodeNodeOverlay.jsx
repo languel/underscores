@@ -6,6 +6,7 @@ import { getLivecodeRuntimeConfig, isLivecodeNodeRunnable, validateLivecodeNode 
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
 import { createScriptCanvasApi, resolveScriptParameterValues } from "./scriptRuntime.js";
 import { parseScriptParameters } from "./scriptParameters.js";
+import LivecodePresentation from "./LivecodePresentation.jsx";
 import {
   getLivecodeEditorProfile,
   getLivecodeFont,
@@ -142,6 +143,9 @@ function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef }) {
 }
 
 function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef }) {
+  if (["markdown", "latex", "html"].includes(node.kind) && node.view === "preview") {
+    return <LivecodePresentation element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} />;
+  }
   if (node.kind === "strudel" && isLivecodeNodeRunnable(node)) {
     return <StrudelNodeRuntime element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} />;
   }
@@ -256,7 +260,7 @@ export function LivecodeNodeOverlay({
           onDock={() => onDock?.(element.id)}
         />}
         <LivecodeRuntimeSurface element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} />
-        {!(node.view === "preview" && isLivecodeNodeRunnable(node)) && <LivecodeNodePreview
+        {!(node.view === "preview" && (isLivecodeNodeRunnable(node) || ["markdown", "latex", "html"].includes(node.kind))) && <LivecodeNodePreview
           node={node}
           onEdit={visible ? () => onEdit?.(element.id) : undefined}
         />}
