@@ -228,6 +228,7 @@ const SvgObjectControls = ({
   svgCurveOptions = [],
   onToggleSvgPathClosed,
   onReverseSvgPath,
+  onTransformSvgPath,
   onInsertSvgAnchor,
   onDeleteSvgAnchor,
   svgPathSelectedAnchor = null,
@@ -423,6 +424,13 @@ const SvgObjectControls = ({
           >{svgJointDetachArmed ? "Drag to detach" : `Detach joint · ${svgJointConnectionCount}`}</button>}
           <button type="button" onClick={() => onToggleSvgPathClosed?.()}>{selectedSubpath.geometry.closed ? "Open path" : "Close path"}</button>
           <button type="button" onClick={() => onReverseSvgPath?.()}>Reverse path</button>
+          <button type="button" onClick={() => onTransformSvgPath?.("simplify")} title="Reduce the selected path to the fewest straight anchors within a small tolerance.">Simplify</button>
+          <button type="button" onClick={() => onTransformSvgPath?.("resample")} title="Redistribute the existing number of anchors evenly along the selected path.">Resample</button>
+          <button type="button" onClick={() => onTransformSvgPath?.("straighten")} title="Remove Bézier handles and retain the selected anchor positions.">Straighten</button>
+          <button type="button" onClick={() => onTransformSvgPath?.("smooth")} title="Create smooth cubic handles through the selected anchors.">Smooth</button>
+          <button type="button" onClick={() => onTransformSvgPath?.("relax")} title="Gently average interior anchors and shorten Bézier handles. Repeat to progressively reduce curvature.">Relax</button>
+          <button type="button" onClick={() => onTransformSvgPath?.("round-integers")} title="Round anchors and handle positions to whole SVG coordinates.">Round 1</button>
+          <button type="button" onClick={() => onTransformSvgPath?.("round-tenths")} title="Round anchors and handle positions to one decimal place.">Round 0.1</button>
           <button
             type="button"
             disabled={!Number.isInteger(svgPathSelectedAnchor)}
@@ -552,6 +560,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
   onBindSvgNodeCurve,
   onToggleSvgPathClosed,
   onReverseSvgPath,
+  onTransformSvgPath,
   onInsertSvgAnchor,
   onDeleteSvgAnchor,
   svgPathSelectedAnchor = null,
@@ -673,6 +682,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
                 svgCurveOptions={svgCurveOptions}
                 onToggleSvgPathClosed={onToggleSvgPathClosed}
                 onReverseSvgPath={onReverseSvgPath}
+                onTransformSvgPath={onTransformSvgPath}
                 onInsertSvgAnchor={onInsertSvgAnchor}
                 onDeleteSvgAnchor={onDeleteSvgAnchor}
                 svgPathSelectedAnchor={svgPathSelectedAnchor}

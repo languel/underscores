@@ -301,6 +301,147 @@ export const serializeSvgPathGeometry = value => {
   return commands.join(" ");
 };
 
+const pointDistance = (first, second) => Math.hypot(first[0] - second[0], first[1] - second[1]);
+
+const simplifyPolyline = (points, tolerance) => {
+  if (points.length <= 2) return points;
+  const start = points[0];
+  const end = points.at(-1);
+  const segmentX = end[0] - start[0];
+  const segmentY = end[1] - start[1];
+  const segmentLength = Math.hypot(segmentX, segmentY);
+  let greatestDistance = -1;
+  let greatestIndex = -1;
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const point = points[index];
+    const distance = segmentLength <= EPSILON
+      ? pointDistance(point, start)
+      : Math.abs(segmentY * (start[0] - point[0]) - segmentX * (start[1] - point[1])) / segmentLength;
+    if (distance > greatestDistance) {
+      greatestDistance = distance;
+      greatestIndex = index;
+    }
+  }
+  if (greatestDistance <= tolerance || greatestIndex < 0) return [start, end];
+  return [
+    ...simplifyPolyline(points.slice(0, greatestIndex + 1), tolerance).slice(0, -1),
+    ...simplifyPolyline(points.slice(greatestIndex), tolerance),
+  ];
+};
+
+const polylinePointAtDistance = (points, distance) => {
+  let remaining = Math.max(0, distance);
+  for (let index = 1; index < points.length; index += 1) {
+    const start = points[index - 1];
+    const end = points[index];
+    const length = pointDistance(start, end);
+    if (remaining <= length || index === points.length - 1) {
+      const ratio = length <= EPSILON ? 0 : Math.min(1, remaining / length);
+      return [start[0] + (end[0] - start[0]) * ratio, start[1] + (end[1] - start[1]) * ratio];
+    }
+    remaining -= length;
+  }
+  return [...points.at(-1)];
+};
+
+const geometryFromPolyline = (geometry, points, closed = geometry.closed) => normalizeBezierGeometry({
+  ...geometry,
+  closed,
+  anchors: points.map(point => anchor(point)),
+});
+
+// These transformations deliberately operate on a single parsed subpath. They
+// produce ordinary cubic geometry so the caller can patch only that `d` range
+// and preserve the rest of the authored SVG document verbatim.
+export const transformSvgPathGeometry = (value, operation) => {
+  const geometry = normalizeBezierGeometry(value);
+  if (geometry.anchors.length < 2) return geometry;
+  const operationName = String(operation || "");
+  if (operationName === "straighten") {
+    return geometryFromPolyline(geometry, geometry.anchors.map(value => [value.x, value.y]));
+  }
+  if (operationName === "round-integers" || operationName === "round-tenths") {
+    const decimals = operationName === "round-tenths" ? 1 : 0;
+    const factor = 10 ** decimals;
+    const round = number => Math.round(finite(number) * factor) / factor;
+    return normalizeBezierGeometry({
+      ...geometry,
+      anchors: geometry.anchors.map(value => {
+        const point = [round(value.x), round(value.y)];
+        const roundHandle = handle => handle
+          ? [round(round(value.x + handle[0]) - point[0]), round(round(value.y + handle[1]) - point[1])]
+          : null;
+        return { ...value, x: point[0], y: point[1], in: roundHandle(value.in), out: roundHandle(value.out) };
+      }),
+    });
+  }
+  if (operationName === "smooth") {
+    const anchors = geometry.anchors.map((value, index, all) => {
+      const previous = all[(index - 1 + all.length) % all.length];
+      const next = all[(index + 1) % all.length];
+      const isStart = !geometry.closed && index === 0;
+      const isEnd = !geometry.closed && index === all.length - 1;
+      const tangent = isStart
+        ? [(next.x - value.x) / 3, (next.y - value.y) / 3]
+        : isEnd
+          ? [(value.x - previous.x) / 3, (value.y - previous.y) / 3]
+          : [(next.x - previous.x) / 6, (next.y - previous.y) / 6];
+      return {
+        ...value,
+        in: isStart ? null : [-tangent[0], -tangent[1]],
+        out: isEnd ? null : tangent,
+        mode: "smooth",
+      };
+    });
+    return normalizeBezierGeometry({ ...geometry, anchors });
+  }
+  if (operationName === "relax") {
+    // A single, conservative Laplacian pass: like a Blender smooth-brush
+    // stroke, repeated uses progressively relax a contour. Open endpoints
+    // stay fixed, while cubic handles are damped so two-point curves relax too.
+    const strength = 0.35;
+    const handleStrength = 1 - strength;
+    const anchors = geometry.anchors.map((value, index, all) => {
+      const isEndpoint = !geometry.closed && (index === 0 || index === all.length - 1);
+      const previous = all[(index - 1 + all.length) % all.length];
+      const next = all[(index + 1) % all.length];
+      const average = [(previous.x + next.x) / 2, (previous.y + next.y) / 2];
+      return {
+        ...value,
+        x: isEndpoint ? value.x : value.x + (average[0] - value.x) * strength,
+        y: isEndpoint ? value.y : value.y + (average[1] - value.y) * strength,
+        in: value.in ? [value.in[0] * handleStrength, value.in[1] * handleStrength] : null,
+        out: value.out ? [value.out[0] * handleStrength, value.out[1] * handleStrength] : null,
+      };
+    });
+    return normalizeBezierGeometry({ ...geometry, anchors });
+  }
+  const flattened = flattenBezierGeometry(geometry, 0.75);
+  if (flattened.length < 2) return geometry;
+  if (operationName === "resample") {
+    const targetCount = geometry.anchors.length;
+    const totalLength = flattened.slice(1).reduce((total, point, index) => total + pointDistance(flattened[index], point), 0);
+    if (totalLength <= EPSILON) return geometry;
+    const points = Array.from({ length: targetCount }, (_, index) => (
+      polylinePointAtDistance(flattened, totalLength * index / (geometry.closed ? targetCount : targetCount - 1))
+    ));
+    if (!geometry.closed) {
+      points[0] = [geometry.anchors[0].x, geometry.anchors[0].y];
+      points[points.length - 1] = [geometry.anchors.at(-1).x, geometry.anchors.at(-1).y];
+    }
+    return geometryFromPolyline(geometry, points, geometry.closed);
+  }
+  if (operationName === "simplify") {
+    const source = geometry.closed ? flattened.slice(0, -1) : flattened;
+    const bounds = boundsFromPoints(source);
+    const diagonal = bounds ? Math.hypot(bounds[2] - bounds[0], bounds[3] - bounds[1]) : 0;
+    const tolerance = Math.max(0.5, diagonal * 0.0075);
+    const points = simplifyPolyline(source, tolerance);
+    return geometryFromPolyline(geometry, points, geometry.closed);
+  }
+  return geometry;
+};
+
 export const replaceSvgPathSubpath = (source, subpathIndex, geometry) => {
   const collection = parseSvgPathCollection(source);
   if (!collection.subpaths[subpathIndex] || !geometry) return String(source || "");
@@ -383,14 +524,54 @@ const rotate = (value, center, angle) => {
   ];
 };
 
+// CSS gives the rendered SVG a host-sized viewport, but SVG itself applies
+// preserveAspectRatio (xMidYMid meet by default) inside that viewport. Keep
+// canvas controls on this exact transform so handles remain attached to the
+// rendered curve when a host is resized to a different aspect ratio.
+const getSvgViewportTransform = (element, svgObject) => {
+  const viewBox = svgObject?.viewBox || [0, 0, 1, 1];
+  const viewBoxWidth = Math.max(EPSILON, finite(viewBox[2]));
+  const viewBoxHeight = Math.max(EPSILON, finite(viewBox[3]));
+  const hostWidth = Math.max(EPSILON, finite(element?.width));
+  const hostHeight = Math.max(EPSILON, finite(element?.height));
+  const raw = String(svgObject?.preserveAspectRatio || "xMidYMid meet").trim();
+  const tokens = raw.split(/\s+/).filter(Boolean).filter(token => token !== "defer");
+  const hasNone = tokens.some(token => token.toLowerCase() === "none");
+  const align = tokens.find(token => /^x(?:Min|Mid|Max)Y(?:Min|Mid|Max)$/i.test(token)) || "xMidYMid";
+  const mode = tokens.includes("slice") ? "slice" : "meet";
+  if (hasNone) {
+    return {
+      viewBox,
+      x: finite(element?.x),
+      y: finite(element?.y),
+      scaleX: hostWidth / viewBoxWidth,
+      scaleY: hostHeight / viewBoxHeight,
+    };
+  }
+  const scale = mode === "slice"
+    ? Math.max(hostWidth / viewBoxWidth, hostHeight / viewBoxHeight)
+    : Math.min(hostWidth / viewBoxWidth, hostHeight / viewBoxHeight);
+  const leftoverX = hostWidth - viewBoxWidth * scale;
+  const leftoverY = hostHeight - viewBoxHeight * scale;
+  const normalizedAlign = align.toLowerCase();
+  const offsetX = normalizedAlign.includes("xmin") ? 0 : normalizedAlign.includes("xmax") ? leftoverX : leftoverX / 2;
+  const offsetY = normalizedAlign.includes("ymin") ? 0 : normalizedAlign.includes("ymax") ? leftoverY : leftoverY / 2;
+  return {
+    viewBox,
+    x: finite(element?.x) + offsetX,
+    y: finite(element?.y) + offsetY,
+    scaleX: scale,
+    scaleY: scale,
+  };
+};
+
 export const svgPointToWorld = (element, svgObject, value, nodeTransform = null) => {
   const transformed = nodeTransform ? transformSvgPoint(nodeTransform, value) : value;
-  const viewBox = svgObject?.viewBox || [0, 0, 1, 1];
-  const width = Math.max(EPSILON, finite(viewBox[2]));
-  const height = Math.max(EPSILON, finite(viewBox[3]));
+  const viewport = getSvgViewportTransform(element, svgObject);
+  const viewBox = viewport.viewBox;
   const point = [
-    finite(element?.x) + ((finite(transformed?.[0]) - finite(viewBox[0])) / width) * finite(element?.width),
-    finite(element?.y) + ((finite(transformed?.[1]) - finite(viewBox[1])) / height) * finite(element?.height),
+    viewport.x + (finite(transformed?.[0]) - finite(viewBox[0])) * viewport.scaleX,
+    viewport.y + (finite(transformed?.[1]) - finite(viewBox[1])) * viewport.scaleY,
   ];
   return rotate(point, [
     finite(element?.x) + finite(element?.width) / 2,
@@ -404,10 +585,11 @@ export const worldPointToSvg = (element, svgObject, value, inverseNodeTransform 
     finite(element?.y) + finite(element?.height) / 2,
   ];
   const unrotated = rotate(value, center, -finite(element?.angle));
-  const viewBox = svgObject?.viewBox || [0, 0, 1, 1];
+  const viewport = getSvgViewportTransform(element, svgObject);
+  const viewBox = viewport.viewBox;
   const svgPoint = [
-    finite(viewBox[0]) + ((unrotated[0] - finite(element?.x)) / Math.max(EPSILON, finite(element?.width))) * finite(viewBox[2]),
-    finite(viewBox[1]) + ((unrotated[1] - finite(element?.y)) / Math.max(EPSILON, finite(element?.height))) * finite(viewBox[3]),
+    finite(viewBox[0]) + (unrotated[0] - viewport.x) / viewport.scaleX,
+    finite(viewBox[1]) + (unrotated[1] - viewport.y) / viewport.scaleY,
   ];
   return inverseNodeTransform ? transformSvgPoint(inverseNodeTransform, svgPoint) : svgPoint;
 };

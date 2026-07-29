@@ -1,5 +1,13 @@
 import React, { useEffect, useLayoutEffect, useRef } from "react";
-import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
+import {
+  acceptCompletion,
+  autocompletion,
+  closeBrackets,
+  closeBracketsKeymap,
+  completionKeymap,
+  completionStatus,
+  moveCompletionSelection,
+} from "@codemirror/autocomplete";
 import {
   defaultKeymap,
   deleteCharBackward,
@@ -7,6 +15,7 @@ import {
   history,
   historyKeymap,
   indentWithTab,
+  insertNewlineAndIndent,
 } from "@codemirror/commands";
 import { html } from "@codemirror/lang-html";
 import { javascript } from "@codemirror/lang-javascript";
@@ -144,6 +153,9 @@ export default function DraweratorCodeEditor({
       onRunRef.current();
       return true;
     };
+    const acceptActiveCompletion = editor => (
+      completionStatus(editor.state) === "active" && acceptCompletion(editor)
+    );
     const lintSource = view => {
       if (typeof diagnosticsRef.current !== "function") return [];
       const source = view.state.doc.toString();
@@ -190,6 +202,11 @@ export default function DraweratorCodeEditor({
           EditorView.lineWrapping,
           keymap.of([
             { key: "Mod-Enter", run: runCommand, preventDefault: true },
+            // Put completion acceptance ahead of the normal Tab indentation
+            // and newline bindings. This keeps snippets and regular options
+            // predictable even when the canvas has its own global shortcuts.
+            { key: "Tab", run: acceptActiveCompletion },
+            { key: "Enter", run: acceptActiveCompletion },
             ...closeBracketsKeymap,
             ...defaultKeymap,
             ...searchKeymap,
@@ -277,13 +294,61 @@ export default function DraweratorCodeEditor({
   }, []);
 
   useEffect(() => {
-    const ownDeletionKey = event => {
+    const ownEditorNavigationKey = event => {
       const view = viewRef.current;
       if (
         !view
         || !view.hasFocus
         || event.isComposing
-        || event.metaKey
+      ) return;
+
+      const completionOpen = completionStatus(view.state) === "active";
+      if (completionOpen && ["ArrowUp", "ArrowDown", "PageUp", "PageDown"].includes(event.key)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const forward = event.key === "ArrowDown" || event.key === "PageDown";
+        moveCompletionSelection(forward, event.key.startsWith("Page") ? "page" : "option")(view);
+        return;
+      }
+
+      if (
+        completionOpen
+        && (event.key === "Tab" || event.key === "Enter")
+        && !event.metaKey
+        && !event.ctrlKey
+        && !event.altKey
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        acceptCompletion(view);
+        return;
+      }
+
+      // Excalidraw handles arrow keys at page scope to move selected canvas
+      // objects. Capture navigation before that handler while leaving the
+      // browser's default caret/selection movement intact for CodeMirror.
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+        event.stopImmediatePropagation();
+        return;
+      }
+
+      if (
+        event.key === "Enter"
+        && !event.metaKey
+        && !event.ctrlKey
+        && !event.altKey
+      ) {
+        // Excalidraw treats Return as a canvas text gesture. Use CodeMirror's
+        // own command so source editing still gets indentation and the canvas
+        // never receives that shortcut.
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        insertNewlineAndIndent(view);
+        return;
+      }
+
+      if (
+        event.metaKey
         || event.ctrlKey
         || event.altKey
         || (event.key !== "Backspace" && event.key !== "Delete")
@@ -297,8 +362,8 @@ export default function DraweratorCodeEditor({
       if (event.key === "Backspace") deleteCharBackward(view);
       else deleteCharForward(view);
     };
-    window.addEventListener("keydown", ownDeletionKey, { capture: true });
-    return () => window.removeEventListener("keydown", ownDeletionKey, { capture: true });
+    window.addEventListener("keydown", ownEditorNavigationKey, { capture: true });
+    return () => window.removeEventListener("keydown", ownEditorNavigationKey, { capture: true });
   }, []);
 
   useEffect(() => {
