@@ -80,7 +80,7 @@ import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
 import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
 import { LivecodeNodeEditor, LivecodeNodeOverlay } from "./LivecodeNodeOverlay.jsx";
-import { createLivecodeNode, defaultLivecodeName, getLivecodeKindDefinition, isLivecodeNodeElement, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode } from "./livecodeNode.js";
+import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeKindDefinition, isLivecodeNodeElement, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode } from "./livecodeNode.js";
 import { describeLivecodeRuntime, hasNativeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
@@ -9522,7 +9522,11 @@ function App() {
     const existing = elements.find(element => element.id === elementId && !element.isDeleted && isLivecodeNodeElement(element));
     if (!existing) return null;
     const previous = normalizeLivecodeNode(existing.customData?.draweratorLivecode);
-    const node = patchLivecodeNode(previous, patch);
+    const nextPatch = { ...patch };
+    if (Object.hasOwn(nextPatch, "kind") && !Object.hasOwn(nextPatch, "source") && nextPatch.kind !== previous.kind && previous.source === defaultLivecodeSource(previous.kind)) {
+      nextPatch.source = defaultLivecodeSource(nextPatch.kind);
+    }
+    const node = patchLivecodeNode(previous, nextPatch);
     const now = Date.now();
     api.updateScene({
       elements: elements.map(element => element.id !== elementId ? element : {
@@ -9537,7 +9541,7 @@ function App() {
       }),
       commitToHistory,
     });
-    if (Object.hasOwn(patch, "source")) livecodeDirtyIdsRef.current.add(elementId);
+    if (Object.hasOwn(nextPatch, "source")) livecodeDirtyIdsRef.current.add(elementId);
     return node;
   };
 
@@ -9548,7 +9552,7 @@ function App() {
     setLivecodeStatus("Saved to the scene.");
   };
 
-  const toggleLivecodeNodeRun = elementId => {
+  const toggleLivecodeNodeRun = async elementId => {
     const element = (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || []).find(candidate => (
       candidate.id === elementId && !candidate.isDeleted && isLivecodeNodeElement(candidate)
     ));
@@ -9567,6 +9571,14 @@ function App() {
       void getStrudelRuntimeManager().unlock().catch(error => {
         setLivecodeStatus(`Could not unlock Strudel audio: ${error instanceof Error ? error.message : String(error)}`);
       });
+    }
+    if (running && node.kind === LIVECODE_KINDS.orca) {
+      // This is deliberately part of the button gesture.  A native Orca MIDI
+      // node may start on a later transport tick, but its internal output must
+      // never try to unlock Web Audio from that timer callback.
+      const activeTracks = mixerRef.current.tracks.filter(track => track.enabled && !track.muted);
+      if (activeTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_GM)) await ensureInternalSynth();
+      if (activeTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_EXPRESSIVE)) await ensureExpressiveSynth();
     }
     patchLivecodeCanvasNode(elementId, {
       runtime: { running },
@@ -10419,6 +10431,47 @@ function App() {
       setMidiStatus(error.message || "MIDI send failed");
     }
   };
+
+  const emitOrcaMidiEvents = useCallback((elementId, events) => {
+    const items = Array.isArray(events) ? events : [];
+    if (!items.length) return;
+    const tempo = Math.max(20, Number(scoreTempo) || 120);
+    let delivered = 0;
+    for (const event of items) {
+      const channel = Math.max(1, Math.min(16, Math.round(Number(event?.channel) || 1)));
+      const routes = getMixerOutputsForChannel(channel);
+      if (!routes.length) continue;
+      const now = performance.now();
+      if (event.type === "note") {
+        const message = {
+          kind: "note",
+          channel,
+          note: Math.max(0, Math.min(127, Math.round(Number(event.note) || 0))),
+          velocity: Math.max(0, Math.min(127, Math.round(Number(event.velocity) || 0))),
+          duration: Math.max(0, Number(event.durationFrames) || 0) * 60 / tempo / 4,
+        };
+        message.noteOn = [0x90 + channel - 1, message.note, message.velocity];
+        message.noteOff = [0x80 + channel - 1, message.note, 0];
+        routes.forEach(({ output }) => midiVoiceTrackerRef.current.send(output, message, now));
+        delivered += routes.length;
+      } else if (event.type === "cc") {
+        const message = {
+          kind: "cc",
+          channel,
+          controller: Math.max(0, Math.min(127, Math.round(Number(event.controller) || 0))),
+          value: Math.max(0, Math.min(127, Math.round(Number(event.value) || 0))),
+        };
+        message.data = [0xb0 + channel - 1, message.controller, message.value];
+        routes.forEach(({ output }) => midiVoiceTrackerRef.current.send(output, message, now));
+        delivered += routes.length;
+      } else if (event.type === "pitchbend") {
+        const data = [0xe0 + channel - 1, Math.max(0, Math.min(127, Math.round(Number(event.lsb) || 0))), Math.max(0, Math.min(127, Math.round(Number(event.msb) || 0)))];
+        routes.forEach(({ output }) => output.send(data, now));
+        delivered += routes.length;
+      }
+    }
+    if (delivered) setMidiStatus(`Orca ${String(elementId).slice(0, 6)} · ${delivered} routed MIDI event${delivered === 1 ? "" : "s"}`);
+  }, [getMixerOutputsForChannel, scoreTempo]);
 
   const toggleScorePlayback = async () => {
     if (scorePlaying) {
@@ -13293,9 +13346,12 @@ function App() {
       </div>
       {livecodeEditorPlacement === "docked" ? <LivecodeNodeEditor
         node={node}
+        element={nodeElement}
         onPatch={patch => patchLivecodeCanvasNode(nodeElement.id, patch)}
         onRun={() => toggleLivecodeNodeRun(nodeElement.id)}
         onBlur={() => commitLivecodeCanvasNode(nodeElement.id)}
+        transport={{ playing: scorePlaying, bpm: scoreTempo }}
+        onMidiEvents={events => emitOrcaMidiEvents(nodeElement.id, events)}
         ariaLabel={`${definition.label} node source`}
       /> : <p className="livecode-panel-location">Editing this same node on the canvas. Dock it to move the editor here.</p>}
       <p className="p5-script-status" role="status" aria-live="polite">{livecodeStatus || definition.summary}</p>
@@ -17981,6 +18037,7 @@ function App() {
           onCommit={commitLivecodeCanvasNode}
           onToggleRun={toggleLivecodeNodeRun}
           onDock={dockLivecodeCanvasNode}
+          onMidiEvents={emitOrcaMidiEvents}
           scriptRuntimeRef={scriptRuntimeRef}
           transport={{ playing: scorePlaying, bpm: scoreTempo }}
         />

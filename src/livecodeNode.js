@@ -63,7 +63,7 @@ export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
     editorProfile: "orca",
     defaultName: "Untitled Orca",
     defaultSource: `................................\n................................\n................................\n................................`,
-    summary: "Grid livecoding node. Native grid editing and MIDI routing arrive in the final runtime phase.",
+    summary: "Native frame-based Orca grid. Focus the grid to edit it; its MIDI, CC, and pitch-bend operators route through Drawerator’s Mixer.",
   }),
 });
 

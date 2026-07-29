@@ -61,7 +61,14 @@ export const LIVECODE_ADAPTERS = Object.freeze({
   [LIVECODE_KINDS.markdown]: Object.freeze({ id: LIVECODE_KINDS.markdown, runtime: "presentation", validate: () => ({ valid: true, error: "" }) }),
   [LIVECODE_KINDS.latex]: Object.freeze({ id: LIVECODE_KINDS.latex, runtime: "presentation", validate: () => ({ valid: true, error: "" }) }),
   [LIVECODE_KINDS.html]: Object.freeze({ id: LIVECODE_KINDS.html, runtime: "presentation", validate: () => ({ valid: true, error: "" }) }),
-  [LIVECODE_KINDS.orca]: Object.freeze({ id: LIVECODE_KINDS.orca, runtime: "pending", validate: () => ({ valid: true, error: "" }) }),
+  [LIVECODE_KINDS.orca]: Object.freeze({
+    id: LIVECODE_KINDS.orca,
+    runtime: "orca",
+    validate: source => String(source || "").includes("\u0000")
+      ? { valid: false, error: "Orca grid source cannot contain null characters." }
+      : { valid: true, error: "" },
+    makeRuntimeConfig: rawNode => normalizeLivecodeNode(rawNode),
+  }),
 });
 
 export const getLivecodeAdapter = rawNode => (
@@ -80,7 +87,7 @@ export const getLivecodeRuntimeConfig = rawNode => {
 
 export const hasNativeLivecodeRuntime = rawNode => {
   const runtime = getLivecodeAdapter(rawNode).runtime;
-  return runtime === "p5" || runtime === "playcore" || runtime === "strudel";
+  return runtime === "p5" || runtime === "playcore" || runtime === "strudel" || runtime === "orca";
 };
 
 export const isLivecodeNodeRunnable = rawNode => {
@@ -93,6 +100,7 @@ export const describeLivecodeRuntime = rawNode => {
   if (adapter.runtime === "p5") return "Bundled p5 runtime";
   if (adapter.runtime === "playcore") return "Bundled Play Core runtime";
   if (adapter.runtime === "strudel") return "Shared native Strudel scheduler";
+  if (adapter.runtime === "orca") return "Native Orca grid and Drawerator MIDI routing";
   if (adapter.runtime === "presentation") return "Presentation renderer arrives in the presentation phase.";
   return "Native runtime arrives in a later phase.";
 };
