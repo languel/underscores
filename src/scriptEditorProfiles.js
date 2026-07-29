@@ -65,8 +65,11 @@ const P5_COMPLETIONS = Object.freeze([
 const PLAY_CORE_COMPLETIONS = Object.freeze([
   snippet("settings", "export const settings = { fps: ${30}, cols: ${0}, rows: ${0}, backgroundColor: \"${#101010}\", color: \"${#e8e8e8}\" };", "Play Core renderer settings"),
   snippet("main", "export function main({ x, y }, context, cursor, buffer, drawerator) {\n  return ${\"·\"};\n}", "Play Core cell renderer"),
+  snippet("play.core math imports", "import { map, clamp, mix } from '/src/modules/num.js';\nimport { vec2, add, rot, length } from '/src/modules/vec2.js';", "Offline Play Core numeric and vector helpers"),
+  snippet("play.core info panel", "import { drawInfo } from '/src/modules/drawbox.js';\n\nexport function post(context, cursor, buffer) {\n  drawInfo(context, cursor, buffer);\n}", "Add the Play Core diagnostics panel"),
+  snippet("play.core module", "import { ${map} } from '/src/modules/num.js';", "Import an offline bundled Play Core module"),
   snippet("@param", "// @param ${name} = ${1} (${0}..${10}, step: ${1})", "Editable Drawerator parameter"),
-  ...["settings", "boot", "pre", "main", "post", "context.time", "context.frame", "context.cols", "context.rows", "cursor", "buffer", "drawerator", "drawerator.params", "drawerator.canvas", "drawerator.transport"].map(label => completion(label, "Play Core program API", "function", 70)),
+  ...["settings", "boot", "pre", "main", "post", "context.time", "context.frame", "context.cols", "context.rows", "cursor", "buffer", "drawerator", "drawerator.element", "drawerator.object", "drawerator.params", "drawerator.currentColor", "drawerator.colors", "drawerator.appearance", "drawerator.canvas", "drawerator.events", "drawerator.transport", "drawerator.api"].map(label => completion(label, "Play Core program API", "function", 70)),
 ]);
 
 const IANNIX_COMPLETIONS = Object.freeze([

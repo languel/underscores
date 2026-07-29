@@ -56,6 +56,11 @@ transformable like a p5 host.
 
 Play Core also uses the same local working-file model as p5. The selector exposes saved programs
 from `drawerator_play_core_scripts`; Save, Duplicate, New, Import, and Delete act on that catalog.
+Its separate **Original play.core examples** group provides a curated local collection adapted from
+the upstream Apache-2.0 repository. Choosing an example creates an ordinary editable saved
+Drawerator program, so it can be modified, renamed, duplicated, and attached without a network
+dependency. Camera and canvas examples are intentionally held back until those upstream modules
+have equivalent portable Drawerator implementations.
 Hosts retain a `scriptId`, so saving the selected program recompiles every linked host while an
 unsaved draft remains local until it is saved or attached.
 
@@ -72,11 +77,25 @@ configured frame rate, and renders it to a monospace `<pre>`. Runtime code recei
 `drawerator.transport` have the same semantics as p5. `@param` annotations are parsed by the shared
 parameter module, persisted per host, and exposed as `drawerator.params`.
 
+The live shared `drawerator` bridge is the same in Play Core and p5. It exposes `element`, `object`,
+`frame`, `params`, `canvas`/`objects`, `events`, `transport`, and `time`. Appearance is also live:
+`currentColor`, `currentOpacity`, `theme`, and `colors` (`foreground`, `accent`, `highlight`, and
+`muted`, each with `color`, `opacity`, and composited `css`). `drawerator.api` exposes the public
+Drawerator API for deliberate higher-level scene, grid, command, history, and macro operations.
+The maintained full reference is [Drawerator Script API](./drawerator-api.md); the p5 and Play Core
+Info panel guides present the same reference while scripting.
+
 `main({ x, y, index }, context, cursor, buffer, drawerator)` runs for each ASCII cell. `context`
 contains the time, frame number, grid dimensions, host dimensions, and resolved settings; `cursor`
 uses cell coordinates and retains its previous state at `cursor.p`. A program may return a character
 or a cell object such as `{ char: "·" }`. `pre`, `post`, and pointer callbacks operate on the same
 cell buffer and Drawerator bridge.
+
+Static ES imports resolve from a bundled, offline Play Core registry. The supported absolute paths
+are `/src/modules/num.js`, `sort.js`, `vec2.js`, `vec3.js`, `sdf.js`, `string.js`, `buffer.js`,
+`drawbox.js`, and `color.js` (all under `/src/modules/`). Named, default, namespace, and combined default/named
+imports are rewritten before evaluation. Dynamic imports and paths outside that registry are rejected
+with a diagnostic, which keeps scene playback and single-file export deterministic and network-free.
 
 ## Diagnostics and AI extension point
 
