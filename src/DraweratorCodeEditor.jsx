@@ -42,6 +42,7 @@ import {
   lineNumbers,
   placeholder as placeholderExtension,
   rectangularSelection,
+  runScopeHandlers,
 } from "@codemirror/view";
 import { classHighlighter } from "@lezer/highlight";
 import { sourceDiagnostic } from "./scriptEditorDiagnostics.js";
@@ -301,6 +302,26 @@ export default function DraweratorCodeEditor({
         || !view.hasFocus
         || event.isComposing
       ) return;
+
+      const normalizedKey = event.key.toLowerCase();
+      const isClipboardShortcut = (event.metaKey || event.ctrlKey)
+        && ["c", "x", "v"].includes(normalizedKey);
+      const isCodeMirrorCommand = (
+        (event.metaKey || event.ctrlKey)
+        && ["a", "z", "y", "f", "g", "h", "enter"].includes(normalizedKey)
+      ) || ["escape", "tab"].includes(normalizedKey);
+
+      // Drawerator and Excalidraw both install capture-phase shortcuts. Give
+      // CodeMirror's own keymap the first and only chance at its editor
+      // commands, otherwise Cmd+A can select the canvas and Cmd+Z can undo a
+      // scene operation. Clipboard commands intentionally keep their native
+      // default; their copy/cut/paste events are stopped at the editor below.
+      if (isCodeMirrorCommand && !isClipboardShortcut) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        runScopeHandlers(view, event, "editor");
+        return;
+      }
 
       const completionOpen = completionStatus(view.state) === "active";
       if (completionOpen && ["ArrowUp", "ArrowDown", "PageUp", "PageDown"].includes(event.key)) {

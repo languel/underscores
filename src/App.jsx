@@ -21,7 +21,7 @@ import EventConsole from "./EventConsole.jsx";
 import PropertiesPanel from "./PropertiesPanel.jsx";
 import { embedPolicyForElement, isAllowedEmbedURL, sanitizeEmbedURL, shouldRenderEmbed } from "./embedPolicy.js";
 import OutlinerPanel from "./OutlinerPanel.jsx";
-import { groupSceneElements, moveSceneElementsToGroupParent, reorderSceneElements, ungroupSceneElements } from "./sceneLayers.js";
+import { groupSceneElements, moveSceneElementsToGroup, moveSceneElementsToGroupParent, moveSceneGroupToParent, reorderSceneElements, ungroupSceneElements } from "./sceneLayers.js";
 import IannixDataPanel from "./IannixDataPanel.jsx";
 import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, parseGenericCommandSlash } from "./commandSystem.js";
 import { buildAIAutomationGuide, isAICommandAllowed, parseDraweratorCommandTags } from "./aiTooling.js";
@@ -519,6 +519,36 @@ const INTERFACE_THEME_PRESETS = {
       timeline: { color: "#25262b", opacity: 100 },
       canvas: { color: "#121212", opacity: 100 },
       grid: { color: "#eef0f4", opacity: 32 },
+    },
+  },
+  vscodeLight: {
+    label: "VS Code Light",
+    theme: "light",
+    accent: { color: "#007acc", opacity: 100 },
+    highlight: { color: "#007acc", opacity: 12 },
+    foreground: { color: "#1e1e1e", opacity: 100 },
+    muted: { color: "#6b6b6b", opacity: 100 },
+    surfaces: {
+      panel: { color: "#ffffff", opacity: 100 },
+      input: { color: "#ffffff", opacity: 100 },
+      timeline: { color: "#f3f3f3", opacity: 100 },
+      canvas: { color: "#ffffff", opacity: 100 },
+      grid: { color: "#1e1e1e", opacity: 20 },
+    },
+  },
+  vscodeDark: {
+    label: "VS Code Dark",
+    theme: "dark",
+    accent: { color: "#007acc", opacity: 100 },
+    highlight: { color: "#3794ff", opacity: 16 },
+    foreground: { color: "#d4d4d4", opacity: 100 },
+    muted: { color: "#9d9d9d", opacity: 100 },
+    surfaces: {
+      panel: { color: "#252526", opacity: 100 },
+      input: { color: "#1e1e1e", opacity: 100 },
+      timeline: { color: "#181818", opacity: 100 },
+      canvas: { color: "#1e1e1e", opacity: 100 },
+      grid: { color: "#d4d4d4", opacity: 20 },
     },
   },
   flatLight: {
@@ -1920,6 +1950,18 @@ function App() {
     const saved = Number(localStorage.getItem("drawerator_script_editor_font_size"));
     return Number.isFinite(saved) && saved >= 8 && saved <= 32 ? saved : 12;
   });
+  const [scriptEditorTheme, setScriptEditorTheme] = useState(() => {
+    const saved = localStorage.getItem("drawerator_script_editor_theme");
+    // Keep the two short-lived palette ids as friendly migrations for existing boards.
+    if (saved === "quiet") return "mono";
+    if (saved === "contrast") return "teaching";
+    if (saved === "vscode-dark" || saved === "vscode-light") return "vscode";
+    return ["drawerator", "transparent", "mono", "vscode", "teaching"].includes(saved) ? saved : "drawerator";
+  });
+  useEffect(() => {
+    document.documentElement.dataset.draweratorCodeTheme = scriptEditorTheme;
+    localStorage.setItem("drawerator_script_editor_theme", scriptEditorTheme);
+  }, [scriptEditorTheme]);
   const [iannixScriptSource, setIannixScriptSource] = useState("");
   const [iannixCommandHelp, setIannixCommandHelp] = useState(null);
   const [iannixCommandSource, setIannixCommandSource] = useState("");
@@ -7730,6 +7772,11 @@ function App() {
       }));
     };
     const handleKeyDown = (e) => {
+      // CodeMirror owns its complete keyboard session. This needs to precede
+      // global Escape and canvas shortcuts because both Excalidraw and
+      // Drawerator use capture-phase handlers.
+      if (document.activeElement?.closest?.(".drawerator-code-editor")) return;
+
       // Escape is a global cancel/clear gesture: close transient UI, blur any
       // focused control, leave Bézier editing, and clear the canvas selection.
       // Keep this capture-phase so it also works from number boxes and menus.
@@ -14729,6 +14776,7 @@ function App() {
     setShowBottomNotifications(false);
     setShowDebugLayer(false);
     setDefaultStabilizerDamping(0.12);
+    setScriptEditorTheme("drawerator");
     setTransparentBoardExport(false);
     setGlobalRoundness(false);
     setCustomBrushRoundness(false);
@@ -14742,6 +14790,7 @@ function App() {
     localStorage.setItem("drawerator_export_transparent", "false");
     localStorage.setItem("drawerator_custom_brush_roundness", "false");
     localStorage.setItem("drawerator_presentation_mode", "false");
+    localStorage.setItem("drawerator_script_editor_theme", "drawerator");
     excalidrawAPI?.updateScene({
       appState: {
         currentItemRoughness: 0,
@@ -14921,6 +14970,16 @@ function App() {
                 <button type="button" className="iannix-flat-button" onClick={deleteSelectedCustomTheme}>Delete</button>
               )}
             </div>
+            <label className="settings-panel-field" {...infoProps("Code editor palette", "Choose an explicit code skin independently of the board. Drawerator Adaptive follows the active board surface and colors; Transparent Adaptive keeps only the adaptive syntax colors; Mono Live Coding follows the current light or dark mode while keeping syntax grayscale; VS Code Adaptive follows the current light or dark mode with familiar syntax colors; Teaching uses especially distinct, high-contrast syntax colors.")}>
+              <span>Code editor palette</span>
+              <select value={scriptEditorTheme} onChange={event => setScriptEditorTheme(event.target.value)}>
+                <option value="drawerator">Drawerator adaptive</option>
+                <option value="transparent">Transparent adaptive</option>
+                <option value="mono">Mono adaptive</option>
+                <option value="vscode">VS Code adaptive</option>
+                <option value="teaching">Teaching</option>
+              </select>
+            </label>
             <label className="settings-panel-field" {...infoProps("Accent color", `Color and opacity used for active controls and Drawerator accents. ${CSS_COLOR_HELP}`)}>
               <span>Accent color</span>
               <div className="settings-color-control" {...infoProps("Accent color", CSS_COLOR_HELP)}>
@@ -15438,25 +15497,6 @@ function App() {
 
       </div>
     );
-  };
-
-  const updateSceneObject = (elementId, mutate) => {
-    if (!excalidrawAPI) return;
-    const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
-    let changed = false;
-    const nextElements = elements.map(element => {
-      if (element.id !== elementId) return element;
-      const next = structuredClone(element);
-      mutate(next);
-      next.version = (element.version || 0) + 1;
-      next.versionNonce = Math.floor(Math.random() * 0x7fffffff);
-      next.updated = Date.now();
-      changed = true;
-      return next;
-    });
-    if (!changed) return;
-    excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
-    setModifierUpdateNonce(nonce => nonce + 1);
   };
 
   const updateSceneObjectProperty = (elementIds, path, value) => {
@@ -16960,6 +17000,29 @@ function App() {
                 excalidrawAPI.updateScene({ appState: { selectedElementIds: nativeSelections, selectedGroupIds: {}, editingLinearElement: null, selectedLinearElement: null, activeTool: { ...activeTool, type: "selection" } } });
                 setSelectedElementIds(next);
               }}
+              onSelectGroup={(elementIds, selection = {}) => {
+                if (!excalidrawAPI) return;
+                const sceneElements = excalidrawAPI.getSceneElements();
+                const ids = [...new Set(elementIds || [])].filter(id => {
+                  const element = sceneElements.find(candidate => candidate.id === id);
+                  return selectionFilterAllowsElement(selectionFilterRef.current, element);
+                });
+                if (!ids.length) return;
+                const current = selectedElementIds || {};
+                const next = selection.mode === "toggle" ? { ...current } : {};
+                const shouldDeselect = selection.mode === "toggle" && ids.every(id => next[id]);
+                for (const id of ids) {
+                  if (shouldDeselect) delete next[id];
+                  else next[id] = true;
+                }
+                const filtered = filterSelectedElementIds(sceneElements, next, selectionFilterRef.current);
+                const runtimeSelections = Object.fromEntries(sceneElements.filter(element => filtered[element.id] && isRuntimeCursor(element)).map(element => [element.id, true]));
+                runtimeCursorSelectionRef.current = runtimeSelections;
+                const nativeSelections = Object.fromEntries(Object.entries(filtered).filter(([id]) => !runtimeSelections[id]));
+                const activeTool = excalidrawAPI.getAppState().activeTool || {};
+                excalidrawAPI.updateScene({ appState: { selectedElementIds: nativeSelections, selectedGroupIds: {}, editingLinearElement: null, selectedLinearElement: null, activeTool: { ...activeTool, type: "selection" } } });
+                setSelectedElementIds(filtered);
+              }}
               onSelectSvgNode={selectSvgNode}
               onDelete={elementIds => {
                 if (!excalidrawAPI || !elementIds?.length) return;
@@ -16975,20 +17038,34 @@ function App() {
                 });
                 setSelectedElementIds({});
               }}
-              onVisibilityChange={elementId => updateSceneObject(elementId, element => {
-                const hidden = !element.customData?.outlinerHidden;
-                element.customData = { ...(element.customData || {}) };
-                if (hidden) {
-                  element.customData.outlinerSavedOpacity = element.opacity ?? 100;
-                  element.customData.outlinerHidden = true;
-                  element.opacity = 0;
-                } else {
-                  element.opacity = element.customData.outlinerSavedOpacity ?? 100;
-                  element.customData.outlinerHidden = false;
-                  delete element.customData.outlinerSavedOpacity;
-                }
-              })}
-              onLockChange={elementId => updateSceneObject(elementId, element => { element.locked = !element.locked; })}
+              onVisibilityChange={elementIds => {
+                if (!excalidrawAPI) return;
+                const ids = new Set(Array.isArray(elementIds) ? elementIds : [elementIds]);
+                const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+                const hide = elements.some(element => ids.has(element.id) && !element.isDeleted && !element.customData?.outlinerHidden);
+                const nextElements = elements.map(element => {
+                  if (!ids.has(element.id) || element.isDeleted) return element;
+                  const customData = { ...(element.customData || {}) };
+                  if (hide) {
+                    customData.outlinerSavedOpacity = element.customData?.outlinerHidden
+                      ? (element.customData.outlinerSavedOpacity ?? 100)
+                      : (element.opacity ?? 100);
+                    customData.outlinerHidden = true;
+                    return { ...element, customData, opacity: 0, updated: Date.now() };
+                  }
+                  const savedOpacity = customData.outlinerSavedOpacity ?? 100;
+                  delete customData.outlinerSavedOpacity;
+                  return { ...element, customData: { ...customData, outlinerHidden: false }, opacity: savedOpacity, updated: Date.now() };
+                });
+                excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
+              }}
+              onLockChange={elementIds => {
+                if (!excalidrawAPI) return;
+                const ids = new Set(Array.isArray(elementIds) ? elementIds : [elementIds]);
+                const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+                const lock = elements.some(element => ids.has(element.id) && !element.isDeleted && !element.locked);
+                excalidrawAPI.updateScene({ elements: elements.map(element => ids.has(element.id) && !element.isDeleted ? { ...element, locked: lock, updated: Date.now() } : element), commitToHistory: true });
+              }}
               onReorder={(movedId, anchorId, placement, { destinationGroupId = null } = {}) => {
                 if (!excalidrawAPI) return;
                 const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
@@ -16997,6 +17074,18 @@ function App() {
                 const nextElements = movedIds.reduce((current, id) => reorderSceneElements(current, id, anchorId, placement), reparented);
                 if (nextElements === elements) return;
                 excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
+              }}
+              onReparentGroup={(groupId, destinationGroupId) => {
+                if (!excalidrawAPI) return;
+                const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+                const nextElements = moveSceneGroupToParent(elements, groupId, destinationGroupId);
+                if (nextElements !== elements) excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
+              }}
+              onMoveToGroup={(elementIds, destinationGroupId) => {
+                if (!excalidrawAPI) return;
+                const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+                const nextElements = moveSceneElementsToGroup(elements, elementIds, destinationGroupId);
+                if (nextElements !== elements) excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
               }}
               onGroup={elementIds => groupSceneSelection([...new Set(elementIds)])}
               onUngroup={elementIds => ungroupSceneSelection(elementIds)}

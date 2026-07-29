@@ -13,7 +13,7 @@ The shared surface provides:
 - search and replace, selection-match highlighting, multiple selections, and rectangular selection;
 - adapter-specific snippets and completions for Brush globals, IanniX commands/runtime helpers, p5 and Play Core plus the `drawerator` bridge, and SVG elements/attributes;
 - debounced adapter diagnostics and lint-gutter markers;
-- persistent font sizing and complete Mono/Transparent light/dark theme inheritance;
+- persistent font sizing plus Drawerator, Transparent, Mono, VS Code, and Teaching code palettes;
 - `Mod+Enter` as a common Run/Play gesture.
 
 When CodeMirror is focused it owns the complete editing session. Keyboard and clipboard events do
@@ -105,4 +105,4 @@ AI integration should operate on the canonical adapter source and explicit edito
 
 ## Styling contract
 
-CodeMirror emits structural and `tok-*` classes; `src/index.css` maps them exclusively through Drawerator/Excalidraw theme variables. Editor, gutter, search panel, completion tooltip, diagnostics, selection, and focus borders must remain legible in all four built-in theme families. Avoid fixed dark-only editor themes, extra status bars, minimaps, breadcrumbs, or nested cards.
+CodeMirror emits structural and `tok-*` classes; `src/index.css` maps them through Drawerator/Excalidraw theme variables and the explicit palette skin. **Drawerator adaptive** follows the active board; **Transparent adaptive** has no editor or gutter fill; **Mono adaptive** tracks the active light/dark mode in grayscale; and **VS Code adaptive** switches between its familiar light and dark syntax skins with the board. **Teaching** retains high-contrast syntax on a transparent surface and supplies readable light-mode token colors rather than forcing a dark editor onto a light board. Editor, gutter, search panel, completion tooltip, diagnostics, selection, and focus borders must remain legible in all built-in board themes. Avoid extra status bars, minimaps, breadcrumbs, or nested cards.

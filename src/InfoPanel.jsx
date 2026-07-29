@@ -58,11 +58,14 @@ const SvgInfoGuide = () => (
 
 const EditorKeys = () => (
   <section>
-    <h3>Completion keys</h3>
+    <h3>Code editor keys</h3>
     <ul>
       <li><strong>Tab</strong> or <strong>Enter</strong> accepts the highlighted suggestion.</li>
       <li><strong>↑ / ↓</strong> choose suggestions; <strong>Page Up / Page Down</strong> move by a page.</li>
-      <li><strong>Escape</strong> closes the menu. <strong>⌘ Enter</strong> runs the active script.</li>
+      <li><strong>⌘/Ctrl A</strong> selects source only. <strong>⌘/Ctrl Z</strong> and <strong>⌘/Ctrl Shift Z</strong> undo and redo source edits only.</li>
+      <li><strong>⌘/Ctrl F</strong> opens Find. <strong>Escape</strong> closes completion or Find. <strong>⌘/Ctrl Enter</strong> runs the active script.</li>
+      <li>When this editor has focus, its selection, navigation, clipboard, and shortcut keys do not reach the canvas.</li>
+      <li><strong>Settings → Board → Code editor palette</strong> can follow Drawerator, use a fully transparent adaptive skin, stay monochrome for live coding, use adaptive VS Code colors, or switch to Teaching.</li>
     </ul>
   </section>
 );
