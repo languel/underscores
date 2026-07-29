@@ -81,6 +81,7 @@ import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KE
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
 import { LivecodeNodeEditor, LivecodeNodeOverlay } from "./LivecodeNodeOverlay.jsx";
 import { createLivecodeNode, defaultLivecodeName, getLivecodeKindDefinition, isLivecodeNodeElement, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode } from "./livecodeNode.js";
+import { describeLivecodeRuntime, hasNativeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
 import { insertSvgNode, prepareSvgForStructuredEditing, updateSvgNodeData } from "./svgDocumentModel.js";
 import { executeSvgStructuredCommand } from "./svgCommandApi.js";
@@ -5763,6 +5764,7 @@ function App() {
       const hasConvertiblePath = selectedStrokeElements.some(el => !hasCubicBezierGeometry(el));
       const hasShapes = capabilities.hasShapes;
       const hasP5HostCandidate = selectedContextElements.some(element => !isSvgObjectElement(element) && canHostP5Frame(element));
+      const hasLegacyLivecodeHost = selectedContextElements.some(element => isP5FrameElement(element) || isPlayCoreFrameElement(element));
       const svgCodeHost = selectedContextElements.length === 1
         && selectedContextElements[0].type === "rectangle"
         && !isSvgObjectElement(selectedContextElements[0])
@@ -5775,6 +5777,7 @@ function App() {
         showMakeRole: true,
         showToSvg: selectedContextElements.some(element => !isSvgObjectElement(element) && !isP5FrameElement(element)),
         showAttachP5: hasP5HostCandidate,
+        showMigrateLivecode: hasLegacyLivecodeHost,
         showAttachSvgCode: svgCodeHost,
         showRestore: hasBrush,
         showToPath: hasShapes,
@@ -7739,6 +7742,11 @@ function App() {
     { id: "p5.frame.create", name: "Create p5 Frame /p5", aliases: ["/p5", "Create p5 frame", "p5 frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", source: "p5 source?", mode: "auto|instance|global?", runtime: "bundled|cdn?", cdnUrl: "string?" }, ai: { expose: true, description: "Create a trusted, interactive p5.js frame. Use mode: instance for p.setup/p.draw code, or mode: global for classic function setup()/draw() code. Omit mode for auto-detection. The bundled runtime is the default; only use runtime: cdn when the user specifically requests a remote p5 build. Keep the sketch self-contained and do not use HTML or script tags.", example: { name: "Pulsing circle", width: 640, height: 360, mode: "global", source: "function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(230);\n  strokeWeight(3);\n  const radius = 60 + 24 * Math.sin(millis() / 500);\n  circle(width / 2, height / 2, radius * 2);\n}" } }, action: (_api, args) => createP5Frame(args) },
     { id: "p5.frame.attach", name: "Attach p5 Sketch to Selection /attach p5", aliases: ["/attach p5", "Attach p5 sketch", "p5 attach"], category: "Canvas", args: { source: "p5 source?", mode: "auto|instance|global?", name: "string?" }, ai: { expose: true, description: "Attach a p5 sketch to each selected rectangle, frame, or existing p5 canvas. The selected objects become live p5 hosts; use a self-contained p5 source and choose global mode for classic setup()/draw() code.", example: { mode: "global", source: "function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  circle(width / 2, height / 2, 80);\n}" } }, action: (_api, args) => attachP5ScriptToSelection(args) },
     { id: "play.core.frame.create", name: "Create Play Core Frame /play", aliases: ["/play", "Play Core frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", fps: "number?", source: "play.core source?" }, action: (_api, args) => createPlayCoreFrame(args) },
+    { id: "livecode.node.create", name: "Create Livecode Node /livecode", aliases: ["/livecode", "Livecode node"], category: "Canvas", args: { kind: "strudel|p5|playcore|markdown|latex|html|orca?", name: "string?", width: "number?", height: "number?", source: "source?" }, action: (_api, args) => createLivecodeCanvasNode(args) },
+    { id: "livecode.node.run", name: "Run Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.draweratorLivecode); if (!node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
+    { id: "livecode.node.stop", name: "Stop Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.draweratorLivecode); if (node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
+    { id: "livecode.node.dock", name: "Dock Selected Livecode Node", category: "Panels", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); dockLivecodeCanvasNode(target.id); return { elementIds: [target.id] }; } },
+    { id: "livecode.node.migrate", name: "Migrate p5 or Play Core Host to Livecode Node", aliases: ["Migrate to Livecode Node"], category: "Canvas", action: () => { const target = getSelectedElements().find(element => isP5FrameElement(element) || isPlayCoreFrameElement(element)); if (!target) throw new Error("Select a p5 or Play Core host first."); return migrateLegacyHostToLivecodeNode(target.id); } },
     { id: "settings-ai", name: "Open AI Configuration /settings-ai", aliases: ["/settings-ai"], category: "Panels", action: () => toggleDraweratorPanel("settings", { settingsTab: "ai" }) },
     { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
     { id: "toggle-transparency", name: "Toggle Canvas Background Transparency", category: "Canvas", action: (api) => toggleBackgroundTransparency(api) },
@@ -9546,8 +9554,18 @@ function App() {
     if (!element) return;
     const node = normalizeLivecodeNode(element.customData?.draweratorLivecode);
     const running = !node.runtime.running;
-    patchLivecodeCanvasNode(elementId, { runtime: { running } }, { commitToHistory: true });
-    setLivecodeStatus(running ? `${getLivecodeKindDefinition(node.kind).label} node armed. Its native runtime arrives in its adapter phase.` : "Livecode node stopped.");
+    const validation = validateLivecodeNode(node);
+    if (running && !validation.valid) {
+      setLivecodeStatus(`${getLivecodeKindDefinition(node.kind).label} draft has an error: ${validation.error}`);
+      return;
+    }
+    patchLivecodeCanvasNode(elementId, {
+      runtime: { running },
+      ...(running && hasNativeLivecodeRuntime(node) ? { view: "preview" } : {}),
+    }, { commitToHistory: true });
+    setLivecodeStatus(running
+      ? `${getLivecodeKindDefinition(node.kind).label} node running · ${describeLivecodeRuntime(node)}`
+      : "Livecode node stopped.");
   };
 
   const editLivecodeCanvasNode = elementId => {
@@ -9605,6 +9623,65 @@ function App() {
     setSelectedElementIds({ [element.id]: true });
     editLivecodeCanvasNode(element.id);
     return { elementIds: [element.id], nodeId: node.nodeId, name: node.name, kind: node.kind };
+  };
+
+  const migrateLegacyHostToLivecodeNode = elementId => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const host = elements.find(element => element.id === elementId && !element.isDeleted);
+    if (!host || (!isP5FrameElement(host) && !isPlayCoreFrameElement(host))) {
+      throw new Error("Select a p5 or Play Core host to migrate.");
+    }
+    const isP5 = isP5FrameElement(host);
+    const legacy = isP5
+      ? normalizeP5Frame(host.customData?.draweratorP5)
+      : normalizePlayCoreFrame(host.customData?.draweratorPlayCore);
+    const kind = isP5 ? LIVECODE_KINDS.p5 : LIVECODE_KINDS.playcore;
+    const node = createLivecodeNode({
+      kind,
+      name: host.customData?.iannix?.label || defaultLivecodeName(kind),
+      source: legacy.source,
+      parameters: legacy.parameters,
+      runtime: {
+        running: isP5 ? legacy.autoplay !== false : true,
+        enabled: true,
+        transportMode: "linked",
+        settings: {
+          fps: legacy.fps,
+          allowInteraction: legacy.allowInteraction !== false,
+          ...(isP5 ? { mode: legacy.mode, transparent: legacy.transparent !== false } : {}),
+        },
+      },
+      view: "preview",
+    });
+    const migrated = {
+      ...host,
+      version: (host.version || 0) + 1,
+      versionNonce: Math.floor(Math.random() * 0x7fffffff),
+      updated: Date.now(),
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      backgroundColor: "transparent",
+      fillStyle: "solid",
+      customData: (() => {
+        const customData = { ...(host.customData || {}) };
+        delete customData.draweratorP5;
+        delete customData.draweratorPlayCore;
+        customData.draweratorLivecode = node;
+        return customData;
+      })(),
+    };
+    api.updateScene({
+      elements: elements.map(element => element.id === host.id ? migrated : element),
+      appState: { selectedElementIds: { [host.id]: true }, selectedGroupIds: {} },
+      commitToHistory: true,
+    });
+    setSelectedElementIds({ [host.id]: true });
+    setLivecodeEditorId(host.id);
+    setLivecodeEditorPlacement("canvas");
+    setLivecodeStatus(`Migrated ${isP5 ? "p5" : "Play Core"} host to a self-contained Livecode Node.`);
+    return { elementIds: [host.id], kind, nodeId: node.nodeId };
   };
 
   const runSvgObjectSource = ({
@@ -17895,6 +17972,7 @@ function App() {
           onCommit={commitLivecodeCanvasNode}
           onToggleRun={toggleLivecodeNodeRun}
           onDock={dockLivecodeCanvasNode}
+          scriptRuntimeRef={scriptRuntimeRef}
         />
         <SvgObjectOverlay
           elements={svgOverlayScene.elements}
@@ -18183,7 +18261,7 @@ function App() {
                   Export Selected p5 Frame as PNG
                 </button>
               )}
-              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showToSvg || customContextMenu.showMakeRole || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showAttachSvgCode || customContextMenu.showCreateLivecode || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
+              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showToSvg || customContextMenu.showMakeRole || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showMigrateLivecode || customContextMenu.showAttachSvgCode || customContextMenu.showCreateLivecode || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
             </>
           )}
           {customContextMenu.showCreateLivecode && (
@@ -18430,6 +18508,25 @@ function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 15c1.5-3 3-3 4.5 0s3 3 4.5-1" />
               </svg>
               Attach p5 Sketch
+            </button>
+          )}
+
+          {customContextMenu.showMigrateLivecode && (
+            <button
+              onPointerDown={event => {
+                event.preventDefault();
+                event.stopPropagation();
+                const host = getSelectedElements().find(element => isP5FrameElement(element) || isPlayCoreFrameElement(element));
+                if (host) migrateLegacyHostToLivecodeNode(host.id);
+                setCustomContextMenu(null);
+              }}
+              className="custom-floating-context-menu-btn"
+              title="Replace this legacy p5 or Play Core host with a self-contained Livecode Node while preserving its scene identity"
+            >
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7 4H4v3M17 20h3v-3M4 7a8 8 0 0 1 13-3M20 17A8 8 0 0 1 7 20" />
+              </svg>
+              Migrate to Livecode Node
             </button>
           )}
 

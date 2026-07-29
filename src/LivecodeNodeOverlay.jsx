@@ -1,5 +1,8 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DraweratorCodeEditor from "./DraweratorCodeEditor.jsx";
+import P5Frame from "./P5Frame.jsx";
+import { PlayCoreFrame } from "./PlayCoreFrame.jsx";
+import { getLivecodeRuntimeConfig, isLivecodeNodeRunnable, validateLivecodeNode } from "./livecodeAdapters.js";
 import {
   getLivecodeEditorProfile,
   getLivecodeFont,
@@ -48,6 +51,31 @@ export function LivecodeNodeEditor({
 }
 
 const previewSource = source => String(source || "").split("\n").slice(0, 18).join("\n");
+
+function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef }) {
+  const parametersKey = JSON.stringify(node.parameters);
+  const settingsKey = JSON.stringify(node.runtime.settings);
+  const config = useMemo(
+    () => getLivecodeRuntimeConfig(node),
+    [node.kind, node.source, parametersKey, settingsKey, node.revision],
+  );
+  const validation = validateLivecodeNode(node);
+  const [lastWorkingConfig, setLastWorkingConfig] = useState(() => validation.valid ? config : null);
+  useEffect(() => {
+    if (validation.valid) setLastWorkingConfig(config);
+  }, [node.kind, node.revision, validation.valid, config]);
+  if (!lastWorkingConfig) return <div className="livecode-node-runtime-error">{validation.error || "This node needs valid source before it can run."}</div>;
+  return <div className={`livecode-node-runtime ${node.view === "preview" ? "visible" : "hidden"}`} aria-label={`${getLivecodeKindDefinition(node.kind).label} runtime`}>
+    {node.kind === "p5" ? <P5Frame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} /> : null}
+    {node.kind === "playcore" ? <PlayCoreFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} /> : null}
+  </div>;
+}
+
+function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef }) {
+  return isLivecodeNodeRunnable(node)
+    ? <PersistedLivecodeRuntime key={node.kind} element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} />
+    : null;
+}
 
 function LivecodeNodePreview({ node, onEdit }) {
   const definition = getLivecodeKindDefinition(node.kind);
@@ -108,6 +136,7 @@ export function LivecodeNodeOverlay({
   onCommit,
   onToggleRun,
   onDock,
+  scriptRuntimeRef,
 }) {
   const camera = useMemo(() => ({
     zoom: Number(appState?.zoom?.value) || 1,
@@ -146,10 +175,11 @@ export function LivecodeNodeOverlay({
           onToggleRun={() => onToggleRun?.(element.id)}
           onDock={() => onDock?.(element.id)}
         />}
-        <LivecodeNodePreview
+        <LivecodeRuntimeSurface element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} />
+        {!(node.view === "preview" && isLivecodeNodeRunnable(node)) && <LivecodeNodePreview
           node={node}
           onEdit={visible ? () => onEdit?.(element.id) : undefined}
-        />
+        />}
       </div>}
     </div>;
   })}</div>;

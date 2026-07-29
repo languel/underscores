@@ -2077,6 +2077,31 @@ body .excalidraw .sidebar {
   background: color-mix(in srgb, var(--drawerator-panel-bg, var(--island-bg-color)) 34%, transparent);
 }
 
+.livecode-node-runtime {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.livecode-node-runtime.hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.livecode-node-runtime .drawerator-p5-frame,
+.livecode-node-runtime .drawerator-play-core-host {
+  width: 100%;
+  height: 100%;
+}
+
+.livecode-node-runtime .drawerator-play-core-host {
+  box-sizing: border-box;
+  display: block;
+  margin: 0;
+  padding: 8px;
+  overflow: hidden;
+}
+
 .livecode-node-preview-label {
   display: block;
   margin-bottom: 8px;

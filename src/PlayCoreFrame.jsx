@@ -42,7 +42,7 @@ const measureGridMetrics = host => {
   return { cellWidth, cellHeight, contentWidth, contentHeight, paddingLeft, paddingTop };
 };
 
-function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) {
+export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) {
   const hostRef = useRef(null);
   const config = normalizePlayCoreFrame(rawConfig);
   useEffect(() => {
