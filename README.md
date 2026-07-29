@@ -71,6 +71,14 @@ The same complete reset is available from **Settings → Board → Reset to defa
 
 Fresh sessions start in Mono Dark Satori pen mode with left, right, and bottom docks collapsed, the global grid hidden, and snapping off. Any local workspace preferences restore on later launches.
 
+### Code editor shortcuts and themes
+
+When a Drawerator CodeMirror editor has focus, it owns its keyboard session: source selection, navigation, clipboard, undo/redo, Find, completion, and execution shortcuts never operate on the canvas. Use `Cmd/Ctrl + A` to select source, `Cmd/Ctrl + Z` and `Cmd/Ctrl + Shift + Z` to undo/redo source edits, `Cmd/Ctrl + F` to search, `Tab` or `Enter` to accept a completion, arrow keys to navigate, `Escape` to close completion/search, and `Cmd/Ctrl + Enter` to run the active script. The active Script Info panel repeats this reference.
+
+**Settings → Board → Code editor palette** is independent from the surrounding Drawerator theme. **Drawerator adaptive** follows the active board colors and surface; **Transparent adaptive** retains adaptive syntax with no editor or gutter fill; **Mono adaptive** follows its light/dark mode while deliberately rendering syntax in grayscale; **VS Code adaptive** follows the active light/dark mode with familiar conventional syntax colors; and **Teaching** uses especially distinct, high-contrast colors while keeping the editor surface transparent. The Board theme presets also include VS Code Dark and Light, so the entire workspace can follow either skin when desired.
+
+See [Project status](notes/project-status.md) for the current release checkpoint, known compositor boundary, and the next repository-cleanup phase.
+
 ## Mods & FX workflow
 
 1. Select one freehand stroke or line and open **🛠️ Mods & FX**, or enable **Mod Pen** before drawing.

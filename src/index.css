@@ -59,6 +59,9 @@ body, html {
 .drawerator-shell {
   --drawerator-foreground: hsl(190, 5%, 32%);
   --drawerator-muted: hsl(190, 5%, 46%);
+  /* Quiet semantic text: useful for persistent status without competing with the canvas. */
+  --drawerator-status-success: #538268;
+  --drawerator-status-error: #a96868;
   --drawerator-menu-bg: #ffffff;
   --drawerator-menu-text: var(--drawerator-foreground);
   --drawerator-menu-muted: var(--drawerator-muted);
@@ -71,6 +74,8 @@ body, html {
 .drawerator-shell.drawerator-theme-dark {
   --drawerator-foreground: hsl(190, 5%, 82%);
   --drawerator-muted: hsl(190, 5%, 64%);
+  --drawerator-status-success: #8eaf98;
+  --drawerator-status-error: #c58f8f;
   --drawerator-menu-bg: #232329;
   --drawerator-menu-text: var(--drawerator-foreground);
   --drawerator-menu-muted: var(--drawerator-muted);
@@ -1095,7 +1100,7 @@ body .excalidraw .sidebar {
 }
 
 .event-console-status.error {
-  color: #d35b5b;
+  color: var(--drawerator-status-error);
 }
 
 .drawerator-panel-secondary-header {
@@ -1537,7 +1542,7 @@ body .excalidraw .sidebar {
   background: transparent;
   border: 0;
   border-radius: 0;
-  color: var(--color-success, #10b981);
+  color: var(--drawerator-status-success);
   font-size: inherit;
   font-weight: 400;
   display: flex;
@@ -1550,7 +1555,7 @@ body .excalidraw .sidebar {
   background: transparent;
   border: 0;
   border-radius: 0;
-  color: var(--color-danger, #ef4444);
+  color: var(--drawerator-status-error);
   font-size: inherit;
   font-family: inherit;
   font-weight: 400;
@@ -1938,7 +1943,7 @@ body .excalidraw .sidebar {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--drawerator-timeline-lane-bg, var(--drawerator-input-bg, var(--input-bg-color)));
+  background: transparent;
   border: 1px solid var(--border-color);
   border-radius: 6px;
   transition: border-color var(--transition-fast);
@@ -2158,6 +2163,252 @@ body .excalidraw .sidebar {
   color: color-mix(in srgb, var(--color-secondary) 64%, var(--color-primary));
 }
 
+/* Code skins deliberately affect only CodeMirror. Adaptive skins take their
+ * surfaces from the active Drawerator theme rather than leaving stale dark paint
+ * behind when the board changes mode. */
+html[data-drawerator-code-theme="drawerator"] .script-panel-editor .drawerator-code-editor {
+  background: transparent;
+}
+
+html[data-drawerator-code-theme="drawerator"] .drawerator-code-editor .cm-editor {
+  background: transparent;
+}
+
+html[data-drawerator-code-theme="drawerator"] .drawerator-code-editor .cm-gutters {
+  background: transparent;
+}
+
+html[data-drawerator-code-theme="transparent"] .script-panel-editor .drawerator-code-editor,
+html[data-drawerator-code-theme="transparent"] .drawerator-code-editor .cm-editor,
+html[data-drawerator-code-theme="transparent"] .drawerator-code-editor .cm-gutters {
+  background: transparent;
+}
+
+html[data-drawerator-code-theme="mono"] .drawerator-shell.drawerator-theme-dark {
+  --drawerator-code-mono-surface: #121212;
+  --drawerator-code-mono-gutter: #171717;
+  --drawerator-code-mono-active: #202020;
+  --drawerator-code-mono-text: #e7e7e7;
+  --drawerator-code-mono-muted: #8a8a8a;
+  --drawerator-code-mono-subtle: #bdbdbd;
+  --drawerator-code-mono-border: #343434;
+}
+
+html[data-drawerator-code-theme="mono"] .drawerator-shell.drawerator-theme-light {
+  --drawerator-code-mono-surface: #f4f4f4;
+  --drawerator-code-mono-gutter: #e9e9e9;
+  --drawerator-code-mono-active: #dedede;
+  --drawerator-code-mono-text: #292929;
+  --drawerator-code-mono-muted: #737373;
+  --drawerator-code-mono-subtle: #505050;
+  --drawerator-code-mono-border: #c9c9c9;
+}
+
+html[data-drawerator-code-theme="mono"] .script-panel-editor .drawerator-code-editor {
+  background: var(--drawerator-code-mono-surface);
+  border-color: var(--drawerator-code-mono-border);
+}
+
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .cm-editor {
+  color: var(--drawerator-code-mono-text);
+  background: var(--drawerator-code-mono-surface);
+}
+
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .cm-gutters {
+  color: var(--drawerator-code-mono-muted);
+  background: var(--drawerator-code-mono-gutter);
+  border-right-color: var(--drawerator-code-mono-border);
+}
+
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .cm-activeLine,
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .cm-activeLineGutter {
+  background: var(--drawerator-code-mono-active);
+}
+
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .cm-content {
+  caret-color: var(--drawerator-code-mono-text);
+}
+
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-comment { color: var(--drawerator-code-mono-muted); }
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-keyword,
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-operator,
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-bool,
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-null { color: var(--drawerator-code-mono-text); }
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-string,
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-regexp,
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-attributeValue,
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-number,
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-unit { color: var(--drawerator-code-mono-subtle); }
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-typeName,
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-className,
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-tagName,
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-heading { color: var(--drawerator-code-mono-text); }
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-attributeName,
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-definition,
+html[data-drawerator-code-theme="mono"] .drawerator-code-editor .tok-meta { color: var(--drawerator-code-mono-subtle); }
+
+html[data-drawerator-code-theme="vscode-dark"] .script-panel-editor .drawerator-code-editor {
+  background: #1e1e1e;
+  border-color: #3c3c3c;
+}
+
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .cm-editor { color: #d4d4d4; background: #1e1e1e; }
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .cm-gutters { color: #858585; background: #181818; border-right-color: #313131; }
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .cm-activeLine,
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .cm-activeLineGutter { background: #2a2d2e; }
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .cm-content { caret-color: #aeafad; }
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-comment { color: #6a9955; }
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-keyword,
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-operator,
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-bool,
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-null { color: #c586c0; }
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-string,
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-regexp,
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-attributeValue { color: #ce9178; }
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-number,
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-unit { color: #b5cea8; }
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-typeName,
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-className,
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-tagName,
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-heading { color: #4ec9b0; }
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-attributeName,
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-definition,
+html[data-drawerator-code-theme="vscode-dark"] .drawerator-code-editor .tok-meta { color: #9cdcfe; }
+
+html[data-drawerator-code-theme="vscode-light"] .script-panel-editor .drawerator-code-editor {
+  background: #fffffe;
+  border-color: #c8c8c8;
+}
+
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .cm-editor { color: #1e1e1e; background: #fffffe; }
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .cm-gutters { color: #237893; background: #f3f3f3; border-right-color: #d4d4d4; }
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .cm-activeLine,
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .cm-activeLineGutter { background: #e8f2fa; }
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .cm-content { caret-color: #000; }
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-comment { color: #008000; }
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-keyword,
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-operator,
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-bool,
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-null { color: #0000ff; }
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-string,
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-regexp,
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-attributeValue { color: #a31515; }
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-number,
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-unit { color: #098658; }
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-typeName,
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-className,
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-tagName,
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-heading { color: #267f99; }
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-attributeName,
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-definition,
+html[data-drawerator-code-theme="vscode-light"] .drawerator-code-editor .tok-meta { color: #795e26; }
+
+/* VS Code is paired with Drawerator's active light/dark mode. The explicit
+ * legacy ids remain above so saved workspaces from the first palette release
+ * still render before their persisted preference migrates. */
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .script-panel-editor .drawerator-code-editor {
+  background: #1e1e1e;
+  border-color: #3c3c3c;
+}
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .cm-editor { color: #d4d4d4; background: #1e1e1e; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .cm-gutters { color: #858585; background: #181818; border-right-color: #313131; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .cm-activeLine,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .cm-activeLineGutter { background: #2a2d2e; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .cm-content { caret-color: #aeafad; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-comment { color: #6a9955; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-keyword,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-operator,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-bool,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-null { color: #c586c0; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-string,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-regexp,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-attributeValue { color: #ce9178; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-number,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-unit { color: #b5cea8; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-typeName,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-className,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-tagName,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-heading { color: #4ec9b0; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-attributeName,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-definition,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-dark .drawerator-code-editor .tok-meta { color: #9cdcfe; }
+
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .script-panel-editor .drawerator-code-editor {
+  background: #fffffe;
+  border-color: #c8c8c8;
+}
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .cm-editor { color: #1e1e1e; background: #fffffe; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .cm-gutters { color: #237893; background: #f3f3f3; border-right-color: #d4d4d4; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .cm-activeLine,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .cm-activeLineGutter { background: #e8f2fa; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .cm-content { caret-color: #000; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-comment { color: #008000; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-keyword,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-operator,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-bool,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-null { color: #0000ff; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-string,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-regexp,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-attributeValue { color: #a31515; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-number,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-unit { color: #098658; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-typeName,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-className,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-tagName,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-heading { color: #267f99; }
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-attributeName,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-definition,
+html[data-drawerator-code-theme="vscode"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-meta { color: #795e26; }
+
+html[data-drawerator-code-theme="teaching"] .script-panel-editor .drawerator-code-editor {
+  background: transparent;
+  border-color: color-mix(in srgb, #6888b8 72%, var(--border-color));
+}
+
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .cm-editor { color: #f8fafc; background: transparent; }
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .cm-gutters { color: #b9c6dc; background: transparent; border-right-color: color-mix(in srgb, #496384 72%, var(--border-color)); }
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .cm-activeLine,
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .cm-activeLineGutter { background: color-mix(in srgb, #6888b8 18%, transparent); }
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .cm-content { caret-color: #fff; }
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-comment { color: #c6d0df; font-style: normal; }
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-keyword,
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-operator,
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-bool,
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-null { color: #ffcb6b; }
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-string,
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-regexp,
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-attributeValue { color: #a8e6a1; }
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-number,
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-unit { color: #ff9f9f; }
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-typeName,
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-className,
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-tagName,
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-heading { color: #7dd3fc; }
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-attributeName,
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-definition,
+html[data-drawerator-code-theme="teaching"] .drawerator-code-editor .tok-meta { color: #d8b4fe; }
+
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .cm-editor { color: #1f2937; }
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .cm-gutters { color: #475569; }
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .cm-content { caret-color: #111827; }
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-comment { color: #64748b; }
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-keyword,
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-operator,
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-bool,
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-null { color: #9a6700; }
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-string,
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-regexp,
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-attributeValue { color: #18794e; }
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-number,
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-unit { color: #c2413e; }
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-typeName,
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-className,
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-tagName,
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-heading { color: #0369a1; }
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-attributeName,
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-definition,
+html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-light .drawerator-code-editor .tok-meta { color: #7e22ce; }
+
 .script-panel-editor .custom-brush-status-success,
 .script-panel-editor .custom-brush-status-error,
 .script-panel-editor .custom-brush-status-message,
@@ -2192,11 +2443,11 @@ body .excalidraw .sidebar {
 }
 
 .p5-script-status.success {
-  color: var(--color-success, #10b981);
+  color: var(--drawerator-status-success);
 }
 
 .p5-script-status.error {
-  color: var(--color-danger, #ef4444);
+  color: var(--drawerator-status-error);
   white-space: pre-wrap;
 }
 
@@ -3649,8 +3900,15 @@ a.iannix-flat-button {
 .outliner-row.drop-back { box-shadow: inset 0 -2px 0 var(--color-primary, currentColor); }
 .outliner-row.drop-inside { background: color-mix(in srgb, var(--drawerator-highlight) 16%, transparent); box-shadow: inset 3px 0 0 var(--drawerator-accent); }
 .outliner-object { display: grid; grid-template-columns: 10px 22px minmax(0, 1fr); align-items: center; gap: 4px; min-width: 0; padding: 6px 8px 6px calc(8px + (var(--outliner-depth, 0) * 14px)); border: 0; background: transparent; color: var(--color-primary); text-align: left; cursor: pointer; }
-.outliner-group-row { display: grid; grid-template-columns: 10px 22px minmax(0, 1fr) auto; align-items: center; gap: 4px; width: 100%; min-width: 0; padding: 6px 8px 6px calc(8px + (var(--outliner-depth, 0) * 14px)); border: 0; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.13)); background: color-mix(in srgb, var(--button-hover-bg, transparent) 42%, transparent); color: var(--color-secondary); font: inherit; text-align: left; cursor: pointer; }
+.outliner-group-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) 24px 24px 24px; align-items: center; gap: 2px; width: 100%; min-width: 0; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.13)); background: color-mix(in srgb, var(--button-hover-bg, transparent) 42%, transparent); color: var(--color-secondary); font: inherit; text-align: left; }
 .outliner-group-row:hover { color: var(--color-primary); background: var(--button-hover-bg, rgba(128,128,128,.12)); }
+.outliner-group-row.selected { background: var(--button-selected-bg, rgba(128,128,128,.2)); }
+.outliner-group-row[draggable="true"] .outliner-group-object { cursor: grab; }
+.outliner-group-row.dragging { opacity: .45; }
+.outliner-group-row.drop-inside { background: color-mix(in srgb, var(--drawerator-highlight) 16%, transparent); box-shadow: inset 3px 0 0 var(--drawerator-accent); }
+.outliner-group-disclosure { display: inline-flex; align-items: center; justify-content: center; align-self: stretch; padding: 0; margin-left: calc(6px + (var(--outliner-depth, 0) * 14px)); border: 0; background: transparent; color: inherit; cursor: pointer; }
+.outliner-group-disclosure:hover { background: var(--button-hover-bg, rgba(128,128,128,.12)); }
+.outliner-group-object { grid-template-columns: 22px minmax(0, 1fr) auto; width: 100%; padding: 6px 4px; }
 .outliner-type.type-group { color: var(--drawerator-accent); border-color: color-mix(in srgb, var(--drawerator-accent) 58%, var(--border-color)); }
 .outliner-type.type-score { color: var(--drawerator-highlight); border-color: color-mix(in srgb, var(--drawerator-highlight) 62%, var(--border-color)); }
 .outliner-type.type-iannix-group { color: color-mix(in srgb, var(--drawerator-highlight) 68%, var(--color-primary)); border-color: color-mix(in srgb, var(--drawerator-highlight) 52%, var(--border-color)); }
@@ -3681,7 +3939,7 @@ a.iannix-flat-button {
 .history-empty.compact { padding: 8px; }
 .history-editor { display: flex; flex-direction: column; gap: 6px; }
 .history-editor textarea { width: 100%; min-height: 120px; resize: vertical; box-sizing: border-box; padding: 8px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--color-primary); font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.history-error { color: #d35b5b; font-size: 10px; }
+.history-error { color: var(--drawerator-status-error); font-size: 10px; }
 .history-macro-list { display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow: auto; }
 .history-macro > span { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .drawerator-panel-title {
@@ -4348,11 +4606,11 @@ a.iannix-flat-button {
 }
 
 .settings-panel-status.ok {
-  color: #2da44e;
+  color: var(--drawerator-status-success);
 }
 
 .settings-panel-status.error {
-  color: #e5534b;
+  color: var(--drawerator-status-error);
 }
 
 .settings-panel-status.auth {

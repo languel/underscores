@@ -18,6 +18,8 @@ const OutlinerPanel = memo(function OutlinerPanel({
   onLockChange,
   onRename,
   onReorder,
+  onMoveToGroup,
+  onReparentGroup,
   onGroup,
   onUngroup,
   onSelectSvgNode,
@@ -90,6 +92,14 @@ const OutlinerPanel = memo(function OutlinerPanel({
       ? Object.keys(selectedElementIds).filter(id => selectedElementIds[id])
       : [elementId]
   );
+  const actionIdsFor = (event, fallbackIds) => {
+    const selectedIds = Object.keys(selectedElementIds).filter(id => selectedElementIds[id]);
+    return event.altKey && selectedIds.length ? selectedIds : fallbackIds;
+  };
+  const elementIdsForNode = node => {
+    if (node.kind === "element") return [node.element.id];
+    return (node.children || []).flatMap(elementIdsForNode);
+  };
   const beginRename = element => {
     setEditingId(element.id);
     setEditingValue(element.customData?.iannix?.label || "");
@@ -100,13 +110,18 @@ const OutlinerPanel = memo(function OutlinerPanel({
     setEditingId(null);
   };
   const clearDrag = () => { setDraggingIds([]); setDropTarget(null); };
-  const startDrag = (event, elementId) => {
-    if (editingId === elementId) { event.preventDefault(); return; }
-    const ids = selectedIdsFor(elementId);
+  const startDrag = (event, elementOrIds) => {
+    const ids = Array.isArray(elementOrIds) ? elementOrIds : selectedIdsFor(elementOrIds);
+    if (!ids.length || (typeof elementOrIds === "string" && editingId === elementOrIds)) { event.preventDefault(); return; }
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("application/x-drawerator-elements", JSON.stringify(ids));
     event.dataTransfer.setData("text/plain", ids.join(","));
     setDraggingIds(ids);
+  };
+  const startGroupDrag = (event, node) => {
+    const ids = elementIdsForNode(node);
+    startDrag(event, ids);
+    event.dataTransfer.setData("application/x-drawerator-group", node.id);
   };
   const draggedIds = event => {
     try {
@@ -203,9 +218,9 @@ const OutlinerPanel = memo(function OutlinerPanel({
           <span className={`outliner-type type-${isSvg ? "svg" : element.type}`}>{isSvg ? "S" : element.type.slice(0, 1).toUpperCase()}</span>
           {editingId === element.id ? <input ref={editingRef} className="outliner-label-input" value={editingValue} placeholder={element.id} onChange={event => setEditingValue(event.target.value)} onBlur={() => finishRename(element)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); finishRename(element); } if (event.key === "Escape") { event.preventDefault(); finishRename(element, false); } }} aria-label={`Rename ${element.id}`} /> : <span className="outliner-label">{nameMode === "labels" && element.customData?.iannix?.label ? element.customData.iannix.label : element.id}</span>}
         </button>
-        <button type="button" className={element.customData?.outlinerHidden ? "outliner-toggle inactive" : "outliner-toggle"} onClick={() => onVisibilityChange(element.id)} title={element.customData?.outlinerHidden ? "Show object" : "Hide object"} aria-label={element.customData?.outlinerHidden ? `Show ${element.id}` : `Hide ${element.id}`} {...infoProps("Object visibility", "Hide or show the authored object without deleting it or changing its score role.")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
-        <button type="button" className={element.locked ? "outliner-toggle active" : "outliner-toggle"} onClick={() => onLockChange(element.id)} title={element.locked ? "Unlock object" : "Lock object"} aria-label={element.locked ? `Unlock ${element.id}` : `Lock ${element.id}`} aria-pressed={element.locked} {...infoProps("Object lock", "Locked objects remain visible and active but cannot be selected or transformed on the canvas.")}>{element.locked ? <svg className="outliner-lock-icon locked" viewBox="0 0 24 24" aria-hidden="true"><rect className="outliner-lock-body" x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg> : <svg className="outliner-lock-icon unlocked" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M7.5 10V7a4.5 4.5 0 0 1 8.7-2.5"/></svg>}</button>
-        <button type="button" className="outliner-toggle outliner-delete" onClick={() => onDelete(selectedIdsFor(element.id))} title="Delete object" aria-label={`Delete ${element.id}`}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg></button>
+        <button type="button" className={element.customData?.outlinerHidden ? "outliner-toggle inactive" : "outliner-toggle"} onClick={event => onVisibilityChange(actionIdsFor(event, selectedIdsFor(element.id)))} title={element.customData?.outlinerHidden ? "Show object" : "Hide object"} aria-label={element.customData?.outlinerHidden ? `Show ${element.id}` : `Hide ${element.id}`} {...infoProps("Object visibility", "Hide or show the authored object without deleting it or changing its score role. Option-click applies the action to the current selection.")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
+        <button type="button" className={element.locked ? "outliner-toggle active" : "outliner-toggle"} onClick={event => onLockChange(actionIdsFor(event, selectedIdsFor(element.id)))} title={element.locked ? "Unlock object" : "Lock object"} aria-label={element.locked ? `Unlock ${element.id}` : `Lock ${element.id}`} aria-pressed={element.locked} {...infoProps("Object lock", "Locked objects remain visible and active but cannot be selected or transformed on the canvas. Option-click applies the action to the current selection.")}>{element.locked ? <svg className="outliner-lock-icon locked" viewBox="0 0 24 24" aria-hidden="true"><rect className="outliner-lock-body" x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg> : <svg className="outliner-lock-icon unlocked" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M7.5 10V7a4.5 4.5 0 0 1 8.7-2.5"/></svg>}</button>
+        <button type="button" className="outliner-toggle outliner-delete" onClick={event => onDelete(actionIdsFor(event, selectedIdsFor(element.id)))} title="Delete object" aria-label={`Delete ${element.id}`} {...infoProps("Delete object", "Delete this object. Option-click applies the action to the current selection.")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg></button>
       </div>
       {isSvg && renderSvgTree(element)}
     </div>;
@@ -223,10 +238,33 @@ const OutlinerPanel = memo(function OutlinerPanel({
           : groupLabel(node.id);
       const type = node.kind === "score" ? "score" : node.kind === "iannix-group" ? "iannix-group" : "group";
       const glyph = node.kind === "score" ? "I" : node.kind === "iannix-group" ? "i" : "G";
+      const memberIds = elementIdsForNode(node);
+      const isSelected = memberIds.length > 0 && memberIds.every(id => selectedElementIds[id]);
+      const isHidden = memberIds.length > 0 && memberIds.every(id => visibleElements.find(element => element.id === id)?.customData?.outlinerHidden);
+      const isLocked = memberIds.length > 0 && memberIds.every(id => visibleElements.find(element => element.id === id)?.locked);
       return <div className={`outliner-group outliner-${type}`} key={`${node.kind}-${key}`}>
-        <button type="button" className="outliner-group-row" style={{ "--outliner-depth": depth }} onClick={() => setExpandedGroupIds(current => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; })} title={`${label}. Click to expand or collapse.`}>
-          <span className="outliner-disclosure" aria-hidden="true">{expanded ? "⌄" : "›"}</span><span className={`outliner-type type-${type}`}>{glyph}</span><span className="outliner-label">{label}</span><span className="outliner-group-count">{node.children.length}</span>
-        </button>
+        <div role="treeitem" aria-level={depth + 1} aria-expanded={expanded} aria-selected={isSelected} className={`outliner-group-row ${isSelected ? "selected" : ""} ${draggingIds.some(id => memberIds.includes(id)) ? "dragging" : ""} ${dropTarget?.groupKey === key ? "drop-inside" : ""}`} style={{ "--outliner-depth": depth }} draggable={node.kind === "group"} onDragStart={event => node.kind === "group" && startGroupDrag(event, node)} onDragEnd={clearDrag} onDragOver={event => {
+          const draggedGroupId = event.dataTransfer.getData("application/x-drawerator-group");
+          const ids = draggedIds(event);
+          if (node.kind !== "group" || (draggedGroupId === node.id) || (!draggedGroupId && !ids.length)) return;
+          event.preventDefault(); event.dataTransfer.dropEffect = "move";
+          setDropTarget({ groupKey: key, placement: "inside" });
+        }} onDrop={event => {
+          const draggedGroupId = event.dataTransfer.getData("application/x-drawerator-group");
+          if (node.kind === "group" && draggedGroupId && draggedGroupId !== node.id) {
+            event.preventDefault(); onReparentGroup?.(draggedGroupId, node.id);
+          } else if (node.kind === "group") {
+            const ids = draggedIds(event).filter(id => !memberIds.includes(id));
+            if (ids.length) { event.preventDefault(); onMoveToGroup?.(ids, node.id); }
+          }
+          clearDrag();
+        }}>
+          <button type="button" className="outliner-group-disclosure" onClick={() => setExpandedGroupIds(current => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; })} aria-label={`${expanded ? "Collapse" : "Expand"} ${label}`}><span className="outliner-disclosure" aria-hidden="true">{expanded ? "⌄" : "›"}</span></button>
+          <button type="button" className="outliner-object outliner-group-object" onClick={event => onSelectGroup?.(memberIds, { mode: event.metaKey || event.ctrlKey ? "toggle" : "replace" })} title={`${label}. Click to select its ${memberIds.length} object${memberIds.length === 1 ? "" : "s"}.`}><span className={`outliner-type type-${type}`}>{glyph}</span><span className="outliner-label">{label}</span><span className="outliner-group-count">{memberIds.length}</span></button>
+          <button type="button" className={isHidden ? "outliner-toggle inactive" : "outliner-toggle"} onClick={event => onVisibilityChange(actionIdsFor(event, memberIds))} title={`${isHidden ? "Show" : "Hide"} group`} aria-label={`${isHidden ? "Show" : "Hide"} ${label}`} {...infoProps("Group visibility", "Hide or show every object in this group. Option-click applies the action to the current selection.")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
+          <button type="button" className={isLocked ? "outliner-toggle active" : "outliner-toggle"} onClick={event => onLockChange(actionIdsFor(event, memberIds))} title={`${isLocked ? "Unlock" : "Lock"} group`} aria-label={`${isLocked ? "Unlock" : "Lock"} ${label}`} {...infoProps("Group lock", "Lock or unlock every object in this group. Option-click applies the action to the current selection.")}><svg className="outliner-lock-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></button>
+          <button type="button" className="outliner-toggle outliner-delete" onClick={event => onDelete(actionIdsFor(event, memberIds))} title="Delete group" aria-label={`Delete ${label}`} {...infoProps("Delete group", "Delete every object in this group. Option-click applies the action to the current selection.")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg></button>
+        </div>
         {expanded && <div className="outliner-group-children">{node.children.map(child => renderNode(child, depth + 1))}</div>}
       </div>;
     }

@@ -88,6 +88,60 @@ export const moveSceneElementsToGroupParent = (elements = [], elementIds = [], d
   return changed ? nextElements : elements;
 };
 
+// Moves leaf elements directly into an existing group. This intentionally
+// replaces their current group path: a drag onto a group is an explicit
+// reparent operation, rather than an additive membership edit.
+export const moveSceneElementsToGroup = (elements = [], elementIds = [], destinationGroupId) => {
+  if (!destinationGroupId) return elements;
+  const selectedIds = liveElementIds(elements, elementIds);
+  if (!selectedIds.size) return elements;
+  const destinationMember = elements.find(element => !element?.isDeleted && element.groupIds?.includes(destinationGroupId));
+  if (!destinationMember) return elements;
+  const destinationPath = destinationMember.groupIds.slice(0, destinationMember.groupIds.lastIndexOf(destinationGroupId) + 1);
+  let changed = false;
+  const next = elements.map(element => {
+    if (!selectedIds.has(element.id)) return element;
+    const groupIds = element.groupIds || [];
+    if (groupIds.length === destinationPath.length && groupIds.every((id, index) => id === destinationPath[index])) return element;
+    changed = true;
+    return { ...element, groupIds: [...destinationPath], updated: Date.now() };
+  });
+  return changed ? next : elements;
+};
+
+// Reparents an entire Excalidraw group while retaining the group's nested
+// descendants. Group IDs are authored hierarchy identifiers, so moving the
+// group means rewriting the shared prefix of every member, not merely moving
+// one leaf out of its current group.
+export const moveSceneGroupToParent = (elements = [], groupId, destinationGroupId = null) => {
+  if (!groupId || groupId === destinationGroupId) return elements;
+  const members = elements.filter(element => !element?.isDeleted && element.groupIds?.includes(groupId));
+  if (!members.length) return elements;
+  // A parent cannot be one of this group's descendants.
+  if (destinationGroupId && members.some(element => {
+    const groupIndex = element.groupIds.lastIndexOf(groupId);
+    return element.groupIds.slice(groupIndex + 1).includes(destinationGroupId);
+  })) return elements;
+
+  let destinationPath = [];
+  if (destinationGroupId) {
+    const destinationMember = elements.find(element => !element?.isDeleted && element.groupIds?.includes(destinationGroupId));
+    if (!destinationMember) return elements;
+    destinationPath = destinationMember.groupIds.slice(0, destinationMember.groupIds.lastIndexOf(destinationGroupId) + 1);
+  }
+  let changed = false;
+  const next = elements.map(element => {
+    const groupIds = element.groupIds || [];
+    const groupIndex = groupIds.lastIndexOf(groupId);
+    if (groupIndex < 0) return element;
+    const rewritten = [...destinationPath, ...groupIds.slice(groupIndex)];
+    if (rewritten.length === groupIds.length && rewritten.every((id, index) => id === groupIds[index])) return element;
+    changed = true;
+    return { ...element, groupIds: rewritten, updated: Date.now() };
+  });
+  return changed ? next : elements;
+};
+
 export const buildSceneGroupTree = (elements = [], { outlinerOrder = false } = {}) => {
   const root = { kind: "root", children: [] };
   const groupNodes = new Map();

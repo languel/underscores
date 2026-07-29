@@ -223,6 +223,11 @@ Browser acceptance must additionally cover direct hit testing, transformed path 
 source/visual synchronization, keyboard ownership, undo/redo, theme compliance, runtime seeking,
 role assignment, and scene reload.
 
+The Script panel source view uses the same CodeMirror palette system as every other script adapter.
+Source highlighting is independent from SVG rendering and is therefore safe to switch between
+Drawerator, Transparent, Mono, VS Code, and Teaching skins while retaining immediate valid-source
+updates on the canvas.
+
 ## Remaining compositor boundary
 
 SVG hosts share canonical scene order with native objects, but the current DOM renderer is still an
