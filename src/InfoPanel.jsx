@@ -86,6 +86,54 @@ function draw() {
   </div>
 );
 
+const PlayCoreInfoGuide = () => (
+  <div className="info-svg-guide">
+    <section>
+      <h3>Play Core frame</h3>
+      <pre><code>{`// @param threshold = 0.55 (0..1, step: 0.01)
+export const settings = { fps: 30, cols: 0, rows: 0 };
+
+export function main({ x, y }, context, cursor, buffer, drawerator) {
+  return Math.sin(x + context.time / 400) > drawerator.params.threshold
+    ? "·" : " ";
+}`}</code></pre>
+      <p>Play Core programs draw one ASCII cell at a time. Attach the program to a selected rectangle or frame, or press Play with no selection to create a new frame. Selecting one Play Core host loads that host’s exact source into the Script panel.</p>
+    </section>
+    <section>
+      <h3>Programs and frames</h3>
+      <ul>
+        <li>The program selector is a local working-file catalog. <strong>Save</strong> creates or updates a file; <strong>Duplicate</strong>, <strong>New</strong>, <strong>Import</strong>, and <strong>Delete</strong> mirror the p5 workflow.</li>
+        <li>A saved file can be attached to several frames. Saving it recompiles every linked frame; each host retains its own size, interaction setting, and <code>@param</code> values.</li>
+        <li>Choose another saved program while one host is selected to attach it immediately. Press <strong>F2</strong> or Shift-double-click the selector to rename the selected saved program.</li>
+      </ul>
+    </section>
+    <section>
+      <h3>Lifecycle</h3>
+      <ul>
+        <li><code>settings</code> controls <code>fps</code>, <code>cols</code>, <code>rows</code>, foreground <code>color</code>, and <code>backgroundColor</code>. Zero columns or rows adapt to the frame size.</li>
+        <li><code>boot(drawerator)</code> runs once; <code>pre</code> and <code>post</code> surround each cell pass.</li>
+        <li><code>main(coord, context, cursor, buffer, drawerator)</code> returns a character or a cell object.</li>
+        <li><code>pointerMove</code>, <code>pointerDown</code>, and <code>pointerUp</code> receive the current context, cursor, buffer, and Drawerator bridge.</li>
+      </ul>
+    </section>
+    <section>
+      <h3>Cells and input</h3>
+      <ul>
+        <li><code>main(&#123; x, y, index &#125;, context, cursor, buffer, drawerator)</code> runs for every cell. Return a character, or an object such as <code>&#123; char: &quot;·&quot; &#125;</code>.</li>
+        <li><code>context</code> includes <code>frame</code>, <code>time</code>, <code>cols</code>, <code>rows</code>, <code>width</code>, <code>height</code>, and resolved <code>settings</code>.</li>
+        <li><code>cursor</code> is measured in ASCII-cell coordinates and includes <code>x</code>, <code>y</code>, <code>pressed</code>, and the previous state in <code>cursor.p</code>.</li>
+        <li>Use <code>pre</code> and <code>post</code> to prepare or inspect the shared <code>buffer</code>; pointer callbacks receive the same <code>context</code>, <code>cursor</code>, <code>buffer</code>, and bridge.</li>
+      </ul>
+    </section>
+    <section>
+      <h3>Drawerator bridge</h3>
+      <p>Use <code>// @param name = value (min..max, step: value)</code> and read the current value through <code>drawerator.params.name</code>. The same score API available to p5 is present: <code>drawerator.canvas.all()</code>, <code>drawerator.canvas.selected()</code>, <code>drawerator.events.on()</code>, and <code>drawerator.transport.time</code>.</p>
+      <p>Programs run locally as trusted code. Valid source updates a selected Play Core frame immediately; invalid drafts remain editable without replacing the last working program.</p>
+    </section>
+    <EditorKeys />
+  </div>
+);
+
 const IannixInfoGuide = ({ activeCommand = null }) => (
   <div className="info-svg-guide">
     {activeCommand && (
@@ -172,6 +220,7 @@ const BrushInfoGuide = () => (
 const scriptGuide = (mode, iannixCommand) => {
   if (mode === "svg") return <SvgInfoGuide />;
   if (mode === "p5") return <P5InfoGuide />;
+  if (mode === "play") return <PlayCoreInfoGuide />;
   if (mode === "iannix") return <IannixInfoGuide activeCommand={iannixCommand} />;
   if (mode === "brush") return <BrushInfoGuide />;
   return null;
@@ -180,6 +229,7 @@ const scriptGuide = (mode, iannixCommand) => {
 const guideTitle = mode => ({
   svg: "SVG quick reference",
   p5: "p5 quick reference",
+  play: "Play Core quick reference",
   iannix: "IanniX quick reference",
   brush: "Brush quick reference",
 }[mode] || null);

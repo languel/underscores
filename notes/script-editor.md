@@ -1,17 +1,17 @@
 # Script Editor Architecture
 
-Last updated: 2026-07-27
+Last updated: 2026-07-29
 
 ## Scope
 
-The Script panel uses one CodeMirror 6 editing surface for Brush / modifier JavaScript, IanniX JavaScript, p5 JavaScript, and SVG documents. It is deliberately a compact live-coding editor inside Drawerator's existing panel system, not a second application shell. Catalogs, parameter controls, adapter actions, status, and the current panel placement model remain outside the editor.
+The Script panel uses one CodeMirror 6 editing surface for Brush / modifier JavaScript, IanniX JavaScript, p5 JavaScript, Play Core JavaScript, and SVG documents. It is deliberately a compact live-coding editor inside Drawerator's existing panel system, not a second application shell. Catalogs, parameter controls, adapter actions, status, and the current panel placement model remain outside the editor.
 
 The shared surface provides:
 
 - language-aware syntax trees for JavaScript and SVG/HTML;
 - line numbers, active-line treatment, folding, indentation, bracket matching, and automatic closing;
 - search and replace, selection-match highlighting, multiple selections, and rectangular selection;
-- adapter-specific snippets and completions for Brush globals, IanniX commands/runtime helpers, p5 plus the `drawerator` bridge, and SVG elements/attributes;
+- adapter-specific snippets and completions for Brush globals, IanniX commands/runtime helpers, p5 and Play Core plus the `drawerator` bridge, and SVG elements/attributes;
 - debounced adapter diagnostics and lint-gutter markers;
 - persistent font sizing and complete Mono/Transparent light/dark theme inheritance;
 - `Mod+Enter` as a common Run/Play gesture.
@@ -36,8 +36,8 @@ The adapter blocks in `src/App.jsx` continue to own:
 - runtime execution and trust boundaries;
 - status messages and any selection requirements.
 
-This separation preserves the live behavior that predates CodeMirror: p5 still recompiles edits
-into its trusted live frame, SVG validates immediately and applies valid source after a 650 ms
+This separation preserves the live behavior that predates CodeMirror: p5 and Play Core both recompile valid edits
+into their trusted live frames, SVG validates immediately and applies valid source after a 650 ms
 typing pause, Brush still syncs drafts to attached modifiers on blur, and IanniX still runs through
 its compatibility recorder.
 
@@ -45,6 +45,38 @@ SVG additionally uses the shared editor's selection callback and external range 
 settled collapsed source cursor selects the corresponding SVG node or compound subpath; canvas,
 Properties, and Outliner selection highlights the exact authored range without replacing editor
 focus or rewriting the document.
+
+## Play Core adapter
+
+`src/playCoreFrame.js` defines the portable host contract and a compact local implementation of the
+public program lifecycle popularized by [ertdfgcvb/play.core](https://github.com/ertdfgcvb/play.core):
+`settings`, `boot`, `pre`, `main`, `post`, and pointer callbacks. A Play Core host is an ordinary
+transparent rectangle or frame with `customData.draweratorPlayCore`; it stays selectable and
+transformable like a p5 host.
+
+Play Core also uses the same local working-file model as p5. The selector exposes saved programs
+from `drawerator_play_core_scripts`; Save, Duplicate, New, Import, and Delete act on that catalog.
+Hosts retain a `scriptId`, so saving the selected program recompiles every linked host while an
+unsaved draft remains local until it is saved or attached.
+
+When the Script panel is in p5 or Play Core mode, selecting exactly one matching canvas host makes
+that host authoritative for the editor: its linked file, canonical source, mode (for p5), and name
+are loaded into the panel. This synchronization is deliberately driven by host-scene updates rather
+than catalog updates, so a valid keystroke cannot be overwritten by the one-frame-old host snapshot
+that precedes its live recompile.
+
+The runner lives in `src/PlayCoreFrame.jsx`. It is intentionally local and ASCII-first: it derives a
+cell buffer from `settings.cols` / `settings.rows` (or the host size), evaluates the program at its
+configured frame rate, and renders it to a monospace `<pre>`. Runtime code receives the existing
+`createScriptCanvasApi` bridge, so `drawerator.canvas`, `drawerator.events`, and
+`drawerator.transport` have the same semantics as p5. `@param` annotations are parsed by the shared
+parameter module, persisted per host, and exposed as `drawerator.params`.
+
+`main({ x, y, index }, context, cursor, buffer, drawerator)` runs for each ASCII cell. `context`
+contains the time, frame number, grid dimensions, host dimensions, and resolved settings; `cursor`
+uses cell coordinates and retains its previous state at `cursor.p`. A program may return a character
+or a cell object such as `{ char: "·" }`. `pre`, `post`, and pointer callbacks operate on the same
+cell buffer and Drawerator bridge.
 
 ## Diagnostics and AI extension point
 
