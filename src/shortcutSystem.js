@@ -13,7 +13,7 @@ export const SHORTCUT_ACTIONS = Object.freeze([
   { id: "iannix.command.clear", commandId: "iannix.command.clear", label: "Clear scene", defaultBinding: "Ctrl+Shift+Backspace" },
   { id: "grid.visible.toggle", commandId: "grid.visible.toggle", label: "Grid visibility", defaultBinding: "Mod+Shift+Quote" },
   { id: "grid.snap.toggle", label: "Grid snapping", defaultBinding: "Mod+Alt+Quote" },
-  { id: "panel-grid", label: "Grid panel", defaultBinding: "Mod+Shift+KeyG" },
+  { id: "panel-grid", label: "Grid panel", defaultBinding: "Ctrl+Alt+KeyG" },
   { id: "panel-transport", label: "Timeline panel", defaultBinding: "Ctrl+Alt+KeyT" },
   { id: "panel-settings", label: "Settings panel", defaultBinding: "Mod+Comma" },
   { id: "panel-chat", label: "AI panel", defaultBinding: "Ctrl+Alt+KeyA" },
@@ -33,6 +33,8 @@ export const SHORTCUT_ACTIONS = Object.freeze([
   { id: "modpen.toggle", label: "Mod Pen", defaultBinding: "Shift+KeyP" },
   { id: "brush.apply.selected", label: "Apply brush to selection", defaultBinding: "Ctrl+Shift+KeyP" },
   { id: "geometry.roundness.toggle", label: "Sharp / round corners", defaultBinding: "Shift+KeyR" },
+  { id: "scene.group", commandId: "scene.group", label: "Group selected scene objects", defaultBinding: "Mod+KeyG" },
+  { id: "scene.ungroup", commandId: "scene.ungroup", label: "Ungroup selected scene objects", defaultBinding: "Mod+Shift+KeyG" },
   { id: "stroke.width.decrease", label: "Decrease stroke width", defaultBinding: "BracketLeft" },
   { id: "stroke.width.increase", label: "Increase stroke width", defaultBinding: "BracketRight" },
   { id: "stroke.width.decreaseFine", label: "Decrease stroke width finely", defaultBinding: "Shift+BracketLeft" },
@@ -48,9 +50,15 @@ const usesAppleModifiers = () => typeof navigator !== "undefined" && /Mac|iPhone
 
 export const normalizeShortcutBindings = value => {
   const source = value && typeof value === "object" ? value : {};
+  // Mod+Shift+G used to be the Grid panel default. Reserve the conventional
+  // binding for Ungroup without overriding a user who has explicitly already
+  // assigned an ungroup shortcut.
+  const migrated = source["panel-grid"] === "Mod+Shift+KeyG" && source["scene.ungroup"] === undefined
+    ? { ...source, "panel-grid": "Ctrl+Alt+KeyG" }
+    : source;
   return Object.fromEntries(SHORTCUT_ACTIONS.map(action => [
     action.id,
-    typeof source[action.id] === "string" ? source[action.id] : action.defaultBinding,
+    typeof migrated[action.id] === "string" ? migrated[action.id] : action.defaultBinding,
   ]));
 };
 

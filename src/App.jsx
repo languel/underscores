@@ -21,7 +21,7 @@ import EventConsole from "./EventConsole.jsx";
 import PropertiesPanel from "./PropertiesPanel.jsx";
 import { embedPolicyForElement, isAllowedEmbedURL, sanitizeEmbedURL, shouldRenderEmbed } from "./embedPolicy.js";
 import OutlinerPanel from "./OutlinerPanel.jsx";
-import { reorderSceneElements } from "./sceneLayers.js";
+import { groupSceneElements, moveSceneElementsToGroupParent, reorderSceneElements, ungroupSceneElements } from "./sceneLayers.js";
 import IannixDataPanel from "./IannixDataPanel.jsx";
 import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, parseGenericCommandSlash } from "./commandSystem.js";
 import { buildAIAutomationGuide, isAICommandAllowed, parseDraweratorCommandTags } from "./aiTooling.js";
@@ -7140,6 +7140,49 @@ function App() {
     setInterfaceThemePreset("custom");
   };
 
+  const groupSceneSelection = (elementIds = null) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return null;
+    const selectedIds = elementIds?.length ? elementIds : Object.keys(api.getAppState().selectedElementIds || {});
+    const groupId = crypto.randomUUID();
+    const result = groupSceneElements(api.getSceneElementsIncludingDeleted(), selectedIds, groupId);
+    if (!result.groupId) {
+      setSceneExchangeStatus("Select at least two scene objects to create a group.");
+      return null;
+    }
+    const nextSelected = Object.fromEntries(selectedIds.map(id => [id, true]));
+    selectedElementIdsRef.current = nextSelected;
+    setSelectedElementIds(nextSelected);
+    api.updateScene({
+      elements: result.elements,
+      appState: { selectedElementIds: nextSelected, selectedGroupIds: { [result.groupId]: true } },
+      commitToHistory: true,
+    });
+    setSceneExchangeStatus(`Grouped ${selectedIds.length} scene objects.`);
+    return result.groupId;
+  };
+
+  const ungroupSceneSelection = (elementIds = null) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return null;
+    const selectedIds = elementIds?.length ? elementIds : Object.keys(api.getAppState().selectedElementIds || {});
+    const result = ungroupSceneElements(api.getSceneElementsIncludingDeleted(), selectedIds);
+    if (!result.groupId) {
+      setSceneExchangeStatus("Select a grouped scene object to ungroup it.");
+      return null;
+    }
+    const nextSelected = Object.fromEntries(selectedIds.map(id => [id, true]));
+    selectedElementIdsRef.current = nextSelected;
+    setSelectedElementIds(nextSelected);
+    api.updateScene({
+      elements: result.elements,
+      appState: { selectedElementIds: nextSelected, selectedGroupIds: {} },
+      commitToHistory: true,
+    });
+    setSceneExchangeStatus("Ungrouped scene objects.");
+    return result.groupId;
+  };
+
   // --- COMMAND PALETTE LOGIC ---
   const PANEL_COMMANDS = DRAWERATOR_PANELS.map(panel => ({
     id: `panel-${panel.id}`,
@@ -7450,6 +7493,8 @@ function App() {
     { id: "svg.path.reverse", name: "Reverse Selected SVG Path", category: "SVG", action: () => reverseSelectedSvgPath() },
     { id: "svg.path.anchor.insert", name: "Insert SVG Point After Selected Point", category: "SVG", action: () => insertSelectedSvgAnchor() },
     { id: "svg.path.anchor.delete", name: "Delete Selected SVG Anchor", category: "SVG", action: () => deleteSelectedSvgAnchor() },
+    { id: "scene.group", name: "Group Selected Scene Objects /group", aliases: ["/group", "Group selection"], category: "Scene", action: () => groupSceneSelection() },
+    { id: "scene.ungroup", name: "Ungroup Selected Scene Objects /ungroup", aliases: ["/ungroup", "Ungroup selection"], category: "Scene", action: () => ungroupSceneSelection() },
     { id: "svg.copy.selection", name: "Copy Selection as Editable SVG /copy svg", aliases: ["/copy svg", "Copy selection SVG"], category: "Canvas", action: () => copySelectionAsSvg() },
     { id: "svg.paste.editable", name: "Paste SVG as Editable Paths /paste svg", aliases: ["/paste svg", "Paste SVG as paths"], category: "Canvas", action: () => pasteSvgAsEditable() },
     { id: "export.board.png", name: "Export Board as PNG /export board", aliases: ["/export board", "/export png", "Export Drawerator board"], category: "Canvas", action: () => void exportDraweratorBoardPng() },
@@ -7529,7 +7574,7 @@ function App() {
     { id: "script.iannix.create", name: "AI: Create IanniX Script", category: "AI Actions", args: { name: "string", source: "IanniX source", parameters: "object?", activate: "boolean?" }, ai: { expose: true, description: "Create an editable trusted IanniX source script in the local script catalog. Source must define makeWithScript() or madeThroughGUI(), use Drawerator-supported run() commands, and put one statement per line. Creation does not run it. IanniX coordinates are model units, not canvas pixels: for visible default-scale geometry use setPos current 12 -8 0 and local points/radii near 0..8; do not use 480-style screen coordinates.", example: { name: "Two-point orbit", source: "function makeWithScript() {\n  run(\\\"clear\\\");\n  run(\\\"add curve orbit\\\");\n  run(\\\"setPos current 12 -8 0\\\");\n  run(\\\"setPointAt current 0 0 0\\\");\n  run(\\\"setPointAt current 1 8 0\\\");\n  run(\\\"add cursor traveler\\\");\n  run(\\\"setCurve current lastCurve\\\");\n}" } }, action: (_api, args) => createAIIannixScript(args) },
     { id: "script.iannix.update", name: "AI: Update IanniX Script", category: "AI Actions", args: { id: "string?", name: "string?", source: "IanniX source?", parameters: "object?" }, ai: { expose: true, description: "Rename or replace a local IanniX script without running it. Replacement source must follow the Drawerator IanniX lifecycle/run-command contract and use one statement per line.", example: { id: "iannix-script-example", source: "function makeWithScript() {\n  run(\\\"add curve orbit\\\");\n  run(\\\"setPos current 12 -8 0\\\");\n  run(\\\"setPointAt current 0 0 0\\\");\n  run(\\\"setPointAt current 1 8 0\\\");\n}" } }, action: (_api, args) => updateAIIannixScript(args) },
     { id: "script.iannix.run", name: "AI: Run IanniX Script", category: "AI Actions", args: { id: "string?", source: "IanniX source?", filename: "string?", parameters: "object?" }, ai: { expose: true, description: "Run a trusted IanniX script. Only use when the user explicitly asks to execute the generated script.", example: { id: "iannix-script-example" } }, action: (_api, args) => runAIIannixScript(args) },
-    { id: "iannix.import.trusted", name: "Import Trusted IanniX Script /iannix import", aliases: ["/iannix import"], category: "IanniX", args: { source: "string", filename: "string?", seed: "number?", anchor: "point?", scale: "number?", importId: "string?", parameters: "object?" }, validate: args => ({ ...args, importId: args?.importId || crypto.randomUUID() }), action: (_api, args) => runtimeCallbacksRef.current.iannixImport(args) },
+    { id: "iannix.import.trusted", name: "Import Trusted IanniX Script /iannix import", aliases: ["/iannix import"], category: "IanniX", args: { source: "string", filename: "string?", seed: "number?", anchor: "point?", scale: "number?", importId: "string?", scoreId: "string?", scoreLabel: "string?", parameters: "object?" }, validate: args => ({ ...args, importId: args?.importId || args?.scoreId || crypto.randomUUID() }), action: (_api, args) => runtimeCallbacksRef.current.iannixImport(args) },
     { id: "iannix.command.clear", name: "IanniX: Clear Scene /ix clear", aliases: ["/ix clear", "/iannix clear", "IanniX clear"], category: "IanniX", action: () => runtimeCallbacksRef.current.iannixCommand("clear") },
     { id: "iannix.command.execute", name: "Execute IanniX Command", category: "IanniX", args: { command: "string" }, action: (_api, args) => runtimeCallbacksRef.current.iannixCommand(args?.command) },
     { id: "ai.prompt", name: "Send AI Prompt", category: "AI Chat", args: { prompt: "string" }, action: (_api, args) => { openAISidebar(); return sendChatMessage(args?.prompt || ""); } },
@@ -9584,6 +9629,8 @@ function App() {
     return runtimeCallbacksRef.current.iannixImport({
       source,
       filename: args.filename || script?.name || "AI IanniX script",
+      scoreId: args.id || script?.id,
+      scoreLabel: script?.name || args.filename || "AI IanniX script",
       parameters: args.parameters && typeof args.parameters === "object" ? args.parameters : (script?.parameters || {}),
     });
   };
@@ -10994,7 +11041,12 @@ function App() {
       x: Number(args.anchor?.x) || 0,
       y: Number(args.anchor?.y) || 0,
     };
-    const importId = String(args.importId || "iannix").replace(/[^a-z0-9_-]/gi, "_");
+    const importId = String(args.importId || args.scoreId || "iannix").replace(/[^a-z0-9_-]/gi, "_");
+    // Score provenance deliberately remains separate from Excalidraw groupIds:
+    // IanniX's setGroup is semantic score data, while canvas groups are
+    // transform/selection containers. The Outliner composes both hierarchies.
+    const scoreId = String(args.scoreId || importId).replace(/[^a-z0-9_-]/gi, "_");
+    const scoreLabel = String(args.scoreLabel || result.title || args.filename || "IanniX score").trim() || "IanniX score";
     const internalIds = new Map(model.objects.map(object => [
       object.externalId,
       `iannix_${importId}_${String(object.externalId).replace(/[^a-z0-9_-]/gi, "_")}`,
@@ -11054,9 +11106,11 @@ function App() {
       const customData = {
         iannix,
         iannixImport: {
-          version: 1,
+          version: 2,
           externalId: object.externalId,
           group: object.group || "",
+          scoreId,
+          scoreLabel,
           authoredColor: Boolean(object.color?.length >= 3 || object.colorHue?.length >= 3),
           pattern: object.pattern || "",
           source: args.filename || "IanniX script",
@@ -11313,6 +11367,8 @@ function App() {
       await commandRegistry.execute("iannix.import.trusted", {
         source,
         filename: file.name,
+        scoreId: scriptId,
+        scoreLabel: file.name,
         seed: historyController.get()?.seed || 1,
         // IanniX coordinates are model coordinates. Keep imports independent
         // of the current pointer, pan, zoom, viewport size, and panel layout.
@@ -11876,12 +11932,14 @@ function App() {
       values: activeScript?.parameters || {},
     });
     const scriptParameterValues = getScriptParameterValues(scriptParameters);
-    const runTrustedSource = (source, filename, parameters = {}) => {
+    const runTrustedSource = (source, filename, parameters = {}, score = null) => {
       const trimmed = String(source || "").trim();
       if (!trimmed) return Promise.resolve(null);
       return commandRegistry.execute("iannix.import.trusted", {
         source: trimmed,
         filename,
+        scoreId: score?.id,
+        scoreLabel: score?.name,
         parameters,
       }, {
         source: "iannix-panel",
@@ -11891,7 +11949,7 @@ function App() {
         return null;
       });
     };
-    const runScript = () => runTrustedSource(iannixScriptSource, activeScript?.name || "IanniX editor", scriptParameterValues);
+    const runScript = () => runTrustedSource(iannixScriptSource, activeScript?.name || "IanniX editor", scriptParameterValues, activeScript);
     const runCommand = async () => {
       const command = iannixCommandSource.trim();
       if (!command) return;
@@ -16472,13 +16530,17 @@ function App() {
                 }
               })}
               onLockChange={elementId => updateSceneObject(elementId, element => { element.locked = !element.locked; })}
-              onReorder={(movedId, anchorId, placement) => {
+              onReorder={(movedId, anchorId, placement, { destinationGroupId = null } = {}) => {
                 if (!excalidrawAPI) return;
                 const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
-                const nextElements = reorderSceneElements(elements, movedId, anchorId, placement);
+                const movedIds = Array.isArray(movedId) ? movedId : [movedId];
+                const reparented = moveSceneElementsToGroupParent(elements, movedIds, destinationGroupId);
+                const nextElements = movedIds.reduce((current, id) => reorderSceneElements(current, id, anchorId, placement), reparented);
                 if (nextElements === elements) return;
                 excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
               }}
+              onGroup={elementIds => groupSceneSelection([...new Set(elementIds)])}
+              onUngroup={elementIds => ungroupSceneSelection(elementIds)}
               onRename={(elementId, label) => updateIannixElements([elementId], current => ({
                 ...current,
                 label: label || undefined,
