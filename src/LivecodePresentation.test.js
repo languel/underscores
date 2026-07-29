@@ -10,9 +10,20 @@ test("Markdown renders inline math while discarding active markup", () => {
 });
 
 test("HTML node documents are opaque-origin sandbox documents with token bridge", () => {
-  const document = buildHtmlSandboxDocument({ source: "<script>window.ran = true</script>", token: "node-token" });
+  const document = buildHtmlSandboxDocument({
+    source: "<script>window.ran = true</script>",
+    token: "node-token",
+    appearance: {
+      theme: "dark",
+      currentColor: "#d4d4d4",
+      colors: { foreground: { css: "#d4d4d4" }, canvas: { css: "#1e1e1e" } },
+    },
+  });
   assert.match(document, /draweratorLivecode/);
   assert.match(document, /node-token/);
   assert.match(document, /window\.ran = true/);
   assert.match(document, /<base target="_blank">/);
+  assert.match(document, /color-scheme:dark/);
+  assert.match(document, /color:#d4d4d4/);
+  assert.match(document, /background:#1e1e1e/);
 });

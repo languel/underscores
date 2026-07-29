@@ -73,7 +73,13 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) 
       };
       program = evaluatePlayCoreSource(config.source, drawerator);
     } catch (error) { host.textContent = `Play Core error: ${error.message || error}`; return undefined; }
-    const settings = { fps: config.fps, color: "#e8e8e8", backgroundColor: "#101010", ...(program.settings || {}) };
+    const appearanceSnapshot = appearance();
+    const settings = {
+      fps: config.fps,
+      color: appearanceSnapshot.colors?.foreground?.css || appearanceSnapshot.currentColor || "#e8e8e8",
+      backgroundColor: appearanceSnapshot.colors?.canvas?.css || "#101010",
+      ...(program.settings || {}),
+    };
     Object.assign(host.style, {
       color: settings.color,
       background: settings.backgroundColor,

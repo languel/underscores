@@ -16,7 +16,22 @@ const runtimeSnapshot = (element, node, scriptRuntimeRef) => {
 function HtmlPresentation({ element, node, scriptRuntimeRef }) {
   const iframeRef = useRef(null);
   const token = useMemo(() => `drawerator-livecode-${node.nodeId}`, [node.nodeId]);
-  const source = useMemo(() => buildHtmlSandboxDocument({ source: node.source, token }), [node.source, token]);
+  const appearance = scriptRuntimeRef.current?.getAppearance?.() || {};
+  const appearanceTheme = appearance.theme;
+  const appearanceForeground = appearance.colors?.foreground?.css || appearance.currentColor;
+  const appearanceCanvas = appearance.colors?.canvas?.css;
+  const source = useMemo(
+    () => buildHtmlSandboxDocument({
+      source: node.source,
+      token,
+      appearance: {
+        theme: appearanceTheme,
+        currentColor: appearanceForeground,
+        colors: { foreground: { css: appearanceForeground }, canvas: { css: appearanceCanvas } },
+      },
+    }),
+    [node.source, token, appearanceTheme, appearanceForeground, appearanceCanvas],
+  );
   useEffect(() => {
     const receive = event => {
       if (event.source !== iframeRef.current?.contentWindow) return;

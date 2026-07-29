@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import * as core from "@strudel/core";
 import { StrudelRuntimeManager, strudelBpmToCps } from "./strudelRuntime.js";
 
 test("Strudel transport maps Drawerator BPM to four-beat cycles", () => {
@@ -16,4 +17,20 @@ test("Strudel runtime keeps node ownership and free-run decisions separate", () 
   runtime.entries.delete("free");
   assert.equal(runtime._shouldPlay(), false);
   runtime.dispose();
+});
+
+test("Strudel runtime compiles REPL-style anonymous pattern directives", async () => {
+  const runtime = new StrudelRuntimeManager();
+  runtime.ensureScope = async () => {};
+  const previousPure = globalThis.pure;
+  globalThis.pure = core.pure;
+  try {
+    const pattern = await runtime._compile("node-a", "$: pure(1)", {});
+    assert.equal(typeof pattern.queryArc, "function");
+    assert.equal("p" in pattern, false);
+  } finally {
+    if (previousPure === undefined) delete globalThis.pure;
+    else globalThis.pure = previousPure;
+    runtime.dispose();
+  }
 });

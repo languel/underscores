@@ -2371,6 +2371,10 @@ function App() {
         accent: Object.freeze({ color: accentColor, opacity: accentOpacity, css: colorWithOpacity(accentColor, accentOpacity) }),
         highlight: Object.freeze({ color: highlightColor, opacity: highlightOpacity, css: colorWithOpacity(highlightColor, highlightOpacity) }),
         muted: Object.freeze({ color: mutedColor, opacity: mutedOpacity, css: colorWithOpacity(mutedColor, mutedOpacity) }),
+        panel: Object.freeze({ color: interfaceTheme.panel.color, opacity: interfaceTheme.panel.opacity, css: colorWithOpacity(interfaceTheme.panel.color, interfaceTheme.panel.opacity) }),
+        input: Object.freeze({ color: interfaceTheme.input.color, opacity: interfaceTheme.input.opacity, css: colorWithOpacity(interfaceTheme.input.color, interfaceTheme.input.opacity) }),
+        timeline: Object.freeze({ color: interfaceTheme.timeline.color, opacity: interfaceTheme.timeline.opacity, css: colorWithOpacity(interfaceTheme.timeline.color, interfaceTheme.timeline.opacity) }),
+        canvas: Object.freeze({ color: interfaceTheme.canvas.color, opacity: interfaceTheme.canvas.opacity, css: colorWithOpacity(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity) }),
       }),
     }),
   };

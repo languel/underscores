@@ -27,7 +27,7 @@ export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
     label: "p5",
     editorProfile: "p5",
     defaultName: "Untitled p5 node",
-    defaultSource: `function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(220);\n  circle(width / 2, height / 2, Math.min(width, height) * 0.45);\n}`,
+    defaultSource: `function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  clear();\n  noFill();\n  stroke(drawerator.currentColor);\n  circle(width / 2, height / 2, Math.min(width, height) * 0.45);\n}`,
     summary: "Self-contained p5 sketch using the existing trusted bundled p5 runtime.",
   }),
   [LIVECODE_KINDS.playcore]: Object.freeze({

@@ -23,6 +23,49 @@ const restoreGlobal = (key, value) => {
   else globalThis[key] = value;
 };
 
+// `$: pattern` is Strudel's REPL syntax for an anonymous live pattern. The
+// transpiler turns it into `pattern.p("$")`; core.repl normally installs that
+// temporary method. Livecode Nodes deliberately share one scheduler instead
+// of one REPL, so each compile captures those labelled patterns locally before
+// stacking them into the node's single scheduler entry.
+const captureLabelledPatterns = nodeId => {
+  const prototype = core.Pattern.prototype;
+  const previous = Object.getOwnPropertyDescriptor(prototype, "p");
+  const patterns = new Map();
+  let anonymousIndex = 0;
+
+  Object.defineProperty(prototype, "p", {
+    configurable: true,
+    writable: true,
+    value(patternId) {
+      let id = patternId;
+      if (typeof id === "string" && (id.startsWith("_") || id.endsWith("_"))) {
+        return core.silence;
+      }
+      if (id === "$") {
+        id = `$${anonymousIndex}`;
+        anonymousIndex += 1;
+      }
+      patterns.set(id, this);
+      return this;
+    },
+  });
+
+  return {
+    patterns,
+    restore() {
+      if (previous) Object.defineProperty(prototype, "p", previous);
+      else delete prototype.p;
+    },
+    stack() {
+      const labelled = Array.from(patterns, ([patternId, pattern]) => (
+        pattern.withState(state => state.setControls({ id: `${nodeId}:${patternId}` }))
+      ));
+      return labelled.length ? core.stack(...labelled) : null;
+    },
+  };
+};
+
 export class StrudelRuntimeManager {
   constructor() {
     this.entries = new Map();
@@ -100,12 +143,16 @@ export class StrudelRuntimeManager {
     await this.ensureScope();
     const scope = this._nodeScope(nodeId, bridge);
     const previous = Object.fromEntries(Object.keys(scope).map(key => [key, globalThis[key]]));
+    const labelled = captureLabelledPatterns(nodeId);
     Object.assign(globalThis, scope);
     try {
       const { pattern } = await core.evaluate(source, transpiler, { id: nodeId });
-      if (!core.isPattern(pattern)) throw new Error("Strudel source must evaluate to a pattern.");
-      return pattern;
+      const captured = labelled.stack();
+      const result = captured || pattern;
+      if (!core.isPattern(result)) throw new Error("Strudel source must evaluate to a pattern.");
+      return result;
     } finally {
+      labelled.restore();
       Object.entries(previous).forEach(([key, value]) => restoreGlobal(key, value));
     }
   }

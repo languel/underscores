@@ -50,9 +50,15 @@ export const renderLatex = source => {
   }
 };
 
-export const buildHtmlSandboxDocument = ({ source, token }) => `<!doctype html>
+const safeCssValue = value => String(value || "").replace(/[;{}<>]/g, "");
+
+export const buildHtmlSandboxDocument = ({ source, token, appearance = {} }) => {
+  const foreground = safeCssValue(appearance.colors?.foreground?.css || appearance.currentColor || "#202428");
+  const canvas = safeCssValue(appearance.colors?.canvas?.css || (appearance.theme === "dark" ? "#121212" : "#ffffff"));
+  const colorScheme = appearance.theme === "dark" ? "dark" : "light";
+  return `<!doctype html>
 <html><head><meta charset="utf-8"><base target="_blank">
-<style>html,body{box-sizing:border-box;width:100%;min-height:100%;margin:0}body{overflow:auto}</style>
+<style>:root{color-scheme:${colorScheme};color:${foreground};background:${canvas}}html,body{box-sizing:border-box;width:100%;min-height:100%;margin:0}body{overflow:auto;color:inherit;background:inherit}</style>
 </head><body>
 <script>
   (() => {
@@ -70,3 +76,4 @@ export const buildHtmlSandboxDocument = ({ source, token }) => `<!doctype html>
 </script>
 ${String(source || "")}
 </body></html>`;
+};
