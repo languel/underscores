@@ -50,7 +50,14 @@ export const LIVECODE_ADAPTERS = Object.freeze({
       });
     },
   }),
-  [LIVECODE_KINDS.strudel]: Object.freeze({ id: LIVECODE_KINDS.strudel, runtime: "pending", validate: () => ({ valid: true, error: "" }) }),
+  [LIVECODE_KINDS.strudel]: Object.freeze({
+    id: LIVECODE_KINDS.strudel,
+    runtime: "strudel",
+    validate: source => String(source || "").trim()
+      ? { valid: true, error: "" }
+      : { valid: false, error: "Enter a Strudel pattern before running this node." },
+    makeRuntimeConfig: rawNode => normalizeLivecodeNode(rawNode),
+  }),
   [LIVECODE_KINDS.markdown]: Object.freeze({ id: LIVECODE_KINDS.markdown, runtime: "presentation", validate: () => ({ valid: true, error: "" }) }),
   [LIVECODE_KINDS.latex]: Object.freeze({ id: LIVECODE_KINDS.latex, runtime: "presentation", validate: () => ({ valid: true, error: "" }) }),
   [LIVECODE_KINDS.html]: Object.freeze({ id: LIVECODE_KINDS.html, runtime: "presentation", validate: () => ({ valid: true, error: "" }) }),
@@ -73,7 +80,7 @@ export const getLivecodeRuntimeConfig = rawNode => {
 
 export const hasNativeLivecodeRuntime = rawNode => {
   const runtime = getLivecodeAdapter(rawNode).runtime;
-  return runtime === "p5" || runtime === "playcore";
+  return runtime === "p5" || runtime === "playcore" || runtime === "strudel";
 };
 
 export const isLivecodeNodeRunnable = rawNode => {
@@ -85,6 +92,7 @@ export const describeLivecodeRuntime = rawNode => {
   const adapter = getLivecodeAdapter(rawNode);
   if (adapter.runtime === "p5") return "Bundled p5 runtime";
   if (adapter.runtime === "playcore") return "Bundled Play Core runtime";
+  if (adapter.runtime === "strudel") return "Shared native Strudel scheduler";
   if (adapter.runtime === "presentation") return "Presentation renderer arrives in the presentation phase.";
   return "Native runtime arrives in a later phase.";
 };

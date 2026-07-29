@@ -2094,6 +2094,42 @@ body .excalidraw .sidebar {
   height: 100%;
 }
 
+.livecode-strudel-runtime {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 72px;
+  padding: 18px 14px 12px;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--drawerator-panel-bg, var(--island-bg-color)) 30%, transparent);
+}
+
+.livecode-strudel-scope {
+  display: grid;
+  grid-template-columns: repeat(16, minmax(0, 1fr));
+  gap: 4px;
+  align-items: end;
+  height: calc(100% - 20px);
+}
+
+.livecode-strudel-scope span {
+  min-height: 7%;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--color-secondary) 20%, transparent);
+}
+
+.livecode-strudel-scope span.active {
+  min-height: 58%;
+  background: color-mix(in srgb, var(--drawerator-highlight, var(--drawerator-accent)) 72%, transparent);
+}
+
+.livecode-strudel-runtime small {
+  display: block;
+  margin-top: 8px;
+  color: var(--color-secondary);
+  font: 10px/1 var(--font-sans);
+}
+
 .livecode-node-runtime .drawerator-play-core-host {
   box-sizing: border-box;
   display: block;

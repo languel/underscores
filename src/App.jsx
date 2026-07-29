@@ -82,6 +82,7 @@ import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
 import { LivecodeNodeEditor, LivecodeNodeOverlay } from "./LivecodeNodeOverlay.jsx";
 import { createLivecodeNode, defaultLivecodeName, getLivecodeKindDefinition, isLivecodeNodeElement, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode } from "./livecodeNode.js";
 import { describeLivecodeRuntime, hasNativeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
+import { getStrudelRuntimeManager } from "./strudelRuntime.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
 import { insertSvgNode, prepareSvgForStructuredEditing, updateSvgNodeData } from "./svgDocumentModel.js";
 import { executeSvgStructuredCommand } from "./svgCommandApi.js";
@@ -9559,6 +9560,14 @@ function App() {
       setLivecodeStatus(`${getLivecodeKindDefinition(node.kind).label} draft has an error: ${validation.error}`);
       return;
     }
+    if (running && node.kind === LIVECODE_KINDS.strudel) {
+      // Begin Web Audio initialization in the direct button gesture. A linked
+      // node may remain silent until Drawerator transport starts, but its audio
+      // capability is unlocked here rather than by a later effect.
+      void getStrudelRuntimeManager().unlock().catch(error => {
+        setLivecodeStatus(`Could not unlock Strudel audio: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
     patchLivecodeCanvasNode(elementId, {
       runtime: { running },
       ...(running && hasNativeLivecodeRuntime(node) ? { view: "preview" } : {}),
@@ -17973,6 +17982,7 @@ function App() {
           onToggleRun={toggleLivecodeNodeRun}
           onDock={dockLivecodeCanvasNode}
           scriptRuntimeRef={scriptRuntimeRef}
+          transport={{ playing: scorePlaying, bpm: scoreTempo }}
         />
         <SvgObjectOverlay
           elements={svgOverlayScene.elements}

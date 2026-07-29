@@ -3,6 +3,9 @@ import DraweratorCodeEditor from "./DraweratorCodeEditor.jsx";
 import P5Frame from "./P5Frame.jsx";
 import { PlayCoreFrame } from "./PlayCoreFrame.jsx";
 import { getLivecodeRuntimeConfig, isLivecodeNodeRunnable, validateLivecodeNode } from "./livecodeAdapters.js";
+import { getStrudelRuntimeManager } from "./strudelRuntime.js";
+import { createScriptCanvasApi, resolveScriptParameterValues } from "./scriptRuntime.js";
+import { parseScriptParameters } from "./scriptParameters.js";
 import {
   getLivecodeEditorProfile,
   getLivecodeFont,
@@ -52,6 +55,73 @@ export function LivecodeNodeEditor({
 
 const previewSource = source => String(source || "").split("\n").slice(0, 18).join("\n");
 
+const strudelScopePoints = source => {
+  const hash = Array.from(String(source || "")).reduce((total, character) => (total * 31 + character.charCodeAt(0)) >>> 0, 0);
+  return Array.from({ length: 32 }, (_, index) => (hash >>> (index % 24)) & 1);
+};
+
+function createLivecodeBridge(element, node, scriptRuntimeRef) {
+  const canvas = createScriptCanvasApi(scriptRuntimeRef);
+  const params = resolveScriptParameterValues(
+    parseScriptParameters(node.source, { values: node.parameters }),
+    scriptRuntimeRef,
+    canvas,
+  );
+  const appearance = () => scriptRuntimeRef.current?.getAppearance?.() || {
+    theme: "dark", currentColor: "#e8e8e8", currentOpacity: 1, colors: {},
+  };
+  return Object.freeze({
+    element: Object.freeze({ id: element.id, width: element.width, height: element.height }),
+    frame: node,
+    canvas,
+    objects: canvas,
+    events: canvas.events,
+    transport: canvas.transport,
+    params,
+    get object() { return canvas.get(element.id); },
+    get time() { return canvas.transport.time; },
+    get currentColor() { return appearance().currentColor; },
+    get currentOpacity() { return appearance().currentOpacity; },
+    get colors() { return appearance().colors; },
+    get theme() { return appearance().theme; },
+    get appearance() { return appearance(); },
+    get api() { return window.drawerator; },
+  });
+}
+
+function StrudelNodeRuntime({ element, node, scriptRuntimeRef }) {
+  const runtime = useMemo(() => getStrudelRuntimeManager(), []);
+  const [status, setStatus] = useState("Compiling pattern…");
+  const bridge = useMemo(
+    () => createLivecodeBridge(element, node, scriptRuntimeRef),
+    [element, node.source, node.parameters, node.revision, scriptRuntimeRef],
+  );
+  useEffect(() => {
+    let cancelled = false;
+    void runtime.upsert({
+      nodeId: element.id,
+      source: node.source,
+      transportMode: node.runtime.transportMode,
+      bridge,
+    }).then(() => {
+      if (!cancelled) setStatus(node.runtime.transportMode === "free" ? "Free-run" : "Transport linked");
+    }).catch(error => {
+      if (!cancelled) setStatus(error instanceof Error ? error.message : String(error));
+    });
+    return () => {
+      cancelled = true;
+      void runtime.remove(element.id);
+    };
+  }, [bridge, element.id, node.runtime.transportMode, node.source, runtime]);
+  const points = strudelScopePoints(node.source);
+  return <div className="livecode-strudel-runtime" aria-label="Strudel runtime">
+    <div className="livecode-strudel-scope" aria-hidden="true">
+      {points.map((active, index) => <span className={active ? "active" : ""} key={index} />)}
+    </div>
+    <small>{status}</small>
+  </div>;
+}
+
 function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef }) {
   const parametersKey = JSON.stringify(node.parameters);
   const settingsKey = JSON.stringify(node.runtime.settings);
@@ -72,6 +142,9 @@ function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef }) {
 }
 
 function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef }) {
+  if (node.kind === "strudel" && isLivecodeNodeRunnable(node)) {
+    return <StrudelNodeRuntime element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} />;
+  }
   return isLivecodeNodeRunnable(node)
     ? <PersistedLivecodeRuntime key={node.kind} element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} />
     : null;
@@ -137,6 +210,7 @@ export function LivecodeNodeOverlay({
   onToggleRun,
   onDock,
   scriptRuntimeRef,
+  transport,
 }) {
   const camera = useMemo(() => ({
     zoom: Number(appState?.zoom?.value) || 1,
@@ -144,6 +218,12 @@ export function LivecodeNodeOverlay({
     scrollY: Number(appState?.scrollY) || 0,
     selectedElementIds: appState?.selectedElementIds || {},
   }), [appState]);
+  useEffect(() => {
+    void getStrudelRuntimeManager().setTransport({
+      playing: Boolean(transport?.playing),
+      bpm: Number(transport?.bpm) || 120,
+    });
+  }, [transport?.playing, transport?.bpm]);
   return <div className="drawerator-livecode-overlay" aria-label="Livecode canvas nodes">{elements.filter(shouldRenderLivecodeNode).map(element => {
     const node = normalizeLivecodeNode(element.customData.draweratorLivecode);
     const selected = Boolean(camera.selectedElementIds[element.id]);
