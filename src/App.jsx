@@ -79,6 +79,8 @@ import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_EXAM
 import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
 import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
+import { LivecodeNodeEditor, LivecodeNodeOverlay } from "./LivecodeNodeOverlay.jsx";
+import { createLivecodeNode, defaultLivecodeName, getLivecodeKindDefinition, isLivecodeNodeElement, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode } from "./livecodeNode.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
 import { insertSvgNode, prepareSvgForStructuredEditing, updateSvgNodeData } from "./svgDocumentModel.js";
 import { executeSvgStructuredCommand } from "./svgCommandApi.js";
@@ -2027,6 +2029,11 @@ function App() {
   const svgSourceSelectionMutedUntilRef = useRef(0);
   const [p5OverlayScene, setP5OverlayScene] = useState({ elements: [], appState: null });
   const [svgOverlayScene, setSvgOverlayScene] = useState({ elements: [], appState: null });
+  const [livecodeOverlayScene, setLivecodeOverlayScene] = useState({ elements: [], appState: null });
+  const [livecodeEditorId, setLivecodeEditorId] = useState(null);
+  const [livecodeEditorPlacement, setLivecodeEditorPlacement] = useState("canvas");
+  const [livecodeStatus, setLivecodeStatus] = useState("");
+  const livecodeDirtyIdsRef = useRef(new Set());
   const selectedSvgForEditor = useMemo(() => {
     const selectedIds = svgOverlayScene.appState?.selectedElementIds || {};
     return svgOverlayScene.elements.find(element => selectedIds[element.id] && isSvgObjectElement(element)) || null;
@@ -2293,6 +2300,7 @@ function App() {
   const excalidrawAPIRef = useRef(null);
   const p5OverlaySyncRef = useRef({ signature: "", pending: null, raf: 0 });
   const svgOverlaySyncRef = useRef({ signature: "", pending: null, raf: 0 });
+  const livecodeOverlaySyncRef = useRef({ signature: "", pending: null, raf: 0 });
   const importSvgMarkupRef = useRef(null);
   const svgClipboardCacheRef = useRef(null);
   const scoreTimeRef = useRef(scoreTime);
@@ -2333,6 +2341,12 @@ function App() {
     ));
     return matches.length === 1 ? matches[0] : null;
   }, [p5OverlayScene.elements, selectedElementIds]);
+  const selectedLivecodeNodeForEditor = useMemo(() => {
+    const matches = livecodeOverlayScene.elements.filter(element => (
+      selectedElementIds[element.id] && isLivecodeNodeElement(element)
+    ));
+    return matches.length === 1 ? matches[0] : null;
+  }, [livecodeOverlayScene.elements, selectedElementIds]);
   const scriptRuntimeRef = useRef({});
   const scriptCanvasApiRef = useRef(null);
   scriptRuntimeRef.current = {
@@ -3028,6 +3042,7 @@ function App() {
     const elements = excalidrawAPI.getSceneElementsIncludingDeleted?.() || excalidrawAPI.getSceneElements();
     syncP5Overlay(elements, excalidrawAPI.getAppState());
     syncSvgOverlay(elements, excalidrawAPI.getAppState());
+    syncLivecodeOverlay(elements, excalidrawAPI.getAppState());
   }, [excalidrawAPI]);
 
   useEffect(() => () => {
@@ -3036,6 +3051,9 @@ function App() {
     }
     if (svgOverlaySyncRef.current.raf) {
       cancelAnimationFrame(svgOverlaySyncRef.current.raf);
+    }
+    if (livecodeOverlaySyncRef.current.raf) {
+      cancelAnimationFrame(livecodeOverlaySyncRef.current.raf);
     }
   }, []);
 
@@ -3081,6 +3099,20 @@ function App() {
     setPlayCoreSource(previous => previous === frame.source ? previous : frame.source);
     setPlayCoreScriptNameDraft(script?.name || "Untitled Play Core");
   }, [scriptPanelType, selectedPlayCoreFrameForEditor]);
+
+  // A Livecode Node is its own canonical working file. Selecting a node while
+  // the Script panel is in Livecode mode merely retargets the same controller;
+  // there is no browser-local catalog or second draft to reconcile.
+  useEffect(() => {
+    if (scriptPanelType !== "livecode" || !selectedLivecodeNodeForEditor) return;
+    setLivecodeEditorId(selectedLivecodeNodeForEditor.id);
+  }, [scriptPanelType, selectedLivecodeNodeForEditor]);
+
+  useEffect(() => {
+    if (livecodeEditorPlacement !== "canvas" || !livecodeEditorId || selectedElementIds[livecodeEditorId]) return;
+    commitLivecodeCanvasNode(livecodeEditorId);
+    setLivecodeEditorId(null);
+  }, [livecodeEditorId, livecodeEditorPlacement, selectedElementIds]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_panel_visibility_v1", JSON.stringify(openPanels));
@@ -4179,7 +4211,44 @@ function App() {
     return true;
   };
 
+  const enterLivecodeEditAtPointer = e => {
+    if (!excalidrawAPI || excalidrawAPI.getAppState().activeTool?.type !== "selection") return false;
+    const [x, y] = getCanvasCoords(e.clientX, e.clientY, "none");
+    const candidates = excalidrawAPI.getSceneElements().filter(element => (
+      !element.isDeleted && isLivecodeNodeElement(element) && !element.customData?.outlinerHidden
+    ));
+    const hit = [...candidates].reverse().find(element => {
+      const centerX = element.x + element.width / 2;
+      const centerY = element.y + element.height / 2;
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const angle = Number(element.angle) || 0;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const localX = cos * dx + sin * dy;
+      const localY = -sin * dx + cos * dy;
+      return Math.abs(localX) <= element.width / 2 && Math.abs(localY) <= element.height / 2;
+    });
+    if (!hit) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    excalidrawAPI.updateScene({
+      appState: {
+        selectedElementIds: { [hit.id]: true },
+        selectedGroupIds: {},
+        editingLinearElement: null,
+        selectedLinearElement: null,
+      },
+      commitToHistory: false,
+    });
+    setSelectedElementIds({ [hit.id]: true });
+    editLivecodeCanvasNode(hit.id);
+    return true;
+  };
+
   const handleCanvasDoubleClick = e => {
+    if (e.target?.closest?.(".drawerator-code-editor")) return;
+    if (enterLivecodeEditAtPointer(e)) return;
     if (insertSvgPathAnchorAtPointer(e)) return;
     enterBezierEditAtPointer(e);
   };
@@ -4787,6 +4856,11 @@ function App() {
     // the iframe receives focus, which makes interactive presentation embeds
     // feel unreliable.
     if (e.target?.closest?.(".drawerator-embed-interactive")) return;
+
+    // Livecode Nodes reuse CodeMirror. Once their local editor or compact
+    // chrome has focus, the canvas must not start a selection/drawing gesture
+    // underneath it.
+    if (e.target?.closest?.(".drawerator-livecode-node")) return;
 
     // SVG control circles own their pointer session directly. This prevents a
     // drag from also reaching Excalidraw's drawing tools.
@@ -5715,6 +5789,7 @@ function App() {
         showSvgActions: true,
         showBoardExport: true,
         showP5FrameExport: selectedContextElements.some(isP5FrameElement),
+        showCreateLivecode: true,
         hasSelection: true,
       });
     } else {
@@ -5724,6 +5799,7 @@ function App() {
         showSvgActions: true,
         showBoardExport: true,
         showP5FrameExport: false,
+        showCreateLivecode: true,
         hasSelection: false,
       });
     }
@@ -7615,6 +7691,19 @@ function App() {
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
+    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|playcore|markdown|latex|html|orca?", name: "string?", width: "number?", height: "number?", source: "string?", running: "boolean?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. It is a transparent Excalidraw identity host with source, parameters, runtime state, and typography stored on the scene element. Do not attach it to another rectangle.", example: { kind: "markdown", name: "Title slide", width: 640, height: 360, source: "# Drawerator\n\nA live canvas score." } }, action: (_api, args) => createLivecodeCanvasNode(args) },
+    { id: "livecode.node.edit", name: "Edit Selected Livecode Node", aliases: ["Edit livecode node"], category: "Livecode", action: () => {
+      const node = getSelectedElements().find(isLivecodeNodeElement);
+      if (!node) throw new Error("Select one Livecode Node first.");
+      editLivecodeCanvasNode(node.id);
+      return { elementIds: [node.id] };
+    } },
+    { id: "livecode.node.dock", name: "Dock Selected Livecode Node", aliases: ["Dock livecode node"], category: "Livecode", action: () => {
+      const node = getSelectedElements().find(isLivecodeNodeElement);
+      if (!node) throw new Error("Select one Livecode Node first.");
+      dockLivecodeCanvasNode(node.id);
+      return { elementIds: [node.id] };
+    } },
     { id: "script.svg.open", name: "Open SVG Script Editor /svg", aliases: ["/svg", "SVG editor", "SVG script"], category: "SVG", record: "presentation", action: () => toggleDraweratorPanel("script", { scriptType: "svg" }) },
     { id: "svg.object.run", name: "Run SVG Source /svg run", aliases: ["/svg run", "Create SVG object", "Run SVG source"], category: "SVG", args: { source: "SVG markup", name: "string?", elementId: "string?", scriptId: "string?" }, ai: { expose: true, description: "Create a first-class SVG canvas object from complete raw <svg> markup, or update elementId when it already identifies an SVG object. The source remains editable and is not flattened into native paths.", example: { name: "Wave mark", source: "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 320 180\"><path d=\"M20 90 C80 20 140 160 300 90\" fill=\"none\" stroke=\"#1769e0\" stroke-width=\"5\"/></svg>" } }, action: (_api, args) => runSvgObjectSource(args) },
     { id: "svg.document.get", name: "Get SVG Document", category: "SVG", args: { elementId: "string?" }, ai: { expose: true, description: "Read the canonical source and current revision of a first-class SVG document.", example: { elementId: "svg-host" } }, action: (_api, args) => executeCanvasSvgCommand("svg.document.get", args) },
@@ -9415,6 +9504,107 @@ function App() {
     setSelectedElementIds({ [element.id]: true });
     setPlayCoreSource(source);
     return { elementIds: [element.id], name: script.name };
+  };
+
+  const patchLivecodeCanvasNode = (elementId, patch = {}, { commitToHistory = false } = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return null;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const existing = elements.find(element => element.id === elementId && !element.isDeleted && isLivecodeNodeElement(element));
+    if (!existing) return null;
+    const previous = normalizeLivecodeNode(existing.customData?.draweratorLivecode);
+    const node = patchLivecodeNode(previous, patch);
+    const now = Date.now();
+    api.updateScene({
+      elements: elements.map(element => element.id !== elementId ? element : {
+        ...element,
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: now,
+        customData: {
+          ...(element.customData || {}),
+          draweratorLivecode: node,
+        },
+      }),
+      commitToHistory,
+    });
+    if (Object.hasOwn(patch, "source")) livecodeDirtyIdsRef.current.add(elementId);
+    return node;
+  };
+
+  const commitLivecodeCanvasNode = elementId => {
+    if (!livecodeDirtyIdsRef.current.has(elementId)) return;
+    livecodeDirtyIdsRef.current.delete(elementId);
+    patchLivecodeCanvasNode(elementId, {}, { commitToHistory: true });
+    setLivecodeStatus("Saved to the scene.");
+  };
+
+  const toggleLivecodeNodeRun = elementId => {
+    const element = (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || []).find(candidate => (
+      candidate.id === elementId && !candidate.isDeleted && isLivecodeNodeElement(candidate)
+    ));
+    if (!element) return;
+    const node = normalizeLivecodeNode(element.customData?.draweratorLivecode);
+    const running = !node.runtime.running;
+    patchLivecodeCanvasNode(elementId, { runtime: { running } }, { commitToHistory: true });
+    setLivecodeStatus(running ? `${getLivecodeKindDefinition(node.kind).label} node armed. Its native runtime arrives in its adapter phase.` : "Livecode node stopped.");
+  };
+
+  const editLivecodeCanvasNode = elementId => {
+    setLivecodeEditorId(elementId);
+    setLivecodeEditorPlacement("canvas");
+    setLivecodeStatus("");
+  };
+
+  const dockLivecodeCanvasNode = elementId => {
+    setLivecodeEditorId(elementId);
+    setLivecodeEditorPlacement("docked");
+    toggleDraweratorPanel("script", { scriptType: "livecode" });
+  };
+
+  const createLivecodeCanvasNode = (args = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const appState = api.getAppState();
+    const center = viewportCoordsToSceneCoords({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 }, appState);
+    const kind = args.kind;
+    const node = createLivecodeNode({
+      kind,
+      name: args.name || defaultLivecodeName(kind),
+      source: typeof args.source === "string" ? args.source : undefined,
+      parameters: args.parameters,
+      runtime: {
+        running: Boolean(args.running),
+        enabled: args.enabled !== false,
+        transportMode: args.transportMode,
+      },
+      view: args.view,
+      typography: args.typography,
+    });
+    const width = Math.max(120, Math.min(4096, Number(args.width) || (node.kind === LIVECODE_KINDS.orca ? 480 : 520)));
+    const height = Math.max(90, Math.min(4096, Number(args.height) || (node.kind === LIVECODE_KINDS.orca ? 320 : 300)));
+    const base = createBaseElement("rectangle", center.x - width / 2, center.y - height / 2, width, height, "transparent");
+    const element = {
+      ...base,
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      backgroundColor: "transparent",
+      fillStyle: "solid",
+      customData: { draweratorLivecode: node },
+    };
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    api.updateScene({
+      elements: [...elements, element],
+      appState: {
+        selectedElementIds: { [element.id]: true },
+        selectedGroupIds: {},
+        activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false },
+      },
+      commitToHistory: true,
+    });
+    setSelectedElementIds({ [element.id]: true });
+    editLivecodeCanvasNode(element.id);
+    return { elementIds: [element.id], nodeId: node.nodeId, name: node.name, kind: node.kind };
   };
 
   const runSvgObjectSource = ({
@@ -12970,6 +13160,62 @@ function App() {
     </div>;
   };
 
+  const renderLivecodeScriptTab = () => {
+    const nodeElement = livecodeOverlayScene.elements.find(element => element.id === livecodeEditorId)
+      || selectedLivecodeNodeForEditor
+      || livecodeOverlayScene.elements[0]
+      || null;
+    if (!nodeElement) return <div className="scene-panel-empty">
+      <p>Create a self-contained Livecode Node to edit it here or directly on the canvas.</p>
+      <button type="button" className="palette-action-btn primary" onClick={() => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel })}>Create Livecode Node</button>
+    </div>;
+    const node = normalizeLivecodeNode(nodeElement.customData?.draweratorLivecode);
+    const definition = getLivecodeKindDefinition(node.kind);
+    const selectNode = elementId => {
+      const api = excalidrawAPIRef.current;
+      if (!api) return;
+      const activeTool = api.getAppState().activeTool || {};
+      api.updateScene({ appState: { selectedElementIds: { [elementId]: true }, selectedGroupIds: {}, activeTool: { ...activeTool, type: "selection", locked: false } }, commitToHistory: false });
+      setSelectedElementIds({ [elementId]: true });
+      setLivecodeEditorId(elementId);
+    };
+    return <div className="iannix-properties iannix-script-pane p5-script-pane livecode-script-pane">
+      <select className="custom-brush-select" value={nodeElement.id} onChange={event => selectNode(event.target.value)} aria-label="Livecode node">
+        {livecodeOverlayScene.elements.map(element => {
+          const candidate = normalizeLivecodeNode(element.customData?.draweratorLivecode);
+          return <option key={element.id} value={element.id}>{getLivecodeKindDefinition(candidate.kind).label} · {candidate.name}</option>;
+        })}
+      </select>
+      <div className="livecode-panel-controls">
+        <label>Kind <select value={node.kind} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { kind: event.target.value, name: defaultLivecodeName(event.target.value) }, { commitToHistory: true })}>{Object.entries(LIVECODE_KINDS).map(([key, value]) => <option key={key} value={value}>{getLivecodeKindDefinition(value).label}</option>)}</select></label>
+        <label>View <select value={node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="code">Code</option><option value="preview">Preview</option></select></label>
+        <label>Font <select value={node.typography.font} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { font: event.target.value } }, { commitToHistory: true })}><option value="mono">Mono</option><option value="sans">Sans</option><option value="serif">Serif</option></select></label>
+      </div>
+      <div className="script-icon-toolbar">
+        <button type="button" className="palette-action-btn primary script-icon-button" onClick={() => toggleLivecodeNodeRun(nodeElement.id)} title={node.runtime.running ? "Stop this node" : "Run this node"} aria-label={node.runtime.running ? "Stop livecode node" : "Run livecode node"}><ScriptActionIcon type="run" /></button>
+        <button type="button" className="palette-action-btn secondary script-icon-button" onClick={() => commitLivecodeCanvasNode(nodeElement.id)} title="Save source to the scene" aria-label="Save livecode source"><ScriptActionIcon type="save" /></button>
+        <button
+          type="button"
+          className="palette-action-btn secondary"
+          onClick={() => livecodeEditorPlacement === "canvas"
+            ? dockLivecodeCanvasNode(nodeElement.id)
+            : (setLivecodeEditorPlacement("canvas"), setLivecodeEditorId(nodeElement.id))}
+          title={livecodeEditorPlacement === "canvas" ? "Move this same editor to the Script panel" : "Move this same editor back to the canvas"}
+        >{livecodeEditorPlacement === "canvas" ? "Dock" : "Undock"}</button>
+        <button type="button" className="palette-action-btn secondary script-icon-button" onClick={() => createLivecodeCanvasNode({ kind: node.kind })} title="New livecode node" aria-label="New livecode node"><ScriptActionIcon type="add" /></button>
+        <ScriptFontSizeControl value={node.typography.fontSize} onChange={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontSize: value } }, { commitToHistory: true })} />
+      </div>
+      {livecodeEditorPlacement === "docked" ? <LivecodeNodeEditor
+        node={node}
+        onPatch={patch => patchLivecodeCanvasNode(nodeElement.id, patch)}
+        onRun={() => toggleLivecodeNodeRun(nodeElement.id)}
+        onBlur={() => commitLivecodeCanvasNode(nodeElement.id)}
+        ariaLabel={`${definition.label} node source`}
+      /> : <p className="livecode-panel-location">Editing this same node on the canvas. Dock it to move the editor here.</p>}
+      <p className="p5-script-status" role="status" aria-live="polite">{livecodeStatus || definition.summary}</p>
+    </div>;
+  };
+
   const renderSvgScriptTab = () => {
     const analysis = analyzeSvgSource(svgScriptSource);
     const activeScript = svgScripts.find(script => script.id === activeSvgScriptId);
@@ -15734,6 +15980,53 @@ function App() {
       setSvgOverlayScene(svgOverlaySyncRef.current.pending);
     });
   };
+  const syncLivecodeOverlay = (elements, appState) => {
+    const nodes = (elements || []).filter(element => !element.isDeleted && isLivecodeNodeElement(element));
+    const camera = {
+      scrollX: Number(appState?.scrollX) || 0,
+      scrollY: Number(appState?.scrollY) || 0,
+      zoom: { value: Number(appState?.zoom?.value) || 1 },
+      selectedElementIds: { ...(appState?.selectedElementIds || {}) },
+    };
+    const selectedSignature = Object.keys(camera.selectedElementIds).filter(id => camera.selectedElementIds[id]).sort().join(",");
+    const signature = [
+      camera.scrollX,
+      camera.scrollY,
+      camera.zoom.value,
+      selectedSignature,
+      ...nodes.map(element => {
+        const node = normalizeLivecodeNode(element.customData?.draweratorLivecode);
+        return [
+          element.id,
+          element.x,
+          element.y,
+          element.width,
+          element.height,
+          element.angle,
+          element.opacity,
+          element.version,
+          element.versionNonce,
+          element.customData?.outlinerHidden ? 1 : 0,
+          node.revision,
+          node.runtime.running ? 1 : 0,
+          node.view,
+          node.kind,
+          node.name,
+          node.source,
+          JSON.stringify(node.typography),
+          JSON.stringify(node.runtime),
+        ].join(",");
+      }),
+    ].join("|");
+    if (livecodeOverlaySyncRef.current.signature === signature) return;
+    livecodeOverlaySyncRef.current.signature = signature;
+    livecodeOverlaySyncRef.current.pending = { elements: nodes, appState: camera };
+    if (livecodeOverlaySyncRef.current.raf) return;
+    livecodeOverlaySyncRef.current.raf = requestAnimationFrame(() => {
+      livecodeOverlaySyncRef.current.raf = 0;
+      setLivecodeOverlayScene(livecodeOverlaySyncRef.current.pending);
+    });
+  };
   const updateInfoViewFromEvent = event => {
     const target = event.target?.closest?.("[data-info]");
     if (!target) return;
@@ -15811,6 +16104,7 @@ function App() {
             applyForceDesktopOverride(false);
             syncP5Overlay(elements, appState);
             syncSvgOverlay(elements, appState);
+            syncLivecodeOverlay(elements, appState);
 
             const nativeBezierEditId = appState.editingLinearElement?.elementId || null;
             const nativeBezierEditElement = nativeBezierEditId
@@ -16939,10 +17233,17 @@ function App() {
               svgJointConnectionCount={getSelectedSvgJointConnections().length}
               svgJointDetachArmed={isSelectedSvgJointDetachArmed()}
               onDetachSvgJoint={detachSelectedSvgJoint}
-              onRename={(elementId, label) => updateIannixElements([elementId], current => ({
-                ...current,
-                label: label || undefined,
-              }))}
+              onRename={(elementId, label) => {
+                const element = excalidrawAPI?.getSceneElementsIncludingDeleted?.().find(candidate => candidate.id === elementId);
+                if (isLivecodeNodeElement(element)) {
+                  patchLivecodeCanvasNode(elementId, { name: label || getLivecodeKindDefinition(element.customData.draweratorLivecode?.kind).defaultName }, { commitToHistory: true });
+                  return;
+                }
+                updateIannixElements([elementId], current => ({
+                  ...current,
+                  label: label || undefined,
+                }));
+              }}
             />
           </DraweratorPanel>
           )}
@@ -17376,8 +17677,10 @@ function App() {
                 ? renderIannixScriptTab()
                 : scriptPanelType === "p5"
                   ? renderP5ScriptTab()
-                  : scriptPanelType === "play"
-                    ? renderPlayCoreScriptTab()
+                : scriptPanelType === "play"
+                  ? renderPlayCoreScriptTab()
+                  : scriptPanelType === "livecode"
+                    ? renderLivecodeScriptTab()
                   : scriptPanelType === "svg"
                     ? renderSvgScriptTab()
                     : renderBrushConfigForm()}
@@ -17583,6 +17886,16 @@ function App() {
           scriptRuntimeRef={scriptRuntimeRef}
         />
         <PlayCoreFrameOverlay elements={p5OverlayScene.elements} appState={p5OverlayScene.appState} scriptRuntimeRef={scriptRuntimeRef} />
+        <LivecodeNodeOverlay
+          elements={livecodeOverlayScene.elements}
+          appState={livecodeOverlayScene.appState}
+          activeEditorId={livecodeEditorPlacement === "canvas" ? livecodeEditorId : null}
+          onEdit={editLivecodeCanvasNode}
+          onPatch={(elementId, patch) => patchLivecodeCanvasNode(elementId, patch)}
+          onCommit={commitLivecodeCanvasNode}
+          onToggleRun={toggleLivecodeNodeRun}
+          onDock={dockLivecodeCanvasNode}
+        />
         <SvgObjectOverlay
           elements={svgOverlayScene.elements}
           appState={svgOverlayScene.appState}
@@ -17870,8 +18183,26 @@ function App() {
                   Export Selected p5 Frame as PNG
                 </button>
               )}
-              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showToSvg || customContextMenu.showMakeRole || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showAttachSvgCode || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
+              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showToSvg || customContextMenu.showMakeRole || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showAttachSvgCode || customContextMenu.showCreateLivecode || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
             </>
+          )}
+          {customContextMenu.showCreateLivecode && (
+            <button
+              onPointerDown={event => {
+                event.preventDefault();
+                event.stopPropagation();
+                createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel });
+                setCustomContextMenu(null);
+              }}
+              className="custom-floating-context-menu-btn"
+              title="Create a self-contained livecoding canvas node"
+            >
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                <rect x="4" y="4" width="16" height="16" rx="2" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="m9 9 3 3-3 3M15 15h2" />
+              </svg>
+              New Livecode Node
+            </button>
           )}
           {customContextMenu.showRestore && (
             <button

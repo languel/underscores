@@ -8,11 +8,14 @@ import {
 import { getIannixCommandAtSourcePosition } from "./iannixCommandReference.js";
 
 test("every script adapter has one editor language profile", () => {
-  assert.deepEqual(Object.keys(SCRIPT_EDITOR_PROFILES), ["brush", "iannix", "p5", "play", "svg"]);
+  assert.deepEqual(Object.keys(SCRIPT_EDITOR_PROFILES), ["brush", "iannix", "p5", "play", "livecode", "strudel", "markdown", "latex", "orca", "html", "svg"]);
   assert.equal(getScriptEditorProfile("brush").language, "javascript");
   assert.equal(getScriptEditorProfile("iannix").language, "javascript");
   assert.equal(getScriptEditorProfile("p5").language, "javascript");
   assert.equal(getScriptEditorProfile("play").language, "javascript");
+  assert.equal(getScriptEditorProfile("strudel").language, "javascript");
+  assert.equal(getScriptEditorProfile("markdown").language, "plain");
+  assert.equal(getScriptEditorProfile("html").language, "html");
   assert.equal(getScriptEditorProfile("svg").language, "html");
 });
 
@@ -21,6 +24,8 @@ test("script editor profiles expose runtime-aware completions", () => {
   assert.ok(getScriptEditorCompletions("iannix").some(item => item.label === "setpointat"));
   assert.ok(getScriptEditorCompletions("p5").some(item => item.label === "drawerator.canvas"));
   assert.ok(getScriptEditorCompletions("play").some(item => item.label === "drawerator.params"));
+  assert.ok(getScriptEditorCompletions("strudel").some(item => item.label === "note"));
+  assert.ok(getScriptEditorCompletions("markdown").some(item => item.label === "inline math"));
   assert.ok(getScriptEditorCompletions("svg").some(item => item.label === "viewBox"));
 });
 

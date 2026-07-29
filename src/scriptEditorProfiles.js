@@ -104,6 +104,30 @@ const SVG_COMPLETIONS = Object.freeze([
   ].map(label => completion(label, "SVG attribute", "property", 50)),
 ]);
 
+const STRUDEL_COMPLETIONS = Object.freeze([
+  snippet("pattern", "note(\"${c3 e3 g3 b3}\").slow(${2})", "Strudel pattern starter"),
+  completion("note", "Strudel note pattern", "function", 80),
+  completion("sound", "Strudel sound pattern", "function", 80),
+  completion("stack", "Combine patterns", "function", 70),
+  completion("s", "Sound alias", "function", 70),
+  completion("slow", "Slow a pattern by a factor", "method", 60),
+  completion("fast", "Speed a pattern by a factor", "method", 60),
+  completion("drawerator", "Drawerator bridge snapshot", "variable", 90),
+]);
+
+const MARKDOWN_COMPLETIONS = Object.freeze([
+  snippet("heading", "# ${Heading}", "Markdown heading"),
+  snippet("link", "[${label}](${https://example.com})", "Markdown link"),
+  snippet("inline math", "$${E = mc^2}$", "Inline LaTeX"),
+  snippet("display math", "$$\n${\\frac{a}{b}}\n$$", "Display LaTeX"),
+]);
+
+const ORCA_COMPLETIONS = Object.freeze([
+  completion("A", "Orca arithmetic operator", "keyword", 50),
+  completion("C", "Orca clock operator", "keyword", 50),
+  completion("M", "Orca MIDI note operator", "keyword", 50),
+]);
+
 export const SCRIPT_EDITOR_PROFILES = Object.freeze({
   brush: Object.freeze({
     id: "brush",
@@ -124,6 +148,12 @@ export const SCRIPT_EDITOR_PROFILES = Object.freeze({
     completions: P5_COMPLETIONS,
   }),
   play: Object.freeze({ id: "play", language: "javascript", label: "Play Core JavaScript", completions: PLAY_CORE_COMPLETIONS }),
+  livecode: Object.freeze({ id: "livecode", language: "plain", label: "Livecode Node", completions: [] }),
+  strudel: Object.freeze({ id: "strudel", language: "javascript", label: "Strudel", completions: STRUDEL_COMPLETIONS }),
+  markdown: Object.freeze({ id: "markdown", language: "plain", label: "Markdown", completions: MARKDOWN_COMPLETIONS }),
+  latex: Object.freeze({ id: "latex", language: "plain", label: "LaTeX", completions: [] }),
+  orca: Object.freeze({ id: "orca", language: "plain", label: "Orca grid", completions: ORCA_COMPLETIONS }),
+  html: Object.freeze({ id: "html", language: "html", label: "HTML", completions: SVG_COMPLETIONS }),
   svg: Object.freeze({
     id: "svg",
     language: "html",
@@ -133,7 +163,7 @@ export const SCRIPT_EDITOR_PROFILES = Object.freeze({
 });
 
 export const getScriptEditorProfile = type => (
-  SCRIPT_EDITOR_PROFILES[normalizeScriptType(type)] || SCRIPT_EDITOR_PROFILES.brush
+  SCRIPT_EDITOR_PROFILES[type] || SCRIPT_EDITOR_PROFILES[normalizeScriptType(type)] || SCRIPT_EDITOR_PROFILES.brush
 );
 
 export const getScriptEditorCompletions = type => getScriptEditorProfile(type).completions;

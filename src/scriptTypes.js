@@ -15,6 +15,11 @@ export const SCRIPT_TYPES = Object.freeze({
     description: "Trusted p5.js sketch for interactive canvas frames. Supports classic global setup()/draw() and instance-mode p.setup/p.draw code, with local access to Drawerator and the page.",
   }),
   play: Object.freeze({ id: "play", label: "Play Core", description: "Trusted play.core-style ASCII program with Drawerator parameters, canvas queries, events, and transport access." }),
+  livecode: Object.freeze({
+    id: "livecode",
+    label: "Livecode Node",
+    description: "Self-contained canvas livecode node. Select a node to edit its own source, parameters, runtime state, and presentation view without a separate script catalog.",
+  }),
   svg: Object.freeze({
     id: "svg",
     label: "SVG",

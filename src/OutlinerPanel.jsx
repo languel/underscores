@@ -3,6 +3,7 @@ import { infoProps } from "./uiInfo.js";
 import { buildSceneGroupTree, getOutlinerLayerElements } from "./sceneLayers.js";
 import { analyzeSvgSource, normalizeSvgObject } from "./svgObject.js";
 import { getEditableSvgPathNodes } from "./svgPathGeometry.js";
+import { getLivecodeKindDefinition, isLivecodeNodeElement, normalizeLivecodeNode } from "./livecodeNode.js";
 
 const groupLabel = groupId => `Group · ${String(groupId).slice(0, 8)}`;
 const scoreLabel = label => `Score · ${label}`;
@@ -39,10 +40,19 @@ const OutlinerPanel = memo(function OutlinerPanel({
     const needle = query.trim().toLowerCase();
     return getOutlinerLayerElements(elements).filter(element => !needle || `${
       element.type
-    } ${element.id} ${element.customData?.iannix?.label || ""} ${element.customData?.iannixImport?.externalId || ""} ${element.customData?.iannixImport?.group || ""}`.toLowerCase().includes(needle));
+    } ${element.id} ${element.customData?.iannix?.label || ""} ${element.customData?.iannixImport?.externalId || ""} ${element.customData?.iannixImport?.group || ""} ${isLivecodeNodeElement(element) ? `${normalizeLivecodeNode(element.customData.draweratorLivecode).name} ${normalizeLivecodeNode(element.customData.draweratorLivecode).kind}` : ""}`.toLowerCase().includes(needle));
   }, [elements, query]);
   const groupTree = useMemo(() => buildSceneGroupTree(visibleElements, { outlinerOrder: true }), [visibleElements]);
-  const getElementTypeLabel = element => element.customData?.draweratorSvg ? "SVG" : element.type;
+  const getElementTypeLabel = element => {
+    if (element.customData?.draweratorSvg) return "SVG";
+    if (isLivecodeNodeElement(element)) return getLivecodeKindDefinition(normalizeLivecodeNode(element.customData.draweratorLivecode).kind).label;
+    return element.type;
+  };
+  const getElementLabel = element => {
+    if (element.customData?.iannix?.label) return element.customData.iannix.label;
+    if (isLivecodeNodeElement(element)) return normalizeLivecodeNode(element.customData.draweratorLivecode).name;
+    return element.id;
+  };
 
   useEffect(() => {
     const selectedId = Object.keys(selectedElementIds).filter(id => selectedElementIds[id]).at(-1);
@@ -102,7 +112,12 @@ const OutlinerPanel = memo(function OutlinerPanel({
   };
   const beginRename = element => {
     setEditingId(element.id);
-    setEditingValue(element.customData?.iannix?.label || "");
+    setEditingValue(
+      element.customData?.iannix?.label ||
+        (isLivecodeNodeElement(element)
+          ? normalizeLivecodeNode(element.customData.draweratorLivecode).name
+          : ""),
+    );
     requestAnimationFrame(() => editingRef.current?.focus());
   };
   const finishRename = (element, commit = true) => {
@@ -194,6 +209,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
 
   const renderElement = (element, depth) => {
     const isSvg = Boolean(element.customData?.draweratorSvg);
+    const isLivecode = isLivecodeNodeElement(element);
     const dropPlacement = dropTarget?.id === element.id ? dropTarget.placement : null;
     return <div className="outliner-entry" key={element.id}>
       <div role="treeitem" aria-level={depth + 1} aria-expanded={isSvg ? expandedSvgIds.has(element.id) : undefined} aria-selected={Boolean(selectedElementIds[element.id])} className={`outliner-row ${selectedElementIds[element.id] ? "selected" : ""} ${draggingIds.includes(element.id) ? "dragging" : ""} ${dropPlacement ? `drop-${dropPlacement}` : ""}`} ref={node => node ? rowRefs.current.set(element.id, node) : rowRefs.current.delete(element.id)} draggable={editingId !== element.id} onDragStart={event => startDrag(event, element.id)} onDragEnd={clearDrag} onDragOver={event => {
@@ -215,8 +231,8 @@ const OutlinerPanel = memo(function OutlinerPanel({
           else if (isSvg) { event.preventDefault(); setExpandedSvgIds(current => { const next = new Set(current); if (next.has(element.id)) next.delete(element.id); else next.add(element.id); return next; }); }
         }} title={`${getElementTypeLabel(element)} · ${element.id}${isSvg ? " · double-click to expand document" : ""}`}>
           <span className="outliner-disclosure" aria-hidden="true">{isSvg ? (expandedSvgIds.has(element.id) ? "⌄" : "›") : ""}</span>
-          <span className={`outliner-type type-${isSvg ? "svg" : element.type}`}>{isSvg ? "S" : element.type.slice(0, 1).toUpperCase()}</span>
-          {editingId === element.id ? <input ref={editingRef} className="outliner-label-input" value={editingValue} placeholder={element.id} onChange={event => setEditingValue(event.target.value)} onBlur={() => finishRename(element)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); finishRename(element); } if (event.key === "Escape") { event.preventDefault(); finishRename(element, false); } }} aria-label={`Rename ${element.id}`} /> : <span className="outliner-label">{nameMode === "labels" && element.customData?.iannix?.label ? element.customData.iannix.label : element.id}</span>}
+          <span className={`outliner-type type-${isSvg ? "svg" : isLivecode ? "livecode" : element.type}`}>{isSvg ? "S" : isLivecode ? "L" : element.type.slice(0, 1).toUpperCase()}</span>
+          {editingId === element.id ? <input ref={editingRef} className="outliner-label-input" value={editingValue} placeholder={element.id} onChange={event => setEditingValue(event.target.value)} onBlur={() => finishRename(element)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); finishRename(element); } if (event.key === "Escape") { event.preventDefault(); finishRename(element, false); } }} aria-label={`Rename ${element.id}`} /> : <span className="outliner-label">{nameMode === "labels" ? getElementLabel(element) : element.id}</span>}
         </button>
         <button type="button" className={element.customData?.outlinerHidden ? "outliner-toggle inactive" : "outliner-toggle"} onClick={event => onVisibilityChange(actionIdsFor(event, selectedIdsFor(element.id)))} title={element.customData?.outlinerHidden ? "Show object" : "Hide object"} aria-label={element.customData?.outlinerHidden ? `Show ${element.id}` : `Hide ${element.id}`} {...infoProps("Object visibility", "Hide or show the authored object without deleting it or changing its score role. Option-click applies the action to the current selection.")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
         <button type="button" className={element.locked ? "outliner-toggle active" : "outliner-toggle"} onClick={event => onLockChange(actionIdsFor(event, selectedIdsFor(element.id)))} title={element.locked ? "Unlock object" : "Lock object"} aria-label={element.locked ? `Unlock ${element.id}` : `Lock ${element.id}`} aria-pressed={element.locked} {...infoProps("Object lock", "Locked objects remain visible and active but cannot be selected or transformed on the canvas. Option-click applies the action to the current selection.")}>{element.locked ? <svg className="outliner-lock-icon locked" viewBox="0 0 24 24" aria-hidden="true"><rect className="outliner-lock-body" x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg> : <svg className="outliner-lock-icon unlocked" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M7.5 10V7a4.5 4.5 0 0 1 8.7-2.5"/></svg>}</button>

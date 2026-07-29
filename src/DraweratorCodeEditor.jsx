@@ -71,7 +71,9 @@ const externalHighlightField = StateField.define({
 const languageExtension = profile => (
   profile.language === "html"
     ? html({ autoCloseTags: true, matchClosingTags: true })
-    : javascript({ jsx: false, typescript: false })
+    : profile.language === "javascript"
+      ? javascript({ jsx: false, typescript: false })
+      : []
 );
 
 const completionToken = context => {
@@ -119,6 +121,7 @@ export default function DraweratorCodeEditor({
   getDiagnostics,
   readOnly = false,
   className = "",
+  style,
 }) {
   const hostRef = useRef(null);
   const viewRef = useRef(null);
@@ -443,6 +446,7 @@ export default function DraweratorCodeEditor({
       ref={hostRef}
       className={`drawerator-code-editor ${className}`.trim()}
       data-script-type={scriptType}
+      style={style}
     />
   );
 }

@@ -1982,15 +1982,196 @@ body .excalidraw .sidebar {
 
 .drawerator-code-editor .cm-scroller {
   overflow: auto;
-  font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--livecode-font-family, ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace);
   font-size: var(--script-editor-font-size, 12px);
-  line-height: 1.5;
+  font-weight: var(--livecode-font-weight, 400);
+  line-height: var(--livecode-line-height, 1.5);
+  letter-spacing: var(--livecode-letter-spacing, normal);
 }
 
 .drawerator-code-editor .cm-content {
   min-height: 100%;
   padding: 7px 0 18px;
   caret-color: var(--color-primary);
+}
+
+.drawerator-livecode-overlay {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.drawerator-livecode-node {
+  position: absolute;
+  box-sizing: border-box;
+  min-width: 1px;
+  min-height: 1px;
+  transform-origin: center;
+  pointer-events: none;
+}
+
+.livecode-node-surface {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  color: var(--color-primary);
+  font-family: var(--livecode-font-family, ui-monospace, monospace);
+  font-size: var(--script-editor-font-size, 14px);
+  font-weight: var(--livecode-font-weight, 400);
+  line-height: var(--livecode-line-height, 1.45);
+  letter-spacing: var(--livecode-letter-spacing, normal);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.drawerator-livecode-node.selected .livecode-node-surface {
+  border-color: color-mix(in srgb, var(--drawerator-muted, var(--border-color)) 50%, transparent);
+}
+
+.drawerator-livecode-node.selected .livecode-node-surface:hover {
+  border-color: var(--border-color);
+}
+
+.livecode-node-source-preview {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 20px 12px 12px;
+  overflow: hidden;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  white-space: pre-wrap;
+  background: transparent;
+  border: 0;
+  cursor: text;
+}
+
+.livecode-node-source-preview pre,
+.livecode-node-preview pre {
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  white-space: pre-wrap;
+}
+
+.livecode-node-preview {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 24px 12px 12px;
+  overflow: hidden;
+  color: inherit;
+  background: color-mix(in srgb, var(--drawerator-panel-bg, var(--island-bg-color)) 34%, transparent);
+}
+
+.livecode-node-preview-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--color-secondary);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.livecode-node-chrome {
+  position: absolute;
+  z-index: 2;
+  top: -25px;
+  left: -1px;
+  display: flex;
+  width: max-content;
+  max-width: calc(100% + 2px);
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  opacity: 0;
+  pointer-events: none;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--drawerator-panel-bg, var(--island-bg-color)) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+  border-radius: 4px;
+  transition: opacity var(--transition-fast);
+}
+
+.drawerator-livecode-node.selected .livecode-node-chrome,
+.livecode-node-surface:hover .livecode-node-chrome {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.livecode-node-chrome button,
+.livecode-node-chrome select {
+  box-sizing: border-box;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 4px;
+  color: inherit;
+  font: 10px/1 var(--font-sans);
+  background: transparent;
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.livecode-node-chrome button:hover,
+.livecode-node-chrome select:hover {
+  background: var(--drawerator-hover-bg, var(--button-hover-bg));
+}
+
+.livecode-node-chrome select {
+  max-width: 84px;
+  cursor: pointer;
+}
+
+.livecode-node-control svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.livecode-node-control.running {
+  color: var(--drawerator-highlight, var(--drawerator-accent));
+}
+
+.drawerator-livecode-node.editing {
+  z-index: 4;
+  pointer-events: auto;
+}
+
+.drawerator-livecode-node.selected .livecode-node-surface {
+  pointer-events: auto;
+}
+
+.drawerator-livecode-node.editing .drawerator-code-editor {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--drawerator-panel-bg, var(--island-bg-color)) 18%, transparent);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.drawerator-livecode-node.editing .cm-editor,
+.drawerator-livecode-node.editing .cm-scroller {
+  min-height: 100%;
 }
 
 .drawerator-code-editor .cm-line {
