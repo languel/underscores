@@ -8,6 +8,7 @@ export const DRAWERATOR_PANELS = Object.freeze([
   Object.freeze({ id: "video-input", label: "Video Input", slash: "/video-input", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "media-input", label: "Media Input", slash: "/media-input", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "holistic", label: "MediaPipe Holistic", slash: "/holistic", kind: "dockable", placements: ["left", "floating", "right"] }),
+  Object.freeze({ id: "mapping", label: "Media Mapping", slash: "/mapping", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "script", label: "Script", slash: "/script", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "chat", label: "AI Assistant", slash: "/chat", kind: "dockable", sidebarName: "ai-sidebar", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "history", label: "History", slash: "/history", kind: "dockable", placements: ["left", "floating", "right"] }),

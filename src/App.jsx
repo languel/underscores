@@ -86,8 +86,12 @@ import { getLivecodeHelp } from "./livecodeHelp.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
 import MediaStreamOverlay, { MediaSourceRuntimeLayer } from "./MediaStreamOverlay.jsx";
 import { HolisticPanel, MediaInputPanel, VideoInputPanel } from "./MediaStreamPanels.jsx";
-import { createMediaSource, createMediaStreamConfig, isMediaStreamElement, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig } from "./mediaStream.js";
-import { getMediaRuntimeResult, setMediaSessionFile } from "./mediaStreamRuntime.js";
+import MediaMappingPanel from "./MediaMappingPanel.jsx";
+import MediaActorOverlay from "./MediaActorOverlay.jsx";
+import { createMediaSemanticFrame } from "./mediaLandmarkOntology.js";
+import { createMediaBindingRuntimeState, mediaBindingRuntimeHasExpired, mediaDrivenElementPosition, resolveMediaBindingGate, resolveMediaBindingSignal, shouldAppendMediaStrokePoint } from "./mediaActorRuntime.js";
+import { createMediaBinding, createMediaSource, createMediaStreamConfig, isMediaStreamElement, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig } from "./mediaStream.js";
+import { createMediaStreamsApi, getMediaRuntimeResult, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
 import { insertSvgNode, prepareSvgForStructuredEditing, updateSvgNodeData } from "./svgDocumentModel.js";
 import { executeSvgStructuredCommand } from "./svgCommandApi.js";
@@ -1904,9 +1908,9 @@ function App() {
   });
   const [openPanels, setOpenPanels] = useState(() => {
     try {
-      return { chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, "video-input": true, "media-input": true, holistic: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
+      return { chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, "video-input": true, "media-input": true, holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
     } catch {
-      return { chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, "video-input": true, "media-input": true, holistic: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true };
+      return { chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, "video-input": true, "media-input": true, holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
@@ -2023,6 +2027,18 @@ function App() {
       return [];
     }
   });
+  const [mediaActorsArmed, setMediaActorsArmed] = useState(() => (
+    localStorage.getItem(MEDIA_ACTORS_ARMED_STORAGE_KEY) === "true"
+  ));
+  const [mediaInspectedFeature, setMediaInspectedFeature] = useState({
+    streamId: "",
+    featureId: "right_hand.palm",
+  });
+  const [mediaActorOverlayState, setMediaActorOverlayState] = useState({ traces: [], strokes: [] });
+  const mediaBindingRuntimeRef = useRef(new Map());
+  const mediaGestureStatesRef = useRef(new Map());
+  const mediaStreamsApiRef = useRef(null);
+  if (!mediaStreamsApiRef.current) mediaStreamsApiRef.current = createMediaStreamsApi();
   const [svgScripts, setSvgScripts] = useState(() => {
     try {
       return normalizeSvgScripts(JSON.parse(localStorage.getItem(SVG_SCRIPT_STORAGE_KEY) || "[]"));
@@ -2080,6 +2096,18 @@ function App() {
       }),
       commitToHistory: false,
     });
+  }, [p5OverlayScene.elements]);
+  useEffect(() => {
+    setMediaStreamDescriptors(p5OverlayScene.elements
+      .filter(element => isMediaStreamElement(element))
+      .map(element => ({ element, config: normalizeMediaStreamConfig(element.customData.draweratorMediaStream) }))
+      .filter(entry => entry.config.kind === MEDIA_STREAM_KINDS.HOLISTIC)
+      .map(entry => ({
+        id: entry.element.id,
+        name: entry.config.name,
+        kind: entry.config.kind,
+        sourceId: entry.config.holistic.sourceId,
+      })));
   }, [p5OverlayScene.elements]);
   const [svgOverlayScene, setSvgOverlayScene] = useState({ elements: [], appState: null });
   const [livecodeOverlayScene, setLivecodeOverlayScene] = useState({ elements: [], appState: null });
@@ -3073,6 +3101,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem(MEDIA_SOURCE_STORAGE_KEY, JSON.stringify(mediaSources));
   }, [mediaSources]);
+
+  useEffect(() => {
+    localStorage.setItem(MEDIA_ACTORS_ARMED_STORAGE_KEY, mediaActorsArmed ? "true" : "false");
+  }, [mediaActorsArmed]);
 
   useEffect(() => {
     localStorage.setItem(SVG_SCRIPT_STORAGE_KEY, JSON.stringify(svgScripts));
@@ -7815,6 +7847,10 @@ function App() {
     { id: "media.input.create", name: "Create Media Input", aliases: ["/media", "image stream", "video stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.MEDIA, { ...args, media: { url: args?.url || args?.media?.url || "", ...(args?.media || {}) } }) },
     { id: "media.holistic.create", name: "Create MediaPipe Holistic Object", aliases: ["/holistic-object", "landmark stream"], category: "Media Streams", action: (_api, args) => createMediaStreamObject(MEDIA_STREAM_KINDS.HOLISTIC, { ...args, holistic: { sourceId: args?.sourceId || args?.sourceElementId || args?.holistic?.sourceId || args?.holistic?.sourceElementId || "", ...(args?.holistic || {}) } }) },
     { id: "media.holistic.snapshot", name: "Snapshot Selected Holistic Landmarks", category: "Media Streams", action: () => { const target = getSelectedElements().find(element => isMediaStreamElement(element) && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC); if (!target) throw new Error("Select a MediaPipe Holistic object first."); snapshotHolisticLandmarks(target.id); return { elementIds: [target.id] }; } },
+    { id: "media.binding.create", name: "Create Media Actor Binding", category: "Media Streams", args: { elementId: "string", binding: "mediaBinding" }, action: (_api, args) => createMediaBindingForProcessor(args.elementId, args.binding || args) },
+    { id: "media.binding.update", name: "Update Media Actor Binding", category: "Media Streams", args: { elementId: "string", bindingId: "string", patch: "mediaBindingPatch" }, action: (_api, args) => updateMediaBindingForProcessor(args.elementId, args.bindingId, args.patch || {}) },
+    { id: "media.binding.remove", name: "Remove Media Actor Binding", category: "Media Streams", args: { elementId: "string", bindingId: "string" }, action: (_api, args) => deleteMediaBindingForProcessor(args.elementId, args.bindingId) },
+    { id: "media.actors.arm", name: "Arm or Disarm Media Actors", category: "Media Streams", record: "never", args: { armed: "boolean" }, action: (_api, args) => { const armed = Boolean(args?.armed); setMediaActorsArmed(armed); return { armed }; } },
     { id: "settings-ai", name: "Open AI Configuration /settings-ai", aliases: ["/settings-ai"], category: "Panels", action: () => toggleDraweratorPanel("settings", { settingsTab: "ai" }) },
     { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
     { id: "toggle-transparency", name: "Toggle Canvas Background Transparency", category: "Canvas", action: (api) => toggleBackgroundTransparency(api) },
@@ -9787,6 +9823,63 @@ function App() {
     return config;
   };
 
+  const createMediaBindingForProcessor = (elementId, bindingValue = {}) => {
+    const api = excalidrawAPIRef.current;
+    const existing = api?.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
+    if (!existing) throw new Error("MediaPipe processor not found.");
+    const config = normalizeMediaStreamConfig(existing.customData.draweratorMediaStream);
+    if (config.kind !== MEDIA_STREAM_KINDS.HOLISTIC) throw new Error("Bindings require a Holistic processor.");
+    const binding = normalizeMediaBinding(bindingValue?.type ? bindingValue : createMediaBinding(MEDIA_BINDING_TYPES.DRIVE_POSITION, bindingValue));
+    patchMediaStreamObject(elementId, { bindings: [...config.bindings, binding] });
+    return binding;
+  };
+
+  const updateMediaBindingForProcessor = (elementId, bindingId, patch = {}) => {
+    const api = excalidrawAPIRef.current;
+    const existing = api?.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
+    if (!existing) throw new Error("MediaPipe processor not found.");
+    const config = normalizeMediaStreamConfig(existing.customData.draweratorMediaStream);
+    const index = config.bindings.findIndex(binding => binding.id === bindingId);
+    if (index < 0) throw new Error("Media binding not found.");
+    const bindings = config.bindings.map(binding => binding.id === bindingId ? normalizeMediaBinding({
+      ...binding,
+      ...patch,
+      offset: { ...binding.offset, ...(patch.offset || {}) },
+      gate: { ...binding.gate, ...(patch.gate || {}) },
+      signal: { ...binding.signal, ...(patch.signal || {}) },
+      style: { ...binding.style, ...(patch.style || {}) },
+    }) : binding);
+    patchMediaStreamObject(elementId, { bindings });
+    return bindings[index];
+  };
+
+  const deleteMediaBindingForProcessor = (elementId, bindingId) => {
+    const api = excalidrawAPIRef.current;
+    const existing = api?.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
+    if (!existing) throw new Error("MediaPipe processor not found.");
+    const config = normalizeMediaStreamConfig(existing.customData.draweratorMediaStream);
+    const bindings = config.bindings.filter(binding => binding.id !== bindingId);
+    if (bindings.length === config.bindings.length) throw new Error("Media binding not found.");
+    const runtimeId = `${elementId}:${bindingId}`;
+    finishMediaActorStroke(runtimeId, "binding-removed");
+    mediaBindingRuntimeRef.current.delete(runtimeId);
+    patchMediaStreamObject(elementId, { bindings });
+    return { elementId, bindingId };
+  };
+
+  const duplicateMediaBindingForProcessor = (elementId, bindingId) => {
+    const api = excalidrawAPIRef.current;
+    const existing = api?.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
+    const config = existing ? normalizeMediaStreamConfig(existing.customData.draweratorMediaStream) : null;
+    const source = config?.bindings.find(binding => binding.id === bindingId);
+    if (!source) throw new Error("Media binding not found.");
+    return createMediaBindingForProcessor(elementId, createMediaBinding(source.type, {
+      ...source,
+      id: undefined,
+      name: `${source.name} copy`,
+    }));
+  };
+
   const chooseMediaStreamFile = (file, sourceId = "") => {
     const mediaType = file.type.startsWith("image/") ? "image" : "video";
     const selected = mediaSources.find(source => source.id === sourceId && source.kind === MEDIA_STREAM_KINDS.MEDIA);
@@ -9869,7 +9962,97 @@ function App() {
     setSelectedElementIds(selection);
   };
 
+  const refreshMediaActorOverlay = useCallback((extraMarkers = []) => {
+    const traces = [];
+    const strokes = [];
+    const markers = [];
+    mediaBindingRuntimeRef.current.forEach((state, id) => {
+      if (state.binding?.trace && state.trace.length > 1) {
+        traces.push({ id: `${id}:trace`, points: [...state.trace], color: state.color });
+      }
+      if (state.binding?.visualize && state.filteredPoint) {
+        markers.push({ id: `${id}:marker`, point: { ...state.filteredPoint }, color: state.color });
+      }
+      if (state.stroke?.points?.length) {
+        strokes.push({
+          id: `${id}:stroke`,
+          points: [...state.stroke.points],
+          color: state.stroke.color,
+          strokeWidth: state.stroke.strokeWidth,
+          opacity: state.stroke.opacity,
+        });
+      }
+    });
+    setMediaActorOverlayState({ traces, strokes, markers: [...markers, ...extraMarkers] });
+  }, []);
+
+  const finishMediaActorStroke = useCallback((runtimeId, reason = "end") => {
+    const state = mediaBindingRuntimeRef.current.get(runtimeId);
+    const stroke = state?.stroke;
+    if (!stroke) return null;
+    state.stroke = null;
+    const lastPoint = stroke.points.at(-1);
+    if (lastPoint) {
+      inputBus.emit({
+        source: "mediapipe",
+        deviceId: runtimeId,
+        pointerId: runtimeId,
+        phase: "end",
+        scene: { x: lastPoint.x, y: lastPoint.y },
+        buttons: 0,
+        data: { bindingId: stroke.bindingId, reason },
+      });
+    }
+    if (stroke.points.length < 2) {
+      refreshMediaActorOverlay();
+      return null;
+    }
+    const api = excalidrawAPIRef.current;
+    if (!api) return null;
+    const minX = Math.min(...stroke.points.map(point => point.x));
+    const minY = Math.min(...stroke.points.map(point => point.y));
+    const maxX = Math.max(...stroke.points.map(point => point.x));
+    const maxY = Math.max(...stroke.points.map(point => point.y));
+    const element = {
+      ...createBaseElement("freedraw", minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY), stroke.color || foregroundColor),
+      points: stroke.points.map(point => [point.x - minX, point.y - minY]),
+      pressures: stroke.points.map(() => 0.5),
+      simulatePressure: true,
+      strokeWidth: stroke.strokeWidth,
+      opacity: stroke.opacity,
+      customData: {
+        draweratorMediaActor: {
+          processorId: stroke.processorId,
+          bindingId: stroke.bindingId,
+          featureId: stroke.featureId,
+          gateFeatureId: stroke.gateFeatureId,
+          completedAt: Date.now(),
+        },
+      },
+    };
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    api.updateScene({ elements: [...elements, element], commitToHistory: true });
+    refreshMediaActorOverlay();
+    return element;
+  }, [foregroundColor, inputBus, refreshMediaActorOverlay]);
+
   const handleMediaStreamResults = useCallback((elementId, result) => {
+    const api = excalidrawAPIRef.current;
+    const sceneElements = api?.getSceneElements() || [];
+    const host = sceneElements.find(element => element.id === elementId && isMediaStreamElement(element));
+    const config = host ? normalizeMediaStreamConfig(host.customData.draweratorMediaStream) : null;
+    const previousGestures = mediaGestureStatesRef.current.get(elementId) || {};
+    const semanticFrame = host && config ? createMediaSemanticFrame({
+      streamId: elementId,
+      streamName: config.name,
+      element: host,
+      result,
+      previousGestures,
+    }) : null;
+    if (semanticFrame) {
+      mediaGestureStatesRef.current.set(elementId, semanticFrame.gestureState);
+      setMediaSemanticFrame(elementId, semanticFrame);
+    }
     eventBus.emit("media.holistic.frame", {
       elementId,
       sourceElementId: result.sourceElementId,
@@ -9879,7 +10062,129 @@ function App() {
       faceLandmarks: result.faceLandmarks,
       updatedAt: result.updatedAt,
     }, { source: "media-stream", transportTime: scoreTimeRef.current });
-  }, [eventBus]);
+    const inspected = semanticFrame && mediaInspectedFeature.streamId === elementId
+      ? semanticFrame.feature(mediaInspectedFeature.featureId)
+      : null;
+    const inspectedPoint = inspected?.scene;
+    const inspectedMarkers = inspectedPoint && config ? [{
+      id: `${elementId}:inspected`,
+      point: inspectedPoint,
+      color: config.holistic.color,
+    }] : [];
+    if (!mediaActorsArmed || !semanticFrame || !config || !api) {
+      refreshMediaActorOverlay(inspectedMarkers);
+      return;
+    }
+    const now = performance.now();
+    const activeRuntimeIds = new Set();
+    const drivenPositions = new Map();
+    for (const binding of config.bindings) {
+      const runtimeId = `${elementId}:${binding.id}`;
+      activeRuntimeIds.add(runtimeId);
+      let state = mediaBindingRuntimeRef.current.get(runtimeId);
+      if (!state) {
+        state = createMediaBindingRuntimeState();
+        mediaBindingRuntimeRef.current.set(runtimeId, state);
+      }
+      state.binding = binding;
+      state.color = binding.style.strokeColor || config.holistic.color;
+      if (!binding.enabled) {
+        finishMediaActorStroke(runtimeId, "disabled");
+        continue;
+      }
+      const signal = resolveMediaBindingSignal(binding, semanticFrame, state, now);
+      const gateActive = resolveMediaBindingGate(binding, semanticFrame, state, now);
+      if (binding.type === MEDIA_BINDING_TYPES.DRIVE_POSITION) {
+        const target = sceneElements.find(element => element.id === binding.targetElementId && !element.isDeleted);
+        if (!target || !signal.point || !gateActive) continue;
+        drivenPositions.set(target.id, mediaDrivenElementPosition(target, binding, signal.point));
+        continue;
+      }
+      if (binding.type !== MEDIA_BINDING_TYPES.FREEDRAW_ACTOR) continue;
+      if (!gateActive || !signal.point) {
+        finishMediaActorStroke(runtimeId, signal.point ? "gate" : "signal-lost");
+        continue;
+      }
+      if (!state.stroke) {
+        state.stroke = {
+          processorId: elementId,
+          bindingId: binding.id,
+          featureId: binding.featureId,
+          gateFeatureId: binding.gate.featureId,
+          points: [],
+          color: binding.style.strokeColor || foregroundColor,
+          strokeWidth: binding.style.strokeWidth,
+          opacity: binding.style.opacity,
+        };
+        inputBus.emit({
+          source: "mediapipe",
+          deviceId: runtimeId,
+          pointerId: runtimeId,
+          phase: "start",
+          scene: { x: signal.point.x, y: signal.point.y },
+          buttons: 1,
+          data: { bindingId: binding.id },
+        });
+      }
+      if (shouldAppendMediaStrokePoint(state.stroke.points, signal.point)) {
+        state.stroke.points.push({ x: signal.point.x, y: signal.point.y, time: now });
+        inputBus.emit({
+          source: "mediapipe",
+          deviceId: runtimeId,
+          pointerId: runtimeId,
+          phase: "move",
+          scene: { x: signal.point.x, y: signal.point.y },
+          buttons: 1,
+          data: { bindingId: binding.id },
+        });
+      }
+    }
+    for (const [runtimeId, state] of mediaBindingRuntimeRef.current) {
+      if (!runtimeId.startsWith(`${elementId}:`) || activeRuntimeIds.has(runtimeId)) continue;
+      finishMediaActorStroke(runtimeId, "binding-removed");
+      mediaBindingRuntimeRef.current.delete(runtimeId);
+      if (state.trace.length) state.trace = [];
+    }
+    if (drivenPositions.size) {
+      const updateTime = Date.now();
+      api.updateScene({
+        elements: (api.getSceneElementsIncludingDeleted?.() || sceneElements).map(element => {
+          const position = drivenPositions.get(element.id);
+          if (!position) return element;
+          return {
+            ...element,
+            x: position.x,
+            y: position.y,
+            version: (element.version || 0) + 1,
+            versionNonce: Math.floor(Math.random() * 0x7fffffff),
+            updated: updateTime,
+          };
+        }),
+        commitToHistory: false,
+      });
+    }
+    refreshMediaActorOverlay(inspectedMarkers);
+  }, [eventBus, finishMediaActorStroke, foregroundColor, inputBus, mediaActorsArmed, mediaInspectedFeature, refreshMediaActorOverlay]);
+
+  useEffect(() => {
+    if (mediaActorsArmed) return;
+    for (const runtimeId of mediaBindingRuntimeRef.current.keys()) {
+      finishMediaActorStroke(runtimeId, "disarmed");
+    }
+    mediaBindingRuntimeRef.current.clear();
+    setMediaActorOverlayState({ traces: [], strokes: [], markers: [] });
+  }, [finishMediaActorStroke, mediaActorsArmed]);
+
+  useEffect(() => {
+    if (!mediaActorsArmed) return undefined;
+    const timer = window.setInterval(() => {
+      const now = performance.now();
+      for (const [runtimeId, state] of mediaBindingRuntimeRef.current) {
+        if (mediaBindingRuntimeHasExpired(state, now)) finishMediaActorStroke(runtimeId, "signal-lost");
+      }
+    }, 50);
+    return () => window.clearInterval(timer);
+  }, [finishMediaActorStroke, mediaActorsArmed]);
 
   const patchLivecodeCanvasNode = (elementId, patch = {}, { commitToHistory = false } = {}) => {
     const api = excalidrawAPIRef.current;
@@ -11580,7 +11885,7 @@ function App() {
 
   useEffect(() => {
     const api = {
-      apiVersion: 5,
+      apiVersion: 6,
       commands: {
         list: () => commandRegistry.list(),
         describe: id => commandRegistry.describe(id),
@@ -11619,6 +11924,7 @@ function App() {
       events: {
         subscribe: (pattern, listener) => eventBus.subscribe(pattern, listener),
       },
+      streams: mediaStreamsApiRef.current,
       scene: {
         get: () => excalidrawAPIRef.current?.getSceneElementsIncludingDeleted() || [],
         getAppState: () => excalidrawAPIRef.current?.getAppState() || null,
@@ -18493,6 +18799,39 @@ function App() {
           </DraweratorPanel>
           )}
 
+          {shouldRenderPanel("mapping") && (
+          <DraweratorPanel
+            id="mapping"
+            title="Media Mapping"
+            placement={panelLayouts.mapping.placement}
+            layout={panelLayouts.mapping}
+            dockTabs={getPanelDockTabs("mapping")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.mapping.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("mapping", placement)}
+            onDragStart={event => startSidebarPanelDrag("mapping", event)}
+            onClose={() => closeDraweratorPanel("mapping")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.mapping.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.mapping.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.mapping.placement]: false }))}
+          >
+            <MediaMappingPanel
+              elements={p5OverlayScene.elements}
+              selectedElementIds={selectedElementIds}
+              actorsArmed={mediaActorsArmed}
+              onArm={armed => commandRegistry.execute("media.actors.arm", { armed }, { source: "mapping-panel" })}
+              onCreateBinding={(elementId, binding) => commandRegistry.execute("media.binding.create", { elementId, binding }, { source: "mapping-panel" })}
+              onUpdateBinding={(elementId, bindingId, patch) => commandRegistry.execute("media.binding.update", { elementId, bindingId, patch }, { source: "mapping-panel" })}
+              onDuplicateBinding={duplicateMediaBindingForProcessor}
+              onDeleteBinding={(elementId, bindingId) => commandRegistry.execute("media.binding.remove", { elementId, bindingId }, { source: "mapping-panel" })}
+              inspected={mediaInspectedFeature}
+              onInspect={setMediaInspectedFeature}
+            />
+          </DraweratorPanel>
+          )}
+
           {(panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? shouldRenderHorizontalPanel("info") : shouldRenderPanel("info")) && (
           <DraweratorPanel
             id="info"
@@ -18515,7 +18854,7 @@ function App() {
           >
             <InfoPanel
               info={infoView}
-              mode={openPanels.script ? scriptPanelType : "default"}
+              mode={openPanels.mapping ? "media" : openPanels.script ? scriptPanelType : "default"}
               iannixCommand={iannixCommandHelp}
             />
           </DraweratorPanel>
@@ -18591,6 +18930,12 @@ function App() {
           appState={p5OverlayScene.appState}
           sources={mediaSources}
           onResults={handleMediaStreamResults}
+        />
+        <MediaActorOverlay
+          appState={p5OverlayScene.appState}
+          traces={mediaActorOverlayState.traces}
+          strokes={mediaActorOverlayState.strokes}
+          markers={mediaActorOverlayState.markers}
         />
         <LivecodeNodeOverlay
           elements={livecodeOverlayScene.elements}

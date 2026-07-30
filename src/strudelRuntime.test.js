@@ -203,13 +203,16 @@ test("Strudel public pianoroll uses the shared node-frame painter", async () => 
 test("Strudel exposes __ as the same node-local bridge", async () => {
   const runtime = new StrudelRuntimeManager();
   runtime.ensureScope = async () => {};
-  const bridge = { transport: { playing: true } };
+  const bridge = {
+    transport: { playing: true },
+    streams: { get: name => ({ name }) },
+  };
   const previousPure = globalThis.pure;
   globalThis.pure = core.pure;
   try {
     const { pattern } = await runtime._compile(
       "node-alias",
-      "$: pure(__ === drawerator && __.transport.playing ? 1 : 0)",
+      "$: pure(__ === drawerator && __.transport.playing && __.streams.get('Holistic').name === 'Holistic' ? 1 : 0)",
       bridge,
     );
     assert.deepEqual(pattern.queryArc(0, 1).map(hap => hap.value), [1]);

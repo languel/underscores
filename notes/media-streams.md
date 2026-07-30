@@ -16,7 +16,9 @@ The initial stream graph has three kinds:
 Open the panels with `/video-input`, `/media-input`, and `/holistic`. Creating an input adds it to
 the panel catalog only. **Show as canvas object** adds or removes an ordinary transformable view
 without stopping the source. Canvas opacity and Outliner visibility affect that view only, so a
-hidden source view remains available to Holistic and future processors.
+hidden source view remains available to Holistic and future processors. Hiding a Holistic processor
+also hides its canvas output without stopping inference or its semantic stream, so mappings and
+livecode can continue consuming it.
 
 ## One processed output
 
@@ -69,15 +71,87 @@ production build pass. Active-harness browser QA verified:
 
 The Holistic browser runtime and model assets currently require network access to jsDelivr.
 
-## Next phase: MediaPipe mapping and ontology
+## Semantic ontology
 
-This checkpoint deliberately exposes the raw normalized landmark families without assigning
-Drawerator meaning to them. The next phase will define the mapping and ontology for MediaPipe
-streams: stable semantic identities for bodies, face regions, eyes/irises, hands, fingers, joints,
-and derived gestures; coordinate spaces and confidence/lifecycle semantics; relationships between
-source observations, tracked entities, and Drawerator objects; and a routing contract for turning
-those values into properties, interactions, zones, and events. Gaze will be treated as a calibrated
-derived signal rather than inferred directly from iris landmarks.
+`src/mediaLandmarkOntology.js` is the single registry used by Mapping and trusted scripts. Official
+MediaPipe names are normalized to lower snake case:
 
-That work should preserve the distinction established here between a transient observation stream,
-a persistent processor/view object, and native Drawerator geometry created from a snapshot.
+- pose points such as `pose.left_index`, `pose.right_hip`, and `pose.nose`;
+- hand points such as `left_hand.index_finger_tip` and `right_hand.thumb_tip`;
+- numeric Face Mesh points such as `face.468`, because MediaPipe does not name every vertex;
+- official face groups including `face.face_oval`, `face.left_eye`, `face.right_eye`,
+  `face.left_iris`, `face.right_iris`, `face.lips`, and the eyebrow groups.
+
+Derived aggregates include `left_hand`, `right_hand`, their palms and finger chains,
+`body.head_outline` (backed by `face.face_oval`), and scale-normalized
+`left_hand.pinch` / `right_hand.pinch`. Pinch divides thumb-tip/index-tip distance by palm size and
+uses separate close/open thresholds for hysteresis. `LH`, `RH`, and `HEAD_outline` remain accepted
+compatibility aliases; the UI and documentation use canonical names.
+
+Every feature snapshot identifies its feature and kind, then reports availability, frame age,
+optional confidence, and relevant geometry or scalar/boolean value. Point geometry is available in:
+
+- `normalized`: processed MediaPipe source coordinates after upstream crop/mirror;
+- `local`: pixels inside the Holistic processor rectangle;
+- `scene`: the processor rectangle's translated, scaled, and rotated canvas coordinates.
+
+Z remains available as observation data but does not change the default 2D projection. Missing
+features remain explicitly unavailable rather than becoming zero-valued scene points.
+
+## Script service
+
+The same semantic frames power Mapping, p5, Play Core, and Strudel:
+
+```js
+const streams = __.streams.list();
+const body = __.streams.get("Holistic"); // id or configured name
+const finger = body.feature("left_hand.index_finger_tip", { space: "scene" });
+const hands = body.features("hand");
+const unsubscribe = body.subscribe(frame => {
+  console.log(frame.feature("right_hand.pinch"));
+});
+```
+
+The service is also `__.api.streams` and `window.drawerator.streams`. `__` itself remains lexical
+to trusted livecode runtimes and is never installed as `window.__`. Raw observations remain
+transient and are evaluated once per Holistic result; a scene file persists the processor and its
+versioned binding definitions, not hundreds of landmark elements.
+
+## Mapping and media actors
+
+Open `/mapping` for the shared actor surface. It provides a locally remembered global arm switch,
+Holistic stream/status selection, searchable feature browser, normalized/local/scene inspection,
+selected-feature highlight, bounded traces, and binding create/edit/duplicate/test/delete actions.
+Missing streams, landmarks, and target objects are reported in place.
+
+Actors run independently of score transport while armed. Disarming immediately releases gates and
+ends active strokes. Initial bindings are:
+
+- `drive-position`: maps a semantic point or region centroid to the actual selected Drawerator
+  target, with target anchor/offset, confidence threshold, about 40 ms time-based smoothing, and a
+  120 ms missing-signal grace period. Runtime updates move the real selectable host rather than
+  leaving stale geometry behind; its acquired and final poses are therefore already baked.
+- `freedraw-actor`: uses one semantic point for XY and a gesture/threshold feature as its gate. The
+  default proof maps `left_hand.index_finger_tip` through `right_hand.pinch`. While active it emits
+  start/move/end samples through the input bus and shows a transient preview. Closing the gate,
+  losing the signal, or disarming commits exactly one native undoable freedraw object when at least
+  two distinct points were captured.
+
+Persistent changes use `media.binding.create`, `media.binding.update`, `media.binding.remove`, and
+`media.actors.arm`. Actor evaluation is batched once per result, trace history is capped, and
+inactive or unavailable bindings remain dormant.
+
+## Reference body maps
+
+The original MediaMime diagrams are copied unchanged as explanatory references:
+
+- [attached hands](media/mediamime-body-map-large.svg) — 176 labeled nodes;
+- [detached hands](media/mediamime-body-map-detached-hands-large.svg) — 193 labeled nodes,
+  including all 33 pose points.
+
+Their SVG titles are labels, not runtime ids or schemas. This slice does not parse them or make them
+selectable; a later map phase can generate annotated ids from the canonical ontology.
+
+Gaze remains a future calibrated derived signal rather than a direct interpretation of iris
+position. Palm openness, string-plucking, zones, MIDI actions, constraints, and the broader mapping
+graph build on the same registry in later slices.

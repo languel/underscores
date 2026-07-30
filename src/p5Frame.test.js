@@ -82,10 +82,11 @@ test("detects and runs classic global-mode setup and draw callbacks in a local p
 });
 
 test("instance mode exposes __ as the same node-local bridge", () => {
-  const bridge = { transport: { playing: true } };
+  const streams = { get: name => ({ name }) };
+  const bridge = { transport: { playing: true }, streams };
   const p = {};
   const callbacks = compileInstanceP5Source(p, bridge, `
-    p.setup = () => __ === drawerator && __.transport.playing;
+    p.setup = () => __ === drawerator && __.transport.playing && __.streams === drawerator.streams;
   `);
   assert.equal(callbacks.setup(), true);
 });

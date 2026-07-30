@@ -69,6 +69,7 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) 
         get colors() { return appearance().colors; },
         get theme() { return appearance().theme; },
         get appearance() { return appearance(); },
+        get streams() { return window.drawerator?.streams; },
         get api() { return window.drawerator; },
       };
       program = evaluatePlayCoreSource(config.source, drawerator);

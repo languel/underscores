@@ -127,6 +127,7 @@ function createLivecodeBridge(element, node, scriptRuntimeRef, onStrudelTranspor
     get colors() { return appearance().colors; },
     get theme() { return appearance().theme; },
     get appearance() { return appearance(); },
+    get streams() { return window.drawerator?.streams; },
     strudel: Object.freeze({
       setTempo: bpm => onStrudelTransport?.(element, node, { type: "tempo", value: bpm }),
       setPlaying: playing => onStrudelTransport?.(element, node, { type: "playing", value: Boolean(playing) }),

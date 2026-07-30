@@ -34,9 +34,9 @@ test("normalizes Play Core frame data and recognizes supported hosts", () => {
 test("compiles the Play Core ES-module lifecycle and injects the Drawerator bridge", () => {
   const source = `export const settings = { fps: 12 };
 export function main({ x }, context, cursor, buffer, drawerator) {
-  return (__ === drawerator ? __.params.glyph : "!") + x;
+  return (__ === drawerator && __.streams.get("Holistic").name === "Holistic" ? __.params.glyph : "!") + x;
 }`;
-  const bridge = { params: { glyph: "#" } };
+  const bridge = { params: { glyph: "#" }, streams: { get: name => ({ name }) } };
   const program = evaluatePlayCoreSource(source, bridge);
   assert.equal(program.settings.fps, 12);
   assert.equal(program.main({ x: 2 }, {}, {}, [], bridge), "#2");

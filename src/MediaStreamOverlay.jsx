@@ -10,7 +10,9 @@ import {
 } from "./mediaStreamRuntime.js";
 import {
   MEDIA_STREAM_KINDS,
+  isMediaStreamElement,
   normalizeMediaStreamConfig,
+  shouldProcessMediaStream,
   shouldRenderMediaStream,
 } from "./mediaStream.js";
 
@@ -333,7 +335,9 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
   const canvasRef = useRef(null);
   const configRef = useRef(config);
   const resultsRef = useRef(null);
+  const onResultsRef = useRef(onResults);
   configRef.current = config;
+  onResultsRef.current = onResults;
 
   useEffect(() => {
     let disposed = false;
@@ -419,7 +423,7 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
           sourceId: configRef.current.holistic.sourceId,
         };
         setMediaRuntimeResult(element.id, result);
-        onResults?.(element.id, result);
+        onResultsRef.current?.(element.id, result);
         paint(results);
       });
       publishStatus({ elementId: element.id, kind: "success", message: "MediaPipe Holistic ready." });
@@ -439,7 +443,6 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
     config.holistic.refineFaceLandmarks,
     config.holistic.sourceId,
     element.id,
-    onResults,
   ]);
 
   if (!config.holistic.sourceId) {
@@ -455,13 +458,19 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
   const zoom = Number(appState?.zoom?.value) || 1;
   const scrollX = Number(appState?.scrollX) || 0;
   const scrollY = Number(appState?.scrollY) || 0;
-  const objects = (elements || []).filter(shouldRenderMediaStream);
+  const objects = (elements || []).filter(element => {
+    if (!isMediaStreamElement(element)) return false;
+    const config = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
+    return shouldRenderMediaStream(element)
+      || (config.kind === MEDIA_STREAM_KINDS.HOLISTIC && shouldProcessMediaStream(element));
+  });
   const sourceIds = useMemo(() => new Set(sources.map(source => source.id)), [sources]);
 
   if (!objects.length) return null;
   return <div className="drawerator-media-stream-overlay" aria-hidden="true">
     {objects.map((element, layerIndex) => {
       const config = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
+      const visible = shouldRenderMediaStream(element);
       const elementOpacity = Number(element.opacity);
       const opacity = Math.max(0, Math.min(1, (Number.isFinite(elementOpacity) ? elementOpacity : 100) / 100));
       const style = {
@@ -470,6 +479,7 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
         width: Math.max(1, (Number(element.width) || 1) * zoom),
         height: Math.max(1, (Number(element.height) || 1) * zoom),
         opacity,
+        visibility: visible ? "visible" : "hidden",
         zIndex: layerIndex,
         transform: `rotate(${Number(element.angle) || 0}rad)`,
         transformOrigin: "center",

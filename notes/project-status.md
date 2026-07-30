@@ -9,12 +9,15 @@ Excalidraw-native objects, first-class SVG documents, IanniX score behavior, Liv
 shared scene hierarchy. This checkpoint is ready for the release/compliance review that precedes
 any public Strudel deployment.
 
-The first MediaMime integration slice is also active: camera and URL/file media inputs can remain
+The MediaMime integration is also active: camera and URL/file media inputs can remain
 panel-only or gain optional canvas views, and MediaPipe Holistic processors are transformable scene
 objects. Crop and mirror are applied once to the shared processed output used by every view and
 processor; animated GIF frames now advance through that output. Browser-owned handles and landmark
 frames stay transient; Holistic can hide its source feed, emits normalized Drawerator events, and
-snapshots live pose/hand landmarks as native scene geometry. See [Media streams](media-streams.md).
+snapshots live pose/hand landmarks as native scene geometry. A shared semantic ontology now powers
+the `/mapping` feature browser, `__.streams`, persistent drive/freedraw bindings, selected-feature
+highlights, and capped traces without serializing raw observations. See
+[Media streams](media-streams.md).
 
 ### Available now
 
@@ -67,12 +70,10 @@ true native/SVG per-object z-order and exact time-specific PNG parity. See
 
 ## Next phase
 
-Define the MediaPipe stream mapping and ontology on top of the stable media-source foundation:
-semantic landmark/body-part identities, coordinate and confidence contracts, tracked-entity
-lifecycle, derived gestures and gaze, and routes from observations into Drawerator object
-properties, interactions, zones, and events. Keep transient observations distinct from persistent
-processor views and snapshot-created native geometry. See
-[Media streams](media-streams.md#next-phase-mediapipe-mapping-and-ontology).
+Build higher-order mappings on the semantic stream foundation: palm openness, calibrated gaze,
+string-plucking, zones, MIDI actions, constraints, and the broader graph. The unchanged MediaMime
+body-map references can become ontology-generated selectable maps in that later slice without
+turning their explanatory SVG titles into runtime schema.
 
 Before public deployment, complete the project licensing decision, publish corresponding source and
 build instructions, audit any Strudel samples/assets, and record the final notices. Continue with

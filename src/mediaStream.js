@@ -4,8 +4,14 @@ export const MEDIA_STREAM_KINDS = Object.freeze({
   HOLISTIC: "holistic",
 });
 
-export const MEDIA_STREAM_VERSION = 1;
+export const MEDIA_STREAM_VERSION = 2;
 export const MEDIA_SOURCE_STORAGE_KEY = "drawerator_media_source_catalog_v1";
+export const MEDIA_ACTORS_ARMED_STORAGE_KEY = "drawerator_media_actors_armed_v1";
+
+export const MEDIA_BINDING_TYPES = Object.freeze({
+  DRIVE_POSITION: "drive-position",
+  FREEDRAW_ACTOR: "freedraw-actor",
+});
 
 const DEFAULT_CROP = Object.freeze({ x: 0, y: 0, width: 1, height: 1 });
 
@@ -17,6 +23,91 @@ const clamp = (value, min, max, fallback) => {
 const cleanString = (value, fallback = "") => {
   const next = String(value ?? "").trim();
   return next || fallback;
+};
+
+const createBindingId = () => `media_binding_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+export const createMediaBinding = (type = MEDIA_BINDING_TYPES.DRIVE_POSITION, overrides = {}) =>
+  normalizeMediaBinding({
+    version: 1,
+    id: createBindingId(),
+    type,
+    name: type === MEDIA_BINDING_TYPES.FREEDRAW_ACTOR ? "Pinch pen" : "Position driver",
+    enabled: true,
+    featureId: type === MEDIA_BINDING_TYPES.FREEDRAW_ACTOR ? "left_hand.index_finger_tip" : "right_hand.palm",
+    targetElementId: "",
+    anchor: "center",
+    offset: { x: 0, y: 0 },
+    gate: {
+      featureId: type === MEDIA_BINDING_TYPES.FREEDRAW_ACTOR ? "right_hand.pinch" : "",
+      comparator: "active",
+      threshold: 0.5,
+    },
+    signal: {
+      smoothingMs: 40,
+      confidenceMin: 0.5,
+      missingGraceMs: 120,
+    },
+    style: {
+      strokeColor: "",
+      strokeWidth: 2,
+      opacity: 100,
+    },
+    visualize: true,
+    trace: false,
+    ...overrides,
+  });
+
+export const normalizeMediaBinding = value => {
+  const source = value && typeof value === "object" ? value : {};
+  const type = Object.values(MEDIA_BINDING_TYPES).includes(source.type)
+    ? source.type
+    : MEDIA_BINDING_TYPES.DRIVE_POSITION;
+  const offset = source.offset && typeof source.offset === "object" ? source.offset : {};
+  const gate = source.gate && typeof source.gate === "object" ? source.gate : {};
+  const signal = source.signal && typeof source.signal === "object" ? source.signal : {};
+  const style = source.style && typeof source.style === "object" ? source.style : {};
+  return {
+    version: 1,
+    id: cleanString(source.id, createBindingId()),
+    type,
+    name: cleanString(source.name, type === MEDIA_BINDING_TYPES.FREEDRAW_ACTOR ? "Pinch pen" : "Position driver"),
+    enabled: source.enabled !== false,
+    featureId: cleanString(source.featureId, type === MEDIA_BINDING_TYPES.FREEDRAW_ACTOR ? "left_hand.index_finger_tip" : "right_hand.palm"),
+    targetElementId: cleanString(source.targetElementId),
+    anchor: ["center", "top-left", "top", "bottom", "left", "right"].includes(source.anchor) ? source.anchor : "center",
+    offset: {
+      x: clamp(offset.x, -100000, 100000, 0),
+      y: clamp(offset.y, -100000, 100000, 0),
+    },
+    gate: {
+      featureId: cleanString(gate.featureId, type === MEDIA_BINDING_TYPES.FREEDRAW_ACTOR ? "right_hand.pinch" : ""),
+      comparator: ["active", "above", "below"].includes(gate.comparator) ? gate.comparator : "active",
+      threshold: clamp(gate.threshold, -100000, 100000, 0.5),
+    },
+    signal: {
+      smoothingMs: clamp(signal.smoothingMs, 0, 1000, 40),
+      confidenceMin: clamp(signal.confidenceMin, 0, 1, 0.5),
+      missingGraceMs: clamp(signal.missingGraceMs, 0, 5000, 120),
+    },
+    style: {
+      strokeColor: /^#[0-9a-f]{6}$/i.test(String(style.strokeColor || "")) ? String(style.strokeColor).toLowerCase() : "",
+      strokeWidth: clamp(style.strokeWidth, 1, 32, 2),
+      opacity: clamp(style.opacity, 0, 100, 100),
+    },
+    visualize: source.visualize !== false,
+    trace: source.trace === true,
+  };
+};
+
+export const normalizeMediaBindings = value => {
+  const entries = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  return entries.map(normalizeMediaBinding).filter(binding => {
+    if (seen.has(binding.id)) return false;
+    seen.add(binding.id);
+    return true;
+  });
 };
 
 export const inferMediaType = (url = "", explicit = "") => {
@@ -53,6 +144,7 @@ export const createMediaStreamConfig = (kind = MEDIA_STREAM_KINDS.MEDIA, overrid
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5,
     },
+    bindings: [],
     ...overrides,
   });
 
@@ -104,6 +196,7 @@ export const normalizeMediaStreamConfig = value => {
       minDetectionConfidence: clamp(holistic.minDetectionConfidence, 0, 1, 0.5),
       minTrackingConfidence: clamp(holistic.minTrackingConfidence, 0, 1, 0.5),
     },
+    bindings: kind === MEDIA_STREAM_KINDS.HOLISTIC ? normalizeMediaBindings(source.bindings) : [],
   };
 };
 
@@ -116,11 +209,14 @@ export const isMediaSourceElement = element => {
   return kind === MEDIA_STREAM_KINDS.CAMERA || kind === MEDIA_STREAM_KINDS.MEDIA;
 };
 
-export const shouldRenderMediaStream = element =>
+export const shouldProcessMediaStream = element =>
   isMediaStreamElement(element)
-  && !element.customData?.outlinerHidden
-  && Number(element.opacity ?? 100) > 0
   && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).enabled;
+
+export const shouldRenderMediaStream = element =>
+  shouldProcessMediaStream(element)
+  && !element.customData?.outlinerHidden
+  && Number(element.opacity ?? 100) > 0;
 
 export const patchMediaStreamConfig = (value, patch = {}) => {
   const current = normalizeMediaStreamConfig(value);
@@ -135,6 +231,7 @@ export const patchMediaStreamConfig = (value, patch = {}) => {
     camera: { ...current.camera, ...(patch.camera || {}) },
     media,
     holistic: { ...current.holistic, ...(patch.holistic || {}) },
+    bindings: Object.hasOwn(patch, "bindings") ? patch.bindings : current.bindings,
   });
 };
 

@@ -2,14 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createMediaStreamConfig,
+  createMediaBinding,
   createMediaSource,
   inferMediaType,
   isMediaSourceElement,
   MEDIA_STREAM_KINDS,
+  MEDIA_BINDING_TYPES,
+  normalizeMediaBinding,
   normalizeMediaStreamConfig,
   normalizeMediaSources,
   patchMediaSource,
   patchMediaStreamConfig,
+  shouldProcessMediaStream,
   shouldRenderMediaStream,
 } from "./mediaStream.js";
 
@@ -19,6 +23,31 @@ test("media stream defaults distinguish cameras, media, and derived holistic str
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.showHands, true);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.showSource, false);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.refineFaceLandmarks, true);
+  assert.deepEqual(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).bindings, []);
+});
+
+test("media bindings normalize actor, gate, filtering, and style contracts", () => {
+  const pen = createMediaBinding(MEDIA_BINDING_TYPES.FREEDRAW_ACTOR);
+  assert.equal(pen.featureId, "left_hand.index_finger_tip");
+  assert.equal(pen.gate.featureId, "right_hand.pinch");
+  assert.equal(pen.signal.smoothingMs, 40);
+  const clamped = normalizeMediaBinding({
+    type: "freedraw-actor",
+    signal: { smoothingMs: -2, confidenceMin: 4, missingGraceMs: 99999 },
+    style: { strokeWidth: 99, opacity: -2 },
+  });
+  assert.deepEqual(clamped.signal, { smoothingMs: 0, confidenceMin: 1, missingGraceMs: 5000 });
+  assert.equal(clamped.style.strokeWidth, 32);
+  assert.equal(clamped.style.opacity, 0);
+});
+
+test("holistic binding patches remain versioned and nested", () => {
+  const current = createMediaStreamConfig("holistic");
+  const binding = createMediaBinding("drive-position", { id: "driver-a", targetElementId: "cursor-a" });
+  const next = patchMediaStreamConfig(current, { bindings: [binding] });
+  assert.equal(next.version, 2);
+  assert.equal(next.bindings[0].id, "driver-a");
+  assert.equal(next.bindings[0].targetElementId, "cursor-a");
 });
 
 test("media stream normalization clamps persisted processor and crop settings", () => {
@@ -77,4 +106,9 @@ test("canvas visibility hides only the optional stream view", () => {
     ...visible,
     customData: { ...visible.customData, outlinerHidden: true },
   }), false);
+  assert.equal(shouldProcessMediaStream({ ...visible, opacity: 0 }), true);
+  assert.equal(shouldProcessMediaStream({
+    ...visible,
+    customData: { ...visible.customData, outlinerHidden: true },
+  }), true);
 });

@@ -115,6 +115,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
           get colors() { return appearance().colors; },
           get theme() { return appearance().theme; },
           get appearance() { return appearance(); },
+          get streams() { return window.drawerator?.streams; },
           api: window.drawerator,
         };
         const sketch = p => {

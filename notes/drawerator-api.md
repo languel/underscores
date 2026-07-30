@@ -23,6 +23,7 @@ Sandboxed HTML retains only its token-scoped `window.drawerator` message bridge.
 | `theme`, `appearance` | Theme id and full live appearance snapshot. |
 | `canvas`, `objects` | Scene-query bridge (`objects` is an alias). |
 | `events` | Event subscription and inspection. |
+| `streams` | Live semantic MediaPipe stream queries and subscriptions. |
 | `transport`, `time` | Score clock and timing context; `time` is `transport.time`. |
 | `api` | Full public application API listed below. |
 
@@ -50,6 +51,7 @@ return { char: "●", color: __.colors.foreground.css };
 | `inputs` | `registerAdapter(adapter)`, `unregisterAdapter(id)`, `emit(sample)` |
 | `events` | `subscribe(pattern, listener)` |
 | `mixer` | `get()`, `updateTrack(trackId, patch)`, `addTrack(overrides)`, `removeTrack(trackId)` |
+| `streams` | `list()`, `get(idOrName)`, `subscribe(listener)`; returned streams expose `feature(id, { space })`, `features(query)`, and `subscribe(listener)` |
 
 Use command ids returned by `__.api.commands.list()` rather than relying on private UI
 handlers. Example:
@@ -59,6 +61,18 @@ await __.api.commands.execute("grid.global.update", {
   patch: { enabled: true },
 });
 ```
+
+Semantic observations are transient and read-only:
+
+```js
+const body = __.streams.get("Holistic");
+const tip = body?.feature("left_hand.index_finger_tip", { space: "scene" });
+const pinch = body?.feature("right_hand.pinch");
+```
+
+Persistent actor changes go through `media.binding.create`, `media.binding.update`,
+`media.binding.remove`, and `media.actors.arm`. API version 6 introduces the semantic stream service
+and actor commands.
 
 The Script type hover/focus help points to the matching Info panel quick reference. Livecode nodes
 also show an adapter-specific reference in their docked Script panel, including Strudel transport,

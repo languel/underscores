@@ -112,6 +112,7 @@ const DraweratorApiGuide = () => (
         <div><dt><code>api.history</code> / <code>api.macros</code></dt><dd>Record, replay, import/export, save, insert, and remove reusable command history.</dd></div>
         <div><dt><code>api.inputs</code> / <code>api.events</code></dt><dd>Register or emit input adapters, and subscribe to application events.</dd></div>
         <div><dt><code>api.mixer</code></dt><dd>Read the mixer or add, update, and remove tracks.</dd></div>
+        <div><dt><code>api.streams</code></dt><dd>List semantic streams, resolve one by id or name, query MediaPipe features, or subscribe to transient observations.</dd></div>
       </dl>
     </details>
     <pre><code>{`// Follow the current Drawerator foreground
@@ -144,6 +145,42 @@ function draw() {
     </section>
     <DraweratorApiGuide />
     <EditorKeys />
+  </div>
+);
+
+const MediaStreamsInfoGuide = () => (
+  <div className="info-svg-guide">
+    <section>
+      <h3>Semantic streams</h3>
+      <p>Holistic observations stay transient. The processor object persists its source, transform, overlay settings, and versioned actor bindings; it does not create one scene object per landmark.</p>
+      <pre><code>{`const body = __.streams.get("Holistic");
+const finger = body.feature("left_hand.index_finger_tip", {
+  space: "scene",
+});
+const unsubscribe = body.subscribe(frame => {
+  console.log(frame.feature("right_hand.pinch"));
+});`}</code></pre>
+      <p>Canonical names use lower snake case: <code>pose.left_index</code>, <code>left_hand.index_finger_tip</code>, and <code>right_hand.thumb_tip</code>. Face vertices remain numeric, such as <code>face.468</code>. Named groups include <code>face.face_oval</code>, <code>face.left_eye</code>, <code>face.left_iris</code>, and <code>face.lips</code>.</p>
+    </section>
+    <section>
+      <h3>Coordinates and availability</h3>
+      <ul>
+        <li><strong>normalized</strong> is MediaPipe output in the processed source frame. Crop and mirror have already been applied upstream.</li>
+        <li><strong>local</strong> is measured inside the Holistic processor rectangle.</li>
+        <li><strong>scene</strong> includes the processor’s translation, scale, and rotation. Z remains data and does not change the default 2D projection.</li>
+        <li>Snapshots report <code>available</code>, <code>ageMs</code>, optional confidence, and geometry or scalar values. Missing landmarks never become scene geometry.</li>
+      </ul>
+    </section>
+    <section>
+      <h3>Media actors</h3>
+      <ul>
+        <li>The Mapping panel’s arm switch is local to this browser and independent of transport.</li>
+        <li><strong>Drive position</strong> maps a point or region centroid to a real target object with per-binding smoothing, confidence gating, and missing-signal grace.</li>
+        <li><strong>Freedraw actor</strong> previews a gesture while active and commits one native undoable freedraw object when the gate closes.</li>
+        <li>Disarming immediately releases gates and closes active strokes. Raw stream reads remain available to scripts while actors are disarmed.</li>
+      </ul>
+    </section>
+    <DraweratorApiGuide />
   </div>
 );
 
@@ -290,6 +327,7 @@ const scriptGuide = (mode, iannixCommand) => {
   if (mode === "play") return <PlayCoreInfoGuide />;
   if (mode === "iannix") return <IannixInfoGuide activeCommand={iannixCommand} />;
   if (mode === "brush") return <BrushInfoGuide />;
+  if (mode === "media") return <MediaStreamsInfoGuide />;
   return null;
 };
 
@@ -299,6 +337,7 @@ const guideTitle = mode => ({
   play: "Play Core quick reference",
   iannix: "IanniX quick reference",
   brush: "Brush quick reference",
+  media: "Media streams and actors",
 }[mode] || null);
 
 export default function InfoPanel({ info = DEFAULT_INFO_VIEW, mode = "default", iannixCommand = null }) {
