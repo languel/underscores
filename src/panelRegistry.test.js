@@ -13,7 +13,7 @@ test("dock registry keeps the requested primary right and bottom tab order", () 
     .filter(panel => panel.placements.includes("right"))
     .map(panel => panel.id);
   assert.deepEqual(rightDockOrder, [
-    "grid", "outliner", "properties", "iannix", "mods", "synth", "script", "chat", "history", "console", "settings", "mixer", "info",
+    "grid", "outliner", "properties", "iannix", "mods", "synth", "video-input", "media-input", "holistic", "script", "chat", "history", "console", "settings", "mixer", "info",
   ]);
   assert.deepEqual(DRAWERATOR_PANELS
     .filter(panel => panel.naturalPlacement === "bottom")
@@ -26,6 +26,9 @@ test("panel lookup and slash matching share one registry", () => {
   assert.equal(getDraweratorPanel("transport")?.label, "Timeline");
   assert.deepEqual(getDraweratorPanel("grid")?.placements, ["left", "floating", "right"]);
   assert.equal(getDraweratorPanel("synth")?.label, "Synth");
+  assert.equal(getDraweratorPanel("video-input")?.slash, "/video-input");
+  assert.equal(getDraweratorPanel("media-input")?.label, "Media Input");
+  assert.equal(getDraweratorPanel("holistic")?.label, "MediaPipe Holistic");
   assert.equal(getDraweratorPanel("script")?.slash, "/script");
   assert.equal(getDraweratorPanel("info")?.slash, "/info");
   assert.deepEqual(getDraweratorPanel("info")?.placements, ["left", "floating", "right", "bottom"]);

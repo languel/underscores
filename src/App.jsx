@@ -84,6 +84,10 @@ import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLive
 import { describeLivecodeRuntime, hasNativeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
 import { getLivecodeHelp } from "./livecodeHelp.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
+import MediaStreamOverlay, { MediaSourceRuntimeLayer } from "./MediaStreamOverlay.jsx";
+import { HolisticPanel, MediaInputPanel, VideoInputPanel } from "./MediaStreamPanels.jsx";
+import { createMediaSource, createMediaStreamConfig, isMediaStreamElement, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig } from "./mediaStream.js";
+import { getMediaRuntimeResult, setMediaSessionFile } from "./mediaStreamRuntime.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
 import { insertSvgNode, prepareSvgForStructuredEditing, updateSvgNodeData } from "./svgDocumentModel.js";
 import { executeSvgStructuredCommand } from "./svgCommandApi.js";
@@ -1900,9 +1904,9 @@ function App() {
   });
   const [openPanels, setOpenPanels] = useState(() => {
     try {
-      return { chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
+      return { chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, "video-input": true, "media-input": true, holistic: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
     } catch {
-      return { chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true };
+      return { chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, "video-input": true, "media-input": true, holistic: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
@@ -2012,6 +2016,13 @@ function App() {
   const [playCoreScriptNameDraft, setPlayCoreScriptNameDraft] = useState("");
   const playCoreScriptsRef = useRef(playCoreScripts);
   playCoreScriptsRef.current = playCoreScripts;
+  const [mediaSources, setMediaSources] = useState(() => {
+    try {
+      return normalizeMediaSources(JSON.parse(localStorage.getItem(MEDIA_SOURCE_STORAGE_KEY) || "[]"));
+    } catch {
+      return [];
+    }
+  });
   const [svgScripts, setSvgScripts] = useState(() => {
     try {
       return normalizeSvgScripts(JSON.parse(localStorage.getItem(SVG_SCRIPT_STORAGE_KEY) || "[]"));
@@ -2031,6 +2042,45 @@ function App() {
   const svgAutoCompileTimerRef = useRef(null);
   const svgSourceSelectionMutedUntilRef = useRef(0);
   const [p5OverlayScene, setP5OverlayScene] = useState({ elements: [], appState: null });
+  const mediaCanvasHostSourceIds = useMemo(() => new Set(p5OverlayScene.elements
+    .filter(element => isMediaStreamElement(element) && !element.isDeleted)
+    .map(element => normalizeMediaStreamConfig(element.customData.draweratorMediaStream))
+    .filter(config => config.kind === MEDIA_STREAM_KINDS.CAMERA || config.kind === MEDIA_STREAM_KINDS.MEDIA)
+    .map(config => config.sourceId)
+    .filter(Boolean)), [p5OverlayScene.elements]);
+  useEffect(() => {
+    const legacyHosts = p5OverlayScene.elements.filter(element => {
+      if (!isMediaStreamElement(element)) return false;
+      const config = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
+      return (config.kind === MEDIA_STREAM_KINDS.CAMERA || config.kind === MEDIA_STREAM_KINDS.MEDIA) && !config.sourceId;
+    });
+    if (!legacyHosts.length) return;
+    setMediaSources(previous => normalizeMediaSources([
+      ...previous,
+      ...legacyHosts.map(element => createMediaSource(
+        normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind,
+        { ...normalizeMediaStreamConfig(element.customData.draweratorMediaStream), id: element.id },
+      )),
+    ]));
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    api.updateScene({
+      elements: elements.map(element => {
+        const legacy = legacyHosts.find(candidate => candidate.id === element.id);
+        if (!legacy) return element;
+        const config = patchMediaStreamConfig(element.customData.draweratorMediaStream, { sourceId: element.id });
+        return {
+          ...element,
+          version: (element.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+          customData: { ...(element.customData || {}), draweratorMediaStream: config },
+        };
+      }),
+      commitToHistory: false,
+    });
+  }, [p5OverlayScene.elements]);
   const [svgOverlayScene, setSvgOverlayScene] = useState({ elements: [], appState: null });
   const [livecodeOverlayScene, setLivecodeOverlayScene] = useState({ elements: [], appState: null });
   const [livecodeEditorId, setLivecodeEditorId] = useState(null);
@@ -3019,6 +3069,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem(PLAY_CORE_STORAGE_KEY, JSON.stringify(playCoreScripts));
   }, [playCoreScripts]);
+
+  useEffect(() => {
+    localStorage.setItem(MEDIA_SOURCE_STORAGE_KEY, JSON.stringify(mediaSources));
+  }, [mediaSources]);
 
   useEffect(() => {
     localStorage.setItem(SVG_SCRIPT_STORAGE_KEY, JSON.stringify(svgScripts));
@@ -7757,6 +7811,10 @@ function App() {
     { id: "livecode.node.run", name: "Run Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.draweratorLivecode); if (!node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
     { id: "livecode.node.stop", name: "Stop Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.draweratorLivecode); if (node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
     { id: "livecode.node.migrate", name: "Migrate p5 or Play Core Host to Livecode Node", aliases: ["Migrate to Livecode Node"], category: "Canvas", action: () => { const target = getSelectedElements().find(element => isP5FrameElement(element) || isPlayCoreFrameElement(element)); if (!target) throw new Error("Select a p5 or Play Core host first."); return migrateLegacyHostToLivecodeNode(target.id); } },
+    { id: "media.camera.create", name: "Create Camera Input", aliases: ["/camera", "webcam stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.CAMERA, args) },
+    { id: "media.input.create", name: "Create Media Input", aliases: ["/media", "image stream", "video stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.MEDIA, { ...args, media: { url: args?.url || args?.media?.url || "", ...(args?.media || {}) } }) },
+    { id: "media.holistic.create", name: "Create MediaPipe Holistic Object", aliases: ["/holistic-object", "landmark stream"], category: "Media Streams", action: (_api, args) => createMediaStreamObject(MEDIA_STREAM_KINDS.HOLISTIC, { ...args, holistic: { sourceId: args?.sourceId || args?.sourceElementId || args?.holistic?.sourceId || args?.holistic?.sourceElementId || "", ...(args?.holistic || {}) } }) },
+    { id: "media.holistic.snapshot", name: "Snapshot Selected Holistic Landmarks", category: "Media Streams", action: () => { const target = getSelectedElements().find(element => isMediaStreamElement(element) && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC); if (!target) throw new Error("Select a MediaPipe Holistic object first."); snapshotHolisticLandmarks(target.id); return { elementIds: [target.id] }; } },
     { id: "settings-ai", name: "Open AI Configuration /settings-ai", aliases: ["/settings-ai"], category: "Panels", action: () => toggleDraweratorPanel("settings", { settingsTab: "ai" }) },
     { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
     { id: "toggle-transparency", name: "Toggle Canvas Background Transparency", category: "Canvas", action: (api) => toggleBackgroundTransparency(api) },
@@ -9594,6 +9652,234 @@ function App() {
     setPlayCoreSource(source);
     return { elementIds: [element.id], name: script.name };
   };
+
+  const selectMediaStreamObject = elementId => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+    const selection = { [elementId]: true };
+    api.updateScene({
+      appState: {
+        selectedElementIds: selection,
+        selectedGroupIds: {},
+        activeTool: { ...(api.getAppState().activeTool || {}), type: "selection", locked: false },
+      },
+    });
+    selectedElementIdsRef.current = selection;
+    setSelectedElementIds(selection);
+  };
+
+  const createMediaInputSource = (kind, overrides = {}, file = null) => {
+    const source = createMediaSource(kind, overrides);
+    setMediaSources(previous => normalizeMediaSources([...previous, source]));
+    if (file) setMediaSessionFile(source.id, file);
+    return source;
+  };
+
+  const patchMediaInputSource = (sourceId, patch = {}) => {
+    let updated = null;
+    setMediaSources(previous => previous.map(source => {
+      if (source.id !== sourceId) return source;
+      updated = patchMediaSource(source, patch);
+      return updated;
+    }));
+    return updated;
+  };
+
+  const deleteMediaInputSource = sourceId => {
+    toggleMediaSourceCanvasHost(sourceId, false);
+    setMediaSessionFile(sourceId, null);
+    setMediaSources(previous => previous.filter(source => source.id !== sourceId));
+  };
+
+  const createMediaStreamObject = (kind, overrides = {}, file = null) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const appState = api.getAppState();
+    const center = viewportCoordsToSceneCoords({
+      clientX: window.innerWidth / 2,
+      clientY: window.innerHeight / 2,
+    }, appState);
+    const config = createMediaStreamConfig(kind, overrides);
+    const width = kind === MEDIA_STREAM_KINDS.HOLISTIC ? 520 : 480;
+    const height = kind === MEDIA_STREAM_KINDS.HOLISTIC ? 390 : 320;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const streamCount = elements.filter(isMediaStreamElement).length;
+    const stagger = (streamCount % 6) * 28;
+    const base = createBaseElement("rectangle", center.x - width / 2 + stagger, center.y - height / 2 + stagger, width, height, "transparent");
+    const element = {
+      ...base,
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      backgroundColor: "transparent",
+      fillStyle: "solid",
+      customData: { draweratorMediaStream: config },
+    };
+    api.updateScene({
+      elements: [...elements, element],
+      appState: {
+        selectedElementIds: { [element.id]: true },
+        selectedGroupIds: {},
+        activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false },
+      },
+      commitToHistory: true,
+    });
+    if (file) setMediaSessionFile(element.id, file);
+    selectedElementIdsRef.current = { [element.id]: true };
+    setSelectedElementIds({ [element.id]: true });
+    return { elementIds: [element.id], kind: config.kind, name: config.name };
+  };
+
+  const toggleMediaSourceCanvasHost = (sourceId, visible) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return null;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const existing = elements.find(element => {
+      if (element.isDeleted || !isMediaStreamElement(element)) return false;
+      const config = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
+      return (config.kind === MEDIA_STREAM_KINDS.CAMERA || config.kind === MEDIA_STREAM_KINDS.MEDIA)
+        && config.sourceId === sourceId;
+    });
+    if (visible) {
+      if (existing) {
+        selectMediaStreamObject(existing.id);
+        return { elementIds: [existing.id] };
+      }
+      const source = mediaSources.find(candidate => candidate.id === sourceId);
+      if (!source) return null;
+      return createMediaStreamObject(source.kind, { name: source.name, sourceId });
+    }
+    if (!existing) return null;
+    api.updateScene({
+      elements: elements.map(element => element.id === existing.id ? {
+        ...element,
+        isDeleted: true,
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+      } : element),
+      appState: { selectedElementIds: {}, selectedGroupIds: {} },
+      commitToHistory: true,
+    });
+    selectedElementIdsRef.current = {};
+    setSelectedElementIds({});
+    return { elementIds: [] };
+  };
+
+  const patchMediaStreamObject = (elementId, patch = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return null;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const existing = elements.find(element => element.id === elementId && isMediaStreamElement(element));
+    if (!existing) return null;
+    const config = patchMediaStreamConfig(existing.customData.draweratorMediaStream, patch);
+    const now = Date.now();
+    api.updateScene({
+      elements: elements.map(element => element.id !== elementId ? element : {
+        ...element,
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: now,
+        customData: { ...(element.customData || {}), draweratorMediaStream: config },
+      }),
+      commitToHistory: true,
+    });
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return config;
+  };
+
+  const chooseMediaStreamFile = (file, sourceId = "") => {
+    const mediaType = file.type.startsWith("image/") ? "image" : "video";
+    const selected = mediaSources.find(source => source.id === sourceId && source.kind === MEDIA_STREAM_KINDS.MEDIA);
+    if (selected) {
+      setMediaSessionFile(selected.id, file);
+      patchMediaInputSource(selected.id, {
+        name: file.name,
+        media: { url: "", fileName: file.name, mediaType },
+      });
+      return patchMediaSource(selected, {
+        name: file.name,
+        media: { url: "", fileName: file.name, mediaType },
+      });
+    }
+    return createMediaInputSource(MEDIA_STREAM_KINDS.MEDIA, {
+      name: file.name,
+      media: { fileName: file.name, mediaType },
+    }, file);
+  };
+
+  const snapshotHolisticLandmarks = elementId => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+    const host = api.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
+    const result = getMediaRuntimeResult(elementId);
+    if (!host || !result) {
+      window.dispatchEvent(new CustomEvent("drawerator:media-stream-status", {
+        detail: { elementId, kind: "error", message: "No landmark frame is available yet." },
+      }));
+      return;
+    }
+    const config = normalizeMediaStreamConfig(host.customData.draweratorMediaStream);
+    const color = config.holistic.color;
+    const now = Date.now();
+    const toWorld = point => [
+      host.x + Math.max(0, Math.min(1, Number(point?.x) || 0)) * host.width,
+      host.y + Math.max(0, Math.min(1, Number(point?.y) || 0)) * host.height,
+    ];
+    const connections = [
+      [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
+      [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28],
+    ];
+    const created = [];
+    if (config.holistic.showPose) {
+      connections.forEach(([from, to]) => {
+        const a = result.poseLandmarks?.[from];
+        const b = result.poseLandmarks?.[to];
+        if (!a || !b) return;
+        const [x1, y1] = toWorld(a);
+        const [x2, y2] = toWorld(b);
+        created.push({
+          ...createBaseElement("line", x1, y1, Math.abs(x2 - x1) || 1, Math.abs(y2 - y1) || 1, color),
+          points: [[0, 0], [x2 - x1, y2 - y1]],
+          lastCommittedPoint: null,
+          startBinding: null,
+          endBinding: null,
+          customData: { draweratorMediaLandmark: { sourceElementId: elementId, kind: "pose-connection", capturedAt: now } },
+        });
+      });
+    }
+    const pointSets = [
+      ...(config.holistic.showHands ? [result.leftHandLandmarks, result.rightHandLandmarks] : []),
+      ...(config.holistic.showPose ? [result.poseLandmarks] : []),
+    ];
+    pointSets.forEach(points => (points || []).forEach(point => {
+      const [x, y] = toWorld(point);
+      created.push({
+        ...createBaseElement("ellipse", x - 3, y - 3, 6, 6, color),
+        backgroundColor: color,
+        fillStyle: "solid",
+        strokeWidth: 1,
+        customData: { draweratorMediaLandmark: { sourceElementId: elementId, kind: "landmark", capturedAt: now } },
+      });
+    }));
+    if (!created.length) return;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const selection = Object.fromEntries(created.map(element => [element.id, true]));
+    api.updateScene({ elements: [...elements, ...created], appState: { selectedElementIds: selection }, commitToHistory: true });
+    selectedElementIdsRef.current = selection;
+    setSelectedElementIds(selection);
+  };
+
+  const handleMediaStreamResults = useCallback((elementId, result) => {
+    eventBus.emit("media.holistic.frame", {
+      elementId,
+      sourceElementId: result.sourceElementId,
+      poseLandmarks: result.poseLandmarks,
+      leftHandLandmarks: result.leftHandLandmarks,
+      rightHandLandmarks: result.rightHandLandmarks,
+      faceLandmarks: result.faceLandmarks,
+      updatedAt: result.updatedAt,
+    }, { source: "media-stream", transportTime: scoreTimeRef.current });
+  }, [eventBus]);
 
   const patchLivecodeCanvasNode = (elementId, patch = {}, { commitToHistory = false } = {}) => {
     const api = excalidrawAPIRef.current;
@@ -16187,7 +16473,11 @@ function App() {
     </div>;
   };
   const syncP5Overlay = (elements, appState) => {
-    const frames = (elements || []).filter(element => !element.isDeleted && (isP5FrameElement(element) || isPlayCoreFrameElement(element)));
+    const frames = (elements || []).filter(element => !element.isDeleted && (
+      isP5FrameElement(element)
+      || isPlayCoreFrameElement(element)
+      || isMediaStreamElement(element)
+    ));
     const camera = {
       scrollX: Number(appState?.scrollX) || 0,
       scrollY: Number(appState?.scrollY) || 0,
@@ -16198,6 +16488,22 @@ function App() {
       camera.scrollY,
       camera.zoom.value,
       ...frames.map(element => {
+        if (isMediaStreamElement(element)) {
+          const stream = normalizeMediaStreamConfig(element.customData?.draweratorMediaStream);
+          return [
+            "media",
+            element.id,
+            element.x,
+            element.y,
+            element.width,
+            element.height,
+            element.angle,
+            element.opacity,
+            element.version,
+            element.versionNonce,
+            JSON.stringify(stream),
+          ].join(",");
+        }
         const isP5 = isP5FrameElement(element);
         const frame = isP5
           ? normalizeP5Frame(element.customData?.draweratorP5)
@@ -16881,6 +17187,15 @@ function App() {
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-synth", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Expressive Synth
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-video-input", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              Video Input
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-media-input", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              Media Input
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-holistic", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              MediaPipe Holistic
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-info", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Info
@@ -18089,6 +18404,95 @@ function App() {
           </DraweratorPanel>
           )}
 
+          {shouldRenderPanel("video-input") && (
+          <DraweratorPanel
+            id="video-input"
+            title="Video Input"
+            placement={panelLayouts["video-input"].placement}
+            layout={panelLayouts["video-input"]}
+            dockTabs={getPanelDockTabs("video-input")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts["video-input"].placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("video-input", placement)}
+            onDragStart={event => startSidebarPanelDrag("video-input", event)}
+            onClose={() => closeDraweratorPanel("video-input")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts["video-input"].placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts["video-input"].placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts["video-input"].placement]: false }))}
+          >
+            <VideoInputPanel
+              sources={mediaSources}
+              canvasHostSourceIds={mediaCanvasHostSourceIds}
+              onCreate={createMediaInputSource}
+              onPatch={patchMediaInputSource}
+              onToggleCanvas={toggleMediaSourceCanvasHost}
+              onDelete={deleteMediaInputSource}
+            />
+          </DraweratorPanel>
+          )}
+
+          {shouldRenderPanel("media-input") && (
+          <DraweratorPanel
+            id="media-input"
+            title="Media Input"
+            placement={panelLayouts["media-input"].placement}
+            layout={panelLayouts["media-input"]}
+            dockTabs={getPanelDockTabs("media-input")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts["media-input"].placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("media-input", placement)}
+            onDragStart={event => startSidebarPanelDrag("media-input", event)}
+            onClose={() => closeDraweratorPanel("media-input")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts["media-input"].placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts["media-input"].placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts["media-input"].placement]: false }))}
+          >
+            <MediaInputPanel
+              sources={mediaSources}
+              canvasHostSourceIds={mediaCanvasHostSourceIds}
+              onCreate={createMediaInputSource}
+              onPatch={patchMediaInputSource}
+              onToggleCanvas={toggleMediaSourceCanvasHost}
+              onChooseFile={chooseMediaStreamFile}
+              onDelete={deleteMediaInputSource}
+            />
+          </DraweratorPanel>
+          )}
+
+          {shouldRenderPanel("holistic") && (
+          <DraweratorPanel
+            id="holistic"
+            title="MediaPipe Holistic"
+            placement={panelLayouts.holistic.placement}
+            layout={panelLayouts.holistic}
+            dockTabs={getPanelDockTabs("holistic")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.holistic.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("holistic", placement)}
+            onDragStart={event => startSidebarPanelDrag("holistic", event)}
+            onClose={() => closeDraweratorPanel("holistic")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.holistic.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.holistic.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.holistic.placement]: false }))}
+          >
+            <HolisticPanel
+              elements={p5OverlayScene.elements}
+              sources={mediaSources}
+              selectedElementIds={selectedElementIds}
+              onCreate={(kind, overrides) => createMediaStreamObject(kind, overrides)}
+              onPatch={patchMediaStreamObject}
+              onSelect={selectMediaStreamObject}
+              onSnapshot={snapshotHolisticLandmarks}
+            />
+          </DraweratorPanel>
+          )}
+
           {(panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? shouldRenderHorizontalPanel("info") : shouldRenderPanel("info")) && (
           <DraweratorPanel
             id="info"
@@ -18181,6 +18585,13 @@ function App() {
           scriptRuntimeRef={scriptRuntimeRef}
         />
         <PlayCoreFrameOverlay elements={p5OverlayScene.elements} appState={p5OverlayScene.appState} scriptRuntimeRef={scriptRuntimeRef} />
+        <MediaSourceRuntimeLayer sources={mediaSources} />
+        <MediaStreamOverlay
+          elements={p5OverlayScene.elements}
+          appState={p5OverlayScene.appState}
+          sources={mediaSources}
+          onResults={handleMediaStreamResults}
+        />
         <LivecodeNodeOverlay
           elements={livecodeOverlayScene.elements}
           appState={livecodeOverlayScene.appState}
