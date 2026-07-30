@@ -59,6 +59,7 @@ test("normalization keeps unsupported values bounded and preserves authored sour
   });
   assert.equal(node.kind, LIVECODE_KINDS.strudel);
   assert.equal(node.source, "  raw source  ");
+  assert.equal(node.view, "code");
   assert.deepEqual(node.runtime, { running: false, enabled: false, transportMode: "linked", settings: {} });
   assert.deepEqual(node.typography, {
     font: "mono",
@@ -73,6 +74,28 @@ test("normalization keeps unsupported values bounded and preserves authored sour
   });
 });
 
+test("Strudel nodes always use the in-code visualization surface", () => {
+  const node = createLivecodeNode({ kind: "strudel", view: "split" });
+  assert.equal(node.view, "code");
+  assert.equal(node.runtime.transportMode, "free");
+  assert.equal(createLivecodeNode({ kind: "strudel", view: "preview" }).view, "code");
+  assert.equal(createLivecodeNode({ kind: "strudel", runtime: { transportMode: "linked" } }).runtime.transportMode, "linked");
+  assert.equal(patchLivecodeNode({ kind: "strudel" }, { view: "split" }).view, "code");
+});
+
+test("running legacy Strudel nodes snapshot their active source before draft edits", () => {
+  const node = createLivecodeNode({
+    kind: "strudel",
+    source: "s(\"bd\")",
+    runtime: { running: true },
+  });
+  assert.equal(node.runtime.settings.evaluatedSource, "s(\"bd\")");
+  assert.equal(node.runtime.settings.evaluationRevision, 0);
+  const edited = patchLivecodeNode(node, { source: "s(\"hh\")" });
+  assert.equal(edited.source, "s(\"hh\")");
+  assert.equal(edited.runtime.settings.evaluatedSource, "s(\"bd\")");
+});
+
 test("patches retain node identity, source ownership, and bump the document revision", () => {
   const initial = createLivecodeNode({ nodeId: "node-1", kind: "p5", source: "function draw() {}", revision: 4 });
   const patched = patchLivecodeNode(initial, {
@@ -85,6 +108,27 @@ test("patches retain node identity, source ownership, and bump the document revi
   assert.equal(patched.revision, 5);
   assert.equal(patched.runtime.running, true);
   assert.equal(patched.typography.fontSize, 16);
+});
+
+test("runtime setting patches preserve the last evaluated Strudel source", () => {
+  const initial = createLivecodeNode({
+    kind: "strudel",
+    source: "s(\"bd\")",
+    runtime: {
+      running: true,
+      settings: {
+        evaluatedSource: "s(\"hh\")",
+        evaluationRevision: 2,
+        syncTransport: false,
+      },
+    },
+  });
+  const patched = patchLivecodeNode(initial, {
+    runtime: { settings: { syncTransport: true } },
+  });
+  assert.equal(patched.runtime.settings.evaluatedSource, "s(\"hh\")");
+  assert.equal(patched.runtime.settings.evaluationRevision, 2);
+  assert.equal(patched.runtime.settings.syncTransport, true);
 });
 
 test("detects scene nodes and maps their source to established CodeMirror profiles", () => {

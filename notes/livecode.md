@@ -51,9 +51,20 @@ The p5 Livecode flow is the currently polished runtime path: concurrent nodes, c
 
 ### Strudel
 
-Strudel nodes use a shared native scheduler rather than a singleton REPL. Each node compiles to its own pattern; recompiling, stopping, or hushing one never clears another. Node playback unlocks Web Audio in the direct user gesture. Linked nodes follow Drawerator transport and tempo; free nodes remain independent. The compact scope is a node-local visual feedback surface.
+Strudel nodes use a shared native scheduler rather than a singleton REPL. Each node compiles to its own pattern; recompiling, stopping, or hushing one never clears another. Node playback unlocks Web Audio in the direct user gesture. New nodes default to Free so Run is immediately audible; Linked nodes follow Drawerator transport and tempo. The runtime loads the same default unbanked drums, drum-machine banks, Dirt, piano, VCSL, and auxiliary sample maps as the reference REPL, with audio files fetched lazily on first use.
 
-Native Strudel is available in local development, but its canvas visualization, transport synchronization, and interaction polish remain active follow-up work. Treat it as experimental rather than a finished Livecode workflow. Public deployment is intentionally blocked by the [release gate](livecode-licensing.md#strudel-release-gate). Do not bypass that gate until the project has completed its AGPL obligations.
+JavaScript REPL voices use separate `$:` statements and are stacked inside the node. Mini Notation is available in the normal double-quoted and template-string pattern arguments. Mondo's bare `$` pattern separator is available through its documented tagged-template form:
+
+```js
+mondo`
+$ s [bd sd]
+$ s hh*2
+`
+```
+
+The node is intentionally code-overlay-only. Its CodeMirror surface is the visual output: active event source locations receive Strudel's synchronized highlights and `markcss(...)` styles, while painter functions such as `_pianoroll()`, `_scope()`, and `_spiral()` render inline canvases inside the code. Runtime messages are panel-only and never appear inside the live canvas frame.
+
+Editing a running Strudel node changes its persisted draft without recompiling the active pattern. `Ctrl+Enter` compiles that draft and swaps it at the next beat boundary; the previous valid pattern remains scheduled until then, and also survives a failed evaluation. `Cmd+Enter` starts a stopped node from the current draft without serving as the update gesture. Since Drawerator maps a Strudel cycle to four score beats, beat-quantized updates use quarter-cycle boundaries. `Ctrl+.` or `Alt+.` stops the node. Native Strudel is available in local development, but public deployment is intentionally blocked by the [release gate](livecode-licensing.md#strudel-release-gate). Do not bypass that gate until the project has completed its AGPL obligations.
 
 ### Markdown and LaTeX
 

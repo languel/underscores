@@ -8,8 +8,10 @@ export const LIVECODE_HELP = Object.freeze({
     title: "Strudel quick reference",
     summary: "A node-owned pattern feeds Drawerator's shared Strudel scheduler.",
     points: Object.freeze([
-      "Write a pattern such as note(\"c3 e3 g3 b3\").slow(2), then Run. Each node compiles independently.",
-      "Linked is the default: Drawerator play/pause and tempo control the pattern. Choose Free in the node runtime settings when it should run independently.",
+      "Cmd+Enter runs the current draft. While it plays, editing does not replace it; Ctrl+Enter queues the draft for the next beat. Ctrl+. or Alt+. stops it.",
+      "Layer JavaScript voices with one `$:` statement per pattern. Mini Notation works inside double quotes; use a mondo`...` template for Mondo's bare `$` separator.",
+      "Event locations animate in the source. Use markcss('...') for synchronized CSS and inline painters such as _pianoroll(), _scope(), or _spiral().",
+      "Free is the default so Run is immediately audible. Choose Linked when Drawerator play/pause and tempo should control the pattern. Runs and updates join the four-beat Strudel cycle on a beat boundary.",
       "Stopping, replacing, or hushing a node affects only that node's pattern; other active Strudel nodes remain scheduled.",
     ]),
     footer: "Native Strudel is available locally, but public deployment remains blocked until Drawerator completes its AGPL compliance gate.",

@@ -45,8 +45,19 @@ import {
   runScopeHandlers,
 } from "@codemirror/view";
 import { classHighlighter } from "@lezer/highlight";
+import {
+  flash,
+  highlightExtension,
+  highlightMiniLocations,
+  sliderPlugin,
+  updateMiniLocations,
+  updateSliderWidgets,
+  updateWidgets,
+  widgetPlugin,
+} from "@strudel/codemirror";
 import { sourceDiagnostic } from "./scriptEditorDiagnostics.js";
 import { getScriptEditorCompletions, getScriptEditorProfile } from "./scriptEditorProfiles.js";
+import { getStrudelRuntimeManager } from "./strudelRuntime.js";
 
 const externalDocumentUpdate = Annotation.define();
 const setExternalHighlight = StateEffect.define();
@@ -97,6 +108,12 @@ const languageExtension = profile => (
       : []
 );
 
+const strudelExtensions = (profile, includeWidgets) => (
+  profile.id === "strudel"
+    ? [highlightExtension, sliderPlugin, includeWidgets ? widgetPlugin : []]
+    : []
+);
+
 const completionToken = context => {
   const token = context.matchBefore(/(?:<\/?[\w:.-]*|[\w$][\w$.:/-]*)/);
   if (!token?.text?.startsWith("<")) return token;
@@ -134,6 +151,8 @@ export default function DraweratorCodeEditor({
   onChange,
   onBlur,
   onRun,
+  onUpdate,
+  onStop,
   onSelectionChange,
   highlightRange = null,
   scriptType = "brush",
@@ -149,6 +168,8 @@ export default function DraweratorCodeEditor({
   onClick,
   focusRequest = 0,
   glyphOnlyOverlay = false,
+  strudelNodeId = "",
+  strudelWidgets = false,
   className = "",
   style,
 }) {
@@ -157,11 +178,14 @@ export default function DraweratorCodeEditor({
   const onChangeRef = useRef(onChange);
   const onBlurRef = useRef(onBlur);
   const onRunRef = useRef(onRun);
+  const onUpdateRef = useRef(onUpdate);
+  const onStopRef = useRef(onStop);
   const onSelectionChangeRef = useRef(onSelectionChange);
   const scriptTypeRef = useRef(scriptType);
   const diagnosticsRef = useRef(getDiagnostics);
   const onToggleLineNumbersRef = useRef(onToggleLineNumbers);
   const onCycleViewRef = useRef(onCycleView);
+  const strudelWidgetsRef = useRef(strudelWidgets);
   const lineNumberToggleChordRef = useRef(false);
   const lineNumberToggleTimerRef = useRef(null);
   const configurationRef = useRef(new Compartment());
@@ -169,11 +193,14 @@ export default function DraweratorCodeEditor({
   onChangeRef.current = onChange;
   onBlurRef.current = onBlur;
   onRunRef.current = onRun;
+  onUpdateRef.current = onUpdate;
+  onStopRef.current = onStop;
   onSelectionChangeRef.current = onSelectionChange;
   scriptTypeRef.current = scriptType;
   diagnosticsRef.current = getDiagnostics;
   onToggleLineNumbersRef.current = onToggleLineNumbers;
   onCycleViewRef.current = onCycleView;
+  strudelWidgetsRef.current = strudelWidgets;
 
   useLayoutEffect(() => {
     if (!hostRef.current) return undefined;
@@ -190,6 +217,16 @@ export default function DraweratorCodeEditor({
     const runCommand = () => {
       if (typeof onRunRef.current !== "function") return false;
       onRunRef.current();
+      return true;
+    };
+    const stopCommand = () => {
+      if (typeof onStopRef.current !== "function") return false;
+      onStopRef.current();
+      return true;
+    };
+    const updateCommand = () => {
+      if (typeof onUpdateRef.current !== "function") return false;
+      onUpdateRef.current();
       return true;
     };
     const acceptActiveCompletion = editor => (
@@ -242,7 +279,18 @@ export default function DraweratorCodeEditor({
               onCycleViewRef.current();
               return true;
             }, preventDefault: true },
-            { key: "Mod-Enter", run: runCommand, preventDefault: true },
+            {
+              key: "Meta-Enter",
+              run: runCommand,
+              preventDefault: true,
+            },
+            {
+              key: "Ctrl-Enter",
+              run: () => scriptTypeRef.current === "strudel" ? updateCommand() : runCommand(),
+              preventDefault: true,
+            },
+            { key: "Ctrl-.", run: stopCommand, preventDefault: true },
+            { key: "Alt-.", run: stopCommand, preventDefault: true },
             // CodeMirror's notebook convention: Ctrl-M, then L.
             { key: "Ctrl-m", run: () => {
               lineNumberToggleChordRef.current = true;
@@ -326,6 +374,7 @@ export default function DraweratorCodeEditor({
             showFoldGutter ? foldGutter({ openText: "⌄", closedText: "›" }) : [],
             showLineNumbers || showFoldGutter ? lintGutter() : [],
             glyphOnlyOverlay ? glyphBackdropField : [],
+            strudelExtensions(profile, strudelWidgetsRef.current),
             placeholder ? placeholderExtension(placeholder) : [],
             EditorState.readOnly.of(Boolean(readOnly)),
             EditorView.editable.of(!readOnly),
@@ -380,6 +429,7 @@ export default function DraweratorCodeEditor({
         (event.metaKey || event.ctrlKey)
         && ["a", "z", "y", "f", "g", "h", "enter"].includes(normalizedKey)
       ) || (event.ctrlKey && normalizedKey === "m")
+        || ((event.ctrlKey || event.altKey) && normalizedKey === ".")
         || ["escape", "tab"].includes(normalizedKey);
 
       // Drawerator and Excalidraw both install capture-phase shortcuts. Give
@@ -495,6 +545,37 @@ export default function DraweratorCodeEditor({
 
   useEffect(() => {
     const view = viewRef.current;
+    if (!view || scriptType !== "strudel") return undefined;
+    const clearVisuals = () => {
+      updateMiniLocations(view, []);
+      updateSliderWidgets(view, []);
+      if (strudelWidgets) updateWidgets(view, []);
+      highlightMiniLocations(view, 0, []);
+    };
+    if (!strudelNodeId) {
+      clearVisuals();
+      return undefined;
+    }
+    let lastEvaluation = 0;
+    const unsubscribe = getStrudelRuntimeManager().subscribeVisuals(strudelNodeId, visuals => {
+      if (visuals.evaluation && visuals.evaluation !== lastEvaluation) {
+        lastEvaluation = visuals.evaluation;
+        const widgets = Array.isArray(visuals.widgets) ? visuals.widgets : [];
+        updateMiniLocations(view, visuals.miniLocations || []);
+        updateSliderWidgets(view, widgets.filter(widget => widget.type === "slider"));
+        if (strudelWidgets) updateWidgets(view, widgets.filter(widget => widget.type !== "slider"));
+        flash(view, 140);
+      }
+      highlightMiniLocations(view, Number(visuals.time) || 0, visuals.haps || []);
+    });
+    return () => {
+      unsubscribe();
+      clearVisuals();
+    };
+  }, [scriptType, strudelNodeId, strudelWidgets]);
+
+  useEffect(() => {
+    const view = viewRef.current;
     if (!view) return;
     const profile = getScriptEditorProfile(scriptType);
     view.dispatch({
@@ -504,6 +585,7 @@ export default function DraweratorCodeEditor({
         showFoldGutter ? foldGutter({ openText: "⌄", closedText: "›" }) : [],
         showLineNumbers || showFoldGutter ? lintGutter() : [],
         glyphOnlyOverlay ? glyphBackdropField : [],
+        strudelExtensions(profile, strudelWidgets),
         placeholder ? placeholderExtension(placeholder) : [],
         EditorState.readOnly.of(Boolean(readOnly)),
         EditorView.editable.of(!readOnly),
@@ -517,7 +599,7 @@ export default function DraweratorCodeEditor({
       ]),
     });
     forceLinting(view);
-  }, [ariaLabel, glyphOnlyOverlay, placeholder, readOnly, scriptType, showFoldGutter, showLineNumbers]);
+  }, [ariaLabel, glyphOnlyOverlay, placeholder, readOnly, scriptType, showFoldGutter, showLineNumbers, strudelWidgets]);
 
   return (
     <div

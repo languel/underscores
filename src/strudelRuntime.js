@@ -6,17 +6,74 @@
 // owns audio unlock, transport linking, and output scheduling.
 import * as core from "@strudel/core";
 import * as mini from "@strudel/mini";
+import * as mondo from "@strudel/mondo";
 import * as tonal from "@strudel/tonal";
+import { slider } from "@strudel/codemirror";
+import { Drawer } from "@strudel/draw";
 import { transpiler } from "@strudel/transpiler";
-import {
-  getAudioContext,
-  initAudio,
-  registerSynthSounds,
-  webaudioOutput,
-} from "@strudel/webaudio";
+import * as webaudio from "@strudel/webaudio";
 
 const DEFAULT_CPS = 0.5;
+const BEATS_PER_CYCLE = 4;
+const SCHEDULER_SWAP_SAFETY_SECONDS = 0.16;
+const DRAW_TIME = [-2, 2];
+const DEFAULT_SAMPLE_BASE = "https://raw.githubusercontent.com/felixroos/dough-samples/main";
+const DEFAULT_SAMPLE_MAPS = Object.freeze([
+  "tidal-drum-machines.json",
+  // The drum-machine map is bank-prefixed. EmuSP12 supplies Strudel's
+  // documented unbanked defaults (`bd`, `sd`, `hh`, `oh`, `misc`, ...).
+  "EmuSP12.json",
+  "piano.json",
+  "Dirt-Samples.json",
+  "vcsl.json",
+  "mridangam.json",
+]);
+const DEFAULT_BANK_ALIASES = "https://raw.githubusercontent.com/todepond/samples/main/tidal-drum-machines-alias.json";
+const nodeVisualTag = nodeId => `drawerator:${nodeId}`;
 const bpmToCps = bpm => Math.max(0.01, Math.min(16, (Number(bpm) || 120) / 240));
+
+export const strudelNextBeatCycle = (
+  cycle,
+  cps = DEFAULT_CPS,
+  lookaheadSeconds = SCHEDULER_SWAP_SAFETY_SECONDS,
+) => {
+  const safeCycle = Math.max(0, Number(cycle) || 0)
+    + Math.max(0, Number(lookaheadSeconds) || 0) * Math.max(0.01, Number(cps) || DEFAULT_CPS);
+  const beat = Math.ceil((safeCycle * BEATS_PER_CYCLE) - 1e-9) / BEATS_PER_CYCLE;
+  return beat === 0 ? 0 : beat;
+};
+
+export const strudelSwitchAtCycle = (before, after, cycle) => {
+  const boundary = core.Fraction(cycle);
+  return new core.Pattern(state => {
+    const haps = [];
+    if (state.span.begin.lt(boundary)) {
+      const end = state.span.end.min(boundary);
+      if (end.gt(state.span.begin)) {
+        haps.push(...before.query(state.setSpan(new core.TimeSpan(state.span.begin, end))));
+      }
+    }
+    if (state.span.end.gt(boundary)) {
+      const begin = state.span.begin.max(boundary);
+      if (state.span.end.gt(begin)) {
+        haps.push(...after.query(state.setSpan(new core.TimeSpan(begin, state.span.end))));
+      }
+    }
+    return haps;
+  });
+};
+
+// @strudel/codemirror registers markcss as a normal patternable control. Once
+// miniAllStrings is enabled, however, normal control registration interprets
+// the raw CSS string as mini notation. The reference REPL promises raw
+// single-quoted CSS here, so preserve that contract explicitly.
+export const strudelMarkCss = (value, pattern) => {
+  const control = core.pure({ markcss: String(value ?? "") });
+  return core.isPattern(pattern) ? pattern.set(control) : control;
+};
+core.Pattern.prototype.markcss = function markcss(value) {
+  return strudelMarkCss(value, this);
+};
 
 const restoreGlobal = (key, value) => {
   if (value === undefined) delete globalThis[key];
@@ -70,19 +127,74 @@ export class StrudelRuntimeManager {
   constructor() {
     this.entries = new Map();
     this.scheduler = null;
+    this.drawer = null;
+    this.drawerRunning = false;
     this.scopeReady = null;
     this.audioReady = false;
     this.compileQueue = Promise.resolve();
+    this.activationTimers = new Map();
+    this.visualStates = new Map();
+    this.visualListeners = new Map();
     this.transport = { playing: false, bpm: 120, time: 0 };
     this.cps = DEFAULT_CPS;
+  }
+
+  _visualState(nodeId) {
+    return this.visualStates.get(nodeId) || {
+      miniLocations: [],
+      widgets: [],
+      haps: [],
+      time: 0,
+      evaluation: 0,
+      status: "Ready",
+      error: "",
+    };
+  }
+
+  _notifyVisual(nodeId, patch = {}) {
+    const next = { ...this._visualState(nodeId), ...patch };
+    this.visualStates.set(nodeId, next);
+    this.visualListeners.get(nodeId)?.forEach(listener => listener(next));
+  }
+
+  subscribeVisuals(nodeId, listener) {
+    if (typeof listener !== "function") return () => {};
+    const listeners = this.visualListeners.get(nodeId) || new Set();
+    listeners.add(listener);
+    this.visualListeners.set(nodeId, listeners);
+    listener(this._visualState(nodeId));
+    return () => {
+      listeners.delete(listener);
+      if (!listeners.size) this.visualListeners.delete(nodeId);
+    };
+  }
+
+  _drawFrame(haps, time, painters) {
+    painters?.forEach(painter => painter(null, time, haps, DRAW_TIME));
+    for (const nodeId of this.visualListeners.keys()) {
+      const tag = nodeVisualTag(nodeId);
+      const active = haps.filter(hap => (
+        hap.context?.tags?.includes(tag) && hap.isActive(time)
+      ));
+      this._notifyVisual(nodeId, { haps: active, time });
+    }
   }
 
   async ensureScope() {
     if (!this.scopeReady) {
       this.scopeReady = (async () => {
         mini.miniAllStrings?.();
-        await core.evalScope(core.evalScope, core, mini, tonal, { webaudioOutput });
-        await registerSynthSounds();
+        const loadScope = core.evalScope(core.evalScope, core, mini, mondo, tonal, webaudio, {
+          markcss: strudelMarkCss,
+          slider,
+        });
+        await Promise.all([
+          loadScope,
+          webaudio.registerSynthSounds(),
+          webaudio.registerZZFXSounds(),
+          ...DEFAULT_SAMPLE_MAPS.map(file => webaudio.samples(`${DEFAULT_SAMPLE_BASE}/${file}`)),
+        ]);
+        await webaudio.aliasBank(DEFAULT_BANK_ALIASES);
       })();
     }
     await this.scopeReady;
@@ -92,13 +204,17 @@ export class StrudelRuntimeManager {
     await this.ensureScope();
     if (this.scheduler) return this.scheduler;
     const repl = core.repl({
-      defaultOutput: webaudioOutput,
-      getTime: () => getAudioContext().currentTime,
+      defaultOutput: webaudio.webaudioOutput,
+      getTime: () => webaudio.getAudioContext().currentTime,
       beforeStart: () => this.unlock(),
       onEvalError: error => console.warn("Strudel evaluation error", error),
     });
     this.scheduler = repl.scheduler;
     this.scheduler.setCps(this.cps);
+    this.drawer = new Drawer(
+      (haps, time, _drawer, painters) => this._drawFrame(haps, time, painters),
+      DRAW_TIME,
+    );
     return this.scheduler;
   }
 
@@ -107,10 +223,10 @@ export class StrudelRuntimeManager {
     if (!this.audioReady) {
       // This is called directly from a node Play action or global transport
       // action. Browsers therefore keep the normal user-gesture requirement.
-      await initAudio();
+      await webaudio.initAudio();
       this.audioReady = true;
     }
-    return getAudioContext();
+    return webaudio.getAudioContext();
   }
 
   _nodeScope(nodeId, bridge) {
@@ -160,11 +276,17 @@ export class StrudelRuntimeManager {
     const labelled = captureLabelledPatterns(nodeId);
     Object.assign(globalThis, scope);
     try {
-      const { pattern } = await core.evaluate(source, transpiler, { id: nodeId });
+      const { pattern, meta } = await core.evaluate(source, transpiler, { id: nodeId });
       const captured = labelled.stack();
       const result = captured || pattern;
       if (!core.isPattern(result)) throw new Error("Strudel source must evaluate to a pattern.");
-      return result;
+      return {
+        pattern: result.tag(nodeVisualTag(nodeId)),
+        meta: {
+          miniLocations: meta?.miniLocations || [],
+          widgets: meta?.widgets || [],
+        },
+      };
     } finally {
       labelled.restore();
       Object.entries(previous).forEach(([key, value]) => restoreGlobal(key, value));
@@ -173,19 +295,54 @@ export class StrudelRuntimeManager {
 
   async upsert({ nodeId, source, transportMode = "linked", bridge }) {
     const run = async () => {
-      const pattern = await this._compile(nodeId, source, bridge);
-      const previous = this.entries.get(nodeId);
-      this.entries.set(nodeId, {
-        pattern,
-        transportMode: transportMode === "free" ? "free" : "linked",
-        cps: previous?.cps || null,
-      });
+      this._notifyVisual(nodeId, { status: "Evaluating…", error: "" });
+      // The reference REPL establishes core's shared time source before it
+      // evaluates user code. Inline visualizers read that clock while their
+      // widget patterns are created, so mirror that ordering here as well.
+      const scheduler = await this.ensureScheduler();
+      const { pattern, meta } = await this._compile(nodeId, source, bridge);
+      const normalizedMode = transportMode === "free" ? "free" : "linked";
+      const schedulerCycle = typeof scheduler.now === "function" ? scheduler.now() : 0;
+      const previous = this._promoteDueEntry(nodeId, schedulerCycle);
+      if (scheduler.started) {
+        const activateAt = strudelNextBeatCycle(
+          schedulerCycle,
+          this.cps,
+          SCHEDULER_SWAP_SAFETY_SECONDS,
+        );
+        this.entries.set(nodeId, {
+          pattern: previous?.pattern || core.silence,
+          transportMode: normalizedMode,
+          cps: previous?.cps || null,
+          pending: { pattern, meta, activateAt },
+        });
+        this._notifyVisual(nodeId, {
+          status: "Update queued for next beat",
+          error: "",
+        });
+        this._schedulePendingActivation(nodeId, activateAt);
+      } else {
+        this.entries.set(nodeId, {
+          pattern,
+          transportMode: normalizedMode,
+          cps: previous?.cps || null,
+          pending: null,
+        });
+        this._publishEvaluation(nodeId, meta, normalizedMode);
+      }
       await this.refresh();
       return pattern;
     };
     // Strudel's evaluator uses a temporary global scope. Serializing compile
     // work prevents two node edits from ever seeing one another's bridge.
-    const pending = this.compileQueue.then(run, run);
+    const pending = this.compileQueue.then(run, run).catch(error => {
+      this._notifyVisual(nodeId, {
+        haps: [],
+        status: "Evaluation error",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    });
     this.compileQueue = pending.catch(() => undefined);
     return pending;
   }
@@ -198,8 +355,64 @@ export class StrudelRuntimeManager {
     void this.refresh();
   }
 
+  setNodeTransportMode(nodeId, value) {
+    const entry = this.entries.get(nodeId);
+    if (!entry) return;
+    this.entries.set(nodeId, {
+      ...entry,
+      transportMode: value === "free" ? "free" : "linked",
+    });
+    void this.refresh();
+  }
+
+  _publishEvaluation(nodeId, meta, transportMode) {
+    this._notifyVisual(nodeId, {
+      miniLocations: meta?.miniLocations || [],
+      widgets: meta?.widgets || [],
+      haps: [],
+      evaluation: this._visualState(nodeId).evaluation + 1,
+      status: transportMode === "free" ? "Free-run" : "Transport linked",
+      error: "",
+    });
+  }
+
+  _promoteDueEntry(nodeId, cycle = 0) {
+    const entry = this.entries.get(nodeId);
+    if (!entry?.pending || cycle + 1e-6 < entry.pending.activateAt) return entry;
+    const next = {
+      ...entry,
+      pattern: entry.pending.pattern,
+      pending: null,
+    };
+    this.entries.set(nodeId, next);
+    this._publishEvaluation(nodeId, entry.pending.meta, next.transportMode);
+    const timer = this.activationTimers.get(nodeId);
+    if (timer) clearTimeout(timer);
+    this.activationTimers.delete(nodeId);
+    return next;
+  }
+
+  _schedulePendingActivation(nodeId, activateAt) {
+    const previousTimer = this.activationTimers.get(nodeId);
+    if (previousTimer) clearTimeout(previousTimer);
+    const currentCycle = this.scheduler?.now?.() || 0;
+    const delayMs = Math.max(0, ((activateAt - currentCycle) / this.cps) * 1000);
+    const timer = setTimeout(() => {
+      this.activationTimers.delete(nodeId);
+      const entry = this.entries.get(nodeId);
+      if (!entry?.pending || entry.pending.activateAt !== activateAt) return;
+      this._promoteDueEntry(nodeId, activateAt);
+      void this.refresh();
+    }, delayMs);
+    this.activationTimers.set(nodeId, timer);
+  }
+
   async remove(nodeId) {
+    const timer = this.activationTimers.get(nodeId);
+    if (timer) clearTimeout(timer);
+    this.activationTimers.delete(nodeId);
     if (!this.entries.delete(nodeId)) return;
+    this._notifyVisual(nodeId, { haps: [], status: "Stopped" });
     await this.refresh();
   }
 
@@ -207,13 +420,19 @@ export class StrudelRuntimeManager {
     this.transport = { ...this.transport, ...next };
     this.cps = bpmToCps(this.transport.bpm);
     if (this.scheduler) this.scheduler.setCps(this.cps);
+    for (const [nodeId, entry] of this.entries) {
+      if (entry.pending) this._schedulePendingActivation(nodeId, entry.pending.activateAt);
+    }
     await this.refresh();
   }
 
   _combinedPattern() {
     const patterns = Array.from(this.entries.values()).map(entry => {
-      if (!entry.cps || entry.cps === this.cps) return entry.pattern;
-      return entry.pattern._fast(entry.cps / this.cps);
+      const pattern = entry.pending
+        ? strudelSwitchAtCycle(entry.pattern, entry.pending.pattern, entry.pending.activateAt)
+        : entry.pattern;
+      if (!entry.cps || entry.cps === this.cps) return pattern;
+      return pattern._fast(entry.cps / this.cps);
     });
     return patterns.length ? core.stack(...patterns) : core.silence;
   }
@@ -229,23 +448,47 @@ export class StrudelRuntimeManager {
     const scheduler = await this.ensureScheduler();
     scheduler.setCps(this.cps);
     await scheduler.setPattern(this._combinedPattern(), false);
+    this.drawer?.invalidate(scheduler);
     if (this._shouldPlay()) {
       await this.unlock();
       if (!scheduler.started) await scheduler.start();
-    } else if (scheduler.started) {
-      scheduler.pause();
+      if (!this.drawerRunning) {
+        this.drawer?.start(scheduler);
+        this.drawerRunning = true;
+      }
+    } else {
+      if (scheduler.started) scheduler.pause();
+      if (this.drawerRunning) this.drawer?.stop();
+      this.drawerRunning = false;
+      for (const nodeId of this.visualListeners.keys()) {
+        this._notifyVisual(nodeId, { haps: [], status: "Stopped" });
+      }
     }
   }
 
   async panic() {
+    this.activationTimers.forEach(timer => clearTimeout(timer));
+    this.activationTimers.clear();
     this.entries.clear();
     if (this.scheduler) this.scheduler.stop();
+    this.drawer?.stop();
+    this.drawerRunning = false;
+    for (const nodeId of this.visualListeners.keys()) {
+      this._notifyVisual(nodeId, { haps: [], status: "Stopped" });
+    }
   }
 
   dispose() {
+    this.activationTimers.forEach(timer => clearTimeout(timer));
+    this.activationTimers.clear();
     this.entries.clear();
+    this.drawer?.stop();
+    this.drawer = null;
+    this.drawerRunning = false;
     this.scheduler?.stop();
     this.scheduler = null;
+    this.visualStates.clear();
+    this.visualListeners.clear();
   }
 }
 

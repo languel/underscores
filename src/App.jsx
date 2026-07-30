@@ -79,7 +79,7 @@ import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_EXAM
 import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
 import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
-import { LivecodeNodeEditor, LivecodeNodeOverlay } from "./LivecodeNodeOverlay.jsx";
+import { LivecodeNodeEditor, LivecodeNodeOverlay, StrudelPanelStatus } from "./LivecodeNodeOverlay.jsx";
 import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeKindDefinition, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode } from "./livecodeNode.js";
 import { describeLivecodeRuntime, hasNativeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
 import { getLivecodeHelp } from "./livecodeHelp.js";
@@ -9584,13 +9584,18 @@ function App() {
     setLivecodeStatus("Saved to the scene.");
   };
 
-  const toggleLivecodeNodeRun = async elementId => {
+  const toggleLivecodeNodeRun = async (elementId, { command = "toggle" } = {}) => {
     const element = (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || []).find(candidate => (
       candidate.id === elementId && !candidate.isDeleted && isLivecodeNodeElement(candidate)
     ));
     if (!element) return;
     const node = normalizeLivecodeNode(element.customData?.draweratorLivecode);
-    const running = !node.runtime.running;
+    if (command === "run" && node.runtime.running) {
+      setLivecodeStatus("Strudel is already running · Ctrl+Enter updates the pattern.");
+      return;
+    }
+    const updating = command === "update" && node.kind === LIVECODE_KINDS.strudel;
+    const running = updating || command === "run" ? true : !node.runtime.running;
     const validation = validateLivecodeNode(node);
     if (running && !validation.valid) {
       setLivecodeStatus(`${getLivecodeKindDefinition(node.kind).label} draft has an error: ${validation.error}`);
@@ -9613,12 +9618,20 @@ function App() {
       if (activeTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_GM)) await ensureInternalSynth();
       if (activeTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_EXPRESSIVE)) await ensureExpressiveSynth();
     }
+    const evaluationSettings = running && node.kind === LIVECODE_KINDS.strudel ? {
+      evaluatedSource: node.source,
+      evaluationRevision: Math.max(0, Number(node.runtime.settings?.evaluationRevision) || 0) + 1,
+    } : null;
     patchLivecodeCanvasNode(elementId, {
-      runtime: { running },
+      runtime: {
+        running,
+        ...(evaluationSettings ? { settings: evaluationSettings } : {}),
+      },
       ...(running && node.kind !== LIVECODE_KINDS.strudel && (hasNativeLivecodeRuntime(node) || [LIVECODE_KINDS.markdown, LIVECODE_KINDS.latex, LIVECODE_KINDS.html].includes(node.kind)) ? { view: "preview" } : {}),
     }, { commitToHistory: true });
     if (!running && node.kind === LIVECODE_KINDS.strudel && node.runtime.settings?.syncTransport) setScorePlaying(false);
-    setLivecodeStatus(running
+    if (node.kind === LIVECODE_KINDS.strudel && running) setLivecodeStatus("");
+    else setLivecodeStatus(running
       ? `${getLivecodeKindDefinition(node.kind).label} node running · ${describeLivecodeRuntime(node)}`
       : "Livecode node stopped.");
   };
@@ -13372,7 +13385,11 @@ function App() {
       </select>
       <div className="livecode-panel-controls">
         <label>Kind <select value={node.kind} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { kind: event.target.value, name: defaultLivecodeName(event.target.value) }, { commitToHistory: true })}>{Object.entries(LIVECODE_KINDS).map(([key, value]) => <option key={key} value={value}>{getLivecodeKindDefinition(value).label}</option>)}</select></label>
-        {node.kind === LIVECODE_KINDS.orca ? <label>View <span className="livecode-static-option">Grid</span></label> : <label>View <select value={node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="code">Code</option><option value="preview">Output</option><option value="split">Code/output</option></select></label>}
+        {node.kind === LIVECODE_KINDS.orca
+          ? <label>View <span className="livecode-static-option">Grid</span></label>
+          : node.kind === LIVECODE_KINDS.strudel
+            ? <label>View <span className="livecode-static-option">Code overlay</span></label>
+            : <label>View <select value={node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="code">Code</option><option value="preview">Output</option><option value="split">Code/output</option></select></label>}
         <label>Clock <select value={node.runtime.transportMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { transportMode: event.target.value } }, { commitToHistory: true })}><option value="linked">Linked</option><option value="free">Free</option></select></label>
         {node.kind === LIVECODE_KINDS.strudel && <label>Transport <span className="livecode-checkbox"><input type="checkbox" checked={Boolean(node.runtime.settings?.syncTransport)} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { syncTransport: event.target.checked } } }, { commitToHistory: true })} />Full sync</span></label>}
         <label>Font <select value={node.typography.font} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { font: event.target.value } }, { commitToHistory: true })}>{LIVE_CODE_FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label>
@@ -13414,14 +13431,25 @@ function App() {
         node={node}
         element={nodeElement}
         onPatch={patch => patchLivecodeCanvasNode(nodeElement.id, patch)}
-        onRun={() => toggleLivecodeNodeRun(nodeElement.id)}
+        onRun={() => toggleLivecodeNodeRun(nodeElement.id, { command: "run" })}
+        onUpdate={node.kind === LIVECODE_KINDS.strudel
+          ? () => toggleLivecodeNodeRun(nodeElement.id, { command: "update" })
+          : undefined}
+        onStop={node.kind === LIVECODE_KINDS.strudel && node.runtime.running ? () => toggleLivecodeNodeRun(nodeElement.id) : undefined}
         onBlur={() => commitLivecodeCanvasNode(nodeElement.id)}
-        onCycleView={() => patchLivecodeCanvasNode(nodeElement.id, { view: ({ code: "preview", preview: "split", split: "code" }[node.view] || "code") })}
+        onCycleView={node.kind === LIVECODE_KINDS.strudel ? undefined : () => patchLivecodeCanvasNode(nodeElement.id, { view: ({ code: "preview", preview: "split", split: "code" }[node.view] || "code") })}
         transport={{ playing: scorePlaying, bpm: scoreTempo }}
         onMidiEvents={events => emitOrcaMidiEvents(nodeElement.id, events)}
         ariaLabel={`${definition.label} node source`}
       />
-      <p className="p5-script-status" role="status" aria-live="polite">{livecodeStatus || definition.summary}</p>
+      {node.kind === LIVECODE_KINDS.strudel
+        ? <StrudelPanelStatus
+          nodeId={nodeElement.id}
+          node={node}
+          transport={{ playing: scorePlaying, bpm: scoreTempo }}
+          message={livecodeStatus}
+        />
+        : <p className="p5-script-status" role="status" aria-live="polite">{livecodeStatus || definition.summary}</p>}
       <details className="livecode-help">
         <summary>{help.title}</summary>
         <p>{help.summary}</p>

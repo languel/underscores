@@ -20,7 +20,7 @@ export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
     label: "Strudel",
     editorProfile: "strudel",
     defaultName: "Untitled Strudel",
-    defaultSource: `// Node-owned Strudel pattern. Linked nodes follow Drawerator transport.\nnote("c3 e3 g3 b3").slow(2)`,
+    defaultSource: `// Ctrl/Cmd+Enter evaluates. Ctrl+. stops this node.\n$: note("c3 e3 g3 b3")\n  .s("sine").slow(2)\n  .color("<#ff8bd1 #8bd5ff #f5d76e #9df59d>")\n  ._pianoroll({ height: 72, fold: 1 })`,
     summary: "Pattern livecoding node using the shared native scheduler. Public deployment stays release-gated until Strudel licensing compliance is complete.",
   }),
   [LIVECODE_KINDS.p5]: Object.freeze({
@@ -142,6 +142,22 @@ export const createLivecodeNode = value => {
   const raw = value && typeof value === "object" ? value : {};
   const kind = normalizeLivecodeKind(raw.kind);
   const definition = getLivecodeKindDefinition(kind);
+  const source = typeof raw.source === "string" ? raw.source : "";
+  const runtime = kind === LIVECODE_KINDS.strudel && raw.runtime?.transportMode == null
+    ? { ...(raw.runtime || {}), transportMode: "free" }
+    : raw.runtime;
+  const normalizedRuntime = normalizeLivecodeRuntime(runtime);
+  if (
+    kind === LIVECODE_KINDS.strudel
+    && normalizedRuntime.running
+    && typeof normalizedRuntime.settings.evaluatedSource !== "string"
+  ) {
+    normalizedRuntime.settings = {
+      ...normalizedRuntime.settings,
+      evaluatedSource: source,
+      evaluationRevision: Math.max(0, Number(normalizedRuntime.settings.evaluationRevision) || 0),
+    };
+  }
   return {
     version: LIVECODE_NODE_VERSION,
     nodeId: typeof raw.nodeId === "string" && raw.nodeId.trim() ? raw.nodeId : `livecode-${createLivecodeId()}`,
@@ -149,14 +165,14 @@ export const createLivecodeNode = value => {
     name: String(raw.name || definition.defaultName).trim() || definition.defaultName,
     // Livecode nodes start as a blank surface rather than injecting an adapter
     // template into a node the user is about to improvise in.
-    source: typeof raw.source === "string" ? raw.source : "",
+    source,
     parameters: raw.parameters && typeof raw.parameters === "object" && !Array.isArray(raw.parameters) ? raw.parameters : {},
-    runtime: normalizeLivecodeRuntime(raw.runtime),
-    view: kind === LIVECODE_KINDS.orca
+    runtime: normalizedRuntime,
+    view: kind === LIVECODE_KINDS.orca || kind === LIVECODE_KINDS.strudel
       ? "code"
       : ["code", "preview", "split"].includes(raw.view)
         ? raw.view
-        : kind === LIVECODE_KINDS.strudel ? "split" : "code",
+        : "code",
     typography: normalizeLivecodeTypography(raw.typography),
     revision: Math.max(0, Math.floor(Number(raw.revision) || 0)),
     createdAt: Math.max(0, Number(raw.createdAt) || Date.now()),
@@ -177,11 +193,18 @@ export const getLivecodeEditorProfile = node => getLivecodeKindDefinition(node?.
 export const patchLivecodeNode = (value, patch = {}) => {
   const previous = normalizeLivecodeNode(value);
   const kind = normalizeLivecodeKind(patch.kind ?? previous.kind);
+  const runtime = patch.runtime ? {
+    ...previous.runtime,
+    ...patch.runtime,
+    settings: patch.runtime.settings
+      ? { ...previous.runtime.settings, ...patch.runtime.settings }
+      : previous.runtime.settings,
+  } : previous.runtime;
   return normalizeLivecodeNode({
     ...previous,
     ...patch,
     kind,
-    runtime: patch.runtime ? { ...previous.runtime, ...patch.runtime } : previous.runtime,
+    runtime,
     typography: patch.typography ? { ...previous.typography, ...patch.typography } : previous.typography,
     parameters: patch.parameters ? { ...previous.parameters, ...patch.parameters } : previous.parameters,
     revision: previous.revision + 1,

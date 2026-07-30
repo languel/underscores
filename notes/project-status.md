@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-07-29
+Last updated: 2026-07-30
 
 ## Release checkpoint
 
@@ -29,11 +29,11 @@ any public Strudel deployment.
   Markdown, LaTeX, HTML, and Orca adapters. p5 is the polished Livecode path. Markdown is
   presentation-ready with contained overflow scrolling, and LaTeX supports explicit inline/display
   delimiters. See [Livecode Nodes](livecode.md).
-- Native Strudel shared scheduling and native Orca grids with Drawerator transport/Mixer integration
-  are available as experimental work: their visualization, runtime interaction, and transport
-  behavior need a dedicated follow-up stabilization pass. HTML remains sandboxed and needs its own
-  browser acceptance pass. Strudel public deployment remains intentionally blocked pending AGPL
-  compliance; see [Livecode licensing](livecode-licensing.md).
+- Native Strudel shared scheduling now includes code-only overlays with event-synchronized CSS,
+  source highlighting, inline visualizers, and REPL run/stop shortcuts. Native Orca grids with
+  Drawerator transport/Mixer integration still need a dedicated follow-up stabilization pass. HTML
+  remains sandboxed and needs its own browser acceptance pass. Strudel public deployment remains
+  intentionally blocked pending AGPL compliance; see [Livecode licensing](livecode-licensing.md).
 
 ## Validation baseline
 
@@ -41,6 +41,11 @@ This release gate must pass `npm test`, `npm run build`, `npm run build:single`,
 focused browser checks for concurrent Livecode Nodes, code/dock source ownership, HTML sandboxing,
 and Orca keyboard containment. `npm run release:check` must fail until the Strudel release gate is
 actually satisfied; an explicit acknowledgement only validates the gate's completed-compliance path.
+
+The 2026-07-30 Strudel interaction pass completed 385 automated tests, a production build, lint
+without new warnings, and an active-harness workflow check. The harness confirmed that edits remain
+drafts while the last evaluated pattern continues, `Ctrl+Enter` reports a queued update before the
+next-beat activation, and runtime messages remain absent from the live canvas frame.
 
 ## Known boundary
 
@@ -53,6 +58,6 @@ true native/SVG per-object z-order and exact time-specific PNG parity. See
 
 Before public deployment, complete the project licensing decision, publish corresponding source and
 build instructions, audit any Strudel samples/assets, and record the final notices. Continue the
-Strudel visualization/transport and Orca grid stabilization passes, browser-test sandboxed HTML,
+Strudel transport and Orca grid stabilization passes, browser-test sandboxed HTML,
 and extend deterministic Livecode export coverage without weakening node source ownership or
 keyboard containment.

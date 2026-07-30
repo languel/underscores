@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import DraweratorCodeEditor from "./DraweratorCodeEditor.jsx";
 import P5Frame from "./P5Frame.jsx";
 import { PlayCoreFrame } from "./PlayCoreFrame.jsx";
@@ -35,6 +35,8 @@ export function LivecodeNodeEditor({
   element,
   onPatch,
   onRun,
+  onUpdate,
+  onStop,
   onBlur,
   onCycleView,
   transport,
@@ -46,9 +48,12 @@ export function LivecodeNodeEditor({
   onDoubleClick,
   focusRequest = 0,
   glyphOnlyOverlay = false,
+  enableStrudelWidgets = false,
 }) {
-  const node = normalizeLivecodeNode(rawNode);
+  const node = useMemo(() => normalizeLivecodeNode(rawNode), [rawNode]);
   const definition = getLivecodeKindDefinition(node.kind);
+  const strudelVisualsCurrent = node.kind === "strudel"
+    && evaluatedStrudelSource(node) === node.source;
   if (node.kind === "orca") return <div
     className={`livecode-node-editor ${className}`.trim()}
     style={editorStyleFor(node.typography)}
@@ -71,6 +76,8 @@ export function LivecodeNodeEditor({
       onChange={source => onPatch?.({ source })}
       onBlur={onBlur}
       onRun={onRun}
+      onUpdate={onUpdate}
+      onStop={onStop}
       readOnly={readOnly}
       showLineNumbers={node.typography.showLineNumbers}
       showFoldGutter={node.typography.showFoldGutter}
@@ -84,16 +91,13 @@ export function LivecodeNodeEditor({
       onDoubleClick={onDoubleClick}
       focusRequest={focusRequest}
       glyphOnlyOverlay={glyphOnlyOverlay}
+      strudelNodeId={strudelVisualsCurrent ? element?.id || node.nodeId : ""}
+      strudelWidgets={strudelVisualsCurrent && enableStrudelWidgets}
     />
   );
 }
 
 const previewSource = source => String(source || "").split("\n").slice(0, 18).join("\n");
-
-const strudelScopePoints = source => {
-  const hash = Array.from(String(source || "")).reduce((total, character) => (total * 31 + character.charCodeAt(0)) >>> 0, 0);
-  return Array.from({ length: 32 }, (_, index) => (hash >>> (index % 24)) & 1);
-};
 
 function createLivecodeBridge(element, node, scriptRuntimeRef, onStrudelTransport) {
   const canvas = createScriptCanvasApi(scriptRuntimeRef);
@@ -128,46 +132,71 @@ function createLivecodeBridge(element, node, scriptRuntimeRef, onStrudelTranspor
   });
 }
 
+const evaluatedStrudelSource = node => (
+  typeof node.runtime.settings?.evaluatedSource === "string"
+    ? node.runtime.settings.evaluatedSource
+    : node.source
+);
+
 function StrudelNodeRuntime({ element, node, scriptRuntimeRef, onStrudelTransport }) {
   const runtime = useMemo(() => getStrudelRuntimeManager(), []);
-  const [status, setStatus] = useState("Compiling pattern…");
+  const elementId = element.id;
+  const elementWidth = element.width;
+  const elementHeight = element.height;
+  const source = evaluatedStrudelSource(node);
+  const evaluationRevision = Math.max(0, Number(node.runtime.settings?.evaluationRevision) || 0);
+  const transportMode = node.runtime.transportMode;
+  const latestNodeRef = useRef(node);
+  latestNodeRef.current = node;
+  const runtimeNode = useMemo(() => ({
+    ...latestNodeRef.current,
+    source,
+    evaluationRevision,
+  }), [evaluationRevision, source]);
   const bridge = useMemo(
-    () => createLivecodeBridge(element, node, scriptRuntimeRef, onStrudelTransport),
-    [element, node.source, node.parameters, node.revision, onStrudelTransport, scriptRuntimeRef],
+    () => createLivecodeBridge(
+      { id: elementId, width: elementWidth, height: elementHeight },
+      runtimeNode,
+      scriptRuntimeRef,
+      onStrudelTransport,
+    ),
+    [elementHeight, elementId, elementWidth, onStrudelTransport, runtimeNode, scriptRuntimeRef],
   );
   useEffect(() => {
-    let cancelled = false;
     void runtime.upsert({
-      nodeId: element.id,
-      source: node.source,
-      transportMode: node.runtime.transportMode,
+      nodeId: elementId,
+      source,
+      transportMode,
       bridge,
-    }).then(() => {
-      if (!cancelled) setStatus(node.runtime.transportMode === "free" ? "Free-run" : "Transport linked");
-    }).catch(error => {
-      if (!cancelled) setStatus(error instanceof Error ? error.message : String(error));
-    });
-    return () => {
-      cancelled = true;
-      void runtime.remove(element.id);
-    };
-  }, [bridge, element.id, node.runtime.transportMode, node.source, runtime]);
-  const points = strudelScopePoints(node.source);
-  return <div className={`livecode-strudel-runtime ${node.runtime.running ? "running" : ""}`} aria-label="Strudel runtime">
-    <div className="livecode-strudel-scope" aria-hidden="true">
-      {points.map((active, index) => <span className={active ? "active" : ""} key={index} style={{ "--strudel-step": index }} />)}
-    </div>
-    <small>{status}</small>
-  </div>;
+    }).catch(() => undefined);
+  }, [bridge, elementId, evaluationRevision, runtime, source, transportMode]);
+  useEffect(() => {
+    runtime.setNodeTransportMode(elementId, transportMode);
+  }, [elementId, runtime, transportMode]);
+  useEffect(() => () => { void runtime.remove(elementId); }, [elementId, runtime]);
+  return null;
+}
+
+export function StrudelPanelStatus({ nodeId, node, transport, message = "" }) {
+  const runtime = useMemo(() => getStrudelRuntimeManager(), []);
+  const [visuals, setVisuals] = useState(() => ({
+    status: node.runtime.running ? "Ready" : "Stopped",
+    error: "",
+  }));
+  useEffect(() => runtime.subscribeVisuals(nodeId, setVisuals), [nodeId, runtime]);
+  const dirty = node.runtime.running && evaluatedStrudelSource(node) !== node.source;
+  const runtimeStatus = visuals.error
+    || (visuals.status === "Transport linked" && !transport?.playing
+      ? "Waiting for score Play"
+      : visuals.status);
+  const text = dirty
+    ? "Draft changed · Ctrl+Enter updates on the next beat"
+    : message || runtimeStatus || "Ready";
+  return <p className="p5-script-status" role="status" aria-live="polite">{text}</p>;
 }
 
 function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef }) {
-  const parametersKey = JSON.stringify(node.parameters);
-  const settingsKey = JSON.stringify(node.runtime.settings);
-  const config = useMemo(
-    () => getLivecodeRuntimeConfig(node),
-    [node.kind, node.source, parametersKey, settingsKey, node.revision],
-  );
+  const config = useMemo(() => getLivecodeRuntimeConfig(node), [node]);
   const validation = validateLivecodeNode(node);
   const [lastWorkingConfig, setLastWorkingConfig] = useState(() => validation.valid ? config : null);
   useEffect(() => {
@@ -248,7 +277,7 @@ function NodeChrome({ node, onPatch, onToggleRun }) {
     >
       {Object.entries(LIVECODE_KIND_DEFINITIONS).map(([id, candidate]) => <option key={id} value={id}>{candidate.label}</option>)}
     </select>
-    {node.kind !== "orca" && <button type="button" onClick={() => onPatch?.({ view: nextLivecodeView(node.view) })} title="Cycle code, output, and split view (Cmd/Ctrl+Shift+Enter while editing)" aria-label="Cycle livecode view">{node.view === "code" ? "◒" : node.view === "preview" ? "▥" : "‹/›"}</button>}
+    {!["orca", "strudel"].includes(node.kind) && <button type="button" onClick={() => onPatch?.({ view: nextLivecodeView(node.view) })} title="Cycle code, output, and split view (Cmd/Ctrl+Shift+Enter while editing)" aria-label="Cycle livecode view">{node.view === "code" ? "◒" : node.view === "preview" ? "▥" : "‹/›"}</button>}
   </div>;
 }
 
@@ -323,8 +352,13 @@ export function LivecodeNodeOverlay({
           element={element}
           focusRequest={focusRequest}
           glyphOnlyOverlay={node.typography.glyphOnlyOverlay && node.view === "code"}
+          enableStrudelWidgets={node.kind === "strudel"}
           onPatch={patch => onPatch?.(element.id, patch)}
-          onRun={() => onToggleRun?.(element.id)}
+          onRun={() => {
+            onToggleRun?.(element.id, { command: "run" });
+          }}
+          onUpdate={node.kind === "strudel" ? () => onToggleRun?.(element.id, { command: "update" }) : undefined}
+          onStop={node.kind === "strudel" && node.runtime.running ? () => onToggleRun?.(element.id) : undefined}
           onBlur={() => onCommit?.(element.id)}
           transport={transport}
           onMidiEvents={events => onMidiEvents?.(element.id, events)}
@@ -372,6 +406,7 @@ export function LivecodeNodeOverlay({
             element={element}
             readOnly
             glyphOnlyOverlay={node.typography.glyphOnlyOverlay}
+            enableStrudelWidgets={node.kind === "strudel"}
             onClick={visible ? () => onEdit?.(element.id) : undefined}
             onDoubleClick={visible ? () => onEdit?.(element.id) : undefined}
             ariaLabel={`${getLivecodeKindDefinition(node.kind).label} canvas node source`}
