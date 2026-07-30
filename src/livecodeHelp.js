@@ -48,7 +48,7 @@ export const LIVECODE_HELP = Object.freeze({
     title: "LaTeX quick reference",
     summary: "A standalone locally typeset mathematical presentation node.",
     points: Object.freeze([
-      "Enter a KaTeX expression such as \\frac{\\partial}{\\partial t} \\Psi = i \\nabla^2 \\Psi.",
+      "Use $...$ or \\( ... \\) for inline math, and $$...$$ or \\[ ... \\] for display math. Bare text stays text.",
       "Use Preview to center the expression in the node; return to Code to change the canonical source.",
       "Invalid math reports a local typesetting error without replacing your source.",
     ]),

@@ -32,7 +32,17 @@ test("creates a versioned, self-contained Livecode Node with a stable runtime co
     parameters: { heading: "Hello" },
     runtime: { running: true, enabled: true, transportMode: "free", settings: {} },
     view: "code",
-    typography: { font: "sans", fontSize: 18, lineHeight: 1.7, fontWeight: 400, letterSpacing: 0 },
+    typography: {
+      font: "sans",
+      fontSize: 18,
+      lineHeight: 1.7,
+      fontWeight: 400,
+      letterSpacing: 0,
+      showLineNumbers: false,
+      showFoldGutter: false,
+      codeOverlayOpacity: 0,
+      glyphOnlyOverlay: true,
+    },
     revision: 0,
     createdAt: 1,
     updatedAt: 2,
@@ -50,7 +60,17 @@ test("normalization keeps unsupported values bounded and preserves authored sour
   assert.equal(node.kind, LIVECODE_KINDS.strudel);
   assert.equal(node.source, "  raw source  ");
   assert.deepEqual(node.runtime, { running: false, enabled: false, transportMode: "linked", settings: {} });
-  assert.deepEqual(node.typography, { font: "mono", fontSize: 72, lineHeight: 0.8, fontWeight: 400, letterSpacing: -2 });
+  assert.deepEqual(node.typography, {
+    font: "mono",
+    fontSize: 72,
+    lineHeight: 0.8,
+    fontWeight: 400,
+    letterSpacing: -2,
+    showLineNumbers: false,
+    showFoldGutter: false,
+    codeOverlayOpacity: 0,
+    glyphOnlyOverlay: true,
+  });
 });
 
 test("patches retain node identity, source ownership, and bump the document revision", () => {

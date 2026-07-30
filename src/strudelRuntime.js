@@ -114,25 +114,39 @@ export class StrudelRuntimeManager {
   }
 
   _nodeScope(nodeId, bridge) {
+    const setTempo = bpm => {
+      const normalized = Math.max(20, Math.min(400, Number(bpm) || this.transport.bpm));
+      bridge?.strudel?.setTempo?.(normalized);
+      this.setNodeCps(nodeId, bpmToCps(normalized));
+      return core.silence;
+    };
+    const setCpm = value => setTempo(Number(value) * 4);
     return {
       hush: () => {
         this.remove(nodeId);
+        bridge?.strudel?.setPlaying?.(false);
         return core.silence;
       },
       setcps: value => {
         this.setNodeCps(nodeId, value);
+        bridge?.strudel?.setTempo?.(Number(value) * 240);
         return core.silence;
       },
       setCps: value => {
         this.setNodeCps(nodeId, value);
+        bridge?.strudel?.setTempo?.(Number(value) * 240);
         return core.silence;
       },
-      setcpm: value => {
-        this.setNodeCps(nodeId, Number(value) / 60);
+      setcpm: setCpm,
+      setCpm: setCpm,
+      setbpm: setTempo,
+      setBpm: setTempo,
+      start: () => {
+        bridge?.strudel?.setPlaying?.(true);
         return core.silence;
       },
-      setCpm: value => {
-        this.setNodeCps(nodeId, Number(value) / 60);
+      stop: () => {
+        bridge?.strudel?.setPlaying?.(false);
         return core.silence;
       },
       drawerator: bridge,

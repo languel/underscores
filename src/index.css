@@ -2054,6 +2054,11 @@ body .excalidraw .sidebar {
   transition: border-color var(--transition-fast), background var(--transition-fast);
 }
 
+.livecode-node-surface > .livecode-node-editor {
+  width: 100%;
+  height: 100%;
+}
+
 .drawerator-livecode-node.selected .livecode-node-surface {
   border-color: color-mix(in srgb, var(--drawerator-muted, var(--border-color)) 50%, transparent);
 }
@@ -2076,7 +2081,7 @@ body .excalidraw .sidebar {
   letter-spacing: inherit;
   text-align: left;
   white-space: pre-wrap;
-  background: transparent;
+  background: color-mix(in srgb, var(--drawerator-panel-bg, var(--island-bg-color)) var(--livecode-code-opacity, 0%), transparent);
   border: 0;
   cursor: text;
 }
@@ -2105,6 +2110,28 @@ body .excalidraw .sidebar {
   position: absolute;
   inset: 0;
   overflow: hidden;
+}
+
+.livecode-node-code-overlay {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.livecode-node-code-overlay > .livecode-node-output {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.livecode-node-code-overlay > .drawerator-code-editor {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  background: color-mix(in srgb, var(--drawerator-panel-bg, var(--island-bg-color)) var(--livecode-code-opacity, 0%), transparent);
 }
 
 .livecode-node-runtime.hidden {
@@ -2147,6 +2174,16 @@ body .excalidraw .sidebar {
   background: color-mix(in srgb, var(--drawerator-highlight, var(--drawerator-accent)) 72%, transparent);
 }
 
+.livecode-strudel-runtime.running .livecode-strudel-scope span.active {
+  animation: livecode-strudel-pulse 1.25s steps(2, end) infinite;
+  animation-delay: calc(var(--strudel-step, 0) * -78ms);
+}
+
+@keyframes livecode-strudel-pulse {
+  0%, 100% { transform: scaleY(.35); opacity: .38; }
+  50% { transform: scaleY(1); opacity: 1; }
+}
+
 .livecode-strudel-runtime small {
   display: block;
   margin-top: 8px;
@@ -2167,7 +2204,13 @@ body .excalidraw .sidebar {
 }
 
 .livecode-markdown {
+  min-width: 0;
+  min-height: 0;
   padding: 18px;
+  overflow-x: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   font-family: var(--livecode-font-family, var(--font-sans));
   font-size: var(--script-editor-font-size, 14px);
   font-weight: var(--livecode-font-weight, 400);
@@ -2319,6 +2362,40 @@ body .excalidraw .sidebar {
   min-height: 0;
 }
 
+.livecode-node-split {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) minmax(72px, 1fr);
+  background: color-mix(in srgb, var(--drawerator-panel-bg, var(--island-bg-color)) 18%, transparent);
+}
+
+.livecode-node-split > .drawerator-code-editor,
+.livecode-node-split > .livecode-node-source-preview,
+.livecode-node-split > .livecode-node-output {
+  min-width: 0;
+  min-height: 0;
+}
+
+.livecode-node-split > .livecode-node-output {
+  position: relative;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 64%, transparent);
+}
+
+.livecode-node-split > .livecode-node-output > .livecode-node-runtime,
+.livecode-node-split > .livecode-node-output > .livecode-strudel-runtime,
+.livecode-node-split > .livecode-node-output > .livecode-markdown,
+.livecode-node-split > .livecode-node-output > .livecode-latex,
+.livecode-node-split > .livecode-node-output > .livecode-html-frame,
+.livecode-node-split > .livecode-node-output > .orca-node {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  height: 100%;
+}
+
 .livecode-script-pane > .livecode-node-editor {
   display: flex;
   flex: 1 1 auto;
@@ -2351,7 +2428,7 @@ body .excalidraw .sidebar {
 }
 
 .drawerator-livecode-node.selected .livecode-node-chrome,
-.livecode-node-surface:hover .livecode-node-chrome {
+.drawerator-livecode-node:hover .livecode-node-chrome {
   opacity: 1;
   pointer-events: auto;
 }
@@ -2453,6 +2530,21 @@ body .excalidraw .sidebar {
   border-radius: 3px;
 }
 
+.livecode-checkbox {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-primary);
+  font-size: 11px;
+}
+
+.livecode-checkbox input[type="checkbox"] {
+  width: auto;
+  height: auto;
+  margin: 0;
+}
+
 .drawerator-livecode-node.editing {
   z-index: 4;
   pointer-events: auto;
@@ -2467,7 +2559,7 @@ body .excalidraw .sidebar {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: color-mix(in srgb, var(--drawerator-panel-bg, var(--island-bg-color)) 18%, transparent);
+  background: color-mix(in srgb, var(--drawerator-panel-bg, var(--island-bg-color)) var(--livecode-code-opacity, 0%), transparent);
   border: 1px solid var(--border-color);
   border-radius: 4px;
 }
@@ -2475,6 +2567,40 @@ body .excalidraw .sidebar {
 .drawerator-livecode-node.editing .cm-editor,
 .drawerator-livecode-node.editing .cm-scroller {
   min-height: 100%;
+}
+
+/* Code view is an actual text overlay: only glyphs and the caret sit over the
+ * running surface. Empty lines, the editor canvas, gutters, and active-line
+ * feedback must not veil the live output. Split and panel editors retain
+ * their normal surfaces. */
+.drawerator-livecode-node.glyph-only-overlay .livecode-node-code-overlay > .drawerator-code-editor,
+.drawerator-livecode-node.glyph-only-overlay .livecode-node-code-overlay .cm-editor,
+.drawerator-livecode-node.glyph-only-overlay .livecode-node-code-overlay .cm-scroller,
+.drawerator-livecode-node.glyph-only-overlay .livecode-node-code-overlay .cm-content,
+.drawerator-livecode-node.glyph-only-overlay .livecode-node-code-overlay .cm-gutters,
+.drawerator-livecode-node.glyph-only-overlay .livecode-node-code-overlay .cm-activeLine,
+.drawerator-livecode-node.glyph-only-overlay .livecode-node-code-overlay .cm-activeLineGutter {
+  background: transparent !important;
+}
+
+.drawerator-livecode-node.glyph-only-overlay .livecode-node-code-overlay > .drawerator-code-editor {
+  border-color: transparent;
+  border-radius: 0;
+}
+
+.drawerator-livecode-node.glyph-only-overlay .livecode-node-code-overlay .cm-gutters {
+  border-right-color: transparent;
+}
+
+.drawerator-livecode-node.glyph-only-overlay .livecode-node-code-overlay .cm-selectionBackground,
+.drawerator-livecode-node.glyph-only-overlay .livecode-node-code-overlay .cm-content ::selection {
+  background: transparent !important;
+}
+
+.drawerator-livecode-node.glyph-only-overlay .livecode-node-code-overlay .cm-drawerator-glyph-backdrop {
+  background: color-mix(in srgb, var(--drawerator-panel-bg, var(--island-bg-color)) var(--livecode-code-opacity, 0%), transparent);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .drawerator-code-editor .cm-line {

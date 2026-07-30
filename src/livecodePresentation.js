@@ -43,11 +43,27 @@ export const renderMarkdownWithMath = source => {
 };
 
 export const renderLatex = source => {
-  try {
-    return katex.renderToString(String(source || ""), { displayMode: true, throwOnError: false, strict: "ignore" });
-  } catch {
-    return `<code class="livecode-latex-error">${escapeHtml(source)}</code>`;
+  const text = String(source || "");
+  const delimiter = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|(?<!\\)\$([^$\n]+?)\$/g;
+  let html = "";
+  let cursor = 0;
+  let match;
+  const renderText = value => escapeHtml(value).replace(/\n/g, "<br>");
+  const renderExpression = (expression, displayMode) => {
+    try {
+      return katex.renderToString(expression, { displayMode, throwOnError: false, strict: "ignore" });
+    } catch {
+      return `<code class="livecode-latex-error">${escapeHtml(expression)}</code>`;
+    }
+  };
+
+  while ((match = delimiter.exec(text))) {
+    html += renderText(text.slice(cursor, match.index));
+    const displayMode = match[1] !== undefined || match[2] !== undefined;
+    html += renderExpression(match[1] ?? match[2] ?? match[3] ?? match[4] ?? "", displayMode);
+    cursor = match.index + match[0].length;
   }
+  return html + renderText(text.slice(cursor));
 };
 
 const safeCssValue = value => String(value || "").replace(/[;{}<>]/g, "");

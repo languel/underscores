@@ -79,6 +79,10 @@ export const DEFAULT_LIVECODE_TYPOGRAPHY = Object.freeze({
   lineHeight: 1.45,
   fontWeight: 400,
   letterSpacing: 0,
+  showLineNumbers: false,
+  showFoldGutter: false,
+  codeOverlayOpacity: 0,
+  glyphOnlyOverlay: true,
 });
 
 export const DEFAULT_LIVECODE_RUNTIME = Object.freeze({
@@ -117,6 +121,10 @@ export const normalizeLivecodeTypography = value => {
     lineHeight: Math.max(0.8, Math.min(3, Number(raw.lineHeight) || DEFAULT_LIVECODE_TYPOGRAPHY.lineHeight)),
     fontWeight: [300, 400, 500, 600, 700].includes(Number(raw.fontWeight)) ? Number(raw.fontWeight) : DEFAULT_LIVECODE_TYPOGRAPHY.fontWeight,
     letterSpacing: Math.max(-2, Math.min(8, Number(raw.letterSpacing) || DEFAULT_LIVECODE_TYPOGRAPHY.letterSpacing)),
+    showLineNumbers: raw.showLineNumbers === true,
+    showFoldGutter: raw.showFoldGutter === true,
+    codeOverlayOpacity: Math.max(0, Math.min(1, Number(raw.codeOverlayOpacity) || DEFAULT_LIVECODE_TYPOGRAPHY.codeOverlayOpacity)),
+    glyphOnlyOverlay: raw.glyphOnlyOverlay !== false,
   };
 };
 
@@ -139,10 +147,16 @@ export const createLivecodeNode = value => {
     nodeId: typeof raw.nodeId === "string" && raw.nodeId.trim() ? raw.nodeId : `livecode-${createLivecodeId()}`,
     kind,
     name: String(raw.name || definition.defaultName).trim() || definition.defaultName,
-    source: typeof raw.source === "string" ? raw.source : definition.defaultSource,
+    // Livecode nodes start as a blank surface rather than injecting an adapter
+    // template into a node the user is about to improvise in.
+    source: typeof raw.source === "string" ? raw.source : "",
     parameters: raw.parameters && typeof raw.parameters === "object" && !Array.isArray(raw.parameters) ? raw.parameters : {},
     runtime: normalizeLivecodeRuntime(raw.runtime),
-    view: raw.view === "preview" ? "preview" : "code",
+    view: kind === LIVECODE_KINDS.orca
+      ? "code"
+      : ["code", "preview", "split"].includes(raw.view)
+        ? raw.view
+        : kind === LIVECODE_KINDS.strudel ? "split" : "code",
     typography: normalizeLivecodeTypography(raw.typography),
     revision: Math.max(0, Math.floor(Number(raw.revision) || 0)),
     createdAt: Math.max(0, Number(raw.createdAt) || Date.now()),

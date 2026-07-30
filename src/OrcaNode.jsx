@@ -38,6 +38,7 @@ export default function OrcaNode({
   onPatch,
   onMidiEvents,
   onBlur,
+  focusRequest = 0,
   ariaLabel = "Orca grid",
 }) {
   const manager = useMemo(() => getOrcaRuntimeManager(), []);
@@ -53,6 +54,11 @@ export default function OrcaNode({
     setRuntime(next);
     setSelection(current => normalizeOrcaSelection(current, parseOrcaGrid(next.source)));
   }), [manager, nodeId]);
+  useEffect(() => {
+    if (!focusRequest) return;
+    const frame = window.requestAnimationFrame(() => rootRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusRequest]);
 
   const grid = useMemo(() => parseOrcaGrid(runtime.source), [runtime.source]);
   const normalizedSelection = useMemo(() => normalizeOrcaSelection(selection, grid), [selection, grid]);

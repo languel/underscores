@@ -12,7 +12,6 @@ import {
   getLivecodeEditorProfile,
   getLivecodeFont,
   getLivecodeKindDefinition,
-  LIVE_CODE_FONT_OPTIONS,
   LIVECODE_KIND_DEFINITIONS,
   normalizeLivecodeNode,
   shouldRenderLivecodeNode,
@@ -28,6 +27,7 @@ const editorStyleFor = typography => ({
   "--livecode-font-family": getLivecodeFont(typography.font).family,
   "--livecode-font-weight": typography.fontWeight,
   "--livecode-letter-spacing": `${typography.letterSpacing}px`,
+  "--livecode-code-opacity": `${Math.round(typography.codeOverlayOpacity * 100)}%`,
 });
 
 export function LivecodeNodeEditor({
@@ -36,10 +36,16 @@ export function LivecodeNodeEditor({
   onPatch,
   onRun,
   onBlur,
+  onCycleView,
   transport,
   onMidiEvents,
   className = "",
   ariaLabel,
+  readOnly = false,
+  onClick,
+  onDoubleClick,
+  focusRequest = 0,
+  glyphOnlyOverlay = false,
 }) {
   const node = normalizeLivecodeNode(rawNode);
   const definition = getLivecodeKindDefinition(node.kind);
@@ -56,6 +62,7 @@ export function LivecodeNodeEditor({
     onPatch={onPatch}
     onMidiEvents={onMidiEvents}
     onBlur={onBlur}
+    focusRequest={focusRequest}
     ariaLabel={ariaLabel || "Orca grid editor"}
   /></div>;
   return (
@@ -64,11 +71,19 @@ export function LivecodeNodeEditor({
       onChange={source => onPatch?.({ source })}
       onBlur={onBlur}
       onRun={onRun}
+      readOnly={readOnly}
+      showLineNumbers={node.typography.showLineNumbers}
+      showFoldGutter={node.typography.showFoldGutter}
+      onToggleLineNumbers={() => onPatch?.({ typography: { showLineNumbers: !node.typography.showLineNumbers } })}
+      onCycleView={onCycleView}
       scriptType={getLivecodeEditorProfile(node)}
       className={`livecode-node-editor ${className}`.trim()}
       ariaLabel={ariaLabel || `${definition.label} node source`}
-      placeholder={definition.defaultSource}
       style={editorStyleFor(node.typography)}
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      focusRequest={focusRequest}
+      glyphOnlyOverlay={glyphOnlyOverlay}
     />
   );
 }
@@ -80,7 +95,7 @@ const strudelScopePoints = source => {
   return Array.from({ length: 32 }, (_, index) => (hash >>> (index % 24)) & 1);
 };
 
-function createLivecodeBridge(element, node, scriptRuntimeRef) {
+function createLivecodeBridge(element, node, scriptRuntimeRef, onStrudelTransport) {
   const canvas = createScriptCanvasApi(scriptRuntimeRef);
   const params = resolveScriptParameterValues(
     parseScriptParameters(node.source, { values: node.parameters }),
@@ -105,16 +120,20 @@ function createLivecodeBridge(element, node, scriptRuntimeRef) {
     get colors() { return appearance().colors; },
     get theme() { return appearance().theme; },
     get appearance() { return appearance(); },
+    strudel: Object.freeze({
+      setTempo: bpm => onStrudelTransport?.(element, node, { type: "tempo", value: bpm }),
+      setPlaying: playing => onStrudelTransport?.(element, node, { type: "playing", value: Boolean(playing) }),
+    }),
     get api() { return window.drawerator; },
   });
 }
 
-function StrudelNodeRuntime({ element, node, scriptRuntimeRef }) {
+function StrudelNodeRuntime({ element, node, scriptRuntimeRef, onStrudelTransport }) {
   const runtime = useMemo(() => getStrudelRuntimeManager(), []);
   const [status, setStatus] = useState("Compiling pattern…");
   const bridge = useMemo(
-    () => createLivecodeBridge(element, node, scriptRuntimeRef),
-    [element, node.source, node.parameters, node.revision, scriptRuntimeRef],
+    () => createLivecodeBridge(element, node, scriptRuntimeRef, onStrudelTransport),
+    [element, node.source, node.parameters, node.revision, onStrudelTransport, scriptRuntimeRef],
   );
   useEffect(() => {
     let cancelled = false;
@@ -134,9 +153,9 @@ function StrudelNodeRuntime({ element, node, scriptRuntimeRef }) {
     };
   }, [bridge, element.id, node.runtime.transportMode, node.source, runtime]);
   const points = strudelScopePoints(node.source);
-  return <div className="livecode-strudel-runtime" aria-label="Strudel runtime">
+  return <div className={`livecode-strudel-runtime ${node.runtime.running ? "running" : ""}`} aria-label="Strudel runtime">
     <div className="livecode-strudel-scope" aria-hidden="true">
-      {points.map((active, index) => <span className={active ? "active" : ""} key={index} />)}
+      {points.map((active, index) => <span className={active ? "active" : ""} key={index} style={{ "--strudel-step": index }} />)}
     </div>
     <small>{status}</small>
   </div>;
@@ -155,13 +174,13 @@ function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef }) {
     if (validation.valid) setLastWorkingConfig(config);
   }, [node.kind, node.revision, validation.valid, config]);
   if (!lastWorkingConfig) return <div className="livecode-node-runtime-error">{validation.error || "This node needs valid source before it can run."}</div>;
-  return <div className={`livecode-node-runtime ${node.view === "preview" ? "visible" : "hidden"}`} aria-label={`${getLivecodeKindDefinition(node.kind).label} runtime`}>
+  return <div className="livecode-node-runtime visible" aria-label={`${getLivecodeKindDefinition(node.kind).label} runtime`}>
     {node.kind === "p5" ? <P5Frame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} /> : null}
     {node.kind === "playcore" ? <PlayCoreFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} /> : null}
   </div>;
 }
 
-function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef, transport, onPatch, onMidiEvents }) {
+function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef, transport, onPatch, onMidiEvents, onStrudelTransport }) {
   if (node.kind === "orca") return <OrcaNode
     nodeId={element.id}
     source={node.source}
@@ -173,11 +192,11 @@ function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef, transport, on
     onMidiEvents={onMidiEvents}
     ariaLabel="Orca runtime grid"
   />;
-  if (["markdown", "latex", "html"].includes(node.kind) && node.view === "preview") {
+  if (["markdown", "latex", "html"].includes(node.kind)) {
     return <LivecodePresentation element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} />;
   }
   if (node.kind === "strudel" && isLivecodeNodeRunnable(node)) {
-    return <StrudelNodeRuntime element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} />;
+    return <StrudelNodeRuntime element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} onStrudelTransport={onStrudelTransport} />;
   }
   return isLivecodeNodeRunnable(node)
     ? <PersistedLivecodeRuntime key={node.kind} element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} />
@@ -195,18 +214,21 @@ function LivecodeNodePreview({ node, onEdit }) {
   return <button
     type="button"
     className="livecode-node-source-preview"
-    onDoubleClick={event => {
+    onClick={event => {
       event.preventDefault();
       event.stopPropagation();
       onEdit?.();
     }}
     onPointerDown={event => event.stopPropagation()}
     aria-label={`Edit ${definition.label} node`}
-    title="Double-click to edit this livecode node"
+    title="Click to edit this livecode node"
   ><pre>{previewSource(node.source)}</pre></button>;
 }
 
-function NodeChrome({ node, onPatch, onToggleRun, onDock }) {
+const nextLivecodeView = view => ({ code: "preview", preview: "split", split: "code" }[view] || "code");
+const nextLivecodeQuickView = view => (view === "code" ? "preview" : "code");
+
+function NodeChrome({ node, onPatch, onToggleRun }) {
   const definition = getLivecodeKindDefinition(node.kind);
   return <div className="livecode-node-chrome" onPointerDown={event => event.stopPropagation()}>
     <button
@@ -226,11 +248,7 @@ function NodeChrome({ node, onPatch, onToggleRun, onDock }) {
     >
       {Object.entries(LIVECODE_KIND_DEFINITIONS).map(([id, candidate]) => <option key={id} value={id}>{candidate.label}</option>)}
     </select>
-    <button type="button" onClick={() => onPatch?.({ view: node.view === "code" ? "preview" : "code" })} title={node.view === "code" ? "Show preview" : "Show code"} aria-label={node.view === "code" ? "Show livecode preview" : "Show livecode code"}>{node.view === "code" ? "◒" : "‹/›"}</button>
-    <select value={node.typography.font} onChange={event => onPatch?.({ typography: { font: event.target.value } })} aria-label="Livecode font" title="Node font">
-      {LIVE_CODE_FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}
-    </select>
-    <button type="button" onClick={onDock} title="Dock this editor in the Script panel" aria-label="Dock livecode editor">↗</button>
+    {node.kind !== "orca" && <button type="button" onClick={() => onPatch?.({ view: nextLivecodeView(node.view) })} title="Cycle code, output, and split view (Cmd/Ctrl+Shift+Enter while editing)" aria-label="Cycle livecode view">{node.view === "code" ? "◒" : node.view === "preview" ? "▥" : "‹/›"}</button>}
   </div>;
 }
 
@@ -238,12 +256,13 @@ export function LivecodeNodeOverlay({
   elements = [],
   appState,
   activeEditorId = null,
+  focusRequest = 0,
   onEdit,
   onPatch,
   onCommit,
   onToggleRun,
-  onDock,
   onMidiEvents,
+  onStrudelTransport,
   scriptRuntimeRef,
   transport,
 }) {
@@ -266,7 +285,14 @@ export function LivecodeNodeOverlay({
     const visible = selected || editing;
     return <div
       key={element.id}
-      className={`drawerator-livecode-node ${selected ? "selected" : ""} ${editing ? "editing" : ""} ${node.view === "preview" ? "preview" : "code"}`}
+      className={`drawerator-livecode-node ${selected ? "selected" : ""} ${editing ? "editing" : ""} ${node.typography.glyphOnlyOverlay ? "glyph-only-overlay" : ""} ${node.view}`}
+      data-livecode-node-id={element.id}
+      onPointerDown={event => {
+        if (event.button !== 0 || event.ctrlKey || event.metaKey || !event.altKey || !event.shiftKey) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onPatch?.(element.id, { view: nextLivecodeQuickView(node.view) });
+      }}
       style={{
         left: (element.x + camera.scrollX) * camera.zoom,
         top: (element.y + camera.scrollY) * camera.zoom,
@@ -277,35 +303,85 @@ export function LivecodeNodeOverlay({
         ...editorStyleFor(node.typography),
       }}
     >
-      {editing ? <LivecodeNodeEditor
+      {visible && !editing && <NodeChrome
         node={node}
-        element={element}
         onPatch={patch => onPatch?.(element.id, patch)}
-        onRun={() => onToggleRun?.(element.id)}
-        onBlur={() => onCommit?.(element.id)}
-        transport={transport}
-        onMidiEvents={events => onMidiEvents?.(element.id, events)}
-        ariaLabel={`${getLivecodeKindDefinition(node.kind).label} canvas node source`}
-      /> : <div className={`livecode-node-surface ${visible ? "interactive" : ""}`}>
-        {visible && <NodeChrome
-          node={node}
-          onPatch={patch => onPatch?.(element.id, patch)}
-          onToggleRun={() => onToggleRun?.(element.id)}
-          onDock={() => onDock?.(element.id)}
-        />}
-        <LivecodeRuntimeSurface
+        onToggleRun={() => onToggleRun?.(element.id)}
+      />}
+      {(() => {
+        const runtime = <LivecodeRuntimeSurface
           element={element}
           node={node}
           scriptRuntimeRef={scriptRuntimeRef}
           transport={transport}
           onPatch={patch => onPatch?.(element.id, patch)}
           onMidiEvents={events => onMidiEvents?.(element.id, events)}
-        />
-        {!(node.kind === "orca" || (node.view === "preview" && (isLivecodeNodeRunnable(node) || ["markdown", "latex", "html"].includes(node.kind)))) && <LivecodeNodePreview
+          onStrudelTransport={onStrudelTransport}
+        />;
+        const editor = <LivecodeNodeEditor
+          node={node}
+          element={element}
+          focusRequest={focusRequest}
+          glyphOnlyOverlay={node.typography.glyphOnlyOverlay && node.view === "code"}
+          onPatch={patch => onPatch?.(element.id, patch)}
+          onRun={() => onToggleRun?.(element.id)}
+          onBlur={() => onCommit?.(element.id)}
+          transport={transport}
+          onMidiEvents={events => onMidiEvents?.(element.id, events)}
+          ariaLabel={`${getLivecodeKindDefinition(node.kind).label} canvas node source`}
+        />;
+        if (editing) {
+          if (node.kind !== "orca" && node.view === "split") {
+            return <div className="livecode-node-split interactive">{editor}<div className="livecode-node-output">{runtime}</div></div>;
+          }
+          if (node.kind !== "orca" && node.view === "code") {
+            return <div className="livecode-node-surface interactive"><div className="livecode-node-code-overlay">
+              <div className="livecode-node-output">{runtime}</div>
+              {editor}
+            </div></div>;
+          }
+          return editor;
+        }
+        const preview = <LivecodeNodePreview
           node={node}
           onEdit={visible ? () => onEdit?.(element.id) : undefined}
-        />}
-      </div>}
+        />;
+        if (node.kind === "orca") return <div className={`livecode-node-surface ${visible ? "interactive" : ""}`}><LivecodeNodeEditor
+          node={node}
+          element={element}
+          onPatch={patch => onPatch?.(element.id, patch)}
+          onBlur={() => onCommit?.(element.id)}
+          transport={transport}
+          onMidiEvents={events => onMidiEvents?.(element.id, events)}
+          ariaLabel="Orca grid editor"
+        /></div>;
+        const hasOutput = node.kind === "orca" || isLivecodeNodeRunnable(node) || ["markdown", "latex", "html"].includes(node.kind);
+        if (node.view === "split") return <div className={`livecode-node-split ${visible ? "interactive" : ""}`}><LivecodeNodeEditor
+          node={node}
+          element={element}
+          readOnly
+          glyphOnlyOverlay={node.typography.glyphOnlyOverlay}
+          onClick={visible ? () => onEdit?.(element.id) : undefined}
+          onDoubleClick={visible ? () => onEdit?.(element.id) : undefined}
+          ariaLabel={`${getLivecodeKindDefinition(node.kind).label} canvas node source`}
+        /><div className="livecode-node-output">{runtime}</div></div>;
+        if (node.view === "code") return <div className={`livecode-node-surface ${visible ? "interactive" : ""}`}><div className="livecode-node-code-overlay">
+          <div className="livecode-node-output">{runtime}</div>
+          <LivecodeNodeEditor
+            node={node}
+            element={element}
+            readOnly
+            glyphOnlyOverlay={node.typography.glyphOnlyOverlay}
+            onClick={visible ? () => onEdit?.(element.id) : undefined}
+            onDoubleClick={visible ? () => onEdit?.(element.id) : undefined}
+            ariaLabel={`${getLivecodeKindDefinition(node.kind).label} canvas node source`}
+          />
+        </div></div>;
+        return <div className={`livecode-node-surface ${visible ? "interactive" : ""}`}>
+          {runtime}
+          {!(node.kind === "orca" || (node.view === "preview" && hasOutput)) && preview}
+        </div>;
+      })()}
     </div>;
   })}</div>;
 }

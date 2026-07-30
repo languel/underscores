@@ -68,6 +68,27 @@ const externalHighlightField = StateField.define({
   provide: field => EditorView.decorations.from(field),
 });
 
+const glyphBackdropMark = Decoration.mark({ class: "cm-drawerator-glyph-backdrop" });
+const glyphBackdropDecorations = doc => {
+  const ranges = [];
+  for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber += 1) {
+    const line = doc.line(lineNumber);
+    for (const match of line.text.matchAll(/\S+/g)) {
+      const from = line.from + match.index;
+      ranges.push(glyphBackdropMark.range(from, from + match[0].length));
+    }
+  }
+  return Decoration.set(ranges, true);
+};
+
+const glyphBackdropField = StateField.define({
+  create: state => glyphBackdropDecorations(state.doc),
+  update: (decorations, transaction) => (
+    transaction.docChanged ? glyphBackdropDecorations(transaction.state.doc) : decorations
+  ),
+  provide: field => EditorView.decorations.from(field),
+});
+
 const languageExtension = profile => (
   profile.language === "html"
     ? html({ autoCloseTags: true, matchClosingTags: true })
@@ -120,6 +141,14 @@ export default function DraweratorCodeEditor({
   ariaLabel,
   getDiagnostics,
   readOnly = false,
+  showLineNumbers = true,
+  showFoldGutter = true,
+  onToggleLineNumbers,
+  onCycleView,
+  onDoubleClick,
+  onClick,
+  focusRequest = 0,
+  glyphOnlyOverlay = false,
   className = "",
   style,
 }) {
@@ -131,6 +160,10 @@ export default function DraweratorCodeEditor({
   const onSelectionChangeRef = useRef(onSelectionChange);
   const scriptTypeRef = useRef(scriptType);
   const diagnosticsRef = useRef(getDiagnostics);
+  const onToggleLineNumbersRef = useRef(onToggleLineNumbers);
+  const onCycleViewRef = useRef(onCycleView);
+  const lineNumberToggleChordRef = useRef(false);
+  const lineNumberToggleTimerRef = useRef(null);
   const configurationRef = useRef(new Compartment());
 
   onChangeRef.current = onChange;
@@ -139,6 +172,8 @@ export default function DraweratorCodeEditor({
   onSelectionChangeRef.current = onSelectionChange;
   scriptTypeRef.current = scriptType;
   diagnosticsRef.current = getDiagnostics;
+  onToggleLineNumbersRef.current = onToggleLineNumbers;
+  onCycleViewRef.current = onCycleView;
 
   useLayoutEffect(() => {
     if (!hostRef.current) return undefined;
@@ -180,11 +215,9 @@ export default function DraweratorCodeEditor({
       state: EditorState.create({
         doc: String(value || ""),
         extensions: [
-          lineNumbers(),
           highlightActiveLineGutter(),
           highlightSpecialChars(),
           history(),
-          foldGutter({ openText: "⌄", closedText: "›" }),
           drawSelection(),
           dropCursor(),
           EditorState.allowMultipleSelections.of(true),
@@ -200,12 +233,26 @@ export default function DraweratorCodeEditor({
           crosshairCursor(),
           highlightActiveLine(),
           highlightSelectionMatches(),
-          lintGutter(),
           linter(lintSource, { delay: 300 }),
           externalHighlightField,
           EditorView.lineWrapping,
           keymap.of([
+            { key: "Mod-Shift-Enter", run: () => {
+              if (typeof onCycleViewRef.current !== "function") return false;
+              onCycleViewRef.current();
+              return true;
+            }, preventDefault: true },
             { key: "Mod-Enter", run: runCommand, preventDefault: true },
+            // CodeMirror's notebook convention: Ctrl-M, then L.
+            { key: "Ctrl-m", run: () => {
+              lineNumberToggleChordRef.current = true;
+              if (lineNumberToggleTimerRef.current) clearTimeout(lineNumberToggleTimerRef.current);
+              lineNumberToggleTimerRef.current = window.setTimeout(() => {
+                lineNumberToggleChordRef.current = false;
+                lineNumberToggleTimerRef.current = null;
+              }, 900);
+              return true;
+            }, preventDefault: true },
             // Put completion acceptance ahead of the normal Tab indentation
             // and newline bindings. This keeps snippets and regular options
             // predictable even when the canvas has its own global shortcuts.
@@ -275,6 +322,10 @@ export default function DraweratorCodeEditor({
           }),
           configurationRef.current.of([
             languageExtension(profile),
+            showLineNumbers ? lineNumbers() : [],
+            showFoldGutter ? foldGutter({ openText: "⌄", closedText: "›" }) : [],
+            showLineNumbers || showFoldGutter ? lintGutter() : [],
+            glyphOnlyOverlay ? glyphBackdropField : [],
             placeholder ? placeholderExtension(placeholder) : [],
             EditorState.readOnly.of(Boolean(readOnly)),
             EditorView.editable.of(!readOnly),
@@ -307,12 +358,29 @@ export default function DraweratorCodeEditor({
       ) return;
 
       const normalizedKey = event.key.toLowerCase();
+      if (lineNumberToggleChordRef.current) {
+        if (normalizedKey === "l" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+          lineNumberToggleChordRef.current = false;
+          if (lineNumberToggleTimerRef.current) clearTimeout(lineNumberToggleTimerRef.current);
+          lineNumberToggleTimerRef.current = null;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          onToggleLineNumbersRef.current?.();
+          return;
+        }
+        if (!["control", "shift", "alt", "meta"].includes(normalizedKey)) {
+          lineNumberToggleChordRef.current = false;
+          if (lineNumberToggleTimerRef.current) clearTimeout(lineNumberToggleTimerRef.current);
+          lineNumberToggleTimerRef.current = null;
+        }
+      }
       const isClipboardShortcut = (event.metaKey || event.ctrlKey)
         && ["c", "x", "v"].includes(normalizedKey);
       const isCodeMirrorCommand = (
         (event.metaKey || event.ctrlKey)
         && ["a", "z", "y", "f", "g", "h", "enter"].includes(normalizedKey)
-      ) || ["escape", "tab"].includes(normalizedKey);
+      ) || (event.ctrlKey && normalizedKey === "m")
+        || ["escape", "tab"].includes(normalizedKey);
 
       // Drawerator and Excalidraw both install capture-phase shortcuts. Give
       // CodeMirror's own keymap the first and only chance at its editor
@@ -406,6 +474,12 @@ export default function DraweratorCodeEditor({
   }, [value]);
 
   useEffect(() => {
+    if (!focusRequest || readOnly) return undefined;
+    const frame = window.requestAnimationFrame(() => viewRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusRequest, readOnly]);
+
+  useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
     const docLength = view.state.doc.length;
@@ -426,6 +500,10 @@ export default function DraweratorCodeEditor({
     view.dispatch({
       effects: configurationRef.current.reconfigure([
         languageExtension(profile),
+        showLineNumbers ? lineNumbers() : [],
+        showFoldGutter ? foldGutter({ openText: "⌄", closedText: "›" }) : [],
+        showLineNumbers || showFoldGutter ? lintGutter() : [],
+        glyphOnlyOverlay ? glyphBackdropField : [],
         placeholder ? placeholderExtension(placeholder) : [],
         EditorState.readOnly.of(Boolean(readOnly)),
         EditorView.editable.of(!readOnly),
@@ -439,7 +517,7 @@ export default function DraweratorCodeEditor({
       ]),
     });
     forceLinting(view);
-  }, [ariaLabel, placeholder, readOnly, scriptType]);
+  }, [ariaLabel, glyphOnlyOverlay, placeholder, readOnly, scriptType, showFoldGutter, showLineNumbers]);
 
   return (
     <div
@@ -447,6 +525,8 @@ export default function DraweratorCodeEditor({
       className={`drawerator-code-editor ${className}`.trim()}
       data-script-type={scriptType}
       style={style}
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
     />
   );
 }

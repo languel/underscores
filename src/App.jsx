@@ -2034,7 +2034,8 @@ function App() {
   const [svgOverlayScene, setSvgOverlayScene] = useState({ elements: [], appState: null });
   const [livecodeOverlayScene, setLivecodeOverlayScene] = useState({ elements: [], appState: null });
   const [livecodeEditorId, setLivecodeEditorId] = useState(null);
-  const [livecodeEditorPlacement, setLivecodeEditorPlacement] = useState("canvas");
+  const [livecodeCanvasEditorId, setLivecodeCanvasEditorId] = useState(null);
+  const [livecodeCanvasFocusRequest, setLivecodeCanvasFocusRequest] = useState(0);
   const [livecodeStatus, setLivecodeStatus] = useState("");
   const livecodeDirtyIdsRef = useRef(new Set());
   const selectedSvgForEditor = useMemo(() => {
@@ -3107,19 +3108,23 @@ function App() {
     setPlayCoreScriptNameDraft(script?.name || "Untitled Play Core");
   }, [scriptPanelType, selectedPlayCoreFrameForEditor]);
 
-  // A Livecode Node is its own canonical working file. Selecting a node while
-  // the Script panel is in Livecode mode merely retargets the same controller;
-  // there is no browser-local catalog or second draft to reconcile.
+  // A Livecode Node is its own canonical working file. Track the selected
+  // host by ID only: source edits replace the scene element object on every
+  // keystroke, and must never re-open/re-target the Script panel mid-edit.
   useEffect(() => {
-    if (scriptPanelType !== "livecode" || !selectedLivecodeNodeForEditor) return;
+    if (!selectedLivecodeNodeForEditor) {
+      setLivecodeEditorId(null);
+      return;
+    }
     setLivecodeEditorId(selectedLivecodeNodeForEditor.id);
-  }, [scriptPanelType, selectedLivecodeNodeForEditor]);
+    toggleDraweratorPanel("script", { open: true, scriptType: "livecode" });
+  }, [selectedLivecodeNodeForEditor?.id]);
 
   useEffect(() => {
-    if (livecodeEditorPlacement !== "canvas" || !livecodeEditorId || selectedElementIds[livecodeEditorId]) return;
-    commitLivecodeCanvasNode(livecodeEditorId);
-    setLivecodeEditorId(null);
-  }, [livecodeEditorId, livecodeEditorPlacement, selectedElementIds]);
+    if (!livecodeCanvasEditorId || selectedElementIds[livecodeCanvasEditorId]) return;
+    commitLivecodeCanvasNode(livecodeCanvasEditorId);
+    setLivecodeCanvasEditorId(null);
+  }, [livecodeCanvasEditorId, selectedElementIds]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_panel_visibility_v1", JSON.stringify(openPanels));
@@ -7701,16 +7706,17 @@ function App() {
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
     { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|playcore|markdown|latex|html|orca?", name: "string?", width: "number?", height: "number?", source: "string?", running: "boolean?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. It is a transparent Excalidraw identity host with source, parameters, runtime state, and typography stored on the scene element. Do not attach it to another rectangle.", example: { kind: "markdown", name: "Title slide", width: 640, height: 360, source: "# Drawerator\n\nA live canvas score." } }, action: (_api, args) => createLivecodeCanvasNode(args) },
+    { id: "livecode.node.create.strudel", name: "Create Strudel Livecode Node /live strudel", aliases: ["/live strudel"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel }) },
+    { id: "livecode.node.create.p5", name: "Create p5 Livecode Node /live p5", aliases: ["/live p5"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.p5 }) },
+    { id: "livecode.node.create.playcore", name: "Create Play Core Livecode Node /live playcore", aliases: ["/live playcore", "/live play"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.playcore }) },
+    { id: "livecode.node.create.markdown", name: "Create Markdown Livecode Node /live markdown", aliases: ["/live markdown", "/live md"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.markdown }) },
+    { id: "livecode.node.create.latex", name: "Create LaTeX Livecode Node /live latex", aliases: ["/live latex", "/live tex"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.latex }) },
+    { id: "livecode.node.create.html", name: "Create HTML Livecode Node /live html", aliases: ["/live html"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.html }) },
+    { id: "livecode.node.create.orca", name: "Create Orca Livecode Node /live orca", aliases: ["/live orca"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.orca }) },
     { id: "livecode.node.edit", name: "Edit Selected Livecode Node", aliases: ["Edit livecode node"], category: "Livecode", action: () => {
       const node = getSelectedElements().find(isLivecodeNodeElement);
       if (!node) throw new Error("Select one Livecode Node first.");
       editLivecodeCanvasNode(node.id);
-      return { elementIds: [node.id] };
-    } },
-    { id: "livecode.node.dock", name: "Dock Selected Livecode Node", aliases: ["Dock livecode node"], category: "Livecode", action: () => {
-      const node = getSelectedElements().find(isLivecodeNodeElement);
-      if (!node) throw new Error("Select one Livecode Node first.");
-      dockLivecodeCanvasNode(node.id);
       return { elementIds: [node.id] };
     } },
     { id: "script.svg.open", name: "Open SVG Script Editor /svg", aliases: ["/svg", "SVG editor", "SVG script"], category: "SVG", record: "presentation", action: () => toggleDraweratorPanel("script", { scriptType: "svg" }) },
@@ -7748,10 +7754,8 @@ function App() {
     { id: "p5.frame.create", name: "Create p5 Frame /p5", aliases: ["/p5", "Create p5 frame", "p5 frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", source: "p5 source?", mode: "auto|instance|global?", runtime: "bundled|cdn?", cdnUrl: "string?" }, ai: { expose: true, description: "Create a trusted, interactive p5.js frame. Use mode: instance for p.setup/p.draw code, or mode: global for classic function setup()/draw() code. Omit mode for auto-detection. The bundled runtime is the default; only use runtime: cdn when the user specifically requests a remote p5 build. Keep the sketch self-contained and do not use HTML or script tags.", example: { name: "Pulsing circle", width: 640, height: 360, mode: "global", source: "function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(230);\n  strokeWeight(3);\n  const radius = 60 + 24 * Math.sin(millis() / 500);\n  circle(width / 2, height / 2, radius * 2);\n}" } }, action: (_api, args) => createP5Frame(args) },
     { id: "p5.frame.attach", name: "Attach p5 Sketch to Selection /attach p5", aliases: ["/attach p5", "Attach p5 sketch", "p5 attach"], category: "Canvas", args: { source: "p5 source?", mode: "auto|instance|global?", name: "string?" }, ai: { expose: true, description: "Attach a p5 sketch to each selected rectangle, frame, or existing p5 canvas. The selected objects become live p5 hosts; use a self-contained p5 source and choose global mode for classic setup()/draw() code.", example: { mode: "global", source: "function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  circle(width / 2, height / 2, 80);\n}" } }, action: (_api, args) => attachP5ScriptToSelection(args) },
     { id: "play.core.frame.create", name: "Create Play Core Frame /play", aliases: ["/play", "Play Core frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", fps: "number?", source: "play.core source?" }, action: (_api, args) => createPlayCoreFrame(args) },
-    { id: "livecode.node.create", name: "Create Livecode Node /livecode", aliases: ["/livecode", "Livecode node"], category: "Canvas", args: { kind: "strudel|p5|playcore|markdown|latex|html|orca?", name: "string?", width: "number?", height: "number?", source: "source?" }, action: (_api, args) => createLivecodeCanvasNode(args) },
     { id: "livecode.node.run", name: "Run Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.draweratorLivecode); if (!node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
     { id: "livecode.node.stop", name: "Stop Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.draweratorLivecode); if (node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
-    { id: "livecode.node.dock", name: "Dock Selected Livecode Node", category: "Panels", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); dockLivecodeCanvasNode(target.id); return { elementIds: [target.id] }; } },
     { id: "livecode.node.migrate", name: "Migrate p5 or Play Core Host to Livecode Node", aliases: ["Migrate to Livecode Node"], category: "Canvas", action: () => { const target = getSelectedElements().find(element => isP5FrameElement(element) || isPlayCoreFrameElement(element)); if (!target) throw new Error("Select a p5 or Play Core host first."); return migrateLegacyHostToLivecodeNode(target.id); } },
     { id: "settings-ai", name: "Open AI Configuration /settings-ai", aliases: ["/settings-ai"], category: "Panels", action: () => toggleDraweratorPanel("settings", { settingsTab: "ai" }) },
     { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
@@ -7919,6 +7923,27 @@ function App() {
         activeElement.isContentEditable ||
         activeElement.closest?.(".cm-editor")
       );
+      // A Livecode Node's source is its editing surface. Enter on a selected
+      // node must open and focus that source editor instead of allowing
+      // Excalidraw to enter its unrelated element-label editing mode.
+      if (e.key === "Enter" && !isTextControlFocused && !e.metaKey && !e.ctrlKey && !e.altKey && excalidrawAPI) {
+        const selectedLivecodeNodes = excalidrawAPI.getSceneElements().filter(element => (
+          !element.isDeleted
+          && excalidrawAPI.getAppState().selectedElementIds?.[element.id]
+          && isLivecodeNodeElement(element)
+        ));
+        if (selectedLivecodeNodes.length === 1) {
+          const node = normalizeLivecodeNode(selectedLivecodeNodes[0].customData?.draweratorLivecode);
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation?.();
+          if (node.kind !== LIVECODE_KINDS.orca && node.view !== "code") {
+            patchLivecodeCanvasNode(selectedLivecodeNodes[0].id, { view: "code" }, { commitToHistory: true });
+          }
+          editLivecodeCanvasNode(selectedLivecodeNodes[0].id, { focusCanvas: true });
+          return;
+        }
+      }
       const shortcutAction = !isTextControlFocused ? findShortcutAction(shortcutBindings, e) : null;
       if (shortcutAction) {
         if (shortcutAction.id !== "tool-line" && excalidrawAPI?.getAppState()?.activeTool?.type === "line" && nativeLineGridPointsRef.current?.points?.length >= 2) {
@@ -9529,7 +9554,9 @@ function App() {
     const previous = normalizeLivecodeNode(existing.customData?.draweratorLivecode);
     const nextPatch = { ...patch };
     if (Object.hasOwn(nextPatch, "kind") && !Object.hasOwn(nextPatch, "source") && nextPatch.kind !== previous.kind && previous.source === defaultLivecodeSource(previous.kind)) {
-      nextPatch.source = defaultLivecodeSource(nextPatch.kind);
+      // Switching a legacy template-backed node should not inject a new
+      // template into the livecoding surface.
+      nextPatch.source = "";
     }
     const node = patchLivecodeNode(previous, nextPatch);
     const now = Date.now();
@@ -9576,6 +9603,7 @@ function App() {
       void getStrudelRuntimeManager().unlock().catch(error => {
         setLivecodeStatus(`Could not unlock Strudel audio: ${error instanceof Error ? error.message : String(error)}`);
       });
+      if (node.runtime.settings?.syncTransport) setScorePlaying(true);
     }
     if (running && node.kind === LIVECODE_KINDS.orca) {
       // This is deliberately part of the button gesture.  A native Orca MIDI
@@ -9587,22 +9615,32 @@ function App() {
     }
     patchLivecodeCanvasNode(elementId, {
       runtime: { running },
-      ...(running && (hasNativeLivecodeRuntime(node) || [LIVECODE_KINDS.markdown, LIVECODE_KINDS.latex, LIVECODE_KINDS.html].includes(node.kind)) ? { view: "preview" } : {}),
+      ...(running && node.kind !== LIVECODE_KINDS.strudel && (hasNativeLivecodeRuntime(node) || [LIVECODE_KINDS.markdown, LIVECODE_KINDS.latex, LIVECODE_KINDS.html].includes(node.kind)) ? { view: "preview" } : {}),
     }, { commitToHistory: true });
+    if (!running && node.kind === LIVECODE_KINDS.strudel && node.runtime.settings?.syncTransport) setScorePlaying(false);
     setLivecodeStatus(running
       ? `${getLivecodeKindDefinition(node.kind).label} node running · ${describeLivecodeRuntime(node)}`
       : "Livecode node stopped.");
   };
 
-  const editLivecodeCanvasNode = elementId => {
-    setLivecodeEditorId(elementId);
-    setLivecodeEditorPlacement("canvas");
-    setLivecodeStatus("");
-  };
+  const handleStrudelTransportControl = useCallback((_element, node, control = {}) => {
+    if (control.type === "tempo") {
+      const bpm = Math.max(20, Math.min(400, Number(control.value) || 120));
+      setScoreTempo(bpm);
+      return;
+    }
+    if (control.type === "playing" && node.runtime.settings?.syncTransport) {
+      setScorePlaying(Boolean(control.value));
+    }
+  }, []);
 
-  const dockLivecodeCanvasNode = elementId => {
+  const editLivecodeCanvasNode = (elementId, { focusCanvas = true } = {}) => {
     setLivecodeEditorId(elementId);
-    setLivecodeEditorPlacement("docked");
+    if (focusCanvas) {
+      setLivecodeCanvasEditorId(elementId);
+      setLivecodeCanvasFocusRequest(request => request + 1);
+    }
+    setLivecodeStatus("");
     toggleDraweratorPanel("script", { scriptType: "livecode" });
   };
 
@@ -13305,8 +13343,8 @@ function App() {
   };
 
   const renderLivecodeScriptTab = () => {
-    const nodeElement = livecodeOverlayScene.elements.find(element => element.id === livecodeEditorId)
-      || selectedLivecodeNodeForEditor
+    const nodeElement = selectedLivecodeNodeForEditor
+      || livecodeOverlayScene.elements.find(element => element.id === livecodeEditorId)
       || livecodeOverlayScene.elements[0]
       || null;
     if (!nodeElement) return <div className="scene-panel-empty">
@@ -13334,9 +13372,14 @@ function App() {
       </select>
       <div className="livecode-panel-controls">
         <label>Kind <select value={node.kind} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { kind: event.target.value, name: defaultLivecodeName(event.target.value) }, { commitToHistory: true })}>{Object.entries(LIVECODE_KINDS).map(([key, value]) => <option key={key} value={value}>{getLivecodeKindDefinition(value).label}</option>)}</select></label>
-        <label>View <select value={node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="code">Code</option><option value="preview">Preview</option></select></label>
+        {node.kind === LIVECODE_KINDS.orca ? <label>View <span className="livecode-static-option">Grid</span></label> : <label>View <select value={node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="code">Code</option><option value="preview">Output</option><option value="split">Code/output</option></select></label>}
         <label>Clock <select value={node.runtime.transportMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { transportMode: event.target.value } }, { commitToHistory: true })}><option value="linked">Linked</option><option value="free">Free</option></select></label>
+        {node.kind === LIVECODE_KINDS.strudel && <label>Transport <span className="livecode-checkbox"><input type="checkbox" checked={Boolean(node.runtime.settings?.syncTransport)} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { syncTransport: event.target.checked } } }, { commitToHistory: true })} />Full sync</span></label>}
         <label>Font <select value={node.typography.font} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { font: event.target.value } }, { commitToHistory: true })}>{LIVE_CODE_FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label>
+        <label title="Ctrl-M, then L">Lines <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.showLineNumbers} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { showLineNumbers: event.target.checked } }, { commitToHistory: true })} />Numbers</span></label>
+        <label>Fold <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.showFoldGutter} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { showFoldGutter: event.target.checked } }, { commitToHistory: true })} />Gutter</span></label>
+        <label title="Keep blank overlay space transparent while code is shown over output">Overlay <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.glyphOnlyOverlay} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { glyphOnlyOverlay: event.target.checked } }, { commitToHistory: true })} />Glyphs only</span></label>
+        <label title={node.typography.glyphOnlyOverlay ? "Applies behind non-space code when Glyphs only is enabled" : "Applies across the full code surface"}>Code opacity % <input type="number" min="0" max="100" step="5" value={Math.round(node.typography.codeOverlayOpacity * 100)} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { codeOverlayOpacity: Number(event.target.value) / 100 } }, { commitToHistory: true })} /></label>
         <label>Size <input type="number" min="8" max="72" step="1" value={node.typography.fontSize} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontSize: Number(event.target.value) } }, { commitToHistory: true })} /></label>
         <label>Line <input type="number" min="0.8" max="3" step="0.05" value={node.typography.lineHeight} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { lineHeight: Number(event.target.value) } }, { commitToHistory: true })} /></label>
         <label>Weight <select value={node.typography.fontWeight} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontWeight: Number(event.target.value) } }, { commitToHistory: true })}>{[300, 400, 500, 600, 700].map(weight => <option key={weight} value={weight}>{weight}</option>)}</select></label>
@@ -13364,27 +13407,20 @@ function App() {
       <div className="script-icon-toolbar">
         <button type="button" className="palette-action-btn primary script-icon-button" onClick={() => toggleLivecodeNodeRun(nodeElement.id)} title={node.runtime.running ? "Stop this node" : "Run this node"} aria-label={node.runtime.running ? "Stop livecode node" : "Run livecode node"}><ScriptActionIcon type="run" /></button>
         <button type="button" className="palette-action-btn secondary script-icon-button" onClick={() => commitLivecodeCanvasNode(nodeElement.id)} title="Save source to the scene" aria-label="Save livecode source"><ScriptActionIcon type="save" /></button>
-        <button
-          type="button"
-          className="palette-action-btn secondary"
-          onClick={() => livecodeEditorPlacement === "canvas"
-            ? dockLivecodeCanvasNode(nodeElement.id)
-            : (setLivecodeEditorPlacement("canvas"), setLivecodeEditorId(nodeElement.id))}
-          title={livecodeEditorPlacement === "canvas" ? "Move this same editor to the Script panel" : "Move this same editor back to the canvas"}
-        >{livecodeEditorPlacement === "canvas" ? "Dock" : "Undock"}</button>
         <button type="button" className="palette-action-btn secondary script-icon-button" onClick={() => createLivecodeCanvasNode({ kind: node.kind })} title="New livecode node" aria-label="New livecode node"><ScriptActionIcon type="add" /></button>
         <ScriptFontSizeControl value={node.typography.fontSize} onChange={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontSize: value } }, { commitToHistory: true })} />
       </div>
-      {livecodeEditorPlacement === "docked" ? <LivecodeNodeEditor
+      <LivecodeNodeEditor
         node={node}
         element={nodeElement}
         onPatch={patch => patchLivecodeCanvasNode(nodeElement.id, patch)}
         onRun={() => toggleLivecodeNodeRun(nodeElement.id)}
         onBlur={() => commitLivecodeCanvasNode(nodeElement.id)}
+        onCycleView={() => patchLivecodeCanvasNode(nodeElement.id, { view: ({ code: "preview", preview: "split", split: "code" }[node.view] || "code") })}
         transport={{ playing: scorePlaying, bpm: scoreTempo }}
         onMidiEvents={events => emitOrcaMidiEvents(nodeElement.id, events)}
         ariaLabel={`${definition.label} node source`}
-      /> : <p className="livecode-panel-location">Editing this same node on the canvas. Dock it to move the editor here.</p>}
+      />
       <p className="p5-script-status" role="status" aria-live="polite">{livecodeStatus || definition.summary}</p>
       <details className="livecode-help">
         <summary>{help.title}</summary>
@@ -18068,13 +18104,14 @@ function App() {
         <LivecodeNodeOverlay
           elements={livecodeOverlayScene.elements}
           appState={livecodeOverlayScene.appState}
-          activeEditorId={livecodeEditorPlacement === "canvas" ? livecodeEditorId : null}
+          activeEditorId={livecodeCanvasEditorId}
+          focusRequest={livecodeCanvasFocusRequest}
           onEdit={editLivecodeCanvasNode}
           onPatch={(elementId, patch) => patchLivecodeCanvasNode(elementId, patch)}
           onCommit={commitLivecodeCanvasNode}
           onToggleRun={toggleLivecodeNodeRun}
-          onDock={dockLivecodeCanvasNode}
           onMidiEvents={emitOrcaMidiEvents}
+          onStrudelTransport={handleStrudelTransportControl}
           scriptRuntimeRef={scriptRuntimeRef}
           transport={{ playing: scorePlaying, bpm: scoreTempo }}
         />

@@ -25,11 +25,15 @@ any public Strudel deployment.
 - Play Core ASCII frames with offline module imports, original examples, `@param` controls, and the
   shared `drawerator` script bridge.
 - First-class Livecode Nodes: self-contained transparent scene hosts with one canonical source,
-  shared CodeMirror canvas/docked editing, node typography, and concurrent p5, Play Core, Strudel,
-  Markdown, LaTeX, HTML, and Orca adapters. See [Livecode Nodes](livecode.md).
-- Native Strudel shared scheduling and native Orca grids with Drawerator transport/Mixer integration.
-  Strudel public deployment remains intentionally blocked pending AGPL compliance; see
-  [Livecode licensing](livecode-licensing.md).
+  shared Script-panel/canvas editing, node typography, and concurrent p5, Play Core, Strudel,
+  Markdown, LaTeX, HTML, and Orca adapters. p5 is the polished Livecode path. Markdown is
+  presentation-ready with contained overflow scrolling, and LaTeX supports explicit inline/display
+  delimiters. See [Livecode Nodes](livecode.md).
+- Native Strudel shared scheduling and native Orca grids with Drawerator transport/Mixer integration
+  are available as experimental work: their visualization, runtime interaction, and transport
+  behavior need a dedicated follow-up stabilization pass. HTML remains sandboxed and needs its own
+  browser acceptance pass. Strudel public deployment remains intentionally blocked pending AGPL
+  compliance; see [Livecode licensing](livecode-licensing.md).
 
 ## Validation baseline
 
@@ -48,6 +52,7 @@ true native/SVG per-object z-order and exact time-specific PNG parity. See
 ## Next phase
 
 Before public deployment, complete the project licensing decision, publish corresponding source and
-build instructions, audit any Strudel samples/assets, and record the final notices. After that,
-continue Orca operator parity and Livecode deterministic export coverage without weakening node
-source ownership or keyboard containment.
+build instructions, audit any Strudel samples/assets, and record the final notices. Continue the
+Strudel visualization/transport and Orca grid stabilization passes, browser-test sandboxed HTML,
+and extend deterministic Livecode export coverage without weakening node source ownership or
+keyboard containment.
