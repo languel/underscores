@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import BundledP5 from "p5";
 import {
   compileClassicP5Source,
+  compileInstanceP5Source,
   getP5ConfigKey,
   getP5RunnerKey,
   normalizeP5Frame,
@@ -155,11 +156,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
             // full page access, mirroring Drawerator's trusted IanniX scripts.
             callbacks = resolveP5SourceMode(activeConfig) === "global"
               ? compileClassicP5Source(p, drawerator, activeConfig.source, interactionState)
-              : (new Function(
-                "p",
-                "drawerator",
-                `${activeConfig.source}\nreturn { ${P5_GLOBAL_CALLBACK_NAMES.map(name => `${name}: p.${name}`).join(", ")} };`,
-              )(p, drawerator) || {});
+              : compileInstanceP5Source(p, drawerator, activeConfig.source);
             P5_GLOBAL_CALLBACK_NAMES.forEach(name => {
               const callback = callbacks[name];
               const tracksDrag = name === "mousePressed"

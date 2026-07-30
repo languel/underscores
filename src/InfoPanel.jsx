@@ -73,7 +73,7 @@ const EditorKeys = () => (
 const DraweratorApiGuide = () => (
   <section>
     <h3>Drawerator API</h3>
-    <p>The shared <code>drawerator</code> bridge is available in p5 and Play Core. It is live: scene queries, selection, transport, theme, and parameters reflect the current app state. Use <code>drawerator.api</code> for deliberate application-level operations.</p>
+    <p>The shared <code>__</code> bridge is available in p5 and Play Core. It is live: scene queries, selection, transport, theme, and parameters reflect the current app state. Use <code>__.api</code> for deliberate application-level operations. The legacy <code>drawerator</code> name remains available for compatibility.</p>
     <details className="info-api-group" open>
       <summary>Frame bridge</summary>
       <dl className="info-svg-command-list">
@@ -101,7 +101,7 @@ const DraweratorApiGuide = () => (
       </dl>
     </details>
     <details className="info-api-group">
-      <summary>Application API · <code>drawerator.api</code></summary>
+      <summary>Application API · <code>__.api</code></summary>
       <dl className="info-svg-command-list">
         <div><dt><code>api.apiVersion</code></dt><dd>Current public API version; use it when a script requires a particular capability.</dd></div>
         <div><dt><code>api.commands</code></dt><dd><code>list()</code>, <code>describe(id)</code>, <code>execute(id, args, options)</code>, and <code>subscribe(listener)</code>.</dd></div>
@@ -115,13 +115,13 @@ const DraweratorApiGuide = () => (
       </dl>
     </details>
     <pre><code>{`// Follow the current Drawerator foreground
-return { char: "●", color: drawerator.colors.foreground.css };
+return { char: "●", color: __.colors.foreground.css };
 
 // Read a selected score object
-const cursor = drawerator.canvas.selected()[0];
+const cursor = __.canvas.selected()[0];
 
 // Invoke a documented app command
-await drawerator.api.commands.execute("grid.global.update", {
+await __.api.commands.execute("grid.global.update", {
   patch: { enabled: true }
 });`}</code></pre>
   </section>
@@ -132,7 +132,7 @@ const P5InfoGuide = () => (
     <section>
       <h3>p5 sketch</h3>
       <pre><code>{`function setup() {
-  createCanvas(drawerator.element.width, drawerator.element.height);
+  createCanvas(__.element.width, __.element.height);
 }
 
 function draw() {
@@ -140,7 +140,7 @@ function draw() {
   stroke("#1769e0");
   circle(width / 2, height / 2, 80);
 }`}</code></pre>
-      <p>Use global p5 functions such as <code>stroke</code>, <code>fill</code>, <code>circle</code>, <code>line</code>, <code>translate</code>, and <code>noise</code>. <code>drawerator.element</code> is the host object; <code>drawerator.params</code> contains declared parameters.</p>
+      <p>Use global p5 functions such as <code>stroke</code>, <code>fill</code>, <code>circle</code>, <code>line</code>, <code>translate</code>, and <code>noise</code>. <code>__.element</code> is the host object; <code>__.params</code> contains declared parameters.</p>
     </section>
     <DraweratorApiGuide />
     <EditorKeys />
@@ -154,8 +154,8 @@ const PlayCoreInfoGuide = () => (
       <pre><code>{`// @param threshold = 0.55 (0..1, step: 0.01)
 export const settings = { fps: 30, cols: 0, rows: 0 };
 
-export function main({ x, y }, context, cursor, buffer, drawerator) {
-  return Math.sin(x + context.time / 400) > drawerator.params.threshold
+export function main({ x, y }, context) {
+  return Math.sin(x + context.time / 400) > __.params.threshold
     ? "·" : " ";
 }`}</code></pre>
       <p>Play Core programs draw one ASCII cell at a time. Attach the program to a selected rectangle or frame, or press Play with no selection to create a new frame. Selecting one Play Core host loads that host’s exact source into the Script panel.</p>
@@ -173,15 +173,15 @@ export function main({ x, y }, context, cursor, buffer, drawerator) {
       <h3>Lifecycle</h3>
       <ul>
         <li><code>settings</code> controls <code>fps</code>, <code>cols</code>, <code>rows</code>, foreground <code>color</code>, and <code>backgroundColor</code>. Zero columns or rows adapt to the frame size.</li>
-        <li><code>boot(drawerator)</code> runs once; <code>pre</code> and <code>post</code> surround each cell pass.</li>
-        <li><code>main(coord, context, cursor, buffer, drawerator)</code> returns a character or a cell object.</li>
+        <li><code>boot()</code> runs once; <code>pre</code> and <code>post</code> surround each cell pass. The bridge is always available as <code>__</code>.</li>
+        <li><code>main(coord, context, cursor, buffer)</code> returns a character or a cell object.</li>
         <li><code>pointerMove</code>, <code>pointerDown</code>, and <code>pointerUp</code> receive the current context, cursor, buffer, and Drawerator bridge.</li>
       </ul>
     </section>
     <section>
       <h3>Cells and input</h3>
       <ul>
-        <li><code>main(&#123; x, y, index &#125;, context, cursor, buffer, drawerator)</code> runs for every cell. Return a character, or an object such as <code>&#123; char: &quot;·&quot; &#125;</code>.</li>
+        <li><code>main(&#123; x, y, index &#125;, context, cursor, buffer)</code> runs for every cell. Return a character, or an object such as <code>&#123; char: &quot;·&quot; &#125;</code>.</li>
         <li><code>context</code> includes <code>frame</code>, <code>time</code>, <code>cols</code>, <code>rows</code>, <code>width</code>, <code>height</code>, resolved <code>settings</code>, and <code>metrics</code> (<code>cellWidth</code>, <code>cellHeight</code>, <code>aspect</code>).</li>
         <li><code>cursor</code> is measured in ASCII-cell coordinates and includes <code>x</code>, <code>y</code>, <code>pressed</code>, and the previous state in <code>cursor.p</code>.</li>
         <li>Use <code>pre</code> and <code>post</code> to prepare or inspect the shared <code>buffer</code>; pointer callbacks receive the same <code>context</code>, <code>cursor</code>, <code>buffer</code>, and bridge.</li>

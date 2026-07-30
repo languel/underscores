@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import DraweratorCodeEditor from "./DraweratorCodeEditor.jsx";
 import P5Frame from "./P5Frame.jsx";
 import { PlayCoreFrame } from "./PlayCoreFrame.jsx";
@@ -49,6 +49,7 @@ export function LivecodeNodeEditor({
   focusRequest = 0,
   glyphOnlyOverlay = false,
   enableStrudelWidgets = false,
+  showGutters = false,
 }) {
   const node = useMemo(() => normalizeLivecodeNode(rawNode), [rawNode]);
   const definition = getLivecodeKindDefinition(node.kind);
@@ -79,9 +80,11 @@ export function LivecodeNodeEditor({
       onUpdate={onUpdate}
       onStop={onStop}
       readOnly={readOnly}
-      showLineNumbers={node.typography.showLineNumbers}
-      showFoldGutter={node.typography.showFoldGutter}
-      onToggleLineNumbers={() => onPatch?.({ typography: { showLineNumbers: !node.typography.showLineNumbers } })}
+      showLineNumbers={showGutters && node.typography.showLineNumbers}
+      showFoldGutter={showGutters && node.typography.showFoldGutter}
+      onToggleLineNumbers={showGutters
+        ? () => onPatch?.({ typography: { showLineNumbers: !node.typography.showLineNumbers } })
+        : undefined}
       onCycleView={onCycleView}
       scriptType={getLivecodeEditorProfile(node)}
       className={`livecode-node-editor ${className}`.trim()}
@@ -138,6 +141,41 @@ const evaluatedStrudelSource = node => (
     : node.source
 );
 
+function StrudelFrameVisualizerCanvas({ runtime, nodeId, enabled }) {
+  const canvasRef = useRef(null);
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !enabled) return undefined;
+    const resize = () => {
+      const rect = canvas.getBoundingClientRect();
+      const pixelRatio = Math.min(2, Math.max(1, Number(window.devicePixelRatio) || 1));
+      const width = Math.max(1, Math.round(rect.width * pixelRatio));
+      const height = Math.max(1, Math.round(rect.height * pixelRatio));
+      if (canvas.width !== width) canvas.width = width;
+      if (canvas.height !== height) canvas.height = height;
+    };
+    resize();
+    const unregister = runtime.registerFrameCanvas(nodeId, canvas);
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(canvas);
+    const intersectionObserver = new IntersectionObserver(entries => {
+      runtime.setFrameCanvasActive(nodeId, entries.some(entry => entry.isIntersecting));
+    });
+    intersectionObserver.observe(canvas);
+    return () => {
+      intersectionObserver.disconnect();
+      resizeObserver.disconnect();
+      unregister();
+    };
+  }, [enabled, nodeId, runtime]);
+  if (!enabled) return null;
+  return <canvas
+    ref={canvasRef}
+    className="strudel-frame-visualizer"
+    aria-label="Strudel frame visualization"
+  />;
+}
+
 function StrudelNodeRuntime({ element, node, scriptRuntimeRef, onStrudelTransport }) {
   const runtime = useMemo(() => getStrudelRuntimeManager(), []);
   const elementId = element.id;
@@ -146,6 +184,7 @@ function StrudelNodeRuntime({ element, node, scriptRuntimeRef, onStrudelTranspor
   const source = evaluatedStrudelSource(node);
   const evaluationRevision = Math.max(0, Number(node.runtime.settings?.evaluationRevision) || 0);
   const transportMode = node.runtime.transportMode;
+  const frameVisualsEnabled = node.runtime.settings?.frameVisuals !== false;
   const latestNodeRef = useRef(node);
   latestNodeRef.current = node;
   const runtimeNode = useMemo(() => ({
@@ -174,7 +213,11 @@ function StrudelNodeRuntime({ element, node, scriptRuntimeRef, onStrudelTranspor
     runtime.setNodeTransportMode(elementId, transportMode);
   }, [elementId, runtime, transportMode]);
   useEffect(() => () => { void runtime.remove(elementId); }, [elementId, runtime]);
-  return null;
+  return <StrudelFrameVisualizerCanvas
+    runtime={runtime}
+    nodeId={elementId}
+    enabled={frameVisualsEnabled}
+  />;
 }
 
 export function StrudelPanelStatus({ nodeId, node, transport, message = "" }) {
@@ -305,8 +348,9 @@ export function LivecodeNodeOverlay({
     void getStrudelRuntimeManager().setTransport({
       playing: Boolean(transport?.playing),
       bpm: Number(transport?.bpm) || 120,
+      time: Math.max(0, Number(transport?.time) || 0),
     });
-  }, [transport?.playing, transport?.bpm]);
+  }, [transport?.playing, transport?.bpm, transport?.time]);
   return <div className="drawerator-livecode-overlay" aria-label="Livecode canvas nodes">{elements.filter(shouldRenderLivecodeNode).map(element => {
     const node = normalizeLivecodeNode(element.customData.draweratorLivecode);
     const selected = Boolean(camera.selectedElementIds[element.id]);

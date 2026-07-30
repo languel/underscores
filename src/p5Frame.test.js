@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   compileClassicP5Source,
+  compileInstanceP5Source,
   DEFAULT_P5_CDN_URL,
+  DEFAULT_P5_CLASSIC_SOURCE,
   DEFAULT_P5_SOURCE,
   detectP5SourceMode,
   getP5Example,
@@ -63,7 +65,8 @@ test("detects and runs classic global-mode setup and draw callbacks in a local p
   const drawerator = { element: { width: 320, height: 180 }, frame: {} };
   const source = `
     function setup() {
-      createCanvas(drawerator.element.width, drawerator.element.height);
+      if (__ !== drawerator) throw new Error("bridge aliases differ");
+      createCanvas(__.element.width, __.element.height);
     }
     function draw() {
       background(42);
@@ -76,6 +79,15 @@ test("detects and runs classic global-mode setup and draw callbacks in a local p
   callbacks.setup();
   callbacks.draw();
   assert.deepEqual(calls, [["canvas", 320, 180], ["background", 42]]);
+});
+
+test("instance mode exposes __ as the same node-local bridge", () => {
+  const bridge = { transport: { playing: true } };
+  const p = {};
+  const callbacks = compileInstanceP5Source(p, bridge, `
+    p.setup = () => __ === drawerator && __.transport.playing;
+  `);
+  assert.equal(callbacks.setup(), true);
 });
 
 test("classic mode also supports callback assignment syntax", () => {
@@ -100,12 +112,17 @@ test("ships editable starter examples for both p5 styles and the Drawerator brid
   assert.equal(getP5Example("missing"), null);
 
   const bridge = getP5Example("drawerator-bridge");
-  assert.match(bridge.source, /drawerator\.canvas\.all\(\)/);
-  assert.match(bridge.source, /drawerator\.canvas\.selected\(\)/);
-  assert.match(bridge.source, /drawerator\.events\.on/);
-  assert.match(bridge.source, /drawerator\.transport\.time/);
+  assert.match(bridge.source, /__\.canvas\.all\(\)/);
+  assert.match(bridge.source, /__\.canvas\.selected\(\)/);
+  assert.match(bridge.source, /__\.events\.on/);
+  assert.match(bridge.source, /__\.transport\.time/);
   assert.match(bridge.source, /@param driver/);
-  P5_EXAMPLES.forEach(example => assert.deepEqual(validateP5Source(example.source), { valid: true, error: "" }));
+  assert.doesNotMatch(DEFAULT_P5_SOURCE, /\bdrawerator\b/);
+  assert.doesNotMatch(DEFAULT_P5_CLASSIC_SOURCE, /\bdrawerator\b/);
+  P5_EXAMPLES.forEach(example => {
+    assert.doesNotMatch(example.source, /\bdrawerator\b/);
+    assert.deepEqual(validateP5Source(example.source), { valid: true, error: "" });
+  });
 });
 
 test("classic mode exposes pointer callbacks and the Drawerator drag compatibility flag", () => {

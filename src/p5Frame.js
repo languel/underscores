@@ -2,13 +2,13 @@ export const P5_FRAME_STORAGE_KEY = "drawerator_p5_scripts";
 
 export const DEFAULT_P5_CDN_URL = "https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js";
 
-export const DEFAULT_P5_SOURCE = `// p5 instance-mode sketch. Use p.* for every p5 call.
+export const DEFAULT_P5_SOURCE = `// p5 instance-mode sketch. __ is the node-local Drawerator bridge.
 p.setup = () => {
-  p.createCanvas(drawerator.element.width, drawerator.element.height);
+  p.createCanvas(__.element.width, __.element.height);
 };
 
 p.draw = () => {
-  if (drawerator.frame.transparent) p.clear();
+  if (__.frame.transparent) p.clear();
   else p.background(18);
   p.noFill();
   p.stroke(220);
@@ -18,13 +18,13 @@ p.draw = () => {
   p.line(p.width / 2 - radius, p.height / 2, p.width / 2 + radius, p.height / 2);
 };`;
 
-export const DEFAULT_P5_CLASSIC_SOURCE = `// Classic p5 global-mode sketch. Use setup(), draw(), and ordinary p5 calls.
+export const DEFAULT_P5_CLASSIC_SOURCE = `// Classic p5 global-mode sketch. __ is the node-local Drawerator bridge.
 function setup() {
-  createCanvas(drawerator.element.width, drawerator.element.height);
+  createCanvas(__.element.width, __.element.height);
 }
 
 function draw() {
-  if (drawerator.frame.transparent) clear();
+  if (__.frame.transparent) clear();
   else background(18);
   noFill();
   stroke(220);
@@ -44,7 +44,7 @@ export const P5_EXAMPLES = Object.freeze([
     mode: "instance",
     source: `// p5 instance-mode starter. Use p.* for p5 calls.
 p.setup = () => {
-  p.createCanvas(drawerator.element.width, drawerator.element.height);
+  p.createCanvas(__.element.width, __.element.height);
 };
 
 p.draw = () => {
@@ -60,7 +60,7 @@ p.draw = () => {
     mode: "global",
     source: `// Classic p5 global-mode starter. Use setup(), draw(), and ordinary p5 calls.
 function setup() {
-  createCanvas(drawerator.element.width, drawerator.element.height);
+  createCanvas(__.element.width, __.element.height);
 }
 
 function draw() {
@@ -78,7 +78,7 @@ function draw() {
 const cell = 18;
 
 function setup() {
-  createCanvas(drawerator.element.width, drawerator.element.height);
+  createCanvas(__.element.width, __.element.height);
   noLoop();
   redrawPattern();
 }
@@ -105,7 +105,7 @@ function keyPressed() {
     mode: "global",
     source: `// Draw directly into this p5 frame. Press C to clear.
 function setup() {
-  createCanvas(drawerator.element.width, drawerator.element.height);
+  createCanvas(__.element.width, __.element.height);
   background(18);
   stroke(220);
   strokeWeight(3);
@@ -125,7 +125,7 @@ function keyPressed() {
     mode: "instance",
     source: `// Animated instance-mode random lines.
 p.setup = () => {
-  p.createCanvas(drawerator.element.width, drawerator.element.height);
+  p.createCanvas(__.element.width, __.element.height);
   p.background(18);
   p.stroke(220, 38);
   p.strokeWeight(2);
@@ -150,27 +150,27 @@ p.draw = () => {
 let latestEvent = null;
 
 const currentDriver = () => (
-  drawerator.params.driver
-  || drawerator.canvas.selected()[0]
-  || drawerator.canvas.find(object => object.role === "cursor")[0]
+  __.params.driver
+  || __.canvas.selected()[0]
+  || __.canvas.find(object => object.role === "cursor")[0]
   || null
 );
 
 p.setup = () => {
-  p.createCanvas(drawerator.element.width, drawerator.element.height);
+  p.createCanvas(__.element.width, __.element.height);
   p.textFont("monospace");
-  p.frameRate(drawerator.frame.fps || 60);
-  drawerator.events.on("*", event => { latestEvent = event; });
+  p.frameRate(__.frame.fps || 60);
+  __.events.on("*", event => { latestEvent = event; });
 };
 
 p.draw = () => {
-  const objects = drawerator.canvas.all();
-  const selected = drawerator.canvas.selected();
+  const objects = __.canvas.all();
+  const selected = __.canvas.selected();
   const driver = currentDriver();
   const progress = Number(driver?.time?.progress);
   const phase = Number.isFinite(progress)
     ? progress
-    : (drawerator.transport.time % 4) / 4;
+    : (__.transport.time % 4) / 4;
   const radius = Math.min(p.width, p.height) * (0.12 + phase * 0.32);
 
   p.background(18);
@@ -185,7 +185,7 @@ p.draw = () => {
   p.fill(220);
   p.text("canvas objects: " + objects.length, 12, 22);
   p.text("selected: " + selected.length, 12, 40);
-  p.text("transport: " + drawerator.transport.time.toFixed(2) + " s", 12, 58);
+  p.text("transport: " + __.transport.time.toFixed(2) + " s", 12, 58);
   p.text("driver: " + (driver?.label || driver?.id || "none"), 12, 76);
   p.text("last event: " + (latestEvent?.name || latestEvent?.type || "waiting"), 12, 94);
 };`,
@@ -228,7 +228,7 @@ export const P5_GLOBAL_CALLBACK_NAMES = Object.freeze([
 ]);
 
 // Web Serial is not a native p5 API, but classic sketches can use these
-// familiar callback names after calling drawerator.serial.requestPort().
+// familiar callback names after calling __.serial.requestPort().
 export const P5_SERIAL_CALLBACK_NAMES = Object.freeze([
   "serialConnect",
   "serialDisconnect",
@@ -330,6 +330,7 @@ export const compileClassicP5Source = (p, drawerator, source, interactionState =
       if (key === Symbol.unscopables) return undefined;
       if (key === "p") return p;
       if (key === "drawerator") return drawerator;
+      if (key === "__") return drawerator;
       // p5 itself exposes mouseIsPressed but not mouseIsDragged. Supporting
       // the latter here is a small compatibility affordance for classroom
       // sketches while still using p5's real mouse events underneath.
@@ -356,6 +357,15 @@ export const compileClassicP5Source = (p, drawerator, source, interactionState =
   return callbacks;`)(scope, localValues);
   return callbacks || {};
 };
+
+export const compileInstanceP5Source = (p, drawerator, source) => (
+  new Function(
+    "p",
+    "drawerator",
+    "__",
+    `${typeof source === "string" ? source : ""}\nreturn { ${P5_GLOBAL_CALLBACK_NAMES.map(name => `${name}: p.${name}`).join(", ")} };`,
+  )(p, drawerator, drawerator) || {}
+);
 
 export const normalizeP5Frame = value => {
   const raw = value && typeof value === "object" ? value : {};

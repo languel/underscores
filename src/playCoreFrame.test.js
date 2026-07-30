@@ -34,11 +34,12 @@ test("normalizes Play Core frame data and recognizes supported hosts", () => {
 test("compiles the Play Core ES-module lifecycle and injects the Drawerator bridge", () => {
   const source = `export const settings = { fps: 12 };
 export function main({ x }, context, cursor, buffer, drawerator) {
-  return drawerator.params.glyph + x;
+  return (__ === drawerator ? __.params.glyph : "!") + x;
 }`;
-  const program = evaluatePlayCoreSource(source, { params: { glyph: "#" } });
+  const bridge = { params: { glyph: "#" } };
+  const program = evaluatePlayCoreSource(source, bridge);
   assert.equal(program.settings.fps, 12);
-  assert.equal(program.main({ x: 2 }, {}, {}, [], { params: { glyph: "#" } }), "#2");
+  assert.equal(program.main({ x: 2 }, {}, {}, [], bridge), "#2");
   assert.deepEqual(validatePlayCoreSource(source), { valid: true, error: "" });
   assert.equal(typeof compilePlayCoreSource(source).main, "function");
 });
@@ -103,6 +104,7 @@ test("normalizes a persisted Play Core working-file catalog", () => {
 test("all bundled original play.core examples compile against the portable module registry", () => {
   assert.ok(PLAY_CORE_EXAMPLES.length >= 10);
   PLAY_CORE_EXAMPLES.forEach(example => {
+    assert.doesNotMatch(example.source, /\bdrawerator\b/);
     assert.doesNotThrow(() => compilePlayCoreSource(example.source), example.name);
   });
 });

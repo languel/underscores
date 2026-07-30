@@ -27,7 +27,7 @@ export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
     label: "p5",
     editorProfile: "p5",
     defaultName: "Untitled p5 node",
-    defaultSource: `function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  clear();\n  noFill();\n  stroke(drawerator.currentColor);\n  circle(width / 2, height / 2, Math.min(width, height) * 0.45);\n}`,
+    defaultSource: `function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  clear();\n  noFill();\n  stroke(__.currentColor);\n  circle(width / 2, height / 2, Math.min(width, height) * 0.45);\n}`,
     summary: "Self-contained p5 sketch using the existing trusted bundled p5 runtime.",
   }),
   [LIVECODE_KINDS.playcore]: Object.freeze({
@@ -143,10 +143,7 @@ export const createLivecodeNode = value => {
   const kind = normalizeLivecodeKind(raw.kind);
   const definition = getLivecodeKindDefinition(kind);
   const source = typeof raw.source === "string" ? raw.source : "";
-  const runtime = kind === LIVECODE_KINDS.strudel && raw.runtime?.transportMode == null
-    ? { ...(raw.runtime || {}), transportMode: "free" }
-    : raw.runtime;
-  const normalizedRuntime = normalizeLivecodeRuntime(runtime);
+  const normalizedRuntime = normalizeLivecodeRuntime(raw.runtime);
   if (
     kind === LIVECODE_KINDS.strudel
     && normalizedRuntime.running
@@ -207,6 +204,38 @@ export const patchLivecodeNode = (value, patch = {}) => {
     runtime,
     typography: patch.typography ? { ...previous.typography, ...patch.typography } : previous.typography,
     parameters: patch.parameters ? { ...previous.parameters, ...patch.parameters } : previous.parameters,
+    revision: previous.revision + 1,
+    updatedAt: Date.now(),
+  });
+};
+
+export const replaceLivecodeNodeProgram = (value, {
+  kind,
+  source,
+  name,
+  runtimeSettings = {},
+} = {}) => {
+  const previous = normalizeLivecodeNode(value);
+  const nextKind = normalizeLivecodeKind(kind ?? previous.kind);
+  const kindChanged = nextKind !== previous.kind;
+  const nextName = typeof name === "string" && name.trim()
+    ? name.trim()
+    : kindChanged
+      ? defaultLivecodeName(nextKind)
+      : previous.name;
+  return normalizeLivecodeNode({
+    ...previous,
+    kind: nextKind,
+    name: nextName,
+    source: typeof source === "string" ? source : previous.source,
+    parameters: kindChanged ? {} : previous.parameters,
+    runtime: {
+      ...previous.runtime,
+      settings: {
+        ...(kindChanged ? {} : previous.runtime.settings),
+        ...(runtimeSettings && typeof runtimeSettings === "object" ? runtimeSettings : {}),
+      },
+    },
     revision: previous.revision + 1,
     updatedAt: Date.now(),
   });

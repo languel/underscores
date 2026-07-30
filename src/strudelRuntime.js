@@ -8,8 +8,9 @@ import * as core from "@strudel/core";
 import * as mini from "@strudel/mini";
 import * as mondo from "@strudel/mondo";
 import * as tonal from "@strudel/tonal";
+import * as xen from "@strudel/xen";
 import { slider } from "@strudel/codemirror";
-import { Drawer } from "@strudel/draw";
+import { __pianoroll, Drawer, getDrawOptions } from "@strudel/draw";
 import { transpiler } from "@strudel/transpiler";
 import * as webaudio from "@strudel/webaudio";
 
@@ -31,6 +32,7 @@ const DEFAULT_SAMPLE_MAPS = Object.freeze([
 const DEFAULT_BANK_ALIASES = "https://raw.githubusercontent.com/todepond/samples/main/tidal-drum-machines-alias.json";
 const nodeVisualTag = nodeId => `drawerator:${nodeId}`;
 const bpmToCps = bpm => Math.max(0.01, Math.min(16, (Number(bpm) || 120) / 240));
+const ownsNodeHap = (nodeId, hap) => hap.context?.tags?.includes(nodeVisualTag(nodeId));
 
 export const strudelNextBeatCycle = (
   cycle,
@@ -73,6 +75,32 @@ export const strudelMarkCss = (value, pattern) => {
 };
 core.Pattern.prototype.markcss = function markcss(value) {
   return strudelMarkCss(value, this);
+};
+
+export const strudelInput = value => (
+  core.isPattern(value) ? value : mini.mini(value)
+);
+
+export const installStrudelEvalScope = (...additionalScopes) => {
+  mini.miniAllStrings?.();
+  return core.evalScope(
+    core.evalScope,
+    core,
+    mini,
+    mondo,
+    tonal,
+    xen,
+    webaudio,
+    ...additionalScopes,
+    {
+      // The transpiler has already converted string arguments into Mini
+      // patterns by the time i() runs. Preserve those patterns, while keeping
+      // direct/untranspiled calls useful too.
+      i: strudelInput,
+      markcss: strudelMarkCss,
+      slider,
+    },
+  );
 };
 
 const restoreGlobal = (key, value) => {
@@ -123,6 +151,68 @@ const captureLabelledPatterns = nodeId => {
   };
 };
 
+// Strudel's page REPL gives public visualizers a page-sized canvas. Livecode
+// Nodes instead supply a canvas scoped to their own frame. Capture painter
+// registration while the node is evaluated so the shared Drawer can route
+// every frame without starting another requestAnimationFrame loop.
+const captureFrameVisualizers = (runtime, nodeId) => {
+  const prototype = core.Pattern.prototype;
+  const previousOnPaint = Object.getOwnPropertyDescriptor(prototype, "onPaint");
+  const previousPianoroll = Object.getOwnPropertyDescriptor(prototype, "pianoroll");
+  let count = 0;
+
+  if (typeof previousOnPaint?.value === "function") {
+    Object.defineProperty(prototype, "onPaint", {
+      configurable: true,
+      writable: true,
+      value(painter) {
+        if (typeof painter !== "function") return previousOnPaint.value.call(this, painter);
+        count += 1;
+        return previousOnPaint.value.call(this, (_ctx, time, haps, drawTime) => {
+          const target = runtime.frameCanvases.get(nodeId);
+          if (!target?.active || !target.ctx) return;
+          painter(
+            target.ctx,
+            time,
+            haps.filter(hap => ownsNodeHap(nodeId, hap)),
+            drawTime,
+          );
+        });
+      },
+    });
+  }
+
+  if (typeof previousPianoroll?.value === "function") {
+    Object.defineProperty(prototype, "pianoroll", {
+      configurable: true,
+      writable: true,
+      value(options = {}) {
+        // Underscore widgets supply their own inline CodeMirror canvas and
+        // should retain Strudel's native widget behavior.
+        if (options?.ctx) return previousPianoroll.value.call(this, options);
+        return this.onPaint((ctx, time, haps, drawTime) => {
+          __pianoroll({
+            ctx,
+            time,
+            haps,
+            ...getDrawOptions(drawTime, options),
+          });
+        });
+      },
+    });
+  }
+
+  return {
+    count: () => count,
+    restore() {
+      if (previousOnPaint) Object.defineProperty(prototype, "onPaint", previousOnPaint);
+      else delete prototype.onPaint;
+      if (previousPianoroll) Object.defineProperty(prototype, "pianoroll", previousPianoroll);
+      else delete prototype.pianoroll;
+    },
+  };
+};
+
 export class StrudelRuntimeManager {
   constructor() {
     this.entries = new Map();
@@ -135,14 +225,17 @@ export class StrudelRuntimeManager {
     this.activationTimers = new Map();
     this.visualStates = new Map();
     this.visualListeners = new Map();
+    this.frameCanvases = new Map();
     this.transport = { playing: false, bpm: 120, time: 0 };
     this.cps = DEFAULT_CPS;
+    this.linkedPhaseOffset = 0;
   }
 
   _visualState(nodeId) {
     return this.visualStates.get(nodeId) || {
       miniLocations: [],
       widgets: [],
+      frameVisualizers: 0,
       haps: [],
       time: 0,
       evaluation: 0,
@@ -180,18 +273,47 @@ export class StrudelRuntimeManager {
     }
   }
 
+  registerFrameCanvas(nodeId, canvas, active = true) {
+    if (!canvas) {
+      this.frameCanvases.delete(nodeId);
+      return () => {};
+    }
+    const target = {
+      canvas,
+      ctx: canvas.getContext("2d", { alpha: true }),
+      active: Boolean(active),
+    };
+    this.frameCanvases.set(nodeId, target);
+    return () => {
+      if (this.frameCanvases.get(nodeId)?.canvas === canvas) {
+        this.frameCanvases.delete(nodeId);
+      }
+    };
+  }
+
+  setFrameCanvasActive(nodeId, active) {
+    const target = this.frameCanvases.get(nodeId);
+    if (target) target.active = Boolean(active);
+  }
+
+  clearFrameCanvas(nodeId) {
+    const target = this.frameCanvases.get(nodeId);
+    target?.ctx?.clearRect(0, 0, target.canvas.width, target.canvas.height);
+  }
+
   async ensureScope() {
     if (!this.scopeReady) {
       this.scopeReady = (async () => {
-        mini.miniAllStrings?.();
-        const loadScope = core.evalScope(core.evalScope, core, mini, mondo, tonal, webaudio, {
-          markcss: strudelMarkCss,
-          slider,
-        });
+        // Keep soundfont implementation details out of the initial module
+        // graph. Vite selects its browser build, while Node-based scheduler
+        // tests need not instantiate the Web Audio dependencies.
+        const soundfonts = await import("@strudel/soundfonts");
+        const loadScope = installStrudelEvalScope(soundfonts);
         await Promise.all([
           loadScope,
           webaudio.registerSynthSounds(),
           webaudio.registerZZFXSounds(),
+          soundfonts.registerSoundfonts(),
           ...DEFAULT_SAMPLE_MAPS.map(file => webaudio.samples(`${DEFAULT_SAMPLE_BASE}/${file}`)),
         ]);
         await webaudio.aliasBank(DEFAULT_BANK_ALIASES);
@@ -229,30 +351,33 @@ export class StrudelRuntimeManager {
     return webaudio.getAudioContext();
   }
 
-  _nodeScope(nodeId, bridge) {
-    const setTempo = bpm => {
-      const normalized = Math.max(20, Math.min(400, Number(bpm) || this.transport.bpm));
-      bridge?.strudel?.setTempo?.(normalized);
-      this.setNodeCps(nodeId, bpmToCps(normalized));
+  _nodeScope(nodeId, bridge, transportMode = "linked", tempoState = { cps: null }) {
+    const linked = transportMode !== "free";
+    const setCps = value => {
+      const cps = Math.max(0.01, Math.min(16, Number(value) || this.cps));
+      if (linked) {
+        bridge?.strudel?.setTempo?.(cps * 240);
+      } else {
+        // Evaluation happens before upsert creates the node entry. Keep the
+        // declared Free-mode rate with this compile result instead of trying
+        // to mutate an entry which does not exist yet.
+        tempoState.cps = cps;
+      }
       return core.silence;
     };
-    const setCpm = value => setTempo(Number(value) * 4);
+    const setTempo = bpm => {
+      const normalized = Math.max(20, Math.min(400, Number(bpm) || this.transport.bpm));
+      return setCps(bpmToCps(normalized));
+    };
+    const setCpm = value => setCps(Number(value) / 60);
     return {
       hush: () => {
         this.remove(nodeId);
         bridge?.strudel?.setPlaying?.(false);
         return core.silence;
       },
-      setcps: value => {
-        this.setNodeCps(nodeId, value);
-        bridge?.strudel?.setTempo?.(Number(value) * 240);
-        return core.silence;
-      },
-      setCps: value => {
-        this.setNodeCps(nodeId, value);
-        bridge?.strudel?.setTempo?.(Number(value) * 240);
-        return core.silence;
-      },
+      setcps: setCps,
+      setCps,
       setcpm: setCpm,
       setCpm: setCpm,
       setbpm: setTempo,
@@ -266,14 +391,17 @@ export class StrudelRuntimeManager {
         return core.silence;
       },
       drawerator: bridge,
+      __: bridge,
     };
   }
 
-  async _compile(nodeId, source, bridge) {
+  async _compile(nodeId, source, bridge, transportMode = "linked") {
     await this.ensureScope();
-    const scope = this._nodeScope(nodeId, bridge);
+    const tempoState = { cps: null };
+    const scope = this._nodeScope(nodeId, bridge, transportMode, tempoState);
     const previous = Object.fromEntries(Object.keys(scope).map(key => [key, globalThis[key]]));
     const labelled = captureLabelledPatterns(nodeId);
+    const frameVisualizers = captureFrameVisualizers(this, nodeId);
     Object.assign(globalThis, scope);
     try {
       const { pattern, meta } = await core.evaluate(source, transpiler, { id: nodeId });
@@ -282,12 +410,15 @@ export class StrudelRuntimeManager {
       if (!core.isPattern(result)) throw new Error("Strudel source must evaluate to a pattern.");
       return {
         pattern: result.tag(nodeVisualTag(nodeId)),
+        cps: tempoState.cps,
         meta: {
           miniLocations: meta?.miniLocations || [],
           widgets: meta?.widgets || [],
+          frameVisualizers: frameVisualizers.count(),
         },
       };
     } finally {
+      frameVisualizers.restore();
       labelled.restore();
       Object.entries(previous).forEach(([key, value]) => restoreGlobal(key, value));
     }
@@ -300,20 +431,21 @@ export class StrudelRuntimeManager {
       // evaluates user code. Inline visualizers read that clock while their
       // widget patterns are created, so mirror that ordering here as well.
       const scheduler = await this.ensureScheduler();
-      const { pattern, meta } = await this._compile(nodeId, source, bridge);
       const normalizedMode = transportMode === "free" ? "free" : "linked";
+      const { pattern, meta, cps } = await this._compile(nodeId, source, bridge, normalizedMode);
       const schedulerCycle = typeof scheduler.now === "function" ? scheduler.now() : 0;
       const previous = this._promoteDueEntry(nodeId, schedulerCycle);
       if (scheduler.started) {
+        const phaseOffset = normalizedMode === "linked" ? this.linkedPhaseOffset : 0;
         const activateAt = strudelNextBeatCycle(
-          schedulerCycle,
+          schedulerCycle + phaseOffset,
           this.cps,
           SCHEDULER_SWAP_SAFETY_SECONDS,
-        );
+        ) - phaseOffset;
         this.entries.set(nodeId, {
           pattern: previous?.pattern || core.silence,
           transportMode: normalizedMode,
-          cps: previous?.cps || null,
+          cps,
           pending: { pattern, meta, activateAt },
         });
         this._notifyVisual(nodeId, {
@@ -325,7 +457,7 @@ export class StrudelRuntimeManager {
         this.entries.set(nodeId, {
           pattern,
           transportMode: normalizedMode,
-          cps: previous?.cps || null,
+          cps,
           pending: null,
         });
         this._publishEvaluation(nodeId, meta, normalizedMode);
@@ -366,9 +498,11 @@ export class StrudelRuntimeManager {
   }
 
   _publishEvaluation(nodeId, meta, transportMode) {
+    if (!meta?.frameVisualizers) this.clearFrameCanvas(nodeId);
     this._notifyVisual(nodeId, {
       miniLocations: meta?.miniLocations || [],
       widgets: meta?.widgets || [],
+      frameVisualizers: Math.max(0, Number(meta?.frameVisualizers) || 0),
       haps: [],
       evaluation: this._visualState(nodeId).evaluation + 1,
       status: transportMode === "free" ? "Free-run" : "Transport linked",
@@ -412,28 +546,83 @@ export class StrudelRuntimeManager {
     if (timer) clearTimeout(timer);
     this.activationTimers.delete(nodeId);
     if (!this.entries.delete(nodeId)) return;
+    this.clearFrameCanvas(nodeId);
     this._notifyVisual(nodeId, { haps: [], status: "Stopped" });
     await this.refresh();
   }
 
   async setTransport(next = {}) {
-    this.transport = { ...this.transport, ...next };
+    const previous = this.transport;
+    const hasTime = Number.isFinite(Number(next.time));
+    const transport = {
+      ...previous,
+      ...next,
+      ...(hasTime ? { time: Math.max(0, Number(next.time)) } : {}),
+    };
+    const playingChanged = Boolean(transport.playing) !== Boolean(previous.playing);
+    const bpmChanged = Number(transport.bpm) !== Number(previous.bpm);
+    const loopedOrRewound = hasTime && transport.time + 0.02 < previous.time;
+    const stoppedPositionChanged = hasTime && !transport.playing && transport.time !== previous.time;
+    const shouldAnchorPhase = playingChanged || bpmChanged || loopedOrRewound || stoppedPositionChanged;
+    this.transport = transport;
     this.cps = bpmToCps(this.transport.bpm);
-    if (this.scheduler) this.scheduler.setCps(this.cps);
+    let schedulerCycle = 0;
+    if (this.scheduler) {
+      schedulerCycle = this.scheduler.now?.() || 0;
+      if (shouldAnchorPhase) {
+        // Cyclist's clock is monotonic and independent from Drawerator's
+        // seekable/looping score time. Shift only Linked patterns so their
+        // cycle phase equals the score's BBU phase at every transport anchor.
+        this.linkedPhaseOffset = (this.transport.time * this.cps) - schedulerCycle;
+      }
+      this.scheduler.setCps(this.cps);
+    } else if (shouldAnchorPhase) {
+      this.linkedPhaseOffset = this.transport.time * this.cps;
+    }
+    const onlyContinuousTimeAdvanced = hasTime
+      && !playingChanged
+      && !bpmChanged
+      && !loopedOrRewound
+      && !stoppedPositionChanged;
+    if (onlyContinuousTimeAdvanced) return;
     for (const [nodeId, entry] of this.entries) {
-      if (entry.pending) this._schedulePendingActivation(nodeId, entry.pending.activateAt);
+      if (!entry.pending) continue;
+      const phaseOffset = entry.transportMode === "linked" ? this.linkedPhaseOffset : 0;
+      const activateAt = shouldAnchorPhase
+        ? strudelNextBeatCycle(
+          schedulerCycle + phaseOffset,
+          this.cps,
+          SCHEDULER_SWAP_SAFETY_SECONDS,
+        ) - phaseOffset
+        : entry.pending.activateAt;
+      if (activateAt !== entry.pending.activateAt) {
+        this.entries.set(nodeId, {
+          ...entry,
+          pending: { ...entry.pending, activateAt },
+        });
+      }
+      this._schedulePendingActivation(nodeId, activateAt);
     }
     await this.refresh();
   }
 
   _combinedPattern() {
-    const patterns = Array.from(this.entries.values()).map(entry => {
-      const pattern = entry.pending
-        ? strudelSwitchAtCycle(entry.pattern, entry.pending.pattern, entry.pending.activateAt)
-        : entry.pattern;
-      if (!entry.cps || entry.cps === this.cps) return pattern;
-      return pattern._fast(entry.cps / this.cps);
-    });
+    const patterns = Array.from(this.entries.values())
+      .filter(entry => entry.transportMode === "free" || this.transport.playing)
+      .map(entry => {
+        const transform = pattern => {
+          if (entry.transportMode === "linked") {
+            return this.linkedPhaseOffset ? pattern._early(this.linkedPhaseOffset) : pattern;
+          }
+          return !entry.cps || entry.cps === this.cps
+            ? pattern
+            : pattern._fast(entry.cps / this.cps);
+        };
+        const current = transform(entry.pattern);
+        return entry.pending
+          ? strudelSwitchAtCycle(current, transform(entry.pending.pattern), entry.pending.activateAt)
+          : current;
+      });
     return patterns.length ? core.stack(...patterns) : core.silence;
   }
 
@@ -452,12 +641,24 @@ export class StrudelRuntimeManager {
     if (this._shouldPlay()) {
       await this.unlock();
       if (!scheduler.started) await scheduler.start();
+      for (const [nodeId, entry] of this.entries) {
+        if (
+          entry.transportMode === "linked"
+          && this.transport.playing
+          && this._visualState(nodeId).status === "Stopped"
+        ) {
+          this._notifyVisual(nodeId, { status: "Transport linked", error: "" });
+        }
+      }
       if (!this.drawerRunning) {
         this.drawer?.start(scheduler);
         this.drawerRunning = true;
       }
     } else {
-      if (scheduler.started) scheduler.pause();
+      // Linked transport stop is a phase reset, not a pause. Cyclist.pause()
+      // preserves its private cycle counter, which made the next Drawerator
+      // downbeat resume at an arbitrary Strudel step.
+      if (scheduler.started) scheduler.stop();
       if (this.drawerRunning) this.drawer?.stop();
       this.drawerRunning = false;
       for (const nodeId of this.visualListeners.keys()) {
@@ -470,6 +671,7 @@ export class StrudelRuntimeManager {
     this.activationTimers.forEach(timer => clearTimeout(timer));
     this.activationTimers.clear();
     this.entries.clear();
+    this.frameCanvases.forEach((_target, nodeId) => this.clearFrameCanvas(nodeId));
     if (this.scheduler) this.scheduler.stop();
     this.drawer?.stop();
     this.drawerRunning = false;
@@ -482,6 +684,7 @@ export class StrudelRuntimeManager {
     this.activationTimers.forEach(timer => clearTimeout(timer));
     this.activationTimers.clear();
     this.entries.clear();
+    this.frameCanvases.clear();
     this.drawer?.stop();
     this.drawer = null;
     this.drawerRunning = false;

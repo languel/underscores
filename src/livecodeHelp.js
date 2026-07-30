@@ -10,8 +10,8 @@ export const LIVECODE_HELP = Object.freeze({
     points: Object.freeze([
       "Cmd+Enter runs the current draft. While it plays, editing does not replace it; Ctrl+Enter queues the draft for the next beat. Ctrl+. or Alt+. stops it.",
       "Layer JavaScript voices with one `$:` statement per pattern. Mini Notation works inside double quotes; use a mondo`...` template for Mondo's bare `$` separator.",
-      "Event locations animate in the source. Use markcss('...') for synchronized CSS and inline painters such as _pianoroll(), _scope(), or _spiral().",
-      "Free is the default so Run is immediately audible. Choose Linked when Drawerator play/pause and tempo should control the pattern. Runs and updates join the four-beat Strudel cycle on a beat boundary.",
+      "Event locations animate in the source. Public painters such as .pianoroll() fill the node frame when Frame visuals is enabled; underscore painters such as ._pianoroll() stay inline with the code.",
+      "Linked is the default, so Drawerator play/pause and tempo control the pattern. Choose Free for a node-local clock. Runs and updates join the four-beat Strudel cycle on a beat boundary.",
       "Stopping, replacing, or hushing a node affects only that node's pattern; other active Strudel nodes remain scheduled.",
     ]),
     footer: "Native Strudel is available locally, but public deployment remains blocked until Drawerator completes its AGPL compliance gate.",
@@ -21,7 +21,7 @@ export const LIVECODE_HELP = Object.freeze({
     summary: "The existing trusted bundled p5 renderer now runs per Livecode Node.",
     points: Object.freeze([
       "Use global setup() and draw(), or the existing compatible p5 mode. The live surface is the node's rectangle size.",
-      "Read drawerator.element, drawerator.params, drawerator.canvas, drawerator.events, and drawerator.transport from the shared bridge.",
+      "Use __.element, __.params, __.canvas, __.events, and __.transport from the shared bridge. drawerator remains an identical compatibility alias.",
       "Valid edits keep the last working sketch until the replacement compiles; docking never stops the running node.",
     ]),
     footer: "Legacy p5 frames remain supported. Use Migrate to Livecode Node when you want the self-contained node model.",
@@ -30,9 +30,9 @@ export const LIVECODE_HELP = Object.freeze({
     title: "Play Core quick reference",
     summary: "An ASCII program evaluated per cell inside this node's live surface.",
     points: Object.freeze([
-      "Export main({ x, y }, context, cursor, buffer, drawerator) and return a glyph or cell object.",
+      "Export main({ x, y }, context, cursor, buffer) and return a glyph or cell object. Use the shared bridge through __; drawerator remains an identical compatibility alias.",
       "Optional settings, boot, pre, post, pointerMove, pointerDown, and pointerUp hooks match existing Play Core frames.",
-      "Use // @param name = value annotations and read their persisted values through drawerator.params.",
+      "Use // @param name = value annotations and read their persisted values through __.params.",
     ]),
     footer: "The node supports Drawerator's offline Play Core module set and the same shared bridge as p5.",
   }),

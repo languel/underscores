@@ -55,10 +55,10 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) 
     let drawerator;
     let subscriptions = [];
     const pointer = { x: 0, y: 0, pressed: false, px: 0, py: 0, ppressed: false };
+    const appearance = () => scriptRuntimeRef.current?.getAppearance?.() || { theme: "dark", currentColor: "#e8e8e8", currentOpacity: 1, colors: {} };
     try {
       const canvas = createScriptCanvasApi(scriptRuntimeRef, { onSubscription: unsubscribe => subscriptions.push(unsubscribe) });
       const params = resolveScriptParameterValues(parseScriptParameters(config.source, { values: config.parameters }), scriptRuntimeRef, canvas);
-      const appearance = () => scriptRuntimeRef.current?.getAppearance?.() || { theme: "dark", currentColor: "#e8e8e8", currentOpacity: 1, colors: {} };
       drawerator = {
         element: { id: element.id, width: element.width, height: element.height }, frame: config,
         canvas, objects: canvas, events: canvas.events, transport: canvas.transport, params,

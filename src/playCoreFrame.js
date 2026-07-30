@@ -6,13 +6,13 @@ import { PLAY_CORE_MODULE_SPECIFIERS, resolvePlayCoreModule } from "./playCoreMo
 
 export const PLAY_CORE_STORAGE_KEY = "drawerator_play_core_scripts";
 
-export const DEFAULT_PLAY_CORE_SOURCE = `// Play Core program. @param values are available as drawerator.params.
+export const DEFAULT_PLAY_CORE_SOURCE = `// Play Core program. The __ alias is the node-local Drawerator bridge.
 // @param threshold = 0.55 (0..1, step: 0.01)
 export const settings = { cols: 0, rows: 0, fps: 30, backgroundColor: "#101010", color: "#e8e8e8" };
 
-export function main({ x, y }, context, cursor, buffer, drawerator) {
+export function main({ x, y }, context) {
   const wave = Math.sin(x * 0.22 + context.time / 450);
-  return wave > drawerator.params.threshold ? "·" : " ";
+  return wave > __.params.threshold ? "·" : " ";
 }`;
 
 export const DEFAULT_PLAY_CORE_FRAME = Object.freeze({
@@ -93,7 +93,12 @@ const requirePlayCoreModule = specifier => {
 export const evaluatePlayCoreSource = (source, drawerator = {}) => {
   const code = transformPlayCoreSource(source);
   const exports = {};
-  new Function("exports", "drawerator", "__require", `"use strict";\n${code}\nreturn exports;`)(exports, drawerator, requirePlayCoreModule);
+  new Function("exports", "drawerator", "__", "__require", `"use strict";\n${code}\nreturn exports;`)(
+    exports,
+    drawerator,
+    drawerator,
+    requirePlayCoreModule,
+  );
   return exports;
 };
 

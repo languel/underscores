@@ -1,11 +1,14 @@
 # Drawerator Script API
 
 Drawerator exposes a versioned browser API as `window.drawerator`. p5 and Play Core frames, and
-Livecode p5/Play Core/Strudel nodes, receive the same application API as `drawerator.api`, plus a
-smaller live frame bridge directly as `drawerator`. Scripts are trusted local code, not third-party
-plugins or a security sandbox.
+Livecode p5/Play Core/Strudel nodes, receive the same application API as `__.api`, plus a smaller
+live frame bridge directly as `__`. The longer `drawerator` binding remains an identical
+compatibility alias, so existing scenes and scripts do not need migration. Scripts are trusted local
+code, not third-party plugins or a security sandbox.
 
-Check `drawerator.api.apiVersion` when requiring a particular public capability.
+`__` is reserved by these trusted JavaScript runtimes and is never installed as `window.__`.
+Sandboxed HTML retains only its token-scoped `window.drawerator` message bridge. Check
+`__.api.apiVersion` when requiring a particular public capability.
 
 ## Live frame bridge
 
@@ -30,7 +33,7 @@ function; a trailing `.*` is a prefix wildcard. `events.recent(limit)` and `even
 inspect captured events.
 
 ```js
-return { char: "●", color: drawerator.colors.foreground.css };
+return { char: "●", color: __.colors.foreground.css };
 ```
 
 ## Public application API
@@ -48,11 +51,11 @@ return { char: "●", color: drawerator.colors.foreground.css };
 | `events` | `subscribe(pattern, listener)` |
 | `mixer` | `get()`, `updateTrack(trackId, patch)`, `addTrack(overrides)`, `removeTrack(trackId)` |
 
-Use command ids returned by `drawerator.api.commands.list()` rather than relying on private UI
+Use command ids returned by `__.api.commands.list()` rather than relying on private UI
 handlers. Example:
 
 ```js
-await drawerator.api.commands.execute("grid.global.update", {
+await __.api.commands.execute("grid.global.update", {
   patch: { enabled: true },
 });
 ```

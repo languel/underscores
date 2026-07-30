@@ -80,7 +80,7 @@ import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
 import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
 import { LivecodeNodeEditor, LivecodeNodeOverlay, StrudelPanelStatus } from "./LivecodeNodeOverlay.jsx";
-import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeKindDefinition, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode } from "./livecodeNode.js";
+import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeKindDefinition, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, replaceLivecodeNodeProgram } from "./livecodeNode.js";
 import { describeLivecodeRuntime, hasNativeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
 import { getLivecodeHelp } from "./livecodeHelp.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
@@ -7751,8 +7751,8 @@ function App() {
     { id: "export.board.png", name: "Export Board as PNG /export board", aliases: ["/export board", "/export png", "Export Drawerator board"], category: "Canvas", action: () => void exportDraweratorBoardPng() },
     { id: "export.p5.frame.png", name: "Export Selected p5 Frame as PNG /export p5", aliases: ["/export p5", "/export p5 frame", "Export selected p5 frame"], category: "Canvas", action: () => void exportSelectedP5FramesPng() },
     { id: "webembed.create", name: "Create Web Embed /webembed", aliases: ["/webembed", "Create web embed", "Web embed"], category: "Canvas", args: { url: "URL?" }, action: (_api, args) => createWebEmbed(args) },
-    { id: "p5.frame.create", name: "Create p5 Frame /p5", aliases: ["/p5", "Create p5 frame", "p5 frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", source: "p5 source?", mode: "auto|instance|global?", runtime: "bundled|cdn?", cdnUrl: "string?" }, ai: { expose: true, description: "Create a trusted, interactive p5.js frame. Use mode: instance for p.setup/p.draw code, or mode: global for classic function setup()/draw() code. Omit mode for auto-detection. The bundled runtime is the default; only use runtime: cdn when the user specifically requests a remote p5 build. Keep the sketch self-contained and do not use HTML or script tags.", example: { name: "Pulsing circle", width: 640, height: 360, mode: "global", source: "function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(230);\n  strokeWeight(3);\n  const radius = 60 + 24 * Math.sin(millis() / 500);\n  circle(width / 2, height / 2, radius * 2);\n}" } }, action: (_api, args) => createP5Frame(args) },
-    { id: "p5.frame.attach", name: "Attach p5 Sketch to Selection /attach p5", aliases: ["/attach p5", "Attach p5 sketch", "p5 attach"], category: "Canvas", args: { source: "p5 source?", mode: "auto|instance|global?", name: "string?" }, ai: { expose: true, description: "Attach a p5 sketch to each selected rectangle, frame, or existing p5 canvas. The selected objects become live p5 hosts; use a self-contained p5 source and choose global mode for classic setup()/draw() code.", example: { mode: "global", source: "function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  circle(width / 2, height / 2, 80);\n}" } }, action: (_api, args) => attachP5ScriptToSelection(args) },
+    { id: "p5.frame.create", name: "Create p5 Frame /p5", aliases: ["/p5", "Create p5 frame", "p5 frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", source: "p5 source?", mode: "auto|instance|global?", runtime: "bundled|cdn?", cdnUrl: "string?" }, ai: { expose: true, description: "Create a trusted, interactive p5.js frame. Use mode: instance for p.setup/p.draw code, or mode: global for classic function setup()/draw() code. Omit mode for auto-detection. The bundled runtime is the default; only use runtime: cdn when the user specifically requests a remote p5 build. Keep the sketch self-contained and do not use HTML or script tags.", example: { name: "Pulsing circle", width: 640, height: 360, mode: "global", source: "function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(230);\n  strokeWeight(3);\n  const radius = 60 + 24 * Math.sin(millis() / 500);\n  circle(width / 2, height / 2, radius * 2);\n}" } }, action: (_api, args) => createP5Frame(args) },
+    { id: "p5.frame.attach", name: "Attach p5 Sketch to Selection /attach p5", aliases: ["/attach p5", "Attach p5 sketch", "p5 attach"], category: "Canvas", args: { source: "p5 source?", mode: "auto|instance|global?", name: "string?" }, ai: { expose: true, description: "Attach a p5 sketch to each selected rectangle, frame, or existing p5 canvas. The selected objects become live p5 hosts; use a self-contained p5 source and choose global mode for classic setup()/draw() code.", example: { mode: "global", source: "function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  background(18);\n  circle(width / 2, height / 2, 80);\n}" } }, action: (_api, args) => attachP5ScriptToSelection(args) },
     { id: "play.core.frame.create", name: "Create Play Core Frame /play", aliases: ["/play", "Play Core frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", fps: "number?", source: "play.core source?" }, action: (_api, args) => createPlayCoreFrame(args) },
     { id: "livecode.node.run", name: "Run Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.draweratorLivecode); if (!node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
     { id: "livecode.node.stop", name: "Stop Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.draweratorLivecode); if (node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
@@ -7879,6 +7879,17 @@ function App() {
       }));
     };
     const handleKeyDown = (e) => {
+      // A fixed global reset-toggle for rehearsal/live use. Keep this ahead of
+      // editor ownership so Ctrl+Shift+Space remains available everywhere.
+      if (e.code === "Space" && e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation?.();
+        setScoreTime(0);
+        setScorePlaying(playing => !playing);
+        return;
+      }
+
       // CodeMirror owns its complete keyboard session. This needs to precede
       // global Escape and canvas shortcuts because both Excalidraw and
       // Drawerator use capture-phase handlers.
@@ -9273,6 +9284,26 @@ function App() {
     api.updateScene({
       elements: elements.map(element => {
         if (!selectedIds.has(element.id)) return element;
+        if (isLivecodeNodeElement(element)) {
+          const customData = { ...(element.customData || {}) };
+          delete customData.draweratorP5;
+          delete customData.draweratorPlayCore;
+          return {
+            ...element,
+            version: (element.version || 0) + 1,
+            versionNonce: Math.floor(Math.random() * 0x7fffffff),
+            updated: nonce,
+            customData: {
+              ...customData,
+              draweratorLivecode: replaceLivecodeNodeProgram(customData.draweratorLivecode, {
+                kind: LIVECODE_KINDS.p5,
+                source: resolvedSource,
+                name: script.name,
+                runtimeSettings: { mode: resolvedMode },
+              }),
+            },
+          };
+        }
         const prior = normalizeP5Frame(element.customData?.draweratorP5);
         const hostType = isP5FrameElement(element)
           ? getP5HostElementType(prior)
@@ -9475,6 +9506,25 @@ function App() {
     api.updateScene({
       elements: elements.map(element => {
         if (!selectedIds.has(element.id)) return element;
+        if (isLivecodeNodeElement(element)) {
+          const customData = { ...(element.customData || {}) };
+          delete customData.draweratorP5;
+          delete customData.draweratorPlayCore;
+          return {
+            ...element,
+            version: (element.version || 0) + 1,
+            versionNonce: Math.floor(Math.random() * 0x7fffffff),
+            updated: nonce,
+            customData: {
+              ...customData,
+              draweratorLivecode: replaceLivecodeNodeProgram(customData.draweratorLivecode, {
+                kind: LIVECODE_KINDS.playcore,
+                source: resolvedSource,
+                name: script.name,
+              }),
+            },
+          };
+        }
         const prior = normalizePlayCoreFrame(element.customData?.draweratorPlayCore);
         return {
           ...element,
@@ -13098,7 +13148,7 @@ function App() {
           placeholder={p5ScriptMode === "global" ? "function setup() { … }\nfunction draw() { … }" : "p.setup = () => { … };\np.draw = () => { … };"}
         />
         <p className={`p5-script-status ${p5ScriptStatusKind}`} role="status" aria-live="polite">
-          {p5ScriptStatus || <>Trusted local code: p5 sketches run directly in Drawerator with access to the page and <code>drawerator</code>. Use only code you trust.</>}
+          {p5ScriptStatus || <>Trusted local code: p5 sketches run directly in Drawerator with access to the page and <code>__</code>. Use only code you trust.</>}
         </p>
       </div>
     );
@@ -13271,7 +13321,7 @@ function App() {
       setPlayCoreLiveStatus(`Loaded original play.core example “${example.name}”. Select a frame and press Run to attach it.`, "success");
     };
     return <div className="iannix-properties iannix-script-pane p5-script-pane">
-      <p className="p5-script-status">Play Core programs render ASCII cells in a Drawerator frame. Use <code>@param</code> with <code>drawerator.params</code>; <code>drawerator.canvas</code>, events, and transport are the same bridge exposed to p5.</p>
+      <p className="p5-script-status">Play Core programs render ASCII cells in a Drawerator frame. Use <code>@param</code> with <code>__.params</code>; <code>__.canvas</code>, events, and transport are the same bridge exposed to p5.</p>
       {editingPlayCoreScriptName ? <input
         type="text"
         className="custom-brush-select"
@@ -13351,7 +13401,7 @@ function App() {
         setPlayCoreSource(source);
         if (updateScriptLive({ source })) setPlayCoreLiveStatus("Compiled successfully.", "success");
       }} onRun={applyToSelection} scriptType="play" ariaLabel="Play Core source" getDiagnostics={source => { const validation = validatePlayCoreSource(source); return validation.valid ? [] : [sourceDiagnostic(source, validation.error)]; }} />
-      <p className={`p5-script-status ${playCoreStatusKind}`} role="status" aria-live="polite">{playCoreStatus || <>Trusted local code: Play Core frames run directly in Drawerator with access to <code>drawerator</code>. Use only code you trust.</>}</p>
+      <p className={`p5-script-status ${playCoreStatusKind}`} role="status" aria-live="polite">{playCoreStatus || <>Trusted local code: Play Core frames run directly in Drawerator with access to <code>__</code>. Use only code you trust.</>}</p>
     </div>;
   };
 
@@ -13392,6 +13442,7 @@ function App() {
             : <label>View <select value={node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="code">Code</option><option value="preview">Output</option><option value="split">Code/output</option></select></label>}
         <label>Clock <select value={node.runtime.transportMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { transportMode: event.target.value } }, { commitToHistory: true })}><option value="linked">Linked</option><option value="free">Free</option></select></label>
         {node.kind === LIVECODE_KINDS.strudel && <label>Transport <span className="livecode-checkbox"><input type="checkbox" checked={Boolean(node.runtime.settings?.syncTransport)} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { syncTransport: event.target.checked } } }, { commitToHistory: true })} />Full sync</span></label>}
+        {node.kind === LIVECODE_KINDS.strudel && <label title="Render public Strudel visualizers such as .pianoroll() across this node frame">Visuals <span className="livecode-checkbox"><input type="checkbox" aria-label="Strudel frame visuals" checked={node.runtime.settings?.frameVisuals !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { frameVisuals: event.target.checked } } }, { commitToHistory: true })} />Frame</span></label>}
         <label>Font <select value={node.typography.font} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { font: event.target.value } }, { commitToHistory: true })}>{LIVE_CODE_FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label>
         <label title="Ctrl-M, then L">Lines <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.showLineNumbers} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { showLineNumbers: event.target.checked } }, { commitToHistory: true })} />Numbers</span></label>
         <label>Fold <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.showFoldGutter} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { showFoldGutter: event.target.checked } }, { commitToHistory: true })} />Gutter</span></label>
@@ -13430,6 +13481,7 @@ function App() {
       <LivecodeNodeEditor
         node={node}
         element={nodeElement}
+        showGutters
         onPatch={patch => patchLivecodeCanvasNode(nodeElement.id, patch)}
         onRun={() => toggleLivecodeNodeRun(nodeElement.id, { command: "run" })}
         onUpdate={node.kind === LIVECODE_KINDS.strudel
@@ -18141,7 +18193,7 @@ function App() {
           onMidiEvents={emitOrcaMidiEvents}
           onStrudelTransport={handleStrudelTransportControl}
           scriptRuntimeRef={scriptRuntimeRef}
-          transport={{ playing: scorePlaying, bpm: scoreTempo }}
+          transport={{ playing: scorePlaying, bpm: scoreTempo, time: scoreTime }}
         />
         <SvgObjectOverlay
           elements={svgOverlayScene.elements}

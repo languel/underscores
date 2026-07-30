@@ -1,6 +1,6 @@
 # Livecode canvas nodes
 
-Last updated: 2026-07-29
+Last updated: 2026-07-30
 
 ## What a node is
 
@@ -8,7 +8,7 @@ A **Livecode Node** is one transparent Excalidraw rectangle plus a minimal live 
 
 This avoids attaching a program to a separate host object. A node has one source document and can run alongside any number of other nodes. Its source and its `code`, `output`, or `code/output` view persist with the scene.
 
-Create a node from **New Livecode Node**, `/live`, the command palette, or `livecode.node.create`. `/live p5`, `/live playcore`, `/live markdown`, `/live latex`, `/live html`, `/live strudel`, and `/live orca` select a kind immediately. Selecting a node always opens its source in the shared Script panel; clicking its code or pressing **Enter** enters the same source directly on the canvas. These are two views of one source document, never competing drafts, and neither interrupts a running runtime. The Script panel exposes Run/Stop, linked/free clock mode, typography, and any `@param` values declared in the source.
+Create a node from **New Livecode Node**, `/live`, the command palette, or `livecode.node.create`. `/live p5`, `/live playcore`, `/live markdown`, `/live latex`, `/live html`, `/live strudel`, and `/live orca` select a kind immediately. Selecting a node always opens its source in the shared Script panel; clicking its code or pressing **Enter** enters the same source directly on the canvas. These are two views of one source document, never competing drafts, and neither interrupts a running runtime. The Script panel exposes Run/Stop, linked/free clock mode, typography, adapter settings such as Strudel's full-frame visualizer toggle, and any `@param` values declared in the source.
 
 ## Scene schema
 
@@ -19,7 +19,7 @@ Create a node from **New Livecode Node**, `/live`, the command palette, or `live
 | `version`, `nodeId`, `revision` | Versioned, stable node identity and source revision. |
 | `kind`, `name`, `source` | Adapter id, readable name, and canonical source text. |
 | `parameters` | Persisted `@param` values. |
-| `runtime` | `enabled`, `running`, `transportMode` (`linked` or `free`), and adapter settings. |
+| `runtime` | `enabled`, `running`, `transportMode` (`linked` or `free`), and adapter settings such as Strudel's default-on `frameVisuals`. |
 | `view` | Scene-persisted `code` (overlay), `preview` (output), or `split` (`code/output`) surface choice. |
 | `typography` | Font, size, line height, weight, tracking, line-number/fold-gutter toggles, overlay opacity, and glyph-only overlay preference. |
 
@@ -47,11 +47,15 @@ These use the same trusted local adapters as existing p5 and Play Core hosts. Th
 
 Existing p5/Play Core frame hosts remain valid. Choose **Migrate to Livecode Node** to explicitly snapshot a legacy host's source and configuration into `draweratorLivecode` while retaining its scene element id and geometry. Migration is undoable.
 
+The ordinary p5 and Play Core Script panels can also apply their current program directly to a
+selected Livecode Node. The node keeps its scene identity and geometry while its kind, canonical
+source, compatible runtime settings, name, and parameters are retargeted to the applied program.
+
 The p5 Livecode flow is the currently polished runtime path: concurrent nodes, canvas editing, source-panel editing, output, and overlay/split views are expected to work together.
 
 ### Strudel
 
-Strudel nodes use a shared native scheduler rather than a singleton REPL. Each node compiles to its own pattern; recompiling, stopping, or hushing one never clears another. Node playback unlocks Web Audio in the direct user gesture. New nodes default to Free so Run is immediately audible; Linked nodes follow Drawerator transport and tempo. The runtime loads the same default unbanked drums, drum-machine banks, Dirt, piano, VCSL, and auxiliary sample maps as the reference REPL, with audio files fetched lazily on first use.
+Strudel nodes use a shared native scheduler rather than a singleton REPL. Each node compiles to its own pattern; recompiling, stopping, or hushing one never clears another. Node playback unlocks Web Audio in the direct user gesture. New nodes default to Linked and follow Drawerator transport tempo and phase: transport play, rewind/loop, seek while stopped, and BPM changes re-anchor Strudel cycles to score BBU time, while transport stop resets the private scheduler cycle. `setcps`, `setcpm`, and `setbpm` update the shared score tempo in this mode, and a source with no tempo command continues to follow later score-tempo changes. Free remains available for patterns that should run independently; its tempo commands create a node-local CPS override, while a Free source with no such command also follows the score tempo. The runtime registers Strudel's XEN scope and General MIDI soundfonts in addition to the default unbanked drums, drum-machine banks, Dirt, piano, VCSL, and auxiliary sample maps. Audio data is fetched lazily on first use.
 
 JavaScript REPL voices use separate `$:` statements and are stacked inside the node. Mini Notation is available in the normal double-quoted and template-string pattern arguments. Mondo's bare `$` pattern separator is available through its documented tagged-template form:
 
@@ -62,9 +66,30 @@ $ s hh*2
 `
 ```
 
-The node is intentionally code-overlay-only. Its CodeMirror surface is the visual output: active event source locations receive Strudel's synchronized highlights and `markcss(...)` styles, while painter functions such as `_pianoroll()`, `_scope()`, and `_spiral()` render inline canvases inside the code. Runtime messages are panel-only and never appear inside the live canvas frame.
+The node is intentionally code-overlay-only. Its CodeMirror surface is part of the visual output:
+active event source locations receive Strudel's synchronized highlights and `markcss(...)` styles.
+Underscore painters such as `._pianoroll()`, `._scope()`, and `._spiral()` remain inline CodeMirror
+widgets. Public painters such as `.pianoroll()` use a node-sized canvas beneath the code overlay.
+The Script panel's **Visuals → Frame** toggle is on by default and removes or restores that canvas
+without recompiling or stopping the pattern.
+
+Full-frame painters reuse the board's existing Strudel scheduler query and animation frame rather
+than starting the reference REPL's viewport-sized canvas and independent animation loop. The canvas
+backing resolution is capped at 2× device density, resize work happens only when node dimensions
+change, and offscreen canvases skip painting. Runtime messages are panel-only and never appear
+inside the live canvas frame.
 
 Editing a running Strudel node changes its persisted draft without recompiling the active pattern. `Ctrl+Enter` compiles that draft and swaps it at the next beat boundary; the previous valid pattern remains scheduled until then, and also survives a failed evaluation. `Cmd+Enter` starts a stopped node from the current draft without serving as the update gesture. Since Drawerator maps a Strudel cycle to four score beats, beat-quantized updates use quarter-cycle boundaries. `Ctrl+.` or `Alt+.` stops the node. Native Strudel is available in local development, but public deployment is intentionally blocked by the [release gate](livecode-licensing.md#strudel-release-gate). Do not bypass that gate until the project has completed its AGPL obligations.
+
+`Ctrl+Shift+Space` is the global rehearsal reset-toggle: from either state it sets score time to zero,
+then stops or starts the global transport from zero. The shortcut remains available while an editor
+owns focus.
+
+Trusted p5, Play Core, and Strudel runtimes expose their node-local bridge through the reserved `__`
+binding. `__.transport`, `__.params`, `__.canvas`, and `__.api` are the preferred concise spellings;
+`drawerator` remains an identical compatibility alias for saved scenes and existing scripts. This is
+a lexical runtime binding, not a `window.__` global. Sandboxed HTML keeps its narrower
+`window.drawerator` message bridge and does not receive `__`.
 
 ### Markdown and LaTeX
 
