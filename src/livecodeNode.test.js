@@ -8,6 +8,7 @@ import {
   isLivecodeNodeElement,
   normalizeLivecodeNode,
   patchLivecodeNode,
+  replaceLivecodeNodeProgram,
   shouldRenderLivecodeNode,
 } from "./livecodeNode.js";
 
@@ -77,9 +78,10 @@ test("normalization keeps unsupported values bounded and preserves authored sour
 test("Strudel nodes always use the in-code visualization surface", () => {
   const node = createLivecodeNode({ kind: "strudel", view: "split" });
   assert.equal(node.view, "code");
-  assert.equal(node.runtime.transportMode, "free");
+  assert.equal(node.runtime.transportMode, "linked");
   assert.equal(createLivecodeNode({ kind: "strudel", view: "preview" }).view, "code");
   assert.equal(createLivecodeNode({ kind: "strudel", runtime: { transportMode: "linked" } }).runtime.transportMode, "linked");
+  assert.equal(createLivecodeNode({ kind: "strudel", runtime: { transportMode: "free" } }).runtime.transportMode, "free");
   assert.equal(patchLivecodeNode({ kind: "strudel" }, { view: "split" }).view, "code");
 });
 
@@ -129,6 +131,62 @@ test("runtime setting patches preserve the last evaluated Strudel source", () =>
   assert.equal(patched.runtime.settings.evaluatedSource, "s(\"hh\")");
   assert.equal(patched.runtime.settings.evaluationRevision, 2);
   assert.equal(patched.runtime.settings.syncTransport, true);
+});
+
+test("replacing a node program retargets its canonical adapter and clears incompatible state", () => {
+  const initial = createLivecodeNode({
+    nodeId: "node-1",
+    kind: "strudel",
+    name: "Beat",
+    source: "s(\"bd\")",
+    parameters: { gain: 0.8 },
+    runtime: {
+      running: true,
+      transportMode: "free",
+      settings: { evaluatedSource: "s(\"bd\")", syncTransport: true },
+    },
+    revision: 4,
+  });
+  const replaced = replaceLivecodeNodeProgram(initial, {
+    kind: "p5",
+    name: "Orbit",
+    source: "function draw() { circle(10, 10, 10); }",
+    runtimeSettings: { mode: "global" },
+  });
+  assert.equal(replaced.nodeId, "node-1");
+  assert.equal(replaced.kind, LIVECODE_KINDS.p5);
+  assert.equal(replaced.name, "Orbit");
+  assert.equal(replaced.source, "function draw() { circle(10, 10, 10); }");
+  assert.deepEqual(replaced.parameters, {});
+  assert.deepEqual(replaced.runtime, {
+    running: true,
+    enabled: true,
+    transportMode: "free",
+    settings: { mode: "global" },
+  });
+  assert.equal(replaced.revision, 5);
+});
+
+test("replacing a same-kind program preserves its host settings and parameters", () => {
+  const initial = createLivecodeNode({
+    kind: "p5",
+    name: "Original",
+    source: "p.draw = () => {};",
+    parameters: { speed: 2 },
+    runtime: { settings: { fps: 24, transparent: false, mode: "instance" } },
+  });
+  const replaced = replaceLivecodeNodeProgram(initial, {
+    kind: "p5",
+    source: "function draw() {}",
+    runtimeSettings: { mode: "global" },
+  });
+  assert.equal(replaced.name, "Original");
+  assert.deepEqual(replaced.parameters, { speed: 2 });
+  assert.deepEqual(replaced.runtime.settings, {
+    fps: 24,
+    transparent: false,
+    mode: "global",
+  });
 });
 
 test("detects scene nodes and maps their source to established CodeMirror profiles", () => {

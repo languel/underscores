@@ -1,6 +1,6 @@
 # Script Editor Architecture
 
-Last updated: 2026-07-29
+Last updated: 2026-07-30
 
 ## Scope
 
@@ -11,7 +11,7 @@ The shared surface provides:
 - language-aware syntax trees for JavaScript and SVG/HTML;
 - line numbers, active-line treatment, folding, indentation, bracket matching, and automatic closing;
 - search and replace, selection-match highlighting, multiple selections, and rectangular selection;
-- adapter-specific snippets and completions for Brush globals, IanniX commands/runtime helpers, p5 and Play Core plus the `drawerator` bridge, and SVG elements/attributes;
+- adapter-specific snippets and completions for Brush globals, IanniX commands/runtime helpers, p5 and Play Core plus the preferred `__` bridge (`drawerator` remains a compatibility alias), and SVG elements/attributes;
 - debounced adapter diagnostics and lint-gutter markers;
 - persistent font sizing plus Drawerator, Transparent, Mono, VS Code, and Teaching code palettes;
 - `Mod+Enter` as a common Run/Play gesture.
@@ -53,6 +53,14 @@ Script panel. The node's `source` remains the single scene-persisted draft; chan
 not copy, reinitialize, or stop its adapter. A node's `view` and typography belong to the scene,
 while dock placement belongs to local workspace state. Orca is the intentional exception to the
 CodeMirror surface: it has a per-node grid editor whose focus captures all editing/navigation keys.
+Canvas editors deliberately omit line numbers and fold gutters; those controls affect only the
+docked Script editor. Both surfaces inherit the same muted adaptive syntax palette and visible
+selection treatment, while the canvas relies on the Excalidraw host for its outer frame.
+
+Strudel additionally places public painters such as `.pianoroll()` on a node-sized canvas below the
+code overlay. The default-on **Frame** toggle registers or removes that target without recompiling
+the pattern. Painter work uses the existing shared Strudel draw loop and pauses for offscreen
+canvases; underscore methods continue to create inline CodeMirror widgets.
 See [Livecode Nodes](livecode.md) for adapter behavior and the in-app quick-reference contract.
 
 ## Play Core adapter
@@ -82,19 +90,20 @@ that precedes its live recompile.
 The runner lives in `src/PlayCoreFrame.jsx`. It is intentionally local and ASCII-first: it derives a
 cell buffer from `settings.cols` / `settings.rows` (or the host size), evaluates the program at its
 configured frame rate, and renders it to a monospace `<pre>`. Runtime code receives the existing
-`createScriptCanvasApi` bridge, so `drawerator.canvas`, `drawerator.events`, and
-`drawerator.transport` have the same semantics as p5. `@param` annotations are parsed by the shared
-parameter module, persisted per host, and exposed as `drawerator.params`.
+`createScriptCanvasApi` bridge, so `__.canvas`, `__.events`, and
+`__.transport` have the same semantics as p5. `@param` annotations are parsed by the shared
+parameter module, persisted per host, and exposed as `__.params`.
 
-The live shared `drawerator` bridge is the same in Play Core and p5. It exposes `element`, `object`,
+The live shared `__` bridge is the same in Play Core and p5. It exposes `element`, `object`,
 `frame`, `params`, `canvas`/`objects`, `events`, `transport`, and `time`. Appearance is also live:
 `currentColor`, `currentOpacity`, `theme`, and `colors` (`foreground`, `accent`, `highlight`, and
-`muted`, each with `color`, `opacity`, and composited `css`). `drawerator.api` exposes the public
+`muted`, each with `color`, `opacity`, and composited `css`). `__.api` exposes the public
 Drawerator API for deliberate higher-level scene, grid, command, history, and macro operations.
+The legacy `drawerator` name remains available for compatibility.
 The maintained full reference is [Drawerator Script API](./drawerator-api.md); the p5 and Play Core
 Info panel guides present the same reference while scripting.
 
-`main({ x, y, index }, context, cursor, buffer, drawerator)` runs for each ASCII cell. `context`
+`main({ x, y, index }, context, cursor, buffer)` runs for each ASCII cell. `context`
 contains the time, frame number, grid dimensions, host dimensions, and resolved settings; `cursor`
 uses cell coordinates and retains its previous state at `cursor.p`. A program may return a character
 or a cell object such as `{ char: "·" }`. `pre`, `post`, and pointer callbacks operate on the same

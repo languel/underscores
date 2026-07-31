@@ -1,11 +1,14 @@
 # Drawerator Script API
 
 Drawerator exposes a versioned browser API as `window.drawerator`. p5 and Play Core frames, and
-Livecode p5/Play Core/Strudel nodes, receive the same application API as `drawerator.api`, plus a
-smaller live frame bridge directly as `drawerator`. Scripts are trusted local code, not third-party
-plugins or a security sandbox.
+Livecode p5/Play Core/Strudel nodes, receive the same application API as `__.api`, plus a smaller
+live frame bridge directly as `__`. The longer `drawerator` binding remains an identical
+compatibility alias, so existing scenes and scripts do not need migration. Scripts are trusted local
+code, not third-party plugins or a security sandbox.
 
-Check `drawerator.api.apiVersion` when requiring a particular public capability.
+`__` is reserved by these trusted JavaScript runtimes and is never installed as `window.__`.
+Sandboxed HTML retains only its token-scoped `window.drawerator` message bridge. Check
+`__.api.apiVersion` when requiring a particular public capability.
 
 ## Live frame bridge
 
@@ -20,6 +23,7 @@ Check `drawerator.api.apiVersion` when requiring a particular public capability.
 | `theme`, `appearance` | Theme id and full live appearance snapshot. |
 | `canvas`, `objects` | Scene-query bridge (`objects` is an alias). |
 | `events` | Event subscription and inspection. |
+| `streams` | Live semantic MediaPipe stream queries and subscriptions. |
 | `transport`, `time` | Score clock and timing context; `time` is `transport.time`. |
 | `api` | Full public application API listed below. |
 
@@ -30,7 +34,7 @@ function; a trailing `.*` is a prefix wildcard. `events.recent(limit)` and `even
 inspect captured events.
 
 ```js
-return { char: "●", color: drawerator.colors.foreground.css };
+return { char: "●", color: __.colors.foreground.css };
 ```
 
 ## Public application API
@@ -47,15 +51,28 @@ return { char: "●", color: drawerator.colors.foreground.css };
 | `inputs` | `registerAdapter(adapter)`, `unregisterAdapter(id)`, `emit(sample)` |
 | `events` | `subscribe(pattern, listener)` |
 | `mixer` | `get()`, `updateTrack(trackId, patch)`, `addTrack(overrides)`, `removeTrack(trackId)` |
+| `streams` | `list()`, `get(idOrName)`, `subscribe(listener)`; returned streams expose `feature(id, { space })`, `features(query)`, and `subscribe(listener)` |
 
-Use command ids returned by `drawerator.api.commands.list()` rather than relying on private UI
+Use command ids returned by `__.api.commands.list()` rather than relying on private UI
 handlers. Example:
 
 ```js
-await drawerator.api.commands.execute("grid.global.update", {
+await __.api.commands.execute("grid.global.update", {
   patch: { enabled: true },
 });
 ```
+
+Semantic observations are transient and read-only:
+
+```js
+const body = __.streams.get("Holistic");
+const tip = body?.feature("left_hand.index_finger_tip", { space: "scene" });
+const pinch = body?.feature("right_hand.pinch");
+```
+
+Persistent actor changes go through `media.binding.create`, `media.binding.update`,
+`media.binding.remove`, and `media.actors.arm`. API version 6 introduces the semantic stream service
+and actor commands.
 
 The Script type hover/focus help points to the matching Info panel quick reference. Livecode nodes
 also show an adapter-specific reference in their docked Script panel, including Strudel transport,

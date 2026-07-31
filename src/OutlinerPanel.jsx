@@ -4,6 +4,7 @@ import { buildSceneGroupTree, getOutlinerLayerElements } from "./sceneLayers.js"
 import { analyzeSvgSource, normalizeSvgObject } from "./svgObject.js";
 import { getEditableSvgPathNodes } from "./svgPathGeometry.js";
 import { getLivecodeKindDefinition, isLivecodeNodeElement, normalizeLivecodeNode } from "./livecodeNode.js";
+import { isMediaStreamElement, normalizeMediaStreamConfig } from "./mediaStream.js";
 
 const groupLabel = groupId => `Group · ${String(groupId).slice(0, 8)}`;
 const scoreLabel = label => `Score · ${label}`;
@@ -40,7 +41,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
     const needle = query.trim().toLowerCase();
     return getOutlinerLayerElements(elements).filter(element => !needle || `${
       element.type
-    } ${element.id} ${element.customData?.iannix?.label || ""} ${element.customData?.iannixImport?.externalId || ""} ${element.customData?.iannixImport?.group || ""} ${isLivecodeNodeElement(element) ? `${normalizeLivecodeNode(element.customData.draweratorLivecode).name} ${normalizeLivecodeNode(element.customData.draweratorLivecode).kind}` : ""}`.toLowerCase().includes(needle));
+      } ${element.id} ${element.customData?.iannix?.label || ""} ${element.customData?.iannixImport?.externalId || ""} ${element.customData?.iannixImport?.group || ""} ${isLivecodeNodeElement(element) ? `${normalizeLivecodeNode(element.customData.draweratorLivecode).name} ${normalizeLivecodeNode(element.customData.draweratorLivecode).kind}` : ""} ${isMediaStreamElement(element) ? `${normalizeMediaStreamConfig(element.customData.draweratorMediaStream).name} ${normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind}` : ""}`.toLowerCase().includes(needle));
   }, [elements, query]);
   const groupTree = useMemo(() => buildSceneGroupTree(visibleElements, { outlinerOrder: true }), [visibleElements]);
   const getElementTypeLabel = element => {
@@ -51,6 +52,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
   const getElementLabel = element => {
     if (element.customData?.iannix?.label) return element.customData.iannix.label;
     if (isLivecodeNodeElement(element)) return normalizeLivecodeNode(element.customData.draweratorLivecode).name;
+    if (isMediaStreamElement(element)) return normalizeMediaStreamConfig(element.customData.draweratorMediaStream).name;
     return element.id;
   };
 
@@ -93,7 +95,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
       if (anchorIndex < 0) selectionAnchorRef.current = elementId;
       return;
     }
-    onSelect(elementId, { mode: event.metaKey || event.ctrlKey ? "toggle" : "replace" });
+    onSelect(elementId, event.metaKey || event.ctrlKey ? { mode: "toggle" } : {});
     selectionAnchorRef.current = elementId;
   };
 
@@ -276,7 +278,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
           clearDrag();
         }}>
           <button type="button" className="outliner-group-disclosure" onClick={() => setExpandedGroupIds(current => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; })} aria-label={`${expanded ? "Collapse" : "Expand"} ${label}`}><span className="outliner-disclosure" aria-hidden="true">{expanded ? "⌄" : "›"}</span></button>
-          <button type="button" className="outliner-object outliner-group-object" onClick={event => onSelectGroup?.(memberIds, { mode: event.metaKey || event.ctrlKey ? "toggle" : "replace" })} title={`${label}. Click to select its ${memberIds.length} object${memberIds.length === 1 ? "" : "s"}.`}><span className={`outliner-type type-${type}`}>{glyph}</span><span className="outliner-label">{label}</span><span className="outliner-group-count">{memberIds.length}</span></button>
+          <button type="button" className="outliner-object outliner-group-object" onClick={() => onSelectGroup?.(memberIds)} title={`${label}. Click to select its ${memberIds.length} object${memberIds.length === 1 ? "" : "s"}.`}><span className={`outliner-type type-${type}`}>{glyph}</span><span className="outliner-label">{label}</span><span className="outliner-group-count">{memberIds.length}</span></button>
           <button type="button" className={isHidden ? "outliner-toggle inactive" : "outliner-toggle"} onClick={event => onVisibilityChange(actionIdsFor(event, memberIds))} title={`${isHidden ? "Show" : "Hide"} group`} aria-label={`${isHidden ? "Show" : "Hide"} ${label}`} {...infoProps("Group visibility", "Hide or show every object in this group. Option-click applies the action to the current selection.")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
           <button type="button" className={isLocked ? "outliner-toggle active" : "outliner-toggle"} onClick={event => onLockChange(actionIdsFor(event, memberIds))} title={`${isLocked ? "Unlock" : "Lock"} group`} aria-label={`${isLocked ? "Unlock" : "Lock"} ${label}`} {...infoProps("Group lock", "Lock or unlock every object in this group. Option-click applies the action to the current selection.")}><svg className="outliner-lock-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></button>
           <button type="button" className="outliner-toggle outliner-delete" onClick={event => onDelete(actionIdsFor(event, memberIds))} title="Delete group" aria-label={`Delete ${label}`} {...infoProps("Delete group", "Delete every object in this group. Option-click applies the action to the current selection.")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg></button>

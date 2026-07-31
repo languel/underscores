@@ -23,7 +23,9 @@ test("script editor profiles expose runtime-aware completions", () => {
   assert.ok(getScriptEditorCompletions("brush").some(item => item.label === "points"));
   assert.ok(getScriptEditorCompletions("iannix").some(item => item.label === "setpointat"));
   assert.ok(getScriptEditorCompletions("p5").some(item => item.label === "drawerator.canvas"));
+  assert.ok(getScriptEditorCompletions("p5").some(item => item.label === "__.transport"));
   assert.ok(getScriptEditorCompletions("play").some(item => item.label === "drawerator.params"));
+  assert.ok(getScriptEditorCompletions("play").some(item => item.label === "__.params"));
   assert.ok(getScriptEditorCompletions("strudel").some(item => item.label === "note"));
   assert.ok(getScriptEditorCompletions("markdown").some(item => item.label === "inline math"));
   assert.ok(getScriptEditorCompletions("svg").some(item => item.label === "viewBox"));

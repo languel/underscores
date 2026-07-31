@@ -80,10 +80,20 @@ import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
 import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
 import { LivecodeNodeEditor, LivecodeNodeOverlay, StrudelPanelStatus } from "./LivecodeNodeOverlay.jsx";
-import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeKindDefinition, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode } from "./livecodeNode.js";
+import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeKindDefinition, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, replaceLivecodeNodeProgram } from "./livecodeNode.js";
 import { describeLivecodeRuntime, hasNativeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
 import { getLivecodeHelp } from "./livecodeHelp.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
+import MediaStreamOverlay, { MediaSourceRuntimeLayer } from "./MediaStreamOverlay.jsx";
+import { HolisticPanel, MediaInputPanel } from "./MediaStreamPanels.jsx";
+import MediaMappingPanel from "./MediaMappingPanel.jsx";
+import MediaActorOverlay from "./MediaActorOverlay.jsx";
+import MediaMapOverlay from "./MediaMapOverlay.jsx";
+import { isMediaMapElement, normalizeMediaMapConfig } from "./mediaMap.js";
+import { createMediaSemanticFrame } from "./mediaLandmarkOntology.js";
+import { createMediaBindingRuntimeState, mediaBindingRuntimeHasExpired, mediaDrivenElementPosition, resolveMediaBindingGate, resolveMediaBindingSignal, shouldAppendMediaStrokePoint } from "./mediaActorRuntime.js";
+import { createMediaBinding, createMediaSource, createMediaStreamConfig, isMediaStreamElement, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig } from "./mediaStream.js";
+import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
 import { insertSvgNode, prepareSvgForStructuredEditing, updateSvgNodeData } from "./svgDocumentModel.js";
 import { executeSvgStructuredCommand } from "./svgCommandApi.js";
@@ -1900,14 +1910,25 @@ function App() {
   });
   const [openPanels, setOpenPanels] = useState(() => {
     try {
-      return { chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true, ...JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") };
+      const saved = JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") || {};
+      return {
+        chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true,
+        holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true,
+        ...saved,
+        "media-input": saved["media-input"] ?? saved["video-input"] ?? true,
+      };
     } catch {
-      return { chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true };
+      return { chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, "media-input": true, holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
     try {
-      return { left: "mods", right: "mods", bottom: "transport", ...JSON.parse(localStorage.getItem("drawerator_panel_dock_tabs_v1") || "null") };
+      const saved = JSON.parse(localStorage.getItem("drawerator_panel_dock_tabs_v1") || "null") || {};
+      return {
+        left: saved.left === "video-input" ? "media-input" : (saved.left || "mods"),
+        right: saved.right === "video-input" ? "media-input" : (saved.right || "mods"),
+        bottom: saved.bottom === "video-input" ? "media-input" : (saved.bottom || "transport"),
+      };
     } catch {
       return { left: "mods", right: "mods", bottom: "transport" };
     }
@@ -1949,7 +1970,6 @@ function App() {
   }, [presentationMode]);
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
   const [modsPanelTab, setModsPanelTab] = useState("stack");
-  const [iannixPanelTab, setIannixPanelTab] = useState("data");
   const [scriptPanelType, setScriptPanelType] = useState(() => normalizeScriptType(localStorage.getItem("drawerator_script_panel_type")));
   const [scriptEditorFontSize, setScriptEditorFontSize] = useState(() => {
     const saved = Number(localStorage.getItem("drawerator_script_editor_font_size"));
@@ -2012,6 +2032,27 @@ function App() {
   const [playCoreScriptNameDraft, setPlayCoreScriptNameDraft] = useState("");
   const playCoreScriptsRef = useRef(playCoreScripts);
   playCoreScriptsRef.current = playCoreScripts;
+  const [mediaSources, setMediaSources] = useState(() => {
+    try {
+      return normalizeMediaSources(JSON.parse(localStorage.getItem(MEDIA_SOURCE_STORAGE_KEY) || "[]"));
+    } catch {
+      return [];
+    }
+  });
+  const [activeMediaSourceId, setActiveMediaSourceId] = useState("");
+  const [mediaActorsArmed, setMediaActorsArmed] = useState(() => (
+    localStorage.getItem(MEDIA_ACTORS_ARMED_STORAGE_KEY) === "true"
+  ));
+  const [mediaInspectedFeature, setMediaInspectedFeature] = useState({
+    streamId: "",
+    featureId: "",
+    featureIds: [],
+  });
+  const [mediaActorOverlayState, setMediaActorOverlayState] = useState({ traces: [], strokes: [] });
+  const mediaBindingRuntimeRef = useRef(new Map());
+  const mediaGestureStatesRef = useRef(new Map());
+  const mediaStreamsApiRef = useRef(null);
+  if (!mediaStreamsApiRef.current) mediaStreamsApiRef.current = createMediaStreamsApi();
   const [svgScripts, setSvgScripts] = useState(() => {
     try {
       return normalizeSvgScripts(JSON.parse(localStorage.getItem(SVG_SCRIPT_STORAGE_KEY) || "[]"));
@@ -2030,7 +2071,52 @@ function App() {
   const [svgLoadedRevision, setSvgLoadedRevision] = useState(-1);
   const svgAutoCompileTimerRef = useRef(null);
   const svgSourceSelectionMutedUntilRef = useRef(0);
-  const [p5OverlayScene, setP5OverlayScene] = useState({ elements: [], appState: null });
+  const [p5OverlayScene, setP5OverlayScene] = useState({ elements: [], canvasElements: [], appState: null, captureRevision: 0 });
+  useEffect(() => {
+    const legacyHosts = p5OverlayScene.elements.filter(element => {
+      if (!isMediaStreamElement(element)) return false;
+      const config = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
+      return (config.kind === MEDIA_STREAM_KINDS.CAMERA || config.kind === MEDIA_STREAM_KINDS.MEDIA) && !config.sourceId;
+    });
+    if (!legacyHosts.length) return;
+    setMediaSources(previous => normalizeMediaSources([
+      ...previous,
+      ...legacyHosts.map(element => createMediaSource(
+        normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind,
+        { ...normalizeMediaStreamConfig(element.customData.draweratorMediaStream), id: element.id },
+      )),
+    ]));
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    api.updateScene({
+      elements: elements.map(element => {
+        const legacy = legacyHosts.find(candidate => candidate.id === element.id);
+        if (!legacy) return element;
+        const config = patchMediaStreamConfig(element.customData.draweratorMediaStream, { kind: MEDIA_STREAM_KINDS.PREVIEW, sourceId: element.id });
+        return {
+          ...element,
+          version: (element.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+          customData: { ...(element.customData || {}), draweratorMediaStream: config },
+        };
+      }),
+      commitToHistory: false,
+    });
+  }, [p5OverlayScene.elements]);
+  useEffect(() => {
+    setMediaStreamDescriptors(p5OverlayScene.elements
+      .filter(element => isMediaStreamElement(element))
+      .map(element => ({ element, config: normalizeMediaStreamConfig(element.customData.draweratorMediaStream) }))
+      .filter(entry => entry.config.kind === MEDIA_STREAM_KINDS.HOLISTIC)
+      .map(entry => ({
+        id: entry.element.id,
+        name: entry.config.name,
+        kind: entry.config.kind,
+        sourceId: entry.config.holistic.sourceId,
+      })));
+  }, [p5OverlayScene.elements]);
   const [svgOverlayScene, setSvgOverlayScene] = useState({ elements: [], appState: null });
   const [livecodeOverlayScene, setLivecodeOverlayScene] = useState({ elements: [], appState: null });
   const [livecodeEditorId, setLivecodeEditorId] = useState(null);
@@ -2333,6 +2419,9 @@ function App() {
   const [selectedElementIds, setSelectedElementIds] = useState({});
   const selectedElementIdsRef = useRef(selectedElementIds);
   selectedElementIdsRef.current = selectedElementIds;
+  const objectEyedropperRef = useRef(null);
+  const beginCanvasSourceEyedropperRef = useRef(() => {});
+  const [objectEyedropper, setObjectEyedropper] = useState(null);
   const selectedP5FrameForEditor = useMemo(() => {
     const matches = p5OverlayScene.elements.filter(element => (
       selectedElementIds[element.id] && isP5FrameElement(element)
@@ -2345,6 +2434,15 @@ function App() {
     ));
     return matches.length === 1 ? matches[0] : null;
   }, [p5OverlayScene.elements, selectedElementIds]);
+  const canvasInputTargets = useMemo(() => p5OverlayScene.canvasElements.filter(element => (
+    !element.isDeleted
+    && (element.type === "rectangle" || element.type === "frame")
+    && !isMediaStreamElement(element)
+  )), [p5OverlayScene.canvasElements]);
+  const selectedCanvasInputTarget = useMemo(() => {
+    const matches = canvasInputTargets.filter(element => selectedElementIds[element.id]);
+    return matches.length === 1 ? matches[0] : null;
+  }, [canvasInputTargets, selectedElementIds]);
   const selectedLivecodeNodeForEditor = useMemo(() => {
     const matches = livecodeOverlayScene.elements.filter(element => (
       selectedElementIds[element.id] && isLivecodeNodeElement(element)
@@ -3019,6 +3117,14 @@ function App() {
   useEffect(() => {
     localStorage.setItem(PLAY_CORE_STORAGE_KEY, JSON.stringify(playCoreScripts));
   }, [playCoreScripts]);
+
+  useEffect(() => {
+    localStorage.setItem(MEDIA_SOURCE_STORAGE_KEY, JSON.stringify(mediaSources));
+  }, [mediaSources]);
+
+  useEffect(() => {
+    localStorage.setItem(MEDIA_ACTORS_ARMED_STORAGE_KEY, mediaActorsArmed ? "true" : "false");
+  }, [mediaActorsArmed]);
 
   useEffect(() => {
     localStorage.setItem(SVG_SCRIPT_STORAGE_KEY, JSON.stringify(svgScripts));
@@ -4068,6 +4174,7 @@ function App() {
   const livePointsRef = useRef([]);
   const rawCursorRef = useRef(null);
   const lastCanvasPointerRef = useRef(null);
+  const altObjectHitCycleRef = useRef(null);
   const wasShiftHeldRef = useRef(false);
   const strokeStartTimeRef = useRef(0);
   const brushElapsedRef = useRef(0);
@@ -4132,6 +4239,111 @@ function App() {
     const appState = excalidrawAPI.getAppState();
     const res = sceneCoordsToViewportCoords({ sceneX: cx, sceneY: cy }, appState);
     return [res.x, res.y];
+  };
+
+  const handleObjectEyedropperPointerDown = event => {
+    const request = objectEyedropperRef.current;
+    if (!request || !excalidrawAPI || event.button !== 0) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    const appState = excalidrawAPI.getAppState();
+    const world = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, appState);
+    const candidate = [...excalidrawAPI.getSceneElements()].reverse().find(element => {
+      if (!request.accept?.(element)) return false;
+      const x = Number(element.x) || 0;
+      const y = Number(element.y) || 0;
+      const width = Math.max(1, Number(element.width) || 1);
+      const height = Math.max(1, Number(element.height) || 1);
+      const centerX = x + width / 2;
+      const centerY = y + height / 2;
+      const angle = -(Number(element.angle) || 0);
+      const cosine = Math.cos(angle);
+      const sine = Math.sin(angle);
+      const dx = world.x - centerX;
+      const dy = world.y - centerY;
+      const localX = centerX + dx * cosine - dy * sine;
+      const localY = centerY + dx * sine + dy * cosine;
+      return localX >= x && localX <= x + width && localY >= y && localY <= y + height;
+    });
+    if (!candidate) {
+      setSceneExchangeStatus(`${request.label}: choose a compatible object or press Escape to cancel.`);
+      return true;
+    }
+    try {
+      const message = request.onPick(candidate);
+      const selection = { [candidate.id]: true };
+      selectedElementIdsRef.current = selection;
+      setSelectedElementIds(selection);
+      excalidrawAPI.updateScene({
+        appState: {
+          selectedElementIds: selection,
+          selectedGroupIds: {},
+          activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false },
+        },
+      });
+      objectEyedropperRef.current = null;
+      setObjectEyedropper(null);
+      setSceneExchangeStatus(message || `${request.label}: object selected.`);
+    } catch (error) {
+      setSceneExchangeStatus(error?.message || `${request.label}: could not use that object.`);
+    }
+    return true;
+  };
+
+  const handleAltObjectSelectionPointerDown = event => {
+    if (!event.altKey || event.button !== 0 || !excalidrawAPI) return false;
+    const world = getCanvasCoords(event.clientX, event.clientY);
+    const eligible = element => {
+      if (element.isDeleted || element.locked || element.customData?.outlinerHidden) return false;
+      if (!selectionFilterAllowsElement(selectionFilterRef.current, element)) return false;
+      return element.type === "rectangle" || element.type === "frame"
+        || Object.keys(element.customData || {}).some(key => key.startsWith("drawerator") || key === "iannix" || key === "score");
+    };
+    const hits = excalidrawAPI.getSceneElements()
+      .filter(eligible)
+      .filter(element => {
+        const x = Number(element.x) || 0;
+        const y = Number(element.y) || 0;
+        const width = Math.max(1, Number(element.width) || 1);
+        const height = Math.max(1, Number(element.height) || 1);
+        const centerX = x + width / 2;
+        const centerY = y + height / 2;
+        const angle = -(Number(element.angle) || 0);
+        const cosine = Math.cos(angle);
+        const sine = Math.sin(angle);
+        const dx = world[0] - centerX;
+        const dy = world[1] - centerY;
+        const localX = centerX + dx * cosine - dy * sine;
+        const localY = centerY + dx * sine + dy * cosine;
+        return localX >= x && localX <= x + width && localY >= y && localY <= y + height;
+      })
+      .reverse();
+    if (!hits.length) return false;
+
+    const ids = hits.map(element => element.id);
+    const previous = altObjectHitCycleRef.current;
+    const sameHitStack = previous
+      && Math.hypot(previous.clientX - event.clientX, previous.clientY - event.clientY) <= 10
+      && previous.ids.length === ids.length
+      && previous.ids.every((id, index) => id === ids[index]);
+    const index = event.shiftKey && sameHitStack ? (previous.index + 1) % hits.length : 0;
+    const selected = hits[index];
+    altObjectHitCycleRef.current = { clientX: event.clientX, clientY: event.clientY, ids, index };
+    const selection = { [selected.id]: true };
+    event.preventDefault();
+    event.stopPropagation();
+    selectedElementIdsRef.current = selection;
+    setSelectedElementIds(selection);
+    excalidrawAPI.updateScene({
+      appState: {
+        selectedElementIds: selection,
+        selectedGroupIds: {},
+        editingLinearElement: null,
+        selectedLinearElement: null,
+        activeTool: { ...(excalidrawAPI.getAppState().activeTool || {}), type: "selection", locked: false },
+      },
+    });
+    return true;
   };
 
   const emitPointerInputSample = (event, phase, coords) => {
@@ -4877,6 +5089,10 @@ function App() {
     // SVG control circles own their pointer session directly. This prevents a
     // drag from also reaching Excalidraw's drawing tools.
     if (e.target?.closest?.(".svg-path-control")) return;
+
+    if (handleObjectEyedropperPointerDown(e)) return;
+
+    if (handleAltObjectSelectionPointerDown(e)) return;
 
     if (handleSvgPathConstructionPointerDown(e)) return;
     if (handleSvgPathPointerDown(e)) return;
@@ -5776,6 +5992,9 @@ function App() {
       const hasShapes = capabilities.hasShapes;
       const hasP5HostCandidate = selectedContextElements.some(element => !isSvgObjectElement(element) && canHostP5Frame(element));
       const hasLegacyLivecodeHost = selectedContextElements.some(element => isP5FrameElement(element) || isPlayCoreFrameElement(element));
+      const previewTarget = selectedContextElements.length === 1
+        && ["rectangle", "frame"].includes(selectedContextElements[0].type)
+        && !isMediaStreamElement(selectedContextElements[0]);
       const svgCodeHost = selectedContextElements.length === 1
         && selectedContextElements[0].type === "rectangle"
         && !isSvgObjectElement(selectedContextElements[0])
@@ -5789,6 +6008,7 @@ function App() {
         showToSvg: selectedContextElements.some(element => !isSvgObjectElement(element) && !isP5FrameElement(element)),
         showAttachP5: hasP5HostCandidate,
         showMigrateLivecode: hasLegacyLivecodeHost,
+        showMakePreview: previewTarget && mediaSources.length > 0,
         showAttachSvgCode: svgCodeHost,
         showRestore: hasBrush,
         showToPath: hasShapes,
@@ -7751,12 +7971,21 @@ function App() {
     { id: "export.board.png", name: "Export Board as PNG /export board", aliases: ["/export board", "/export png", "Export Drawerator board"], category: "Canvas", action: () => void exportDraweratorBoardPng() },
     { id: "export.p5.frame.png", name: "Export Selected p5 Frame as PNG /export p5", aliases: ["/export p5", "/export p5 frame", "Export selected p5 frame"], category: "Canvas", action: () => void exportSelectedP5FramesPng() },
     { id: "webembed.create", name: "Create Web Embed /webembed", aliases: ["/webembed", "Create web embed", "Web embed"], category: "Canvas", args: { url: "URL?" }, action: (_api, args) => createWebEmbed(args) },
-    { id: "p5.frame.create", name: "Create p5 Frame /p5", aliases: ["/p5", "Create p5 frame", "p5 frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", source: "p5 source?", mode: "auto|instance|global?", runtime: "bundled|cdn?", cdnUrl: "string?" }, ai: { expose: true, description: "Create a trusted, interactive p5.js frame. Use mode: instance for p.setup/p.draw code, or mode: global for classic function setup()/draw() code. Omit mode for auto-detection. The bundled runtime is the default; only use runtime: cdn when the user specifically requests a remote p5 build. Keep the sketch self-contained and do not use HTML or script tags.", example: { name: "Pulsing circle", width: 640, height: 360, mode: "global", source: "function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(230);\n  strokeWeight(3);\n  const radius = 60 + 24 * Math.sin(millis() / 500);\n  circle(width / 2, height / 2, radius * 2);\n}" } }, action: (_api, args) => createP5Frame(args) },
-    { id: "p5.frame.attach", name: "Attach p5 Sketch to Selection /attach p5", aliases: ["/attach p5", "Attach p5 sketch", "p5 attach"], category: "Canvas", args: { source: "p5 source?", mode: "auto|instance|global?", name: "string?" }, ai: { expose: true, description: "Attach a p5 sketch to each selected rectangle, frame, or existing p5 canvas. The selected objects become live p5 hosts; use a self-contained p5 source and choose global mode for classic setup()/draw() code.", example: { mode: "global", source: "function setup() {\n  createCanvas(drawerator.element.width, drawerator.element.height);\n}\n\nfunction draw() {\n  background(18);\n  circle(width / 2, height / 2, 80);\n}" } }, action: (_api, args) => attachP5ScriptToSelection(args) },
+    { id: "p5.frame.create", name: "Create p5 Frame /p5", aliases: ["/p5", "Create p5 frame", "p5 frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", source: "p5 source?", mode: "auto|instance|global?", runtime: "bundled|cdn?", cdnUrl: "string?" }, ai: { expose: true, description: "Create a trusted, interactive p5.js frame. Use mode: instance for p.setup/p.draw code, or mode: global for classic function setup()/draw() code. Omit mode for auto-detection. The bundled runtime is the default; only use runtime: cdn when the user specifically requests a remote p5 build. Keep the sketch self-contained and do not use HTML or script tags.", example: { name: "Pulsing circle", width: 640, height: 360, mode: "global", source: "function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(230);\n  strokeWeight(3);\n  const radius = 60 + 24 * Math.sin(millis() / 500);\n  circle(width / 2, height / 2, radius * 2);\n}" } }, action: (_api, args) => createP5Frame(args) },
+    { id: "p5.frame.attach", name: "Attach p5 Sketch to Selection /attach p5", aliases: ["/attach p5", "Attach p5 sketch", "p5 attach"], category: "Canvas", args: { source: "p5 source?", mode: "auto|instance|global?", name: "string?" }, ai: { expose: true, description: "Attach a p5 sketch to each selected rectangle, frame, or existing p5 canvas. The selected objects become live p5 hosts; use a self-contained p5 source and choose global mode for classic setup()/draw() code.", example: { mode: "global", source: "function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  background(18);\n  circle(width / 2, height / 2, 80);\n}" } }, action: (_api, args) => attachP5ScriptToSelection(args) },
     { id: "play.core.frame.create", name: "Create Play Core Frame /play", aliases: ["/play", "Play Core frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", fps: "number?", source: "play.core source?" }, action: (_api, args) => createPlayCoreFrame(args) },
     { id: "livecode.node.run", name: "Run Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.draweratorLivecode); if (!node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
     { id: "livecode.node.stop", name: "Stop Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.draweratorLivecode); if (node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
     { id: "livecode.node.migrate", name: "Migrate p5 or Play Core Host to Livecode Node", aliases: ["Migrate to Livecode Node"], category: "Canvas", action: () => { const target = getSelectedElements().find(element => isP5FrameElement(element) || isPlayCoreFrameElement(element)); if (!target) throw new Error("Select a p5 or Play Core host first."); return migrateLegacyHostToLivecodeNode(target.id); } },
+    { id: "media.camera.create", name: "Create Camera Input", aliases: ["/camera", "webcam stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.CAMERA, args) },
+    { id: "media.input.create", name: "Create Media Input", aliases: ["/media", "image stream", "video stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.MEDIA, { ...args, media: { url: args?.url || args?.media?.url || "", ...(args?.media || {}) } }) },
+    { id: "media.preview.make", name: "Make Selected Frame or Rectangle a Preview /preview", aliases: ["/preview", "/preview make", "Make Preview"], category: "Media Streams", args: { sourceId: "string?" }, action: (_api, args) => makeSelectedMediaPreview(args) },
+    { id: "media.holistic.create", name: "Create MediaPipe Holistic Object", aliases: ["/holistic-object", "landmark stream"], category: "Media Streams", action: (_api, args) => createMediaStreamObject(MEDIA_STREAM_KINDS.HOLISTIC, { ...args, holistic: { sourceId: args?.sourceId || args?.sourceElementId || args?.holistic?.sourceId || args?.holistic?.sourceElementId || "", ...(args?.holistic || {}) } }) },
+    { id: "media.holistic.snapshot", name: "Snapshot Selected Holistic Landmarks", category: "Media Streams", action: () => { const target = getSelectedElements().find(element => isMediaStreamElement(element) && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC); if (!target) throw new Error("Select a MediaPipe Holistic object first."); snapshotHolisticLandmarks(target.id); return { elementIds: [target.id] }; } },
+    { id: "media.binding.create", name: "Create Media Actor Binding", category: "Media Streams", args: { elementId: "string", binding: "mediaBinding" }, action: (_api, args) => createMediaBindingForProcessor(args.elementId, args.binding || args) },
+    { id: "media.binding.update", name: "Update Media Actor Binding", category: "Media Streams", args: { elementId: "string", bindingId: "string", patch: "mediaBindingPatch" }, action: (_api, args) => updateMediaBindingForProcessor(args.elementId, args.bindingId, args.patch || {}) },
+    { id: "media.binding.remove", name: "Remove Media Actor Binding", category: "Media Streams", args: { elementId: "string", bindingId: "string" }, action: (_api, args) => deleteMediaBindingForProcessor(args.elementId, args.bindingId) },
+    { id: "media.actors.arm", name: "Arm or Disarm Media Actors", category: "Media Streams", record: "never", args: { armed: "boolean" }, action: (_api, args) => { const armed = Boolean(args?.armed); setMediaActorsArmed(armed); return { armed }; } },
     { id: "settings-ai", name: "Open AI Configuration /settings-ai", aliases: ["/settings-ai"], category: "Panels", action: () => toggleDraweratorPanel("settings", { settingsTab: "ai" }) },
     { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
     { id: "toggle-transparency", name: "Toggle Canvas Background Transparency", category: "Canvas", action: (api) => toggleBackgroundTransparency(api) },
@@ -7879,6 +8108,17 @@ function App() {
       }));
     };
     const handleKeyDown = (e) => {
+      // A fixed global reset-toggle for rehearsal/live use. Keep this ahead of
+      // editor ownership so Ctrl+Shift+Space remains available everywhere.
+      if (e.code === "Space" && e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation?.();
+        setScoreTime(0);
+        setScorePlaying(playing => !playing);
+        return;
+      }
+
       // CodeMirror owns its complete keyboard session. This needs to precede
       // global Escape and canvas shortcuts because both Excalidraw and
       // Drawerator use capture-phase handlers.
@@ -7895,6 +8135,11 @@ function App() {
         if (typeof activeElement?.blur === "function") activeElement.blur();
         if (bezierEditElementId) exitBezierEditMode();
         if (svgPathEdit) exitSvgPathEditMode();
+        if (objectEyedropperRef.current) {
+          objectEyedropperRef.current = null;
+          setObjectEyedropper(null);
+          setSceneExchangeStatus("Object eyedropper cancelled.");
+        }
         selectedElementIdsRef.current = {};
         setSelectedElementIds({});
         runtimeCursorSelectionRef.current = {};
@@ -7990,6 +8235,10 @@ function App() {
           const nextState = !customBrushActive;
           setCustomBrushActive(nextState);
           excalidrawAPI?.updateScene({ appState: { activeTool: { type: nextState ? "freedraw" : "selection", ...(nextState ? { locked: true } : {}) } } });
+          return;
+        }
+        if (shortcutAction.id === "object.eyedropper") {
+          beginCanvasSourceEyedropperRef.current();
           return;
         }
         if (shortcutAction.id === "brush.apply.selected") {
@@ -9273,6 +9522,26 @@ function App() {
     api.updateScene({
       elements: elements.map(element => {
         if (!selectedIds.has(element.id)) return element;
+        if (isLivecodeNodeElement(element)) {
+          const customData = { ...(element.customData || {}) };
+          delete customData.draweratorP5;
+          delete customData.draweratorPlayCore;
+          return {
+            ...element,
+            version: (element.version || 0) + 1,
+            versionNonce: Math.floor(Math.random() * 0x7fffffff),
+            updated: nonce,
+            customData: {
+              ...customData,
+              draweratorLivecode: replaceLivecodeNodeProgram(customData.draweratorLivecode, {
+                kind: LIVECODE_KINDS.p5,
+                source: resolvedSource,
+                name: script.name,
+                runtimeSettings: { mode: resolvedMode },
+              }),
+            },
+          };
+        }
         const prior = normalizeP5Frame(element.customData?.draweratorP5);
         const hostType = isP5FrameElement(element)
           ? getP5HostElementType(prior)
@@ -9475,6 +9744,25 @@ function App() {
     api.updateScene({
       elements: elements.map(element => {
         if (!selectedIds.has(element.id)) return element;
+        if (isLivecodeNodeElement(element)) {
+          const customData = { ...(element.customData || {}) };
+          delete customData.draweratorP5;
+          delete customData.draweratorPlayCore;
+          return {
+            ...element,
+            version: (element.version || 0) + 1,
+            versionNonce: Math.floor(Math.random() * 0x7fffffff),
+            updated: nonce,
+            customData: {
+              ...customData,
+              draweratorLivecode: replaceLivecodeNodeProgram(customData.draweratorLivecode, {
+                kind: LIVECODE_KINDS.playcore,
+                source: resolvedSource,
+                name: script.name,
+              }),
+            },
+          };
+        }
         const prior = normalizePlayCoreFrame(element.customData?.draweratorPlayCore);
         return {
           ...element,
@@ -9544,6 +9832,712 @@ function App() {
     setPlayCoreSource(source);
     return { elementIds: [element.id], name: script.name };
   };
+
+  const selectMediaStreamObject = elementId => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+    const selection = { [elementId]: true };
+    api.updateScene({
+      appState: {
+        selectedElementIds: selection,
+        selectedGroupIds: {},
+        activeTool: { ...(api.getAppState().activeTool || {}), type: "selection", locked: false },
+      },
+    });
+    selectedElementIdsRef.current = selection;
+    setSelectedElementIds(selection);
+  };
+
+  const createMediaInputSource = (kind, overrides = {}, file = null) => {
+    const source = createMediaSource(kind, overrides);
+    setMediaSources(previous => normalizeMediaSources([...previous, source]));
+    setActiveMediaSourceId(source.id);
+    if (file) setMediaSessionFile(source.id, file);
+    return source;
+  };
+
+  const patchMediaInputSource = (sourceId, patch = {}) => {
+    let updated = null;
+    setMediaSources(previous => previous.map(source => {
+      if (source.id !== sourceId) return source;
+      updated = patchMediaSource(source, patch);
+      return updated;
+    }));
+    return updated;
+  };
+
+  const deleteMediaInputSource = sourceId => {
+    deleteMediaSourcePreviews(sourceId);
+    setMediaSessionFile(sourceId, null);
+    setMediaSources(previous => previous.filter(source => source.id !== sourceId));
+    setActiveMediaSourceId(previous => previous === sourceId ? "" : previous);
+  };
+
+  const createMediaStreamObject = (kind, overrides = {}, file = null) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const appState = api.getAppState();
+    const center = viewportCoordsToSceneCoords({
+      clientX: window.innerWidth / 2,
+      clientY: window.innerHeight / 2,
+    }, appState);
+    const config = createMediaStreamConfig(kind, overrides);
+    const width = kind === MEDIA_STREAM_KINDS.HOLISTIC ? 520 : 480;
+    const height = kind === MEDIA_STREAM_KINDS.HOLISTIC ? 390 : 320;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const streamCount = elements.filter(isMediaStreamElement).length;
+    const stagger = (streamCount % 6) * 28;
+    const base = createBaseElement("rectangle", center.x - width / 2 + stagger, center.y - height / 2 + stagger, width, height, "transparent");
+    const element = {
+      ...base,
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      backgroundColor: "transparent",
+      fillStyle: "solid",
+      customData: { draweratorMediaStream: config },
+    };
+    api.updateScene({
+      elements: [...elements, element],
+      appState: {
+        selectedElementIds: { [element.id]: true },
+        selectedGroupIds: {},
+        activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false },
+      },
+      commitToHistory: true,
+    });
+    if (file) setMediaSessionFile(element.id, file);
+    selectedElementIdsRef.current = { [element.id]: true };
+    setSelectedElementIds({ [element.id]: true });
+    return { elementIds: [element.id], kind: config.kind, name: config.name };
+  };
+
+  const createMediaMapObject = streamId => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const appState = api.getAppState();
+    const center = viewportCoordsToSceneCoords({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 }, appState);
+    const width = 540;
+    const height = 620;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const mapCount = elements.filter(isMediaMapElement).length;
+    const stagger = (mapCount % 6) * 28;
+    const base = createBaseElement("rectangle", center.x - width / 2 + stagger, center.y - height / 2 + stagger, width, height, "transparent");
+    const element = {
+      ...base,
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      backgroundColor: "transparent",
+      fillStyle: "solid",
+      customData: { draweratorMediaMap: normalizeMediaMapConfig({ streamId }) },
+    };
+    api.updateScene({
+      elements: [...elements, element],
+      appState: { selectedElementIds: { [element.id]: true }, selectedGroupIds: {}, activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false } },
+      commitToHistory: true,
+    });
+    selectedElementIdsRef.current = { [element.id]: true };
+    setSelectedElementIds({ [element.id]: true });
+    return { elementIds: [element.id] };
+  };
+
+  const selectMediaMapFeatures = useCallback((streamId, featureIds, event = null) => {
+    setMediaInspectedFeature(previous => {
+      const current = previous.streamId === streamId ? previous.featureIds || [] : [];
+      const additive = Boolean(event?.metaKey || event?.ctrlKey || event?.shiftKey);
+      const next = additive ? [...new Set([...current, ...featureIds])] : [...new Set(featureIds)];
+      return { streamId, featureIds: next, featureId: next[next.length - 1] || "" };
+    });
+  }, []);
+
+  const selectMediaMapFeature = useCallback((streamId, featureId, event, definitions = []) => {
+    setMediaInspectedFeature(previous => {
+      const current = previous.streamId === streamId ? previous.featureIds || [] : [];
+      const index = definitions.findIndex(definition => definition.id === featureId);
+      const anchor = definitions.findIndex(definition => definition.id === current[0]);
+      let next;
+      if (event?.shiftKey && index >= 0 && anchor >= 0) {
+        next = definitions.slice(Math.min(index, anchor), Math.max(index, anchor) + 1).map(definition => definition.id);
+      } else if (event?.metaKey || event?.ctrlKey) {
+        next = current.includes(featureId) ? current.filter(id => id !== featureId) : [...current, featureId];
+      } else if (current.length === 1 && current[0] === featureId) {
+        next = [];
+      } else {
+        next = [featureId];
+      }
+      return { streamId, featureIds: next, featureId: next[next.length - 1] || "" };
+    });
+  }, []);
+
+  const createMediaPreview = (sourceId, targetElementId = "") => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return null;
+    const source = mediaSources.find(candidate => candidate.id === sourceId);
+    if (!source) return null;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    if (!targetElementId) return createMediaStreamObject(MEDIA_STREAM_KINDS.PREVIEW, { name: source.name, sourceId });
+    const target = elements.find(element => !element.isDeleted && element.id === targetElementId);
+    if (!target || !["rectangle", "frame"].includes(target.type) || isMediaStreamElement(target)) return null;
+    const config = createMediaStreamConfig(MEDIA_STREAM_KINDS.PREVIEW, { name: source.name, sourceId });
+    api.updateScene({
+      elements: elements.map(element => element.id === target.id ? {
+        ...element,
+        strokeColor: "transparent",
+        strokeWidth: 0,
+        backgroundColor: "transparent",
+        fillStyle: "solid",
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+        customData: { ...(element.customData || {}), draweratorMediaStream: config },
+      } : element),
+      appState: { selectedElementIds: { [target.id]: true }, selectedGroupIds: {}, activeTool: { ...(api.getAppState().activeTool || {}), type: "selection", locked: false } },
+      commitToHistory: true,
+    });
+    selectedElementIdsRef.current = { [target.id]: true };
+    setSelectedElementIds({ [target.id]: true });
+    return { elementIds: [target.id] };
+  };
+
+  const createMediaPreviewAt = (sourceId, clientX, clientY) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return null;
+    const source = mediaSources.find(candidate => candidate.id === sourceId);
+    if (!source) return null;
+    const appState = api.getAppState();
+    const point = viewportCoordsToSceneCoords({ clientX, clientY }, appState);
+    const runtimeElement = getMediaRuntimeSource(sourceId)?.element;
+    const runtimeWidth = Number(runtimeElement?.width) || 0;
+    const runtimeHeight = Number(runtimeElement?.height) || 0;
+    const outputSize = Number(source.output?.maxDimension) || 0;
+    const width = runtimeWidth || outputSize || 480;
+    const height = runtimeHeight || (outputSize ? Math.round(outputSize * 0.75) : 320);
+    const config = createMediaStreamConfig(MEDIA_STREAM_KINDS.PREVIEW, { name: source.name, sourceId });
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const base = createBaseElement("rectangle", point.x - width / 2, point.y - height / 2, width, height, "transparent");
+    const element = {
+      ...base,
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      backgroundColor: "transparent",
+      fillStyle: "solid",
+      customData: { draweratorMediaStream: config },
+    };
+    const selection = { [element.id]: true };
+    api.updateScene({
+      elements: [...elements, element],
+      appState: { selectedElementIds: selection, selectedGroupIds: {}, activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false } },
+      commitToHistory: true,
+    });
+    selectedElementIdsRef.current = selection;
+    setSelectedElementIds(selection);
+    return { elementIds: [element.id], kind: config.kind, name: config.name };
+  };
+
+  const handleCanvasMediaPreviewDragOver = event => {
+    if (!Array.from(event.dataTransfer?.types || []).includes("application/x-drawerator-media-source")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleCanvasMediaPreviewDrop = event => {
+    const sourceId = event.dataTransfer?.getData("application/x-drawerator-media-source");
+    if (!sourceId) return;
+    event.preventDefault();
+    createMediaPreviewAt(sourceId, event.clientX, event.clientY);
+  };
+
+  const makeSelectedMediaPreview = ({ sourceId = "" } = {}) => {
+    const selected = getSelectedElements();
+    if (selected.length !== 1 || !["rectangle", "frame"].includes(selected[0].type) || isMediaStreamElement(selected[0])) {
+      throw new Error("Select one non-media frame or rectangle first.");
+    }
+    const resolvedSourceId = sourceId || activeMediaSourceId || mediaSources[0]?.id || "";
+    const source = mediaSources.find(candidate => candidate.id === resolvedSourceId);
+    if (!source) throw new Error("Create an image source first.");
+    const result = createMediaPreview(source.id, selected[0].id);
+    if (!result) throw new Error("Could not make that object a preview.");
+    setSceneExchangeStatus(`Preview assigned to ${source.name}.`);
+    return result;
+  };
+
+  const deleteMediaSourcePreviews = sourceId => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const previewIds = new Set(elements.filter(element => {
+      if (element.isDeleted || !isMediaStreamElement(element)) return false;
+      const config = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
+      return config.kind === MEDIA_STREAM_KINDS.PREVIEW && config.sourceId === sourceId;
+    }).map(element => element.id));
+    if (!previewIds.size) return;
+    api.updateScene({
+      elements: elements.map(element => previewIds.has(element.id) ? {
+        ...element,
+        isDeleted: true,
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+      } : element),
+      appState: { selectedElementIds: {}, selectedGroupIds: {} },
+      commitToHistory: true,
+    });
+    selectedElementIdsRef.current = {};
+    setSelectedElementIds({});
+  };
+
+  const captureCanvasInput = useCallback(async targetElementId => {
+    const api = excalidrawAPIRef.current;
+    if (!api || !targetElementId) return null;
+    const target = p5OverlayScene.canvasElements.find(element => (
+      !element.isDeleted
+      && element.id === targetElementId
+      && (element.type === "rectangle" || element.type === "frame")
+      && !isMediaStreamElement(element)
+    ));
+    if (!target) return null;
+    const left = Number(target.x) || 0;
+    const top = Number(target.y) || 0;
+    const right = left + Math.max(1, Number(target.width) || 1);
+    const bottom = top + Math.max(1, Number(target.height) || 1);
+    const elements = p5OverlayScene.canvasElements.filter(element => {
+      if (element.isDeleted || isMediaStreamElement(element)) return false;
+      const centerX = (Number(element.x) || 0) + (Number(element.width) || 0) / 2;
+      const centerY = (Number(element.y) || 0) + (Number(element.height) || 0) / 2;
+      return element.id === target.id || (centerX >= left && centerX <= right && centerY >= top && centerY <= bottom);
+    });
+    if (!elements.length) return null;
+    try {
+      return await exportToCanvas({
+        elements,
+        appState: { ...api.getAppState(), exportBackground: false },
+        files: api.getFiles?.() || {},
+        exportPadding: 0,
+      });
+    } catch {
+      return null;
+    }
+  }, [p5OverlayScene.canvasElements]);
+
+  // A reusable object-input gesture.  Media canvas sources are the first
+  // consumer, but parameter routes and other object-backed inputs can supply
+  // their own acceptance predicate and commit callback without inventing a
+  // second picking interaction.
+  const beginObjectEyedropper = useCallback(({ label, accept, onPick }) => {
+    objectEyedropperRef.current = { label, accept, onPick };
+    setObjectEyedropper({ label });
+    setSceneExchangeStatus(`${label}: click a compatible canvas object, or press Escape to cancel.`);
+  }, []);
+
+  const beginCanvasSourceEyedropper = sourceId => {
+    let targetSourceId = sourceId;
+    const current = mediaSources.find(source => source.id === targetSourceId);
+    if (!current || current.kind !== MEDIA_STREAM_KINDS.CANVAS) {
+      const created = createMediaInputSource(MEDIA_STREAM_KINDS.CANVAS);
+      targetSourceId = created.id;
+      setOpenPanels(previous => ({ ...previous, "media-input": true }));
+      setActiveDockPanels(previous => ({ ...previous, [panelLayouts["media-input"].placement]: "media-input" }));
+    }
+    beginObjectEyedropper({
+      label: "Pick canvas source",
+      accept: element => !element.isDeleted
+        && (element.type === "rectangle" || element.type === "frame")
+        && !isMediaStreamElement(element),
+      onPick: element => {
+        patchMediaInputSource(targetSourceId, { canvas: { elementId: element.id } });
+        return `${element.type === "frame" ? "Frame" : "Rectangle"} selected as canvas source.`;
+      },
+    });
+  };
+  beginCanvasSourceEyedropperRef.current = beginCanvasSourceEyedropper;
+
+  const patchMediaStreamObject = (elementId, patch = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return null;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const existing = elements.find(element => element.id === elementId && isMediaStreamElement(element));
+    if (!existing) return null;
+    const config = patchMediaStreamConfig(existing.customData.draweratorMediaStream, patch);
+    const now = Date.now();
+    api.updateScene({
+      elements: elements.map(element => element.id !== elementId ? element : {
+        ...element,
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: now,
+        customData: { ...(element.customData || {}), draweratorMediaStream: config },
+      }),
+      commitToHistory: true,
+    });
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return config;
+  };
+
+  const focusMediaInputSource = sourceId => {
+    if (!sourceId) return;
+    setActiveMediaSourceId(sourceId);
+    toggleDraweratorPanel("media-input", { open: true });
+  };
+
+  const createMediaBindingForProcessor = (elementId, bindingValue = {}) => {
+    const api = excalidrawAPIRef.current;
+    const existing = api?.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
+    if (!existing) throw new Error("MediaPipe processor not found.");
+    const config = normalizeMediaStreamConfig(existing.customData.draweratorMediaStream);
+    if (config.kind !== MEDIA_STREAM_KINDS.HOLISTIC) throw new Error("Bindings require a Holistic processor.");
+    const binding = normalizeMediaBinding(bindingValue?.type ? bindingValue : createMediaBinding(MEDIA_BINDING_TYPES.DRIVE_POSITION, bindingValue));
+    patchMediaStreamObject(elementId, { bindings: [...config.bindings, binding] });
+    return binding;
+  };
+
+  const updateMediaBindingForProcessor = (elementId, bindingId, patch = {}) => {
+    const api = excalidrawAPIRef.current;
+    const existing = api?.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
+    if (!existing) throw new Error("MediaPipe processor not found.");
+    const config = normalizeMediaStreamConfig(existing.customData.draweratorMediaStream);
+    const index = config.bindings.findIndex(binding => binding.id === bindingId);
+    if (index < 0) throw new Error("Media binding not found.");
+    const bindings = config.bindings.map(binding => binding.id === bindingId ? normalizeMediaBinding({
+      ...binding,
+      ...patch,
+      offset: { ...binding.offset, ...(patch.offset || {}) },
+      gate: { ...binding.gate, ...(patch.gate || {}) },
+      signal: { ...binding.signal, ...(patch.signal || {}) },
+      style: { ...binding.style, ...(patch.style || {}) },
+    }) : binding);
+    patchMediaStreamObject(elementId, { bindings });
+    return bindings[index];
+  };
+
+  const deleteMediaBindingForProcessor = (elementId, bindingId) => {
+    const api = excalidrawAPIRef.current;
+    const existing = api?.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
+    if (!existing) throw new Error("MediaPipe processor not found.");
+    const config = normalizeMediaStreamConfig(existing.customData.draweratorMediaStream);
+    const bindings = config.bindings.filter(binding => binding.id !== bindingId);
+    if (bindings.length === config.bindings.length) throw new Error("Media binding not found.");
+    const runtimeId = `${elementId}:${bindingId}`;
+    finishMediaActorStroke(runtimeId, "binding-removed");
+    mediaBindingRuntimeRef.current.delete(runtimeId);
+    patchMediaStreamObject(elementId, { bindings });
+    return { elementId, bindingId };
+  };
+
+  const duplicateMediaBindingForProcessor = (elementId, bindingId) => {
+    const api = excalidrawAPIRef.current;
+    const existing = api?.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
+    const config = existing ? normalizeMediaStreamConfig(existing.customData.draweratorMediaStream) : null;
+    const source = config?.bindings.find(binding => binding.id === bindingId);
+    if (!source) throw new Error("Media binding not found.");
+    return createMediaBindingForProcessor(elementId, createMediaBinding(source.type, {
+      ...source,
+      id: undefined,
+      name: `${source.name} copy`,
+    }));
+  };
+
+  const chooseMediaStreamFile = (file, sourceId = "") => {
+    const mediaType = file.type.startsWith("image/") ? "image" : "video";
+    const selected = mediaSources.find(source => source.id === sourceId && source.kind === MEDIA_STREAM_KINDS.MEDIA);
+    if (selected) {
+      setMediaSessionFile(selected.id, file);
+      patchMediaInputSource(selected.id, {
+        name: file.name,
+        media: { url: "", fileName: file.name, mediaType },
+      });
+      return patchMediaSource(selected, {
+        name: file.name,
+        media: { url: "", fileName: file.name, mediaType },
+      });
+    }
+    return createMediaInputSource(MEDIA_STREAM_KINDS.MEDIA, {
+      name: file.name,
+      media: { fileName: file.name, mediaType },
+    }, file);
+  };
+
+  const snapshotHolisticLandmarks = elementId => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+    const host = api.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
+    const result = getMediaRuntimeResult(elementId);
+    if (!host || !result) {
+      window.dispatchEvent(new CustomEvent("drawerator:media-stream-status", {
+        detail: { elementId, kind: "error", message: "No landmark frame is available yet." },
+      }));
+      return;
+    }
+    const config = normalizeMediaStreamConfig(host.customData.draweratorMediaStream);
+    const color = config.holistic.color;
+    const now = Date.now();
+    const toWorld = point => [
+      host.x + Math.max(0, Math.min(1, Number(point?.x) || 0)) * host.width,
+      host.y + Math.max(0, Math.min(1, Number(point?.y) || 0)) * host.height,
+    ];
+    const connections = [
+      [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
+      [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28],
+    ];
+    const created = [];
+    if (config.holistic.showPose) {
+      connections.forEach(([from, to]) => {
+        const a = result.poseLandmarks?.[from];
+        const b = result.poseLandmarks?.[to];
+        if (!a || !b) return;
+        const [x1, y1] = toWorld(a);
+        const [x2, y2] = toWorld(b);
+        created.push({
+          ...createBaseElement("line", x1, y1, Math.abs(x2 - x1) || 1, Math.abs(y2 - y1) || 1, color),
+          points: [[0, 0], [x2 - x1, y2 - y1]],
+          lastCommittedPoint: null,
+          startBinding: null,
+          endBinding: null,
+          customData: { draweratorMediaLandmark: { sourceElementId: elementId, kind: "pose-connection", capturedAt: now } },
+        });
+      });
+    }
+    const pointSets = [
+      ...(config.holistic.showHands ? [result.leftHandLandmarks, result.rightHandLandmarks] : []),
+      ...(config.holistic.showPose ? [result.poseLandmarks] : []),
+    ];
+    pointSets.forEach(points => (points || []).forEach(point => {
+      const [x, y] = toWorld(point);
+      created.push({
+        ...createBaseElement("ellipse", x - 3, y - 3, 6, 6, color),
+        backgroundColor: color,
+        fillStyle: "solid",
+        strokeWidth: 1,
+        customData: { draweratorMediaLandmark: { sourceElementId: elementId, kind: "landmark", capturedAt: now } },
+      });
+    }));
+    if (!created.length) return;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const selection = Object.fromEntries(created.map(element => [element.id, true]));
+    api.updateScene({ elements: [...elements, ...created], appState: { selectedElementIds: selection }, commitToHistory: true });
+    selectedElementIdsRef.current = selection;
+    setSelectedElementIds(selection);
+  };
+
+  const refreshMediaActorOverlay = useCallback((extraMarkers = []) => {
+    const traces = [];
+    const strokes = [];
+    const markers = [];
+    mediaBindingRuntimeRef.current.forEach((state, id) => {
+      if (state.binding?.trace && state.trace.length > 1) {
+        traces.push({ id: `${id}:trace`, points: [...state.trace], color: state.color });
+      }
+      if (state.binding?.visualize && state.filteredPoint) {
+        markers.push({ id: `${id}:marker`, point: { ...state.filteredPoint }, color: state.color });
+      }
+      if (state.stroke?.points?.length) {
+        strokes.push({
+          id: `${id}:stroke`,
+          points: [...state.stroke.points],
+          color: state.stroke.color,
+          strokeWidth: state.stroke.strokeWidth,
+          opacity: state.stroke.opacity,
+        });
+      }
+    });
+    setMediaActorOverlayState({ traces, strokes, markers: [...markers, ...extraMarkers] });
+  }, []);
+
+  const finishMediaActorStroke = useCallback((runtimeId, reason = "end") => {
+    const state = mediaBindingRuntimeRef.current.get(runtimeId);
+    const stroke = state?.stroke;
+    if (!stroke) return null;
+    state.stroke = null;
+    const lastPoint = stroke.points.at(-1);
+    if (lastPoint) {
+      inputBus.emit({
+        source: "mediapipe",
+        deviceId: runtimeId,
+        pointerId: runtimeId,
+        phase: "end",
+        scene: { x: lastPoint.x, y: lastPoint.y },
+        buttons: 0,
+        data: { bindingId: stroke.bindingId, reason },
+      });
+    }
+    if (stroke.points.length < 2) {
+      refreshMediaActorOverlay();
+      return null;
+    }
+    const api = excalidrawAPIRef.current;
+    if (!api) return null;
+    const minX = Math.min(...stroke.points.map(point => point.x));
+    const minY = Math.min(...stroke.points.map(point => point.y));
+    const maxX = Math.max(...stroke.points.map(point => point.x));
+    const maxY = Math.max(...stroke.points.map(point => point.y));
+    const element = {
+      ...createBaseElement("freedraw", minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY), stroke.color || foregroundColor),
+      points: stroke.points.map(point => [point.x - minX, point.y - minY]),
+      pressures: stroke.points.map(() => 0.5),
+      simulatePressure: true,
+      strokeWidth: stroke.strokeWidth,
+      opacity: stroke.opacity,
+      customData: {
+        draweratorMediaActor: {
+          processorId: stroke.processorId,
+          bindingId: stroke.bindingId,
+          featureId: stroke.featureId,
+          gateFeatureId: stroke.gateFeatureId,
+          completedAt: Date.now(),
+        },
+      },
+    };
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    api.updateScene({ elements: [...elements, element], commitToHistory: true });
+    refreshMediaActorOverlay();
+    return element;
+  }, [foregroundColor, inputBus, refreshMediaActorOverlay]);
+
+  const handleMediaStreamResults = useCallback((elementId, result) => {
+    const api = excalidrawAPIRef.current;
+    const sceneElements = api?.getSceneElements() || [];
+    const host = sceneElements.find(element => element.id === elementId && isMediaStreamElement(element));
+    const config = host ? normalizeMediaStreamConfig(host.customData.draweratorMediaStream) : null;
+    const previousGestures = mediaGestureStatesRef.current.get(elementId) || {};
+    const semanticFrame = host && config ? createMediaSemanticFrame({
+      streamId: elementId,
+      streamName: config.name,
+      element: host,
+      result,
+      previousGestures,
+    }) : null;
+    if (semanticFrame) {
+      mediaGestureStatesRef.current.set(elementId, semanticFrame.gestureState);
+      setMediaSemanticFrame(elementId, semanticFrame);
+    }
+    eventBus.emit("media.holistic.frame", {
+      elementId,
+      sourceElementId: result.sourceElementId,
+      poseLandmarks: result.poseLandmarks,
+      leftHandLandmarks: result.leftHandLandmarks,
+      rightHandLandmarks: result.rightHandLandmarks,
+      faceLandmarks: result.faceLandmarks,
+      updatedAt: result.updatedAt,
+    }, { source: "media-stream", transportTime: scoreTimeRef.current });
+    const inspectedMarkers = semanticFrame && mediaInspectedFeature.streamId === elementId && config
+      ? (mediaInspectedFeature.featureIds || [mediaInspectedFeature.featureId]).map(featureId => semanticFrame.feature(featureId)).filter(feature => feature?.scene).map(feature => ({
+        id: `${elementId}:inspected:${feature.id}`,
+        point: feature.scene,
+        color: accentColor,
+      }))
+      : [];
+    if (!mediaActorsArmed || !semanticFrame || !config || !api) {
+      refreshMediaActorOverlay(inspectedMarkers);
+      return;
+    }
+    const now = performance.now();
+    const activeRuntimeIds = new Set();
+    const drivenPositions = new Map();
+    for (const binding of config.bindings) {
+      const runtimeId = `${elementId}:${binding.id}`;
+      activeRuntimeIds.add(runtimeId);
+      let state = mediaBindingRuntimeRef.current.get(runtimeId);
+      if (!state) {
+        state = createMediaBindingRuntimeState();
+        mediaBindingRuntimeRef.current.set(runtimeId, state);
+      }
+      state.binding = binding;
+      state.color = binding.style.strokeColor || config.holistic.color;
+      if (!binding.enabled) {
+        finishMediaActorStroke(runtimeId, "disabled");
+        continue;
+      }
+      const signal = resolveMediaBindingSignal(binding, semanticFrame, state, now);
+      const gateActive = resolveMediaBindingGate(binding, semanticFrame, state, now);
+      if (binding.type === MEDIA_BINDING_TYPES.DRIVE_POSITION) {
+        const target = sceneElements.find(element => element.id === binding.targetElementId && !element.isDeleted);
+        if (!target || !signal.point || !gateActive) continue;
+        drivenPositions.set(target.id, mediaDrivenElementPosition(target, binding, signal.point));
+        continue;
+      }
+      if (binding.type !== MEDIA_BINDING_TYPES.FREEDRAW_ACTOR) continue;
+      if (!gateActive || !signal.point) {
+        finishMediaActorStroke(runtimeId, signal.point ? "gate" : "signal-lost");
+        continue;
+      }
+      if (!state.stroke) {
+        state.stroke = {
+          processorId: elementId,
+          bindingId: binding.id,
+          featureId: binding.featureId,
+          gateFeatureId: binding.gate.featureId,
+          points: [],
+          color: binding.style.strokeColor || foregroundColor,
+          strokeWidth: binding.style.strokeWidth,
+          opacity: binding.style.opacity,
+        };
+        inputBus.emit({
+          source: "mediapipe",
+          deviceId: runtimeId,
+          pointerId: runtimeId,
+          phase: "start",
+          scene: { x: signal.point.x, y: signal.point.y },
+          buttons: 1,
+          data: { bindingId: binding.id },
+        });
+      }
+      if (shouldAppendMediaStrokePoint(state.stroke.points, signal.point)) {
+        state.stroke.points.push({ x: signal.point.x, y: signal.point.y, time: now });
+        inputBus.emit({
+          source: "mediapipe",
+          deviceId: runtimeId,
+          pointerId: runtimeId,
+          phase: "move",
+          scene: { x: signal.point.x, y: signal.point.y },
+          buttons: 1,
+          data: { bindingId: binding.id },
+        });
+      }
+    }
+    for (const [runtimeId, state] of mediaBindingRuntimeRef.current) {
+      if (!runtimeId.startsWith(`${elementId}:`) || activeRuntimeIds.has(runtimeId)) continue;
+      finishMediaActorStroke(runtimeId, "binding-removed");
+      mediaBindingRuntimeRef.current.delete(runtimeId);
+      if (state.trace.length) state.trace = [];
+    }
+    if (drivenPositions.size) {
+      const updateTime = Date.now();
+      api.updateScene({
+        elements: (api.getSceneElementsIncludingDeleted?.() || sceneElements).map(element => {
+          const position = drivenPositions.get(element.id);
+          if (!position) return element;
+          return {
+            ...element,
+            x: position.x,
+            y: position.y,
+            version: (element.version || 0) + 1,
+            versionNonce: Math.floor(Math.random() * 0x7fffffff),
+            updated: updateTime,
+          };
+        }),
+        commitToHistory: false,
+      });
+    }
+    refreshMediaActorOverlay(inspectedMarkers);
+  }, [accentColor, eventBus, finishMediaActorStroke, foregroundColor, inputBus, mediaActorsArmed, mediaInspectedFeature, refreshMediaActorOverlay]);
+
+  useEffect(() => {
+    if (mediaActorsArmed) return;
+    for (const runtimeId of mediaBindingRuntimeRef.current.keys()) {
+      finishMediaActorStroke(runtimeId, "disarmed");
+    }
+    mediaBindingRuntimeRef.current.clear();
+    setMediaActorOverlayState({ traces: [], strokes: [], markers: [] });
+  }, [finishMediaActorStroke, mediaActorsArmed]);
+
+  useEffect(() => {
+    if (!mediaActorsArmed) return undefined;
+    const timer = window.setInterval(() => {
+      const now = performance.now();
+      for (const [runtimeId, state] of mediaBindingRuntimeRef.current) {
+        if (mediaBindingRuntimeHasExpired(state, now)) finishMediaActorStroke(runtimeId, "signal-lost");
+      }
+    }, 50);
+    return () => window.clearInterval(timer);
+  }, [finishMediaActorStroke, mediaActorsArmed]);
 
   const patchLivecodeCanvasNode = (elementId, patch = {}, { commitToHistory = false } = {}) => {
     const api = excalidrawAPIRef.current;
@@ -11244,7 +12238,7 @@ function App() {
 
   useEffect(() => {
     const api = {
-      apiVersion: 5,
+      apiVersion: 6,
       commands: {
         list: () => commandRegistry.list(),
         describe: id => commandRegistry.describe(id),
@@ -11283,6 +12277,7 @@ function App() {
       events: {
         subscribe: (pattern, listener) => eventBus.subscribe(pattern, listener),
       },
+      streams: mediaStreamsApiRef.current,
       scene: {
         get: () => excalidrawAPIRef.current?.getSceneElementsIncludingDeleted() || [],
         getAppState: () => excalidrawAPIRef.current?.getAppState() || null,
@@ -13098,7 +14093,7 @@ function App() {
           placeholder={p5ScriptMode === "global" ? "function setup() { … }\nfunction draw() { … }" : "p.setup = () => { … };\np.draw = () => { … };"}
         />
         <p className={`p5-script-status ${p5ScriptStatusKind}`} role="status" aria-live="polite">
-          {p5ScriptStatus || <>Trusted local code: p5 sketches run directly in Drawerator with access to the page and <code>drawerator</code>. Use only code you trust.</>}
+          {p5ScriptStatus || <>Trusted local code: p5 sketches run directly in Drawerator with access to the page and <code>__</code>. Use only code you trust.</>}
         </p>
       </div>
     );
@@ -13271,7 +14266,7 @@ function App() {
       setPlayCoreLiveStatus(`Loaded original play.core example “${example.name}”. Select a frame and press Run to attach it.`, "success");
     };
     return <div className="iannix-properties iannix-script-pane p5-script-pane">
-      <p className="p5-script-status">Play Core programs render ASCII cells in a Drawerator frame. Use <code>@param</code> with <code>drawerator.params</code>; <code>drawerator.canvas</code>, events, and transport are the same bridge exposed to p5.</p>
+      <p className="p5-script-status">Play Core programs render ASCII cells in a Drawerator frame. Use <code>@param</code> with <code>__.params</code>; <code>__.canvas</code>, events, and transport are the same bridge exposed to p5.</p>
       {editingPlayCoreScriptName ? <input
         type="text"
         className="custom-brush-select"
@@ -13351,7 +14346,7 @@ function App() {
         setPlayCoreSource(source);
         if (updateScriptLive({ source })) setPlayCoreLiveStatus("Compiled successfully.", "success");
       }} onRun={applyToSelection} scriptType="play" ariaLabel="Play Core source" getDiagnostics={source => { const validation = validatePlayCoreSource(source); return validation.valid ? [] : [sourceDiagnostic(source, validation.error)]; }} />
-      <p className={`p5-script-status ${playCoreStatusKind}`} role="status" aria-live="polite">{playCoreStatus || <>Trusted local code: Play Core frames run directly in Drawerator with access to <code>drawerator</code>. Use only code you trust.</>}</p>
+      <p className={`p5-script-status ${playCoreStatusKind}`} role="status" aria-live="polite">{playCoreStatus || <>Trusted local code: Play Core frames run directly in Drawerator with access to <code>__</code>. Use only code you trust.</>}</p>
     </div>;
   };
 
@@ -13392,6 +14387,7 @@ function App() {
             : <label>View <select value={node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="code">Code</option><option value="preview">Output</option><option value="split">Code/output</option></select></label>}
         <label>Clock <select value={node.runtime.transportMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { transportMode: event.target.value } }, { commitToHistory: true })}><option value="linked">Linked</option><option value="free">Free</option></select></label>
         {node.kind === LIVECODE_KINDS.strudel && <label>Transport <span className="livecode-checkbox"><input type="checkbox" checked={Boolean(node.runtime.settings?.syncTransport)} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { syncTransport: event.target.checked } } }, { commitToHistory: true })} />Full sync</span></label>}
+        {node.kind === LIVECODE_KINDS.strudel && <label title="Render public Strudel visualizers such as .pianoroll() across this node frame">Visuals <span className="livecode-checkbox"><input type="checkbox" aria-label="Strudel frame visuals" checked={node.runtime.settings?.frameVisuals !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { frameVisuals: event.target.checked } } }, { commitToHistory: true })} />Frame</span></label>}
         <label>Font <select value={node.typography.font} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { font: event.target.value } }, { commitToHistory: true })}>{LIVE_CODE_FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label>
         <label title="Ctrl-M, then L">Lines <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.showLineNumbers} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { showLineNumbers: event.target.checked } }, { commitToHistory: true })} />Numbers</span></label>
         <label>Fold <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.showFoldGutter} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { showFoldGutter: event.target.checked } }, { commitToHistory: true })} />Gutter</span></label>
@@ -13430,6 +14426,7 @@ function App() {
       <LivecodeNodeEditor
         node={node}
         element={nodeElement}
+        showGutters
         onPatch={patch => patchLivecodeCanvasNode(nodeElement.id, patch)}
         onRun={() => toggleLivecodeNodeRun(nodeElement.id, { command: "run" })}
         onUpdate={node.kind === LIVECODE_KINDS.strudel
@@ -15300,10 +16297,10 @@ function App() {
     const activeAIProvider = getAIProvider(aiSettings.provider);
     const activeAIProviderHelp = getAIProviderHelp(aiSettings.provider);
     const settingTabs = [
-      { id: "ai", label: "AI" },
       { id: "preferences", label: "Board" },
-      { id: "shortcuts", label: "Shortcuts" },
       { id: "score", label: "Score & MIDI" },
+      { id: "ai", label: "AI" },
+      { id: "shortcuts", label: "Shortcuts" },
     ];
     return (
       <div className="settings-panel-content">
@@ -16030,6 +17027,16 @@ function App() {
         target = target[segment];
       }
       target[lastKey] = value;
+      // Excalidraw renders a frame title from its native `name` field, while
+      // Drawerator keeps the user-facing presentation contract in customData.
+      // Keep the native field as a renderer detail so frame grouping remains
+      // entirely native but label visibility is persistent and controllable.
+      if (next.type === "frame" && path[0] === "customData" && path[1] === "draweratorFrame") {
+        const framePresentation = next.customData.draweratorFrame || {};
+        next.name = framePresentation.showLabel
+          ? (framePresentation.label || null)
+          : "\u200B";
+      }
       if (path[0] === "customData" && path.includes("modifiers")) {
         next.customData.version = (next.customData.version || 0) + 1;
       }
@@ -16045,6 +17052,20 @@ function App() {
     if (!changed) return;
     excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
     setModifierUpdateNonce(nonce => nonce + 1);
+  };
+
+  const pickObjectReferenceForProperty = (ownerElementId, path) => {
+    if (path.join(".") !== "customData.draweratorMediaStream.canvas.elementId") return;
+    beginObjectEyedropper({
+      label: "Pick canvas input",
+      accept: element => !element.isDeleted
+        && (element.type === "rectangle" || element.type === "frame")
+        && !isMediaStreamElement(element),
+      onPick: element => {
+        updateSceneObjectProperty([ownerElementId], path, element.id);
+        return `${element.type === "frame" ? "Frame" : "Rectangle"} assigned as canvas input.`;
+      },
+    });
   };
 
   const sidePanels = DRAWERATOR_PANELS.filter(panel => panel.placements.includes(PANEL_PLACEMENTS.LEFT) || panel.placements.includes(PANEL_PLACEMENTS.RIGHT));
@@ -16135,7 +17156,12 @@ function App() {
     </div>;
   };
   const syncP5Overlay = (elements, appState) => {
-    const frames = (elements || []).filter(element => !element.isDeleted && (isP5FrameElement(element) || isPlayCoreFrameElement(element)));
+    const canvasElements = (elements || []).filter(element => !element.isDeleted);
+    const frames = canvasElements.filter(element => (
+      isP5FrameElement(element)
+      || isPlayCoreFrameElement(element)
+      || isMediaStreamElement(element)
+    ));
     const camera = {
       scrollX: Number(appState?.scrollX) || 0,
       scrollY: Number(appState?.scrollY) || 0,
@@ -16145,7 +17171,24 @@ function App() {
       camera.scrollX,
       camera.scrollY,
       camera.zoom.value,
+      ...canvasElements.map(element => `${element.id}:${element.version || 0}:${element.versionNonce || 0}`),
       ...frames.map(element => {
+        if (isMediaStreamElement(element)) {
+          const stream = normalizeMediaStreamConfig(element.customData?.draweratorMediaStream);
+          return [
+            "media",
+            element.id,
+            element.x,
+            element.y,
+            element.width,
+            element.height,
+            element.angle,
+            element.opacity,
+            element.version,
+            element.versionNonce,
+            JSON.stringify(stream),
+          ].join(",");
+        }
         const isP5 = isP5FrameElement(element);
         const frame = isP5
           ? normalizeP5Frame(element.customData?.draweratorP5)
@@ -16171,7 +17214,7 @@ function App() {
     ].join("|");
     if (p5OverlaySyncRef.current.signature === signature) return;
     p5OverlaySyncRef.current.signature = signature;
-    p5OverlaySyncRef.current.pending = { elements: frames, appState: camera };
+    p5OverlaySyncRef.current.pending = { elements: frames, canvasElements, appState: camera, captureRevision: Date.now() };
     if (p5OverlaySyncRef.current.raf) return;
     p5OverlaySyncRef.current.raf = requestAnimationFrame(() => {
       p5OverlaySyncRef.current.raf = 0;
@@ -16318,8 +17361,10 @@ function App() {
         onPointerUpCapture={handleCanvasPointerUp} 
         onDoubleClickCapture={handleCanvasDoubleClick}
         onContextMenuCapture={handleCanvasContextMenu}
+        onDragOverCapture={handleCanvasMediaPreviewDragOver}
+        onDropCapture={handleCanvasMediaPreviewDrop}
         style={{ width: "100%", height: "100%", position: "relative" }}
-        className={modifierDrawingActive && drawingPoints.length > 0 ? "custom-brush-drawing" : ""}
+        className={`${modifierDrawingActive && drawingPoints.length > 0 ? "custom-brush-drawing" : ""} ${objectEyedropper ? "drawerator-object-eyedropper" : ""}`.trim()}
       >
         <Excalidraw 
           theme={theme} 
@@ -16348,6 +17393,35 @@ function App() {
             syncP5Overlay(elements, appState);
             syncSvgOverlay(elements, appState);
             syncLivecodeOverlay(elements, appState);
+
+            // Frames are native grouping containers, but their visual title is
+            // Drawerator presentation state. Once native creation finishes,
+            // give every new or imported frame the compact hidden-label
+            // default. Deferring while the frame is being dragged keeps the
+            // native creation gesture intact.
+            if (!appState.draggingElement && !appState.resizingElement) {
+              let addedFramePresentation = false;
+              const frameDefaultedElements = elements.map(element => {
+                if (element.type !== "frame" || element.isDeleted || element.customData?.draweratorFrame) return element;
+                addedFramePresentation = true;
+                const label = typeof element.name === "string" && element.name !== "\u200B" ? element.name : "";
+                return {
+                  ...element,
+                  name: "\u200B",
+                  customData: {
+                    ...(element.customData || {}),
+                    draweratorFrame: { label, showLabel: false },
+                  },
+                  version: (element.version || 0) + 1,
+                  versionNonce: Math.floor(Math.random() * 0x7fffffff),
+                  updated: Date.now(),
+                };
+              });
+              if (addedFramePresentation) {
+                excalidrawAPIRef.current?.updateScene({ elements: frameDefaultedElements, commitToHistory: false });
+                return;
+              }
+            }
 
             const nativeBezierEditId = appState.editingLinearElement?.elementId || null;
             const nativeBezierEditElement = nativeBezierEditId
@@ -16829,6 +17903,12 @@ function App() {
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-synth", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Expressive Synth
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-media-input", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              Media Input
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-holistic", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              MediaPipe Holistic
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-info", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Info
@@ -17452,6 +18532,9 @@ function App() {
               availableElements={(excalidrawAPI?.getSceneElementsIncludingDeleted() || []).filter(element => !element.isDeleted)}
               selectedSvgNode={selectedSvgNode}
               onChange={updateSceneObjectProperty}
+              mediaSources={mediaSources}
+              onFocusMediaSource={focusMediaInputSource}
+              onPickObjectReference={pickObjectReferenceForProperty}
               onSelectSvgNode={selectSvgNode}
               onExtractSvgSubpath={extractSvgSubpathToDrawerator}
               onAssignSvgNodeRole={assignSvgNodeRole}
@@ -17934,7 +19017,7 @@ function App() {
           {shouldRenderPanel("iannix") && (
           <DraweratorPanel
             id="iannix"
-            title="IanniX"
+            title="Scene"
             placement={panelLayouts.iannix.placement}
             layout={panelLayouts.iannix}
             dockTabs={getPanelDockTabs("iannix")}
@@ -17949,17 +19032,8 @@ function App() {
             collapsed={panelLayouts.iannix.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.iannix.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.iannix.placement]: false }))}
           >
-            <div className="drawerator-panel-secondary-header">
-              <div role="tablist" aria-label="IanniX views" className="mods-panel-tabs">
-                {[{ id: "object", label: "Object" }, { id: "data", label: "Data" }].map(tab => (
-                  <button key={tab.id} type="button" role="tab" aria-selected={iannixPanelTab === tab.id} className={`mods-panel-tab ${iannixPanelTab === tab.id ? "active" : ""}`} onClick={() => setIannixPanelTab(tab.id)}>{tab.label}</button>
-                ))}
-              </div>
-            </div>
-            <div style={{ padding: "16px", height: "calc(100% - 50px)", overflowY: "auto" }}>
-              {iannixPanelTab === "data"
-                ? <IannixDataPanel elements={getSelectedElements()} onChange={updateIannixDataPath} timeContext={timeContext} />
-                : renderIannixTab()}
+            <div style={{ padding: "16px", height: "100%", overflowY: "auto" }}>
+              {renderIannixTab()}
             </div>
           </DraweratorPanel>
           )}
@@ -18037,6 +19111,105 @@ function App() {
           </DraweratorPanel>
           )}
 
+          {shouldRenderPanel("media-input") && (
+          <DraweratorPanel
+            id="media-input"
+            title="Media Input"
+            placement={panelLayouts["media-input"].placement}
+            layout={panelLayouts["media-input"]}
+            dockTabs={getPanelDockTabs("media-input")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts["media-input"].placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("media-input", placement)}
+            onDragStart={event => startSidebarPanelDrag("media-input", event)}
+            onClose={() => closeDraweratorPanel("media-input")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts["media-input"].placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts["media-input"].placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts["media-input"].placement]: false }))}
+          >
+            <MediaInputPanel
+              sources={mediaSources}
+              canvasTargets={canvasInputTargets}
+              selectedCanvasTarget={selectedCanvasInputTarget}
+              activeSourceId={activeMediaSourceId}
+              onActiveSourceChange={setActiveMediaSourceId}
+              onCreate={createMediaInputSource}
+              onPatch={patchMediaInputSource}
+              onCreatePreview={createMediaPreview}
+              onAssignPreview={createMediaPreview}
+              onPickCanvasTarget={beginCanvasSourceEyedropper}
+              onChooseFile={chooseMediaStreamFile}
+              onDelete={deleteMediaInputSource}
+            />
+          </DraweratorPanel>
+          )}
+
+          {shouldRenderPanel("holistic") && (
+          <DraweratorPanel
+            id="holistic"
+            title="MediaPipe Holistic"
+            placement={panelLayouts.holistic.placement}
+            layout={panelLayouts.holistic}
+            dockTabs={getPanelDockTabs("holistic")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.holistic.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("holistic", placement)}
+            onDragStart={event => startSidebarPanelDrag("holistic", event)}
+            onClose={() => closeDraweratorPanel("holistic")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.holistic.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.holistic.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.holistic.placement]: false }))}
+          >
+            <HolisticPanel
+              elements={excalidrawAPI?.getSceneElementsIncludingDeleted?.() || p5OverlayScene.elements}
+              sources={mediaSources}
+              selectedElementIds={selectedElementIds}
+              onCreate={(kind, overrides) => createMediaStreamObject(kind, overrides)}
+              onPatch={patchMediaStreamObject}
+              onSelect={selectMediaStreamObject}
+              onSnapshot={snapshotHolisticLandmarks}
+            />
+          </DraweratorPanel>
+          )}
+
+          {shouldRenderPanel("mapping") && (
+          <DraweratorPanel
+            id="mapping"
+            title="Media Mapping"
+            placement={panelLayouts.mapping.placement}
+            layout={panelLayouts.mapping}
+            dockTabs={getPanelDockTabs("mapping")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.mapping.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("mapping", placement)}
+            onDragStart={event => startSidebarPanelDrag("mapping", event)}
+            onClose={() => closeDraweratorPanel("mapping")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.mapping.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.mapping.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.mapping.placement]: false }))}
+          >
+            <MediaMappingPanel
+              elements={excalidrawAPI?.getSceneElementsIncludingDeleted?.() || p5OverlayScene.elements}
+              selectedElementIds={selectedElementIds}
+              actorsArmed={mediaActorsArmed}
+              onArm={armed => commandRegistry.execute("media.actors.arm", { armed }, { source: "mapping-panel" })}
+              onCreateBinding={(elementId, binding) => commandRegistry.execute("media.binding.create", { elementId, binding }, { source: "mapping-panel" })}
+              onUpdateBinding={(elementId, bindingId, patch) => commandRegistry.execute("media.binding.update", { elementId, bindingId, patch }, { source: "mapping-panel" })}
+              onDuplicateBinding={duplicateMediaBindingForProcessor}
+              onDeleteBinding={(elementId, bindingId) => commandRegistry.execute("media.binding.remove", { elementId, bindingId }, { source: "mapping-panel" })}
+              onCreateMap={createMediaMapObject}
+              inspected={mediaInspectedFeature}
+              onInspect={setMediaInspectedFeature}
+            />
+          </DraweratorPanel>
+          )}
+
           {(panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? shouldRenderHorizontalPanel("info") : shouldRenderPanel("info")) && (
           <DraweratorPanel
             id="info"
@@ -18059,7 +19232,7 @@ function App() {
           >
             <InfoPanel
               info={infoView}
-              mode={openPanels.script ? scriptPanelType : "default"}
+              mode={openPanels.mapping ? "media" : openPanels.script ? scriptPanelType : "default"}
               iannixCommand={iannixCommandHelp}
             />
           </DraweratorPanel>
@@ -18129,6 +19302,32 @@ function App() {
           scriptRuntimeRef={scriptRuntimeRef}
         />
         <PlayCoreFrameOverlay elements={p5OverlayScene.elements} appState={p5OverlayScene.appState} scriptRuntimeRef={scriptRuntimeRef} />
+        <MediaSourceRuntimeLayer
+          sources={mediaSources}
+          captureCanvasSource={captureCanvasInput}
+          captureRevision={p5OverlayScene.captureRevision}
+        />
+        <MediaStreamOverlay
+          elements={p5OverlayScene.elements}
+          appState={p5OverlayScene.appState}
+          sources={mediaSources}
+          onPatch={patchMediaStreamObject}
+          onFocusSource={focusMediaInputSource}
+          onResults={handleMediaStreamResults}
+        />
+        <MediaActorOverlay
+          appState={p5OverlayScene.appState}
+          traces={mediaActorOverlayState.traces}
+          strokes={mediaActorOverlayState.strokes}
+          markers={mediaActorOverlayState.markers}
+        />
+        <MediaMapOverlay
+          elements={excalidrawAPI?.getSceneElementsIncludingDeleted?.() || p5OverlayScene.elements}
+          appState={p5OverlayScene.appState}
+          inspected={mediaInspectedFeature}
+          onSelectFeature={selectMediaMapFeature}
+          onSelectFeatures={selectMediaMapFeatures}
+        />
         <LivecodeNodeOverlay
           elements={livecodeOverlayScene.elements}
           appState={livecodeOverlayScene.appState}
@@ -18141,7 +19340,7 @@ function App() {
           onMidiEvents={emitOrcaMidiEvents}
           onStrudelTransport={handleStrudelTransportControl}
           scriptRuntimeRef={scriptRuntimeRef}
-          transport={{ playing: scorePlaying, bpm: scoreTempo }}
+          transport={{ playing: scorePlaying, bpm: scoreTempo, time: scoreTime }}
         />
         <SvgObjectOverlay
           elements={svgOverlayScene.elements}
@@ -18430,7 +19629,7 @@ function App() {
                   Export Selected p5 Frame as PNG
                 </button>
               )}
-              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showToSvg || customContextMenu.showMakeRole || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showMigrateLivecode || customContextMenu.showAttachSvgCode || customContextMenu.showCreateLivecode || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
+              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showToSvg || customContextMenu.showMakeRole || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showMigrateLivecode || customContextMenu.showAttachSvgCode || customContextMenu.showMakePreview || customContextMenu.showCreateLivecode || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
             </>
           )}
           {customContextMenu.showCreateLivecode && (
@@ -18449,6 +19648,28 @@ function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="m9 9 3 3-3 3M15 15h2" />
               </svg>
               New Livecode Node
+            </button>
+          )}
+          {customContextMenu.showMakePreview && (
+            <button
+              onPointerDown={event => {
+                event.preventDefault();
+                event.stopPropagation();
+                try {
+                  makeSelectedMediaPreview();
+                } catch (error) {
+                  setSceneExchangeStatus(error?.message || "Could not make a preview.");
+                }
+                setCustomContextMenu(null);
+              }}
+              className="custom-floating-context-menu-btn"
+              title="Turn the selected frame or rectangle into a preview for the active image source"
+            >
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                <rect x="3" y="5" width="18" height="14" rx="1" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="m6 16 4-4 3 3 2-2 3 3" />
+              </svg>
+              Make Preview
             </button>
           )}
           {customContextMenu.showRestore && (

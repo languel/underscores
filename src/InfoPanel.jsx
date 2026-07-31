@@ -73,7 +73,7 @@ const EditorKeys = () => (
 const DraweratorApiGuide = () => (
   <section>
     <h3>Drawerator API</h3>
-    <p>The shared <code>drawerator</code> bridge is available in p5 and Play Core. It is live: scene queries, selection, transport, theme, and parameters reflect the current app state. Use <code>drawerator.api</code> for deliberate application-level operations.</p>
+    <p>The shared <code>__</code> bridge is available in p5 and Play Core. It is live: scene queries, selection, transport, theme, and parameters reflect the current app state. Use <code>__.api</code> for deliberate application-level operations. The legacy <code>drawerator</code> name remains available for compatibility.</p>
     <details className="info-api-group" open>
       <summary>Frame bridge</summary>
       <dl className="info-svg-command-list">
@@ -101,7 +101,7 @@ const DraweratorApiGuide = () => (
       </dl>
     </details>
     <details className="info-api-group">
-      <summary>Application API · <code>drawerator.api</code></summary>
+      <summary>Application API · <code>__.api</code></summary>
       <dl className="info-svg-command-list">
         <div><dt><code>api.apiVersion</code></dt><dd>Current public API version; use it when a script requires a particular capability.</dd></div>
         <div><dt><code>api.commands</code></dt><dd><code>list()</code>, <code>describe(id)</code>, <code>execute(id, args, options)</code>, and <code>subscribe(listener)</code>.</dd></div>
@@ -112,16 +112,17 @@ const DraweratorApiGuide = () => (
         <div><dt><code>api.history</code> / <code>api.macros</code></dt><dd>Record, replay, import/export, save, insert, and remove reusable command history.</dd></div>
         <div><dt><code>api.inputs</code> / <code>api.events</code></dt><dd>Register or emit input adapters, and subscribe to application events.</dd></div>
         <div><dt><code>api.mixer</code></dt><dd>Read the mixer or add, update, and remove tracks.</dd></div>
+        <div><dt><code>api.streams</code></dt><dd>List semantic streams, resolve one by id or name, query MediaPipe features, or subscribe to transient observations.</dd></div>
       </dl>
     </details>
     <pre><code>{`// Follow the current Drawerator foreground
-return { char: "●", color: drawerator.colors.foreground.css };
+return { char: "●", color: __.colors.foreground.css };
 
 // Read a selected score object
-const cursor = drawerator.canvas.selected()[0];
+const cursor = __.canvas.selected()[0];
 
 // Invoke a documented app command
-await drawerator.api.commands.execute("grid.global.update", {
+await __.api.commands.execute("grid.global.update", {
   patch: { enabled: true }
 });`}</code></pre>
   </section>
@@ -132,7 +133,7 @@ const P5InfoGuide = () => (
     <section>
       <h3>p5 sketch</h3>
       <pre><code>{`function setup() {
-  createCanvas(drawerator.element.width, drawerator.element.height);
+  createCanvas(__.element.width, __.element.height);
 }
 
 function draw() {
@@ -140,10 +141,46 @@ function draw() {
   stroke("#1769e0");
   circle(width / 2, height / 2, 80);
 }`}</code></pre>
-      <p>Use global p5 functions such as <code>stroke</code>, <code>fill</code>, <code>circle</code>, <code>line</code>, <code>translate</code>, and <code>noise</code>. <code>drawerator.element</code> is the host object; <code>drawerator.params</code> contains declared parameters.</p>
+      <p>Use global p5 functions such as <code>stroke</code>, <code>fill</code>, <code>circle</code>, <code>line</code>, <code>translate</code>, and <code>noise</code>. <code>__.element</code> is the host object; <code>__.params</code> contains declared parameters.</p>
     </section>
     <DraweratorApiGuide />
     <EditorKeys />
+  </div>
+);
+
+const MediaStreamsInfoGuide = () => (
+  <div className="info-svg-guide">
+    <section>
+      <h3>Semantic streams</h3>
+      <p>Holistic observations stay transient. The processor object persists its source, transform, overlay settings, and versioned actor bindings; it does not create one scene object per landmark.</p>
+      <pre><code>{`const body = __.streams.get("Holistic");
+const finger = body.feature("left_hand.index_finger_tip", {
+  space: "scene",
+});
+const unsubscribe = body.subscribe(frame => {
+  console.log(frame.feature("right_hand.pinch"));
+});`}</code></pre>
+      <p>Canonical names use lower snake case: <code>pose.left_index</code>, <code>left_hand.index_finger_tip</code>, and <code>right_hand.thumb_tip</code>. Face vertices remain numeric, such as <code>face.468</code>. Named groups include <code>face.face_oval</code>, <code>face.left_eye</code>, <code>face.left_iris</code>, and <code>face.lips</code>.</p>
+    </section>
+    <section>
+      <h3>Coordinates and availability</h3>
+      <ul>
+        <li><strong>normalized</strong> is MediaPipe output in the processed source frame. Crop and mirror have already been applied upstream.</li>
+        <li><strong>local</strong> is measured inside the Holistic processor rectangle.</li>
+        <li><strong>scene</strong> includes the processor’s translation, scale, and rotation. Z remains data and does not change the default 2D projection.</li>
+        <li>Snapshots report <code>available</code>, <code>ageMs</code>, optional confidence, and geometry or scalar values. Missing landmarks never become scene geometry.</li>
+      </ul>
+    </section>
+    <section>
+      <h3>Media actors</h3>
+      <ul>
+        <li>The Mapping panel’s arm switch is local to this browser and independent of transport.</li>
+        <li><strong>Drive position</strong> maps a point or region centroid to a real target object with per-binding smoothing, confidence gating, and missing-signal grace.</li>
+        <li><strong>Freedraw actor</strong> previews a gesture while active and commits one native undoable freedraw object when the gate closes.</li>
+        <li>Disarming immediately releases gates and closes active strokes. Raw stream reads remain available to scripts while actors are disarmed.</li>
+      </ul>
+    </section>
+    <DraweratorApiGuide />
   </div>
 );
 
@@ -154,8 +191,8 @@ const PlayCoreInfoGuide = () => (
       <pre><code>{`// @param threshold = 0.55 (0..1, step: 0.01)
 export const settings = { fps: 30, cols: 0, rows: 0 };
 
-export function main({ x, y }, context, cursor, buffer, drawerator) {
-  return Math.sin(x + context.time / 400) > drawerator.params.threshold
+export function main({ x, y }, context) {
+  return Math.sin(x + context.time / 400) > __.params.threshold
     ? "·" : " ";
 }`}</code></pre>
       <p>Play Core programs draw one ASCII cell at a time. Attach the program to a selected rectangle or frame, or press Play with no selection to create a new frame. Selecting one Play Core host loads that host’s exact source into the Script panel.</p>
@@ -173,15 +210,15 @@ export function main({ x, y }, context, cursor, buffer, drawerator) {
       <h3>Lifecycle</h3>
       <ul>
         <li><code>settings</code> controls <code>fps</code>, <code>cols</code>, <code>rows</code>, foreground <code>color</code>, and <code>backgroundColor</code>. Zero columns or rows adapt to the frame size.</li>
-        <li><code>boot(drawerator)</code> runs once; <code>pre</code> and <code>post</code> surround each cell pass.</li>
-        <li><code>main(coord, context, cursor, buffer, drawerator)</code> returns a character or a cell object.</li>
+        <li><code>boot()</code> runs once; <code>pre</code> and <code>post</code> surround each cell pass. The bridge is always available as <code>__</code>.</li>
+        <li><code>main(coord, context, cursor, buffer)</code> returns a character or a cell object.</li>
         <li><code>pointerMove</code>, <code>pointerDown</code>, and <code>pointerUp</code> receive the current context, cursor, buffer, and Drawerator bridge.</li>
       </ul>
     </section>
     <section>
       <h3>Cells and input</h3>
       <ul>
-        <li><code>main(&#123; x, y, index &#125;, context, cursor, buffer, drawerator)</code> runs for every cell. Return a character, or an object such as <code>&#123; char: &quot;·&quot; &#125;</code>.</li>
+        <li><code>main(&#123; x, y, index &#125;, context, cursor, buffer)</code> runs for every cell. Return a character, or an object such as <code>&#123; char: &quot;·&quot; &#125;</code>.</li>
         <li><code>context</code> includes <code>frame</code>, <code>time</code>, <code>cols</code>, <code>rows</code>, <code>width</code>, <code>height</code>, resolved <code>settings</code>, and <code>metrics</code> (<code>cellWidth</code>, <code>cellHeight</code>, <code>aspect</code>).</li>
         <li><code>cursor</code> is measured in ASCII-cell coordinates and includes <code>x</code>, <code>y</code>, <code>pressed</code>, and the previous state in <code>cursor.p</code>.</li>
         <li>Use <code>pre</code> and <code>post</code> to prepare or inspect the shared <code>buffer</code>; pointer callbacks receive the same <code>context</code>, <code>cursor</code>, <code>buffer</code>, and bridge.</li>
@@ -290,6 +327,7 @@ const scriptGuide = (mode, iannixCommand) => {
   if (mode === "play") return <PlayCoreInfoGuide />;
   if (mode === "iannix") return <IannixInfoGuide activeCommand={iannixCommand} />;
   if (mode === "brush") return <BrushInfoGuide />;
+  if (mode === "media") return <MediaStreamsInfoGuide />;
   return null;
 };
 
@@ -299,6 +337,7 @@ const guideTitle = mode => ({
   play: "Play Core quick reference",
   iannix: "IanniX quick reference",
   brush: "Brush quick reference",
+  media: "Media streams and actors",
 }[mode] || null);
 
 export default function InfoPanel({ info = DEFAULT_INFO_VIEW, mode = "default", iannixCommand = null }) {

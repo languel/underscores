@@ -1,6 +1,6 @@
 # Drawerator UI Guidelines
 
-Last updated: 2026-07-22
+Last updated: 2026-07-31
 
 Drawerator's interface should feel dense, quiet, and predictable. Ableton Live is the reference for information density and Blender is the reference for managing many editable parameters. The application keeps its minimal color scheme and uses structure, alignment, and restrained state fills instead of decorative framing.
 
@@ -45,9 +45,14 @@ Do not use sliders for ordinary scalar parameters. Keep formatted values such as
 ## Contextual help and shortcuts
 
 - Put stable control explanations in concise native hover titles and the dockable/floating **Info** panel, rather than leaving explanatory paragraphs in inspectors.
+- Never leave stable tips or helper prose visible between controls. Attach that guidance to the relevant control as a hover title and Info-panel annotation; reserve inline text for live status, errors, and values that change while playing.
 - Use the shared `infoProps(title, body)` helper so a control supplies both `title` and the `data-info-title` / `data-info` pair consumed by Info on hover or keyboard focus.
 - Use a small `ⓘ` or `?` help anchor only where no existing control can naturally carry the explanation. Dynamic errors, live status, and values that change while playing remain inline.
 - Keep the editable Shortcuts panel dense: shortcut rows are compact label/binding pairs, not large button cards. Register every Drawerator action in the shared shortcut registry so its default is visible and rebindable there; do not add a hard-coded duplicate listener.
+- Canvas selection follows the familiar default: click selects one object, Cmd/Ctrl-click toggles,
+  Shift-click ranges in list views, and Escape or an empty-canvas click clears selection. Alt-click
+  selects a rectangular, framed, or Drawerator-hosted object by its interior; repeat Alt-Shift-click
+  at one point to cycle overlapping eligible objects by depth.
 
 ## Buttons and toggles
 

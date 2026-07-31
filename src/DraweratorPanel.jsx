@@ -32,6 +32,15 @@ export const PanelIcon = ({ id }) => {
       <path d="M2.5 18.5c2.8 0 3.3-5.3 5.2-5.3 2.1 0 2.6 5.6 5.6 5.6 2.9 0 4.5-8.6 8.2-11.6"/>
     </svg>;
   }
+  if (id === "media-input") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m5 17 4.5-4 3 2 2.5-3 4 5M8 20l3-4"/></svg>;
+  }
+  if (id === "holistic") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="6.5" cy="10" r="1.5"/><circle cx="17.5" cy="10" r="1.5"/><circle cx="8" cy="18" r="1.5"/><circle cx="16" cy="18" r="1.5"/><path d="M12 7v5M8 10l4 2 4-2M12 12l-4 6M12 12l4 6"/></svg>;
+  }
+  if (id === "mapping") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>;
+  }
   if (id === "transport") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6M12 2v3"/></svg>;
   }

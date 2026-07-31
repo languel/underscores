@@ -11,12 +11,40 @@ import {
 import { getEditableSvgPathNodes } from "./svgPathGeometry.js";
 import { buildSvgTimingGraph } from "./svgAnimation.js";
 import { getSvgNodeStyleCascade, updateStructuredSvgStyleDeclaration } from "./svgStyleModel.js";
+import { isMediaStreamElement, MEDIA_STREAM_KINDS, normalizeMediaStreamConfig, patchMediaStreamConfig } from "./mediaStream.js";
 
 const READ_ONLY_KEYS = new Set([
   "id", "type", "width", "height", "version", "versionNonce", "updated", "index", "seed",
   "points", "pressures", "originalPoints", "boundElements", "groupIds", "frameId", "containerId",
   "startBinding", "endBinding", "isDeleted", "excalidrawVersion", "lastWidth", "lastHeight",
 ]);
+
+const PROPERTIES_PINS_STORAGE_KEY = "drawerator_properties_pins_v1";
+
+const pathKey = path => path.map(String).join(".");
+// Frames are semantic Excalidraw containers. Although their element data has a
+// `roundness` slot, Excalidraw's frame renderer uses a fixed rounded outline
+// and does not apply that value. Keep the control to shapes that actually
+// respond to it.
+const supportsRoundness = element => ["line", "rectangle", "diamond"].includes(element?.type);
+const isObjectReferencePath = path => pathKey(path) === "customData.draweratorMediaStream.canvas.elementId";
+
+const defaultPinnedPathsFor = element => {
+  if (element?.type === "frame") return [
+    ["customData", "draweratorFrame", "label"],
+    ["customData", "draweratorFrame", "showLabel"],
+  ];
+  if (isMediaStreamElement(element)) {
+    const stream = normalizeMediaStreamConfig(element.customData?.draweratorMediaStream);
+    if (stream.kind === MEDIA_STREAM_KINDS.PREVIEW) return [
+      ["customData", "draweratorMediaStream", "sourceId"],
+      ["customData", "draweratorMediaStream", "enabled"],
+      ["customData", "draweratorMediaStream", "mirror"],
+    ];
+  }
+  if (element?.customData?.iannix?.role) return [["customData", "iannix", "role"]];
+  return [["x"], ["y"]];
+};
 
 const primitiveText = value => {
   if (typeof value === "string") return `"${value}"`;
@@ -98,7 +126,7 @@ const nodeMatches = (value, path, query) => {
   return entries.some(([key, item]) => nodeMatches(item, [...path, key], query));
 };
 
-const EditableValue = ({ value, path, onChange }) => {
+const EditableValue = ({ value, path, onChange, mediaSources = [] }) => {
   const inputRef = useRef(null);
   const [draft, setDraft] = useState(() => value == null ? "" : String(value));
   useEffect(() => {
@@ -106,7 +134,10 @@ const EditableValue = ({ value, path, onChange }) => {
       setDraft(value == null ? "" : String(value));
     }
   }, [value]);
-  const enumOptions = enumOptionsForPath(path);
+  const sourceOptions = pathKey(path).endsWith(".sourceId")
+    ? [["", "Choose input…"], ...mediaSources.map(source => [source.id, source.name])]
+    : null;
+  const enumOptions = enumOptionsForPath(path) || sourceOptions;
   if (enumOptions) return (
     <select value={value ?? ""} onChange={event => {
       const option = enumOptions.find(([candidate]) => String(candidate ?? "") === event.target.value);
@@ -132,14 +163,20 @@ const EditableValue = ({ value, path, onChange }) => {
   return <code>{primitiveText(value)}</code>;
 };
 
-const PropertyNode = ({ name, value, depth = 0, path = [], query, onChange, isSharedPath }) => {
+const PropertyNode = ({ name, value, depth = 0, path = [], query, onChange, isSharedPath, mediaSources, pinnedKeys, onTogglePin, showPin = true, ownerElement, onPickObjectReference }) => {
+  const roundness = path.at(-1) === "roundness" && supportsRoundness(ownerElement);
+  if (roundness) {
+    const key = pathKey(path);
+    return <div className="properties-row editable"><span>{name}</span><div className="properties-row-value"><select value={value?.type === 2 ? "round" : "sharp"} onChange={event => onChange(path, event.target.value === "round" ? { type: 2 } : null, isSharedPath?.(path))} aria-label="Roundness"><option value="sharp">Sharp</option><option value="round">Round</option></select>{showPin && <button type="button" className={`properties-pin ${pinnedKeys?.has(key) ? "pinned" : ""}`} onClick={() => onTogglePin?.(path)} title={pinnedKeys?.has(key) ? "Unpin property" : "Pin property"} aria-label={pinnedKeys?.has(key) ? `Unpin ${key}` : `Pin ${key}`}>★</button>}</div></div>;
+  }
   const nested = value !== null && typeof value === "object";
   if (!nested) {
     if (!leafMatches(value, path, query)) return null;
     const editable = canEditPath(path) && (Boolean(enumOptionsForPath(path)) || ["boolean", "number", "string"].includes(typeof value));
-    return <div className={`properties-row ${editable ? "editable" : "readonly"}`}><span>{name}</span>{editable
-      ? <EditableValue value={value} path={path} onChange={next => onChange(path, next, isSharedPath?.(path))} />
-      : <code>{primitiveText(value)}</code>}</div>;
+    const key = pathKey(path);
+    return <div className={`properties-row ${editable ? "editable" : "readonly"}`}><span>{name}</span><div className="properties-row-value">{editable
+      ? <EditableValue value={value} path={path} mediaSources={mediaSources} onChange={next => onChange(path, next, isSharedPath?.(path))} />
+      : <code>{primitiveText(value)}</code>}{isObjectReferencePath(path) && <button type="button" className="properties-object-picker" onClick={() => onPickObjectReference?.(path)} title="Pick a canvas object" aria-label={`Pick ${key}`}>⌖</button>}{editable && showPin && <button type="button" className={`properties-pin ${pinnedKeys?.has(key) ? "pinned" : ""}`} onClick={() => onTogglePin?.(path)} title={pinnedKeys?.has(key) ? "Unpin property" : "Pin property"} aria-label={pinnedKeys?.has(key) ? `Unpin ${key}` : `Pin ${key}`}>★</button>}</div></div>;
   }
   const entries = Array.isArray(value) ? value.map((item, index) => [index, item]) : Object.entries(value);
   const visibleEntries = query?.needle
@@ -150,7 +187,7 @@ const PropertyNode = ({ name, value, depth = 0, path = [], query, onChange, isSh
     <details className="properties-group" open={query?.needle ? true : depth < 1}>
       <summary><span>{name}</span><small>{Array.isArray(value) ? `[${visibleEntries.length}]` : `{${visibleEntries.length}}`}</small></summary>
       <div className="properties-children">
-        {visibleEntries.map(([key, item]) => <PropertyNode key={key} name={String(key)} value={item} depth={depth + 1} path={[...path, key]} query={query} onChange={onChange} isSharedPath={isSharedPath} />)}
+        {visibleEntries.map(([key, item]) => <PropertyNode key={key} name={String(key)} value={item} depth={depth + 1} path={[...path, key]} query={query} onChange={onChange} isSharedPath={isSharedPath} mediaSources={mediaSources} pinnedKeys={pinnedKeys} onTogglePin={onTogglePin} showPin={showPin} ownerElement={ownerElement} onPickObjectReference={onPickObjectReference} />)}
       </div>
     </details>
   );
@@ -214,6 +251,120 @@ const P5FrameControls = ({ element, query, onChange }) => {
       </div>
     </details>
   );
+};
+
+const FRAME_HIDDEN_LABEL = "\u200B";
+
+const normalizeFramePresentation = element => {
+  const value = element?.customData?.draweratorFrame || {};
+  return {
+    label: typeof value.label === "string"
+      ? value.label
+      : (typeof element?.name === "string" && element.name !== FRAME_HIDDEN_LABEL ? element.name : ""),
+    showLabel: value.showLabel === true,
+  };
+};
+
+const FrameControls = ({ element, query, onChange }) => {
+  const isFrame = element?.type === "frame";
+  const presentation = normalizeFramePresentation(element);
+  const hasFramePresentation = Boolean(element?.customData?.draweratorFrame);
+  // Native Excalidraw frames predate the Drawerator presentation data. Adopt
+  // a selected legacy frame once, with the new label-hidden default.
+  useEffect(() => {
+    if (!isFrame || hasFramePresentation) return;
+    onChange(["customData", "draweratorFrame"], presentation);
+  }, [isFrame, hasFramePresentation, onChange, presentation]);
+  if (!isFrame) return null;
+  const matches = name => !query?.needle || ["frame", "label", "name", "title", "show label", name]
+    .some(value => value.includes(query.needle));
+  if (query?.needle && !matches("frame")) return null;
+  const update = patch => onChange(["customData", "draweratorFrame"], { ...presentation, ...patch });
+  return (
+    <details className="properties-group properties-frame-group" open>
+      <summary><span>customData · frame</span><small>pinned</small></summary>
+      <div className="properties-children">
+        {matches("label") && <div className="properties-row editable"><span>label</span><input
+          type="text"
+          value={presentation.label}
+          placeholder="Frame label"
+          onChange={event => update({ label: event.target.value })}
+          title="The frame label. It remains stored while hidden."
+        /></div>}
+        {matches("show label") && <div className="properties-row editable"><span>show label</span><input
+          type="checkbox"
+          checked={presentation.showLabel}
+          onChange={event => update({ showLabel: event.target.checked })}
+          title="Hide the native frame label without changing frame grouping."
+        /></div>}
+      </div>
+    </details>
+  );
+};
+
+const MediaPreviewControls = ({ element, query, onChange, mediaSources = [], onFocusMediaSource }) => {
+  if (!isMediaStreamElement(element)) return null;
+  const stream = normalizeMediaStreamConfig(element.customData?.draweratorMediaStream);
+  if (stream.kind !== MEDIA_STREAM_KINDS.PREVIEW) return null;
+  const matches = name => !query?.needle || ["preview", "media", "source", "input", "enabled", "mirror", name]
+    .some(value => value.includes(query.needle));
+  if (query?.needle && !matches("preview")) return null;
+  const update = patch => onChange(["customData", "draweratorMediaStream"], patchMediaStreamConfig(stream, patch));
+  return (
+    <details className="properties-group properties-media-preview-group" open>
+      <summary><span>customData · preview</span><small>pinned</small></summary>
+      <div className="properties-children">
+        {matches("source") && <div className="properties-row editable properties-media-preview-source">
+          <span>source</span>
+          <div>
+            <select value={stream.sourceId || ""} onChange={event => {
+              const next = mediaSources.find(candidate => candidate.id === event.target.value);
+              update({ sourceId: event.target.value, ...(next ? { name: next.name } : {}) });
+            }} aria-label="Preview input source">
+              <option value="">Choose input…</option>
+              {mediaSources.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
+            </select>
+            <button type="button" className="iannix-flat-button" disabled={!stream.sourceId} onClick={() => onFocusMediaSource?.(stream.sourceId)} title="Open this input in Media Input" aria-label="Open preview input">⌖</button>
+          </div>
+        </div>}
+        {matches("enabled") && <div className="properties-row editable"><span>enabled</span><input type="checkbox" checked={stream.enabled} onChange={event => update({ enabled: event.target.checked })} /></div>}
+        {matches("mirror") && <div className="properties-row editable"><span>mirror</span><input type="checkbox" checked={stream.mirror} onChange={event => update({ mirror: event.target.checked })} /></div>}
+      </div>
+    </details>
+  );
+};
+
+const PinnedPropertyControls = ({ element, query, onChange, mediaSources, pinnedPaths, pinnedKeys, onTogglePin, onPickObjectReference }) => {
+  const defaults = defaultPinnedPathsFor(element);
+  const isPreview = isMediaStreamElement(element)
+    && normalizeMediaStreamConfig(element.customData?.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.PREVIEW;
+  const isFrame = element?.type === "frame";
+  const paths = [...defaults, ...pinnedPaths.map(key => key.split("."))]
+    .filter(path => !isPreview || !pathKey(path).startsWith("customData.draweratorMediaStream."))
+    .filter(path => !isFrame || !pathKey(path).startsWith("customData.draweratorFrame."))
+    .filter((path, index, values) => values.findIndex(candidate => pathKey(candidate) === pathKey(path)) === index)
+    .filter(path => readPath(propertyTreeValue(element), path) !== undefined)
+    .filter(path => !query?.needle || pathMatches(path, query));
+  if (!paths.length) return null;
+  return <details className="properties-group properties-pinned-group" open>
+    <summary><span>pinned properties</span><small>{paths.length}</small></summary>
+    <div className="properties-children">
+      {paths.map(path => <PropertyNode
+        key={pathKey(path)}
+        name={path.at(-1)}
+        value={readPath(propertyTreeValue(element), path)}
+        path={path}
+        query={query}
+        onChange={onChange}
+        mediaSources={mediaSources}
+        pinnedKeys={pinnedKeys}
+        onTogglePin={onTogglePin}
+        showPin
+        ownerElement={element}
+        onPickObjectReference={onPickObjectReference}
+      />)}
+    </div>
+  </details>;
 };
 
 const SvgObjectControls = ({
@@ -535,10 +686,14 @@ const svgMatchesQuery = (element, query) => {
 };
 
 const propertyTreeValue = element => {
-  if (!isSvgObjectElement(element)) return element;
+  if (!isSvgObjectElement(element) && element?.type !== "frame") return element;
   const customData = { ...(element.customData || {}) };
   delete customData.draweratorSvg;
-  return { ...element, customData };
+  if (element?.type !== "frame") return { ...element, customData };
+  // A frame's renderer ignores roundness. Omitting the inert field prevents
+  // the raw inspector from suggesting a control that has no visual effect.
+  const { roundness: _roundness, ...frameValue } = element;
+  return { ...frameValue, customData };
 };
 
 const svgFieldCount = element => {
@@ -567,8 +722,19 @@ const PropertiesPanel = memo(function PropertiesPanel({
   svgJointConnectionCount = 0,
   svgJointDetachArmed = false,
   onDetachSvgJoint,
+  mediaSources = [],
+  onFocusMediaSource,
+  onPickObjectReference,
 }) {
   const [filter, setFilter] = useState("");
+  const [pinnedPaths, setPinnedPaths] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PROPERTIES_PINS_STORAGE_KEY) || "[]");
+      return Array.isArray(saved) ? saved.filter(value => typeof value === "string") : [];
+    } catch {
+      return [];
+    }
+  });
   const [activeObjectId, setActiveObjectId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editingValue, setEditingValue] = useState("");
@@ -591,6 +757,15 @@ const PropertiesPanel = memo(function PropertiesPanel({
       + (svgMatchesQuery(element, query) ? svgFieldCount(element) : 0)
   ), 0), [elements, query]);
   const sharedPath = path => isSharedEditablePath(elements, path);
+  const pinnedKeys = useMemo(() => new Set(pinnedPaths), [pinnedPaths]);
+  const togglePinnedPath = path => {
+    const key = pathKey(path);
+    setPinnedPaths(previous => {
+      const next = previous.includes(key) ? previous.filter(value => value !== key) : [...previous, key];
+      try { localStorage.setItem(PROPERTIES_PINS_STORAGE_KEY, JSON.stringify(next)); } catch { /* local preference only */ }
+      return next;
+    });
+  };
   const svgCurveOptions = useMemo(() => (availableElements || []).flatMap(element => {
     if (element?.isDeleted) return [];
     if (element.customData?.iannix?.role === "curve") {
@@ -669,7 +844,25 @@ const PropertiesPanel = memo(function PropertiesPanel({
                   <code>{element.type}{label ? ` · ${element.id}` : ""}</code>
                 </div>
               </div>
+              <FrameControls element={element} query={query} onChange={(path, value) => onChange([element.id], path, value)} />
               <P5FrameControls element={element} query={query} onChange={(path, value) => onChange([element.id], path, value)} />
+              <MediaPreviewControls
+                element={element}
+                query={query}
+                onChange={(path, value) => onChange([element.id], path, value)}
+                mediaSources={mediaSources}
+                onFocusMediaSource={onFocusMediaSource}
+              />
+              <PinnedPropertyControls
+                element={element}
+                query={query}
+                onChange={(path, value) => onChange([element.id], path, value)}
+                mediaSources={mediaSources}
+                pinnedPaths={pinnedPaths}
+                pinnedKeys={pinnedKeys}
+                onTogglePin={togglePinnedPath}
+                onPickObjectReference={path => onPickObjectReference?.(element.id, path)}
+              />
               <SvgObjectControls
                 element={element}
                 query={query}
@@ -696,6 +889,11 @@ const PropertiesPanel = memo(function PropertiesPanel({
                 value={elementValue}
                 query={query}
                 isSharedPath={sharedPath}
+                mediaSources={mediaSources}
+                pinnedKeys={pinnedKeys}
+                onTogglePin={togglePinnedPath}
+                ownerElement={element}
+                onPickObjectReference={path => onPickObjectReference?.(element.id, path)}
                 onChange={(path, value, shared) => onChange(shared ? elements.map(item => item.id) : [element.id], path, value)}
               />
             </section>

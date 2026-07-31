@@ -13,6 +13,9 @@ export const DEFAULT_PANEL_LAYOUTS = Object.freeze({
   iannix: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 96, y: 120, width: 380, height: 760 }),
   mixer: Object.freeze({ placement: PANEL_PLACEMENTS.BOTTOM, x: 72, y: 120, width: 1040, height: 286 }),
   synth: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 120, y: 136, width: 360, height: 720 }),
+  "media-input": Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 132, y: 144, width: 380, height: 700 }),
+  holistic: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 156, y: 160, width: 380, height: 720 }),
+  mapping: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 168, y: 168, width: 420, height: 760 }),
   info: Object.freeze({ placement: PANEL_PLACEMENTS.BOTTOM, x: 32, y: 520, width: 720, height: 240 }),
   console: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 96, y: 120, width: 340, height: 420 }),
   history: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 120, y: 136, width: 420, height: 720 }),
@@ -51,7 +54,9 @@ const SIDEBAR_PLACEMENTS = new Set([
 export const normalizePanelLayouts = value => {
   const source = value && typeof value === "object" ? value : {};
   return Object.fromEntries(Object.entries(DEFAULT_PANEL_LAYOUTS).map(([id, fallback]) => {
-    const candidate = source[id] && typeof source[id] === "object" ? source[id] : {};
+    const candidate = (source[id] || (id === "media-input" ? source["video-input"] : null)) && typeof (source[id] || (id === "media-input" ? source["video-input"] : null)) === "object"
+      ? (source[id] || (id === "media-input" ? source["video-input"] : null))
+      : {};
     const legacyHorizontalGrid = id === "grid" && (
       candidate.placement === PANEL_PLACEMENTS.BOTTOM ||
       (Number.isFinite(candidate.height) && candidate.height < 320) ||
