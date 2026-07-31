@@ -115,7 +115,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
           get colors() { return appearance().colors; },
           get theme() { return appearance().theme; },
           get appearance() { return appearance(); },
-          get streams() { return window.drawerator?.streams; },
+          get streams() { return scriptRuntimeRef?.current?.getStreams?.(element.id) || window.drawerator?.streams; },
           api: window.drawerator,
         };
         const sketch = p => {
@@ -227,6 +227,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
     void start();
     return () => {
       disposed = true;
+      scriptRuntimeRef.current?.disposeStreamsOwner?.(element.id);
       observer?.disconnect();
       subscriptions.forEach(unsubscribe => unsubscribe?.());
       serialBridge?.dispose?.();

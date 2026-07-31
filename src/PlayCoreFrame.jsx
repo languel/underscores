@@ -69,7 +69,7 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) 
         get colors() { return appearance().colors; },
         get theme() { return appearance().theme; },
         get appearance() { return appearance(); },
-        get streams() { return window.drawerator?.streams; },
+        get streams() { return scriptRuntimeRef?.current?.getStreams?.(element.id) || window.drawerator?.streams; },
         get api() { return window.drawerator; },
       };
       program = evaluatePlayCoreSource(config.source, drawerator);
@@ -140,7 +140,7 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) 
       raf = requestAnimationFrame(loop);
     };
     program.boot?.(drawerator); raf = requestAnimationFrame(loop);
-    return () => { cancelled = true; cancelAnimationFrame(raf); subscriptions.forEach(unsubscribe => unsubscribe?.()); host.removeEventListener("pointerdown", down); host.removeEventListener("pointermove", move); host.removeEventListener("pointerup", up); };
+    return () => { cancelled = true; scriptRuntimeRef.current?.disposeStreamsOwner?.(element.id); cancelAnimationFrame(raf); subscriptions.forEach(unsubscribe => unsubscribe?.()); host.removeEventListener("pointerdown", down); host.removeEventListener("pointermove", move); host.removeEventListener("pointerup", up); };
   }, [element.id, element.width, element.height, config.source, config.fps, config.reloadNonce, config.parameters, scriptRuntimeRef]);
   return <pre ref={hostRef} className="drawerator-play-core-host" tabIndex={config.allowInteraction ? 0 : -1} style={{ pointerEvents: config.allowInteraction ? "auto" : "none" }} />;
 }

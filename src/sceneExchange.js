@@ -2,10 +2,12 @@ import { normalizeGlobalGrid } from "./gridSystem.js";
 import { normalizeExpressiveSynthConfig } from "./expressiveSynth.js";
 import { normalizeMixer } from "./mixerSystem.js";
 import { normalizeP5Scripts } from "./p5Frame.js";
+import { normalizeStreamGraph } from "./streamGraph.js";
+import { normalizeBrushChannels } from "./brushChannelRuntime.js";
 
-const DRAWERATOR_EXCHANGE_VERSION = 6;
+const DRAWERATOR_EXCHANGE_VERSION = 7;
 
-export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = {}, grid = null, expressiveSynth = null, mixer = null, p5Scripts = []) => {
+export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = {}, grid = null, expressiveSynth = null, mixer = null, p5Scripts = [], streamGraph = null, brushChannels = null) => {
   const payload = typeof serializedScene === "string"
     ? JSON.parse(serializedScene)
     : structuredClone(serializedScene);
@@ -38,6 +40,8 @@ export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = 
         expressiveSynth: normalizeExpressiveSynthConfig(expressiveSynth),
         mixer: normalizeMixer(mixer),
         p5Scripts: normalizeP5Scripts(p5Scripts),
+        streamGraph: normalizeStreamGraph(streamGraph),
+        brushChannels: normalizeBrushChannels(brushChannels),
       } : {}),
     },
   };
@@ -60,6 +64,8 @@ export const parseDraweratorExchange = (text, expectedKind = null) => {
     expressiveSynth: kind === "scene" ? normalizeExpressiveSynthConfig(payload.drawerator?.expressiveSynth) : null,
     mixer: kind === "scene" ? normalizeMixer(payload.drawerator?.mixer) : null,
     p5Scripts: kind === "scene" ? normalizeP5Scripts(payload.drawerator?.p5Scripts) : [],
+    streamGraph: kind === "scene" ? normalizeStreamGraph(payload.drawerator?.streamGraph) : null,
+    brushChannels: kind === "scene" ? normalizeBrushChannels(payload.drawerator?.brushChannels) : [],
   };
 };
 

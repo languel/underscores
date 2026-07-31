@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
 ## Release checkpoint
 
@@ -18,6 +18,16 @@ snapshots live pose/hand landmarks as native scene geometry. A shared semantic o
 the `/mapping` feature browser, `__.streams`, persistent drive/freedraw bindings, selected-feature
 highlights, and capped traces without serializing raw observations. See
 [Media streams](media-streams.md).
+
+The next input layer is now present as a unified typed stream registry. **Media** retains the
+camera, URL/file, and canvas image catalog; the separate **Inputs** panel owns pointer/keyboard/
+clock, MediaPipe, IanniX, Web MIDI, Web Serial, WebSocket/OSC JSON, and trusted virtual source
+descriptors. **Brush → Channels** maps those streams into independently owned native freedraw
+sessions while **Stack** preserves the existing modifier contract. Scene exchange stores
+descriptors, derived event processors, and Brush channels—not browser permissions, current
+samples, pixels, or device/socket state. See
+[Media streams](media-streams.md#unified-streams-and-inputs) and
+[Modifier stack](modifier-stack.md#channels-are-separate-from-the-modifier-stack).
 
 ### Available now
 
@@ -70,10 +80,10 @@ true native/SVG per-object z-order and exact time-specific PNG parity. See
 
 ## Next phase
 
-Build higher-order mappings on the semantic stream foundation: palm openness, calibrated gaze,
-string-plucking, zones, MIDI actions, constraints, and the broader graph. The unchanged MediaMime
-body-map references can become ontology-generated selectable maps in that later slice without
-turning their explanatory SVG titles into runtime schema.
+Build higher-order mappings on the now-general stream foundation: palm openness, calibrated gaze,
+string-plucking, zones, MIDI actions, constraints, richer serial/OSC source templates, and a visual
+graph editor. The unchanged MediaMime body-map references can become ontology-generated selectable
+maps in that later slice without turning their explanatory SVG titles into runtime schema.
 
 Before public deployment, complete the project licensing decision, publish corresponding source and
 build instructions, audit any Strudel samples/assets, and record the final notices. Continue with

@@ -1,6 +1,6 @@
 # Script Editor Architecture
 
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
 ## Scope
 
@@ -100,6 +100,18 @@ The live shared `__` bridge is the same in Play Core and p5. It exposes `element
 `muted`, each with `color`, `opacity`, and composited `css`). `__.api` exposes the public
 Drawerator API for deliberate higher-level scene, grid, command, history, and macro operations.
 The legacy `drawerator` name remains available for compatibility.
+
+## Typed stream bridge
+
+All trusted runtimes—p5, Play Core, Strudel, Brush, and Livecode Nodes—receive a lexical
+`__.streams` view. It can read typed `space`, `time`, `value`, `event`, and `image` streams through
+`list({ kind, role })`, `get(idOrName)`, `snapshot()`, and `subscribe(listener)`. Existing Holistic
+semantic methods remain compatible: `__.streams.get("Holistic").feature(...)` and `.features(...)`.
+
+Trusted scripts may create a runtime-owned stream with `__.streams.create(descriptor)` and write to
+that stream only. Created virtual streams are removed when their owning runtime stops; image frames
+and browser handles are never serialized. `__.api.streams` and `window.drawerator.streams` expose
+the same public service for deliberate app integration, while `window.__` is intentionally absent.
 The maintained full reference is [Drawerator Script API](./drawerator-api.md); the p5 and Play Core
 Info panel guides present the same reference while scripting.
 

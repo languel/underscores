@@ -1,8 +1,8 @@
 # Panel System Notes
 
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
-Drawerator owns one persistent panel model for **AI Assistant**, **Mods & FX**, **Script**, **IanniX**, **Mixer**, **Expressive Synth**, **Video Input**, **Media Input**, **MediaPipe Holistic**, **Mapping**, **Info**, **Settings**, **Console**, and **Transport**. Side panels support left dock, floating, and right dock placement. Mixer and Info additionally support the bottom dock; Transport supports floating and bottom-docked placement. Timeline, Mixer, and Info use the bottom as their natural home; all other panels use the right dock.
+Drawerator owns one persistent panel model for **AI Assistant**, **Brush**, **Script**, **Scene**, **Mixer**, **Expressive Synth**, **Media**, **Inputs**, **MediaPipe Holistic**, **Mapping**, **Info**, **Settings**, **Console**, and **Transport**. Side panels support left dock, floating, and right dock placement. Mixer and Info additionally support the bottom dock; Transport supports floating and bottom-docked placement. Timeline, Mixer, and Info use the bottom as their natural home; all other panels use the right dock.
 
 ## Identity icon contract
 
@@ -38,10 +38,11 @@ The following state persists independently:
 - collapsed state for each side and bottom dock;
 - transport placement and dimensions.
 
-Every panel is available from the main menu and command palette, including `/chat`, `/mods`, `/script`, `/iannix`, `/synth`, `/video-input`, `/media-input`, `/holistic`, `/mapping`, `/settings`, `/console`, and `/transport`. `/svg` opens the Script panel with its SVG adapter selected. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
+Every panel is available from the main menu and command palette, including `/chat`, `/brush` (legacy `/mods`), `/script`, `/scene`, `/synth`, `/media` (legacy `/media-input`), `/inputs` (also `/signals`), `/holistic`, `/mapping`, `/settings`, `/console`, and `/transport`. `/svg` opens the Script panel with its SVG adapter selected. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
 
-Video Input and Media Input own persistent source catalogs rather than requiring a canvas host.
-Their previews consume the same cropped/mirrored output used by downstream processors. **Show as
+Media owns the persistent image-source catalog and its cropped/mirrored preview output. Inputs owns
+the typed signal-source graph rather than requiring a canvas host. Media previews consume the same
+processed output used by downstream processors. **Show as
 canvas object** attaches or detaches a transformable view without stopping the source; MediaPipe
 Holistic remains a first-class canvas processor and can independently hide its source feed.
 Mapping consumes the same transient semantic frame as livecode. Its locally remembered arm switch
@@ -65,7 +66,7 @@ All five adapters follow one compact editor layout: catalog and parameters first
 
 `src/DraweratorCodeEditor.jsx` owns editor mechanics only. `src/scriptEditorProfiles.js` maps each script type to a language package, snippets, and completion vocabulary. The adapter blocks in `App.jsx` remain responsible for persistence, validation, status, and execution, so replacing the editing surface does not merge the five trust models or runtime lifecycles. See [Script editor architecture](script-editor.md).
 
-Mods & FX now owns only the ordered modifier stack and its rendering controls. IanniX owns only score-object and data editing. This prevents either feature panel from becoming the lifetime or placement owner of the shared editor.
+Brush has three compact tabs: **Channels** owns parallel source-driven stroke sessions, **Stack** owns the ordered non-destructive modifier stack and rendering controls, and **Script** owns the Brush script editor. Scene owns score-object and data editing. This keeps source capture, modifier evaluation, and score editing separate while preserving legacy panel ids and command aliases.
 
 SVG visual editing stays on the canvas: the SVG host uses normal selection and transform controls. The existing Properties and Outliner panels share one SVG component selection with the canvas; compound path rows expose ordered subpath children, and selecting one opens spline-style handles immediately. The Properties panel can extract that child as a native spline or assign Curve, Cursor, or Trigger during extraction. Roots, groups, path parents, and supported primitives receive a bounds highlight and remain editable through their attributes. Those property edits patch the same source shown by the Script adapter. The canvas runtime renders SVG through an inert image boundary: CSS and SMIL remain declarative and live, while embedded JavaScript is preserved but not executed.
 

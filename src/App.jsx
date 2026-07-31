@@ -1,5 +1,5 @@
 // Force rebuild timestamp: 2026-07-06T11:15:00
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { Excalidraw, MainMenu, exportToSvg, exportToCanvas, getCommonBounds, loadFromBlob, serializeAsJSON, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
 import "./App.css";
 import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, isDrawableTrack, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
@@ -86,6 +86,8 @@ import { getLivecodeHelp } from "./livecodeHelp.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
 import MediaStreamOverlay, { MediaSourceRuntimeLayer } from "./MediaStreamOverlay.jsx";
 import { HolisticPanel, MediaInputPanel } from "./MediaStreamPanels.jsx";
+import InputStreamsPanel from "./InputStreamsPanel.jsx";
+import BrushChannelsPanel from "./BrushChannelsPanel.jsx";
 import MediaMappingPanel from "./MediaMappingPanel.jsx";
 import MediaActorOverlay from "./MediaActorOverlay.jsx";
 import MediaMapOverlay from "./MediaMapOverlay.jsx";
@@ -94,6 +96,10 @@ import { createMediaSemanticFrame } from "./mediaLandmarkOntology.js";
 import { createMediaBindingRuntimeState, mediaBindingRuntimeHasExpired, mediaDrivenElementPosition, resolveMediaBindingGate, resolveMediaBindingSignal, shouldAppendMediaStrokePoint } from "./mediaActorRuntime.js";
 import { createMediaBinding, createMediaSource, createMediaStreamConfig, isMediaStreamElement, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig } from "./mediaStream.js";
 import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
+import { createUnifiedStreamsApi, DraweratorStreamRegistry } from "./streamRuntime.js";
+import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
+import { BrowserStreamAdapterRuntime, mapAdapterRecordToSample, parseMidiMessage } from "./streamAdapters.js";
+import { BrushChannelRuntime, DEFAULT_BRUSH_CHANNELS, normalizeBrushChannel, normalizeBrushChannels } from "./brushChannelRuntime.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
 import { insertSvgNode, prepareSvgForStructuredEditing, updateSvgNodeData } from "./svgDocumentModel.js";
 import { executeSvgStructuredCommand } from "./svgCommandApi.js";
@@ -1762,8 +1768,10 @@ const compileUserBrush = (code, params = [], scriptRuntimeRef, canvasApi) => {
     const keys = params.map(p => p.name);
     const canvas = canvasApi || createScriptCanvasApi(scriptRuntimeRef);
     const values = resolveScriptParameterValues(params, scriptRuntimeRef, canvas);
-    const maker = new Function(...keys, "canvas", "events", "transport", "return (" + code + ")");
-    const fn = maker(...keys.map(key => values[key]), canvas, canvas.events, canvas.transport);
+    const rootApi = typeof window !== "undefined" ? window.drawerator : null;
+    const streams = scriptRuntimeRef?.current?.getStreams?.("brush-script") || rootApi?.streams;
+    const maker = new Function(...keys, "canvas", "events", "transport", "__", "return (" + code + ")");
+    const fn = maker(...keys.map(key => values[key]), canvas, canvas.events, canvas.transport, Object.freeze({ ...(rootApi || {}), streams }));
     if (typeof fn === "function") {
       return { generator: fn, error: "" };
     }
@@ -1771,6 +1779,21 @@ const compileUserBrush = (code, params = [], scriptRuntimeRef, canvasApi) => {
   } catch (err) {
     return { generator: null, error: err.message || "Compilation error." };
   }
+};
+
+const REQUIRED_INPUT_STREAM_SOURCES = Object.freeze([
+  Object.freeze({ id: "input_pointer", name: "Pointer / pen", type: "pointer", streamId: "pointer", kind: "space" }),
+  Object.freeze({ id: "input_keyboard", name: "Keyboard", type: "keyboard", streamId: "keyboard", kind: "event" }),
+  Object.freeze({ id: "input_transport", name: "Transport clock", type: "clock", streamId: "transport-clock", kind: "time" }),
+  Object.freeze({ id: "input_wall", name: "Wall clock", type: "clock", streamId: "wall-clock", kind: "time" }),
+  Object.freeze({ id: "input_animation", name: "Animation clock", type: "clock", streamId: "animation-clock", kind: "time" }),
+  Object.freeze({ id: "input_midi_clock", name: "MIDI clock", type: "clock", streamId: "midi-clock", kind: "time" }),
+]);
+
+const normalizeStreamGraphWithBuiltins = value => {
+  const graph = normalizeStreamGraph(value);
+  const sourceIds = new Set(graph.sources.map(source => source.id));
+  return normalizeStreamGraph({ ...graph, sources: [...REQUIRED_INPUT_STREAM_SOURCES.filter(source => !sourceIds.has(source.id)), ...graph.sources] });
 };
 
 function App() {
@@ -1912,13 +1935,13 @@ function App() {
     try {
       const saved = JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") || {};
       return {
-        chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true,
+        chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, inputs: saved.inputs ?? true,
         holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true,
         ...saved,
         "media-input": saved["media-input"] ?? saved["video-input"] ?? true,
       };
     } catch {
-      return { chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, "media-input": true, holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true };
+      return { chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, "media-input": true, inputs: true, holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
@@ -2039,6 +2062,9 @@ function App() {
       return [];
     }
   });
+  const [streamGraph, setStreamGraph] = useState(() => normalizeStreamGraphWithBuiltins(null));
+  const [brushChannels, setBrushChannels] = useState(() => normalizeBrushChannels(DEFAULT_BRUSH_CHANNELS));
+  const [inputStreamStatuses, setInputStreamStatuses] = useState({});
   const [activeMediaSourceId, setActiveMediaSourceId] = useState("");
   const [mediaActorsArmed, setMediaActorsArmed] = useState(() => (
     localStorage.getItem(MEDIA_ACTORS_ARMED_STORAGE_KEY) === "true"
@@ -2049,10 +2075,24 @@ function App() {
     featureIds: [],
   });
   const [mediaActorOverlayState, setMediaActorOverlayState] = useState({ traces: [], strokes: [] });
+  const [brushChannelOverlayStrokes, setBrushChannelOverlayStrokes] = useState([]);
   const mediaBindingRuntimeRef = useRef(new Map());
   const mediaGestureStatesRef = useRef(new Map());
+  const semanticMediaStreamsApiRef = useRef(null);
+  if (!semanticMediaStreamsApiRef.current) semanticMediaStreamsApiRef.current = createMediaStreamsApi();
+  const streamRegistryRef = useRef(null);
+  if (!streamRegistryRef.current) streamRegistryRef.current = new DraweratorStreamRegistry();
   const mediaStreamsApiRef = useRef(null);
-  if (!mediaStreamsApiRef.current) mediaStreamsApiRef.current = createMediaStreamsApi();
+  if (!mediaStreamsApiRef.current) mediaStreamsApiRef.current = createUnifiedStreamsApi({
+    registry: streamRegistryRef.current,
+    mediaStreams: semanticMediaStreamsApiRef.current,
+  });
+  const streamGraphRuntimeRef = useRef(null);
+  const streamAdapterRuntimeRef = useRef(null);
+  const brushChannelRuntimeRef = useRef(null);
+  const iannixStreamCollisionRef = useRef(new Set());
+  const iannixStreamIdsRef = useRef(new Set());
+  const inputMidiListenersRef = useRef(new Map());
   const [svgScripts, setSvgScripts] = useState(() => {
     try {
       return normalizeSvgScripts(JSON.parse(localStorage.getItem(SVG_SCRIPT_STORAGE_KEY) || "[]"));
@@ -2117,6 +2157,152 @@ function App() {
         sourceId: entry.config.holistic.sourceId,
       })));
   }, [p5OverlayScene.elements]);
+  // Stream descriptors and their current frames are intentionally separate:
+  // the scene only persists graph configuration, never camera handles, pixels,
+  // device grants, sockets, or the most recent physical sample.
+  useEffect(() => {
+    const registry = streamRegistryRef.current;
+    const managed = new Set();
+    const sync = () => {
+      const next = new Set();
+      streamGraph.sources.filter(source => source.enabled).forEach(source => {
+        // IanniX sources are references to score-owned streams. They must not
+        // replace the descriptor that carries the curve/cursor/trigger role.
+        if (source.type === "iannix") return;
+        next.add(source.streamId);
+        registry.register({
+          id: source.streamId,
+          name: source.name,
+          kind: source.kind,
+          capabilities: [source.kind],
+          roles: source.roles,
+          writable: source.type === "virtual",
+          virtual: source.type === "virtual",
+          metadata: { inputSourceId: source.id, type: source.type, featureId: source.featureId, targetId: source.targetId },
+        });
+      });
+      mediaSources.filter(source => source.enabled).forEach(source => {
+        const id = `media:${source.id}`;
+        next.add(id);
+        registry.register({ id, name: source.name, kind: "image", capabilities: ["image"], roles: ["input", "output"], writable: false, metadata: { mediaSourceId: source.id, sourceKind: source.kind } });
+      });
+      managed.forEach(id => { if (!next.has(id)) registry.remove(id); });
+      managed.clear(); next.forEach(id => managed.add(id));
+    };
+    sync();
+    const timer = window.setInterval(() => {
+      mediaSources.filter(source => source.enabled).forEach(source => {
+        const element = getMediaRuntimeSource(source.id)?.element;
+        if (!element || !(element.width || element.videoWidth)) return;
+        registry.publish(`media:${source.id}`, { kind: "image", image: element, width: element.width || element.videoWidth, height: element.height || element.videoHeight }, { internal: true });
+      });
+    }, 100);
+    return () => {
+      window.clearInterval(timer);
+      managed.forEach(id => registry.remove(id));
+    };
+  }, [mediaSources, streamGraph.sources]);
+  useEffect(() => {
+    const registry = streamRegistryRef.current;
+    if (!streamGraphRuntimeRef.current) streamGraphRuntimeRef.current = new StreamGraphRuntime({ registry, graph: streamGraph });
+    else streamGraphRuntimeRef.current.setGraph(streamGraph);
+  }, [streamGraph]);
+  useEffect(() => () => {
+    streamGraphRuntimeRef.current?.dispose();
+    streamGraphRuntimeRef.current = null;
+    streamAdapterRuntimeRef.current?.dispose();
+    streamAdapterRuntimeRef.current = null;
+    const access = midiAccessRef.current;
+    inputMidiListenersRef.current.forEach((listener, inputId) => access?.inputs?.get(inputId)?.removeEventListener?.("midimessage", listener));
+    inputMidiListenersRef.current.clear();
+  }, []);
+  useEffect(() => {
+    const registry = streamRegistryRef.current;
+    const stopInput = eventBus.subscribe("input.*", event => {
+      const sample = event.detail;
+      if (!sample?.scene) return;
+      const id = sample.source === "pointer" ? "pointer" : sample.source;
+      if (!registry.get(id)) return;
+      registry.publish(id, { kind: "space", x: sample.scene.x, y: sample.scene.y, pressure: sample.pressure, time: sample.time, data: sample }, { internal: true });
+    });
+    const onKey = event => {
+      if (!registry.get("keyboard")) return;
+      registry.publish("keyboard", { kind: "event", value: { phase: event.type === "keydown" ? "down" : "up", key: event.key, code: event.code, repeat: event.repeat }, time: performance.now() }, { internal: true });
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", onKey, true);
+    return () => { stopInput(); window.removeEventListener("keydown", onKey, true); window.removeEventListener("keyup", onKey, true); };
+  }, [eventBus]);
+  useEffect(() => {
+    const registry = streamRegistryRef.current;
+    const timer = window.setInterval(() => {
+      const time = performance.now();
+      if (registry.get("wall-clock")) registry.publish("wall-clock", { kind: "time", value: Date.now() / 1000, time }, { internal: true });
+      if (registry.get("animation-clock")) registry.publish("animation-clock", { kind: "time", value: time / 1000, time }, { internal: true });
+      if (registry.get("transport-clock")) registry.publish("transport-clock", { kind: "time", value: scoreTimeRef.current, time }, { internal: true });
+    }, 16);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    const stops = streamGraph.sources.filter(source => source.enabled && source.type === "mediapipe" && source.featureId).map(source => semanticMediaStreamsApiRef.current.subscribe(({ elementId, frame }) => {
+      if (!frame || (source.targetId && source.targetId !== elementId)) return;
+      const feature = frame.feature(source.featureId);
+      if (!feature?.normalized) return;
+      streamRegistryRef.current.publish(source.streamId, { kind: "space", x: feature.normalized.x, y: feature.normalized.y, space: "normalized", pressure: feature.confidence, time: frame.updatedAt, data: { featureId: source.featureId, elementId, scene: feature.scene } }, { internal: true });
+    }));
+    return () => stops.forEach(stop => stop?.());
+  }, [streamGraph.sources]);
+  useEffect(() => {
+    const commit = session => {
+      if (session.points.length < 2) return;
+      const api = excalidrawAPIRef.current;
+      if (!api) return;
+      const minX = Math.min(...session.points.map(point => point.x));
+      const minY = Math.min(...session.points.map(point => point.y));
+      const maxX = Math.max(...session.points.map(point => point.x));
+      const maxY = Math.max(...session.points.map(point => point.y));
+      const element = {
+        ...createBaseElement("freedraw", minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY), session.channel.style.strokeColor || foregroundColor),
+        points: session.points.map(point => [point.x - minX, point.y - minY]),
+        pressures: session.points.map(point => point.pressure || 0.5),
+        simulatePressure: false,
+        strokeWidth: session.channel.style.strokeWidth,
+        opacity: session.channel.style.opacity,
+        customData: { draweratorBrushChannel: { channelId: session.channel.id, spatialStreamId: session.channel.spatialStreamId, gateStreamId: session.channel.gateStreamId || null, completedAt: Date.now() } },
+      };
+      const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+      api.updateScene({ elements: [...elements, element], commitToHistory: true });
+    };
+    brushChannelRuntimeRef.current?.dispose();
+    brushChannelRuntimeRef.current = new BrushChannelRuntime({
+      registry: streamRegistryRef.current,
+      channels: brushChannels,
+      resolveDestination: channel => {
+        const appState = excalidrawAPIRef.current?.getAppState();
+        if (!appState) return null;
+        if (channel.destination.kind === "viewport") {
+          const zoom = Math.max(0.01, Number(appState.zoom?.value) || 1);
+          return { x: -(Number(appState.scrollX) || 0), y: -(Number(appState.scrollY) || 0), width: Math.max(1, Number(appState.width) || window.innerWidth) / zoom, height: Math.max(1, Number(appState.height) || window.innerHeight) / zoom };
+        }
+        if (channel.destination.kind === "target") {
+          const target = (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || []).find(element => element.id === channel.destination.targetId && !element.isDeleted);
+          return target ? { x: target.x, y: target.y, width: target.width, height: target.height, angle: target.angle || 0 } : null;
+        }
+        return {};
+      },
+      onStart: (session, point) => setBrushChannelOverlayStrokes(previous => [...previous, { id: session.id, points: [point], color: session.channel.style.strokeColor || foregroundColor, strokeWidth: session.channel.style.strokeWidth, opacity: session.channel.style.opacity }]),
+      onMove: (session, point) => setBrushChannelOverlayStrokes(previous => previous.map(stroke => stroke.id === session.id ? { ...stroke, points: [...stroke.points, point] } : stroke)),
+      onEnd: (session, reason) => {
+        setBrushChannelOverlayStrokes(previous => previous.filter(stroke => stroke.id !== session.id));
+        if (!["dispose", "channels-updated", "cancel"].includes(reason)) commit(session);
+      },
+    });
+    return () => {
+      brushChannelRuntimeRef.current?.dispose();
+      brushChannelRuntimeRef.current = null;
+      setBrushChannelOverlayStrokes([]);
+    };
+  }, [brushChannels, foregroundColor]);
   const [svgOverlayScene, setSvgOverlayScene] = useState({ elements: [], appState: null });
   const [livecodeOverlayScene, setLivecodeOverlayScene] = useState({ elements: [], appState: null });
   const [livecodeEditorId, setLivecodeEditorId] = useState(null);
@@ -2248,6 +2434,71 @@ function App() {
     fps: transportFps,
     sampleRate: scoreSampleRate,
   }), [scoreSampleRate, scoreTempo, scoreTimeSignature, transportFps]);
+  // Score objects are ordinary stream producers too. Curves retain their
+  // sampled geometry as transient data, active cursors publish space/time
+  // frames, and trigger contacts publish edge events without mutating scene
+  // objects or changing the existing score/MIDI behaviour.
+  useEffect(() => {
+    const registry = streamRegistryRef.current;
+    const elements = excalidrawAPIRef.current?.getSceneElements?.() || p5OverlayScene.elements || [];
+    const scoreObjects = elements.filter(element => !element.isDeleted && element.customData?.iannix?.role);
+    const managed = new Set();
+    const register = (id, descriptor) => {
+      managed.add(id);
+      registry.register({ id, roles: ["input", "output"], writable: false, ...descriptor, metadata: { ...(descriptor.metadata || {}), iannix: true } });
+    };
+    scoreObjects.forEach(element => {
+      const role = normalizeIannixData(element.customData?.iannix).role;
+      if (role === "curve") {
+        const id = `iannix:curve:${element.id}`;
+        const paths = getElementCorePaths(element);
+        const points = paths.flatMap(path => path.map(([x, y]) => ({ x, y })));
+        register(id, { name: `Curve · ${element.customData?.iannix?.label || element.id.slice(0, 6)}`, kind: "space", capabilities: ["space", "time"], metadata: { elementId: element.id, role, points } });
+        if (points[0]) registry.publish(id, { kind: "space", x: points[0].x, y: points[0].y, data: { points, elementId: element.id, role } }, { internal: true });
+      }
+      if (role === "trigger") {
+        register(`iannix:trigger:${element.id}`, { name: `Trigger · ${element.customData?.iannix?.label || element.id.slice(0, 6)}`, kind: "event", capabilities: ["event"], metadata: { elementId: element.id, role } });
+      }
+      if (role === "cursor") {
+        register(`iannix:cursor:${element.id}`, { name: `Cursor · ${element.customData?.iannix?.label || element.id.slice(0, 6)}`, kind: "space", capabilities: ["space", "time"], metadata: { elementId: element.id, role } });
+      }
+    });
+    const frame = evaluateScoreFrame(elements, scoreTime, undefined, { timeContext, globalGrid: globalGridRef.current });
+    frame.cursors.forEach(cursor => {
+      const position = cursor.transform?.position;
+      if (!position) return;
+      const id = `iannix:cursor:${cursor.element.id}`;
+      if (!registry.get(id)) return;
+      registry.publish(id, {
+        kind: "space",
+        x: position[0],
+        y: position[1],
+        space: "scene",
+        time: performance.now(),
+        data: { elementId: cursor.element.id, curveId: cursor.curveElement?.id || null, progress: cursor.timeState?.progress ?? 0, active: cursor.timeState?.active === true, scoreTime },
+      }, { internal: true });
+    });
+    const previous = iannixStreamCollisionRef.current;
+    const current = new Set(frame.collisions);
+    const emit = (key, phase) => {
+      const [cursorId, triggerId] = key.split(":");
+      const cursor = frame.cursors.find(item => item.element.id === cursorId);
+      const position = cursor?.transform?.position || null;
+      const id = `iannix:trigger:${triggerId}`;
+      if (!registry.get(id)) return;
+      registry.publish(id, { kind: "event", time: performance.now(), value: { phase, cursorId, triggerId, scene: position ? { x: position[0], y: position[1] } : null, scoreTime }, data: { phase, cursorId, triggerId, scene: position ? { x: position[0], y: position[1] } : null, scoreTime } }, { internal: true });
+    };
+    current.forEach(key => { if (!previous.has(key)) emit(key, "enter"); });
+    previous.forEach(key => { if (!current.has(key)) emit(key, "leave"); });
+    iannixStreamIdsRef.current.forEach(id => { if (!managed.has(id)) registry.remove(id); });
+    iannixStreamIdsRef.current = managed;
+    iannixStreamCollisionRef.current = current;
+  }, [p5OverlayScene.elements, scoreTime, timeContext]);
+  useEffect(() => () => {
+    iannixStreamIdsRef.current.forEach(id => streamRegistryRef.current.remove(id));
+    iannixStreamIdsRef.current = new Set();
+    iannixStreamCollisionRef.current = new Set();
+  }, []);
   const [transportLoopEnabled, setTransportLoopEnabled] = useState(() =>
     localStorage.getItem("drawerator_transport_loop") === "true"
   );
@@ -2453,6 +2704,8 @@ function App() {
   const scriptCanvasApiRef = useRef(null);
   scriptRuntimeRef.current = {
     eventBus,
+    getStreams: ownerId => mediaStreamsApiRef.current.forOwner?.(ownerId) || mediaStreamsApiRef.current,
+    disposeStreamsOwner: ownerId => mediaStreamsApiRef.current.removeOwner?.(ownerId),
     getElements: () => excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || [],
     getSelectedIds: () => Object.entries(selectedElementIdsRef.current || {})
       .filter(([, selected]) => selected)
@@ -7644,7 +7897,7 @@ function App() {
   const PANEL_COMMANDS = DRAWERATOR_PANELS.map(panel => ({
     id: `panel-${panel.id}`,
     name: `Toggle ${panel.label} ${panel.slash}`,
-    aliases: [panel.slash, panel.label, `panel ${panel.label}`],
+    aliases: [panel.slash, ...(panel.aliases || []), panel.label, `panel ${panel.label}`],
     category: "Panels",
     record: "presentation",
     panel,
@@ -7986,6 +8239,16 @@ function App() {
     { id: "media.binding.update", name: "Update Media Actor Binding", category: "Media Streams", args: { elementId: "string", bindingId: "string", patch: "mediaBindingPatch" }, action: (_api, args) => updateMediaBindingForProcessor(args.elementId, args.bindingId, args.patch || {}) },
     { id: "media.binding.remove", name: "Remove Media Actor Binding", category: "Media Streams", args: { elementId: "string", bindingId: "string" }, action: (_api, args) => deleteMediaBindingForProcessor(args.elementId, args.bindingId) },
     { id: "media.actors.arm", name: "Arm or Disarm Media Actors", category: "Media Streams", record: "never", args: { armed: "boolean" }, action: (_api, args) => { const armed = Boolean(args?.armed); setMediaActorsArmed(armed); return { armed }; } },
+    { id: "stream.source.create", name: "Create Input Stream Source", category: "Input Streams", args: { source: "inputStreamSource" }, action: (_api, args) => createInputStreamSource(args.source || args) },
+    { id: "stream.source.update", name: "Update Input Stream Source", category: "Input Streams", args: { sourceId: "string", patch: "inputStreamSourcePatch" }, action: (_api, args) => { patchInputStreamSource(args.sourceId, args.patch || {}); return { sourceId: args.sourceId }; } },
+    { id: "stream.source.remove", name: "Remove Input Stream Source", category: "Input Streams", args: { sourceId: "string" }, action: (_api, args) => { deleteInputStreamSource(args.sourceId); return { sourceId: args.sourceId }; } },
+    { id: "stream.processor.create", name: "Create Derived Stream Processor", category: "Input Streams", args: { processor: "curve-cross|region|threshold processor" }, action: (_api, args) => createStreamProcessor(args.processor || args) },
+    { id: "stream.processor.update", name: "Update Derived Stream Processor", category: "Input Streams", args: { processorId: "string", patch: "processor patch" }, action: (_api, args) => { updateStreamProcessor(args.processorId, args.patch || {}); return { processorId: args.processorId }; } },
+    { id: "stream.processor.remove", name: "Remove Derived Stream Processor", category: "Input Streams", args: { processorId: "string" }, action: (_api, args) => setStreamGraph(previous => normalizeStreamGraph({ ...previous, processors: previous.processors.filter(processor => processor.id !== args.processorId) })) },
+    { id: "brush.channel.create", name: "Create Brush Channel", category: "Brush", args: { channel: "brushChannel" }, action: (_api, args) => createBrushChannel(args.channel || args) },
+    { id: "brush.channel.update", name: "Update Brush Channel", category: "Brush", args: { channelId: "string", patch: "brushChannelPatch" }, action: (_api, args) => { updateBrushChannel(args.channelId, args.patch || {}); return { channelId: args.channelId }; } },
+    { id: "brush.channel.remove", name: "Remove Brush Channel", category: "Brush", args: { channelId: "string" }, action: (_api, args) => { deleteBrushChannel(args.channelId); return { channelId: args.channelId }; } },
+    { id: "brush.channel.reorder", name: "Reorder Brush Channel", category: "Brush", args: { channelId: "string", delta: "number" }, action: (_api, args) => { reorderBrushChannel(args.channelId, Number(args.delta) || 0); return { channelId: args.channelId }; } },
     { id: "settings-ai", name: "Open AI Configuration /settings-ai", aliases: ["/settings-ai"], category: "Panels", action: () => toggleDraweratorPanel("settings", { settingsTab: "ai" }) },
     { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
     { id: "toggle-transparency", name: "Toggle Canvas Background Transparency", category: "Canvas", action: (api) => toggleBackgroundTransparency(api) },
@@ -9873,6 +10136,116 @@ function App() {
     setActiveMediaSourceId(previous => previous === sourceId ? "" : previous);
   };
 
+  const createInputStreamSource = source => {
+    const normalized = normalizeInputSource(source);
+    setStreamGraph(previous => normalizeStreamGraph({
+      ...previous,
+      sources: [...previous.sources, normalized],
+    }));
+    return normalized;
+  };
+
+  const patchInputStreamSource = (sourceId, patch = {}) => {
+    setStreamGraph(previous => normalizeStreamGraph({
+      ...previous,
+      sources: previous.sources.map(source => source.id === sourceId ? normalizeInputSource({ ...source, ...patch, id: source.id }) : source),
+    }));
+  };
+
+  const deleteInputStreamSource = sourceId => {
+    const source = streamGraph.sources.find(item => item.id === sourceId);
+    streamAdapterRuntimeRef.current?.disconnect(sourceId);
+    if (source?.streamId) streamRegistryRef.current.remove(source.streamId);
+    setStreamGraph(previous => normalizeStreamGraph({ ...previous, sources: previous.sources.filter(item => item.id !== sourceId) }));
+  };
+
+  const createStreamProcessor = processor => {
+    const normalized = normalizeStreamProcessor(processor);
+    setStreamGraph(previous => normalizeStreamGraph({ ...previous, processors: [...previous.processors, normalized] }));
+    return normalized;
+  };
+
+  const updateStreamProcessor = (processorId, patch = {}) => {
+    setStreamGraph(previous => normalizeStreamGraph({
+      ...previous,
+      processors: previous.processors.map(processor => processor.id === processorId
+        ? normalizeStreamProcessor({ ...processor, ...patch, id: processor.id })
+        : processor),
+    }));
+  };
+
+  const deleteStreamProcessor = processorId => setStreamGraph(previous => normalizeStreamGraph({
+    ...previous,
+    processors: previous.processors.filter(processor => processor.id !== processorId),
+  }));
+
+  const getInputAdapterRuntime = () => {
+    if (!streamAdapterRuntimeRef.current) {
+      streamAdapterRuntimeRef.current = new BrowserStreamAdapterRuntime({
+        registry: streamRegistryRef.current,
+        onStatus: (id, status) => setInputStreamStatuses(previous => ({ ...previous, [id]: status })),
+      });
+    }
+    return streamAdapterRuntimeRef.current;
+  };
+
+  const connectInputSerial = async source => {
+    try { await getInputAdapterRuntime().connectSerial(source); }
+    catch (error) { setInputStreamStatuses(previous => ({ ...previous, [source.id]: { kind: "error", message: error.message || "Serial could not connect." } })); }
+  };
+
+  const connectInputWebSocket = async source => {
+    try { await getInputAdapterRuntime().connectWebSocket(source); }
+    catch (error) { setInputStreamStatuses(previous => ({ ...previous, [source.id]: { kind: "error", message: error.message || "WebSocket could not connect." } })); }
+  };
+
+  const connectInputMidi = async () => {
+    await connectIannixMidi();
+    const access = midiAccessRef.current;
+    if (!access) return;
+    inputMidiListenersRef.current.forEach((listener, inputId) => {
+      access.inputs.get(inputId)?.removeEventListener?.("midimessage", listener);
+    });
+    inputMidiListenersRef.current.clear();
+    const configured = streamGraph.sources.filter(source => source.enabled && source.type === "midi");
+    for (const input of access.inputs.values()) {
+      const listener = event => {
+        const message = parseMidiMessage(event.data, event.timeStamp || performance.now());
+        if (message.kind === "clock" && streamRegistryRef.current.get("midi-clock")) {
+          streamRegistryRef.current.publish("midi-clock", { kind: "time", value: message.time / 1000, time: message.time, data: message }, { internal: true });
+        }
+        configured.filter(source => !source.portId || source.portId === input.id).forEach(source => {
+          streamRegistryRef.current.publish(source.streamId, mapAdapterRecordToSample(message, source), { internal: true });
+        });
+      };
+      input.addEventListener?.("midimessage", listener);
+      inputMidiListenersRef.current.set(input.id, listener);
+    }
+    setInputStreamStatuses(previous => Object.fromEntries(configured.map(source => [source.id, { kind: "success", message: "Listening for MIDI." }]).concat(Object.entries(previous).filter(([id]) => !configured.some(source => source.id === id)))));
+  };
+
+  const createBrushChannel = channel => {
+    const normalized = normalizeBrushChannel(channel);
+    setBrushChannels(previous => normalizeBrushChannels([...previous, normalized]));
+    return normalized;
+  };
+
+  const updateBrushChannel = (channelId, patch = {}) => {
+    setBrushChannels(previous => normalizeBrushChannels(previous.map(channel => channel.id === channelId ? normalizeBrushChannel({ ...channel, ...patch, id: channel.id }) : channel)));
+  };
+
+  const deleteBrushChannel = channelId => setBrushChannels(previous => normalizeBrushChannels(previous.filter(channel => channel.id !== channelId || channel.nativePointer)));
+
+  const reorderBrushChannel = (channelId, delta) => setBrushChannels(previous => {
+    const index = previous.findIndex(channel => channel.id === channelId);
+    const nextIndex = Math.max(0, Math.min(previous.length - 1, index + delta));
+    if (index < 0 || index === nextIndex) return previous;
+    const next = [...previous];
+    const [channel] = next.splice(index, 1);
+    next.splice(nextIndex, 0, channel);
+    return normalizeBrushChannels(next);
+  });
+
   const createMediaStreamObject = (kind, overrides = {}, file = null) => {
     const api = excalidrawAPIRef.current;
     if (!api) throw new Error("The canvas is not ready.");
@@ -11551,7 +11924,7 @@ function App() {
       fps: transportFps,
       sampleRate: scoreSampleRate,
       loop: { enabled: transportLoopEnabled, start: transportLoopStart, end: transportLoopEnd, startValue: transportLoopStartValue, endValue: transportLoopEndValue },
-    }, kind === "scene" ? globalGridRef.current : null, kind === "scene" ? expressiveSynthConfigRef.current : null, kind === "scene" ? mixerRef.current : null, kind === "scene" ? p5Scripts : []), null, 2);
+    }, kind === "scene" ? globalGridRef.current : null, kind === "scene" ? expressiveSynthConfigRef.current : null, kind === "scene" ? mixerRef.current : null, kind === "scene" ? p5Scripts : [], kind === "scene" ? streamGraph : null, kind === "scene" ? brushChannels : null), null, 2);
   };
 
   const downloadTextFile = (text, filename, mimeType = "application/json") => {
@@ -11634,7 +12007,7 @@ function App() {
 
   const importDraweratorSceneText = async (text, { commitToHistory = true } = {}) => {
     if (!excalidrawAPI) return;
-    const { score, grid, expressiveSynth, mixer: importedMixer, p5Scripts: importedP5Scripts } = parseDraweratorExchange(text, "scene");
+    const { score, grid, expressiveSynth, mixer: importedMixer, p5Scripts: importedP5Scripts, streamGraph: importedStreamGraph, brushChannels: importedBrushChannels } = parseDraweratorExchange(text, "scene");
     const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
     const restoredRuntimeElements = reconcileRuntimeCursorHosts(restored.elements || []);
     const restoredP5 = reconcileP5ScriptsWithElements(importedP5Scripts, restoredRuntimeElements);
@@ -11656,6 +12029,8 @@ function App() {
     mixerRef.current = importedMixer;
     setMixer(importedMixer);
     setP5Scripts(restoredP5.scripts);
+    setStreamGraph(normalizeStreamGraphWithBuiltins(importedStreamGraph));
+    setBrushChannels(normalizeBrushChannels(importedBrushChannels));
     const restoredActiveP5Script = restoredP5.scripts[0];
     setActiveP5ScriptId(restoredActiveP5Script?.id || "");
     setP5ScriptSource(restoredActiveP5Script?.source || "");
@@ -12236,7 +12611,7 @@ function App() {
     }, 180);
   }, [accentColor, accentOpacity, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const api = {
       apiVersion: 6,
       commands: {
@@ -12323,6 +12698,10 @@ function App() {
         removeTrack: trackId => setMixer(current => removeMixerTrack(current, trackId)),
       },
     };
+    // `api` is a named self-reference for trusted runtimes. It leaves the
+    // short `__` lexical-only while supporting __.api.streams and the public
+    // window.drawerator.streams surface.
+    api.api = api;
     window.drawerator = api;
     window.dispatchEvent(new CustomEvent("drawerator:ready", { detail: { apiVersion: api.apiVersion } }));
     return () => {
@@ -17890,7 +18269,7 @@ function App() {
               AI Assistant
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-mods", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Mods &amp; FX
+              Brush
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-script", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Script
@@ -17905,7 +18284,10 @@ function App() {
               Expressive Synth
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-media-input", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Media Input
+              Media
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-inputs", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              Inputs
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-holistic", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               MediaPipe Holistic
@@ -18727,7 +19109,7 @@ function App() {
           {shouldRenderPanel("mods") && (
           <DraweratorPanel
             id="mods"
-            title="Mods & FX"
+            title="Brush"
             placement={panelLayouts.mods.placement}
             layout={panelLayouts.mods}
             dockTabs={getPanelDockTabs("mods")}
@@ -18742,6 +19124,18 @@ function App() {
             collapsed={panelLayouts.mods.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.mods.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.mods.placement]: false }))}
           >
+            <div className="drawerator-panel-secondary-header drawerator-mods-tabs" role="tablist" aria-label="Brush sections">
+              {[['channels', 'Channels'], ['stack', 'Stack'], ['script', 'Script']].map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={modsPanelTab === id} className={modsPanelTab === id ? "active" : ""} onClick={() => setModsPanelTab(id)}>{label}</button>)}
+            </div>
+            {modsPanelTab === "channels" ? <BrushChannelsPanel
+              channels={brushChannels}
+              streams={mediaStreamsApiRef.current.list()}
+              canvasTargets={canvasInputTargets}
+              onAdd={createBrushChannel}
+              onPatch={updateBrushChannel}
+              onRemove={deleteBrushChannel}
+              onReorder={reorderBrushChannel}
+            /> : modsPanelTab === "script" ? <div style={{ height: "calc(100% - 34px)", overflow: "auto" }}>{renderBrushConfigForm()}</div> : <>
             <div className="drawerator-panel-secondary-header drawerator-mods-actions-header">
               <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px", gap: "10px" }}>
                 {(() => {
@@ -18968,6 +19362,7 @@ function App() {
                 return renderModifiersTab();
               })()}
             </div>
+            </>}
           </DraweratorPanel>
           )}
 
@@ -19114,7 +19509,7 @@ function App() {
           {shouldRenderPanel("media-input") && (
           <DraweratorPanel
             id="media-input"
-            title="Media Input"
+            title="Media"
             placement={panelLayouts["media-input"].placement}
             layout={panelLayouts["media-input"]}
             dockTabs={getPanelDockTabs("media-input")}
@@ -19142,6 +19537,42 @@ function App() {
               onPickCanvasTarget={beginCanvasSourceEyedropper}
               onChooseFile={chooseMediaStreamFile}
               onDelete={deleteMediaInputSource}
+            />
+          </DraweratorPanel>
+          )}
+
+          {shouldRenderPanel("inputs") && (
+          <DraweratorPanel
+            id="inputs"
+            title="Inputs"
+            placement={panelLayouts.inputs.placement}
+            layout={panelLayouts.inputs}
+            dockTabs={getPanelDockTabs("inputs")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.inputs.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("inputs", placement)}
+            onDragStart={event => startSidebarPanelDrag("inputs", event)}
+            onClose={() => closeDraweratorPanel("inputs")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.inputs.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.inputs.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.inputs.placement]: false }))}
+          >
+            <InputStreamsPanel
+              sources={streamGraph.sources}
+              streams={mediaStreamsApiRef.current.list()}
+              processors={streamGraph.processors}
+              statusById={inputStreamStatuses}
+              onCreate={createInputStreamSource}
+              onPatch={patchInputStreamSource}
+              onDelete={deleteInputStreamSource}
+              onCreateProcessor={createStreamProcessor}
+              onPatchProcessor={updateStreamProcessor}
+              onDeleteProcessor={deleteStreamProcessor}
+              onConnectSerial={source => void connectInputSerial(source)}
+              onConnectWebSocket={source => void connectInputWebSocket(source)}
+              onConnectMidi={() => void connectInputMidi()}
             />
           </DraweratorPanel>
           )}
@@ -19318,7 +19749,7 @@ function App() {
         <MediaActorOverlay
           appState={p5OverlayScene.appState}
           traces={mediaActorOverlayState.traces}
-          strokes={mediaActorOverlayState.strokes}
+          strokes={[...(mediaActorOverlayState.strokes || []), ...brushChannelOverlayStrokes]}
           markers={mediaActorOverlayState.markers}
         />
         <MediaMapOverlay

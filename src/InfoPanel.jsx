@@ -73,7 +73,7 @@ const EditorKeys = () => (
 const DraweratorApiGuide = () => (
   <section>
     <h3>Drawerator API</h3>
-    <p>The shared <code>__</code> bridge is available in p5 and Play Core. It is live: scene queries, selection, transport, theme, and parameters reflect the current app state. Use <code>__.api</code> for deliberate application-level operations. The legacy <code>drawerator</code> name remains available for compatibility.</p>
+    <p>The shared <code>__</code> bridge is available in trusted p5, Play Core, Strudel, Brush, and Livecode runtimes. It is live: scene queries, selection, transport, theme, parameters, and streams reflect the current app state. Use <code>__.api</code> for deliberate application-level operations. The legacy <code>drawerator</code> name remains available for compatibility.</p>
     <details className="info-api-group" open>
       <summary>Frame bridge</summary>
       <dl className="info-svg-command-list">
@@ -112,7 +112,7 @@ const DraweratorApiGuide = () => (
         <div><dt><code>api.history</code> / <code>api.macros</code></dt><dd>Record, replay, import/export, save, insert, and remove reusable command history.</dd></div>
         <div><dt><code>api.inputs</code> / <code>api.events</code></dt><dd>Register or emit input adapters, and subscribe to application events.</dd></div>
         <div><dt><code>api.mixer</code></dt><dd>Read the mixer or add, update, and remove tracks.</dd></div>
-        <div><dt><code>api.streams</code></dt><dd>List semantic streams, resolve one by id or name, query MediaPipe features, or subscribe to transient observations.</dd></div>
+        <div><dt><code>api.streams</code></dt><dd>List or resolve typed space, time, value, event, and image streams. Semantic MediaPipe <code>feature()</code>/<code>features()</code> remain available. <code>inputs</code> and <code>outputs</code> are filtered views, not separate systems.</dd></div>
       </dl>
     </details>
     <pre><code>{`// Follow the current Drawerator foreground
@@ -161,6 +161,18 @@ const unsubscribe = body.subscribe(frame => {
   console.log(frame.feature("right_hand.pinch"));
 });`}</code></pre>
       <p>Canonical names use lower snake case: <code>pose.left_index</code>, <code>left_hand.index_finger_tip</code>, and <code>right_hand.thumb_tip</code>. Face vertices remain numeric, such as <code>face.468</code>. Named groups include <code>face.face_oval</code>, <code>face.left_eye</code>, <code>face.left_iris</code>, and <code>face.lips</code>.</p>
+    </section>
+    <section>
+      <h3>Unified inputs and Brush channels</h3>
+      <p>The <strong>Media</strong> panel owns camera, URL/file, and canvas image sources. The separate <strong>Inputs</strong> panel owns pointer, keyboard, clocks, MediaPipe, IanniX, MIDI, serial, WebSocket/OSC JSON, and persistent descriptors for trusted virtual streams. Device handles, pixels, socket state, and current samples are local and transient; scene exchange keeps only named mappings and graph processors.</p>
+      <pre><code>{`// Create a runtime-only stream in a trusted livecode runtime
+const hand = __.streams.create({
+  id: "my-hand", name: "My hand", kind: "space"
+});
+hand.write({ kind: "space", x: 0.4, y: 0.6, space: "normalized" });
+
+// A Brush channel can then map it to a selected frame or viewport.`}</code></pre>
+      <p><strong>Brush → Channels</strong> keeps each stroke session separate. A channel may choose a spatial stream, optional gate and pressure streams, range/inversion/scale/offset, then draw in scene space, a viewport frozen at start, or a rotated rectangle/frame.</p>
     </section>
     <section>
       <h3>Coordinates and availability</h3>

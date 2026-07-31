@@ -1,8 +1,8 @@
 # Modifier Stack Architecture Notes
 
-Last updated: 2026-07-15
+Last updated: 2026-07-31
 
-This note records the contracts behind Drawerator's non-destructive **🛠️ Mods & FX** implementation. Preserve these invariants when adding brushes, filters, transforms, or history behavior.
+This note records the contracts behind Drawerator's non-destructive **Brush → Stack** implementation. The old **Mods & FX** panel id and `/mods` alias remain for compatibility. Preserve these invariants when adding brushes, filters, transforms, or history behavior.
 
 ## Element data model
 
@@ -20,6 +20,22 @@ Generated live tracks are rendered in the SVG overlay. They are not included in 
 The panel also maintains a drawing-session stack for Mod Pen. It is a template for the next stroke, not a canvas-global mutation. `nextStrokeHideOriginal` is likewise a persistent next-stroke preference. Once a stroke is committed, both the stack and its hide state are copied into that element's `customData`.
 
 The Script tab is deliberately inert. A selected editor script is never consulted by the drawing pipeline unless it has been saved into the visible modifier stack. `resolveDrawingModifiers()` enforces this rule, including the empty-stack case.
+
+## Channels are separate from the modifier stack
+
+**Brush → Channels** is a source-agnostic input layer, not another modifier. It starts from the
+native Pointer channel and can add parallel channels driven by typed space streams (MediaPipe,
+IanniX cursors, MIDI/serial/WebSocket adapters, or trusted virtual streams), optional gates, and
+optional pressure values. Every active channel has its own transient preview and commits one native
+freedraw session on close. No channel writes raw samples into the scene or shares points with another
+channel.
+
+Channel destinations are either scene passthrough, a viewport frozen at session start, or a rotated
+rectangle/frame in its own local coordinate space. Range conversion happens before destination
+mapping and supports manual/automatic extents, inversion, clamp, scale, and offset. The modifier
+snapshot is captured when the session starts so a later channel edit cannot retroactively change an
+active stroke. Gate loss, source loss, disconnect, disarm, and deletion are cancellation paths with
+no stale overlay or selectable ghost.
 
 ## Evaluation rules
 

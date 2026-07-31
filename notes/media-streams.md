@@ -13,8 +13,9 @@ The initial stream graph has three kinds:
 - `holistic` is a transformable canvas processor that consumes a source by stable source id and
   renders MediaPipe pose, hand, and sampled face landmarks.
 
-Open the panels with `/video-input`, `/media-input`, and `/holistic`. Creating an input adds it to
-the panel catalog only. **Show as canvas object** adds or removes an ordinary transformable view
+Open the source catalog with `/media` (the `/media-input` alias remains available), signal streams with
+`/inputs`, and processors with `/holistic`. Creating an input adds it to the panel catalog only.
+**Show as canvas object** adds or removes an ordinary transformable view
 without stopping the source. Canvas opacity and Outliner visibility affect that view only, so a
 hidden source view remains available to Holistic and future processors. Hiding a Holistic processor
 also hides its canvas output without stopping inference or its semantic stream, so mappings and
@@ -129,6 +130,70 @@ The service is also `__.api.streams` and `window.drawerator.streams`. `__` itsel
 to trusted livecode runtimes and is never installed as `window.__`. Raw observations remain
 transient and are evaluated once per Holistic result; a scene file persists the processor and its
 versioned binding definitions, not hundreds of landmark elements.
+
+## Unified streams and Inputs
+
+`src/streamRuntime.js` generalizes semantic MediaPipe observations into one typed registry. A stream
+declares one primary frame kind—`space`, `time`, `value`, `event`, or `image`—plus any additional
+capabilities and its overlapping `input`/`output` roles. `inputs` and `outputs` are views over the
+same registry rather than disconnected buses.
+
+```js
+const all = __.streams.list({ kind: "space" });
+const source = __.streams.get("pointer");
+const current = source.snapshot();
+const stop = source.subscribe(sample => console.log(sample));
+
+// Trusted runtimes can create only runtime-owned streams. They disappear
+// when the owning p5, Play Core, Strudel, Brush, or Livecode runner stops.
+const signal = __.streams.create({ id: "energy", kind: "value" });
+signal.write({ kind: "value", value: 0.75 });
+```
+
+Camera, URL/file media, canvas capture, and Preview outputs register as read-only image streams.
+Image pixels and `CanvasImageSource` handles are transient; a trusted script recreates virtual
+image output after reload. Existing `__.streams.get("Holistic").feature(...)` and `.features(...)`
+remain unchanged. The public equivalent is `window.drawerator.streams`; `window.__` is never
+installed.
+
+The **Media** panel retains the image-source catalog, its source-specific editors, preview controls,
+and stored source ids. The dedicated **Inputs** panel uses the same source-stack/detail-editor model
+for pointer, keyboard, transport/wall/animation/MIDI clocks, MediaPipe features, IanniX
+maps/cursors/triggers, Web MIDI, Web Serial, WebSocket JSON, OSC-over-WebSocket JSON, and virtual
+streams. Browser permissions, connected devices, socket credentials, current frames, and samples
+are deliberately local. A source descriptor may persist unresolved and show a waiting/disconnected
+state after reload.
+
+Web Serial connection is always an explicit user gesture. OSC is a configurable WebSocket client,
+not a UDP server: run an external bridge and send JSON such as
+`{ "address": "/hand/right", "args": [0.2, 0.7] }`, then map fields such as
+`x=args.0, y=args.1` in the source. Browser JavaScript cannot receive raw UDP OSC directly; see
+[MDN WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API).
+
+## Derived events and IanniX streams
+
+The persisted stream graph can derive ordinary event streams from a point crossing a curve,
+entering/leaving a rectangle, or a scalar rising/falling through hysteresis thresholds. Every
+event carries its source, optional target, scene position, transition, and timestamp. These are
+available immediately as Brush gates and remain a command-backed foundation for later generators.
+
+IanniX curves publish sampled reusable map data, active cursors publish scene position, progress,
+and score time, and trigger contact emits enter/leave event frames. This does not alter the
+existing score/MIDI evaluation path.
+
+## Brush channels
+
+The former **Mods & FX** workspace panel is now **Brush** (`/brush`; `/mods` remains an alias).
+Its **Channels** tab hosts ordered parallel stroke channels; **Stack** retains the non-destructive
+modifier pipeline; **Script** remains the Brush script adapter. The native Pointer channel is
+intentionally preserved so mouse/pen/touch behavior does not change.
+
+Each non-native channel selects a spatial stream plus optional gate and pressure streams, maps
+source ranges with manual/automatic min/max, inversion, clamp, scale, and offset, and targets scene
+space, a viewport frozen when the session starts, or a selected rotated rectangle/frame. The
+source-agnostic runtime owns a separate start/move/end sequence and transient preview for every
+channel. Gate loss, missing input, disconnect, or channel removal closes that session and commits
+at most one native undoable freedraw element; parallel channels never merge.
 
 ## Mapping and media actors
 

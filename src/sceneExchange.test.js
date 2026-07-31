@@ -39,7 +39,7 @@ test("scene exchange preserves frame timeline display mode", () => {
   assert.equal(payload.drawerator.score.fps, 24);
 });
 
-test("scene exchange version 6 preserves global configuration, p5 scripts, and migrates legacy scenes", () => {
+test("scene exchange version 7 preserves streams, brush channels, global configuration, p5 scripts, and migrates legacy scenes", () => {
   const grid = mergeGridPatch(DEFAULT_GLOBAL_GRID, {
     appearance: { visible: true },
     spacing: { x: 120, y: 80, subdivisionsX: 6, subdivisionsY: 4 },
@@ -51,12 +51,20 @@ test("scene exchange version 6 preserves global configuration, p5 scripts, and m
   );
   const mixer = normalizeMixer({ tracks: [{ id: "fm", midiChannel: 3, destination: MIXER_DESTINATION_INTERNAL, instrument: MIXER_INSTRUMENT_EXPRESSIVE, program: "user-glass" }] });
   const p5Scripts = [{ id: "orbit", name: "Orbit", source: "p.setup = () => {};", mode: "instance" }];
-  const payload = attachDraweratorExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, grid, synth, mixer, p5Scripts);
-  assert.equal(payload.drawerator.version, 6);
+  const streamGraph = {
+    sources: [{ id: "serial", name: "Serial", type: "serial", streamId: "serial-space", kind: "space", serial: { mode: "delimited", delimiter: ",", baudRate: 115200 } }],
+    processors: [{ id: "gate", type: "threshold", sourceId: "serial-space", outputId: "gate-events", threshold: { rising: 0.8, falling: 0.2 } }],
+  };
+  const brushChannels = [{ id: "serial-brush", spatialStreamId: "serial-space", gateStreamId: "gate-events", destination: { kind: "viewport" } }];
+  const payload = attachDraweratorExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, grid, synth, mixer, p5Scripts, streamGraph, brushChannels);
+  assert.equal(payload.drawerator.version, 7);
   assert.deepEqual(parseDraweratorExchange(payload, "scene").grid, grid);
   assert.deepEqual(parseDraweratorExchange(payload, "scene").expressiveSynth, normalizeExpressiveSynthConfig(synth));
   assert.deepEqual(parseDraweratorExchange(payload, "scene").mixer, mixer);
   assert.equal(parseDraweratorExchange(payload, "scene").p5Scripts[0].id, "orbit");
+  assert.equal(parseDraweratorExchange(payload, "scene").streamGraph.sources[0].streamId, "serial-space");
+  assert.equal(parseDraweratorExchange(payload, "scene").streamGraph.processors[0].outputId, "gate-events");
+  assert.equal(parseDraweratorExchange(payload, "scene").brushChannels[0].gateStreamId, "gate-events");
 
   const legacy = { type: "excalidraw", elements: [], drawerator: { version: 1, kind: "scene", score: {} } };
   const migrated = parseDraweratorExchange(legacy, "scene").grid;

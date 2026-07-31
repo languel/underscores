@@ -3,9 +3,10 @@ export const DRAWERATOR_PANELS = Object.freeze([
   Object.freeze({ id: "outliner", label: "Outliner", slash: "/outliner", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "properties", label: "Properties", slash: "/properties", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "iannix", label: "Scene", slash: "/iannix", kind: "dockable", placements: ["left", "floating", "right"] }),
-  Object.freeze({ id: "mods", label: "Mods & FX", slash: "/mods", kind: "dockable", sidebarName: "modifiers-sidebar", placements: ["left", "floating", "right"] }),
+  Object.freeze({ id: "mods", label: "Brush", slash: "/brush", aliases: ["/mods"], kind: "dockable", sidebarName: "modifiers-sidebar", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "synth", label: "Synth", slash: "/synth", kind: "dockable", placements: ["left", "floating", "right"] }),
-  Object.freeze({ id: "media-input", label: "Media Input", slash: "/media-input", kind: "dockable", placements: ["left", "floating", "right"] }),
+  Object.freeze({ id: "media-input", label: "Media", slash: "/media", aliases: ["/media-input"], kind: "dockable", placements: ["left", "floating", "right"] }),
+  Object.freeze({ id: "inputs", label: "Inputs", slash: "/inputs", aliases: ["/signals"], kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "holistic", label: "MediaPipe Holistic", slash: "/holistic", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "mapping", label: "Media Mapping", slash: "/mapping", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "script", label: "Script", slash: "/script", kind: "dockable", placements: ["left", "floating", "right"] }),
@@ -33,5 +34,6 @@ export const matchesDraweratorPanel = (panel, query) => {
   if (!normalized) return true;
   return panel.label.toLowerCase().includes(normalized) ||
     panel.slash.toLowerCase().includes(normalized) ||
+    (panel.aliases || []).some(alias => alias.toLowerCase().includes(normalized)) ||
     `panel ${panel.label}`.toLowerCase().includes(normalized);
 };

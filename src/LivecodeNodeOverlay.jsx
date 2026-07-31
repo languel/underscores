@@ -127,7 +127,7 @@ function createLivecodeBridge(element, node, scriptRuntimeRef, onStrudelTranspor
     get colors() { return appearance().colors; },
     get theme() { return appearance().theme; },
     get appearance() { return appearance(); },
-    get streams() { return window.drawerator?.streams; },
+    get streams() { return scriptRuntimeRef?.current?.getStreams?.(element.id) || window.drawerator?.streams; },
     strudel: Object.freeze({
       setTempo: bpm => onStrudelTransport?.(element, node, { type: "tempo", value: bpm }),
       setPlaying: playing => onStrudelTransport?.(element, node, { type: "playing", value: Boolean(playing) }),
@@ -254,6 +254,7 @@ function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef }) {
 }
 
 function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef, transport, onPatch, onMidiEvents, onStrudelTransport }) {
+  useEffect(() => () => scriptRuntimeRef.current?.disposeStreamsOwner?.(element.id), [element.id, node.runtime.running, scriptRuntimeRef]);
   if (node.kind === "orca") return <OrcaNode
     nodeId={element.id}
     source={node.source}
