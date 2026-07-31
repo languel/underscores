@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   listMediaFeatureDefinitions,
   resolveMediaFeatureDefinition,
@@ -63,8 +63,13 @@ const FeatureValue = ({ feature, allSpaces = false }) => {
   </span>;
 };
 
-const FeatureBrowser = ({ query, onQuery, selectedIds, onSelect, frame }) => {
-  const definitions = useMemo(() => listMediaFeatureDefinitions(query).slice(0, 180), [query]);
+const FeatureBrowser = ({ query, onQuery, selectedIds, focusFeatureId, onSelect, frame }) => {
+  const featureRefs = useRef(new Map());
+  const definitions = useMemo(() => {
+    const listed = listMediaFeatureDefinitions(query).slice(0, 180);
+    const focused = resolveMediaFeatureDefinition(focusFeatureId);
+    return focused && !listed.some(definition => definition.id === focused.id) ? [focused, ...listed] : listed;
+  }, [focusFeatureId, query]);
   const groups = useMemo(() => {
     const result = new Map();
     definitions.forEach(definition => {
@@ -75,6 +80,10 @@ const FeatureBrowser = ({ query, onQuery, selectedIds, onSelect, frame }) => {
     });
     return [...result.entries()];
   }, [definitions]);
+  useEffect(() => {
+    if (!focusFeatureId) return;
+    featureRefs.current.get(focusFeatureId)?.scrollIntoView({ block: "nearest" });
+  }, [focusFeatureId, definitions]);
   return <section className="media-mapping-section">
     <h3>Features</h3>
     <input
@@ -95,6 +104,10 @@ const FeatureBrowser = ({ query, onQuery, selectedIds, onSelect, frame }) => {
             role="option"
             aria-selected={selectedIds.includes(definition.id)}
             className={`media-mapping-feature ${selectedIds.includes(definition.id) ? "is-selected" : ""}`}
+            ref={node => {
+              if (node) featureRefs.current.set(definition.id, node);
+              else featureRefs.current.delete(definition.id);
+            }}
             onClick={event => onSelect(definition.id, event, definitions)}
           >
             <span>{definition.id}</span>
@@ -227,7 +240,7 @@ export default function MediaMappingPanel({
   const selectedCanvasProcessor = processors.find(element => selectedElementIds?.[element.id]);
   const [processorId, setProcessorId] = useState("");
   const [query, setQuery] = useState("");
-  const [featureIds, setFeatureIds] = useState(["right_hand.palm"]);
+  const [featureIds, setFeatureIds] = useState([]);
   const [, setRuntimeNonce] = useState(0);
   const activeId = selectedCanvasProcessor?.id || (processors.some(element => element.id === processorId) ? processorId : processors[0]?.id || "");
   const processor = processors.find(element => element.id === activeId) || null;
@@ -308,13 +321,13 @@ export default function MediaMappingPanel({
       </div>
       <details className="media-visual-feature-picker-details" open>
         <summary>Visual picker <button type="button" className="iannix-flat-button" onClick={event => { event.preventDefault(); onCreateMap?.(activeId); }}>Open on canvas</button></summary>
-        <MediaVisualFeaturePicker selectedIds={featureIds} onSelect={inspect} onSelectMany={inspectMany} />
+        <MediaVisualFeaturePicker selectedIds={featureIds} focusFeatureId={featureId} onSelect={inspect} onSelectMany={inspectMany} />
       </details>
-      <FeatureBrowser query={query} onQuery={setQuery} selectedIds={featureIds} onSelect={inspect} frame={frame} />
-      <div className="media-mapping-inspector">
+      <FeatureBrowser query={query} onQuery={setQuery} selectedIds={featureIds} focusFeatureId={featureId} onSelect={inspect} frame={frame} />
+      {featureId && <div className="media-mapping-inspector">
         <code>{featureId}</code>
         <FeatureValue feature={frame?.feature?.(featureId)} allSpaces />
-      </div>
+      </div>}
       <section className="media-mapping-section">
         <div className="media-mapping-section-heading">
           <h3>Bindings</h3>

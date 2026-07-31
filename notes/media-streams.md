@@ -42,6 +42,15 @@ Browser-owned values remain transient in `src/mediaStreamRuntime.js`: live `Medi
 decoded surfaces, the latest landmark frame, and local file object URLs. A local file's name and
 media kind persist, but the browser file handle does not, so choose it again after reload.
 
+## Source catalog and previews
+
+The **Media Input** source stack uses source-kind icons instead of textual type badges. Drag a
+source icon to the canvas to create a named `preview` rectangle at the drop point. Its dimensions
+use the source's current processed output size when available, falling back to the configured
+resolution. The preview remains an ordinary selectable Drawerator object and appears in the
+Outliner using the source name. Existing rectangles or frames can still become previews through
+the context menu or `/preview` command.
+
 ## MediaPipe runtime and output
 
 Holistic is loaded on demand from the upstream browser package used by MediaMime. Processing is
@@ -50,6 +59,10 @@ Holistic output is transparent by default. The **Source feed** toggle controls w
 processed camera/media image is painted behind the landmarks; it does not change the inference
 input. **Refine face + iris** enables MediaPipe's eye/lip refinement and the ten additional iris
 landmarks while the Lite/Full/Heavy selector continues to control pose-model complexity.
+
+Face rendering is a semantic nested filter rather than a decimated point sample. **All** enables
+the complete 478-point refined mesh; Outline, Eyes, Iris, Mouth, Brows, and Remaining can then be
+toggled independently. The resulting view shows exactly those selected point sets.
 
 Every result updates the derived object's live canvas and emits `media.holistic.frame` on the
 Drawerator event bus with normalized pose, left-hand, right-hand, and face landmarks.

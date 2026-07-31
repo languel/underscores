@@ -21,6 +21,12 @@ test("bottom dock collapse defaults to Mod+Shift+B", () => {
   assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, event)?.id, "dock.bottom.toggle");
 });
 
+test("object eyedropper defaults to Option-I", () => {
+  const event = { code: "KeyI", metaKey: false, ctrlKey: false, altKey: true, shiftKey: false };
+  assert.equal(shortcutFromEvent(event), "Alt+KeyI");
+  assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, event)?.id, "object.eyedropper");
+});
+
 test("clear scene uses the explicit Ctrl+Shift+Backspace binding", () => {
   const event = { code: "Backspace", metaKey: false, ctrlKey: true, altKey: false, shiftKey: true };
   assert.equal(shortcutFromEvent(event), "Ctrl+Shift+Backspace");

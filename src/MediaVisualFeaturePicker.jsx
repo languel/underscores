@@ -26,9 +26,7 @@ const pointInSvg = (svg, event) => {
   return new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
 };
 
-const sameViewBox = (a, b) => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
-
-export default function MediaVisualFeaturePicker({ selectedIds = [], onSelect, onSelectMany, mode: controlledMode, onModeChange, compact = false }) {
+export default function MediaVisualFeaturePicker({ selectedIds = [], focusFeatureId = "", onSelect, onSelectMany, mode: controlledMode, onModeChange, compact = false }) {
   const svgRef = useRef(null);
   const dragRef = useRef(null);
   const definitions = useMemo(() => listMediaFeatureDefinitions(), []);
@@ -64,16 +62,23 @@ export default function MediaVisualFeaturePicker({ selectedIds = [], onSelect, o
     };
   }, [definitions]);
 
-  useEffect(() => {
-    if (!sameViewBox(viewBox, modeDefinition.viewBox)) setViewBox(modeDefinition.viewBox);
-  }, [mode]);
-
   const changeMode = nextMode => {
     if (!VISUAL_MODES.some(candidate => candidate.id === nextMode)) return;
     if (controlledMode === undefined) setModeState(nextMode);
     onModeChange?.(nextMode);
     setViewBox(VISUAL_MODES.find(candidate => candidate.id === nextMode).viewBox);
   };
+
+  useEffect(() => {
+    if (!focusFeatureId) return;
+    const node = nodes.find(candidate => candidate.id === focusFeatureId);
+    if (!node) return;
+    setViewBox(previous => ({
+      ...previous,
+      x: node.x - previous.width / 2,
+      y: node.y - previous.height / 2,
+    }));
+  }, [focusFeatureId, nodes]);
 
   const beginPointer = event => {
     const point = pointInSvg(svgRef.current, event);
@@ -82,6 +87,8 @@ export default function MediaVisualFeaturePicker({ selectedIds = [], onSelect, o
     dragRef.current = {
       mode: event.shiftKey ? "box" : "pan",
       start: point,
+      startClient: { x: event.clientX, y: event.clientY },
+      bounds: event.currentTarget.getBoundingClientRect(),
       viewBox,
     };
     if (event.shiftKey) setSelectionBox({ x: point.x, y: point.y, width: 0, height: 0 });
@@ -100,10 +107,12 @@ export default function MediaVisualFeaturePicker({ selectedIds = [], onSelect, o
       });
       return;
     }
+    const deltaX = (event.clientX - drag.startClient.x) * (drag.viewBox.width / drag.bounds.width);
+    const deltaY = (event.clientY - drag.startClient.y) * (drag.viewBox.height / drag.bounds.height);
     setViewBox({
       ...drag.viewBox,
-      x: drag.viewBox.x - (point.x - drag.start.x),
-      y: drag.viewBox.y - (point.y - drag.start.y),
+      x: drag.viewBox.x - deltaX,
+      y: drag.viewBox.y - deltaY,
     });
   };
 
@@ -143,7 +152,6 @@ export default function MediaVisualFeaturePicker({ selectedIds = [], onSelect, o
   return <div className={`media-visual-feature-picker-shell is-${mode} ${compact ? "is-compact" : ""}`}>
     {!compact && <div className="media-visual-feature-picker-modes" role="group" aria-label="Visual feature map mode">
       {VISUAL_MODES.map(candidate => <button key={candidate.id} type="button" className={candidate.id === mode ? "is-active" : ""} onClick={() => changeMode(candidate.id)}>{candidate.label}</button>)}
-      <button type="button" className="media-visual-feature-picker-reset" onClick={() => setViewBox(modeDefinition.viewBox)}>Fit</button>
     </div>}
     <svg
       ref={svgRef}

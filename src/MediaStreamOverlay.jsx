@@ -15,6 +15,7 @@ import {
   shouldProcessMediaStream,
   shouldRenderMediaStream,
 } from "./mediaStream.js";
+import { FACE_DISPLAY_GROUPS } from "./mediaLandmarkOntology.js";
 
 const HOLISTIC_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js";
 const HOLISTIC_ASSET_ROOT = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic/";
@@ -81,9 +82,13 @@ const drawProcessedFrame = (context, canvas, input, config) => {
   const sourceY = Math.round(crop.y * dimensions.height);
   const sourceWidth = Math.max(1, Math.round(Math.min(crop.width, 1 - crop.x) * dimensions.width));
   const sourceHeight = Math.max(1, Math.round(Math.min(crop.height, 1 - crop.y) * dimensions.height));
-  if (canvas.width !== sourceWidth || canvas.height !== sourceHeight) {
-    canvas.width = sourceWidth;
-    canvas.height = sourceHeight;
+  const maxDimension = Number(config.output?.maxDimension) || 0;
+  const scale = maxDimension > 0 ? Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight)) : 1;
+  const outputWidth = Math.max(1, Math.round(sourceWidth * scale));
+  const outputHeight = Math.max(1, Math.round(sourceHeight * scale));
+  if (canvas.width !== outputWidth || canvas.height !== outputHeight) {
+    canvas.width = outputWidth;
+    canvas.height = outputHeight;
   }
   context.save();
   context.clearRect(0, 0, canvas.width, canvas.height);
@@ -103,10 +108,22 @@ const drawProcessedFrame = (context, canvas, input, config) => {
   return true;
 };
 
+const markPublishedFrame = (output, input, previousAt = 0) => {
+  const now = performance.now();
+  const dimensions = getSourceDimensions(input);
+  output.dataset.frameTime = String(now);
+  output.dataset.originalWidth = String(dimensions.width || 0);
+  output.dataset.originalHeight = String(dimensions.height || 0);
+  if (previousAt > 0) output.dataset.liveFps = String(Math.round((1000 / Math.max(1, now - previousAt)) * 10) / 10);
+  return now;
+};
+
 function ProcessedMediaSource({ source }) {
   const inputRef = useRef(null);
   const gifCanvasRef = useRef(null);
   const outputRef = useRef(null);
+  const lastOutputAtRef = useRef(0);
+  const staticDrawnRef = useRef(false);
   const sourceRef = useRef(source);
   sourceRef.current = source;
   const sessionUrl = useSessionFileUrl(source.id);
@@ -114,6 +131,18 @@ function ProcessedMediaSource({ source }) {
   const isCamera = source.kind === MEDIA_STREAM_KINDS.CAMERA;
   const isImage = !isCamera && source.media.mediaType === "image";
   const isGif = isImage && /\.gif(?:$|[?#])/i.test(url || source.media.fileName);
+
+  const publishFrame = input => {
+    const output = outputRef.current;
+    const context = output?.getContext("2d", { alpha: true });
+    const current = sourceRef.current;
+    const now = performance.now();
+    const interval = 1000 / current.output.fps;
+    if (!output || !context || now - lastOutputAtRef.current < interval) return false;
+    if (!drawProcessedFrame(context, output, input, current)) return false;
+    lastOutputAtRef.current = markPublishedFrame(output, input, lastOutputAtRef.current);
+    return true;
+  };
 
   useEffect(() => {
     if (!isCamera || !source.enabled) return undefined;
@@ -174,6 +203,11 @@ function ProcessedMediaSource({ source }) {
       const patchContext = patchCanvas.getContext("2d");
       const advance = () => {
         if (disposed) return;
+        const current = sourceRef.current;
+        if (current.media.playing === false) {
+          timer = window.setTimeout(advance, 50);
+          return;
+        }
         if (previous?.disposalType === 2) {
           context.clearRect(previous.dims.left, previous.dims.top, previous.dims.width, previous.dims.height);
         } else if (previous?.disposalType === 3 && restore) {
@@ -187,15 +221,12 @@ function ProcessedMediaSource({ source }) {
         patchContext.putImageData(new ImageData(frame.patch, frame.dims.width, frame.dims.height), 0, 0);
         context.drawImage(patchCanvas, frame.dims.left, frame.dims.top);
         canvas.dataset.gifFrame = String(index);
-        const output = outputRef.current;
-        const outputContext = output?.getContext("2d", { alpha: true });
-        if (output && outputContext && drawProcessedFrame(outputContext, output, canvas, sourceRef.current)) {
-          output.dataset.frameTime = String(performance.now());
-          output.dataset.sourceFrame = String(index);
-        }
+        if (publishFrame(canvas)) outputRef.current.dataset.sourceFrame = String(index);
         previous = frame;
+        const isFinalFrame = index === frames.length - 1;
+        if (isFinalFrame && !current.media.loop) return;
         index = (index + 1) % frames.length;
-        timer = window.setTimeout(advance, Math.max(20, frame.delay || 100));
+        timer = window.setTimeout(advance, Math.max(20, (frame.delay || 100) / current.media.playbackRate));
       };
       advance();
       publishStatus({ elementId: source.id, kind: "success", message: `Animated GIF ready (${frames.length} frames).` });
@@ -217,14 +248,16 @@ function ProcessedMediaSource({ source }) {
     const registered = {
       element: output,
       kind: "canvas",
+      isPlaying: () => sourceRef.current.media.playing !== false,
       stream: () => typeof output.captureStream === "function" ? output.captureStream(30) : null,
     };
     const unregister = registerMediaRuntimeSource(source.id, registered);
     const tick = () => {
       const decodedGif = gifCanvasRef.current;
       const input = isGif && decodedGif?.dataset.gifFrame !== undefined ? decodedGif : inputRef.current;
-      if (input && drawProcessedFrame(context, output, input, sourceRef.current)) {
-        output.dataset.frameTime = String(performance.now());
+      const staticImage = isImage && !isGif;
+      if (sourceRef.current.media.playing !== false && input && (!staticImage || !staticDrawnRef.current) && publishFrame(input)) {
+        if (staticImage) staticDrawnRef.current = true;
         if (input.dataset?.gifFrame !== undefined) output.dataset.sourceFrame = input.dataset.gifFrame;
       }
       raf = requestAnimationFrame(tick);
@@ -234,12 +267,23 @@ function ProcessedMediaSource({ source }) {
       cancelAnimationFrame(raf);
       unregister();
     };
-  }, [isGif, source.enabled, source.id]);
+  }, [isGif, isImage, source.enabled, source.id]);
+
+  useEffect(() => {
+    staticDrawnRef.current = false;
+    lastOutputAtRef.current = 0;
+  }, [source.id, url, source.crop.x, source.crop.y, source.crop.width, source.crop.height, source.mirror, source.output.fps, source.output.maxDimension]);
 
   useEffect(() => {
     const media = inputRef.current;
-    if (media instanceof HTMLVideoElement) media.playbackRate = source.media.playbackRate;
-  }, [source.media.playbackRate, url]);
+    if (!(media instanceof HTMLVideoElement)) return;
+    media.playbackRate = source.media.playbackRate;
+    if (source.media.playing === false) {
+      media.pause();
+      return;
+    }
+    void media.play().catch(() => {});
+  }, [source.media.playbackRate, source.media.playing, url]);
 
   return <div className="drawerator-media-runtime-source" data-media-runtime-source-id={source.id}>
     <canvas ref={outputRef} />
@@ -267,7 +311,7 @@ function ProcessedMediaSource({ source }) {
               muted={source.media.muted}
               onCanPlay={event => {
                 event.currentTarget.playbackRate = source.media.playbackRate;
-                void event.currentTarget.play().catch(() => {});
+                if (sourceRef.current.media.playing !== false) void event.currentTarget.play().catch(() => {});
                 publishStatus({ elementId: source.id, kind: "success", message: "Media ready." });
               }}
               onError={() => publishStatus({ elementId: source.id, kind: "error", message: "Media could not be loaded. Check the URL, format, and CORS policy." })}
@@ -275,20 +319,70 @@ function ProcessedMediaSource({ source }) {
   </div>;
 }
 
-export function MediaSourceRuntimeLayer({ sources }) {
+function CanvasMediaSource({ source, captureCanvasSource, captureRevision }) {
+  const outputRef = useRef(null);
+  const sourceRef = useRef(source);
+  const lastOutputAtRef = useRef(0);
+  sourceRef.current = source;
+
+  useEffect(() => {
+    if (!source.enabled) return undefined;
+    const output = outputRef.current;
+    if (!output) return undefined;
+    const unregister = registerMediaRuntimeSource(source.id, {
+      element: output,
+      kind: "canvas",
+      isPlaying: () => sourceRef.current.media.playing !== false,
+      stream: () => typeof output.captureStream === "function" ? output.captureStream(sourceRef.current.output.fps) : null,
+    });
+    let disposed = false;
+    let timer = 0;
+    const capture = async () => {
+      if (disposed || sourceRef.current.media.playing === false) return;
+      const current = sourceRef.current;
+      const frame = await captureCanvasSource?.(current.canvas.elementId);
+      if (disposed || !frame) return;
+      const context = output.getContext("2d", { alpha: true });
+      if (!context || !drawProcessedFrame(context, output, frame, current)) return;
+      lastOutputAtRef.current = markPublishedFrame(output, frame, lastOutputAtRef.current);
+    };
+    void capture();
+    if (source.canvas.live) {
+      const tick = async () => {
+        await capture();
+        if (!disposed) timer = window.setTimeout(tick, 1000 / sourceRef.current.output.fps);
+      };
+      timer = window.setTimeout(tick, 1000 / source.output.fps);
+    }
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+      unregister();
+    };
+  }, [captureCanvasSource, captureRevision, source.canvas.elementId, source.canvas.live, source.enabled, source.id, source.output.fps, source.output.maxDimension]);
+
+  return <div className="drawerator-media-runtime-source" data-media-runtime-source-id={source.id}><canvas ref={outputRef} /></div>;
+}
+
+export function MediaSourceRuntimeLayer({ sources, captureCanvasSource, captureRevision = 0 }) {
   return <div className="drawerator-media-runtime-layer" aria-hidden="true">
-    {(sources || []).filter(source => source.enabled).map(source => <ProcessedMediaSource key={source.id} source={source} />)}
+    {(sources || []).filter(source => source.enabled).map(source => source.kind === MEDIA_STREAM_KINDS.CANVAS
+      ? <CanvasMediaSource key={source.id} source={source} captureCanvasSource={captureCanvasSource} captureRevision={captureRevision} />
+      : <ProcessedMediaSource key={source.id} source={source} />)}
   </div>;
 }
 
 export function MediaRuntimePreview({ sourceId, className = "" }) {
   const canvasRef = useRef(null);
+  const lastFrameTimeRef = useRef("");
   useEffect(() => {
     let raf = 0;
+    lastFrameTimeRef.current = "";
     const tick = () => {
       const input = getMediaRuntimeSource(sourceId)?.element;
       const output = canvasRef.current;
-      if (input?.width && input?.height && output) {
+      const frameTime = input?.dataset?.frameTime || "";
+      if (input?.width && input?.height && output && frameTime && frameTime !== lastFrameTimeRef.current) {
         if (output.width !== input.width || output.height !== input.height) {
           output.width = input.width;
           output.height = input.height;
@@ -300,6 +394,7 @@ export function MediaRuntimePreview({ sourceId, className = "" }) {
         } catch {
           // A source may be replaced between animation frames.
         }
+        lastFrameTimeRef.current = frameTime;
       }
       raf = requestAnimationFrame(tick);
     };
@@ -309,25 +404,33 @@ export function MediaRuntimePreview({ sourceId, className = "" }) {
   return <canvas ref={canvasRef} className={`drawerator-media-surface ${className}`.trim()} data-media-preview-source-id={sourceId} />;
 }
 
-const drawLandmarks = (context, landmarks, connections, width, height, color, pointRadius = 2) => {
+const drawLandmarks = (context, landmarks, connections, width, height, color, pointRadius = 2, options = {}) => {
   if (!Array.isArray(landmarks)) return;
   context.strokeStyle = color;
   context.fillStyle = color;
   context.lineWidth = Math.max(1, Math.min(width, height) / 240);
-  for (const [from, to] of connections) {
-    const a = landmarks[from];
-    const b = landmarks[to];
-    if (!a || !b || a.visibility < 0.2 || b.visibility < 0.2) continue;
-    context.beginPath();
-    context.moveTo(a.x * width, a.y * height);
-    context.lineTo(b.x * width, b.y * height);
-    context.stroke();
+  if (options.connections !== false) {
+    for (const [from, to] of connections) {
+      const a = landmarks[from];
+      const b = landmarks[to];
+      if (!a || !b || a.visibility < 0.2 || b.visibility < 0.2) continue;
+      context.beginPath();
+      context.moveTo(a.x * width, a.y * height);
+      context.lineTo(b.x * width, b.y * height);
+      context.stroke();
+    }
   }
-  landmarks.forEach(point => {
+  if (options.points === false && !options.ids) return;
+  context.font = `${Math.max(8, Math.round(Math.min(width, height) / 54))}px Inter, sans-serif`;
+  context.textBaseline = "middle";
+  landmarks.forEach((point, index) => {
     if (!point || point.visibility < 0.2) return;
-    context.beginPath();
-    context.arc(point.x * width, point.y * height, pointRadius, 0, Math.PI * 2);
-    context.fill();
+    if (options.points !== false) {
+      context.beginPath();
+      context.arc(point.x * width, point.y * height, pointRadius, 0, Math.PI * 2);
+      context.fill();
+    }
+    if (options.ids) context.fillText(String(index), point.x * width + pointRadius + 2, point.y * height);
   });
 };
 
@@ -345,6 +448,7 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
     let raf = 0;
     let pending = false;
     let lastFrameAt = 0;
+    let lastPublishedFrameTime = 0;
     let source = null;
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
@@ -368,16 +472,27 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
       }
       const current = configRef.current;
       if (!results) return;
-      if (current.holistic.showPose) drawLandmarks(context, results.poseLandmarks, POSE_CONNECTIONS, width, height, current.holistic.color, 2.4);
+      const display = {
+        points: current.holistic.showPoints,
+        connections: current.holistic.showConnections,
+        ids: current.holistic.showIds,
+      };
+      if (current.holistic.showPose) drawLandmarks(context, results.poseLandmarks, POSE_CONNECTIONS, width, height, current.holistic.colors.pose, 2.4, display);
       if (current.holistic.showHands) {
-        drawLandmarks(context, results.leftHandLandmarks, HAND_CONNECTIONS, width, height, current.holistic.color, 2);
-        drawLandmarks(context, results.rightHandLandmarks, HAND_CONNECTIONS, width, height, current.holistic.color, 2);
+        drawLandmarks(context, results.leftHandLandmarks, HAND_CONNECTIONS, width, height, current.holistic.colors.leftHand, 2, display);
+        drawLandmarks(context, results.rightHandLandmarks, HAND_CONNECTIONS, width, height, current.holistic.colors.rightHand, 2, display);
       }
       if (current.holistic.showFace && Array.isArray(results.faceLandmarks)) {
-        context.fillStyle = current.holistic.color;
+        const visibleFaceIndices = new Set(Object.entries(FACE_DISPLAY_GROUPS)
+          .filter(([id]) => current.holistic.faceGroups[id])
+          .flatMap(([, group]) => group.indices));
+        context.fillStyle = current.holistic.colors.face;
+        context.font = `${Math.max(8, Math.round(Math.min(width, height) / 54))}px Inter, sans-serif`;
+        context.textBaseline = "middle";
         results.faceLandmarks.forEach((point, index) => {
-          if (index < 468 && index % 8 !== 0) return;
-          context.fillRect(point.x * width - 1, point.y * height - 1, 2, 2);
+          if (!visibleFaceIndices.has(index)) return;
+          if (current.holistic.showPoints) context.fillRect(point.x * width - 1, point.y * height - 1, 2, 2);
+          if (current.holistic.showIds) context.fillText(String(index), point.x * width + 3, point.y * height);
         });
       }
     };
@@ -387,10 +502,13 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
       source = getMediaRuntimeSource(configRef.current.holistic.sourceId);
       const media = source?.element;
       const ready = source?.kind === "canvas" && media?.width > 0 && media?.height > 0;
+      const sourcePlaying = source?.isPlaying?.() !== false;
+      const publishedFrameTime = Number(media?.dataset?.frameTime) || 0;
       if (ready) paint(resultsRef.current);
-      if (holistic && ready && !pending && timestamp - lastFrameAt >= 33) {
+      if (holistic && ready && sourcePlaying && publishedFrameTime > 0 && publishedFrameTime !== lastPublishedFrameTime && !pending && timestamp - lastFrameAt >= 1) {
         pending = true;
         lastFrameAt = timestamp;
+        lastPublishedFrameTime = publishedFrameTime;
         holistic.send({ image: media }).catch(error => {
           publishStatus({ elementId: element.id, kind: "error", message: error?.message || "MediaPipe frame failed." });
         }).finally(() => {
@@ -454,15 +572,41 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
   return <canvas ref={canvasRef} className="drawerator-media-surface" />;
 }
 
-export default function MediaStreamOverlay({ elements, appState, sources = [], onResults }) {
+function PreviewChrome({ config, sources, onPatch, onFocusSource }) {
+  return <div className="drawerator-media-preview-chrome" onPointerDown={event => event.stopPropagation()}>
+    <select
+      value={config.sourceId || ""}
+      aria-label="Preview input source"
+      title="Preview input source"
+      onChange={event => {
+        const source = sources.find(candidate => candidate.id === event.target.value);
+        onPatch?.({ sourceId: event.target.value, ...(source ? { name: source.name } : {}) });
+      }}
+    >
+      <option value="">Choose input…</option>
+      {sources.map(source => <option key={source.id} value={source.id}>{source.name}</option>)}
+    </select>
+    <button
+      type="button"
+      disabled={!config.sourceId}
+      onClick={() => onFocusSource?.(config.sourceId)}
+      title="Open this input in Media Input"
+      aria-label="Open preview input"
+    >⌖</button>
+  </div>;
+}
+
+export default function MediaStreamOverlay({ elements, appState, sources = [], onResults, onPatch, onFocusSource }) {
   const zoom = Number(appState?.zoom?.value) || 1;
   const scrollX = Number(appState?.scrollX) || 0;
   const scrollY = Number(appState?.scrollY) || 0;
+  const selectedElementIds = appState?.selectedElementIds || {};
   const objects = (elements || []).filter(element => {
     if (!isMediaStreamElement(element)) return false;
     const config = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
-    return shouldRenderMediaStream(element)
-      || (config.kind === MEDIA_STREAM_KINDS.HOLISTIC && shouldProcessMediaStream(element));
+    if (config.kind === MEDIA_STREAM_KINDS.PREVIEW) return shouldRenderMediaStream(element);
+    return config.kind === MEDIA_STREAM_KINDS.HOLISTIC
+      && (shouldRenderMediaStream(element) || shouldProcessMediaStream(element));
   });
   const sourceIds = useMemo(() => new Set(sources.map(source => source.id)), [sources]);
 
@@ -471,6 +615,7 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
     {objects.map((element, layerIndex) => {
       const config = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
       const visible = shouldRenderMediaStream(element);
+      const selected = Boolean(selectedElementIds[element.id]);
       const elementOpacity = Number(element.opacity);
       const opacity = Math.max(0, Math.min(1, (Number.isFinite(elementOpacity) ? elementOpacity : 100) / 100));
       const style = {
@@ -484,9 +629,15 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
         transform: `rotate(${Number(element.angle) || 0}rad)`,
         transformOrigin: "center",
       };
-      return <div key={element.id} className={`drawerator-media-stream-frame is-${config.kind}`} data-drawerator-media-stream-id={element.id} style={style}>
+      return <div key={element.id} className={`drawerator-media-stream-frame is-${config.kind} ${selected && config.kind === MEDIA_STREAM_KINDS.PREVIEW ? "selected" : ""}`} data-drawerator-media-stream-id={element.id} style={style}>
+        {selected && config.kind === MEDIA_STREAM_KINDS.PREVIEW && <PreviewChrome
+          config={config}
+          sources={sources}
+          onPatch={patch => onPatch?.(element.id, patch)}
+          onFocusSource={onFocusSource}
+        />}
         <div className="drawerator-media-stream-content">
-          {config.kind === MEDIA_STREAM_KINDS.CAMERA || config.kind === MEDIA_STREAM_KINDS.MEDIA
+          {config.kind === MEDIA_STREAM_KINDS.PREVIEW
             ? config.sourceId && sourceIds.has(config.sourceId)
               ? <MediaRuntimePreview sourceId={config.sourceId} />
               : <div className="drawerator-media-empty">Input stream is missing</div>

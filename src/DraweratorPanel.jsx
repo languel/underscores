@@ -32,9 +32,6 @@ export const PanelIcon = ({ id }) => {
       <path d="M2.5 18.5c2.8 0 3.3-5.3 5.2-5.3 2.1 0 2.6 5.6 5.6 5.6 2.9 0 4.5-8.6 8.2-11.6"/>
     </svg>;
   }
-  if (id === "video-input") {
-    return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3z"/><circle cx="9.5" cy="12" r="2.5"/></svg>;
-  }
   if (id === "media-input") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m5 17 4.5-4 3 2 2.5-3 4 5M8 20l3-4"/></svg>;
   }

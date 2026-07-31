@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createMediaSemanticFrame,
+  FACE_DISPLAY_GROUPS,
   FACE_GROUPS,
   listMediaFeatureDefinitions,
   normalizedPointToMediaSpaces,
@@ -22,6 +23,15 @@ test("face vertices remain numeric while official connection groups stay named",
   assert.equal(resolveMediaFeatureDefinition("face.478"), null);
   assert.ok(FACE_GROUPS["face.face_oval"].includes(152));
   assert.deepEqual(listMediaFeatureDefinitions("face.468").map(item => item.id), ["face.468"]);
+});
+
+test("face display groups cover the complete refined mesh without overlap", () => {
+  const seen = new Set();
+  Object.values(FACE_DISPLAY_GROUPS).forEach(group => group.indices.forEach(index => {
+    assert.equal(seen.has(index), false, `face landmark ${index} appears in more than one display group`);
+    seen.add(index);
+  }));
+  assert.deepEqual([...seen].sort((a, b) => a - b), Array.from({ length: 478 }, (_, index) => index));
 });
 
 test("normalized media coordinates map through a rotated processor rectangle", () => {

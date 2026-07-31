@@ -102,6 +102,30 @@ export const FACE_GROUPS = Object.freeze({
   ]),
 });
 
+const uniqueIndices = values => Object.freeze([...new Set(values)]);
+const FACE_SEMANTIC_INDICES = uniqueIndices([
+  ...FACE_GROUPS["face.face_oval"],
+  ...FACE_GROUPS["face.left_eye"],
+  ...FACE_GROUPS["face.right_eye"],
+  ...FACE_GROUPS["face.left_iris"],
+  ...FACE_GROUPS["face.right_iris"],
+  ...FACE_GROUPS["face.lips"],
+  ...FACE_GROUPS["face.left_eyebrow"],
+  ...FACE_GROUPS["face.right_eyebrow"],
+]);
+
+// Display-oriented face sets deliberately use the official connection groups
+// above.  Together they partition the complete 478-point refined Face Mesh,
+// so a performer can turn on all points and then remove semantic regions.
+export const FACE_DISPLAY_GROUPS = Object.freeze({
+  outline: Object.freeze({ label: "Outline", indices: uniqueIndices(FACE_GROUPS["face.face_oval"]) }),
+  eyes: Object.freeze({ label: "Eyes", indices: uniqueIndices([...FACE_GROUPS["face.left_eye"], ...FACE_GROUPS["face.right_eye"]]) }),
+  iris: Object.freeze({ label: "Iris", indices: uniqueIndices([...FACE_GROUPS["face.left_iris"], ...FACE_GROUPS["face.right_iris"]]) }),
+  mouth: Object.freeze({ label: "Mouth", indices: uniqueIndices(FACE_GROUPS["face.lips"]) }),
+  brows: Object.freeze({ label: "Brows", indices: uniqueIndices([...FACE_GROUPS["face.left_eyebrow"], ...FACE_GROUPS["face.right_eyebrow"]]) }),
+  remaining: Object.freeze({ label: "Remaining", indices: Object.freeze(Array.from({ length: 478 }, (_, index) => index).filter(index => !FACE_SEMANTIC_INDICES.includes(index))) }),
+});
+
 const PALM_INDICES = Object.freeze([0, 1, 5, 9, 13, 17]);
 const FINGER_GROUPS = Object.freeze({
   thumb: Object.freeze([1, 2, 3, 4]),
