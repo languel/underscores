@@ -2076,6 +2076,9 @@ function App() {
   });
   const [mediaActorOverlayState, setMediaActorOverlayState] = useState({ traces: [], strokes: [] });
   const [brushChannelOverlayStrokes, setBrushChannelOverlayStrokes] = useState([]);
+  const [brushChannelStatus, setBrushChannelStatus] = useState({});
+  const brushChannelStatusRef = useRef({});
+  const brushChannelStatusLastPaintRef = useRef(0);
   const mediaBindingRuntimeRef = useRef(new Map());
   const mediaGestureStatesRef = useRef(new Map());
   const semanticMediaStreamsApiRef = useRef(null);
@@ -2178,7 +2181,7 @@ function App() {
           roles: source.roles,
           writable: source.type === "virtual",
           virtual: source.type === "virtual",
-          metadata: { inputSourceId: source.id, type: source.type, featureId: source.featureId, targetId: source.targetId },
+          metadata: { inputSourceId: source.id, type: source.type, featureId: source.featureId, targetId: source.targetId, mediaMode: source.mediaMode },
         });
       });
       mediaSources.filter(source => source.enabled).forEach(source => {
@@ -2247,8 +2250,20 @@ function App() {
     const stops = streamGraph.sources.filter(source => source.enabled && source.type === "mediapipe" && source.featureId).map(source => semanticMediaStreamsApiRef.current.subscribe(({ elementId, frame }) => {
       if (!frame || (source.targetId && source.targetId !== elementId)) return;
       const feature = frame.feature(source.featureId);
-      if (!feature?.normalized) return;
-      streamRegistryRef.current.publish(source.streamId, { kind: "space", x: feature.normalized.x, y: feature.normalized.y, space: "normalized", pressure: feature.confidence, time: frame.updatedAt, data: { featureId: source.featureId, elementId, scene: feature.scene } }, { internal: true });
+      if (!feature?.available) {
+        const kind = source.mediaMode === "position" ? "space" : "value";
+        if (kind === "space") return;
+        streamRegistryRef.current.publish(source.streamId, { kind, value: null, available: false, time: frame.updatedAt, data: { featureId: source.featureId, elementId } }, { internal: true });
+        return;
+      }
+      if (source.mediaMode === "position") {
+        if (!feature.normalized) return;
+        streamRegistryRef.current.publish(source.streamId, { kind: "space", x: feature.normalized.x, y: feature.normalized.y, space: "normalized", pressure: feature.confidence, time: frame.updatedAt, data: { featureId: source.featureId, elementId, scene: feature.scene, active: feature.active } }, { internal: true });
+      } else if (source.mediaMode === "active") {
+        streamRegistryRef.current.publish(source.streamId, { kind: "value", value: Boolean(feature.active), time: frame.updatedAt, data: { featureId: source.featureId, elementId, active: Boolean(feature.active), metric: feature.value ?? null } }, { internal: true });
+      } else {
+        streamRegistryRef.current.publish(source.streamId, { kind: "value", value: feature.value, time: frame.updatedAt, data: { featureId: source.featureId, elementId, active: Boolean(feature.active) } }, { internal: true });
+      }
     }));
     return () => stops.forEach(stop => stop?.());
   }, [streamGraph.sources]);
@@ -2261,17 +2276,103 @@ function App() {
       const minY = Math.min(...session.points.map(point => point.y));
       const maxX = Math.max(...session.points.map(point => point.x));
       const maxY = Math.max(...session.points.map(point => point.y));
+      const strokeStyle = session.brushStyle || {};
       const element = {
-        ...createBaseElement("freedraw", minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY), session.channel.style.strokeColor || foregroundColor),
+        ...createBaseElement("freedraw", minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY), strokeStyle.strokeColor || session.channel.style.strokeColor || lastStrokeColorRef.current || foregroundColor),
         points: session.points.map(point => [point.x - minX, point.y - minY]),
         pressures: session.points.map(point => point.pressure || 0.5),
         simulatePressure: false,
-        strokeWidth: session.channel.style.strokeWidth,
-        opacity: session.channel.style.opacity,
+        strokeWidth: strokeStyle.strokeWidth || session.channel.style.strokeWidth,
+        opacity: strokeStyle.opacity ?? session.channel.style.opacity,
         customData: { draweratorBrushChannel: { channelId: session.channel.id, spatialStreamId: session.channel.spatialStreamId, gateStreamId: session.channel.gateStreamId || null, completedAt: Date.now() } },
       };
       const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
       api.updateScene({ elements: [...elements, element], commitToHistory: true });
+      const modifierSnapshot = session.modifierSnapshot;
+      const modifierRuntime = brushChannelModifierRuntimeRef.current;
+      if (!modifierSnapshot?.apply || modifierSnapshot.modifiers.length === 0 || !modifierRuntime) return;
+      const committedElements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+      const committed = committedElements.find(candidate => candidate.id === element.id);
+      if (!committed) return;
+      const savedOpacity = modifierSnapshot.hideOriginal && committed.opacity > 0 ? committed.opacity : undefined;
+      const prepared = {
+        ...committed,
+        roundness: modifierSnapshot.roundness ? { type: 2 } : committed.roundness,
+        ...(modifierSnapshot.hideOriginal ? { opacity: 0 } : {}),
+        customData: {
+          ...(committed.customData || {}),
+          hideOriginal: modifierSnapshot.hideOriginal,
+          muteModifiers: modifierSnapshot.mute,
+          ...(savedOpacity !== undefined ? { savedOpacity } : {}),
+        },
+      };
+      api.updateScene({
+        elements: committedElements.map(candidate => candidate.id === prepared.id ? prepared : candidate),
+        commitToHistory: false,
+      });
+      const elapsedMs = Math.max(0, Number(session.points.at(-1)?.time) - Number(session.points[0]?.time));
+      const sourcePoints = session.points.map(point => {
+        const sourcePoint = [point.x, point.y];
+        sourcePoint.pressure = point.pressure;
+        sourcePoint.time = point.time;
+        sourcePoint.strokeTime = Math.max(0, Number(point.time) - Number(session.points[0]?.time));
+        return sourcePoint;
+      });
+      modifierRuntime.update(
+        prepared.id,
+        modifierSnapshot.modifiers,
+        sourcePoints,
+        modifierRuntime.getGlobals({
+          elapsedMs,
+          globalElapsedMs: elapsedMs,
+          isPointerDown: false,
+          strokeColor: prepared.strokeColor,
+          strokeWidth: prepared.strokeWidth,
+          opacity: prepared.opacity ?? 100,
+        }),
+      );
+    };
+    const toModifierPoints = session => session.points.map(point => {
+      const sourcePoint = [point.x, point.y];
+      sourcePoint.pressure = point.pressure;
+      sourcePoint.time = point.time;
+      sourcePoint.strokeTime = Math.max(0, Number(point.time) - Number(session.points[0]?.time));
+      return sourcePoint;
+    });
+    const buildLiveStroke = session => {
+      const style = session.brushStyle || {};
+      const sourcePoints = toModifierPoints(session);
+      const modifierSnapshot = session.modifierSnapshot;
+      const modifierRuntime = brushChannelModifierRuntimeRef.current;
+      let paths = [sourcePoints];
+      if (modifierSnapshot?.apply && modifierSnapshot.modifiers.length && modifierRuntime?.evaluate) {
+        try {
+          const elapsedMs = Math.max(0, Number(session.points.at(-1)?.time) - Number(session.points[0]?.time));
+          const evaluation = modifierRuntime.evaluate(
+            sourcePoints,
+            modifierSnapshot.modifiers,
+            modifierRuntime.getGlobals({
+              elapsedMs,
+              globalElapsedMs: elapsedMs,
+              isPointerDown: true,
+              strokeColor: style.strokeColor,
+              strokeWidth: style.strokeWidth,
+              opacity: style.opacity,
+            }),
+          );
+          paths = composePreviewTracks({ ...evaluation, hideOriginal: modifierSnapshot.hideOriginal });
+        } catch (error) {
+          console.error("Live brush-channel modifier preview error", error);
+        }
+      }
+      return {
+        id: session.id,
+        points: session.points,
+        paths,
+        color: style.previewColor || style.strokeColor || foregroundColor,
+        strokeWidth: style.strokeWidth || session.channel.style.strokeWidth,
+        opacity: style.opacity ?? session.channel.style.opacity,
+      };
     };
     brushChannelRuntimeRef.current?.dispose();
     brushChannelRuntimeRef.current = new BrushChannelRuntime({
@@ -2284,23 +2385,54 @@ function App() {
           const zoom = Math.max(0.01, Number(appState.zoom?.value) || 1);
           return { x: -(Number(appState.scrollX) || 0), y: -(Number(appState.scrollY) || 0), width: Math.max(1, Number(appState.width) || window.innerWidth) / zoom, height: Math.max(1, Number(appState.height) || window.innerHeight) / zoom };
         }
+        if (channel.destination.kind === "scene") {
+          const zoom = Math.max(0.01, Number(appState.zoom?.value) || 1);
+          return { x: -(Number(appState.scrollX) || 0), y: -(Number(appState.scrollY) || 0), width: Math.max(1, Number(appState.width) || window.innerWidth) / zoom, height: Math.max(1, Number(appState.height) || window.innerHeight) / zoom };
+        }
         if (channel.destination.kind === "target") {
           const target = (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || []).find(element => element.id === channel.destination.targetId && !element.isDeleted);
           return target ? { x: target.x, y: target.y, width: target.width, height: target.height, angle: target.angle || 0 } : null;
         }
         return {};
       },
-      onStart: (session, point) => setBrushChannelOverlayStrokes(previous => [...previous, { id: session.id, points: [point], color: session.channel.style.strokeColor || foregroundColor, strokeWidth: session.channel.style.strokeWidth, opacity: session.channel.style.opacity }]),
-      onMove: (session, point) => setBrushChannelOverlayStrokes(previous => previous.map(stroke => stroke.id === session.id ? { ...stroke, points: [...stroke.points, point] } : stroke)),
+      onStart: session => {
+        const modifierSnapshot = brushChannelModifierSnapshotRef.current;
+        session.modifierSnapshot = modifierSnapshot ? {
+          ...modifierSnapshot,
+          modifiers: modifierSnapshot.modifiers.map(modifier => ({ ...modifier, params: { ...(modifier.params || {}) } })),
+        } : null;
+        const appState = excalidrawAPIRef.current?.getAppState() || {};
+        const strokeColor = session.channel.style.strokeColor
+          || lastStrokeColorRef.current
+          || appState.currentItemStrokeColor
+          || foregroundColor;
+        session.brushStyle = {
+          strokeColor,
+          previewColor: brushChannelModifierRuntimeRef.current?.resolvePreviewColor?.(strokeColor) || strokeColor,
+          strokeWidth: session.channel.style.strokeWidth || appState.currentItemStrokeWidth || 2,
+          opacity: session.channel.style.opacity ?? appState.currentItemOpacity ?? 100,
+        };
+        setBrushChannelOverlayStrokes(previous => [...previous, buildLiveStroke(session)]);
+      },
+      onMove: session => setBrushChannelOverlayStrokes(previous => previous.map(stroke => stroke.id === session.id ? buildLiveStroke(session) : stroke)),
       onEnd: (session, reason) => {
         setBrushChannelOverlayStrokes(previous => previous.filter(stroke => stroke.id !== session.id));
         if (!["dispose", "channels-updated", "cancel"].includes(reason)) commit(session);
+      },
+      onStatus: status => {
+        brushChannelStatusRef.current = { ...brushChannelStatusRef.current, [status.id]: status };
+        const now = performance.now();
+        if (now - brushChannelStatusLastPaintRef.current < 80) return;
+        brushChannelStatusLastPaintRef.current = now;
+        setBrushChannelStatus({ ...brushChannelStatusRef.current });
       },
     });
     return () => {
       brushChannelRuntimeRef.current?.dispose();
       brushChannelRuntimeRef.current = null;
       setBrushChannelOverlayStrokes([]);
+      brushChannelStatusRef.current = {};
+      setBrushChannelStatus({});
     };
   }, [brushChannels, foregroundColor]);
   const [svgOverlayScene, setSvgOverlayScene] = useState({ elements: [], appState: null });
@@ -3178,6 +3310,8 @@ function App() {
   const [globalMuteStack, setGlobalMuteStack] = useState(false);
   const [nextStrokeHideOriginal, setNextStrokeHideOriginal] = useState(false);
   const [globalRoundness, setGlobalRoundness] = useState(false);
+  const brushChannelModifierSnapshotRef = useRef(null);
+  const brushChannelModifierRuntimeRef = useRef(null);
 
   const updatePanelLayout = useCallback((panelId, nextLayout) => {
     setPanelLayouts(previous => ({
@@ -6565,6 +6699,20 @@ function App() {
       evaluatingModifiersRef.current = false;
     }
     setModifierUpdateNonce(n => n + 1);
+  };
+
+  brushChannelModifierSnapshotRef.current = {
+    apply: modifierDrawingActive,
+    modifiers: getDrawingModifiers(),
+    hideOriginal: nextStrokeHideOriginal,
+    mute: globalMuteStack,
+    roundness: globalRoundness,
+  };
+  brushChannelModifierRuntimeRef.current = {
+    getGlobals: getBrushGlobals,
+    update: updateModifiedElementInScene,
+    evaluate: evaluateModifierStack,
+    resolvePreviewColor: getThemeColor,
   };
 
   const syncEditorDraftToModifier = (commitToHistory = false) => {
@@ -10246,6 +10394,31 @@ function App() {
     return normalizeBrushChannels(next);
   });
 
+  const createPinchBrushRecipe = ({ targetId = "", position = "index" } = {}) => {
+    const index = normalizeInputSource({
+      type: "mediapipe", name: "Right index tip", targetId, featureId: "right_hand.index_finger_tip", mediaMode: "position", kind: "space",
+    });
+    const thumb = position === "midpoint" ? normalizeInputSource({
+      type: "mediapipe", name: "Right thumb tip", targetId, featureId: "right_hand.thumb_tip", mediaMode: "position", kind: "space",
+    }) : null;
+    const pinch = normalizeInputSource({
+      type: "mediapipe", name: "Right pinch", targetId, featureId: "right_hand.pinch", mediaMode: "active", kind: "value",
+    });
+    const midpoint = thumb ? normalizeStreamProcessor({
+      type: "midpoint", name: "Right pinch midpoint", sourceId: index.streamId, inputs: { a: index.streamId, b: thumb.streamId },
+    }) : null;
+    const gate = normalizeStreamProcessor({
+      type: "gate", name: "Right pinch gate", sourceId: pinch.streamId, inputs: { a: pinch.streamId }, gate: { comparator: "active", mode: "momentary", missingGraceMs: 120 },
+    });
+    const channel = normalizeBrushChannel({
+      name: "Right pinch pen", spatialStreamId: midpoint?.outputId || index.streamId, gateStreamId: gate.outputId,
+      destination: { kind: "scene" }, range: { x: { min: 0, max: 1 }, y: { min: 0, max: 1 } },
+    });
+    setStreamGraph(previous => normalizeStreamGraph({ ...previous, sources: [...previous.sources, index, ...(thumb ? [thumb] : []), pinch], processors: [...previous.processors, ...(midpoint ? [midpoint] : []), gate] }));
+    setBrushChannels(previous => normalizeBrushChannels([...previous, channel]));
+    return { channel, sources: [index, ...(thumb ? [thumb] : []), pinch], processors: [...(midpoint ? [midpoint] : []), gate] };
+  };
+
   const createMediaStreamObject = (kind, overrides = {}, file = null) => {
     const api = excalidrawAPIRef.current;
     if (!api) throw new Error("The canvas is not ready.");
@@ -12652,7 +12825,14 @@ function App() {
       events: {
         subscribe: (pattern, listener) => eventBus.subscribe(pattern, listener),
       },
-      streams: mediaStreamsApiRef.current,
+      streams: Object.freeze({
+        ...mediaStreamsApiRef.current,
+        processors: Object.freeze({
+          create: definition => createStreamProcessor(definition),
+          update: (id, patch) => updateStreamProcessor(id, patch),
+          remove: id => deleteStreamProcessor(id),
+        }),
+      }),
       scene: {
         get: () => excalidrawAPIRef.current?.getSceneElementsIncludingDeleted() || [],
         getAppState: () => excalidrawAPIRef.current?.getAppState() || null,
@@ -19130,6 +19310,7 @@ function App() {
             {modsPanelTab === "channels" ? <BrushChannelsPanel
               channels={brushChannels}
               streams={mediaStreamsApiRef.current.list()}
+              channelStatus={brushChannelStatus}
               canvasTargets={canvasInputTargets}
               onAdd={createBrushChannel}
               onPatch={updateBrushChannel}
@@ -19573,6 +19754,7 @@ function App() {
               onConnectSerial={source => void connectInputSerial(source)}
               onConnectWebSocket={source => void connectInputWebSocket(source)}
               onConnectMidi={() => void connectInputMidi()}
+              onAddPinchRecipe={createPinchBrushRecipe}
             />
           </DraweratorPanel>
           )}
@@ -19751,6 +19933,14 @@ function App() {
           traces={mediaActorOverlayState.traces}
           strokes={[...(mediaActorOverlayState.strokes || []), ...brushChannelOverlayStrokes]}
           markers={mediaActorOverlayState.markers}
+          channelDebug={brushChannels.filter(channel => channel.debug?.overlay && !channel.nativePointer).map(channel => ({
+            ...brushChannelStatus[channel.id],
+            id: channel.id,
+            name: channel.name,
+            showValues: channel.debug.values,
+            showGate: channel.debug.gate,
+            showTrail: channel.debug.trail,
+          }))}
         />
         <MediaMapOverlay
           elements={excalidrawAPI?.getSceneElementsIncludingDeleted?.() || p5OverlayScene.elements}

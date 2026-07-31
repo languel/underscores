@@ -3,6 +3,8 @@ import { BRUSH_DESTINATIONS, normalizeBrushChannel } from "./brushChannelRuntime
 
 const channelSourceLabel = stream => `${stream.name} · ${stream.kind}`;
 
+const formatNumber = value => Number.isFinite(Number(value)) ? Number(value).toFixed(3) : "—";
+
 const RangeControls = ({ label, range, onChange }) => <div className="brush-channel-range">
   <span>{label}</span>
   <input aria-label={`${label} minimum`} type="number" step="0.01" value={range.min} onChange={event => onChange({ min: event.target.value, auto: false })} />
@@ -13,14 +15,18 @@ const RangeControls = ({ label, range, onChange }) => <div className="brush-chan
   <label title={`Clamp ${label} to its range`}><input type="checkbox" checked={range.clamp} onChange={event => onChange({ clamp: event.target.checked })} />Clamp</label>
 </div>;
 
-export default function BrushChannelsPanel({ channels, streams, canvasTargets = [], onAdd, onPatch, onRemove, onReorder }) {
+export default function BrushChannelsPanel({ channels, streams, channelStatus = {}, canvasTargets = [], onAdd, onPatch, onRemove, onReorder }) {
   const [selectedId, setSelectedId] = useState("");
   const selected = useMemo(() => channels.find(channel => channel.id === selectedId) || channels[0] || null, [channels, selectedId]);
   useEffect(() => { if (selected && selected.id !== selectedId) setSelectedId(selected.id); }, [selected, selectedId]);
   const spatial = streams.filter(stream => stream.kind === "space" || stream.capabilities?.includes("space"));
-  const gates = streams.filter(stream => ["value", "event"].includes(stream.kind) || stream.capabilities?.some(capability => ["value", "event"].includes(capability)));
+  // A brush needs a held state, not a one-shot transition. Gate processors
+  // publish value streams for this; their sibling edge events are intended for
+  // resets, generators, and later automation.
+  const gates = streams.filter(stream => stream.kind === "value" || stream.capabilities?.includes("value"));
   const scalars = streams.filter(stream => ["value", "event", "time"].includes(stream.kind) || stream.capabilities?.some(capability => ["value", "event", "time"].includes(capability)));
   const patch = update => selected && onPatch(selected.id, update);
+  const status = selected ? channelStatus[selected.id] : null;
   return <div className="brush-channels-panel">
     <div className="media-stream-panel-source-header"><span>Channels</span><button type="button" className="iannix-flat-button media-stream-panel-add-source" onClick={() => onAdd(normalizeBrushChannel({ name: `Channel ${channels.length + 1}`, spatialStreamId: spatial[0]?.id || "", destination: { kind: "viewport" } }))} aria-label="Add brush channel">+</button></div>
     <div className="input-streams-panel-list">
@@ -44,6 +50,20 @@ export default function BrushChannelsPanel({ channels, streams, canvasTargets = 
         {selected.pressureStreamId && <RangeControls label="Pressure" range={selected.range.pressure} onChange={range => patch({ range: { ...selected.range, pressure: { ...selected.range.pressure, ...range } } })} />}
         <label className="media-stream-panel-field"><span>Destination</span><select value={selected.destination.kind} onChange={event => patch({ destination: { ...selected.destination, kind: event.target.value } })}><option value={BRUSH_DESTINATIONS.SCENE}>Scene passthrough</option><option value={BRUSH_DESTINATIONS.VIEWPORT}>Frozen viewport</option><option value={BRUSH_DESTINATIONS.TARGET}>Object bounds</option></select></label>
         {selected.destination.kind === BRUSH_DESTINATIONS.TARGET && <label className="media-stream-panel-field"><span>Object</span><select value={selected.destination.targetId} onChange={event => patch({ destination: { ...selected.destination, targetId: event.target.value } })}><option value="">Choose rectangle or frame</option>{canvasTargets.map(target => <option key={target.id} value={target.id}>{target.customData?.draweratorLabel || target.type} · {target.id.slice(0, 6)}</option>)}</select></label>}
+        <section className="brush-channel-debug" aria-label="Channel debug display">
+          <div className="brush-channel-debug-header"><span>Debug display</span><label title="Draw this channel's mapped position on the canvas"><input type="checkbox" checked={selected.debug.overlay} onChange={event => patch({ debug: { ...selected.debug, overlay: event.target.checked } })} />Canvas</label></div>
+          <div className="brush-channel-debug-options">
+            <label title="Show mapped coordinates beside the canvas marker"><input type="checkbox" checked={selected.debug.values} onChange={event => patch({ debug: { ...selected.debug, values: event.target.checked } })} />Values</label>
+            <label title="Show whether the held gate is open"><input type="checkbox" checked={selected.debug.gate} onChange={event => patch({ debug: { ...selected.debug, gate: event.target.checked } })} />Gate</label>
+            <label title="Show the latest mapped positions"><input type="checkbox" checked={selected.debug.trail} onChange={event => patch({ debug: { ...selected.debug, trail: event.target.checked } })} />Trail</label>
+          </div>
+          <div className="brush-channel-live-status" aria-live="polite">
+            <span className={status?.source?.available ? "is-live" : "is-waiting"}>Source {status?.source?.available ? "live" : "waiting"}</span>
+            <span className={status?.gate?.open ? "is-open" : "is-closed"}>Gate {status?.gate?.open ? "open" : "closed"}</span>
+            <span>XY {status?.point ? `${formatNumber(status.point.x)}, ${formatNumber(status.point.y)}` : "—"}</span>
+            <span>Pressure {formatNumber(status?.pressure?.value)}</span>
+          </div>
+        </section>
       </>}
     </div>}
   </div>;

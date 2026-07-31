@@ -17,6 +17,16 @@ const normalizeRange = (value, fallback) => {
   return { min: Math.min(min, max - 0.000001), max: Math.max(max, min + 0.000001), auto: source.auto !== false, invert: source.invert === true, clamp: source.clamp !== false, scale: clamp(source.scale, -1000, 1000, 1), offset: clamp(source.offset, -1_000_000, 1_000_000, 0) };
 };
 
+const normalizeDebug = value => {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    overlay: source.overlay === true,
+    values: source.values !== false,
+    gate: source.gate !== false,
+    trail: source.trail !== false,
+  };
+};
+
 export const normalizeBrushChannel = value => {
   const source = value && typeof value === "object" ? value : {};
   const destination = Object.values(BRUSH_DESTINATIONS).includes(source.destination?.kind) ? source.destination.kind : BRUSH_DESTINATIONS.SCENE;
@@ -47,6 +57,7 @@ export const normalizeBrushChannel = value => {
       strokeWidth: clamp(source.style?.strokeWidth, 1, 32, 2),
       opacity: clamp(source.style?.opacity, 0, 100, 100),
     },
+    debug: normalizeDebug(source.debug),
   };
 };
 
@@ -67,13 +78,15 @@ export const mapBrushAxis = (value, range) => {
   return normalized * range.scale + range.offset;
 };
 
-export const mapBrushPoint = (point, channel, destination) => {
-  if (channel.destination.kind === BRUSH_DESTINATIONS.SCENE && channel.range.x.auto && channel.range.y.auto) {
+export const mapBrushPoint = (point, channel, destination, sourceSpace = "scene") => {
+  if (channel.destination.kind === BRUSH_DESTINATIONS.SCENE && sourceSpace === "scene" && channel.range.x.auto && channel.range.y.auto) {
     return { x: Number(point.x), y: Number(point.y) };
   }
   const x = mapBrushAxis(point.x, channel.range.x);
   const y = mapBrushAxis(point.y, channel.range.y);
-  if (channel.destination.kind === BRUSH_DESTINATIONS.SCENE) return { x, y };
+  if (channel.destination.kind === BRUSH_DESTINATIONS.SCENE) {
+    return destination ? { x: destination.x + x * destination.width, y: destination.y + y * destination.height } : { x, y };
+  }
   if (!destination) return null;
   if (channel.destination.kind === BRUSH_DESTINATIONS.VIEWPORT) {
     return { x: destination.x + x * destination.width, y: destination.y + y * destination.height };
@@ -111,15 +124,17 @@ const gateOpen = (sample, gate) => {
  * this class guarantees that each channel owns a separate sequence.
  */
 export class BrushChannelRuntime {
-  constructor({ registry, channels = [], resolveDestination = () => null, onStart = () => {}, onMove = () => {}, onEnd = () => {} } = {}) {
+  constructor({ registry, channels = [], resolveDestination = () => null, onStart = () => {}, onMove = () => {}, onEnd = () => {}, onStatus = () => {} } = {}) {
     this.registry = registry;
     this.channels = normalizeBrushChannels(channels);
     this.resolveDestination = resolveDestination;
     this.onStart = onStart;
     this.onMove = onMove;
     this.onEnd = onEnd;
+    this.onStatus = onStatus;
     this.samples = new Map();
     this.sessions = new Map();
+    this.trails = new Map();
     this.unsubscribe = registry?.subscribe(detail => this.#handle(detail));
   }
 
@@ -143,30 +158,62 @@ export class BrushChannelRuntime {
     const sample = detail.sample;
     this.samples.set(streamId, sample);
     this.channels.forEach(channel => {
-      if (!channel.enabled || channel.nativePointer) return;
-      if (channel.gateStreamId === streamId && !gateOpen(sample, channel.gate)) this.#finish(channel, "gate-closed");
+      if (channel.nativePointer) return;
+      if (![channel.spatialStreamId, channel.gateStreamId, channel.pressureStreamId].includes(streamId)) return;
+      const position = this.samples.get(channel.spatialStreamId);
+      const status = this.#statusFor(channel, position);
+      this.onStatus(status);
+      // Monitoring is deliberately independent of drawing. A disarmed channel
+      // remains a useful signal probe, but cannot start or commit a stroke.
+      if (!channel.enabled) return;
+      if (channel.gateStreamId === streamId && !status.gate.open) this.#finish(channel, "gate-closed");
       if (channel.spatialStreamId !== streamId) return;
       if (!sample?.available) {
         this.#finish(channel, "source-lost");
         return;
       }
       if (sample.kind !== "space") return;
-      this.#sampleChannel(channel, sample);
+      this.#sampleChannel(channel, sample, status);
     });
   }
 
-  #sampleChannel(channel, sample) {
-    const gate = channel.gateStreamId ? this.samples.get(channel.gateStreamId) : { available: true, value: true };
-    if (!gateOpen(gate, channel.gate)) {
+  #statusFor(channel, sample) {
+    const gateSample = channel.gateStreamId ? this.samples.get(channel.gateStreamId) : { available: true, value: true };
+    const gate = { available: Boolean(gateSample?.available), open: gateOpen(gateSample, channel.gate), value: scalar(gateSample) };
+    const positionAvailable = Boolean(sample?.available && sample.kind === "space");
+    const session = this.sessions.get(channel.id);
+    const destination = session?.destination || (positionAvailable ? this.resolveDestination(channel, sample) : null);
+    const point = positionAvailable ? mapBrushPoint(sample.position, channel, destination, sample.space) : null;
+    const pressureSample = channel.pressureStreamId ? this.samples.get(channel.pressureStreamId) : null;
+    const pressure = pressureSample ? mapBrushAxis(scalar(pressureSample), channel.range.pressure) : (Number(sample?.pressure) || 0.5);
+    let trail = this.trails.get(channel.id) || [];
+    if (point && sample?.id !== trail.at(-1)?.sampleId) {
+      trail = [...trail, { x: point.x, y: point.y, sampleId: sample.id }].slice(-36);
+      this.trails.set(channel.id, trail);
+    }
+    return {
+      id: channel.id,
+      name: channel.name,
+      enabled: channel.enabled,
+      source: { available: positionAvailable, sample: sample || null },
+      gate,
+      pressure: { available: Boolean(pressureSample?.available), value: pressure },
+      point,
+      trail: trail.map(({ sampleId, ...point }) => point),
+      time: Number(sample?.time) || Date.now(),
+    };
+  }
+
+  #sampleChannel(channel, sample, status = this.#statusFor(channel, sample)) {
+    if (!status.gate.open) {
       this.#finish(channel, "gate-closed");
       return;
     }
     const session = this.sessions.get(channel.id);
     const destination = session?.destination || this.resolveDestination(channel, sample);
-    const point = mapBrushPoint(sample.position, channel, destination);
+    const point = status.point || mapBrushPoint(sample.position, channel, destination, sample.space);
     if (!point) return;
-    const pressureSample = channel.pressureStreamId ? this.samples.get(channel.pressureStreamId) : null;
-    const pressure = pressureSample ? mapBrushAxis(scalar(pressureSample), channel.range.pressure) : (Number(sample.pressure) || 0.5);
+    const pressure = status.pressure.value;
     if (!session) {
       const next = { id: `brush_session_${crypto.randomUUID()}`, channel, destination, startedAt: sample.time, points: [{ ...point, pressure, time: sample.time }] };
       this.sessions.set(channel.id, next);

@@ -1,127 +1,103 @@
 import { useEffect, useMemo, useState } from "react";
-import { STREAM_INPUT_SOURCE_TYPES, STREAM_PROCESSOR_TYPES, normalizeInputSource, normalizeStreamProcessor } from "./streamGraph.js";
+import { listMediaFeatureDefinitions } from "./mediaLandmarkOntology.js";
+import { STREAM_INPUT_SOURCE_TYPES, normalizeInputSource, normalizeStreamProcessor } from "./streamGraph.js";
 import { infoProps } from "./uiInfo.js";
 
 const SOURCE_LABELS = Object.freeze({
-  pointer: "Pointer / pen",
-  keyboard: "Keyboard",
-  clock: "Clock",
-  mediapipe: "MediaPipe feature",
-  iannix: "IanniX map / cursor / trigger",
-  midi: "Web MIDI",
-  serial: "Web Serial",
-  websocket: "WebSocket JSON",
-  "osc-websocket": "OSC over WebSocket",
-  virtual: "Virtual stream",
+  pointer: "Pointer / pen", keyboard: "Keyboard", clock: "Clock", mediapipe: "MediaPipe feature", iannix: "IanniX map / cursor / trigger", midi: "Web MIDI", serial: "Web Serial", websocket: "WebSocket JSON", "osc-websocket": "OSC over WebSocket", virtual: "Virtual stream",
 });
+const PROCESSOR_LABELS = Object.freeze({
+  distance: "Distance", midpoint: "Midpoint", delta: "Delta", map: "Map / range", combine: "Combine values", filter: "Filter / envelope", velocity: "Velocity", speed: "Speed", dwell: "Dwell / hold", gate: "Gate", edge: "Value edge", threshold: "Threshold event", region: "Enter / leave region", "curve-cross": "Curve crossing",
+});
+const GEOMETRY_TYPES = ["distance", "midpoint", "delta"];
+const VALUE_TYPES = ["map", "combine", "filter", "velocity", "speed", "dwell"];
+const EVENT_TYPES = ["gate", "edge", "threshold", "region", "curve-cross"];
 
-const StreamIcon = ({ type }) => <span className={`input-stream-kind-icon kind-${type}`} aria-hidden="true">{
-  type === "pointer" ? "⌖" : type === "keyboard" ? "⌨" : type === "clock" ? "◷" : type === "mediapipe" ? "◎" : type === "iannix" ? "⌁" : type === "midi" ? "♫" : type === "serial" ? "⇆" : type.includes("websocket") ? "◌" : "∿"
-}</span>;
-
+const StreamIcon = ({ type }) => <span className={`input-stream-kind-icon kind-${type}`} aria-hidden="true">{type === "pointer" ? "⌖" : type === "keyboard" ? "⌨" : type === "clock" ? "◷" : type === "mediapipe" ? "◎" : type === "iannix" ? "⌁" : type === "midi" ? "♫" : type === "serial" ? "⇆" : type.includes?.("websocket") ? "◌" : "∿"}</span>;
 const typeDefault = type => normalizeInputSource({ type, name: SOURCE_LABELS[type] });
-
 const fieldsToText = fields => (fields || []).map(field => `${field.name}=${field.path}`).join(", ");
-const textToFields = value => String(value || "").split(",").map(entry => entry.trim()).filter(Boolean).map(entry => {
-  const [name, ...path] = entry.split("=");
-  return { name: String(name || "").trim(), path: path.join("=").trim() };
-}).filter(field => field.name && field.path);
+const textToFields = value => String(value || "").split(",").map(entry => entry.trim()).filter(Boolean).map(entry => { const [name, ...path] = entry.split("="); return { name: String(name || "").trim(), path: path.join("=").trim() }; }).filter(field => field.name && field.path);
+const processorDefaults = (type, sourceId = "") => normalizeStreamProcessor({ type, sourceId, inputs: { a: sourceId }, name: PROCESSOR_LABELS[type] });
+const ProcessorTypeOptions = () => <>
+  <optgroup label="Geometry">{GEOMETRY_TYPES.map(type => <option key={type} value={type}>{PROCESSOR_LABELS[type]}</option>)}</optgroup>
+  <optgroup label="Value + motion">{VALUE_TYPES.map(type => <option key={type} value={type}>{PROCESSOR_LABELS[type]}</option>)}</optgroup>
+  <optgroup label="Gates + events">{EVENT_TYPES.map(type => <option key={type} value={type}>{PROCESSOR_LABELS[type]}</option>)}</optgroup>
+</>;
 
-const processorDefaults = (type, sourceId = "") => normalizeStreamProcessor({
-  type,
-  sourceId,
-  name: type === "region" ? "Enter / leave region" : type === "curve-cross" ? "Curve crossing" : "Threshold",
-});
+const SourcePicker = ({ label, value, streams, onChange, kinds = null }) => <label className="media-stream-panel-field"><span>{label}</span><select value={value || ""} onChange={event => onChange(event.target.value)}><option value="">Choose a stream</option>{streams.filter(stream => stream.kind !== "image" && (!kinds || kinds.includes(stream.kind))).map(stream => <option key={stream.id} value={stream.id}>{stream.name} · {stream.kind}</option>)}</select></label>;
+const NumberField = ({ label, value, onChange, step = "0.01" }) => <label><span>{label}</span><input type="number" step={step} value={value} onChange={event => onChange(event.target.value)} /></label>;
 
-export default function InputStreamsPanel({ sources = [], streams = [], processors = [], statusById = {}, onCreate, onPatch, onDelete, onCreateProcessor, onPatchProcessor, onDeleteProcessor, onConnectSerial, onConnectWebSocket, onConnectMidi }) {
+export default function InputStreamsPanel({ sources = [], streams = [], processors = [], statusById = {}, onCreate, onPatch, onDelete, onCreateProcessor, onPatchProcessor, onDeleteProcessor, onConnectSerial, onConnectWebSocket, onConnectMidi, onAddPinchRecipe }) {
   const [selectedId, setSelectedId] = useState("");
   const [selectedProcessorId, setSelectedProcessorId] = useState("");
+  const [pinchTargetId, setPinchTargetId] = useState("");
+  const [pinchPosition, setPinchPosition] = useState("index");
+  const [processorMenuOpen, setProcessorMenuOpen] = useState(false);
+  const [pinchRecipeMenuOpen, setPinchRecipeMenuOpen] = useState(false);
   const selected = useMemo(() => sources.find(source => source.id === selectedId) || sources[0] || null, [selectedId, sources]);
   const selectedProcessor = useMemo(() => processors.find(processor => processor.id === selectedProcessorId) || processors[0] || null, [processors, selectedProcessorId]);
+  const features = useMemo(() => listMediaFeatureDefinitions().filter(feature => ["point", "gesture"].includes(feature.kind)), []);
+  const holisticStreams = streams.filter(stream => stream.kind === "holistic");
   useEffect(() => { if (selected && selected.id !== selectedId) setSelectedId(selected.id); }, [selected, selectedId]);
   useEffect(() => { if (selectedProcessor && selectedProcessor.id !== selectedProcessorId) setSelectedProcessorId(selectedProcessor.id); }, [selectedProcessor, selectedProcessorId]);
-  const create = () => {
-    const source = onCreate?.(typeDefault("virtual"));
-    if (source?.id) setSelectedId(source.id);
-  };
+  const create = () => { const source = onCreate?.(typeDefault("virtual")); if (source?.id) setSelectedId(source.id); };
   const patch = update => selected && onPatch?.(selected.id, update);
   const patchProcessor = update => selectedProcessor && onPatchProcessor?.(selectedProcessor.id, update);
   const addProcessor = type => {
     const sourceId = streams.find(stream => ["space", "value"].includes(stream.kind))?.id || "";
     const processor = onCreateProcessor?.(processorDefaults(type, sourceId));
     if (processor?.id) setSelectedProcessorId(processor.id);
+    setProcessorMenuOpen(false);
   };
+  const addPinchRecipe = () => {
+    onAddPinchRecipe?.({ targetId: pinchTargetId, position: pinchPosition });
+    setPinchRecipeMenuOpen(false);
+  };
+  const setMediaMode = mediaMode => patch({ mediaMode, kind: mediaMode === "position" ? "space" : "value" });
+  const secondaryNeeded = selectedProcessor && ["distance", "midpoint", "delta", "combine"].includes(selectedProcessor.type);
+  const scalarSource = selectedProcessor && ["map", "combine", "filter", "gate", "edge", "threshold"].includes(selectedProcessor.type);
   return <section className="input-streams-panel">
-    <div className="media-stream-panel-source-header">
-      <span>Signal sources</span>
-      <button type="button" className="iannix-flat-button media-stream-panel-add-source" onClick={create} title="Add input stream" aria-label="Add input stream">+</button>
-    </div>
+    <div className="media-stream-panel-source-header"><span>Signal sources</span><button type="button" className="iannix-flat-button media-stream-panel-add-source" onClick={create} title="Add input stream" aria-label="Add input stream">+</button></div>
     <div className="input-streams-panel-list" role="list">
-      {sources.map(source => <div key={source.id} className={`input-streams-panel-row ${source.id === selected?.id ? "is-selected" : ""}`} role="listitem">
-        <button type="button" className="input-streams-panel-select" onClick={() => setSelectedId(source.id)}>
-          <StreamIcon type={source.type} />
-          <span>{source.name}</span>
-          <small>{source.kind}</small>
-        </button>
-        {!(["pointer", "keyboard", "clock"].includes(source.type)) && <button type="button" className="input-streams-panel-delete" onClick={() => onDelete?.(source.id)} aria-label={`Delete ${source.name}`} title={`Delete ${source.name}`}>×</button>}
-      </div>)}
+      {sources.map(source => <div key={source.id} className={`input-streams-panel-row ${source.id === selected?.id ? "is-selected" : ""}`} role="listitem"><button type="button" className="input-streams-panel-select" onClick={() => setSelectedId(source.id)}><StreamIcon type={source.type} /><span>{source.name}</span><small>{source.kind}</small></button>{!(["pointer", "keyboard", "clock"].includes(source.type)) && <button type="button" className="input-streams-panel-delete" onClick={() => onDelete?.(source.id)} aria-label={`Delete ${source.name}`} title={`Delete ${source.name}`}>×</button>}</div>)}
     </div>
     {selected && <div className="input-streams-panel-detail">
       <label className="media-stream-panel-field"><span>Name</span><input value={selected.name} onChange={event => patch({ name: event.target.value })} /></label>
-      <label className="media-stream-panel-field"><span>Type</span><select value={selected.type} onChange={event => patch({ ...typeDefault(event.target.value), id: selected.id, name: selected.name, streamId: selected.streamId })}>
-        {STREAM_INPUT_SOURCE_TYPES.map(type => <option key={type} value={type}>{SOURCE_LABELS[type]}</option>)}
-      </select></label>
-      <label className="media-stream-panel-field"><span>Frame</span><select value={selected.kind} onChange={event => patch({ kind: event.target.value })}>
-        {["space", "time", "value", "event", "image"].map(kind => <option key={kind} value={kind}>{kind}</option>)}
-      </select></label>
+      <label className="media-stream-panel-field"><span>Type</span><select value={selected.type} onChange={event => patch({ ...typeDefault(event.target.value), id: selected.id, name: selected.name, streamId: selected.streamId })}>{STREAM_INPUT_SOURCE_TYPES.map(type => <option key={type} value={type}>{SOURCE_LABELS[type]}</option>)}</select></label>
+      {selected.type !== "mediapipe" && <label className="media-stream-panel-field"><span>Frame</span><select value={selected.kind} onChange={event => patch({ kind: event.target.value })}>{["space", "time", "value", "event", "image"].map(kind => <option key={kind} value={kind}>{kind}</option>)}</select></label>}
       {(["serial", "websocket", "osc-websocket", "midi"].includes(selected.type)) && <label className="media-stream-panel-field"><span>Fields</span><input placeholder="x=field0, y=field1" value={fieldsToText(selected.fields)} onChange={event => patch({ fields: textToFields(event.target.value) })} /></label>}
-      {(["websocket", "osc-websocket"].includes(selected.type)) && <>
-        <label className="media-stream-panel-field"><span>Endpoint</span><input placeholder="wss://…" value={selected.endpoint} onChange={event => patch({ endpoint: event.target.value })} /></label>
-        <button type="button" className="iannix-flat-button" onClick={() => onConnectWebSocket?.(selected)}>Connect</button>
-        <div className="media-stream-panel-note" {...infoProps("OSC over WebSocket", "Use an external bridge that sends JSON such as { address: '/hand/right', args: [0.2, 0.7] }. Browsers do not receive raw UDP OSC directly.")}>{selected.type === "osc-websocket" ? "External OSC JSON bridge" : "JSON messages"}</div>
-      </>}
-      {selected.type === "serial" && <>
-        <label className="media-stream-panel-field"><span>Format</span><select value={selected.serial.mode} onChange={event => patch({ serial: { ...selected.serial, mode: event.target.value } })}><option value="json-lines">newline JSON</option><option value="delimited">Delimited fields</option></select></label>
-        {selected.serial.mode === "delimited" && <label className="media-stream-panel-field"><span>Delimiter</span><input value={selected.serial.delimiter} onChange={event => patch({ serial: { delimiter: event.target.value } })} /></label>}
-        <label className="media-stream-panel-field"><span>Baud rate</span><input type="number" min="300" max="4000000" value={selected.serial.baudRate} onChange={event => patch({ serial: { ...selected.serial, baudRate: event.target.value } })} /></label>
-        <button type="button" className="iannix-flat-button" onClick={() => onConnectSerial?.(selected)}>Connect serial</button>
-      </>}
+      {(["websocket", "osc-websocket"].includes(selected.type)) && <><label className="media-stream-panel-field"><span>Endpoint</span><input placeholder="wss://…" value={selected.endpoint} onChange={event => patch({ endpoint: event.target.value })} /></label><button type="button" className="iannix-flat-button" onClick={() => onConnectWebSocket?.(selected)}>Connect</button><div className="media-stream-panel-note" {...infoProps("OSC over WebSocket", "Use an external bridge that sends JSON such as { address: '/hand/right', args: [0.2, 0.7] }. Browsers do not receive raw UDP OSC directly.")}>{selected.type === "osc-websocket" ? "External OSC JSON bridge" : "JSON messages"}</div></>}
+      {selected.type === "serial" && <><label className="media-stream-panel-field"><span>Format</span><select value={selected.serial.mode} onChange={event => patch({ serial: { ...selected.serial, mode: event.target.value } })}><option value="json-lines">newline JSON</option><option value="delimited">Delimited fields</option></select></label>{selected.serial.mode === "delimited" && <label className="media-stream-panel-field"><span>Delimiter</span><input value={selected.serial.delimiter} onChange={event => patch({ serial: { delimiter: event.target.value } })} /></label>}<label className="media-stream-panel-field"><span>Baud rate</span><input type="number" min="300" max="4000000" value={selected.serial.baudRate} onChange={event => patch({ serial: { ...selected.serial, baudRate: event.target.value } })} /></label><button type="button" className="iannix-flat-button" onClick={() => onConnectSerial?.(selected)}>Connect serial</button></>}
       {selected.type === "midi" && <button type="button" className="iannix-flat-button" onClick={() => onConnectMidi?.()}>Connect MIDI</button>}
-      {selected.type === "mediapipe" && <label className="media-stream-panel-field"><span>Feature</span><input placeholder="left_hand.index_finger_tip" value={selected.featureId} onChange={event => patch({ featureId: event.target.value })} /></label>}
+      {selected.type === "mediapipe" && <>
+        <label className="media-stream-panel-field"><span>Holistic</span><select value={selected.targetId} onChange={event => patch({ targetId: event.target.value })}><option value="">Any Holistic stream</option>{holisticStreams.map(stream => <option key={stream.id} value={stream.id}>{stream.name}</option>)}</select></label>
+        <label className="media-stream-panel-field"><span>Feature</span><input list="drawerator-media-features" placeholder="right_hand.pinch" value={selected.featureId} onChange={event => patch({ featureId: event.target.value })} /></label><datalist id="drawerator-media-features">{features.map(feature => <option key={feature.id} value={feature.id}>{feature.label}</option>)}</datalist>
+        <label className="media-stream-panel-field"><span>Output</span><select value={selected.mediaMode} onChange={event => setMediaMode(event.target.value)}><option value="position">Position</option><option value="value">Metric value</option><option value="active">Active gate</option></select></label>
+      </>}
       {selected.type === "iannix" && <label className="media-stream-panel-field"><span>IanniX output</span><select value={selected.streamId} onChange={event => patch({ streamId: event.target.value })}><option value="">Choose map, cursor, or trigger</option>{streams.filter(stream => stream.metadata?.iannix).map(stream => <option key={stream.id} value={stream.id}>{stream.name}</option>)}</select></label>}
-      {selected.type === "virtual" && <div className="media-stream-panel-note">Trusted p5, Play Core, Strudel, Brush, and Livecode scripts can create and write this runtime-only stream through <code>__.streams</code>.</div>}
+      {selected.type === "virtual" && <div className="media-stream-panel-note">Trusted livecode can create and write this runtime-only stream through <code>__.streams</code>.</div>}
       <label className="media-stream-panel-check"><input type="checkbox" checked={selected.enabled} onChange={event => patch({ enabled: event.target.checked })} /><span>Enabled</span></label>
       {statusById[selected.id]?.message && <div className={`media-stream-panel-status is-${statusById[selected.id].kind || "info"}`}>{statusById[selected.id].message}</div>}
       <div className="input-streams-panel-live" aria-label="Matching live streams">{streams.filter(stream => stream.id === selected.streamId).map(stream => <span key={stream.id}>{stream.available ? "Live" : "Waiting"} · {stream.name}</span>)}</div>
     </div>}
-    <div className="media-stream-panel-source-header input-streams-processor-header">
-      <span>Derived events</span>
-      <span className="input-streams-processor-actions">
-        <button type="button" className="iannix-flat-button" onClick={() => addProcessor("threshold")}>Threshold</button>
-        <button type="button" className="iannix-flat-button" onClick={() => addProcessor("region")}>Region</button>
-        <button type="button" className="iannix-flat-button" onClick={() => addProcessor("curve-cross")}>Cross</button>
-      </span>
-    </div>
-    <div className="input-streams-panel-list" role="list">
-      {processors.map(processor => <div key={processor.id} className={`input-streams-panel-row ${processor.id === selectedProcessor?.id ? "is-selected" : ""}`} role="listitem">
-        <button type="button" className="input-streams-panel-select" onClick={() => setSelectedProcessorId(processor.id)}><StreamIcon type="virtual" /><span>{processor.name}</span><small>{processor.type}</small></button>
-        <button type="button" className="input-streams-panel-delete" onClick={() => onDeleteProcessor?.(processor.id)} title={`Delete ${processor.name}`} aria-label={`Delete ${processor.name}`}>×</button>
-      </div>)}
-    </div>
+    <div className="media-stream-panel-source-header input-streams-processor-header"><span>Processors</span><span className="input-streams-processor-actions"><details className="input-streams-add-menu" open={processorMenuOpen} onToggle={event => { const open = event.currentTarget.open; setProcessorMenuOpen(open); if (open) setPinchRecipeMenuOpen(false); }}><summary className="iannix-flat-button">+</summary><div>{[...GEOMETRY_TYPES, ...VALUE_TYPES, ...EVENT_TYPES].map(type => <button key={type} type="button" onClick={() => addProcessor(type)}>{PROCESSOR_LABELS[type]}</button>)}</div></details><details className="input-streams-add-menu" open={pinchRecipeMenuOpen} onToggle={event => { const open = event.currentTarget.open; setPinchRecipeMenuOpen(open); if (open) setProcessorMenuOpen(false); }}><summary className="iannix-flat-button">Pinch brush</summary><div className="input-streams-recipe-menu"><label>Holistic<select value={pinchTargetId} onChange={event => setPinchTargetId(event.target.value)}><option value="">Any Holistic stream</option>{holisticStreams.map(stream => <option key={stream.id} value={stream.id}>{stream.name}</option>)}</select></label><label>Position<select value={pinchPosition} onChange={event => setPinchPosition(event.target.value)}><option value="index">Right index tip</option><option value="midpoint">Pinch midpoint</option></select></label><button type="button" onClick={addPinchRecipe}>Add recipe</button></div></details></span></div>
+    <div className="input-streams-panel-list" role="list">{processors.map(processor => <div key={processor.id} className={`input-streams-panel-row ${processor.id === selectedProcessor?.id ? "is-selected" : ""}`} role="listitem"><button type="button" className="input-streams-panel-select" onClick={() => setSelectedProcessorId(processor.id)}><StreamIcon type="virtual" /><span>{processor.name}</span><small>{processor.type}</small></button><button type="button" className="input-streams-panel-delete" onClick={() => onDeleteProcessor?.(processor.id)} title={`Delete ${processor.name}`} aria-label={`Delete ${processor.name}`}>×</button></div>)}</div>
     {selectedProcessor && <div className="input-streams-panel-detail input-streams-processor-detail">
       <label className="media-stream-panel-field"><span>Name</span><input value={selectedProcessor.name} onChange={event => patchProcessor({ name: event.target.value })} /></label>
-      <label className="media-stream-panel-field"><span>Type</span><select value={selectedProcessor.type} onChange={event => patchProcessor({ type: event.target.value })}>{Object.values(STREAM_PROCESSOR_TYPES).map(type => <option key={type} value={type}>{type}</option>)}</select></label>
-      <label className="media-stream-panel-field"><span>Source</span><select value={selectedProcessor.sourceId} onChange={event => patchProcessor({ sourceId: event.target.value })}><option value="">Choose a stream</option>{streams.filter(stream => stream.kind !== "image").map(stream => <option key={stream.id} value={stream.id}>{stream.name} · {stream.kind}</option>)}</select></label>
-      {selectedProcessor.type === "threshold" && <div className="input-streams-processor-values"><label><span>Rise</span><input type="number" step="0.01" value={selectedProcessor.threshold.rising} onChange={event => patchProcessor({ threshold: { ...selectedProcessor.threshold, rising: event.target.value } })} /></label><label><span>Fall</span><input type="number" step="0.01" value={selectedProcessor.threshold.falling} onChange={event => patchProcessor({ threshold: { ...selectedProcessor.threshold, falling: event.target.value } })} /></label></div>}
-      {selectedProcessor.type === "region" && <div className="input-streams-processor-values"><label><span>X</span><input type="number" value={selectedProcessor.region.x} onChange={event => patchProcessor({ region: { ...selectedProcessor.region, x: event.target.value } })} /></label><label><span>Y</span><input type="number" value={selectedProcessor.region.y} onChange={event => patchProcessor({ region: { ...selectedProcessor.region, y: event.target.value } })} /></label><label><span>W</span><input type="number" min="0" value={selectedProcessor.region.width} onChange={event => patchProcessor({ region: { ...selectedProcessor.region, width: event.target.value } })} /></label><label><span>H</span><input type="number" min="0" value={selectedProcessor.region.height} onChange={event => patchProcessor({ region: { ...selectedProcessor.region, height: event.target.value } })} /></label></div>}
+      <label className="media-stream-panel-field"><span>Type</span><select value={selectedProcessor.type} onChange={event => patchProcessor({ type: event.target.value })}><ProcessorTypeOptions /></select></label>
+      <SourcePicker label={scalarSource ? "Value" : "Source"} value={selectedProcessor.inputs.a} streams={streams} kinds={scalarSource ? ["value", "time", "event"] : null} onChange={value => patchProcessor({ sourceId: value, inputs: { ...selectedProcessor.inputs, a: value } })} />
+      {secondaryNeeded && <SourcePicker label="Second input" value={selectedProcessor.inputs.b} streams={streams} kinds={selectedProcessor.type === "combine" ? ["value", "time", "event"] : ["space"]} onChange={value => patchProcessor({ inputs: { ...selectedProcessor.inputs, b: value } })} />}
+      {selectedProcessor.type === "map" && <div className="input-streams-processor-values"><NumberField label="In min" value={selectedProcessor.transform.inputMin} onChange={value => patchProcessor({ transform: { ...selectedProcessor.transform, inputMin: value } })} /><NumberField label="In max" value={selectedProcessor.transform.inputMax} onChange={value => patchProcessor({ transform: { ...selectedProcessor.transform, inputMax: value } })} /><NumberField label="Out min" value={selectedProcessor.transform.outputMin} onChange={value => patchProcessor({ transform: { ...selectedProcessor.transform, outputMin: value } })} /><NumberField label="Out max" value={selectedProcessor.transform.outputMax} onChange={value => patchProcessor({ transform: { ...selectedProcessor.transform, outputMax: value } })} /><label><span>Invert</span><input type="checkbox" checked={selectedProcessor.transform.invert} onChange={event => patchProcessor({ transform: { ...selectedProcessor.transform, invert: event.target.checked } })} /></label><label><span>Clamp</span><input type="checkbox" checked={selectedProcessor.transform.clamp} onChange={event => patchProcessor({ transform: { ...selectedProcessor.transform, clamp: event.target.checked } })} /></label></div>}
+      {selectedProcessor.type === "combine" && <label className="media-stream-panel-field"><span>Operation</span><select value={selectedProcessor.transform.operator} onChange={event => patchProcessor({ transform: { ...selectedProcessor.transform, operator: event.target.value } })}>{["add", "subtract", "multiply", "divide", "min", "max", "and", "or"].map(operation => <option key={operation} value={operation}>{operation}</option>)}</select></label>}
+      {selectedProcessor.type === "filter" && <><label className="media-stream-panel-field"><span>Mode</span><select value={selectedProcessor.filter.mode} onChange={event => patchProcessor({ filter: { ...selectedProcessor.filter, mode: event.target.value } })}><option value="smoothing">Smoothing</option><option value="envelope">Attack / release</option></select></label><div className="input-streams-processor-values">{selectedProcessor.filter.mode === "envelope" ? <><NumberField label="Attack ms" value={selectedProcessor.filter.attackMs} onChange={value => patchProcessor({ filter: { ...selectedProcessor.filter, attackMs: value } })} step="1" /><NumberField label="Release ms" value={selectedProcessor.filter.releaseMs} onChange={value => patchProcessor({ filter: { ...selectedProcessor.filter, releaseMs: value } })} step="1" /></> : <NumberField label="Smoothing ms" value={selectedProcessor.filter.smoothingMs} onChange={value => patchProcessor({ filter: { ...selectedProcessor.filter, smoothingMs: value } })} step="1" />}</div></>}
+      {["dwell"].includes(selectedProcessor.type) && <div className="input-streams-processor-values"><NumberField label="Hold ms" value={selectedProcessor.motion.dwellMs} onChange={value => patchProcessor({ motion: { ...selectedProcessor.motion, dwellMs: value } })} step="1" /><NumberField label="Radius" value={selectedProcessor.motion.radius} onChange={value => patchProcessor({ motion: { ...selectedProcessor.motion, radius: value } })} /></div>}
+      {["threshold"].includes(selectedProcessor.type) && <div className="input-streams-processor-values"><NumberField label="Rise" value={selectedProcessor.threshold.rising} onChange={value => patchProcessor({ threshold: { ...selectedProcessor.threshold, rising: value } })} /><NumberField label="Fall" value={selectedProcessor.threshold.falling} onChange={value => patchProcessor({ threshold: { ...selectedProcessor.threshold, falling: value } })} /></div>}
+      {selectedProcessor.type === "gate" && <><label className="media-stream-panel-field"><span>Mode</span><select value={selectedProcessor.gate.mode} onChange={event => patchProcessor({ gate: { ...selectedProcessor.gate, mode: event.target.value } })}><option value="momentary">Momentary</option><option value="toggle">Toggle latch</option><option value="reset">Reset latch</option></select></label><label className="media-stream-panel-field"><span>Condition</span><select value={selectedProcessor.gate.comparator} onChange={event => patchProcessor({ gate: { ...selectedProcessor.gate, comparator: event.target.value } })}><option value="active">Active Boolean</option><option value="above">Above</option><option value="below">Below</option></select></label>{selectedProcessor.gate.comparator !== "active" && <div className="input-streams-processor-values"><NumberField label="Activate" value={selectedProcessor.gate.rising} onChange={value => patchProcessor({ gate: { ...selectedProcessor.gate, rising: value } })} /><NumberField label="Release" value={selectedProcessor.gate.falling} onChange={value => patchProcessor({ gate: { ...selectedProcessor.gate, falling: value } })} /></div>}<div className="input-streams-processor-values"><NumberField label="Debounce ms" value={selectedProcessor.gate.debounceMs} onChange={value => patchProcessor({ gate: { ...selectedProcessor.gate, debounceMs: value } })} step="1" /><NumberField label="Loss grace ms" value={selectedProcessor.gate.missingGraceMs} onChange={value => patchProcessor({ gate: { ...selectedProcessor.gate, missingGraceMs: value } })} step="1" /></div>{selectedProcessor.gate.mode === "reset" && <SourcePicker label="Reset input" value={selectedProcessor.inputs.reset} streams={streams} kinds={["value", "event"]} onChange={value => patchProcessor({ inputs: { ...selectedProcessor.inputs, reset: value } })} />}</>}
+      {selectedProcessor.type === "region" && <div className="input-streams-processor-values"><NumberField label="X" value={selectedProcessor.region.x} onChange={value => patchProcessor({ region: { ...selectedProcessor.region, x: value } })} /><NumberField label="Y" value={selectedProcessor.region.y} onChange={value => patchProcessor({ region: { ...selectedProcessor.region, y: value } })} /><NumberField label="W" value={selectedProcessor.region.width} onChange={value => patchProcessor({ region: { ...selectedProcessor.region, width: value } })} /><NumberField label="H" value={selectedProcessor.region.height} onChange={value => patchProcessor({ region: { ...selectedProcessor.region, height: value } })} /></div>}
       {selectedProcessor.type === "curve-cross" && <label className="media-stream-panel-field"><span>Curve points</span><input placeholder="x,y x,y …" value={(selectedProcessor.curve || []).map(point => `${point.x},${point.y}`).join(" ")} onChange={event => patchProcessor({ curve: event.target.value.trim().split(/\s+/).map(pair => pair.split(",")).map(([x, y]) => ({ x: Number(x), y: Number(y) })).filter(point => Number.isFinite(point.x) && Number.isFinite(point.y)) })} /></label>}
       <label className="media-stream-panel-check"><input type="checkbox" checked={selectedProcessor.enabled} onChange={event => patchProcessor({ enabled: event.target.checked })} /><span>Enabled</span></label>
     </div>}
     <div className="media-stream-panel-source-header input-streams-processor-header"><span>Live outputs</span></div>
-    <div className="input-streams-panel-list" role="list" aria-label="Live stream outputs">
-      {streams.filter(stream => stream.virtual || stream.kind === "image" || stream.metadata?.iannix || stream.metadata?.processorId).map(stream => <div key={stream.id} className="input-streams-panel-row" role="listitem">
-        <span className="input-streams-panel-select"><StreamIcon type={stream.virtual ? "virtual" : stream.metadata?.iannix ? "iannix" : "websocket"} /><span>{stream.name}</span><small>{stream.available ? "live" : stream.kind}</small></span>
-      </div>)}
-    </div>
+    <div className="input-streams-panel-list" role="list" aria-label="Live stream outputs">{streams.filter(stream => stream.virtual || stream.kind === "image" || stream.metadata?.iannix || stream.metadata?.processorId).map(stream => <div key={stream.id} className="input-streams-panel-row" role="listitem"><span className="input-streams-panel-select"><StreamIcon type={stream.virtual ? "virtual" : stream.metadata?.iannix ? "iannix" : "websocket"} /><span>{stream.name}</span><small>{stream.available ? "live" : stream.kind}</small></span></div>)}</div>
   </section>;
 }

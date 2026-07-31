@@ -170,12 +170,49 @@ not a UDP server: run an external bridge and send JSON such as
 `x=args.0, y=args.1` in the source. Browser JavaScript cannot receive raw UDP OSC directly; see
 [MDN WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API).
 
-## Derived events and IanniX streams
+## Typed processors, gates, and IanniX streams
 
-The persisted stream graph can derive ordinary event streams from a point crossing a curve,
-entering/leaving a rectangle, or a scalar rising/falling through hysteresis thresholds. Every
-event carries its source, optional target, scene position, transition, and timestamp. These are
-available immediately as Brush gates and remain a command-backed foundation for later generators.
+The persisted stream graph is a typed list-and-inspector graph: named sources feed named processor
+outputs, and every output is an ordinary `__.streams` stream. Existing Region, Cross, and legacy
+Threshold definitions continue to publish transition events so saved scenes keep their behaviour.
+New processor families are Geometry (distance, midpoint, delta), Value (map/range, transform, and
+combine), Motion (velocity, speed, dwell), Filter (smoothing and attack/release envelope), Gate
+(hysteresis, debounce, grace, and latch modes), and Events (edge, region enter/leave, curve
+crossing).
+
+MediaPipe sources select a Holistic processor and an ontology feature rather than relying on a raw
+feature-id field. A point publishes a `space` stream, metrics such as `right_hand.pinch` publish a
+numeric `value`, and **Active gate** publishes a held Boolean `value`. This makes a source's output
+kind visible before it reaches a processor or a Brush channel.
+
+**Gates are continuous state, not one-shot events.** A Gate processor publishes a persistent
+Boolean/value output for Brush plus a separate `<name> edges` event stream for generators and later
+automation. Its default 40 ms smoothing and 120 ms missing-signal grace avoid momentary tracking
+gaps ending a stroke. Its modes are:
+
+- **Momentary** — open while the condition is true;
+- **Toggle latch** — toggle on each debounced activation;
+- **Reset latch** — remain open until its optional reset input closes it.
+
+Brush only offers persistent value streams as a gate. Edge streams are instead suitable for a
+processor reset input, a future trigger, or automation; treating a transition as a held gate would
+leave a stroke open indefinitely.
+
+Use **Inputs → Processors → Pinch brush** for the quick proof. Choose a Holistic stream and either
+the right index tip or right thumb/index midpoint for position. The recipe creates the corresponding
+MediaPipe position source, `right_hand.pinch` Active gate source, momentary Gate processor, and an
+editable Brush channel aimed at scene space. The same result can be assembled manually:
+
+```text
+Right index tip (space) ───────────────────────→ Brush position
+Right pinch Active gate (value) → Gate ────────→ Brush gate
+                                      └ edges ─→ event/reset/automation
+```
+
+Processor configuration persists with named stream references. Live values, browser/device state,
+and image frames remain transient. Trusted scripts can inspect outputs and mutate the persistent
+graph with `__.api.streams.processors.create(...)`, `.update(id, patch)`, and `.remove(id)`; the
+equivalent public read surface remains `window.drawerator.streams`, never `window.__`.
 
 IanniX curves publish sampled reusable map data, active cursors publish scene position, progress,
 and score time, and trigger contact emits enter/leave event frames. This does not alter the
@@ -194,6 +231,12 @@ space, a viewport frozen when the session starts, or a selected rotated rectangl
 source-agnostic runtime owns a separate start/move/end sequence and transient preview for every
 channel. Gate loss, missing input, disconnect, or channel removal closes that session and commits
 at most one native undoable freedraw element; parallel channels never merge.
+
+A non-native channel captures the current paint appearance and the visible Brush stack when its
+gate opens. Its modifier result is rendered continuously as a transient canvas overlay while the
+gate remains open, using the same track-composition path as a pointer stroke. No generated tracks
+are written to the scene during that preview; gate close commits the already-previewed result as
+one native freedraw history entry.
 
 ## Mapping and media actors
 

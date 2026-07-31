@@ -37,6 +37,12 @@ snapshot is captured when the session starts so a later channel edit cannot retr
 active stroke. Gate loss, source loss, disconnect, disarm, and deletion are cancellation paths with
 no stale overlay or selectable ghost.
 
+The captured stack is evaluated continuously through `composePreviewTracks()` while the channel is
+open. That preview inherits the current pointer paint appearance unless the channel explicitly
+overrides it, so MediaPipe and other streamed strokes look like their pointer equivalent. The
+preview remains transient; the evaluated tracks become ordinary scene elements only when the
+session closes.
+
 ## Evaluation rules
 
 `evaluateModifierStack()` maintains one baseline plus accumulated brush tracks:
@@ -51,6 +57,13 @@ no stale overlay or selectable ghost.
 `composePreviewTracks()` and `resolveBakedTracks()` share the same ownership rule: a brush owns the tracks it emits, while the source path is controlled separately. This prevents a hidden source from reappearing during bake and prevents one brush's spine from being mistaken for another global original.
 
 ## Panel controls and state
+
+**Brush → Channels** can draw from a typed `space` stream rather than only pointer input. A
+channel's optional gate must be a persistent Boolean/value stream; use an Inputs Gate processor for
+hysteresis, debounce, missing-signal grace, and momentary/toggle/reset behaviour. Its paired edge
+stream is a transition notification for triggers or reset inputs, not an indefinitely-open brush
+gate. Each channel still owns an independent preview, modifier snapshot, native freedraw commit,
+and undo entry.
 
 The header is the single home for contextual stack actions. Keep these behaviors intact:
 

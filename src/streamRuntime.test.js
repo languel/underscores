@@ -58,3 +58,42 @@ test("graph threshold, region and curve-crossing publish ordinary event frames",
   assert.equal(registry.get("threshold-events").snapshot().value.transition, "rising");
   runtime.dispose();
 });
+
+test("typed graph processors publish geometry, held gates, edges, and latched resets", () => {
+  const registry = new DraweratorStreamRegistry({ now: () => 0 });
+  ["index", "thumb"].forEach(id => registry.register({ id, kind: "space", roles: ["output"] }));
+  registry.register({ id: "pinch", kind: "value", roles: ["output"] });
+  registry.register({ id: "reset", kind: "event", roles: ["output"] });
+  const graph = normalizeStreamGraph({ processors: [
+    { id: "distance", type: "distance", inputs: { a: "index", b: "thumb" } },
+    { id: "midpoint", type: "midpoint", inputs: { a: "index", b: "thumb" } },
+    { id: "gate", type: "gate", inputs: { a: "pinch" }, gate: { comparator: "active", mode: "momentary", missingGraceMs: 0 } },
+    { id: "latched", type: "gate", inputs: { a: "pinch", reset: "reset" }, gate: { comparator: "active", mode: "reset" } },
+  ] });
+  const runtime = new StreamGraphRuntime({ registry, graph, now: () => 1 });
+  registry.publish("thumb", { kind: "space", x: 0, y: 0, time: 1 }, { internal: true });
+  registry.publish("index", { kind: "space", x: 3, y: 4, time: 2 }, { internal: true });
+  assert.equal(registry.get(graph.processors[0].outputId).snapshot().value, 5);
+  assert.deepEqual(registry.get(graph.processors[1].outputId).snapshot().position, { x: 1.5, y: 2 });
+  registry.publish("pinch", { kind: "value", value: true, time: 3, data: { active: true } }, { internal: true });
+  assert.equal(registry.get(graph.processors[2].outputId).snapshot().value, true);
+  assert.equal(registry.get(graph.processors[3].outputId).snapshot().value, true);
+  assert.equal(registry.get(graph.processors[2].eventOutputId).snapshot().value.transition, "open");
+  registry.publish("pinch", { kind: "value", value: null, available: false, time: 124 }, { internal: true });
+  assert.equal(registry.get(graph.processors[2].outputId).snapshot().value, false, "momentary gate closes after its 120 ms missing-signal grace");
+  assert.equal(registry.get(graph.processors[3].outputId).snapshot().value, true, "latched gate survives a missing source until reset");
+  registry.publish("pinch", { kind: "value", value: false, time: 4, data: { active: false } }, { internal: true });
+  assert.equal(registry.get(graph.processors[2].outputId).snapshot().value, false);
+  assert.equal(registry.get(graph.processors[3].outputId).snapshot().value, true);
+  registry.publish("reset", { kind: "event", value: { phase: "reset" }, time: 5 }, { internal: true });
+  assert.equal(registry.get(graph.processors[3].outputId).snapshot().value, false);
+  runtime.dispose();
+});
+
+test("graph normalization migrates legacy threshold records without changing their event output", () => {
+  const graph = normalizeStreamGraph({ version: 1, processors: [{ id: "legacy", type: "threshold", sourceId: "value", outputId: "legacy-events" }] });
+  assert.equal(graph.version, 2);
+  assert.equal(graph.processors[0].outputId, "legacy-events");
+  assert.equal(graph.processors[0].eventOutputId, "legacy-events");
+  assert.equal(graph.processors[0].inputs.a, "value");
+});

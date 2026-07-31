@@ -172,7 +172,15 @@ const hand = __.streams.create({
 hand.write({ kind: "space", x: 0.4, y: 0.6, space: "normalized" });
 
 // A Brush channel can then map it to a selected frame or viewport.`}</code></pre>
-      <p><strong>Brush → Channels</strong> keeps each stroke session separate. A channel may choose a spatial stream, optional gate and pressure streams, range/inversion/scale/offset, then draw in scene space, a viewport frozen at start, or a rotated rectangle/frame.</p>
+      <p><strong>Brush → Channels</strong> keeps each stroke session separate. A channel may choose a spatial stream, optional gate and pressure streams, range/inversion/scale/offset, then draw in scene space, a viewport frozen at start, or a rotated rectangle/frame. A streamed stroke captures the active Brush stack at gate-open and previews its generated tracks live; gate-close commits that visible result as one native undoable freedraw.</p>
+      <p><strong>Inputs → Processors</strong> turns sources into typed geometry, value, motion, filter, gate, and edge streams. A Gate is held state for Brush; its separate <code>edges</code> output is a transition event for triggers, resets, and future automation. The Pinch brush recipe creates a right-hand position source, pinch gate, and editable channel.</p>
+      <pre><code>{`const gate = __.streams.get("Right pinch gate");
+const edges = __.streams.get("Right pinch gate edges");
+
+if (gate.snapshot()?.value) {
+  // held while the pinch is active
+}
+edges.subscribe(event => console.log(event.transition));`}</code></pre>
     </section>
     <section>
       <h3>Coordinates and availability</h3>

@@ -41,7 +41,9 @@ The following state persists independently:
 Every panel is available from the main menu and command palette, including `/chat`, `/brush` (legacy `/mods`), `/script`, `/scene`, `/synth`, `/media` (legacy `/media-input`), `/inputs` (also `/signals`), `/holistic`, `/mapping`, `/settings`, `/console`, and `/transport`. `/svg` opens the Script panel with its SVG adapter selected. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
 
 Media owns the persistent image-source catalog and its cropped/mirrored preview output. Inputs owns
-the typed signal-source graph rather than requiring a canvas host. Media previews consume the same
+the typed signal-source graph rather than requiring a canvas host. Its **Processors** list builds
+typed geometry, value, motion, filter, gate, and event outputs; continuous Gate outputs drive Brush
+channels while paired edge outputs feed triggers and reset inputs. Media previews consume the same
 processed output used by downstream processors. **Show as
 canvas object** attaches or detaches a transformable view without stopping the source; MediaPipe
 Holistic remains a first-class canvas processor and can independently hide its source feed.
@@ -67,6 +69,10 @@ All five adapters follow one compact editor layout: catalog and parameters first
 `src/DraweratorCodeEditor.jsx` owns editor mechanics only. `src/scriptEditorProfiles.js` maps each script type to a language package, snippets, and completion vocabulary. The adapter blocks in `App.jsx` remain responsible for persistence, validation, status, and execution, so replacing the editing surface does not merge the five trust models or runtime lifecycles. See [Script editor architecture](script-editor.md).
 
 Brush has three compact tabs: **Channels** owns parallel source-driven stroke sessions, **Stack** owns the ordered non-destructive modifier stack and rendering controls, and **Script** owns the Brush script editor. Scene owns score-object and data editing. This keeps source capture, modifier evaluation, and score editing separate while preserving legacy panel ids and command aliases.
+
+An active non-native channel previews its captured Brush-stack result directly on the canvas from
+gate-open through gate-close, with the same paint appearance as pointer drawing by default. The
+preview is not a scene object; closing the gate creates one native undoable freedraw result.
 
 SVG visual editing stays on the canvas: the SVG host uses normal selection and transform controls. The existing Properties and Outliner panels share one SVG component selection with the canvas; compound path rows expose ordered subpath children, and selecting one opens spline-style handles immediately. The Properties panel can extract that child as a native spline or assign Curve, Cursor, or Trigger during extraction. Roots, groups, path parents, and supported primitives receive a bounds highlight and remain editable through their attributes. Those property edits patch the same source shown by the Script adapter. The canvas runtime renders SVG through an inert image boundary: CSS and SMIL remain declarative and live, while embedded JavaScript is preserved but not executed.
 
