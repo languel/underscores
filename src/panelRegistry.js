@@ -2,7 +2,7 @@ export const DRAWERATOR_PANELS = Object.freeze([
   Object.freeze({ id: "grid", label: "Grid", slash: "/grid", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "outliner", label: "Outliner", slash: "/outliner", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "properties", label: "Properties", slash: "/properties", kind: "dockable", placements: ["left", "floating", "right"] }),
-  Object.freeze({ id: "iannix", label: "IanniX", slash: "/iannix", kind: "dockable", placements: ["left", "floating", "right"] }),
+  Object.freeze({ id: "iannix", label: "Scene", slash: "/iannix", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "mods", label: "Mods & FX", slash: "/mods", kind: "dockable", sidebarName: "modifiers-sidebar", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "synth", label: "Synth", slash: "/synth", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "video-input", label: "Video Input", slash: "/video-input", kind: "dockable", placements: ["left", "floating", "right"] }),

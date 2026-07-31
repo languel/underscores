@@ -88,6 +88,8 @@ import MediaStreamOverlay, { MediaSourceRuntimeLayer } from "./MediaStreamOverla
 import { HolisticPanel, MediaInputPanel, VideoInputPanel } from "./MediaStreamPanels.jsx";
 import MediaMappingPanel from "./MediaMappingPanel.jsx";
 import MediaActorOverlay from "./MediaActorOverlay.jsx";
+import MediaMapOverlay from "./MediaMapOverlay.jsx";
+import { isMediaMapElement, normalizeMediaMapConfig } from "./mediaMap.js";
 import { createMediaSemanticFrame } from "./mediaLandmarkOntology.js";
 import { createMediaBindingRuntimeState, mediaBindingRuntimeHasExpired, mediaDrivenElementPosition, resolveMediaBindingGate, resolveMediaBindingSignal, shouldAppendMediaStrokePoint } from "./mediaActorRuntime.js";
 import { createMediaBinding, createMediaSource, createMediaStreamConfig, isMediaStreamElement, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig } from "./mediaStream.js";
@@ -1957,7 +1959,6 @@ function App() {
   }, [presentationMode]);
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
   const [modsPanelTab, setModsPanelTab] = useState("stack");
-  const [iannixPanelTab, setIannixPanelTab] = useState("data");
   const [scriptPanelType, setScriptPanelType] = useState(() => normalizeScriptType(localStorage.getItem("drawerator_script_panel_type")));
   const [scriptEditorFontSize, setScriptEditorFontSize] = useState(() => {
     const saved = Number(localStorage.getItem("drawerator_script_editor_font_size"));
@@ -2033,6 +2034,7 @@ function App() {
   const [mediaInspectedFeature, setMediaInspectedFeature] = useState({
     streamId: "",
     featureId: "right_hand.palm",
+    featureIds: ["right_hand.palm"],
   });
   const [mediaActorOverlayState, setMediaActorOverlayState] = useState({ traces: [], strokes: [] });
   const mediaBindingRuntimeRef = useRef(new Map());
@@ -9765,6 +9767,63 @@ function App() {
     return { elementIds: [element.id], kind: config.kind, name: config.name };
   };
 
+  const createMediaMapObject = streamId => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const appState = api.getAppState();
+    const center = viewportCoordsToSceneCoords({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 }, appState);
+    const width = 540;
+    const height = 620;
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const mapCount = elements.filter(isMediaMapElement).length;
+    const stagger = (mapCount % 6) * 28;
+    const base = createBaseElement("rectangle", center.x - width / 2 + stagger, center.y - height / 2 + stagger, width, height, "transparent");
+    const element = {
+      ...base,
+      strokeColor: "transparent",
+      strokeWidth: 0,
+      backgroundColor: "transparent",
+      fillStyle: "solid",
+      customData: { draweratorMediaMap: normalizeMediaMapConfig({ streamId }) },
+    };
+    api.updateScene({
+      elements: [...elements, element],
+      appState: { selectedElementIds: { [element.id]: true }, selectedGroupIds: {}, activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false } },
+      commitToHistory: true,
+    });
+    selectedElementIdsRef.current = { [element.id]: true };
+    setSelectedElementIds({ [element.id]: true });
+    return { elementIds: [element.id] };
+  };
+
+  const selectMediaMapFeatures = useCallback((streamId, featureIds, event = null) => {
+    setMediaInspectedFeature(previous => {
+      const current = previous.streamId === streamId ? previous.featureIds || [] : [];
+      const additive = Boolean(event?.metaKey || event?.ctrlKey || event?.shiftKey);
+      const next = additive ? [...new Set([...current, ...featureIds])] : [...new Set(featureIds)];
+      return { streamId, featureIds: next, featureId: next[next.length - 1] || "" };
+    });
+  }, []);
+
+  const selectMediaMapFeature = useCallback((streamId, featureId, event, definitions = []) => {
+    setMediaInspectedFeature(previous => {
+      const current = previous.streamId === streamId ? previous.featureIds || [] : [];
+      const index = definitions.findIndex(definition => definition.id === featureId);
+      const anchor = definitions.findIndex(definition => definition.id === current[0]);
+      let next;
+      if (event?.shiftKey && index >= 0 && anchor >= 0) {
+        next = definitions.slice(Math.min(index, anchor), Math.max(index, anchor) + 1).map(definition => definition.id);
+      } else if (event?.metaKey || event?.ctrlKey) {
+        next = current.includes(featureId) ? current.filter(id => id !== featureId) : [...current, featureId];
+      } else if (current.length === 1 && current[0] === featureId) {
+        next = [];
+      } else {
+        next = [featureId];
+      }
+      return { streamId, featureIds: next, featureId: next[next.length - 1] || "" };
+    });
+  }, []);
+
   const toggleMediaSourceCanvasHost = (sourceId, visible) => {
     const api = excalidrawAPIRef.current;
     if (!api) return null;
@@ -10062,15 +10121,13 @@ function App() {
       faceLandmarks: result.faceLandmarks,
       updatedAt: result.updatedAt,
     }, { source: "media-stream", transportTime: scoreTimeRef.current });
-    const inspected = semanticFrame && mediaInspectedFeature.streamId === elementId
-      ? semanticFrame.feature(mediaInspectedFeature.featureId)
-      : null;
-    const inspectedPoint = inspected?.scene;
-    const inspectedMarkers = inspectedPoint && config ? [{
-      id: `${elementId}:inspected`,
-      point: inspectedPoint,
-      color: config.holistic.color,
-    }] : [];
+    const inspectedMarkers = semanticFrame && mediaInspectedFeature.streamId === elementId && config
+      ? (mediaInspectedFeature.featureIds || [mediaInspectedFeature.featureId]).map(featureId => semanticFrame.feature(featureId)).filter(feature => feature?.scene).map(feature => ({
+        id: `${elementId}:inspected:${feature.id}`,
+        point: feature.scene,
+        color: config.holistic.color,
+      }))
+      : [];
     if (!mediaActorsArmed || !semanticFrame || !config || !api) {
       refreshMediaActorOverlay(inspectedMarkers);
       return;
@@ -18607,7 +18664,7 @@ function App() {
           {shouldRenderPanel("iannix") && (
           <DraweratorPanel
             id="iannix"
-            title="IanniX"
+            title="Scene"
             placement={panelLayouts.iannix.placement}
             layout={panelLayouts.iannix}
             dockTabs={getPanelDockTabs("iannix")}
@@ -18622,17 +18679,8 @@ function App() {
             collapsed={panelLayouts.iannix.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.iannix.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.iannix.placement]: false }))}
           >
-            <div className="drawerator-panel-secondary-header">
-              <div role="tablist" aria-label="IanniX views" className="mods-panel-tabs">
-                {[{ id: "object", label: "Object" }, { id: "data", label: "Data" }].map(tab => (
-                  <button key={tab.id} type="button" role="tab" aria-selected={iannixPanelTab === tab.id} className={`mods-panel-tab ${iannixPanelTab === tab.id ? "active" : ""}`} onClick={() => setIannixPanelTab(tab.id)}>{tab.label}</button>
-                ))}
-              </div>
-            </div>
-            <div style={{ padding: "16px", height: "calc(100% - 50px)", overflowY: "auto" }}>
-              {iannixPanelTab === "data"
-                ? <IannixDataPanel elements={getSelectedElements()} onChange={updateIannixDataPath} timeContext={timeContext} />
-                : renderIannixTab()}
+            <div style={{ padding: "16px", height: "100%", overflowY: "auto" }}>
+              {renderIannixTab()}
             </div>
           </DraweratorPanel>
           )}
@@ -18788,7 +18836,7 @@ function App() {
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.holistic.placement]: false }))}
           >
             <HolisticPanel
-              elements={p5OverlayScene.elements}
+              elements={excalidrawAPI?.getSceneElementsIncludingDeleted?.() || p5OverlayScene.elements}
               sources={mediaSources}
               selectedElementIds={selectedElementIds}
               onCreate={(kind, overrides) => createMediaStreamObject(kind, overrides)}
@@ -18818,7 +18866,7 @@ function App() {
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.mapping.placement]: false }))}
           >
             <MediaMappingPanel
-              elements={p5OverlayScene.elements}
+              elements={excalidrawAPI?.getSceneElementsIncludingDeleted?.() || p5OverlayScene.elements}
               selectedElementIds={selectedElementIds}
               actorsArmed={mediaActorsArmed}
               onArm={armed => commandRegistry.execute("media.actors.arm", { armed }, { source: "mapping-panel" })}
@@ -18826,6 +18874,7 @@ function App() {
               onUpdateBinding={(elementId, bindingId, patch) => commandRegistry.execute("media.binding.update", { elementId, bindingId, patch }, { source: "mapping-panel" })}
               onDuplicateBinding={duplicateMediaBindingForProcessor}
               onDeleteBinding={(elementId, bindingId) => commandRegistry.execute("media.binding.remove", { elementId, bindingId }, { source: "mapping-panel" })}
+              onCreateMap={createMediaMapObject}
               inspected={mediaInspectedFeature}
               onInspect={setMediaInspectedFeature}
             />
@@ -18936,6 +18985,13 @@ function App() {
           traces={mediaActorOverlayState.traces}
           strokes={mediaActorOverlayState.strokes}
           markers={mediaActorOverlayState.markers}
+        />
+        <MediaMapOverlay
+          elements={excalidrawAPI?.getSceneElementsIncludingDeleted?.() || p5OverlayScene.elements}
+          appState={p5OverlayScene.appState}
+          inspected={mediaInspectedFeature}
+          onSelectFeature={selectMediaMapFeature}
+          onSelectFeatures={selectMediaMapFeatures}
         />
         <LivecodeNodeOverlay
           elements={livecodeOverlayScene.elements}

@@ -14,6 +14,7 @@ import {
   getMediaSemanticFrame,
   subscribeMediaSemanticFrame,
 } from "./mediaStreamRuntime.js";
+import MediaVisualFeaturePicker from "./MediaVisualFeaturePicker.jsx";
 
 const stopKeyPropagation = event => event.stopPropagation();
 const numberValue = event => Number(event.target.value);
@@ -62,7 +63,7 @@ const FeatureValue = ({ feature, allSpaces = false }) => {
   </span>;
 };
 
-const FeatureBrowser = ({ query, onQuery, selectedId, onSelect, frame }) => {
+const FeatureBrowser = ({ query, onQuery, selectedIds, onSelect, frame }) => {
   const definitions = useMemo(() => listMediaFeatureDefinitions(query).slice(0, 180), [query]);
   const groups = useMemo(() => {
     const result = new Map();
@@ -92,9 +93,9 @@ const FeatureBrowser = ({ query, onQuery, selectedId, onSelect, frame }) => {
             key={definition.id}
             type="button"
             role="option"
-            aria-selected={selectedId === definition.id}
-            className={`media-mapping-feature ${selectedId === definition.id ? "is-selected" : ""}`}
-            onClick={() => onSelect(definition.id)}
+            aria-selected={selectedIds.includes(definition.id)}
+            className={`media-mapping-feature ${selectedIds.includes(definition.id) ? "is-selected" : ""}`}
+            onClick={event => onSelect(definition.id, event, definitions)}
           >
             <span>{definition.id}</span>
             <small>{snapshot?.available ? "live" : definition.kind}</small>
@@ -218,6 +219,7 @@ export default function MediaMappingPanel({
   onUpdateBinding,
   onDuplicateBinding,
   onDeleteBinding,
+  onCreateMap,
   inspected,
   onInspect,
 }) {
@@ -225,7 +227,7 @@ export default function MediaMappingPanel({
   const selectedCanvasProcessor = processors.find(element => selectedElementIds?.[element.id]);
   const [processorId, setProcessorId] = useState("");
   const [query, setQuery] = useState("");
-  const [featureId, setFeatureId] = useState("right_hand.palm");
+  const [featureIds, setFeatureIds] = useState(["right_hand.palm"]);
   const [, setRuntimeNonce] = useState(0);
   const activeId = selectedCanvasProcessor?.id || (processors.some(element => element.id === processorId) ? processorId : processors[0]?.id || "");
   const processor = processors.find(element => element.id === activeId) || null;
@@ -240,13 +242,44 @@ export default function MediaMappingPanel({
   }, [activeId]);
 
   useEffect(() => {
-    if (inspected?.streamId === activeId && inspected.featureId) setFeatureId(inspected.featureId);
+    if (inspected?.streamId === activeId && (inspected.featureIds?.length || inspected.featureId)) {
+      setFeatureIds(inspected.featureIds?.length ? inspected.featureIds : [inspected.featureId]);
+    }
   }, [activeId, inspected]);
 
-  const inspect = nextFeatureId => {
-    setFeatureId(nextFeatureId);
-    onInspect?.({ streamId: activeId, featureId: nextFeatureId });
+  const inspect = (nextFeatureId, event = null, visibleDefinitions = []) => {
+    setFeatureIds(previous => {
+      const currentIndex = visibleDefinitions.findIndex(definition => definition.id === nextFeatureId);
+      const anchorIndex = visibleDefinitions.findIndex(definition => definition.id === previous[0]);
+      let next;
+      if (event?.shiftKey && currentIndex >= 0 && anchorIndex >= 0) {
+        const start = Math.min(currentIndex, anchorIndex);
+        const end = Math.max(currentIndex, anchorIndex);
+        next = visibleDefinitions.slice(start, end + 1).map(definition => definition.id);
+      } else if (event?.metaKey || event?.ctrlKey) {
+        next = previous.includes(nextFeatureId)
+          ? previous.filter(id => id !== nextFeatureId)
+          : [...previous, nextFeatureId];
+      } else if (previous.length === 1 && previous[0] === nextFeatureId) {
+        next = [];
+      } else {
+        next = [nextFeatureId];
+      }
+      onInspect?.({ streamId: activeId, featureIds: next, featureId: next[next.length - 1] || "" });
+      return next;
+    });
   };
+  const inspectMany = (nextFeatureIds, event = null) => {
+    setFeatureIds(previous => {
+      const additive = Boolean(event?.metaKey || event?.ctrlKey || event?.shiftKey);
+      const next = additive
+        ? [...new Set([...previous, ...nextFeatureIds])]
+        : [...new Set(nextFeatureIds)];
+      onInspect?.({ streamId: activeId, featureIds: next, featureId: next[next.length - 1] || "" });
+      return next;
+    });
+  };
+  const featureId = featureIds[featureIds.length - 1] || "";
 
   return <div className="media-stream-panel media-mapping-panel">
     <div className="media-mapping-arm">
@@ -273,7 +306,11 @@ export default function MediaMappingPanel({
         <span>{frame?.available ? "Live" : "Waiting for landmarks"}</span>
         <small>{frame?.available ? `${Math.round(Math.max(0, performance.now() - frame.updatedAt))} ms ago` : processor.id.slice(0, 8)}</small>
       </div>
-      <FeatureBrowser query={query} onQuery={setQuery} selectedId={featureId} onSelect={inspect} frame={frame} />
+      <details className="media-visual-feature-picker-details" open>
+        <summary>Visual picker <button type="button" className="iannix-flat-button" onClick={event => { event.preventDefault(); onCreateMap?.(activeId); }}>Open on canvas</button></summary>
+        <MediaVisualFeaturePicker selectedIds={featureIds} onSelect={inspect} onSelectMany={inspectMany} />
+      </details>
+      <FeatureBrowser query={query} onQuery={setQuery} selectedIds={featureIds} onSelect={inspect} frame={frame} />
       <div className="media-mapping-inspector">
         <code>{featureId}</code>
         <FeatureValue feature={frame?.feature?.(featureId)} allSpaces />
@@ -285,7 +322,7 @@ export default function MediaMappingPanel({
             <button
               type="button"
               className="iannix-flat-button"
-              disabled={!targetElement}
+              disabled={!targetElement || !featureId}
               onClick={() => onCreateBinding(processor.id, createMediaBinding(MEDIA_BINDING_TYPES.DRIVE_POSITION, {
                 featureId,
                 targetElementId: targetElement?.id || "",

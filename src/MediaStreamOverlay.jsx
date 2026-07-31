@@ -497,7 +497,6 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
                   onResults={onResults}
                 />}
         </div>
-        <div className="drawerator-media-stream-label">{config.name}</div>
       </div>;
     })}
   </div>;
