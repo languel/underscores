@@ -39,6 +39,10 @@ Source configuration is normalized by `src/mediaStream.js` and stored in the loc
 `customData.draweratorMediaStream`; Excalidraw continues to own their selection, transforms,
 opacity, grouping, history, and scene exchange.
 
+Creating a Holistic processor or changing its display/processing settings also writes the current
+scene immediately. This closes the short debounce window in which a reload directly after the last
+panel change could restore the previous scene state.
+
 Browser-owned values remain transient in `src/mediaStreamRuntime.js`: live `MediaStream` handles,
 decoded surfaces, the latest landmark frame, and local file object URLs. A local file's name and
 media kind persist, but the browser file handle does not, so choose it again after reload.
@@ -54,21 +58,46 @@ the context menu or `/preview` command.
 
 ## MediaPipe runtime and output
 
-Holistic is loaded on demand from the upstream browser package used by MediaMime. Processing is
-throttled to approximately 30 FPS and skips a new inference while the previous frame is pending.
+Holistic is loaded on demand from the upstream browser package used by MediaMime. **Processing FPS**
+limits inference and semantic-frame publication independently from the input stream; new processors
+default to 15 FPS, with choices from 1 to 30 FPS. A new inference is skipped while the previous frame
+is pending. The selected rate is a ceiling: an inference-time moving average automatically backs
+off further when MediaPipe would otherwise consume more than one quarter of the frame budget. The
+landmark canvas repaints when a result arrives instead of redrawing the same result on every browser
+animation frame.
 Holistic output is transparent by default. The **Source feed** toggle controls whether the
 processed camera/media image is painted behind the landmarks; it does not change the inference
 input. **Refine face + iris** enables MediaPipe's eye/lip refinement and the ten additional iris
 landmarks while the Lite/Full/Heavy selector continues to control pose-model complexity.
 
-Face rendering is a semantic nested filter rather than a decimated point sample. **All** enables
-the complete 478-point refined mesh; Outline, Eyes, Iris, Mouth, Brows, and Remaining can then be
-toggled independently. The resulting view shows exactly those selected point sets.
+Pose rendering is independently selectable as **Pose · body** (torso, limbs, and legs), **Pose · head**,
+**Pose · L hand** (17, 19, 21), and **Pose · R hand** (18, 20, 22), alongside the separate 21-point
+**L hand** and **R hand** trackers. Each group has its own adjacent swatch. Face rendering is a semantic nested filter rather than a
+decimated point sample. **All** enables the complete 478-point refined mesh; Outline, Eyes, Iris,
+Nose, Mouth (both inner and outer contours), Brows, and Remaining can then be toggled independently.
+The global **Connections** setting draws the official category connections for every enabled face
+group except Remaining, which is deliberately points-only.
+The resulting view shows exactly those selected point sets.
+
+Use **Swap L / R** when a mirrored camera needs the opposite semantic handedness. The
+toggle remaps the overlay, snapshots, MediaPipe stream features, mappings, and Brush channels
+together; it does not alter the source image pixels.
 
 Every result updates the derived object's live canvas and emits `media.holistic.frame` on the
 Drawerator event bus with normalized pose, left-hand, right-hand, and face landmarks.
-**Snapshot landmarks** converts the latest pose/hand frame into ordinary Drawerator ellipses and
-lines tagged with `customData.draweratorMediaLandmark`.
+**Snapshot landmarks** converts the currently enabled pose, hand, and Face Mesh display into native
+Drawerator points, connection lines, and landmark IDs according to the active view toggles. Pose
+points below the live 0.2 visibility threshold are excluded. Each snapshot point is tagged with
+`customData.draweratorMediaLandmark` and a canonical `customData.draweratorLabel`, such as
+`pose.left_pinky`, `right_hand.thumb_tip`, or `face.33`. Every snapshot is one native
+Excalidraw group, so its points can be selected and moved as one output.
+
+**Snapshot PNG** captures the current Holistic canvas directly, including the enabled source-feed
+and landmark view, and inserts a selected static image at the processor's exact position, size,
+rotation, and frame membership. The live processor remains editable underneath the snapshot.
+**Point size** and **Line thickness** are shared by the live view and native landmark snapshots.
+Holistic display and processing choices are remembered locally as the preset for the next processor;
+each existing processor also retains its own settings in the saved scene.
 
 ## Verification checkpoint
 
@@ -149,6 +178,10 @@ const stop = source.subscribe(sample => console.log(sample));
 const signal = __.streams.create({ id: "energy", kind: "value" });
 signal.write({ kind: "value", value: 0.75 });
 ```
+
+## Runtime diagnosis
+
+Use the bottom-docked **Console** when a MediaPipe or Brush interaction appears inactive. Its Live strip remains active even with event logging off: a Brush channel reports `source waiting` when its position stream has no current sample, `source live` when it does, and its held gate, mapped XY, and pressure separately. This distinguishes missing camera/landmark input from a closed pinch gate or an unarmed channel. Enable the retained Console log only when needed, then filter `status`, `media`, `input`, or `brush` events without adding a high-rate coordinate record for every frame.
 
 Camera, URL/file media, canvas capture, and Preview outputs register as read-only image streams.
 Image pixels and `CanvasImageSource` handles are transient; a trusted script recreates virtual
@@ -237,6 +270,10 @@ gate opens. Its modifier result is rendered continuously as a transient canvas o
 gate remains open, using the same track-composition path as a pointer stroke. No generated tracks
 are written to the scene during that preview; gate close commits the already-previewed result as
 one native freedraw history entry.
+
+Holistic objects are valid **Object bounds** targets: their native rectangular host supplies the
+destination geometry even when the rendered camera feed and landmarks are hidden. Preview and
+source hosts remain excluded from geometric input pickers, preventing accidental feedback routes.
 
 ## Mapping and media actors
 

@@ -15,10 +15,12 @@ const OutlinerPanel = memo(function OutlinerPanel({
   selectedElementIds = {},
   selectedSvgNode = null,
   onSelect,
+  onSelectGroup,
   onDelete,
   onVisibilityChange,
   onLockChange,
   onRename,
+  onRenameGroup,
   onReorder,
   onMoveToGroup,
   onReparentGroup,
@@ -51,6 +53,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
   };
   const getElementLabel = element => {
     if (element.customData?.iannix?.label) return element.customData.iannix.label;
+    if (element.customData?.draweratorLabel) return element.customData.draweratorLabel;
     if (isLivecodeNodeElement(element)) return normalizeLivecodeNode(element.customData.draweratorLivecode).name;
     if (isMediaStreamElement(element)) return normalizeMediaStreamConfig(element.customData.draweratorMediaStream).name;
     return element.id;
@@ -116,14 +119,28 @@ const OutlinerPanel = memo(function OutlinerPanel({
     setEditingId(element.id);
     setEditingValue(
       element.customData?.iannix?.label ||
+        element.customData?.draweratorLabel ||
         (isLivecodeNodeElement(element)
           ? normalizeLivecodeNode(element.customData.draweratorLivecode).name
-          : ""),
+          : isMediaStreamElement(element)
+            ? normalizeMediaStreamConfig(element.customData.draweratorMediaStream).name
+            : element.customData?.draweratorSvg
+              ? normalizeSvgObject(element.customData.draweratorSvg).name
+              : ""),
     );
     requestAnimationFrame(() => editingRef.current?.focus());
   };
   const finishRename = (element, commit = true) => {
     if (commit) onRename?.(element.id, editingValue.trim());
+    setEditingId(null);
+  };
+  const beginGroupRename = node => {
+    setEditingId(`group:${node.id}`);
+    setEditingValue(node.label || "");
+    requestAnimationFrame(() => editingRef.current?.focus());
+  };
+  const finishGroupRename = (node, commit = true) => {
+    if (commit) onRenameGroup?.(node.id, editingValue.trim());
     setEditingId(null);
   };
   const clearDrag = () => { setDraggingIds([]); setDropTarget(null); };
@@ -228,14 +245,18 @@ const OutlinerPanel = memo(function OutlinerPanel({
         }
         clearDrag();
       }}>
-        <button type="button" className={`outliner-object ${isSvg ? "has-children" : ""}`} style={{ "--outliner-depth": depth }} onClick={event => selectElement(element.id, event)} onDoubleClick={event => {
-          if (event.shiftKey) { event.preventDefault(); beginRename(element); }
-          else if (isSvg) { event.preventDefault(); setExpandedSvgIds(current => { const next = new Set(current); if (next.has(element.id)) next.delete(element.id); else next.add(element.id); return next; }); }
-        }} title={`${getElementTypeLabel(element)} · ${element.id}${isSvg ? " · double-click to expand document" : ""}`}>
+        <div role="button" tabIndex={0} className={`outliner-object ${isSvg ? "has-children" : ""}`} style={{ "--outliner-depth": depth }} onClick={event => selectElement(element.id, event)} onKeyDown={event => {
+          if (editingId === element.id) return;
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectElement(element.id, event); }
+        }} onDoubleClick={event => {
+          event.preventDefault();
+          if (isSvg) setExpandedSvgIds(current => { const next = new Set(current); if (next.has(element.id)) next.delete(element.id); else next.add(element.id); return next; });
+          else beginRename(element);
+        }} title={`${getElementTypeLabel(element)} · ${element.id}${isSvg ? " · double-click row to expand; double-click label to rename" : " · double-click to rename"}`}>
           <span className="outliner-disclosure" aria-hidden="true">{isSvg ? (expandedSvgIds.has(element.id) ? "⌄" : "›") : ""}</span>
           <span className={`outliner-type type-${isSvg ? "svg" : isLivecode ? "livecode" : element.type}`}>{isSvg ? "S" : isLivecode ? "L" : element.type.slice(0, 1).toUpperCase()}</span>
-          {editingId === element.id ? <input ref={editingRef} className="outliner-label-input" value={editingValue} placeholder={element.id} onChange={event => setEditingValue(event.target.value)} onBlur={() => finishRename(element)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); finishRename(element); } if (event.key === "Escape") { event.preventDefault(); finishRename(element, false); } }} aria-label={`Rename ${element.id}`} /> : <span className="outliner-label">{nameMode === "labels" ? getElementLabel(element) : element.id}</span>}
-        </button>
+          {editingId === element.id ? <input ref={editingRef} className="outliner-label-input" value={editingValue} placeholder={element.id} onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()} onChange={event => setEditingValue(event.target.value)} onBlur={() => finishRename(element)} onKeyDown={event => { event.stopPropagation(); if (event.key === "Enter") { event.preventDefault(); finishRename(element); } if (event.key === "Escape") { event.preventDefault(); finishRename(element, false); } }} aria-label={`Rename ${element.id}`} /> : <span className="outliner-label" onDoubleClick={event => { event.preventDefault(); event.stopPropagation(); beginRename(element); }}>{nameMode === "labels" ? getElementLabel(element) : element.id}</span>}
+        </div>
         <button type="button" className={element.customData?.outlinerHidden ? "outliner-toggle inactive" : "outliner-toggle"} onClick={event => onVisibilityChange(actionIdsFor(event, selectedIdsFor(element.id)))} title={element.customData?.outlinerHidden ? "Show object" : "Hide object"} aria-label={element.customData?.outlinerHidden ? `Show ${element.id}` : `Hide ${element.id}`} {...infoProps("Object visibility", "Hide or show the authored object without deleting it or changing its score role. Option-click applies the action to the current selection.")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
         <button type="button" className={element.locked ? "outliner-toggle active" : "outliner-toggle"} onClick={event => onLockChange(actionIdsFor(event, selectedIdsFor(element.id)))} title={element.locked ? "Unlock object" : "Lock object"} aria-label={element.locked ? `Unlock ${element.id}` : `Lock ${element.id}`} aria-pressed={element.locked} {...infoProps("Object lock", "Locked objects remain visible and active but cannot be selected or transformed on the canvas. Option-click applies the action to the current selection.")}>{element.locked ? <svg className="outliner-lock-icon locked" viewBox="0 0 24 24" aria-hidden="true"><rect className="outliner-lock-body" x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg> : <svg className="outliner-lock-icon unlocked" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M7.5 10V7a4.5 4.5 0 0 1 8.7-2.5"/></svg>}</button>
         <button type="button" className="outliner-toggle outliner-delete" onClick={event => onDelete(actionIdsFor(event, selectedIdsFor(element.id)))} title="Delete object" aria-label={`Delete ${element.id}`} {...infoProps("Delete object", "Delete this object. Option-click applies the action to the current selection.")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg></button>
@@ -253,7 +274,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
         ? scoreLabel(node.label)
         : node.kind === "iannix-group"
           ? iannixGroupLabel(node.id)
-          : groupLabel(node.id);
+          : (node.label || groupLabel(node.id));
       const type = node.kind === "score" ? "score" : node.kind === "iannix-group" ? "iannix-group" : "group";
       const glyph = node.kind === "score" ? "I" : node.kind === "iannix-group" ? "i" : "G";
       const memberIds = elementIdsForNode(node);
@@ -278,7 +299,21 @@ const OutlinerPanel = memo(function OutlinerPanel({
           clearDrag();
         }}>
           <button type="button" className="outliner-group-disclosure" onClick={() => setExpandedGroupIds(current => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next; })} aria-label={`${expanded ? "Collapse" : "Expand"} ${label}`}><span className="outliner-disclosure" aria-hidden="true">{expanded ? "⌄" : "›"}</span></button>
-          <button type="button" className="outliner-object outliner-group-object" onClick={() => onSelectGroup?.(memberIds)} title={`${label}. Click to select its ${memberIds.length} object${memberIds.length === 1 ? "" : "s"}.`}><span className={`outliner-type type-${type}`}>{glyph}</span><span className="outliner-label">{label}</span><span className="outliner-group-count">{memberIds.length}</span></button>
+          <div role="button" tabIndex={0} className="outliner-object outliner-group-object" onClick={() => onSelectGroup?.(memberIds)} onKeyDown={event => {
+            if (editingId === `group:${node.id}`) return;
+            if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectGroup?.(memberIds); }
+          }} onDoubleClick={event => {
+            if (node.kind !== "group") return;
+            event.preventDefault();
+            event.stopPropagation();
+            beginGroupRename(node);
+          }} title={`${label}. Click to select its ${memberIds.length} object${memberIds.length === 1 ? "" : "s"}; double-click to rename.`}>
+            <span className={`outliner-type type-${type}`}>{glyph}</span>
+            {editingId === `group:${node.id}`
+              ? <input ref={editingRef} className="outliner-label-input" value={editingValue} placeholder={groupLabel(node.id)} onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()} onChange={event => setEditingValue(event.target.value)} onBlur={() => finishGroupRename(node)} onKeyDown={event => { event.stopPropagation(); if (event.key === "Enter") { event.preventDefault(); finishGroupRename(node); } if (event.key === "Escape") { event.preventDefault(); finishGroupRename(node, false); } }} aria-label={`Rename ${groupLabel(node.id)}`} />
+              : <span className="outliner-label">{label}</span>}
+            <span className="outliner-group-count">{memberIds.length}</span>
+          </div>
           <button type="button" className={isHidden ? "outliner-toggle inactive" : "outliner-toggle"} onClick={event => onVisibilityChange(actionIdsFor(event, memberIds))} title={`${isHidden ? "Show" : "Hide"} group`} aria-label={`${isHidden ? "Show" : "Hide"} ${label}`} {...infoProps("Group visibility", "Hide or show every object in this group. Option-click applies the action to the current selection.")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.5"/></svg></button>
           <button type="button" className={isLocked ? "outliner-toggle active" : "outliner-toggle"} onClick={event => onLockChange(actionIdsFor(event, memberIds))} title={`${isLocked ? "Unlock" : "Lock"} group`} aria-label={`${isLocked ? "Unlock" : "Lock"} ${label}`} {...infoProps("Group lock", "Lock or unlock every object in this group. Option-click applies the action to the current selection.")}><svg className="outliner-lock-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></button>
           <button type="button" className="outliner-toggle outliner-delete" onClick={event => onDelete(actionIdsFor(event, memberIds))} title="Delete group" aria-label={`Delete ${label}`} {...infoProps("Delete group", "Delete every object in this group. Option-click applies the action to the current selection.")}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg></button>

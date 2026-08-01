@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { parseGenericCommandSlash } from "./commandSystem.js";
+import PerformanceOverlay from "./PerformanceOverlay.jsx";
 import { infoProps } from "./uiInfo.js";
 
 const MAX_VISIBLE_EVENTS = 500;
 const LOGGING_STORAGE_KEY = "drawerator_console_logging";
 const POLL_STORAGE_KEY = "drawerator_console_poll_frequency";
 const POLL_FREQUENCIES = [50, 100, 250, 500, 1000];
-const EVENT_CATEGORIES = ["command", "history", "input", "iannix", "midi", "macro", "transport", "automation", "presentation", "settings", "ai"];
+const EVENT_CATEGORIES = ["command", "history", "input", "media", "brush", "status", "iannix", "midi", "macro", "transport", "automation", "presentation", "settings", "ai"];
 let consoleEventCutoff = -Infinity;
 
 const readStoredLogging = () => {
@@ -41,7 +42,15 @@ const eventDetailText = event => {
   }
 };
 
-export default function EventConsole({ eventBus, commandRegistry, transportTime = 0 }) {
+export default function EventConsole({
+  eventBus,
+  commandRegistry,
+  transportTime = 0,
+  liveStatus = [],
+  showPerformanceMonitor = false,
+  onPerformancePlacementChange,
+  onPerformanceClose,
+}) {
   const initialLoggingRef = useRef(readStoredLogging());
   const [events, setEvents] = useState([]);
   const [input, setInput] = useState("");
@@ -131,6 +140,23 @@ export default function EventConsole({ eventBus, commandRegistry, transportTime 
 
   return (
     <div className="event-console">
+      <div className="event-console-live-status" aria-label="Live status" aria-live="off">
+        <div className="event-console-live-heading">
+          <span>Live</span>
+          <small>{liveStatus.length ? `${liveStatus.length} probes` : "No active probes"}</small>
+        </div>
+        <div className="event-console-live-items">
+          {liveStatus.length === 0 ? <span className="event-console-live-empty">Brush channels and adapter states appear here, even when Log is off.</span> : liveStatus.map(item => (
+            <div className={`event-console-live-row is-${item.tone || "neutral"}`} key={item.id} title={item.detail}>
+              <span className="event-console-live-category">{item.category}</span>
+              <strong>{item.label}</strong>
+              <span className="event-console-live-state">{item.state}</span>
+              <span className="event-console-live-detail">{item.detail}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      {showPerformanceMonitor ? <PerformanceOverlay placement="console" onPlacementChange={onPerformancePlacementChange} onClose={onPerformanceClose} /> : null}
       <div className="event-console-toolbar">
         <span>{events.length} events</span>
         <div className="event-console-toolbar-controls">
@@ -159,7 +185,7 @@ export default function EventConsole({ eventBus, commandRegistry, transportTime 
         </div>
       </div>
       <div className="event-console-output" ref={outputRef} role="log" aria-live="off">
-        {events.length === 0 ? <div className="event-console-empty">Events will appear here.</div> : events.map(event => (
+        {events.length === 0 ? <div className="event-console-empty">{loggingEnabled ? "Events will appear here." : "Event logging is off. Live status remains above."}</div> : events.map(event => (
           <div className="event-console-row" key={event.id}>
             <button type="button" className="event-console-copy" onClick={() => copyEvent(event)} title="Copy replay input">⧉</button>
             <span className="event-console-time">{(event.time / 1000).toFixed(3)}</span>

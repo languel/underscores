@@ -4,7 +4,10 @@ import {
   getElementExportBounds,
   getElementsExportBounds,
   getP5ExportableElements,
+  createModifierTrackExportElements,
+  drawMediaStreamsOnCanvas,
   hideP5FrameHostsForExport,
+  hideLiveCanvasHostsForExport,
   drawP5FramesOnCanvas,
   EXCALIDRAW_DARK_THEME_FILTER,
   exportDraweratorPng,
@@ -37,11 +40,91 @@ test("p5 export bounds combine all live scene elements", () => {
   assert.deepEqual(bounds, { minX: -30, maxX: 110, minY: -10, maxY: 70 });
 });
 
+test("export bounds follow negative relative points in linear elements", () => {
+  const bounds = getElementExportBounds({
+    id: "reverse-line",
+    type: "line",
+    x: 400,
+    y: 350,
+    width: 280,
+    height: 250,
+    angle: 0,
+    points: [[0, 0], [-280, -250]],
+  });
+  assert.deepEqual(bounds, { minX: 120, maxX: 400, minY: 100, maxY: 350 });
+});
+
 test("p5 host elements are hidden while their live canvases are composited", () => {
   const hidden = hideP5FrameHostsForExport([p5Frame, { id: "line", type: "line", opacity: 80 }]);
   assert.equal(hidden[0].opacity, 0);
   assert.equal(hidden[1].opacity, 80);
   assert.equal(getP5ExportableElements([...hidden]).length, 1);
+});
+
+test("modifier overlay tracks become export-only native lines", () => {
+  const source = {
+    id: "pencil",
+    type: "freedraw",
+    strokeColor: "#111111",
+    strokeWidth: 4,
+    opacity: 100,
+    frameId: "frame",
+  };
+  const track = { points: [[20, 30], [10, 50], [40, 60]], strokeColor: "#ff0000", strokeWidth: 3, opacity: 0.5, smooth: true };
+  track.points[0].pressure = 0.25;
+  const [element] = createModifierTrackExportElements(source, [track]);
+  assert.deepEqual([element.x, element.y, element.width, element.height], [20, 30, 30, 30]);
+  assert.deepEqual(element.points.map(point => [...point]), [[0, 0], [-10, 20], [20, 30]]);
+  assert.equal(element.points[0].pressure, 0.25);
+  assert.equal(element.strokeColor, "#ff0000");
+  assert.equal(element.opacity, 50);
+  assert.deepEqual(element.roundness, { type: 2 });
+  assert.equal(element.frameId, "frame");
+});
+
+test("Holistic canvas pixels are composited at the media host transform", () => {
+  const operations = [];
+  const context = {
+    save: () => operations.push("save"),
+    restore: () => operations.push("restore"),
+    translate: (...args) => operations.push(["translate", ...args]),
+    rotate: value => operations.push(["rotate", value]),
+    drawImage: (...args) => operations.push(["drawImage", ...args]),
+  };
+  const sourceCanvas = { width: 640, height: 480 };
+  const media = {
+    id: "holistic",
+    type: "rectangle",
+    x: 10,
+    y: 20,
+    width: 100,
+    height: 50,
+    angle: 0,
+    opacity: 80,
+    customData: { draweratorMediaStream: { kind: "holistic", enabled: true } },
+  };
+  const root = {
+    querySelectorAll: () => [{
+      getAttribute: () => "holistic",
+      querySelector: selector => selector === "canvas.drawerator-media-surface" ? sourceCanvas : null,
+    }],
+  };
+  const captured = drawMediaStreamsOnCanvas({
+    canvas: { width: 200, height: 100, getContext: () => context },
+    elements: [media],
+    bounds: { minX: 10, maxX: 110, minY: 20, maxY: 70 },
+    root,
+  });
+  assert.equal(captured, 1);
+  assert.equal(context.globalAlpha, 0.8);
+  assert.deepEqual(operations, [
+    "save",
+    ["translate", 100, 50],
+    ["rotate", 0],
+    ["drawImage", sourceCanvas, -100, -50, 200, 100],
+    "restore",
+  ]);
+  assert.equal(hideLiveCanvasHostsForExport([media])[0].opacity, 0);
 });
 
 test("p5 canvas pixels are composited with their frame transform", () => {
@@ -90,10 +173,12 @@ test("p5 PNG export forwards the requested background mode", async () => {
     appState: { viewBackgroundColor: "#123456" },
     files: {},
     exportBackground: false,
+    exportPadding: 7,
     root: { querySelectorAll: () => [] },
   });
 
   assert.equal(exportOptions.appState.exportBackground, false);
+  assert.equal(exportOptions.exportPadding, 7);
 });
 
 test("dark PNG exports use Excalidraw's visible-canvas filter at device resolution", async () => {
@@ -130,5 +215,5 @@ test("dark PNG exports use Excalidraw's visible-canvas filter at device resoluti
   assert.equal(filteredCanvas.height, 100);
   assert.equal(context.filter, EXCALIDRAW_DARK_THEME_FILTER);
   assert.deepEqual(operations, [[sourceCanvas, 0, 0]]);
-  assert.deepEqual(exportOptions.getDimensions(100, 50), { width: 100, height: 50, scale: 2 });
+  assert.deepEqual(exportOptions.getDimensions(100, 50), { width: 200, height: 100, scale: 2 });
 });

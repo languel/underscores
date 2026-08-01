@@ -12,10 +12,11 @@ import {
   MEDIA_STREAM_KINDS,
   isMediaStreamElement,
   normalizeMediaStreamConfig,
+  resolveHolisticProcessingIntervalMs,
   shouldProcessMediaStream,
   shouldRenderMediaStream,
 } from "./mediaStream.js";
-import { FACE_DISPLAY_GROUPS } from "./mediaLandmarkOntology.js";
+import { getHolisticDisplayLayers } from "./mediaLandmarkOntology.js";
 
 const HOLISTIC_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js";
 const HOLISTIC_ASSET_ROOT = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic/";
@@ -42,23 +43,24 @@ const loadHolistic = () => {
   return holisticLoader;
 };
 
-const POSE_CONNECTIONS = [
-  [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
-  [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28],
-  [27, 29], [29, 31], [28, 30], [30, 32],
-];
-const HAND_CONNECTIONS = [
-  [0, 1], [1, 2], [2, 3], [3, 4],
-  [0, 5], [5, 6], [6, 7], [7, 8],
-  [0, 9], [9, 10], [10, 11], [11, 12],
-  [0, 13], [13, 14], [14, 15], [15, 16],
-  [0, 17], [17, 18], [18, 19], [19, 20], [5, 9], [9, 13], [13, 17],
-];
 
 const publishStatus = detail => {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("drawerator:media-stream-status", { detail }));
   }
+};
+
+// Runtime results are published with the configured semantic handedness so
+// bindings, scripts, and snapshots all address the same left/right features.
+// The canvas renderer still receives the raw detector result and applies this
+// mapping through getHolisticDisplayLayers while painting.
+const withConfiguredHandedness = (result, swapHandedness) => {
+  if (!swapHandedness) return result;
+  return {
+    ...result,
+    leftHandLandmarks: result?.rightHandLandmarks || [],
+    rightHandLandmarks: result?.leftHandLandmarks || [],
+  };
 };
 
 const useSessionFileUrl = sourceId => {
@@ -406,13 +408,17 @@ export function MediaRuntimePreview({ sourceId, className = "" }) {
 
 const drawLandmarks = (context, landmarks, connections, width, height, color, pointRadius = 2, options = {}) => {
   if (!Array.isArray(landmarks)) return;
+  const visibleIndices = options.indices ? new Set(options.indices) : null;
   context.strokeStyle = color;
   context.fillStyle = color;
-  context.lineWidth = Math.max(1, Math.min(width, height) / 240);
+  context.lineWidth = Number.isFinite(Number(options.lineWidth))
+    ? Math.max(0.5, Number(options.lineWidth))
+    : Math.max(1, Math.min(width, height) / 240);
   if (options.connections !== false) {
     for (const [from, to] of connections) {
       const a = landmarks[from];
       const b = landmarks[to];
+      if (visibleIndices && (!visibleIndices.has(from) || !visibleIndices.has(to))) continue;
       if (!a || !b || a.visibility < 0.2 || b.visibility < 0.2) continue;
       context.beginPath();
       context.moveTo(a.x * width, a.y * height);
@@ -424,6 +430,7 @@ const drawLandmarks = (context, landmarks, connections, width, height, color, po
   context.font = `${Math.max(8, Math.round(Math.min(width, height) / 54))}px Inter, sans-serif`;
   context.textBaseline = "middle";
   landmarks.forEach((point, index) => {
+    if (visibleIndices && !visibleIndices.has(index)) return;
     if (!point || point.visibility < 0.2) return;
     if (options.points !== false) {
       context.beginPath();
@@ -437,9 +444,12 @@ const drawLandmarks = (context, landmarks, connections, width, height, color, po
 function HolisticSource({ element, config, sourceAvailable, onResults }) {
   const canvasRef = useRef(null);
   const configRef = useRef(config);
+  const elementRef = useRef(element);
   const resultsRef = useRef(null);
+  const paintRef = useRef(() => {});
   const onResultsRef = useRef(onResults);
   configRef.current = config;
+  elementRef.current = element;
   onResultsRef.current = onResults;
 
   useEffect(() => {
@@ -449,6 +459,8 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
     let pending = false;
     let lastFrameAt = 0;
     let lastPublishedFrameTime = 0;
+    let averageInferenceMs = 0;
+    let completedInferences = 0;
     let source = null;
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
@@ -477,25 +489,26 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
         connections: current.holistic.showConnections,
         ids: current.holistic.showIds,
       };
-      if (current.holistic.showPose) drawLandmarks(context, results.poseLandmarks, POSE_CONNECTIONS, width, height, current.holistic.colors.pose, 2.4, display);
-      if (current.holistic.showHands) {
-        drawLandmarks(context, results.leftHandLandmarks, HAND_CONNECTIONS, width, height, current.holistic.colors.leftHand, 2, display);
-        drawLandmarks(context, results.rightHandLandmarks, HAND_CONNECTIONS, width, height, current.holistic.colors.rightHand, 2, display);
-      }
-      if (current.holistic.showFace && Array.isArray(results.faceLandmarks)) {
-        const visibleFaceIndices = new Set(Object.entries(FACE_DISPLAY_GROUPS)
-          .filter(([id]) => current.holistic.faceGroups[id])
-          .flatMap(([, group]) => group.indices));
-        context.fillStyle = current.holistic.colors.face;
-        context.font = `${Math.max(8, Math.round(Math.min(width, height) / 54))}px Inter, sans-serif`;
-        context.textBaseline = "middle";
-        results.faceLandmarks.forEach((point, index) => {
-          if (!visibleFaceIndices.has(index)) return;
-          if (current.holistic.showPoints) context.fillRect(point.x * width - 1, point.y * height - 1, 2, 2);
-          if (current.holistic.showIds) context.fillText(String(index), point.x * width + 3, point.y * height);
-        });
-      }
+      const hostScale = Math.min(
+        width / Math.max(1, Math.abs(Number(elementRef.current.width) || 1)),
+        height / Math.max(1, Math.abs(Number(elementRef.current.height) || 1)),
+      );
+      const pointRadius = current.holistic.pointSize * hostScale / 2;
+      const lineWidth = current.holistic.lineThickness * hostScale;
+      getHolisticDisplayLayers(results, current.holistic).forEach(layer => {
+        drawLandmarks(
+          context,
+          layer.landmarks,
+          layer.connections,
+          width,
+          height,
+          layer.color,
+          pointRadius,
+          { ...display, indices: layer.indices, lineWidth },
+        );
+      });
     };
+    paintRef.current = paint;
 
     const process = timestamp => {
       if (disposed) return;
@@ -504,14 +517,24 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
       const ready = source?.kind === "canvas" && media?.width > 0 && media?.height > 0;
       const sourcePlaying = source?.isPlaying?.() !== false;
       const publishedFrameTime = Number(media?.dataset?.frameTime) || 0;
-      if (ready) paint(resultsRef.current);
-      if (holistic && ready && sourcePlaying && publishedFrameTime > 0 && publishedFrameTime !== lastPublishedFrameTime && !pending && timestamp - lastFrameAt >= 1) {
+      const processingInterval = resolveHolisticProcessingIntervalMs(
+        configRef.current.holistic.processingFps,
+        averageInferenceMs,
+      );
+      if (holistic && ready && sourcePlaying && publishedFrameTime > 0 && publishedFrameTime !== lastPublishedFrameTime && !pending && timestamp - lastFrameAt >= processingInterval) {
         pending = true;
         lastFrameAt = timestamp;
         lastPublishedFrameTime = publishedFrameTime;
+        const inferenceStartedAt = performance.now();
+        if (configRef.current.holistic.showSource) paint(resultsRef.current);
         holistic.send({ image: media }).catch(error => {
           publishStatus({ elementId: element.id, kind: "error", message: error?.message || "MediaPipe frame failed." });
         }).finally(() => {
+          const inferenceMs = Math.min(250, Math.max(0, performance.now() - inferenceStartedAt));
+          completedInferences += 1;
+          averageInferenceMs = completedInferences === 1
+            ? Math.min(inferenceMs, 1000 / configRef.current.holistic.processingFps)
+            : averageInferenceMs * 0.8 + inferenceMs * 0.2;
           pending = false;
         });
       }
@@ -531,7 +554,6 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
       });
       holistic.onResults(results => {
         if (disposed) return;
-        resultsRef.current = results;
         const result = {
           poseLandmarks: results.poseLandmarks || [],
           leftHandLandmarks: results.leftHandLandmarks || [],
@@ -540,9 +562,11 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
           updatedAt: performance.now(),
           sourceId: configRef.current.holistic.sourceId,
         };
-        setMediaRuntimeResult(element.id, result);
-        onResultsRef.current?.(element.id, result);
-        paint(results);
+        resultsRef.current = result;
+        const configuredResult = withConfiguredHandedness(result, configRef.current.holistic.swapHandedness);
+        setMediaRuntimeResult(element.id, configuredResult);
+        onResultsRef.current?.(element.id, configuredResult);
+        paint(result);
       });
       publishStatus({ elementId: element.id, kind: "success", message: "MediaPipe Holistic ready." });
     }).catch(error => publishStatus({ elementId: element.id, kind: "error", message: error?.message || "MediaPipe Holistic failed to load." }));
@@ -552,6 +576,7 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
       disposed = true;
       cancelAnimationFrame(raf);
       clearMediaRuntimeResult(element.id);
+      paintRef.current = () => {};
       if (holistic?.close) void holistic.close();
     };
   }, [
@@ -562,6 +587,34 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
     config.holistic.sourceId,
     element.id,
   ]);
+
+  useEffect(() => {
+    if (!resultsRef.current) return;
+    const configuredResult = withConfiguredHandedness(resultsRef.current, config.holistic.swapHandedness);
+    setMediaRuntimeResult(element.id, configuredResult);
+    onResultsRef.current?.(element.id, configuredResult);
+  }, [config.holistic.swapHandedness, element.id]);
+
+  const displaySignature = JSON.stringify({
+    showSource: config.holistic.showSource,
+    poseGroups: config.holistic.poseGroups,
+    showLeftHand: config.holistic.showLeftHand,
+    showRightHand: config.holistic.showRightHand,
+    swapHandedness: config.holistic.swapHandedness,
+    showFace: config.holistic.showFace,
+    faceGroups: config.holistic.faceGroups,
+    colors: config.holistic.colors,
+    showPoints: config.holistic.showPoints,
+    showConnections: config.holistic.showConnections,
+    showIds: config.holistic.showIds,
+    pointSize: config.holistic.pointSize,
+    lineThickness: config.holistic.lineThickness,
+    hostWidth: element.width,
+    hostHeight: element.height,
+  });
+  useEffect(() => {
+    paintRef.current(resultsRef.current);
+  }, [displaySignature]);
 
   if (!config.holistic.sourceId) {
     return <div className="drawerator-media-empty">Choose an input stream</div>;

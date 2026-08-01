@@ -12,11 +12,11 @@ export const DRAWERATOR_PANELS = Object.freeze([
   Object.freeze({ id: "script", label: "Script", slash: "/script", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "chat", label: "AI Assistant", slash: "/chat", kind: "dockable", sidebarName: "ai-sidebar", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "history", label: "History", slash: "/history", kind: "dockable", placements: ["left", "floating", "right"] }),
-  Object.freeze({ id: "console", label: "Console", slash: "/console", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "settings", label: "Settings", slash: "/settings", kind: "dockable", sidebarName: "settings-sidebar", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "transport", label: "Timeline", slash: "/transport", kind: "dockable", placements: ["floating", "bottom"], naturalPlacement: "bottom", dockedHeight: 114 }),
   Object.freeze({ id: "mixer", label: "Mixer", slash: "/mixer", kind: "dockable", placements: ["left", "floating", "right", "bottom"], naturalPlacement: "bottom", dockedHeight: 286 }),
   Object.freeze({ id: "info", label: "Info", slash: "/info", kind: "dockable", placements: ["left", "floating", "right", "bottom"], naturalPlacement: "bottom", dockedHeight: 240 }),
+  Object.freeze({ id: "console", label: "Console", slash: "/console", kind: "dockable", placements: ["left", "floating", "right", "bottom"], naturalPlacement: "bottom", dockedHeight: 220 }),
 ]);
 
 export const getDraweratorPanel = id => DRAWERATOR_PANELS.find(panel => panel.id === id) || null;

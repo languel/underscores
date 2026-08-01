@@ -142,6 +142,30 @@ export const moveSceneGroupToParent = (elements = [], groupId, destinationGroupI
   return changed ? next : elements;
 };
 
+export const renameSceneGroup = (elements = [], groupId, label = "") => {
+  if (!groupId) return elements;
+  const normalizedLabel = String(label || "").trim();
+  let changed = false;
+  const next = elements.map(element => {
+    if (element?.isDeleted || !element?.groupIds?.includes(groupId)) return element;
+    const labels = { ...(element.customData?.draweratorGroupLabels || {}) };
+    if (normalizedLabel) labels[groupId] = normalizedLabel;
+    else delete labels[groupId];
+    changed = true;
+    const customData = { ...(element.customData || {}) };
+    if (Object.keys(labels).length) customData.draweratorGroupLabels = labels;
+    else delete customData.draweratorGroupLabels;
+    return {
+      ...element,
+      customData,
+      version: (element.version || 0) + 1,
+      versionNonce: Math.floor(Math.random() * 0x7fffffff),
+      updated: Date.now(),
+    };
+  });
+  return changed ? next : elements;
+};
+
 export const buildSceneGroupTree = (elements = [], { outlinerOrder = false } = {}) => {
   const root = { kind: "root", children: [] };
   const groupNodes = new Map();
@@ -152,11 +176,15 @@ export const buildSceneGroupTree = (elements = [], { outlinerOrder = false } = {
     groupNodes.set(key, node);
     return node;
   };
-  const ensureGroup = (groupId, parent) => ensureNode(
-    `canvas:${parent.id || "root"}:${groupId}`,
-    { kind: "group", id: groupId, children: [] },
-    parent,
-  );
+  const ensureGroup = (groupId, parent, element) => {
+    const node = ensureNode(
+      `canvas:${parent.id || "root"}:${groupId}`,
+      { kind: "group", id: groupId, label: "", children: [] },
+      parent,
+    );
+    if (!node.label) node.label = String(element?.customData?.draweratorGroupLabels?.[groupId] || "").trim();
+    return node;
+  };
   const getScore = element => {
     const imported = element?.customData?.iannixImport;
     const scoreId = String(imported?.scoreId || "").trim();
@@ -185,7 +213,7 @@ export const buildSceneGroupTree = (elements = [], { outlinerOrder = false } = {
         );
       }
     }
-    for (const groupId of element.groupIds || []) parent = ensureGroup(groupId, parent);
+    for (const groupId of element.groupIds || []) parent = ensureGroup(groupId, parent, element);
     parent.children.push({ kind: "element", element });
   }
   return root;

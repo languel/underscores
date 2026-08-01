@@ -138,6 +138,68 @@ export const mapTrackPointToElement = ({
   ];
 };
 
+const copyPointMetadata = (source, target) => {
+  for (const key of POINT_METADATA_KEYS) {
+    if (source?.[key] !== undefined) target[key] = source[key];
+  }
+  return target;
+};
+
+/**
+ * Map an evaluator track through the same translation, resize, flip, and
+ * rotation transform used by the live modifier overlay. Bake callers must use
+ * this before creating native Excalidraw children; evaluator output remains in
+ * the source stroke's coordinate space after a copy or transform.
+ */
+export const mapEvaluatedTrackToElement = ({
+  track,
+  evaluatedBaseline,
+  originalPoints,
+  element,
+}) => {
+  if (!isDrawableTrack(track) || !isDrawableTrack(evaluatedBaseline) || !element) return [];
+
+  const currentPoints = Array.isArray(element.points) ? element.points : [];
+  const lastWidth = element.customData?.lastWidth || element.width;
+  const lastHeight = element.customData?.lastHeight || element.height;
+  const scaleSignX = inferAxisFlipSign(originalPoints, currentPoints, 0);
+  const scaleSignY = inferAxisFlipSign(originalPoints, currentPoints, 1);
+  const scaleX = lastWidth > 0.1 && Math.abs(element.width - lastWidth) > 0.1
+    ? scaleSignX * (element.width / lastWidth)
+    : scaleSignX;
+  const scaleY = lastHeight > 0.1 && Math.abs(element.height - lastHeight) > 0.1
+    ? scaleSignY * (element.height / lastHeight)
+    : scaleSignY;
+  const minXRel = currentPoints.length ? Math.min(...currentPoints.map(point => point[0])) : 0;
+  const minYRel = currentPoints.length ? Math.min(...currentPoints.map(point => point[1])) : 0;
+  const maxXRel = currentPoints.length ? Math.max(...currentPoints.map(point => point[0])) : 0;
+  const maxYRel = currentPoints.length ? Math.max(...currentPoints.map(point => point[1])) : 0;
+  const centerX = element.x + (minXRel + maxXRel) / 2;
+  const centerY = element.y + (minYRel + maxYRel) / 2;
+  const firstPoint = currentPoints[0] || [0, 0];
+  const angle = element.angle || 0;
+
+  return track.map(point => {
+    const [mappedX, mappedY] = mapTrackPointToElement({
+      point,
+      elementType: element.type,
+      elementX: element.x,
+      elementY: element.y,
+      elementFirstPoint: firstPoint,
+      evaluatedBaseline,
+      scaleX,
+      scaleY,
+    });
+    const [x, y] = angle === 0
+      ? [mappedX, mappedY]
+      : [
+          centerX + (mappedX - centerX) * Math.cos(angle) - (mappedY - centerY) * Math.sin(angle),
+          centerY + (mappedX - centerX) * Math.sin(angle) + (mappedY - centerY) * Math.cos(angle),
+        ];
+    return copyPointMetadata(point, [x, y]);
+  });
+};
+
 export const inferAxisFlipSign = (originalPoints, currentPoints, axis) => {
   if (!isDrawableTrack(originalPoints) || !isDrawableTrack(currentPoints)) return 1;
 

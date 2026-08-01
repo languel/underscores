@@ -40,6 +40,8 @@ The following state persists independently:
 
 Every panel is available from the main menu and command palette, including `/chat`, `/brush` (legacy `/mods`), `/script`, `/scene`, `/synth`, `/media` (legacy `/media-input`), `/inputs` (also `/signals`), `/holistic`, `/mapping`, `/settings`, `/console`, and `/transport`. `/svg` opens the Script panel with its SVG adapter selected. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
 
+Console docks at the bottom by default, after Info, but can also float or dock at either side. Its **Live** strip is intentionally separate from retained event logging: it always shows each non-pointer Brush channel's source availability, gate state, mapped XY position, and pressure, plus connected input-adapter status. Turn **Log** on only when you need the bounded, filterable event history; status transitions are routed as `status.brush`, `status.input`, and `status.media` events, while high-rate coordinates remain in the Live strip rather than flooding the log.
+
 Media owns the persistent image-source catalog and its cropped/mirrored preview output. Inputs owns
 the typed signal-source graph rather than requiring a canvas host. Its **Processors** list builds
 typed geometry, value, motion, filter, gate, and event outputs; continuous Gate outputs drive Brush

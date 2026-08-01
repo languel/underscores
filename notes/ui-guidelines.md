@@ -50,9 +50,9 @@ Do not use sliders for ordinary scalar parameters. Keep formatted values such as
 - Use a small `ⓘ` or `?` help anchor only where no existing control can naturally carry the explanation. Dynamic errors, live status, and values that change while playing remain inline.
 - Keep the editable Shortcuts panel dense: shortcut rows are compact label/binding pairs, not large button cards. Register every Drawerator action in the shared shortcut registry so its default is visible and rebindable there; do not add a hard-coded duplicate listener.
 - Canvas selection follows the familiar default: click selects one object, Cmd/Ctrl-click toggles,
-  Shift-click ranges in list views, and Escape or an empty-canvas click clears selection. Alt-click
-  selects a rectangular, framed, or Drawerator-hosted object by its interior; repeat Alt-Shift-click
-  at one point to cycle overlapping eligible objects by depth.
+  Shift-click ranges in list views, and Escape or an empty-canvas click clears selection. Command-click
+  selects a rectangular, framed, or Drawerator-hosted object by its interior; repeat Command-Shift-click
+  at one point to cycle overlapping eligible objects by depth. Option-drag remains available for copying.
 
 ## Buttons and toggles
 

@@ -2,11 +2,38 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   convertShapeElementToPath,
+  fitRectangularElementToViewport,
   getCanvasContextMenuCapabilities,
   isCanvasContextElement,
   setSelectedElementRoundness,
   supportsElementRoundness,
 } from "./canvasContextMenu.js";
+
+test("rectangles and frames fit the viewport or its bottom-right PIP without stretching", () => {
+  const viewport = { x: 100, y: 200, width: 1200, height: 600 };
+  const rectangle = { id: "box", type: "rectangle", x: 0, y: 0, width: 400, height: 200, angle: 0 };
+  const fitted = fitRectangularElementToViewport(rectangle, viewport, "fit");
+  assert.deepEqual({ x: fitted.x, y: fitted.y, width: fitted.width, height: fitted.height }, {
+    x: 100, y: 200, width: 1200, height: 600,
+  });
+  const pip = fitRectangularElementToViewport({ ...rectangle, type: "frame" }, viewport, "pip");
+  assert.deepEqual({ x: pip.x, y: pip.y, width: pip.width, height: pip.height }, {
+    x: 1100, y: 700, width: 200, height: 100,
+  });
+  assert.equal(pip.width / pip.height, rectangle.width / rectangle.height);
+});
+
+test("rotated viewport fitting uses the visible bounding box without cropping", () => {
+  const fitted = fitRectangularElementToViewport(
+    { id: "box", type: "rectangle", width: 300, height: 100, angle: Math.PI / 2 },
+    { x: 0, y: 0, width: 800, height: 600 },
+    "fit",
+  );
+  assert.ok(Math.abs(fitted.width - 600) < 1e-9);
+  assert.ok(Math.abs(fitted.height - 200) < 1e-9);
+  assert.ok(Math.abs(fitted.x - 100) < 1e-9);
+  assert.ok(Math.abs(fitted.y - 200) < 1e-9);
+});
 
 test("canvas context menu accepts paths and basic shapes", () => {
   for (const type of ["freedraw", "line", "ellipse", "rectangle", "diamond"]) {

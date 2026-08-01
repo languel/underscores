@@ -1,4 +1,5 @@
 import { isP5FrameElement, shouldRenderP5Frame } from "./p5Frame.js";
+import { isMediaStreamElement, shouldRenderMediaStream } from "./mediaStream.js";
 
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 
@@ -14,21 +15,31 @@ export const getElementExportBounds = element => {
   const width = Math.abs(finite(element?.width, 1));
   const height = Math.abs(finite(element?.height, 1));
   const angle = finite(element?.angle);
-  const centerX = x + width / 2;
-  const centerY = y + height / 2;
+  const pointGeometry = (element?.type === "line" || element?.type === "freedraw")
+    && Array.isArray(element?.points)
+    && element.points.length > 0
+    ? element.points.map(point => ({ x: x + finite(point?.[0]), y: y + finite(point?.[1]) }))
+    : null;
+  const sourcePoints = pointGeometry || [
+    { x, y },
+    { x: x + width, y },
+    { x: x + width, y: y + height },
+    { x, y: y + height },
+  ];
+  const sourceMinX = Math.min(...sourcePoints.map(point => point.x));
+  const sourceMaxX = Math.max(...sourcePoints.map(point => point.x));
+  const sourceMinY = Math.min(...sourcePoints.map(point => point.y));
+  const sourceMaxY = Math.max(...sourcePoints.map(point => point.y));
+  const centerX = (sourceMinX + sourceMaxX) / 2;
+  const centerY = (sourceMinY + sourceMaxY) / 2;
   const cosine = Math.cos(angle);
   const sine = Math.sin(angle);
-  const corners = [
-    [-width / 2, -height / 2],
-    [width / 2, -height / 2],
-    [width / 2, height / 2],
-    [-width / 2, height / 2],
-  ].map(([cornerX, cornerY]) => ({
-    x: centerX + cornerX * cosine - cornerY * sine,
-    y: centerY + cornerX * sine + cornerY * cosine,
+  const transformedPoints = sourcePoints.map(point => ({
+    x: centerX + (point.x - centerX) * cosine - (point.y - centerY) * sine,
+    y: centerY + (point.x - centerX) * sine + (point.y - centerY) * cosine,
   }));
 
-  return corners.reduce((bounds, point) => ({
+  return transformedPoints.reduce((bounds, point) => ({
     minX: Math.min(bounds.minX, point.x),
     maxX: Math.max(bounds.maxX, point.x),
     minY: Math.min(bounds.minY, point.y),
@@ -69,6 +80,10 @@ export const hideP5FrameHostsForExport = elements => (elements || []).map(elemen
   isP5FrameElement(element) ? { ...element, opacity: 0 } : element
 ));
 
+export const hideLiveCanvasHostsForExport = elements => hideP5FrameHostsForExport(elements).map(element => (
+  isMediaStreamElement(element) ? { ...element, opacity: 0 } : element
+));
+
 export const findP5CanvasForElement = (elementId, root = globalThis.document) => {
   if (!root?.querySelectorAll) return null;
   const id = String(elementId);
@@ -78,6 +93,32 @@ export const findP5CanvasForElement = (elementId, root = globalThis.document) =>
     }
   }
   return null;
+};
+
+export const findMediaStreamCanvasForElement = (elementId, root = globalThis.document) => {
+  if (!root?.querySelectorAll) return null;
+  const id = String(elementId);
+  for (const container of root.querySelectorAll("[data-drawerator-media-stream-id]")) {
+    if (container.getAttribute("data-drawerator-media-stream-id") === id) {
+      return container.querySelector("canvas.drawerator-media-surface");
+    }
+  }
+  return null;
+};
+
+const drawElementCanvas = ({ context, source, element, bounds, scaleX, scaleY }) => {
+  if (!source || source.width < 1 || source.height < 1) return false;
+  const x = finite(element.x);
+  const y = finite(element.y);
+  const width = Math.max(1, Math.abs(finite(element.width, 1)));
+  const height = Math.max(1, Math.abs(finite(element.height, 1)));
+  context.save();
+  context.translate((x + width / 2 - bounds.minX) * scaleX, (y + height / 2 - bounds.minY) * scaleY);
+  context.rotate(finite(element.angle));
+  context.globalAlpha = Math.max(0, Math.min(1, finite(element.opacity, 100) / 100));
+  context.drawImage(source, -width * scaleX / 2, -height * scaleY / 2, width * scaleX, height * scaleY);
+  context.restore();
+  return true;
 };
 
 export const drawP5FramesOnCanvas = ({ canvas, elements, bounds, root = globalThis.document }) => {
@@ -92,20 +133,70 @@ export const drawP5FramesOnCanvas = ({ canvas, elements, bounds, root = globalTh
 
   getP5ExportableElements(elements).forEach(element => {
     const source = findP5CanvasForElement(element.id, root);
-    if (!source || source.width < 1 || source.height < 1) return;
-    const x = finite(element.x);
-    const y = finite(element.y);
-    const width = Math.max(1, Math.abs(finite(element.width, 1)));
-    const height = Math.max(1, Math.abs(finite(element.height, 1)));
-    context.save();
-    context.translate((x + width / 2 - bounds.minX) * scaleX, (y + height / 2 - bounds.minY) * scaleY);
-    context.rotate(finite(element.angle));
-    context.drawImage(source, -width * scaleX / 2, -height * scaleY / 2, width * scaleX, height * scaleY);
-    context.restore();
-    captured += 1;
+    if (drawElementCanvas({ context, source, element, bounds, scaleX, scaleY })) captured += 1;
   });
   return captured;
 };
+
+export const drawMediaStreamsOnCanvas = ({ canvas, elements, bounds, root = globalThis.document }) => {
+  if (!canvas || !bounds) return 0;
+  const context = canvas.getContext?.("2d");
+  if (!context) return 0;
+  const sceneWidth = Math.max(1, bounds.maxX - bounds.minX);
+  const sceneHeight = Math.max(1, bounds.maxY - bounds.minY);
+  const scaleX = canvas.width / sceneWidth;
+  const scaleY = canvas.height / sceneHeight;
+  let captured = 0;
+  (elements || []).filter(element => isMediaStreamElement(element) && shouldRenderMediaStream(element)).forEach(element => {
+    const source = findMediaStreamCanvasForElement(element.id, root);
+    if (drawElementCanvas({ context, source, element, bounds, scaleX, scaleY })) captured += 1;
+  });
+  return captured;
+};
+
+const copyTrackPoint = point => {
+  const copy = [finite(point?.[0]), finite(point?.[1])];
+  for (const key of ["pressure", "time", "strokeTime", "speed"]) {
+    if (point?.[key] !== undefined) copy[key] = point[key];
+  }
+  return copy;
+};
+
+export const createModifierTrackExportElements = (sourceElement, tracks = []) => tracks
+  .filter(track => Array.isArray(track?.points) && track.points.length >= 2)
+  .map((track, index) => {
+    const points = track.points.map(copyTrackPoint);
+    const [startX, startY] = points[0];
+    const relativePoints = points.map(point => {
+      const relative = copyTrackPoint(point);
+      relative[0] -= startX;
+      relative[1] -= startY;
+      return relative;
+    });
+    const xs = relativePoints.map(point => point[0]);
+    const ys = relativePoints.map(point => point[1]);
+    return {
+      ...sourceElement,
+      id: `${sourceElement.id}-png-track-${index}`,
+      type: "line",
+      x: startX,
+      y: startY,
+      width: Math.max(1, Math.max(...xs) - Math.min(...xs)),
+      height: Math.max(1, Math.max(...ys) - Math.min(...ys)),
+      angle: 0,
+      points: relativePoints,
+      strokeColor: track.strokeColor || sourceElement.strokeColor,
+      strokeWidth: Math.max(0.1, finite(track.strokeWidth, sourceElement.strokeWidth || 1)),
+      opacity: Math.round(Math.max(0, Math.min(1, finite(track.opacity, 1))) * 100),
+      roundness: track.smooth ? { type: 2 } : null,
+      groupIds: [],
+      boundElements: null,
+      startBinding: null,
+      endBinding: null,
+      lastCommittedPoint: null,
+      customData: undefined,
+    };
+  });
 
 export const applyExcalidrawThemeFilter = ({
   canvas,
@@ -129,20 +220,28 @@ export const exportDraweratorPng = async ({
   elements,
   appState,
   files,
+  bounds: suppliedBounds = null,
+  exportPadding = 0,
   exportBackground = true,
   root = globalThis.document,
   pixelRatio = finite(globalThis.devicePixelRatio, 1),
 }) => {
   const activeElements = (elements || []).filter(element => element && !element.isDeleted);
   if (!activeElements.length) throw new Error("There is nothing to export.");
-  const bounds = getElementsExportBounds(activeElements);
+  const bounds = suppliedBounds || getElementsExportBounds(activeElements);
   const resolution = Math.min(4, Math.max(1, pixelRatio));
   const sourceCanvas = await exportToCanvas({
-    elements: hideP5FrameHostsForExport(activeElements),
+    elements: hideLiveCanvasHostsForExport(activeElements),
     appState: { ...appState, exportBackground },
     files,
-    exportPadding: 0,
-    getDimensions: (width, height) => ({ width, height, scale: resolution }),
+    exportPadding,
+    // Excalidraw's scale controls its drawing transform; callers must enlarge
+    // the backing bitmap by the same factor or the scaled scene is clipped.
+    getDimensions: (width, height) => ({
+      width: width * resolution,
+      height: height * resolution,
+      scale: resolution,
+    }),
   });
   const canvas = applyExcalidrawThemeFilter({
     canvas: sourceCanvas,
@@ -150,7 +249,8 @@ export const exportDraweratorPng = async ({
     documentRef: root,
   });
   const capturedP5Frames = drawP5FramesOnCanvas({ canvas, elements: activeElements, bounds, root });
-  return { canvas, capturedP5Frames };
+  const capturedMediaStreams = drawMediaStreamsOnCanvas({ canvas, elements: activeElements, bounds, root });
+  return { canvas, capturedP5Frames, capturedMediaStreams };
 };
 
 export const downloadCanvasAsPng = (canvas, { filename = "drawerator-export.png", documentRef = globalThis.document } = {}) => {

@@ -6,9 +6,22 @@ export const MEDIA_STREAM_KINDS = Object.freeze({
   HOLISTIC: "holistic",
 });
 
-export const MEDIA_STREAM_VERSION = 3;
+export const MEDIA_STREAM_VERSION = 5;
 export const MEDIA_SOURCE_STORAGE_KEY = "drawerator_media_source_catalog_v1";
 export const MEDIA_ACTORS_ARMED_STORAGE_KEY = "drawerator_media_actors_armed_v1";
+export const HOLISTIC_SETTINGS_STORAGE_KEY = "drawerator_holistic_settings_v1";
+export const HOLISTIC_PROCESSING_FPS_OPTIONS = Object.freeze([30, 24, 15, 12, 8, 4, 1]);
+export const HOLISTIC_INFERENCE_DUTY_CYCLE = 0.25;
+
+export const resolveHolisticProcessingIntervalMs = (processingFps, inferenceMs = 0) => {
+  const fps = HOLISTIC_PROCESSING_FPS_OPTIONS.includes(Number(processingFps))
+    ? Number(processingFps)
+    : 15;
+  const requestedInterval = 1000 / fps;
+  const measuredInferenceMs = Number(inferenceMs);
+  if (!Number.isFinite(measuredInferenceMs) || measuredInferenceMs <= 0) return requestedInterval;
+  return Math.min(1000, Math.max(requestedInterval, measuredInferenceMs / HOLISTIC_INFERENCE_DUTY_CYCLE));
+};
 
 export const MEDIA_BINDING_TYPES = Object.freeze({
   DRIVE_POSITION: "drive-position",
@@ -18,11 +31,16 @@ export const MEDIA_BINDING_TYPES = Object.freeze({
 const DEFAULT_CROP = Object.freeze({ x: 0, y: 0, width: 1, height: 1 });
 const DEFAULT_HOLISTIC_COLORS = Object.freeze({
   pose: "#6fa5ff",
+  poseBody: "#6fa5ff",
+  poseHead: "#52d5ff",
+  poseLeftHand: "#6ee795",
+  poseRightHand: "#ed7ab8",
   leftHand: "#6ee795",
   rightHand: "#ed7ab8",
   face: "#f2df55",
 });
-const DEFAULT_FACE_GROUPS = Object.freeze({ outline: true, eyes: true, iris: true, mouth: true, brows: true, remaining: true });
+const DEFAULT_POSE_GROUPS = Object.freeze({ body: true, head: false, leftHand: false, rightHand: false });
+const DEFAULT_FACE_GROUPS = Object.freeze({ outline: true, eyes: true, iris: true, nose: true, mouth: true, brows: true, remaining: false });
 const DEFAULT_OUTPUT = Object.freeze({ fps: 30, maxDimension: 0 });
 
 const clamp = (value, min, max, fallback) => {
@@ -151,8 +169,14 @@ export const createMediaStreamConfig = (kind = MEDIA_STREAM_KINDS.MEDIA, overrid
       sourceId: "",
       sourceElementId: "",
       showSource: false,
+      // Retained for compatibility with existing scenes and scripts. New UI
+      // controls use the finer poseGroups and independent hand toggles.
       showPose: true,
       showHands: true,
+      poseGroups: DEFAULT_POSE_GROUPS,
+      showLeftHand: true,
+      showRightHand: true,
+      swapHandedness: true,
       showFace: true,
       faceGroups: DEFAULT_FACE_GROUPS,
       refineFaceLandmarks: true,
@@ -161,6 +185,9 @@ export const createMediaStreamConfig = (kind = MEDIA_STREAM_KINDS.MEDIA, overrid
       showPoints: true,
       showConnections: true,
       showIds: false,
+      pointSize: 3,
+      lineThickness: 2,
+      processingFps: 15,
       modelComplexity: 0,
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5,
@@ -181,16 +208,21 @@ export const normalizeMediaStreamConfig = value => {
   const output = source.output && typeof source.output === "object" ? source.output : {};
   const holistic = source.holistic && typeof source.holistic === "object" ? source.holistic : {};
   const holisticColors = holistic.colors && typeof holistic.colors === "object" ? holistic.colors : {};
+  const poseGroups = holistic.poseGroups && typeof holistic.poseGroups === "object" ? holistic.poseGroups : {};
   const faceGroups = holistic.faceGroups && typeof holistic.faceGroups === "object" ? holistic.faceGroups : {};
   const mediaUrl = cleanString(media.url);
   const legacyColor = /^#[0-9a-f]{6}$/i.test(String(holistic.color || "")) ? String(holistic.color).toLowerCase() : "#52d5ff";
-  const resolveHolisticColor = family => {
-    const explicit = String(holisticColors[family] || "");
-    if (/^#[0-9a-f]{6}$/i.test(explicit)) return explicit.toLowerCase();
+  const resolveHolisticColor = (...families) => {
+    for (const family of families) {
+      const explicit = String(holisticColors[family] || "");
+      if (/^#[0-9a-f]{6}$/i.test(explicit)) return explicit.toLowerCase();
+    }
     // Preserve a deliberately authored legacy single-color overlay, while
     // letting uncustomized legacy objects adopt the semantic palette.
-    return legacyColor !== "#52d5ff" ? legacyColor : DEFAULT_HOLISTIC_COLORS[family];
+    return legacyColor !== "#52d5ff" ? legacyColor : DEFAULT_HOLISTIC_COLORS[families[0]];
   };
+  const showPose = holistic.showPose !== false;
+  const showHands = holistic.showHands !== false;
   return {
     version: MEDIA_STREAM_VERSION,
     kind,
@@ -234,21 +266,35 @@ export const normalizeMediaStreamConfig = value => {
       sourceId: cleanString(holistic.sourceId || holistic.sourceElementId),
       sourceElementId: cleanString(holistic.sourceElementId),
       showSource: holistic.showSource === true,
-      showPose: holistic.showPose !== false,
-      showHands: holistic.showHands !== false,
+      showPose,
+      showHands,
+      poseGroups: {
+        body: showPose && poseGroups.body !== false,
+        head: showPose && poseGroups.head === true,
+        leftHand: showPose && poseGroups.leftHand === true,
+        rightHand: showPose && poseGroups.rightHand === true,
+      },
+      showLeftHand: showHands && holistic.showLeftHand !== false,
+      showRightHand: showHands && holistic.showRightHand !== false,
+      swapHandedness: holistic.swapHandedness !== false,
       showFace: holistic.showFace !== false,
       faceGroups: {
         outline: faceGroups.outline !== false,
         eyes: faceGroups.eyes !== false,
         iris: faceGroups.iris !== false,
+        nose: faceGroups.nose !== false,
         mouth: faceGroups.mouth !== false,
         brows: faceGroups.brows !== false,
-        remaining: faceGroups.remaining !== false,
+        remaining: faceGroups.remaining === true,
       },
       refineFaceLandmarks: holistic.refineFaceLandmarks !== false,
       color: legacyColor,
       colors: {
         pose: resolveHolisticColor("pose"),
+        poseBody: resolveHolisticColor("poseBody", "pose"),
+        poseHead: resolveHolisticColor("poseHead", "pose"),
+        poseLeftHand: resolveHolisticColor("poseLeftHand", "pose"),
+        poseRightHand: resolveHolisticColor("poseRightHand", "pose"),
         leftHand: resolveHolisticColor("leftHand"),
         rightHand: resolveHolisticColor("rightHand"),
         face: resolveHolisticColor("face"),
@@ -256,6 +302,11 @@ export const normalizeMediaStreamConfig = value => {
       showPoints: holistic.showPoints !== false,
       showConnections: holistic.showConnections !== false,
       showIds: holistic.showIds === true,
+      pointSize: clamp(holistic.pointSize, 1, 20, 3),
+      lineThickness: clamp(holistic.lineThickness, 0.5, 12, 2),
+      processingFps: HOLISTIC_PROCESSING_FPS_OPTIONS.includes(Number(holistic.processingFps))
+        ? Number(holistic.processingFps)
+        : 15,
       modelComplexity: Math.round(clamp(holistic.modelComplexity, 0, 2, 0)),
       minDetectionConfidence: clamp(holistic.minDetectionConfidence, 0, 1, 0.5),
       minTrackingConfidence: clamp(holistic.minTrackingConfidence, 0, 1, 0.5),
@@ -264,8 +315,51 @@ export const normalizeMediaStreamConfig = value => {
   };
 };
 
+export const normalizeHolisticSettingsPreset = value => {
+  const holistic = value?.holistic && typeof value.holistic === "object" ? value.holistic : value;
+  const normalized = normalizeMediaStreamConfig({ kind: MEDIA_STREAM_KINDS.HOLISTIC, holistic }).holistic;
+  const { sourceId: _sourceId, sourceElementId: _sourceElementId, ...settings } = normalized;
+  return settings;
+};
+
+export const readHolisticSettingsPreset = (storage = globalThis.localStorage) => {
+  try {
+    const saved = JSON.parse(storage?.getItem?.(HOLISTIC_SETTINGS_STORAGE_KEY) || "null");
+    return saved && typeof saved === "object" ? normalizeHolisticSettingsPreset(saved) : null;
+  } catch {
+    return null;
+  }
+};
+
+export const writeHolisticSettingsPreset = (value, storage = globalThis.localStorage) => {
+  try {
+    storage?.setItem?.(HOLISTIC_SETTINGS_STORAGE_KEY, JSON.stringify(normalizeHolisticSettingsPreset(value)));
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export const isMediaStreamElement = element =>
   Boolean(element && !element.isDeleted && element.customData?.draweratorMediaStream);
+
+// Holistic processors are ordinary rectangle hosts whose visual content is rendered
+// in an overlay. They remain useful geometric inputs (brush destinations, mapped
+// regions, and other object-bound controls), whereas preview/source hosts should
+// stay out of those pickers to avoid accidental feedback routes.
+export const canUseAsObjectBoundsTarget = element => {
+  if (!element || element.isDeleted || !["rectangle", "frame"].includes(element.type)) return false;
+  if (!isMediaStreamElement(element)) return true;
+  return normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC;
+};
+
+export const objectBoundsTargetLabel = element => {
+  if (isMediaStreamElement(element)) {
+    const config = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
+    if (config.kind === MEDIA_STREAM_KINDS.HOLISTIC) return config.name || "Holistic";
+  }
+  return element?.customData?.draweratorLabel || element?.name || element?.type || "Object";
+};
 
 export const isMediaSourceElement = element => {
   if (!isMediaStreamElement(element)) return false;
@@ -301,6 +395,7 @@ export const patchMediaStreamConfig = (value, patch = {}) => {
       ...current.holistic,
       ...holisticPatch,
       colors: { ...current.holistic.colors, ...(holisticPatch.colors || {}) },
+      poseGroups: { ...current.holistic.poseGroups, ...(holisticPatch.poseGroups || {}) },
       faceGroups: { ...current.holistic.faceGroups, ...(holisticPatch.faceGroups || {}) },
     },
     bindings: Object.hasOwn(patch, "bindings") ? patch.bindings : current.bindings,

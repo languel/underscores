@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { BRUSH_DESTINATIONS, normalizeBrushChannel } from "./brushChannelRuntime.js";
+import { objectBoundsTargetLabel } from "./mediaStream.js";
 
 const channelSourceLabel = stream => `${stream.name} · ${stream.kind}`;
 
@@ -49,7 +50,7 @@ export default function BrushChannelsPanel({ channels, streams, channelStatus = 
         <RangeControls label="Y range" range={selected.range.y} onChange={range => patch({ range: { ...selected.range, y: { ...selected.range.y, ...range } } })} />
         {selected.pressureStreamId && <RangeControls label="Pressure" range={selected.range.pressure} onChange={range => patch({ range: { ...selected.range, pressure: { ...selected.range.pressure, ...range } } })} />}
         <label className="media-stream-panel-field"><span>Destination</span><select value={selected.destination.kind} onChange={event => patch({ destination: { ...selected.destination, kind: event.target.value } })}><option value={BRUSH_DESTINATIONS.SCENE}>Scene passthrough</option><option value={BRUSH_DESTINATIONS.VIEWPORT}>Frozen viewport</option><option value={BRUSH_DESTINATIONS.TARGET}>Object bounds</option></select></label>
-        {selected.destination.kind === BRUSH_DESTINATIONS.TARGET && <label className="media-stream-panel-field"><span>Object</span><select value={selected.destination.targetId} onChange={event => patch({ destination: { ...selected.destination, targetId: event.target.value } })}><option value="">Choose rectangle or frame</option>{canvasTargets.map(target => <option key={target.id} value={target.id}>{target.customData?.draweratorLabel || target.type} · {target.id.slice(0, 6)}</option>)}</select></label>}
+        {selected.destination.kind === BRUSH_DESTINATIONS.TARGET && <label className="media-stream-panel-field"><span>Object</span><select value={selected.destination.targetId} onChange={event => patch({ destination: { ...selected.destination, targetId: event.target.value } })}><option value="">Choose rectangle or frame</option>{canvasTargets.map(target => <option key={target.id} value={target.id}>{objectBoundsTargetLabel(target)} · {target.id.slice(0, 6)}</option>)}</select></label>}
         <section className="brush-channel-debug" aria-label="Channel debug display">
           <div className="brush-channel-debug-header"><span>Debug display</span><label title="Draw this channel's mapped position on the canvas"><input type="checkbox" checked={selected.debug.overlay} onChange={event => patch({ debug: { ...selected.debug, overlay: event.target.checked } })} />Canvas</label></div>
           <div className="brush-channel-debug-options">

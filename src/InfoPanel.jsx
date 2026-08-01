@@ -223,7 +223,7 @@ export function main({ x, y }, context) {
         <li>The program selector is a local working-file catalog. <strong>Save</strong> creates or updates a file; <strong>Duplicate</strong>, <strong>New</strong>, <strong>Import</strong>, and <strong>Delete</strong> mirror the p5 workflow.</li>
         <li>The separate <strong>Original play.core examples</strong> group loads a local, editable upstream starter as a saved Drawerator program. It never needs a network request after this app loads.</li>
         <li>A saved file can be attached to several frames. Saving it recompiles every linked frame; each host retains its own size, interaction setting, and <code>@param</code> values.</li>
-        <li>Choose another saved program while one host is selected to attach it immediately. Press <strong>F2</strong> or Shift-double-click the selector to rename the selected saved program.</li>
+        <li>Choose another saved program while one host is selected to attach it immediately. Press <strong>F2</strong> or double-click the selector to rename the selected saved program.</li>
       </ul>
     </section>
     <section>

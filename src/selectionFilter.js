@@ -49,6 +49,14 @@ export const selectionFilterAllowsElement = (value, element) => {
   return role !== null && filter[role] === true;
 };
 
+export const isInteriorObjectSelectionGesture = event => Boolean(
+  event
+  && event.button === 0
+  && event.metaKey
+  && !event.ctrlKey
+  && !event.altKey
+);
+
 export const filterSelectedElementIds = (elements, selectedElementIds, value) => {
   const selected = selectedElementIds && typeof selectedElementIds === "object"
     ? selectedElementIds

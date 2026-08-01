@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import {
   createMediaSemanticFrame,
   FACE_DISPLAY_GROUPS,
+  getHolisticDisplayLayers,
   FACE_GROUPS,
+  mediaLandmarkFeatureId,
+  POSE_DISPLAY_GROUPS,
   listMediaFeatureDefinitions,
   normalizedPointToMediaSpaces,
   resolveMediaFeatureDefinition,
@@ -32,6 +35,68 @@ test("face display groups cover the complete refined mesh without overlap", () =
     seen.add(index);
   }));
   assert.deepEqual([...seen].sort((a, b) => a - b), Array.from({ length: 478 }, (_, index) => index));
+});
+
+test("semantic face categories include nose connections while remaining is points-only", () => {
+  assert.ok(FACE_GROUPS["face.nose"].includes(168));
+  assert.ok(FACE_GROUPS["face.nose"].includes(4));
+  Object.entries(FACE_DISPLAY_GROUPS)
+    .filter(([id]) => id !== "remaining")
+    .forEach(([, group]) => assert.ok(group.connections.length > 0));
+  assert.deepEqual(FACE_DISPLAY_GROUPS.remaining.connections, []);
+});
+
+test("pose display groups preserve body/head plus the three pose palm/finger references", () => {
+  assert.deepEqual(POSE_DISPLAY_GROUPS.head.indices, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  assert.deepEqual(POSE_DISPLAY_GROUPS.body.indices, [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]);
+  assert.deepEqual(POSE_DISPLAY_GROUPS.leftHand.indices, [17, 19, 21]);
+  assert.deepEqual(POSE_DISPLAY_GROUPS.rightHand.indices, [18, 20, 22]);
+});
+
+test("visible Holistic layers follow selected panel groups, connections, and handedness", () => {
+  const hands = Array.from({ length: 21 }, (_, index) => ({ x: index / 20, y: 0.5 }));
+  const layers = getHolisticDisplayLayers({
+    poseLandmarks: Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5 })),
+    leftHandLandmarks: hands,
+    rightHandLandmarks: hands.map(point => ({ ...point, y: 0.25 })),
+    faceLandmarks: Array.from({ length: 478 }, () => ({ x: 0.5, y: 0.5 })),
+  }, {
+    poseGroups: { body: true, head: false, leftHand: false, rightHand: false },
+    showLeftHand: true,
+    showRightHand: false,
+    swapHandedness: true,
+    faceGroups: { outline: true, eyes: false, iris: false, nose: false, mouth: false, brows: false, remaining: false },
+    colors: { poseBody: "#123456", leftHand: "#abcdef", face: "#fedcba" },
+  });
+  assert.deepEqual(layers.map(layer => layer.id), ["pose:body", "left_hand", "face:outline"]);
+  assert.deepEqual(layers[0].connections, POSE_DISPLAY_GROUPS.body.connections);
+  assert.equal(layers[1].landmarks[0].y, 0.25, "swapped left-hand display reads the right-hand result");
+  assert.equal(layers[2].color, "#fedcba");
+  assert.ok(layers[2].connections.length > 0);
+});
+
+test("snapshot labels use canonical MediaPipe point identifiers", () => {
+  assert.equal(mediaLandmarkFeatureId("pose", 17), "pose.left_pinky");
+  assert.equal(mediaLandmarkFeatureId("pose", 22), "pose.right_thumb");
+  assert.equal(mediaLandmarkFeatureId("left_hand", 8), "left_hand.index_finger_tip");
+  assert.equal(mediaLandmarkFeatureId("right_hand", 4), "right_hand.thumb_tip");
+  assert.equal(mediaLandmarkFeatureId("face", 33), "face.33");
+});
+
+test("the mouth display group contains both official outer and inner lip contours", () => {
+  assert.ok(FACE_GROUPS["face.lips"].includes(61));
+  assert.ok(FACE_GROUPS["face.lips"].includes(78));
+  assert.ok(FACE_GROUPS["face.lips"].includes(415));
+});
+
+test("eyebrow display paths join upper and lower edges only at the inner brow", () => {
+  const connections = FACE_DISPLAY_GROUPS.brows.connections.map(connection => connection.join("-"));
+  assert.ok(connections.includes("285-336"));
+  assert.ok(connections.includes("55-107"));
+  assert.equal(connections.includes("285-300"), false);
+  assert.equal(connections.includes("55-70"), false);
+  assert.equal(connections.includes("276-300"), false, "left outer brow remains open");
+  assert.equal(connections.includes("46-70"), false, "right outer brow remains open");
 });
 
 test("normalized media coordinates map through a rotated processor rectangle", () => {

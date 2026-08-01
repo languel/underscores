@@ -76,8 +76,60 @@ export const POSE_CONNECTIONS = Object.freeze([
   [25, 27], [26, 28], [27, 29], [28, 30], [29, 31], [30, 32],
 ]);
 
+// Display groups are a practical hierarchy over the official 33 pose
+// landmarks. The pose-hand groups intentionally contain just the three palm /
+// finger reference points; complete detected hands are represented by the
+// separate `left_hand.*` and `right_hand.*` groups. They are visual groups
+// only: the semantic `pose.*` feature API remains the canonical point-level
+// interface.
+const poseDisplayGroup = (label, indices) => {
+  const visible = new Set(indices);
+  return Object.freeze({
+    label,
+    indices: Object.freeze([...indices]),
+    connections: Object.freeze(POSE_CONNECTIONS.filter(([from, to]) => visible.has(from) && visible.has(to))),
+  });
+};
+
+export const POSE_DISPLAY_GROUPS = Object.freeze({
+  body: poseDisplayGroup("Pose · body", [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]),
+  head: poseDisplayGroup("Pose · head", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
+  leftHand: poseDisplayGroup("Pose · L hand", [17, 19, 21]),
+  rightHand: poseDisplayGroup("Pose · R hand", [18, 20, 22]),
+});
+
+// Canonical point labels used by snapshots and semantic code. Keep Face Mesh
+// numeric because MediaPipe does not provide names for every vertex.
+export const mediaLandmarkFeatureId = (family, index) => {
+  const landmarkIndex = Number(index);
+  if (!Number.isInteger(landmarkIndex) || landmarkIndex < 0) return "";
+  if (family === "pose") return POSE_NAMES[landmarkIndex] ? `pose.${POSE_NAMES[landmarkIndex]}` : "";
+  if (family === "left_hand" || family === "right_hand") {
+    return HAND_NAMES[landmarkIndex] ? `${family}.${HAND_NAMES[landmarkIndex]}` : "";
+  }
+  if (family === "face") return landmarkIndex < 478 ? `face.${landmarkIndex}` : "";
+  return "";
+};
+
 // Official MediaPipe Face Mesh connection groups. The map assets use these
 // indices as explanatory labels; this registry remains the runtime source.
+const FACE_NOSE_CONNECTIONS = Object.freeze([
+  [168, 6], [6, 197], [197, 195], [195, 5], [5, 4], [4, 1], [1, 19],
+  [19, 94], [94, 2], [98, 97], [97, 2], [2, 326], [326, 327], [327, 294],
+  [294, 278], [278, 344], [344, 440], [440, 275], [275, 4], [4, 45],
+  [45, 220], [220, 115], [115, 48], [48, 64], [64, 98],
+].map(connection => Object.freeze(connection)));
+
+const FACE_OUTER_LIPS = Object.freeze([
+  61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267,
+  0, 37, 39, 40, 185, 61,
+]);
+
+const FACE_INNER_LIPS = Object.freeze([
+  78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312,
+  13, 82, 81, 80, 191, 78,
+]);
+
 export const FACE_GROUPS = Object.freeze({
   "face.face_oval": Object.freeze([
     10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365,
@@ -92,23 +144,34 @@ export const FACE_GROUPS = Object.freeze({
     33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160,
     161, 246, 33,
   ]),
-  "face.left_eyebrow": Object.freeze([276, 283, 282, 295, 285, 300, 293, 334, 296, 336]),
-  "face.right_eyebrow": Object.freeze([46, 53, 52, 65, 55, 70, 63, 105, 66, 107]),
+  // Trace each brow as one open ribbon: outer upper edge to the inner join,
+  // then back out along the lower edge. The official connection sets expose
+  // the two edges separately; this ordering supplies the intended inner join
+  // without drawing a diagonal from the inner upper point to the outer lower.
+  "face.left_eyebrow": Object.freeze([276, 283, 282, 295, 285, 336, 296, 334, 293, 300]),
+  "face.right_eyebrow": Object.freeze([46, 53, 52, 65, 55, 107, 66, 105, 63, 70]),
   "face.left_iris": Object.freeze([473, 474, 475, 476, 477, 474]),
   "face.right_iris": Object.freeze([468, 469, 470, 471, 472, 469]),
-  "face.lips": Object.freeze([
-    61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267,
-    0, 37, 39, 40, 185, 61,
-  ]),
+  "face.nose": Object.freeze([...new Set(FACE_NOSE_CONNECTIONS.flat())]),
+  // FACE_LANDMARKS_LIPS comprises the outer and inner mouth contours.
+  "face.lips": Object.freeze([...FACE_OUTER_LIPS, ...FACE_INNER_LIPS]),
 });
 
 const uniqueIndices = values => Object.freeze([...new Set(values)]);
+const facePathConnections = path => Object.freeze(path.slice(1).map((to, index) => Object.freeze([path[index], to])));
+const faceConnectionsForPaths = paths => Object.freeze(paths.flatMap(facePathConnections));
+const faceDisplayGroup = (label, paths = [], connections = faceConnectionsForPaths(paths)) => Object.freeze({
+  label,
+  indices: uniqueIndices([...paths.flat(), ...connections.flat()]),
+  connections: Object.freeze(connections.map(connection => Object.freeze([...connection]))),
+});
 const FACE_SEMANTIC_INDICES = uniqueIndices([
   ...FACE_GROUPS["face.face_oval"],
   ...FACE_GROUPS["face.left_eye"],
   ...FACE_GROUPS["face.right_eye"],
   ...FACE_GROUPS["face.left_iris"],
   ...FACE_GROUPS["face.right_iris"],
+  ...FACE_GROUPS["face.nose"],
   ...FACE_GROUPS["face.lips"],
   ...FACE_GROUPS["face.left_eyebrow"],
   ...FACE_GROUPS["face.right_eyebrow"],
@@ -118,13 +181,79 @@ const FACE_SEMANTIC_INDICES = uniqueIndices([
 // above.  Together they partition the complete 478-point refined Face Mesh,
 // so a performer can turn on all points and then remove semantic regions.
 export const FACE_DISPLAY_GROUPS = Object.freeze({
-  outline: Object.freeze({ label: "Outline", indices: uniqueIndices(FACE_GROUPS["face.face_oval"]) }),
-  eyes: Object.freeze({ label: "Eyes", indices: uniqueIndices([...FACE_GROUPS["face.left_eye"], ...FACE_GROUPS["face.right_eye"]]) }),
-  iris: Object.freeze({ label: "Iris", indices: uniqueIndices([...FACE_GROUPS["face.left_iris"], ...FACE_GROUPS["face.right_iris"]]) }),
-  mouth: Object.freeze({ label: "Mouth", indices: uniqueIndices(FACE_GROUPS["face.lips"]) }),
-  brows: Object.freeze({ label: "Brows", indices: uniqueIndices([...FACE_GROUPS["face.left_eyebrow"], ...FACE_GROUPS["face.right_eyebrow"]]) }),
-  remaining: Object.freeze({ label: "Remaining", indices: Object.freeze(Array.from({ length: 478 }, (_, index) => index).filter(index => !FACE_SEMANTIC_INDICES.includes(index))) }),
+  outline: faceDisplayGroup("Outline", [FACE_GROUPS["face.face_oval"]]),
+  eyes: faceDisplayGroup("Eyes", [FACE_GROUPS["face.left_eye"], FACE_GROUPS["face.right_eye"]]),
+  iris: faceDisplayGroup("Iris", [FACE_GROUPS["face.left_iris"], FACE_GROUPS["face.right_iris"]]),
+  nose: faceDisplayGroup("Nose", [], FACE_NOSE_CONNECTIONS),
+  mouth: faceDisplayGroup("Mouth", [FACE_OUTER_LIPS, FACE_INNER_LIPS]),
+  brows: faceDisplayGroup("Brows", [FACE_GROUPS["face.left_eyebrow"], FACE_GROUPS["face.right_eyebrow"]]),
+  remaining: Object.freeze({
+    label: "Remaining",
+    indices: Object.freeze(Array.from({ length: 478 }, (_, index) => index).filter(index => !FACE_SEMANTIC_INDICES.includes(index))),
+    connections: Object.freeze([]),
+  }),
 });
+
+// This is the display contract shared by the live MediaPipe overlay and a
+// baked landmark snapshot. Keeping the selected subsets and their connection
+// topology here prevents a snapshot from silently falling back to an
+// all-points representation when the performer is looking at a skeleton or a
+// face-outline view.
+export const getHolisticDisplayLayers = (result = {}, holistic = {}) => {
+  const poseGroups = holistic.poseGroups || {};
+  const faceGroups = holistic.faceGroups || {};
+  const colors = holistic.colors || {};
+  const swapped = holistic.swapHandedness === true;
+  const layers = [];
+  if (holistic.showPose !== false) {
+    Object.entries(POSE_DISPLAY_GROUPS).forEach(([id, group]) => {
+      if (poseGroups[id] === false) return;
+      const colorKey = `pose${id[0].toUpperCase()}${id.slice(1)}`;
+      layers.push({
+        id: `pose:${id}`,
+        family: "pose",
+        landmarks: result.poseLandmarks || [],
+        indices: group.indices,
+        connections: group.connections,
+        color: colors[colorKey] || colors.pose || "#6fa5ff",
+      });
+    });
+  }
+  if (holistic.showHands !== false && holistic.showLeftHand !== false) {
+    layers.push({
+      id: "left_hand",
+      family: "left_hand",
+      landmarks: swapped ? result.rightHandLandmarks || [] : result.leftHandLandmarks || [],
+      indices: null,
+      connections: HAND_CONNECTIONS,
+      color: colors.leftHand || "#6ee795",
+    });
+  }
+  if (holistic.showHands !== false && holistic.showRightHand !== false) {
+    layers.push({
+      id: "right_hand",
+      family: "right_hand",
+      landmarks: swapped ? result.leftHandLandmarks || [] : result.rightHandLandmarks || [],
+      indices: null,
+      connections: HAND_CONNECTIONS,
+      color: colors.rightHand || "#ed7ab8",
+    });
+  }
+  if (holistic.showFace !== false) {
+    Object.entries(FACE_DISPLAY_GROUPS).forEach(([id, group]) => {
+      if (faceGroups[id] === false) return;
+      layers.push({
+        id: `face:${id}`,
+        family: "face",
+        landmarks: result.faceLandmarks || [],
+        indices: group.indices,
+        connections: group.connections,
+        color: colors.face || "#f2df55",
+      });
+    });
+  }
+  return layers;
+};
 
 const PALM_INDICES = Object.freeze([0, 1, 5, 9, 13, 17]);
 const FINGER_GROUPS = Object.freeze({

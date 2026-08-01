@@ -64,6 +64,16 @@ test("only an active linked cursor transfers visual ownership to the runtime", (
   }), false);
 });
 
+test("runtime cursor detection rejects ordinary objects before normalizing score defaults", () => {
+  const iannix = new Proxy({}, {
+    get(_target, property) {
+      if (property === "role") return null;
+      throw new Error(`unexpected IanniX normalization read: ${String(property)}`);
+    },
+  });
+  assert.equal(isRuntimeCursor({ id: "ordinary", customData: { iannix } }), false);
+});
+
 test("runtime cursor hosts remain invisible even when an interaction restores their style", () => {
   const cursor = line("cursor", [[0, 0], [0, 20]], createDefaultIannixData({
     role: "cursor",

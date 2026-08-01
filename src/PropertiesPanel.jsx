@@ -22,6 +22,13 @@ const READ_ONLY_KEYS = new Set([
 const PROPERTIES_PINS_STORAGE_KEY = "drawerator_properties_pins_v1";
 
 const pathKey = path => path.map(String).join(".");
+const getElementName = element => {
+  if (element.customData?.iannix?.label) return element.customData.iannix.label;
+  if (element.customData?.draweratorLabel) return element.customData.draweratorLabel;
+  if (isMediaStreamElement(element)) return normalizeMediaStreamConfig(element.customData.draweratorMediaStream).name;
+  if (isSvgObjectElement(element)) return normalizeSvgObject(element.customData.draweratorSvg).name;
+  return "";
+};
 // Frames are semantic Excalidraw containers. Although their element data has a
 // `roundness` slot, Excalidraw's frame renderer uses a fixed rounded outline
 // and does not apply that value. Keep the control to shapes that actually
@@ -53,14 +60,28 @@ const primitiveText = value => {
   return String(value);
 };
 
-const canEditPath = path => !path.some(segment => READ_ONLY_KEYS.has(String(segment)));
+// Excalidraw stores all dimensions as immutable-looking primitive fields, but
+// ellipse bounds are ordinary editable geometry. Keep dimensions protected for
+// every other native type until it has an explicit resize contract, while
+// allowing an ellipse's own width/height fields to use the same scene update
+// path as x and y.
+const isEllipseDimensionPath = (path, element) => (
+  element?.type === "ellipse"
+  && path.length === 1
+  && ["width", "height"].includes(String(path[0]))
+);
+
+const canEditPath = (path, element) => (
+  isEllipseDimensionPath(path, element)
+  || !path.some(segment => READ_ONLY_KEYS.has(String(segment)))
+);
 
 const readPath = (value, path) => path.reduce((current, segment) => (
   current != null && Object.prototype.hasOwnProperty.call(current, segment) ? current[segment] : undefined
 ), value);
 
 const isSharedEditablePath = (elements, path) => {
-  if (elements.length < 2 || !canEditPath(path)) return false;
+  if (elements.length < 2 || !elements.every(element => canEditPath(path, element))) return false;
   const values = elements.map(element => readPath(element, path));
   if (values.some(value => value === undefined)) return false;
   const types = new Set(values.map(value => typeof value));
@@ -172,7 +193,7 @@ const PropertyNode = ({ name, value, depth = 0, path = [], query, onChange, isSh
   const nested = value !== null && typeof value === "object";
   if (!nested) {
     if (!leafMatches(value, path, query)) return null;
-    const editable = canEditPath(path) && (Boolean(enumOptionsForPath(path)) || ["boolean", "number", "string"].includes(typeof value));
+    const editable = canEditPath(path, ownerElement) && (Boolean(enumOptionsForPath(path)) || ["boolean", "number", "string"].includes(typeof value));
     const key = pathKey(path);
     return <div className={`properties-row ${editable ? "editable" : "readonly"}`}><span>{name}</span><div className="properties-row-value">{editable
       ? <EditableValue value={value} path={path} mediaSources={mediaSources} onChange={next => onChange(path, next, isSharedPath?.(path))} />
@@ -796,7 +817,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
   const beginRename = element => {
     setActiveObjectId(element.id);
     setEditingId(element.id);
-    setEditingValue(element.customData?.iannix?.label || "");
+    setEditingValue(getElementName(element));
     requestAnimationFrame(() => editingRef.current?.focus());
   };
 
@@ -829,10 +850,10 @@ const PropertiesPanel = memo(function PropertiesPanel({
             + (p5MatchesQuery(element, query) ? 6 : 0)
             + (svgMatchesQuery(element, query) ? svgFieldCount(element) : 0);
           if (!elementMatchCount) return null;
-          const label = element.customData?.iannix?.label;
+          const label = getElementName(element);
           return (
             <section className="properties-object" key={element.id} onMouseDown={() => setActiveObjectId(element.id)}>
-              <div className="properties-object-heading" onDoubleClick={() => beginRename(element)} title="Press F2 to edit the score label">
+              <div className="properties-object-heading" onDoubleClick={() => beginRename(element)} title="Double-click or press F2 to rename">
                 <span className={`outliner-type type-${isSvgObjectElement(element) ? "svg" : element.type}`}>{isSvgObjectElement(element) ? "S" : element.type.slice(0, 1).toUpperCase()}</span>
                 <div className="properties-object-name">
                   {editingId === element.id ? (

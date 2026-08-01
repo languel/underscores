@@ -62,6 +62,41 @@ export const setSelectedElementRoundness = (elements, selectedIds, mode, options
   return { elements: nextElements, changed };
 };
 
+export const fitRectangularElementToViewport = (element, viewport, mode = "fit") => {
+  if (!element || !["rectangle", "frame"].includes(element.type)) return element;
+  const sourceWidth = Math.max(1e-6, Math.abs(Number(element.width) || 0));
+  const sourceHeight = Math.max(1e-6, Math.abs(Number(element.height) || 0));
+  const viewportWidth = Math.max(1, Number(viewport?.width) || 1);
+  const viewportHeight = Math.max(1, Number(viewport?.height) || 1);
+  const angle = Number(element.angle) || 0;
+  const cos = Math.abs(Math.cos(angle));
+  const sin = Math.abs(Math.sin(angle));
+  const rotatedWidth = sourceWidth * cos + sourceHeight * sin;
+  const rotatedHeight = sourceWidth * sin + sourceHeight * cos;
+  const scale = mode === "pip"
+    ? (viewportHeight / 6) / rotatedHeight
+    : Math.min(viewportWidth / rotatedWidth, viewportHeight / rotatedHeight);
+  const width = sourceWidth * scale;
+  const height = sourceHeight * scale;
+  const boundsWidth = rotatedWidth * scale;
+  const boundsHeight = rotatedHeight * scale;
+  const viewportX = Number(viewport?.x) || 0;
+  const viewportY = Number(viewport?.y) || 0;
+  const centerX = mode === "pip"
+    ? viewportX + viewportWidth - boundsWidth / 2
+    : viewportX + viewportWidth / 2;
+  const centerY = mode === "pip"
+    ? viewportY + viewportHeight - boundsHeight / 2
+    : viewportY + viewportHeight / 2;
+  return {
+    ...element,
+    x: centerX - width / 2,
+    y: centerY - height / 2,
+    width,
+    height,
+  };
+};
+
 export const shapePathPoints = element => {
   const width = Number(element?.width) || 0;
   const height = Number(element?.height) || 0;

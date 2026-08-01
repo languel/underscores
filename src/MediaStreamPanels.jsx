@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  HOLISTIC_PROCESSING_FPS_OPTIONS,
   isMediaStreamElement,
   MEDIA_STREAM_KINDS,
   normalizeMediaStreamConfig,
+  objectBoundsTargetLabel,
 } from "./mediaStream.js";
 import { FACE_DISPLAY_GROUPS } from "./mediaLandmarkOntology.js";
 import { MediaRuntimePreview } from "./MediaStreamOverlay.jsx";
@@ -14,6 +16,20 @@ const stopKeyPropagation = event => event.stopPropagation();
 const StatusLine = ({ status }) => status?.message
   ? <div className={`media-stream-panel-status is-${status.kind || "info"}`} role="status">{status.message}</div>
   : null;
+
+const OverlayToggle = ({ label, title, checked, onChange, color, colorLabel, onColorChange }) => <div className="media-stream-overlay-toggle" title={title}>
+  <label className="media-stream-panel-check">
+    <input type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} />
+    <span>{label}</span>
+  </label>
+  {color && <input
+    type="color"
+    value={color}
+    aria-label={colorLabel || `${label} color`}
+    title={`${label} color`}
+    onChange={event => onColorChange(event.target.value)}
+  />}
+</div>;
 
 const useMediaStatus = selectedId => {
   const [statuses, setStatuses] = useState({});
@@ -304,7 +320,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
                 <div className="media-stream-panel-inline-control">
                   <select value={selected.canvas.elementId} onKeyDown={stopKeyPropagation} onChange={event => onPatch(selected.id, { canvas: { elementId: event.target.value } })}>
                     <option value="">Choose a frame or rectangle</option>
-                    {canvasTargets.map(element => <option key={element.id} value={element.id}>{element.customData?.draweratorLabel || element.type} · {element.id.slice(0, 6)}</option>)}
+                    {canvasTargets.map(element => <option key={element.id} value={element.id}>{objectBoundsTargetLabel(element)} · {element.id.slice(0, 6)}</option>)}
                   </select>
                   <button type="button" className="iannix-flat-button media-stream-panel-icon-button" onClick={() => onPickCanvasTarget?.(selected.id)} aria-label="Pick canvas object" title="Pick a frame or rectangle (Option-I)">⌖</button>
                 </div>
@@ -338,7 +354,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
   </div>;
 }
 
-export function HolisticPanel({ elements, sources, selectedElementIds, onCreate, onPatch, onSelect, onSnapshot }) {
+export function HolisticPanel({ elements, sources, selectedElementIds, onCreate, onPatch, onSelect, onSnapshot, onSnapshotPng }) {
   const processors = useMemo(() => elements.filter(element => (
     isMediaStreamElement(element)
     && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC
@@ -348,12 +364,13 @@ export function HolisticPanel({ elements, sources, selectedElementIds, onCreate,
   const status = useMediaStatus(selected?.id);
   const defaultSourceId = sources[0]?.id || "";
   const faceGroupEntries = Object.entries(FACE_DISPLAY_GROUPS);
-  const allFaceGroupsEnabled = config && faceGroupEntries.every(([id]) => config.holistic.faceGroups[id]);
+  const allFaceGroupsEnabled = config && config.holistic.showFace && faceGroupEntries.every(([id]) => config.holistic.faceGroups[id]);
 
   return <div className="media-stream-panel">
     <div className="media-stream-panel-toolbar">
       <button type="button" className="iannix-flat-button" disabled={!defaultSourceId} onClick={() => onCreate(MEDIA_STREAM_KINDS.HOLISTIC, { holistic: { sourceId: defaultSourceId } })}>Add Holistic object</button>
       <button type="button" className="iannix-flat-button" disabled={!selected} onClick={() => onSnapshot(selected.id)}>Snapshot landmarks</button>
+      <button type="button" className="iannix-flat-button" disabled={!selected} onClick={() => onSnapshotPng(selected.id)} title="Capture the current Holistic view as a static PNG at the same canvas transform">Snapshot PNG</button>
     </div>
     {!sources.length && <div className="media-stream-panel-note">Create a camera or media input first.</div>}
     <ProcessorList elements={processors} selectedElementIds={selectedElementIds} onSelect={onSelect} />
@@ -369,18 +386,54 @@ export function HolisticPanel({ elements, sources, selectedElementIds, onCreate,
           {sources.map(source => <option key={source.id} value={source.id}>{source.name}</option>)}
         </select>
       </label>
-      <div className="media-stream-panel-colors" role="group" aria-label="Holistic overlay colors">
-        {[["pose", "Pose"], ["leftHand", "Left hand"], ["rightHand", "Right hand"], ["face", "Face"]].map(([field, label]) => <label key={field}>
-          <span>{label}</span>
-          <input type="color" value={config.holistic.colors[field]} onChange={event => onPatch(selected.id, { holistic: { colors: { [field]: event.target.value } } })} />
-        </label>)}
+      <div className="media-stream-overlay-groups" role="group" aria-label="Holistic overlay groups">
+        <OverlayToggle
+          label="Source feed"
+          checked={config.holistic.showSource}
+          onChange={checked => onPatch(selected.id, { holistic: { showSource: checked } })}
+        />
+        <div className="media-stream-overlay-subgroup" role="group" aria-label="Pose overlay groups">
+          <div className="media-stream-overlay-subgroup-title">Pose</div>
+          {[['body', 'Pose · body', 'poseBody'], ['head', 'Pose · head', 'poseHead'], ['leftHand', 'Pose · L hand', 'poseLeftHand'], ['rightHand', 'Pose · R hand', 'poseRightHand']].map(([group, label, color]) => <OverlayToggle
+            key={group}
+            label={label}
+            checked={config.holistic.poseGroups[group]}
+            color={config.holistic.colors[color]}
+            onChange={checked => onPatch(selected.id, { holistic: { showPose: true, poseGroups: { [group]: checked } } })}
+            onColorChange={value => onPatch(selected.id, { holistic: { colors: { [color]: value } } })}
+          />)}
+        </div>
+        <div className="media-stream-overlay-subgroup" role="group" aria-label="Hand overlay groups">
+          <div className="media-stream-overlay-subgroup-title">Hands</div>
+          <OverlayToggle
+            label="L hand"
+            checked={config.holistic.showLeftHand}
+            color={config.holistic.colors.leftHand}
+            onChange={checked => onPatch(selected.id, { holistic: { showHands: true, showLeftHand: checked } })}
+            onColorChange={value => onPatch(selected.id, { holistic: { colors: { leftHand: value } } })}
+          />
+          <OverlayToggle
+            label="R hand"
+            checked={config.holistic.showRightHand}
+            color={config.holistic.colors.rightHand}
+            onChange={checked => onPatch(selected.id, { holistic: { showHands: true, showRightHand: checked } })}
+            onColorChange={value => onPatch(selected.id, { holistic: { colors: { rightHand: value } } })}
+          />
+          <OverlayToggle
+            label="Swap L / R"
+            title="Swap the semantic left/right hand labels without changing the image."
+            checked={config.holistic.swapHandedness}
+            onChange={checked => onPatch(selected.id, { holistic: { swapHandedness: checked } })}
+          />
+        </div>
       </div>
-      {[["showSource", "Source feed"], ["showPose", "Pose"], ["showHands", "Hands"], ["refineFaceLandmarks", "Refine face + iris"]].map(([field, label]) => <label key={field} className="media-stream-panel-check">
-        <input type="checkbox" checked={config.holistic[field]} onChange={event => onPatch(selected.id, { holistic: { [field]: event.target.checked } })} />
-        <span>{label}</span>
-      </label>)}
+      <OverlayToggle
+        label="Refine face + iris"
+        checked={config.holistic.refineFaceLandmarks}
+        onChange={checked => onPatch(selected.id, { holistic: { refineFaceLandmarks: checked } })}
+      />
       <details className="media-stream-face-filter" open>
-        <summary>Face points</summary>
+        <summary>Face points <input type="color" value={config.holistic.colors.face} aria-label="Face points color" title="Face points color" onClick={event => event.stopPropagation()} onChange={event => onPatch(selected.id, { holistic: { colors: { face: event.target.value } } })} /></summary>
         <div className="media-stream-face-filter-body">
           <label className="media-stream-panel-check">
             <input type="checkbox" checked={allFaceGroupsEnabled} onChange={event => onPatch(selected.id, {
@@ -398,12 +451,28 @@ export function HolisticPanel({ elements, sources, selectedElementIds, onCreate,
         <input type="checkbox" checked={config.holistic[field]} onChange={event => onPatch(selected.id, { holistic: { [field]: event.target.checked } })} />
         <span>{label}</span>
       </label>)}
+      <div className="media-stream-panel-style-row">
+        <label className="media-stream-panel-field">
+          <span>Point size</span>
+          <input type="number" min="1" max="20" step="0.5" value={config.holistic.pointSize} onKeyDown={stopKeyPropagation} onChange={event => onPatch(selected.id, { holistic: { pointSize: event.target.value } })} />
+        </label>
+        <label className="media-stream-panel-field">
+          <span>Line thickness</span>
+          <input type="number" min="0.5" max="12" step="0.5" value={config.holistic.lineThickness} onKeyDown={stopKeyPropagation} onChange={event => onPatch(selected.id, { holistic: { lineThickness: event.target.value } })} />
+        </label>
+      </div>
       <label className="media-stream-panel-field">
         <span>Model</span>
         <select value={config.holistic.modelComplexity} onChange={event => onPatch(selected.id, { holistic: { modelComplexity: Number(event.target.value) } })}>
           <option value="0">Lite</option>
           <option value="1">Full</option>
           <option value="2">Heavy</option>
+        </select>
+      </label>
+      <label className="media-stream-panel-field" {...infoProps("Processing FPS", "Limit MediaPipe inference and landmark publication independently from the input stream. Lower rates reduce CPU use while keeping the latest pose visible.")}>
+        <span>Processing FPS</span>
+        <select value={config.holistic.processingFps} onChange={event => onPatch(selected.id, { holistic: { processingFps: Number(event.target.value) } })}>
+          {HOLISTIC_PROCESSING_FPS_OPTIONS.map(fps => <option key={fps} value={fps}>{fps}</option>)}
         </select>
       </label>
       <div className="media-stream-panel-note">MediaPipe consumes the source&apos;s processed output. The source feed toggle affects only this Holistic view.</div>

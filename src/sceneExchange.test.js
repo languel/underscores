@@ -39,7 +39,7 @@ test("scene exchange preserves frame timeline display mode", () => {
   assert.equal(payload.drawerator.score.fps, 24);
 });
 
-test("scene exchange version 7 preserves streams, brush channels, global configuration, p5 scripts, and migrates legacy scenes", () => {
+test("scene exchange version 8 preserves streams, brush channels, global configuration, p5 scripts, and migrates legacy scenes", () => {
   const grid = mergeGridPatch(DEFAULT_GLOBAL_GRID, {
     appearance: { visible: true },
     spacing: { x: 120, y: 80, subdivisionsX: 6, subdivisionsY: 4 },
@@ -57,7 +57,7 @@ test("scene exchange version 7 preserves streams, brush channels, global configu
   };
   const brushChannels = [{ id: "serial-brush", spatialStreamId: "serial-space", gateStreamId: "gate-events", destination: { kind: "viewport" } }];
   const payload = attachDraweratorExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, grid, synth, mixer, p5Scripts, streamGraph, brushChannels);
-  assert.equal(payload.drawerator.version, 7);
+  assert.equal(payload.drawerator.version, 8);
   assert.deepEqual(parseDraweratorExchange(payload, "scene").grid, grid);
   assert.deepEqual(parseDraweratorExchange(payload, "scene").expressiveSynth, normalizeExpressiveSynthConfig(synth));
   assert.deepEqual(parseDraweratorExchange(payload, "scene").mixer, mixer);
@@ -72,6 +72,25 @@ test("scene exchange version 7 preserves streams, brush channels, global configu
   assert.equal(migrated.snap.mode, "off");
   assert.deepEqual(parseDraweratorExchange(legacy, "scene").expressiveSynth, normalizeExpressiveSynthConfig(DEFAULT_EXPRESSIVE_SYNTH_CONFIG));
   assert.equal(parseDraweratorExchange(legacy, "scene").mixer.tracks.length, 16);
+});
+
+test("scene exchange preserves authored media sources and reusable code definitions", () => {
+  const authoredState = {
+    mediaSources: [{ id: "camera-main", name: "Main camera", kind: "camera", enabled: true }],
+    brushPalette: [{ id: "my-pen", name: "My pen", code: "return points;" }],
+    iannixScripts: [{ id: "score-a", name: "Score A", source: 'run("clear");' }],
+    playCoreScripts: [{ id: "ascii-a", name: "ASCII A", source: "export function main() {}" }],
+    svgScripts: [{ id: "svg-a", name: "SVG A", source: '<svg xmlns="http://www.w3.org/2000/svg" />' }],
+  };
+  const payload = attachDraweratorExchangeMetadata(
+    { type: "excalidraw", elements: [] }, "scene", {}, null, null, null, [], null, null, authoredState,
+  );
+  const restored = parseDraweratorExchange(payload, "scene").authoredState;
+  assert.equal(restored.mediaSources[0].id, "camera-main");
+  assert.equal(restored.brushPalette[0].id, "my-pen");
+  assert.equal(restored.iannixScripts[0].id, "score-a");
+  assert.equal(restored.playCoreScripts[0].id, "ascii-a");
+  assert.equal(restored.svgScripts[0].id, "svg-a");
 });
 
 test("selection exchange does not carry the scene-global grid", () => {

@@ -18,7 +18,7 @@ export const DEFAULT_PANEL_LAYOUTS = Object.freeze({
   holistic: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 156, y: 160, width: 380, height: 720 }),
   mapping: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 168, y: 168, width: 420, height: 760 }),
   info: Object.freeze({ placement: PANEL_PLACEMENTS.BOTTOM, x: 32, y: 520, width: 720, height: 240 }),
-  console: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 96, y: 120, width: 340, height: 420 }),
+  console: Object.freeze({ placement: PANEL_PLACEMENTS.BOTTOM, x: 96, y: 520, width: 960, height: 220 }),
   history: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 120, y: 136, width: 420, height: 720 }),
   properties: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 144, y: 152, width: 380, height: 720 }),
   outliner: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 168, y: 168, width: 340, height: 560 }),
@@ -65,7 +65,7 @@ export const normalizePanelLayouts = value => {
     );
     const allowed = id === "transport"
       ? new Set([PANEL_PLACEMENTS.BOTTOM, PANEL_PLACEMENTS.FLOATING])
-      : id === "mixer" || id === "info"
+      : id === "mixer" || id === "info" || id === "console"
         ? new Set([...SIDEBAR_PLACEMENTS, PANEL_PLACEMENTS.BOTTOM])
         : SIDEBAR_PLACEMENTS;
     return [id, {

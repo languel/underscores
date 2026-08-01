@@ -217,7 +217,10 @@ export const allocateIannixRoleLabels = (elements, targetIds, role) => {
 };
 
 export const isRuntimeCursor = (element) => {
-  const data = normalizeIannixData(element?.customData?.iannix);
+  const source = element?.customData?.iannix;
+  if (source?.role !== "cursor" || source.active === false) return false;
+  if (!source.cursor?.curveId && !source.cursor?.curveRef) return false;
+  const data = normalizeIannixData(source);
   return data.role === "cursor" && data.active && Boolean(data.cursor.curveId);
 };
 

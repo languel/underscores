@@ -2,19 +2,26 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createMediaStreamConfig,
+  HOLISTIC_SETTINGS_STORAGE_KEY,
   createMediaBinding,
   createMediaSource,
+  canUseAsObjectBoundsTarget,
   inferMediaType,
   isMediaSourceElement,
   MEDIA_STREAM_KINDS,
   MEDIA_BINDING_TYPES,
   normalizeMediaBinding,
   normalizeMediaStreamConfig,
+  normalizeHolisticSettingsPreset,
+  objectBoundsTargetLabel,
   normalizeMediaSources,
   patchMediaSource,
   patchMediaStreamConfig,
+  readHolisticSettingsPreset,
+  resolveHolisticProcessingIntervalMs,
   shouldProcessMediaStream,
   shouldRenderMediaStream,
+  writeHolisticSettingsPreset,
 } from "./mediaStream.js";
 
 test("media stream defaults distinguish acquisition and derived stream kinds", () => {
@@ -27,11 +34,19 @@ test("media stream defaults distinguish acquisition and derived stream kinds", (
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.showHands, true);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.showSource, false);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.refineFaceLandmarks, true);
+  assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.processingFps, 15);
+  assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.swapHandedness, true);
+  assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.pointSize, 3);
+  assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.lineThickness, 2);
   assert.deepEqual(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.colors, {
-    pose: "#6fa5ff", leftHand: "#6ee795", rightHand: "#ed7ab8", face: "#f2df55",
+    pose: "#6fa5ff", poseBody: "#6fa5ff", poseHead: "#52d5ff", poseLeftHand: "#6ee795", poseRightHand: "#ed7ab8",
+    leftHand: "#6ee795", rightHand: "#ed7ab8", face: "#f2df55",
+  });
+  assert.deepEqual(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.poseGroups, {
+    body: true, head: false, leftHand: false, rightHand: false,
   });
   assert.deepEqual(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.faceGroups, {
-    outline: true, eyes: true, iris: true, mouth: true, brows: true, remaining: true,
+    outline: true, eyes: true, iris: true, nose: true, mouth: true, brows: true, remaining: false,
   });
   assert.deepEqual(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).bindings, []);
 });
@@ -55,7 +70,7 @@ test("holistic binding patches remain versioned and nested", () => {
   const current = createMediaStreamConfig("holistic");
   const binding = createMediaBinding("drive-position", { id: "driver-a", targetElementId: "cursor-a" });
   const next = patchMediaStreamConfig(current, { bindings: [binding] });
-  assert.equal(next.version, 3);
+  assert.equal(next.version, 5);
   assert.equal(next.bindings[0].id, "driver-a");
   assert.equal(next.bindings[0].targetElementId, "cursor-a");
 });
@@ -70,11 +85,54 @@ test("media stream normalization clamps persisted processor and crop settings", 
   assert.equal(normalized.holistic.modelComplexity, 2);
   assert.equal(normalized.holistic.minDetectionConfidence, 0);
   assert.equal(normalized.holistic.minTrackingConfidence, 1);
+  assert.equal(normalized.holistic.processingFps, 15);
+  assert.equal(normalized.holistic.pointSize, 3);
+  assert.equal(normalized.holistic.lineThickness, 2);
+});
+
+test("Holistic settings presets round-trip display choices without remembering a source", () => {
+  const values = new Map();
+  const storage = {
+    getItem: key => values.get(key) || null,
+    setItem: (key, value) => values.set(key, value),
+  };
+  assert.equal(writeHolisticSettingsPreset({
+    sourceId: "camera-a",
+    swapHandedness: false,
+    pointSize: 4.5,
+    lineThickness: 1.5,
+    poseGroups: { body: true, head: true, leftHand: false, rightHand: false },
+  }, storage), true);
+  assert.ok(values.has(HOLISTIC_SETTINGS_STORAGE_KEY));
+  const preset = readHolisticSettingsPreset(storage);
+  assert.equal(preset.sourceId, undefined);
+  assert.equal(preset.swapHandedness, false);
+  assert.equal(preset.pointSize, 4.5);
+  assert.equal(preset.lineThickness, 1.5);
+  assert.equal(preset.poseGroups.head, true);
+  assert.deepEqual(normalizeHolisticSettingsPreset(preset), preset);
+});
+
+test("holistic processing throttle accepts supported persisted rates and rejects arbitrary values", () => {
+  const slowed = patchMediaStreamConfig(createMediaStreamConfig("holistic"), { holistic: { processingFps: 8 } });
+  assert.equal(slowed.holistic.processingFps, 8);
+  assert.equal(normalizeMediaStreamConfig({ kind: "holistic", holistic: { processingFps: 17 } }).holistic.processingFps, 15);
+});
+
+test("holistic processing interval backs off to preserve the inference budget", () => {
+  assert.equal(resolveHolisticProcessingIntervalMs(15), 1000 / 15);
+  assert.equal(resolveHolisticProcessingIntervalMs(15, 10), 1000 / 15);
+  assert.equal(resolveHolisticProcessingIntervalMs(15, 25), 100);
+  assert.equal(resolveHolisticProcessingIntervalMs(15, 400), 1000);
+  assert.equal(resolveHolisticProcessingIntervalMs(17, 0), 1000 / 15);
 });
 
 test("holistic overlay palette and display controls retain legacy color compatibility", () => {
   const legacy = normalizeMediaStreamConfig({ kind: "holistic", holistic: { color: "#ff0000", showPoints: false, showConnections: false, showIds: true } });
-  assert.deepEqual(legacy.holistic.colors, { pose: "#ff0000", leftHand: "#ff0000", rightHand: "#ff0000", face: "#ff0000" });
+  assert.deepEqual(legacy.holistic.colors, {
+    pose: "#ff0000", poseBody: "#ff0000", poseHead: "#ff0000", poseLeftHand: "#ff0000", poseRightHand: "#ff0000",
+    leftHand: "#ff0000", rightHand: "#ff0000", face: "#ff0000",
+  });
   assert.equal(legacy.holistic.showPoints, false);
   assert.equal(legacy.holistic.showConnections, false);
   assert.equal(legacy.holistic.showIds, true);
@@ -84,6 +142,13 @@ test("holistic overlay palette and display controls retain legacy color compatib
   const facePatched = patchMediaStreamConfig(createMediaStreamConfig("holistic"), { holistic: { faceGroups: { iris: false } } });
   assert.equal(facePatched.holistic.faceGroups.iris, false);
   assert.equal(facePatched.holistic.faceGroups.outline, true);
+  assert.equal(facePatched.holistic.faceGroups.nose, true);
+  const posePatched = patchMediaStreamConfig(createMediaStreamConfig("holistic"), { holistic: { poseGroups: { head: false }, showRightHand: false } });
+  assert.equal(posePatched.holistic.poseGroups.head, false);
+  assert.equal(posePatched.holistic.poseGroups.body, true);
+  assert.equal(posePatched.holistic.showRightHand, false);
+  const handednessPatched = patchMediaStreamConfig(createMediaStreamConfig("holistic"), { holistic: { swapHandedness: true } });
+  assert.equal(handednessPatched.holistic.swapHandedness, true);
 });
 
 test("media patches preserve nested settings and infer image URLs", () => {
@@ -129,6 +194,21 @@ test("source element predicate excludes derived streams", () => {
   assert.equal(isMediaSourceElement(canvas), true);
   assert.equal(isMediaSourceElement(holistic), false);
   assert.equal(isMediaSourceElement(preview), false);
+});
+
+test("holistic rectangle hosts remain valid object-bounds targets", () => {
+  const rectangle = { id: "rect", type: "rectangle" };
+  const frame = { id: "frame", type: "frame" };
+  const holistic = { id: "holistic", type: "rectangle", customData: { draweratorMediaStream: createMediaStreamConfig("holistic") } };
+  const preview = { id: "preview", type: "rectangle", customData: { draweratorMediaStream: createMediaStreamConfig("preview") } };
+  const camera = { id: "camera", type: "rectangle", customData: { draweratorMediaStream: createMediaStreamConfig("camera") } };
+  assert.equal(canUseAsObjectBoundsTarget(rectangle), true);
+  assert.equal(canUseAsObjectBoundsTarget(frame), true);
+  assert.equal(canUseAsObjectBoundsTarget(holistic), true);
+  assert.equal(canUseAsObjectBoundsTarget(preview), false);
+  assert.equal(canUseAsObjectBoundsTarget(camera), false);
+  assert.equal(objectBoundsTargetLabel(holistic), "Holistic");
+  assert.equal(objectBoundsTargetLabel(rectangle), "rectangle");
 });
 
 test("panel sources have stable identities without requiring canvas elements", () => {

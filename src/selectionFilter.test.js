@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_SELECTION_FILTER,
   filterSelectedElementIds,
+  isInteriorObjectSelectionGesture,
   normalizeSelectionFilter,
   selectionFilterAllowsElement,
   selectionMapsEqual,
@@ -36,6 +37,15 @@ test("selection filter accepts ordinary elements only in Anything mode", () => {
   assert.equal(selectionFilterAllowsElement({ anything: false, curve: true }, ordinary), false);
   assert.equal(selectionFilterAllowsElement({ anything: false, curve: true }, element("curve", "curve")), true);
   assert.equal(selectionFilterAllowsElement({ anything: false, curve: true }, element("cursor", "cursor")), false);
+});
+
+test("interior object selection uses Command-click without consuming Option gestures", () => {
+  assert.equal(isInteriorObjectSelectionGesture({ button: 0, metaKey: true }), true);
+  assert.equal(isInteriorObjectSelectionGesture({ button: 0, metaKey: true, shiftKey: true }), true);
+  assert.equal(isInteriorObjectSelectionGesture({ button: 0, altKey: true }), false);
+  assert.equal(isInteriorObjectSelectionGesture({ button: 0, metaKey: true, altKey: true }), false);
+  assert.equal(isInteriorObjectSelectionGesture({ button: 0, ctrlKey: true }), false);
+  assert.equal(isInteriorObjectSelectionGesture({ button: 1, metaKey: true }), false);
 });
 
 test("selected ID filtering removes deleted, unavailable, and disallowed elements", () => {

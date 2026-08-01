@@ -4,10 +4,11 @@ import { normalizeMixer } from "./mixerSystem.js";
 import { normalizeP5Scripts } from "./p5Frame.js";
 import { normalizeStreamGraph } from "./streamGraph.js";
 import { normalizeBrushChannels } from "./brushChannelRuntime.js";
+import { normalizeMediaSources } from "./mediaStream.js";
 
-const DRAWERATOR_EXCHANGE_VERSION = 7;
+const DRAWERATOR_EXCHANGE_VERSION = 8;
 
-export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = {}, grid = null, expressiveSynth = null, mixer = null, p5Scripts = [], streamGraph = null, brushChannels = null) => {
+export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = {}, grid = null, expressiveSynth = null, mixer = null, p5Scripts = [], streamGraph = null, brushChannels = null, authoredState = {}) => {
   const payload = typeof serializedScene === "string"
     ? JSON.parse(serializedScene)
     : structuredClone(serializedScene);
@@ -42,6 +43,13 @@ export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = 
         p5Scripts: normalizeP5Scripts(p5Scripts),
         streamGraph: normalizeStreamGraph(streamGraph),
         brushChannels: normalizeBrushChannels(brushChannels),
+        authoredState: {
+          mediaSources: normalizeMediaSources(authoredState.mediaSources),
+          brushPalette: Array.isArray(authoredState.brushPalette) ? structuredClone(authoredState.brushPalette) : [],
+          iannixScripts: Array.isArray(authoredState.iannixScripts) ? structuredClone(authoredState.iannixScripts) : [],
+          playCoreScripts: Array.isArray(authoredState.playCoreScripts) ? structuredClone(authoredState.playCoreScripts) : [],
+          svgScripts: Array.isArray(authoredState.svgScripts) ? structuredClone(authoredState.svgScripts) : [],
+        },
       } : {}),
     },
   };
@@ -66,6 +74,13 @@ export const parseDraweratorExchange = (text, expectedKind = null) => {
     p5Scripts: kind === "scene" ? normalizeP5Scripts(payload.drawerator?.p5Scripts) : [],
     streamGraph: kind === "scene" ? normalizeStreamGraph(payload.drawerator?.streamGraph) : null,
     brushChannels: kind === "scene" ? normalizeBrushChannels(payload.drawerator?.brushChannels) : [],
+    authoredState: kind === "scene" && payload.drawerator?.authoredState ? {
+      mediaSources: normalizeMediaSources(payload.drawerator?.authoredState?.mediaSources),
+      brushPalette: Array.isArray(payload.drawerator?.authoredState?.brushPalette) ? structuredClone(payload.drawerator.authoredState.brushPalette) : [],
+      iannixScripts: Array.isArray(payload.drawerator?.authoredState?.iannixScripts) ? structuredClone(payload.drawerator.authoredState.iannixScripts) : [],
+      playCoreScripts: Array.isArray(payload.drawerator?.authoredState?.playCoreScripts) ? structuredClone(payload.drawerator.authoredState.playCoreScripts) : [],
+      svgScripts: Array.isArray(payload.drawerator?.authoredState?.svgScripts) ? structuredClone(payload.drawerator.authoredState.svgScripts) : [],
+    } : null,
   };
 };
 

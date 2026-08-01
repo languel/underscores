@@ -1,11 +1,33 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
+import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, mapEvaluatedTrackToElement, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
 
 const base = [[0, 0], [10, 10]];
 const left = [[-2, 0], [8, 10]];
 const right = [[2, 0], [12, 10]];
+
+test("baked brush tracks inherit a copied and resized source transform", () => {
+  const track = [[8, 20], [18, 30]];
+  track[0].pressure = 0.25;
+  const mapped = mapEvaluatedTrackToElement({
+    track,
+    evaluatedBaseline: [[10, 20], [20, 30]],
+    originalPoints: [[10, 20], [20, 30]],
+    element: {
+      type: "freedraw",
+      x: 110,
+      y: 220,
+      width: 20,
+      height: 20,
+      angle: 0,
+      points: [[0, 0], [20, 20]],
+      customData: { lastWidth: 10, lastHeight: 10 },
+    },
+  });
+  assert.deepEqual(mapped.map(point => [...point]), [[106, 220], [126, 240]]);
+  assert.equal(mapped[0].pressure, 0.25);
+});
 
 test("filter-only output remains on the parent", () => {
   assert.deepEqual(resolveBakedTracks({

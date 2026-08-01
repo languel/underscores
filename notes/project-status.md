@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-07-31
+Last updated: 2026-08-01
 
 ## Release checkpoint
 
@@ -8,6 +8,16 @@ Drawerator is currently a local, browser-based score and canvas environment buil
 Excalidraw-native objects, first-class SVG documents, IanniX score behavior, Livecode Nodes, and a
 shared scene hierarchy. This checkpoint is ready for the release/compliance review that precedes
 any public Strudel deployment.
+
+A compact performance monitor now reports browser FPS, long frames, scene callback/change pressure,
+object counts, and available Chromium heap use, either floating or attached to Console. Native
+selections and groups can be replaced by one PNG or first-class SVG in a single undoable
+transaction; this is the immediate mitigation for dense
+static MediaPipe landmark snapshots. The review, reproducible Chrome camera-motion trace, CPU
+profile hotspot, delivered runtime-cursor fast path, and next optimization order are in [Performance
+monitor and scene baking](performance.md). The optimized synthetic 5,000-object production trace
+improved from p95 50.1 ms with 58 long animation frames to p95 17.5 ms with none; a permissioned
+real-camera Holistic trace remains pending.
 
 The MediaMime integration is also active: camera and URL/file media inputs can remain
 panel-only or gain optional canvas views, and MediaPipe Holistic processors are transformable scene
@@ -18,6 +28,12 @@ snapshots live pose/hand landmarks as native scene geometry. A shared semantic o
 the `/mapping` feature browser, `__.streams`, persistent drive/freedraw bindings, selected-feature
 highlights, and capped traces without serializing raw observations. See
 [Media streams](media-streams.md).
+Holistic inference/publication now treats its configurable 15 FPS default as a ceiling and backs off
+automatically when inference would consume too much frame time. It avoids repainting unchanged
+results and no-op actor state, immediately saves processor creation/settings for reliable reloads,
+remembers display choices for the next processor, and offers both one-group native landmark output
+and a visually aligned PNG snapshot. Point size and line thickness match across live and native
+output; pose, hand, handedness, and semantic face filters share one ontology path.
 
 The next input layer is now present as a unified typed stream registry. **Media** retains the
 camera, URL/file, and canvas image catalog; the separate **Inputs** panel owns pointer/keyboard/
@@ -64,7 +80,7 @@ focused browser checks for concurrent Livecode Nodes, code/dock source ownership
 and Orca keyboard containment. `npm run release:check` must fail until the Strudel release gate is
 actually satisfied; an explicit acknowledgement only validates the gate's completed-compliance path.
 
-The 2026-07-30 Strudel interaction and visualization pass completed 398 automated tests and a
+The 2026-08-01 integrated Livecode, media, baking, and performance checkpoint completed 462 automated tests and a
 production build. Active-harness checks confirmed that edits remain drafts while the last evaluated
 pattern continues, `Ctrl+Enter` reports a queued update before next-beat activation, and runtime
 messages remain absent from the live canvas frame. `.pianoroll()` rendered across the 520 × 300 node
