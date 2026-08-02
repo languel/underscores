@@ -10,13 +10,15 @@ import {
 } from "./mediaStreamRuntime.js";
 import {
   MEDIA_STREAM_KINDS,
+  HOLISTIC_PERFORMANCE_DISPLAY_FPS,
+  HOLISTIC_PERFORMANCE_PROCESSING_FPS,
   isMediaStreamElement,
   normalizeMediaStreamConfig,
   resolveHolisticProcessingIntervalMs,
   shouldProcessMediaStream,
   shouldRenderMediaStream,
 } from "./mediaStream.js";
-import { getHolisticDisplayLayers } from "./mediaLandmarkOntology.js";
+import { getHolisticDisplayLayers, interpolateHolisticResult } from "./mediaLandmarkOntology.js";
 
 const HOLISTIC_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js";
 const HOLISTIC_ASSET_ROOT = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic/";
@@ -459,8 +461,12 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
     let pending = false;
     let lastFrameAt = 0;
     let lastPublishedFrameTime = 0;
-    let averageInferenceMs = 0;
-    let completedInferences = 0;
+    let lastPaintAt = 0;
+    let displayedResult = null;
+    let transitionFrom = null;
+    let transitionTarget = null;
+    let transitionStartedAt = 0;
+    let transitionActive = false;
     let source = null;
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
@@ -517,26 +523,34 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
       const ready = source?.kind === "canvas" && media?.width > 0 && media?.height > 0;
       const sourcePlaying = source?.isPlaying?.() !== false;
       const publishedFrameTime = Number(media?.dataset?.frameTime) || 0;
-      const processingInterval = resolveHolisticProcessingIntervalMs(
-        configRef.current.holistic.processingFps,
-        averageInferenceMs,
-      );
+      const holisticConfig = configRef.current.holistic;
+      const effectiveProcessingFps = holisticConfig.performanceMode
+        ? Math.min(holisticConfig.processingFps, HOLISTIC_PERFORMANCE_PROCESSING_FPS)
+        : holisticConfig.processingFps;
+      const processingInterval = resolveHolisticProcessingIntervalMs(effectiveProcessingFps);
       if (holistic && ready && sourcePlaying && publishedFrameTime > 0 && publishedFrameTime !== lastPublishedFrameTime && !pending && timestamp - lastFrameAt >= processingInterval) {
         pending = true;
         lastFrameAt = timestamp;
         lastPublishedFrameTime = publishedFrameTime;
-        const inferenceStartedAt = performance.now();
         if (configRef.current.holistic.showSource) paint(resultsRef.current);
         holistic.send({ image: media }).catch(error => {
           publishStatus({ elementId: element.id, kind: "error", message: error?.message || "MediaPipe frame failed." });
         }).finally(() => {
-          const inferenceMs = Math.min(250, Math.max(0, performance.now() - inferenceStartedAt));
-          completedInferences += 1;
-          averageInferenceMs = completedInferences === 1
-            ? Math.min(inferenceMs, 1000 / configRef.current.holistic.processingFps)
-            : averageInferenceMs * 0.8 + inferenceMs * 0.2;
           pending = false;
         });
+      }
+      const shouldAnimateDisplay = holisticConfig.performanceMode && transitionActive;
+      const shouldRefreshSource = holisticConfig.showSource && resultsRef.current;
+      if ((shouldAnimateDisplay || shouldRefreshSource) && timestamp - lastPaintAt >= 1000 / HOLISTIC_PERFORMANCE_DISPLAY_FPS) {
+        lastPaintAt = timestamp;
+        if (shouldAnimateDisplay) {
+          const progress = Math.min(1, (timestamp - transitionStartedAt) / processingInterval);
+          displayedResult = interpolateHolisticResult(transitionFrom, transitionTarget, progress);
+          paint(displayedResult);
+          if (progress >= 1) transitionActive = false;
+        } else {
+          paint(displayedResult || resultsRef.current);
+        }
       }
       raf = requestAnimationFrame(process);
     };
@@ -562,11 +576,21 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
           updatedAt: performance.now(),
           sourceId: configRef.current.holistic.sourceId,
         };
+        const previousDisplay = displayedResult || resultsRef.current;
         resultsRef.current = result;
         const configuredResult = withConfiguredHandedness(result, configRef.current.holistic.swapHandedness);
         setMediaRuntimeResult(element.id, configuredResult);
         onResultsRef.current?.(element.id, configuredResult);
-        paint(result);
+        if (configRef.current.holistic.performanceMode && previousDisplay) {
+          transitionFrom = previousDisplay;
+          transitionTarget = result;
+          transitionStartedAt = performance.now();
+          transitionActive = true;
+        } else {
+          displayedResult = result;
+          transitionActive = false;
+          paint(result);
+        }
       });
       publishStatus({ elementId: element.id, kind: "success", message: "MediaPipe Holistic ready." });
     }).catch(error => publishStatus({ elementId: element.id, kind: "error", message: error?.message || "MediaPipe Holistic failed to load." }));

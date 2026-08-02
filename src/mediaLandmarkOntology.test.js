@@ -4,6 +4,7 @@ import {
   createMediaSemanticFrame,
   FACE_DISPLAY_GROUPS,
   getHolisticDisplayLayers,
+  interpolateHolisticResult,
   FACE_GROUPS,
   mediaLandmarkFeatureId,
   POSE_DISPLAY_GROUPS,
@@ -11,6 +12,25 @@ import {
   normalizedPointToMediaSpaces,
   resolveMediaFeatureDefinition,
 } from "./mediaLandmarkOntology.js";
+
+test("Holistic display interpolation smooths geometry without changing result metadata", () => {
+  const from = {
+    poseLandmarks: [{ x: 0, y: 0.25, z: -1, visibility: 0.5 }],
+    leftHandLandmarks: [{ x: 0.2, y: 0.4 }],
+  };
+  const to = {
+    poseLandmarks: [{ x: 1, y: 0.75, z: 1, visibility: 1 }],
+    leftHandLandmarks: [{ x: 0.6, y: 0.8 }],
+    faceLandmarks: [{ x: 0.3, y: 0.7 }],
+    updatedAt: 42,
+  };
+  const halfway = interpolateHolisticResult(from, to, 0.5);
+  assert.deepEqual(halfway.poseLandmarks[0], { x: 0.5, y: 0.5, z: 0, visibility: 0.75 });
+  assert.deepEqual(halfway.leftHandLandmarks[0], { x: 0.4, y: 0.6000000000000001 });
+  assert.deepEqual(halfway.faceLandmarks[0], to.faceLandmarks[0]);
+  assert.equal(halfway.updatedAt, 42);
+  assert.deepEqual(interpolateHolisticResult(from, to, 1).poseLandmarks, to.poseLandmarks);
+});
 
 test("MediaPipe ontology retains official pose and hand indices with aliases", () => {
   assert.equal(resolveMediaFeatureDefinition("pose.left_index").index, 19);
@@ -44,6 +64,16 @@ test("semantic face categories include nose connections while remaining is point
     .filter(([id]) => id !== "remaining")
     .forEach(([, group]) => assert.ok(group.connections.length > 0));
   assert.deepEqual(FACE_DISPLAY_GROUPS.remaining.connections, []);
+});
+
+test("nose display is a sparse bridge and open nostril-base contour", () => {
+  const connections = FACE_DISPLAY_GROUPS.nose.connections.map(connection => connection.join("-"));
+  assert.deepEqual(connections, [
+    "168-6", "6-197", "197-195", "195-5", "5-4", "4-1", "1-19",
+    "19-94", "94-2", "98-97", "97-2", "2-326", "326-327",
+  ]);
+  assert.equal(connections.includes("327-294"), false, "right outer mesh stays hidden");
+  assert.equal(connections.includes("4-45"), false, "left outer mesh stays hidden");
 });
 
 test("pose display groups preserve body/head plus the three pose palm/finger references", () => {

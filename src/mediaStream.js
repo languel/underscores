@@ -6,21 +6,19 @@ export const MEDIA_STREAM_KINDS = Object.freeze({
   HOLISTIC: "holistic",
 });
 
-export const MEDIA_STREAM_VERSION = 5;
+export const MEDIA_STREAM_VERSION = 6;
 export const MEDIA_SOURCE_STORAGE_KEY = "drawerator_media_source_catalog_v1";
 export const MEDIA_ACTORS_ARMED_STORAGE_KEY = "drawerator_media_actors_armed_v1";
 export const HOLISTIC_SETTINGS_STORAGE_KEY = "drawerator_holistic_settings_v1";
 export const HOLISTIC_PROCESSING_FPS_OPTIONS = Object.freeze([30, 24, 15, 12, 8, 4, 1]);
-export const HOLISTIC_INFERENCE_DUTY_CYCLE = 0.25;
+export const HOLISTIC_PERFORMANCE_PROCESSING_FPS = 8;
+export const HOLISTIC_PERFORMANCE_DISPLAY_FPS = 30;
 
-export const resolveHolisticProcessingIntervalMs = (processingFps, inferenceMs = 0) => {
+export const resolveHolisticProcessingIntervalMs = processingFps => {
   const fps = HOLISTIC_PROCESSING_FPS_OPTIONS.includes(Number(processingFps))
     ? Number(processingFps)
     : 15;
-  const requestedInterval = 1000 / fps;
-  const measuredInferenceMs = Number(inferenceMs);
-  if (!Number.isFinite(measuredInferenceMs) || measuredInferenceMs <= 0) return requestedInterval;
-  return Math.min(1000, Math.max(requestedInterval, measuredInferenceMs / HOLISTIC_INFERENCE_DUTY_CYCLE));
+  return 1000 / fps;
 };
 
 export const MEDIA_BINDING_TYPES = Object.freeze({
@@ -188,6 +186,7 @@ export const createMediaStreamConfig = (kind = MEDIA_STREAM_KINDS.MEDIA, overrid
       pointSize: 3,
       lineThickness: 2,
       processingFps: 15,
+      performanceMode: true,
       modelComplexity: 0,
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5,
@@ -307,6 +306,7 @@ export const normalizeMediaStreamConfig = value => {
       processingFps: HOLISTIC_PROCESSING_FPS_OPTIONS.includes(Number(holistic.processingFps))
         ? Number(holistic.processingFps)
         : 15,
+      performanceMode: holistic.performanceMode !== false,
       modelComplexity: Math.round(clamp(holistic.modelComplexity, 0, 2, 0)),
       minDetectionConfidence: clamp(holistic.minDetectionConfidence, 0, 1, 0.5),
       minTrackingConfidence: clamp(holistic.minTrackingConfidence, 0, 1, 0.5),

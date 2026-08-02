@@ -61,10 +61,14 @@ the context menu or `/preview` command.
 Holistic is loaded on demand from the upstream browser package used by MediaMime. **Processing FPS**
 limits inference and semantic-frame publication independently from the input stream; new processors
 default to 15 FPS, with choices from 1 to 30 FPS. A new inference is skipped while the previous frame
-is pending. The selected rate is a ceiling: an inference-time moving average automatically backs
-off further when MediaPipe would otherwise consume more than one quarter of the frame budget. The
-landmark canvas repaints when a result arrives instead of redrawing the same result on every browser
-animation frame.
+is pending, so the selected rate is a ceiling rather than a promise to exceed the source or model's
+actual throughput. Default-on **Performance mode** caps inference and semantic publication at 8 FPS
+to protect the main canvas, then visually interpolates completed landmark geometry at up to 30 FPS.
+Interpolation affects only the live canvas: mappings, scripts, actors, snapshots, and stream events
+continue to receive completed detector results. Turn Performance mode off to honor Processing FPS
+directly when detector cadence is more important than board cadence. On the traced development
+machine, Performance mode off at 12 FPS held the board near 50 FPS while retaining acceptable live
+tracking; this is a useful fidelity-oriented starting point rather than a portable guarantee.
 Holistic output is transparent by default. The **Source feed** toggle controls whether the
 processed camera/media image is painted behind the landmarks; it does not change the inference
 input. **Refine face + iris** enables MediaPipe's eye/lip refinement and the ten additional iris
@@ -75,6 +79,9 @@ Pose rendering is independently selectable as **Pose · body** (torso, limbs, an
 **L hand** and **R hand** trackers. Each group has its own adjacent swatch. Face rendering is a semantic nested filter rather than a
 decimated point sample. **All** enables the complete 478-point refined mesh; Outline, Eyes, Iris,
 Nose, Mouth (both inner and outer contours), Brows, and Remaining can then be toggled independently.
+The Nose display deliberately uses a sparse center bridge and open nostril-base contour instead of
+the complete box-like Face Mesh loop. Live rendering and both snapshot paths consume this same
+connection set.
 The global **Connections** setting draws the official category connections for every enabled face
 group except Remaining, which is deliberately points-only.
 The resulting view shows exactly those selected point sets.

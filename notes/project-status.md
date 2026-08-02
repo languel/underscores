@@ -28,12 +28,15 @@ snapshots live pose/hand landmarks as native scene geometry. A shared semantic o
 the `/mapping` feature browser, `__.streams`, persistent drive/freedraw bindings, selected-feature
 highlights, and capped traces without serializing raw observations. See
 [Media streams](media-streams.md).
-Holistic inference/publication now treats its configurable 15 FPS default as a ceiling and backs off
-automatically when inference would consume too much frame time. It avoids repainting unchanged
-results and no-op actor state, immediately saves processor creation/settings for reliable reloads,
-remembers display choices for the next processor, and offers both one-group native landmark output
-and a visually aligned PNG snapshot. Point size and line thickness match across live and native
-output; pose, hand, handedness, and semantic face filters share one ontology path.
+Holistic inference/publication now treats its configurable 15 FPS default as a ceiling and skips
+overlapping work. Default-on Performance mode caps that work at 8 FPS to preserve board cadence while
+interpolating only the displayed geometry at up to 30 FPS; semantic consumers still receive completed
+detector results. It avoids no-op actor state, immediately saves processor creation/settings for
+reliable reloads, remembers display choices for the next processor, and offers both one-group native
+landmark output and a visually aligned PNG snapshot. Point size and line thickness match across live
+and native output; pose, hand, handedness, and semantic face filters share one ontology path. The
+face display uses an open eyebrow ribbon and a sparse bridge/nostril nose contour so live and snapshot
+geometry reads as illustration rather than raw Face Mesh topology.
 
 The next input layer is now present as a unified typed stream registry. **Media** retains the
 camera, URL/file, and canvas image catalog; the separate **Inputs** panel owns pointer/keyboard/

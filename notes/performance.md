@@ -105,9 +105,16 @@ artifact is not versioned; the repeatable measurements and attributed call path 
 - Runtime-cursor detection rejects elements without raw cursor metadata before constructing and
   normalizing default IanniX data. The repeatable 5,000-object production workload improved from
   p95 50.1 ms and 58 long animation frames to p95 17.5 ms and none.
-- Holistic processors now default to a separately configurable 15 FPS inference/publication rate,
-  treat that rate as a ceiling with inference-cost backoff, skip duplicate landmark paints between
-  results, avoid empty actor-overlay state updates, and persist host/settings changes immediately.
+- Holistic processors retain a separately configurable 15 FPS inference/publication ceiling, skip
+  overlapping inference, avoid empty actor-overlay state updates, and persist host/settings changes
+  immediately. Default-on Performance mode limits inference and semantic publication to 8 FPS while
+  interpolating only the displayed landmark geometry at up to 30 FPS. In the permissioned live trace,
+  15 FPS inference still yielded 20–37 board FPS even with landmark paint disabled; the 8 FPS cap plus
+  30 FPS landmark repaint yielded 47–53 board FPS. This identifies main-thread inference—not canvas
+  drawing—as the dominant cost and keeps completed detector results authoritative for semantic output.
+  A subsequent live check found that Performance mode off at 12 FPS also held the board near 50 FPS
+  with better fresh-result cadence, making it the preferred fidelity/performance balance on the traced
+  machine.
 - The monitor makes frame cadence, long frames, scene churn, and object growth visible without
   opening developer tools.
 - PNG/SVG baking turns a large static native snapshot group into one scene object in one undoable
@@ -116,8 +123,8 @@ artifact is not versioned; the repeatable measurements and attributed call path 
 
 ### Next profiling and optimization order
 
-1. Capture a permissioned real-camera trace for live Holistic at several processing ceilings and
-   confirm the inference-cost backoff against the synthetic workload above.
+1. Repeat the permissioned real-camera trace across browsers and hardware, comparing source-frame,
+   completed-inference, interpolated-paint, and board cadence at both Performance mode and raw ceilings.
 2. Replace independent whole-scene overlay scans with one version-keyed scene index shared by p5,
    media, SVG, Livecode, Outliner, and history. Cache normalized per-element signatures by element
    version and only rebuild dependency closures when their members change.

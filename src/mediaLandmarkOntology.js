@@ -98,6 +98,36 @@ export const POSE_DISPLAY_GROUPS = Object.freeze({
   rightHand: poseDisplayGroup("Pose · R hand", [18, 20, 22]),
 });
 
+const HOLISTIC_LANDMARK_FIELDS = Object.freeze(["x", "y", "z", "visibility", "presence"]);
+
+const interpolateLandmarkList = (from = [], to = [], progress = 1) => {
+  if (!Array.isArray(to)) return [];
+  const amount = Math.min(1, Math.max(0, Number(progress) || 0));
+  return to.map((point, index) => {
+    const previous = Array.isArray(from) ? from[index] : null;
+    if (!point || !previous) return point;
+    const interpolated = { ...point };
+    HOLISTIC_LANDMARK_FIELDS.forEach(field => {
+      const start = Number(previous[field]);
+      const end = Number(point[field]);
+      if (Number.isFinite(start) && Number.isFinite(end)) {
+        interpolated[field] = start + (end - start) * amount;
+      }
+    });
+    return interpolated;
+  });
+};
+
+// Smooth only the displayed geometry between completed MediaPipe results.
+// Semantic frames continue to publish detector output without interpolation.
+export const interpolateHolisticResult = (from = {}, to = {}, progress = 1) => ({
+  ...to,
+  poseLandmarks: interpolateLandmarkList(from?.poseLandmarks, to?.poseLandmarks, progress),
+  leftHandLandmarks: interpolateLandmarkList(from?.leftHandLandmarks, to?.leftHandLandmarks, progress),
+  rightHandLandmarks: interpolateLandmarkList(from?.rightHandLandmarks, to?.rightHandLandmarks, progress),
+  faceLandmarks: interpolateLandmarkList(from?.faceLandmarks, to?.faceLandmarks, progress),
+});
+
 // Canonical point labels used by snapshots and semantic code. Keep Face Mesh
 // numeric because MediaPipe does not provide names for every vertex.
 export const mediaLandmarkFeatureId = (family, index) => {
@@ -111,13 +141,13 @@ export const mediaLandmarkFeatureId = (family, index) => {
   return "";
 };
 
-// Official MediaPipe Face Mesh connection groups. The map assets use these
-// indices as explanatory labels; this registry remains the runtime source.
+// Use a deliberately sparse display path for the nose. The complete MediaPipe
+// nose mesh reads like a box at drawing scale; a center bridge plus the open
+// nostril-base contour retains the expression without exposing triangulation.
 const FACE_NOSE_CONNECTIONS = Object.freeze([
   [168, 6], [6, 197], [197, 195], [195, 5], [5, 4], [4, 1], [1, 19],
-  [19, 94], [94, 2], [98, 97], [97, 2], [2, 326], [326, 327], [327, 294],
-  [294, 278], [278, 344], [344, 440], [440, 275], [275, 4], [4, 45],
-  [45, 220], [220, 115], [115, 48], [48, 64], [64, 98],
+  [19, 94], [94, 2],
+  [98, 97], [97, 2], [2, 326], [326, 327],
 ].map(connection => Object.freeze(connection)));
 
 const FACE_OUTER_LIPS = Object.freeze([

@@ -475,6 +475,12 @@ export function HolisticPanel({ elements, sources, selectedElementIds, onCreate,
           {HOLISTIC_PROCESSING_FPS_OPTIONS.map(fps => <option key={fps} value={fps}>{fps}</option>)}
         </select>
       </label>
+      <OverlayToggle
+        label="Performance mode"
+        title="Protect canvas cadence by capping MediaPipe inference at 8 FPS and visually interpolating completed landmarks at up to 30 FPS. Turn this off to use the selected Processing FPS directly."
+        checked={config.holistic.performanceMode}
+        onChange={checked => onPatch(selected.id, { holistic: { performanceMode: checked } })}
+      />
       <div className="media-stream-panel-note">MediaPipe consumes the source&apos;s processed output. The source feed toggle affects only this Holistic view.</div>
       <StatusLine status={status} />
     </div>}

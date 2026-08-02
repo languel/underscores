@@ -35,6 +35,7 @@ test("media stream defaults distinguish acquisition and derived stream kinds", (
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.showSource, false);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.refineFaceLandmarks, true);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.processingFps, 15);
+  assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.performanceMode, true);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.swapHandedness, true);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.pointSize, 3);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.lineThickness, 2);
@@ -70,7 +71,7 @@ test("holistic binding patches remain versioned and nested", () => {
   const current = createMediaStreamConfig("holistic");
   const binding = createMediaBinding("drive-position", { id: "driver-a", targetElementId: "cursor-a" });
   const next = patchMediaStreamConfig(current, { bindings: [binding] });
-  assert.equal(next.version, 5);
+  assert.equal(next.version, 6);
   assert.equal(next.bindings[0].id, "driver-a");
   assert.equal(next.bindings[0].targetElementId, "cursor-a");
 });
@@ -86,6 +87,7 @@ test("media stream normalization clamps persisted processor and crop settings", 
   assert.equal(normalized.holistic.minDetectionConfidence, 0);
   assert.equal(normalized.holistic.minTrackingConfidence, 1);
   assert.equal(normalized.holistic.processingFps, 15);
+  assert.equal(normalized.holistic.performanceMode, true);
   assert.equal(normalized.holistic.pointSize, 3);
   assert.equal(normalized.holistic.lineThickness, 2);
 });
@@ -116,15 +118,14 @@ test("Holistic settings presets round-trip display choices without remembering a
 test("holistic processing throttle accepts supported persisted rates and rejects arbitrary values", () => {
   const slowed = patchMediaStreamConfig(createMediaStreamConfig("holistic"), { holistic: { processingFps: 8 } });
   assert.equal(slowed.holistic.processingFps, 8);
+  assert.equal(patchMediaStreamConfig(slowed, { holistic: { performanceMode: false } }).holistic.performanceMode, false);
   assert.equal(normalizeMediaStreamConfig({ kind: "holistic", holistic: { processingFps: 17 } }).holistic.processingFps, 15);
 });
 
-test("holistic processing interval backs off to preserve the inference budget", () => {
+test("holistic processing interval follows the configured ceiling without latency backoff", () => {
   assert.equal(resolveHolisticProcessingIntervalMs(15), 1000 / 15);
-  assert.equal(resolveHolisticProcessingIntervalMs(15, 10), 1000 / 15);
-  assert.equal(resolveHolisticProcessingIntervalMs(15, 25), 100);
-  assert.equal(resolveHolisticProcessingIntervalMs(15, 400), 1000);
-  assert.equal(resolveHolisticProcessingIntervalMs(17, 0), 1000 / 15);
+  assert.equal(resolveHolisticProcessingIntervalMs(8), 125);
+  assert.equal(resolveHolisticProcessingIntervalMs(17), 1000 / 15);
 });
 
 test("holistic overlay palette and display controls retain legacy color compatibility", () => {
