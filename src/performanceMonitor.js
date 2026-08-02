@@ -13,6 +13,13 @@ const emptySnapshot = () => ({
   svg: 0,
   livecode: 0,
   media: 0,
+  physicsBodies: 0,
+  physicsStepMs: 0,
+  physicsTransferMs: 0,
+  physicsRenderMs: 0,
+  physicsEvents: 0,
+  physicsDropped: 0,
+  physicsRouteMs: 0,
   memoryMb: null,
   sampledAt: 0,
 });
@@ -43,6 +50,7 @@ export const createPerformanceMonitor = ({ now = () => performance.now(), memory
   let changedElements = 0;
   let sceneStats = countPerformanceScene();
   let sceneVersions = new Map();
+  let physicsStats = {};
   const listeners = new Set();
 
   const notify = () => listeners.forEach(listener => listener());
@@ -51,6 +59,7 @@ export const createPerformanceMonitor = ({ now = () => performance.now(), memory
     const heap = Number(memory?.());
     snapshot = {
       ...sceneStats,
+      ...physicsStats,
       fps: Math.round(frames * 1000 / elapsed),
       frameMs: frames ? Number((frameTime / frames).toFixed(1)) : 0,
       longFrames,
@@ -108,6 +117,20 @@ export const createPerformanceMonitor = ({ now = () => performance.now(), memory
       }
       sceneChanges += 1;
       changedElements += Math.max(0, Number(changedCount) || 0);
+    },
+    recordPhysics(stats = {}) {
+      const metric = (key, previousKey) => stats[key] === undefined
+        ? physicsStats[previousKey]
+        : Math.max(0, Number(stats[key]) || 0);
+      physicsStats = {
+        physicsBodies: metric("bodies", "physicsBodies"),
+        physicsStepMs: metric("stepMs", "physicsStepMs"),
+        physicsTransferMs: metric("transferMs", "physicsTransferMs"),
+        physicsRenderMs: metric("renderMs", "physicsRenderMs"),
+        physicsEvents: metric("eventRate", "physicsEvents"),
+        physicsDropped: metric("droppedEvents", "physicsDropped"),
+        physicsRouteMs: metric("routeMs", "physicsRouteMs"),
+      };
     },
   };
 };

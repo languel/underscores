@@ -111,6 +111,8 @@ const DraweratorApiGuide = () => (
         <div><dt><code>api.grid</code></dt><dd>Read/update the global grid, snap points, convert grid units, map values to/from world space, and resolve object timing.</dd></div>
         <div><dt><code>api.history</code> / <code>api.macros</code></dt><dd>Record, replay, import/export, save, insert, and remove reusable command history.</dd></div>
         <div><dt><code>api.inputs</code> / <code>api.events</code></dt><dd>Register or emit input adapters, and subscribe to application events.</dd></div>
+        <div><dt><code>api.relations</code></dt><dd>Read and edit the versioned relationship graph, resolve stable endpoints, claim runtime writer channels, and register typed stream adapters.</dd></div>
+        <div><dt><code>api.physics</code></dt><dd>Create bodies, populations, and constraints; control system clocks; query, grab, impulse, materialize, reset, apply, and snapshot the physics runtime.</dd></div>
         <div><dt><code>api.mixer</code></dt><dd>Read the mixer or add, update, and remove tracks.</dd></div>
         <div><dt><code>api.streams</code></dt><dd>List or resolve typed space, time, value, event, and image streams. Semantic MediaPipe <code>feature()</code>/<code>features()</code> remain available. <code>inputs</code> and <code>outputs</code> are filtered views, not separate systems.</dd></div>
       </dl>

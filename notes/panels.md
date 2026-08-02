@@ -1,8 +1,8 @@
 # Panel System Notes
 
-Last updated: 2026-07-31
+Last updated: 2026-08-02
 
-Drawerator owns one persistent panel model for **AI Assistant**, **Brush**, **Script**, **Scene**, **Mixer**, **Expressive Synth**, **Media**, **Inputs**, **MediaPipe Holistic**, **Mapping**, **Info**, **Settings**, **Console**, and **Transport**. Side panels support left dock, floating, and right dock placement. Mixer and Info additionally support the bottom dock; Transport supports floating and bottom-docked placement. Timeline, Mixer, and Info use the bottom as their natural home; all other panels use the right dock.
+Drawerator owns one persistent panel model for **AI Assistant**, **Brush**, **Script**, **Scene**, **Physics**, **Mixer**, **Expressive Synth**, **Media**, **Inputs**, **MediaPipe Holistic**, **Mapping**, **Info**, **Settings**, **Console**, and **Transport**. Side panels support left dock, floating, and right dock placement. Mixer and Info additionally support the bottom dock; Transport supports floating and bottom-docked placement. Timeline, Mixer, and Info use the bottom as their natural home; all other panels use the right dock.
 
 ## Identity icon contract
 
@@ -38,7 +38,7 @@ The following state persists independently:
 - collapsed state for each side and bottom dock;
 - transport placement and dimensions.
 
-Every panel is available from the main menu and command palette, including `/chat`, `/brush` (legacy `/mods`), `/script`, `/scene`, `/synth`, `/media` (legacy `/media-input`), `/inputs` (also `/signals`), `/holistic`, `/mapping`, `/settings`, `/console`, and `/transport`. `/svg` opens the Script panel with its SVG adapter selected. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
+Every panel is available from the main menu and command palette, including `/chat`, `/brush` (legacy `/mods`), `/script`, `/scene`, `/physics` (also `/relations`), `/synth`, `/media` (legacy `/media-input`), `/inputs` (also `/signals`), `/holistic`, `/mapping`, `/settings`, `/console`, and `/transport`. `/svg` opens the Script panel with its SVG adapter selected. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
 
 Console docks at the bottom by default, after Info, but can also float or dock at either side. Its **Live** strip is intentionally separate from retained event logging: it always shows each non-pointer Brush channel's source availability, gate state, mapped XY position, and pressure, plus connected input-adapter status. Turn **Log** on only when you need the bounded, filterable event history; status transitions are routed as `status.brush`, `status.input`, and `status.media` events, while high-rate coordinates remain in the Live strip rather than flooding the log.
 

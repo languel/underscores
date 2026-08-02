@@ -1,4 +1,4 @@
-export const DRAWERATOR_GEOMETRY_VERSION = 1;
+export const DRAWERATOR_GEOMETRY_VERSION = 2;
 export const CUBIC_BEZIER_KIND = "cubicBezierPath";
 
 const EPSILON = 1e-7;
@@ -21,7 +21,8 @@ export const normalizeBezierGeometry = value => ({
   revision: Math.max(0, Math.round(finite(value?.revision, 0))),
   kind: CUBIC_BEZIER_KIND,
   closed: value?.closed === true,
-  anchors: (value?.anchors || []).map(anchor => ({
+  anchors: (value?.anchors || []).map((anchor, index) => ({
+    id: String(anchor?.id || `anchor-${index}`),
     x: finite(anchor?.x),
     y: finite(anchor?.y),
     in: Array.isArray(anchor?.in) ? point(anchor.in) : null,
@@ -154,6 +155,7 @@ export const getBezierWorldAnchors = element => {
   return geometry.anchors.map(anchor => {
     const anchorWorld = bezierLocalPointToWorld(element, [anchor.x, anchor.y]);
     return {
+      id: anchor.id,
       anchor: anchorWorld,
       in: anchor.in ? bezierLocalPointToWorld(element, [anchor.x + anchor.in[0], anchor.y + anchor.in[1]]) : null,
       out: anchor.out ? bezierLocalPointToWorld(element, [anchor.x + anchor.out[0], anchor.y + anchor.out[1]]) : null,
@@ -358,7 +360,7 @@ export const splitBezierSegment = (geometryValue, segmentIndex, amount = 0.5) =>
   const anchors = geometry.anchors.map(anchor => ({ ...anchor, in: anchor.in && [...anchor.in], out: anchor.out && [...anchor.out] }));
   anchors[controls.startIndex].out = subtract(q0, controls.p0);
   anchors[controls.endIndex].in = subtract(q2, controls.p3);
-  const inserted = { x: split[0], y: split[1], in: subtract(r0, split), out: subtract(r1, split), mode: "smooth" };
+  const inserted = { id: `anchor-${crypto.randomUUID()}`, x: split[0], y: split[1], in: subtract(r0, split), out: subtract(r1, split), mode: "smooth" };
   const insertionIndex = geometry.closed && controls.endIndex === 0 ? anchors.length : controls.endIndex;
   anchors.splice(insertionIndex, 0, inserted);
   return { ...geometry, revision: geometry.revision + 1, anchors };

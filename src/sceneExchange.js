@@ -5,10 +5,12 @@ import { normalizeP5Scripts } from "./p5Frame.js";
 import { normalizeStreamGraph } from "./streamGraph.js";
 import { normalizeBrushChannels } from "./brushChannelRuntime.js";
 import { normalizeMediaSources } from "./mediaStream.js";
+import { normalizeRelationshipGraph } from "./relationshipGraph.js";
 
-const DRAWERATOR_EXCHANGE_VERSION = 8;
+const DRAWERATOR_EXCHANGE_VERSION = 9;
 
-export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = {}, grid = null, expressiveSynth = null, mixer = null, p5Scripts = [], streamGraph = null, brushChannels = null, authoredState = {}) => {
+export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = {}, grid = null, expressiveSynth = null, mixer = null, p5Scripts = [], streamGraph = null, brushChannels = null, authoredState = {}, relationshipGraph = null) => {
+  const normalizedAuthoredState = authoredState && typeof authoredState === "object" ? authoredState : {};
   const payload = typeof serializedScene === "string"
     ? JSON.parse(serializedScene)
     : structuredClone(serializedScene);
@@ -44,13 +46,14 @@ export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = 
         streamGraph: normalizeStreamGraph(streamGraph),
         brushChannels: normalizeBrushChannels(brushChannels),
         authoredState: {
-          mediaSources: normalizeMediaSources(authoredState.mediaSources),
-          brushPalette: Array.isArray(authoredState.brushPalette) ? structuredClone(authoredState.brushPalette) : [],
-          iannixScripts: Array.isArray(authoredState.iannixScripts) ? structuredClone(authoredState.iannixScripts) : [],
-          playCoreScripts: Array.isArray(authoredState.playCoreScripts) ? structuredClone(authoredState.playCoreScripts) : [],
-          svgScripts: Array.isArray(authoredState.svgScripts) ? structuredClone(authoredState.svgScripts) : [],
+          mediaSources: normalizeMediaSources(normalizedAuthoredState.mediaSources),
+          brushPalette: Array.isArray(normalizedAuthoredState.brushPalette) ? structuredClone(normalizedAuthoredState.brushPalette) : [],
+          iannixScripts: Array.isArray(normalizedAuthoredState.iannixScripts) ? structuredClone(normalizedAuthoredState.iannixScripts) : [],
+          playCoreScripts: Array.isArray(normalizedAuthoredState.playCoreScripts) ? structuredClone(normalizedAuthoredState.playCoreScripts) : [],
+          svgScripts: Array.isArray(normalizedAuthoredState.svgScripts) ? structuredClone(normalizedAuthoredState.svgScripts) : [],
         },
       } : {}),
+      relationshipGraph: normalizeRelationshipGraph(relationshipGraph),
     },
   };
 };
@@ -74,6 +77,7 @@ export const parseDraweratorExchange = (text, expectedKind = null) => {
     p5Scripts: kind === "scene" ? normalizeP5Scripts(payload.drawerator?.p5Scripts) : [],
     streamGraph: kind === "scene" ? normalizeStreamGraph(payload.drawerator?.streamGraph) : null,
     brushChannels: kind === "scene" ? normalizeBrushChannels(payload.drawerator?.brushChannels) : [],
+    relationshipGraph: normalizeRelationshipGraph(payload.drawerator?.relationshipGraph),
     authoredState: kind === "scene" && payload.drawerator?.authoredState ? {
       mediaSources: normalizeMediaSources(payload.drawerator?.authoredState?.mediaSources),
       brushPalette: Array.isArray(payload.drawerator?.authoredState?.brushPalette) ? structuredClone(payload.drawerator.authoredState.brushPalette) : [],

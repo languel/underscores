@@ -11,6 +11,7 @@ export const DEFAULT_PANEL_LAYOUTS = Object.freeze({
   mods: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 72, y: 104, width: 380, height: 760 }),
   script: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 84, y: 112, width: 440, height: 760 }),
   iannix: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 96, y: 120, width: 380, height: 760 }),
+  physics: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 108, y: 128, width: 400, height: 760 }),
   mixer: Object.freeze({ placement: PANEL_PLACEMENTS.BOTTOM, x: 72, y: 120, width: 1040, height: 286 }),
   synth: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 120, y: 136, width: 360, height: 720 }),
   "media-input": Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 132, y: 144, width: 380, height: 700 }),

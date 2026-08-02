@@ -7,7 +7,7 @@ const MAX_VISIBLE_EVENTS = 500;
 const LOGGING_STORAGE_KEY = "drawerator_console_logging";
 const POLL_STORAGE_KEY = "drawerator_console_poll_frequency";
 const POLL_FREQUENCIES = [50, 100, 250, 500, 1000];
-const EVENT_CATEGORIES = ["command", "history", "input", "media", "brush", "status", "iannix", "midi", "macro", "transport", "automation", "presentation", "settings", "ai"];
+const EVENT_CATEGORIES = ["command", "history", "input", "media", "brush", "status", "iannix", "physics", "midi", "macro", "transport", "automation", "presentation", "settings", "ai"];
 let consoleEventCutoff = -Infinity;
 
 const readStoredLogging = () => {

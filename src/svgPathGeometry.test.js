@@ -24,7 +24,7 @@ test("parses lines and cubic curves into editable anchors", () => {
   assert.equal(parsed.valid, true);
   assert.equal(parsed.geometry.anchors.length, 3);
   assert.deepEqual(parsed.geometry.anchors[0], {
-    x: 10, y: 20, in: null, out: null, mode: "corner",
+    id: "anchor-0", x: 10, y: 20, in: null, out: null, mode: "corner",
   });
   assert.deepEqual(parsed.geometry.anchors[2].in, [-10, 10]);
 });

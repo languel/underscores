@@ -141,3 +141,13 @@ artifact is not versioned; the repeatable measurements and attributed call path 
 The production bundle is also large (about 7.1 MB minified at this checkpoint). Runtime adapters,
 MediaPipe, and Strudel are candidates for route/feature-level dynamic imports, but bundle size is a
 startup/network concern and should not be conflated with the steady-state canvas FPS issue.
+
+## Physics telemetry
+
+The relationship engine adds fixed-step time, transferable pose-buffer time, imperative-overlay paint
+time, body count, collision-event rate, dropped-event count, and response-route cost to the same
+monitor. Rapier runs in a Worker at 60 Hz; pose buffers are sent only after simulation changes, and
+runtime populations paint outside React. The normal build loads the solver Worker on first use. The
+single-file build embeds the same Worker and instantiates its Blob on activation. The Musical gas
+example is the standard 250-body acceptance fixture; validate sustained canvas cadence with a browser
+trace as well as the overlay.

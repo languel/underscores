@@ -39,7 +39,7 @@ test("scene exchange preserves frame timeline display mode", () => {
   assert.equal(payload.drawerator.score.fps, 24);
 });
 
-test("scene exchange version 8 preserves streams, brush channels, global configuration, p5 scripts, and migrates legacy scenes", () => {
+test("scene exchange version 9 preserves streams, brush channels, global configuration, p5 scripts, relationships, and migrates legacy scenes", () => {
   const grid = mergeGridPatch(DEFAULT_GLOBAL_GRID, {
     appearance: { visible: true },
     spacing: { x: 120, y: 80, subdivisionsX: 6, subdivisionsY: 4 },
@@ -56,8 +56,9 @@ test("scene exchange version 8 preserves streams, brush channels, global configu
     processors: [{ id: "gate", type: "threshold", sourceId: "serial-space", outputId: "gate-events", threshold: { rising: 0.8, falling: 0.2 } }],
   };
   const brushChannels = [{ id: "serial-brush", spatialStreamId: "serial-space", gateStreamId: "gate-events", destination: { kind: "viewport" } }];
-  const payload = attachDraweratorExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, grid, synth, mixer, p5Scripts, streamGraph, brushChannels);
-  assert.equal(payload.drawerator.version, 8);
+  const relationshipGraph = { systems: [{ id: "gas", name: "Gas" }], bodies: [], populations: [], constraints: [], routes: [] };
+  const payload = attachDraweratorExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, grid, synth, mixer, p5Scripts, streamGraph, brushChannels, null, relationshipGraph);
+  assert.equal(payload.drawerator.version, 9);
   assert.deepEqual(parseDraweratorExchange(payload, "scene").grid, grid);
   assert.deepEqual(parseDraweratorExchange(payload, "scene").expressiveSynth, normalizeExpressiveSynthConfig(synth));
   assert.deepEqual(parseDraweratorExchange(payload, "scene").mixer, mixer);
@@ -65,6 +66,7 @@ test("scene exchange version 8 preserves streams, brush channels, global configu
   assert.equal(parseDraweratorExchange(payload, "scene").streamGraph.sources[0].streamId, "serial-space");
   assert.equal(parseDraweratorExchange(payload, "scene").streamGraph.processors[0].outputId, "gate-events");
   assert.equal(parseDraweratorExchange(payload, "scene").brushChannels[0].gateStreamId, "gate-events");
+  assert.equal(parseDraweratorExchange(payload, "scene").relationshipGraph.systems[0].id, "gas");
 
   const legacy = { type: "excalidraw", elements: [], drawerator: { version: 1, kind: "scene", score: {} } };
   const migrated = parseDraweratorExchange(legacy, "scene").grid;
@@ -72,6 +74,7 @@ test("scene exchange version 8 preserves streams, brush channels, global configu
   assert.equal(migrated.snap.mode, "off");
   assert.deepEqual(parseDraweratorExchange(legacy, "scene").expressiveSynth, normalizeExpressiveSynthConfig(DEFAULT_EXPRESSIVE_SYNTH_CONFIG));
   assert.equal(parseDraweratorExchange(legacy, "scene").mixer.tracks.length, 16);
+  assert.deepEqual(parseDraweratorExchange(legacy, "scene").relationshipGraph.systems, []);
 });
 
 test("scene exchange preserves authored media sources and reusable code definitions", () => {

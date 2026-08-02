@@ -100,6 +100,14 @@ import { canUseAsObjectBoundsTarget, createMediaBinding, createMediaSource, crea
 import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
 import { createUnifiedStreamsApi, DraweratorStreamRegistry } from "./streamRuntime.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
+import { addRelationshipItem, createDefaultPhysicsSystem, findRelationshipOrphans, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph } from "./relationshipGraph.js";
+import { applyAnchorAttractorFrame, applyBezierSculptOperator, inferPhysicsBodyFromElement } from "./physicsGeometry.js";
+import { createPhysicsApi, createRelationshipApi, PhysicsRuntimeController } from "./physicsRuntime.js";
+import { PhysicsAudioRouter } from "./physicsAudio.js";
+import { createPhysicsExample } from "./physicsExamples.js";
+import { samplePortraitLandmarkFixture } from "./physicsFixtures.js";
+import PhysicsPanel from "./PhysicsPanel.jsx";
+import PhysicsOverlay from "./PhysicsOverlay.jsx";
 import { BrowserStreamAdapterRuntime, mapAdapterRecordToSample, parseMidiMessage } from "./streamAdapters.js";
 import { BrushChannelRuntime, DEFAULT_BRUSH_CHANNELS, normalizeBrushChannel, normalizeBrushChannels } from "./brushChannelRuntime.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
@@ -1964,13 +1972,13 @@ function App() {
     try {
       const saved = JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null") || {};
       return {
-        chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, inputs: saved.inputs ?? true,
+        chat: true, settings: true, mods: true, script: true, iannix: true, physics: saved.physics ?? true, mixer: true, synth: true, inputs: saved.inputs ?? true,
         holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true,
         ...saved,
         "media-input": saved["media-input"] ?? saved["video-input"] ?? true,
       };
     } catch {
-      return { chat: true, settings: true, mods: true, script: true, iannix: true, mixer: true, synth: true, "media-input": true, inputs: true, holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true };
+      return { chat: true, settings: true, mods: true, script: true, iannix: true, physics: true, mixer: true, synth: true, "media-input": true, inputs: true, holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
@@ -2100,6 +2108,27 @@ function App() {
   const mediaSourcesRef = useRef(mediaSources);
   mediaSourcesRef.current = mediaSources;
   const [streamGraph, setStreamGraph] = useState(() => normalizeStreamGraphWithBuiltins(null));
+  const [relationshipGraph, setRelationshipGraphState] = useState(() => normalizeRelationshipGraph(null));
+  const relationshipGraphRef = useRef(relationshipGraph);
+  relationshipGraphRef.current = relationshipGraph;
+  const [activePhysicsSystemId, setActivePhysicsSystemId] = useState("");
+  const [physicsTelemetry, setPhysicsTelemetry] = useState({ systems: [], stepMs: 0, eventRate: 0, routeMs: 0 });
+  const [physicsTool, setPhysicsTool] = useState(null);
+  const physicsToolRef = useRef(null);
+  physicsToolRef.current = physicsTool;
+  const physicsToolStartRef = useRef(null);
+  const physicsGestureRef = useRef(null);
+  const physicsAuthoredEditTimerRef = useRef(0);
+  const physicsApplyingRef = useRef(false);
+  const physicsAudioRef = useRef(null);
+  if (!physicsAudioRef.current) physicsAudioRef.current = new PhysicsAudioRouter();
+  physicsAudioRef.current.midi = message => {
+    const channel = Math.max(1, Math.min(16, Math.round(Number(message.channel) || 1)));
+    const note = Math.max(0, Math.min(127, Math.round(Number(message.note) || 60)));
+    const velocity = Math.max(1, Math.min(127, Math.round(Number(message.velocity) || 96)));
+    const routed = { ...message, kind: "note", channel, note, velocity, noteOn: [0x90 + channel - 1, note, velocity], noteOff: [0x80 + channel - 1, note, 0] };
+    getMixerOutputsForChannel(channel).forEach(({ output }) => midiVoiceTrackerRef.current?.send(output, routed, performance.now()));
+  };
   const [brushChannels, setBrushChannels] = useState(() => normalizeBrushChannels(DEFAULT_BRUSH_CHANNELS));
   const [inputStreamStatuses, setInputStreamStatuses] = useState({});
   const [activeMediaSourceId, setActiveMediaSourceId] = useState("");
@@ -2150,11 +2179,164 @@ function App() {
   if (!semanticMediaStreamsApiRef.current) semanticMediaStreamsApiRef.current = createMediaStreamsApi();
   const streamRegistryRef = useRef(null);
   if (!streamRegistryRef.current) streamRegistryRef.current = new DraweratorStreamRegistry();
+  const physicsRuntimeRef = useRef(null);
+  if (!physicsRuntimeRef.current) physicsRuntimeRef.current = new PhysicsRuntimeController({
+    eventBus,
+    streamRegistry: streamRegistryRef.current,
+    commandRegistry,
+    audioRouter: (action, event, route) => physicsAudioRef.current?.route(action, event, route),
+  });
+  const setRelationshipGraph = useCallback(value => {
+    setRelationshipGraphState(previous => normalizeRelationshipGraph(typeof value === "function" ? value(previous) : value));
+  }, []);
+  useEffect(() => {
+    physicsRuntimeRef.current.setGraph(relationshipGraph);
+  }, [relationshipGraph]);
+  useEffect(() => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+    const orphans = findRelationshipOrphans(relationshipGraph, api.getSceneElementsIncludingDeleted());
+    for (const orphan of orphans) {
+      eventBus.emit("physics.relationship.orphan", orphan, { source: "physics" });
+    }
+    const orphanBodies = new Set(orphans.filter(orphan => orphan.kind === "body").map(orphan => orphan.id));
+    const orphanConstraints = new Set(orphans.filter(orphan => orphan.kind === "constraint").map(orphan => orphan.id));
+    if (relationshipGraph.bodies.some(body => body.enabled && orphanBodies.has(body.id)) || relationshipGraph.constraints.some(constraint => constraint.enabled && orphanConstraints.has(constraint.id))) {
+      setRelationshipGraph(previous => ({
+        ...previous,
+        bodies: previous.bodies.map(body => orphanBodies.has(body.id) ? { ...body, enabled: false } : body),
+        constraints: previous.constraints.map(constraint => orphanConstraints.has(constraint.id) ? { ...constraint, enabled: false } : constraint),
+      }));
+    }
+  }, [eventBus, relationshipGraph]);
+  useEffect(() => {
+    if (!activePhysicsSystemId || !relationshipGraph.systems.some(system => system.id === activePhysicsSystemId)) {
+      setActivePhysicsSystemId(relationshipGraph.systems[0]?.id || "");
+    }
+  }, [activePhysicsSystemId, relationshipGraph]);
+  useEffect(() => physicsRuntimeRef.current.subscribe("telemetry", telemetry => {
+    setPhysicsTelemetry(telemetry);
+    draweratorPerformanceMonitor.recordPhysics({
+      bodies: telemetry.systems.reduce((sum, system) => sum + (system.bodyCount || 0), 0),
+      stepMs: telemetry.stepMs,
+      transferMs: telemetry.transferMs,
+      eventRate: telemetry.eventRate,
+      droppedEvents: telemetry.systems.reduce((sum, system) => sum + (system.droppedEvents || 0), 0),
+      routeMs: telemetry.routeMs,
+    });
+  }), []);
+  useEffect(() => () => {
+    physicsRuntimeRef.current?.dispose();
+    physicsAudioRef.current?.dispose();
+  }, []);
+  useEffect(() => physicsRuntimeRef.current.subscribe("poses", snapshot => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+    const graph = relationshipGraphRef.current;
+    const bodyById = new Map(graph.bodies.map(body => [body.id, body]));
+    const elements = api.getSceneElementsIncludingDeleted();
+    const elementById = new Map(elements.map(element => [element.id, element]));
+    let changed = false;
+    const replacements = new Map();
+    snapshot.metadata.forEach((metadata, index) => {
+      if (metadata.tracking !== "authored-rigid" || metadata.objectRef?.kind !== "element") return;
+      const definition = bodyById.get(metadata.bodyId);
+      const element = elementById.get(metadata.objectRef.elementId);
+      if (!definition || !element || element.isDeleted) return;
+      const centerX = snapshot.values[index * 4];
+      const centerY = snapshot.values[index * 4 + 1];
+      const angle = snapshot.values[index * 4 + 2];
+      const x = centerX - element.width / 2;
+      const y = centerY - element.height / 2;
+      if (Math.abs(element.x - x) < 0.05 && Math.abs(element.y - y) < 0.05 && Math.abs((element.angle || 0) - angle) < 0.0005) return;
+      changed = true;
+      replacements.set(element.id, {
+        ...element,
+        x,
+        y,
+        angle,
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+      });
+    });
+    if (!changed) return;
+    physicsApplyingRef.current = true;
+    historySuppressSceneRef.current += 1;
+    api.updateScene({ elements: elements.map(element => replacements.get(element.id) || element), commitToHistory: false });
+    window.setTimeout(() => {
+      historySuppressSceneRef.current = Math.max(0, historySuppressSceneRef.current - 1);
+      physicsApplyingRef.current = false;
+    }, 0);
+  }), []);
   const mediaStreamsApiRef = useRef(null);
   if (!mediaStreamsApiRef.current) mediaStreamsApiRef.current = createUnifiedStreamsApi({
     registry: streamRegistryRef.current,
     mediaStreams: semanticMediaStreamsApiRef.current,
   });
+  useEffect(() => {
+    const geometrySystems = new Set(relationshipGraph.systems.filter(system => system.enabled && system.adapter === "geometry").map(system => system.id));
+    const constraints = relationshipGraph.constraints.filter(constraint => constraint.enabled && constraint.kind === "attractor" && geometrySystems.has(constraint.systemId));
+    if (!constraints.length) return undefined;
+    let frame = 0;
+    let previousAt = performance.now();
+    const readStreamPoint = (endpoint, targetElement, now) => {
+      if (endpoint.streamId === "physics:fixture:face") {
+        return samplePortraitLandmarkFixture(now / 1000, { x: targetElement.x, y: targetElement.y, width: targetElement.width, height: targetElement.height });
+      }
+      const stream = mediaStreamsApiRef.current.get(endpoint.streamId);
+      if (!stream) return null;
+      if (endpoint.featureId && typeof stream.feature === "function") {
+        const feature = stream.feature(endpoint.featureId, { space: "scene" });
+        const point = feature?.scene || feature?.position;
+        return Number.isFinite(point?.x) && Number.isFinite(point?.y) ? point : null;
+      }
+      let value = stream.sample?.value ?? stream.sample?.data ?? stream.sample;
+      for (const segment of endpoint.path.split(".").filter(Boolean)) value = value?.[segment];
+      return Array.isArray(value) ? { x: Number(value[0]), y: Number(value[1]) } : value;
+    };
+    const tickGeometry = now => {
+      const delta = Math.min(0.05, Math.max(1 / 240, (now - previousAt) / 1000));
+      previousAt = now;
+      const api = excalidrawAPIRef.current;
+      if (api) {
+        const elements = api.getSceneElementsIncludingDeleted();
+        const elementById = new Map(elements.map(element => [element.id, element]));
+        const targetsByElement = new Map();
+        for (const constraint of constraints) {
+          if (!physicsRuntimeRef.current.isPlaying(constraint.systemId)) continue;
+          const curveEndpoint = normalizePhysicsEndpoint(constraint.a);
+          const streamEndpoint = normalizePhysicsEndpoint(constraint.b);
+          if (curveEndpoint?.kind !== "bezier-anchor" || streamEndpoint?.kind !== "stream") continue;
+          const element = elementById.get(curveEndpoint.objectRef.elementId);
+          if (!element || element.isDeleted || !hasCubicBezierGeometry(element)) continue;
+          const point = readStreamPoint(streamEndpoint, element, now);
+          if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) continue;
+          const targets = targetsByElement.get(element.id) || [];
+          targets.push({ anchorId: curveEndpoint.anchorId, point: [point.x, point.y], stiffness: constraint.stiffness });
+          targetsByElement.set(element.id, targets);
+        }
+        if (targetsByElement.size) {
+          const nextElements = elements.map(element => {
+            const targets = targetsByElement.get(element.id);
+            if (!targets) return element;
+            const next = applyAnchorAttractorFrame(element, targets, delta);
+            return next === element ? element : { ...next, version: (element.version || 0) + 1, versionNonce: Math.floor(Math.random() * 0x7fffffff), updated: Date.now() };
+          });
+          physicsApplyingRef.current = true;
+          historySuppressSceneRef.current += 1;
+          api.updateScene({ elements: nextElements, commitToHistory: false });
+          window.setTimeout(() => {
+            historySuppressSceneRef.current = Math.max(0, historySuppressSceneRef.current - 1);
+            physicsApplyingRef.current = false;
+          }, 0);
+        }
+      }
+      frame = requestAnimationFrame(tickGeometry);
+    };
+    frame = requestAnimationFrame(tickGeometry);
+    return () => cancelAnimationFrame(frame);
+  }, [relationshipGraph]);
   const streamGraphRuntimeRef = useRef(null);
   const streamAdapterRuntimeRef = useRef(null);
   const brushChannelRuntimeRef = useRef(null);
@@ -2844,6 +3026,9 @@ function App() {
   const importSvgMarkupRef = useRef(null);
   const svgClipboardCacheRef = useRef(null);
   const scoreTimeRef = useRef(scoreTime);
+  useEffect(() => {
+    physicsRuntimeRef.current?.transport(scoreTime);
+  }, [scoreTime]);
   const historySuppressSceneRef = useRef(0);
   const lastSceneElementsRef = useRef(new Map());
   const pendingSceneMutationRef = useRef(null);
@@ -5552,6 +5737,8 @@ function App() {
     // drag from also reaching Excalidraw's drawing tools.
     if (e.target?.closest?.(".svg-path-control")) return;
 
+    if (handlePhysicsPointerDown(e)) return;
+
     if (handleObjectEyedropperPointerDown(e)) return;
 
     if (handleCommandObjectSelectionPointerDown(e)) return;
@@ -5759,6 +5946,7 @@ function App() {
 
   const handleCanvasPointerMove = (e) => {
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
+    if (handlePhysicsPointerMove(e)) return;
     if (handleSvgPathConstructionPointerMove(e)) return;
     if (handleSvgPathPointerMove(e)) return;
     if (handleSvgNodePointerMove(e)) return;
@@ -7052,6 +7240,7 @@ function App() {
   };
 
   const handleCanvasPointerUp = (e) => {
+    if (handlePhysicsPointerUp(e)) return;
     if (handleSvgPathConstructionPointerUp(e)) return;
     if (handleSvgPathPointerUp(e)) return;
     if (handleSvgNodePointerUp(e)) return;
@@ -8200,6 +8389,377 @@ function App() {
     if (changed) api.updateScene({ elements: nextElements, commitToHistory: true });
   };
 
+  const getPhysicsSelectedElements = () => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return [];
+    const selected = { ...(api.getAppState().selectedElementIds || {}), ...selectedElementIdsRef.current };
+    return api.getSceneElements().filter(element => selected[element.id] && !element.isDeleted);
+  };
+
+  const assignPhysicsBodies = ({ systemId = activePhysicsSystemId, bodyType = "dynamic", sensor = false } = {}) => {
+    const selected = getPhysicsSelectedElements();
+    if (!selected.length) throw new Error("Select one or more canvas objects first.");
+    const targetSystemId = systemId || relationshipGraphRef.current.systems[0]?.id;
+    if (!targetSystemId) throw new Error("Create a physics system first.");
+    setRelationshipGraph(previous => {
+      const graph = normalizeRelationshipGraph(previous);
+      const selectedIds = new Set(selected.map(element => element.id));
+      const retained = graph.bodies.filter(body => body.objectRef?.kind !== "element" || !selectedIds.has(body.objectRef.elementId));
+      const bodies = selected.map(element => inferPhysicsBodyFromElement(element, {
+        systemId: targetSystemId,
+        bodyType,
+        sensor,
+        tracking: "authored-rigid",
+        collisionTags: [sensor ? "sensor" : bodyType === "fixed" ? "wall" : "body"],
+        material: { restitution: bodyType === "fixed" ? 0.9 : 0.5, friction: 0.2 },
+      })).filter(Boolean);
+      return { ...graph, bodies: [...retained, ...bodies] };
+    });
+    setSceneExchangeStatus(`Assigned ${selected.length} ${sensor ? "sensor" : bodyType} physics object${selected.length === 1 ? "" : "s"}.`);
+    return selected.map(element => element.id);
+  };
+
+  const createPhysicsPopulation = ({ systemId = activePhysicsSystemId, count = 250, radius = 7, bounds = null } = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const targetSystemId = systemId || relationshipGraphRef.current.systems[0]?.id;
+    if (!targetSystemId) throw new Error("Create a physics system first.");
+    const selection = getPhysicsSelectedElements();
+    const resolvedBounds = bounds || (selection.length ? (() => {
+      const [minX, minY, maxX, maxY] = getCommonBounds(selection);
+      return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+    })() : (() => {
+      const appState = api.getAppState();
+      const center = viewportCoordsToSceneCoords({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 }, appState);
+      return { x: center.x - 300, y: center.y - 200, width: 600, height: 400 };
+    })());
+    const population = {
+      id: `physics-population-${crypto.randomUUID()}`,
+      systemId: targetSystemId,
+      name: "Runtime gas",
+      count,
+      seed: Math.floor(Math.random() * 0x7fffffff),
+      bounds: resolvedBounds,
+      prototype: {
+        id: `physics-particle-${crypto.randomUUID()}`,
+        systemId: targetSystemId,
+        tracking: "runtime-lite",
+        bodyType: "dynamic",
+        collider: { kind: "circle", radius },
+        material: { density: 0.8, friction: 0.02, restitution: 0.96, linearDamping: 0.002 },
+        collisionTags: ["particle"],
+        render: { fill: accentColor, opacity: 0.9 },
+      },
+      spawn: { speedMin: 70, speedMax: 210, angularSpeed: 3 },
+    };
+    setRelationshipGraph(previous => addRelationshipItem(previous, "populations", population));
+    setSceneExchangeStatus(`Created ${Math.round(count)} lightweight runtime particles.`);
+    return population;
+  };
+
+  const createPhysicsRoute = ({ systemId = activePhysicsSystemId, collisionClass = "body-wall", sound = "wall" } = {}) => {
+    const route = {
+      id: `physics-route-${crypto.randomUUID()}`,
+      systemId,
+      name: collisionClass === "body-body" ? "Particle collision sound" : "Wall instrument sound",
+      filter: { phases: ["hit"], classes: [collisionClass], minImpulse: 0.2 },
+      cooldownMs: collisionClass === "body-body" ? 70 : 35,
+      actions: [{ kind: "synth", frequency: sound === "particle" ? 330 : 110, waveform: sound === "particle" ? "sine" : "triangle", positionToPitch: true, positionToPan: true, gainScale: 0.002 }],
+    };
+    setRelationshipGraph(previous => addRelationshipItem(previous, "routes", route));
+    return route;
+  };
+
+  const startPhysicsTool = (kind, systemId = activePhysicsSystemId) => {
+    physicsToolStartRef.current = null;
+    setPhysicsTool({ kind, systemId });
+    setSceneExchangeStatus(kind === "attract-brush" ? "Drag on a selected canonical curve to sculpt it." : `Physics ${kind}: click the first endpoint, then the second.`);
+  };
+
+  const physicsElementAtPoint = point => {
+    const elements = excalidrawAPIRef.current?.getSceneElements() || [];
+    return [...elements].reverse().find(element => {
+      if (element.isDeleted) return false;
+      const minX = Math.min(element.x, element.x + element.width) - 8;
+      const maxX = Math.max(element.x, element.x + element.width) + 8;
+      const minY = Math.min(element.y, element.y + element.height) - 8;
+      const maxY = Math.max(element.y, element.y + element.height) + 8;
+      return point[0] >= minX && point[0] <= maxX && point[1] >= minY && point[1] <= maxY;
+    }) || null;
+  };
+
+  const endpointForPhysicsHit = (element, point) => element
+    ? { kind: "object", objectRef: { kind: "element", elementId: element.id }, anchor: "local", localPoint: [
+      (point[0] - element.x) / Math.max(0.001, element.width),
+      (point[1] - element.y) / Math.max(0.001, element.height),
+    ] }
+    : { kind: "world", point };
+
+  const handlePhysicsPointerDown = event => {
+    const tool = physicsToolRef.current;
+    const api = excalidrawAPIRef.current;
+    if (!api) return false;
+    const scenePoint = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, api.getAppState());
+    const point = [scenePoint.x, scenePoint.y];
+    if (!tool) {
+      const element = physicsElementAtPoint(point);
+      const body = element && relationshipGraphRef.current.bodies.find(candidate => (
+        candidate.enabled && candidate.bodyType !== "fixed" && candidate.objectRef?.kind === "element" &&
+        candidate.objectRef.elementId === element.id && physicsRuntimeRef.current.isPlaying(candidate.systemId)
+      ));
+      if (!body) return false;
+      physicsGestureRef.current = { kind: "grab", pointerId: event.pointerId, systemId: body.systemId };
+      physicsRuntimeRef.current.grab(body.systemId, body.id, point, { stiffness: 55, damping: 8 });
+      event.currentTarget?.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+      event.stopPropagation();
+      return true;
+    }
+    if (tool.kind === "attract-brush") {
+      const selected = getPhysicsSelectedElements().find(hasCubicBezierGeometry);
+      if (selected) {
+        const next = applyBezierSculptOperator(selected, "attract", { point, radius: 140, amount: 0.22 });
+        physicsGestureRef.current = { kind: "sculpt", pointerId: event.pointerId, targetId: selected.id };
+        api.updateScene({ elements: api.getSceneElementsIncludingDeleted().map(element => element.id === selected.id ? next : element), commitToHistory: false });
+        event.currentTarget?.setPointerCapture?.(event.pointerId);
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      return true;
+    }
+    const element = physicsElementAtPoint(point);
+    const endpoint = endpointForPhysicsHit(element, point);
+    if (!physicsToolStartRef.current) {
+      physicsToolStartRef.current = endpoint;
+      setSceneExchangeStatus(`Physics ${tool.kind}: choose the second endpoint.`);
+    } else {
+      const constraint = {
+        id: `physics-${tool.kind}-${crypto.randomUUID()}`,
+        systemId: tool.systemId,
+        name: tool.kind,
+        kind: tool.kind,
+        a: physicsToolStartRef.current,
+        b: endpoint,
+        restLength: Math.hypot(
+          point[0] - (physicsToolStartRef.current.point?.[0] ?? point[0]),
+          point[1] - (physicsToolStartRef.current.point?.[1] ?? point[1]),
+        ) || 100,
+        stiffness: tool.kind === "distance" ? 180 : 45,
+        damping: 6,
+      };
+      setRelationshipGraph(previous => addRelationshipItem(previous, "constraints", constraint));
+      physicsToolStartRef.current = null;
+      setPhysicsTool(null);
+      setSceneExchangeStatus(`Created ${tool.kind} relationship.`);
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  };
+
+  const handlePhysicsPointerMove = event => {
+    const gesture = physicsGestureRef.current;
+    const api = excalidrawAPIRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId || !api) return false;
+    const scenePoint = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, api.getAppState());
+    const point = [scenePoint.x, scenePoint.y];
+    if (gesture.kind === "grab") {
+      physicsRuntimeRef.current.moveGrab(gesture.systemId, point);
+    } else if (gesture.kind === "sculpt") {
+      const elements = api.getSceneElementsIncludingDeleted();
+      const selected = elements.find(element => element.id === gesture.targetId && !element.isDeleted && hasCubicBezierGeometry(element));
+      if (selected) {
+        const next = applyBezierSculptOperator(selected, "attract", { point, radius: 140, amount: 0.08 });
+        api.updateScene({ elements: elements.map(element => element.id === selected.id ? next : element), commitToHistory: false });
+      }
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  };
+
+  const handlePhysicsPointerUp = event => {
+    const gesture = physicsGestureRef.current;
+    const api = excalidrawAPIRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return false;
+    physicsGestureRef.current = null;
+    if (gesture.kind === "grab") physicsRuntimeRef.current.releaseGrab(gesture.systemId);
+    if (gesture.kind === "sculpt" && api) {
+      api.updateScene({ elements: api.getSceneElementsIncludingDeleted().map(element => ({ ...element })), commitToHistory: true });
+    }
+    event.currentTarget?.releasePointerCapture?.(event.pointerId);
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  };
+
+  const resetPhysicsSystem = systemId => {
+    physicsRuntimeRef.current.reset(systemId);
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+    const resetGeometry = new Map(relationshipGraphRef.current.bodies
+      .filter(body => body.systemId === systemId && body.tracking === "authored-deformable" && body.objectRef?.kind === "element" && body.initialGeometry)
+      .map(body => [body.objectRef.elementId, body.initialGeometry]));
+    if (!resetGeometry.size) return;
+    const elements = api.getSceneElementsIncludingDeleted().map(element => {
+      const geometry = resetGeometry.get(element.id);
+      if (!geometry || element.isDeleted) return element;
+      const next = setElementBezierGeometry(element, geometry);
+      return { ...next, version: (element.version || 0) + 1, versionNonce: Math.floor(Math.random() * 0x7fffffff), updated: Date.now() };
+    });
+    api.updateScene({ elements, commitToHistory: false });
+  };
+
+  const applyPhysicsPose = systemId => {
+    const snapshots = physicsRuntimeRef.current.getLatestPoses(systemId);
+    const snapshot = Array.isArray(snapshots) ? snapshots.find(candidate => candidate.systemId === systemId) : snapshots;
+    const poseByEntityId = new Map((snapshot?.metadata || []).map((metadata, index) => [metadata.id, {
+      x: snapshot.values[index * 4], y: snapshot.values[index * 4 + 1], angle: snapshot.values[index * 4 + 2],
+    }]));
+    const api = excalidrawAPIRef.current;
+    const elementById = new Map((api?.getSceneElementsIncludingDeleted() || []).map(element => [element.id, element]));
+    let applied = false;
+    setRelationshipGraph(previous => normalizeRelationshipGraph({
+      ...previous,
+      bodies: previous.bodies.map(body => {
+        const pose = poseByEntityId.get(body.id);
+        if (pose && body.systemId === systemId) {
+          applied = true;
+          return { ...body, initial: { ...body.initial, ...pose } };
+        }
+        const element = body.objectRef?.kind === "element" ? elementById.get(body.objectRef.elementId) : null;
+        if (body.systemId === systemId && body.tracking === "authored-deformable" && element && hasCubicBezierGeometry(element)) {
+          applied = true;
+          return { ...body, initialGeometry: normalizeBezierGeometry(element.customData.draweratorGeometry) };
+        }
+        return body;
+      }),
+    }));
+    if (api && applied) api.updateScene({ elements: api.getSceneElementsIncludingDeleted().map(element => ({ ...element })), commitToHistory: true });
+    setSceneExchangeStatus("Applied the current physics pose as the authored reset pose.");
+    return applied;
+  };
+
+  const materializePhysicsPopulation = ({ systemId = activePhysicsSystemId, instanceIds = null } = {}) => {
+    const api = excalidrawAPIRef.current;
+    const snapshot = physicsRuntimeRef.current.getLatestPoses(systemId);
+    if (!api || !snapshot) return [];
+    const graph = relationshipGraphRef.current;
+    const populationIds = new Set(graph.populations.filter(population => population.systemId === systemId).map(population => population.id));
+    const requestedInstances = Array.isArray(instanceIds) && instanceIds.length ? new Set(instanceIds) : null;
+    const existing = api.getSceneElementsIncludingDeleted();
+    const created = [];
+    const bodies = [];
+    const materializedByPopulation = new Map();
+    snapshot.metadata.forEach((metadata, index) => {
+      if (!metadata.populationId || !populationIds.has(metadata.populationId) || (requestedInstances && !requestedInstances.has(metadata.instanceId))) return;
+      const collider = metadata.collider || {};
+      const width = collider.kind === "circle" ? collider.radius * 2 : collider.width || 16;
+      const height = collider.kind === "circle" ? collider.radius * 2 : collider.height || 16;
+      const x = snapshot.values[index * 4] - width / 2;
+      const y = snapshot.values[index * 4 + 1] - height / 2;
+      const element = {
+        ...createBaseElement(collider.kind === "circle" ? "ellipse" : "rectangle", x, y, width, height, metadata.render?.stroke || foregroundColor),
+        id: `physics-materialized-${crypto.randomUUID()}`,
+        angle: snapshot.values[index * 4 + 2],
+        backgroundColor: metadata.render?.fill || accentColor,
+        fillStyle: "solid",
+      };
+      created.push(element);
+      bodies.push(inferPhysicsBodyFromElement(element, { systemId, bodyType: "dynamic", tracking: "authored-rigid", collisionTags: metadata.tags, render: metadata.render }));
+      const ids = materializedByPopulation.get(metadata.populationId) || [];
+      ids.push(metadata.instanceId);
+      materializedByPopulation.set(metadata.populationId, ids);
+    });
+    if (!created.length) return [];
+    api.updateScene({ elements: [...existing, ...created], appState: { selectedElementIds: Object.fromEntries(created.map(element => [element.id, true])) }, commitToHistory: true });
+    setRelationshipGraph(previous => normalizeRelationshipGraph({
+      ...previous,
+      populations: requestedInstances
+        ? previous.populations.map(population => populationIds.has(population.id)
+          ? { ...population, excludedInstanceIds: [...new Set([...(population.excludedInstanceIds || []), ...(materializedByPopulation.get(population.id) || [])])] }
+          : population)
+        : previous.populations.filter(population => !populationIds.has(population.id)),
+      bodies: [...previous.bodies, ...bodies],
+    }));
+    setSceneExchangeStatus(`Materialized ${created.length} particles as authored objects.`);
+    return created;
+  };
+
+  const sculptPhysicsSelection = operator => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return [];
+    const selected = getPhysicsSelectedElements();
+    const target = operator === "morph" ? selected[1] : null;
+    const ids = new Set(operator === "morph" ? selected.slice(0, 1).map(element => element.id) : selected.map(element => element.id));
+    const changed = [];
+    const elements = api.getSceneElementsIncludingDeleted().map(element => {
+      if (!ids.has(element.id)) return element;
+      let canonical = element;
+      if (!hasCubicBezierGeometry(canonical)) {
+        const geometry = createBezierGeometryFromElement(canonical);
+        if (!geometry) return element;
+        canonical = setElementBezierGeometry(canonical, geometry);
+      }
+      let morphTarget = target;
+      if (morphTarget && !hasCubicBezierGeometry(morphTarget)) {
+        const geometry = createBezierGeometryFromElement(morphTarget);
+        if (geometry) morphTarget = setElementBezierGeometry(morphTarget, geometry);
+      }
+      const next = applyBezierSculptOperator(canonical, operator, {
+        amount: operator === "randomize" ? 0.02 : 0.35,
+        iterations: 2,
+        seed: 23,
+        targetElement: morphTarget,
+      });
+      changed.push(next.id);
+      return next;
+    });
+    if (changed.length) api.updateScene({ elements, commitToHistory: true });
+    return changed;
+  };
+
+  const loadPhysicsExample = kind => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return null;
+    const appState = api.getAppState();
+    const center = viewportCoordsToSceneCoords({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 }, appState);
+    const size = kind === "gas" ? [720, 460] : kind === "marionette" ? [260, 320] : [280, 320];
+    const example = createPhysicsExample(kind, { x: center.x - size[0] / 2, y: center.y - size[1] / 2 });
+    const scene = api.getSceneElementsIncludingDeleted();
+    const existingIds = new Set(scene.map(element => element.id));
+    const idMap = new Map();
+    const created = example.elements.map(spec => {
+      const element = createAIObjectElement({ roughness: 0, strokeWidth: 2, ...spec }, existingIds);
+      idMap.set(spec.id, element.id);
+      if (kind !== "portrait" || !["line", "freedraw"].includes(element.type)) return element;
+      const geometry = createBezierGeometryFromElement(element);
+      return geometry ? setElementBezierGeometry(element, geometry) : element;
+    });
+    let remappedGraph = remapRelationshipGraph(example.graph, idMap, new Set(scene.map(element => element.id)));
+    const createdById = new Map(created.map(element => [element.id, element]));
+    remappedGraph = normalizeRelationshipGraph({
+      ...remappedGraph,
+      bodies: remappedGraph.bodies.map(body => {
+        const element = body.objectRef?.kind === "element" ? createdById.get(body.objectRef.elementId) : null;
+        return body.tracking === "authored-deformable" && element && hasCubicBezierGeometry(element)
+          ? { ...body, initialGeometry: normalizeBezierGeometry(element.customData.draweratorGeometry) }
+          : body;
+      }),
+    });
+    setRelationshipGraph(previous => normalizeRelationshipGraph({
+      systems: [...previous.systems, ...remappedGraph.systems],
+      bodies: [...previous.bodies, ...remappedGraph.bodies],
+      populations: [...previous.populations, ...remappedGraph.populations],
+      constraints: [...previous.constraints, ...remappedGraph.constraints],
+      routes: [...previous.routes, ...remappedGraph.routes],
+    }));
+    api.updateScene({ elements: [...scene, ...created], appState: { selectedElementIds: Object.fromEntries(created.map(element => [element.id, true])) }, commitToHistory: true });
+    setActivePhysicsSystemId(remappedGraph.systems[0]?.id || "");
+    setSceneExchangeStatus(`Loaded ${example.name}. Open /physics and press Play.`);
+    return { elements: created, graph: remappedGraph };
+  };
+
   // --- COMMAND PALETTE LOGIC ---
   const PANEL_COMMANDS = DRAWERATOR_PANELS.map(panel => ({
     id: `panel-${panel.id}`,
@@ -8476,6 +9036,27 @@ function App() {
     ...EXCALIDRAW_COMMANDS,
     { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "performance.toggle", name: "Toggle Performance Monitor /performance", aliases: ["/performance", "/perf", "FPS monitor"], category: "View", action: () => updatePerformanceVisibility(!showPerformanceOverlay) },
+    { id: "physics.system.create", name: "Physics: Create System", aliases: ["/physics new"], category: "Physics", args: { name: "string?", gravity: "{x,y}?", clock: "realtime|transport?" }, ai: { expose: true, description: "Create an independent canvas physics system." }, action: (_api, args = {}) => {
+      const system = createDefaultPhysicsSystem({ name: args.name, gravity: args.gravity, clock: { mode: args.clock === "transport" ? "transport" : "realtime", fixedHz: 60, timeScale: 1 } });
+      setRelationshipGraph(previous => addRelationshipItem(previous, "systems", system));
+      setActivePhysicsSystemId(system.id);
+      return system;
+    } },
+    { id: "physics.body.assign", name: "Physics: Assign Dynamic Body", aliases: ["/physics body"], category: "Physics", args: { systemId: "string?", bodyType: "dynamic|kinematic?" }, ai: { expose: true, description: "Turn selected canvas drawings into authored physics bodies." }, action: (_api, args) => assignPhysicsBodies(args) },
+    { id: "physics.collider.assign", name: "Physics: Assign Fixed Collider", aliases: ["/physics wall"], category: "Physics", args: { systemId: "string?", sensor: "boolean?" }, ai: { expose: true, description: "Turn selected drawings or curves into fixed colliders or sensors." }, action: (_api, args) => assignPhysicsBodies({ ...args, bodyType: "fixed" }) },
+    { id: "physics.population.create", name: "Physics: Create Runtime Population", aliases: ["/physics gas"], category: "Physics", args: { systemId: "string?", count: "number?", radius: "number?", bounds: "{x,y,width,height}?" }, ai: { expose: true, description: "Create a lightweight seeded runtime particle population." }, action: (_api, args) => createPhysicsPopulation(args) },
+    { id: "physics.constraint.tool", name: "Physics: Draw Constraint", aliases: ["/physics constraint"], category: "Physics", args: { kind: "pin|spring|distance|revolute|weld|attractor", systemId: "string?" }, action: (_api, args) => startPhysicsTool(args?.kind || "spring", args?.systemId) },
+    { id: "physics.play", name: "Physics: Play", aliases: ["/physics play"], category: "Physics", action: async (_api, args) => { await physicsAudioRef.current.resume(); physicsRuntimeRef.current.play(args?.systemId || activePhysicsSystemId); } },
+    { id: "physics.pause", name: "Physics: Pause", aliases: ["/physics pause"], category: "Physics", action: (_api, args) => physicsRuntimeRef.current.pause(args?.systemId || activePhysicsSystemId) },
+    { id: "physics.reset", name: "Physics: Reset", aliases: ["/physics reset"], category: "Physics", action: (_api, args) => resetPhysicsSystem(args?.systemId || activePhysicsSystemId) },
+    { id: "physics.apply", name: "Physics: Apply Current Pose", aliases: ["/physics apply", "/physics bake"], category: "Physics", action: (_api, args) => applyPhysicsPose(args?.systemId || activePhysicsSystemId) },
+    { id: "physics.materialize", name: "Physics: Materialize Population", aliases: ["/physics materialize"], category: "Physics", action: (_api, args) => materializePhysicsPopulation(args) },
+    { id: "physics.example.gas", name: "Physics Example: Musical Gas", aliases: ["/physics demo gas"], category: "Physics", action: () => loadPhysicsExample("gas") },
+    { id: "physics.example.marionette", name: "Physics Example: Marionette", aliases: ["/physics demo marionette"], category: "Physics", action: () => loadPhysicsExample("marionette") },
+    { id: "physics.example.portrait", name: "Physics Example: Stream Portrait", aliases: ["/physics demo portrait"], category: "Physics", action: () => loadPhysicsExample("portrait") },
+    { id: "physics.sculpt.smooth", name: "Physics Sculpt: Smooth", aliases: ["/sculpt smooth"], category: "Physics", action: () => sculptPhysicsSelection("smooth") },
+    { id: "physics.sculpt.randomize", name: "Physics Sculpt: Randomize", aliases: ["/sculpt randomize"], category: "Physics", action: () => sculptPhysicsSelection("randomize") },
+    { id: "physics.sculpt.morph", name: "Physics Sculpt: Morph", aliases: ["/sculpt morph"], category: "Physics", action: () => sculptPhysicsSelection("morph") },
     { id: "workspace.reset.defaults", name: "Reset Workspace to Defaults /reset defaults", aliases: ["/reset defaults", "/workspace reset", "Reset to defaults"], category: "Settings", record: "presentation", action: () => resetBoardSettingsToDefaults() },
     { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => { applyingRecordedUiStateRef.current = true; setSatoriMode(prev => !prev); finishApplyingRecordedUiState(); } },
     { id: "presentation.toggle", name: "Toggle Presentation Mode /presentation", aliases: ["/presentation", "/present", "Presentation mode"], category: "View", record: "presentation", action: () => setPresentationMode(previous => !previous) },
@@ -12413,10 +12994,32 @@ function App() {
     setScorePlaying(true);
   };
 
+  const getPhysicsAuthoredSerializationElements = elements => {
+    const graph = relationshipGraphRef.current;
+    const bodyByElementId = new Map(graph.bodies
+      .filter(body => body.objectRef?.kind === "element")
+      .map(body => [body.objectRef.elementId, body]));
+    return elements.map(element => {
+      const body = bodyByElementId.get(element.id);
+      if (!body || element.isDeleted) return element;
+      if (body.tracking === "authored-deformable" && body.initialGeometry && hasCubicBezierGeometry(element)) {
+        return setElementBezierGeometry(element, body.initialGeometry);
+      }
+      if (body.tracking !== "authored-rigid") return element;
+      return {
+        ...element,
+        x: body.initial.x - element.width / 2,
+        y: body.initial.y - element.height / 2,
+        angle: body.initial.angle,
+      };
+    });
+  };
+
   const createDraweratorExchangeJson = (kind, elements) => {
     if (!excalidrawAPI) throw new Error("The scene is not ready.");
+    const serializedElements = kind === "scene" ? getPhysicsAuthoredSerializationElements(elements) : elements;
     const serialized = serializeAsJSON(
-      elements,
+      serializedElements,
       excalidrawAPI.getAppState(),
       excalidrawAPI.getFiles(),
       "local",
@@ -12436,7 +13039,9 @@ function App() {
       iannixScripts,
       playCoreScripts,
       svgScripts,
-    } : null), null, 2);
+    } : null, kind === "scene"
+      ? relationshipGraphRef.current
+      : relationshipGraphForSelection(relationshipGraphRef.current, elements.filter(element => !element.isDeleted).map(element => element.id))), null, 2);
   };
 
   const downloadTextFile = (text, filename, mimeType = "application/json") => {
@@ -12519,7 +13124,7 @@ function App() {
 
   const importDraweratorSceneText = async (text, { commitToHistory = true } = {}) => {
     if (!excalidrawAPI) return;
-    const { score, grid, expressiveSynth, mixer: importedMixer, p5Scripts: importedP5Scripts, streamGraph: importedStreamGraph, brushChannels: importedBrushChannels, authoredState } = parseDraweratorExchange(text, "scene");
+    const { score, grid, expressiveSynth, mixer: importedMixer, p5Scripts: importedP5Scripts, streamGraph: importedStreamGraph, brushChannels: importedBrushChannels, relationshipGraph: importedRelationshipGraph, authoredState } = parseDraweratorExchange(text, "scene");
     const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
     const restoredRuntimeElements = reconcileRuntimeCursorHosts(restored.elements || []);
     const restoredP5 = reconcileP5ScriptsWithElements(importedP5Scripts, restoredRuntimeElements);
@@ -12543,6 +13148,7 @@ function App() {
     setP5Scripts(restoredP5.scripts);
     setStreamGraph(normalizeStreamGraphWithBuiltins(importedStreamGraph));
     setBrushChannels(normalizeBrushChannels(importedBrushChannels));
+    setRelationshipGraph(importedRelationshipGraph);
     if (authoredState) {
       mediaSourcesRef.current = authoredState.mediaSources;
       setMediaSources(authoredState.mediaSources);
@@ -13182,8 +13788,21 @@ function App() {
   }, [accentColor, accentOpacity, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
 
   useLayoutEffect(() => {
+    const relations = createRelationshipApi({
+      runtime: physicsRuntimeRef.current,
+      getGraph: () => relationshipGraphRef.current,
+      setGraph: setRelationshipGraph,
+    });
+    const physics = createPhysicsApi({
+      runtime: physicsRuntimeRef.current,
+      getGraph: () => relationshipGraphRef.current,
+      setGraph: setRelationshipGraph,
+      applyPose: applyPhysicsPose,
+      reset: resetPhysicsSystem,
+      materialize: materializePhysicsPopulation,
+    });
     const api = {
-      apiVersion: 6,
+      apiVersion: 7,
       commands: {
         list: () => commandRegistry.list(),
         describe: id => commandRegistry.describe(id),
@@ -13222,6 +13841,8 @@ function App() {
       events: {
         subscribe: (pattern, listener) => eventBus.subscribe(pattern, listener),
       },
+      relations,
+      physics,
       streams: Object.freeze({
         ...mediaStreamsApiRef.current,
         processors: Object.freeze({
@@ -13321,7 +13942,7 @@ function App() {
     if (!excalidrawAPI) return;
     try {
       const text = await navigator.clipboard.readText();
-      parseDraweratorExchange(text, "selection");
+      const parsedSelection = parseDraweratorExchange(text, "selection");
       const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
       const existing = excalidrawAPI.getSceneElementsIncludingDeleted();
       const imported = remapSelectionForImport(restored.elements || [], existing);
@@ -13332,6 +13953,21 @@ function App() {
       );
       if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
       const importedIds = Object.fromEntries(importedElements.map(element => [element.id, true]));
+      const existingIds = new Set(existing.filter(element => !element.isDeleted).map(element => element.id));
+      const importedRelationships = remapRelationshipGraph(parsedSelection.relationshipGraph, imported.idMap, existingIds);
+      setRelationshipGraph(previous => {
+        const current = normalizeRelationshipGraph(previous);
+        const systemIds = new Set(current.systems.map(system => system.id));
+        const itemIds = new Set([...current.bodies, ...current.populations, ...current.constraints, ...current.routes].map(item => item.id));
+        const uniqueItem = item => itemIds.has(item.id) ? { ...item, id: `${item.id}-${crypto.randomUUID()}` } : item;
+        return normalizeRelationshipGraph({
+          systems: [...current.systems, ...importedRelationships.systems.filter(system => !systemIds.has(system.id))],
+          bodies: [...current.bodies, ...importedRelationships.bodies.map(uniqueItem)],
+          populations: [...current.populations, ...importedRelationships.populations.map(uniqueItem)],
+          constraints: [...current.constraints, ...importedRelationships.constraints.map(uniqueItem)],
+          routes: [...current.routes, ...importedRelationships.routes.map(uniqueItem)],
+        });
+      });
       excalidrawAPI.updateScene({
         elements: [...existing, ...importedElements],
         appState: { selectedElementIds: importedIds },
@@ -18680,6 +19316,28 @@ function App() {
               const previous = previousSceneMap.get(element.id);
               return !previous || previous.version !== element.version || previous.isDeleted !== element.isDeleted;
             });
+            if (!physicsApplyingRef.current && historySuppressSceneRef.current === 0 && changedElements.length) {
+              const changedById = new Map(changedElements.map(element => [element.id, element]));
+              const editedBodies = relationshipGraphRef.current.bodies.filter(body => (
+                body.tracking === "authored-rigid" && body.objectRef?.kind === "element" &&
+                changedById.has(body.objectRef.elementId) && !physicsRuntimeRef.current.isPlaying(body.systemId)
+              ));
+              if (editedBodies.length) {
+                window.clearTimeout(physicsAuthoredEditTimerRef.current);
+                physicsAuthoredEditTimerRef.current = window.setTimeout(() => {
+                  const bodyIds = new Set(editedBodies.map(body => body.id));
+                  setRelationshipGraph(previous => ({
+                    ...previous,
+                    bodies: previous.bodies.map(body => {
+                      if (!bodyIds.has(body.id)) return body;
+                      const element = changedById.get(body.objectRef.elementId);
+                      const inferred = inferPhysicsBodyFromElement(element, body);
+                      return inferred ? { ...body, initial: inferred.initial, collider: inferred.collider } : body;
+                    }),
+                  }));
+                }, 180);
+              }
+            }
             const removedElementIds = [...previousSceneMap.keys()].filter(id => !currentSceneMap.has(id));
             lastSceneElementsRef.current = currentSceneMap;
 
@@ -18948,6 +19606,9 @@ function App() {
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-iannix", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               IanniX
+            </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-physics", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              Physics
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-mixer", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Mixer
@@ -20115,6 +20776,49 @@ function App() {
           </DraweratorPanel>
           )}
 
+          {shouldRenderPanel("physics") && (
+          <DraweratorPanel
+            id="physics"
+            title="Physics"
+            placement={panelLayouts.physics.placement}
+            layout={panelLayouts.physics}
+            dockTabs={getPanelDockTabs("physics")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.physics.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeDraweratorPanel}
+            onPlacementChange={placement => setPanelPlacement("physics", placement)}
+            onDragStart={event => startSidebarPanelDrag("physics", event)}
+            onClose={() => closeDraweratorPanel("physics")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.physics.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.physics.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.physics.placement]: false }))}
+          >
+            <PhysicsPanel
+              graph={relationshipGraph}
+              activeSystemId={activePhysicsSystemId}
+              onActiveSystemChange={setActivePhysicsSystemId}
+              selectedElementCount={Object.values(selectedElementIds).filter(Boolean).length}
+              selectedElementIds={selectedElementIds}
+              activeTool={physicsTool?.kind || null}
+              telemetry={physicsTelemetry}
+              onSetGraph={setRelationshipGraph}
+              onPlay={async systemId => { await physicsAudioRef.current.resume(); physicsRuntimeRef.current.play(systemId); }}
+              onPause={systemId => physicsRuntimeRef.current.pause(systemId)}
+              onReset={systemId => resetPhysicsSystem(systemId)}
+              onApply={applyPhysicsPose}
+              onAssignBody={assignPhysicsBodies}
+              onAssignCollider={options => assignPhysicsBodies({ ...options, bodyType: "fixed" })}
+              onCreatePopulation={createPhysicsPopulation}
+              onBeginTool={startPhysicsTool}
+              onAddRoute={createPhysicsRoute}
+              onMaterialize={materializePhysicsPopulation}
+              onSculpt={sculptPhysicsSelection}
+              onLoadExample={loadPhysicsExample}
+            />
+          </DraweratorPanel>
+          )}
+
           {(panelLayouts.mixer.placement === PANEL_PLACEMENTS.BOTTOM ? shouldRenderHorizontalPanel("mixer") : shouldRenderPanel("mixer")) && (
           <DraweratorPanel
             id="mixer"
@@ -20415,6 +21119,15 @@ function App() {
           placement="floating"
           onPlacementChange={updatePerformancePlacement}
           onClose={() => updatePerformanceVisibility(false)}
+        /> : null}
+
+        {relationshipGraph.systems.length > 0 ? <PhysicsOverlay
+          runtime={physicsRuntimeRef.current}
+          graph={relationshipGraph}
+          appState={p5OverlayScene.appState}
+          elements={p5OverlayScene.elements}
+          selectedElementIds={selectedElementIds}
+          onRenderMetric={renderMs => draweratorPerformanceMonitor.recordPhysics({ renderMs })}
         /> : null}
 
         <P5FrameOverlay

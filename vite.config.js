@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { viteSingleFile } from 'vite-plugin-singlefile'
+import { fileURLToPath } from 'node:url'
 
 const buildSingle = process.env.BUILD_SINGLE === 'true'
 const nvidiaProxy = {
@@ -26,6 +27,11 @@ export default defineConfig({
   },
   preview: {
     proxy: nvidiaProxy
+  },
+  resolve: {
+    alias: {
+      '@drawerator/physics-worker-factory': fileURLToPath(new URL(buildSingle ? './src/physicsWorkerFactory.inline.js' : './src/physicsWorkerFactory.js', import.meta.url)),
+    },
   },
   // The internal synth is lazy-loaded on first use. Pre-bundle both CommonJS
   // packages at dev-server startup so a first click cannot race Vite's
