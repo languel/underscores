@@ -13,6 +13,11 @@ const accumulators = new Map();
 const dirtySystems = new Set();
 let timer = 0;
 let transportTime = 0;
+let loadRevision = 0;
+// `play` can arrive immediately after `load`, while Rapier is still resolving.
+// Keep intent outside the rebuilt runtime so the request survives initialization.
+let playAllRequested = false;
+const requestedPlayingSystems = new Set();
 
 const post = (type, detail = {}, transfer = []) => self.postMessage({ type, ...detail }, transfer);
 
@@ -26,13 +31,29 @@ const disposeSystems = () => {
 };
 
 const initialize = async graphValue => {
+  const revision = ++loadRevision;
   disposeSystems();
-  graph = normalizeRelationshipGraph(graphValue);
-  for (const system of graph.systems.filter(candidate => candidate.enabled && candidate.adapter === "rapier2d")) {
-    const runtime = await RapierPhysicsSystem.create(graph, system.id);
-    systems.set(system.id, runtime);
-    checkpoints.set(system.id, [{ step: 0, snapshot: runtime.snapshot() }]);
-    if (system.playing) playing.add(system.id);
+  const nextGraph = normalizeRelationshipGraph(graphValue);
+  const nextSystems = new Map();
+  const nextCheckpoints = new Map();
+  for (const system of nextGraph.systems.filter(candidate => candidate.enabled && candidate.adapter === "rapier2d")) {
+    const runtime = await RapierPhysicsSystem.create(nextGraph, system.id);
+    if (revision !== loadRevision) {
+      runtime.dispose();
+      return;
+    }
+    nextSystems.set(system.id, runtime);
+    nextCheckpoints.set(system.id, [{ step: 0, snapshot: runtime.snapshot() }]);
+  }
+  if (revision !== loadRevision) {
+    for (const runtime of nextSystems.values()) runtime.dispose();
+    return;
+  }
+  graph = nextGraph;
+  for (const [systemId, runtime] of nextSystems) systems.set(systemId, runtime);
+  for (const [systemId, values] of nextCheckpoints) checkpoints.set(systemId, values);
+  for (const system of graph.systems) {
+    if (system.playing || playAllRequested || requestedPlayingSystems.has(system.id)) playing.add(system.id);
   }
   accumulators.clear();
   for (const systemId of systems.keys()) dirtySystems.add(systemId);
@@ -140,17 +161,30 @@ self.onmessage = event => {
   }
   if (message.type === "dispose") {
     disposeSystems();
+    playAllRequested = false;
+    requestedPlayingSystems.clear();
     if (timer) clearInterval(timer);
     timer = 0;
     return;
   }
   const runtime = systems.get(message.systemId);
   if (message.type === "play") {
-    if (runtime) playing.add(message.systemId);
-    else for (const id of systems.keys()) playing.add(id);
+    if (message.systemId) {
+      requestedPlayingSystems.add(message.systemId);
+      playing.add(message.systemId);
+    } else {
+      playAllRequested = true;
+      for (const id of systems.keys()) playing.add(id);
+    }
   } else if (message.type === "pause") {
-    if (runtime) playing.delete(message.systemId);
-    else playing.clear();
+    if (message.systemId) {
+      requestedPlayingSystems.delete(message.systemId);
+      playing.delete(message.systemId);
+    } else {
+      playAllRequested = false;
+      requestedPlayingSystems.clear();
+      playing.clear();
+    }
   } else if (message.type === "reset") {
     if (runtime) {
       runtime.reset();

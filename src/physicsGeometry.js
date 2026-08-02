@@ -17,6 +17,17 @@ const lerp = (a, b, amount) => a + (b - a) * amount;
 const pointLerp = (a, b, amount) => [lerp(a[0], b[0], amount), lerp(a[1], b[1], amount)];
 const distance = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
 
+const closedFreehandContour = (element, points, width, height) => {
+  if (element?.type !== "freedraw" || points.length < 3) return false;
+  // Excalidraw usually repeats the first point at the end of a closed
+  // freehand contour. Retain a scale-aware fallback for imported strokes.
+  return distance(points[0], points.at(-1)) <= Math.max(2, Math.min(width, height) * 0.08);
+};
+
+const distinctPoints = points => points.filter((point, index) => (
+  index === 0 || distance(point, points[index - 1]) > EPSILON
+));
+
 const rotatePoint = (point, center, angle) => {
   if (!angle) return point;
   const cos = Math.cos(angle);
@@ -49,7 +60,18 @@ export const inferPhysicsBodyFromElement = (element, overrides = {}) => {
   const height = Math.max(1, Math.abs(finite(element.height, 1)));
   let collider;
   let bodyType = overrides.bodyType || "dynamic";
-  if (["line", "arrow", "freedraw"].includes(element.type) || hasCubicBezierGeometry(element)) {
+  const freehandPoints = element.type === "freedraw" ? getPhysicsElementWorldPoints(element) : [];
+  if (closedFreehandContour(element, freehandPoints, width, height)) {
+    const nearRound = Math.abs(width - height) <= Math.max(width, height) * 0.16;
+    if (nearRound) {
+      collider = { kind: "circle", radius: Math.min(width, height) / 2 };
+    } else {
+      collider = {
+        kind: "convex",
+        points: distinctPoints(freehandPoints).map(point => [point[0] - center[0], point[1] - center[1]]),
+      };
+    }
+  } else if (["line", "arrow", "freedraw"].includes(element.type) || hasCubicBezierGeometry(element)) {
     const worldPoints = getPhysicsElementWorldPoints(element);
     collider = { kind: "polyline", points: worldPoints.map(point => [point[0] - center[0], point[1] - center[1]]) };
     bodyType = overrides.bodyType || "fixed";

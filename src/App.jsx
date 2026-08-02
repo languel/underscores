@@ -100,7 +100,7 @@ import { canUseAsObjectBoundsTarget, createMediaBinding, createMediaSource, crea
 import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
 import { createUnifiedStreamsApi, DraweratorStreamRegistry } from "./streamRuntime.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
-import { addRelationshipItem, createDefaultPhysicsSystem, findRelationshipOrphans, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, withPhysicsCustomData } from "./relationshipGraph.js";
+import { addRelationshipItem, createDefaultPhysicsSystem, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, withPhysicsCustomData } from "./relationshipGraph.js";
 import { applyAnchorAttractorFrame, applyBezierSculptOperator, inferPhysicsBodyFromElement } from "./physicsGeometry.js";
 import { createPhysicsApi, createRelationshipApi, PhysicsRuntimeController } from "./physicsRuntime.js";
 import { PhysicsAudioRouter } from "./physicsAudio.js";
@@ -1823,6 +1823,53 @@ const normalizeStreamGraphWithBuiltins = value => {
   return normalizeStreamGraph({ ...graph, sources: [...REQUIRED_INPUT_STREAM_SOURCES.filter(source => !sourceIds.has(source.id)), ...graph.sources] });
 };
 
+const physicsAuthoredElementSignature = element => JSON.stringify([
+  element?.x,
+  element?.y,
+  element?.width,
+  element?.height,
+  element?.angle || 0,
+  element?.version,
+  element?.points || null,
+]);
+
+// The native element is the authored source of truth while the world is
+// paused. Older scenes can contain a stale customData.physics.initial value
+// from before an object was moved, so repair the reset pose from the current
+// element bounds during hydration. Also repair legacy freedraw bodies whose
+// closed contour was saved as a polyline instead of a solid shape.
+const hydratePhysicsGraphForElements = (graphValue, elements = [], { repairAuthoredPose = true } = {}) => {
+  const graph = hydrateRelationshipGraphFromElements(graphValue, elements);
+  const elementById = new Map((elements || [])
+    .filter(element => element && !element.isDeleted)
+    .map(element => [element.id, element]));
+  let changed = false;
+  const bodies = graph.bodies.map(body => {
+    if (body.objectRef?.kind !== "element") return body;
+    const element = elementById.get(body.objectRef.elementId);
+    if (!element) return body;
+    const inferred = inferPhysicsBodyFromElement(element, body);
+    const nextInitial = repairAuthoredPose && body.tracking === "authored-rigid"
+      ? { ...body.initial, ...inferred.initial }
+      : body.initial;
+    const shouldRepairShape = element.type === "freedraw"
+      && body.bodyType === "dynamic"
+      && body.collider?.kind === "polyline"
+      && inferred.collider?.kind !== "polyline";
+    if (!shouldRepairShape
+      && nextInitial.x === body.initial.x
+      && nextInitial.y === body.initial.y
+      && nextInitial.angle === body.initial.angle) return body;
+    changed = true;
+    return normalizePhysicsBody({
+      ...body,
+      ...(shouldRepairShape ? { collider: inferred.collider } : {}),
+      initial: nextInitial,
+    });
+  });
+  return changed ? normalizeRelationshipGraph({ ...graph, bodies }) : graph;
+};
+
 function App() {
   console.log("Drawerator version: 1.8.0 (rebuilt at 2026-07-08T22:25:00)");
   // App States
@@ -2120,6 +2167,8 @@ function App() {
   const physicsToolStartRef = useRef(null);
   const physicsGestureRef = useRef(null);
   const physicsAuthoredEditTimerRef = useRef(0);
+  const physicsAuthoredElementSignaturesRef = useRef(new Map());
+  const physicsPendingAuthoredBodyIdsRef = useRef(new Set());
   const physicsApplyingRef = useRef(false);
   const physicsAudioRef = useRef(null);
   if (!physicsAudioRef.current) physicsAudioRef.current = new PhysicsAudioRouter();
@@ -2194,8 +2243,18 @@ function App() {
     const elements = excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.()
       || excalidrawAPIRef.current?.getSceneElements?.()
       || [];
-    physicsRuntimeRef.current.setGraph(hydrateRelationshipGraphFromElements(relationshipGraph, elements));
+    physicsRuntimeRef.current.setGraph(hydratePhysicsGraphForElements(relationshipGraph, elements, { repairAuthoredPose: false }));
   }, [relationshipGraph]);
+  useEffect(() => {
+    if (!excalidrawAPI) return;
+    const elementsById = new Map(excalidrawAPI.getSceneElementsIncludingDeleted().map(element => [element.id, element]));
+    for (const body of relationshipGraph.bodies) {
+      if (body.tracking !== "authored-rigid" || body.objectRef?.kind !== "element") continue;
+      if (physicsAuthoredElementSignaturesRef.current.has(body.id)) continue;
+      const element = elementsById.get(body.objectRef.elementId);
+      if (element && !element.isDeleted) physicsAuthoredElementSignaturesRef.current.set(body.id, physicsAuthoredElementSignature(element));
+    }
+  }, [excalidrawAPI, relationshipGraph]);
   useEffect(() => {
     const api = excalidrawAPIRef.current;
     if (!api) return;
@@ -3227,7 +3286,7 @@ function App() {
       if (migrated.some((element, index) => element !== elements[index])) {
         excalidrawAPI.updateScene({ elements: migrated, commitToHistory: false });
       }
-      setRelationshipGraph(previous => hydrateRelationshipGraphFromElements(previous, migrated));
+      setRelationshipGraph(previous => hydratePhysicsGraphForElements(previous, migrated));
     }
   }, [excalidrawAPI, setRelationshipGraph]);
 
@@ -8443,6 +8502,50 @@ function App() {
     updatePhysicsCustomDataForBodies([{ ...body, objectRef: { kind: "element", elementId } }], options);
   };
 
+  const synchronizePausedPhysicsBodies = (candidateBodies = null) => {
+    const api = excalidrawAPIRef.current;
+    const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+    if (!api || graph.world.pausedEditMode !== "author") return graph;
+    const candidateIds = candidateBodies
+      ? new Set(candidateBodies.map(body => typeof body === "string" ? body : body?.id).filter(Boolean))
+      : new Set(physicsPendingAuthoredBodyIdsRef.current);
+    if (!candidateIds.size) return graph;
+    const elementsById = new Map(api.getSceneElementsIncludingDeleted().map(element => [element.id, element]));
+    const synchronizedBodies = [];
+    const nextGraph = normalizeRelationshipGraph({
+      ...graph,
+      bodies: graph.bodies.map(body => {
+        if (
+          body.tracking !== "authored-rigid"
+          || body.objectRef?.kind !== "element"
+          || !candidateIds.has(body.id)
+          || physicsRuntimeRef.current.isPlaying(body.systemId)
+        ) return body;
+        const element = elementsById.get(body.objectRef.elementId);
+        if (!element || element.isDeleted) return body;
+        const inferred = inferPhysicsBodyFromElement(element, body);
+        const next = normalizePhysicsBody({ ...body, initial: inferred.initial, collider: inferred.collider });
+        synchronizedBodies.push(next);
+        return next;
+      }),
+    });
+    if (!synchronizedBodies.length) return graph;
+    // Push the new authored state immediately. This avoids a Reset or Play
+    // pressed immediately after a drag using an older worker snapshot.
+    relationshipGraphRef.current = nextGraph;
+    physicsRuntimeRef.current.setGraph(nextGraph);
+    setRelationshipGraph(nextGraph);
+    physicsApplyingRef.current = true;
+    historySuppressSceneRef.current += 1;
+    updatePhysicsCustomDataForBodies(synchronizedBodies, { commitToHistory: false });
+    synchronizedBodies.forEach(body => physicsPendingAuthoredBodyIdsRef.current.delete(body.id));
+    window.setTimeout(() => {
+      historySuppressSceneRef.current = Math.max(0, historySuppressSceneRef.current - 1);
+      physicsApplyingRef.current = false;
+    }, 0);
+    return nextGraph;
+  };
+
   const patchPhysicsBody = (bodyId, patch) => {
     const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
     const current = graph.bodies.find(body => body.id === bodyId);
@@ -8727,6 +8830,7 @@ function App() {
   };
 
   const resetPhysicsSystem = systemId => {
+    synchronizePausedPhysicsBodies();
     physicsRuntimeRef.current.reset(systemId);
     const api = excalidrawAPIRef.current;
     if (!api) return;
@@ -8744,6 +8848,10 @@ function App() {
   };
 
   const updatePhysicsWorld = patch => {
+    if (patch?.pausedEditMode === "preview") {
+      window.clearTimeout(physicsAuthoredEditTimerRef.current);
+      physicsPendingAuthoredBodyIdsRef.current.clear();
+    }
     setRelationshipGraph(previous => ({
       ...previous,
       world: { ...previous.world, ...patch },
@@ -8751,7 +8859,8 @@ function App() {
   };
 
   const playPhysicsWorld = async () => {
-    if (!relationshipGraphRef.current.systems.some(system => system.enabled)) {
+    const graph = synchronizePausedPhysicsBodies();
+    if (!graph.systems.some(system => system.enabled)) {
       setPhysicsWorldPlaying(false);
       setSceneExchangeStatus("Create a physics body or system before playing the world.");
       return;
@@ -8763,6 +8872,7 @@ function App() {
   const pausePhysicsWorld = () => physicsRuntimeRef.current.pause();
 
   const resetPhysicsWorld = () => {
+    synchronizePausedPhysicsBodies();
     physicsRuntimeRef.current.pause();
     relationshipGraphRef.current.systems.forEach(system => resetPhysicsSystem(system.id));
     setPhysicsWorldPlaying(false);
@@ -8777,23 +8887,30 @@ function App() {
     const api = excalidrawAPIRef.current;
     const elementById = new Map((api?.getSceneElementsIncludingDeleted() || []).map(element => [element.id, element]));
     let applied = false;
-    setRelationshipGraph(previous => normalizeRelationshipGraph({
-      ...previous,
-      bodies: previous.bodies.map(body => {
+    const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+    const appliedBodies = [];
+    const nextGraph = normalizeRelationshipGraph({
+      ...graph,
+      bodies: graph.bodies.map(body => {
         const pose = poseByEntityId.get(body.id);
         if (pose && body.systemId === systemId) {
           applied = true;
-          return { ...body, initial: { ...body.initial, ...pose } };
+          const next = { ...body, initial: { ...body.initial, ...pose } };
+          appliedBodies.push(next);
+          return next;
         }
         const element = body.objectRef?.kind === "element" ? elementById.get(body.objectRef.elementId) : null;
         if (body.systemId === systemId && body.tracking === "authored-deformable" && element && hasCubicBezierGeometry(element)) {
           applied = true;
-          return { ...body, initialGeometry: normalizeBezierGeometry(element.customData.draweratorGeometry) };
+          const next = { ...body, initialGeometry: normalizeBezierGeometry(element.customData.draweratorGeometry) };
+          appliedBodies.push(next);
+          return next;
         }
         return body;
       }),
-    }));
-    if (api && applied) api.updateScene({ elements: api.getSceneElementsIncludingDeleted().map(element => ({ ...element })), commitToHistory: true });
+    });
+    if (applied) setRelationshipGraph(nextGraph);
+    if (api && appliedBodies.length) updatePhysicsCustomDataForBodies(appliedBodies, { commitToHistory: true });
     setSceneExchangeStatus("Applied the current physics pose as the authored reset pose.");
     return applied;
   };
@@ -9209,7 +9326,7 @@ function App() {
     { id: "physics.collider.assign", name: "Physics: Assign Fixed Collider", aliases: ["/physics wall"], category: "Physics", args: { systemId: "string?", sensor: "boolean?" }, ai: { expose: true, description: "Turn selected drawings or curves into fixed colliders or sensors." }, action: (_api, args) => assignPhysicsBodies({ ...args, bodyType: "fixed" }) },
     { id: "physics.population.create", name: "Physics: Create Runtime Population", aliases: ["/physics gas"], category: "Physics", args: { systemId: "string?", count: "number?", radius: "number?", bounds: "{x,y,width,height}?" }, ai: { expose: true, description: "Create a lightweight seeded runtime particle population." }, action: (_api, args) => createPhysicsPopulation(args) },
     { id: "physics.constraint.tool", name: "Physics: Draw Constraint", aliases: ["/physics constraint"], category: "Physics", args: { kind: "pin|spring|distance|revolute|weld|attractor", systemId: "string?" }, action: (_api, args) => startPhysicsTool(args?.kind || "spring", args?.systemId) },
-    { id: "physics.play", name: "Physics: Play", aliases: ["/physics play"], category: "Physics", action: async (_api, args) => { await physicsAudioRef.current.resume(); physicsRuntimeRef.current.play(args?.systemId || activePhysicsSystemId); } },
+    { id: "physics.play", name: "Physics: Play", aliases: ["/physics play"], category: "Physics", action: async (_api, args) => { synchronizePausedPhysicsBodies(); await physicsAudioRef.current.resume(); physicsRuntimeRef.current.play(args?.systemId || activePhysicsSystemId); } },
     { id: "physics.pause", name: "Physics: Pause", aliases: ["/physics pause"], category: "Physics", action: (_api, args) => physicsRuntimeRef.current.pause(args?.systemId || activePhysicsSystemId) },
     { id: "physics.reset", name: "Physics: Reset", aliases: ["/physics reset"], category: "Physics", action: (_api, args) => resetPhysicsSystem(args?.systemId || activePhysicsSystemId) },
     { id: "physics.apply", name: "Physics: Apply Current Pose", aliases: ["/physics apply", "/physics bake"], category: "Physics", action: (_api, args) => applyPhysicsPose(args?.systemId || activePhysicsSystemId) },
@@ -13304,7 +13421,7 @@ function App() {
     setP5Scripts(restoredP5.scripts);
     setStreamGraph(normalizeStreamGraphWithBuiltins(importedStreamGraph));
     setBrushChannels(normalizeBrushChannels(importedBrushChannels));
-    setRelationshipGraph(hydrateRelationshipGraphFromElements(importedRelationshipGraph, restoredElements));
+    setRelationshipGraph(hydratePhysicsGraphForElements(importedRelationshipGraph, restoredElements));
     if (authoredState) {
       mediaSourcesRef.current = authoredState.mediaSources;
       setMediaSources(authoredState.mediaSources);
@@ -14111,25 +14228,47 @@ function App() {
       if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
       const importedIds = Object.fromEntries(importedElements.map(element => [element.id, true]));
       const existingIds = new Set(existing.filter(element => !element.isDeleted).map(element => element.id));
-      const importedRelationships = hydrateRelationshipGraphFromElements(
+      const importedRelationships = hydratePhysicsGraphForElements(
         remapRelationshipGraph(parsedSelection.relationshipGraph, imported.idMap, existingIds),
         importedElements,
       );
-      setRelationshipGraph(previous => {
-        const current = normalizeRelationshipGraph(previous);
-        const systemIds = new Set(current.systems.map(system => system.id));
-        const itemIds = new Set([...current.bodies, ...current.populations, ...current.constraints, ...current.routes].map(item => item.id));
-        const uniqueItem = item => itemIds.has(item.id) ? { ...item, id: `${item.id}-${crypto.randomUUID()}` } : item;
-        return normalizeRelationshipGraph({
-          systems: [...current.systems, ...importedRelationships.systems.filter(system => !systemIds.has(system.id))],
-          bodies: [...current.bodies, ...importedRelationships.bodies.map(uniqueItem)],
-          populations: [...current.populations, ...importedRelationships.populations.map(uniqueItem)],
-          constraints: [...current.constraints, ...importedRelationships.constraints.map(uniqueItem)],
-          routes: [...current.routes, ...importedRelationships.routes.map(uniqueItem)],
-        });
+      const current = normalizeRelationshipGraph(relationshipGraphRef.current);
+      const systemIds = new Set(current.systems.map(system => system.id));
+      const itemIds = new Set([...current.bodies, ...current.populations, ...current.constraints, ...current.routes].map(item => item.id));
+      const bodyIdRemap = new Map();
+      const uniqueItem = (item, { isBody = false } = {}) => {
+        const originalId = item.id;
+        const id = itemIds.has(originalId) ? `${originalId}-${crypto.randomUUID()}` : originalId;
+        itemIds.add(id);
+        if (isBody && id !== originalId) bodyIdRemap.set(originalId, id);
+        return id === originalId ? item : { ...item, id };
+      };
+      const importedBodies = importedRelationships.bodies.map(item => uniqueItem(item, { isBody: true }));
+      const importedPopulations = importedRelationships.populations.map(population => {
+        const next = uniqueItem(population);
+        const prototypeId = bodyIdRemap.get(next.prototype.id) || next.prototype.id;
+        return prototypeId === next.prototype.id
+          ? next
+          : { ...next, prototype: { ...next.prototype, id: prototypeId } };
       });
+      const pastedElements = importedElements.map(element => {
+        const physics = getPhysicsCustomData(element);
+        const bodyId = physics?.id ? bodyIdRemap.get(physics.id) : null;
+        return bodyId ? {
+          ...element,
+          customData: withPhysicsCustomData(element.customData, { ...physics, id: bodyId }),
+        } : element;
+      });
+      setRelationshipGraph(normalizeRelationshipGraph({
+        ...current,
+        systems: [...current.systems, ...importedRelationships.systems.filter(system => !systemIds.has(system.id))],
+        bodies: [...current.bodies, ...importedBodies],
+        populations: [...current.populations, ...importedPopulations],
+        constraints: [...current.constraints, ...importedRelationships.constraints.map(uniqueItem)],
+        routes: [...current.routes, ...importedRelationships.routes.map(uniqueItem)],
+      }));
       excalidrawAPI.updateScene({
-        elements: [...existing, ...importedElements],
+        elements: [...existing, ...pastedElements],
         appState: { selectedElementIds: importedIds },
         commitToHistory: true,
       });
@@ -14879,6 +15018,13 @@ function App() {
         <label className="iannix-field" {...infoProps("Pixels per metre", "Scene scale used when converting real-world gravity to canvas coordinates. 100 px/m keeps the default gravity close to the prior 980 px/s² behavior.")}>
           <span>Pixels per metre</span>
           <input type="number" min="1" max="1000" step="1" value={world.pixelsPerMeter} onChange={event => setWorldNumber("pixelsPerMeter", event.target.value)} />
+        </label>
+        <label className="iannix-field" {...infoProps("Paused edits", "Author reset pose is the default: moving a body while paused changes its saved reset position. Keep reset pose lets you arrange a temporary preview and return to the authored state with Reset.")}>
+          <span>Paused edits</span>
+          <select value={world.pausedEditMode} onChange={event => updatePhysicsWorld({ pausedEditMode: event.target.value })}>
+            <option value="author">Author reset pose</option>
+            <option value="preview">Keep reset pose</option>
+          </select>
         </label>
         <div className="physics-transport">
           <button type="button" className="iannix-flat-button" onClick={playPhysicsWorld} disabled={physicsWorldPlaying}>Play world</button>
@@ -19568,27 +19714,31 @@ function App() {
               const previous = previousSceneMap.get(element.id);
               return !previous || previous.version !== element.version || previous.isDeleted !== element.isDeleted;
             });
-            if (!physicsApplyingRef.current && historySuppressSceneRef.current === 0 && changedElements.length) {
-              const changedById = new Map(changedElements.map(element => [element.id, element]));
-              const editedBodies = relationshipGraphRef.current.bodies.filter(body => (
-                body.tracking === "authored-rigid" && body.objectRef?.kind === "element" &&
-                changedById.has(body.objectRef.elementId) && !physicsRuntimeRef.current.isPlaying(body.systemId)
-              ));
-              if (editedBodies.length) {
-                window.clearTimeout(physicsAuthoredEditTimerRef.current);
-                physicsAuthoredEditTimerRef.current = window.setTimeout(() => {
-                  const bodyIds = new Set(editedBodies.map(body => body.id));
-                  setRelationshipGraph(previous => ({
-                    ...previous,
-                    bodies: previous.bodies.map(body => {
-                      if (!bodyIds.has(body.id)) return body;
-                      const element = changedById.get(body.objectRef.elementId);
-                      const inferred = inferPhysicsBodyFromElement(element, body);
-                      return inferred ? { ...body, initial: inferred.initial, collider: inferred.collider } : body;
-                    }),
-                  }));
-                }, 180);
-              }
+            const currentElementsById = new Map(effectiveElements.map(element => [element.id, element]));
+            const physicsGraph = relationshipGraphRef.current;
+            const pausedPhysicsEdits = [];
+            for (const body of physicsGraph.bodies) {
+              if (body.tracking !== "authored-rigid" || body.objectRef?.kind !== "element") continue;
+              const element = currentElementsById.get(body.objectRef.elementId);
+              if (!element || element.isDeleted) continue;
+              const signature = physicsAuthoredElementSignature(element);
+              const previousSignature = physicsAuthoredElementSignaturesRef.current.get(body.id);
+              physicsAuthoredElementSignaturesRef.current.set(body.id, signature);
+              if (
+                previousSignature !== undefined
+                && previousSignature !== signature
+                && !physicsApplyingRef.current
+                && historySuppressSceneRef.current === 0
+                && physicsGraph.world.pausedEditMode === "author"
+                && !physicsRuntimeRef.current.isPlaying(body.systemId)
+              ) pausedPhysicsEdits.push(body);
+            }
+            if (pausedPhysicsEdits.length) {
+              pausedPhysicsEdits.forEach(body => physicsPendingAuthoredBodyIdsRef.current.add(body.id));
+              window.clearTimeout(physicsAuthoredEditTimerRef.current);
+              physicsAuthoredEditTimerRef.current = window.setTimeout(() => {
+                synchronizePausedPhysicsBodies();
+              }, 80);
             }
             const removedElementIds = [...previousSceneMap.keys()].filter(id => !currentSceneMap.has(id));
             lastSceneElementsRef.current = currentSceneMap;
@@ -21062,7 +21212,7 @@ function App() {
               onPatchBody={patchPhysicsBody}
               onRemoveBody={removePhysicsBody}
               onRemoveSystem={removePhysicsSystem}
-              onPlay={async systemId => { await physicsAudioRef.current.resume(); physicsRuntimeRef.current.play(systemId); }}
+              onPlay={async systemId => { synchronizePausedPhysicsBodies(); await physicsAudioRef.current.resume(); physicsRuntimeRef.current.play(systemId); }}
               onPause={systemId => physicsRuntimeRef.current.pause(systemId)}
               onReset={systemId => resetPhysicsSystem(systemId)}
               onApply={applyPhysicsPose}

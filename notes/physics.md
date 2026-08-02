@@ -28,6 +28,8 @@ Select a canvas object and use Shift-right-click → **Make Physics Body**, or r
 
 Assigned objects own their authored body data at `object.customData.physics`. The Properties panel exposes its most useful fields in a pinned **Physics role** section, while the relationship graph retains only the stable object/system binding needed for constraints and routes. Rapier receives a derived runtime body definition. Older scenes may still contain `customData.draweratorPhysics`; it is read as a legacy alias and replaced with `customData.physics` on the next body edit.
 
+While a world is paused, **Paused edits → Author reset pose** is the default: moving, resizing, rotating, or editing an authored rigid object updates its physics reset pose and inferred collider in both the graph and `customData.physics`. **Reset** returns to that latest paused arrangement; **Apply current pose** commits a running simulation pose in the same way. Choose **Keep reset pose** when you want temporary paused staging or a simulation experiment to return to a locked authored arrangement. Play and Reset flush a pending paused edit before talking to the worker, and worker graph loads are revision-guarded so an older async load cannot replace a newer authored scene. Closed, near-round freehand strokes infer solid circle colliders; other closed strokes infer convex colliders, while open strokes remain polyline walls.
+
 1. Draw ordinary canvas objects and select them.
 2. Assign Dynamic, Kinematic, Fixed collider, or Sensor properties.
 3. Choose Pin, Spring, Distance, Revolute, Weld, or Attractor, then click two canvas endpoints. Handles appear for selected participants.

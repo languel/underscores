@@ -33,9 +33,15 @@ test("world physics defaults use real-world gravity and custom systems remain ex
   assert.deepEqual(graph.world.gravity, { x: 0, y: -9.8 });
   assert.equal(graph.world.viscosity, 0);
   assert.equal(graph.world.simSpeed, 1);
+  assert.equal(graph.world.pausedEditMode, "author");
   assert.equal(graph.systems[0].gravityMode, "world");
   const custom = createDefaultPhysicsSystem({ gravity: { x: 0, y: 500 } });
   assert.equal(custom.gravityMode, "custom");
+});
+
+test("world physics can lock authored reset poses during paused preview edits", () => {
+  const graph = normalizeRelationshipGraph({ world: { pausedEditMode: "preview" } });
+  assert.equal(graph.world.pausedEditMode, "preview");
 });
 
 test("physics body custom-data mirror keeps authored material and collider fields", () => {

@@ -36,6 +36,23 @@ test("shape inference treats curves as fixed polylines and ellipses as circles",
   assert.equal(circle.collider.radius, 10);
 });
 
+test("closed round freehand strokes infer solid dynamic circle colliders", () => {
+  const freehand = {
+    id: "freehand-circle",
+    type: "freedraw",
+    x: 100,
+    y: 200,
+    width: 40,
+    height: 38,
+    angle: 0,
+    points: [[0, 19], [5, 6], [20, 0], [35, 6], [40, 19], [35, 32], [20, 38], [5, 32], [0, 19]],
+  };
+  const body = inferPhysicsBodyFromElement(freehand, { systemId: "system", bodyType: "dynamic" });
+  assert.equal(body.bodyType, "dynamic");
+  assert.equal(body.collider.kind, "circle");
+  assert.equal(body.collider.radius, 19);
+});
+
 test("Bezier sculpt operators preserve anchor identity and are deterministic", () => {
   const first = applyBezierSculptOperator(curve, "randomize", { seed: 9, amount: 0.01 });
   const second = applyBezierSculptOperator(curve, "randomize", { seed: 9, amount: 0.01 });

@@ -59,6 +59,10 @@ export const normalizePhysicsWorld = value => ({
   viscosity: clamp(value?.viscosity, 0, 100),
   simSpeed: clamp(value?.simSpeed ?? 1, 0, 8),
   pixelsPerMeter: clamp(value?.pixelsPerMeter ?? PHYSICS_PIXELS_PER_METER, 1, 1000),
+  // Authoring is the normal canvas-first workflow: a paused transform edit
+  // becomes the next Reset pose. Preview keeps the authored pose locked so a
+  // user can stage an experiment and return to it with Reset.
+  pausedEditMode: value?.pausedEditMode === "preview" ? "preview" : "author",
 });
 
 export const normalizePhysicsEndpoint = value => {
