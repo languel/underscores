@@ -191,7 +191,7 @@ export const buildSceneGroupTree = (elements = [], { outlinerOrder = false } = {
     if (!scoreId) return null;
     return {
       id: scoreId,
-      label: String(imported.scoreLabel || imported.source || "IanniX score").trim() || "IanniX score",
+      label: String(imported.scoreLabel || imported.source || "Score").trim() || "Score",
       group: String(imported.group || "").trim(),
     };
   };

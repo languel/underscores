@@ -170,6 +170,41 @@ export const normalizeIannixData = (data) => {
   };
 };
 
+// Canonical Score API names. The IanniX spellings remain exported as aliases
+// because scripts and integrations may import them directly.
+export const SCORE_ROLES = IANNIX_ROLES;
+export const SCORE_LOOP_MODES = IANNIX_LOOP_MODES;
+export const createDefaultScoreData = createDefaultIannixData;
+export const normalizeScoreData = normalizeIannixData;
+
+// Score is the public name for the former IanniX object metadata. Keep the
+// old key as a compatibility alias so existing scenes, scripts, and imports
+// continue to work while new authored data has a stable `customData.score`
+// home.
+export const getScoreData = value => {
+  const customData = value?.customData && typeof value.customData === "object"
+    ? value.customData
+    : value;
+  return customData?.score || customData?.iannix || null;
+};
+
+export const withScoreData = (customData, value) => {
+  const score = typeof structuredClone === "function" ? structuredClone(value) : JSON.parse(JSON.stringify(value));
+  const legacy = typeof structuredClone === "function" ? structuredClone(score) : JSON.parse(JSON.stringify(score));
+  return { ...(customData || {}), score, iannix: legacy };
+};
+
+export const normalizeScoreElementMetadata = element => {
+  const source = getScoreData(element);
+  if (!source) return element;
+  const normalized = normalizeIannixData(source);
+  const customData = withScoreData(element.customData, normalized);
+  const current = element.customData || {};
+  if (JSON.stringify(current.score) === JSON.stringify(customData.score)
+    && JSON.stringify(current.iannix) === JSON.stringify(customData.iannix)) return element;
+  return { ...element, customData };
+};
+
 const roleLabelPrefix = (role) => role
   ? `${role.charAt(0).toUpperCase()}${role.slice(1)}`
   : "";
@@ -181,7 +216,7 @@ export const allocateIannixRoleLabels = (elements, targetIds, role) => {
 
   for (const element of elements || []) {
     if (!element || element.isDeleted || targets.has(element.id)) continue;
-    const data = normalizeIannixData(element.customData?.iannix);
+    const data = normalizeIannixData(getScoreData(element));
     const label = data.role ? data.label.trim() : "";
     if (label) used.add(label.toLocaleLowerCase());
   }
@@ -197,7 +232,7 @@ export const allocateIannixRoleLabels = (elements, targetIds, role) => {
   let nextNumber = 1;
   for (const element of elements || []) {
     if (!element || element.isDeleted || !targets.has(element.id)) continue;
-    const current = normalizeIannixData(element.customData?.iannix);
+    const current = normalizeIannixData(getScoreData(element));
     const currentLabel = current.label.trim();
     if (current.role === role && currentLabel && !used.has(currentLabel.toLocaleLowerCase())) {
       labels.set(element.id, currentLabel);
@@ -217,7 +252,7 @@ export const allocateIannixRoleLabels = (elements, targetIds, role) => {
 };
 
 export const isRuntimeCursor = (element) => {
-  const source = element?.customData?.iannix;
+  const source = getScoreData(element);
   if (source?.role !== "cursor" || source.active === false) return false;
   if (!source.cursor?.curveId && !source.cursor?.curveRef) return false;
   const data = normalizeIannixData(source);
@@ -226,7 +261,7 @@ export const isRuntimeCursor = (element) => {
 
 export const enforceRuntimeCursorHostVisibility = (element) => {
   if (!isRuntimeCursor(element)) return element;
-  const data = normalizeIannixData(element.customData?.iannix);
+  const data = normalizeIannixData(getScoreData(element));
   const sourceOpacity = element.opacity > 0
     ? element.opacity
     : (data.cursor.sourceOpacity ?? element.customData?.savedOpacity ?? 100);
@@ -243,13 +278,10 @@ export const enforceRuntimeCursorHostVisibility = (element) => {
     ...element,
     opacity: 0,
     strokeColor: "transparent",
-    customData: {
-      ...(element.customData || {}),
-      iannix: {
-        ...data,
-        cursor: { ...data.cursor, sourceOpacity, sourceStrokeColor },
-      },
-    },
+    customData: withScoreData(element.customData, {
+      ...data,
+      cursor: { ...data.cursor, sourceOpacity, sourceStrokeColor },
+    }),
   };
 };
 
@@ -267,7 +299,7 @@ export const reconcileRuntimeCursorHosts = (elements, supportElements = elements
   );
   return (elements || []).map(element => {
     if (!isRuntimeCursor(element)) return element;
-    const data = normalizeIannixData(element.customData?.iannix);
+    const data = normalizeIannixData(getScoreData(element));
     const supportCurve = supportById.get(data.cursor.curveId);
     const snapped = supportCurve
       ? snapCursorHostToCurveStart(element, supportCurve, data.cursor.followTangent)
@@ -315,7 +347,7 @@ export const getObjectTimeState = (globalTime, timing) => {
 };
 
 export const resolveIannixObjectTiming = (element, options = {}) => {
-  const data = normalizeIannixData(element?.customData?.iannix);
+  const data = normalizeIannixData(getScoreData(element));
   return resolveScoreTiming(data, {
     ...options,
     paths: options.paths || getElementCorePaths(element),
@@ -511,7 +543,7 @@ export const getElementCorePaths = (element) => {
   }
   if (hasCubicBezierGeometry(element)) {
     const centerline = getBezierWorldPath(element);
-    paths = element.type === "freedraw" && element.customData?.iannix?.role === "trigger" && !isPointLikeFreedraw(element)
+    paths = element.type === "freedraw" && getScoreData(element)?.role === "trigger" && !isPointLikeFreedraw(element)
       ? getFreedrawTriggerStrokePaths(element, centerline)
       : [centerline];
     corePathCache.set(element, {
@@ -530,7 +562,7 @@ export const getElementCorePaths = (element) => {
     element.customData.originalPoints.length >= 2
   ) {
     const centerline = element.customData.originalPoints.map(point => rotatePoint(point, center, angle));
-    paths = element.type === "freedraw" && element.customData?.iannix?.role === "trigger"
+    paths = element.type === "freedraw" && getScoreData(element)?.role === "trigger"
       ? getFreedrawTriggerStrokePaths(element, centerline)
       : [centerline];
   } else if (
@@ -542,7 +574,7 @@ export const getElementCorePaths = (element) => {
       element.x + point[0],
       element.y + point[1],
     ], center, angle));
-    paths = element.type === "freedraw" && element.customData?.iannix?.role === "trigger"
+    paths = element.type === "freedraw" && getScoreData(element)?.role === "trigger"
       ? getFreedrawTriggerStrokePaths(element, path)
       : [path];
   } else {
@@ -856,7 +888,7 @@ const getSvgHostScoreObjects = host => {
     .filter(path => path.node.draweratorId)
     .map(path => [path.node.draweratorId, path]));
   const objects = Object.entries(svg.metadataMirror?.nodes || {}).flatMap(([nodeId, nodeData]) => {
-    if (!IANNIX_ROLES.includes(nodeData?.iannix?.role)) return [];
+    if (!IANNIX_ROLES.includes(nodeData?.score?.role || nodeData?.iannix?.role)) return [];
     const path = pathsByNodeId.get(nodeId);
     const subpath = path?.subpaths?.find(candidate => (
       String(candidate.index) === String(nodeData.subpathId ?? 0) && candidate.valid
@@ -877,7 +909,7 @@ const getSvgHostScoreObjects = host => {
       points: worldPath,
       isDeleted: false,
       customData: {
-        iannix: normalizeIannixData(nodeData.iannix),
+        ...withScoreData({}, normalizeIannixData(nodeData.score || nodeData.iannix)),
         draweratorObjectRef: ref,
         draweratorSvgHostId: host.id,
       },
@@ -895,7 +927,7 @@ const getSvgHostScoreObjects = host => {
 const getSvgScoreObjects = elements => (elements || []).flatMap(getSvgHostScoreObjects);
 
 export const getScoreObjects = (elements) => [
-  ...(elements || []).filter(element => !element.isDeleted && IANNIX_ROLES.includes(element.customData?.iannix?.role)),
+  ...(elements || []).filter(element => !element.isDeleted && IANNIX_ROLES.includes(getScoreData(element)?.role)),
   ...getSvgScoreObjects(elements),
 ];
 
@@ -938,7 +970,7 @@ export const advanceScoreCollisionState = (collisions, previousCollisions, playi
 };
 
 const getNormalizedElementData = (element) => {
-  const source = element?.customData?.iannix;
+  const source = getScoreData(element);
   const cached = normalizedElementDataCache.get(element);
   if (cached?.source === source) return cached.data;
   const data = normalizeIannixData(source);
@@ -979,7 +1011,7 @@ export const evaluateScoreFrame = (
     return timing;
   };
   const triggerObjects = scoreObjects
-    .filter(element => element.customData.iannix.role === "trigger")
+    .filter(element => getScoreData(element)?.role === "trigger")
     .map(element => ({ element, data: getNormalizedElementData(element) }))
     .filter(trigger => trigger.data.active);
   const triggers = detectCollisions
@@ -996,11 +1028,11 @@ export const evaluateScoreFrame = (
     Math.max(trigger.data.trigger.duration, resolveTimeValue(trigger.data.trigger.durationValue, timeContext)),
   ]));
 
-  for (const cursorElement of scoreObjects.filter(element => element.customData.iannix.role === "cursor")) {
+  for (const cursorElement of scoreObjects.filter(element => getScoreData(element)?.role === "cursor")) {
     const data = getNormalizedElementData(cursorElement);
     if (!data.active || (!data.cursor.curveId && !data.cursor.curveRef)) continue;
     const curveElement = resolveCurveElement(data);
-    if (!curveElement || curveElement.customData?.iannix?.role !== "curve") continue;
+    if (!curveElement || getScoreData(curveElement)?.role !== "curve") continue;
     const resolvedTiming = resolveElementTiming(cursorElement);
     const timeState = getObjectTimeState(globalTime, resolvedTiming);
     const range = resolvedTiming.cursorRange || [0, 1];

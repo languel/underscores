@@ -92,7 +92,7 @@ const DraweratorApiGuide = () => (
       <summary>Scene, events, and transport</summary>
       <dl className="info-svg-command-list">
         <div><dt><code>canvas.all()</code></dt><dd>Read-only snapshots of all non-deleted scene objects.</dd></div>
-        <div><dt><code>canvas.get(id)</code></dt><dd>Get one object by element id, label, or IanniX group; returns <code>null</code> when absent.</dd></div>
+        <div><dt><code>canvas.get(id)</code></dt><dd>Get one object by element id, label, or Score group; returns <code>null</code> when absent.</dd></div>
         <div><dt><code>canvas.find(query)</code></dt><dd>Search by text, or filter snapshots with a predicate. <code>objects</code> is an alias of <code>canvas</code>.</dd></div>
         <div><dt><code>canvas.selected()</code></dt><dd>Read-only snapshots of the current canvas selection.</dd></div>
         <div><dt><code>events.on(pattern, listener)</code></dt><dd>Subscribe to the event bus; supports a trailing <code>.*</code> wildcard and returns an unsubscribe function.</dd></div>
@@ -166,7 +166,7 @@ const unsubscribe = body.subscribe(frame => {
     </section>
     <section>
       <h3>Unified inputs and Brush channels</h3>
-      <p>The <strong>Media</strong> panel owns camera, URL/file, and canvas image sources. The separate <strong>Inputs</strong> panel owns pointer, keyboard, clocks, MediaPipe, IanniX, MIDI, serial, WebSocket/OSC JSON, and persistent descriptors for trusted virtual streams. Device handles, pixels, socket state, and current samples are local and transient; scene exchange keeps only named mappings and graph processors.</p>
+      <p>The <strong>Media</strong> panel owns camera, URL/file, and canvas image sources. The separate <strong>Inputs</strong> panel owns pointer, keyboard, clocks, MediaPipe, Score, MIDI, serial, WebSocket/OSC JSON, and persistent descriptors for trusted virtual streams. Device handles, pixels, socket state, and current samples are local and transient; scene exchange keeps only named mappings and graph processors.</p>
       <pre><code>{`// Create a runtime-only stream in a trusted livecode runtime
 const hand = __.streams.create({
   id: "my-hand", name: "My hand", kind: "space"
@@ -271,8 +271,8 @@ const IannixInfoGuide = ({ activeCommand = null }) => (
       </section>
     )}
     <section>
-      <h3>How an IanniX score works</h3>
-      <p>An IanniX score is a set of named objects: <strong>curves</strong> define geometry, <strong>cursors</strong> travel a curve in score time, and <strong>triggers</strong> send messages at positions on a curve. JavaScript creates and configures those objects through textual <code>run()</code> commands.</p>
+      <h3>How a Score works</h3>
+      <p>A Score is a set of named objects: <strong>curves</strong> define geometry, <strong>cursors</strong> travel a curve in score time, and <strong>triggers</strong> send messages at positions on a curve. JavaScript creates and configures those objects through textual <code>run()</code> commands. Legacy IanniX syntax remains supported.</p>
       <pre><code>{`function askUserForParameters() {
   ask("Motion", "Speed", "speed", 80);
 }
@@ -357,7 +357,7 @@ const guideTitle = mode => ({
   svg: "SVG quick reference",
   p5: "p5 quick reference",
   play: "Play Core quick reference",
-  iannix: "IanniX quick reference",
+  iannix: "Score quick reference",
   brush: "Brush quick reference",
   media: "Media streams and actors",
 }[mode] || null);

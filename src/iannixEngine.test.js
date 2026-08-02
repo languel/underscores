@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   advanceScoreCollisionState,
   allocateIannixRoleLabels,
+  createDefaultScoreData,
   createDefaultIannixData,
   dampCursorTransform,
   enforceRuntimeCursorHostVisibility,
@@ -11,8 +12,11 @@ import {
   getElementCenter,
   getElementCorePaths,
   getObjectTimeState,
+  getScoreData,
   isRuntimeCursor,
   normalizeIannixData,
+  normalizeScoreData,
+  normalizeScoreElementMetadata,
   pathsIntersect,
   reconcileRuntimeCursorHosts,
   samplePath,
@@ -42,6 +46,22 @@ const line = (id, points, iannix = null) => {
     customData: iannix ? { iannix } : {},
   };
 };
+
+test("Score metadata is canonical while legacy IanniX data remains readable", () => {
+  const legacy = { id: "curve", customData: { iannix: { role: "curve", label: "Legacy" } } };
+  const migrated = normalizeScoreElementMetadata(legacy);
+  assert.equal(getScoreData(migrated).label, "Legacy");
+  assert.equal(migrated.customData.score.label, "Legacy");
+  assert.equal(migrated.customData.iannix.label, "Legacy");
+  const scoreOnly = { id: "score", customData: { score: { role: "cursor" } } };
+  assert.equal(getScoreData(scoreOnly).role, "cursor");
+  assert.equal(normalizeScoreElementMetadata(scoreOnly).customData.iannix.role, "cursor");
+});
+
+test("Score API names alias the legacy IanniX helpers", () => {
+  const data = createDefaultScoreData({ role: "curve" });
+  assert.equal(normalizeScoreData(data).role, "curve");
+});
 
 test("only an active linked cursor transfers visual ownership to the runtime", () => {
   const cursor = line("cursor", [[0, 0], [0, 20]], createDefaultIannixData({

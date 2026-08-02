@@ -6,9 +6,14 @@ import {
   addRelationshipItem,
   createDefaultPhysicsSystem,
   findRelationshipOrphans,
+  getPhysicsCustomData,
+  hydrateRelationshipGraphFromElements,
   normalizeRelationshipGraph,
   physicsRouteMatches,
   remapRelationshipGraph,
+  serializePhysicsBodyCustomData,
+  serializeRelationshipGraphForScene,
+  withPhysicsCustomData,
 } from "./relationshipGraph.js";
 
 test("relationship graphs normalize legacy empty data and typed items", () => {
@@ -21,6 +26,85 @@ test("relationship graphs normalize legacy empty data and typed items", () => {
   assert.equal(graph.systems[0].clock.fixedHz, 60);
   assert.equal(graph.bodies[0].objectRef.elementId, "old");
   assert.equal(graph.bodies[0].tracking, "authored-rigid");
+});
+
+test("world physics defaults use real-world gravity and custom systems remain explicit", () => {
+  const graph = normalizeRelationshipGraph({ systems: [{ id: "world-system" }] });
+  assert.deepEqual(graph.world.gravity, { x: 0, y: -9.8 });
+  assert.equal(graph.world.viscosity, 0);
+  assert.equal(graph.world.simSpeed, 1);
+  assert.equal(graph.systems[0].gravityMode, "world");
+  const custom = createDefaultPhysicsSystem({ gravity: { x: 0, y: 500 } });
+  assert.equal(custom.gravityMode, "custom");
+});
+
+test("physics body custom-data mirror keeps authored material and collider fields", () => {
+  const mirror = serializePhysicsBodyCustomData({
+    id: "body",
+    bodyType: "kinematic",
+    name: "Pendulum bob",
+    collisionTags: ["body", "body"],
+    collider: { kind: "circle", radius: 18, sensor: true },
+    material: { friction: 0.4, restitution: 0.25, density: 2, linearDamping: 0.1 },
+  });
+  assert.equal(mirror.version, 1);
+  assert.equal(mirror.id, "body");
+  assert.equal(mirror.role, "body");
+  assert.equal(mirror.enabled, true);
+  assert.equal(mirror.bodyType, "kinematic");
+  assert.equal(mirror.name, "Pendulum bob");
+  assert.deepEqual(mirror.collisionTags, ["body"]);
+  assert.deepEqual(mirror.collider, { kind: "circle", sensor: true, radius: 18, width: 24, height: 24, points: [] });
+  assert.deepEqual(mirror.material, { density: 2, friction: 0.4, restitution: 0.25, linearDamping: 0.1, angularDamping: 0.01 });
+  assert.deepEqual(mirror.initial, { x: 0, y: 0, angle: 0, velocityX: 0, velocityY: 0, angularVelocity: 0 });
+});
+
+test("physics metadata uses the short canonical key and reads the legacy alias", () => {
+  const body = { bodyType: "fixed", collider: { kind: "box" }, material: { restitution: 0.2 } };
+  const customData = { physics: serializePhysicsBodyCustomData(body) };
+  assert.equal(getPhysicsCustomData({ customData }).bodyType, "fixed");
+  assert.equal(getPhysicsCustomData({ customData: { draweratorPhysics: customData.physics } }).bodyType, "fixed");
+});
+
+test("authored body settings persist on the canvas object while the graph keeps its binding", () => {
+  const body = {
+    id: "ball",
+    systemId: "world",
+    objectRef: { kind: "element", elementId: "circle" },
+    collider: { kind: "circle", radius: 12 },
+    material: { restitution: 0.95 },
+    initial: { x: 20, y: 30, velocityX: 4 },
+  };
+  const graph = normalizeRelationshipGraph({ systems: [{ id: "world" }], bodies: [body] });
+  const element = { id: "circle", customData: withPhysicsCustomData({}, graph.bodies[0]) };
+  const serialized = serializeRelationshipGraphForScene(graph);
+  assert.deepEqual(serialized.bodies, [{
+    id: "ball",
+    systemId: "world",
+    tracking: "authored-rigid",
+    objectRef: { kind: "element", elementId: "circle" },
+  }]);
+  const hydrated = hydrateRelationshipGraphFromElements(serialized, [element]);
+  assert.equal(hydrated.bodies[0].collider.kind, "circle");
+  assert.equal(hydrated.bodies[0].material.restitution, 0.95);
+  assert.equal(hydrated.bodies[0].initial.velocityX, 4);
+});
+
+test("object physics metadata restores a missing graph binding", () => {
+  const element = {
+    id: "wall",
+    customData: withPhysicsCustomData({}, {
+      id: "wall-body",
+      systemId: "world",
+      bodyType: "fixed",
+      collider: { kind: "box", width: 320, height: 20 },
+    }),
+  };
+  const hydrated = hydrateRelationshipGraphFromElements({}, [element]);
+  assert.equal(hydrated.systems[0].id, "world");
+  assert.deepEqual(hydrated.bodies[0].objectRef, { kind: "element", elementId: "wall" });
+  assert.equal(hydrated.bodies[0].bodyType, "fixed");
+  assert.equal(hydrated.bodies[0].collider.width, 320);
 });
 
 test("relationship imports remap object and endpoint references", () => {

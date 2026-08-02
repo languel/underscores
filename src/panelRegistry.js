@@ -2,7 +2,9 @@ export const DRAWERATOR_PANELS = Object.freeze([
   Object.freeze({ id: "grid", label: "Grid", slash: "/grid", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "outliner", label: "Outliner", slash: "/outliner", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "properties", label: "Properties", slash: "/properties", kind: "dockable", placements: ["left", "floating", "right"] }),
-  Object.freeze({ id: "iannix", label: "Scene", slash: "/iannix", kind: "dockable", placements: ["left", "floating", "right"] }),
+  // Keep the stable panel id for saved layouts and API consumers. Score is
+  // the public name; /iannix and /scene remain compatibility aliases.
+  Object.freeze({ id: "iannix", label: "Score", slash: "/score", aliases: ["/iannix", "/scene", "IanniX", "Scene"], kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "physics", label: "Physics", slash: "/physics", aliases: ["/relations"], kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "mods", label: "Brush", slash: "/brush", aliases: ["/mods"], kind: "dockable", sidebarName: "modifiers-sidebar", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "synth", label: "Synth", slash: "/synth", kind: "dockable", placements: ["left", "floating", "right"] }),

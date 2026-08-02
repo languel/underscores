@@ -1,4 +1,4 @@
-import { getObjectTimeState, resolveIannixObjectTiming } from "./iannixEngine.js";
+import { getObjectTimeState, getScoreData, resolveIannixObjectTiming } from "./iannixEngine.js";
 
 const matchesEvent = (event, pattern) => {
   const name = String(event?.name || "");
@@ -12,16 +12,16 @@ const snapshotObject = (element, runtime) => {
     grid: runtime.getGrid?.(),
   });
   const time = getObjectTimeState(Number(runtime.getTime?.()) || 0, timing);
-  const iannix = element?.customData?.iannix || {};
+  const score = getScoreData(element) || {};
   const imported = element?.customData?.iannixImport || {};
-  const label = iannix.label || imported.label || element?.customData?.label || element?.id;
+  const label = score.label || imported.label || element?.customData?.label || element?.id;
   return Object.freeze({
     id: element.id,
     type: element.type,
     label,
     name: label,
-    group: imported.group || iannix.group || null,
-    role: iannix.role || null,
+    group: imported.group || score.group || null,
+    role: score.role || null,
     x: Number(element.x) || 0,
     y: Number(element.y) || 0,
     width: Number(element.width) || 0,
@@ -47,10 +47,10 @@ export const createScriptCanvasApi = (runtimeRef, options = {}) => {
   const findElement = reference => {
     const query = typeof reference === "object" && reference ? String(reference.id || "") : String(reference ?? "");
     return elements().find(element => {
-      const iannix = element?.customData?.iannix || {};
+      const score = getScoreData(element) || {};
       const imported = element?.customData?.iannixImport || {};
-      const label = iannix.label || imported.label || element?.customData?.label || element?.id;
-      return element.id === query || label === query || imported.group === query || iannix.group === query;
+      const label = score.label || imported.label || element?.customData?.label || element?.id;
+      return element.id === query || label === query || imported.group === query || score.group === query;
     }) || null;
   };
   const get = reference => {

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMe
 import { Excalidraw, MainMenu, exportToSvg, exportToCanvas, getCommonBounds, loadFromBlob, serializeAsJSON, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
 import "./App.css";
 import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, isDrawableTrack, mapEvaluatedTrackToElement, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
-import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, isRuntimeCursor, normalizeIannixData, reconcileRuntimeCursorHosts, resolveIannixObjectTiming, snapCursorHostToCurveStart, transformPaths } from "./iannixEngine.js";
+import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, getScoreData, isRuntimeCursor, normalizeIannixData, normalizeScoreElementMetadata, reconcileRuntimeCursorHosts, resolveIannixObjectTiming, snapCursorHostToCurveStart, transformPaths, withScoreData } from "./iannixEngine.js";
 import { createIannixMidiVoiceTracker, describeIannixMidiMessage, getIannixMidiTemplatePattern, getIannixPathIntersectionPoint, getIannixTriggerMidiContext, IANNIX_MIDI_TEMPLATES, parseIannixMidiPattern, selectIannixTriggerCursor } from "./iannixMidi.js";
 import { expandIndexedLabelTemplate } from "./iannixBulkEdit.js";
 import NumberInputController from "./NumberInputController.jsx";
@@ -100,7 +100,7 @@ import { canUseAsObjectBoundsTarget, createMediaBinding, createMediaSource, crea
 import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
 import { createUnifiedStreamsApi, DraweratorStreamRegistry } from "./streamRuntime.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
-import { addRelationshipItem, createDefaultPhysicsSystem, findRelationshipOrphans, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph } from "./relationshipGraph.js";
+import { addRelationshipItem, createDefaultPhysicsSystem, findRelationshipOrphans, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, withPhysicsCustomData } from "./relationshipGraph.js";
 import { applyAnchorAttractorFrame, applyBezierSculptOperator, inferPhysicsBodyFromElement } from "./physicsGeometry.js";
 import { createPhysicsApi, createRelationshipApi, PhysicsRuntimeController } from "./physicsRuntime.js";
 import { PhysicsAudioRouter } from "./physicsAudio.js";
@@ -2113,6 +2113,7 @@ function App() {
   relationshipGraphRef.current = relationshipGraph;
   const [activePhysicsSystemId, setActivePhysicsSystemId] = useState("");
   const [physicsTelemetry, setPhysicsTelemetry] = useState({ systems: [], stepMs: 0, eventRate: 0, routeMs: 0 });
+  const [physicsWorldPlaying, setPhysicsWorldPlaying] = useState(false);
   const [physicsTool, setPhysicsTool] = useState(null);
   const physicsToolRef = useRef(null);
   physicsToolRef.current = physicsTool;
@@ -2190,7 +2191,10 @@ function App() {
     setRelationshipGraphState(previous => normalizeRelationshipGraph(typeof value === "function" ? value(previous) : value));
   }, []);
   useEffect(() => {
-    physicsRuntimeRef.current.setGraph(relationshipGraph);
+    const elements = excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.()
+      || excalidrawAPIRef.current?.getSceneElements?.()
+      || [];
+    physicsRuntimeRef.current.setGraph(hydrateRelationshipGraphFromElements(relationshipGraph, elements));
   }, [relationshipGraph]);
   useEffect(() => {
     const api = excalidrawAPIRef.current;
@@ -2208,7 +2212,7 @@ function App() {
         constraints: previous.constraints.map(constraint => orphanConstraints.has(constraint.id) ? { ...constraint, enabled: false } : constraint),
       }));
     }
-  }, [eventBus, relationshipGraph]);
+  }, [eventBus, relationshipGraph, setRelationshipGraph]);
   useEffect(() => {
     if (!activePhysicsSystemId || !relationshipGraph.systems.some(system => system.id === activePhysicsSystemId)) {
       setActivePhysicsSystemId(relationshipGraph.systems[0]?.id || "");
@@ -2224,6 +2228,9 @@ function App() {
       droppedEvents: telemetry.systems.reduce((sum, system) => sum + (system.droppedEvents || 0), 0),
       routeMs: telemetry.routeMs,
     });
+  }), []);
+  useEffect(() => physicsRuntimeRef.current.subscribe("transport", detail => {
+    setPhysicsWorldPlaying(detail?.systemId ? physicsRuntimeRef.current.isPlaying() : Boolean(detail?.playing));
   }), []);
   useEffect(() => () => {
     physicsRuntimeRef.current?.dispose();
@@ -2820,26 +2827,27 @@ function App() {
   useEffect(() => {
     const registry = streamRegistryRef.current;
     const elements = excalidrawAPIRef.current?.getSceneElements?.() || p5OverlayScene.elements || [];
-    const scoreObjects = elements.filter(element => !element.isDeleted && element.customData?.iannix?.role);
+    const scoreObjects = elements.filter(element => !element.isDeleted && getScoreData(element)?.role);
     const managed = new Set();
     const register = (id, descriptor) => {
       managed.add(id);
       registry.register({ id, roles: ["input", "output"], writable: false, ...descriptor, metadata: { ...(descriptor.metadata || {}), iannix: true } });
     };
     scoreObjects.forEach(element => {
-      const role = normalizeIannixData(element.customData?.iannix).role;
+      const scoreData = getScoreData(element);
+      const role = normalizeIannixData(scoreData).role;
       if (role === "curve") {
         const id = `iannix:curve:${element.id}`;
         const paths = getElementCorePaths(element);
         const points = paths.flatMap(path => path.map(([x, y]) => ({ x, y })));
-        register(id, { name: `Curve · ${element.customData?.iannix?.label || element.id.slice(0, 6)}`, kind: "space", capabilities: ["space", "time"], metadata: { elementId: element.id, role, points } });
+        register(id, { name: `Curve · ${scoreData?.label || element.id.slice(0, 6)}`, kind: "space", capabilities: ["space", "time"], metadata: { elementId: element.id, role, points } });
         if (points[0]) registry.publish(id, { kind: "space", x: points[0].x, y: points[0].y, data: { points, elementId: element.id, role } }, { internal: true });
       }
       if (role === "trigger") {
-        register(`iannix:trigger:${element.id}`, { name: `Trigger · ${element.customData?.iannix?.label || element.id.slice(0, 6)}`, kind: "event", capabilities: ["event"], metadata: { elementId: element.id, role } });
+        register(`iannix:trigger:${element.id}`, { name: `Trigger · ${scoreData?.label || element.id.slice(0, 6)}`, kind: "event", capabilities: ["event"], metadata: { elementId: element.id, role } });
       }
       if (role === "cursor") {
-        register(`iannix:cursor:${element.id}`, { name: `Cursor · ${element.customData?.iannix?.label || element.id.slice(0, 6)}`, kind: "space", capabilities: ["space", "time"], metadata: { elementId: element.id, role } });
+        register(`iannix:cursor:${element.id}`, { name: `Cursor · ${scoreData?.label || element.id.slice(0, 6)}`, kind: "space", capabilities: ["space", "time"], metadata: { elementId: element.id, role } });
       }
     });
     const frame = evaluateScoreFrame(elements, scoreTime, undefined, { timeContext, globalGrid: globalGridRef.current });
@@ -3135,22 +3143,23 @@ function App() {
     if (!excalidrawAPI) return;
     let changed = false;
     const elements = excalidrawAPI.getSceneElementsIncludingDeleted().map(element => {
-      const role = element.customData?.score?.role || element.customData?.iannix?.role;
+      const role = getScoreData(element)?.role;
       if (!["curve", "cursor", "trigger"].includes(role)) return element;
       const savedColor = element.customData?.roleThemeSourceStrokeColor;
       const authoredIannixColor = element.customData?.iannixImport?.authoredColor === true;
       if (!roleTheme.enabled || authoredIannixColor) {
         if (role === "cursor" && isRuntimeCursor(element)) {
-          const data = normalizeIannixData(element.customData?.iannix);
+          const data = normalizeIannixData(getScoreData(element));
           const sourceStrokeColor = savedColor || data.cursor.sourceStrokeColor || element.strokeColor;
           if (element.strokeColor === "transparent" && data.cursor.sourceStrokeColor === sourceStrokeColor && !savedColor) return element;
           changed = true;
           const customData = { ...(element.customData || {}) };
           delete customData.roleThemeSourceStrokeColor;
-          customData.iannix = {
+          const nextScore = {
             ...data,
             cursor: { ...data.cursor, sourceStrokeColor },
           };
+          Object.assign(customData, withScoreData(customData, nextScore));
           return { ...element, strokeColor: "transparent", customData, version: element.version + 1, versionNonce: Math.floor(Math.random() * 1000000), updated: Date.now() };
         }
         if (!savedColor) return element;
@@ -3159,13 +3168,13 @@ function App() {
         delete customData.roleThemeSourceStrokeColor;
         return { ...element, strokeColor: savedColor, customData, version: element.version + 1, versionNonce: Math.floor(Math.random() * 1000000), updated: Date.now() };
       }
-      const active = element.customData?.score?.active ?? normalizeIannixData(element.customData?.iannix).active;
+      const active = normalizeIannixData(getScoreData(element)).active;
       const key = `${role}${active ? "Active" : "Inactive"}`;
       const palette = roleTheme[key];
       if (!palette) return element;
       const strokeColor = colorWithOpacity(palette.color, palette.opacity);
       if (role === "cursor" && isRuntimeCursor(element)) {
-        const data = normalizeIannixData(element.customData?.iannix);
+        const data = normalizeIannixData(getScoreData(element));
         if (element.strokeColor === "transparent" && data.cursor.sourceStrokeColor === strokeColor) return element;
         changed = true;
         return {
@@ -3174,10 +3183,10 @@ function App() {
           customData: {
             ...(element.customData || {}),
             roleThemeSourceStrokeColor: savedColor || data.cursor.sourceStrokeColor || element.strokeColor,
-            iannix: {
+            ...withScoreData({}, {
               ...data,
               cursor: { ...data.cursor, sourceStrokeColor: strokeColor },
-            },
+            }),
           },
           version: element.version + 1,
           versionNonce: Math.floor(Math.random() * 1000000),
@@ -3213,8 +3222,14 @@ function App() {
       lastSceneElementsRef.current = new Map(
         excalidrawAPI.getSceneElementsIncludingDeleted().map(element => [element.id, element])
       );
+      const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+      const migrated = elements.map(normalizeScoreElementMetadata);
+      if (migrated.some((element, index) => element !== elements[index])) {
+        excalidrawAPI.updateScene({ elements: migrated, commitToHistory: false });
+      }
+      setRelationshipGraph(previous => hydrateRelationshipGraphFromElements(previous, migrated));
     }
-  }, [excalidrawAPI]);
+  }, [excalidrawAPI, setRelationshipGraph]);
 
   useEffect(() => {
     scoreTimeRef.current = scoreTime;
@@ -4174,14 +4189,14 @@ function App() {
       const expressiveTracks = getMixerTracksForInstrument(mixerRef.current, MIXER_INSTRUMENT_EXPRESSIVE)
         .filter(track => track.destination === MIXER_DESTINATION_INTERNAL);
       const cursorAssignments = frame.cursors.flatMap(cursor => {
-        const channel = normalizeIannixData(cursor.element.customData?.iannix).midi.midiChannel;
+        const channel = normalizeIannixData(getScoreData(cursor.element)).midi.midiChannel;
         return expressiveTracks.filter(track => track.midiChannel === channel).map(track => ({ cursor, track }));
       });
       const glissandoAssignments = [...frame.collisions].flatMap(key => {
         const [cursorId, triggerId] = key.split(":");
         const cursor = frame.cursors.find(candidate => candidate.element.id === cursorId);
         const triggerElement = elementMap.get(triggerId);
-        const triggerData = normalizeIannixData(triggerElement?.customData?.iannix);
+        const triggerData = normalizeIannixData(getScoreData(triggerElement));
         if (!cursor || !triggerElement || triggerData.trigger.behavior !== "glissando" || !triggerData.trigger.midiEnabled) return [];
         const triggerPaths = getElementCorePaths(triggerElement);
         const pitchPaths = triggerPaths[0]?.length > 1 ? [triggerPaths[0]] : triggerPaths;
@@ -4252,7 +4267,7 @@ function App() {
     const nextEvents = entered.map(key => {
       const [cursorId, triggerId] = key.split(":");
       const trigger = elementMap.get(triggerId);
-      const triggerData = normalizeIannixData(trigger?.customData?.iannix);
+      const triggerData = normalizeIannixData(getScoreData(trigger));
       const pulseMs = Math.max(80, (frame.triggerDurations.get(triggerId) || triggerData.trigger.duration) * 1000);
       triggerPulseUntilRef.current.set(triggerId, now + pulseMs);
       window.setTimeout(() => setScoreRuntimeNonce(nonce => nonce + 1), pulseMs + 16);
@@ -4356,7 +4371,7 @@ function App() {
     const nextElements = sceneElements.map(element => {
       let next = element;
       if (isRuntimeCursor(element)) {
-        const data = normalizeIannixData(element.customData?.iannix);
+        const data = normalizeIannixData(getScoreData(element));
         const supportCurve = byId.get(data.cursor.curveId);
         if (supportCurve && !supportCurve.isDeleted) {
           next = snapCursorHostToCurveStart(next, supportCurve, data.cursor.followTangent);
@@ -6656,6 +6671,7 @@ function App() {
         x: e.clientX,
         y: e.clientY,
         showAddCursor: selectedContextElements.some(element => !isSvgObjectElement(element)),
+        showMakeBody: selectedContextElements.some(element => !isSvgObjectElement(element)),
         showMakeRole: true,
         showToSvg: selectedContextElements.some(element => !isSvgObjectElement(element) && !isP5FrameElement(element)),
         showAttachP5: hasP5HostCandidate,
@@ -6688,6 +6704,7 @@ function App() {
         showBoardExport: true,
         showP5FrameExport: false,
         showCreateLivecode: true,
+        showMakeBody: false,
         hasSelection: false,
       });
     }
@@ -7175,7 +7192,7 @@ function App() {
       // Bound score objects still quantize when their geometry is actually edited.
       const hasGeometryEdit = isPointEdit || isCreation || isTransform;
       const boundIds = hasGeometryEdit
-        ? candidates.filter(element => normalizeIannixData(element.customData?.iannix).gridBinding.quantize.geometry).map(element => element.id)
+        ? candidates.filter(element => normalizeIannixData(getScoreData(element)).gridBinding.quantize.geometry).map(element => element.id)
         : [];
       const globallyEligibleIds = allowed && grid.snap.mode !== "off"
         ? candidates.filter(element => !boundIds.includes(element.id)).map(element => element.id)
@@ -8361,7 +8378,7 @@ function App() {
     let changed = false;
     const nextElements = elements.map(element => {
       if (element.id !== elementId || element.isDeleted) return element;
-      const customData = { ...(element.customData || {}) };
+      let customData = { ...(element.customData || {}) };
       if (isLivecodeNodeElement(element)) {
         const node = normalizeLivecodeNode(customData.draweratorLivecode);
         customData.draweratorLivecode = { ...node, name: normalizedLabel || getLivecodeKindDefinition(node.kind).defaultName };
@@ -8370,8 +8387,8 @@ function App() {
       } else if (customData.draweratorSvg) {
         const svg = normalizeSvgObject(customData.draweratorSvg);
         customData.draweratorSvg = normalizeSvgObject({ ...svg, name: normalizedLabel || "Untitled SVG", revision: svg.revision + 1 });
-      } else if (customData.iannix) {
-        customData.iannix = { ...customData.iannix, label: normalizedLabel || undefined };
+      } else if (getScoreData({ customData })) {
+        customData = withScoreData(customData, { ...getScoreData({ customData }), label: normalizedLabel || undefined });
       } else if (normalizedLabel) {
         customData.draweratorLabel = normalizedLabel;
       } else {
@@ -8396,25 +8413,141 @@ function App() {
     return api.getSceneElements().filter(element => selected[element.id] && !element.isDeleted);
   };
 
+  const updatePhysicsCustomDataForBodies = (bodies, { commitToHistory = true } = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api || !Array.isArray(bodies) || !bodies.length) return;
+    const bodyByElementId = new Map(bodies
+      .filter(body => body?.objectRef?.kind === "element")
+      .map(body => [body.objectRef.elementId, body]));
+    if (!bodyByElementId.size) return;
+    const elements = api.getSceneElementsIncludingDeleted();
+    let changed = false;
+    const nextElements = elements.map(element => {
+      const body = bodyByElementId.get(element.id);
+      if (!body || element.isDeleted) return element;
+      const customData = withPhysicsCustomData(element.customData, body);
+      changed = true;
+      return {
+        ...element,
+        customData,
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+      };
+    });
+    if (changed) api.updateScene({ elements: nextElements, commitToHistory });
+  };
+
+  const updatePhysicsCustomData = (elementId, body, options) => {
+    if (!elementId || !body) return;
+    updatePhysicsCustomDataForBodies([{ ...body, objectRef: { kind: "element", elementId } }], options);
+  };
+
+  const patchPhysicsBody = (bodyId, patch) => {
+    const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+    const current = graph.bodies.find(body => body.id === bodyId);
+    if (!current) return null;
+    const nextBody = normalizePhysicsBody({ ...current, ...patch });
+    setRelationshipGraph({
+      ...graph,
+      bodies: graph.bodies.map(body => body.id === bodyId ? nextBody : body),
+    });
+    if (nextBody.objectRef?.kind === "element") updatePhysicsCustomData(nextBody.objectRef.elementId, nextBody);
+    return nextBody;
+  };
+
+  const removePhysicsBodies = bodyIds => {
+    const ids = new Set((Array.isArray(bodyIds) ? bodyIds : [bodyIds]).filter(Boolean));
+    const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+    const removed = graph.bodies.filter(candidate => ids.has(candidate.id));
+    if (!removed.length) return false;
+    setRelationshipGraph({ ...graph, bodies: graph.bodies.filter(candidate => !ids.has(candidate.id)) });
+    const api = excalidrawAPIRef.current;
+    const removedElementIds = new Set(removed
+      .filter(body => body.objectRef?.kind === "element")
+      .map(body => body.objectRef.elementId));
+    if (api && removedElementIds.size) {
+      const elements = api.getSceneElementsIncludingDeleted();
+      const nextElements = elements.map(element => {
+        if (!removedElementIds.has(element.id) || element.isDeleted) return element;
+        const customData = { ...(element.customData || {}) };
+        delete customData.physics;
+        delete customData.draweratorPhysics;
+        return {
+          ...element,
+          customData,
+          version: (element.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+        };
+      });
+      api.updateScene({ elements: nextElements, commitToHistory: true });
+    }
+    return removed.length > 0;
+  };
+
+  const removePhysicsBody = bodyId => removePhysicsBodies([bodyId]);
+
+  const removePhysicsSystem = systemId => {
+    const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+    const removedBodies = graph.bodies.filter(body => body.systemId === systemId);
+    setRelationshipGraph({
+      ...graph,
+      systems: graph.systems.filter(system => system.id !== systemId),
+      bodies: graph.bodies.filter(body => body.systemId !== systemId),
+      populations: graph.populations.filter(item => item.systemId !== systemId),
+      constraints: graph.constraints.filter(item => item.systemId !== systemId),
+      routes: graph.routes.filter(item => item.systemId !== systemId),
+    });
+    const api = excalidrawAPIRef.current;
+    const removedElementIds = new Set(removedBodies
+      .filter(body => body.objectRef?.kind === "element")
+      .map(body => body.objectRef.elementId));
+    if (api && removedElementIds.size) {
+      const elements = api.getSceneElementsIncludingDeleted();
+      const nextElements = elements.map(element => {
+        if (!removedElementIds.has(element.id) || element.isDeleted) return element;
+        const customData = { ...(element.customData || {}) };
+        delete customData.physics;
+        delete customData.draweratorPhysics;
+        return {
+          ...element,
+          customData,
+          version: (element.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+        };
+      });
+      api.updateScene({ elements: nextElements, commitToHistory: true });
+    }
+  };
+
   const assignPhysicsBodies = ({ systemId = activePhysicsSystemId, bodyType = "dynamic", sensor = false } = {}) => {
     const selected = getPhysicsSelectedElements();
     if (!selected.length) throw new Error("Select one or more canvas objects first.");
-    const targetSystemId = systemId || relationshipGraphRef.current.systems[0]?.id;
-    if (!targetSystemId) throw new Error("Create a physics system first.");
+    const existingSystemId = systemId || relationshipGraphRef.current.systems[0]?.id;
+    const createdSystem = existingSystemId ? null : createDefaultPhysicsSystem({ name: "World" });
+    const targetSystemId = existingSystemId || createdSystem.id;
+    if (createdSystem) setActivePhysicsSystemId(createdSystem.id);
+    const inferredBodies = selected.map(element => inferPhysicsBodyFromElement(element, {
+      systemId: targetSystemId,
+      bodyType,
+      sensor,
+      tracking: "authored-rigid",
+      collisionTags: [sensor ? "sensor" : bodyType === "fixed" ? "wall" : "body"],
+      material: { restitution: bodyType === "fixed" ? 0.9 : 0.5, friction: 0.2 },
+    })).filter(Boolean);
     setRelationshipGraph(previous => {
       const graph = normalizeRelationshipGraph(previous);
       const selectedIds = new Set(selected.map(element => element.id));
       const retained = graph.bodies.filter(body => body.objectRef?.kind !== "element" || !selectedIds.has(body.objectRef.elementId));
-      const bodies = selected.map(element => inferPhysicsBodyFromElement(element, {
-        systemId: targetSystemId,
-        bodyType,
-        sensor,
-        tracking: "authored-rigid",
-        collisionTags: [sensor ? "sensor" : bodyType === "fixed" ? "wall" : "body"],
-        material: { restitution: bodyType === "fixed" ? 0.9 : 0.5, friction: 0.2 },
-      })).filter(Boolean);
-      return { ...graph, bodies: [...retained, ...bodies] };
+      return {
+        ...graph,
+        systems: createdSystem ? [...graph.systems, createdSystem] : graph.systems,
+        bodies: [...retained, ...inferredBodies],
+      };
     });
+    updatePhysicsCustomDataForBodies(inferredBodies);
     setSceneExchangeStatus(`Assigned ${selected.length} ${sensor ? "sensor" : bodyType} physics object${selected.length === 1 ? "" : "s"}.`);
     return selected.map(element => element.id);
   };
@@ -8608,6 +8741,31 @@ function App() {
       return { ...next, version: (element.version || 0) + 1, versionNonce: Math.floor(Math.random() * 0x7fffffff), updated: Date.now() };
     });
     api.updateScene({ elements, commitToHistory: false });
+  };
+
+  const updatePhysicsWorld = patch => {
+    setRelationshipGraph(previous => ({
+      ...previous,
+      world: { ...previous.world, ...patch },
+    }));
+  };
+
+  const playPhysicsWorld = async () => {
+    if (!relationshipGraphRef.current.systems.some(system => system.enabled)) {
+      setPhysicsWorldPlaying(false);
+      setSceneExchangeStatus("Create a physics body or system before playing the world.");
+      return;
+    }
+    await physicsAudioRef.current.resume();
+    physicsRuntimeRef.current.play();
+  };
+
+  const pausePhysicsWorld = () => physicsRuntimeRef.current.pause();
+
+  const resetPhysicsWorld = () => {
+    physicsRuntimeRef.current.pause();
+    relationshipGraphRef.current.systems.forEach(system => resetPhysicsSystem(system.id));
+    setPhysicsWorldPlaying(false);
   };
 
   const applyPhysicsPose = systemId => {
@@ -9042,6 +9200,11 @@ function App() {
       setActivePhysicsSystemId(system.id);
       return system;
     } },
+    { id: "physics.body.make", name: "Make Physics Body /make body", aliases: ["/make body", "make body"], category: "Physics", args: { systemId: "string?", bodyType: "dynamic|kinematic?" }, ai: { expose: true, description: "Attach physics properties to the current canvas selection. Creates a default World system when none exists and opens the Physics inspector." }, action: (_api, args = {}) => {
+      const result = assignPhysicsBodies({ ...args, bodyType: args.bodyType || "dynamic" });
+      toggleDraweratorPanel("physics", { open: true });
+      return result;
+    } },
     { id: "physics.body.assign", name: "Physics: Assign Dynamic Body", aliases: ["/physics body"], category: "Physics", args: { systemId: "string?", bodyType: "dynamic|kinematic?" }, ai: { expose: true, description: "Turn selected canvas drawings into authored physics bodies." }, action: (_api, args) => assignPhysicsBodies(args) },
     { id: "physics.collider.assign", name: "Physics: Assign Fixed Collider", aliases: ["/physics wall"], category: "Physics", args: { systemId: "string?", sensor: "boolean?" }, ai: { expose: true, description: "Turn selected drawings or curves into fixed colliders or sensors." }, action: (_api, args) => assignPhysicsBodies({ ...args, bodyType: "fixed" }) },
     { id: "physics.population.create", name: "Physics: Create Runtime Population", aliases: ["/physics gas"], category: "Physics", args: { systemId: "string?", count: "number?", radius: "number?", bounds: "{x,y,width,height}?" }, ai: { expose: true, description: "Create a lightweight seeded runtime particle population." }, action: (_api, args) => createPhysicsPopulation(args) },
@@ -9163,8 +9326,8 @@ function App() {
     { id: "restore-original-stroke", name: "Restore Original Stroke (Recover Brush Replacement)", category: "Brushes", action: () => handleRestoreOriginalStroke() },
     { id: "convert-to-line", name: "Convert Selected Strokes to Straight Lines", category: "Brushes", action: () => handleConvertType("line") },
     { id: "convert-to-freedraw", name: "Convert Selected Lines to Freehand Pencil", category: "Brushes", action: () => handleConvertType("freedraw") },
-    { id: "iannix.cursor.addToSelectedCurves", name: "Add Cursor to Selected Curves /add cursor to selected curves", aliases: ["/add cursor to selected curves", "Add Cursor to Selected Curves"], category: "IanniX", action: () => addCursorsToSelectedCurves() },
-    { id: "expressiveSynth.demo.create", name: "Add and Play Expressive Synth Demo /synth demo", aliases: ["/synth demo", "Expressive Synth Demo"], category: "IanniX", action: () => addExpressiveSynthDemo() },
+    { id: "iannix.cursor.addToSelectedCurves", name: "Add Cursor to Selected Curves /add cursor to selected curves", aliases: ["/add cursor to selected curves", "Add Cursor to Selected Curves"], category: "Score", action: () => addCursorsToSelectedCurves() },
+    { id: "expressiveSynth.demo.create", name: "Add and Play Expressive Synth Demo /synth demo", aliases: ["/synth demo", "Expressive Synth Demo"], category: "Score", action: () => addExpressiveSynthDemo() },
     { id: "geometry.bezier.convert", name: "Convert Selection to Bézier /bezier convert", aliases: ["/bezier convert", "Convert to Bézier"], category: "Geometry", action: () => convertSelectedToBezier() },
     { id: "geometry.bezier.edit", name: "Edit Selected Bézier /bezier edit", aliases: ["/bezier edit", "Edit Bézier"], category: "Geometry", action: () => enterBezierEditMode() },
     { id: "geometry.bezier.close", name: "Close Selected Bézier Path /bezier close", aliases: ["/bezier close"], category: "Geometry", action: () => setSelectedBezierClosed(true) },
@@ -9173,14 +9336,14 @@ function App() {
     { id: "geometry.bezier.handles.corner", name: "Set Bézier Anchor Corner /bezier corner", aliases: ["/bezier corner"], category: "Geometry", action: () => setSelectedBezierHandleMode("corner") },
     { id: "geometry.bezier.anchor.insert", name: "Insert Bézier Anchor", category: "Geometry", args: { segmentIndex: "number", t: "number?" }, action: (_api, args) => insertSelectedBezierAnchor(args) },
     { id: "geometry.bezier.anchor.delete", name: "Delete Selected Bézier Anchor", category: "Geometry", action: () => deleteSelectedBezierAnchor() },
-    { id: "iannix.export.bezier", name: "Export Selected Bézier Curves as IanniX /iannix export", aliases: ["/iannix export"], category: "IanniX", action: () => exportSelectedBezierIannix() },
+    { id: "iannix.export.bezier", name: "Export Selected Bézier Curves as Score /score export", aliases: ["/score export", "/iannix export"], category: "Score", action: () => exportSelectedBezierIannix() },
     { id: "scene.create", name: "Create Scene Objects", category: "Scene", args: { elements: "element[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.create", args) },
     { id: "scene.update", name: "Update Scene Objects", category: "Scene", args: { elements: "element[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.update", args) },
     { id: "scene.create.objects", name: "AI: Create Scene Objects", category: "AI Actions", args: { objects: "{id?,type,x,y,width?,height?,x2?,y2?,points?,strokeColor?,backgroundColor?,role?,label?}[]", select: "boolean?" }, ai: { expose: true, description: "Create rectangles, ellipses, diamonds, lines, or freedraw paths. Freedraw points are absolute [x,y] pairs. Give objects explicit ids when later commands need them.", example: { objects: [{ id: "curve-a", type: "line", x: 100, y: 120, x2: 420, y2: 220, strokeColor: "#00b8e8", role: "curve", label: "AI curve" }] } }, action: (_api, args) => createAIObjects(args) },
     { id: "scene.patch.objects", name: "AI: Patch Scene Objects", category: "AI Actions", args: { patches: "{id,patch:{x?,y?,width?,height?,angle?,strokeColor?,backgroundColor?,fillStyle?,strokeWidth?,strokeStyle?,roughness?,opacity?,locked?}}[]" }, ai: { expose: true, description: "Move or restyle existing objects using only the supplied shallow patch fields. Use ids from scene context or objects created earlier in this response.", example: { patches: [{ id: "curve-a", patch: { strokeColor: "#ff8a3d", strokeWidth: 4 } }] } }, action: (_api, args) => patchAIObjects(args) },
-    { id: "automation.keyframes.set", name: "AI: Set Object Keyframes", category: "AI Actions", args: { keyframes: "{elementId,path,time|seconds,value,interpolation?}[]" }, ai: { expose: true, description: "Animate supported Excalidraw object properties by adding or replacing keyframes. Supported paths are x, y, angle, width, height, opacity, strokeWidth, strokeColor, backgroundColor, points, customData.modifiers, customData.iannix, and customData.draweratorGeometry. Time accepts Drawerator time expressions.", example: { keyframes: [{ elementId: "curve-a", path: "x", time: "0 s", value: 100 }, { elementId: "curve-a", path: "x", time: "2 bars", value: 600 }] } }, action: (_api, args) => setAIAutomationKeyframes(args) },
+    { id: "automation.keyframes.set", name: "AI: Set Object Keyframes", category: "AI Actions", args: { keyframes: "{elementId,path,time|seconds,value,interpolation?}[]" }, ai: { expose: true, description: "Animate supported Excalidraw object properties by adding or replacing keyframes. Supported paths are x, y, angle, width, height, opacity, strokeWidth, strokeColor, backgroundColor, points, customData.modifiers, customData.score, customData.physics, and customData.draweratorGeometry. Time accepts time expressions.", example: { keyframes: [{ elementId: "curve-a", path: "x", time: "0 s", value: 100 }, { elementId: "curve-a", path: "x", time: "2 bars", value: 600 }] } }, action: (_api, args) => setAIAutomationKeyframes(args) },
     { id: "scene.delete", name: "Delete Scene Objects", category: "Scene", args: { elementIds: "string[]" }, ai: { expose: true, description: "Delete objects by id.", example: { elementIds: ["curve-a"] } }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.delete", args) },
-    { id: "score.roles.assign", name: "AI: Assign Score Roles", category: "AI Actions", args: { elementIds: "string[]?", role: "none|curve|cursor|trigger", label: "string?", active: "boolean?" }, ai: { expose: true, description: "Assign or clear IanniX score roles. Without elementIds, applies to the current selection.", example: { elementIds: ["curve-a"], role: "curve", label: "Main curve" } }, action: (_api, args) => assignAIObjectRoles(args) },
+    { id: "score.roles.assign", name: "AI: Assign Score Roles", category: "AI Actions", args: { elementIds: "string[]?", role: "none|curve|cursor|trigger", label: "string?", active: "boolean?" }, ai: { expose: true, description: "Assign or clear Score roles. Without elementIds, applies to the current selection.", example: { elementIds: ["curve-a"], role: "curve", label: "Main curve" } }, action: (_api, args) => assignAIObjectRoles(args) },
     { id: "transport.update", name: "Update Transport State", category: "Transport", args: { state: "transportState" }, ai: { expose: true, description: "Update transport tempo, meter, play state, display mode, fps, or loop range. Do not change MIDI credentials or providers.", example: { state: { tempo: 96, timeSignature: "4/4", displayMode: "beats" } } }, action: (_api, args) => runtimeCallbacksRef.current.transportUpdate(args?.state || args) },
     { id: "transport.seek", name: "Seek Global Transport", category: "Transport", args: { seconds: "number|timeValue" }, action: (_api, args) => runtimeCallbacksRef.current.transportSeek(resolveTimeValue(args?.value ?? args?.seconds ?? 0, timeContext)) },
     { id: "transport.jump.start", name: "Jump to Timeline or Loop Start", category: "Transport", action: () => runtimeCallbacksRef.current.transportJump("start") },
@@ -9192,8 +9355,8 @@ function App() {
     { id: "grid.visible.toggle", name: "Toggle Global Grid Visibility /grid visible", aliases: ["/grid visible"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridUpdate({ appearance: { visible: !globalGridRef.current.appearance.visible } }) },
     { id: "grid.snap.toggle", name: "Toggle Global Grid Snapping /grid snap", aliases: ["/grid snap"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridUpdate({ snap: { mode: globalGridRef.current.snap.mode === "off" ? "hard" : "off" } }) },
     { id: "grid.quantize.selection", name: "Quantize Selection to Global Grid /grid quantize", aliases: ["/grid quantize"], category: "Grid", args: { elementIds: "string[]?", resolution: "minor|major?", axes: "x|y|both?" }, action: (_api, args) => runtimeCallbacksRef.current.gridQuantizeSelection(args) },
-    { id: "score.time.update", name: "Update Score Object Time /score time", aliases: ["/score time"], category: "IanniX", args: { elementIds: "string[]?", start: "number|timeValue?", duration: "number|timeValue?", rate: "number?", loopMode: "once|loop|pingPong?" }, ai: { expose: true, description: "Set score object start, duration, rate, or loop mode. Time values accept Drawerator expressions such as 4n, 2 bars, 500 ms, or 30 f.", example: { elementIds: ["curve-a"], duration: "2 bars", loopMode: "loop" } }, action: (_api, args) => updateScoreObjectTiming(args) },
-    { id: "score.time.restoreAuto", name: "Restore Geometry-derived Duration /score duration auto", aliases: ["/score duration auto"], category: "IanniX", args: { elementIds: "string[]?" }, action: (_api, args) => restoreScoreAutoDuration(args) },
+    { id: "score.time.update", name: "Update Score Object Time /score time", aliases: ["/score time"], category: "Score", args: { elementIds: "string[]?", start: "number|timeValue?", duration: "number|timeValue?", rate: "number?", loopMode: "once|loop|pingPong?" }, ai: { expose: true, description: "Set score object start, duration, rate, or loop mode. Time values accept expressions such as 4n, 2 bars, 500 ms, or 30 f.", example: { elementIds: ["curve-a"], duration: "2 bars", loopMode: "loop" } }, action: (_api, args) => updateScoreObjectTiming(args) },
+    { id: "score.time.restoreAuto", name: "Restore Geometry-derived Duration /score duration auto", aliases: ["/score duration auto"], category: "Score", args: { elementIds: "string[]?" }, action: (_api, args) => restoreScoreAutoDuration(args) },
     { id: "score.grid.assign", name: "Assign Score Object Grid /score grid", aliases: ["/score grid"], category: "Grid", args: { elementIds: "string[]?", gridId: "string", metric: "string?" }, action: (_api, args) => updateScoreGridBinding(args) },
     { id: "score.grid.metric", name: "Change Score Timing Metric /score metric", aliases: ["/score metric"], category: "Grid", args: { elementIds: "string[]?", metric: "auto|xSpan|ySpan|arcLength|manhattan" }, action: (_api, args) => updateScoreGridBinding(args) },
     { id: "score.grid.quantization", name: "Set Score Quantization /score quantize", aliases: ["/score quantize"], category: "Grid", args: { elementIds: "string[]?", quantize: "object" }, action: (_api, args) => updateScoreGridBinding(args) },
@@ -9212,9 +9375,9 @@ function App() {
     { id: "script.iannix.create", name: "AI: Create IanniX Script", category: "AI Actions", args: { name: "string", source: "IanniX source", parameters: "object?", activate: "boolean?" }, ai: { expose: true, description: "Create an editable trusted IanniX source script in the local script catalog. Source must define makeWithScript() or madeThroughGUI(), use Drawerator-supported run() commands, and put one statement per line. Creation does not run it. IanniX coordinates are model units, not canvas pixels: for visible default-scale geometry use setPos current 12 -8 0 and local points/radii near 0..8; do not use 480-style screen coordinates.", example: { name: "Two-point orbit", source: "function makeWithScript() {\n  run(\\\"clear\\\");\n  run(\\\"add curve orbit\\\");\n  run(\\\"setPos current 12 -8 0\\\");\n  run(\\\"setPointAt current 0 0 0\\\");\n  run(\\\"setPointAt current 1 8 0\\\");\n  run(\\\"add cursor traveler\\\");\n  run(\\\"setCurve current lastCurve\\\");\n}" } }, action: (_api, args) => createAIIannixScript(args) },
     { id: "script.iannix.update", name: "AI: Update IanniX Script", category: "AI Actions", args: { id: "string?", name: "string?", source: "IanniX source?", parameters: "object?" }, ai: { expose: true, description: "Rename or replace a local IanniX script without running it. Replacement source must follow the Drawerator IanniX lifecycle/run-command contract and use one statement per line.", example: { id: "iannix-script-example", source: "function makeWithScript() {\n  run(\\\"add curve orbit\\\");\n  run(\\\"setPos current 12 -8 0\\\");\n  run(\\\"setPointAt current 0 0 0\\\");\n  run(\\\"setPointAt current 1 8 0\\\");\n}" } }, action: (_api, args) => updateAIIannixScript(args) },
     { id: "script.iannix.run", name: "AI: Run IanniX Script", category: "AI Actions", args: { id: "string?", source: "IanniX source?", filename: "string?", parameters: "object?" }, ai: { expose: true, description: "Run a trusted IanniX script. Only use when the user explicitly asks to execute the generated script.", example: { id: "iannix-script-example" } }, action: (_api, args) => runAIIannixScript(args) },
-    { id: "iannix.import.trusted", name: "Import Trusted IanniX Script /iannix import", aliases: ["/iannix import"], category: "IanniX", args: { source: "string", filename: "string?", seed: "number?", anchor: "point?", scale: "number?", importId: "string?", scoreId: "string?", scoreLabel: "string?", parameters: "object?" }, validate: args => ({ ...args, importId: args?.importId || args?.scoreId || crypto.randomUUID() }), action: (_api, args) => runtimeCallbacksRef.current.iannixImport(args) },
-    { id: "iannix.command.clear", name: "IanniX: Clear Scene /ix clear", aliases: ["/ix clear", "/iannix clear", "IanniX clear"], category: "IanniX", action: () => runtimeCallbacksRef.current.iannixCommand("clear") },
-    { id: "iannix.command.execute", name: "Execute IanniX Command", category: "IanniX", args: { command: "string" }, action: (_api, args) => runtimeCallbacksRef.current.iannixCommand(args?.command) },
+    { id: "iannix.import.trusted", name: "Import Trusted Score Script /score import", aliases: ["/score import", "/iannix import"], category: "Score", args: { source: "string", filename: "string?", seed: "number?", anchor: "point?", scale: "number?", importId: "string?", scoreId: "string?", scoreLabel: "string?", parameters: "object?" }, validate: args => ({ ...args, importId: args?.importId || args?.scoreId || crypto.randomUUID() }), action: (_api, args) => runtimeCallbacksRef.current.iannixImport(args) },
+    { id: "iannix.command.clear", name: "Score: Clear Scene /score clear", aliases: ["/score clear", "/ix clear", "/iannix clear", "Score clear", "IanniX clear"], category: "Score", action: () => runtimeCallbacksRef.current.iannixCommand("clear") },
+    { id: "iannix.command.execute", name: "Execute Score Command", category: "Score", args: { command: "string" }, action: (_api, args) => runtimeCallbacksRef.current.iannixCommand(args?.command) },
     { id: "ai.prompt", name: "Send AI Prompt", category: "AI Chat", args: { prompt: "string" }, action: (_api, args) => { openAISidebar(); return sendChatMessage(args?.prompt || ""); } },
   ];
 
@@ -9568,13 +9731,13 @@ function App() {
       cmd.category.toLowerCase().includes(query) ||
       cmd.aliases?.some(alias => alias.toLowerCase().includes(query))
     );
-    const inlineIannixMatch = /^\/(?:ix|iannix)\s+(.+)$/i.exec(commandSearch.trim());
+    const inlineIannixMatch = /^\/(?:ix|iannix|score)\s+(.+)$/i.exec(commandSearch.trim());
     if (inlineIannixMatch && !matches.some(command => command.aliases?.some(alias => alias.toLowerCase() === query))) {
       const command = inlineIannixMatch[1].trim();
       matches.unshift({
         id: `iannix-inline:${command}`,
-        name: `Run IanniX: ${command}`,
-        category: "IanniX",
+        name: `Run Score command: ${command}`,
+        category: "Score",
         inlineIannixCommand: command,
       });
     }
@@ -9618,7 +9781,7 @@ function App() {
     if (!input.startsWith("/")) return null;
     const exact = COMMANDS.find(command => command.aliases?.some(alias => alias.toLowerCase() === input.toLowerCase()));
     if (exact) return { command: exact, args: {} };
-    let match = /^\/(?:ix|iannix)\s+(.+)$/i.exec(input);
+    let match = /^\/(?:ix|iannix|score)\s+(.+)$/i.exec(input);
     if (match) return {
       command: COMMANDS.find(command => command.id === "iannix.command.execute"),
       args: { command: match[1].trim() },
@@ -10039,9 +10202,7 @@ function App() {
       const current = normalizeIannixData(null);
       element = {
         ...element,
-        customData: {
-          ...element.customData,
-          iannix: normalizeIannixData({
+        customData: withScoreData(element.customData, normalizeIannixData({
             ...current,
             role,
             label: labels.get(element.id) || current.label,
@@ -10053,8 +10214,7 @@ function App() {
               durationMode: role === "cursor" ? "curve" : "geometry",
             },
             gridBinding: { ...current.gridBinding, gridId: "global" },
-          }),
-        },
+          })),
       };
     }
     const selectedIds = { [element.id]: true };
@@ -10098,13 +10258,23 @@ function App() {
     const source = updateSvgNodeData(prepared.source, node.draweratorId, current => ({
       ...current,
       ...(Number.isInteger(subpathIndex) ? { subpathId: String(subpathIndex) } : {}),
-      iannix: normalizeIannixData({
-        ...(current.iannix || {}),
+      score: normalizeIannixData({
+        ...(current.score || current.iannix || {}),
         ...rolePatch,
         role,
-        label: current.iannix?.label || node.label,
+        label: (current.score || current.iannix)?.label || node.label,
         cursor: {
-          ...(current.iannix?.cursor || {}),
+          ...((current.score || current.iannix)?.cursor || {}),
+          ...(rolePatch.cursor || {}),
+        },
+      }),
+      iannix: normalizeIannixData({
+        ...(current.score || current.iannix || {}),
+        ...rolePatch,
+        role,
+        label: (current.score || current.iannix)?.label || node.label,
+        cursor: {
+          ...((current.score || current.iannix)?.cursor || {}),
           ...(rolePatch.cursor || {}),
         },
       }),
@@ -10394,10 +10564,10 @@ function App() {
     const sceneElementsById = new Map(sceneElements.map(element => [element.id, element]));
     const nextElements = sceneElements.map(element => {
       if (!targetIds.has(element.id)) return element;
-      const current = normalizeIannixData(element.customData?.iannix);
+      const current = normalizeIannixData(getScoreData(element));
       let updated = normalizeIannixData(updater(current, element));
-      const wasRuntimeCursor = isRuntimeCursor({ customData: { iannix: current } });
-      const becomesRuntimeCursor = isRuntimeCursor({ customData: { iannix: updated } });
+      const wasRuntimeCursor = isRuntimeCursor({ customData: withScoreData({}, current) });
+      const becomesRuntimeCursor = isRuntimeCursor({ customData: withScoreData({}, updated) });
       let opacity = element.opacity;
       let strokeColor = element.strokeColor;
       if (becomesRuntimeCursor) {
@@ -10423,10 +10593,7 @@ function App() {
       }
       updated.version = (current.version || 0) + 1;
       const nextVersion = element.version + 1;
-      const customData = {
-        ...(element.customData || {}),
-        iannix: updated,
-      };
+      const customData = withScoreData(element.customData, updated);
       if (customData.modifiers?.length > 0) {
         customData.excalidrawVersion = nextVersion;
         processedModifierVersionsRef.current[element.id] = customData.version || 0;
@@ -10739,7 +10906,7 @@ function App() {
     const target = selected[0];
     const width = Math.max(1, Number(target.width) || 1);
     const height = Math.max(1, Number(target.height) || 1);
-    const name = `${target.customData?.iannix?.label || "Rectangle"} SVG`;
+    const name = `${getScoreData(target)?.label || "Rectangle"} SVG`;
     const source = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n</svg>`;
     const draweratorSvg = normalizeSvgObject({ source, name, revision: 1 });
     const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
@@ -10754,11 +10921,7 @@ function App() {
         version: (element.version || 0) + 1,
         versionNonce: Math.floor(Math.random() * 0x7fffffff),
         updated: Date.now(),
-        customData: {
-          ...(element.customData || {}),
-          draweratorSvg,
-          iannix: { ...(element.customData?.iannix || {}), label: name },
-        },
+        customData: withScoreData({ ...(element.customData || {}), draweratorSvg }, { ...(getScoreData(element) || {}), label: name }),
       }),
       appState: {
         selectedElementIds: selection,
@@ -12171,7 +12334,7 @@ function App() {
     const kind = isP5 ? LIVECODE_KINDS.p5 : LIVECODE_KINDS.playcore;
     const node = createLivecodeNode({
       kind,
-      name: host.customData?.iannix?.label || defaultLivecodeName(kind),
+      name: getScoreData(host)?.label || defaultLivecodeName(kind),
       source: legacy.source,
       parameters: legacy.parameters,
       runtime: {
@@ -12250,20 +12413,16 @@ function App() {
     let nextElements;
 
     if (existing) {
-      const priorLabel = existing.customData?.iannix?.label;
+      const priorLabel = getScoreData(existing)?.label;
       element = {
         ...existing,
         version: (existing.version || 0) + 1,
         versionNonce: Math.floor(Math.random() * 0x7fffffff),
         updated: Date.now(),
-        customData: {
-          ...(existing.customData || {}),
-          draweratorSvg,
-          iannix: {
-            ...(existing.customData?.iannix || {}),
-            ...(!priorLabel || priorLabel === priorSvg?.name ? { label: resolvedName } : {}),
-          },
-        },
+        customData: withScoreData({ ...(existing.customData || {}), draweratorSvg }, {
+          ...(getScoreData(existing) || {}),
+          ...(!priorLabel || priorLabel === priorSvg?.name ? { label: resolvedName } : {}),
+        }),
       };
       nextElements = elements.map(candidate => candidate.id === existing.id ? element : candidate);
     } else {
@@ -12278,10 +12437,7 @@ function App() {
         strokeWidth: 0,
         fillStyle: "solid",
         backgroundColor: "transparent",
-        customData: {
-          draweratorSvg,
-          iannix: { label: resolvedName },
-        },
+        customData: withScoreData({ draweratorSvg }, { label: resolvedName }),
       };
       nextElements = [...elements, element];
     }
@@ -12410,7 +12566,7 @@ function App() {
     // any viewBox padding equally around them.
     const frame = getSvgHostFrame(getCommonBounds(selected), analysis.viewBox);
     const name = selected.length === 1
-      ? `${selected[0].customData?.iannix?.label || selected[0].type} SVG`
+      ? `${getScoreData(selected[0])?.label || selected[0].type} SVG`
       : `Selection SVG`;
     const draweratorSvg = normalizeSvgObject({ source, name, revision: 1 });
     const host = {
@@ -12425,7 +12581,7 @@ function App() {
       strokeWidth: 0,
       fillStyle: "solid",
       backgroundColor: "transparent",
-      customData: { draweratorSvg, iannix: { label: name } },
+      customData: withScoreData({ draweratorSvg }, { label: name }),
     };
     const convertedIds = new Set(selected.map(element => element.id));
     const nextElements = scene.map(element => convertedIds.has(element.id)
@@ -12729,7 +12885,7 @@ function App() {
       !sceneElements.some(candidate => (
         !candidate.isDeleted &&
         isRuntimeCursor(candidate) &&
-        normalizeIannixData(candidate.customData?.iannix).cursor?.curveId === element.id
+        normalizeIannixData(getScoreData(candidate)).cursor?.curveId === element.id
       ))
     ));
     if (!candidates.length) throw new Error("Select one or more paths or basic shapes first.");
@@ -12756,10 +12912,10 @@ function App() {
       const half = cursorLength / 2;
       const cursorId = `cursor_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 8)}`;
       const sourceData = normalizeIannixData({
-        ...(source.customData?.iannix || {}),
+        ...(getScoreData(source) || {}),
         role: "curve",
         active: true,
-        label: curveLabels.get(source.id) || source.customData?.iannix?.label || `Curve ${index + 1}`,
+        label: curveLabels.get(source.id) || getScoreData(source)?.label || `Curve ${index + 1}`,
         gridBinding: { gridId: "global", metric: "auto", quantize: { geometry: false, time: false, value: false } },
         time: { start: 0, startValue: createTimeValue("0 s"), startMode: "manual", durationMode: "geometry" },
       });
@@ -12787,7 +12943,7 @@ function App() {
         roughness: 0,
         opacity: 0,
         strokeColor: "transparent",
-        customData: { iannix: cursorData },
+        customData: withScoreData({}, cursorData),
       };
       cursors.push(cursor);
     });
@@ -12797,7 +12953,7 @@ function App() {
       if (!nextData) return element;
       return {
         ...element,
-        customData: { ...(element.customData || {}), iannix: nextData },
+        customData: withScoreData(element.customData, nextData),
         version: (element.version || 0) + 1,
         versionNonce: Math.floor(Math.random() * 1000000),
         updated: Date.now(),
@@ -13126,7 +13282,7 @@ function App() {
     if (!excalidrawAPI) return;
     const { score, grid, expressiveSynth, mixer: importedMixer, p5Scripts: importedP5Scripts, streamGraph: importedStreamGraph, brushChannels: importedBrushChannels, relationshipGraph: importedRelationshipGraph, authoredState } = parseDraweratorExchange(text, "scene");
     const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
-    const restoredRuntimeElements = reconcileRuntimeCursorHosts(restored.elements || []);
+    const restoredRuntimeElements = reconcileRuntimeCursorHosts((restored.elements || []).map(normalizeScoreElementMetadata));
     const restoredP5 = reconcileP5ScriptsWithElements(importedP5Scripts, restoredRuntimeElements);
     const restoredElements = restoredP5.elements;
     if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
@@ -13148,7 +13304,7 @@ function App() {
     setP5Scripts(restoredP5.scripts);
     setStreamGraph(normalizeStreamGraphWithBuiltins(importedStreamGraph));
     setBrushChannels(normalizeBrushChannels(importedBrushChannels));
-    setRelationshipGraph(importedRelationshipGraph);
+    setRelationshipGraph(hydrateRelationshipGraphFromElements(importedRelationshipGraph, restoredElements));
     if (authoredState) {
       mediaSourcesRef.current = authoredState.mediaSources;
       setMediaSources(authoredState.mediaSources);
@@ -13474,7 +13630,7 @@ function App() {
       10,
       scoreTimeRef.current + 1,
       historySnapshot.duration,
-      ...elements.filter(element => !element.isDeleted && element.customData?.iannix?.role).map(element => {
+      ...elements.filter(element => !element.isDeleted && getScoreData(element)?.role).map(element => {
         const timing = resolveIannixObjectTiming(element, { context: timeContext, grid: globalGridRef.current });
         return timing.start + timing.duration / Math.max(0.001, timing.rate || 1);
       }),
@@ -13947,14 +14103,18 @@ function App() {
       const existing = excalidrawAPI.getSceneElementsIncludingDeleted();
       const imported = remapSelectionForImport(restored.elements || [], existing);
       if (imported.elements.length === 0) throw new Error("The selection JSON contains no objects.");
+      const canonicalImportedElements = imported.elements.map(normalizeScoreElementMetadata);
       const importedElements = reconcileRuntimeCursorHosts(
-        imported.elements,
-        [...existing, ...imported.elements],
+        canonicalImportedElements,
+        [...existing, ...canonicalImportedElements],
       );
       if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
       const importedIds = Object.fromEntries(importedElements.map(element => [element.id, true]));
       const existingIds = new Set(existing.filter(element => !element.isDeleted).map(element => element.id));
-      const importedRelationships = remapRelationshipGraph(parsedSelection.relationshipGraph, imported.idMap, existingIds);
+      const importedRelationships = hydrateRelationshipGraphFromElements(
+        remapRelationshipGraph(parsedSelection.relationshipGraph, imported.idMap, existingIds),
+        importedElements,
+      );
       setRelationshipGraph(previous => {
         const current = normalizeRelationshipGraph(previous);
         const systemIds = new Set(current.systems.map(system => system.id));
@@ -14410,8 +14570,7 @@ function App() {
           };
         })() : undefined,
       });
-      const customData = {
-        iannix,
+      const customData = withScoreData({
         iannixImport: {
           version: 2,
           externalId: object.externalId,
@@ -14424,7 +14583,7 @@ function App() {
           scale,
           anchor: [anchor.x, anchor.y],
         },
-      };
+      }, iannix);
       let element;
       if (object.role === "curve") {
         let worldPoints;
@@ -14540,7 +14699,7 @@ function App() {
     const selected = liveElements.filter(element => selectedElementIds[element.id]);
     const externalIdFor = element => String(element?.customData?.iannixImport?.externalId ?? element?.id ?? "");
     const byExternalId = new Map(liveElements.map(element => [externalIdFor(element), element]));
-    const byLabel = new Map(liveElements.map(element => [String(element.customData?.iannix?.label || ""), element]).filter(([label]) => label));
+    const byLabel = new Map(liveElements.map(element => [String(getScoreData(element)?.label || ""), element]).filter(([label]) => label));
     const defaultTarget = selected[0] || null;
     const expandTarget = raw => {
       const token = String(raw || "");
@@ -14602,7 +14761,7 @@ function App() {
           && String(element.customData?.iannixImport?.group || "") === String(operation.externalId))
       ));
       if (!relevant.length) return element;
-      let iannix = normalizeIannixData(element.customData?.iannix);
+      let iannix = normalizeIannixData(getScoreData(element));
       let iannixImport = { ...(element.customData?.iannixImport || {}) };
       let strokeColor = element.strokeColor;
       let strokeWidth = element.strokeWidth;
@@ -14635,7 +14794,7 @@ function App() {
         ...element,
         strokeColor,
         strokeWidth,
-        customData: { ...(element.customData || {}), iannix: { ...iannix, version: (iannix.version || 0) + 1 }, iannixImport },
+        customData: withScoreData({ ...(element.customData || {}), iannixImport }, { ...iannix, version: (iannix.version || 0) + 1 }),
         version: element.version + 1,
         versionNonce: Math.floor(Math.random() * 1000000),
         updated: Date.now(),
@@ -14687,21 +14846,112 @@ function App() {
     }
   };
 
+  const renderPhysicsWorldSection = () => {
+    const world = relationshipGraph.world;
+    const setWorldNumber = (field, value) => {
+      const next = Number(value);
+      if (Number.isFinite(next)) updatePhysicsWorld({ [field]: next });
+    };
+    return (
+      <InspectorSection
+        title="World"
+        className="iannix-section physics-world-section"
+        {...infoProps("Physics world", "Global physics defaults shared by every system. Gravity is authored in metres per second squared; canvas Y points down, so the default -9.8 m/s² falls downward in the scene.")}
+      >
+        <div className="iannix-two-column">
+          <label className="iannix-field" {...infoProps("Gravity X", "Horizontal world gravity in metres per second squared.")}>
+            <span>Gravity X (m/s²)</span>
+            <input type="number" step="0.1" value={world.gravity.x} onChange={event => updatePhysicsWorld({ gravity: { ...world.gravity, x: Number(event.target.value) } })} />
+          </label>
+          <label className="iannix-field" {...infoProps("Gravity Y", "Vertical world gravity in metres per second squared. Negative is down in the scene because canvas Y is inverted relative to the physics convention.")}>
+            <span>Gravity Y (m/s²)</span>
+            <input type="number" step="0.1" value={world.gravity.y} onChange={event => updatePhysicsWorld({ gravity: { ...world.gravity, y: Number(event.target.value) } })} />
+          </label>
+          <label className="iannix-field" {...infoProps("Viscosity", "Global linear drag added to dynamic bodies. Zero leaves each body's own damping unchanged.")}>
+            <span>Viscosity</span>
+            <input type="number" min="0" max="100" step="0.01" value={world.viscosity} onChange={event => setWorldNumber("viscosity", event.target.value)} />
+          </label>
+          <label className="iannix-field" {...infoProps("Simulation speed", "Scales elapsed physics time without changing the fixed solver cadence. Set to zero to hold the simulation.")}>
+            <span>Sim speed</span>
+            <input type="number" min="0" max="8" step="0.05" value={world.simSpeed} onChange={event => setWorldNumber("simSpeed", event.target.value)} />
+          </label>
+        </div>
+        <label className="iannix-field" {...infoProps("Pixels per metre", "Scene scale used when converting real-world gravity to canvas coordinates. 100 px/m keeps the default gravity close to the prior 980 px/s² behavior.")}>
+          <span>Pixels per metre</span>
+          <input type="number" min="1" max="1000" step="1" value={world.pixelsPerMeter} onChange={event => setWorldNumber("pixelsPerMeter", event.target.value)} />
+        </label>
+        <div className="physics-transport">
+          <button type="button" className="iannix-flat-button" onClick={playPhysicsWorld} disabled={physicsWorldPlaying}>Play world</button>
+          <button type="button" className="iannix-flat-button" onClick={pausePhysicsWorld} disabled={!physicsWorldPlaying}>Pause world</button>
+          <button type="button" className="iannix-flat-button" onClick={resetPhysicsWorld}>Reset world</button>
+        </div>
+      </InspectorSection>
+    );
+  };
+
   const renderSceneExchangeTools = () => {
     const selectedCount = getSelectedElements().length;
     return (
-      <InspectorSection title="Scene data" className="iannix-section compact iannix-data-section" {...infoProps("Scene data", "Scene exchange preserves Drawerator metadata. Trusted .iannix compatibility executes familiar run()/load() scripts, reports unsupported commands, and is not a security sandbox.")}>
-        <div className="iannix-data-actions">
-          <a className="iannix-flat-button" href="#" download onClick={prepareDraweratorSceneDownload}>Export scene</a>
-          <button type="button" className="iannix-flat-button" onClick={() => sceneImportInputRef.current?.click()}>Import scene</button>
-          <button type="button" className="iannix-flat-button" onClick={() => void copyDraweratorScene()}>Copy scene JSON</button>
-          <button type="button" className="iannix-flat-button" onClick={() => void pasteDraweratorScene()}>Paste scene JSON</button>
-          <button type="button" className="iannix-flat-button" onClick={copyDraweratorSelection} disabled={selectedCount === 0}>Copy selection JSON</button>
-          <button type="button" className="iannix-flat-button" onClick={pasteDraweratorSelection}>Paste selection JSON</button>
-          <button type="button" className="iannix-flat-button" onClick={() => void copySelectionAsSvg()} disabled={selectedCount === 0}>Copy selection SVG</button>
-          <button type="button" className="iannix-flat-button" onClick={() => void pasteSvgAsEditable()}>Paste SVG as paths</button>
+      <>
+        {renderPhysicsWorldSection()}
+        <InspectorSection title="Scene data" className="iannix-section compact iannix-data-section" {...infoProps("Scene data", "Scene exchange preserves Drawerator metadata. Trusted .iannix compatibility executes familiar run()/load() scripts, reports unsupported commands, and is not a security sandbox.")}>
+          <div className="iannix-data-actions">
+            <a className="iannix-flat-button" href="#" download onClick={prepareDraweratorSceneDownload}>Export scene</a>
+            <button type="button" className="iannix-flat-button" onClick={() => sceneImportInputRef.current?.click()}>Import scene</button>
+            <button type="button" className="iannix-flat-button" onClick={() => void copyDraweratorScene()}>Copy scene JSON</button>
+            <button type="button" className="iannix-flat-button" onClick={() => void pasteDraweratorScene()}>Paste scene JSON</button>
+            <button type="button" className="iannix-flat-button" onClick={copyDraweratorSelection} disabled={selectedCount === 0}>Copy selection JSON</button>
+            <button type="button" className="iannix-flat-button" onClick={pasteDraweratorSelection}>Paste selection JSON</button>
+            <button type="button" className="iannix-flat-button" onClick={() => void copySelectionAsSvg()} disabled={selectedCount === 0}>Copy selection SVG</button>
+            <button type="button" className="iannix-flat-button" onClick={() => void pasteSvgAsEditable()}>Paste SVG as paths</button>
+          </div>
+          {sceneExchangeStatus && <div className="iannix-midi-status" role="status">{sceneExchangeStatus}</div>}
+        </InspectorSection>
+      </>
+    );
+  };
+
+  const renderPhysicsRoleSection = selectedElements => {
+    const selectedIds = new Set(selectedElements.map(element => element.id));
+    const bodies = relationshipGraph.bodies.filter(body => body.objectRef?.kind === "element" && selectedIds.has(body.objectRef.elementId));
+    const roleForBody = body => body.collider.sensor ? "sensor" : body.bodyType;
+    const sharedRole = bodies.length === selectedElements.length && bodies.length > 0
+      && new Set(bodies.map(roleForBody)).size === 1
+      ? roleForBody(bodies[0])
+      : bodies.length === 0 ? "none" : "mixed";
+    const roleOptions = [
+      ["none", "None"],
+      ["dynamic", "Dynamic body"],
+      ["kinematic", "Kinematic body"],
+      ["fixed", "Fixed collider"],
+      ["sensor", "Sensor"],
+    ];
+    const applyRole = role => {
+      if (role === "none") {
+        removePhysicsBodies(bodies.map(body => body.id));
+        return;
+      }
+      assignPhysicsBodies({ bodyType: role === "sensor" ? "fixed" : role, sensor: role === "sensor" });
+    };
+    return (
+      <InspectorSection title="Physics role" className="iannix-section" aside={<span className="iannix-selection-count">{selectedElements.length} objects</span>} {...infoProps("Physics role", "Attach or remove a Rapier body binding for the selected canvas objects. Detailed material and collider properties are available in Properties under customData · physics.")}>
+        <div className="iannix-role-grid" role="radiogroup" aria-label="Physics role for selected objects">
+          {roleOptions.map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={`iannix-role-button role-${value} ${sharedRole === value ? "active" : ""}`}
+              role="radio"
+              aria-checked={sharedRole === value}
+              onClick={() => applyRole(value)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-        {sceneExchangeStatus && <div className="iannix-midi-status" role="status">{sceneExchangeStatus}</div>}
+        <div className="iannix-hint">
+          {sharedRole === "mixed" ? `${bodies.length} of ${selectedElements.length} selected objects have physics roles.` : sharedRole === "none" ? "No selected object has a physics role." : `Selected objects use a ${roleOptions.find(([value]) => value === sharedRole)?.[1] || sharedRole.toString().replace(/^./, value => value.toUpperCase())}.`}
+        </div>
       </InspectorSection>
     );
   };
@@ -14727,14 +14977,15 @@ function App() {
 
     if (selectedElements.length > 1) {
       const selectedRoles = new Set(selectedElements.map(element =>
-        normalizeIannixData(element.customData?.iannix).role
+        normalizeIannixData(getScoreData(element)).role
       ));
       const sharedRole = selectedRoles.size === 1 ? selectedRoles.values().next().value : undefined;
       return (
         <div className="iannix-properties">
           {renderSceneExchangeTools()}
+          {renderPhysicsRoleSection(selectedElements)}
           <InspectorSection title="Score role" className="iannix-section" aside={<span className="iannix-selection-count">{selectedElements.length} objects</span>} {...infoProps("Score role", "Assigning a role gives every selected object a unique label. Same-role selections can be edited together below.")}>
-            <div className="iannix-role-grid" role="radiogroup" aria-label="IanniX role for selected objects">
+            <div className="iannix-role-grid" role="radiogroup" aria-label="Score role for selected objects">
               {roleOptions.map(option => (
                 <button
                   key={option.label}
@@ -14763,7 +15014,7 @@ function App() {
     }
 
     const element = selectedElements[0];
-    const data = normalizeIannixData(element.customData?.iannix);
+    const data = normalizeIannixData(getScoreData(element));
     const timingFrame = evaluateScoreFrame(excalidrawAPI.getSceneElements(), scoreTime, undefined, { detectCollisions: false, timeContext, globalGrid: globalGridRef.current });
     const resolvedTiming = timingFrame.resolvedTimings.get(element.id) || resolveIannixObjectTiming(element, {
       context: timeContext,
@@ -14771,12 +15022,12 @@ function App() {
     });
     const timeState = getObjectTimeState(scoreTime, resolvedTiming);
     const curves = excalidrawAPI.getSceneElements().filter(candidate =>
-      !candidate.isDeleted && candidate.customData?.iannix?.role === "curve"
+      !candidate.isDeleted && getScoreData(candidate)?.role === "curve"
     );
     const linkedCursorCount = excalidrawAPI.getSceneElements().filter(candidate =>
       !candidate.isDeleted &&
-      candidate.customData?.iannix?.role === "cursor" &&
-      candidate.customData?.iannix?.cursor?.curveId === element.id
+      getScoreData(candidate)?.role === "cursor" &&
+      getScoreData(candidate)?.cursor?.curveId === element.id
     ).length;
     const setNumber = (section, field, value) => {
       const number = Number(value);
@@ -14804,7 +15055,7 @@ function App() {
         const message = data.trigger.behavior === "glissando"
           ? null
           : parseIannixMidiPattern(data.trigger.midiPattern, context);
-        const cursorData = normalizeIannixData(cursor.element.customData?.iannix);
+        const cursorData = normalizeIannixData(getScoreData(cursor.element));
         midiPreview = {
           context,
           message,
@@ -14827,6 +15078,7 @@ function App() {
     return (
       <div className="iannix-properties">
         {renderSceneExchangeTools()}
+        {renderPhysicsRoleSection(selectedElements)}
         <InspectorSection title="Score role" className="iannix-section">
           <div className="iannix-role-grid" role="radiogroup" aria-label="IanniX object role">
             {roleOptions.map(option => (
@@ -14874,7 +15126,7 @@ function App() {
               >
                 <option value="">— Choose curve —</option>
                 {curves.map(curve => {
-                  const curveData = normalizeIannixData(curve.customData?.iannix);
+                  const curveData = normalizeIannixData(getScoreData(curve));
                   return (
                     <option key={curve.id} value={curve.id}>
                       {curveData.label || `${curve.type} ${curve.id.slice(0, 6)}`}
@@ -17224,7 +17476,7 @@ function App() {
     if (element.customData?.outlinerHidden) return [];
     const sourcePaths = getElementCorePaths(element);
     const modifiers = element.customData?.modifiers || [];
-    const data = normalizeIannixData(element.customData?.iannix);
+    const data = normalizeIannixData(getScoreData(element));
     const authoredOpacity = data.cursor.sourceOpacity ?? element.opacity ?? 100;
     const renderedOpacity = element.customData?.hideOriginal && modifiers.length > 0
       ? (element.customData.savedOpacity ?? authoredOpacity)
@@ -17630,7 +17882,7 @@ function App() {
     if (!excalidrawAPI) return null;
     const elements = excalidrawAPI.getSceneElements();
     const scoreObjects = elements.filter(element =>
-      !element.isDeleted && ["curve", "cursor", "trigger"].includes(element.customData?.iannix?.role)
+      !element.isDeleted && ["curve", "cursor", "trigger"].includes(getScoreData(element)?.role)
     );
     if (scoreObjects.length === 0) return null;
 
@@ -17690,7 +17942,7 @@ function App() {
           );
         }))}
 
-        {scoreObjects.filter(element => element.customData.iannix.role === "trigger").map(element => {
+        {scoreObjects.filter(element => getScoreData(element)?.role === "trigger").map(element => {
           const pulseUntil = triggerPulseUntilRef.current.get(element.id) || 0;
           const geometricallyActive = scorePlaying && [...activeScoreCollisionsRef.current]
             .some(key => key.split(":")[1] === element.id);
@@ -17716,7 +17968,7 @@ function App() {
         })}
 
         {showIannixLabels && scoreObjects.map(element => {
-          const data = normalizeIannixData(element.customData.iannix);
+          const data = normalizeIannixData(getScoreData(element));
           let center = getElementCenter(element);
           if (data.role === "cursor") {
             const runtimeCursor = frame.cursors.find(cursor => cursor.element.id === element.id);
@@ -17741,7 +17993,7 @@ function App() {
   const renderIannixTransport = () => {
     if (!excalidrawAPI) return null;
     const scoreObjects = excalidrawAPI.getSceneElements().filter(element =>
-      !element.isDeleted && ["curve", "cursor", "trigger"].includes(element.customData?.iannix?.role)
+      !element.isDeleted && ["curve", "cursor", "trigger"].includes(getScoreData(element)?.role)
     );
     const timingFrame = evaluateScoreFrame(excalidrawAPI.getSceneElements(), scoreTime, undefined, { detectCollisions: false, timeContext, globalGrid: globalGridRef.current });
     const scoreEnd = Math.max(
@@ -19605,7 +19857,7 @@ function App() {
               Script
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-iannix", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              IanniX
+              Score
             </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-physics", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Physics
@@ -20255,6 +20507,10 @@ function App() {
             <PropertiesPanel
               elements={(excalidrawAPI?.getSceneElementsIncludingDeleted() || []).filter(element => selectedElementIds[element.id])}
               availableElements={(excalidrawAPI?.getSceneElementsIncludingDeleted() || []).filter(element => !element.isDeleted)}
+              physicsBodies={relationshipGraph.bodies}
+              onPhysicsBodyChange={patchPhysicsBody}
+              onPhysicsBodyRemove={removePhysicsBody}
+              onScoreChange={(elementId, patch) => updateIannixElement(elementId, current => ({ ...current, ...patch }))}
               selectedSvgNode={selectedSvgNode}
               onChange={updateSceneObjectProperty}
               mediaSources={mediaSources}
@@ -20803,6 +21059,9 @@ function App() {
               activeTool={physicsTool?.kind || null}
               telemetry={physicsTelemetry}
               onSetGraph={setRelationshipGraph}
+              onPatchBody={patchPhysicsBody}
+              onRemoveBody={removePhysicsBody}
+              onRemoveSystem={removePhysicsSystem}
               onPlay={async systemId => { await physicsAudioRef.current.resume(); physicsRuntimeRef.current.play(systemId); }}
               onPause={systemId => physicsRuntimeRef.current.pause(systemId)}
               onReset={systemId => resetPhysicsSystem(systemId)}
@@ -21585,7 +21844,7 @@ function App() {
                   Export Selected p5 Frame as PNG
                 </button>
               )}
-              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showToSvg || customContextMenu.showMakeRole || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showMigrateLivecode || customContextMenu.showAttachSvgCode || customContextMenu.showMakePreview || customContextMenu.showCreateLivecode || customContextMenu.showViewportFit || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
+              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showToSvg || customContextMenu.showMakeBody || customContextMenu.showMakeRole || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showMigrateLivecode || customContextMenu.showAttachSvgCode || customContextMenu.showMakePreview || customContextMenu.showCreateLivecode || customContextMenu.showViewportFit || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
             </>
           )}
           {customContextMenu.showViewportFit && (
@@ -21662,6 +21921,26 @@ function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="m6 16 4-4 3 3 2-2 3 3" />
               </svg>
               Make Preview
+            </button>
+          )}
+          {customContextMenu.showMakeBody && (
+            <button
+              onPointerDown={event => {
+                event.preventDefault();
+                event.stopPropagation();
+                try {
+                  assignPhysicsBodies({ bodyType: "dynamic" });
+                  toggleDraweratorPanel("physics", { open: true });
+                } catch (error) {
+                  setSceneExchangeStatus(error?.message || "Could not make a physics body.");
+                }
+                setCustomContextMenu(null);
+              }}
+              className="custom-floating-context-menu-btn"
+              title="Attach a dynamic physics body to the selected canvas object and open its physics inspector"
+            >
+              <span aria-hidden="true" style={{ width: 14, marginRight: 8 }}>◉</span>
+              Make Physics Body
             </button>
           )}
           {customContextMenu.showRestore && (

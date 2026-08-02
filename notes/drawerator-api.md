@@ -28,7 +28,7 @@ Sandboxed HTML retains only its token-scoped `window.drawerator` message bridge.
 | `api` | Full public application API listed below. |
 
 `canvas.all()` returns non-deleted object snapshots. `canvas.get(reference)` resolves an id, score
-label, or IanniX group. `canvas.find(query)` accepts text or a predicate, and `canvas.selected()`
+label, or Score group. `canvas.find(query)` accepts text or a predicate, and `canvas.selected()`
 returns the current selection. `events.on(pattern, listener)` subscribes and returns an unsubscribe
 function; a trailing `.*` is a prefix wildcard. `events.recent(limit)` and `events.latest(pattern)`
 inspect captured events.
@@ -51,7 +51,7 @@ return { char: "●", color: __.colors.foreground.css };
 | `inputs` | `registerAdapter(adapter)`, `unregisterAdapter(id)`, `emit(sample)` |
 | `events` | `subscribe(pattern, listener)` |
 | `relations` | Graph `get()`, `set(graph)`, `add(collection, item)`, `update(collection, id, patch)`, `remove(collection, id)`; endpoint, adapter, collision-stream, and relationship-event helpers |
-| `physics` | System/body/population/constraint/route helpers; `play`, `pause`, `reset`, `apply`, `materialize`, `impulse`, `grab`, `moveGrab`, `releaseGrab`, `poses`, `telemetry`, and `snapshot` |
+| `physics` | `world.get()` / `world.update(patch)`; system/body/population/constraint/route helpers; `play`, `pause`, `reset`, `apply`, `materialize`, `impulse`, `grab`, `moveGrab`, `releaseGrab`, `poses`, `telemetry`, and `snapshot`. Authored body settings live at `object.customData.physics`; the relationship graph supplies only its stable relationship binding. `customData.draweratorPhysics` remains a read-only legacy alias. |
 | `mixer` | `get()`, `updateTrack(trackId, patch)`, `addTrack(overrides)`, `removeTrack(trackId)` |
 | `streams` | `list()`, `get(idOrName)`, `subscribe(listener)`; returned streams expose `feature(id, { space })`, `features(query)`, and `subscribe(listener)` |
 

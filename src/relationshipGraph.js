@@ -8,6 +8,7 @@ export const BODY_TYPES = Object.freeze(["dynamic", "kinematic", "fixed"]);
 export const COLLIDER_KINDS = Object.freeze(["circle", "box", "convex", "polyline"]);
 export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "revolute", "weld", "attractor"]);
 export const ROUTE_ACTION_KINDS = Object.freeze(["event", "stream", "synth", "midi", "command"]);
+export const PHYSICS_PIXELS_PER_METER = 100;
 
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, finite(value, minimum)));
@@ -16,16 +17,20 @@ const clone = value => value === undefined ? undefined : structuredClone(value);
 const list = value => Array.isArray(value) ? value : [];
 const uniqueStrings = value => [...new Set(list(value).map(item => String(item || "").trim()).filter(Boolean))];
 
-export const createDefaultPhysicsSystem = overrides => normalizePhysicsSystem({
-  id: `physics-system-${crypto.randomUUID()}`,
-  name: "Physics",
-  enabled: true,
-  playing: false,
-  adapter: "rapier2d",
-  clock: { mode: "realtime", fixedHz: PHYSICS_FIXED_HZ, timeScale: 1 },
-  gravity: { x: 0, y: 900 },
-  ...overrides,
-});
+export const createDefaultPhysicsSystem = overrides => {
+  const value = overrides && typeof overrides === "object" ? overrides : {};
+  const hasCustomGravity = Object.hasOwn(value, "gravity") && value.gravity != null;
+  return normalizePhysicsSystem({
+    id: `physics-system-${crypto.randomUUID()}`,
+    name: "Physics",
+    enabled: true,
+    playing: false,
+    adapter: "rapier2d",
+    clock: { mode: "realtime", fixedHz: PHYSICS_FIXED_HZ, timeScale: 1 },
+    gravityMode: hasCustomGravity ? "custom" : "world",
+    ...value,
+  });
+};
 
 export const normalizePhysicsSystem = value => ({
   id: id(value?.id, "physics-system"),
@@ -38,9 +43,22 @@ export const normalizePhysicsSystem = value => ({
     fixedHz: clamp(value?.clock?.fixedHz, 15, 240) || PHYSICS_FIXED_HZ,
     timeScale: clamp(value?.clock?.timeScale ?? 1, 0, 8),
   },
+  gravityMode: value?.gravityMode === "world" || (value?.gravityMode !== "custom" && !value?.gravity)
+    ? "world"
+    : "custom",
   gravity: { x: finite(value?.gravity?.x), y: finite(value?.gravity?.y, 900) },
   seed: Math.max(0, Math.round(finite(value?.seed, 1))),
   emitStayEvents: value?.emitStayEvents === true,
+});
+
+export const normalizePhysicsWorld = value => ({
+  gravity: {
+    x: finite(value?.gravity?.x),
+    y: finite(value?.gravity?.y, -9.8),
+  },
+  viscosity: clamp(value?.viscosity, 0, 100),
+  simSpeed: clamp(value?.simSpeed ?? 1, 0, 8),
+  pixelsPerMeter: clamp(value?.pixelsPerMeter ?? PHYSICS_PIXELS_PER_METER, 1, 1000),
 });
 
 export const normalizePhysicsEndpoint = value => {
@@ -142,6 +160,124 @@ export const normalizePhysicsBody = value => {
   };
 };
 
+// Authored body settings live on the native Excalidraw object. The graph keeps
+// the stable binding needed by constraints and systems; Rapier receives a
+// derived, normalized body definition at runtime.
+export const serializePhysicsBodyCustomData = value => {
+  const body = normalizePhysicsBody(value);
+  return {
+    version: 1,
+    role: "body",
+    id: body.id,
+    systemId: body.systemId,
+    tracking: body.tracking,
+    enabled: body.enabled,
+    bodyType: body.bodyType,
+    name: body.name,
+    collisionTags: [...body.collisionTags],
+    collisionGroup: body.collisionGroup,
+    collisionMask: body.collisionMask,
+    collider: clone(body.collider),
+    material: clone(body.material),
+    initial: clone(body.initial),
+    initialGeometry: clone(body.initialGeometry),
+    render: clone(body.render),
+  };
+};
+
+// Physics metadata lives on the authored object as `customData.physics`.
+// `draweratorPhysics` was the name used by the first canvas-first slice; read
+// it as a compatibility alias, but never make it the canonical write path.
+export const getPhysicsCustomData = value => {
+  const customData = value?.customData && typeof value.customData === "object"
+    ? value.customData
+    : value;
+  return customData?.physics || customData?.draweratorPhysics || null;
+};
+
+export const withPhysicsCustomData = (customData, value) => {
+  const next = { ...(customData || {}), physics: serializePhysicsBodyCustomData(value) };
+  delete next.draweratorPhysics;
+  return next;
+};
+
+export const hydrateRelationshipGraphFromElements = (graphValue, elements = []) => {
+  const graph = normalizeRelationshipGraph(graphValue);
+  const liveElements = (elements || []).filter(element => element && !element.isDeleted);
+  const elementById = new Map(liveElements.map(element => [element.id, element]));
+  const boundElementIds = new Set(graph.bodies
+    .filter(body => body.objectRef?.kind === "element")
+    .map(body => body.objectRef.elementId));
+  const usedBodyIds = new Set(graph.bodies.map(body => body.id));
+  let systems = graph.systems;
+  const bodies = [
+    ...graph.bodies.map(body => {
+      if (body.objectRef?.kind !== "element") return body;
+      const physics = getPhysicsCustomData(elementById.get(body.objectRef.elementId));
+      if (!physics || physics.role !== "body") return body;
+      return {
+        ...body,
+        ...physics,
+        // A graph body id is a relationship identity referenced by imported
+        // constraints. Preserve it through copy/remap; object data owns the
+        // actual body configuration.
+        id: body.id,
+        systemId: body.systemId || physics.systemId,
+        tracking: body.tracking || physics.tracking,
+        objectRef: body.objectRef,
+      };
+    }),
+    // A native object is sufficient authored evidence of a body. This also
+    // repairs partial/legacy Excalidraw imports whose graph binding was not
+    // saved alongside `customData.physics`.
+    ...liveElements.flatMap(element => {
+      if (boundElementIds.has(element.id)) return [];
+      const physics = getPhysicsCustomData(element);
+      if (!physics || physics.role !== "body") return [];
+      let systemId = String(physics.systemId || systems[0]?.id || "");
+      if (!systems.some(system => system.id === systemId)) {
+        const system = createDefaultPhysicsSystem({
+          ...(systemId ? { id: systemId } : {}),
+          name: "World",
+        });
+        systems = [...systems, system];
+        systemId = system.id;
+      }
+      const preferredId = String(physics.id || `physics-body-${element.id}`);
+      const bodyId = usedBodyIds.has(preferredId) ? `physics-body-${element.id}` : preferredId;
+      usedBodyIds.add(bodyId);
+      return [normalizePhysicsBody({
+        ...physics,
+        id: bodyId,
+        systemId,
+        objectRef: { kind: "element", elementId: element.id },
+      })];
+    }),
+  ];
+  return normalizeRelationshipGraph({
+    ...graph,
+    systems,
+    bodies,
+  });
+};
+
+export const serializeRelationshipGraphForScene = graphValue => {
+  const graph = normalizeRelationshipGraph(graphValue);
+  return {
+    ...graph,
+    // Authored body configuration already lives at object.customData.physics.
+    // Keep only its identity and system binding in the relationship graph.
+    bodies: graph.bodies.map(body => body.objectRef?.kind === "element"
+      ? {
+          id: body.id,
+          systemId: body.systemId,
+          tracking: body.tracking,
+          objectRef: clone(body.objectRef),
+        }
+      : body),
+  };
+};
+
 export const normalizePhysicsPopulation = value => ({
   id: id(value?.id, "physics-population"),
   systemId: String(value?.systemId || ""),
@@ -215,6 +351,7 @@ export const normalizeRelationshipGraph = value => {
   const keepSystem = item => !item.systemId || systemIds.has(item.systemId);
   return {
     version: RELATIONSHIP_GRAPH_VERSION,
+    world: normalizePhysicsWorld(graph.world),
     systems,
     bodies: list(graph.bodies).map(normalizePhysicsBody).filter(keepSystem),
     populations: list(graph.populations).map(normalizePhysicsPopulation).filter(keepSystem),

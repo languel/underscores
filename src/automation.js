@@ -27,7 +27,7 @@ const setPath = (object, path, value) => {
 
 export const AUTO_KEY_PATHS = Object.freeze([
   "x", "y", "angle", "width", "height", "opacity", "strokeWidth", "strokeColor", "backgroundColor",
-  "customData.modifiers", "customData.iannix", "customData.draweratorGeometry", "points",
+  "customData.modifiers", "customData.score", "customData.iannix", "customData.draweratorGeometry", "points",
 ]);
 
 export const interpolationForPath = path => {

@@ -1,4 +1,4 @@
-# IanniX Score Engine Notes
+# Score Engine Notes (legacy IanniX compatibility)
 
 Last updated: 2026-07-23
 
@@ -16,7 +16,7 @@ Multiple simultaneous roles, external outputs, and persistent routing graphs are
 
 ## Element data model
 
-Score metadata lives beside modifier metadata in `element.customData.iannix`:
+Score metadata lives beside modifier metadata in `element.customData.score`:
 
 ```js
 {
@@ -40,7 +40,7 @@ Score metadata lives beside modifier metadata in `element.customData.iannix`:
 }
 ```
 
-The independent dockable **IanniX** panel edits these properties. Its Object and Data tabs separate role configuration and compact custom data from the Mods & FX rendering stack. Trusted script catalogs and one-line commands live in the standalone typed **Script** panel under the **IanniX** script type. A multi-selection exposes batch role assignment and allocates conflict-free role labels such as `Curve 1`, `Curve 2`, and `Cursor 1` in one history transaction. Same-role selections also expose a shared Data editor: mixed primitive values appear blank, edits apply atomically to every compatible selected object, and `${n}` label templates expand in stable one-based scene order.
+The independent dockable **Score** panel edits these properties. Its Object and Data tabs separate role configuration and compact custom data from the Mods & FX rendering stack. A selected object with a Score role also exposes its basic role, label, and active state in a pinned **Score role** section at the top of Properties. Trusted script catalogs and one-line commands live in the standalone typed **Script** panel under the **Score** script type. A multi-selection exposes batch role assignment and allocates conflict-free role labels such as `Curve 1`, `Curve 2`, and `Cursor 1` in one history transaction. Same-role selections also expose a shared Data editor: mixed primitive values appear blank, edits apply atomically to every compatible selected object, and `${n}` label templates expand in stable one-based scene order. `customData.iannix` remains a read/write compatibility alias for older scenes and scripts.
 
 ## Global and local time
 

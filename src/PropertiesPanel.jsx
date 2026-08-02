@@ -12,6 +12,7 @@ import { getEditableSvgPathNodes } from "./svgPathGeometry.js";
 import { buildSvgTimingGraph } from "./svgAnimation.js";
 import { getSvgNodeStyleCascade, updateStructuredSvgStyleDeclaration } from "./svgStyleModel.js";
 import { isMediaStreamElement, MEDIA_STREAM_KINDS, normalizeMediaStreamConfig, patchMediaStreamConfig } from "./mediaStream.js";
+import { getScoreData } from "./iannixEngine.js";
 
 const READ_ONLY_KEYS = new Set([
   "id", "type", "width", "height", "version", "versionNonce", "updated", "index", "seed",
@@ -23,7 +24,7 @@ const PROPERTIES_PINS_STORAGE_KEY = "drawerator_properties_pins_v1";
 
 const pathKey = path => path.map(String).join(".");
 const getElementName = element => {
-  if (element.customData?.iannix?.label) return element.customData.iannix.label;
+  if (getScoreData(element)?.label) return getScoreData(element).label;
   if (element.customData?.draweratorLabel) return element.customData.draweratorLabel;
   if (isMediaStreamElement(element)) return normalizeMediaStreamConfig(element.customData.draweratorMediaStream).name;
   if (isSvgObjectElement(element)) return normalizeSvgObject(element.customData.draweratorSvg).name;
@@ -49,7 +50,7 @@ const defaultPinnedPathsFor = element => {
       ["customData", "draweratorMediaStream", "mirror"],
     ];
   }
-  if (element?.customData?.iannix?.role) return [["customData", "iannix", "role"]];
+  if (getScoreData(element)?.role) return [["customData", "score", "role"]];
   return [["x"], ["y"]];
 };
 
@@ -91,21 +92,21 @@ const isSharedEditablePath = (elements, path) => {
 const enumOptionsForPath = path => {
   const key = String(path.at(-1) || "");
   const joined = path.map(String).join(".");
-  if (joined === "customData.iannix.role") return [
+  if (joined === "customData.score.role") return [
     [null, "None"], ["curve", "Curve"], ["cursor", "Cursor"], ["trigger", "Trigger"],
   ];
-  if (joined === "customData.iannix.time.loopMode") return [
+  if (joined === "customData.score.time.loopMode") return [
     ["once", "Once / hold"], ["loop", "Loop"], ["pingPong", "Ping-pong"],
   ];
-  if (joined === "customData.iannix.time.startMode") return [["manual", "Manual"], ["curve", "Curve"]];
-  if (joined === "customData.iannix.time.durationMode") return [
+  if (joined === "customData.score.time.startMode") return [["manual", "Manual"], ["curve", "Curve"]];
+  if (joined === "customData.score.time.durationMode") return [
     ["geometry", "Geometry"], ["manual", "Manual"], ["curve", "Curve"], ["ratio", "Ratio"],
   ];
-  if (joined === "customData.iannix.gridBinding.metric") return [
+  if (joined === "customData.score.gridBinding.metric") return [
     ["auto", "Auto"], ["xSpan", "X span"], ["ySpan", "Y span"], ["arcLength", "Arc length"], ["manhattan", "Manhattan"],
   ];
-  if (joined === "customData.iannix.trigger.behavior") return [["pulse", "Pulse"], ["glissando", "Continuous glissando"]];
-  if (joined === "customData.iannix.trigger.midiBaseSource") return [["cursor", "Cursor"], ["curve", "Curve"]];
+  if (joined === "customData.score.trigger.behavior") return [["pulse", "Pulse"], ["glissando", "Continuous glissando"]];
+  if (joined === "customData.score.trigger.midiBaseSource") return [["cursor", "Cursor"], ["curve", "Curve"]];
   if (key === "strokeStyle") return [["solid", "Solid"], ["dashed", "Dashed"], ["dotted", "Dotted"]];
   if (key === "fillStyle") return [["hachure", "Hachure"], ["cross-hatch", "Cross-hatch"], ["solid", "Solid"], ["zigzag", "Zigzag"]];
   if (key === "textAlign") return [["left", "Left"], ["center", "Center"], ["right", "Right"]];
@@ -707,14 +708,83 @@ const svgMatchesQuery = (element, query) => {
 };
 
 const propertyTreeValue = element => {
-  if (!isSvgObjectElement(element) && element?.type !== "frame") return element;
   const customData = { ...(element.customData || {}) };
   delete customData.draweratorSvg;
+  // Role data has compact pinned controls above the raw Excalidraw tree.
+  // Hiding it here avoids presenting the same authored setting twice.
+  delete customData.physics;
+  delete customData.draweratorPhysics;
+  delete customData.score;
+  delete customData.iannix;
+  if (!isSvgObjectElement(element) && element?.type !== "frame") return { ...element, customData };
   if (element?.type !== "frame") return { ...element, customData };
   // A frame's renderer ignores roundness. Omitting the inert field prevents
   // the raw inspector from suggesting a control that has no visual effect.
   const { roundness: _roundness, ...frameValue } = element;
   return { ...frameValue, customData };
+};
+
+const physicsBodyMatchesQuery = (body, query) => {
+  if (!body || !query?.needle) return Boolean(body);
+  return [
+    "physics", "body", "enabled", "type", "name", "tags", "sensor", "collider",
+    "friction", "bounce", "restitution", "density", "damping", "angular damping",
+    body.name, body.bodyType, body.collisionTags.join(" "), body.collider.kind,
+  ].some(value => String(value || "").toLowerCase().includes(query.needle));
+};
+
+const physicsBodyFieldCount = (body, query) => physicsBodyMatchesQuery(body, query) ? 10 : 0;
+
+const PhysicsRoleControls = ({ body, query, onChange, onRemove }) => {
+  if (!physicsBodyMatchesQuery(body, query)) return null;
+  const matches = name => !query?.needle || name.includes(query.needle);
+  const updateMaterial = patch => onChange({ material: { ...body.material, ...patch } });
+  const updateCollider = patch => onChange({ collider: { ...body.collider, ...patch } });
+  return (
+    <details className="properties-group properties-physics-group" open>
+      <summary><span>Physics role</span><small>{body.bodyType}</small></summary>
+      <div className="properties-children">
+        {matches("enabled") && <div className="properties-row editable"><span>enabled</span><input type="checkbox" checked={body.enabled} onChange={event => onChange({ enabled: event.target.checked })} /></div>}
+        {matches("type") && <div className="properties-row editable"><span>body type</span><select value={body.bodyType} onChange={event => onChange({ bodyType: event.target.value })}><option value="dynamic">Dynamic</option><option value="kinematic">Kinematic</option><option value="fixed">Fixed</option></select></div>}
+        {matches("sensor") && <div className="properties-row editable"><span>sensor</span><input type="checkbox" checked={body.collider.sensor} onChange={event => updateCollider({ sensor: event.target.checked })} /></div>}
+        {matches("name") && <div className="properties-row editable"><span>name</span><input type="text" value={body.name} onChange={event => onChange({ name: event.target.value })} /></div>}
+        {matches("tags") && <div className="properties-row editable"><span>tags</span><input type="text" value={body.collisionTags.join(", ")} onChange={event => onChange({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} /></div>}
+        <div className="properties-two-column">
+          {matches("friction") && <div className="properties-row editable"><span>friction</span><input type="number" min="0" max="10" step="0.05" value={body.material.friction} onChange={event => updateMaterial({ friction: event.target.valueAsNumber })} /></div>}
+          {matches("bounce") && <div className="properties-row editable"><span>bounce</span><input type="number" min="0" max="2" step="0.05" value={body.material.restitution} onChange={event => updateMaterial({ restitution: event.target.valueAsNumber })} /></div>}
+          {matches("density") && <div className="properties-row editable"><span>density</span><input type="number" min="0.01" max="100" step="0.1" value={body.material.density} onChange={event => updateMaterial({ density: event.target.valueAsNumber })} /></div>}
+          {matches("damping") && <div className="properties-row editable"><span>damping</span><input type="number" min="0" max="100" step="0.05" value={body.material.linearDamping} onChange={event => updateMaterial({ linearDamping: event.target.valueAsNumber })} /></div>}
+        </div>
+        <button type="button" className="iannix-flat-button" onClick={() => onRemove?.()}>Remove physics role</button>
+      </div>
+    </details>
+  );
+};
+
+const scoreRoleMatchesQuery = (data, query) => {
+  if (!data?.role) return false;
+  if (!query?.needle) return true;
+  return ["score", "role", "label", "active", data.role]
+    .some(name => String(name).toLowerCase().includes(query.needle));
+};
+
+const scoreRoleFieldCount = (element, query) => scoreRoleMatchesQuery(getScoreData(element), query) ? 3 : 0;
+
+const ScoreRoleControls = ({ element, query, onChange }) => {
+  const data = getScoreData(element);
+  if (!data?.role) return null;
+  const matches = name => !query?.needle || name.includes(query.needle) || String(data.role).includes(query.needle);
+  if (!scoreRoleMatchesQuery(data, query)) return null;
+  return (
+    <details className="properties-group" open>
+      <summary><span>Score role</span><small>{data.role}</small></summary>
+      <div className="properties-children">
+        <div className="properties-row editable"><span>role</span><select value={data.role} onChange={event => onChange({ role: event.target.value || null })}><option value="">None</option><option value="curve">Curve</option><option value="cursor">Cursor</option><option value="trigger">Trigger</option></select></div>
+        {matches("label") && <div className="properties-row editable"><span>label</span><input type="text" value={data.label || ""} onChange={event => onChange({ label: event.target.value })} /></div>}
+        {matches("active") && <div className="properties-row editable"><span>active</span><input type="checkbox" checked={data.active !== false} onChange={event => onChange({ active: event.target.checked })} /></div>}
+      </div>
+    </details>
+  );
 };
 
 const svgFieldCount = element => {
@@ -727,6 +797,10 @@ const svgFieldCount = element => {
 const PropertiesPanel = memo(function PropertiesPanel({
   elements = [],
   availableElements = elements,
+  physicsBodies = [],
+  onPhysicsBodyChange,
+  onPhysicsBodyRemove,
+  onScoreChange,
   selectedSvgNode = null,
   onChange,
   onRename,
@@ -773,10 +847,12 @@ const PropertiesPanel = memo(function PropertiesPanel({
   const matchingFieldCount = useMemo(() => elements.reduce((count, element) => (
     count
       + collectLeafEntries(propertyTreeValue(element)).filter(entry => leafMatches(entry.value, entry.path, query)).length
+      + scoreRoleFieldCount(element, query)
+      + physicsBodyFieldCount(physicsBodies.find(body => body.objectRef?.kind === "element" && body.objectRef.elementId === element.id), query)
       + (embedMatchesQuery(element, query) ? 4 : 0)
       + (p5MatchesQuery(element, query) ? 6 : 0)
       + (svgMatchesQuery(element, query) ? svgFieldCount(element) : 0)
-  ), 0), [elements, query]);
+  ), 0), [elements, physicsBodies, query]);
   const sharedPath = path => isSharedEditablePath(elements, path);
   const pinnedKeys = useMemo(() => new Set(pinnedPaths), [pinnedPaths]);
   const togglePinnedPath = path => {
@@ -789,17 +865,18 @@ const PropertiesPanel = memo(function PropertiesPanel({
   };
   const svgCurveOptions = useMemo(() => (availableElements || []).flatMap(element => {
     if (element?.isDeleted) return [];
-    if (element.customData?.iannix?.role === "curve") {
+    if (getScoreData(element)?.role === "curve") {
       return [{
         value: JSON.stringify({ kind: "element", elementId: element.id }),
-        label: element.customData.iannix.label || element.id,
+        label: getScoreData(element).label || element.id,
       }];
     }
     if (!isSvgObjectElement(element)) return [];
     const svg = normalizeSvgObject(element.customData.draweratorSvg);
     const nodes = analyzeSvgSource(svg.source).nodes;
     return Object.entries(svg.metadataMirror?.nodes || {}).flatMap(([nodeId, data]) => {
-      if (data?.iannix?.role !== "curve") return [];
+      const scoreData = data?.score || data?.iannix;
+      if (scoreData?.role !== "curve") return [];
       const node = nodes.find(candidate => candidate.draweratorId === nodeId);
       const ref = {
         kind: "svg-node",
@@ -809,7 +886,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
       };
       return [{
         value: JSON.stringify(ref),
-        label: data.iannix.label || `${element.customData?.iannix?.label || svg.name} · ${node?.label || nodeId}`,
+        label: scoreData.label || `${getScoreData(element)?.label || svg.name} · ${node?.label || nodeId}`,
       }];
     });
   }), [availableElements]);
@@ -846,6 +923,8 @@ const PropertiesPanel = memo(function PropertiesPanel({
         {matchingFieldCount ? elements.map(element => {
           const elementValue = propertyTreeValue(element);
           const elementMatchCount = collectLeafEntries(elementValue).filter(entry => leafMatches(entry.value, entry.path, query)).length
+            + scoreRoleFieldCount(element, query)
+            + physicsBodyFieldCount(physicsBodies.find(body => body.objectRef?.kind === "element" && body.objectRef.elementId === element.id), query)
             + (embedMatchesQuery(element, query) ? 4 : 0)
             + (p5MatchesQuery(element, query) ? 6 : 0)
             + (svgMatchesQuery(element, query) ? svgFieldCount(element) : 0);
@@ -903,6 +982,20 @@ const PropertiesPanel = memo(function PropertiesPanel({
                 svgJointConnectionCount={svgJointConnectionCount}
                 svgJointDetachArmed={svgJointDetachArmed}
                 onDetachSvgJoint={onDetachSvgJoint}
+              />
+              <ScoreRoleControls
+                element={element}
+                query={query}
+                onChange={patch => onScoreChange?.(element.id, patch)}
+              />
+              <PhysicsRoleControls
+                body={physicsBodies.find(body => body.objectRef?.kind === "element" && body.objectRef.elementId === element.id)}
+                query={query}
+                onChange={patch => onPhysicsBodyChange?.(physicsBodies.find(body => body.objectRef?.kind === "element" && body.objectRef.elementId === element.id)?.id, patch)}
+                onRemove={() => {
+                  const body = physicsBodies.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id);
+                  if (body) onPhysicsBodyRemove?.(body.id);
+                }}
               />
               <EmbedControls element={element} query={query} onChange={(path, value) => onChange([element.id], path, value)} />
               <PropertyNode

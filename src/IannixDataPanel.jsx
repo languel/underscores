@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef } from "react";
-import { normalizeIannixData } from "./iannixEngine.js";
+import { getScoreData, normalizeIannixData } from "./iannixEngine.js";
 import { getBulkIannixEditorValue, getSharedPrimitiveValue } from "./iannixBulkEdit.js";
 import { infoProps } from "./uiInfo.js";
 import TimeValueInput from "./TimeValueInput.jsx";
@@ -130,31 +130,31 @@ const DataNode = ({ name, values, path = [], depth = 0, onChange, bulk, labelTem
 };
 
 const IannixDataPanel = memo(function IannixDataPanel({ elements = [], onChange, timeContext }) {
-  const iannixElements = elements
-    .map(element => ({ element, data: normalizeIannixData(element.customData?.iannix) }))
+  const scoreElements = elements
+    .map(element => ({ element, data: normalizeIannixData(getScoreData(element)) }))
     .filter(item => item.data.role);
-  if (!iannixElements.length) return <div className="scene-panel-empty">Select an IanniX object to edit its data.</div>;
+  if (!scoreElements.length) return <div className="scene-panel-empty">Select a Score object to edit its data.</div>;
 
-  const roles = new Set(iannixElements.map(item => item.data.role));
+  const roles = new Set(scoreElements.map(item => item.data.role));
   if (roles.size !== 1) {
-    return <div className="scene-panel-empty">Bulk editing requires selected IanniX objects with the same role.</div>;
+    return <div className="scene-panel-empty">Bulk editing requires selected Score objects with the same role.</div>;
   }
 
-  const role = iannixElements[0].data.role;
-  const elementIds = iannixElements.map(item => item.element.id);
-  const values = iannixElements.map(item => getBulkIannixEditorValue(item.data, role));
+  const role = scoreElements[0].data.role;
+  const elementIds = scoreElements.map(item => item.element.id);
+  const values = scoreElements.map(item => getBulkIannixEditorValue(item.data, role));
   const bulk = values.length > 1;
-  const excludedCount = elements.length - iannixElements.length;
+  const excludedCount = elements.length - scoreElements.length;
 
   return (
     <div className="iannix-data-panel">
       <div className="iannix-data-object-heading iannix-data-bulk-heading">
-        <strong>{bulk ? `${values.length} ${roleName(role, values.length)}` : (iannixElements[0].data.label || roleName(role, 1))}</strong>
-        <code>{bulk ? "shared properties" : iannixElements[0].element.id}</code>
+        <strong>{bulk ? `${values.length} ${roleName(role, values.length)}` : (scoreElements[0].data.label || roleName(role, 1))}</strong>
+        <code>{bulk ? "shared properties" : scoreElements[0].element.id}</code>
       </div>
-      {bulk ? <span tabIndex={0} className="iannix-info-anchor" {...infoProps("Bulk score editing", `Mixed fields are blank. Use \${n} in the label template for 1-based numbering.${excludedCount > 0 ? ` ${excludedCount} non-IanniX object${excludedCount === 1 ? " was" : "s were"} excluded.` : ""}`)}>ⓘ</span> : null}
+      {bulk ? <span tabIndex={0} className="iannix-info-anchor" {...infoProps("Bulk score editing", `Mixed fields are blank. Use \${n} in the label template for 1-based numbering.${excludedCount > 0 ? ` ${excludedCount} non-Score object${excludedCount === 1 ? " was" : "s were"} excluded.` : ""}`)}>ⓘ</span> : null}
       <DataNode
-        name="iannix"
+        name="score"
         values={values}
         bulk={bulk}
         labelTemplatePlaceholder={`${role}_${"${n}"}`}

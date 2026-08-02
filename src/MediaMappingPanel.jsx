@@ -15,6 +15,7 @@ import {
   subscribeMediaSemanticFrame,
 } from "./mediaStreamRuntime.js";
 import MediaVisualFeaturePicker from "./MediaVisualFeaturePicker.jsx";
+import { getScoreData } from "./iannixEngine.js";
 
 const stopKeyPropagation = event => event.stopPropagation();
 const numberValue = event => Number(event.target.value);
@@ -25,7 +26,7 @@ const processorElements = elements => (elements || []).filter(element => (
 ));
 
 const objectLabel = element => (
-  element.customData?.iannix?.label
+  getScoreData(element)?.label
   || element.customData?.label
   || `${element.type} ${String(element.id).slice(0, 6)}`
 );

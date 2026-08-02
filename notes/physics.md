@@ -1,6 +1,6 @@
 # Canvas-first relationships and physics
 
-Drawerator API version 7 and scene-exchange version 9 introduce a solver-independent relationship graph at `drawerator.relationshipGraph`. The graph persists authored intent—systems, object bindings, populations, constraints, routes, endpoint references, reset poses, and reset geometry. Rapier handles, live poses, collision queues, checkpoints, stream samples, and grab joints are runtime-only.
+Drawerator API version 7 and scene-exchange version 9 introduce a solver-independent relationship graph at `drawerator.relationshipGraph`. The graph persists world settings, systems, object bindings, populations, constraints, routes, and endpoint references. An authored body’s settings and reset state live on its native Excalidraw object at `object.customData.physics`; Rapier handles, live poses, collision queues, checkpoints, stream samples, and grab joints are runtime-only.
 
 ## Runtime architecture
 
@@ -21,6 +21,12 @@ Endpoints can address a world point, object center or normalized object-local po
 ## Canvas interaction
 
 Open `/physics` (or `/relations`). The panel is an inspector and transport, not a node editor.
+
+The Scene panel also exposes a **World** section. Gravity is authored in metres per second squared (default `0, -9.8`), viscosity is zero by default, and `Pixels per metre` controls the conversion into canvas coordinates. Since canvas Y grows downward, the conventional negative world-Y gravity falls downward in the drawing. `Sim speed` scales elapsed simulation time while the solver keeps its fixed cadence. World Play, Pause, and Reset operate across all physics systems.
+
+Select a canvas object and use Shift-right-click → **Make Physics Body**, or run `/make body`. Drawerator creates a default World system when the scene has none, infers a collider and material from the selected object, attaches an authored dynamic body, and opens the Physics inspector. Fixed walls, pins, and joints remain separate authoring steps.
+
+Assigned objects own their authored body data at `object.customData.physics`. The Properties panel exposes its most useful fields in a pinned **Physics role** section, while the relationship graph retains only the stable object/system binding needed for constraints and routes. Rapier receives a derived runtime body definition. Older scenes may still contain `customData.draweratorPhysics`; it is read as a legacy alias and replaced with `customData.physics` on the next body edit.
 
 1. Draw ordinary canvas objects and select them.
 2. Assign Dynamic, Kinematic, Fixed collider, or Sensor properties.

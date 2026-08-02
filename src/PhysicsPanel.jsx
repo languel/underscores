@@ -14,6 +14,9 @@ export default function PhysicsPanel({
   activeTool = null,
   telemetry = {},
   onSetGraph,
+  onPatchBody,
+  onRemoveBody,
+  onRemoveSystem,
   onPlay,
   onPause,
   onReset,
@@ -37,7 +40,8 @@ export default function PhysicsPanel({
   const selectedBody = selectedBodies[0] || null;
   const patchSystem = patch => {
     if (!system) return;
-    onSetGraph({ ...graph, systems: graph.systems.map(candidate => candidate.id === system.id ? { ...candidate, ...patch } : candidate) });
+    const nextPatch = patch.gravity ? { ...patch, gravityMode: "custom" } : patch;
+    onSetGraph({ ...graph, systems: graph.systems.map(candidate => candidate.id === system.id ? { ...candidate, ...nextPatch } : candidate) });
   };
   const createSystem = () => {
     const next = createDefaultPhysicsSystem({ name: `Physics ${graph.systems.length + 1}` });
@@ -46,10 +50,26 @@ export default function PhysicsPanel({
   };
   const patchSelectedBody = patch => {
     if (!selectedBody) return;
+    if (onPatchBody) {
+      onPatchBody(selectedBody.id, patch);
+      return;
+    }
     onSetGraph({ ...graph, bodies: graph.bodies.map(body => body.id === selectedBody.id ? { ...body, ...patch } : body) });
+  };
+  const removeSelectedBody = () => {
+    if (!selectedBody) return;
+    if (onRemoveBody) {
+      onRemoveBody(selectedBody.id);
+      return;
+    }
+    onSetGraph({ ...graph, bodies: graph.bodies.filter(body => body.id !== selectedBody.id) });
   };
   const removeSystem = () => {
     if (!system) return;
+    if (onRemoveSystem) {
+      onRemoveSystem(system.id);
+      return;
+    }
     onSetGraph({
       ...graph,
       systems: graph.systems.filter(candidate => candidate.id !== system.id),
@@ -79,8 +99,8 @@ export default function PhysicsPanel({
         <label className="physics-field"><span>System</span><select value={system.id} onChange={event => onActiveSystemChange(event.target.value)}>{graph.systems.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
         <label className="physics-field"><span>Name</span><input value={system.name} onChange={event => patchSystem({ name: event.target.value })} /></label>
         <div className="physics-two-column">
-          <label className="physics-field"><span>Gravity X</span><input type="number" step="10" value={system.gravity.x} onChange={event => patchSystem({ gravity: { ...system.gravity, x: Number(event.target.value) } })} /></label>
-          <label className="physics-field"><span>Gravity Y</span><input type="number" step="10" value={system.gravity.y} onChange={event => patchSystem({ gravity: { ...system.gravity, y: Number(event.target.value) } })} /></label>
+          <label className="physics-field"><span>{system.gravityMode === "world" ? "Gravity X (world)" : "Gravity X"}</span><input type="number" step="10" value={system.gravityMode === "world" ? graph.world.gravity.x : system.gravity.x} disabled={system.gravityMode === "world"} onChange={event => patchSystem({ gravity: { ...system.gravity, x: Number(event.target.value) } })} /></label>
+          <label className="physics-field"><span>{system.gravityMode === "world" ? "Gravity Y (world)" : "Gravity Y"}</span><input type="number" step="10" value={system.gravityMode === "world" ? graph.world.gravity.y : system.gravity.y} disabled={system.gravityMode === "world"} onChange={event => patchSystem({ gravity: { ...system.gravity, y: Number(event.target.value) } })} /></label>
         </div>
         <div className="physics-two-column">
           <label className="physics-field"><span>Clock</span><select value={system.clock.mode} onChange={event => patchSystem({ clock: { ...system.clock, mode: event.target.value } })}><option value="realtime">Independent</option><option value="transport">Music transport</option></select></label>
@@ -115,7 +135,7 @@ export default function PhysicsPanel({
             <label className="physics-field"><span>Density</span><input type="number" min="0.01" max="100" step="0.1" value={selectedBody.material.density} onChange={event => patchSelectedBody({ material: { ...selectedBody.material, density: Number(event.target.value) } })} /></label>
             <label className="physics-field"><span>Damping</span><input type="number" min="0" max="100" step="0.05" value={selectedBody.material.linearDamping} onChange={event => patchSelectedBody({ material: { ...selectedBody.material, linearDamping: Number(event.target.value) } })} /></label>
           </div>
-          <Button onClick={() => onSetGraph({ ...graph, bodies: graph.bodies.filter(body => body.id !== selectedBody.id) })}>Remove physics role</Button>
+          <Button onClick={removeSelectedBody}>Remove physics role</Button>
         </div>}
       </InspectorSection>
 

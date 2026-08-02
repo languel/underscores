@@ -5,15 +5,31 @@ import { normalizeP5Scripts } from "./p5Frame.js";
 import { normalizeStreamGraph } from "./streamGraph.js";
 import { normalizeBrushChannels } from "./brushChannelRuntime.js";
 import { normalizeMediaSources } from "./mediaStream.js";
-import { normalizeRelationshipGraph } from "./relationshipGraph.js";
+import { normalizeRelationshipGraph, serializeRelationshipGraphForScene } from "./relationshipGraph.js";
 
 const DRAWERATOR_EXCHANGE_VERSION = 9;
+
+const scoreData = customData => customData?.score || customData?.iannix || null;
+const withScoreAliases = element => {
+  const source = scoreData(element?.customData);
+  if (!source) return element;
+  const score = structuredClone(source);
+  return {
+    ...element,
+    customData: {
+      ...(element.customData || {}),
+      score,
+      iannix: structuredClone(score),
+    },
+  };
+};
 
 export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = {}, grid = null, expressiveSynth = null, mixer = null, p5Scripts = [], streamGraph = null, brushChannels = null, authoredState = {}, relationshipGraph = null) => {
   const normalizedAuthoredState = authoredState && typeof authoredState === "object" ? authoredState : {};
   const payload = typeof serializedScene === "string"
     ? JSON.parse(serializedScene)
     : structuredClone(serializedScene);
+  payload.elements = (payload.elements || []).map(withScoreAliases);
   return {
     ...payload,
     drawerator: {
@@ -53,7 +69,7 @@ export const attachDraweratorExchangeMetadata = (serializedScene, kind, score = 
           svgScripts: Array.isArray(normalizedAuthoredState.svgScripts) ? structuredClone(normalizedAuthoredState.svgScripts) : [],
         },
       } : {}),
-      relationshipGraph: normalizeRelationshipGraph(relationshipGraph),
+      relationshipGraph: serializeRelationshipGraphForScene(relationshipGraph),
     },
   };
 };
@@ -98,7 +114,7 @@ export const getSelectionExchangeElements = (elements, selectedElementIds) => {
     changed = false;
     liveElements.forEach(element => {
       const parentId = element.customData?.parentId;
-      const curveId = element.customData?.iannix?.cursor?.curveId;
+      const curveId = scoreData(element.customData)?.cursor?.curveId;
       const shouldInclude =
         (parentId && selectedIds.has(parentId)) ||
         (curveId && selectedIds.has(curveId)) ||
@@ -141,10 +157,11 @@ export const remapSelectionForImport = (
     if (customData.parentId) {
       customData.parentId = idMap.get(customData.parentId) || null;
     }
-    const linkedCurveId = customData.iannix?.cursor?.curveId;
+    const linkedCurveId = scoreData(customData)?.cursor?.curveId;
     if (linkedCurveId) {
-      customData.iannix.cursor.curveId = idMap.get(linkedCurveId) ||
-        (existingIds.has(linkedCurveId) ? linkedCurveId : null);
+      const nextCurveId = idMap.get(linkedCurveId) || (existingIds.has(linkedCurveId) ? linkedCurveId : null);
+      if (customData.score?.cursor) customData.score.cursor.curveId = nextCurveId;
+      if (customData.iannix?.cursor) customData.iannix.cursor.curveId = nextCurveId;
     }
     const boundElements = (element.boundElements || [])
       .map(bound => ({ ...bound, id: idMap.get(bound.id) || (existingIds.has(bound.id) ? bound.id : null) }))
@@ -160,7 +177,7 @@ export const remapSelectionForImport = (
       boundElements: boundElements.length > 0 ? boundElements : null,
       startBinding: remapBinding(element.startBinding, idMap, existingIds),
       endBinding: remapBinding(element.endBinding, idMap, existingIds),
-      customData,
+      customData: withScoreAliases({ customData }).customData || customData,
       selected: false,
       isDeleted: false,
       version: Math.max(1, (element.version || 0) + 1),

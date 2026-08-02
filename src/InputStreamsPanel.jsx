@@ -4,7 +4,7 @@ import { STREAM_INPUT_SOURCE_TYPES, normalizeInputSource, normalizeStreamProcess
 import { infoProps } from "./uiInfo.js";
 
 const SOURCE_LABELS = Object.freeze({
-  pointer: "Pointer / pen", keyboard: "Keyboard", clock: "Clock", mediapipe: "MediaPipe feature", iannix: "IanniX map / cursor / trigger", midi: "Web MIDI", serial: "Web Serial", websocket: "WebSocket JSON", "osc-websocket": "OSC over WebSocket", virtual: "Virtual stream",
+  pointer: "Pointer / pen", keyboard: "Keyboard", clock: "Clock", mediapipe: "MediaPipe feature", iannix: "Score map / cursor / trigger", midi: "Web MIDI", serial: "Web Serial", websocket: "WebSocket JSON", "osc-websocket": "OSC over WebSocket", virtual: "Virtual stream",
 });
 const PROCESSOR_LABELS = Object.freeze({
   distance: "Distance", midpoint: "Midpoint", delta: "Delta", map: "Map / range", combine: "Combine values", filter: "Filter / envelope", velocity: "Velocity", speed: "Speed", dwell: "Dwell / hold", gate: "Gate", edge: "Value edge", threshold: "Threshold event", region: "Enter / leave region", "curve-cross": "Curve crossing",
@@ -74,7 +74,7 @@ export default function InputStreamsPanel({ sources = [], streams = [], processo
         <label className="media-stream-panel-field"><span>Feature</span><input list="drawerator-media-features" placeholder="right_hand.pinch" value={selected.featureId} onChange={event => patch({ featureId: event.target.value })} /></label><datalist id="drawerator-media-features">{features.map(feature => <option key={feature.id} value={feature.id}>{feature.label}</option>)}</datalist>
         <label className="media-stream-panel-field"><span>Output</span><select value={selected.mediaMode} onChange={event => setMediaMode(event.target.value)}><option value="position">Position</option><option value="value">Metric value</option><option value="active">Active gate</option></select></label>
       </>}
-      {selected.type === "iannix" && <label className="media-stream-panel-field"><span>IanniX output</span><select value={selected.streamId} onChange={event => patch({ streamId: event.target.value })}><option value="">Choose map, cursor, or trigger</option>{streams.filter(stream => stream.metadata?.iannix).map(stream => <option key={stream.id} value={stream.id}>{stream.name}</option>)}</select></label>}
+      {selected.type === "iannix" && <label className="media-stream-panel-field"><span>Score output</span><select value={selected.streamId} onChange={event => patch({ streamId: event.target.value })}><option value="">Choose map, cursor, or trigger</option>{streams.filter(stream => stream.metadata?.iannix).map(stream => <option key={stream.id} value={stream.id}>{stream.name}</option>)}</select></label>}
       {selected.type === "virtual" && <div className="media-stream-panel-note">Trusted livecode can create and write this runtime-only stream through <code>__.streams</code>.</div>}
       <label className="media-stream-panel-check"><input type="checkbox" checked={selected.enabled} onChange={event => patch({ enabled: event.target.checked })} /><span>Enabled</span></label>
       {statusById[selected.id]?.message && <div className={`media-stream-panel-status is-${statusById[selected.id].kind || "info"}`}>{statusById[selected.id].message}</div>}

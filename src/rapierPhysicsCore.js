@@ -6,6 +6,15 @@ const INV_SCALE = 1 / PHYSICS_WORLD_SCALE;
 const MAX_EVENTS_PER_STEP = 512;
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 
+const resolveSystemGravity = (graph, system) => system.gravityMode === "world"
+  ? {
+      x: graph.world.gravity.x * graph.world.pixelsPerMeter,
+      // Canvas Y grows downwards; the authored world convention follows the
+      // usual physics sign where negative Y is up.
+      y: -graph.world.gravity.y * graph.world.pixelsPerMeter,
+    }
+  : system.gravity;
+
 let rapierReady = null;
 export const initializeRapier = () => {
   if (!rapierReady) rapierReady = RAPIER.init();
@@ -22,7 +31,7 @@ const randomGenerator = seedValue => {
   };
 };
 
-const bodyDescription = body => {
+const bodyDescription = (body, viscosity = 0) => {
   const desc = body.bodyType === "fixed"
     ? RAPIER.RigidBodyDesc.fixed()
     : body.bodyType === "kinematic"
@@ -33,7 +42,7 @@ const bodyDescription = body => {
     .setRotation(body.initial.angle)
     .setLinvel(body.initial.velocityX * PHYSICS_WORLD_SCALE, body.initial.velocityY * PHYSICS_WORLD_SCALE)
     .setAngvel(body.initial.angularVelocity)
-    .setLinearDamping(body.material.linearDamping)
+    .setLinearDamping(body.material.linearDamping + viscosity)
     .setAngularDamping(body.material.angularDamping)
     .setCcdEnabled(body.bodyType === "dynamic");
 };
@@ -97,9 +106,10 @@ export class RapierPhysicsSystem {
     this.system = this.graph.systems.find(candidate => candidate.id === systemId) || this.graph.systems[0];
     if (!this.system) throw new Error("Physics runtime requires a system.");
     this.fixedDt = 1 / this.system.clock.fixedHz;
+    const gravity = resolveSystemGravity(this.graph, this.system);
     this.world = new RAPIER.World({
-      x: this.system.gravity.x * PHYSICS_WORLD_SCALE,
-      y: this.system.gravity.y * PHYSICS_WORLD_SCALE,
+      x: gravity.x * PHYSICS_WORLD_SCALE,
+      y: gravity.y * PHYSICS_WORLD_SCALE,
     });
     this.world.timestep = this.fixedDt;
     this.eventQueue = new RAPIER.EventQueue(true);
@@ -125,7 +135,7 @@ export class RapierPhysicsSystem {
   }
 
   #addBody(body, runtime = {}) {
-    const rigidBody = this.world.createRigidBody(bodyDescription({ ...body, initial: { ...body.initial, ...runtime.initial } }));
+    const rigidBody = this.world.createRigidBody(bodyDescription({ ...body, initial: { ...body.initial, ...runtime.initial } }, this.graph.world.viscosity));
     const collider = this.world.createCollider(colliderDescription(body), rigidBody);
     const entity = {
       id: runtime.id || body.id,

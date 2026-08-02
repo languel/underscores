@@ -144,7 +144,7 @@ export const SCRIPT_EDITOR_PROFILES = Object.freeze({
   iannix: Object.freeze({
     id: "iannix",
     language: "javascript",
-    label: "IanniX JavaScript",
+    label: "Score JavaScript",
     completions: IANNIX_COMPLETIONS,
   }),
   p5: Object.freeze({

@@ -6,8 +6,8 @@ export const SCRIPT_TYPES = Object.freeze({
   }),
   iannix: Object.freeze({
     id: "iannix",
-    label: "IanniX",
-    description: "Trusted IanniX-compatible score script with run()/load() commands and shared parameters.",
+    label: "Score",
+    description: "Trusted score script with run()/load() commands and shared parameters. IanniX syntax remains supported for compatibility.",
   }),
   p5: Object.freeze({
     id: "p5",
@@ -30,5 +30,5 @@ export const SCRIPT_TYPES = Object.freeze({
 export const DEFAULT_SCRIPT_TYPE = "brush";
 
 export const normalizeScriptType = value => (
-  Object.hasOwn(SCRIPT_TYPES, value) ? value : DEFAULT_SCRIPT_TYPE
+  value === "score" ? "iannix" : Object.hasOwn(SCRIPT_TYPES, value) ? value : DEFAULT_SCRIPT_TYPE
 );

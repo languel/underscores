@@ -58,7 +58,8 @@ const emitStepResult = (systemId, result) => {
 };
 
 const advanceTransportSystem = (systemId, runtime, targetTime) => {
-  const targetStep = Math.max(0, Math.floor(targetTime / runtime.fixedDt + 1e-7));
+  const simSpeed = Math.max(0, Number(graph.world.simSpeed) || 0);
+  const targetStep = Math.max(0, Math.floor(targetTime * simSpeed / runtime.fixedDt + 1e-7));
   if (targetStep < runtime.stepIndex) {
     const candidates = (checkpoints.get(systemId) || []).filter(checkpoint => checkpoint.step <= targetStep);
     const checkpoint = candidates.at(-1);
@@ -99,8 +100,10 @@ const tick = () => {
       advanceTransportSystem(systemId, runtime, transportTime);
       continue;
     }
+    const simSpeed = Math.max(0, Number(graph.world.simSpeed) || 0);
+    if (simSpeed <= 0) continue;
     let accumulator = (accumulators.get(systemId) || 0) + delta;
-    const effectiveStep = runtime.fixedDt / Math.max(0.0001, system.clock.timeScale || 1);
+    const effectiveStep = runtime.fixedDt / Math.max(0.0001, (system.clock.timeScale || 1) * simSpeed);
     let catchup = 0;
     while (accumulator >= effectiveStep && catchup < 4) {
       const result = runtime.step();

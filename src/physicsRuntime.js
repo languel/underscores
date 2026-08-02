@@ -4,6 +4,7 @@ import {
   addRelationshipItem,
   createDefaultPhysicsSystem,
   normalizePhysicsEndpoint,
+  normalizePhysicsWorld,
   normalizeRelationshipGraph,
   removeRelationshipItem,
   updateRelationshipItem,
@@ -332,6 +333,13 @@ export const createRelationshipApi = ({ runtime, getGraph, setGraph }) => ({
 });
 
 export const createPhysicsApi = ({ runtime, getGraph, setGraph, applyPose, reset, materialize }) => ({
+  world: {
+    get: () => getGraph().world,
+    update: patch => {
+      const graph = getGraph();
+      return setGraph({ ...graph, world: normalizePhysicsWorld({ ...graph.world, ...clone(patch) }) });
+    },
+  },
   systems: {
     list: () => getGraph().systems,
     create: overrides => {

@@ -1,4 +1,4 @@
-import { normalizeIannixData, reconcileRuntimeCursorHosts } from "./iannixEngine.js";
+import { normalizeIannixData, reconcileRuntimeCursorHosts, withScoreData } from "./iannixEngine.js";
 
 export const EXPRESSIVE_SYNTH_DEMO_DURATION = 12;
 export const EXPRESSIVE_SYNTH_DEMO_VOICE_COUNT = 6;
@@ -34,14 +34,14 @@ const makeBaseElement = (type, id, x, y, width, height, strokeColor) => ({
   lastCommittedPoint: null,
 });
 
-const makeLine = ({ id, start, end, strokeColor, strokeWidth = 2, iannix }) => {
+const makeLine = ({ id, start, end, strokeColor, strokeWidth = 2, score }) => {
   const x = Math.min(start[0], end[0]);
   const y = Math.min(start[1], end[1]);
   return {
     ...makeBaseElement("line", id, x, y, Math.abs(end[0] - start[0]), Math.abs(end[1] - start[1]), strokeColor),
     points: [[start[0] - x, start[1] - y], [end[0] - x, end[1] - y]],
     strokeWidth,
-    customData: { iannix: normalizeIannixData(iannix) },
+    customData: withScoreData({}, normalizeIannixData(score)),
   };
 };
 
@@ -83,7 +83,7 @@ export const createExpressiveSynthDemoScore = ({
     end: timelineEnd,
     strokeColor: timelineColor,
     strokeWidth: 2.5,
-    iannix: {
+    score: {
       role: "curve",
       active: true,
       label: "Timeline",
@@ -99,7 +99,7 @@ export const createExpressiveSynthDemoScore = ({
     end: [timelineStart[0], safeCenter[1] + safeHeight / 2],
     strokeColor: "transparent",
     strokeWidth: 2.5,
-    iannix: {
+    score: {
       role: "cursor",
       active: true,
       label: "Time cursor",
@@ -129,7 +129,7 @@ export const createExpressiveSynthDemoScore = ({
     ],
     strokeColor: triggerColor,
     strokeWidth: 1.5 + index * 0.35,
-    iannix: {
+    score: {
       role: "trigger",
       active: true,
       label: `Glissando ${index + 1}`,

@@ -5,10 +5,11 @@ import { analyzeSvgSource, normalizeSvgObject } from "./svgObject.js";
 import { getEditableSvgPathNodes } from "./svgPathGeometry.js";
 import { getLivecodeKindDefinition, isLivecodeNodeElement, normalizeLivecodeNode } from "./livecodeNode.js";
 import { isMediaStreamElement, normalizeMediaStreamConfig } from "./mediaStream.js";
+import { getScoreData } from "./iannixEngine.js";
 
 const groupLabel = groupId => `Group · ${String(groupId).slice(0, 8)}`;
 const scoreLabel = label => `Score · ${label}`;
-const iannixGroupLabel = groupId => `IanniX · ${groupId}`;
+const iannixGroupLabel = groupId => `Score · ${groupId}`;
 
 const OutlinerPanel = memo(function OutlinerPanel({
   elements = [],
@@ -43,7 +44,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
     const needle = query.trim().toLowerCase();
     return getOutlinerLayerElements(elements).filter(element => !needle || `${
       element.type
-      } ${element.id} ${element.customData?.iannix?.label || ""} ${element.customData?.iannixImport?.externalId || ""} ${element.customData?.iannixImport?.group || ""} ${isLivecodeNodeElement(element) ? `${normalizeLivecodeNode(element.customData.draweratorLivecode).name} ${normalizeLivecodeNode(element.customData.draweratorLivecode).kind}` : ""} ${isMediaStreamElement(element) ? `${normalizeMediaStreamConfig(element.customData.draweratorMediaStream).name} ${normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind}` : ""}`.toLowerCase().includes(needle));
+      } ${element.id} ${getScoreData(element)?.label || ""} ${element.customData?.iannixImport?.externalId || ""} ${element.customData?.iannixImport?.group || ""} ${isLivecodeNodeElement(element) ? `${normalizeLivecodeNode(element.customData.draweratorLivecode).name} ${normalizeLivecodeNode(element.customData.draweratorLivecode).kind}` : ""} ${isMediaStreamElement(element) ? `${normalizeMediaStreamConfig(element.customData.draweratorMediaStream).name} ${normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind}` : ""}`.toLowerCase().includes(needle));
   }, [elements, query]);
   const groupTree = useMemo(() => buildSceneGroupTree(visibleElements, { outlinerOrder: true }), [visibleElements]);
   const getElementTypeLabel = element => {
@@ -52,7 +53,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
     return element.type;
   };
   const getElementLabel = element => {
-    if (element.customData?.iannix?.label) return element.customData.iannix.label;
+    if (getScoreData(element)?.label) return getScoreData(element).label;
     if (element.customData?.draweratorLabel) return element.customData.draweratorLabel;
     if (isLivecodeNodeElement(element)) return normalizeLivecodeNode(element.customData.draweratorLivecode).name;
     if (isMediaStreamElement(element)) return normalizeMediaStreamConfig(element.customData.draweratorMediaStream).name;
@@ -67,7 +68,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
 
   // Scores are a primary authoring unit, not an incidental canvas group.
   // Open newly encountered score roots so a run immediately reveals the
-  // IanniX setGroup hierarchy it produced; users can still collapse it.
+  // Score setGroup hierarchy it produced; users can still collapse it.
   useEffect(() => {
     const scoreIds = new Set();
     const collect = node => {
@@ -118,7 +119,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
   const beginRename = element => {
     setEditingId(element.id);
     setEditingValue(
-      element.customData?.iannix?.label ||
+      getScoreData(element)?.label ||
         element.customData?.draweratorLabel ||
         (isLivecodeNodeElement(element)
           ? normalizeLivecodeNode(element.customData.draweratorLivecode).name
@@ -326,7 +327,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
 
   return <div className="outliner-panel">
     <div className="outliner-toolbar">
-      <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter scene" aria-label="Filter scene objects" {...infoProps("Filter scene", "Filter Outliner rows by object type, ID, score label, IanniX external ID, or IanniX group.")} />
+      <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter scene" aria-label="Filter scene objects" {...infoProps("Filter scene", "Filter Outliner rows by object type, ID, score label, external ID, or score group.")} />
       <button type="button" className="outliner-name-mode" onClick={() => setNameMode(current => { const next = current === "labels" ? "ids" : "labels"; localStorage.setItem("drawerator_outliner_name_mode", next); return next; })} title={`Showing ${nameMode}. Click to show ${nameMode === "labels" ? "IDs" : "labels"}.`}>{nameMode === "labels" ? "Labels" : "IDs"}</button>
       <span>{visibleElements.length}</span>
     </div>

@@ -1,3 +1,5 @@
+import { getScoreData } from "./iannixEngine.js";
+
 export const SELECTION_FILTER_STORAGE_KEY = "drawerator_selection_filter_v1";
 
 export const SELECTION_FILTER_ROLES = ["curve", "cursor", "trigger"];
@@ -38,7 +40,7 @@ export const toggleSelectionFilter = (value, target) => {
 };
 
 export const getElementSelectionRole = element => {
-  const role = element?.customData?.iannix?.role || element?.customData?.score?.role;
+  const role = getScoreData(element)?.role;
   return SELECTION_FILTER_ROLES.includes(role) ? role : null;
 };
 

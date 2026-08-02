@@ -1,4 +1,4 @@
-import { getElementCenter, getElementCorePaths, normalizeIannixData } from "./iannixEngine.js";
+import { getElementCenter, getElementCorePaths, getScoreData, normalizeIannixData } from "./iannixEngine.js";
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -327,7 +327,7 @@ export const getIannixPathIntersectionPoint = (pathsA, pathsB, anchor = [0, 0]) 
 
 export const getIannixTriggerMidiContext = (cursor, triggerData, triggerElement = null, intersectionPoint = null) => {
   const points = cursor?.curveElement ? getElementCorePaths(cursor.curveElement)[0] : [];
-  const cursorData = cursor?.data || normalizeIannixData(cursor?.element?.customData?.iannix);
+  const cursorData = cursor?.data || normalizeIannixData(getScoreData(cursor?.element));
   // IanniX maps trigger_value_* from the triggered trigger's position through
   // the colliding cursor's source/target bounds. The cursor position remains a
   // fallback for older callers that do not provide the trigger element.
@@ -398,7 +398,7 @@ export const getIannixTriggerMidiContext = (cursor, triggerData, triggerElement 
     1,
   );
 
-  const curveData = normalizeIannixData(cursor?.curveElement?.customData?.iannix);
+  const curveData = normalizeIannixData(getScoreData(cursor?.curveElement));
   const sourceData = triggerData?.trigger?.midiBaseSource === "curve" ? curveData : cursorData;
   const baseNote = sourceData.midi.baseNote;
   const pitchRange = sourceData.midi.pitchRangeOctaves * 12;
