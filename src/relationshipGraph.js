@@ -5,7 +5,7 @@ export const PHYSICS_FIXED_HZ = 60;
 
 export const TRACKING_CLASSES = Object.freeze(["runtime-lite", "authored-rigid", "authored-deformable"]);
 export const BODY_TYPES = Object.freeze(["dynamic", "kinematic", "fixed"]);
-export const COLLIDER_KINDS = Object.freeze(["circle", "box", "convex", "polyline"]);
+export const COLLIDER_KINDS = Object.freeze(["circle", "ellipse", "box", "convex", "polyline", "chain"]);
 export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "revolute", "weld", "attractor"]);
 export const ROUTE_ACTION_KINDS = Object.freeze(["event", "stream", "synth", "midi", "command"]);
 export const PHYSICS_PIXELS_PER_METER = 100;
@@ -116,6 +116,7 @@ export const normalizeCollider = value => {
     radius: Math.max(0.1, finite(value?.radius, 12)),
     width: Math.max(0.1, finite(value?.width, 24)),
     height: Math.max(0.1, finite(value?.height, 24)),
+    thickness: Math.max(0.1, finite(value?.thickness, 2)),
     points: list(value?.points).map(point => [finite(point?.[0]), finite(point?.[1])]),
   };
 };

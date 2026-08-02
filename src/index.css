@@ -783,6 +783,24 @@ body .excalidraw .sidebar {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.physics-world-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.physics-world-action.iannix-flat-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 5px;
+}
+
+.physics-world-action.active {
+  background: var(--bg-hover-btn);
+}
+
 .physics-flat-button {
   min-height: 30px;
   border: 1px solid var(--drawerator-border, rgba(128, 128, 128, 0.28));

@@ -53,6 +53,37 @@ export const getPhysicsElementWorldPoints = element => {
   ], center, finite(element.angle)));
 };
 
+const sampledColliderPoints = points => {
+  const source = distinctPoints(points);
+  const maximum = 128;
+  if (source.length <= maximum) return source;
+  return Array.from({ length: maximum }, (_, index) => source[Math.round(index * (source.length - 1) / (maximum - 1))]);
+};
+
+export const inferPhysicsColliderFromElement = (element, kind = "box", bodyType = "dynamic") => {
+  if (!element) return null;
+  const center = getPhysicsElementCenter(element);
+  const width = Math.max(1, Math.abs(finite(element.width, 1)));
+  const height = Math.max(1, Math.abs(finite(element.height, 1)));
+  if (kind === "ellipse") return { kind: "ellipse", width, height };
+  if (kind === "convex") {
+    const points = sampledColliderPoints(getPhysicsElementWorldPoints(element));
+    return points.length >= 3
+      ? { kind: "convex", points: points.map(point => [point[0] - center[0], point[1] - center[1]]) }
+      : { kind: "box", width, height };
+  }
+  if (kind === "chain") {
+    const points = sampledColliderPoints(getPhysicsElementWorldPoints(element));
+    const localPoints = points.map(point => [point[0] - center[0], point[1] - center[1]]);
+    if (localPoints.length < 2) return { kind: "box", width, height };
+    // Fixed bodies can use Rapier's exact zero-width polyline. Moving bodies
+    // instead use a compound chain of thin solid segments so they have mass.
+    if (bodyType === "fixed") return { kind: "polyline", points: localPoints };
+    return { kind: "chain", points: localPoints, thickness: Math.max(2, finite(element.strokeWidth, 2)) };
+  }
+  return { kind: "box", width, height };
+};
+
 export const inferPhysicsBodyFromElement = (element, overrides = {}) => {
   if (!element) return null;
   const center = getPhysicsElementCenter(element);
@@ -72,9 +103,16 @@ export const inferPhysicsBodyFromElement = (element, overrides = {}) => {
       };
     }
   } else if (["line", "arrow", "freedraw"].includes(element.type) || hasCubicBezierGeometry(element)) {
-    const worldPoints = getPhysicsElementWorldPoints(element);
-    collider = { kind: "polyline", points: worldPoints.map(point => [point[0] - center[0], point[1] - center[1]]) };
-    bodyType = overrides.bodyType || "fixed";
+    // Rapier polylines are zero-mass wall geometry. A user who explicitly
+    // makes an open drawing dynamic or kinematic expects it to move, so give
+    // that body a thin solid bounding box rather than a massless polyline.
+    if (["dynamic", "kinematic"].includes(overrides.bodyType)) {
+      collider = { kind: "box", width, height };
+    } else {
+      const worldPoints = getPhysicsElementWorldPoints(element);
+      collider = { kind: "polyline", points: worldPoints.map(point => [point[0] - center[0], point[1] - center[1]]) };
+      bodyType = "fixed";
+    }
   } else if (element.type === "ellipse" && Math.abs(width - height) <= Math.max(width, height) * 0.12) {
     collider = { kind: "circle", radius: Math.min(width, height) / 2 };
   } else {

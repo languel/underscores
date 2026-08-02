@@ -47,24 +47,59 @@ const bodyDescription = (body, viscosity = 0) => {
     .setCcdEnabled(body.bodyType === "dynamic");
 };
 
-const colliderDescription = body => {
+const colliderDescriptions = body => {
   const collider = body.collider;
   let desc;
   if (collider.kind === "circle") desc = RAPIER.ColliderDesc.ball(collider.radius * PHYSICS_WORLD_SCALE);
+  else if (collider.kind === "ellipse") {
+    const vertices = new Float32Array(Array.from({ length: 24 }, (_, index) => {
+      const angle = index / 24 * Math.PI * 2;
+      return [
+        Math.cos(angle) * collider.width * PHYSICS_WORLD_SCALE / 2,
+        Math.sin(angle) * collider.height * PHYSICS_WORLD_SCALE / 2,
+      ];
+    }).flat());
+    desc = RAPIER.ColliderDesc.convexHull(vertices);
+  }
   else if (collider.kind === "convex") {
     desc = RAPIER.ColliderDesc.convexHull(new Float32Array(collider.points.flatMap(point => [point[0] * PHYSICS_WORLD_SCALE, point[1] * PHYSICS_WORLD_SCALE])));
   } else if (collider.kind === "polyline") {
     desc = RAPIER.ColliderDesc.polyline(new Float32Array(collider.points.flatMap(point => [point[0] * PHYSICS_WORLD_SCALE, point[1] * PHYSICS_WORLD_SCALE])));
   } else desc = RAPIER.ColliderDesc.cuboid(collider.width * PHYSICS_WORLD_SCALE / 2, collider.height * PHYSICS_WORLD_SCALE / 2);
+  if (collider.kind === "chain") {
+    const segments = [];
+    for (let index = 1; index < collider.points.length; index += 1) {
+      const [ax, ay] = collider.points[index - 1];
+      const [bx, by] = collider.points[index];
+      const dx = bx - ax;
+      const dy = by - ay;
+      const length = Math.hypot(dx, dy);
+      if (length < 0.01) continue;
+      segments.push(RAPIER.ColliderDesc
+        .cuboid(length * PHYSICS_WORLD_SCALE / 2, collider.thickness * PHYSICS_WORLD_SCALE / 2)
+        .setTranslation((ax + bx) * PHYSICS_WORLD_SCALE / 2, (ay + by) * PHYSICS_WORLD_SCALE / 2)
+        .setRotation(Math.atan2(dy, dx)));
+    }
+    desc = segments.length ? null : RAPIER.ColliderDesc.cuboid(0.12, 0.12);
+    const descriptions = segments.length ? segments : [desc];
+    return descriptions.map(candidate => candidate
+      .setSensor(collider.sensor)
+      .setDensity(body.material.density)
+      .setFriction(body.material.friction)
+      .setRestitution(body.material.restitution)
+      .setCollisionGroups(((body.collisionGroup & 0xffff) << 16) | (body.collisionMask & 0xffff))
+      .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS | RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
+      .setContactForceEventThreshold(0));
+  }
   if (!desc) desc = RAPIER.ColliderDesc.cuboid(0.12, 0.12);
-  return desc
+  return [desc
     .setSensor(collider.sensor)
     .setDensity(body.material.density)
     .setFriction(body.material.friction)
     .setRestitution(body.material.restitution)
     .setCollisionGroups(((body.collisionGroup & 0xffff) << 16) | (body.collisionMask & 0xffff))
     .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS | RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
-    .setContactForceEventThreshold(0);
+    .setContactForceEventThreshold(0)];
 };
 
 const localAnchorForBody = (body, endpoint) => {
@@ -136,7 +171,7 @@ export class RapierPhysicsSystem {
 
   #addBody(body, runtime = {}) {
     const rigidBody = this.world.createRigidBody(bodyDescription({ ...body, initial: { ...body.initial, ...runtime.initial } }, this.graph.world.viscosity));
-    const collider = this.world.createCollider(colliderDescription(body), rigidBody);
+    const colliders = colliderDescriptions(body).map(description => this.world.createCollider(description, rigidBody));
     const entity = {
       id: runtime.id || body.id,
       bodyId: body.id,
@@ -150,10 +185,11 @@ export class RapierPhysicsSystem {
       render: { ...body.render },
       collider: { ...body.collider },
       rigidBody,
-      colliderHandle: collider.handle,
+      colliderHandle: colliders[0].handle,
+      colliderHandles: colliders.map(collider => collider.handle),
     };
     this.bodyById.set(entity.id, entity);
-    this.entityByCollider.set(collider.handle, entity);
+    colliders.forEach(collider => this.entityByCollider.set(collider.handle, entity));
     this.entityByRigidBody.set(rigidBody.handle, entity);
     if (body.objectRef?.kind === "element") this.bodyIdByObjectId.set(body.objectRef.elementId, entity.id);
     return entity;

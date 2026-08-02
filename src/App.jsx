@@ -101,7 +101,7 @@ import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, se
 import { createUnifiedStreamsApi, DraweratorStreamRegistry } from "./streamRuntime.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
 import { addRelationshipItem, createDefaultPhysicsSystem, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, withPhysicsCustomData } from "./relationshipGraph.js";
-import { applyAnchorAttractorFrame, applyBezierSculptOperator, inferPhysicsBodyFromElement } from "./physicsGeometry.js";
+import { applyAnchorAttractorFrame, applyBezierSculptOperator, inferPhysicsBodyFromElement, inferPhysicsColliderFromElement } from "./physicsGeometry.js";
 import { createPhysicsApi, createRelationshipApi, PhysicsRuntimeController } from "./physicsRuntime.js";
 import { PhysicsAudioRouter } from "./physicsAudio.js";
 import { createPhysicsExample } from "./physicsExamples.js";
@@ -696,6 +696,20 @@ const ScriptActionIcon = ({ type }) => {
   };
   return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[type]}</svg>;
 };
+
+const PhysicsWorldIcon = ({ type }) => {
+  const shapes = {
+    play: <><circle cx="6.5" cy="17" r="2.5"/><path d="m12 5 7 5-7 5V5Z"/></>,
+    pause: <><circle cx="6.5" cy="17" r="2.5"/><path d="M13 6v8M18 6v8"/></>,
+    reset: <><path d="M18 9a7 7 0 1 0 1 5"/><path d="M18 4v5h-5"/><circle cx="8" cy="16" r="2"/></>,
+    transport: <><path d="M5 7h5l4 5h5"/><path d="M5 17h5l4-5h5"/><circle cx="5" cy="7" r="1.5"/><circle cx="19" cy="12" r="1.5"/><circle cx="5" cy="17" r="1.5"/></>,
+  };
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{shapes[type]}</svg>;
+};
+
+const physicsFollowsTransport = systems => Array.isArray(systems)
+  && systems.length > 0
+  && systems.every(system => system.clock?.mode === "transport");
 
 const ScriptFontSizeControl = ({ value, onChange }) => (
   <label className="script-font-size-control" title="Script editor font size">
@@ -1836,8 +1850,8 @@ const physicsAuthoredElementSignature = element => JSON.stringify([
 // The native element is the authored source of truth while the world is
 // paused. Older scenes can contain a stale customData.physics.initial value
 // from before an object was moved, so repair the reset pose from the current
-// element bounds during hydration. Also repair legacy freedraw bodies whose
-// closed contour was saved as a polyline instead of a solid shape.
+// element bounds during hydration. Also repair legacy dynamic freedraw bodies
+// whose strokes were saved as massless polyline wall geometry.
 const hydratePhysicsGraphForElements = (graphValue, elements = [], { repairAuthoredPose = true } = {}) => {
   const graph = hydrateRelationshipGraphFromElements(graphValue, elements);
   const elementById = new Map((elements || [])
@@ -1853,7 +1867,7 @@ const hydratePhysicsGraphForElements = (graphValue, elements = [], { repairAutho
       ? { ...body.initial, ...inferred.initial }
       : body.initial;
     const shouldRepairShape = element.type === "freedraw"
-      && body.bodyType === "dynamic"
+      && ["dynamic", "kinematic"].includes(body.bodyType)
       && body.collider?.kind === "polyline"
       && inferred.collider?.kind !== "polyline";
     if (!shouldRepairShape
@@ -8550,7 +8564,19 @@ function App() {
     const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
     const current = graph.bodies.find(body => body.id === bodyId);
     if (!current) return null;
-    const nextBody = normalizePhysicsBody({ ...current, ...patch });
+    const { colliderKind, ...bodyPatch } = patch || {};
+    const element = current.objectRef?.kind === "element"
+      ? excalidrawAPIRef.current?.getSceneElementsIncludingDeleted().find(candidate => candidate.id === current.objectRef.elementId && !candidate.isDeleted)
+      : null;
+    const nextBodyType = bodyPatch.bodyType || current.bodyType;
+    const nextColliderKind = colliderKind
+      || (["dynamic", "kinematic"].includes(nextBodyType) && current.collider.kind === "polyline" ? "chain" : null);
+    const inferredCollider = nextColliderKind && element ? inferPhysicsColliderFromElement(element, nextColliderKind, nextBodyType) : null;
+    const nextBody = normalizePhysicsBody({
+      ...current,
+      ...bodyPatch,
+      ...(inferredCollider ? { collider: { ...inferredCollider, sensor: current.collider.sensor } } : {}),
+    });
     setRelationshipGraph({
       ...graph,
       bodies: graph.bodies.map(body => body.id === bodyId ? nextBody : body),
@@ -8867,16 +8893,34 @@ function App() {
     }
     await physicsAudioRef.current.resume();
     physicsRuntimeRef.current.play();
+    if (physicsFollowsTransport(relationshipGraphRef.current.systems)) setScorePlaying(true);
   };
 
-  const pausePhysicsWorld = () => physicsRuntimeRef.current.pause();
+  const pausePhysicsWorld = () => {
+    physicsRuntimeRef.current.pause();
+    if (physicsFollowsTransport(relationshipGraphRef.current.systems)) setScorePlaying(false);
+  };
 
   const resetPhysicsWorld = () => {
     synchronizePausedPhysicsBodies();
     physicsRuntimeRef.current.pause();
     relationshipGraphRef.current.systems.forEach(system => resetPhysicsSystem(system.id));
     setPhysicsWorldPlaying(false);
+    if (physicsFollowsTransport(relationshipGraphRef.current.systems)) {
+      scoreTimeRef.current = 0;
+      setScoreTime(0);
+      setScorePlaying(false);
+    }
   };
+
+  useEffect(() => {
+    if (!physicsFollowsTransport(relationshipGraph.systems)) return;
+    if (scorePlaying) {
+      void playPhysicsWorld();
+    } else {
+      pausePhysicsWorld();
+    }
+  }, [relationshipGraph.systems, scorePlaying]);
 
   const applyPhysicsPose = systemId => {
     const snapshots = physicsRuntimeRef.current.getLatestPoses(systemId);
@@ -14987,9 +15031,19 @@ function App() {
 
   const renderPhysicsWorldSection = () => {
     const world = relationshipGraph.world;
+    const physicsTransportSynced = physicsFollowsTransport(relationshipGraph.systems);
     const setWorldNumber = (field, value) => {
       const next = Number(value);
       if (Number.isFinite(next)) updatePhysicsWorld({ [field]: next });
+    };
+    const togglePhysicsTransportSync = () => {
+      setRelationshipGraph(previous => ({
+        ...previous,
+        systems: previous.systems.map(system => ({
+          ...system,
+          clock: { ...system.clock, mode: physicsTransportSynced ? "realtime" : "transport" },
+        })),
+      }));
     };
     return (
       <InspectorSection
@@ -15026,10 +15080,16 @@ function App() {
             <option value="preview">Keep reset pose</option>
           </select>
         </label>
-        <div className="physics-transport">
-          <button type="button" className="iannix-flat-button" onClick={playPhysicsWorld} disabled={physicsWorldPlaying}>Play world</button>
-          <button type="button" className="iannix-flat-button" onClick={pausePhysicsWorld} disabled={!physicsWorldPlaying}>Pause world</button>
-          <button type="button" className="iannix-flat-button" onClick={resetPhysicsWorld}>Reset world</button>
+        <div className="physics-world-actions">
+          <button type="button" className="iannix-flat-button physics-world-action" onClick={physicsWorldPlaying ? pausePhysicsWorld : playPhysicsWorld} title={physicsWorldPlaying ? "Pause physics world" : "Play physics world"} aria-label={physicsWorldPlaying ? "Pause physics world" : "Play physics world"}>
+            <PhysicsWorldIcon type={physicsWorldPlaying ? "pause" : "play"} />
+          </button>
+          <button type="button" className="iannix-flat-button physics-world-action" onClick={resetPhysicsWorld} title="Reset physics world" aria-label="Reset physics world">
+            <PhysicsWorldIcon type="reset" />
+          </button>
+          <button type="button" className={`iannix-flat-button physics-world-action ${physicsTransportSynced ? "active" : ""}`} onClick={togglePhysicsTransportSync} title={physicsTransportSynced ? "Use an independent physics clock" : "Sync physics to music transport"} aria-label={physicsTransportSynced ? "Use an independent physics clock" : "Sync physics to music transport"} aria-pressed={physicsTransportSynced}>
+            <PhysicsWorldIcon type="transport" />
+          </button>
         </div>
       </InspectorSection>
     );
@@ -15039,7 +15099,6 @@ function App() {
     const selectedCount = getSelectedElements().length;
     return (
       <>
-        {renderPhysicsWorldSection()}
         <InspectorSection title="Scene data" className="iannix-section compact iannix-data-section" {...infoProps("Scene data", "Scene exchange preserves Drawerator metadata. Trusted .iannix compatibility executes familiar run()/load() scripts, reports unsupported commands, and is not a security sandbox.")}>
           <div className="iannix-data-actions">
             <a className="iannix-flat-button" href="#" download onClick={prepareDraweratorSceneDownload}>Export scene</a>
@@ -15053,6 +15112,7 @@ function App() {
           </div>
           {sceneExchangeStatus && <div className="iannix-midi-status" role="status">{sceneExchangeStatus}</div>}
         </InspectorSection>
+        {renderPhysicsWorldSection()}
       </>
     );
   };
@@ -18157,6 +18217,7 @@ function App() {
     }).catch(error => console.error("Could not seek transport", error));
     const rewind = () => {
       setScorePlaying(false);
+      if (physicsFollowsTransport(relationshipGraphRef.current.systems)) resetPhysicsWorld();
       commitTransportSeek(transportLoopEnabled ? transportLoopStart : 0);
     };
     const timelineOptions = { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature };
