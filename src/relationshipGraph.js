@@ -118,6 +118,9 @@ export const normalizeCollider = value => {
     height: Math.max(0.1, finite(value?.height, 24)),
     thickness: Math.max(0.1, finite(value?.thickness, 2)),
     points: list(value?.points).map(point => [finite(point?.[0]), finite(point?.[1])]),
+    // Point-defined colliders need a stable coordinate-space marker so a
+    // scene written before a local-origin migration is repaired exactly once.
+    localOriginVersion: Math.max(0, Math.round(finite(value?.localOriginVersion, 0))),
   };
 };
 
@@ -408,6 +411,34 @@ export const removeRelationshipItem = (graphValue, collection, itemId) => {
     }
   }
   return normalizeRelationshipGraph(next);
+};
+
+// Native Excalidraw deletion is tombstone based: a deleted element remains in
+// the scene array with `isDeleted: true`. Physics must treat that transition
+// exactly like removal so its solver body and diagnostics cannot outlive the
+// visible canvas object. Constraints that point at a deleted object are
+// removed too; keeping them as disabled orphans would leave stale debug
+// handles behind after an ordinary canvas delete.
+export const removeRelationshipBindingsForElements = (graphValue, elementIds) => {
+  const graph = normalizeRelationshipGraph(graphValue);
+  const ids = new Set(list(elementIds).map(String).filter(Boolean));
+  if (!ids.size) return graph;
+  const referencesDeletedElement = objectRef => {
+    const reference = normalizeDraweratorObjectRef(objectRef);
+    return reference?.kind === "element" && ids.has(reference.elementId);
+  };
+  const endpointReferencesDeletedElement = endpointValue => {
+    const endpoint = normalizePhysicsEndpoint(endpointValue);
+    return Boolean(endpoint && !["world", "stream"].includes(endpoint.kind)
+      && referencesDeletedElement(endpoint.objectRef));
+  };
+  const bodies = graph.bodies.filter(body => !referencesDeletedElement(body.objectRef));
+  const constraints = graph.constraints.filter(constraint => (
+    !endpointReferencesDeletedElement(constraint.a)
+    && !endpointReferencesDeletedElement(constraint.b)
+  ));
+  if (bodies.length === graph.bodies.length && constraints.length === graph.constraints.length) return graph;
+  return normalizeRelationshipGraph({ ...graph, bodies, constraints });
 };
 
 export const remapRelationshipGraph = (graphValue, idMap, existingIds = new Set()) => {

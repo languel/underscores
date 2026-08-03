@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   adjustTimeValue,
+  cycleTimeValueUnit,
   createTimeValue,
   formatSecondsAsBBU,
   formatTimeValueForDisplay,
@@ -97,6 +98,19 @@ test("seconds format to elapsed BBU with stable boundary carry", () => {
   assert.equal(formatSecondsAsBBU(0, context), "0.0.0");
   assert.equal(formatSecondsAsBBU(2.5, context), "1.1.0");
   assert.equal(formatSecondsAsBBU(1.9999999, context), "1.0.0");
+});
+
+test("unit cycling preserves the resolved interval across seconds, beats, timecode, and frames", () => {
+  const beats = cycleTimeValueUnit("2.5 s", context);
+  assert.equal(beats.expression, "1.1.0");
+  assert.equal(resolveTimeValue(beats, context), 2.5);
+  const timecode = cycleTimeValueUnit(beats, context);
+  assert.equal(timecode.expression, "00:00:02:15");
+  assert.equal(resolveTimeValue(timecode, context), 2.5);
+  const frames = cycleTimeValueUnit(timecode, context);
+  assert.equal(frames.expression, "75 f");
+  assert.equal(resolveTimeValue(frames, context), 2.5);
+  assert.equal(cycleTimeValueUnit(frames, context).expression, "2.5 s");
 });
 
 test("display formatting rounds floating point noise without changing structured time syntax", () => {

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { parseGenericCommandSlash } from "./commandSystem.js";
 import PerformanceOverlay from "./PerformanceOverlay.jsx";
 import { infoProps } from "./uiInfo.js";
 
@@ -42,6 +41,12 @@ const eventDetailText = event => {
   }
 };
 
+const SendIcon = () => (
+  <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+    <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+  </svg>
+);
+
 export default function EventConsole({
   eventBus,
   commandRegistry,
@@ -50,6 +55,8 @@ export default function EventConsole({
   showPerformanceMonitor = false,
   onPerformancePlacementChange,
   onPerformanceClose,
+  onSlashCommand,
+  globalStatus = "",
 }) {
   const initialLoggingRef = useRef(readStoredLogging());
   const [events, setEvents] = useState([]);
@@ -86,10 +93,9 @@ export default function EventConsole({
     const source = input.trim();
     if (!source) return;
     try {
-      if (source.startsWith("/command")) {
-        const parsed = parseGenericCommandSlash(source, commandRegistry.list().map(command => command.id));
-        if (!parsed || parsed.error) throw new Error(parsed?.error || "Invalid command invocation.");
-        await commandRegistry.execute(parsed.id, parsed.args, { source: "console", transportTime });
+      if (source.startsWith("/")) {
+        const handled = await onSlashCommand?.(source);
+        if (!handled) throw new Error("Unknown slash command. Use the command palette to find a command.");
       } else {
         const event = JSON.parse(source);
         if (event.name === "command.before" && event.detail?.id) {
@@ -155,6 +161,9 @@ export default function EventConsole({
             </div>
           ))}
         </div>
+        <div className={`event-console-global-status${globalStatus ? " has-status" : ""}`} role="status" aria-live="polite" title={globalStatus || undefined}>
+          {globalStatus}
+        </div>
       </div>
       {showPerformanceMonitor ? <PerformanceOverlay placement="console" onPlacementChange={onPerformancePlacementChange} onClose={onPerformanceClose} /> : null}
       <div className="event-console-toolbar">
@@ -196,7 +205,6 @@ export default function EventConsole({
         ))}
       </div>
       <div className="event-console-input-row">
-        <span className="event-console-prompt">&gt;</span>
         <textarea
           value={input}
           onChange={event => setInput(event.target.value)}
@@ -206,12 +214,12 @@ export default function EventConsole({
               runInput();
             }
           }}
-          placeholder="Paste /command … or event JSON"
+          placeholder="Paste /command or event JSON · Enter to run · Shift+Enter for a new line"
           aria-label="Console input"
           rows={2}
           {...infoProps("Console input", "Run a /command invocation, replay copied event JSON, or emit an event object. Enter runs; Shift+Enter adds a line.")}
         />
-        <button type="button" onClick={runInput}>Run</button>
+        <button type="button" className="event-console-submit" onClick={runInput} title="Run console input (Enter)" aria-label="Run console input"><SendIcon /></button>
       </div>
       <div className={`event-console-status ${status && status !== "Executed" && !status.startsWith("Copied") ? "error" : ""}`}>{status}</div>
     </div>

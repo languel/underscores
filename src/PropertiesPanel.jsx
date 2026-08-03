@@ -13,6 +13,7 @@ import { buildSvgTimingGraph } from "./svgAnimation.js";
 import { getSvgNodeStyleCascade, updateStructuredSvgStyleDeclaration } from "./svgStyleModel.js";
 import { isMediaStreamElement, MEDIA_STREAM_KINDS, normalizeMediaStreamConfig, patchMediaStreamConfig } from "./mediaStream.js";
 import { getScoreData } from "./iannixEngine.js";
+import { getPhysicsColliderSelectionValue } from "./physicsGeometry.js";
 
 const READ_ONLY_KEYS = new Set([
   "id", "type", "width", "height", "version", "versionNonce", "updated", "index", "seed",
@@ -738,7 +739,8 @@ const physicsBodyFieldCount = (body, query) => physicsBodyMatchesQuery(body, que
 const PhysicsRoleControls = ({ body, element, query, onChange, onColliderKindChange, onRemove }) => {
   if (!physicsBodyMatchesQuery(body, query)) return null;
   const matches = name => !query?.needle || name.includes(query.needle);
-  const supportsColliderChoices = ["freedraw", "line", "arrow"].includes(element?.type)
+  const supportsColliderChoices = Boolean(element);
+  const supportsPathCollider = ["freedraw", "line", "arrow"].includes(element?.type)
     || element?.customData?.draweratorGeometry?.kind === "cubicBezierPath";
   const updateMaterial = patch => onChange({ material: { ...body.material, ...patch } });
   const updateCollider = patch => onChange({ collider: { ...body.collider, ...patch } });
@@ -751,7 +753,7 @@ const PhysicsRoleControls = ({ body, element, query, onChange, onColliderKindCha
         {matches("sensor") && <div className="properties-row editable"><span>sensor</span><input type="checkbox" checked={body.collider.sensor} onChange={event => updateCollider({ sensor: event.target.checked })} /></div>}
         {matches("name") && <div className="properties-row editable"><span>name</span><input type="text" value={body.name} onChange={event => onChange({ name: event.target.value })} /></div>}
         {matches("tags") && <div className="properties-row editable"><span>tags</span><input type="text" value={body.collisionTags.join(", ")} onChange={event => onChange({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} /></div>}
-        {supportsColliderChoices && matches("collider") && <div className="properties-row editable"><span>collider</span><select value={["polyline", "chain"].includes(body.collider.kind) ? "chain" : body.collider.kind === "ellipse" ? "ellipse" : body.collider.kind === "convex" ? "convex" : "box"} onChange={event => onColliderKindChange?.(event.target.value)}><option value="box">Bounding box</option><option value="ellipse">Bounding ellipse</option><option value="convex">Convex hull</option><option value="chain">Path chain</option></select></div>}
+        {supportsColliderChoices && matches("collider") && <div className="properties-row editable"><span>collider</span><select value={getPhysicsColliderSelectionValue(body.collider, { allowPath: Boolean(supportsPathCollider) })} onChange={event => onColliderKindChange?.(event.target.value)}><option value="box">Bounding box</option><option value="ellipse">Bounding ellipse</option><option value="convex">Convex hull</option>{supportsPathCollider && <option value="chain">Path chain</option>}</select></div>}
         <div className="properties-two-column">
           {matches("friction") && <div className="properties-row editable"><span>friction</span><input type="number" min="0" max="10" step="0.05" value={body.material.friction} onChange={event => updateMaterial({ friction: event.target.valueAsNumber })} /></div>}
           {matches("bounce") && <div className="properties-row editable"><span>bounce</span><input type="number" min="0" max="2" step="0.05" value={body.material.restitution} onChange={event => updateMaterial({ restitution: event.target.valueAsNumber })} /></div>}

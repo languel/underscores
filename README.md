@@ -53,6 +53,7 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 | `Cmd + Ctrl + Z` | Toggle Satori (Zen) Mode |
 | `Ctrl + Opt + T` | Toggle the global transport (`Cmd + Ctrl + T` remains supported) |
 | `Ctrl + Shift + Space` | Reset the global transport to `t = 0` and toggle playback from zero |
+| `Shift + Left Arrow` | Jump the timeline to its start (and reset physics when it is linked to transport) |
 | `Ctrl + Opt + R` | Start / stop session recording |
 | `Cmd + ,` | Toggle the Settings sidebar |
 | `Ctrl + Opt + A` | Toggle AI Assistant Chat Sidebar |

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { adjustTimeValue, createTimeValue, formatTimeValueForDisplay, parseTimeValue, resolveTimeValue } from "./timeValue.js";
+import { adjustTimeValue, createTimeValue, cycleTimeValueUnit, formatTimeValueForDisplay, parseTimeValue, resolveTimeValue } from "./timeValue.js";
 
 const labelFromProps = props => props["aria-label"] || props.name || "Time value";
 const dataPathFromProps = props => props["data-route-path"] || props.name || labelFromProps(props).toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.|\.$/g, "");
@@ -22,6 +22,7 @@ export default function TimeValueInput({
   const inputRef = useRef(null);
   const startValueRef = useRef(normalized);
   const dragRef = useRef(null);
+  const cycledPointerRef = useRef(null);
 
   useEffect(() => {
     if (document.activeElement !== inputRef.current && !dragRef.current) setDraft(normalized.expression);
@@ -58,6 +59,15 @@ export default function TimeValueInput({
 
   const pointerDown = event => {
     if (event.button !== 0 || disabled) return;
+    if (event.altKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      const next = cycleTimeValueUnit(focused ? draft : value, context);
+      emit(next, true);
+      startValueRef.current = next;
+      cycledPointerRef.current = event.pointerId;
+      return;
+    }
     const parsed = parseTimeValue(draft, context);
     if (!parsed.ok) return;
     startValueRef.current = parsed.value;
@@ -82,6 +92,12 @@ export default function TimeValueInput({
   };
 
   const pointerUp = event => {
+    if (cycledPointerRef.current === event.pointerId) {
+      cycledPointerRef.current = null;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
@@ -143,6 +159,7 @@ export default function TimeValueInput({
         aria-invalid={!valid.ok || (valid.ok && valid.descriptor.seconds < minSeconds) ? "true" : undefined}
         data-time-value="true"
         data-default={createTimeValue(defaultValue, undefined, context).expression}
+        title={`${inputProps.title ? `${inputProps.title} · ` : ""}Option/Alt-click cycles seconds, beats, timecode, and frames.`}
         onFocus={() => {
           startValueRef.current = createTimeValue(value, undefined, context);
           setDraft(normalized.expression);

@@ -206,6 +206,41 @@ export const formatTimeValueForDisplay = input => String(input ?? "").replace(
   token => trimNumber(Number(Number(token).toFixed(3))),
 );
 
+// Preserve the resolved duration while moving between the compact time
+// notations used throughout the transport and score inspectors.
+export const cycleTimeValueUnit = (input, contextValue) => {
+  const parsed = parseTimeValue(input, contextValue);
+  const seconds = Math.max(0, parsed.ok ? parsed.descriptor.seconds : resolveTimeValue(input, contextValue));
+  const context = timingUnits(contextValue);
+  const current = ["bbu", "bars", "beats", "note"].includes(parsed.descriptor?.kind)
+    ? "beats"
+    : ["smpte", "clock", "clockList"].includes(parsed.descriptor?.kind)
+      ? "timecode"
+      : parsed.descriptor?.kind === "frames"
+        ? "frames"
+        : "seconds";
+  const cycle = ["seconds", "beats", "timecode", "frames"];
+  const next = cycle[(cycle.indexOf(current) + 1) % cycle.length];
+  if (next === "seconds") return createTimeValue(`${trimNumber(seconds)} s`, undefined, context);
+  if (next === "frames") return createTimeValue(`${Math.round(seconds * context.fps)} f`, undefined, context);
+  if (next === "timecode") {
+    const totalFrames = Math.max(0, Math.round(seconds * context.fps));
+    const frames = totalFrames % Math.round(context.fps);
+    const wholeSeconds = Math.floor(totalFrames / context.fps);
+    const hours = Math.floor(wholeSeconds / 3600);
+    const minutes = Math.floor((wholeSeconds - hours * 3600) / 60);
+    const secs = wholeSeconds - hours * 3600 - minutes * 60;
+    return createTimeValue(`${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}:${String(frames).padStart(2, "0")}`, undefined, context);
+  }
+  let remainder = seconds;
+  const bars = Math.floor(remainder / context.bar + 1e-9);
+  remainder -= bars * context.bar;
+  const beats = Math.floor(remainder / context.beat + 1e-9);
+  remainder -= beats * context.beat;
+  const ticks = Math.round(remainder / context.tick);
+  return createTimeValue(`${bars}.${beats}.${ticks}`, undefined, context);
+};
+
 const formatClock = (seconds, componentCount) => {
   const total = Math.max(0, seconds);
   if (componentCount === 2) {

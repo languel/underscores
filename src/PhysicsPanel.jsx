@@ -13,6 +13,8 @@ export default function PhysicsPanel({
   selectedElementIds = {},
   activeTool = null,
   telemetry = {},
+  debug = {},
+  onDebugChange,
   onSetGraph,
   onPatchBody,
   onRemoveBody,
@@ -38,6 +40,7 @@ export default function PhysicsPanel({
   const selectedIdSet = useMemo(() => new Set(Object.keys(selectedElementIds).filter(id => selectedElementIds[id])), [selectedElementIds]);
   const selectedBodies = useMemo(() => graph.bodies.filter(body => body.objectRef?.kind === "element" && selectedIdSet.has(body.objectRef.elementId)), [graph.bodies, selectedIdSet]);
   const selectedBody = selectedBodies[0] || null;
+  const patchDebug = patch => onDebugChange?.({ ...debug, ...patch });
   const patchSystem = patch => {
     if (!system) return;
     const nextPatch = patch.gravity ? { ...patch, gravityMode: "custom" } : patch;
@@ -102,17 +105,31 @@ export default function PhysicsPanel({
           <label className="physics-field"><span>{system.gravityMode === "world" ? "Gravity X (world)" : "Gravity X"}</span><input type="number" step="10" value={system.gravityMode === "world" ? graph.world.gravity.x : system.gravity.x} disabled={system.gravityMode === "world"} onChange={event => patchSystem({ gravity: { ...system.gravity, x: Number(event.target.value) } })} /></label>
           <label className="physics-field"><span>{system.gravityMode === "world" ? "Gravity Y (world)" : "Gravity Y"}</span><input type="number" step="10" value={system.gravityMode === "world" ? graph.world.gravity.y : system.gravity.y} disabled={system.gravityMode === "world"} onChange={event => patchSystem({ gravity: { ...system.gravity, y: Number(event.target.value) } })} /></label>
         </div>
-        <div className="physics-two-column">
-          <label className="physics-field"><span>Clock</span><select value={system.clock.mode} onChange={event => patchSystem({ clock: { ...system.clock, mode: event.target.value } })}><option value="realtime">Independent</option><option value="transport">Music transport</option></select></label>
-          <label className="physics-field"><span>Time scale</span><input type="number" min="0" max="8" step="0.05" value={system.clock.timeScale} onChange={event => patchSystem({ clock: { ...system.clock, timeScale: Number(event.target.value) } })} /></label>
-        </div>
-        <label className="physics-check"><input type="checkbox" checked={system.emitStayEvents} onChange={event => patchSystem({ emitStayEvents: event.target.checked })} /><span>Continuous stay events</span></label>
+        <label className="physics-check" {...infoProps("Contact stay events", "Contacts normally emit begin, hit, and end. Enable this only when a route needs an additional stay event on every physics step while bodies remain in contact; it can produce up to 60 events per second for each active contact.")}><input type="checkbox" checked={system.emitStayEvents} onChange={event => patchSystem({ emitStayEvents: event.target.checked })} /><span>Contact stay events</span></label>
         <div className="physics-transport">
           <Button onClick={() => onPlay(system.id)}>Play</Button>
           <Button onClick={() => onPause(system.id)}>Pause</Button>
           <Button onClick={() => onReset(system.id)}>Reset</Button>
           <Button onClick={() => onApply(system.id)}>Apply pose</Button>
           <Button onClick={removeSystem}>Remove</Button>
+        </div>
+      </InspectorSection>
+
+      <InspectorSection title="Debug overlay" defaultOpen={false} {...infoProps("Physics debug overlay", "A canvas-only diagnostic view. It never becomes a scene object or export. When disabled it does not subscribe to collision events or draw diagnostic geometry.")}>
+        <label className="physics-check">
+          <input type="checkbox" checked={debug.enabled === true} onChange={event => patchDebug({ enabled: event.target.checked })} />
+          <span>Show physics diagnostics</span>
+        </label>
+        <div className="physics-debug-grid" aria-disabled={!debug.enabled}>
+          {[
+            ["bodies", "Bodies"],
+            ["colliders", "Colliders"],
+            ["constraints", "Springs + constraints"],
+            ["labels", "Body labels"],
+            ["contacts", "Contacts"],
+            ["collisions", "Collision pulses"],
+            ["forces", "Contact forces"],
+          ].map(([key, label]) => <Button key={key} active={debug[key] === true} disabled={!debug.enabled} onClick={() => patchDebug({ [key]: !debug[key] })}>{label}</Button>)}
         </div>
       </InspectorSection>
 

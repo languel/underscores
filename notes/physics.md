@@ -10,7 +10,7 @@ Drawerator API version 7 and scene-exchange version 9 introduce a solver-indepen
 - `authored-deformable` bodies remain canonical Drawerator curves. The geometry adapter resolves stable anchor IDs and typed stream endpoints at display cadence while preserving reset geometry.
 - The worker owns fixed-step accumulators, deterministic snapshots, transport checkpoints, bounded catch-up, collision queues, and pooled pose buffers. Paused systems do not send repeated pose buffers.
 
-Each system has either an independent realtime clock or the Drawerator music transport clock. Pause holds the evaluated pose. Reset restores the authored baseline. Apply pose commits the current rigid transforms and deformable geometry as one authored history change. Seeking a transport-clocked system restores an in-memory deterministic checkpoint and advances fixed steps to the target.
+Each system has either an independent realtime clock or the Drawerator music transport clock. Pause holds the evaluated pose. Reset restores the authored baseline. Apply pose commits the current rigid transforms and deformable geometry as one authored history change. Seeking a transport-clocked system restores an in-memory deterministic checkpoint and advances fixed steps to the target. Transport rewind controls, including `Shift+Left`, reset a transport-linked world together with the score; independent physics is unaffected. Full paused timeline scrubbing is the next opt-in transport feature: it will use the same checkpoint-and-replay path without delivering collision/audio side effects while the scrubber moves.
 
 ## Graph model and endpoints
 
@@ -23,6 +23,8 @@ Endpoints can address a world point, object center or normalized object-local po
 Open `/physics` (or `/relations`). The panel is an inspector and transport, not a node editor.
 
 The Scene panel also exposes a **World** section. Gravity is authored in metres per second squared (default `0, -9.8`), viscosity is zero by default, and `Pixels per metre` controls the conversion into canvas coordinates. Since canvas Y grows downward, the conventional negative world-Y gravity falls downward in the drawing. `Sim speed` scales elapsed simulation time while the solver keeps its fixed cadence. Its compact controls play/pause, reset, and optionally sync all physics systems to the music transport; with sync active, either transport controls the other.
+
+The Systems panel contains an opt-in **Physics debug overlay**. It draws diagnostic body bounds, actual collider geometry, labels, constraints, contacts, collision pulses, and force vectors in the same canvas/world coordinate system as the authored objects. Its data is runtime-only and never serializes or exports. With the overlay off, it does not collect or paint diagnostic primitives, so it adds no simulation or canvas rendering work.
 
 Select a canvas object and use Shift-right-click → **Make Physics Body**, or run `/make body`. Drawerator creates a default World system when the scene has none, infers a collider and material from the selected object, attaches an authored dynamic body, and opens the Physics inspector. Fixed walls, pins, and joints remain separate authoring steps.
 

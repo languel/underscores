@@ -100,8 +100,8 @@ import { canUseAsObjectBoundsTarget, createMediaBinding, createMediaSource, crea
 import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
 import { createUnifiedStreamsApi, DraweratorStreamRegistry } from "./streamRuntime.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
-import { addRelationshipItem, createDefaultPhysicsSystem, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, withPhysicsCustomData } from "./relationshipGraph.js";
-import { applyAnchorAttractorFrame, applyBezierSculptOperator, inferPhysicsBodyFromElement, inferPhysicsColliderFromElement } from "./physicsGeometry.js";
+import { addRelationshipItem, createDefaultPhysicsSystem, createEmptyRelationshipGraph, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, removeRelationshipBindingsForElements, withPhysicsCustomData } from "./relationshipGraph.js";
+import { applyAnchorAttractorFrame, applyBezierSculptOperator, getPhysicsColliderSelectionValue, getPhysicsElementLocalCenter, inferPhysicsBodyFromElement, inferPhysicsColliderForBody, inferPhysicsColliderFromElement } from "./physicsGeometry.js";
 import { createPhysicsApi, createRelationshipApi, PhysicsRuntimeController } from "./physicsRuntime.js";
 import { PhysicsAudioRouter } from "./physicsAudio.js";
 import { createPhysicsExample } from "./physicsExamples.js";
@@ -648,6 +648,22 @@ const INTERFACE_THEME_PRESETS = {
 
 const DEFAULT_INTERFACE_THEME_PRESET = "monoDark";
 const CUSTOM_THEME_STORAGE_KEY = "drawerator_custom_themes_v1";
+const PHYSICS_DEBUG_STORAGE_KEY = "drawerator_physics_debug_v1";
+const DEFAULT_PHYSICS_DEBUG = Object.freeze({
+  enabled: false,
+  bodies: true,
+  colliders: true,
+  constraints: true,
+  labels: false,
+  contacts: true,
+  collisions: true,
+  forces: true,
+});
+const normalizePhysicsDebug = value => ({
+  ...DEFAULT_PHYSICS_DEBUG,
+  ...(value && typeof value === "object" ? value : {}),
+  enabled: value?.enabled === true,
+});
 const normalizeCustomThemes = value => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return Object.fromEntries(Object.entries(value).flatMap(([id, preset]) => {
@@ -699,12 +715,33 @@ const ScriptActionIcon = ({ type }) => {
 
 const PhysicsWorldIcon = ({ type }) => {
   const shapes = {
-    play: <><circle cx="6.5" cy="17" r="2.5"/><path d="m12 5 7 5-7 5V5Z"/></>,
-    pause: <><circle cx="6.5" cy="17" r="2.5"/><path d="M13 6v8M18 6v8"/></>,
-    reset: <><path d="M18 9a7 7 0 1 0 1 5"/><path d="M18 4v5h-5"/><circle cx="8" cy="16" r="2"/></>,
-    transport: <><path d="M5 7h5l4 5h5"/><path d="M5 17h5l4-5h5"/><circle cx="5" cy="7" r="1.5"/><circle cx="19" cy="12" r="1.5"/><circle cx="5" cy="17" r="1.5"/></>,
+    play: <><circle cx="30" cy="110" r="20"/><path d="M70 10v200l100-100L70 10Z"/></>,
+    pause: <><path d="M10 10h40v200H10zM130 10h40v200h-40z"/><circle cx="90" cy="110" r="20"/></>,
+    reset: <><circle cx="30" cy="110" r="20"/><path d="M110 10v200L70 110l40-100ZM170 10v200l-40-100 40-100Z"/></>,
+    transport: <><circle cx="30" cy="110" r="20"/><path d="M70 10v200l80-100L70 10ZM110 10v200l60-100-60-100Z"/></>,
   };
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{shapes[type]}</svg>;
+  return <svg width="12" height="14" viewBox="0 0 180 220" fill="none" stroke="currentColor" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{shapes[type]}</svg>;
+};
+
+const PhysicsRoleIcon = ({ type }) => {
+  const shapes = {
+    none: <><circle cx="12" cy="12" r="7"/><path d="m7 7 10 10"/></>,
+    dynamic: <><circle cx="12" cy="10" r="5"/><path d="M12 2v4m0 9v7m-3-3 3 3 3-3"/></>,
+    kinematic: <><rect x="5" y="6" width="10" height="10" rx="1"/><path d="M3 12h18m-3-3 3 3-3 3"/></>,
+    fixed: <><path d="M4 16h16M6 13h12M8 10h8"/><path d="M5 18v2m4-2v2m4-2v2m4-2v2"/></>,
+    sensor: <><circle cx="12" cy="12" r="4"/><path d="M5 7a9 9 0 0 0 0 10m14-10a9 9 0 0 1 0 10"/></>,
+  };
+  return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{shapes[type]}</svg>;
+};
+
+const ScoreRoleIcon = ({ type }) => {
+  const shapes = {
+    none: <><circle cx="12" cy="12" r="7"/><path d="m7 7 10 10"/></>,
+    curve: <path d="M4 17c4-10 8-10 16-4"/>,
+    cursor: <><circle cx="7" cy="12" r="2.5"/><path d="M10 12h9m-4-4 4 4-4 4"/></>,
+    trigger: <><circle cx="12" cy="12" r="3"/><path d="M12 3v4m0 10v4M3 12h4m10 0h4"/></>,
+  };
+  return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{shapes[type]}</svg>;
 };
 
 const physicsFollowsTransport = systems => Array.isArray(systems)
@@ -1847,6 +1884,17 @@ const physicsAuthoredElementSignature = element => JSON.stringify([
   element?.points || null,
 ]);
 
+// Excalidraw calls `onChange` for camera movement, selection, and transient
+// runtime updates as well as authored edits. Persist only an authored-element
+// revision so another open tab or an import intermediate cannot replace a
+// fuller scene with an incidental canvas notification.
+const scenePersistenceSignature = elements => JSON.stringify((elements || []).map(element => [
+  element?.id,
+  element?.version,
+  element?.versionNonce,
+  Boolean(element?.isDeleted),
+]));
+
 // The native element is the authored source of truth while the world is
 // paused. Older scenes can contain a stale customData.physics.initial value
 // from before an object was moved, so repair the reset pose from the current
@@ -1863,21 +1911,52 @@ const hydratePhysicsGraphForElements = (graphValue, elements = [], { repairAutho
     const element = elementById.get(body.objectRef.elementId);
     if (!element) return body;
     const inferred = inferPhysicsBodyFromElement(element, body);
-    const nextInitial = repairAuthoredPose && body.tracking === "authored-rigid"
-      ? { ...body.initial, ...inferred.initial }
-      : body.initial;
     const shouldRepairShape = element.type === "freedraw"
       && ["dynamic", "kinematic"].includes(body.bodyType)
       && body.collider?.kind === "polyline"
       && inferred.collider?.kind !== "polyline";
-    if (!shouldRepairShape
+    // Earlier path colliders stored points after applying the element angle or
+    // around the element frame instead of the rendered path bounds. A rotating
+    // Rapier body then drifts away from the authored stroke. Rebuild every
+    // point-defined path shape (including dynamic convex freehands) whenever
+    // we hydrate it, retaining the user's selected collider kind.
+    const shouldRepairPathCollider = ["polyline", "chain", "convex"].includes(body.collider?.kind);
+    const repairedCollider = shouldRepairShape
+      ? inferred.collider
+      : shouldRepairPathCollider
+        ? inferPhysicsColliderForBody(element, body)
+        : body.collider;
+    const colliderChanged = JSON.stringify(repairedCollider) !== JSON.stringify(body.collider);
+    // Existing path bodies encoded their pose around the Excalidraw frame
+    // centre. Moving their collider vertices to the rendered path centre
+    // therefore also requires a one-time rebase of the reset pose; otherwise
+    // Reset reproduces the old constant offset even though the collider itself
+    // is now correctly local.
+    const shouldRebasePathOrigin = shouldRepairPathCollider
+      && (body.collider?.localOriginVersion || 0) < 2;
+    const localCenter = shouldRebasePathOrigin ? getPhysicsElementLocalCenter(element) : null;
+    const frameCenter = shouldRebasePathOrigin
+      ? [Number(element.width) / 2 || 0, Number(element.height) / 2 || 0]
+      : null;
+    const rebasedInitial = shouldRebasePathOrigin
+      ? {
+        ...body.initial,
+        x: body.initial.x + localCenter[0] - frameCenter[0],
+        y: body.initial.y + localCenter[1] - frameCenter[1],
+      }
+      : null;
+    const nextInitial = rebasedInitial
+      || (repairAuthoredPose && body.tracking === "authored-rigid"
+        ? { ...body.initial, ...inferred.initial }
+        : body.initial);
+    if (!colliderChanged
       && nextInitial.x === body.initial.x
       && nextInitial.y === body.initial.y
       && nextInitial.angle === body.initial.angle) return body;
     changed = true;
     return normalizePhysicsBody({
       ...body,
-      ...(shouldRepairShape ? { collider: inferred.collider } : {}),
+      collider: repairedCollider,
       initial: nextInitial,
     });
   });
@@ -2080,6 +2159,13 @@ function App() {
   });
   const [showPerformanceOverlay, setShowPerformanceOverlay] = useState(() => localStorage.getItem("drawerator_performance_overlay") === "true");
   const [performanceOverlayPlacement, setPerformanceOverlayPlacement] = useState(() => localStorage.getItem("drawerator_performance_overlay_placement") === "floating" ? "floating" : "console");
+  const [physicsDebug, setPhysicsDebug] = useState(() => {
+    try {
+      return normalizePhysicsDebug(JSON.parse(localStorage.getItem(PHYSICS_DEBUG_STORAGE_KEY) || "null"));
+    } catch {
+      return normalizePhysicsDebug(null);
+    }
+  });
   const [forceDesktopLayout, setForceDesktopLayout] = useState(() => {
     const saved = localStorage.getItem("drawerator_force_desktop_layout");
     return saved !== "false";
@@ -2095,6 +2181,9 @@ function App() {
     localStorage.setItem("drawerator_performance_overlay", String(showPerformanceOverlay));
     localStorage.setItem("drawerator_performance_overlay_placement", performanceOverlayPlacement);
   }, [performanceOverlayPlacement, showPerformanceOverlay]);
+  useEffect(() => {
+    localStorage.setItem(PHYSICS_DEBUG_STORAGE_KEY, JSON.stringify(physicsDebug));
+  }, [physicsDebug]);
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
   const [modsPanelTab, setModsPanelTab] = useState("stack");
   const [scriptPanelType, setScriptPanelType] = useState(() => normalizeScriptType(localStorage.getItem("drawerator_script_panel_type")));
@@ -2251,7 +2340,10 @@ function App() {
     audioRouter: (action, event, route) => physicsAudioRef.current?.route(action, event, route),
   });
   const setRelationshipGraph = useCallback(value => {
-    setRelationshipGraphState(previous => normalizeRelationshipGraph(typeof value === "function" ? value(previous) : value));
+    setRelationshipGraphState(previous => {
+      const nextValue = typeof value === "function" ? value(previous) : value;
+      return nextValue === previous ? previous : normalizeRelationshipGraph(nextValue);
+    });
   }, []);
   useEffect(() => {
     const elements = excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.()
@@ -2259,6 +2351,22 @@ function App() {
       || [];
     physicsRuntimeRef.current.setGraph(hydratePhysicsGraphForElements(relationshipGraph, elements, { repairAuthoredPose: false }));
   }, [relationshipGraph]);
+  // A deletion keeps an Excalidraw tombstone in the scene list. Sweep those
+  // bindings when the app starts, reloads, or hot-reloads as well as during
+  // `onChange`, so a ghost solver body can never survive until the next edit.
+  useEffect(() => {
+    if (!excalidrawAPI) return;
+    const deletedElementIds = excalidrawAPI.getSceneElementsIncludingDeleted()
+      .filter(element => element?.isDeleted)
+      .map(element => element.id);
+    if (!deletedElementIds.length) return;
+    setRelationshipGraph(previous => {
+      const pruned = removeRelationshipBindingsForElements(previous, deletedElementIds);
+      const changed = pruned.bodies.length !== previous.bodies.length
+        || pruned.constraints.length !== previous.constraints.length;
+      return changed ? pruned : previous;
+    });
+  }, [excalidrawAPI, relationshipGraph, setRelationshipGraph]);
   useEffect(() => {
     if (!excalidrawAPI) return;
     const elementsById = new Map(excalidrawAPI.getSceneElementsIncludingDeleted().map(element => [element.id, element]));
@@ -2326,8 +2434,9 @@ function App() {
       const centerX = snapshot.values[index * 4];
       const centerY = snapshot.values[index * 4 + 1];
       const angle = snapshot.values[index * 4 + 2];
-      const x = centerX - element.width / 2;
-      const y = centerY - element.height / 2;
+      const localCenter = getPhysicsElementLocalCenter(element);
+      const x = centerX - localCenter[0];
+      const y = centerY - localCenter[1];
       if (Math.abs(element.x - x) < 0.05 && Math.abs(element.y - y) < 0.05 && Math.abs((element.angle || 0) - angle) < 0.0005) return;
       changed = true;
       replacements.set(element.id, {
@@ -3095,6 +3204,8 @@ function App() {
   const sceneImportInputRef = useRef(null);
   const lastSceneSaveTimerRef = useRef(null);
   const lastSceneRestoreAttemptedRef = useRef(false);
+  const lastSceneRestoreInProgressRef = useRef(false);
+  const lastSceneElementPersistenceSignatureRef = useRef("");
   const iannixImportInputRef = useRef(null);
   const brushImportInputRef = useRef(null);
   const p5ImportInputRef = useRef(null);
@@ -3296,6 +3407,7 @@ function App() {
         excalidrawAPI.getSceneElementsIncludingDeleted().map(element => [element.id, element])
       );
       const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+      lastSceneElementPersistenceSignatureRef.current = scenePersistenceSignature(elements);
       const migrated = elements.map(normalizeScoreElementMetadata);
       if (migrated.some((element, index) => element !== elements[index])) {
         excalidrawAPI.updateScene({ elements: migrated, commitToHistory: false });
@@ -8538,7 +8650,8 @@ function App() {
         const element = elementsById.get(body.objectRef.elementId);
         if (!element || element.isDeleted) return body;
         const inferred = inferPhysicsBodyFromElement(element, body);
-        const next = normalizePhysicsBody({ ...body, initial: inferred.initial, collider: inferred.collider });
+        const collider = inferPhysicsColliderForBody(element, body);
+        const next = normalizePhysicsBody({ ...body, initial: inferred.initial, collider });
         synchronizedBodies.push(next);
         return next;
       }),
@@ -8884,14 +8997,25 @@ function App() {
     }));
   };
 
-  const playPhysicsWorld = async () => {
+  // Audio is an optional collision response. Never wait for its browser
+  // permission handshake before starting the deterministic simulation: a
+  // blocked/suspended AudioContext must not make a physics world look inert.
+  const resumePhysicsAudio = () => {
+    void physicsAudioRef.current.resume().catch(error => {
+      eventBus.emit("physics.audio.error", {
+        message: error?.message || "Physics audio is unavailable.",
+      }, { source: "physics" });
+    });
+  };
+
+  const playPhysicsWorld = () => {
     const graph = synchronizePausedPhysicsBodies();
     if (!graph.systems.some(system => system.enabled)) {
       setPhysicsWorldPlaying(false);
       setSceneExchangeStatus("Create a physics body or system before playing the world.");
       return;
     }
-    await physicsAudioRef.current.resume();
+    resumePhysicsAudio();
     physicsRuntimeRef.current.play();
     if (physicsFollowsTransport(relationshipGraphRef.current.systems)) setScorePlaying(true);
   };
@@ -9227,8 +9351,13 @@ function App() {
       name: "Excalidraw: Clear Scene /ex clear",
       aliases: ["/ex clear", "/ex new"],
       category: "Excalidraw",
-      ai: { expose: true, description: "Clear every scene object without a popup." },
-      action: api => api?.updateScene({ elements: [] }),
+      ai: { expose: true, description: "Clear the board and its physics relationships without a popup." },
+      action: api => {
+        api?.updateScene({ elements: [] });
+        physicsRuntimeRef.current.pause();
+        setPhysicsWorldPlaying(false);
+        setRelationshipGraph(createEmptyRelationshipGraph());
+      },
     },
     {
       id: "excalidraw.selection.all",
@@ -9370,7 +9499,7 @@ function App() {
     { id: "physics.collider.assign", name: "Physics: Assign Fixed Collider", aliases: ["/physics wall"], category: "Physics", args: { systemId: "string?", sensor: "boolean?" }, ai: { expose: true, description: "Turn selected drawings or curves into fixed colliders or sensors." }, action: (_api, args) => assignPhysicsBodies({ ...args, bodyType: "fixed" }) },
     { id: "physics.population.create", name: "Physics: Create Runtime Population", aliases: ["/physics gas"], category: "Physics", args: { systemId: "string?", count: "number?", radius: "number?", bounds: "{x,y,width,height}?" }, ai: { expose: true, description: "Create a lightweight seeded runtime particle population." }, action: (_api, args) => createPhysicsPopulation(args) },
     { id: "physics.constraint.tool", name: "Physics: Draw Constraint", aliases: ["/physics constraint"], category: "Physics", args: { kind: "pin|spring|distance|revolute|weld|attractor", systemId: "string?" }, action: (_api, args) => startPhysicsTool(args?.kind || "spring", args?.systemId) },
-    { id: "physics.play", name: "Physics: Play", aliases: ["/physics play"], category: "Physics", action: async (_api, args) => { synchronizePausedPhysicsBodies(); await physicsAudioRef.current.resume(); physicsRuntimeRef.current.play(args?.systemId || activePhysicsSystemId); } },
+    { id: "physics.play", name: "Physics: Play", aliases: ["/physics play"], category: "Physics", action: (_api, args) => { synchronizePausedPhysicsBodies(); resumePhysicsAudio(); physicsRuntimeRef.current.play(args?.systemId || activePhysicsSystemId); } },
     { id: "physics.pause", name: "Physics: Pause", aliases: ["/physics pause"], category: "Physics", action: (_api, args) => physicsRuntimeRef.current.pause(args?.systemId || activePhysicsSystemId) },
     { id: "physics.reset", name: "Physics: Reset", aliases: ["/physics reset"], category: "Physics", action: (_api, args) => resetPhysicsSystem(args?.systemId || activePhysicsSystemId) },
     { id: "physics.apply", name: "Physics: Apply Current Pose", aliases: ["/physics apply", "/physics bake"], category: "Physics", action: (_api, args) => applyPhysicsPose(args?.systemId || activePhysicsSystemId) },
@@ -9537,7 +9666,20 @@ function App() {
     { id: "script.iannix.update", name: "AI: Update IanniX Script", category: "AI Actions", args: { id: "string?", name: "string?", source: "IanniX source?", parameters: "object?" }, ai: { expose: true, description: "Rename or replace a local IanniX script without running it. Replacement source must follow the Drawerator IanniX lifecycle/run-command contract and use one statement per line.", example: { id: "iannix-script-example", source: "function makeWithScript() {\n  run(\\\"add curve orbit\\\");\n  run(\\\"setPos current 12 -8 0\\\");\n  run(\\\"setPointAt current 0 0 0\\\");\n  run(\\\"setPointAt current 1 8 0\\\");\n}" } }, action: (_api, args) => updateAIIannixScript(args) },
     { id: "script.iannix.run", name: "AI: Run IanniX Script", category: "AI Actions", args: { id: "string?", source: "IanniX source?", filename: "string?", parameters: "object?" }, ai: { expose: true, description: "Run a trusted IanniX script. Only use when the user explicitly asks to execute the generated script.", example: { id: "iannix-script-example" } }, action: (_api, args) => runAIIannixScript(args) },
     { id: "iannix.import.trusted", name: "Import Trusted Score Script /score import", aliases: ["/score import", "/iannix import"], category: "Score", args: { source: "string", filename: "string?", seed: "number?", anchor: "point?", scale: "number?", importId: "string?", scoreId: "string?", scoreLabel: "string?", parameters: "object?" }, validate: args => ({ ...args, importId: args?.importId || args?.scoreId || crypto.randomUUID() }), action: (_api, args) => runtimeCallbacksRef.current.iannixImport(args) },
-    { id: "iannix.command.clear", name: "Score: Clear Scene /score clear", aliases: ["/score clear", "/ix clear", "/iannix clear", "Score clear", "IanniX clear"], category: "Score", action: () => runtimeCallbacksRef.current.iannixCommand("clear") },
+    {
+      id: "iannix.command.clear",
+      name: "Score: Clear Scene /score clear",
+      aliases: ["/score clear", "/ix clear", "/iannix clear", "Score clear", "IanniX clear"],
+      category: "Score",
+      action: () => {
+        runtimeCallbacksRef.current.iannixCommand("clear");
+        // This is also the Ctrl+Shift+Delete/Backspace scene-clear shortcut.
+        // Its old score-only path left the physics runtime and overlay alive.
+        physicsRuntimeRef.current.pause();
+        setPhysicsWorldPlaying(false);
+        setRelationshipGraph(createEmptyRelationshipGraph());
+      },
+    },
     { id: "iannix.command.execute", name: "Execute Score Command", category: "Score", args: { command: "string" }, action: (_api, args) => runtimeCallbacksRef.current.iannixCommand(args?.command) },
     { id: "ai.prompt", name: "Send AI Prompt", category: "AI Chat", args: { prompt: "string" }, action: (_api, args) => { openAISidebar(); return sendChatMessage(args?.prompt || ""); } },
   ];
@@ -9592,6 +9734,7 @@ function App() {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation?.();
+        if (physicsFollowsTransport(relationshipGraphRef.current.systems)) resetPhysicsWorld();
         setScoreTime(0);
         setScorePlaying(playing => !playing);
         return;
@@ -9972,6 +10115,18 @@ function App() {
       return { command: COMMANDS.find(command => command.id === generic.id), args: generic.args };
     }
     return null;
+  };
+
+  const runConsoleSlashCommand = async source => {
+    const parsed = parseSlashInvocation(source);
+    if (!parsed) return false;
+    if (parsed.error) throw new Error(parsed.error);
+    if (!parsed.command?.id) return false;
+    await commandRegistry.execute(parsed.command.id, parsed.args || {}, {
+      source: "console",
+      transportTime: scoreTimeRef.current,
+    });
+    return true;
   };
 
   const openAISidebar = () => {
@@ -13323,10 +13478,11 @@ function App() {
         return setElementBezierGeometry(element, body.initialGeometry);
       }
       if (body.tracking !== "authored-rigid") return element;
+      const localCenter = getPhysicsElementLocalCenter(element);
       return {
         ...element,
-        x: body.initial.x - element.width / 2,
-        y: body.initial.y - element.height / 2,
+        x: body.initial.x - localCenter[0],
+        y: body.initial.y - localCenter[1],
         angle: body.initial.angle,
       };
     });
@@ -13458,6 +13614,7 @@ function App() {
       },
       commitToHistory,
     });
+    lastSceneElementPersistenceSignatureRef.current = scenePersistenceSignature(restoredElements);
     setGlobalGrid(grid);
     setExpressiveSynthConfig(expressiveSynth);
     mixerRef.current = importedMixer;
@@ -13465,7 +13622,12 @@ function App() {
     setP5Scripts(restoredP5.scripts);
     setStreamGraph(normalizeStreamGraphWithBuiltins(importedStreamGraph));
     setBrushChannels(normalizeBrushChannels(importedBrushChannels));
-    setRelationshipGraph(hydratePhysicsGraphForElements(importedRelationshipGraph, restoredElements));
+    const hydratedRelationshipGraph = hydratePhysicsGraphForElements(importedRelationshipGraph, restoredElements);
+    // Scene persistence can run immediately after import. Keep its reset-pose
+    // serializer aligned with the imported elements before React commits the
+    // graph state update.
+    relationshipGraphRef.current = hydratedRelationshipGraph;
+    setRelationshipGraph(hydratedRelationshipGraph);
     if (authoredState) {
       mediaSourcesRef.current = authoredState.mediaSources;
       setMediaSources(authoredState.mediaSources);
@@ -13502,7 +13664,9 @@ function App() {
 
   const saveCurrentSceneLocally = useCallback(() => {
     const api = excalidrawAPIRef.current;
-    if (!api || !lastSceneRestoreAttemptedRef.current) return;
+    // Excalidraw emits an initial empty-scene change while the saved scene is
+    // being imported. Never let that transient state overwrite the session.
+    if (!api || !lastSceneRestoreAttemptedRef.current || lastSceneRestoreInProgressRef.current) return;
     try {
       const text = createDraweratorExchangeJson("scene", api.getSceneElementsIncludingDeleted());
       if (!saveLastScene(text)) {
@@ -13514,7 +13678,7 @@ function App() {
   }, [eventBus, excalidrawAPI, scoreTime, scoreRate, scoreTempo, scoreTimeSignature, transportDisplayMode, transportFps, scoreSampleRate, transportLoopEnabled, transportLoopStart, transportLoopEnd, transportLoopStartValue, transportLoopEndValue, p5Scripts, streamGraph, brushChannels, mediaSources, brushPalette, iannixScripts, playCoreScripts, svgScripts]);
 
   const scheduleLastSceneSave = useCallback((delay = 500) => {
-    if (!lastSceneRestoreAttemptedRef.current) return;
+    if (!lastSceneRestoreAttemptedRef.current || lastSceneRestoreInProgressRef.current) return;
     window.clearTimeout(lastSceneSaveTimerRef.current);
     lastSceneSaveTimerRef.current = window.setTimeout(saveCurrentSceneLocally, delay);
   }, [saveCurrentSceneLocally]);
@@ -13524,15 +13688,16 @@ function App() {
     lastSceneRestoreAttemptedRef.current = true;
     const saved = loadLastScene();
     if (!saved) return;
-    void importDraweratorSceneText(saved, { commitToHistory: false }).catch(error => {
-      console.error("Drawerator could not restore the last scene.", error);
-      eventBus.emit("status.scene", { kind: "error", message: `Last scene could not be restored: ${error?.message || error}` }, { source: "scene-session" });
-    });
-  }, [excalidrawAPI]);
-
-  useEffect(() => {
-    scheduleLastSceneSave();
-  }, [scheduleLastSceneSave]);
+    lastSceneRestoreInProgressRef.current = true;
+    void importDraweratorSceneText(saved, { commitToHistory: false })
+      .catch(error => {
+        console.error("Drawerator could not restore the last scene.", error);
+        eventBus.emit("status.scene", { kind: "error", message: `Last scene could not be restored: ${error?.message || error}` }, { source: "scene-session" });
+      })
+      .finally(() => {
+        lastSceneRestoreInProgressRef.current = false;
+      });
+  }, [excalidrawAPI, scheduleLastSceneSave]);
 
   useEffect(() => () => window.clearTimeout(lastSceneSaveTimerRef.current), []);
 
@@ -13778,6 +13943,12 @@ function App() {
     finishApplyingRecordedUiState();
   };
   runtimeCallbacksRef.current.transportJump = edge => {
+    // Shift+Left resolves here through the transport-jump command. Keep the
+    // linked world at the same authored reset pose as the timeline whenever
+    // that shortcut jumps back to the start (including a loop start).
+    if (edge === "start" && physicsFollowsTransport(relationshipGraphRef.current.systems)) {
+      resetPhysicsWorld();
+    }
     if (transportLoopEnabled) {
       runtimeCallbacksRef.current.transportSeek(edge === "start" ? transportLoopStart : transportLoopEnd);
       return;
@@ -15051,6 +15222,17 @@ function App() {
         className="iannix-section physics-world-section"
         {...infoProps("Physics world", "Global physics defaults shared by every system. Gravity is authored in metres per second squared; canvas Y points down, so the default -9.8 m/s² falls downward in the scene.")}
       >
+        <div className="physics-world-actions">
+          <button type="button" className="iannix-flat-button physics-world-action" onClick={physicsWorldPlaying ? pausePhysicsWorld : playPhysicsWorld} title={physicsWorldPlaying ? "Pause physics world" : "Play physics world"} aria-label={physicsWorldPlaying ? "Pause physics world" : "Play physics world"}>
+            <PhysicsWorldIcon type={physicsWorldPlaying ? "pause" : "play"} />
+          </button>
+          <button type="button" className="iannix-flat-button physics-world-action" onClick={resetPhysicsWorld} title="Reset physics world" aria-label="Reset physics world">
+            <PhysicsWorldIcon type="reset" />
+          </button>
+          <button type="button" className={`iannix-flat-button physics-world-action ${physicsTransportSynced ? "active" : ""}`} onClick={togglePhysicsTransportSync} title={physicsTransportSynced ? "Use an independent physics clock" : "Sync physics to music transport"} aria-label={physicsTransportSynced ? "Use an independent physics clock" : "Sync physics to music transport"} aria-pressed={physicsTransportSynced}>
+            <PhysicsWorldIcon type="transport" />
+          </button>
+        </div>
         <div className="iannix-two-column">
           <label className="iannix-field" {...infoProps("Gravity X", "Horizontal world gravity in metres per second squared.")}>
             <span>Gravity X (m/s²)</span>
@@ -15065,7 +15247,7 @@ function App() {
             <input type="number" min="0" max="100" step="0.01" value={world.viscosity} onChange={event => setWorldNumber("viscosity", event.target.value)} />
           </label>
           <label className="iannix-field" {...infoProps("Simulation speed", "Scales elapsed physics time without changing the fixed solver cadence. Set to zero to hold the simulation.")}>
-            <span>Sim speed</span>
+            <span>Time scale</span>
             <input type="number" min="0" max="8" step="0.05" value={world.simSpeed} onChange={event => setWorldNumber("simSpeed", event.target.value)} />
           </label>
         </div>
@@ -15080,17 +15262,6 @@ function App() {
             <option value="preview">Keep reset pose</option>
           </select>
         </label>
-        <div className="physics-world-actions">
-          <button type="button" className="iannix-flat-button physics-world-action" onClick={physicsWorldPlaying ? pausePhysicsWorld : playPhysicsWorld} title={physicsWorldPlaying ? "Pause physics world" : "Play physics world"} aria-label={physicsWorldPlaying ? "Pause physics world" : "Play physics world"}>
-            <PhysicsWorldIcon type={physicsWorldPlaying ? "pause" : "play"} />
-          </button>
-          <button type="button" className="iannix-flat-button physics-world-action" onClick={resetPhysicsWorld} title="Reset physics world" aria-label="Reset physics world">
-            <PhysicsWorldIcon type="reset" />
-          </button>
-          <button type="button" className={`iannix-flat-button physics-world-action ${physicsTransportSynced ? "active" : ""}`} onClick={togglePhysicsTransportSync} title={physicsTransportSynced ? "Use an independent physics clock" : "Sync physics to music transport"} aria-label={physicsTransportSynced ? "Use an independent physics clock" : "Sync physics to music transport"} aria-pressed={physicsTransportSynced}>
-            <PhysicsWorldIcon type="transport" />
-          </button>
-        </div>
       </InspectorSection>
     );
   };
@@ -15110,7 +15281,6 @@ function App() {
             <button type="button" className="iannix-flat-button" onClick={() => void copySelectionAsSvg()} disabled={selectedCount === 0}>Copy selection SVG</button>
             <button type="button" className="iannix-flat-button" onClick={() => void pasteSvgAsEditable()}>Paste SVG as paths</button>
           </div>
-          {sceneExchangeStatus && <div className="iannix-midi-status" role="status">{sceneExchangeStatus}</div>}
         </InspectorSection>
         {renderPhysicsWorldSection()}
       </>
@@ -15126,11 +15296,11 @@ function App() {
       ? roleForBody(bodies[0])
       : bodies.length === 0 ? "none" : "mixed";
     const roleOptions = [
-      ["none", "None"],
-      ["dynamic", "Dynamic body"],
-      ["kinematic", "Kinematic body"],
-      ["fixed", "Fixed collider"],
-      ["sensor", "Sensor"],
+      ["none", "None", "Remove the physics role"],
+      ["dynamic", "Dynamic body", "Dynamic body — responds to forces and gravity"],
+      ["kinematic", "Kinematic body", "Kinematic body — moved by authored animation or interaction"],
+      ["fixed", "Fixed collider", "Fixed collider — a stationary physical wall"],
+      ["sensor", "Sensor", "Sensor — reports overlaps without blocking bodies"],
     ];
     const applyRole = role => {
       if (role === "none") {
@@ -15139,26 +15309,95 @@ function App() {
       }
       assignPhysicsBodies({ bodyType: role === "sensor" ? "fixed" : role, sensor: role === "sensor" });
     };
+    const body = sharedRole === "none" || sharedRole === "mixed" ? null : bodies[0];
+    const allSelectedHavePhysicsBodies = selectedElements.length > 0 && bodies.length === selectedElements.length;
+    const supportsColliderChoices = allSelectedHavePhysicsBodies;
+    const supportsPathCollider = allSelectedHavePhysicsBodies && selectedElements.every(element => (
+      ["freedraw", "line", "arrow"].includes(element.type)
+      || element.customData?.draweratorGeometry?.kind === "cubicBezierPath"
+    ));
+    const colliderChoices = new Set(bodies.map(candidate => getPhysicsColliderSelectionValue(candidate.collider, { allowPath: Boolean(supportsPathCollider) })));
+    const selectedColliderChoice = colliderChoices.size === 1 ? [...colliderChoices][0] : "mixed";
+    const roleLabel = roleOptions.find(([value]) => value === sharedRole)?.[1] || "Physics";
+    const patchBody = patch => bodies.forEach(candidate => patchPhysicsBody(candidate.id, patch));
+    const patchMaterial = patch => patchBody({ material: { ...body?.material, ...patch } });
+    const colliderPicker = supportsColliderChoices ? (
+      <label className="iannix-field" {...infoProps("Collider", "Bounding shapes are fast. Path chain follows drawings: fixed paths use an exact line collider, while moving paths use a thin solid chain.")}>
+        <span>Collider</span>
+        <select value={selectedColliderChoice} onChange={event => patchBody({ colliderKind: event.target.value })}>
+          {selectedColliderChoice === "mixed" && <option value="mixed" disabled>Mixed collider</option>}
+          <option value="box">Bounding box</option>
+          <option value="ellipse">Bounding ellipse</option>
+          <option value="convex">Convex hull</option>
+          {supportsPathCollider && <option value="chain">Path chain</option>}
+        </select>
+      </label>
+    ) : null;
     return (
-      <InspectorSection title="Physics role" className="iannix-section" aside={<span className="iannix-selection-count">{selectedElements.length} objects</span>} {...infoProps("Physics role", "Attach or remove a Rapier body binding for the selected canvas objects. Detailed material and collider properties are available in Properties under customData · physics.")}>
-        <div className="iannix-role-grid" role="radiogroup" aria-label="Physics role for selected objects">
-          {roleOptions.map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className={`iannix-role-button role-${value} ${sharedRole === value ? "active" : ""}`}
-              role="radio"
-              aria-checked={sharedRole === value}
-              onClick={() => applyRole(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="iannix-hint">
-          {sharedRole === "mixed" ? `${bodies.length} of ${selectedElements.length} selected objects have physics roles.` : sharedRole === "none" ? "No selected object has a physics role." : `Selected objects use a ${roleOptions.find(([value]) => value === sharedRole)?.[1] || sharedRole.toString().replace(/^./, value => value.toUpperCase())}.`}
-        </div>
-      </InspectorSection>
+      <>
+        <InspectorSection title="Physics role" className="iannix-section physics-role-selector" aside={<span className="iannix-selection-count">{selectedElements.length} objects</span>} {...infoProps("Physics role", "Attach or remove a Rapier body binding for the selected canvas objects. Role-specific settings appear directly below.")}>
+          <div className="iannix-role-grid physics-role-grid" role="radiogroup" aria-label="Physics role for selected objects">
+            {roleOptions.map(([value, label, description]) => (
+              <button
+                key={value}
+                type="button"
+                className={`iannix-role-button physics-role-icon role-${value} ${sharedRole === value ? "active" : ""}`}
+                role="radio"
+                aria-checked={sharedRole === value}
+                onClick={() => applyRole(value)}
+                title={description}
+                aria-label={label}
+              >
+                <PhysicsRoleIcon type={value} />
+              </button>
+            ))}
+          </div>
+        </InspectorSection>
+
+        {body && (
+          <InspectorSection title={roleLabel} className="iannix-section physics-role-details" {...infoProps(roleLabel, "Physics properties are stored on this object's customData.physics and are applied to its Rapier body.")}>
+            {selectedElements.length === 1 && (
+              <label className="iannix-field">
+                <span>Physics name</span>
+                <input type="text" value={body.name} onChange={event => patchBody({ name: event.target.value })} />
+              </label>
+            )}
+            <label className="iannix-field">
+              <span>Tags</span>
+              <input type="text" value={body.collisionTags.join(", ")} onChange={event => patchBody({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} />
+            </label>
+            {colliderPicker}
+            <div className="iannix-two-column">
+              <label className="iannix-field">
+                <span>Friction</span>
+                <input type="number" min="0" max="10" step="0.05" value={body.material.friction} onChange={event => patchMaterial({ friction: event.target.valueAsNumber })} />
+              </label>
+              <label className="iannix-field">
+                <span>Bounce</span>
+                <input type="number" min="0" max="2" step="0.05" value={body.material.restitution} onChange={event => patchMaterial({ restitution: event.target.valueAsNumber })} />
+              </label>
+              {sharedRole === "dynamic" && <label className="iannix-field">
+                <span>Density</span>
+                <input type="number" min="0.01" max="100" step="0.1" value={body.material.density} onChange={event => patchMaterial({ density: event.target.valueAsNumber })} />
+              </label>}
+              {sharedRole === "dynamic" && <label className="iannix-field">
+                <span>Damping</span>
+                <input type="number" min="0" max="100" step="0.05" value={body.material.linearDamping} onChange={event => patchMaterial({ linearDamping: event.target.valueAsNumber })} />
+              </label>}
+            </div>
+            <label className="iannix-check-row">
+              <span>Enabled</span>
+              <input type="checkbox" checked={body.enabled} onChange={event => patchBody({ enabled: event.target.checked })} />
+            </label>
+            {sharedRole === "sensor" && <div className="iannix-hint">Sensors report overlaps but do not physically block other bodies.</div>}
+          </InspectorSection>
+        )}
+        {!body && colliderPicker && (
+          <InspectorSection title="Collider" className="iannix-section physics-role-details" {...infoProps("Collider", "Apply one collider shape to every selected physics object.")}>
+            {colliderPicker}
+          </InspectorSection>
+        )}
+      </>
     );
   };
 
@@ -15175,10 +15414,10 @@ function App() {
     }
 
     const roleOptions = [
-      { value: null, label: "None" },
-      { value: "curve", label: "Curve" },
-      { value: "cursor", label: "Cursor" },
-      { value: "trigger", label: "Trigger" },
+      { value: null, label: "None", title: "None — remove the score role" },
+      { value: "curve", label: "Curve", title: "Curve — a timed path for cursors" },
+      { value: "cursor", label: "Cursor", title: "Cursor — travels along a curve" },
+      { value: "trigger", label: "Trigger", title: "Trigger — responds to cursor intersections" },
     ];
 
     if (selectedElements.length > 1) {
@@ -15190,18 +15429,20 @@ function App() {
         <div className="iannix-properties">
           {renderSceneExchangeTools()}
           {renderPhysicsRoleSection(selectedElements)}
-          <InspectorSection title="Score role" className="iannix-section" aside={<span className="iannix-selection-count">{selectedElements.length} objects</span>} {...infoProps("Score role", "Assigning a role gives every selected object a unique label. Same-role selections can be edited together below.")}>
-            <div className="iannix-role-grid" role="radiogroup" aria-label="Score role for selected objects">
+          <InspectorSection title="Score role" className="iannix-section score-role-selector" aside={<span className="iannix-selection-count">{selectedElements.length} objects</span>} {...infoProps("Score role", "Assigning a role gives every selected object a unique label. Same-role selections can be edited together below.")}>
+            <div className="iannix-role-grid score-role-grid" role="radiogroup" aria-label="Score role for selected objects">
               {roleOptions.map(option => (
                 <button
                   key={option.label}
                   type="button"
-                  className={`iannix-role-button role-${option.value || "none"} ${sharedRole === option.value ? "active" : ""}`}
+                  className={`iannix-role-button score-role-icon role-${option.value || "none"} ${sharedRole === option.value ? "active" : ""}`}
                   role="radio"
                   aria-checked={sharedRole === option.value}
                   onClick={() => assignIannixRole(selectedElements, option.value)}
+                  title={option.title}
+                  aria-label={option.label}
                 >
-                  {option.label}
+                  <ScoreRoleIcon type={option.value || "none"} />
                 </button>
               ))}
             </div>
@@ -15285,18 +15526,20 @@ function App() {
       <div className="iannix-properties">
         {renderSceneExchangeTools()}
         {renderPhysicsRoleSection(selectedElements)}
-        <InspectorSection title="Score role" className="iannix-section">
-          <div className="iannix-role-grid" role="radiogroup" aria-label="IanniX object role">
+        <InspectorSection title="Score role" className="iannix-section score-role-selector">
+          <div className="iannix-role-grid score-role-grid" role="radiogroup" aria-label="IanniX object role">
             {roleOptions.map(option => (
               <button
                 key={option.label}
                 type="button"
-                className={`iannix-role-button role-${option.value || "none"} ${data.role === option.value ? "active" : ""}`}
+                className={`iannix-role-button score-role-icon role-${option.value || "none"} ${data.role === option.value ? "active" : ""}`}
                 role="radio"
                 aria-checked={data.role === option.value}
                 onClick={() => assignIannixRole([element], option.value)}
+                title={option.title}
+                aria-label={option.label}
               >
-                {option.label}
+                <ScoreRoleIcon type={option.value || "none"} />
               </button>
             ))}
           </div>
@@ -15310,7 +15553,7 @@ function App() {
             />
           </label>
           <label className="iannix-check-row">
-            <span>Active in score</span>
+            <span>Active</span>
             <input
               type="checkbox"
               checked={data.active}
@@ -15320,7 +15563,7 @@ function App() {
         </InspectorSection>
 
         {data.role === "cursor" && (
-          <InspectorSection title="Cursor" className="iannix-section">
+          <InspectorSection title="Cursor" className="iannix-section score-role-details">
             <label className="iannix-field" {...infoProps("Support curve", "Choose the curve that drives this cursor's position and timing.")}>
               <span>Support curve</span>
               <select
@@ -15388,7 +15631,7 @@ function App() {
         )}
 
         {data.role === "curve" && (
-          <InspectorSection title="Curve" className="iannix-section" {...infoProps("Curve", "Playback follows the object's authored core geometry. Mods & FX remain a separate rendering layer.")}>
+          <InspectorSection title="Curve" className="iannix-section score-role-details" {...infoProps("Curve", "Playback follows the object's authored core geometry. Mods & FX remain a separate rendering layer.")}>
             <div className="iannix-readout-row"><span>Linked cursors</span><strong>{linkedCursorCount}</strong></div>
             <div className="iannix-two-column">
               <label className="iannix-field">
@@ -15408,7 +15651,7 @@ function App() {
         )}
 
         {data.role === "trigger" && (
-          <InspectorSection title="Trigger" className="iannix-section">
+          <InspectorSection title="Trigger" className="iannix-section score-role-details">
             <label className="iannix-field" {...infoProps("Trigger behavior", "Pulse sends a note or message while the cursor intersects the trigger. Continuous glissando sustains and updates pitch until geometric exit.")}>
               <span>Behavior</span>
               <select
@@ -15908,7 +16151,6 @@ function App() {
             />
             <button type="submit" className="palette-action-btn primary script-icon-button" title="Run IanniX command" aria-label="Run IanniX command" disabled={!iannixCommandSource.trim()}><ScriptActionIcon type="run" /></button>
           </form>
-          {sceneExchangeStatus && <div className="iannix-midi-status" role="status">{sceneExchangeStatus}</div>}
       </div>
     );
   };
@@ -18300,6 +18542,40 @@ function App() {
           >
             <span className="transport-autokey-diamond" />
           </button>
+          <button
+            type="button"
+            className="physics-transport-action"
+            onClick={physicsWorldPlaying ? pausePhysicsWorld : playPhysicsWorld}
+            title={physicsWorldPlaying ? "Pause physics world" : "Play physics world"}
+            aria-label={physicsWorldPlaying ? "Pause physics world" : "Play physics world"}
+          >
+            <PhysicsWorldIcon type={physicsWorldPlaying ? "pause" : "play"} />
+          </button>
+          <button
+            type="button"
+            className="physics-transport-action"
+            onClick={resetPhysicsWorld}
+            title="Reset physics world"
+            aria-label="Reset physics world"
+          >
+            <PhysicsWorldIcon type="reset" />
+          </button>
+          <button
+            type="button"
+            className={physicsFollowsTransport(relationshipGraph.systems) ? "active physics-transport-action" : "physics-transport-action"}
+            onClick={() => setRelationshipGraph(previous => ({
+              ...previous,
+              systems: previous.systems.map(system => ({
+                ...system,
+                clock: { ...system.clock, mode: physicsFollowsTransport(previous.systems) ? "realtime" : "transport" },
+              })),
+            }))}
+            title={physicsFollowsTransport(relationshipGraph.systems) ? "Use an independent physics clock" : "Sync physics to music transport"}
+            aria-label={physicsFollowsTransport(relationshipGraph.systems) ? "Use an independent physics clock" : "Sync physics to music transport"}
+            aria-pressed={physicsFollowsTransport(relationshipGraph.systems)}
+          >
+            <PhysicsWorldIcon type="transport" />
+          </button>
         </div>
 
         <div className="iannix-transport-tempo">
@@ -18310,9 +18586,7 @@ function App() {
         <div className="iannix-transport-signature" aria-label="Time signature">
           <input aria-label="Time signature numerator" type="number" min="1" max="32" step="1" data-default="4" value={scoreTimeSignature.numerator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, numerator: event.target.value }))} />
           <span>/</span>
-          <select aria-label="Time signature denominator" value={scoreTimeSignature.denominator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, denominator: event.target.value }))}>
-            {[1, 2, 4, 8, 16].map(value => <option key={value} value={value}>{value}</option>)}
-          </select>
+          <input aria-label="Time signature denominator" type="number" min="1" max="16" step="1" data-default="4" value={scoreTimeSignature.denominator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, denominator: event.target.value }))} />
         </div>
 
         <select className="iannix-transport-sync" aria-label="Clock synchronization" value={midiClockMode} onChange={event => setMidiClockMode(event.target.value)}>
@@ -19535,7 +19809,6 @@ function App() {
           onChange={(elements, appState) => {
             draweratorPerformanceMonitor.recordScene(elements, appState);
             applyForceDesktopOverride(false);
-            scheduleLastSceneSave();
             syncP5Overlay(elements, appState);
             syncSvgOverlay(elements, appState);
             syncLivecodeOverlay(elements, appState);
@@ -19777,6 +20050,48 @@ function App() {
             });
             const currentElementsById = new Map(effectiveElements.map(element => [element.id, element]));
             const physicsGraph = relationshipGraphRef.current;
+            let livePhysicsGraph = physicsGraph;
+            // Excalidraw retains deleted elements as tombstones. Prune their
+            // bindings immediately instead of waiting for an element to fall
+            // out of the scene array, otherwise Rapier and the debug overlay
+            // keep rendering a ghost body after a normal Delete action.
+            const deletedPhysicsElementIds = effectiveElements
+              .filter(element => element?.isDeleted)
+              .map(element => element.id);
+            if (deletedPhysicsElementIds.length) {
+              const prunedPhysicsGraph = removeRelationshipBindingsForElements(
+                livePhysicsGraph,
+                deletedPhysicsElementIds,
+              );
+              const prunedBodies = prunedPhysicsGraph.bodies.length !== livePhysicsGraph.bodies.length;
+              const prunedConstraints = prunedPhysicsGraph.constraints.length !== livePhysicsGraph.constraints.length;
+              if (prunedBodies || prunedConstraints) {
+                const deletedElementIdSet = new Set(deletedPhysicsElementIds);
+                physicsGraph.bodies.forEach(body => {
+                  if (body.objectRef?.kind !== "element" || !deletedElementIdSet.has(body.objectRef.elementId)) return;
+                  physicsAuthoredElementSignaturesRef.current.delete(body.id);
+                  physicsPendingAuthoredBodyIdsRef.current.delete(body.id);
+                });
+                livePhysicsGraph = prunedPhysicsGraph;
+              }
+            }
+            // Physics configuration lives on the authored object as well as
+            // in the graph. When Undo brings back a deleted object, restore
+            // that binding immediately from customData.physics rather than
+            // leaving the visible object inert until a reload.
+            const rehydratedPhysicsGraph = hydratePhysicsGraphForElements(
+              livePhysicsGraph,
+              effectiveElements,
+              { repairAuthoredPose: false },
+            );
+            if (rehydratedPhysicsGraph.bodies.length !== livePhysicsGraph.bodies.length) {
+              livePhysicsGraph = rehydratedPhysicsGraph;
+            }
+            if (livePhysicsGraph !== physicsGraph) {
+              relationshipGraphRef.current = livePhysicsGraph;
+              physicsRuntimeRef.current.setGraph(livePhysicsGraph);
+              setRelationshipGraph(livePhysicsGraph);
+            }
             const pausedPhysicsEdits = [];
             for (const body of physicsGraph.bodies) {
               if (body.tracking !== "authored-rigid" || body.objectRef?.kind !== "element") continue;
@@ -19803,6 +20118,17 @@ function App() {
             }
             const removedElementIds = [...previousSceneMap.keys()].filter(id => !currentSceneMap.has(id));
             lastSceneElementsRef.current = currentSceneMap;
+
+            const persistenceSignature = scenePersistenceSignature(effectiveElements);
+            if (
+              lastSceneRestoreAttemptedRef.current
+              && !lastSceneRestoreInProgressRef.current
+              && !physicsApplyingRef.current
+              && persistenceSignature !== lastSceneElementPersistenceSignatureRef.current
+            ) {
+              lastSceneElementPersistenceSignatureRef.current = persistenceSignature;
+              scheduleLastSceneSave();
+            }
 
             if (
               historyController.status === "recording" &&
@@ -20631,6 +20957,8 @@ function App() {
               showPerformanceMonitor={showPerformanceOverlay && performanceOverlayPlacement === "console"}
               onPerformancePlacementChange={updatePerformancePlacement}
               onPerformanceClose={() => updatePerformanceVisibility(false)}
+              onSlashCommand={runConsoleSlashCommand}
+              globalStatus={sceneExchangeStatus}
             />
           </DraweratorPanel>
           )}
@@ -21269,11 +21597,13 @@ function App() {
               selectedElementIds={selectedElementIds}
               activeTool={physicsTool?.kind || null}
               telemetry={physicsTelemetry}
+              debug={physicsDebug}
+              onDebugChange={setPhysicsDebug}
               onSetGraph={setRelationshipGraph}
               onPatchBody={patchPhysicsBody}
               onRemoveBody={removePhysicsBody}
               onRemoveSystem={removePhysicsSystem}
-              onPlay={async systemId => { synchronizePausedPhysicsBodies(); await physicsAudioRef.current.resume(); physicsRuntimeRef.current.play(systemId); }}
+              onPlay={systemId => { synchronizePausedPhysicsBodies(); resumePhysicsAudio(); physicsRuntimeRef.current.play(systemId); }}
               onPause={systemId => physicsRuntimeRef.current.pause(systemId)}
               onReset={systemId => resetPhysicsSystem(systemId)}
               onApply={applyPhysicsPose}
@@ -21595,8 +21925,19 @@ function App() {
           runtime={physicsRuntimeRef.current}
           graph={relationshipGraph}
           appState={p5OverlayScene.appState}
-          elements={p5OverlayScene.elements}
+          elements={p5OverlayScene.canvasElements || p5OverlayScene.elements}
+          getLiveScene={() => {
+            const api = excalidrawAPIRef.current;
+            return {
+              appState: api?.getAppState?.() || p5OverlayScene.appState,
+              elements: api?.getSceneElementsIncludingDeleted?.()
+                || api?.getSceneElements?.()
+                || p5OverlayScene.canvasElements
+                || p5OverlayScene.elements,
+            };
+          }}
           selectedElementIds={selectedElementIds}
+          debug={physicsDebug}
           onRenderMetric={renderMs => draweratorPerformanceMonitor.recordPhysics({ renderMs })}
         /> : null}
 

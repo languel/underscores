@@ -11,6 +11,7 @@ import {
   normalizeRelationshipGraph,
   physicsRouteMatches,
   remapRelationshipGraph,
+  removeRelationshipBindingsForElements,
   serializePhysicsBodyCustomData,
   serializeRelationshipGraphForScene,
   withPhysicsCustomData,
@@ -60,7 +61,7 @@ test("physics body custom-data mirror keeps authored material and collider field
   assert.equal(mirror.bodyType, "kinematic");
   assert.equal(mirror.name, "Pendulum bob");
   assert.deepEqual(mirror.collisionTags, ["body"]);
-  assert.deepEqual(mirror.collider, { kind: "circle", sensor: true, radius: 18, width: 24, height: 24, points: [] });
+  assert.deepEqual(mirror.collider, { kind: "circle", sensor: true, radius: 18, width: 24, height: 24, thickness: 2, points: [], localOriginVersion: 0 });
   assert.deepEqual(mirror.material, { density: 2, friction: 0.4, restitution: 0.25, linearDamping: 0.1, angularDamping: 0.01 });
   assert.deepEqual(mirror.initial, { x: 0, y: 0, angle: 0, velocityX: 0, velocityY: 0, angularVelocity: 0 });
 });
@@ -124,6 +125,23 @@ test("relationship imports remap object and endpoint references", () => {
   assert.equal(remapped.constraints[0].a.objectRef.elementId, "new");
   assert.deepEqual(findRelationshipOrphans(remapped, [{ id: "new" }]), []);
   assert.equal(findRelationshipOrphans(remapped, [])[0].id, "body");
+});
+
+test("deleting an authored element removes its body and connected constraints", () => {
+  const graph = normalizeRelationshipGraph({
+    systems: [{ id: "world" }],
+    bodies: [
+      { id: "ball", systemId: "world", objectRef: "ball-element" },
+      { id: "wall", systemId: "world", objectRef: "wall-element", bodyType: "fixed" },
+    ],
+    constraints: [
+      { id: "ball-pin", systemId: "world", kind: "pin", a: { kind: "object", objectRef: "ball-element" }, b: { kind: "world", point: [0, 0] } },
+      { id: "wall-pin", systemId: "world", kind: "pin", a: { kind: "object", objectRef: "wall-element" }, b: { kind: "world", point: [10, 0] } },
+    ],
+  });
+  const pruned = removeRelationshipBindingsForElements(graph, ["ball-element"]);
+  assert.deepEqual(pruned.bodies.map(body => body.id), ["wall"]);
+  assert.deepEqual(pruned.constraints.map(constraint => constraint.id), ["wall-pin"]);
 });
 
 test("deleted stable Bezier anchors orphan only their participating endpoint", () => {

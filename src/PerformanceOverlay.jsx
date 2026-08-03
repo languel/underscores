@@ -4,7 +4,7 @@ import { draweratorPerformanceMonitor } from "./performanceMonitor.js";
 const rating = fps => fps >= 55 ? "good" : fps >= 40 ? "warn" : "poor";
 
 export default function PerformanceOverlay({ placement = "floating", onPlacementChange, onClose }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(() => placement === "console");
   const snapshot = useSyncExternalStore(
     draweratorPerformanceMonitor.subscribe,
     draweratorPerformanceMonitor.getSnapshot,
@@ -14,6 +14,9 @@ export default function PerformanceOverlay({ placement = "floating", onPlacement
     draweratorPerformanceMonitor.setEnabled(true);
     return () => draweratorPerformanceMonitor.setEnabled(false);
   }, []);
+  useEffect(() => {
+    if (placement === "console") setExpanded(true);
+  }, [placement]);
   const attached = placement === "console";
   return (
     <aside className={`drawerator-performance-overlay ${attached ? "console" : "floating"} ${expanded ? "expanded" : ""}`} aria-label="Performance monitor">

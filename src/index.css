@@ -783,6 +783,41 @@ body .excalidraw .sidebar {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.physics-debug-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.physics-debug-grid[aria-disabled="true"] {
+  opacity: 0.5;
+}
+
+.iannix-role-grid.physics-role-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.iannix-role-grid.score-role-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.iannix-role-button.physics-role-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0;
+}
+
+.iannix-role-button.score-role-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0;
+}
+
 .physics-world-actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1154,20 +1189,18 @@ body .excalidraw .sidebar {
 
 .event-console-live-status {
   flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: stretch;
+  display: flex;
+  align-items: center;
   border-bottom: 1px solid var(--border-color, rgba(128, 128, 128, 0.22));
   min-height: 30px;
 }
 
 .event-console-live-heading {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 1px;
-  min-width: 68px;
-  padding: 5px 8px;
+  align-items: baseline;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 4px 8px;
   border-right: 1px solid var(--border-color, rgba(128, 128, 128, 0.22));
   color: var(--color-primary);
   font-weight: 700;
@@ -1186,8 +1219,28 @@ body .excalidraw .sidebar {
 .event-console-live-items {
   display: flex;
   align-items: stretch;
+  flex: 1 1 auto;
   min-width: 0;
   overflow-x: auto;
+}
+
+.event-console-global-status {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: 0 1 46%;
+  min-width: 0;
+  padding: 4px 8px;
+  border-left: 1px solid var(--border-color, rgba(128, 128, 128, 0.18));
+  color: var(--color-secondary);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-console-global-status.has-status {
+  color: var(--color-primary);
 }
 
 .event-console-live-row,
@@ -1207,7 +1260,7 @@ body .excalidraw .sidebar {
 .event-console-live-state { font-weight: 700; text-transform: uppercase; font-size: 9px; }
 .event-console-live-detail { color: var(--color-secondary); }
 .event-console-live-row.is-success .event-console-live-state { color: var(--color-success, #8bc69b); }
-.event-console-live-row.is-warning .event-console-live-state { color: var(--color-warning, #d7ad65); }
+.event-console-live-row.is-warning .event-console-live-state { color: var(--color-secondary); }
 .event-console-live-row.is-error .event-console-live-state { color: var(--color-danger, #e58282); }
 .event-console-live-row.is-muted { opacity: 0.62; }
 
@@ -1310,18 +1363,12 @@ body .excalidraw .sidebar {
 
 .event-console-input-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
   gap: 7px;
   flex: 0 0 auto;
   padding: 7px;
   border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.22));
-}
-
-.event-console-prompt {
-  padding-top: 6px;
-  color: var(--drawerator-accent, #6b7173);
-  font-weight: 700;
 }
 
 .event-console-input-row textarea {
@@ -1334,6 +1381,22 @@ body .excalidraw .sidebar {
   background: var(--input-bg-color, transparent);
   color: var(--color-primary);
   font: inherit;
+}
+
+.event-console-submit {
+  align-self: stretch;
+  width: 32px;
+  min-height: 30px;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-btn-text, var(--color-primary)) !important;
+  background: var(--drawerator-accent, var(--color-accent, #6b7173)) !important;
+}
+
+.event-console-submit:hover:not(:disabled) {
+  filter: brightness(1.08);
 }
 
 .event-console-status {
@@ -3515,8 +3578,9 @@ html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-l
 }
 
 .iannix-role-button.active {
-  color: #fff;
-  border-color: transparent;
+  color: var(--color-primary);
+  background: var(--button-selected-bg, var(--drawerator-highlight, rgba(128, 128, 128, 0.14)));
+  border-color: var(--button-selected-border, var(--drawerator-accent, var(--border-color)));
 }
 
 .iannix-selection-count {
@@ -3525,11 +3589,6 @@ html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-l
   font-weight: 700;
   text-transform: uppercase;
 }
-
-.iannix-role-button.role-none.active { background: #62656f; }
-.iannix-role-button.role-curve.active { background: #607bdc; }
-.iannix-role-button.role-cursor.active { background: #168db6; }
-.iannix-role-button.role-trigger.active { background: #c66831; }
 
 .iannix-field {
   display: flex;
@@ -3857,7 +3916,7 @@ a.iannix-flat-button {
   --transport-accent: var(--drawerator-accent, #6b7173);
   --transport-accent-soft: var(--drawerator-highlight, rgba(143, 143, 143, 0.1));
   display: grid;
-  grid-template-columns: 92px 180px 90px 132px 108px 86px 82px 46px minmax(120px, 1fr);
+  grid-template-columns: 92px 180px 90px 174px 108px 86px 82px 46px minmax(80px, 1fr);
   grid-template-rows: var(--drawerator-ui-control-height) minmax(0, 1fr);
   align-items: start;
   align-content: start;
@@ -4044,13 +4103,13 @@ a.iannix-flat-button {
 
 .iannix-transport-controls {
   display: grid;
-  grid-template-columns: repeat(5, 24px);
+  grid-template-columns: repeat(7, 22px);
   justify-content: center;
   gap: 2px;
 }
 
 .iannix-transport-controls button {
-  width: 24px;
+  width: 22px;
   padding-inline: 0;
 }
 
@@ -4112,7 +4171,7 @@ a.iannix-flat-button {
 
 .iannix-transport-signature {
   display: grid;
-  grid-template-columns: minmax(34px, 1fr) auto minmax(38px, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 2px;
 }
@@ -4411,7 +4470,7 @@ a.iannix-flat-button {
 
 @media (max-width: 980px) {
   .iannix-transport {
-    grid-template-columns: 82px 170px 82px 132px 100px 78px 72px 42px minmax(90px, 1fr);
+    grid-template-columns: 76px 160px 82px 166px 92px 76px 72px 38px minmax(70px, 1fr);
   }
 
   .iannix-transport-status {
@@ -4421,7 +4480,7 @@ a.iannix-flat-button {
 
 @media (max-width: 720px) {
   .iannix-transport {
-    grid-template-columns: 70px minmax(112px, 1fr) 76px 132px 90px;
+    grid-template-columns: 62px minmax(112px, 1fr) 58px 166px 72px;
   }
 
   .iannix-transport-signature,
@@ -6179,6 +6238,14 @@ a.iannix-flat-button {
   border-radius: 0;
 }
 
+.inspector-section.physics-role-selector + .inspector-section.physics-role-details {
+  border-top: 0;
+}
+
+.inspector-section.score-role-selector + .inspector-section.score-role-details {
+  border-top: 0;
+}
+
 .iannix-field,
 .iannix-check-row,
 .iannix-readout-row {
@@ -6644,6 +6711,15 @@ a.iannix-flat-button {
   height: 25px;
   min-height: 25px;
   align-self: center;
+}
+
+.iannix-transport-controls .physics-transport-action {
+  color: var(--transport-secondary);
+}
+
+.iannix-transport-controls .physics-transport-action:hover,
+.iannix-transport-controls .physics-transport-action.active {
+  color: var(--transport-text);
 }
 
 .iannix-transport > button.loop {

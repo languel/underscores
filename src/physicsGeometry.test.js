@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyBezierSculptOperator, inferPhysicsBodyFromElement, resolvePhysicsEndpoint } from "./physicsGeometry.js";
+import { applyBezierSculptOperator, getPhysicsColliderSelectionValue, getPhysicsElementCenter, getPhysicsElementLocalCenter, getPhysicsElementLocalPoints, getPhysicsElementWorldPoints, inferPhysicsBodyFromElement, inferPhysicsColliderForBody, inferPhysicsColliderFromElement, resolvePhysicsEndpoint } from "./physicsGeometry.js";
 import { normalizeBezierGeometry } from "./bezierGeometry.js";
 
 const curve = {
@@ -51,6 +51,98 @@ test("closed round freehand strokes infer solid dynamic circle colliders", () =>
   assert.equal(body.bodyType, "dynamic");
   assert.equal(body.collider.kind, "circle");
   assert.equal(body.collider.radius, 19);
+  assert.equal(getPhysicsColliderSelectionValue(body.collider), "ellipse");
+  assert.equal(getPhysicsColliderSelectionValue({ kind: "chain" }, { allowPath: false }), "box");
+});
+
+test("paused authored edits preserve a selected collider kind while refreshing its geometry", () => {
+  const ellipse = { id: "ellipse", type: "ellipse", x: 10, y: 20, width: 60, height: 30, angle: 0 };
+  const existing = inferPhysicsBodyFromElement(ellipse, { systemId: "system", bodyType: "dynamic" });
+  const box = inferPhysicsColliderForBody({ ...ellipse, width: 90, height: 40 }, {
+    ...existing,
+    collider: { kind: "box", sensor: false },
+  });
+  assert.deepEqual(box, { kind: "box", width: 90, height: 40, sensor: false });
+
+  const convex = inferPhysicsColliderForBody({ ...ellipse, width: 90, height: 40 }, {
+    ...existing,
+    collider: { kind: "convex", sensor: false },
+  });
+  assert.equal(convex.kind, "convex");
+  assert.equal(convex.points.length, 24);
+});
+
+test("path-chain collider points remain local when their drawing is rotated", () => {
+  const rotatedLine = {
+    id: "rotated-line",
+    type: "line",
+    x: 100,
+    y: 200,
+    width: 80,
+    height: 20,
+    angle: Math.PI / 2,
+    points: [[0, 0], [80, 20]],
+    strokeWidth: 4,
+  };
+  assert.deepEqual(getPhysicsElementLocalPoints(rotatedLine), [[-40, -10], [40, 10]]);
+  const chain = inferPhysicsColliderFromElement(rotatedLine, "chain", "dynamic");
+  assert.deepEqual(chain.points, [[-40, -10], [40, 10]]);
+  assert.equal(chain.localOriginVersion, 2);
+  const fixed = inferPhysicsBodyFromElement(rotatedLine, { systemId: "system" });
+  assert.deepEqual(fixed.collider.points, [[-40, -10], [40, 10]]);
+  assert.equal(fixed.collider.localOriginVersion, 2);
+});
+
+test("path collider and body pose share an edited freehand path's actual bounds center", () => {
+  const freehand = {
+    id: "asymmetric-freehand",
+    type: "freedraw",
+    x: 300,
+    y: 400,
+    // This deliberately does not match the bounds of `points`, as can happen
+    // after an imported or point-edited Excalidraw freehand path.
+    width: 160,
+    height: 120,
+    angle: Math.PI / 6,
+    points: [[-20, 10], [140, 30], [80, 110]],
+  };
+  assert.deepEqual(getPhysicsElementLocalCenter(freehand), [60, 60]);
+  assert.deepEqual(getPhysicsElementCenter(freehand), [360, 460]);
+  assert.deepEqual(getPhysicsElementLocalPoints(freehand), [[-80, -50], [80, -30], [20, 50]]);
+  const body = inferPhysicsBodyFromElement(freehand, { systemId: "system", bodyType: "dynamic" });
+  assert.deepEqual([body.initial.x, body.initial.y], [360, 460]);
+  const chain = inferPhysicsColliderFromElement(freehand, "chain", "dynamic");
+  assert.deepEqual(chain.points, [[-80, -50], [80, -30], [20, 50]]);
+  assert.equal(chain.localOriginVersion, 2);
+});
+
+test("a rotated convex freehand stays coincident with its Rapier-local collider", () => {
+  const freehand = {
+    id: "rotated-asymmetric-freehand",
+    type: "freedraw",
+    x: 300,
+    y: 400,
+    width: 160,
+    height: 120,
+    angle: Math.PI / 3,
+    points: [[-20, 10], [140, 30], [80, 110]],
+  };
+  const body = inferPhysicsBodyFromElement(freehand, { systemId: "system", bodyType: "dynamic" });
+  const collider = inferPhysicsColliderFromElement(freehand, "convex", "dynamic");
+  const rotateLocalPoint = point => {
+    const cos = Math.cos(body.initial.angle);
+    const sin = Math.sin(body.initial.angle);
+    return [
+      body.initial.x + point[0] * cos - point[1] * sin,
+      body.initial.y + point[0] * sin + point[1] * cos,
+    ];
+  };
+  const expected = getPhysicsElementWorldPoints(freehand);
+  const actual = collider.points.map(rotateLocalPoint);
+  actual.forEach((point, index) => {
+    assert.ok(Math.abs(point[0] - expected[index][0]) < 1e-8);
+    assert.ok(Math.abs(point[1] - expected[index][1]) < 1e-8);
+  });
 });
 
 test("Bezier sculpt operators preserve anchor identity and are deterministic", () => {

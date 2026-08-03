@@ -37,10 +37,55 @@ const rotatePoint = (point, center, angle) => {
   return [center[0] + dx * cos - dy * sin, center[1] + dx * sin + dy * cos];
 };
 
-export const getPhysicsElementCenter = element => [
-  finite(element?.x) + finite(element?.width) / 2,
-  finite(element?.y) + finite(element?.height) / 2,
-];
+const localBoundsCenter = points => {
+  if (!Array.isArray(points) || !points.length) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const point of points) {
+    const x = finite(point?.[0]);
+    const y = finite(point?.[1]);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  return Number.isFinite(minX) && Number.isFinite(minY)
+    ? [(minX + maxX) / 2, (minY + maxY) / 2]
+    : null;
+};
+
+// Linear and freehand elements are allowed to retain points outside their
+// width/height frame (notably after point edits, import, or a resize).  Their
+// rendered rotation origin is the bounds of those points, not necessarily the
+// frame's `[width / 2, height / 2]`. Physics must use the very same origin for
+// its body pose and collider-local coordinates or a rotating chain will drift
+// away from its drawing.
+export const getPhysicsElementLocalCenter = element => {
+  if (!element) return [0, 0];
+  if (hasCubicBezierGeometry(element)) {
+    const path = flattenBezierGeometry(element.customData.draweratorGeometry, 0.35);
+    const normalizedCenter = localBoundsCenter(path);
+    if (normalizedCenter) {
+      return [
+        normalizedCenter[0] * finite(element.width),
+        normalizedCenter[1] * finite(element.height),
+      ];
+    }
+  }
+  const pointCenter = localBoundsCenter(element.points);
+  if (pointCenter) return pointCenter;
+  return [finite(element.width) / 2, finite(element.height) / 2];
+};
+
+export const getPhysicsElementCenter = element => {
+  const localCenter = getPhysicsElementLocalCenter(element);
+  return [
+    finite(element?.x) + localCenter[0],
+    finite(element?.y) + localCenter[1],
+  ];
+};
 
 export const getPhysicsElementWorldPoints = element => {
   if (!element) return [];
@@ -53,6 +98,32 @@ export const getPhysicsElementWorldPoints = element => {
   ], center, finite(element.angle)));
 };
 
+// Rapier colliders are defined in body-local space and are then transformed by
+// the rigid body's pose.  Keep this separate from the world-point helper used
+// by endpoint resolution: feeding already-rotated world points to a rotating
+// rigid body applies the angle twice and makes moving path chains drift away
+// from their authored drawing.
+export const getPhysicsElementLocalPoints = element => {
+  if (!element) return [];
+  const center = getPhysicsElementCenter(element);
+  if (hasCubicBezierGeometry(element)) {
+    const angle = finite(element.angle);
+    const cos = Math.cos(-angle);
+    const sin = Math.sin(-angle);
+    return getBezierWorldPath(element, 1.2).map(point => {
+      const dx = point[0] - center[0];
+      const dy = point[1] - center[1];
+      return [dx * cos - dy * sin, dx * sin + dy * cos];
+    });
+  }
+  if (!Array.isArray(element.points)) return [];
+  const localCenter = getPhysicsElementLocalCenter(element);
+  return element.points.map(point => [
+    finite(point?.[0]) - localCenter[0],
+    finite(point?.[1]) - localCenter[1],
+  ]);
+};
+
 const sampledColliderPoints = points => {
   const source = distinctPoints(points);
   const maximum = 128;
@@ -60,28 +131,81 @@ const sampledColliderPoints = points => {
   return Array.from({ length: maximum }, (_, index) => source[Math.round(index * (source.length - 1) / (maximum - 1))]);
 };
 
+const primitiveConvexColliderPoints = (element, width, height) => {
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
+  if (element?.type === "ellipse") {
+    const segments = 24;
+    return Array.from({ length: segments }, (_, index) => {
+      const angle = (index / segments) * Math.PI * 2;
+      return [Math.cos(angle) * halfWidth, Math.sin(angle) * halfHeight];
+    });
+  }
+  return [
+    [-halfWidth, -halfHeight],
+    [halfWidth, -halfHeight],
+    [halfWidth, halfHeight],
+    [-halfWidth, halfHeight],
+  ];
+};
+
 export const inferPhysicsColliderFromElement = (element, kind = "box", bodyType = "dynamic") => {
   if (!element) return null;
-  const center = getPhysicsElementCenter(element);
   const width = Math.max(1, Math.abs(finite(element.width, 1)));
   const height = Math.max(1, Math.abs(finite(element.height, 1)));
   if (kind === "ellipse") return { kind: "ellipse", width, height };
   if (kind === "convex") {
-    const points = sampledColliderPoints(getPhysicsElementWorldPoints(element));
+    const points = sampledColliderPoints(getPhysicsElementLocalPoints(element));
     return points.length >= 3
-      ? { kind: "convex", points: points.map(point => [point[0] - center[0], point[1] - center[1]]) }
-      : { kind: "box", width, height };
+      ? { kind: "convex", points, localOriginVersion: 2 }
+      : { kind: "convex", points: primitiveConvexColliderPoints(element, width, height), localOriginVersion: 2 };
   }
   if (kind === "chain") {
-    const points = sampledColliderPoints(getPhysicsElementWorldPoints(element));
-    const localPoints = points.map(point => [point[0] - center[0], point[1] - center[1]]);
+    const localPoints = sampledColliderPoints(getPhysicsElementLocalPoints(element));
     if (localPoints.length < 2) return { kind: "box", width, height };
     // Fixed bodies can use Rapier's exact zero-width polyline. Moving bodies
     // instead use a compound chain of thin solid segments so they have mass.
-    if (bodyType === "fixed") return { kind: "polyline", points: localPoints };
-    return { kind: "chain", points: localPoints, thickness: Math.max(2, finite(element.strokeWidth, 2)) };
+    if (bodyType === "fixed") return { kind: "polyline", points: localPoints, localOriginVersion: 2 };
+    return { kind: "chain", points: localPoints, thickness: Math.max(2, finite(element.strokeWidth, 2)), localOriginVersion: 2 };
   }
   return { kind: "box", width, height };
+};
+
+// The collider shape is an authored body property.  Re-evaluate its dimensions
+// after a paused canvas edit, but never silently switch a user-picked shape
+// back to the automatic inference for the drawing.
+export const inferPhysicsColliderForBody = (element, body) => {
+  const existing = body?.collider;
+  if (!existing) return inferPhysicsBodyFromElement(element, body)?.collider || null;
+  const sensor = existing.sensor === true;
+
+  // A circle is the automatic default for a round ellipse or closed freehand
+  // contour. Keep that convenient default responsive to resize while it still
+  // resolves as a circle; after the drawing changes shape, retain the authored
+  // circle rather than unexpectedly changing it to a box or hull.
+  if (existing.kind === "circle") {
+    const inferred = inferPhysicsBodyFromElement(element, body)?.collider;
+    return inferred?.kind === "circle"
+      ? { ...inferred, sensor }
+      : { ...existing, sensor };
+  }
+
+  // Fixed path colliders serialize as `polyline`, while the editor exposes the
+  // same choice as `chain`. Rebuild either representation from current points.
+  const requestedKind = ["polyline", "chain"].includes(existing.kind) ? "chain" : existing.kind;
+  const inferred = inferPhysicsColliderFromElement(element, requestedKind, body?.bodyType);
+  return inferred ? { ...inferred, sensor } : { ...existing, sensor };
+};
+
+// `circle` is a Rapier optimisation of the editor's Bounding ellipse choice.
+// HTML selects must only receive values that have an option, otherwise the
+// browser displays the first option (Bounding box) despite the actual circle.
+export const getPhysicsColliderSelectionValue = (collider, { allowPath = true } = {}) => {
+  const kind = collider?.kind;
+  if (kind === "circle" || kind === "ellipse") return "ellipse";
+  if (kind === "convex") return "convex";
+  if (allowPath && (kind === "polyline" || kind === "chain")) return "chain";
+  return "box";
 };
 
 export const inferPhysicsBodyFromElement = (element, overrides = {}) => {
@@ -92,6 +216,7 @@ export const inferPhysicsBodyFromElement = (element, overrides = {}) => {
   let collider;
   let bodyType = overrides.bodyType || "dynamic";
   const freehandPoints = element.type === "freedraw" ? getPhysicsElementWorldPoints(element) : [];
+  const localFreehandPoints = element.type === "freedraw" ? getPhysicsElementLocalPoints(element) : [];
   if (closedFreehandContour(element, freehandPoints, width, height)) {
     const nearRound = Math.abs(width - height) <= Math.max(width, height) * 0.16;
     if (nearRound) {
@@ -99,7 +224,7 @@ export const inferPhysicsBodyFromElement = (element, overrides = {}) => {
     } else {
       collider = {
         kind: "convex",
-        points: distinctPoints(freehandPoints).map(point => [point[0] - center[0], point[1] - center[1]]),
+        points: distinctPoints(localFreehandPoints),
       };
     }
   } else if (["line", "arrow", "freedraw"].includes(element.type) || hasCubicBezierGeometry(element)) {
@@ -109,8 +234,7 @@ export const inferPhysicsBodyFromElement = (element, overrides = {}) => {
     if (["dynamic", "kinematic"].includes(overrides.bodyType)) {
       collider = { kind: "box", width, height };
     } else {
-      const worldPoints = getPhysicsElementWorldPoints(element);
-      collider = { kind: "polyline", points: worldPoints.map(point => [point[0] - center[0], point[1] - center[1]]) };
+      collider = { kind: "polyline", points: getPhysicsElementLocalPoints(element), localOriginVersion: 2 };
       bodyType = "fixed";
     }
   } else if (element.type === "ellipse" && Math.abs(width - height) <= Math.max(width, height) * 0.12) {
