@@ -649,6 +649,7 @@ const INTERFACE_THEME_PRESETS = {
 const DEFAULT_INTERFACE_THEME_PRESET = "monoDark";
 const CUSTOM_THEME_STORAGE_KEY = "drawerator_custom_themes_v1";
 const PHYSICS_DEBUG_STORAGE_KEY = "drawerator_physics_debug_v1";
+const PHYSICS_TIME_SCRUB_STORAGE_KEY = "drawerator_physics_time_scrub_v1";
 const DEFAULT_PHYSICS_DEBUG = Object.freeze({
   enabled: false,
   bodies: true,
@@ -2264,6 +2265,7 @@ function App() {
   const [activePhysicsSystemId, setActivePhysicsSystemId] = useState("");
   const [physicsTelemetry, setPhysicsTelemetry] = useState({ systems: [], stepMs: 0, eventRate: 0, routeMs: 0 });
   const [physicsWorldPlaying, setPhysicsWorldPlaying] = useState(false);
+  const [physicsTimeScrubEnabled, setPhysicsTimeScrubEnabled] = useState(() => localStorage.getItem(PHYSICS_TIME_SCRUB_STORAGE_KEY) === "true");
   const [physicsTool, setPhysicsTool] = useState(null);
   const physicsToolRef = useRef(null);
   physicsToolRef.current = physicsTool;
@@ -3200,6 +3202,7 @@ function App() {
   if (!midiVoiceTrackerRef.current) midiVoiceTrackerRef.current = createIannixMidiVoiceTracker();
   const tapTempoTimesRef = useRef([]);
   const transportDragRef = useRef(null);
+  const physicsTransportScrubbingRef = useRef(false);
   const panelDragRef = useRef(null);
   const sceneImportInputRef = useRef(null);
   const lastSceneSaveTimerRef = useRef(null);
@@ -3219,8 +3222,14 @@ function App() {
   const svgClipboardCacheRef = useRef(null);
   const scoreTimeRef = useRef(scoreTime);
   useEffect(() => {
-    physicsRuntimeRef.current?.transport(scoreTime);
-  }, [scoreTime]);
+    const scrub = physicsTimeScrubEnabled
+      && physicsTransportScrubbingRef.current
+      && physicsFollowsTransport(relationshipGraphRef.current.systems);
+    physicsRuntimeRef.current?.transport(scoreTime, { scrub });
+  }, [physicsTimeScrubEnabled, scoreTime]);
+  useEffect(() => {
+    localStorage.setItem(PHYSICS_TIME_SCRUB_STORAGE_KEY, String(physicsTimeScrubEnabled));
+  }, [physicsTimeScrubEnabled]);
   const historySuppressSceneRef = useRef(0);
   const lastSceneElementsRef = useRef(new Map());
   const pendingSceneMutationRef = useRef(null);
@@ -13599,6 +13608,11 @@ function App() {
     if (!excalidrawAPI) return;
     const { score, grid, expressiveSynth, mixer: importedMixer, p5Scripts: importedP5Scripts, streamGraph: importedStreamGraph, brushChannels: importedBrushChannels, relationshipGraph: importedRelationshipGraph, authoredState } = parseDraweratorExchange(text, "scene");
     const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
+    // Scene content may be shared, but the interface theme is a local user
+    // preference. A restored Excalidraw app state must not overwrite the
+    // saved Drawerator light/dark choice on page reload.
+    const restoredAppState = { ...(restored.appState || {}) };
+    delete restoredAppState.theme;
     const restoredRuntimeElements = reconcileRuntimeCursorHosts((restored.elements || []).map(normalizeScoreElementMetadata));
     const restoredP5 = reconcileP5ScriptsWithElements(importedP5Scripts, restoredRuntimeElements);
     const restoredElements = restoredP5.elements;
@@ -13606,7 +13620,8 @@ function App() {
     excalidrawAPI.updateScene({
       elements: restoredElements,
       appState: {
-        ...(restored.appState || {}),
+        ...restoredAppState,
+        theme,
         selectedElementIds: {},
         gridSize: null,
         gridModeEnabled: false,
@@ -15233,6 +15248,10 @@ function App() {
             <PhysicsWorldIcon type="transport" />
           </button>
         </div>
+        <label className="iannix-field physics-time-scrub-toggle" {...infoProps("Preview physics while scrubbing", "When transport-linked, replay deterministic physics checkpoints while dragging the timeline. This can be expensive for large jumps, so it is off by default. Scrub evaluation does not emit collision, audio, or command events.")}>
+          <span>Preview physics while scrubbing</span>
+          <input type="checkbox" checked={physicsTimeScrubEnabled} disabled={!physicsTransportSynced} onChange={event => setPhysicsTimeScrubEnabled(event.target.checked)} />
+        </label>
         <div className="iannix-two-column">
           <label className="iannix-field" {...infoProps("Gravity X", "Horizontal world gravity in metres per second squared.")}>
             <span>Gravity X (m/s²)</span>
@@ -18453,10 +18472,23 @@ function App() {
         return timing.start + timing.duration / Math.max(0.001, timing.rate || 1);
       }),
     );
-    const commitTransportSeek = seconds => commandRegistry.execute("transport.seek", { seconds }, {
+    const previewTransportSeek = seconds => {
+      const shouldPreviewPhysics = physicsTimeScrubEnabled && physicsFollowsTransport(relationshipGraphRef.current.systems);
+      physicsTransportScrubbingRef.current = shouldPreviewPhysics;
+      const nextTime = Math.max(0, Number(seconds) || 0);
+      setScoreTime(nextTime);
+      if (shouldPreviewPhysics) physicsRuntimeRef.current.transport(nextTime, { scrub: true });
+    };
+    const commitTransportSeek = seconds => {
+      const nextTime = Math.max(0, Number(seconds) || 0);
+      const hadPhysicsPreview = physicsTransportScrubbingRef.current;
+      physicsTransportScrubbingRef.current = false;
+      if (hadPhysicsPreview) physicsRuntimeRef.current.transport(nextTime, { scrub: false });
+      return commandRegistry.execute("transport.seek", { seconds: nextTime }, {
       source: "transport",
       transportTime: scoreTimeRef.current,
-    }).catch(error => console.error("Could not seek transport", error));
+      }).catch(error => console.error("Could not seek transport", error));
+    };
     const rewind = () => {
       setScorePlaying(false);
       if (physicsFollowsTransport(relationshipGraphRef.current.systems)) resetPhysicsWorld();
@@ -18615,7 +18647,7 @@ function App() {
           loopEnabled={transportLoopEnabled}
           loopStart={transportLoopStart}
           loopEnd={transportLoopEnd}
-          onSeek={setScoreTime}
+          onSeek={previewTransportSeek}
           onSeekCommit={commitTransportSeek}
           onLoopEnabledChange={setTransportLoopEnabled}
           onLoopChange={updateTransportLoop}

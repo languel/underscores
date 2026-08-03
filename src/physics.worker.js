@@ -13,6 +13,7 @@ const accumulators = new Map();
 const dirtySystems = new Set();
 let timer = 0;
 let transportTime = 0;
+let transportScrubbing = false;
 let loadRevision = 0;
 // `play` can arrive immediately after `load`, while Rapier is still resolving.
 // Keep intent outside the rebuilt runtime so the request survives initialization.
@@ -28,6 +29,7 @@ const disposeSystems = () => {
   checkpoints.clear();
   bufferPool.clear();
   dirtySystems.clear();
+  transportScrubbing = false;
 };
 
 const initialize = async graphValue => {
@@ -78,7 +80,7 @@ const emitStepResult = (systemId, result) => {
   recordCheckpoint(systemId, systems.get(systemId));
 };
 
-const advanceTransportSystem = (systemId, runtime, targetTime) => {
+const advanceTransportSystem = (systemId, runtime, targetTime, { emitEvents = true } = {}) => {
   const simSpeed = Math.max(0, Number(graph.world.simSpeed) || 0);
   const targetStep = Math.max(0, Math.floor(targetTime * simSpeed / runtime.fixedDt + 1e-7));
   if (targetStep < runtime.stepIndex) {
@@ -89,7 +91,16 @@ const advanceTransportSystem = (systemId, runtime, targetTime) => {
   }
   let steps = 0;
   while (runtime.stepIndex < targetStep && steps < 600) {
-    emitStepResult(systemId, runtime.step());
+    const result = runtime.step();
+    if (emitEvents) {
+      emitStepResult(systemId, result);
+    } else {
+      // A timeline scrub is visual evaluation, not a performance. Keep the
+      // deterministic checkpoint history and pose fresh, but never route
+      // collision/audio/command events for intermediate scrub positions.
+      dirtySystems.add(systemId);
+      recordCheckpoint(systemId, runtime);
+    }
     steps += 1;
   }
   if (runtime.stepIndex < targetStep) post("warning", { systemId, code: "transport-catchup-capped", targetStep, step: runtime.stepIndex });
@@ -118,7 +129,7 @@ const tick = () => {
     const system = graph.systems.find(candidate => candidate.id === systemId);
     if (!system || !playing.has(systemId)) continue;
     if (system.clock.mode === "transport") {
-      advanceTransportSystem(systemId, runtime, transportTime);
+      advanceTransportSystem(systemId, runtime, transportTime, { emitEvents: !transportScrubbing });
       continue;
     }
     const simSpeed = Math.max(0, Number(graph.world.simSpeed) || 0);
@@ -196,6 +207,19 @@ self.onmessage = event => {
     publishPoses(performance.now());
   } else if (message.type === "transport") {
     transportTime = Math.max(0, Number(message.time) || 0);
+    transportScrubbing = message.scrub === true;
+    if (transportScrubbing) {
+      // Scrubbing intentionally evaluates even while playback is paused. The
+      // opt-in UI gate prevents this fixed-step work during normal timeline
+      // drags, and `emitEvents: false` makes it side-effect free.
+      for (const [systemId, candidate] of systems) {
+        const system = graph.systems.find(item => item.id === systemId);
+        if (system?.clock.mode === "transport") {
+          advanceTransportSystem(systemId, candidate, transportTime, { emitEvents: false });
+        }
+      }
+      publishPoses(performance.now());
+    }
   } else if (message.type === "impulse") {
     runtime?.applyImpulse(message.entityId, message.impulse);
     if (runtime) dirtySystems.add(message.systemId);

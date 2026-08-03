@@ -836,6 +836,19 @@ body .excalidraw .sidebar {
   background: var(--bg-hover-btn);
 }
 
+.iannix-field.physics-time-scrub-toggle {
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: 2px;
+}
+
+.iannix-field.physics-time-scrub-toggle input[type="checkbox"] {
+  width: 15px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0;
+  accent-color: var(--drawerator-accent, currentColor);
+}
+
 .physics-flat-button {
   min-height: 30px;
   border: 1px solid var(--drawerator-border, rgba(128, 128, 128, 0.28));

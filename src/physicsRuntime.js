@@ -258,7 +258,9 @@ export class PhysicsRuntimeController {
   }
   isPlaying(systemId) { return systemId ? this.playingSystems.has(systemId) : this.playingSystems.size > 0; }
   reset(systemId = null) { return this.#hasRapierTarget(systemId) ? this.#post({ type: "reset", systemId }) : Promise.resolve(); }
-  transport(time) { if (this.worker || this.workerPromise) return this.#post({ type: "transport", time }); }
+  transport(time, { scrub = false } = {}) {
+    if (this.worker || this.workerPromise) return this.#post({ type: "transport", time, scrub: scrub === true });
+  }
   impulse(systemId, entityId, impulse) { return this.#post({ type: "impulse", systemId, entityId, impulse }); }
   grab(systemId, entityId, point, options = {}) { return this.#post({ type: "grab", systemId, entityId, point, ...options }); }
   moveGrab(systemId, point) { return this.#post({ type: "grab.move", systemId, point }); }
