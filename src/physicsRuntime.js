@@ -176,6 +176,10 @@ export class PhysicsRuntimeController {
       this.#routeEvents(message.events || []);
       return;
     }
+    if (message.type === "preview-events") {
+      this.#routePreviewEvents(message.events || []);
+      return;
+    }
     if (message.type === "telemetry") {
       const now = performance.now();
       const elapsed = Math.max(1, now - this.lastEventSample);
@@ -220,7 +224,11 @@ export class PhysicsRuntimeController {
     this.eventsSinceSample += events.length;
     if (events.length) this.#notify("events", clone(events));
     for (const event of events) {
-      this.eventBus?.emit(`physics.${event.collisionClass}.${event.phase}`, event, { source: "physics", time: event.simTime * 1000 });
+      // EventBus time is wall-clock monotonic time, used by the console to find
+      // events emitted since its last poll. Simulation time remains in the event
+      // payload for transport/physics consumers; using it as the bus timestamp
+      // made every collision look older than the console's performance.now cutoff.
+      this.eventBus?.emit(`physics.${event.collisionClass}.${event.phase}`, event, { source: "physics" });
       this.streamRegistry?.publish?.(`physics:${event.systemId}:collision`, {
         kind: "event",
         value: event,
@@ -230,6 +238,17 @@ export class PhysicsRuntimeController {
       this.mappingsSinceSample += this.mappingRuntime.route(event, descriptor => this.#executeMappingTarget(descriptor));
     }
     this.telemetry.routeMs = performance.now() - started;
+  }
+
+  #routePreviewEvents(events) {
+    if (!events.length) return;
+    const previewEvents = events.map(event => ({ ...event, preview: true }));
+    this.#notify("preview.events", clone(previewEvents));
+    for (const event of previewEvents) {
+      // Preview hits are observability only: no mapping, stream, command, or
+      // audio target is evaluated while the timeline is being scrubbed.
+      this.eventBus?.emit(`physics.preview.${event.collisionClass}.${event.phase}`, event, { source: "physics-preview" });
+    }
   }
 
   #executeRouteAction(action, event, route) {
@@ -248,10 +267,23 @@ export class PhysicsRuntimeController {
   }
 
   #executeMappingTarget(descriptor) {
-    const { mapping, target, event } = descriptor;
+    const { mapping, target, event, operation } = descriptor;
     if (target.kind === "legacy-action") {
       this.#executeRouteAction(target.action, event, mapping);
       return;
+    }
+    if (["midi-note", "midi-cc", "midi-bend"].includes(target.kind)) {
+      this.eventBus?.emit("midi.mapping.dispatch", {
+        mappingId: mapping.id,
+        target: target.kind,
+        operation,
+        channel: target.channel,
+        systemId: event.systemId,
+        collisionClass: event.collisionClass,
+        phase: event.phase,
+        a: event.a,
+        b: event.b,
+      }, { source: "physics-mapping" });
     }
     this.mappingTargetRouter?.(descriptor);
   }

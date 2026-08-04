@@ -6,8 +6,8 @@ import { normalizeRelationshipGraph } from "./relationshipGraph.js";
 const graph = normalizeRelationshipGraph({
   systems: [{ id: "system", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
   bodies: [
-    { id: "ball", systemId: "system", collider: { kind: "circle", radius: 8 }, initial: { x: 20, y: 50, velocityX: 180 }, collisionTags: ["particle"] },
-    { id: "wall", systemId: "system", bodyType: "fixed", collider: { kind: "box", width: 10, height: 100 }, initial: { x: 80, y: 50 }, collisionTags: ["wall"] },
+    { id: "ball", systemId: "system", collider: { kind: "circle", radius: 8 }, initial: { x: 20, y: 50, velocityX: 180 }, collisionTags: ["particle"], mappingValues: { note: 48 } },
+    { id: "wall", systemId: "system", bodyType: "fixed", collider: { kind: "box", width: 10, height: 100 }, initial: { x: 80, y: 50 }, collisionTags: ["wall"], mappingValues: { note: 84 } },
   ],
 });
 
@@ -15,7 +15,14 @@ test("Rapier runtime advances, reports typed collisions, and resets deterministi
   const runtime = await RapierPhysicsSystem.create(graph, "system");
   let hits = [];
   for (let index = 0; index < 60; index += 1) hits.push(...runtime.step().events);
-  assert.ok(hits.some(event => event.phase === "hit" && event.collisionClass === "body-wall"));
+  const impact = hits.find(event => event.phase === "hit" && event.collisionClass === "body-wall");
+  assert.ok(impact);
+  assert.equal(impact.a.velocity.length, 2);
+  assert.equal(impact.b.position.length, 2);
+  assert.equal(impact.a.mappingValues.note, 48);
+  assert.equal(impact.b.mappingValues.note, 84);
+  assert.equal(impact.world.gravityX, 0);
+  assert.equal(impact.world.step, impact.step);
   assert.equal(runtime.queryPoint([80, 50])[0].id, "wall");
   assert.equal(runtime.castRay([70, 50], [1, 0], 200).entity.id, "wall");
   const firstRun = [...runtime.poses().values];
@@ -49,6 +56,56 @@ test("seeded populations produce identical pose and collision sequences", async 
   }
   assert.deepEqual([...first.poses().values], [...second.poses().values]);
   assert.deepEqual(firstEvents, secondEvents);
+  first.dispose();
+  second.dispose();
+});
+
+test("moving path chains report a deterministic body-body impact", async () => {
+  const chainGraph = normalizeRelationshipGraph({
+    systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
+    bodies: [
+      {
+        id: "triangle",
+        systemId: "world",
+        bodyType: "dynamic",
+        collider: { kind: "chain", points: [[-20, 20], [0, -20], [20, 20], [-20, 20]], thickness: 3 },
+        initial: { x: 0, y: 0, velocityX: 80 },
+        collisionTags: ["body"],
+        material: { restitution: 0.7 },
+      },
+      {
+        id: "spiral",
+        systemId: "world",
+        bodyType: "dynamic",
+        collider: { kind: "chain", points: [[-20, 0], [-10, -15], [5, -15], [15, 0], [5, 15], [-10, 15], [-20, 0]], thickness: 3 },
+        initial: { x: 80, y: 0, velocityX: -80 },
+        collisionTags: ["body"],
+        material: { restitution: 0.7 },
+      },
+    ],
+  });
+  const first = await RapierPhysicsSystem.create(chainGraph, "world");
+  const second = await RapierPhysicsSystem.create(chainGraph, "world");
+  const run = runtime => {
+    const events = [];
+    for (let index = 0; index < 60; index += 1) events.push(...runtime.step().events);
+    return events.filter(event => event.phase === "hit" && event.collisionClass === "body-body");
+  };
+  const firstHits = run(first);
+  const secondHits = run(second);
+  assert.ok(firstHits.some(event => event.impulse > 0.01 && event.a.id === "triangle" && event.b.id === "spiral"));
+  assert.deepEqual(
+    firstHits.map(event => [event.step, event.a.id, event.b.id, event.impulse]),
+    secondHits.map(event => [event.step, event.a.id, event.b.id, event.impulse]),
+  );
+  // Chains are compound bodies. Snapshot reset must reindex every segment so
+  // their later contacts still resolve to the authored bodies and mappings.
+  first.reset();
+  const resetHits = run(first);
+  assert.deepEqual(
+    resetHits.map(event => [event.step, event.a.id, event.b.id, event.impulse]),
+    firstHits.map(event => [event.step, event.a.id, event.b.id, event.impulse]),
+  );
   first.dispose();
   second.dispose();
 });

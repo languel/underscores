@@ -19,13 +19,19 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
       debugEventsRef.current = [];
       return undefined;
     }
-    return runtime.subscribe("events", events => {
+    const captureEvents = events => {
       const now = performance.now();
       const next = [...debugEventsRef.current, ...(events || []).map(event => ({ ...event, receivedAt: now }))]
         .filter(event => now - event.receivedAt < 900)
         .slice(-96);
       debugEventsRef.current = next;
-    });
+    };
+    const stopEvents = runtime.subscribe("events", captureEvents);
+    const stopPreviewEvents = runtime.subscribe("preview.events", captureEvents);
+    return () => {
+      stopEvents();
+      stopPreviewEvents();
+    };
   }, [runtime, debug?.enabled, debug?.contacts, debug?.collisions, debug?.forces]);
 
   useEffect(() => {

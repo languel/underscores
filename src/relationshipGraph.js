@@ -19,6 +19,22 @@ const id = (value, prefix = "physics") => String(value || `${prefix}-${crypto.ra
 const clone = value => value === undefined ? undefined : structuredClone(value);
 const list = value => Array.isArray(value) ? value : [];
 const uniqueStrings = value => [...new Set(list(value).map(item => String(item || "").trim()).filter(Boolean))];
+const normalizeMappingValues = value => {
+  const values = value && typeof value === "object" ? value : {};
+  const normalized = {};
+  for (const [key, rawValue] of Object.entries(values)) {
+    // Mapping formula identifiers cannot contain dots, spaces, or punctuation.
+    // Keep authored body values aligned with that safe expression language.
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+    const numeric = Number(rawValue);
+    if (Number.isFinite(numeric)) normalized[key] = numeric;
+  }
+  // Every authored body has a musical base value by default. This makes
+  // collision formulas such as `pentatonic((noteA + noteB) / 2, degree)`
+  // immediately useful while remaining a normal body property.
+  if (!Object.hasOwn(normalized, "note")) normalized.note = 60;
+  return normalized;
+};
 
 export const createDefaultPhysicsSystem = overrides => {
   const value = overrides && typeof overrides === "object" ? overrides : {};
@@ -151,6 +167,7 @@ export const normalizePhysicsBody = value => {
     collider: normalizeCollider(value?.collider),
     material: normalizeMaterial(value?.material),
     collisionTags: uniqueStrings(value?.collisionTags),
+    mappingValues: normalizeMappingValues(value?.mappingValues),
     collisionGroup: Math.max(0, Math.round(finite(value?.collisionGroup, 1))),
     collisionMask: Math.max(0, Math.round(finite(value?.collisionMask, 0xffff))),
     initial: {
@@ -186,6 +203,7 @@ export const serializePhysicsBodyCustomData = value => {
     bodyType: body.bodyType,
     name: body.name,
     collisionTags: [...body.collisionTags],
+    mappingValues: clone(body.mappingValues),
     collisionGroup: body.collisionGroup,
     collisionMask: body.collisionMask,
     collider: clone(body.collider),
@@ -418,10 +436,17 @@ export const normalizeMappingTarget = value => {
     minimumHold: Math.max(0, finite(target.minimumHold, 0.02)),
   };
   if (kind === "legacy-action") return { kind, action: ROUTE_ACTION_KINDS.includes(target.action?.kind) ? { ...clone(target.action), kind: target.action.kind } : { kind: "event", name: "physics.mapping" } };
+  const note = midiByte(target.note, 60);
+  // Older records stored the literal note number as the expression. Preserve
+  // the audible result while making the Note field an actual base-note control.
+  const authoredExpression = String(target.noteExpression || "").trim();
+  const noteExpression = !authoredExpression || authoredExpression === String(note)
+    ? "baseNote"
+    : authoredExpression;
   return {
     kind: "midi-note", mode, channel: midiChannel(target.channel ?? 1),
-    note: midiByte(target.note, 60),
-    noteExpression: String(target.noteExpression || midiByte(target.note, 60)).trim(),
+    note,
+    noteExpression,
     velocityExpression: String(target.velocityExpression || "value").trim(),
     duration: Math.max(0.01, finite(target.duration, 0.16)),
     minimumHold: Math.max(0, finite(target.minimumHold, 0.02)),

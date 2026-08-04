@@ -1385,6 +1385,71 @@ body .excalidraw .sidebar {
   gap: 9px;
 }
 
+.event-console-filter-menu {
+  position: relative;
+}
+
+.event-console-filter-menu > summary {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.28));
+  border-radius: 3px;
+  color: var(--color-primary);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.event-console-filter-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.event-console-filter-menu > summary::after {
+  content: "▾";
+  margin-left: 5px;
+  color: var(--color-secondary);
+  font-size: 9px;
+}
+
+.event-console-filter-menu[open] > summary::after {
+  content: "▴";
+}
+
+.event-console-filter-options {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 4px);
+  right: 0;
+  width: 138px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.32));
+  border-radius: 3px;
+  background: var(--island-bg-color, var(--color-surface-primary));
+}
+
+.event-console-filter-options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 0 4px;
+  color: var(--color-primary);
+  cursor: pointer;
+  text-transform: capitalize;
+}
+
+.event-console-filter-options label:hover {
+  background: color-mix(in srgb, var(--drawerator-accent, #6b7173) 10%, transparent);
+}
+
+.event-console-filter-options input {
+  margin: 0;
+}
+
 .event-console-toolbar-controls select {
   height: 24px;
   padding: 0 4px;
@@ -6572,6 +6637,62 @@ a.iannix-flat-button {
   overflow: auto;
 }
 
+.info-panel-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -2px 0 10px;
+}
+
+.info-panel-search input {
+  min-width: 0;
+  flex: 1 1 auto;
+  height: var(--drawerator-ui-control-height);
+  padding: 0 8px;
+  color: var(--color-primary);
+  background: var(--drawerator-input-bg, var(--input-bg-color));
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font: inherit;
+}
+
+.info-panel-search input:focus-visible {
+  outline: 1px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.info-panel-search-clear,
+.info-panel-search-result {
+  min-height: var(--drawerator-ui-control-height);
+  padding: 0 8px;
+  color: var(--color-secondary);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.info-panel-search-clear:hover,
+.info-panel-search-result:hover,
+.info-panel-search-result.active {
+  color: var(--color-primary);
+  background: var(--drawerator-selected-control-bg, color-mix(in srgb, var(--color-primary) 8%, transparent));
+  border-color: var(--border-color);
+}
+
+.info-panel-search-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: -3px 0 8px;
+}
+
+.info-panel-search-result {
+  min-height: 24px;
+  font-size: var(--drawerator-ui-font-size-small);
+}
+
 .info-panel-title {
   margin-bottom: 6px;
   padding-bottom: 6px;
@@ -6582,6 +6703,61 @@ a.iannix-flat-button {
 .info-panel-body {
   color: var(--color-secondary);
   line-height: 1.45;
+}
+
+.info-panel-body.text {
+  white-space: pre-wrap;
+}
+
+.info-panel-examples {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+}
+
+.info-panel-examples h3 {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: var(--drawerator-ui-font-size-small);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.info-panel-example {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: stretch;
+  padding: 6px;
+  color: var(--color-primary);
+  background: var(--drawerator-timeline-lane-bg, var(--drawerator-input-bg, var(--input-bg-color)));
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.info-panel-example code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.info-panel-example button {
+  align-self: start;
+  min-height: 24px;
+  padding: 0 7px;
+  color: var(--color-secondary);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--drawerator-ui-font-size-small);
+  cursor: pointer;
+}
+
+.info-panel-example button:hover {
+  color: var(--color-primary);
+  background: var(--drawerator-selected-control-bg, color-mix(in srgb, var(--color-primary) 8%, transparent));
 }
 
 .info-svg-guide {

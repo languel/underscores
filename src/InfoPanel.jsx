@@ -1,9 +1,63 @@
+import { useState } from "react";
 import { getIannixCommandCategories } from "./iannixCommandReference.js";
 
 const DEFAULT_INFO_VIEW = Object.freeze({
   title: "Info",
   body: "Hover or focus a control to see what it does. This view can be docked on either side, docked at the bottom, or kept as a floating reference.",
 });
+
+const HELP_TOPICS = Object.freeze([
+  {
+    id: "physics-formulas",
+    title: "Physics mapping formulas",
+    keywords: "formula mapping physics midi pitch velocity cc bend collision expression variables scale major minor pentatonic",
+    body: "Formulas are safe expressions, not JavaScript. They support arithmetic, comparisons, &&, ||, !, parentheses, and if, abs, min, max, clamp, round, floor, ceil, pow.\n\nShared values: raw (selected source field), norm (normalized source range), value (mapped output), impulse, speed, x/y (contact point), normalX/normalY, aX/aY/aVx/aVy/aSpeed, bX/bY/bVx/bVy/bSpeed, gravityX/gravityY, worldTime, step, timeScale, simSpeed, pixelsPerMeter. Body material values are available as aMass/bMass, aFriction/bFriction, aBounce/bBounce, and aDensity/bDensity. Each physics object also has Object note, available as aNote/noteA and bNote/noteB.\n\nPitch formulas also receive baseNote. Scale helpers: major(root, degree), minor(root, degree), pentatonic(root, degree), and scale(root, degree, semitone0, ...).",
+    examples: [
+      "major(baseNote, floor(speed / 12))",
+      "clamp(20 + speed * 2, 1, 127)",
+      "round(clamp(8192 + normalX * 8191, 0, 16383))",
+    ],
+  },
+  {
+    id: "physics-mappings",
+    title: "Physics collision mappings",
+    keywords: "physics collision mapping source filter transform target midi expressive synth begin hit end stay contact body wall tags object",
+    body: "Mappings run Source → Filter → Transform → Target without a React render. Source chooses a system, collision class, contact phase, tags or specific objects, and a numeric field. Filter rejects events by range or boolean formula. Transform maps the surviving value. Target sends MIDI Note, CC, Pitch Bend, or an Expressive Synth voice.\n\nUse hit for one note per impact. Use begin/end with a pair-gate target for notes or voices that persist while a pair is in contact. Stay is opt-in and drives continuous expressive updates while Contact stay events is enabled for the world.",
+  },
+  {
+    id: "physics-debug",
+    title: "Physics debug overlay",
+    keywords: "physics debug overlay collider contacts collisions forces labels bodies springs constraints",
+    body: "The Physics Debug Overlay is diagnostic-only and does not serialize as canvas art. Bodies and colliders show the geometry sent to Rapier; labels identify their runtime bodies. Contact markers show recent collision points, while force arrows show reported contact impulse. Enable only the filters needed while diagnosing a system.",
+  },
+  {
+    id: "score",
+    title: "Score roles",
+    keywords: "score iannix curve cursor trigger transport midi role",
+    body: "A Score combines curves, cursors, and triggers. Curves provide the path, cursors travel it in score time, and triggers emit messages at positions on a curve. Score roles are independent from physics roles; mappings and scripts can bridge their events when needed.",
+  },
+  {
+    id: "media-streams",
+    title: "Media streams and actors",
+    keywords: "media stream mediapipe holistic camera actor brush input landmark",
+    body: "Media observations remain transient streams. A Holistic processor stores its source, transform, and display settings without creating one object per landmark. Use the Media and Inputs panels to create streams, then use actors, Brush channels, or scripts to consume them.",
+  },
+]);
+
+const isDefaultInfo = info => (
+  !info
+  || (info.title === DEFAULT_INFO_VIEW.title && info.body === DEFAULT_INFO_VIEW.body)
+);
+
+const findHelpTopics = query => {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return [];
+  const terms = normalized.split(/\s+/).filter(Boolean);
+  return HELP_TOPICS.filter(topic => {
+    const haystack = `${topic.title} ${topic.keywords} ${topic.body}`.toLowerCase();
+    return terms.every(term => haystack.includes(term));
+  });
+};
 
 const SvgInfoGuide = () => (
   <div className="info-svg-guide">
@@ -363,13 +417,79 @@ const guideTitle = mode => ({
 }[mode] || null);
 
 export default function InfoPanel({ info = DEFAULT_INFO_VIEW, mode = "default", iannixCommand = null }) {
+  const [search, setSearch] = useState("");
+  const [selectedTopicId, setSelectedTopicId] = useState(null);
+  const [copiedExample, setCopiedExample] = useState("");
   const guide = scriptGuide(mode, iannixCommand);
+  const matchingTopics = findHelpTopics(search);
+  const selectedTopic = matchingTopics.find(topic => topic.id === selectedTopicId) || matchingTopics[0] || null;
+  const searchIsActive = search.trim().length > 0;
+  const focusedInfo = !isDefaultInfo(info) ? info : null;
+  const title = searchIsActive
+    ? selectedTopic?.title || "No help found"
+    : focusedInfo?.title || guideTitle(mode) || DEFAULT_INFO_VIEW.title;
+  const body = searchIsActive
+    ? selectedTopic?.body || "Try a different term, such as physics, formula, MIDI, score, or media."
+    : focusedInfo?.body || guide || DEFAULT_INFO_VIEW.body;
+  const examples = searchIsActive ? selectedTopic?.examples || [] : focusedInfo?.examples || [];
+  const copyExample = async example => {
+    if (!globalThis.navigator?.clipboard?.writeText) return;
+    try {
+      await globalThis.navigator.clipboard.writeText(example);
+      setCopiedExample(example);
+      globalThis.setTimeout(() => setCopiedExample(current => current === example ? "" : current), 1600);
+    } catch {
+      // Clipboard access is user-agent controlled; keep the example readable when unavailable.
+    }
+  };
+
   return (
-    <div className="info-panel" aria-live="polite">
-      <div className="info-panel-title">{guideTitle(mode) || info.title || DEFAULT_INFO_VIEW.title}</div>
-      <div className="info-panel-body">
-        {guide || info.body || DEFAULT_INFO_VIEW.body}
+    <div className="info-panel">
+      <div className="info-panel-search">
+        <input
+          type="search"
+          value={search}
+          placeholder="Search help"
+          aria-label="Search help"
+          onChange={event => {
+            setSearch(event.target.value);
+            setSelectedTopicId(null);
+          }}
+        />
+        {searchIsActive && (
+          <button type="button" className="info-panel-search-clear" onClick={() => {
+            setSearch("");
+            setSelectedTopicId(null);
+          }}>Clear</button>
+        )}
       </div>
+      {searchIsActive && matchingTopics.length > 1 && (
+        <div className="info-panel-search-results" aria-label="Help search results">
+          {matchingTopics.map(topic => (
+            <button
+              key={topic.id}
+              type="button"
+              className={`info-panel-search-result${selectedTopic?.id === topic.id ? " active" : ""}`}
+              onClick={() => setSelectedTopicId(topic.id)}
+            >{topic.title}</button>
+          ))}
+        </div>
+      )}
+      <div className="info-panel-title">{title}</div>
+      <div className={`info-panel-body${typeof body === "string" ? " text" : ""}`} aria-live="polite">
+        {body}
+      </div>
+      {examples.length > 0 && (
+        <section className="info-panel-examples" aria-label="Copyable examples">
+          <h3>Examples</h3>
+          {examples.map(example => (
+            <div className="info-panel-example" key={example}>
+              <code>{example}</code>
+              <button type="button" onClick={() => void copyExample(example)}>{copiedExample === example ? "Copied" : "Copy"}</button>
+            </div>
+          ))}
+        </section>
+      )}
     </div>
   );
 }

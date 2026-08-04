@@ -3,6 +3,20 @@
 // member access, assignments, arrays, strings, or user-defined calls.
 
 const TOKEN = /\s*(?:(\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|([A-Za-z_][A-Za-z0-9_]*)|(\|\||&&|<=|>=|==|!=|[()+\-*/%,<>!]))/gy;
+const scale = (root, degree, ...intervals) => {
+  const base = Number(root);
+  const indexValue = Number(degree);
+  const steps = intervals.map(Number).filter(Number.isFinite);
+  if (!Number.isFinite(base) || !Number.isFinite(indexValue)) return 0;
+  // A missing interval list is deliberately uninteresting but safe: a single
+  // unison degree. Musical presets below make the common cases concise.
+  const values = steps.length ? steps : [0];
+  const wholeDegree = Math.floor(indexValue);
+  const octave = Math.floor(wholeDegree / values.length);
+  const index = ((wholeDegree % values.length) + values.length) % values.length;
+  return base + octave * 12 + values[index];
+};
+
 const FUNCTIONS = Object.freeze({
   if: (condition, whenTrue, whenFalse) => condition ? whenTrue : whenFalse,
   abs: Math.abs,
@@ -13,6 +27,12 @@ const FUNCTIONS = Object.freeze({
   floor: Math.floor,
   ceil: Math.ceil,
   pow: Math.pow,
+  // `scale(root, degree, ...semitones)` keeps scale choice in a safe, compact
+  // expression rather than exposing arbitrary JavaScript or a separate DSL.
+  scale,
+  major: (root, degree) => scale(root, degree, 0, 2, 4, 5, 7, 9, 11),
+  minor: (root, degree) => scale(root, degree, 0, 2, 3, 5, 7, 8, 10),
+  pentatonic: (root, degree) => scale(root, degree, 0, 2, 4, 7, 9),
 });
 
 const tokenize = source => {

@@ -73,8 +73,28 @@ They accept arithmetic, comparisons, `&&`, `||`, `!`, parentheses, and these fun
 `if`, `abs`, `min`, `max`, `clamp`, `round`, `floor`, `ceil`, `pow`.
 
 Available variables are `raw`, `norm`, `value`, `impulse`, `speed`, `x`, `y`, `normalX`, and
-`normalY`. Invalid formulas leave the mapping silent, show a card-level validation error, and
-emit a rate-limited `physics.mapping.error` event.
+`normalY`. Collision entities also expose their canvas-space positions and velocities as
+`aX`, `aY`, `aVx`, `aVy`, `aSpeed` (and corresponding `b…` names), together with `aAngle`,
+`aAngularVelocity`, `aMass`, `aFriction`, `aBounce`, and `aDensity` (and `b…`). World fields are
+`gravityX`, `gravityY`, `worldTime`, `step`, `timeScale`, `simSpeed`, and `pixelsPerMeter`.
+Each authored physics body also carries an editable **Object note**. It is exposed in formulas as
+both `aNote` / `noteA` and `bNote` / `noteB`, so a collision can combine its objects directly:
+
+```text
+pentatonic((noteA + noteB) / 2, floor(speed / 12))
+```
+
+The prefix form matches physical values such as `aSpeed`; the suffix form reads naturally for
+musical values. Numeric per-object mapping values will use the same two aliases as they are added.
+Invalid formulas leave the mapping silent, show a card-level validation error, and emit a
+rate-limited `physics.mapping.error` event.
+
+MIDI Note has a base **Note** and a separate **Pitch formula**. Its formula returns the final
+MIDI note, with `baseNote` set from the Note control. In addition to the generic math helpers,
+pitch formulas may quantize safely with `major(root, degree)`, `minor(root, degree)`,
+`pentatonic(root, degree)`, or `scale(root, degree, semitone0, semitone1, ...)`. For example,
+`major(baseNote, floor(speed / 12))` maps relative impact speed to a major-scale degree without
+executing user JavaScript.
 
 ## MIDI and expressive targets
 

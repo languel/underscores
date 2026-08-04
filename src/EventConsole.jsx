@@ -5,8 +5,9 @@ import { infoProps } from "./uiInfo.js";
 const MAX_VISIBLE_EVENTS = 500;
 const LOGGING_STORAGE_KEY = "drawerator_console_logging";
 const POLL_STORAGE_KEY = "drawerator_console_poll_frequency";
+const FILTERS_STORAGE_KEY = "drawerator_console_event_filters";
 const POLL_FREQUENCIES = [50, 100, 250, 500, 1000];
-const EVENT_CATEGORIES = ["command", "history", "input", "media", "brush", "status", "iannix", "physics", "midi", "macro", "transport", "automation", "presentation", "settings", "ai"];
+const EVENT_CATEGORIES = ["command", "history", "input", "media", "brush", "status", "error", "iannix", "physics", "midi", "macro", "transport", "automation", "presentation", "settings", "ai"];
 let consoleEventCutoff = -Infinity;
 
 const readStoredLogging = () => {
@@ -26,6 +27,27 @@ const readStoredPollFrequency = () => {
   }
 };
 
+const readStoredEventFilters = () => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FILTERS_STORAGE_KEY) || "");
+    const filters = Array.isArray(parsed)
+      ? parsed.filter(filter => filter === "all" || EVENT_CATEGORIES.includes(filter))
+      : [];
+    return filters.length ? filters : ["all"];
+  } catch {
+    return ["all"];
+  }
+};
+
+const eventMatchesFilters = (event, filters) =>
+  filters.includes("all") || filters.includes(event.name.split(".")[0]);
+
+const eventFilterSummary = filters => {
+  if (filters.includes("all")) return "All";
+  if (filters.length === 1) return filters[0];
+  return `${filters.length} types`;
+};
+
 const eventReplayText = event => {
   if (event.name === "command.before" && event.detail?.id) {
     return `/command ${event.detail.id} ${JSON.stringify(event.detail.args || {})}`;
@@ -40,6 +62,14 @@ const eventDetailText = event => {
     return "[unserializable event detail]";
   }
 };
+
+const exportableEvent = event => ({
+  time: event.time,
+  timeSeconds: Number((event.time / 1000).toFixed(6)),
+  name: event.name,
+  source: event.source,
+  detail: event.detail,
+});
 
 const SendIcon = () => (
   <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
@@ -62,7 +92,7 @@ export default function EventConsole({
   const [events, setEvents] = useState([]);
   const [input, setInput] = useState("");
   const [status, setStatus] = useState("");
-  const [eventFilter, setEventFilter] = useState("all");
+  const [eventFilters, setEventFilters] = useState(readStoredEventFilters);
   const [loggingEnabled, setLoggingEnabled] = useState(initialLoggingRef.current);
   const [pollFrequency, setPollFrequency] = useState(readStoredPollFrequency);
   const outputRef = useRef(null);
@@ -74,15 +104,12 @@ export default function EventConsole({
       const unseen = eventBus.recent(MAX_VISIBLE_EVENTS).filter(event => event.time > clearedAtRef.current);
       if (!unseen.length) return;
       clearedAtRef.current = Math.max(...unseen.map(event => event.time));
-      const accepted = eventFilter === "all"
-        ? unseen
-        : unseen.filter(event => event.name.split(".")[0] === eventFilter);
-      if (accepted.length) setEvents(previous => [...previous, ...accepted].slice(-MAX_VISIBLE_EVENTS));
+      setEvents(previous => [...previous, ...unseen].slice(-MAX_VISIBLE_EVENTS));
     };
     poll();
     const interval = window.setInterval(poll, pollFrequency);
     return () => window.clearInterval(interval);
-  }, [eventBus, eventFilter, loggingEnabled, pollFrequency]);
+  }, [eventBus, loggingEnabled, pollFrequency]);
 
   useEffect(() => {
     const output = outputRef.current;
@@ -124,6 +151,36 @@ export default function EventConsole({
     }
   };
 
+  const getLogText = () => JSON.stringify({
+    exportedAt: new Date().toISOString(),
+    filters: eventFilters,
+    events: visibleEvents.map(exportableEvent),
+  }, null, 2);
+
+  const copyLog = async () => {
+    if (!visibleEvents.length) return;
+    try {
+      await navigator.clipboard.writeText(getLogText());
+      setStatus(`Copied ${visibleEvents.length} log event${visibleEvents.length === 1 ? "" : "s"}`);
+    } catch {
+      setStatus("Copy failed");
+    }
+  };
+
+  const exportLog = () => {
+    if (!visibleEvents.length) return;
+    const blob = new Blob([getLogText()], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `drawerator-event-log-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    setStatus(`Exported ${visibleEvents.length} log event${visibleEvents.length === 1 ? "" : "s"}`);
+  };
+
   const updateLogging = enabled => {
     consoleEventCutoff = performance.now();
     clearedAtRef.current = consoleEventCutoff;
@@ -143,6 +200,30 @@ export default function EventConsole({
     clearedAtRef.current = consoleEventCutoff;
     setEvents([]);
   };
+
+  const updateEventFilters = next => {
+    const filters = next.length ? next : ["all"];
+    setEventFilters(filters);
+    localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters));
+  };
+
+  const toggleEventFilter = category => {
+    if (category === "all") {
+      updateEventFilters(["all"]);
+      return;
+    }
+    if (eventFilters.includes("all")) {
+      updateEventFilters(EVENT_CATEGORIES.filter(filter => filter !== category));
+      return;
+    }
+    const withoutAll = eventFilters.filter(filter => filter !== "all");
+    const next = withoutAll.includes(category)
+      ? withoutAll.filter(filter => filter !== category)
+      : [...withoutAll, category];
+    updateEventFilters(next);
+  };
+
+  const visibleEvents = events.filter(event => eventMatchesFilters(event, eventFilters));
 
   return (
     <div className="event-console">
@@ -167,15 +248,21 @@ export default function EventConsole({
       </div>
       {showPerformanceMonitor ? <PerformanceOverlay placement="console" onPlacementChange={onPerformancePlacementChange} onClose={onPerformanceClose} /> : null}
       <div className="event-console-toolbar">
-        <span>{events.length} events</span>
+        <span>{visibleEvents.length}{visibleEvents.length !== events.length ? ` / ${events.length}` : ""} events</span>
         <div className="event-console-toolbar-controls">
-          <label {...infoProps("Event type", "Show all captured events or only one event category.")}>
-            <span>Type</span>
-            <select value={eventFilter} onChange={event => setEventFilter(event.target.value)}>
-              <option value="all">All</option>
-              {EVENT_CATEGORIES.map(category => <option key={category} value={category}>{category}</option>)}
-            </select>
-          </label>
+          <details className="event-console-filter-menu" {...infoProps("Event types", "Choose one or more event categories to display. The log keeps recent events while filters change.")}>
+            <summary>Types · {eventFilterSummary(eventFilters)}</summary>
+            <div className="event-console-filter-options">
+              <label>
+                <input type="checkbox" checked={eventFilters.includes("all")} onChange={() => toggleEventFilter("all")} />
+                <span>All</span>
+              </label>
+              {EVENT_CATEGORIES.map(category => <label key={category}>
+                <input type="checkbox" checked={eventFilters.includes("all") || eventFilters.includes(category)} onChange={() => toggleEventFilter(category)} />
+                <span>{category}</span>
+              </label>)}
+            </div>
+          </details>
           <label {...infoProps("Event logging", "Start or stop collecting Drawerator event-bus messages in this console.")}>
             <input type="checkbox" checked={loggingEnabled} onChange={event => updateLogging(event.target.checked)} />
             <span>Log</span>
@@ -190,11 +277,13 @@ export default function EventConsole({
               <option value={1000}>1 s</option>
             </select>
           </label>
+          <button type="button" onClick={copyLog} disabled={!visibleEvents.length} title="Copy visible log as JSON">Copy</button>
+          <button type="button" onClick={exportLog} disabled={!visibleEvents.length} title="Export visible log as JSON">Export</button>
           <button type="button" onClick={clearEvents}>Clear</button>
         </div>
       </div>
       <div className="event-console-output" ref={outputRef} role="log" aria-live="off">
-        {events.length === 0 ? <div className="event-console-empty">{loggingEnabled ? "Events will appear here." : "Event logging is off. Live status remains above."}</div> : events.map(event => (
+        {visibleEvents.length === 0 ? <div className="event-console-empty">{loggingEnabled ? (events.length ? "No captured events match these types." : "Events will appear here.") : "Event logging is off. Live status remains above."}</div> : visibleEvents.map(event => (
           <div className="event-console-row" key={event.id}>
             <button type="button" className="event-console-copy" onClick={() => copyEvent(event)} title="Copy replay input">⧉</button>
             <span className="event-console-time">{(event.time / 1000).toFixed(3)}</span>

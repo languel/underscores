@@ -90,6 +90,7 @@ const advanceTransportSystem = (systemId, runtime, targetTime, { emitEvents = tr
     else runtime.reset();
   }
   let steps = 0;
+  const previewEvents = [];
   while (runtime.stepIndex < targetStep && steps < 600) {
     const result = runtime.step();
     if (emitEvents) {
@@ -100,10 +101,15 @@ const advanceTransportSystem = (systemId, runtime, targetTime, { emitEvents = tr
       // collision/audio/command events for intermediate scrub positions.
       dirtySystems.add(systemId);
       recordCheckpoint(systemId, runtime);
+      if (result.events.length) previewEvents.push(...result.events);
     }
     steps += 1;
   }
   if (runtime.stepIndex < targetStep) post("warning", { systemId, code: "transport-catchup-capped", targetStep, step: runtime.stepIndex });
+  // These are deliberately diagnostic only. They let the overlay and event
+  // console explain what occurred at the scrubbed pose without replaying a
+  // collision into mappings, audio, or commands.
+  return previewEvents.slice(-96);
 };
 
 const publishPoses = timestamp => {
@@ -215,7 +221,15 @@ self.onmessage = event => {
       for (const [systemId, candidate] of systems) {
         const system = graph.systems.find(item => item.id === systemId);
         if (system?.clock.mode === "transport") {
-          advanceTransportSystem(systemId, candidate, transportTime, { emitEvents: false });
+          const previewEvents = advanceTransportSystem(systemId, candidate, transportTime, { emitEvents: false });
+          if (previewEvents.length) {
+            // A rewind may replay from a checkpoint. Keep the diagnostic
+            // window near the requested transport position instead of showing
+            // every historical contact from that replay.
+            const earliestTime = Math.max(0, transportTime - 1);
+            const nearby = previewEvents.filter(event => Number(event.simTime) >= earliestTime);
+            if (nearby.length) post("preview-events", { systemId, events: nearby });
+          }
         }
       }
       publishPoses(performance.now());

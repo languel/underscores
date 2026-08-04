@@ -4,13 +4,23 @@ import { INTERNAL_MIDI_SYNTH_ID } from "./midiOutputRouting.js";
 const INTERNAL_MIDI_SYNTH_NAME = "Internal GM Synth";
 const REALTIME_MIN = 0xf8;
 
-const loadTinySynthBackend = async () => {
-  const [{ default: JZZ }, { default: installTinySynth }] = await Promise.all([
-    import("jzz"),
-    import("jzz-synth-tiny"),
-  ]);
+export const createTinySynthBackend = async ({
+  loadModules = async () => {
+    const [{ default: JZZ }, { default: installTinySynth }] = await Promise.all([
+      import("jzz"),
+      import("jzz-synth-tiny"),
+    ]);
+    return { JZZ, installTinySynth };
+  },
+} = {}) => {
+  const { JZZ, installTinySynth } = await loadModules();
   installTinySynth(JZZ);
-  const port = await JZZ.synth.Tiny(INTERNAL_MIDI_SYNTH_NAME);
+  // TinySynth treats a supplied name as a process-wide synth key. Closing the
+  // MIDI port does not remove that cached synth, so reopening a stuck named
+  // port can reconnect the same graph and its stale voices. Use an unnamed
+  // TinySynth port instead: every Drawerator-owned backend is then a fresh
+  // graph, while the public wrapper below retains its stable output identity.
+  const port = await JZZ.synth.Tiny();
   const audioContext = JZZ.lib.getAudioContext();
   if (!audioContext) throw new Error("Web Audio is unavailable in this browser.");
   return {
@@ -18,10 +28,17 @@ const loadTinySynthBackend = async () => {
     resume: () => audioContext.resume(),
     getState: () => audioContext.state,
     close: async () => {
-      try { await port.close?.(); } finally { JZZ.lib.closeAudioContext(); }
+      // TinySynth retains its own module-level reference to JZZ's AudioContext.
+      // Closing JZZ.lib's context here leaves that reference pointing at a
+      // permanently closed context, so the next Reset audio appears Ready but
+      // cannot make sound. A reset instead closes this MIDI port and creates a
+      // fresh unnamed synth on the still-live shared context.
+      await port.close?.();
     },
   };
 };
+
+const loadTinySynthBackend = () => createTinySynthBackend();
 
 export const isInternalMidiSynthSupported = () => typeof window !== "undefined"
   && Boolean(window.AudioContext || window.webkitAudioContext);
@@ -56,8 +73,15 @@ export const createInternalMidiSynth = ({
     if (disposed) throw new Error("Internal synth has been disposed.");
     if (backend) return output;
     if (!initialization) {
-      initialization = Promise.resolve(backendFactory()).then(created => {
+      initialization = Promise.resolve(backendFactory()).then(async created => {
         if (!created?.send) throw new Error("TinySynth failed to create a MIDI output.");
+        // Reset can occur while a user-gesture initialization is still loading
+        // dynamic modules. Do not resurrect that late backend after disposal:
+        // it could otherwise close a newly-created shared JZZ AudioContext.
+        if (disposed) {
+          await created.close?.();
+          throw new Error("Internal synth has been disposed.");
+        }
         backend = created;
         applyPrograms();
         return output;
@@ -122,9 +146,13 @@ export const createInternalMidiSynth = ({
       clear();
       disposed = true;
       const current = backend;
+      const pending = initialization;
       backend = null;
       initialization = null;
       await current?.close?.();
+      // Wait for an in-flight backend creation to observe `disposed` and tear
+      // itself down before a reset is allowed to make a new shared context.
+      await pending?.catch?.(() => {});
     },
   };
 

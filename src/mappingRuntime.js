@@ -22,17 +22,78 @@ const fieldValue = (event, field) => {
   }
 };
 
-const environmentFor = (event, raw, norm, value) => ({
-  raw,
-  norm,
-  value,
-  impulse: finite(event?.impulse),
-  speed: finite(event?.relativeSpeed),
-  x: finite(event?.point?.[0]),
-  y: finite(event?.point?.[1]),
-  normalX: finite(event?.normal?.[0]),
-  normalY: finite(event?.normal?.[1]),
-});
+// Target expressions are evaluated by the runtime, then consumed by the
+// application-level audio/MIDI router. Keeping this handoff explicit stops a
+// missing target property from silently falling back to the target's static UI
+// control (the original cause of pitch formulas always sounding like baseNote).
+export const mappingTargetValue = (values, key, fallback = 0) => {
+  const targetValue = Number(values?.targetValues?.[key]);
+  if (Number.isFinite(targetValue)) return targetValue;
+  const directValue = Number(values?.[key]);
+  return Number.isFinite(directValue) ? directValue : fallback;
+};
+
+const mappingValueVariables = (prefix, suffix, entity) => Object.entries(entity?.mappingValues || {}).reduce((variables, [key, value]) => {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) return variables;
+  const numeric = finite(value);
+  const title = `${key.slice(0, 1).toUpperCase()}${key.slice(1)}`;
+  // Prefix form matches the existing physical body fields (aSpeed, bMass).
+  // Suffix form reads naturally in musical formulas (noteA, noteB).
+  variables[`${prefix}${title}`] = numeric;
+  variables[`${key}${suffix}`] = numeric;
+  return variables;
+}, {});
+
+const bodyEnvironment = (prefix, entity) => {
+  const velocityX = finite(entity?.velocity?.[0]);
+  const velocityY = finite(entity?.velocity?.[1]);
+  return {
+    [`${prefix}X`]: finite(entity?.position?.[0]),
+    [`${prefix}Y`]: finite(entity?.position?.[1]),
+    [`${prefix}Vx`]: velocityX,
+    [`${prefix}Vy`]: velocityY,
+    [`${prefix}Speed`]: Math.hypot(velocityX, velocityY),
+    [`${prefix}Angle`]: finite(entity?.angle),
+    [`${prefix}AngularVelocity`]: finite(entity?.angularVelocity),
+    [`${prefix}Mass`]: finite(entity?.mass),
+    [`${prefix}Friction`]: finite(entity?.friction),
+    [`${prefix}Bounce`]: finite(entity?.bounce),
+    [`${prefix}Density`]: finite(entity?.density),
+  };
+};
+
+const environmentFor = (event, raw, norm, value, baseNote = 60) => {
+  // Rapier can omit a solver contact point for some compound/path-chain
+  // contacts. Mapping formulas must still receive a meaningful position
+  // rather than silently evaluating x/y as zero. The midpoint is a stable,
+  // deterministic fallback for that case.
+  const hasContactPoint = Array.isArray(event?.point) && event.point.length >= 2;
+  const midpointX = (finite(event?.a?.position?.[0]) + finite(event?.b?.position?.[0])) / 2;
+  const midpointY = (finite(event?.a?.position?.[1]) + finite(event?.b?.position?.[1])) / 2;
+  return {
+    raw,
+    norm,
+    value,
+    baseNote: finite(baseNote, 60),
+    impulse: finite(event?.impulse),
+    speed: finite(event?.relativeSpeed),
+    x: hasContactPoint ? finite(event.point[0]) : midpointX,
+    y: hasContactPoint ? finite(event.point[1]) : midpointY,
+    normalX: finite(event?.normal?.[0]),
+    normalY: finite(event?.normal?.[1]),
+    ...bodyEnvironment("a", event?.a),
+    ...bodyEnvironment("b", event?.b),
+    ...mappingValueVariables("a", "A", event?.a),
+    ...mappingValueVariables("b", "B", event?.b),
+    gravityX: finite(event?.world?.gravityX),
+    gravityY: finite(event?.world?.gravityY),
+    worldTime: finite(event?.world?.time, finite(event?.simTime)),
+    step: finite(event?.world?.step, finite(event?.step)),
+    timeScale: finite(event?.world?.timeScale, 1),
+    simSpeed: finite(event?.world?.simSpeed, 1),
+    pixelsPerMeter: finite(event?.world?.pixelsPerMeter, 100),
+  };
+};
 
 const targetExpressions = target => {
   switch (target.kind) {
@@ -119,13 +180,14 @@ export class PhysicsMappingRuntime {
     const norm = span === 0 ? 0 : (raw - range.min) / span;
     const initialValue = mapping.transform.outputMin + (mapping.transform.outputMax - mapping.transform.outputMin) * norm;
     let value = initialValue * mapping.transform.scale + mapping.transform.offset;
-    let environment = environmentFor(event, raw, norm, value);
+    const baseNote = finite(mapping.target?.note, 60);
+    let environment = environmentFor(event, raw, norm, value, baseNote);
     if (mapping.filter.min !== null && raw < mapping.filter.min) return null;
     if (mapping.filter.max !== null && raw > mapping.filter.max) return null;
     if (mapping.filter.expression && !fields.filter.evaluate(environment)) return null;
     if (mapping.transform.expression) value = fields.transform.evaluate(environment);
     if (mapping.transform.clamp) value = clamp(value, Math.min(mapping.transform.outputMin, mapping.transform.outputMax), Math.max(mapping.transform.outputMin, mapping.transform.outputMax));
-    environment = environmentFor(event, raw, norm, value);
+    environment = environmentFor(event, raw, norm, value, baseNote);
     const targetValues = {};
     for (const [key, field] of Object.entries(fields)) {
       if (!key.startsWith("target:")) continue;

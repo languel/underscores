@@ -105,6 +105,7 @@ import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, S
 import { addRelationshipItem, createDefaultPhysicsSystem, createEmptyRelationshipGraph, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, removeRelationshipBindingsForElements, withPhysicsCustomData } from "./relationshipGraph.js";
 import { applyAnchorAttractorFrame, applyBezierSculptOperator, getPhysicsColliderSelectionValue, getPhysicsElementLocalCenter, inferPhysicsBodyFromElement, inferPhysicsColliderForBody, inferPhysicsColliderFromElement } from "./physicsGeometry.js";
 import { createPhysicsApi, createRelationshipApi, PhysicsRuntimeController } from "./physicsRuntime.js";
+import { mappingTargetValue } from "./mappingRuntime.js";
 import { PhysicsAudioRouter } from "./physicsAudio.js";
 import { createPhysicsExample } from "./physicsExamples.js";
 import { samplePortraitLandmarkFixture } from "./physicsFixtures.js";
@@ -652,6 +653,7 @@ const DEFAULT_INTERFACE_THEME_PRESET = "monoDark";
 const CUSTOM_THEME_STORAGE_KEY = "drawerator_custom_themes_v1";
 const PHYSICS_DEBUG_STORAGE_KEY = "drawerator_physics_debug_v1";
 const PHYSICS_TIME_SCRUB_STORAGE_KEY = "drawerator_physics_time_scrub_v1";
+const INTERNAL_SYNTH_RESTORE_STORAGE_KEY = "drawerator_internal_synth_restore";
 const DEFAULT_PHYSICS_DEBUG = Object.freeze({
   enabled: false,
   bodies: true,
@@ -2284,6 +2286,7 @@ function App() {
   // per-system pause/reset release exactly the voices it owns.
   const physicsMappingVoiceIdsRef = useRef(new Map());
   const physicsMappingAudioWarningRef = useRef(0);
+  const physicsMappingMidiWarningsRef = useRef(new Map());
   if (!physicsAudioRef.current) physicsAudioRef.current = new PhysicsAudioRouter();
   physicsAudioRef.current.midi = message => {
     const channel = Math.max(1, Math.min(16, Math.round(Number(message.channel) || 1)));
@@ -3200,6 +3203,9 @@ function App() {
   const mixerRef = useRef(mixer);
   const mixerOutputAdaptersRef = useRef(new Map());
   const internalSynthRef = useRef(null);
+  const internalSynthRestoreRef = useRef(localStorage.getItem(INTERNAL_SYNTH_RESTORE_STORAGE_KEY) === "true");
+  const internalSynthDiagnosticTimesRef = useRef(new Map());
+  const internalSynthRestoreAttemptedRef = useRef(false);
   const expressiveSynthConfigRef = useRef(expressiveSynthConfig);
   const expressiveSynthRef = useRef(null);
   const midiInputIdRef = useRef(midiInputId);
@@ -3448,7 +3454,7 @@ function App() {
   const getMixerTrackOutput = useCallback(track => {
     if (!track) return null;
     if (track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_GM) {
-      return internalSynthRef.current?.getState?.() !== "off" ? internalSynthRef.current : null;
+      return internalSynthRef.current?.getState?.() === "running" ? internalSynthRef.current : null;
     }
     if (track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_EXPRESSIVE) {
       const synth = expressiveSynthRef.current;
@@ -3477,10 +3483,21 @@ function App() {
       .map(track => ({ track, output: getMixerTrackOutput(track) }))
       .filter(route => route.output), [getMixerTrackOutput]);
 
-  const ensureInternalSynth = useCallback(async () => {
+  const emitInternalSynthDiagnostic = useCallback((name, detail = {}) => {
+    const key = `${name}:${detail.reason || ""}:${detail.state || ""}:${detail.message || ""}`;
+    const now = performance.now();
+    const last = internalSynthDiagnosticTimesRef.current.get(key) || -Infinity;
+    if (now - last < 1000) return;
+    internalSynthDiagnosticTimesRef.current.set(key, now);
+    eventBus.emit(name, detail, { source: "internal-midi", transportTime: scoreTimeRef.current });
+  }, [eventBus]);
+
+  const ensureInternalSynth = useCallback(async ({ reason = "manual" } = {}) => {
     if (!isInternalMidiSynthSupported()) {
+      const message = "Web Audio is unavailable in this browser.";
       setInternalSynthStatus("Unavailable");
-      setInternalSynthError("Web Audio is unavailable in this browser.");
+      setInternalSynthError(message);
+      emitInternalSynthDiagnostic("error.audio.internal-synth", { reason, state: "unavailable", message });
       return null;
     }
     try {
@@ -3492,14 +3509,26 @@ function App() {
       output.setPrograms(internalGmProgramsRef.current);
       const state = await resumeInternalMidiSynth(output);
       if (state === "closed") throw new Error("The internal audio context is closed. Reset audio to create a new one.");
-      setInternalSynthStatus(state === "running" ? "Ready" : "Audio suspended");
+      if (state === "running") {
+        internalSynthRestoreRef.current = true;
+        localStorage.setItem(INTERNAL_SYNTH_RESTORE_STORAGE_KEY, "true");
+        setInternalSynthStatus("Ready");
+        emitInternalSynthDiagnostic("midi.internal-synth.ready", { reason, state });
+      } else {
+        const message = "The browser kept internal audio suspended. It will retry on your next click or keypress.";
+        setInternalSynthStatus("Audio suspended");
+        setInternalSynthError(message);
+        emitInternalSynthDiagnostic("error.audio.internal-synth", { reason, state, message });
+      }
       return output;
     } catch (error) {
+      const message = error?.message || "Internal synth initialization failed.";
       setInternalSynthStatus("Error");
-      setInternalSynthError(error?.message || "Internal synth initialization failed.");
+      setInternalSynthError(message);
+      emitInternalSynthDiagnostic("error.audio.internal-synth", { reason, state: "error", message });
       return null;
     }
-  }, []);
+  }, [emitInternalSynthDiagnostic]);
 
   const resetInternalSynth = useCallback(async () => {
     panicMidi();
@@ -3509,25 +3538,54 @@ function App() {
     setInternalSynthError("");
     try {
       await disposeInternalMidiSynth(previous);
-    } catch {
+    } catch (error) {
       // A broken AudioContext must not prevent a clean replacement.
+      emitInternalSynthDiagnostic("error.audio.internal-synth", {
+        reason: "reset-dispose",
+        state: "error",
+        message: error?.message || "The previous internal synth could not be disposed cleanly.",
+      });
     }
-    const replacement = await ensureInternalSynth();
-    if (replacement) setMidiStatus("Internal synth reset and ready.");
+    const replacement = await ensureInternalSynth({ reason: "reset" });
+    if (replacement?.getState?.() === "running") {
+      setMidiStatus("Internal synth reset and ready.");
+      emitInternalSynthDiagnostic("midi.internal-synth.reset", { state: "running" });
+    } else if (replacement) {
+      setMidiStatus("Internal synth reset; audio is waiting for a browser gesture.");
+    }
     return replacement;
-  }, [ensureInternalSynth, panicMidi]);
+  }, [emitInternalSynthDiagnostic, ensureInternalSynth, panicMidi]);
 
   const testInternalSynthAudio = useCallback(async () => {
-    const output = await ensureInternalSynth();
-    if (!output) return;
+    const output = await ensureInternalSynth({ reason: "test" });
+    if (!output || output.getState?.() !== "running") return;
     try {
       const now = performance.now();
       output.send([0x90, 60, 100], now);
       output.send([0x80, 60, 0], now + 350);
       setMidiStatus("Sent internal synth test note C4.");
+      emitInternalSynthDiagnostic("midi.internal-synth.test", { note: 60, velocity: 100, durationMs: 350 });
     } catch (error) {
-      setMidiStatus(error?.message || "Internal synth test failed.");
+      const message = error?.message || "Internal synth test failed.";
+      setMidiStatus(message);
+      emitInternalSynthDiagnostic("error.audio.internal-synth", { reason: "test", state: "error", message });
     }
+  }, [emitInternalSynthDiagnostic, ensureInternalSynth]);
+
+  useEffect(() => {
+    if (!internalSynthRestoreRef.current || internalSynthRestoreAttemptedRef.current) return undefined;
+    internalSynthRestoreAttemptedRef.current = true;
+    void ensureInternalSynth({ reason: "session-restore" });
+    const retryFromGesture = () => {
+      if (internalSynthRef.current?.getState?.() === "running") return;
+      void ensureInternalSynth({ reason: "session-restore-gesture" });
+    };
+    window.addEventListener("pointerdown", retryFromGesture, true);
+    window.addEventListener("keydown", retryFromGesture, true);
+    return () => {
+      window.removeEventListener("pointerdown", retryFromGesture, true);
+      window.removeEventListener("keydown", retryFromGesture, true);
+    };
   }, [ensureInternalSynth]);
 
   const ensureExpressiveSynth = useCallback(async () => {
@@ -3599,32 +3657,85 @@ function App() {
     if (!target) return;
     if (target.kind === "midi-note") {
       const channel = bounded(target.channel, 1, 16, 1);
-      const note = Math.round(bounded(values.note, 0, 127, target.note));
-      const velocity = Math.round(bounded(values.velocity, 1, 127, 96));
+      const note = Math.round(bounded(mappingTargetValue(values, "note", target.note), 0, 127, target.note));
+      const velocity = Math.round(bounded(mappingTargetValue(values, "velocity", 96), 1, 127, 96));
       const message = {
         kind: "note", channel, note, velocity,
         duration: Math.max(0.01, Number(target.duration) || 0.16),
         noteOn: [0x90 + channel - 1, note, velocity],
         noteOff: [0x80 + channel - 1, note, 0],
       };
-      for (const { track, output } of getMixerOutputsForChannel(channel)) {
+      const routes = getMixerOutputsForChannel(channel);
+      if (!routes.length) {
+        const warningKey = `${mapping?.id || "mapping"}:midi-note:${channel}`;
+        const lastWarning = physicsMappingMidiWarningsRef.current.get(warningKey) || 0;
+        if (now - lastWarning > 1000) {
+          physicsMappingMidiWarningsRef.current.set(warningKey, now);
+          eventBus.emit("midi.mapping.unrouted", {
+            mappingId: mapping?.id || "",
+            target: "MIDI Note",
+            channel,
+            message: `No enabled Mixer destination receives MIDI channel ${channel}.`,
+          }, { source: "physics-mapping" });
+        }
+        return;
+      }
+      for (const { track, output } of routes) {
         const trackGate = `${gateKey}:${track.id}`;
         if (operation === "begin") midiVoiceTrackerRef.current?.startGate(output, message, trackGate, now, target.minimumHold);
         else if (operation === "release") midiVoiceTrackerRef.current?.endGate(trackGate, now, { force: true });
         else if (operation === "hit") midiVoiceTrackerRef.current?.send(output, message, now);
       }
+      eventBus.emit("midi.mapping.note", {
+        mappingId: mapping?.id || "",
+        operation,
+        channel,
+        note,
+        velocity,
+        formula: target.noteExpression || "baseNote",
+        source: {
+          raw: values.raw,
+          norm: values.norm,
+          value: values.value,
+          x: values.environment?.x,
+          y: values.environment?.y,
+        },
+        tracks: routes.map(({ track }) => track.id),
+      }, { source: "physics-mapping" });
       return;
     }
     if (target.kind === "midi-cc" || target.kind === "midi-bend") {
       if (operation === "release") return;
       const channel = bounded(target.channel, 1, 16, 1);
       const data = target.kind === "midi-cc"
-        ? [0xb0 + channel - 1, Math.round(bounded(target.controller, 0, 127, 1)), Math.round(bounded(values.value, 0, 127, 0))]
+        ? [0xb0 + channel - 1, Math.round(bounded(target.controller, 0, 127, 1)), Math.round(bounded(mappingTargetValue(values, "value", 0), 0, 127, 0))]
         : (() => {
-            const bend = Math.round(bounded(values.value, 0, 16383, 8192));
+            const bend = Math.round(bounded(mappingTargetValue(values, "value", 8192), 0, 16383, 8192));
             return [0xe0 + channel - 1, bend & 0x7f, (bend >> 7) & 0x7f];
           })();
-      getMixerOutputsForChannel(channel).forEach(({ output }) => output.send?.(data, now));
+      const routes = getMixerOutputsForChannel(channel);
+      if (!routes.length) {
+        const warningKey = `${mapping?.id || "mapping"}:${target.kind}:${channel}`;
+        const lastWarning = physicsMappingMidiWarningsRef.current.get(warningKey) || 0;
+        if (now - lastWarning > 1000) {
+          physicsMappingMidiWarningsRef.current.set(warningKey, now);
+          eventBus.emit("midi.mapping.unrouted", {
+            mappingId: mapping?.id || "",
+            target: target.kind === "midi-cc" ? "MIDI CC" : "MIDI Pitch Bend",
+            channel,
+            message: `No enabled Mixer destination receives MIDI channel ${channel}.`,
+          }, { source: "physics-mapping" });
+        }
+        return;
+      }
+      routes.forEach(({ output }) => output.send?.(data, now));
+      eventBus.emit(target.kind === "midi-cc" ? "midi.mapping.cc" : "midi.mapping.bend", {
+        mappingId: mapping?.id || "",
+        operation,
+        channel,
+        data,
+        tracks: routes.map(({ track }) => track.id),
+      }, { source: "physics-mapping" });
       return;
     }
     if (target.kind !== "expressive-voice") return;
@@ -3644,11 +3755,11 @@ function App() {
     }
     const voiceId = gateKey;
     const voice = {
-      frequency: midiNoteToFrequency(Math.round(bounded(values.note, 0, 127, 60))),
-      gain: bounded(values.gain, 0, 1, 0.2),
-      pressure: bounded(values.pressure, 0, 1, 0.5),
-      brightness: bounded(values.brightness, 0, 1, 0.5),
-      pan: bounded(values.pan, -1, 1, 0),
+      frequency: midiNoteToFrequency(Math.round(bounded(mappingTargetValue(values, "note", 60), 0, 127, 60))),
+      gain: bounded(mappingTargetValue(values, "gain", 0.2), 0, 1, 0.2),
+      pressure: bounded(mappingTargetValue(values, "pressure", 0.5), 0, 1, 0.5),
+      brightness: bounded(mappingTargetValue(values, "brightness", 0.5), 0, 1, 0.5),
+      pan: bounded(mappingTargetValue(values, "pan", 0), -1, 1, 0),
     };
     const config = resolveExpressiveSynthProgram(expressiveSynthConfigRef.current, target.program);
     if (operation === "update") synth.updateVoice(voiceId, voice, config);
@@ -8952,7 +9063,7 @@ function App() {
       },
       filter: { min: 0.2 },
       transform: { outputMin: 12, outputMax: 127, scale: 1, offset: 0, clamp: true },
-      target: { kind: "midi-note", mode: "hit", channel: 1, note: 60, velocityExpression: "value", duration: 0.16 },
+      target: { kind: "midi-note", mode: "hit", channel: 1, note: 60, noteExpression: "baseNote", velocityExpression: "value", duration: 0.16 },
       cooldownMs: collisionClass === "body-body" ? 70 : 35,
       perPair: true,
     };
@@ -15357,7 +15468,7 @@ function App() {
             <PhysicsWorldIcon type="transport" />
           </button>
         </div>
-        <label className="iannix-field physics-time-scrub-toggle" {...infoProps("Preview physics while scrubbing", "When transport-linked, replay deterministic physics checkpoints while dragging the timeline. This can be expensive for large jumps, so it is off by default. Scrub evaluation does not emit collision, audio, or command events.")}>
+        <label className="iannix-field physics-time-scrub-toggle" {...infoProps("Preview physics while scrubbing", "When transport-linked, replay deterministic physics checkpoints while dragging the timeline. This can be expensive for large jumps, so it is off by default. Scrub evaluation never emits live mappings, audio, or commands, but its collision diagnostics appear in the physics debug overlay and event console.")}>
           <span>Preview physics while scrubbing</span>
           <input type="checkbox" checked={physicsTimeScrubEnabled} disabled={!physicsTransportSynced} onChange={event => setPhysicsTimeScrubEnabled(event.target.checked)} />
         </label>
@@ -15493,6 +15604,10 @@ function App() {
             <label className="iannix-field">
               <span>Tags</span>
               <input type="text" value={body.collisionTags.join(", ")} onChange={event => patchBody({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} />
+            </label>
+            <label className="iannix-field" {...infoProps("Object note", "A numeric body value for collision mappings. It is available as aNote and noteA when this object is collision side A, or bNote and noteB on side B. For example: pentatonic((noteA + noteB) / 2, floor(speed / 12)).")}>
+              <span>Object note</span>
+              <input type="number" min="0" max="127" step="1" value={body.mappingValues.note} onChange={event => patchBody({ mappingValues: { ...body.mappingValues, note: event.target.valueAsNumber } })} />
             </label>
             {colliderPicker}
             <div className="iannix-two-column">
@@ -19875,9 +19990,17 @@ function App() {
   const updateInfoViewFromEvent = event => {
     const target = event.target?.closest?.("[data-info]");
     if (!target) return;
+    let examples = [];
+    try {
+      const parsed = JSON.parse(target.dataset.infoExamples || "[]");
+      examples = Array.isArray(parsed) ? parsed.filter(value => typeof value === "string") : [];
+    } catch {
+      examples = [];
+    }
     setInfoView({
       title: target.dataset.infoTitle || target.getAttribute("aria-label") || target.getAttribute("title") || "Info",
       body: target.dataset.info || DEFAULT_INFO_VIEW.body,
+      examples,
     });
   };
 

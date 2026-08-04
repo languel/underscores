@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createInternalMidiSynth } from "./internalMidiSynth.js";
+import { createInternalMidiSynth, createTinySynthBackend } from "./internalMidiSynth.js";
 
 const makeHarness = () => {
   const sent = [];
@@ -61,4 +61,53 @@ test("resume reapplies programs; clear panics and cancels schedules; dispose clo
   assert.ok(harness.sent.some(message => message[0] === 0xb0 && message[1] === 120));
   await Promise.all([harness.output.close(), harness.output.close()]);
   assert.equal(harness.counts().closes, 1);
+});
+
+test("disposing while initialization is pending tears down the late backend", async () => {
+  let resolveBackend;
+  let closes = 0;
+  const lateBackend = {
+    send() {},
+    resume: async () => {},
+    getState: () => "running",
+    close: async () => { closes += 1; },
+  };
+  const output = createInternalMidiSynth({
+    backendFactory: () => new Promise(resolve => { resolveBackend = resolve; }),
+  });
+  const initialization = output.initialize();
+  const closing = output.close();
+  resolveBackend(lateBackend);
+  await closing;
+  await assert.rejects(initialization, /disposed/);
+  assert.equal(closes, 1);
+});
+
+test("resetting a TinySynth port preserves JZZ's shared AudioContext", async () => {
+  let closedPort = 0;
+  let closedContext = 0;
+  const context = { state: "running", resume: async () => {} };
+  const JZZ = {
+    synth: {},
+    lib: {
+      getAudioContext: () => context,
+      closeAudioContext: () => { closedContext += 1; },
+    },
+  };
+  const backend = await createTinySynthBackend({
+    loadModules: async () => ({
+      JZZ,
+      installTinySynth: target => {
+        target.synth.Tiny = async () => ({
+          send() {},
+          close: async () => { closedPort += 1; },
+        });
+      },
+    }),
+  });
+
+  await backend.close();
+
+  assert.equal(closedPort, 1);
+  assert.equal(closedContext, 0);
 });

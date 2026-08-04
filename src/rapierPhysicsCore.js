@@ -130,6 +130,26 @@ const entityPayload = entity => ({
   tags: entity.tags,
 });
 
+// Collision routing is allowed to be richer than display-pose metadata. The
+// latter crosses the worker boundary every paint frame, so keeping velocity and
+// material data out of it protects runtime population performance.
+const collisionEntityPayload = entity => {
+  const position = entity.rigidBody.translation();
+  const velocity = entity.rigidBody.linvel();
+  return {
+    ...entityPayload(entity),
+    mappingValues: { ...entity.mappingValues },
+    position: [position.x * INV_SCALE, position.y * INV_SCALE],
+    velocity: [velocity.x * INV_SCALE, velocity.y * INV_SCALE],
+    angle: entity.rigidBody.rotation(),
+    angularVelocity: entity.rigidBody.angvel(),
+    mass: entity.rigidBody.mass(),
+    friction: finite(entity.material?.friction),
+    bounce: finite(entity.material?.restitution),
+    density: finite(entity.material?.density),
+  };
+};
+
 export class RapierPhysicsSystem {
   static async create(graphValue, systemId) {
     await initializeRapier();
@@ -181,7 +201,9 @@ export class RapierPhysicsSystem {
       tracking: runtime.tracking || body.tracking,
       bodyType: body.bodyType,
       tags: [...body.collisionTags],
+      mappingValues: { ...body.mappingValues },
       sensor: body.collider.sensor,
+      material: { ...body.material },
       render: { ...body.render },
       collider: { ...body.collider },
       rigidBody,
@@ -292,6 +314,16 @@ export class RapierPhysicsSystem {
     this.world.step(this.eventQueue);
     this.stepIndex += 1;
     this.time = this.stepIndex * this.fixedDt;
+    const gravity = resolveSystemGravity(this.graph, this.system);
+    const world = {
+      gravityX: gravity.x,
+      gravityY: gravity.y,
+      step: this.stepIndex,
+      time: this.time,
+      timeScale: this.system.clock.timeScale,
+      simSpeed: this.graph.world.simSpeed,
+      pixelsPerMeter: this.graph.world.pixelsPerMeter,
+    };
     const events = [];
     const append = event => {
       if (events.length < MAX_EVENTS_PER_STEP) events.push(event);
@@ -313,8 +345,9 @@ export class RapierPhysicsSystem {
         simTime: this.time,
         phase: sensor ? (startedCollision ? "enter" : "exit") : (startedCollision ? "begin" : "end"),
         collisionClass: collisionClassFor(a, b),
-        a: entityPayload(a),
-        b: entityPayload(b),
+        a: collisionEntityPayload(a),
+        b: collisionEntityPayload(b),
+        world,
         point: details.point,
         normal: details.normal,
         impulse: details.impulse,
@@ -336,8 +369,9 @@ export class RapierPhysicsSystem {
         simTime: this.time,
         phase: "hit",
         collisionClass: collisionClassFor(a, b),
-        a: entityPayload(a),
-        b: entityPayload(b),
+        a: collisionEntityPayload(a),
+        b: collisionEntityPayload(b),
+        world,
         point: details.point,
         normal: [direction.x, direction.y],
         impulse: forceEvent.totalForceMagnitude() * this.fixedDt * INV_SCALE,
@@ -358,8 +392,9 @@ export class RapierPhysicsSystem {
           simTime: this.time,
           phase: "stay",
           collisionClass: collisionClassFor(a, b),
-          a: entityPayload(a),
-          b: entityPayload(b),
+          a: collisionEntityPayload(a),
+          b: collisionEntityPayload(b),
+          world,
           point: details.point,
           normal: details.normal,
           impulse: details.impulse,
@@ -394,8 +429,9 @@ export class RapierPhysicsSystem {
         phase: "break",
         collisionClass: "constraint-break",
         constraintId,
-        a: a ? entityPayload(a) : null,
-        b: b ? entityPayload(b) : null,
+        a: a ? collisionEntityPayload(a) : null,
+        b: b ? collisionEntityPayload(b) : null,
+        world,
         point: null,
         normal: null,
         impulse: estimatedForce * this.fixedDt,
@@ -528,11 +564,22 @@ export class RapierPhysicsSystem {
     this.constraints.clear();
     oldEntities.forEach((old, index) => {
       const rigidBody = bodies[index];
-      const collider = colliders.find(candidate => candidate.parent()?.handle === rigidBody?.handle);
-      if (!rigidBody || !collider) return;
-      const entity = { ...old, rigidBody, colliderHandle: collider.handle };
+      // A path chain is a compound body: every segment owns a Rapier collider.
+      // A restored world has fresh collider instances, so all of them need to
+      // resolve to the authored body. Otherwise only the first chain segment
+      // can emit a routable collision after Reset/checkpoint replay.
+      const bodyColliders = rigidBody
+        ? colliders.filter(candidate => candidate.parent()?.handle === rigidBody.handle)
+        : [];
+      if (!rigidBody || !bodyColliders.length) return;
+      const entity = {
+        ...old,
+        rigidBody,
+        colliderHandle: bodyColliders[0].handle,
+        colliderHandles: bodyColliders.map(collider => collider.handle),
+      };
       this.bodyById.set(entity.id, entity);
-      this.entityByCollider.set(collider.handle, entity);
+      bodyColliders.forEach(collider => this.entityByCollider.set(collider.handle, entity));
       this.entityByRigidBody.set(rigidBody.handle, entity);
       if (entity.objectRef?.kind === "element") this.bodyIdByObjectId.set(entity.objectRef.elementId, entity.id);
     });
