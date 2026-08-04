@@ -7,7 +7,7 @@ import { normalizeBrushChannels } from "./brushChannelRuntime.js";
 import { normalizeMediaSources } from "./mediaStream.js";
 import { normalizeRelationshipGraph, serializeRelationshipGraphForScene } from "./relationshipGraph.js";
 
-const DRAWERATOR_EXCHANGE_VERSION = 9;
+const DRAWERATOR_EXCHANGE_VERSION = 10;
 
 const scoreData = customData => customData?.score || customData?.iannix || null;
 const withScoreAliases = element => {

@@ -25,6 +25,9 @@ export const PanelIcon = ({ id }) => {
   if (id === "outliner") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14M5 8h5M5 16h5M10 8v4h5M10 16h5"/><rect x="15" y="10" width="5" height="4" rx="1"/><circle cx="5" cy="5" r="1.5"/><circle cx="5" cy="19" r="1.5"/></svg>;
   }
+  if (id === "physics") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="9" ry="3.8" transform="rotate(35 12 12)"/><ellipse cx="12" cy="12" rx="9" ry="3.8" transform="rotate(-35 12 12)"/><circle cx="12" cy="12" r="1.5"/></svg>;
+  }
   if (id === "iannix") {
     return <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M2.5 5.5h4c4 0 5-2.8 7.5-2.3 2.8.6 3.7 7 7.5 9.3"/>

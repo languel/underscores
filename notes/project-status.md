@@ -9,9 +9,10 @@ Excalidraw-native objects, first-class SVG documents, IanniX score behavior, Liv
 shared scene hierarchy. This checkpoint is ready for the release/compliance review that precedes
 any public Strudel deployment.
 
-The canvas-first relationship and physics engine is now available as API version 7 and scene
-exchange version 9. It combines a persistent solver-independent graph, lazy deterministic Rapier 2D
-Worker, lightweight curve/stream geometry adapter, runtime population overlay, collision routing,
+The canvas-first relationship and physics engine is now available as API version 8 and scene
+exchange version 10. It combines a persistent solver-independent graph, lazy deterministic Rapier 2D
+Worker, lightweight curve/stream geometry adapter, runtime population overlay, canonical collision
+mappings (`Source -> Filter -> Transform -> Target`),
 canvas-authored bodies and constraints, grab springs, Apply/Reset semantics, materialization, and
 point-level curve sculpt tools. Built-in Musical gas, Marionette, and Stream portrait examples cover
 the three delivery slices. See [Canvas-first relationships and physics](physics.md).
@@ -106,10 +107,11 @@ true native/SVG per-object z-order and exact time-specific PNG parity. See
 
 ## Next phase
 
-Exercise higher-order mappings on the new relationship foundation: palm openness, calibrated gaze,
+Add source adapters for palm openness, calibrated gaze, score and command events, then exercise
 string-plucking, zones, richer serial/OSC source templates, per-wall musical profiles, and additional
 deformable constraints. The infinite canvas remains the authoring surface; the compact Physics
-inspector should not become a node editor. The unchanged MediaMime body-map references can become ontology-generated selectable
+inspector should not become a node editor. The future canvas graph will edit the same mapping records.
+The unchanged MediaMime body-map references can become ontology-generated selectable
 maps in that later slice without turning their explanatory SVG titles into runtime schema.
 
 Before public deployment, complete the project licensing decision, publish corresponding source and

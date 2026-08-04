@@ -65,9 +65,11 @@ import {
   getExpressiveSynthPrograms,
   isExpressiveSynthSupported,
   mergeExpressiveSynthConfig,
+  midiNoteToFrequency,
   normalizeExpressiveSynthConfig,
   removeExpressiveSynthProgram,
   resolveExpressiveSynthTiming,
+  resolveExpressiveSynthProgram,
   upsertExpressiveSynthProgram,
 } from "./expressiveSynth.js";
 import { createExpressiveSynthDemoScore } from "./expressiveSynthDemo.js";
@@ -2276,6 +2278,12 @@ function App() {
   const physicsPendingAuthoredBodyIdsRef = useRef(new Set());
   const physicsApplyingRef = useRef(false);
   const physicsAudioRef = useRef(null);
+  const physicsMappingTargetRouterRef = useRef(null);
+  // Direct expressive voices are not owned by a Mixer output, so retain the
+  // source system alongside their stable mapping/pair key. That lets a
+  // per-system pause/reset release exactly the voices it owns.
+  const physicsMappingVoiceIdsRef = useRef(new Map());
+  const physicsMappingAudioWarningRef = useRef(0);
   if (!physicsAudioRef.current) physicsAudioRef.current = new PhysicsAudioRouter();
   physicsAudioRef.current.midi = message => {
     const channel = Math.max(1, Math.min(16, Math.round(Number(message.channel) || 1)));
@@ -2340,6 +2348,7 @@ function App() {
     streamRegistry: streamRegistryRef.current,
     commandRegistry,
     audioRouter: (action, event, route) => physicsAudioRef.current?.route(action, event, route),
+    mappingTargetRouter: descriptor => physicsMappingTargetRouterRef.current?.(descriptor),
   });
   const setRelationshipGraph = useCallback(value => {
     setRelationshipGraphState(previous => {
@@ -3571,6 +3580,97 @@ function App() {
     }
     return getMixerOutputsForChannel(midiChannel);
   }, [ensureExpressiveSynth, ensureInternalSynth, getMixerOutputsForChannel]);
+
+  const executePhysicsMappingTarget = useCallback(descriptor => {
+    const { operation, target, values = {}, gateKey, mapping, systemId } = descriptor || {};
+    const now = performance.now();
+    const bounded = (value, minimum, maximum, fallback = minimum) => Math.max(minimum, Math.min(maximum, Number.isFinite(Number(value)) ? Number(value) : fallback));
+    if (operation === "clear") {
+      const synth = expressiveSynthRef.current;
+      for (const [voiceId, voiceSystemId] of physicsMappingVoiceIdsRef.current) {
+        if (!systemId || voiceSystemId === systemId) {
+          synth?.stopVoice?.(voiceId);
+          physicsMappingVoiceIdsRef.current.delete(voiceId);
+        }
+      }
+      setExpressiveVoiceCount(synth?.getVoiceCount?.() || 0);
+      return;
+    }
+    if (!target) return;
+    if (target.kind === "midi-note") {
+      const channel = bounded(target.channel, 1, 16, 1);
+      const note = Math.round(bounded(values.note, 0, 127, target.note));
+      const velocity = Math.round(bounded(values.velocity, 1, 127, 96));
+      const message = {
+        kind: "note", channel, note, velocity,
+        duration: Math.max(0.01, Number(target.duration) || 0.16),
+        noteOn: [0x90 + channel - 1, note, velocity],
+        noteOff: [0x80 + channel - 1, note, 0],
+      };
+      for (const { track, output } of getMixerOutputsForChannel(channel)) {
+        const trackGate = `${gateKey}:${track.id}`;
+        if (operation === "begin") midiVoiceTrackerRef.current?.startGate(output, message, trackGate, now, target.minimumHold);
+        else if (operation === "release") midiVoiceTrackerRef.current?.endGate(trackGate, now, { force: true });
+        else if (operation === "hit") midiVoiceTrackerRef.current?.send(output, message, now);
+      }
+      return;
+    }
+    if (target.kind === "midi-cc" || target.kind === "midi-bend") {
+      if (operation === "release") return;
+      const channel = bounded(target.channel, 1, 16, 1);
+      const data = target.kind === "midi-cc"
+        ? [0xb0 + channel - 1, Math.round(bounded(target.controller, 0, 127, 1)), Math.round(bounded(values.value, 0, 127, 0))]
+        : (() => {
+            const bend = Math.round(bounded(values.value, 0, 16383, 8192));
+            return [0xe0 + channel - 1, bend & 0x7f, (bend >> 7) & 0x7f];
+          })();
+      getMixerOutputsForChannel(channel).forEach(({ output }) => output.send?.(data, now));
+      return;
+    }
+    if (target.kind !== "expressive-voice") return;
+    if (operation === "release") {
+      expressiveSynthRef.current?.stopVoice?.(gateKey);
+      physicsMappingVoiceIdsRef.current.delete(gateKey);
+      setExpressiveVoiceCount(expressiveSynthRef.current?.getVoiceCount?.() || 0);
+      return;
+    }
+    const synth = expressiveSynthRef.current;
+    if (!synth || synth.getState?.() !== "running") {
+      if (now - physicsMappingAudioWarningRef.current > 1000) {
+        physicsMappingAudioWarningRef.current = now;
+        eventBus.emit("physics.mapping.audio.unavailable", { mappingId: mapping?.id || "", message: "Expressive Synth is unavailable or suspended." }, { source: "physics-mapping" });
+      }
+      return;
+    }
+    const voiceId = gateKey;
+    const voice = {
+      frequency: midiNoteToFrequency(Math.round(bounded(values.note, 0, 127, 60))),
+      gain: bounded(values.gain, 0, 1, 0.2),
+      pressure: bounded(values.pressure, 0, 1, 0.5),
+      brightness: bounded(values.brightness, 0, 1, 0.5),
+      pan: bounded(values.pan, -1, 1, 0),
+    };
+    const config = resolveExpressiveSynthProgram(expressiveSynthConfigRef.current, target.program);
+    if (operation === "update") synth.updateVoice(voiceId, voice, config);
+    else synth.startVoice(voiceId, voice, config);
+    physicsMappingVoiceIdsRef.current.set(voiceId, mapping?.source?.systemId || systemId || null);
+    if (operation === "hit") window.setTimeout(() => {
+      synth.stopVoice(voiceId);
+      physicsMappingVoiceIdsRef.current.delete(voiceId);
+      setExpressiveVoiceCount(synth.getVoiceCount());
+    }, Math.max(10, Number(target.duration || 0.2) * 1000));
+    setExpressiveVoiceCount(synth.getVoiceCount());
+  }, [eventBus, getMixerOutputsForChannel]);
+  physicsMappingTargetRouterRef.current = executePhysicsMappingTarget;
+
+  const resumePhysicsMappingAudio = () => {
+    const mappings = relationshipGraphRef.current.mappings || [];
+    const channels = new Set(mappings
+      .filter(mapping => mapping.enabled && ["midi-note", "midi-cc", "midi-bend"].includes(mapping.target?.kind))
+      .map(mapping => mapping.target.channel));
+    channels.forEach(channel => { void ensureMixerOutputsForChannel(channel); });
+    if (mappings.some(mapping => mapping.enabled && mapping.target?.kind === "expressive-voice")) void ensureExpressiveSynth();
+  };
 
   const testExpressiveSynthAudio = useCallback(async program => {
     const output = await ensureExpressiveSynth();
@@ -8748,6 +8848,7 @@ function App() {
       bodies: graph.bodies.filter(body => body.systemId !== systemId),
       populations: graph.populations.filter(item => item.systemId !== systemId),
       constraints: graph.constraints.filter(item => item.systemId !== systemId),
+      mappings: graph.mappings.filter(item => item.source.systemId !== systemId),
       routes: graph.routes.filter(item => item.systemId !== systemId),
     });
     const api = excalidrawAPIRef.current;
@@ -8841,17 +8942,22 @@ function App() {
     return population;
   };
 
-  const createPhysicsRoute = ({ systemId = activePhysicsSystemId, collisionClass = "body-wall", sound = "wall" } = {}) => {
-    const route = {
-      id: `physics-route-${crypto.randomUUID()}`,
-      systemId,
-      name: collisionClass === "body-body" ? "Particle collision sound" : "Wall instrument sound",
-      filter: { phases: ["hit"], classes: [collisionClass], minImpulse: 0.2 },
+  const createPhysicsMapping = ({ systemId = activePhysicsSystemId, collisionClass = "body-wall" } = {}) => {
+    const mapping = {
+      id: `mapping-${crypto.randomUUID()}`,
+      name: collisionClass === "body-body" ? "Body collision → MIDI" : "Wall collision → MIDI",
+      source: {
+        kind: "physics-collision", systemId, phases: ["hit"], classes: [collisionClass],
+        field: "impulse", range: { min: 0, max: 10 },
+      },
+      filter: { min: 0.2 },
+      transform: { outputMin: 12, outputMax: 127, scale: 1, offset: 0, clamp: true },
+      target: { kind: "midi-note", mode: "hit", channel: 1, note: 60, velocityExpression: "value", duration: 0.16 },
       cooldownMs: collisionClass === "body-body" ? 70 : 35,
-      actions: [{ kind: "synth", frequency: sound === "particle" ? 330 : 110, waveform: sound === "particle" ? "sine" : "triangle", positionToPitch: true, positionToPan: true, gainScale: 0.002 }],
+      perPair: true,
     };
-    setRelationshipGraph(previous => addRelationshipItem(previous, "routes", route));
-    return route;
+    setRelationshipGraph(previous => addRelationshipItem(previous, "mappings", mapping));
+    return mapping;
   };
 
   const startPhysicsTool = (kind, systemId = activePhysicsSystemId) => {
@@ -9015,6 +9121,7 @@ function App() {
         message: error?.message || "Physics audio is unavailable.",
       }, { source: "physics" });
     });
+    resumePhysicsMappingAudio();
   };
 
   const playPhysicsWorld = () => {
@@ -9204,6 +9311,7 @@ function App() {
       bodies: [...previous.bodies, ...remappedGraph.bodies],
       populations: [...previous.populations, ...remappedGraph.populations],
       constraints: [...previous.constraints, ...remappedGraph.constraints],
+      mappings: [...previous.mappings, ...remappedGraph.mappings],
       routes: [...previous.routes, ...remappedGraph.routes],
     }));
     api.updateScene({ elements: [...scene, ...created], appState: { selectedElementIds: Object.fromEntries(created.map(element => [element.id, true])) }, commitToHistory: true });
@@ -14305,7 +14413,7 @@ function App() {
       materialize: materializePhysicsPopulation,
     });
     const api = {
-      apiVersion: 7,
+      apiVersion: 8,
       commands: {
         list: () => commandRegistry.list(),
         describe: id => commandRegistry.describe(id),
@@ -14464,7 +14572,7 @@ function App() {
       );
       const current = normalizeRelationshipGraph(relationshipGraphRef.current);
       const systemIds = new Set(current.systems.map(system => system.id));
-      const itemIds = new Set([...current.bodies, ...current.populations, ...current.constraints, ...current.routes].map(item => item.id));
+      const itemIds = new Set([...current.bodies, ...current.populations, ...current.constraints, ...current.mappings, ...current.routes].map(item => item.id));
       const bodyIdRemap = new Map();
       const uniqueItem = (item, { isBody = false } = {}) => {
         const originalId = item.id;
@@ -14495,6 +14603,7 @@ function App() {
         bodies: [...current.bodies, ...importedBodies],
         populations: [...current.populations, ...importedPopulations],
         constraints: [...current.constraints, ...importedRelationships.constraints.map(uniqueItem)],
+        mappings: [...current.mappings, ...importedRelationships.mappings.map(uniqueItem)],
         routes: [...current.routes, ...importedRelationships.routes.map(uniqueItem)],
       }));
       excalidrawAPI.updateScene({
@@ -21643,10 +21752,11 @@ function App() {
               onAssignCollider={options => assignPhysicsBodies({ ...options, bodyType: "fixed" })}
               onCreatePopulation={createPhysicsPopulation}
               onBeginTool={startPhysicsTool}
-              onAddRoute={createPhysicsRoute}
+              onAddMapping={createPhysicsMapping}
               onMaterialize={materializePhysicsPopulation}
               onSculpt={sculptPhysicsSelection}
               onLoadExample={loadPhysicsExample}
+              expressivePrograms={getExpressiveSynthPrograms(expressiveSynthConfig)}
             />
           </DraweratorPanel>
           )}

@@ -23,7 +23,7 @@ test("relationship graphs normalize legacy empty data and typed items", () => {
     systems: [system],
     bodies: [{ id: "body", systemId: "system", objectRef: "old", collider: { kind: "circle", radius: 9 } }],
   });
-  assert.equal(graph.version, 1);
+  assert.equal(graph.version, 2);
   assert.equal(graph.systems[0].clock.fixedHz, 60);
   assert.equal(graph.bodies[0].objectRef.elementId, "old");
   assert.equal(graph.bodies[0].tracking, "authored-rigid");

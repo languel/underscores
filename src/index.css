@@ -765,7 +765,8 @@ body .excalidraw .sidebar {
   height: 100%;
   overflow: auto;
   padding: 8px;
-  color: var(--color-on-surface);
+  color: var(--color-primary, var(--drawerator-foreground, currentColor));
+  background: var(--drawerator-panel-bg, var(--bg-sidebar, transparent));
 }
 
 .physics-toolbar,
@@ -851,7 +852,7 @@ body .excalidraw .sidebar {
 
 .physics-flat-button {
   min-height: 30px;
-  border: 1px solid var(--drawerator-border, rgba(128, 128, 128, 0.28));
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.28));
   border-radius: 2px;
   background: transparent;
   color: inherit;
@@ -862,7 +863,7 @@ body .excalidraw .sidebar {
 .physics-flat-button:hover,
 .physics-flat-button.active {
   background: var(--drawerator-highlight, rgba(128, 128, 128, 0.12));
-  border-color: var(--drawerator-accent-color, #647ce5);
+  border-color: var(--border-color, rgba(128, 128, 128, 0.28));
 }
 
 .physics-flat-button:disabled {
@@ -890,10 +891,10 @@ body .excalidraw .sidebar {
   width: 100%;
   min-width: 0;
   height: 28px;
-  border: 1px solid var(--drawerator-border, rgba(128, 128, 128, 0.28));
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.28));
   border-radius: 2px;
-  background: var(--color-surface-low, transparent);
-  color: inherit;
+  background: var(--drawerator-input-bg, var(--input-bg-color, transparent));
+  color: var(--color-primary, inherit);
   padding: 0 7px;
 }
 
@@ -914,7 +915,7 @@ body .excalidraw .sidebar {
 .physics-selected-properties {
   margin-top: 7px;
   padding-top: 7px;
-  border-top: 1px solid var(--drawerator-border, rgba(128, 128, 128, 0.2));
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.2));
 }
 
 .physics-two-column .physics-field {
@@ -934,7 +935,7 @@ body .excalidraw .sidebar {
   justify-content: space-between;
   min-height: 27px;
   gap: 8px;
-  border-bottom: 1px solid var(--drawerator-border, rgba(128, 128, 128, 0.2));
+  border-bottom: 1px solid var(--border-color, rgba(128, 128, 128, 0.2));
 }
 
 .physics-readout strong {
@@ -950,6 +951,102 @@ body .excalidraw .sidebar {
 .physics-empty {
   padding: 16px 8px;
   color: var(--color-secondary);
+}
+
+.physics-mapping-list {
+  display: grid;
+  gap: 6px;
+}
+
+.physics-mapping-card {
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.28));
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--drawerator-panel-bg, transparent) 86%, var(--drawerator-highlight, transparent));
+}
+
+.physics-mapping-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 3px 4px;
+}
+
+.physics-mapping-toggle {
+  min-width: 0;
+  padding: 3px 2px;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.physics-mapping-enable {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.physics-mapping-header .physics-flat-button {
+  min-height: 24px;
+  padding: 2px 5px;
+  font-size: 11px;
+}
+
+.physics-mapping-stack {
+  display: grid;
+  gap: 6px;
+  padding: 5px;
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.2));
+}
+
+.physics-mapping-block {
+  min-width: 0;
+  margin: 0;
+  padding: 6px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.22));
+  border-radius: 2px;
+}
+
+.physics-mapping-block > legend {
+  padding: 0 3px;
+  color: var(--color-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.physics-mapping-phases {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 9px;
+  margin: 2px 0 5px;
+}
+
+.physics-mapping-phases label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--color-secondary);
+  font-size: 11px;
+}
+
+.physics-mapping-error {
+  padding: 4px 6px;
+  border-left: 2px solid var(--color-warning, #b77421);
+  color: var(--color-secondary);
+  font-size: 11px;
 }
 
 .drawerator-shell .default-sidebar-trigger {
@@ -7042,7 +7139,7 @@ a.iannix-flat-button {
 
 .drawerator-mods-tabs { display: grid; grid-template-columns: repeat(3, 1fr); padding: 4px 8px; gap: 3px; }
 .drawerator-mods-tabs button { background: transparent; border: 1px solid var(--drawerator-panel-border, var(--border-color)); color: var(--color-secondary); cursor: pointer; font: inherit; font-size: 11px; min-height: 25px; }
-.drawerator-mods-tabs button.active { background: var(--button-hover-bg, rgba(127,127,127,.14)); color: var(--color-primary); border-color: var(--color-primary); }
+.drawerator-mods-tabs button.active { background: var(--button-hover-bg, rgba(127,127,127,.14)); color: var(--color-primary); border-color: var(--border-color, rgba(128,128,128,.28)); }
 .brush-channels-panel { padding: 12px; overflow: auto; height: calc(100% - 36px); }
 .brush-channel-range { align-items: center; display: grid; gap: 5px; grid-template-columns: 52px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto auto; font-size: 10px; }
 .brush-channel-range input[type="number"] { min-width: 0; }

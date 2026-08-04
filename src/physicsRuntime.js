@@ -1,14 +1,16 @@
 import {
-  PhysicsRouteRuntime,
   RelationshipWriterRegistry,
   addRelationshipItem,
   createDefaultPhysicsSystem,
+  migratePhysicsRoutesToMappings,
+  normalizePhysicsRoute,
   normalizePhysicsEndpoint,
   normalizePhysicsWorld,
   normalizeRelationshipGraph,
   removeRelationshipItem,
   updateRelationshipItem,
 } from "./relationshipGraph.js";
+import { PhysicsMappingRuntime } from "./mappingRuntime.js";
 import { createPhysicsWorker } from "@drawerator/physics-worker-factory";
 
 const clone = value => value === undefined ? undefined : structuredClone(value);
@@ -19,12 +21,14 @@ export class PhysicsRuntimeController {
     streamRegistry = null,
     commandRegistry = null,
     audioRouter = null,
+    mappingTargetRouter = null,
     workerFactory = null,
   } = {}) {
     this.eventBus = eventBus;
     this.streamRegistry = streamRegistry;
     this.commandRegistry = commandRegistry;
     this.audioRouter = audioRouter;
+    this.mappingTargetRouter = mappingTargetRouter;
     this.workerFactory = workerFactory;
     this.worker = null;
     this.workerPromise = null;
@@ -32,13 +36,19 @@ export class PhysicsRuntimeController {
     this.listeners = new Map();
     this.latestPoses = new Map();
     this.metadata = new Map();
-    this.telemetry = { systems: [], stepMs: 0, sampledAt: 0, transferMs: 0, eventRate: 0, routeMs: 0 };
-    this.routeRuntime = new PhysicsRouteRuntime();
+    this.telemetry = { systems: [], stepMs: 0, sampledAt: 0, transferMs: 0, eventRate: 0, routeMs: 0, mappingRate: 0 };
+    this.mappingRuntime = new PhysicsMappingRuntime({
+      onError: detail => {
+        this.eventBus?.emit("physics.mapping.error", detail, { source: "physics-mapping" });
+        this.#notify("mapping.error", detail);
+      },
+    });
     this.writerRegistry = new RelationshipWriterRegistry();
     this.snapshotRequests = new Map();
     this.queryRequests = new Map();
     this.lastEventSample = performance.now();
     this.eventsSinceSample = 0;
+    this.mappingsSinceSample = 0;
     this.ready = false;
     this.playingSystems = new Set();
     this.adapters = new Map([["rapier2d", Object.freeze({ id: "rapier2d", kind: "rigid-body", worker: true })], ["geometry", Object.freeze({ id: "geometry", kind: "geometry", worker: false })]]);
@@ -88,6 +98,7 @@ export class PhysicsRuntimeController {
 
   setGraph(value) {
     this.graph = normalizeRelationshipGraph(value);
+    this.mappingRuntime.setGraph(this.graph, descriptor => this.#executeMappingTarget(descriptor));
     this.writerRegistry.clear();
     for (const body of this.graph.bodies.filter(candidate => candidate.enabled && candidate.objectRef)) {
       const channel = body.tracking === "authored-deformable" ? "geometry" : "transform";
@@ -174,8 +185,10 @@ export class PhysicsRuntimeController {
         stepMs: Number(message.stepMs) || 0,
         sampledAt: message.sampledAt || now,
         eventRate: this.eventsSinceSample * 1000 / elapsed,
+        mappingRate: this.mappingsSinceSample * 1000 / elapsed,
       };
       this.eventsSinceSample = 0;
+      this.mappingsSinceSample = 0;
       this.lastEventSample = now;
       this.#notify("telemetry", clone(this.telemetry));
       return;
@@ -214,11 +227,7 @@ export class PhysicsRuntimeController {
         data: event,
         time: event.simTime * 1000,
       }, { internal: true });
-      for (const match of this.routeRuntime.route(this.graph, event)) {
-        this.routeRuntime.dispatch(match, current => {
-          for (const action of current.actions) this.#executeRouteAction(action, event, current.route);
-        });
-      }
+      this.mappingsSinceSample += this.mappingRuntime.route(event, descriptor => this.#executeMappingTarget(descriptor));
     }
     this.telemetry.routeMs = performance.now() - started;
   }
@@ -238,6 +247,23 @@ export class PhysicsRuntimeController {
     }
   }
 
+  #executeMappingTarget(descriptor) {
+    const { mapping, target, event } = descriptor;
+    if (target.kind === "legacy-action") {
+      this.#executeRouteAction(target.action, event, mapping);
+      return;
+    }
+    this.mappingTargetRouter?.(descriptor);
+  }
+
+  #releaseMappings(systemId = null) {
+    this.mappingRuntime.releaseAll(
+      descriptor => this.#executeMappingTarget(descriptor),
+      record => !systemId || record.mapping.source.systemId === systemId,
+    );
+    this.mappingTargetRouter?.({ operation: "clear", systemId });
+  }
+
   #hasRapierTarget(systemId = null) {
     return this.graph.systems.some(system => (
       system.enabled && system.adapter === "rapier2d" && (!systemId || system.id === systemId)
@@ -254,10 +280,14 @@ export class PhysicsRuntimeController {
     if (systemId) this.playingSystems.delete(systemId);
     else this.playingSystems.clear();
     if (this.worker || this.workerPromise) this.#post({ type: "pause", systemId });
+    this.#releaseMappings(systemId);
     this.#notify("transport", { playing: false, systemId });
   }
   isPlaying(systemId) { return systemId ? this.playingSystems.has(systemId) : this.playingSystems.size > 0; }
-  reset(systemId = null) { return this.#hasRapierTarget(systemId) ? this.#post({ type: "reset", systemId }) : Promise.resolve(); }
+  reset(systemId = null) {
+    this.#releaseMappings(systemId);
+    return this.#hasRapierTarget(systemId) ? this.#post({ type: "reset", systemId }) : Promise.resolve();
+  }
   transport(time, { scrub = false } = {}) {
     if (this.worker || this.workerPromise) return this.#post({ type: "transport", time, scrub: scrub === true });
   }
@@ -302,6 +332,7 @@ export class PhysicsRuntimeController {
   getTelemetry() { return clone(this.telemetry); }
 
   dispose() {
+    this.#releaseMappings();
     this.worker?.postMessage({ type: "dispose" });
     this.worker?.terminate();
     this.worker = null;
@@ -332,6 +363,7 @@ export const createRelationshipApi = ({ runtime, getGraph, setGraph }) => ({
   }),
   streams: Object.freeze({ get: id => runtime?.streamRegistry?.get?.(id) || null }),
   events: Object.freeze({ subscribe: listener => runtime?.subscribe?.("events", listener) || (() => {}) }),
+  mappings: collectionApi("mappings", getGraph, setGraph),
 });
 
 export const createPhysicsApi = ({ runtime, getGraph, setGraph, applyPose, reset, materialize }) => ({
@@ -355,7 +387,10 @@ export const createPhysicsApi = ({ runtime, getGraph, setGraph, applyPose, reset
   bodies: collectionApi("bodies", getGraph, setGraph),
   populations: collectionApi("populations", getGraph, setGraph),
   constraints: collectionApi("constraints", getGraph, setGraph),
-  routes: collectionApi("routes", getGraph, setGraph),
+  // Legacy scripts keep a routes collection. New work should use
+  // `__.relations.mappings`; route adds are migrated by graph normalization.
+  routes: legacyRoutesApi(getGraph, setGraph),
+  mappings: collectionApi("mappings", getGraph, setGraph),
   play: systemId => runtime.play(systemId),
   pause: systemId => runtime.pause(systemId),
   reset: systemId => reset?.(systemId) ?? runtime.reset(systemId),
@@ -375,10 +410,48 @@ export const createPhysicsApi = ({ runtime, getGraph, setGraph, applyPose, reset
 });
 
 function collectionApi(collection, getGraph, setGraph) {
+  const add = item => setGraph(addRelationshipItem(getGraph(), collection, item));
   return Object.freeze({
     list: systemId => getGraph()[collection].filter(item => !systemId || item.systemId === systemId),
-    add: item => setGraph(addRelationshipItem(getGraph(), collection, item)),
+    add,
+    // `create` is the public, graph-oriented spelling. Keep `add` as a
+    // compact compatibility alias used by the pre-mapping collections.
+    create: add,
     update: (id, patch) => setGraph(updateRelationshipItem(getGraph(), collection, id, item => ({ ...item, ...clone(patch) }))),
     remove: id => setGraph(removeRelationshipItem(getGraph(), collection, id)),
+  });
+}
+
+function legacyRoutesApi(getGraph, setGraph) {
+  return Object.freeze({
+    list: systemId => getGraph().routes.filter(item => !systemId || item.systemId === systemId),
+    add: item => {
+      const route = normalizePhysicsRoute(item);
+      const graph = getGraph();
+      setGraph({ ...graph, routes: [...graph.routes, route], mappings: [...graph.mappings, ...migratePhysicsRoutesToMappings([route])] });
+      return route;
+    },
+    update: (id, patch) => {
+      const graph = getGraph();
+      const route = graph.routes.find(item => item.id === id);
+      if (!route) return graph;
+      const updated = normalizePhysicsRoute({ ...route, ...clone(patch) });
+      const prefix = `${id}:`;
+      setGraph({
+        ...graph,
+        routes: graph.routes.map(item => item.id === id ? updated : item),
+        mappings: [...graph.mappings.filter(mapping => mapping.id !== id && !mapping.id.startsWith(prefix)), ...migratePhysicsRoutesToMappings([updated])],
+      });
+      return updated;
+    },
+    remove: id => {
+      const graph = getGraph();
+      const prefix = `${id}:`;
+      return setGraph({
+        ...graph,
+        routes: graph.routes.filter(item => item.id !== id),
+        mappings: graph.mappings.filter(mapping => mapping.id !== id && !mapping.id.startsWith(prefix)),
+      });
+    },
   });
 }

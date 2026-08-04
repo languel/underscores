@@ -1,6 +1,6 @@
 import { normalizeDraweratorObjectRef, draweratorObjectRefKey } from "./draweratorObjectRef.js";
 
-export const RELATIONSHIP_GRAPH_VERSION = 1;
+export const RELATIONSHIP_GRAPH_VERSION = 2;
 export const PHYSICS_FIXED_HZ = 60;
 
 export const TRACKING_CLASSES = Object.freeze(["runtime-lite", "authored-rigid", "authored-deformable"]);
@@ -8,6 +8,9 @@ export const BODY_TYPES = Object.freeze(["dynamic", "kinematic", "fixed"]);
 export const COLLIDER_KINDS = Object.freeze(["circle", "ellipse", "box", "convex", "polyline", "chain"]);
 export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "revolute", "weld", "attractor"]);
 export const ROUTE_ACTION_KINDS = Object.freeze(["event", "stream", "synth", "midi", "command"]);
+export const MAPPING_SOURCE_KINDS = Object.freeze(["physics-collision"]);
+export const MAPPING_TARGET_KINDS = Object.freeze(["midi-note", "midi-cc", "midi-bend", "expressive-voice", "legacy-action"]);
+export const PHYSICS_COLLISION_FIELDS = Object.freeze(["impulse", "relativeSpeed", "contactX", "contactY", "normalX", "normalY"]);
 export const PHYSICS_PIXELS_PER_METER = 100;
 
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
@@ -271,8 +274,9 @@ export const hydrateRelationshipGraphFromElements = (graphValue, elements = []) 
 
 export const serializeRelationshipGraphForScene = graphValue => {
   const graph = normalizeRelationshipGraph(graphValue);
+  const { routes: _legacyRoutes, ...sceneGraph } = graph;
   return {
-    ...graph,
+    ...sceneGraph,
     // Authored body configuration already lives at object.customData.physics.
     // Keep only its identity and system binding in the relationship graph.
     bodies: graph.bodies.map(body => body.objectRef?.kind === "element"
@@ -352,11 +356,134 @@ export const normalizePhysicsRoute = value => ({
   })),
 });
 
+// `Number(null)` is zero, but an omitted mapping threshold must remain
+// unbounded rather than turning into a silent zero maximum.
+const nullableFinite = value => value === null || value === undefined || value === ""
+  ? null
+  : (Number.isFinite(Number(value)) ? Number(value) : null);
+const midiChannel = value => Math.round(clamp(value, 1, 16));
+const midiByte = (value, fallback = 0) => Number.isFinite(Number(value)) ? Math.round(clamp(value, 0, 127)) : fallback;
+
+export const normalizeMappingSource = value => {
+  const source = value && typeof value === "object" ? value : {};
+  const kind = MAPPING_SOURCE_KINDS.includes(source.kind) ? source.kind : "physics-collision";
+  return {
+    kind,
+    systemId: String(source.systemId || ""),
+    phases: uniqueStrings(source.phases?.length ? source.phases : ["hit"]),
+    classes: uniqueStrings(source.classes),
+    tagsA: uniqueStrings(source.tagsA),
+    tagsB: uniqueStrings(source.tagsB),
+    field: PHYSICS_COLLISION_FIELDS.includes(source.field) ? source.field : "impulse",
+    range: {
+      min: finite(source.range?.min, 0),
+      max: finite(source.range?.max, 10),
+    },
+  };
+};
+
+export const normalizeMappingFilter = value => ({
+  min: nullableFinite(value?.min),
+  max: nullableFinite(value?.max),
+  expression: String(value?.expression || "").trim(),
+});
+
+export const normalizeMappingTransform = value => ({
+  outputMin: finite(value?.outputMin, 1),
+  outputMax: finite(value?.outputMax, 127),
+  scale: finite(value?.scale, 1),
+  offset: finite(value?.offset),
+  clamp: value?.clamp !== false,
+  expression: String(value?.expression || "").trim(),
+});
+
+export const normalizeMappingTarget = value => {
+  const target = value && typeof value === "object" ? value : {};
+  const kind = MAPPING_TARGET_KINDS.includes(target.kind) ? target.kind : "midi-note";
+  const mode = target.mode === "gate" ? "gate" : "hit";
+  if (kind === "midi-cc") return {
+    kind, channel: midiChannel(target.channel ?? 1), controller: midiByte(target.controller, 1), valueExpression: String(target.valueExpression || "value").trim(),
+  };
+  if (kind === "midi-bend") return {
+    kind, channel: midiChannel(target.channel ?? 1), valueExpression: String(target.valueExpression || "value").trim(),
+  };
+  if (kind === "expressive-voice") return {
+    kind, mode, program: String(target.program || "bowed"),
+    noteExpression: String(target.noteExpression || "60").trim(),
+    gainExpression: String(target.gainExpression || "clamp(value / 127, 0, 1)").trim(),
+    pressureExpression: String(target.pressureExpression || "clamp(norm, 0, 1)").trim(),
+    brightnessExpression: String(target.brightnessExpression || "clamp(norm, 0, 1)").trim(),
+    panExpression: String(target.panExpression || "clamp((x / 500) - 1, -1, 1)").trim(),
+    duration: Math.max(0.01, finite(target.duration, 0.2)),
+    minimumHold: Math.max(0, finite(target.minimumHold, 0.02)),
+  };
+  if (kind === "legacy-action") return { kind, action: ROUTE_ACTION_KINDS.includes(target.action?.kind) ? { ...clone(target.action), kind: target.action.kind } : { kind: "event", name: "physics.mapping" } };
+  return {
+    kind: "midi-note", mode, channel: midiChannel(target.channel ?? 1),
+    note: midiByte(target.note, 60),
+    noteExpression: String(target.noteExpression || midiByte(target.note, 60)).trim(),
+    velocityExpression: String(target.velocityExpression || "value").trim(),
+    duration: Math.max(0.01, finite(target.duration, 0.16)),
+    minimumHold: Math.max(0, finite(target.minimumHold, 0.02)),
+  };
+};
+
+export const normalizeRelationshipMapping = value => {
+  const source = normalizeMappingSource(value?.source || { systemId: value?.systemId });
+  const target = normalizeMappingTarget(value?.target);
+  if (target.mode === "gate") {
+    const sensorPair = source.phases.includes("enter") || source.phases.includes("exit");
+    source.phases = uniqueStrings([
+      ...source.phases.filter(phase => phase === "stay"),
+      ...(sensorPair ? ["enter", "exit"] : ["begin", "end"]),
+    ]);
+  }
+  return {
+    id: id(value?.id, "mapping"),
+    name: String(value?.name || "Collision mapping"),
+    enabled: value?.enabled !== false,
+    source,
+    filter: normalizeMappingFilter(value?.filter),
+    transform: normalizeMappingTransform(value?.transform),
+    target,
+    cooldownMs: Math.max(0, finite(value?.cooldownMs, 60)),
+    perPair: value?.perPair !== false,
+  };
+};
+
+const legacyRouteMappings = routeValue => {
+  const route = normalizePhysicsRoute(routeValue);
+  const expression = [
+    route.filter.minImpulse > 0 ? `impulse >= ${route.filter.minImpulse}` : "",
+    route.filter.minRelativeSpeed > 0 ? `speed >= ${route.filter.minRelativeSpeed}` : "",
+  ].filter(Boolean).join(" && ");
+  return route.actions.map((action, index) => normalizeRelationshipMapping({
+    id: route.actions.length === 1 ? route.id : `${route.id}:${index + 1}`,
+    name: route.actions.length === 1 ? route.name : `${route.name} ${index + 1}`,
+    enabled: route.enabled,
+    source: {
+      kind: "physics-collision", systemId: route.systemId, phases: route.filter.phases,
+      classes: route.filter.classes, tagsA: route.filter.tagsA, tagsB: route.filter.tagsB,
+      field: "impulse", range: { min: 0, max: 10 },
+    },
+    filter: { expression },
+    cooldownMs: route.cooldownMs,
+    perPair: route.perPair,
+    target: { kind: "legacy-action", action },
+  }));
+};
+
+export const migratePhysicsRoutesToMappings = routes => list(routes).flatMap(legacyRouteMappings);
+
 export const normalizeRelationshipGraph = value => {
   const graph = value && typeof value === "object" ? value : {};
   const systems = list(graph.systems).map(normalizePhysicsSystem);
   const systemIds = new Set(systems.map(system => system.id));
   const keepSystem = item => !item.systemId || systemIds.has(item.systemId);
+  const legacyRoutes = list(graph.routes).map(normalizePhysicsRoute).filter(keepSystem);
+  const mappings = list(graph.mappings).length
+    ? list(graph.mappings).map(normalizeRelationshipMapping)
+    : legacyRoutes.flatMap(legacyRouteMappings);
   return {
     version: RELATIONSHIP_GRAPH_VERSION,
     world: normalizePhysicsWorld(graph.world),
@@ -364,7 +491,12 @@ export const normalizeRelationshipGraph = value => {
     bodies: list(graph.bodies).map(normalizePhysicsBody).filter(keepSystem),
     populations: list(graph.populations).map(normalizePhysicsPopulation).filter(keepSystem),
     constraints: list(graph.constraints).map(normalizePhysicsConstraint).filter(keepSystem),
-    routes: list(graph.routes).map(normalizePhysicsRoute).filter(keepSystem),
+    // Routes were the first narrow collision-action experiment. They migrate
+    // into mappings on read and are intentionally absent from new scene JSON.
+    mappings: mappings.filter(mapping => !mapping.source.systemId || systemIds.has(mapping.source.systemId)),
+    // Retained only as an in-memory/script compatibility view. Serialization
+    // deliberately strips it; canonical scene data is `mappings`.
+    routes: legacyRoutes,
   };
 };
 
@@ -378,6 +510,7 @@ export const updateRelationshipItem = (graphValue, collection, itemId, updater) 
     bodies: normalizePhysicsBody,
     populations: normalizePhysicsPopulation,
     constraints: normalizePhysicsConstraint,
+    mappings: normalizeRelationshipMapping,
     routes: normalizePhysicsRoute,
   };
   const normalize = normalizers[collection];
@@ -394,6 +527,7 @@ export const addRelationshipItem = (graphValue, collection, itemValue) => {
     bodies: normalizePhysicsBody,
     populations: normalizePhysicsPopulation,
     constraints: normalizePhysicsConstraint,
+    mappings: normalizeRelationshipMapping,
     routes: normalizePhysicsRoute,
   };
   const normalize = normalizers[collection];
@@ -409,6 +543,7 @@ export const removeRelationshipItem = (graphValue, collection, itemId) => {
     for (const key of ["bodies", "populations", "constraints", "routes"]) {
       next[key] = next[key].filter(item => item.systemId !== itemId);
     }
+    next.mappings = next.mappings.filter(item => item.source.systemId !== itemId);
   }
   return normalizeRelationshipGraph(next);
 };
@@ -477,6 +612,7 @@ export const relationshipGraphForSelection = (graphValue, selectedElementIds) =>
     systems: graph.systems.filter(system => systemIds.has(system.id)),
     bodies,
     constraints,
+    mappings: graph.mappings.filter(mapping => systemIds.has(mapping.source.systemId)),
     routes: graph.routes.filter(route => systemIds.has(route.systemId)),
     populations: graph.populations.filter(population => systemIds.has(population.systemId) && bodyIds.has(population.prototype.id)),
   });

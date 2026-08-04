@@ -1,6 +1,6 @@
 # Canvas-first relationships and physics
 
-Drawerator API version 7 and scene-exchange version 9 introduce a solver-independent relationship graph at `drawerator.relationshipGraph`. The graph persists world settings, systems, object bindings, populations, constraints, routes, and endpoint references. An authored body’s settings and reset state live on its native Excalidraw object at `object.customData.physics`; Rapier handles, live poses, collision queues, checkpoints, stream samples, and grab joints are runtime-only.
+Drawerator API version 8 and scene-exchange version 10 introduce a solver-independent relationship graph at `drawerator.relationshipGraph`. The graph persists world settings, systems, object bindings, populations, constraints, mappings, and endpoint references. An authored body’s settings and reset state live on its native Excalidraw object at `object.customData.physics`; Rapier handles, live poses, collision queues, checkpoints, stream samples, and grab joints are runtime-only.
 
 ## Runtime architecture
 
@@ -16,7 +16,7 @@ Each system has either an independent realtime clock or the Drawerator music tra
 
 ## Graph model and endpoints
 
-`relationshipGraph.version` is currently `1`. Its collections are `systems`, `bodies`, `populations`, `constraints`, and `routes`. Runtime ownership allows one writer per object channel: rigid systems claim `transform`; live geometry systems claim `geometry`. Duplicate claims emit `physics.writer.conflict`. Missing objects or deleted stable anchors emit `physics.relationship.orphan`; affected graph items are disabled but retained for repair.
+`relationshipGraph.version` is currently `2`. Its collections are `systems`, `bodies`, `populations`, `constraints`, and `mappings`. Runtime ownership allows one writer per object channel: rigid systems claim `transform`; live geometry systems claim `geometry`. Duplicate claims emit `physics.writer.conflict`. Missing objects or deleted stable anchors emit `physics.relationship.orphan`; affected graph items are disabled but retained for repair. Legacy collision `routes` migrate to compatible mapping targets on load and are retained only as a script compatibility view; new scene JSON writes canonical mappings.
 
 Endpoints can address a world point, object center or normalized object-local point, curve progress, canonical Bézier anchor by stable local ID, or a feature/value from a typed stream. Canonical Bézier geometry is version 2. Existing anchors migrate to stable `anchor-N` IDs, and newly inserted anchors receive UUIDs. Copy/import remaps object references while retaining stable local anchors.
 
@@ -44,27 +44,27 @@ The inspector edits selected-body name, collision tags, friction, restitution, d
 
 Curve sculpt commands use the same stable point resolver: Smooth, seeded Randomize, an Attract brush, and Morph. Morph arc-length-resamples the target for correspondence. One-shot operations are normal undoable geometry changes; an attract-brush drag becomes one history action.
 
-## Collisions and routes
+## Collisions and mappings
 
 Collision events include graph version, system, fixed step and simulation time, phase, collision class, both identities, population/instance IDs, object references, tags, point, normal, impulse, and relative speed. Default phases are `begin`, `hit`, `end`, and sensor `enter`/`exit`; broken constraints emit `constraint-break` / `break`.
 
-Routes filter by phase, collision class, side tags, minimum impulse, minimum relative speed, per-pair cooldown, and system. Actions publish Drawerator events or typed streams, play the internal collision synth, send MIDI through the existing Mixer routes, or queue a registered command. Command dispatch occurs after the physics step; route depth and queue size are bounded.
+Mappings run in the collision path outside React as `Source -> Filter -> Transform -> Target`. The first source adapter selects collision phase, class, tags, numeric field, and input range. Filters combine minimum/maximum thresholds and an optional safe boolean formula; transforms provide output range, scale, offset, clamp, and a safe numeric formula. Targets include MIDI Note, CC, Pitch Bend, direct Expressive Synth voices, and compatibility actions for old routes. Pair-gated Note and Expressive targets use stable mapping/body-pair keys so `begin` opens and matching `end` releases voices across all Mixer destinations. See [Generic mappings](mappings.md) for the complete schema, formulas, and target semantics.
 
 ## Public API
 
 ```js
-const system = __.api.physics.systems.create({ name: "Gas", gravity: { x: 0, y: 0 } });
-__.api.relations.add("routes", {
-  systemId: system.id,
-  filter: { phases: ["hit"], classes: ["body-wall"], minImpulse: 0.2 },
-  cooldownMs: 40,
-  actions: [{ kind: "synth", frequency: 110, positionToPitch: true }],
+const system = __.physics.systems.create({ name: "Gas", gravity: { x: 0, y: 0 } });
+__.relations.mappings.create({
+  source: { systemId: system.id, phases: ["hit"], classes: ["body-wall"], field: "impulse", range: { min: 0, max: 10 } },
+  filter: { min: 0.2 },
+  transform: { outputMin: 24, outputMax: 127 },
+  target: { kind: "midi-note", channel: 1, note: 60, velocityExpression: "round(value)" },
 });
-await __.api.physics.play(system.id);
-const stop = __.api.relations.events.subscribe(events => console.log(events));
+await __.physics.play(system.id);
+const stop = __.relations.events.subscribe(events => console.log(events));
 ```
 
-`__.api.relations` provides graph CRUD, endpoint normalization, adapter registration/listing, collision streams, and event subscription. `__.api.physics` provides system helpers, lists for bodies/populations/constraints/routes, play/pause/reset/apply, impulses, grabbing, materialization, live poses, telemetry, and deterministic snapshots.
+`__.relations` provides graph CRUD, endpoint normalization, adapter registration/listing, collision streams, event subscription, and canonical mapping collections. `__.physics` provides system helpers, lists for bodies/populations/constraints/mappings, a legacy routes compatibility view, play/pause/reset/apply, impulses, grabbing, materialization, live poses, telemetry, and deterministic snapshots. Trusted script hosts also keep `__.api.relations` and `__.api.physics` as self-reference aliases.
 
 ## Built-in classroom examples
 
