@@ -958,6 +958,102 @@ body .excalidraw .sidebar {
   gap: 6px;
 }
 
+.physics-constraint-list {
+  display: grid;
+  gap: 6px;
+}
+
+.physics-constraint-card {
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.28));
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--drawerator-panel-bg, transparent) 90%, var(--drawerator-highlight, transparent));
+}
+
+.physics-constraint-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 3px 4px;
+}
+
+.physics-constraint-kind {
+  color: var(--color-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.physics-constraint-header .physics-flat-button {
+  min-height: 24px;
+  padding: 2px 5px;
+  font-size: 11px;
+}
+
+.physics-constraint-editor {
+  display: grid;
+  gap: 6px;
+  padding: 6px;
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.2));
+}
+
+.physics-constraint-endpoints {
+  display: grid;
+  gap: 2px;
+  color: var(--color-secondary);
+  font: 11px/1.35 var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.physics-canvas-toolbar {
+  position: absolute;
+  z-index: 6;
+  top: 92px;
+  left: 12px;
+  display: grid;
+  gap: 5px;
+  padding: 5px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.34));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--drawerator-panel-bg, Canvas) 94%, transparent);
+  box-shadow: none;
+}
+
+.physics-canvas-tool-group {
+  display: grid;
+  grid-template-columns: repeat(2, 30px);
+  gap: 3px;
+}
+
+.physics-canvas-tool-separator {
+  height: 1px;
+  background: var(--border-color, rgba(128, 128, 128, 0.28));
+}
+
+.physics-canvas-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: var(--color-primary, currentColor);
+  background: transparent;
+  cursor: pointer;
+}
+
+.physics-canvas-tool:hover:not(:disabled),
+.physics-canvas-tool.active {
+  border-color: var(--border-color, rgba(128, 128, 128, 0.34));
+  background: color-mix(in srgb, var(--drawerator-highlight, currentColor) 17%, transparent);
+}
+
+.physics-canvas-tool:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .physics-mapping-card {
   border: 1px solid var(--border-color, rgba(128, 128, 128, 0.28));
   border-radius: 2px;

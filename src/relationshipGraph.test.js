@@ -29,6 +29,18 @@ test("relationship graphs normalize legacy empty data and typed items", () => {
   assert.equal(graph.bodies[0].tracking, "authored-rigid");
 });
 
+test("canvas Fixate and Axle constraints remain canonical graph relationships", () => {
+  const graph = normalizeRelationshipGraph({
+    systems: [{ id: "world" }],
+    constraints: [
+      { id: "fix", systemId: "world", kind: "fixate", a: { kind: "object", objectRef: "a" }, b: { kind: "world", point: [2, 3] } },
+      { id: "axle", systemId: "world", kind: "axle", a: { kind: "object", objectRef: "a" }, b: { kind: "object", objectRef: "b" } },
+    ],
+  });
+  assert.deepEqual(graph.constraints.map(item => item.kind), ["fixate", "axle"]);
+  assert.equal(graph.constraints[0].b.kind, "world");
+});
+
 test("world physics defaults use real-world gravity and custom systems remain explicit", () => {
   const graph = normalizeRelationshipGraph({ systems: [{ id: "world-system" }] });
   assert.deepEqual(graph.world.gravity, { x: 0, y: -9.8 });

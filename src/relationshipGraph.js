@@ -6,7 +6,11 @@ export const PHYSICS_FIXED_HZ = 60;
 export const TRACKING_CLASSES = Object.freeze(["runtime-lite", "authored-rigid", "authored-deformable"]);
 export const BODY_TYPES = Object.freeze(["dynamic", "kinematic", "fixed"]);
 export const COLLIDER_KINDS = Object.freeze(["circle", "ellipse", "box", "convex", "polyline", "chain"]);
-export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "revolute", "weld", "attractor"]);
+// Bodies have one solver role, while constraints are independent authored
+// relationships. Keep the older Rapier-oriented names for compatibility and
+// expose the canvas-first vocabulary alongside them: Fixate is a weld and
+// Axle is a revolute joint.
+export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "revolute", "weld", "fixate", "axle", "attractor"]);
 export const ROUTE_ACTION_KINDS = Object.freeze(["event", "stream", "synth", "midi", "command"]);
 export const MAPPING_SOURCE_KINDS = Object.freeze(["physics-collision"]);
 export const MAPPING_TARGET_KINDS = Object.freeze(["midi-note", "midi-cc", "midi-bend", "expressive-voice", "legacy-action"]);

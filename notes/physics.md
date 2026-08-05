@@ -39,10 +39,11 @@ While a world is paused, **Paused edits → Author reset pose** is the default: 
 Every collider also has a **Collision skin** setting, in scene pixels. It is an invisible per-object contact margin: the two colliding skins add together, so it intentionally leaves a small visual gap while making fine, fast interactions more stable. Keep it small (often 0.5–2 px); it is separate from the visible Path chain thickness. Dynamic bodies run with Rapier CCD enabled by default, so fast objects are swept against their colliders rather than only tested at their endpoint. The debug overlay draws the effective path width and skin so diagnostic geometry matches the active solver shape.
 
 1. Draw ordinary canvas objects and select them.
-2. Assign Dynamic, Kinematic, Fixed collider, or Sensor properties.
-3. Choose Pin, Spring, Distance, Revolute, Weld, or Attractor, then click two canvas endpoints. Handles appear for selected participants.
-4. Press Play. Drag a running authored body directly to create a temporary grab spring; release it to return control to the solver without changing Reset.
-5. Use Apply pose to author the current result, or Reset to return to the saved baseline.
+2. Assign one body role: Dynamic, Kinematic, Fixed collider, or Sensor. A body has one role, but may participate in any number of constraints.
+3. Use the compact canvas Physics toolbar for fast authoring. **Fixate** is a one-click fixed joint: click a body to weld it to the next overlapping physics body, or to World when nothing eligible is underneath. **Axle** is the equivalent one-click revolute joint. **Spring** uses two clicks to choose its attachment points; its initial click distance becomes the default rest length.
+4. Edit a named first-class constraint in the Physics panel's **Constraints** section. It exposes endpoints, enable/collide-connected state, and the relevant spring or hinge settings. Pin/Revolute/Weld remain compatible vocabulary for existing scenes; Fixate/Axle are their canvas-facing aliases.
+5. Press Play. Drag a running authored body directly to create a temporary grab spring; release it to return control to the solver without changing Reset.
+6. Use Apply pose to author the current result, or Reset to return to the saved baseline.
 
 The inspector edits selected-body name, collision tags, friction, restitution, density, and damping. Population controls create seeded runtime instances and can materialize them as individually authored objects in one undoable change.
 

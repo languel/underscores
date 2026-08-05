@@ -56,6 +56,22 @@ test("hard snapping is idempotent and preserves point metadata", () => {
   assert.equal(second.snapped, false);
 });
 
+test("a force-hard snap uses Drawerator grid coordinates even when normal snapping is off", () => {
+  const grid = mergeGridPatch(DEFAULT_GLOBAL_GRID, {
+    transform: { origin: [13, -7], rotation: Math.PI / 4 },
+    spacing: { x: 80, y: 40, subdivisionsX: 4, subdivisionsY: 2 },
+    snap: { mode: "off", resolution: "minor" },
+  });
+  const intendedNode = gridToWorldPoint(grid, [1.25, -1.5]);
+  // Keep the sample inside the same rotated local minor-grid cell.
+  const nearby = gridToWorldPoint(grid, [1.32, -1.43]);
+  const normal = snapPointToGrid(grid, nearby);
+  const forced = snapPointToGrid(grid, nearby, { mode: "hard" });
+  assert.deepEqual(normal.point.slice(0, 2), nearby);
+  assert.ok(Math.abs(forced.point[0] - intendedNode[0]) < 1e-9);
+  assert.ok(Math.abs(forced.point[1] - intendedNode[1]) < 1e-9);
+});
+
 test("magnetic snapping uses a screen-pixel threshold and independent axes", () => {
   const grid = mergeGridPatch(DEFAULT_GLOBAL_GRID, {
     snap: { mode: "magnetic", thresholdPx: 8, axes: "both" },

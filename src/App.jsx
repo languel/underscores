@@ -102,7 +102,7 @@ import { canUseAsObjectBoundsTarget, createMediaBinding, createMediaSource, crea
 import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
 import { createUnifiedStreamsApi, DraweratorStreamRegistry } from "./streamRuntime.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
-import { addRelationshipItem, createDefaultPhysicsSystem, createEmptyRelationshipGraph, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, removeRelationshipBindingsForElements, withPhysicsCustomData } from "./relationshipGraph.js";
+import { addRelationshipItem, createDefaultPhysicsSystem, createEmptyRelationshipGraph, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, removeRelationshipBindingsForElements, removeRelationshipItem, updateRelationshipItem, withPhysicsCustomData } from "./relationshipGraph.js";
 import { applyAnchorAttractorFrame, applyBezierSculptOperator, getPhysicsColliderSelectionValue, getPhysicsElementLocalCenter, inferPhysicsBodyFromElement, inferPhysicsColliderForBody, inferPhysicsColliderFromElement } from "./physicsGeometry.js";
 import { createPhysicsApi, createRelationshipApi, PhysicsRuntimeController } from "./physicsRuntime.js";
 import { mappingTargetValue } from "./mappingRuntime.js";
@@ -111,6 +111,7 @@ import { createPhysicsExample } from "./physicsExamples.js";
 import { samplePortraitLandmarkFixture } from "./physicsFixtures.js";
 import PhysicsPanel from "./PhysicsPanel.jsx";
 import PhysicsOverlay from "./PhysicsOverlay.jsx";
+import PhysicsCanvasToolbar from "./PhysicsCanvasToolbar.jsx";
 import { BrowserStreamAdapterRuntime, mapAdapterRecordToSample, parseMidiMessage } from "./streamAdapters.js";
 import { BrushChannelRuntime, DEFAULT_BRUSH_CHANNELS, normalizeBrushChannel, normalizeBrushChannels } from "./brushChannelRuntime.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
@@ -6157,6 +6158,10 @@ function App() {
     // drag from also reaching Excalidraw's drawing tools.
     if (e.target?.closest?.(".svg-path-control")) return;
 
+    // The compact physics toolbar lives over the canvas. It must never become
+    // an endpoint while a constraint tool is armed.
+    if (e.target?.closest?.(".physics-canvas-toolbar")) return;
+
     if (handlePhysicsPointerDown(e)) return;
 
     if (handleObjectEyedropperPointerDown(e)) return;
@@ -7572,6 +7577,12 @@ function App() {
 
   const scheduleNativeGridQuantization = () => {
     const grid = globalGridRef.current;
+    // Excalidraw reserves Shift while drawing (for example, to constrain a
+    // line). Drawerator treats the same gesture as an explicit request to
+    // force-snap the completed authored geometry. This must bypass the normal
+    // `snap.mode === "off"` gate, otherwise an invisible native constraint is
+    // the only effect of holding Shift.
+    const forceHardSnap = wasShiftHeldRef.current === true;
     if (nativeLineGridPointsRef.current && excalidrawAPIRef.current?.getAppState()?.activeTool?.type === "line") return;
     // Let Excalidraw commit its pointer-up edit before quantizing the authored point.
     window.setTimeout(() => {
@@ -7599,13 +7610,13 @@ function App() {
       const boundIds = hasGeometryEdit
         ? candidates.filter(element => normalizeIannixData(getScoreData(element)).gridBinding.quantize.geometry).map(element => element.id)
         : [];
-      const globallyEligibleIds = allowed && grid.snap.mode !== "off"
+      const globallyEligibleIds = allowed && (forceHardSnap || grid.snap.mode !== "off")
         ? candidates.filter(element => !boundIds.includes(element.id)).map(element => element.id)
         : [];
       const quantizeGlobalIds = () => globallyEligibleIds.length && quantizeGlobalGridElements({
         elementIds: globallyEligibleIds,
         transformOnly: globallyEligibleIds.length > 1 || (!isPointEdit && !isCreation && !isResize),
-        forceHard: false,
+        forceHard: forceHardSnap,
         pointIndices: isPointEdit && interaction.pointIndices?.length ? interaction.pointIndices : null,
       });
       if (boundIds.length) quantizeGlobalGridElements({
@@ -8953,6 +8964,29 @@ function App() {
 
   const patchPhysicsBody = (bodyId, patch) => patchPhysicsBodies([bodyId], patch)[0] || null;
 
+  const patchPhysicsConstraint = (constraintId, patch) => {
+    if (!constraintId) return null;
+    let nextConstraint = null;
+    setRelationshipGraph(previous => {
+      const next = updateRelationshipItem(previous, "constraints", constraintId, current => {
+        nextConstraint = { ...current, ...(patch || {}) };
+        return nextConstraint;
+      });
+      relationshipGraphRef.current = next;
+      return next;
+    });
+    return nextConstraint;
+  };
+
+  const removePhysicsConstraint = constraintId => {
+    if (!constraintId) return;
+    setRelationshipGraph(previous => {
+      const next = removeRelationshipItem(previous, "constraints", constraintId);
+      relationshipGraphRef.current = next;
+      return next;
+    });
+  };
+
   const removePhysicsBodies = bodyIds => {
     const ids = new Set((Array.isArray(bodyIds) ? bodyIds : [bodyIds]).filter(Boolean));
     const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
@@ -9107,22 +9141,49 @@ function App() {
   };
 
   const startPhysicsTool = (kind, systemId = activePhysicsSystemId) => {
+    const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+    const existingSystemId = systemId || graph.systems[0]?.id;
+    const createdSystem = existingSystemId ? null : createDefaultPhysicsSystem({ name: "World" });
+    const targetSystemId = existingSystemId || createdSystem.id;
+    if (createdSystem) {
+      const next = normalizeRelationshipGraph({ ...graph, systems: [...graph.systems, createdSystem] });
+      relationshipGraphRef.current = next;
+      setRelationshipGraph(next);
+      setActivePhysicsSystemId(createdSystem.id);
+    }
     physicsToolStartRef.current = null;
-    setPhysicsTool({ kind, systemId });
-    setSceneExchangeStatus(kind === "attract-brush" ? "Drag on a selected canonical curve to sculpt it." : `Physics ${kind}: click the first endpoint, then the second.`);
+    setPhysicsTool({ kind, systemId: targetSystemId });
+    const hint = kind === "attract-brush"
+      ? "Drag on a selected canonical curve to sculpt it."
+      : kind === "fixate"
+        ? "Fixate: click a body to weld it to the overlapping body, or to World when nothing is underneath."
+        : kind === "axle"
+          ? "Axle: click a body to hinge it to the overlapping body, or to World when nothing is underneath."
+          : `Physics ${kind}: click the first endpoint, then the second.`;
+    setSceneExchangeStatus(hint);
   };
 
-  const physicsElementAtPoint = point => {
+  const canvasElementsAtPhysicsPoint = point => {
     const elements = excalidrawAPIRef.current?.getSceneElements() || [];
-    return [...elements].reverse().find(element => {
+    return [...elements].reverse().filter(element => {
       if (element.isDeleted) return false;
       const minX = Math.min(element.x, element.x + element.width) - 8;
       const maxX = Math.max(element.x, element.x + element.width) + 8;
       const minY = Math.min(element.y, element.y + element.height) - 8;
       const maxY = Math.max(element.y, element.y + element.height) + 8;
       return point[0] >= minX && point[0] <= maxX && point[1] >= minY && point[1] <= maxY;
-    }) || null;
+    });
   };
+
+  const physicsElementsAtPoint = (point, systemId = null) => {
+    const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+    const eligibleIds = new Set(graph.bodies
+      .filter(body => body.enabled && body.objectRef?.kind === "element" && (!systemId || body.systemId === systemId))
+      .map(body => body.objectRef.elementId));
+    return canvasElementsAtPhysicsPoint(point).filter(element => eligibleIds.has(element.id));
+  };
+
+  const physicsElementAtPoint = (point, systemId = null) => physicsElementsAtPoint(point, systemId)[0] || null;
 
   const endpointForPhysicsHit = (element, point) => element
     ? { kind: "object", objectRef: { kind: "element", elementId: element.id }, anchor: "local", localPoint: [
@@ -9163,22 +9224,58 @@ function App() {
       event.stopPropagation();
       return true;
     }
-    const element = physicsElementAtPoint(point);
+    const canvasElements = canvasElementsAtPhysicsPoint(point);
+    const matchingElements = physicsElementsAtPoint(point, tool.systemId);
+    if (["fixate", "axle"].includes(tool.kind)) {
+      const primary = matchingElements[0];
+      if (!primary) {
+        setSceneExchangeStatus(canvasElements.length
+          ? "Assign a Physics role before creating a constraint."
+          : `${tool.kind === "fixate" ? "Fixate" : "Axle"} needs a physics body to attach.`);
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
+      }
+      const underlying = matchingElements[1] || null;
+      const constraint = {
+        id: `physics-${tool.kind}-${crypto.randomUUID()}`,
+        systemId: tool.systemId,
+        name: tool.kind === "fixate" ? "Fixate" : "Axle",
+        kind: tool.kind,
+        a: endpointForPhysicsHit(primary, point),
+        b: underlying ? endpointForPhysicsHit(underlying, point) : { kind: "world", point },
+        collideConnected: false,
+      };
+      setRelationshipGraph(previous => addRelationshipItem(previous, "constraints", constraint));
+      setPhysicsTool(null);
+      setSceneExchangeStatus(`Created ${constraint.name.toLowerCase()} ${underlying ? "between two bodies" : "to World"}.`);
+      event.preventDefault();
+      event.stopPropagation();
+      return true;
+    }
+    if (canvasElements.length && !matchingElements.length) {
+      setSceneExchangeStatus("Assign a Physics role before using it as a constraint endpoint.");
+      event.preventDefault();
+      event.stopPropagation();
+      return true;
+    }
+    const element = matchingElements[0] || null;
     const endpoint = endpointForPhysicsHit(element, point);
     if (!physicsToolStartRef.current) {
-      physicsToolStartRef.current = endpoint;
+      physicsToolStartRef.current = { endpoint, point };
       setSceneExchangeStatus(`Physics ${tool.kind}: choose the second endpoint.`);
     } else {
+      const start = physicsToolStartRef.current;
       const constraint = {
         id: `physics-${tool.kind}-${crypto.randomUUID()}`,
         systemId: tool.systemId,
         name: tool.kind,
         kind: tool.kind,
-        a: physicsToolStartRef.current,
+        a: start.endpoint,
         b: endpoint,
         restLength: Math.hypot(
-          point[0] - (physicsToolStartRef.current.point?.[0] ?? point[0]),
-          point[1] - (physicsToolStartRef.current.point?.[1] ?? point[1]),
+          point[0] - start.point[0],
+          point[1] - start.point[1],
         ) || 100,
         stiffness: tool.kind === "distance" ? 180 : 45,
         damping: 6,
@@ -19766,6 +19863,20 @@ function App() {
     });
     if (!changed) return;
     excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
+    // The generic Object tree intentionally exposes the canonical authored
+    // role record. Keep that escape hatch live: editing
+    // `object.customData.physics` must update the relationship graph used by
+    // Rapier just like the promoted Physics-role controls do. The hydrator
+    // preserves each graph body's stable relationship id while taking its
+    // authored configuration from the native object.
+    if (path[0] === "customData" && path[1] === "physics") {
+      const nextGraph = hydrateRelationshipGraphFromElements(
+        relationshipGraphRef.current,
+        nextElements,
+      );
+      relationshipGraphRef.current = nextGraph;
+      setRelationshipGraph(nextGraph);
+    }
     setModifierUpdateNonce(nonce => nonce + 1);
   };
 
@@ -21905,7 +22016,11 @@ function App() {
               onDebugChange={setPhysicsDebug}
               onSetGraph={setRelationshipGraph}
               onPatchBody={patchPhysicsBody}
+              onPatchBodies={patchPhysicsBodies}
               onRemoveBody={removePhysicsBody}
+              onRemoveBodies={removePhysicsBodies}
+              onPatchConstraint={patchPhysicsConstraint}
+              onRemoveConstraint={removePhysicsConstraint}
               onRemoveSystem={removePhysicsSystem}
               onPlay={systemId => { synchronizePausedPhysicsBodies(); resumePhysicsAudio(); physicsRuntimeRef.current.play(systemId); }}
               onPause={systemId => physicsRuntimeRef.current.pause(systemId)}
@@ -21920,6 +22035,7 @@ function App() {
               onSculpt={sculptPhysicsSelection}
               onLoadExample={loadPhysicsExample}
               expressivePrograms={getExpressiveSynthPrograms(expressiveSynthConfig)}
+              selectedElements={getSelectedElements()}
             />
           </DraweratorPanel>
           )}
@@ -22219,6 +22335,14 @@ function App() {
             </DraweratorPanel>
           )}
         </Excalidraw>
+
+        <PhysicsCanvasToolbar
+          selectedCount={Object.values(selectedElementIds).filter(Boolean).length}
+          activeTool={physicsTool?.kind || null}
+          onAssignBody={options => assignPhysicsBodies({ systemId: activePhysicsSystemId, ...options })}
+          onAssignCollider={options => assignPhysicsBodies({ systemId: activePhysicsSystemId, bodyType: "fixed", ...options })}
+          onBeginTool={kind => startPhysicsTool(kind)}
+        />
 
         {showPerformanceOverlay && performanceOverlayPlacement === "floating" ? <PerformanceOverlay
           placement="floating"

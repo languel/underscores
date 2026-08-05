@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import InspectorSection from "./InspectorSection.jsx";
-import { createDefaultPhysicsSystem, normalizeRelationshipGraph, normalizeRelationshipMapping } from "./relationshipGraph.js";
+import { createDefaultPhysicsSystem, normalizePhysicsConstraint, normalizeRelationshipGraph, normalizeRelationshipMapping } from "./relationshipGraph.js";
 import { compileMappingExpression } from "./mappingExpression.js";
+import { getPhysicsColliderSelectionValue } from "./physicsGeometry.js";
 import { infoProps } from "./uiInfo.js";
 
 const Button = ({ children, active = false, ...props }) => <button type="button" className={`iannix-flat-button physics-flat-button${active ? " active" : ""}`} {...props}>{children}</button>;
@@ -47,7 +48,11 @@ export default function PhysicsPanel({
   onDebugChange,
   onSetGraph,
   onPatchBody,
+  onPatchBodies,
   onRemoveBody,
+  onRemoveBodies,
+  onPatchConstraint,
+  onRemoveConstraint,
   onRemoveSystem,
   onPlay,
   onPause,
@@ -62,16 +67,22 @@ export default function PhysicsPanel({
   onSculpt,
   onLoadExample,
   expressivePrograms = [],
+  selectedElements = [],
 }) {
   const graph = normalizeRelationshipGraph(graphValue);
   const system = graph.systems.find(candidate => candidate.id === activeSystemId) || graph.systems[0] || null;
   const [populationCount, setPopulationCount] = useState(250);
   const [particleSize, setParticleSize] = useState(7);
   const [expandedMappingId, setExpandedMappingId] = useState(null);
+  const [expandedConstraintId, setExpandedConstraintId] = useState(null);
   const systemTelemetry = telemetry.systems?.find(candidate => candidate.systemId === system?.id);
   const selectedIdSet = useMemo(() => new Set(Object.keys(selectedElementIds).filter(id => selectedElementIds[id])), [selectedElementIds]);
   const selectedBodies = useMemo(() => graph.bodies.filter(body => body.objectRef?.kind === "element" && selectedIdSet.has(body.objectRef.elementId)), [graph.bodies, selectedIdSet]);
   const selectedBody = selectedBodies[0] || null;
+  const selectedElementsById = useMemo(() => new Map(selectedElements.map(element => [element.id, element])), [selectedElements]);
+  const selectedBodyElements = useMemo(() => selectedBodies
+    .map(body => selectedElementsById.get(body.objectRef?.elementId))
+    .filter(Boolean), [selectedBodies, selectedElementsById]);
   const patchDebug = patch => onDebugChange?.({ ...debug, ...patch });
   const patchSystem = patch => {
     if (!system) return;
@@ -85,6 +96,10 @@ export default function PhysicsPanel({
   };
   const patchSelectedBody = patch => {
     if (!selectedBody) return;
+    if (onPatchBodies) {
+      onPatchBodies(selectedBodies.map(body => body.id), patch);
+      return;
+    }
     if (onPatchBody) {
       onPatchBody(selectedBody.id, patch);
       return;
@@ -93,6 +108,10 @@ export default function PhysicsPanel({
   };
   const removeSelectedBody = () => {
     if (!selectedBody) return;
+    if (onRemoveBodies) {
+      onRemoveBodies(selectedBodies.map(body => body.id));
+      return;
+    }
     if (onRemoveBody) {
       onRemoveBody(selectedBody.id);
       return;
@@ -122,6 +141,7 @@ export default function PhysicsPanel({
     mappings: graph.mappings.filter(item => item.source.systemId === system.id).length,
   } : { bodies: 0, populations: 0, constraints: 0, mappings: 0 }, [graph, system]);
   const systemMappings = useMemo(() => graph.mappings.filter(mapping => mapping.source.systemId === system?.id), [graph.mappings, system?.id]);
+  const systemConstraints = useMemo(() => graph.constraints.filter(constraint => constraint.systemId === system?.id), [graph.constraints, system?.id]);
   const updateMapping = (mappingId, patch) => onSetGraph({
     ...graph,
     mappings: graph.mappings.map(mapping => mapping.id === mappingId ? normalizeRelationshipMapping({ ...mapping, ...patch }) : mapping),
@@ -135,6 +155,25 @@ export default function PhysicsPanel({
     const copy = normalizeRelationshipMapping({ ...mapping, id: `mapping-${crypto.randomUUID()}`, name: `${mapping.name} copy` });
     onSetGraph({ ...graph, mappings: [...graph.mappings, copy] });
     setExpandedMappingId(copy.id);
+  };
+  const updateConstraint = (constraintId, patch) => {
+    if (onPatchConstraint) {
+      onPatchConstraint(constraintId, patch);
+      return;
+    }
+    onSetGraph({
+      ...graph,
+      constraints: graph.constraints.map(constraint => constraint.id === constraintId
+        ? normalizePhysicsConstraint({ ...constraint, ...patch })
+        : constraint),
+    });
+  };
+  const removeConstraint = constraintId => {
+    if (onRemoveConstraint) {
+      onRemoveConstraint(constraintId);
+      return;
+    }
+    onSetGraph({ ...graph, constraints: graph.constraints.filter(constraint => constraint.id !== constraintId) });
   };
 
   return <div className="physics-panel">
@@ -202,6 +241,20 @@ export default function PhysicsPanel({
         </div>
       </InspectorSection>
 
+      <InspectorSection title={`Constraints · ${systemConstraints.length}`} defaultOpen>
+        <div className="physics-constraint-list">
+          {systemConstraints.map((constraint, index) => <ConstraintCard
+            key={constraint.id}
+            constraint={constraint}
+            expanded={expandedConstraintId === null ? index === 0 : expandedConstraintId === constraint.id}
+            onToggle={() => setExpandedConstraintId(current => current === constraint.id ? false : constraint.id)}
+            onUpdate={patch => updateConstraint(constraint.id, patch)}
+            onRemove={() => removeConstraint(constraint.id)}
+          />)}
+          {!systemConstraints.length && <div className="physics-empty">Choose Spring, Fixate, or Axle, then author it on the canvas.</div>}
+        </div>
+      </InspectorSection>
+
       <InspectorSection title={`Selection · ${selectedElementCount}`} defaultOpen>
         <div className="physics-role-grid">
           <Button disabled={!selectedElementCount} onClick={() => onAssignBody({ systemId: system.id, bodyType: "dynamic" })}>Dynamic body</Button>
@@ -210,11 +263,22 @@ export default function PhysicsPanel({
           <Button disabled={!selectedElementCount} onClick={() => onAssignCollider({ systemId: system.id, sensor: true })}>Sensor</Button>
         </div>
         <div className="physics-tool-grid">
-          {["pin", "spring", "distance", "revolute", "weld", "attractor"].map(kind => <Button key={kind} active={activeTool === kind} onClick={() => onBeginTool(kind, system.id)}>{kind}</Button>)}
+          {[
+            ["spring", "Spring", "Click two attachment points; its initial length becomes the resting length."],
+            ["fixate", "Fixate", "Click one body: it welds to the body underneath, or to World when there is none."],
+            ["axle", "Axle", "Click one body: it hinges to the body underneath, or to World when there is none."],
+            ["distance", "Distance", "A stiffer spring between two attachment points."],
+            ["revolute", "Revolute", "Compatibility hinge tool; Axle is the canvas-first equivalent."],
+            ["weld", "Weld", "Compatibility rigid joint tool; Fixate is the canvas-first equivalent."],
+          ].map(([kind, label, help]) => <Button key={kind} active={activeTool === kind} onClick={() => onBeginTool(kind, system.id)} {...infoProps(label, help)}>{label}</Button>)}
         </div>
         {selectedBody && <div className="physics-selected-properties">
-          <label className="physics-field"><span>Physics name</span><input value={selectedBody.name} onChange={event => patchSelectedBody({ name: event.target.value })} /></label>
+          {selectedBodies.length === 1 && <label className="physics-field"><span>Physics name</span><input value={selectedBody.name} onChange={event => patchSelectedBody({ name: event.target.value })} /></label>}
+          <label className="physics-check"><input type="checkbox" checked={selectedBody.enabled} onChange={event => patchSelectedBody({ enabled: event.target.checked })} /><span>Enabled{selectedBodies.length > 1 ? ` · ${selectedBodies.length} bodies` : ""}</span></label>
           <label className="physics-field"><span>Tags</span><input value={selectedBody.collisionTags.join(", ")} onChange={event => patchSelectedBody({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} /></label>
+          <label className="physics-field" {...infoProps("Object note", "A per-body value available to collision mappings as aNote/noteA or bNote/noteB.")}><span>Object note</span><input type="number" min="0" max="127" step="1" value={selectedBody.mappingValues.note} onChange={event => patchSelectedBody({ mappingValues: { note: event.target.valueAsNumber } })} /></label>
+          {selectedBodyElements.length === selectedBodies.length && <label className="physics-field"><span>Collider</span><select value={getPhysicsColliderSelectionValue(selectedBody.collider, { allowPath: selectedBodyElements.every(element => ["freedraw", "line", "arrow"].includes(element.type) || element.customData?.draweratorGeometry?.kind === "cubicBezierPath") })} onChange={event => patchSelectedBody({ colliderKind: event.target.value })}><option value="box">Bounding box</option><option value="ellipse">Bounding ellipse</option><option value="convex">Convex hull</option>{selectedBodyElements.every(element => ["freedraw", "line", "arrow"].includes(element.type) || element.customData?.draweratorGeometry?.kind === "cubicBezierPath") && <option value="chain">Path chain</option>}</select></label>}
+          <label className="physics-field" {...infoProps("Collision skin", "Invisible scene-pixel padding around this collider. It helps small or fast bodies make stable contact with fine paths.")}><span>Collision skin</span><input type="number" min="0" max="64" step="0.5" value={selectedBody.collider.contactSkin} onChange={event => patchSelectedBody({ collider: { contactSkin: event.target.valueAsNumber } })} /></label>
           <div className="physics-two-column">
             <label className="physics-field"><span>Friction</span><input type="number" min="0" max="10" step="0.05" value={selectedBody.material.friction} onChange={event => patchSelectedBody({ material: { ...selectedBody.material, friction: Number(event.target.value) } })} /></label>
             <label className="physics-field"><span>Bounce</span><input type="number" min="0" max="2" step="0.05" value={selectedBody.material.restitution} onChange={event => patchSelectedBody({ material: { ...selectedBody.material, restitution: Number(event.target.value) } })} /></label>
@@ -258,6 +322,62 @@ export default function PhysicsPanel({
       </InspectorSection>
     </> : <div className="physics-empty">Add a physics system, then draw or select objects on the canvas.</div>}
   </div>;
+}
+
+const constraintLabel = kind => ({
+  fixate: "Fixate",
+  axle: "Axle",
+  spring: "Spring",
+  distance: "Distance",
+  pin: "Pin",
+  revolute: "Revolute",
+  weld: "Weld",
+  attractor: "Attractor",
+}[kind] || "Constraint");
+
+const endpointLabel = endpoint => {
+  if (!endpoint) return "Missing endpoint";
+  if (endpoint.kind === "world") return `World · ${Math.round(endpoint.point?.[0] || 0)}, ${Math.round(endpoint.point?.[1] || 0)}`;
+  if (endpoint.kind === "stream") return `Stream · ${endpoint.featureId || endpoint.streamId}`;
+  if (endpoint.kind === "bezier-anchor") return `Curve anchor · ${endpoint.anchorId}`;
+  if (endpoint.kind === "curve-progress") return `Curve · ${Math.round((endpoint.progress || 0) * 100)}%`;
+  return `Object · ${endpoint.objectRef?.elementId?.slice(0, 10) || "missing"}`;
+};
+
+function ConstraintCard({ constraint: constraintValue, expanded, onToggle, onUpdate, onRemove }) {
+  const constraint = normalizePhysicsConstraint(constraintValue);
+  const isSpring = ["spring", "distance"].includes(constraint.kind);
+  const isAxle = ["axle", "pin", "revolute"].includes(constraint.kind);
+  return <article className="physics-constraint-card">
+    <div className="physics-constraint-header">
+      <button type="button" className="physics-mapping-toggle" onClick={onToggle} aria-expanded={expanded}>
+        {expanded ? "⌄" : "›"} {constraint.name || constraintLabel(constraint.kind)}
+      </button>
+      <span className="physics-constraint-kind">{constraintLabel(constraint.kind)}</span>
+      <label className="physics-mapping-enable"><input type="checkbox" checked={constraint.enabled} onChange={event => onUpdate({ enabled: event.target.checked })} />Enabled</label>
+      <Button onClick={onRemove}>Remove</Button>
+    </div>
+    {expanded && <div className="physics-constraint-editor">
+      <label className="physics-field"><span>Name</span><input value={constraint.name} onChange={event => onUpdate({ name: event.target.value })} /></label>
+      <div className="physics-two-column">
+        <label className="physics-field"><span>Kind</span><select value={constraint.kind} onChange={event => onUpdate({ kind: event.target.value })}>
+          <option value="fixate">Fixate</option><option value="axle">Axle</option><option value="spring">Spring</option><option value="distance">Distance</option>
+          <option value="pin">Pin (legacy)</option><option value="revolute">Revolute (legacy)</option><option value="weld">Weld (legacy)</option>
+        </select></label>
+        <label className="physics-check" {...infoProps("Collide while connected", "Off by default so connected parts do not immediately collide with one another. Enable when their colliders should still make contact.")}><input type="checkbox" checked={constraint.collideConnected} onChange={event => onUpdate({ collideConnected: event.target.checked })} /><span>Collide while connected</span></label>
+      </div>
+      <div className="physics-constraint-endpoints"><span>A · {endpointLabel(constraint.a)}</span><span>B · {endpointLabel(constraint.b)}</span></div>
+      {isSpring && <div className="physics-two-column">
+        <label className="physics-field"><span>Rest length</span><input type="number" min="0" step="1" value={constraint.restLength} onChange={event => onUpdate({ restLength: event.target.valueAsNumber })} /></label>
+        <label className="physics-field"><span>Stiffness</span><input type="number" min="0" step="1" value={constraint.stiffness} onChange={event => onUpdate({ stiffness: event.target.valueAsNumber })} /></label>
+        <label className="physics-field"><span>Damping</span><input type="number" min="0" step="0.1" value={constraint.damping} onChange={event => onUpdate({ damping: event.target.valueAsNumber })} /></label>
+      </div>}
+      {isAxle && <div className="physics-two-column">
+        <label className="physics-field" {...infoProps("Lower angle limit", "Optional axle limit in radians. Enter both limits to enable them.")}><span>Lower limit</span><input type="number" step="0.1" value={constraint.lowerLimit ?? ""} onChange={event => onUpdate({ lowerLimit: event.target.value === "" ? null : event.target.valueAsNumber })} /></label>
+        <label className="physics-field" {...infoProps("Upper angle limit", "Optional axle limit in radians. Enter both limits to enable them.")}><span>Upper limit</span><input type="number" step="0.1" value={constraint.upperLimit ?? ""} onChange={event => onUpdate({ upperLimit: event.target.value === "" ? null : event.target.valueAsNumber })} /></label>
+      </div>}
+    </div>}
+  </article>;
 }
 
 function MappingCard({ mapping: mappingValue, systems, programs, expanded, onToggle, onUpdate, onDuplicate, onRemove, index }) {

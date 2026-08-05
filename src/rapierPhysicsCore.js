@@ -270,8 +270,8 @@ export class RapierPhysicsSystem {
     const anchorA = entityA ? localAnchorForBody(this.graph.bodies.find(body => body.id === entityA.bodyId), a.endpoint) : { x: 0, y: 0 };
     const anchorB = entityB ? localAnchorForBody(this.graph.bodies.find(body => body.id === entityB.bodyId), b.endpoint) : { x: 0, y: 0 };
     let data;
-    if (constraint.kind === "revolute" || constraint.kind === "pin") data = RAPIER.JointData.revolute(anchorA, anchorB);
-    else if (constraint.kind === "weld") data = RAPIER.JointData.fixed(anchorA, 0, anchorB, 0);
+    if (["revolute", "pin", "axle"].includes(constraint.kind)) data = RAPIER.JointData.revolute(anchorA, anchorB);
+    else if (["weld", "fixate"].includes(constraint.kind)) data = RAPIER.JointData.fixed(anchorA, 0, anchorB, 0);
     else data = RAPIER.JointData.spring(constraint.restLength * PHYSICS_WORLD_SCALE, constraint.stiffness, constraint.damping, anchorA, anchorB);
     const joint = this.world.createImpulseJoint(data, bodyA, bodyB, true);
     joint.setContactsEnabled(constraint.collideConnected);

@@ -14,6 +14,7 @@ import { getSvgNodeStyleCascade, updateStructuredSvgStyleDeclaration } from "./s
 import { isMediaStreamElement, MEDIA_STREAM_KINDS, normalizeMediaStreamConfig, patchMediaStreamConfig } from "./mediaStream.js";
 import { getScoreData } from "./iannixEngine.js";
 import { getPhysicsColliderSelectionValue } from "./physicsGeometry.js";
+import { getInspectableCustomData } from "./propertyInspectorModel.js";
 
 const READ_ONLY_KEYS = new Set([
   "id", "type", "width", "height", "version", "versionNonce", "updated", "index", "seed",
@@ -709,14 +710,7 @@ const svgMatchesQuery = (element, query) => {
 };
 
 const propertyTreeValue = element => {
-  const customData = { ...(element.customData || {}) };
-  delete customData.draweratorSvg;
-  // Role data has compact pinned controls above the raw Excalidraw tree.
-  // Hiding it here avoids presenting the same authored setting twice.
-  delete customData.physics;
-  delete customData.draweratorPhysics;
-  delete customData.score;
-  delete customData.iannix;
+  const customData = getInspectableCustomData(element.customData);
   if (!isSvgObjectElement(element) && element?.type !== "frame") return { ...element, customData };
   if (element?.type !== "frame") return { ...element, customData };
   // A frame's renderer ignores roundness. Omitting the inert field prevents
@@ -729,7 +723,7 @@ const physicsBodyMatchesQuery = (body, query) => {
   if (!body || !query?.needle) return Boolean(body);
   return [
     "physics", "body", "enabled", "type", "name", "tags", "sensor", "collider",
-    "friction", "bounce", "restitution", "density", "damping", "angular damping", "collision skin",
+    "friction", "bounce", "restitution", "density", "damping", "angular damping", "collision skin", "object note", "note",
     body.name, body.bodyType, body.collisionTags.join(" "), body.collider.kind,
   ].some(value => String(value || "").toLowerCase().includes(query.needle));
 };
@@ -753,6 +747,7 @@ const PhysicsRoleControls = ({ body, element, query, onChange, onColliderKindCha
         {matches("sensor") && <div className="properties-row editable"><span>sensor</span><input type="checkbox" checked={body.collider.sensor} onChange={event => updateCollider({ sensor: event.target.checked })} /></div>}
         {matches("name") && <div className="properties-row editable"><span>name</span><input type="text" value={body.name} onChange={event => onChange({ name: event.target.value })} /></div>}
         {matches("tags") && <div className="properties-row editable"><span>tags</span><input type="text" value={body.collisionTags.join(", ")} onChange={event => onChange({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} /></div>}
+        {matches("note") && <div className="properties-row editable"><span>object note</span><input type="number" min="0" max="127" step="1" value={body.mappingValues.note} onChange={event => onChange({ mappingValues: { note: event.target.valueAsNumber } })} /></div>}
         {supportsColliderChoices && matches("collider") && <div className="properties-row editable"><span>collider</span><select value={getPhysicsColliderSelectionValue(body.collider, { allowPath: Boolean(supportsPathCollider) })} onChange={event => onColliderKindChange?.(event.target.value)}><option value="box">Bounding box</option><option value="ellipse">Bounding ellipse</option><option value="convex">Convex hull</option>{supportsPathCollider && <option value="chain">Path chain</option>}</select></div>}
         <div className="properties-two-column">
           {matches("friction") && <div className="properties-row editable"><span>friction</span><input type="number" min="0" max="10" step="0.05" value={body.material.friction} onChange={event => updateMaterial({ friction: event.target.valueAsNumber })} /></div>}
@@ -760,6 +755,7 @@ const PhysicsRoleControls = ({ body, element, query, onChange, onColliderKindCha
           {matches("density") && <div className="properties-row editable"><span>density</span><input type="number" min="0.01" max="100" step="0.1" value={body.material.density} onChange={event => updateMaterial({ density: event.target.valueAsNumber })} /></div>}
           {matches("damping") && <div className="properties-row editable"><span>damping</span><input type="number" min="0" max="100" step="0.05" value={body.material.linearDamping} onChange={event => updateMaterial({ linearDamping: event.target.valueAsNumber })} /></div>}
         </div>
+        {matches("collision skin") && <div className="properties-row editable"><span>collision skin</span><input type="number" min="0" max="64" step="0.5" value={body.collider.contactSkin} onChange={event => updateCollider({ contactSkin: event.target.valueAsNumber })} /></div>}
         <button type="button" className="iannix-flat-button" onClick={() => onRemove?.()}>Remove physics role</button>
       </div>
     </details>
@@ -785,6 +781,7 @@ const SharedPhysicsControls = ({ elements, physicsBodies, query, onChange }) => 
   const enabled = sharedValue(physicsBodies, body => body.enabled);
   const sensor = sharedValue(physicsBodies, body => body.collider.sensor);
   const tags = sharedValue(physicsBodies, body => body.collisionTags.join(", "));
+  const note = sharedValue(physicsBodies, body => body.mappingValues.note);
   const friction = sharedValue(physicsBodies, body => body.material.friction);
   const restitution = sharedValue(physicsBodies, body => body.material.restitution);
   const density = sharedValue(physicsBodies, body => body.material.density);
@@ -817,6 +814,10 @@ const SharedPhysicsControls = ({ elements, physicsBodies, query, onChange }) => 
         {matches("tags") && <div className="properties-row editable">
           <span>tags</span>
           <input type="text" value={tags ?? ""} placeholder={tags === null ? "Mixed tags" : undefined} aria-label={`Tags for ${physicsBodies.length} selected objects`} onChange={event => onChange?.({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} />
+        </div>}
+        {matches("note") && <div className="properties-row editable">
+          <span>object note</span>
+          <input type="number" min="0" max="127" step="1" value={note ?? ""} placeholder={note === null ? "Mixed" : undefined} aria-label={`Object note for ${physicsBodies.length} selected objects`} onChange={event => numberChange(event, value => ({ mappingValues: { note: value } }))} />
         </div>}
         {matches("collider") && <div className="properties-row editable">
           <span>collider</span>
