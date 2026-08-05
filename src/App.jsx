@@ -8893,30 +8893,65 @@ function App() {
     return nextGraph;
   };
 
-  const patchPhysicsBody = (bodyId, patch) => {
+  const patchPhysicsBodies = (bodyIds, patch) => {
+    const ids = new Set((Array.isArray(bodyIds) ? bodyIds : [bodyIds]).filter(Boolean));
+    if (!ids.size) return [];
     const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
-    const current = graph.bodies.find(body => body.id === bodyId);
-    if (!current) return null;
-    const { colliderKind, ...bodyPatch } = patch || {};
-    const element = current.objectRef?.kind === "element"
-      ? excalidrawAPIRef.current?.getSceneElementsIncludingDeleted().find(candidate => candidate.id === current.objectRef.elementId && !candidate.isDeleted)
-      : null;
-    const nextBodyType = bodyPatch.bodyType || current.bodyType;
-    const nextColliderKind = colliderKind
-      || (["dynamic", "kinematic"].includes(nextBodyType) && current.collider.kind === "polyline" ? "chain" : null);
-    const inferredCollider = nextColliderKind && element ? inferPhysicsColliderFromElement(element, nextColliderKind, nextBodyType) : null;
-    const nextBody = normalizePhysicsBody({
-      ...current,
-      ...bodyPatch,
-      ...(inferredCollider ? { collider: { ...inferredCollider, sensor: current.collider.sensor } } : {}),
-    });
-    setRelationshipGraph({
+    const elementsById = new Map((excalidrawAPIRef.current?.getSceneElementsIncludingDeleted() || [])
+      .filter(candidate => !candidate.isDeleted)
+      .map(candidate => [candidate.id, candidate]));
+    const patchedBodies = [];
+    const nextGraph = normalizeRelationshipGraph({
       ...graph,
-      bodies: graph.bodies.map(body => body.id === bodyId ? nextBody : body),
+      bodies: graph.bodies.map(current => {
+        if (!ids.has(current.id)) return current;
+        const { colliderKind, ...bodyPatch } = patch || {};
+        // Every selected object keeps its own unrelated nested settings. A
+        // bulk edit such as `{ material: { restitution: 0.8 } }` should change
+        // only restitution for every body, rather than copying the first
+        // body's entire material into the selection.
+        const mergedBodyPatch = {
+          ...bodyPatch,
+          ...["collider", "material", "mappingValues", "initial", "render"].reduce((nested, key) => {
+            if (bodyPatch[key] && typeof bodyPatch[key] === "object" && !Array.isArray(bodyPatch[key])) {
+              nested[key] = { ...(current[key] || {}), ...bodyPatch[key] };
+            }
+            return nested;
+          }, {}),
+        };
+        const element = current.objectRef?.kind === "element"
+          ? elementsById.get(current.objectRef.elementId)
+          : null;
+        const nextBodyType = mergedBodyPatch.bodyType || current.bodyType;
+        const nextColliderKind = colliderKind
+          || (["dynamic", "kinematic"].includes(nextBodyType) && current.collider.kind === "polyline" ? "chain" : null);
+        const inferredCollider = nextColliderKind && element ? inferPhysicsColliderFromElement(element, nextColliderKind, nextBodyType) : null;
+        const nextBody = normalizePhysicsBody({
+          ...current,
+          ...mergedBodyPatch,
+          ...(inferredCollider ? {
+            collider: {
+              ...current.collider,
+              ...inferredCollider,
+              ...(mergedBodyPatch.collider || {}),
+            },
+          } : {}),
+        });
+        patchedBodies.push(nextBody);
+        return nextBody;
+      }),
     });
-    if (nextBody.objectRef?.kind === "element") updatePhysicsCustomData(nextBody.objectRef.elementId, nextBody);
-    return nextBody;
+    if (!patchedBodies.length) return [];
+    // React batches state setters, so repeated single-body patches may all see
+    // the same old graph. Advance the live reference once and write all
+    // selected bodies as one graph/custom-data update.
+    relationshipGraphRef.current = nextGraph;
+    setRelationshipGraph(nextGraph);
+    updatePhysicsCustomDataForBodies(patchedBodies);
+    return patchedBodies;
   };
+
+  const patchPhysicsBody = (bodyId, patch) => patchPhysicsBodies([bodyId], patch)[0] || null;
 
   const removePhysicsBodies = bodyIds => {
     const ids = new Set((Array.isArray(bodyIds) ? bodyIds : [bodyIds]).filter(Boolean));
@@ -15558,10 +15593,10 @@ function App() {
     const colliderChoices = new Set(bodies.map(candidate => getPhysicsColliderSelectionValue(candidate.collider, { allowPath: Boolean(supportsPathCollider) })));
     const selectedColliderChoice = colliderChoices.size === 1 ? [...colliderChoices][0] : "mixed";
     const roleLabel = roleOptions.find(([value]) => value === sharedRole)?.[1] || "Physics";
-    const patchBody = patch => bodies.forEach(candidate => patchPhysicsBody(candidate.id, patch));
-    const patchMaterial = patch => patchBody({ material: { ...body?.material, ...patch } });
+    const patchBody = patch => patchPhysicsBodies(bodies.map(candidate => candidate.id), patch);
+    const patchMaterial = patch => patchBody({ material: patch });
     const colliderPicker = supportsColliderChoices ? (
-      <label className="iannix-field" {...infoProps("Collider", "Bounding shapes are fast. Path chain follows drawings: fixed paths use an exact line collider, while moving paths use a thin solid chain.")}>
+      <label className="iannix-field" {...infoProps("Collider", "Bounding shapes are fast. Path chain follows the drawing's visible stroke width with rounded, continuous segments, for fixed walls and moving paths alike.")}>
         <span>Collider</span>
         <select value={selectedColliderChoice} onChange={event => patchBody({ colliderKind: event.target.value })}>
           {selectedColliderChoice === "mixed" && <option value="mixed" disabled>Mixed collider</option>}
@@ -15607,9 +15642,13 @@ function App() {
             </label>
             <label className="iannix-field" {...infoProps("Object note", "A numeric body value for collision mappings. It is available as aNote and noteA when this object is collision side A, or bNote and noteB on side B. For example: pentatonic((noteA + noteB) / 2, floor(speed / 12)).")}>
               <span>Object note</span>
-              <input type="number" min="0" max="127" step="1" value={body.mappingValues.note} onChange={event => patchBody({ mappingValues: { ...body.mappingValues, note: event.target.valueAsNumber } })} />
+              <input type="number" min="0" max="127" step="1" value={body.mappingValues.note} onChange={event => patchBody({ mappingValues: { note: event.target.valueAsNumber } })} />
             </label>
             {colliderPicker}
+            <label className="iannix-field" {...infoProps("Collision skin", "An invisible per-object padding around the collider, in scene pixels. The two colliding skins add together, so use small values to keep the visual gap subtle. Dynamic bodies already use continuous collision detection for fast motion.")}>
+              <span>Collision skin</span>
+              <input type="number" min="0" max="64" step="0.5" value={body.collider.contactSkin} onChange={event => patchBody({ collider: { contactSkin: event.target.valueAsNumber } })} />
+            </label>
             <div className="iannix-two-column">
               <label className="iannix-field">
                 <span>Friction</span>
@@ -21312,6 +21351,7 @@ function App() {
               availableElements={(excalidrawAPI?.getSceneElementsIncludingDeleted() || []).filter(element => !element.isDeleted)}
               physicsBodies={relationshipGraph.bodies}
               onPhysicsBodyChange={patchPhysicsBody}
+              onPhysicsBodiesChange={patchPhysicsBodies}
               onPhysicsBodyRemove={removePhysicsBody}
               onScoreChange={(elementId, patch) => updateIannixElement(elementId, current => ({ ...current, ...patch }))}
               selectedSvgNode={selectedSvgNode}

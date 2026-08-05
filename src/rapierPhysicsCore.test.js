@@ -110,6 +110,45 @@ test("moving path chains report a deterministic body-body impact", async () => {
   second.dispose();
 });
 
+test("rounded path chains use stroke thickness and CCD to stop a fast small body", async () => {
+  const chainGraph = normalizeRelationshipGraph({
+    systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
+    bodies: [
+      {
+        id: "fast-ball",
+        systemId: "world",
+        bodyType: "dynamic",
+        collider: { kind: "circle", radius: 2, contactSkin: 1 },
+        initial: { x: 0, y: -40, velocityY: 9000 },
+        collisionTags: ["body"],
+        material: { restitution: 0 },
+      },
+      {
+        id: "stroke-wall",
+        systemId: "world",
+        bodyType: "fixed",
+        collider: { kind: "chain", points: [[-120, 0], [120, 0]], thickness: 8, contactSkin: 1 },
+        initial: { x: 0, y: 0 },
+        collisionTags: ["wall"],
+        material: { restitution: 0 },
+      },
+    ],
+  });
+  const runtime = await RapierPhysicsSystem.create(chainGraph, "world");
+  const events = [];
+  for (let index = 0; index < 6; index += 1) events.push(...runtime.step().events);
+  assert.ok(events.some(event => event.phase === "hit" && event.collisionClass === "body-wall"));
+  const poses = runtime.poses();
+  const ballIndex = poses.metadata.findIndex(pose => pose.id === "fast-ball");
+  const ballY = poses.values[ballIndex * 4 + 1];
+  // The wall is centred on y=0. A body that tunneled would be far below it
+  // after a single fixed step; CCD plus its and the wall's skins hold it at
+  // the visible side of the thick stroke instead.
+  assert.ok(ballIndex >= 0);
+  assert.ok(ballY < 12, `ball crossed the solid path chain: y=${ballY}`);
+  runtime.dispose();
+});
+
 test("excluded runtime instances keep stable population identities", async () => {
   const excludedGraph = normalizeRelationshipGraph({
     systems: [{ id: "gas", gravity: { x: 0, y: 0 } }],

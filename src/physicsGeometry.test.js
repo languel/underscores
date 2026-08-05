@@ -27,10 +27,11 @@ test("canonical Bezier anchors receive stable ids and resolve as endpoints", () 
   assert.deepEqual(resolved.point, [60, 45]);
 });
 
-test("shape inference treats curves as fixed polylines and ellipses as circles", () => {
+test("shape inference treats curves as solid fixed chains and ellipses as circles", () => {
   const lineBody = inferPhysicsBodyFromElement(curve, { systemId: "system" });
   assert.equal(lineBody.bodyType, "fixed");
-  assert.equal(lineBody.collider.kind, "polyline");
+  assert.equal(lineBody.collider.kind, "chain");
+  assert.equal(lineBody.collider.thickness, 2);
   const circle = inferPhysicsBodyFromElement({ id: "circle", type: "ellipse", x: 0, y: 0, width: 20, height: 20, angle: 0 }, { systemId: "system" });
   assert.equal(circle.collider.kind, "circle");
   assert.equal(circle.collider.radius, 10);
@@ -87,10 +88,35 @@ test("path-chain collider points remain local when their drawing is rotated", ()
   assert.deepEqual(getPhysicsElementLocalPoints(rotatedLine), [[-40, -10], [40, 10]]);
   const chain = inferPhysicsColliderFromElement(rotatedLine, "chain", "dynamic");
   assert.deepEqual(chain.points, [[-40, -10], [40, 10]]);
+  assert.equal(chain.thickness, 4);
   assert.equal(chain.localOriginVersion, 2);
   const fixed = inferPhysicsBodyFromElement(rotatedLine, { systemId: "system" });
+  assert.equal(fixed.collider.kind, "chain");
+  assert.equal(fixed.collider.thickness, 4);
   assert.deepEqual(fixed.collider.points, [[-40, -10], [40, 10]]);
   assert.equal(fixed.collider.localOriginVersion, 2);
+});
+
+test("path collider refresh preserves an authored collision skin", () => {
+  const line = {
+    id: "skinned-path",
+    type: "line",
+    x: 0,
+    y: 0,
+    width: 80,
+    height: 20,
+    angle: 0,
+    strokeWidth: 6,
+    points: [[0, 0], [80, 20]],
+  };
+  const body = inferPhysicsBodyFromElement(line, { systemId: "system" });
+  const refreshed = inferPhysicsColliderForBody({ ...line, strokeWidth: 10 }, {
+    ...body,
+    collider: { ...body.collider, contactSkin: 2.5 },
+  });
+  assert.equal(refreshed.kind, "chain");
+  assert.equal(refreshed.thickness, 10);
+  assert.equal(refreshed.contactSkin, 2.5);
 });
 
 test("path collider and body pose share an edited freehand path's actual bounds center", () => {

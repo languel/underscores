@@ -49,6 +49,15 @@ const bodyDescription = (body, viscosity = 0) => {
 
 const colliderDescriptions = body => {
   const collider = body.collider;
+  const configureCollider = candidate => candidate
+    .setSensor(collider.sensor)
+    .setDensity(body.material.density)
+    .setFriction(body.material.friction)
+    .setRestitution(body.material.restitution)
+    .setContactSkin(collider.contactSkin * PHYSICS_WORLD_SCALE)
+    .setCollisionGroups(((body.collisionGroup & 0xffff) << 16) | (body.collisionMask & 0xffff))
+    .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS | RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
+    .setContactForceEventThreshold(0);
   let desc;
   if (collider.kind === "circle") desc = RAPIER.ColliderDesc.ball(collider.radius * PHYSICS_WORLD_SCALE);
   else if (collider.kind === "ellipse") {
@@ -63,10 +72,8 @@ const colliderDescriptions = body => {
   }
   else if (collider.kind === "convex") {
     desc = RAPIER.ColliderDesc.convexHull(new Float32Array(collider.points.flatMap(point => [point[0] * PHYSICS_WORLD_SCALE, point[1] * PHYSICS_WORLD_SCALE])));
-  } else if (collider.kind === "polyline") {
-    desc = RAPIER.ColliderDesc.polyline(new Float32Array(collider.points.flatMap(point => [point[0] * PHYSICS_WORLD_SCALE, point[1] * PHYSICS_WORLD_SCALE])));
   } else desc = RAPIER.ColliderDesc.cuboid(collider.width * PHYSICS_WORLD_SCALE / 2, collider.height * PHYSICS_WORLD_SCALE / 2);
-  if (collider.kind === "chain") {
+  if (collider.kind === "chain" || collider.kind === "polyline") {
     const segments = [];
     for (let index = 1; index < collider.points.length; index += 1) {
       const [ax, ay] = collider.points[index - 1];
@@ -75,31 +82,22 @@ const colliderDescriptions = body => {
       const dy = by - ay;
       const length = Math.hypot(dx, dy);
       if (length < 0.01) continue;
+      const halfLength = length * PHYSICS_WORLD_SCALE / 2;
+      const halfThickness = collider.thickness * PHYSICS_WORLD_SCALE / 2;
+      // Capsules overlap at consecutive endpoints. That keeps collision
+      // geometry watertight around sharp turns instead of leaving tiny square
+      // gaps a small body can fall through.
       segments.push(RAPIER.ColliderDesc
-        .cuboid(length * PHYSICS_WORLD_SCALE / 2, collider.thickness * PHYSICS_WORLD_SCALE / 2)
+        .roundCuboid(halfLength, halfThickness, Math.min(halfLength, halfThickness))
         .setTranslation((ax + bx) * PHYSICS_WORLD_SCALE / 2, (ay + by) * PHYSICS_WORLD_SCALE / 2)
         .setRotation(Math.atan2(dy, dx)));
     }
     desc = segments.length ? null : RAPIER.ColliderDesc.cuboid(0.12, 0.12);
     const descriptions = segments.length ? segments : [desc];
-    return descriptions.map(candidate => candidate
-      .setSensor(collider.sensor)
-      .setDensity(body.material.density)
-      .setFriction(body.material.friction)
-      .setRestitution(body.material.restitution)
-      .setCollisionGroups(((body.collisionGroup & 0xffff) << 16) | (body.collisionMask & 0xffff))
-      .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS | RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
-      .setContactForceEventThreshold(0));
+    return descriptions.map(configureCollider);
   }
   if (!desc) desc = RAPIER.ColliderDesc.cuboid(0.12, 0.12);
-  return [desc
-    .setSensor(collider.sensor)
-    .setDensity(body.material.density)
-    .setFriction(body.material.friction)
-    .setRestitution(body.material.restitution)
-    .setCollisionGroups(((body.collisionGroup & 0xffff) << 16) | (body.collisionMask & 0xffff))
-    .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS | RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
-    .setContactForceEventThreshold(0)];
+  return [configureCollider(desc)];
 };
 
 const localAnchorForBody = (body, endpoint) => {

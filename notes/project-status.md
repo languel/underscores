@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-08-02
+Last updated: 2026-08-04
 
 ## Release checkpoint
 
@@ -14,7 +14,8 @@ exchange version 10. It combines a persistent solver-independent graph, lazy det
 Worker, lightweight curve/stream geometry adapter, runtime population overlay, canonical collision
 mappings (`Source -> Filter -> Transform -> Target`),
 canvas-authored bodies and constraints, grab springs, Apply/Reset semantics, materialization, and
-point-level curve sculpt tools. Built-in Musical gas, Marionette, and Stream portrait examples cover
+point-level curve sculpt tools. Properties supports atomic shared edits across any selected physics
+bodies, including collider and material fields, without copying unrelated body settings. Built-in Musical gas, Marionette, and Stream portrait examples cover
 the three delivery slices. See [Canvas-first relationships and physics](physics.md).
 
 A compact performance monitor now reports browser FPS, long frames, scene callback/change pressure,

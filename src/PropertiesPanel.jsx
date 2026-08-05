@@ -729,12 +729,12 @@ const physicsBodyMatchesQuery = (body, query) => {
   if (!body || !query?.needle) return Boolean(body);
   return [
     "physics", "body", "enabled", "type", "name", "tags", "sensor", "collider",
-    "friction", "bounce", "restitution", "density", "damping", "angular damping",
+    "friction", "bounce", "restitution", "density", "damping", "angular damping", "collision skin",
     body.name, body.bodyType, body.collisionTags.join(" "), body.collider.kind,
   ].some(value => String(value || "").toLowerCase().includes(query.needle));
 };
 
-const physicsBodyFieldCount = (body, query) => physicsBodyMatchesQuery(body, query) ? 10 : 0;
+const physicsBodyFieldCount = (body, query) => physicsBodyMatchesQuery(body, query) ? 12 : 0;
 
 const PhysicsRoleControls = ({ body, element, query, onChange, onColliderKindChange, onRemove }) => {
   if (!physicsBodyMatchesQuery(body, query)) return null;
@@ -742,8 +742,8 @@ const PhysicsRoleControls = ({ body, element, query, onChange, onColliderKindCha
   const supportsColliderChoices = Boolean(element);
   const supportsPathCollider = ["freedraw", "line", "arrow"].includes(element?.type)
     || element?.customData?.draweratorGeometry?.kind === "cubicBezierPath";
-  const updateMaterial = patch => onChange({ material: { ...body.material, ...patch } });
-  const updateCollider = patch => onChange({ collider: { ...body.collider, ...patch } });
+  const updateMaterial = patch => onChange({ material: patch });
+  const updateCollider = patch => onChange({ collider: patch });
   return (
     <details className="properties-group properties-physics-group" open>
       <summary><span>Physics role</span><small>{body.bodyType}</small></summary>
@@ -761,6 +761,84 @@ const PhysicsRoleControls = ({ body, element, query, onChange, onColliderKindCha
           {matches("damping") && <div className="properties-row editable"><span>damping</span><input type="number" min="0" max="100" step="0.05" value={body.material.linearDamping} onChange={event => updateMaterial({ linearDamping: event.target.valueAsNumber })} /></div>}
         </div>
         <button type="button" className="iannix-flat-button" onClick={() => onRemove?.()}>Remove physics role</button>
+      </div>
+    </details>
+  );
+};
+
+const sharedValue = (bodies, select) => {
+  const value = select(bodies[0]);
+  return bodies.every(body => Object.is(select(body), value)) ? value : null;
+};
+
+const SharedPhysicsControls = ({ elements, physicsBodies, query, onChange }) => {
+  if (elements.length < 2 || !physicsBodyMatchesQuery(physicsBodies[0], query)) return null;
+  const matches = name => !query?.needle || name.includes(query.needle);
+  const supportsPathCollider = elements.every(element => (
+    ["freedraw", "line", "arrow"].includes(element?.type)
+    || element?.customData?.draweratorGeometry?.kind === "cubicBezierPath"
+  ));
+  const colliderValue = sharedValue(physicsBodies, body => getPhysicsColliderSelectionValue(body.collider, {
+    allowPath: supportsPathCollider,
+  }));
+  const bodyType = sharedValue(physicsBodies, body => body.bodyType);
+  const enabled = sharedValue(physicsBodies, body => body.enabled);
+  const sensor = sharedValue(physicsBodies, body => body.collider.sensor);
+  const tags = sharedValue(physicsBodies, body => body.collisionTags.join(", "));
+  const friction = sharedValue(physicsBodies, body => body.material.friction);
+  const restitution = sharedValue(physicsBodies, body => body.material.restitution);
+  const density = sharedValue(physicsBodies, body => body.material.density);
+  const damping = sharedValue(physicsBodies, body => body.material.linearDamping);
+  const contactSkin = sharedValue(physicsBodies, body => body.collider.contactSkin);
+  const numberChange = (event, patch) => {
+    if (Number.isFinite(event.target.valueAsNumber)) onChange?.(patch(event.target.valueAsNumber));
+  };
+  return (
+    <details className="properties-group properties-physics-group properties-shared-physics-group" open>
+      <summary><span>Shared physics</span><small>{physicsBodies.length} objects</small></summary>
+      <div className="properties-children">
+        {matches("enabled") && <div className="properties-row editable">
+          <span>enabled</span>
+          <input type="checkbox" checked={enabled === true} aria-label={`Enabled for ${physicsBodies.length} selected objects`} onChange={event => onChange?.({ enabled: event.target.checked })} />
+        </div>}
+        {matches("type") && <div className="properties-row editable">
+          <span>body type</span>
+          <select value={bodyType || "mixed"} aria-label={`Body type for ${physicsBodies.length} selected objects`} onChange={event => onChange?.({ bodyType: event.target.value })}>
+            {!bodyType && <option value="mixed" disabled>Mixed body type</option>}
+            <option value="dynamic">Dynamic</option>
+            <option value="kinematic">Kinematic</option>
+            <option value="fixed">Fixed</option>
+          </select>
+        </div>}
+        {matches("sensor") && <div className="properties-row editable">
+          <span>sensor</span>
+          <input type="checkbox" checked={sensor === true} aria-label={`Sensor for ${physicsBodies.length} selected objects`} onChange={event => onChange?.({ collider: { sensor: event.target.checked } })} />
+        </div>}
+        {matches("tags") && <div className="properties-row editable">
+          <span>tags</span>
+          <input type="text" value={tags ?? ""} placeholder={tags === null ? "Mixed tags" : undefined} aria-label={`Tags for ${physicsBodies.length} selected objects`} onChange={event => onChange?.({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} />
+        </div>}
+        {matches("collider") && <div className="properties-row editable">
+          <span>collider</span>
+          <select
+            value={colliderValue || "mixed"}
+            aria-label={`Collider for ${physicsBodies.length} selected objects`}
+            onChange={event => onChange?.({ colliderKind: event.target.value })}
+          >
+            {!colliderValue && <option value="mixed" disabled>Mixed collider</option>}
+            <option value="box">Bounding box</option>
+            <option value="ellipse">Bounding ellipse</option>
+            <option value="convex">Convex hull</option>
+            {supportsPathCollider && <option value="chain">Path chain</option>}
+          </select>
+        </div>}
+        <div className="properties-two-column">
+          {matches("friction") && <div className="properties-row editable"><span>friction</span><input type="number" min="0" max="10" step="0.05" value={friction ?? ""} placeholder={friction === null ? "Mixed" : undefined} aria-label={`Friction for ${physicsBodies.length} selected objects`} onChange={event => numberChange(event, value => ({ material: { friction: value } }))} /></div>}
+          {matches("bounce") && <div className="properties-row editable"><span>bounce</span><input type="number" min="0" max="2" step="0.05" value={restitution ?? ""} placeholder={restitution === null ? "Mixed" : undefined} aria-label={`Bounce for ${physicsBodies.length} selected objects`} onChange={event => numberChange(event, value => ({ material: { restitution: value } }))} /></div>}
+          {matches("density") && <div className="properties-row editable"><span>density</span><input type="number" min="0.0001" max="100" step="0.1" value={density ?? ""} placeholder={density === null ? "Mixed" : undefined} aria-label={`Density for ${physicsBodies.length} selected objects`} onChange={event => numberChange(event, value => ({ material: { density: value } }))} /></div>}
+          {matches("damping") && <div className="properties-row editable"><span>damping</span><input type="number" min="0" max="100" step="0.05" value={damping ?? ""} placeholder={damping === null ? "Mixed" : undefined} aria-label={`Damping for ${physicsBodies.length} selected objects`} onChange={event => numberChange(event, value => ({ material: { linearDamping: value } }))} /></div>}
+        </div>
+        {matches("collision skin") && <div className="properties-row editable"><span>collision skin</span><input type="number" min="0" max="64" step="0.5" value={contactSkin ?? ""} placeholder={contactSkin === null ? "Mixed" : undefined} aria-label={`Collision skin for ${physicsBodies.length} selected objects`} onChange={event => numberChange(event, value => ({ collider: { contactSkin: value } }))} /></div>}
       </div>
     </details>
   );
@@ -804,6 +882,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
   availableElements = elements,
   physicsBodies = [],
   onPhysicsBodyChange,
+  onPhysicsBodiesChange,
   onPhysicsBodyRemove,
   onScoreChange,
   selectedSvgNode = null,
@@ -859,6 +938,12 @@ const PropertiesPanel = memo(function PropertiesPanel({
       + (svgMatchesQuery(element, query) ? svgFieldCount(element) : 0)
   ), 0), [elements, physicsBodies, query]);
   const sharedPath = path => isSharedEditablePath(elements, path);
+  const selectedPhysicsBodies = useMemo(() => elements.map(element => physicsBodies.find(body => (
+    body.objectRef?.kind === "element" && body.objectRef.elementId === element.id
+  ))).filter(Boolean), [elements, physicsBodies]);
+  // A canvas selection may include objects without a physics role. Shared
+  // physics fields still apply to every selected object that does have one.
+  const hasSharedPhysics = selectedPhysicsBodies.length >= 2;
   const pinnedKeys = useMemo(() => new Set(pinnedPaths), [pinnedPaths]);
   const togglePinnedPath = path => {
     const key = pathKey(path);
@@ -925,6 +1010,17 @@ const PropertiesPanel = memo(function PropertiesPanel({
         <span title={`${matchingFieldCount} matching fields`}>{matchingFieldCount}</span>
       </div>
       <div className="properties-list">
+        {hasSharedPhysics && (
+          <SharedPhysicsControls
+            elements={elements}
+            physicsBodies={selectedPhysicsBodies}
+            query={query}
+            onChange={patch => onPhysicsBodiesChange?.(
+              selectedPhysicsBodies.map(body => body.id),
+              patch,
+            )}
+          />
+        )}
         {matchingFieldCount ? elements.map(element => {
           const elementValue = propertyTreeValue(element);
           const elementMatchCount = collectLeafEntries(elementValue).filter(entry => leafMatches(entry.value, entry.path, query)).length
@@ -997,8 +1093,18 @@ const PropertiesPanel = memo(function PropertiesPanel({
                 body={physicsBodies.find(body => body.objectRef?.kind === "element" && body.objectRef.elementId === element.id)}
                 element={element}
                 query={query}
-                onChange={patch => onPhysicsBodyChange?.(physicsBodies.find(body => body.objectRef?.kind === "element" && body.objectRef.elementId === element.id)?.id, patch)}
-                onColliderKindChange={kind => onPhysicsBodyChange?.(physicsBodies.find(body => body.objectRef?.kind === "element" && body.objectRef.elementId === element.id)?.id, { colliderKind: kind })}
+                onChange={patch => {
+                  const body = physicsBodies.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id);
+                  if (!body) return;
+                  if (selectedPhysicsBodies.length > 1) onPhysicsBodiesChange?.(selectedPhysicsBodies.map(candidate => candidate.id), patch);
+                  else onPhysicsBodyChange?.(body.id, patch);
+                }}
+                onColliderKindChange={kind => {
+                  const body = physicsBodies.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id);
+                  if (!body) return;
+                  if (selectedPhysicsBodies.length > 1) onPhysicsBodiesChange?.(selectedPhysicsBodies.map(candidate => candidate.id), { colliderKind: kind });
+                  else onPhysicsBodyChange?.(body.id, { colliderKind: kind });
+                }}
                 onRemove={() => {
                   const body = physicsBodies.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id);
                   if (body) onPhysicsBodyRemove?.(body.id);

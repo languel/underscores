@@ -61,7 +61,7 @@ test("physics body custom-data mirror keeps authored material and collider field
   assert.equal(mirror.bodyType, "kinematic");
   assert.equal(mirror.name, "Pendulum bob");
   assert.deepEqual(mirror.collisionTags, ["body"]);
-  assert.deepEqual(mirror.collider, { kind: "circle", sensor: true, radius: 18, width: 24, height: 24, thickness: 2, points: [], localOriginVersion: 0 });
+  assert.deepEqual(mirror.collider, { kind: "circle", sensor: true, radius: 18, width: 24, height: 24, thickness: 2, contactSkin: 0, points: [], localOriginVersion: 0 });
   assert.deepEqual(mirror.material, { density: 2, friction: 0.4, restitution: 0.25, linearDamping: 0.1, angularDamping: 0.01 });
   assert.deepEqual(mirror.initial, { x: 0, y: 0, angle: 0, velocityX: 0, velocityY: 0, angularVelocity: 0 });
 });

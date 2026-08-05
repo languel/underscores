@@ -136,6 +136,10 @@ export const normalizeCollider = value => {
     width: Math.max(0.1, finite(value?.width, 24)),
     height: Math.max(0.1, finite(value?.height, 24)),
     thickness: Math.max(0.1, finite(value?.thickness, 2)),
+    // Contact skin is an authored, invisible collider margin in scene pixels.
+    // Rapier applies the two colliders' skins before their visible geometry
+    // touches, which makes small/fast bodies more stable around fine paths.
+    contactSkin: clamp(value?.contactSkin, 0, 64),
     points: list(value?.points).map(point => [finite(point?.[0]), finite(point?.[1])]),
     // Point-defined colliders need a stable coordinate-space marker so a
     // scene written before a local-origin migration is repaired exactly once.

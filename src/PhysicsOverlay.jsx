@@ -116,19 +116,25 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
     };
 
     const traceCollider = (context, collider, zoom) => {
+      const skin = Math.max(0, Number(collider.contactSkin) || 0);
       if (collider.kind === "circle") {
-        context.arc(0, 0, Math.max(0.5, collider.radius * zoom), 0, Math.PI * 2);
+        context.arc(0, 0, Math.max(0.5, (collider.radius + skin) * zoom), 0, Math.PI * 2);
       } else if (collider.kind === "ellipse") {
         context.ellipse(
           0,
           0,
-          Math.max(0.5, (collider.width || 1) * zoom / 2),
-          Math.max(0.5, (collider.height || 1) * zoom / 2),
+          Math.max(0.5, ((collider.width || 1) / 2 + skin) * zoom),
+          Math.max(0.5, ((collider.height || 1) / 2 + skin) * zoom),
           0,
           0,
           Math.PI * 2,
         );
       } else if (["convex", "polyline", "chain"].includes(collider.kind) && collider.points?.length) {
+        if (["polyline", "chain"].includes(collider.kind)) {
+          context.lineWidth = Math.max(1, ((collider.thickness || 2) + skin * 2) * zoom);
+          context.lineCap = "round";
+          context.lineJoin = "round";
+        }
         collider.points.forEach((value, index) => {
           const px = value[0] * zoom;
           const py = value[1] * zoom;
@@ -136,7 +142,12 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
         });
         if (collider.kind === "convex") context.closePath();
       } else {
-        context.rect(-(collider.width || 12) * zoom / 2, -(collider.height || 12) * zoom / 2, (collider.width || 12) * zoom, (collider.height || 12) * zoom);
+        context.rect(
+          -((collider.width || 12) / 2 + skin) * zoom,
+          -((collider.height || 12) / 2 + skin) * zoom,
+          ((collider.width || 12) + skin * 2) * zoom,
+          ((collider.height || 12) + skin * 2) * zoom,
+        );
       }
     };
 

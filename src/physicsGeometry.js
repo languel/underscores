@@ -16,6 +16,9 @@ const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, f
 const lerp = (a, b, amount) => a + (b - a) * amount;
 const pointLerp = (a, b, amount) => [lerp(a[0], b[0], amount), lerp(a[1], b[1], amount)];
 const distance = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+const explicitContactSkin = collider => Number.isFinite(Number(collider?.contactSkin))
+  ? { contactSkin: Number(collider.contactSkin) }
+  : {};
 
 const closedFreehandContour = (element, points, width, height) => {
   if (element?.type !== "freedraw" || points.length < 3) return false;
@@ -149,7 +152,7 @@ const primitiveConvexColliderPoints = (element, width, height) => {
   ];
 };
 
-export const inferPhysicsColliderFromElement = (element, kind = "box", bodyType = "dynamic") => {
+export const inferPhysicsColliderFromElement = (element, kind = "box", _bodyType = "dynamic") => {
   if (!element) return null;
   const width = Math.max(1, Math.abs(finite(element.width, 1)));
   const height = Math.max(1, Math.abs(finite(element.height, 1)));
@@ -163,9 +166,9 @@ export const inferPhysicsColliderFromElement = (element, kind = "box", bodyType 
   if (kind === "chain") {
     const localPoints = sampledColliderPoints(getPhysicsElementLocalPoints(element));
     if (localPoints.length < 2) return { kind: "box", width, height };
-    // Fixed bodies can use Rapier's exact zero-width polyline. Moving bodies
-    // instead use a compound chain of thin solid segments so they have mass.
-    if (bodyType === "fixed") return { kind: "polyline", points: localPoints, localOriginVersion: 2 };
+    // A canvas stroke has visible width, so its physical path must too. Both
+    // fixed walls and moving paths use a compound chain of rounded segments;
+    // a zero-width Rapier polyline lets small bodies slip through its joins.
     return { kind: "chain", points: localPoints, thickness: Math.max(2, finite(element.strokeWidth, 2)), localOriginVersion: 2 };
   }
   return { kind: "box", width, height };
@@ -186,7 +189,7 @@ export const inferPhysicsColliderForBody = (element, body) => {
   if (existing.kind === "circle") {
     const inferred = inferPhysicsBodyFromElement(element, body)?.collider;
     return inferred?.kind === "circle"
-      ? { ...inferred, sensor }
+      ? { ...inferred, sensor, ...explicitContactSkin(existing) }
       : { ...existing, sensor };
   }
 
@@ -194,7 +197,7 @@ export const inferPhysicsColliderForBody = (element, body) => {
   // same choice as `chain`. Rebuild either representation from current points.
   const requestedKind = ["polyline", "chain"].includes(existing.kind) ? "chain" : existing.kind;
   const inferred = inferPhysicsColliderFromElement(element, requestedKind, body?.bodyType);
-  return inferred ? { ...inferred, sensor } : { ...existing, sensor };
+  return inferred ? { ...inferred, sensor, ...explicitContactSkin(existing) } : { ...existing, sensor };
 };
 
 // `circle` is a Rapier optimisation of the editor's Bounding ellipse choice.
@@ -228,13 +231,18 @@ export const inferPhysicsBodyFromElement = (element, overrides = {}) => {
       };
     }
   } else if (["line", "arrow", "freedraw"].includes(element.type) || hasCubicBezierGeometry(element)) {
-    // Rapier polylines are zero-mass wall geometry. A user who explicitly
-    // makes an open drawing dynamic or kinematic expects it to move, so give
-    // that body a thin solid bounding box rather than a massless polyline.
+    // A user who explicitly makes an open drawing dynamic or kinematic gets a
+    // bounding box by default. Fixed drawings use a solid path chain whose
+    // thickness matches the visible canvas stroke.
     if (["dynamic", "kinematic"].includes(overrides.bodyType)) {
       collider = { kind: "box", width, height };
     } else {
-      collider = { kind: "polyline", points: getPhysicsElementLocalPoints(element), localOriginVersion: 2 };
+      collider = {
+        kind: "chain",
+        points: getPhysicsElementLocalPoints(element),
+        thickness: Math.max(2, finite(element.strokeWidth, 2)),
+        localOriginVersion: 2,
+      };
       bodyType = "fixed";
     }
   } else if (element.type === "ellipse" && Math.abs(width - height) <= Math.max(width, height) * 0.12) {
