@@ -784,15 +784,109 @@ body .excalidraw .sidebar {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.physics-debug-grid {
+.physics-subsection {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
-  margin-top: 4px;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.28));
 }
 
-.physics-debug-grid[aria-disabled="true"] {
+.physics-subsection > strong {
+  color: var(--color-secondary, var(--drawerator-muted-foreground, currentColor));
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.physics-subsection .physics-toolbar,
+.physics-subsection .physics-two-column {
+  margin-bottom: 0;
+}
+
+.physics-debug-colors {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.physics-debug-colors[aria-disabled="true"] {
   opacity: 0.5;
+}
+
+.physics-debug-color-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(132px, 1.2fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  margin: 0;
+}
+
+.physics-debug-color-toggle {
+  width: 100%;
+  min-height: 28px;
+  padding: 3px 6px;
+  overflow: hidden;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.28));
+  border-radius: 2px;
+  background: transparent;
+  color: var(--color-secondary);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.physics-debug-color-toggle:hover {
+  background: color-mix(in srgb, var(--bg-hover-btn, rgba(128, 128, 128, 0.16)) 58%, transparent);
+  color: var(--color-primary);
+}
+
+.physics-debug-color-toggle.active {
+  background: var(--bg-hover-btn, rgba(128, 128, 128, 0.16));
+  border-color: var(--border-color, rgba(128, 128, 128, 0.28));
+  color: var(--color-primary);
+}
+
+.physics-debug-color-toggle:disabled {
+  cursor: default;
+}
+
+.physics-debug-color-field > .physics-debug-color-toggle {
+  min-width: 0;
+}
+
+.physics-debug-color-control {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 4px;
+  align-items: center;
+}
+
+.physics-debug-color-control input[type="color"] {
+  width: 30px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.28));
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.physics-debug-color-control input[type="color"]:disabled {
+  cursor: default;
+}
+
+.physics-debug-color-control input[type="text"] {
+  min-width: 0;
+  height: 28px;
+  padding: 3px 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
 }
 
 .iannix-role-grid.physics-role-grid {
@@ -953,9 +1047,288 @@ body .excalidraw .sidebar {
   color: var(--color-secondary);
 }
 
+.physics-layer-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+.physics-layer-toolbar .physics-flat-button {
+  min-width: 96px;
+}
+
+.physics-layer-list {
+  display: grid;
+  gap: 4px;
+}
+
+.physics-layer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 6px;
+}
+
+.physics-layer-row .physics-field {
+  margin-bottom: 0;
+}
+
+.physics-layer-row .physics-flat-button {
+  min-height: 28px;
+  padding: 2px 7px;
+}
+
+.physics-layer-matrix {
+  display: grid;
+  gap: 3px;
+  margin-top: 9px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.physics-layer-matrix-head,
+.physics-layer-matrix-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) repeat(var(--physics-layer-count, 1), 30px);
+  align-items: center;
+  gap: 3px;
+  min-width: max-content;
+}
+
+.physics-layer-matrix-head {
+  color: var(--color-secondary);
+  font-size: 11px;
+}
+
+.physics-layer-matrix-head > span:not(:first-child),
+.physics-layer-matrix-row > label {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.physics-layer-matrix-row > strong {
+  overflow: hidden;
+  color: var(--color-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.physics-layer-matrix input[type="checkbox"],
+.physics-collision-layer-memberships input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--drawerator-accent, currentColor);
+}
+
+.physics-collision-layer-field {
+  align-items: start;
+}
+
+.physics-collision-layer-memberships {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-height: 28px;
+  padding-top: 4px;
+}
+
+.physics-collision-layer-memberships label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-primary, inherit);
+  font-size: 12px;
+}
+
 .physics-mapping-list {
   display: grid;
   gap: 6px;
+}
+
+.physics-constraint-list {
+  display: grid;
+  gap: 6px;
+}
+
+.physics-constraint-card {
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.28));
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--drawerator-panel-bg, transparent) 90%, var(--drawerator-highlight, transparent));
+}
+
+.physics-constraint-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 3px 4px;
+}
+
+.physics-constraint-kind {
+  color: var(--color-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.physics-constraint-header .physics-flat-button {
+  min-height: 24px;
+  padding: 2px 5px;
+  font-size: 11px;
+}
+
+.physics-constraint-editor {
+  display: grid;
+  gap: 6px;
+  padding: 6px;
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.2));
+}
+
+.physics-constraint-endpoints {
+  display: grid;
+  gap: 2px;
+  color: var(--color-secondary);
+  font: 11px/1.35 var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.physics-canvas-toolbar {
+  position: absolute;
+  z-index: 6;
+  display: grid;
+  gap: 3px;
+  min-width: 34px;
+  padding: 3px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.34));
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--drawerator-panel-bg, Canvas) 94%, transparent);
+  box-shadow: none;
+}
+
+.physics-canvas-toolbar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.physics-canvas-toolbar-header:active {
+  cursor: grabbing;
+}
+
+.physics-canvas-toolbar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: var(--color-primary, currentColor);
+  background: transparent;
+  cursor: pointer;
+}
+
+.physics-canvas-toolbar-toggle:hover {
+  border-color: var(--border-color, rgba(128, 128, 128, 0.34));
+  background: color-mix(in srgb, var(--drawerator-highlight, currentColor) 17%, transparent);
+}
+
+.physics-canvas-toolbar-reopen {
+  position: absolute;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 3px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.34));
+  border-radius: 3px;
+  color: var(--color-primary, currentColor);
+  background: color-mix(in srgb, var(--drawerator-panel-bg, Canvas) 94%, transparent);
+  cursor: grab;
+}
+
+.physics-canvas-toolbar-reopen:active {
+  cursor: grabbing;
+}
+
+.physics-canvas-toolbar-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 150px;
+  padding: 3px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.34));
+  border-radius: 3px;
+  background: var(--drawerator-panel-bg, Canvas);
+}
+
+.physics-canvas-toolbar-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 2px;
+  color: var(--color-primary, currentColor);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.physics-canvas-toolbar-menu button:hover {
+  background: color-mix(in srgb, var(--drawerator-highlight, currentColor) 17%, transparent);
+}
+
+.physics-canvas-toolbar-body {
+  display: grid;
+  gap: 3px;
+}
+
+.physics-canvas-tool-group {
+  display: grid;
+  grid-template-columns: 30px;
+  gap: 3px;
+}
+
+.physics-canvas-tool-separator {
+  height: 1px;
+  background: var(--border-color, rgba(128, 128, 128, 0.28));
+}
+
+.physics-canvas-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: var(--color-primary, currentColor);
+  background: transparent;
+  cursor: pointer;
+}
+
+.physics-canvas-tool:hover:not(:disabled),
+.physics-canvas-tool.active {
+  border-color: var(--border-color, rgba(128, 128, 128, 0.34));
+  background: color-mix(in srgb, var(--drawerator-highlight, currentColor) 17%, transparent);
+}
+
+.physics-canvas-tool:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .physics-mapping-card {
@@ -4566,6 +4939,29 @@ a.iannix-flat-button {
   pointer-events: none;
 }
 
+/* The loop range deliberately captures the body of the track, so expose a
+ * higher, generous target for the frame label and playhead itself. Its offset
+ * is retained by TransportTimeline while dragging, preventing a label click
+ * from moving the playhead before the pointer travels. */
+body .excalidraw .iannix-timeline-playhead-hitbox {
+  position: absolute;
+  z-index: 6;
+  top: -24px;
+  bottom: 0;
+  width: 40px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: ew-resize;
+  transform: translateX(-25%);
+  touch-action: none;
+}
+
+body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
+  outline: 1px solid var(--transport-accent);
+  outline-offset: -2px;
+}
+
 .iannix-timeline-playhead::before {
   content: "";
   position: absolute;
@@ -4847,7 +5243,7 @@ a.iannix-flat-button {
 .properties-group summary { display: flex; align-items: center; gap: 7px; padding: 6px 9px; cursor: pointer; }
 .properties-group summary small { margin-left: auto; color: var(--color-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .properties-children { margin-left: 12px; border-left: 1px solid var(--border-color, rgba(128,128,128,.2)); }
-.properties-two-column { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 6px; }
+.properties-two-column { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
 .properties-row { display: grid; grid-template-columns: minmax(74px, .7fr) minmax(0, 1.3fr); gap: 6px; padding: 2px 9px; }
 .properties-row > span { overflow: hidden; color: var(--color-secondary); text-overflow: ellipsis; }
 .properties-row code { overflow-wrap: anywhere; color: var(--color-primary); }
@@ -4869,6 +5265,10 @@ a.iannix-flat-button {
 .properties-row select { min-width: 0; width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--color-primary); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .properties-row input.properties-embed-url { color: var(--drawerator-foreground, var(--color-primary)) !important; caret-color: var(--drawerator-foreground, var(--color-primary)); -webkit-text-fill-color: var(--drawerator-foreground, var(--color-primary)); }
 .properties-row input[type="checkbox"] { justify-self: start; accent-color: var(--drawerator-accent); }
+.properties-row.properties-collision-layers { align-items: start; }
+.properties-collision-layer-list { display: flex; flex-wrap: wrap; gap: 3px 8px; min-width: 0; }
+.properties-collision-layer-list label { display: inline-flex; align-items: center; gap: 3px; min-width: 0; color: var(--color-secondary); font-size: 10px; cursor: pointer; }
+.properties-collision-layer-list input { width: 12px; height: 12px; margin: 0; accent-color: var(--drawerator-accent); }
 .properties-row.readonly code { opacity: .72; }
 .properties-embed-group { background: color-mix(in srgb, var(--drawerator-panel-bg, transparent) 92%, var(--drawerator-highlight, transparent)); }
 .properties-embed-note { margin: 0; padding: 4px 9px 8px; color: var(--color-secondary); font-size: 10px; line-height: 1.35; }
@@ -4911,6 +5311,18 @@ a.iannix-flat-button {
 
 #canvas-container.drawerator-object-eyedropper .excalidraw__canvas,
 #canvas-container.drawerator-object-eyedropper .excalidraw__canvas * {
+  cursor: crosshair !important;
+}
+
+/* Constraint tools author a visible pivot object, rather than a hidden
+   two-click relationship. Keep their cursor distinct from selection. */
+#canvas-container.physics-authoring-axle .excalidraw__canvas,
+#canvas-container.physics-authoring-axle .excalidraw__canvas * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Ccircle cx='12' cy='12' r='7' fill='white' stroke='%231b1b1b' stroke-width='2'/%3E%3Cpath d='M12 1v5m0 12v5M1 12h5m12 0h5' stroke='%231b1b1b' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") 12 12, crosshair !important;
+}
+
+#canvas-container.physics-authoring-fixate .excalidraw__canvas,
+#canvas-container.physics-authoring-fixate .excalidraw__canvas * {
   cursor: crosshair !important;
 }
 

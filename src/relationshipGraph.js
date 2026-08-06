@@ -1,17 +1,25 @@
 import { normalizeDraweratorObjectRef, draweratorObjectRefKey } from "./draweratorObjectRef.js";
 
-export const RELATIONSHIP_GRAPH_VERSION = 2;
+export const RELATIONSHIP_GRAPH_VERSION = 3;
 export const PHYSICS_FIXED_HZ = 60;
 
 export const TRACKING_CLASSES = Object.freeze(["runtime-lite", "authored-rigid", "authored-deformable"]);
 export const BODY_TYPES = Object.freeze(["dynamic", "kinematic", "fixed"]);
 export const COLLIDER_KINDS = Object.freeze(["circle", "ellipse", "box", "convex", "polyline", "chain"]);
-export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "revolute", "weld", "attractor"]);
+// Bodies have one solver role, while constraints are independent authored
+// relationships. Keep the older Rapier-oriented names for compatibility and
+// expose the canvas-first vocabulary alongside them: Fixate is a weld and
+// Axle is a revolute joint.
+export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "revolute", "weld", "fixate", "axle", "attractor"]);
 export const ROUTE_ACTION_KINDS = Object.freeze(["event", "stream", "synth", "midi", "command"]);
 export const MAPPING_SOURCE_KINDS = Object.freeze(["physics-collision"]);
 export const MAPPING_TARGET_KINDS = Object.freeze(["midi-note", "midi-cc", "midi-bend", "expressive-voice", "legacy-action"]);
 export const PHYSICS_COLLISION_FIELDS = Object.freeze(["impulse", "relativeSpeed", "contactX", "contactY", "normalX", "normalY"]);
 export const PHYSICS_PIXELS_PER_METER = 100;
+export const MAX_PHYSICS_COLLISION_LAYERS = 16;
+export const DEFAULT_PHYSICS_COLLISION_LAYERS = Object.freeze([
+  Object.freeze({ id: "default", name: "Default" }),
+]);
 
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, finite(value, minimum)));
@@ -19,6 +27,73 @@ const id = (value, prefix = "physics") => String(value || `${prefix}-${crypto.ra
 const clone = value => value === undefined ? undefined : structuredClone(value);
 const list = value => Array.isArray(value) ? value : [];
 const uniqueStrings = value => [...new Set(list(value).map(item => String(item || "").trim()).filter(Boolean))];
+const collisionLayerPairKey = (a, b) => [String(a || ""), String(b || "")].sort().join("|");
+export { collisionLayerPairKey };
+
+const normalizeCollisionLayerId = (value, index) => {
+  const candidate = String(value || "").trim().replace(/[^A-Za-z0-9_-]/g, "-").replace(/-+/g, "-");
+  return candidate || `layer-${index + 1}`;
+};
+
+export const normalizePhysicsCollisionLayers = value => {
+  const source = value && typeof value === "object" ? value : {};
+  const seen = new Set();
+  const layers = list(source.layers)
+    .map((layer, index) => {
+      const id = normalizeCollisionLayerId(layer?.id, index);
+      if (seen.has(id)) return null;
+      seen.add(id);
+      return { id, name: String(layer?.name || id) };
+    })
+    .filter(Boolean)
+    .slice(0, MAX_PHYSICS_COLLISION_LAYERS);
+  if (!layers.length) layers.push(...DEFAULT_PHYSICS_COLLISION_LAYERS.map(layer => ({ ...layer })));
+  const sourceMatrix = source.matrix && typeof source.matrix === "object" ? source.matrix : {};
+  const matrix = {};
+  for (let a = 0; a < layers.length; a += 1) {
+    for (let b = a; b < layers.length; b += 1) {
+      const key = collisionLayerPairKey(layers[a].id, layers[b].id);
+      // A fresh layer stack preserves the historical "everything collides"
+      // behavior. Authors opt out by clearing a matrix cell.
+      matrix[key] = sourceMatrix[key] !== false;
+    }
+  }
+  return { layers, matrix };
+};
+
+export const setPhysicsCollisionLayerPair = (value, firstId, secondId, enabled) => {
+  const layers = normalizePhysicsCollisionLayers(value);
+  const key = collisionLayerPairKey(firstId, secondId);
+  if (!layers.layers.some(layer => layer.id === firstId) || !layers.layers.some(layer => layer.id === secondId)) return layers;
+  return { ...layers, matrix: { ...layers.matrix, [key]: enabled !== false } };
+};
+
+export const resolvePhysicsCollisionGroups = (worldValue, bodyValue) => {
+  const world = normalizePhysicsWorld(worldValue);
+  const body = normalizePhysicsBody(bodyValue);
+  // A missing membership is intentionally a legacy marker. Existing scene
+  // JSON keeps its explicit Rapier group/mask semantics until an author edits
+  // the body into the named layer stack.
+  if (!Array.isArray(body.collisionLayers)) {
+    return { group: body.collisionGroup, mask: body.collisionMask, legacy: true };
+  }
+  const layers = world.collisionLayers.layers;
+  const byId = new Map(layers.map((layer, index) => [layer.id, index]));
+  const membership = body.collisionLayers.filter(id => byId.has(id));
+  // An explicit empty membership is useful: it turns a body into a
+  // non-colliding participant while keeping it available to joints, queries,
+  // and the rest of the physics system. Only `null` means a legacy raw mask.
+  const activeMembership = membership;
+  let group = 0;
+  let mask = 0;
+  for (const layerId of activeMembership) group |= 1 << byId.get(layerId);
+  for (const target of layers) {
+    if (activeMembership.some(sourceId => world.collisionLayers.matrix[collisionLayerPairKey(sourceId, target.id)] !== false)) {
+      mask |= 1 << byId.get(target.id);
+    }
+  }
+  return { group, mask, legacy: false };
+};
 const normalizeMappingValues = value => {
   const values = value && typeof value === "object" ? value : {};
   const normalized = {};
@@ -82,6 +157,14 @@ export const normalizePhysicsWorld = value => ({
   // becomes the next Reset pose. Preview keeps the authored pose locked so a
   // user can stage an experiment and return to it with Reset.
   pausedEditMode: value?.pausedEditMode === "preview" ? "preview" : "author",
+  // Live pose is an IK-like manipulation mode. It does not advance transport
+  // time; releasing a live pose at transport zero promotes that solved pose
+  // to the authored reset baseline in App, while other times stay runtime-only.
+  livePose: value?.livePose === true,
+  // Kept only so old scene data remains readable. The old implementation
+  // rewrote reset poses after solving and is intentionally no longer used.
+  pausedConstraintSolve: value?.pausedConstraintSolve === true,
+  collisionLayers: normalizePhysicsCollisionLayers(value?.collisionLayers),
 });
 
 export const normalizePhysicsEndpoint = value => {
@@ -108,11 +191,21 @@ export const normalizePhysicsEndpoint = value => {
   if (value.kind === "curve-progress") {
     return { kind: "curve-progress", objectRef, progress: clamp(value.progress, 0, 1) };
   }
+  const localAnchor = Array.isArray(value.localAnchor)
+    && Number.isFinite(Number(value.localAnchor[0]))
+    && Number.isFinite(Number(value.localAnchor[1]))
+    ? [Number(value.localAnchor[0]), Number(value.localAnchor[1])]
+    : null;
   return {
     kind: "object",
     objectRef,
     anchor: value.anchor === "center" ? "center" : "local",
     localPoint: [finite(value.localPoint?.[0], 0.5), finite(value.localPoint?.[1], 0.5)],
+    // `localPoint` is an authoring coordinate in an Excalidraw frame. Complex
+    // paths can have a collider origin that differs from that frame centre.
+    // Hydration resolves this scene-pixel offset for the solver so a visual
+    // axle remains at the exact authored pivot rather than snapping on play.
+    ...(localAnchor ? { localAnchor } : {}),
   };
 };
 
@@ -174,6 +267,11 @@ export const normalizePhysicsBody = value => {
     mappingValues: normalizeMappingValues(value?.mappingValues),
     collisionGroup: Math.max(0, Math.round(finite(value?.collisionGroup, 1))),
     collisionMask: Math.max(0, Math.round(finite(value?.collisionMask, 0xffff))),
+    // `null` is deliberate: it means this is a pre-layer-stack body and its
+    // raw collisionGroup/collisionMask values must remain authoritative.
+    collisionLayers: Array.isArray(value?.collisionLayers)
+      ? uniqueStrings(value.collisionLayers).slice(0, MAX_PHYSICS_COLLISION_LAYERS)
+      : null,
     initial: {
       x: finite(value?.initial?.x),
       y: finite(value?.initial?.y),
@@ -210,11 +308,61 @@ export const serializePhysicsBodyCustomData = value => {
     mappingValues: clone(body.mappingValues),
     collisionGroup: body.collisionGroup,
     collisionMask: body.collisionMask,
+    ...(Array.isArray(body.collisionLayers) ? { collisionLayers: [...body.collisionLayers] } : {}),
     collider: clone(body.collider),
     material: clone(body.material),
     initial: clone(body.initial),
     initialGeometry: clone(body.initialGeometry),
     render: clone(body.render),
+  };
+};
+
+const isConstraintPhysicsRole = role => CONSTRAINT_KINDS.includes(role);
+
+// A constraint object's customData is deliberately inspectable and portable,
+// but the solver also needs a precise anchor measured from the *actual*
+// collider origin.  Freehand paths can have a rendered origin different from
+// their Excalidraw frame centre, so do not throw that resolved local anchor
+// away merely because older customData only contains `localPoint`.
+//
+// If an author deliberately changes the endpoint's normalized localPoint (or
+// supplies an explicit localAnchor), let hydration recompute/use that change.
+const mergeConstraintEndpointFromObjectData = (graphEndpoint, objectEndpoint) => {
+  if (!objectEndpoint) return graphEndpoint;
+  if (!graphEndpoint || graphEndpoint.kind !== "object" || objectEndpoint.kind !== "object") return objectEndpoint;
+  const sameObject = graphEndpoint.objectRef?.kind === objectEndpoint.objectRef?.kind
+    && graphEndpoint.objectRef?.elementId === objectEndpoint.objectRef?.elementId;
+  const sameLocalPoint = JSON.stringify(graphEndpoint.localPoint || null) === JSON.stringify(objectEndpoint.localPoint || null);
+  if (!sameObject || !sameLocalPoint || Array.isArray(objectEndpoint.localAnchor) || !Array.isArray(graphEndpoint.localAnchor)) {
+    return objectEndpoint;
+  }
+  return { ...objectEndpoint, localAnchor: clone(graphEndpoint.localAnchor) };
+};
+
+// Constraint objects use the same authored home as bodies. Unlike a body they
+// have no Rapier handle of their own: the canvas object marks the joint centre
+// and owns the persistent relationship configuration.
+export const serializePhysicsConstraintCustomData = value => {
+  const constraint = normalizePhysicsConstraint(value);
+  return {
+    version: 1,
+    role: constraint.kind,
+    id: constraint.id,
+    systemId: constraint.systemId,
+    enabled: constraint.enabled,
+    name: constraint.name,
+    constraintKind: constraint.kind,
+    objectRef: clone(constraint.objectRef),
+    a: clone(constraint.a),
+    b: clone(constraint.b),
+    restLength: constraint.restLength,
+    stiffness: constraint.stiffness,
+    damping: constraint.damping,
+    limitsEnabled: constraint.limitsEnabled,
+    lowerLimit: constraint.lowerLimit,
+    upperLimit: constraint.upperLimit,
+    breakForce: constraint.breakForce,
+    collideConnected: constraint.collideConnected,
   };
 };
 
@@ -229,7 +377,9 @@ export const getPhysicsCustomData = value => {
 };
 
 export const withPhysicsCustomData = (customData, value) => {
-  const next = { ...(customData || {}), physics: serializePhysicsBodyCustomData(value) };
+  const next = { ...(customData || {}), physics: value?.kind && isConstraintPhysicsRole(value.kind)
+    ? serializePhysicsConstraintCustomData(value)
+    : serializePhysicsBodyCustomData(value) };
   delete next.draweratorPhysics;
   return next;
 };
@@ -242,6 +392,10 @@ export const hydrateRelationshipGraphFromElements = (graphValue, elements = []) 
     .filter(body => body.objectRef?.kind === "element")
     .map(body => body.objectRef.elementId));
   const usedBodyIds = new Set(graph.bodies.map(body => body.id));
+  const boundConstraintElementIds = new Set(graph.constraints
+    .filter(constraint => constraint.objectRef?.kind === "element")
+    .map(constraint => constraint.objectRef.elementId));
+  const usedConstraintIds = new Set(graph.constraints.map(constraint => constraint.id));
   let systems = graph.systems;
   const bodies = [
     ...graph.bodies.map(body => {
@@ -287,10 +441,49 @@ export const hydrateRelationshipGraphFromElements = (graphValue, elements = []) 
       })];
     }),
   ];
+  const constraints = [
+    ...graph.constraints.map(constraint => {
+      if (constraint.objectRef?.kind !== "element") return constraint;
+      const physics = getPhysicsCustomData(elementById.get(constraint.objectRef.elementId));
+      if (!physics || !isConstraintPhysicsRole(physics.role || physics.constraintKind)) return constraint;
+      return normalizePhysicsConstraint({
+        ...constraint,
+        ...physics,
+        a: mergeConstraintEndpointFromObjectData(constraint.a, physics.a),
+        b: mergeConstraintEndpointFromObjectData(constraint.b, physics.b),
+        id: constraint.id,
+        systemId: constraint.systemId || physics.systemId,
+        objectRef: constraint.objectRef,
+      });
+    }),
+    ...liveElements.flatMap(element => {
+      if (boundConstraintElementIds.has(element.id)) return [];
+      const physics = getPhysicsCustomData(element);
+      const kind = physics?.constraintKind || physics?.role;
+      if (!physics || !isConstraintPhysicsRole(kind)) return [];
+      let systemId = String(physics.systemId || systems[0]?.id || "");
+      if (!systems.some(system => system.id === systemId)) {
+        const system = createDefaultPhysicsSystem({ ...(systemId ? { id: systemId } : {}), name: "World" });
+        systems = [...systems, system];
+        systemId = system.id;
+      }
+      const preferredId = String(physics.id || `physics-${kind}-${element.id}`);
+      const constraintId = usedConstraintIds.has(preferredId) ? `physics-${kind}-${element.id}` : preferredId;
+      usedConstraintIds.add(constraintId);
+      return [normalizePhysicsConstraint({
+        ...physics,
+        id: constraintId,
+        kind,
+        systemId,
+        objectRef: { kind: "element", elementId: element.id },
+      })];
+    }),
+  ];
   return normalizeRelationshipGraph({
     ...graph,
     systems,
     bodies,
+    constraints,
   });
 };
 
@@ -340,22 +533,39 @@ export const normalizePhysicsPopulation = value => ({
   },
 });
 
-export const normalizePhysicsConstraint = value => ({
-  id: id(value?.id, "physics-constraint"),
-  systemId: String(value?.systemId || ""),
-  name: String(value?.name || "Constraint"),
-  enabled: value?.enabled !== false,
-  kind: CONSTRAINT_KINDS.includes(value?.kind) ? value.kind : "spring",
-  a: normalizePhysicsEndpoint(value?.a),
-  b: normalizePhysicsEndpoint(value?.b),
-  restLength: Math.max(0, finite(value?.restLength, 100)),
-  stiffness: Math.max(0, finite(value?.stiffness, 40)),
-  damping: Math.max(0, finite(value?.damping, 4)),
-  lowerLimit: Number.isFinite(Number(value?.lowerLimit)) ? Number(value.lowerLimit) : null,
-  upperLimit: Number.isFinite(Number(value?.upperLimit)) ? Number(value.upperLimit) : null,
-  breakForce: Number.isFinite(Number(value?.breakForce)) ? Math.max(0, Number(value.breakForce)) : null,
-  collideConnected: value?.collideConnected === true,
-});
+export const normalizePhysicsConstraint = value => {
+  const kind = CONSTRAINT_KINDS.includes(value?.kind) ? value.kind : "spring";
+  const optionalFinite = candidate => candidate === null || candidate === undefined || candidate === ""
+    ? null
+    : (Number.isFinite(Number(candidate)) ? Number(candidate) : null);
+  const lowerLimit = optionalFinite(value?.lowerLimit);
+  const upperLimit = optionalFinite(value?.upperLimit);
+  const isHinge = ["axle", "pin", "revolute"].includes(kind);
+  // Before limits were explicit, the inspector serialized 0/0 for an untouched
+  // axle. That is a locked hinge, not the expected default full rotation.
+  // Treat that historic pair as unlimited; an author can now opt into a real
+  // 0/0 angular lock with `limitsEnabled`.
+  const legacyDefaultLock = isHinge && lowerLimit === 0 && upperLimit === 0 && value?.limitsEnabled !== true;
+  const hasLimits = isHinge && !legacyDefaultLock && (value?.limitsEnabled === true || (lowerLimit !== null && upperLimit !== null));
+  return {
+    id: id(value?.id, "physics-constraint"),
+    systemId: String(value?.systemId || ""),
+    name: String(value?.name || "Constraint"),
+    enabled: value?.enabled !== false,
+    kind,
+    objectRef: normalizeDraweratorObjectRef(value?.objectRef),
+    a: normalizePhysicsEndpoint(value?.a),
+    b: normalizePhysicsEndpoint(value?.b),
+    restLength: Math.max(0, finite(value?.restLength, 100)),
+    stiffness: Math.max(0, finite(value?.stiffness, 40)),
+    damping: Math.max(0, finite(value?.damping, 4)),
+    limitsEnabled: hasLimits,
+    lowerLimit: hasLimits ? lowerLimit : null,
+    upperLimit: hasLimits ? upperLimit : null,
+    breakForce: Number.isFinite(Number(value?.breakForce)) ? Math.max(0, Number(value.breakForce)) : null,
+    collideConnected: value?.collideConnected === true,
+  };
+};
 
 export const normalizePhysicsRoute = value => ({
   id: id(value?.id, "physics-route"),
@@ -506,18 +716,25 @@ export const migratePhysicsRoutesToMappings = routes => list(routes).flatMap(leg
 
 export const normalizeRelationshipGraph = value => {
   const graph = value && typeof value === "object" ? value : {};
+  const world = normalizePhysicsWorld(graph.world);
   const systems = list(graph.systems).map(normalizePhysicsSystem);
   const systemIds = new Set(systems.map(system => system.id));
   const keepSystem = item => !item.systemId || systemIds.has(item.systemId);
+  const validLayerIds = new Set(world.collisionLayers.layers.map(layer => layer.id));
+  const bodies = list(graph.bodies).map(normalizePhysicsBody).map(body => {
+    if (!Array.isArray(body.collisionLayers)) return body;
+    const collisionLayers = body.collisionLayers.filter(layerId => validLayerIds.has(layerId));
+    return { ...body, collisionLayers };
+  }).filter(keepSystem);
   const legacyRoutes = list(graph.routes).map(normalizePhysicsRoute).filter(keepSystem);
   const mappings = list(graph.mappings).length
     ? list(graph.mappings).map(normalizeRelationshipMapping)
     : legacyRoutes.flatMap(legacyRouteMappings);
   return {
     version: RELATIONSHIP_GRAPH_VERSION,
-    world: normalizePhysicsWorld(graph.world),
+    world,
     systems,
-    bodies: list(graph.bodies).map(normalizePhysicsBody).filter(keepSystem),
+    bodies,
     populations: list(graph.populations).map(normalizePhysicsPopulation).filter(keepSystem),
     constraints: list(graph.constraints).map(normalizePhysicsConstraint).filter(keepSystem),
     // Routes were the first narrow collision-action experiment. They migrate
@@ -598,6 +815,8 @@ export const removeRelationshipBindingsForElements = (graphValue, elementIds) =>
   };
   const bodies = graph.bodies.filter(body => !referencesDeletedElement(body.objectRef));
   const constraints = graph.constraints.filter(constraint => (
+    !referencesDeletedElement(constraint.objectRef)
+    &&
     !endpointReferencesDeletedElement(constraint.a)
     && !endpointReferencesDeletedElement(constraint.b)
   ));
@@ -622,7 +841,14 @@ export const remapRelationshipGraph = (graphValue, idMap, existingIds = new Set(
   return normalizeRelationshipGraph({
     ...graph,
     bodies: graph.bodies.map(body => ({ ...body, objectRef: remapRef(body.objectRef) })).filter(body => body.tracking === "runtime-lite" || body.objectRef),
-    constraints: graph.constraints.map(constraint => ({ ...constraint, a: remapEndpoint(constraint.a), b: remapEndpoint(constraint.b) })),
+    constraints: graph.constraints.flatMap(constraint => {
+      const objectRef = remapRef(constraint.objectRef);
+      // Older graph-only constraints intentionally have no authored pivot.
+      // A pivot-bearing constraint, however, must not survive an import whose
+      // pivot object was omitted.
+      if (constraint.objectRef && !objectRef) return [];
+      return [{ ...constraint, objectRef, a: remapEndpoint(constraint.a), b: remapEndpoint(constraint.b) }];
+    }),
   });
 };
 
@@ -635,7 +861,11 @@ export const relationshipGraphForSelection = (graphValue, selectedElementIds) =>
     const normalized = normalizePhysicsEndpoint(endpoint);
     return !normalized || ["world", "stream"].includes(normalized.kind) || selected.has(normalized.objectRef.elementId);
   };
-  const constraints = graph.constraints.filter(constraint => endpointSelected(constraint.a) && endpointSelected(constraint.b));
+  const constraints = graph.constraints.filter(constraint => (
+    (!constraint.objectRef || selected.has(constraint.objectRef.elementId))
+    && endpointSelected(constraint.a)
+    && endpointSelected(constraint.b)
+  ));
   const systemIds = new Set([...bodies.map(body => body.systemId), ...constraints.map(item => item.systemId)]);
   return normalizeRelationshipGraph({
     systems: graph.systems.filter(system => systemIds.has(system.id)),
@@ -717,6 +947,9 @@ export const findRelationshipOrphans = (graphValue, elements = []) => {
     if (body.objectRef && !liveElements.has(body.objectRef.elementId)) orphans.push({ kind: "body", id: body.id, endpoint: "objectRef" });
   });
   graph.constraints.forEach(constraint => {
+    if (constraint.objectRef && !liveElements.has(constraint.objectRef.elementId)) {
+      orphans.push({ kind: "constraint", id: constraint.id, endpoint: "objectRef" });
+    }
     for (const key of ["a", "b"]) {
       if (endpointIsOrphaned(constraint[key])) {
         orphans.push({ kind: "constraint", id: constraint.id, endpoint: key });

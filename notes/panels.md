@@ -40,6 +40,12 @@ The following state persists independently:
 
 Every panel is available from the main menu and command palette, including `/chat`, `/brush` (legacy `/mods`), `/script`, `/score` (legacy `/iannix` and `/scene`), `/physics` (also `/relations`), `/synth`, `/media` (legacy `/media-input`), `/inputs` (also `/signals`), `/holistic`, `/mapping`, `/settings`, `/console`, and `/transport`. `/svg` opens the Script panel with its SVG adapter selected. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
 
+Physics also has an optional compact **Physics toolbar** on the canvas. It is a draggable single-column
+tool utility, not a second inspector: its atom identity icon starts a drag, Shift-double-click
+minimizes it, and Option-double-click or its context menu closes it. `/physicstoolbar` toggles it.
+The toolbar assigns roles and creates selected-object Axle/Weld pivots; detailed authoring remains in
+Physics and Properties.
+
 Console docks at the bottom by default, after Info, but can also float or dock at either side. Its **Live** strip is intentionally separate from retained event logging: it always shows each non-pointer Brush channel's source availability, gate state, mapped XY position, and pressure, plus connected input-adapter status. Turn **Log** on only when you need the bounded, filterable event history; status transitions are routed as `status.brush`, `status.input`, and `status.media` events, while high-rate coordinates remain in the Live strip rather than flooding the log.
 
 Media owns the persistent image-source catalog and its cropped/mirrored preview output. Inputs owns

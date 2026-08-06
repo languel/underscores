@@ -211,6 +211,23 @@ export const getPhysicsColliderSelectionValue = (collider, { allowPath = true } 
   return "box";
 };
 
+// Version-1 path colliders were centred on Excalidraw's width/height frame,
+// while current colliders are centred on the rendered path bounds. Only
+// migrate a legacy record when its reset pose still disagrees with the
+// rendered centre. That protects bodies authored immediately before the
+// version marker was introduced: they already have the correct canvas pose
+// and must not be shifted a second time during hydration.
+export const needsLegacyPhysicsColliderOriginRebase = (collider, initial, inferredInitial) => {
+  if (![
+    "polyline",
+    "chain",
+    "convex",
+  ].includes(collider?.kind) || (collider?.localOriginVersion || 0) >= 2) return false;
+  const epsilon = 0.01;
+  return Math.abs(finite(initial?.x) - finite(inferredInitial?.x)) > epsilon
+    || Math.abs(finite(initial?.y) - finite(inferredInitial?.y)) > epsilon;
+};
+
 export const inferPhysicsBodyFromElement = (element, overrides = {}) => {
   if (!element) return null;
   const center = getPhysicsElementCenter(element);
@@ -228,6 +245,11 @@ export const inferPhysicsBodyFromElement = (element, overrides = {}) => {
       collider = {
         kind: "convex",
         points: distinctPoints(localFreehandPoints),
+        // These vertices are already measured from the rendered freehand
+        // centre. Flag the same current origin convention used by explicit
+        // convex/path-chain selections so hydration does not mistake a new
+        // body for an old frame-centred collider and rebase it again.
+        localOriginVersion: 2,
       };
     }
   } else if (["line", "arrow", "freedraw"].includes(element.type) || hasCubicBezierGeometry(element)) {
@@ -320,6 +342,46 @@ export const resolvePhysicsEndpoint = (endpointValue, { elements = [], streams =
   const points = getPhysicsElementWorldPoints(element);
   const point = pointAtProgress(points, endpoint.progress);
   return point ? { ok: true, point, endpoint, element } : { ok: false, reason: "missing-curve", endpoint, element };
+};
+
+// A visual constraint is authored against an exact point on an object, while
+// a running rigid body only exposes its current centre and rotation.  Prefer
+// the hydrated `localAnchor` whenever it is available: unlike `localPoint`,
+// it is measured from the collider's actual local origin and therefore stays
+// coincident for freehand/Bezier shapes whose render bounds differ from their
+// Excalidraw frame.  The normal endpoint resolver remains the compatibility
+// fallback for legacy records and paused authoring.
+export const resolvePhysicsEndpointAtPose = (endpointValue, {
+  elements = [],
+  bodies = [],
+  poseByBodyId = new Map(),
+  streams = null,
+} = {}) => {
+  const endpoint = normalizePhysicsEndpoint(endpointValue);
+  if (endpoint?.kind === "object" && Array.isArray(endpoint.localAnchor)) {
+    const body = bodies.find(candidate => (
+      candidate?.objectRef?.kind === "element"
+      && candidate.objectRef.elementId === endpoint.objectRef?.elementId
+    ));
+    const pose = body ? poseByBodyId?.get?.(body.id) : null;
+    if (pose && Number.isFinite(Number(pose.x)) && Number.isFinite(Number(pose.y))) {
+      const angle = finite(pose.angle);
+      const cosine = Math.cos(angle);
+      const sine = Math.sin(angle);
+      const localX = finite(endpoint.localAnchor[0]);
+      const localY = finite(endpoint.localAnchor[1]);
+      return {
+        ok: true,
+        point: [
+          finite(pose.x) + localX * cosine - localY * sine,
+          finite(pose.y) + localX * sine + localY * cosine,
+        ],
+        endpoint,
+        body,
+      };
+    }
+  }
+  return resolvePhysicsEndpoint(endpoint, { elements, streams });
 };
 
 const seededRandom = seedValue => {

@@ -106,12 +106,26 @@ still composed above Excalidraw's native canvas. A unified compositor remains th
 true native/SVG per-object z-order and exact time-specific PNG parity. See
 [SVG architecture](svg.md#remaining-compositor-boundary).
 
+## Physics interaction checkpoint (2026-08-06)
+
+The current `livecode` physics milestone establishes the canvas-first interaction baseline: authored
+Dynamic/Kinematic/Static/Sensor bodies, named collision-layer stacks, body and pivot properties in
+the native Properties panel, a color-configurable world-aligned debug overlay, and first-class
+Axle/Weld pivot objects. Axle pivots resolve one overlapping body against World or two overlapping
+bodies against each other, with free 360-degree rotation by default. The compact Physics toolbar
+is a draggable canvas utility, while the Physics panel remains the detailed inspector.
+
+Live pose now provides constraint-solving manipulation without advancing timeline time. It can be
+enabled persistently in Physics World or invoked for one drag with `Cmd`; a release at timeline zero
+becomes the new reset pose. Collision layers are available before the next constraint family so
+articulated rigs can deliberately suppress self-collisions.
+
 ## Next phase
 
-Add source adapters for palm openness, calibrated gaze, score and command events, then exercise
-string-plucking, zones, richer serial/OSC source templates, per-wall musical profiles, and additional
-deformable constraints. The infinite canvas remains the authoring surface; the compact Physics
-inspector should not become a node editor. The future canvas graph will edit the same mapping records.
+Build springs, motors, attractors, thrusters, and chains on top of the collision-layer and pivot
+baseline, then add source adapters for palm openness, calibrated gaze, score and command events.
+The infinite canvas remains the authoring surface; the compact Physics inspector should not become a
+node editor. The future canvas graph will edit the same mapping records.
 The unchanged MediaMime body-map references can become ontology-generated selectable
 maps in that later slice without turning their explanatory SVG titles into runtime schema.
 

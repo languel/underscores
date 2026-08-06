@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyBezierSculptOperator, getPhysicsColliderSelectionValue, getPhysicsElementCenter, getPhysicsElementLocalCenter, getPhysicsElementLocalPoints, getPhysicsElementWorldPoints, inferPhysicsBodyFromElement, inferPhysicsColliderForBody, inferPhysicsColliderFromElement, resolvePhysicsEndpoint } from "./physicsGeometry.js";
+import { applyBezierSculptOperator, getPhysicsColliderSelectionValue, getPhysicsElementCenter, getPhysicsElementLocalCenter, getPhysicsElementLocalPoints, getPhysicsElementWorldPoints, inferPhysicsBodyFromElement, inferPhysicsColliderForBody, inferPhysicsColliderFromElement, needsLegacyPhysicsColliderOriginRebase, resolvePhysicsEndpoint, resolvePhysicsEndpointAtPose } from "./physicsGeometry.js";
 import { normalizeBezierGeometry } from "./bezierGeometry.js";
 
 const curve = {
@@ -25,6 +25,27 @@ test("canonical Bezier anchors receive stable ids and resolve as endpoints", () 
   const resolved = resolvePhysicsEndpoint({ kind: "bezier-anchor", objectRef: "curve", anchorId: "anchor-1" }, { elements: [curve] });
   assert.equal(resolved.ok, true);
   assert.deepEqual(resolved.point, [60, 45]);
+});
+
+test("running constraint diagnostics use the precise hydrated body-local anchor", () => {
+  const body = {
+    id: "freehand-body",
+    objectRef: { kind: "element", elementId: "freehand" },
+  };
+  const resolved = resolvePhysicsEndpointAtPose({
+    kind: "object",
+    objectRef: { kind: "element", elementId: "freehand" },
+    anchor: "local",
+    // This legacy frame point intentionally differs from the collider origin.
+    localPoint: [0.1, 0.1],
+    localAnchor: [50, -20],
+  }, {
+    bodies: [body],
+    poseByBodyId: new Map([[body.id, { x: 300, y: 200, angle: Math.PI / 2 }]]),
+  });
+  assert.equal(resolved.ok, true);
+  assert.ok(Math.abs(resolved.point[0] - 320) < 1e-8);
+  assert.ok(Math.abs(resolved.point[1] - 250) < 1e-8);
 });
 
 test("shape inference treats curves as solid fixed chains and ellipses as circles", () => {
@@ -54,6 +75,42 @@ test("closed round freehand strokes infer solid dynamic circle colliders", () =>
   assert.equal(body.collider.radius, 19);
   assert.equal(getPhysicsColliderSelectionValue(body.collider), "ellipse");
   assert.equal(getPhysicsColliderSelectionValue({ kind: "chain" }, { allowPath: false }), "box");
+});
+
+test("new closed freehand bodies mark their convex points as already centred", () => {
+  const freehand = {
+    id: "offset-closed-freehand",
+    type: "freedraw",
+    x: 320,
+    y: 180,
+    // Deliberately make the Excalidraw frame larger than the rendered path,
+    // matching imported/edited freehands that used to jump when made a body.
+    width: 260,
+    height: 180,
+    angle: 0,
+    points: [[20, 30], [190, 0], [220, 90], [120, 130], [20, 30]],
+  };
+  const body = inferPhysicsBodyFromElement(freehand, {
+    systemId: "system",
+    bodyType: "dynamic",
+  });
+  assert.equal(body.collider.kind, "convex");
+  // `localOriginVersion: 2` tells hydration these points already use the
+  // rendered path centre. Without it, the legacy migration rebases this new
+  // body a second time against the element frame.
+  assert.equal(body.collider.localOriginVersion, 2);
+  assert.deepEqual([body.initial.x, body.initial.y], [440, 245]);
+});
+
+test("legacy path-origin migration never rebases a reset pose already at the rendered centre", () => {
+  const legacyCollider = { kind: "convex", points: [[0, 0], [1, 0], [0, 1]] };
+  const renderedInitial = { x: 440, y: 245 };
+  assert.equal(needsLegacyPhysicsColliderOriginRebase(legacyCollider, renderedInitial, renderedInitial), false);
+  assert.equal(needsLegacyPhysicsColliderOriginRebase(
+    legacyCollider,
+    { x: 450, y: 270 },
+    renderedInitial,
+  ), true);
 });
 
 test("paused authored edits preserve a selected collider kind while refreshing its geometry", () => {

@@ -1,5 +1,5 @@
 import RAPIER from "@dimforge/rapier2d-deterministic-compat";
-import { normalizeRelationshipGraph, normalizePhysicsEndpoint } from "./relationshipGraph.js";
+import { normalizeRelationshipGraph, normalizePhysicsEndpoint, resolvePhysicsCollisionGroups } from "./relationshipGraph.js";
 
 export const PHYSICS_WORLD_SCALE = 0.01;
 const INV_SCALE = 1 / PHYSICS_WORLD_SCALE;
@@ -47,15 +47,16 @@ const bodyDescription = (body, viscosity = 0) => {
     .setCcdEnabled(body.bodyType === "dynamic");
 };
 
-const colliderDescriptions = body => {
+const colliderDescriptions = (body, world) => {
   const collider = body.collider;
+  const collisionGroups = resolvePhysicsCollisionGroups(world, body);
   const configureCollider = candidate => candidate
     .setSensor(collider.sensor)
     .setDensity(body.material.density)
     .setFriction(body.material.friction)
     .setRestitution(body.material.restitution)
     .setContactSkin(collider.contactSkin * PHYSICS_WORLD_SCALE)
-    .setCollisionGroups(((body.collisionGroup & 0xffff) << 16) | (body.collisionMask & 0xffff))
+    .setCollisionGroups(((collisionGroups.group & 0xffff) << 16) | (collisionGroups.mask & 0xffff))
     .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS | RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
     .setContactForceEventThreshold(0);
   let desc;
@@ -102,6 +103,14 @@ const colliderDescriptions = body => {
 
 const localAnchorForBody = (body, endpoint) => {
   if (!endpoint || endpoint.kind !== "object" || endpoint.anchor === "center") return { x: 0, y: 0 };
+  // First-class visual constraints hydrate their precise body-local offset
+  // from the axle/fixate object's centre. This must win over the normalized
+  // Excalidraw-frame coordinate below: a freehand collider can be rebased to
+  // its rendered path centre, which is often nowhere near the frame centre.
+  if (Array.isArray(endpoint.localAnchor)) return {
+    x: endpoint.localAnchor[0] * PHYSICS_WORLD_SCALE,
+    y: endpoint.localAnchor[1] * PHYSICS_WORLD_SCALE,
+  };
   const width = body.collider.kind === "circle" ? body.collider.radius * 2 : body.collider.width;
   const height = body.collider.kind === "circle" ? body.collider.radius * 2 : body.collider.height;
   return {
@@ -189,7 +198,7 @@ export class RapierPhysicsSystem {
 
   #addBody(body, runtime = {}) {
     const rigidBody = this.world.createRigidBody(bodyDescription({ ...body, initial: { ...body.initial, ...runtime.initial } }, this.graph.world.viscosity));
-    const colliders = colliderDescriptions(body).map(description => this.world.createCollider(description, rigidBody));
+    const colliders = colliderDescriptions(body, this.graph.world).map(description => this.world.createCollider(description, rigidBody));
     const entity = {
       id: runtime.id || body.id,
       bodyId: body.id,
@@ -264,21 +273,34 @@ export class RapierPhysicsSystem {
     let entityB = b.entity;
     let bodyA = entityA?.rigidBody;
     let bodyB = entityB?.rigidBody;
-    if (!bodyA && a.endpoint?.kind === "world") bodyA = this.#fixedAnchor(a.endpoint.point);
-    if (!bodyB && b.endpoint?.kind === "world") bodyB = this.#fixedAnchor(b.endpoint.point);
+    const worldAnchorA = !bodyA && a.endpoint?.kind === "world" ? this.#fixedAnchor(a.endpoint.point) : null;
+    const worldAnchorB = !bodyB && b.endpoint?.kind === "world" ? this.#fixedAnchor(b.endpoint.point) : null;
+    bodyA = bodyA || worldAnchorA;
+    bodyB = bodyB || worldAnchorB;
     if (!bodyA || !bodyB) return;
     const anchorA = entityA ? localAnchorForBody(this.graph.bodies.find(body => body.id === entityA.bodyId), a.endpoint) : { x: 0, y: 0 };
     const anchorB = entityB ? localAnchorForBody(this.graph.bodies.find(body => body.id === entityB.bodyId), b.endpoint) : { x: 0, y: 0 };
     let data;
-    if (constraint.kind === "revolute" || constraint.kind === "pin") data = RAPIER.JointData.revolute(anchorA, anchorB);
-    else if (constraint.kind === "weld") data = RAPIER.JointData.fixed(anchorA, 0, anchorB, 0);
+    if (["revolute", "pin", "axle"].includes(constraint.kind)) data = RAPIER.JointData.revolute(anchorA, anchorB);
+    else if (["weld", "fixate"].includes(constraint.kind)) data = RAPIER.JointData.fixed(anchorA, 0, anchorB, 0);
     else data = RAPIER.JointData.spring(constraint.restLength * PHYSICS_WORLD_SCALE, constraint.stiffness, constraint.damping, anchorA, anchorB);
     const joint = this.world.createImpulseJoint(data, bodyA, bodyB, true);
     joint.setContactsEnabled(constraint.collideConnected);
-    if (typeof joint.setLimits === "function" && constraint.lowerLimit !== null && constraint.upperLimit !== null) {
+    if (constraint.limitsEnabled && typeof joint.setLimits === "function" && constraint.lowerLimit !== null && constraint.upperLimit !== null) {
       joint.setLimits(constraint.lowerLimit, constraint.upperLimit);
     }
-    this.constraints.set(constraint.id, { definition: constraint, joint, bodyA, bodyB });
+    this.constraints.set(constraint.id, {
+      definition: constraint,
+      joint,
+      bodyA,
+      bodyB,
+      entityA,
+      entityB,
+      worldAnchorA,
+      worldAnchorB,
+      anchorA,
+      anchorB,
+    });
   }
 
   #contactDetails(handleA, handleB) {
@@ -468,6 +490,76 @@ export class RapierPhysicsSystem {
     return true;
   }
 
+  // Resolve an authored pose without advancing simulation time. The bodies
+  // directly edited on canvas become temporary kinematic anchors; Rapier then
+  // performs a bounded, zero-gravity joint solve so connected bodies follow.
+  // The caller commits these returned poses as a new reset pose afterwards.
+  relaxConstraints(entityIds = [], iterations = 18) {
+    const requested = new Set((Array.isArray(entityIds) ? entityIds : [entityIds]).filter(Boolean));
+    const targets = [...requested]
+      .map(id => this.bodyById.get(id))
+      .filter(entity => entity && entity.tracking === "authored-rigid" && !entity.rigidBody.isFixed());
+    if (!targets.length) return this.#authoredRigidPoseRecords();
+
+    const gravity = this.world.gravity;
+    const temporaryTypes = [];
+    const targetPoses = targets.map(entity => {
+      const translation = entity.rigidBody.translation();
+      return { entity, translation: { x: translation.x, y: translation.y }, angle: entity.rigidBody.rotation() };
+    });
+    const eventQueue = new RAPIER.EventQueue(false);
+    try {
+      this.world.gravity = { x: 0, y: 0 };
+      for (const target of targetPoses) {
+        const previousType = target.entity.rigidBody.bodyType();
+        if (previousType !== RAPIER.RigidBodyType.KinematicPositionBased) {
+          temporaryTypes.push({ entity: target.entity, previousType });
+          target.entity.rigidBody.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+        }
+        target.entity.rigidBody.setLinvel({ x: 0, y: 0 }, true);
+        target.entity.rigidBody.setAngvel(0, true);
+      }
+      const count = Math.max(1, Math.min(96, Math.round(finite(iterations, 18))));
+      for (let index = 0; index < count; index += 1) {
+        for (const target of targetPoses) {
+          target.entity.rigidBody.setNextKinematicTranslation(target.translation);
+          target.entity.rigidBody.setNextKinematicRotation(target.angle);
+        }
+        this.world.step(eventQueue);
+      }
+      // This is pose authoring, not a hidden simulation. Remove impulse left
+      // by the solver so the next Play begins calmly from the authored frame.
+      for (const entity of this.bodyById.values()) {
+        entity.rigidBody.setLinvel({ x: 0, y: 0 }, true);
+        entity.rigidBody.setAngvel(0, true);
+      }
+      this.activePairs.clear();
+      return this.#authoredRigidPoseRecords();
+    } finally {
+      for (const { entity, previousType } of temporaryTypes) {
+        entity.rigidBody.setBodyType(previousType, true);
+        entity.rigidBody.setLinvel({ x: 0, y: 0 }, true);
+        entity.rigidBody.setAngvel(0, true);
+      }
+      this.world.gravity = gravity;
+      eventQueue.free();
+    }
+  }
+
+  #authoredRigidPoseRecords() {
+    return [...this.bodyById.values()]
+      .filter(entity => entity.tracking === "authored-rigid")
+      .map(entity => {
+        const translation = entity.rigidBody.translation();
+        return {
+          bodyId: entity.bodyId,
+          x: translation.x * INV_SCALE,
+          y: translation.y * INV_SCALE,
+          angle: entity.rigidBody.rotation(),
+        };
+      });
+  }
+
   applyImpulse(entityId, impulse, wake = true) {
     const entity = this.bodyById.get(entityId);
     if (!entity) return false;
@@ -503,26 +595,86 @@ export class RapierPhysicsSystem {
     };
   }
 
-  grab(entityId, point, stiffness = 120, damping = 12) {
+  #localAnchorAtPoint(entity, point) {
+    const translation = entity.rigidBody.translation();
+    const dx = finite(point?.[0]) * PHYSICS_WORLD_SCALE - translation.x;
+    const dy = finite(point?.[1]) * PHYSICS_WORLD_SCALE - translation.y;
+    const angle = entity.rigidBody.rotation();
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    return {
+      x: cosine * dx + sine * dy,
+      y: -sine * dx + cosine * dy,
+    };
+  }
+
+  // This solves constraints in-place for direct manipulation without updating
+  // the authored reset pose or advancing the public simulation clock. It is
+  // deliberately runtime-only: releasing the grab leaves the scene's t=0
+  // authoring data untouched, and Reset restores that authored state.
+  #solveLivePose(iterations = 24) {
+    const gravity = this.world.gravity;
+    const eventQueue = new RAPIER.EventQueue(false);
+    try {
+      this.world.gravity = { x: 0, y: 0 };
+      const count = Math.max(1, Math.min(96, Math.round(finite(iterations, 24))));
+      for (let index = 0; index < count; index += 1) this.world.step(eventQueue);
+      for (const entity of this.bodyById.values()) {
+        if (entity.rigidBody.isFixed()) continue;
+        entity.rigidBody.setLinvel({ x: 0, y: 0 }, true);
+        entity.rigidBody.setAngvel(0, true);
+      }
+      this.activePairs.clear();
+    } finally {
+      this.world.gravity = gravity;
+      eventQueue.free();
+    }
+  }
+
+  grab(entityId, point, stiffness = 120, damping = 12, { livePose = false } = {}) {
     this.releaseGrab();
     const entity = this.bodyById.get(entityId);
     if (!entity) return false;
     const anchor = this.#fixedAnchor(point);
-    const joint = this.world.createImpulseJoint(RAPIER.JointData.spring(0, stiffness, damping, { x: 0, y: 0 }, { x: 0, y: 0 }), anchor, entity.rigidBody, true);
-    this.grabState = { entityId, anchor, joint };
+    const localAnchor = this.#localAnchorAtPoint(entity, point);
+    const joint = this.world.createImpulseJoint(RAPIER.JointData.spring(0, stiffness, damping, { x: 0, y: 0 }, localAnchor), anchor, entity.rigidBody, true);
+    this.grabState = { kind: "body", entityId, anchor, joint, livePose };
+    if (livePose) this.#solveLivePose();
     return true;
   }
 
-  moveGrab(point) {
+  grabConstraint(constraintId, point, stiffness = 120, damping = 12, { livePose = false } = {}) {
+    this.releaseGrab();
+    const state = this.constraints.get(constraintId);
+    if (!state) return false;
+    const worldAnchor = state.worldAnchorA || state.worldAnchorB;
+    if (worldAnchor) {
+      this.grabState = { kind: "constraint-world", constraintId, worldAnchor, livePose };
+      return this.moveGrab(point, { livePose });
+    }
+    const entity = state.entityA || state.entityB;
+    const localAnchor = state.entityA ? state.anchorA : state.anchorB;
+    if (!entity || !localAnchor) return false;
+    const anchor = this.#fixedAnchor(point);
+    const joint = this.world.createImpulseJoint(RAPIER.JointData.spring(0, stiffness, damping, { x: 0, y: 0 }, localAnchor), anchor, entity.rigidBody, true);
+    this.grabState = { kind: "constraint", constraintId, anchor, joint, livePose };
+    if (livePose) this.#solveLivePose();
+    return true;
+  }
+
+  moveGrab(point, { livePose = false, iterations = 24 } = {}) {
     if (!this.grabState) return false;
-    this.grabState.anchor.setTranslation({ x: finite(point?.[0]) * PHYSICS_WORLD_SCALE, y: finite(point?.[1]) * PHYSICS_WORLD_SCALE }, true);
+    const target = { x: finite(point?.[0]) * PHYSICS_WORLD_SCALE, y: finite(point?.[1]) * PHYSICS_WORLD_SCALE };
+    if (this.grabState.worldAnchor) this.grabState.worldAnchor.setTranslation(target, true);
+    else this.grabState.anchor?.setTranslation(target, true);
+    if (this.grabState.livePose || livePose) this.#solveLivePose(iterations);
     return true;
   }
 
   releaseGrab() {
     if (!this.grabState) return;
-    this.world.removeImpulseJoint(this.grabState.joint, true);
-    this.world.removeRigidBody(this.grabState.anchor);
+    if (this.grabState.joint) this.world.removeImpulseJoint(this.grabState.joint, true);
+    if (this.grabState.anchor) this.world.removeRigidBody(this.grabState.anchor);
     this.grabState = null;
   }
 
@@ -553,8 +705,10 @@ export class RapierPhysicsSystem {
 
   #reindexRestoredWorld() {
     const oldEntities = [...this.bodyById.values()];
+    const oldConstraints = [...this.constraints.entries()];
     const bodies = this.world.bodies.getAll();
     const colliders = this.world.colliders.getAll();
+    const joints = this.world.impulseJoints.getAll();
     this.bodyById.clear();
     this.entityByCollider.clear();
     this.entityByRigidBody.clear();
@@ -580,6 +734,22 @@ export class RapierPhysicsSystem {
       bodyColliders.forEach(collider => this.entityByCollider.set(collider.handle, entity));
       this.entityByRigidBody.set(rigidBody.handle, entity);
       if (entity.objectRef?.kind === "element") this.bodyIdByObjectId.set(entity.objectRef.elementId, entity.id);
+    });
+    oldConstraints.forEach(([constraintId, previous], index) => {
+      const joint = joints[index];
+      if (!joint) return;
+      const bodyA = joint.body1();
+      const bodyB = joint.body2();
+      this.constraints.set(constraintId, {
+        ...previous,
+        joint,
+        bodyA,
+        bodyB,
+        entityA: this.entityByRigidBody.get(bodyA.handle) || null,
+        entityB: this.entityByRigidBody.get(bodyB.handle) || null,
+        worldAnchorA: previous.worldAnchorA ? bodyA : null,
+        worldAnchorB: previous.worldAnchorB ? bodyB : null,
+      });
     });
   }
 

@@ -102,8 +102,9 @@ import { canUseAsObjectBoundsTarget, createMediaBinding, createMediaSource, crea
 import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
 import { createUnifiedStreamsApi, DraweratorStreamRegistry } from "./streamRuntime.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
-import { addRelationshipItem, createDefaultPhysicsSystem, createEmptyRelationshipGraph, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, removeRelationshipBindingsForElements, withPhysicsCustomData } from "./relationshipGraph.js";
-import { applyAnchorAttractorFrame, applyBezierSculptOperator, getPhysicsColliderSelectionValue, getPhysicsElementLocalCenter, inferPhysicsBodyFromElement, inferPhysicsColliderForBody, inferPhysicsColliderFromElement } from "./physicsGeometry.js";
+import { addRelationshipItem, createDefaultPhysicsSystem, createEmptyRelationshipGraph, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, removeRelationshipBindingsForElements, removeRelationshipItem, updateRelationshipItem, withPhysicsCustomData } from "./relationshipGraph.js";
+import { chooseConstraintPivot, elementContainsPhysicsPoint, getPhysicsElementCenter, physicsEndpointAtPoint, resolveConstraintPivot } from "./physicsConstraintAuthoring.js";
+import { applyAnchorAttractorFrame, applyBezierSculptOperator, getPhysicsColliderSelectionValue, getPhysicsElementCenter as getPhysicsGeometryElementCenter, getPhysicsElementLocalCenter, inferPhysicsBodyFromElement, inferPhysicsColliderForBody, inferPhysicsColliderFromElement, needsLegacyPhysicsColliderOriginRebase } from "./physicsGeometry.js";
 import { createPhysicsApi, createRelationshipApi, PhysicsRuntimeController } from "./physicsRuntime.js";
 import { mappingTargetValue } from "./mappingRuntime.js";
 import { PhysicsAudioRouter } from "./physicsAudio.js";
@@ -111,6 +112,7 @@ import { createPhysicsExample } from "./physicsExamples.js";
 import { samplePortraitLandmarkFixture } from "./physicsFixtures.js";
 import PhysicsPanel from "./PhysicsPanel.jsx";
 import PhysicsOverlay from "./PhysicsOverlay.jsx";
+import PhysicsCanvasToolbar from "./PhysicsCanvasToolbar.jsx";
 import { BrowserStreamAdapterRuntime, mapAdapterRecordToSample, parseMidiMessage } from "./streamAdapters.js";
 import { BrushChannelRuntime, DEFAULT_BRUSH_CHANNELS, normalizeBrushChannel, normalizeBrushChannels } from "./brushChannelRuntime.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
@@ -654,6 +656,15 @@ const CUSTOM_THEME_STORAGE_KEY = "drawerator_custom_themes_v1";
 const PHYSICS_DEBUG_STORAGE_KEY = "drawerator_physics_debug_v1";
 const PHYSICS_TIME_SCRUB_STORAGE_KEY = "drawerator_physics_time_scrub_v1";
 const INTERNAL_SYNTH_RESTORE_STORAGE_KEY = "drawerator_internal_synth_restore";
+const DEFAULT_PHYSICS_DEBUG_COLORS = Object.freeze({
+  bodies: "#518effe6",
+  colliders: "#61d5b1f2",
+  constraints: "#ffbe50f2",
+  labels: "#6db7ffff",
+  contacts: "#61d5b1ff",
+  collisions: "#ff7867ff",
+  forces: "#ffd05eff",
+});
 const DEFAULT_PHYSICS_DEBUG = Object.freeze({
   enabled: false,
   bodies: true,
@@ -664,11 +675,23 @@ const DEFAULT_PHYSICS_DEBUG = Object.freeze({
   collisions: true,
   forces: true,
 });
-const normalizePhysicsDebug = value => ({
-  ...DEFAULT_PHYSICS_DEBUG,
-  ...(value && typeof value === "object" ? value : {}),
-  enabled: value?.enabled === true,
-});
+const normalizePhysicsDebugColor = (value, fallback) => {
+  const candidate = String(value || "").trim();
+  if (candidate.toLowerCase() === "object") return "object";
+  if (/^#[0-9a-f]{6}$/i.test(candidate)) return `${candidate.toLowerCase()}ff`;
+  if (/^#[0-9a-f]{8}$/i.test(candidate)) return candidate.toLowerCase();
+  if (isCssColor(candidate)) return candidate;
+  return fallback;
+};
+const normalizePhysicsDebug = value => {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    ...DEFAULT_PHYSICS_DEBUG,
+    ...source,
+    colors: Object.fromEntries(Object.entries(DEFAULT_PHYSICS_DEBUG_COLORS).map(([key, fallback]) => [key, normalizePhysicsDebugColor(source.colors?.[key], fallback)])),
+    enabled: source.enabled === true,
+  };
+};
 const normalizeCustomThemes = value => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return Object.fromEntries(Object.entries(value).flatMap(([id, preset]) => {
@@ -726,17 +749,6 @@ const PhysicsWorldIcon = ({ type }) => {
     transport: <><circle cx="30" cy="110" r="20"/><path d="M70 10v200l80-100L70 10ZM110 10v200l60-100-60-100Z"/></>,
   };
   return <svg width="12" height="14" viewBox="0 0 180 220" fill="none" stroke="currentColor" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{shapes[type]}</svg>;
-};
-
-const PhysicsRoleIcon = ({ type }) => {
-  const shapes = {
-    none: <><circle cx="12" cy="12" r="7"/><path d="m7 7 10 10"/></>,
-    dynamic: <><circle cx="12" cy="10" r="5"/><path d="M12 2v4m0 9v7m-3-3 3 3 3-3"/></>,
-    kinematic: <><rect x="5" y="6" width="10" height="10" rx="1"/><path d="M3 12h18m-3-3 3 3-3 3"/></>,
-    fixed: <><path d="M4 16h16M6 13h12M8 10h8"/><path d="M5 18v2m4-2v2m4-2v2m4-2v2"/></>,
-    sensor: <><circle cx="12" cy="12" r="4"/><path d="M5 7a9 9 0 0 0 0 10m14-10a9 9 0 0 1 0 10"/></>,
-  };
-  return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{shapes[type]}</svg>;
 };
 
 const ScoreRoleIcon = ({ type }) => {
@@ -1900,12 +1912,82 @@ const scenePersistenceSignature = elements => JSON.stringify((elements || []).ma
   Boolean(element?.isDeleted),
 ]));
 
+// Relationship graphs are normalized frequently, so reference identity cannot
+// tell us whether the solver needs rebuilding. Keep the comparison scoped to
+// configuration that affects a Rapier world; UI-only state must never restart
+// a paused or playing simulation.
+const physicsRuntimeGraphSignature = graph => JSON.stringify({
+  world: graph?.world || null,
+  systems: graph?.systems || [],
+  bodies: graph?.bodies || [],
+  populations: graph?.populations || [],
+  constraints: graph?.constraints || [],
+  mappings: graph?.mappings || [],
+  routes: graph?.routes || [],
+});
+
+// Constraints authored through an axle/fixate visual object use that object's
+// centre as their sole scene-space pivot. `localPoint` is retained as a stable
+// portable authoring reference, but it is relative to Excalidraw's frame. A
+// path collider can instead be centred on its rendered points, so the solver
+// needs this exact per-body local offset to avoid correcting a visibly valid
+// joint on the first Rapier step.
+const localPhysicsAnchorAtScenePoint = (body, point) => {
+  const dx = Number(point?.[0]) - Number(body?.initial?.x || 0);
+  const dy = Number(point?.[1]) - Number(body?.initial?.y || 0);
+  const angle = Number(body?.initial?.angle || 0);
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  return [
+    cosine * dx + sine * dy,
+    -sine * dx + cosine * dy,
+  ];
+};
+
+const scenePointForPhysicsEndpoint = (endpoint, elementById) => {
+  if (!endpoint || endpoint.kind !== "object" || endpoint.objectRef?.kind !== "element") return null;
+  const element = elementById.get(endpoint.objectRef.elementId);
+  if (!element) return null;
+  const width = Number(element.width) || 0;
+  const height = Number(element.height) || 0;
+  const localX = (Number(endpoint.localPoint?.[0] ?? 0.5) - 0.5) * width;
+  const localY = (Number(endpoint.localPoint?.[1] ?? 0.5) - 0.5) * height;
+  const angle = Number(element.angle || 0);
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  return [
+    Number(element.x || 0) + width / 2 + localX * cosine - localY * sine,
+    Number(element.y || 0) + height / 2 + localX * sine + localY * cosine,
+  ];
+};
+
+const physicsEndpointWorldAnchor = (endpoint, body, pose) => {
+  if (!endpoint || !body || !pose || !Array.isArray(endpoint.localAnchor)) return null;
+  const angle = Number(pose.angle) || 0;
+  const cosine = Math.cos(angle);
+  const sine = Math.sin(angle);
+  const localX = Number(endpoint.localAnchor[0]) || 0;
+  const localY = Number(endpoint.localAnchor[1]) || 0;
+  return [
+    Number(pose.x) + localX * cosine - localY * sine,
+    Number(pose.y) + localX * sine + localY * cosine,
+  ];
+};
+
 // The native element is the authored source of truth while the world is
 // paused. Older scenes can contain a stale customData.physics.initial value
 // from before an object was moved, so repair the reset pose from the current
 // element bounds during hydration. Also repair legacy dynamic freedraw bodies
 // whose strokes were saved as massless polyline wall geometry.
-const hydratePhysicsGraphForElements = (graphValue, elements = [], { repairAuthoredPose = true } = {}) => {
+const hydratePhysicsGraphForElements = (graphValue, elements = [], {
+  repairAuthoredPose = true,
+  // Recompute an existing constraint's anchors only when an author explicitly
+  // stages the paused scene. Runtime pose application moves a body-body pivot
+  // marker every frame; treating that visual follow motion as authoring would
+  // rebuild Rapier with a new (and wildly wrong) joint each time.
+  refreshConstraintAnchors = false,
+  refreshConstraintIds = null,
+} = {}) => {
   const graph = hydrateRelationshipGraphFromElements(graphValue, elements);
   const elementById = new Map((elements || [])
     .filter(element => element && !element.isDeleted)
@@ -1937,8 +2019,11 @@ const hydratePhysicsGraphForElements = (graphValue, elements = [], { repairAutho
     // therefore also requires a one-time rebase of the reset pose; otherwise
     // Reset reproduces the old constant offset even though the collider itself
     // is now correctly local.
-    const shouldRebasePathOrigin = shouldRepairPathCollider
-      && (body.collider?.localOriginVersion || 0) < 2;
+    const shouldRebasePathOrigin = needsLegacyPhysicsColliderOriginRebase(
+      body.collider,
+      body.initial,
+      inferred.initial,
+    );
     const localCenter = shouldRebasePathOrigin ? getPhysicsElementLocalCenter(element) : null;
     const frameCenter = shouldRebasePathOrigin
       ? [Number(element.width) / 2 || 0, Number(element.height) / 2 || 0]
@@ -1965,7 +2050,41 @@ const hydratePhysicsGraphForElements = (graphValue, elements = [], { repairAutho
       initial: nextInitial,
     });
   });
-  return changed ? normalizeRelationshipGraph({ ...graph, bodies }) : graph;
+  const bodyByElementId = new Map(bodies
+    .filter(body => body.objectRef?.kind === "element")
+    .map(body => [body.objectRef.elementId, body]));
+  let constraintsChanged = false;
+  const requestedConstraintRefreshes = refreshConstraintIds instanceof Set
+    ? refreshConstraintIds
+    : new Set(refreshConstraintIds || []);
+  const constraints = graph.constraints.map(constraint => {
+    const pivot = constraint.objectRef?.kind === "element"
+      ? elementById.get(constraint.objectRef.elementId)
+      : null;
+    // A constraint visual is authoritative when present. Generic programmatic
+    // constraints without one retain their endpoint coordinates unchanged.
+    const pivotPoint = pivot ? getPhysicsGeometryElementCenter(pivot) : null;
+    const resolveEndpoint = endpoint => {
+      if (!endpoint) return endpoint;
+      if (endpoint.kind === "world") {
+        return pivotPoint ? { ...endpoint, point: [...pivotPoint] } : endpoint;
+      }
+      if (endpoint.kind !== "object" || endpoint.objectRef?.kind !== "element") return endpoint;
+      const body = bodyByElementId.get(endpoint.objectRef.elementId);
+      if (!body) return endpoint;
+      const shouldRefresh = refreshConstraintAnchors || requestedConstraintRefreshes.has(constraint.id);
+      if (!shouldRefresh && Array.isArray(endpoint.localAnchor)) return endpoint;
+      const scenePoint = pivotPoint || scenePointForPhysicsEndpoint(endpoint, elementById);
+      if (!scenePoint) return endpoint;
+      return { ...endpoint, localAnchor: localPhysicsAnchorAtScenePoint(body, scenePoint) };
+    };
+    const next = { ...constraint, a: resolveEndpoint(constraint.a), b: resolveEndpoint(constraint.b) };
+    if (JSON.stringify(next) !== JSON.stringify(constraint)) constraintsChanged = true;
+    return next;
+  });
+  return changed || constraintsChanged
+    ? normalizeRelationshipGraph({ ...graph, bodies, constraints })
+    : graph;
 };
 
 function App() {
@@ -2270,6 +2389,7 @@ function App() {
   const [physicsTelemetry, setPhysicsTelemetry] = useState({ systems: [], stepMs: 0, eventRate: 0, routeMs: 0 });
   const [physicsWorldPlaying, setPhysicsWorldPlaying] = useState(false);
   const [physicsTimeScrubEnabled, setPhysicsTimeScrubEnabled] = useState(() => localStorage.getItem(PHYSICS_TIME_SCRUB_STORAGE_KEY) === "true");
+  const [physicsToolbarOpen, setPhysicsToolbarOpen] = useState(true);
   const [physicsTool, setPhysicsTool] = useState(null);
   const physicsToolRef = useRef(null);
   physicsToolRef.current = physicsTool;
@@ -2278,6 +2398,14 @@ function App() {
   const physicsAuthoredEditTimerRef = useRef(0);
   const physicsAuthoredElementSignaturesRef = useRef(new Map());
   const physicsPendingAuthoredBodyIdsRef = useRef(new Set());
+  const physicsAuthoredConstraintSignaturesRef = useRef(new Map());
+  const physicsPendingAuthoredConstraintIdsRef = useRef(new Set());
+  // Transport scrubbing evaluates a visible deterministic pose in the worker.
+  // If the author drags from that frame, seed every authored body in the
+  // previewed system before solving its joints instead of reverting connected
+  // bodies to their reset pose.
+  const physicsPreviewPoseSystemsRef = useRef(new Set());
+  const physicsConstraintPoseSolveRef = useRef(0);
   const physicsApplyingRef = useRef(false);
   const physicsAudioRef = useRef(null);
   const physicsMappingTargetRouterRef = useRef(null);
@@ -2363,8 +2491,16 @@ function App() {
     const elements = excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.()
       || excalidrawAPIRef.current?.getSceneElements?.()
       || [];
-    physicsRuntimeRef.current.setGraph(hydratePhysicsGraphForElements(relationshipGraph, elements, { repairAuthoredPose: false }));
-  }, [relationshipGraph]);
+    const hydratedGraph = hydratePhysicsGraphForElements(relationshipGraph, elements, { repairAuthoredPose: false });
+    // Keep imperative pose application on the same compiled relationship
+    // graph as the worker. In particular, visual axle markers need the exact
+    // body-local anchors that are derived during hydration.
+    relationshipGraphRef.current = hydratedGraph;
+    physicsRuntimeRef.current.setGraph(hydratedGraph);
+    if (physicsRuntimeGraphSignature(hydratedGraph) !== physicsRuntimeGraphSignature(relationshipGraph)) {
+      setRelationshipGraph(hydratedGraph);
+    }
+  }, [relationshipGraph, setRelationshipGraph]);
   // A deletion keeps an Excalidraw tombstone in the scene list. Sweep those
   // bindings when the app starts, reloads, or hot-reloads as well as during
   // `onChange`, so a ghost solver body can never survive until the next edit.
@@ -2389,6 +2525,12 @@ function App() {
       if (physicsAuthoredElementSignaturesRef.current.has(body.id)) continue;
       const element = elementsById.get(body.objectRef.elementId);
       if (element && !element.isDeleted) physicsAuthoredElementSignaturesRef.current.set(body.id, physicsAuthoredElementSignature(element));
+    }
+    for (const constraint of relationshipGraph.constraints) {
+      if (constraint.objectRef?.kind !== "element") continue;
+      if (physicsAuthoredConstraintSignaturesRef.current.has(constraint.id)) continue;
+      const pivot = elementsById.get(constraint.objectRef.elementId);
+      if (pivot && !pivot.isDeleted) physicsAuthoredConstraintSignaturesRef.current.set(constraint.id, physicsAuthoredElementSignature(pivot));
     }
   }, [excalidrawAPI, relationshipGraph]);
   useEffect(() => {
@@ -2436,10 +2578,14 @@ function App() {
     if (!api) return;
     const graph = relationshipGraphRef.current;
     const bodyById = new Map(graph.bodies.map(body => [body.id, body]));
+    const bodyByElementId = new Map(graph.bodies
+      .filter(body => body.objectRef?.kind === "element")
+      .map(body => [body.objectRef.elementId, body]));
     const elements = api.getSceneElementsIncludingDeleted();
     const elementById = new Map(elements.map(element => [element.id, element]));
     let changed = false;
     const replacements = new Map();
+    const poseByBodyId = new Map();
     snapshot.metadata.forEach((metadata, index) => {
       if (metadata.tracking !== "authored-rigid" || metadata.objectRef?.kind !== "element") return;
       const definition = bodyById.get(metadata.bodyId);
@@ -2448,6 +2594,7 @@ function App() {
       const centerX = snapshot.values[index * 4];
       const centerY = snapshot.values[index * 4 + 1];
       const angle = snapshot.values[index * 4 + 2];
+      poseByBodyId.set(metadata.bodyId, { x: centerX, y: centerY, angle });
       const localCenter = getPhysicsElementLocalCenter(element);
       const x = centerX - localCenter[0];
       const y = centerY - localCenter[1];
@@ -2463,6 +2610,37 @@ function App() {
         updated: Date.now(),
       });
     });
+    // An authored axle is a zero-mass marker for a Rapier joint, not another
+    // solver body. For a body-body joint the marker follows the shared anchor
+    // so the canvas remains truthful as the connected pair moves. World pins
+    // deliberately stay put: their visual centre *is* the fixed world point.
+    for (const constraint of graph.constraints) {
+      if (!constraint.enabled || constraint.objectRef?.kind !== "element") continue;
+      const pivot = elementById.get(constraint.objectRef.elementId);
+      if (!pivot || pivot.isDeleted || constraint.a?.kind !== "object" || constraint.b?.kind !== "object") continue;
+      const bodyA = bodyByElementId.get(constraint.a.objectRef?.elementId);
+      const bodyB = bodyByElementId.get(constraint.b.objectRef?.elementId);
+      const poseA = bodyA ? poseByBodyId.get(bodyA.id) : null;
+      const poseB = bodyB ? poseByBodyId.get(bodyB.id) : null;
+      const anchorA = physicsEndpointWorldAnchor(constraint.a, bodyA, poseA);
+      const anchorB = physicsEndpointWorldAnchor(constraint.b, bodyB, poseB);
+      if (!anchorA || !anchorB) continue;
+      const centerX = (anchorA[0] + anchorB[0]) / 2;
+      const centerY = (anchorA[1] + anchorB[1]) / 2;
+      const localCenter = getPhysicsElementLocalCenter(pivot);
+      const x = centerX - localCenter[0];
+      const y = centerY - localCenter[1];
+      if (Math.abs(pivot.x - x) < 0.05 && Math.abs(pivot.y - y) < 0.05) continue;
+      changed = true;
+      replacements.set(pivot.id, {
+        ...pivot,
+        x,
+        y,
+        version: (pivot.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+      });
+    }
     if (!changed) return;
     physicsApplyingRef.current = true;
     historySuppressSceneRef.current += 1;
@@ -6157,6 +6335,10 @@ function App() {
     // drag from also reaching Excalidraw's drawing tools.
     if (e.target?.closest?.(".svg-path-control")) return;
 
+    // The compact physics toolbar lives over the canvas. It must never become
+    // an endpoint while a constraint tool is armed.
+    if (e.target?.closest?.(".physics-canvas-toolbar")) return;
+
     if (handlePhysicsPointerDown(e)) return;
 
     if (handleObjectEyedropperPointerDown(e)) return;
@@ -7572,6 +7754,12 @@ function App() {
 
   const scheduleNativeGridQuantization = () => {
     const grid = globalGridRef.current;
+    // Excalidraw reserves Shift while drawing (for example, to constrain a
+    // line). Drawerator treats the same gesture as an explicit request to
+    // force-snap the completed authored geometry. This must bypass the normal
+    // `snap.mode === "off"` gate, otherwise an invisible native constraint is
+    // the only effect of holding Shift.
+    const forceHardSnap = wasShiftHeldRef.current === true;
     if (nativeLineGridPointsRef.current && excalidrawAPIRef.current?.getAppState()?.activeTool?.type === "line") return;
     // Let Excalidraw commit its pointer-up edit before quantizing the authored point.
     window.setTimeout(() => {
@@ -7599,13 +7787,13 @@ function App() {
       const boundIds = hasGeometryEdit
         ? candidates.filter(element => normalizeIannixData(getScoreData(element)).gridBinding.quantize.geometry).map(element => element.id)
         : [];
-      const globallyEligibleIds = allowed && grid.snap.mode !== "off"
+      const globallyEligibleIds = allowed && (forceHardSnap || grid.snap.mode !== "off")
         ? candidates.filter(element => !boundIds.includes(element.id)).map(element => element.id)
         : [];
       const quantizeGlobalIds = () => globallyEligibleIds.length && quantizeGlobalGridElements({
         elementIds: globallyEligibleIds,
         transformOnly: globallyEligibleIds.length > 1 || (!isPointEdit && !isCreation && !isResize),
-        forceHard: false,
+        forceHard: forceHardSnap,
         pointIndices: isPointEdit && interaction.pointIndices?.length ? interaction.pointIndices : null,
       });
       if (boundIds.length) quantizeGlobalGridElements({
@@ -8814,7 +9002,15 @@ function App() {
   const getPhysicsSelectedElements = () => {
     const api = excalidrawAPIRef.current;
     if (!api) return [];
-    const selected = { ...(api.getAppState().selectedElementIds || {}), ...selectedElementIdsRef.current };
+    // Tool actions are selection-first. Prefer Excalidraw's synchronous
+    // selection, falling back to React's last rendered selection only while
+    // the API is still catching up after a scene update. Merging the two kept
+    // deselected pivots in the action set and made a click appear to do
+    // nothing or edit an unexpected object.
+    const liveSelection = api.getAppState().selectedElementIds || {};
+    const selected = Object.values(liveSelection).some(Boolean)
+      ? liveSelection
+      : selectedElementIdsRef.current;
     return api.getSceneElements().filter(element => selected[element.id] && !element.isDeleted);
   };
 
@@ -8848,6 +9044,27 @@ function App() {
     updatePhysicsCustomDataForBodies([{ ...body, objectRef: { kind: "element", elementId } }], options);
   };
 
+  const updatePhysicsCustomDataForConstraints = (constraints, { commitToHistory = true } = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api || !Array.isArray(constraints) || !constraints.length) return;
+    const constraintByElementId = new Map(constraints
+      .filter(constraint => constraint?.objectRef?.kind === "element")
+      .map(constraint => [constraint.objectRef.elementId, constraint]));
+    if (!constraintByElementId.size) return;
+    const nextElements = api.getSceneElementsIncludingDeleted().map(element => {
+      const constraint = constraintByElementId.get(element.id);
+      if (!constraint || element.isDeleted) return element;
+      return {
+        ...element,
+        customData: withPhysicsCustomData(element.customData, constraint),
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+      };
+    });
+    api.updateScene({ elements: nextElements, commitToHistory });
+  };
+
   const synchronizePausedPhysicsBodies = (candidateBodies = null) => {
     const api = excalidrawAPIRef.current;
     const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
@@ -8855,10 +9072,62 @@ function App() {
     const candidateIds = candidateBodies
       ? new Set(candidateBodies.map(body => typeof body === "string" ? body : body?.id).filter(Boolean))
       : new Set(physicsPendingAuthoredBodyIdsRef.current);
-    if (!candidateIds.size) return graph;
+    // Keep the directly edited bodies distinct from the preview pose we seed
+    // below. Only the direct bodies become temporary kinematic anchors during
+    // the solve; the rest are free to follow their joints.
+    const editedBodyIds = new Set(candidateIds);
+    if (candidateIds.size && physicsPreviewPoseSystemsRef.current.size) {
+      for (const body of graph.bodies) {
+        if (
+          body.tracking === "authored-rigid"
+          && physicsPreviewPoseSystemsRef.current.has(body.systemId)
+          && !physicsRuntimeRef.current.isPlaying(body.systemId)
+        ) candidateIds.add(body.id);
+      }
+    }
     const elementsById = new Map(api.getSceneElementsIncludingDeleted().map(element => [element.id, element]));
+    const movedBodyElementIds = new Set(graph.bodies
+      .filter(body => editedBodyIds.has(body.id) && body.objectRef?.kind === "element")
+      .map(body => body.objectRef.elementId));
+    // Only a deliberate paused edit may change an existing joint anchor.
+    // Reset/rewind receives a pivot that is visually following the current
+    // simulation pose; rebasing from that runtime position makes the next
+    // simulation spin around the bodies' centreline instead of the authored
+    // pivot. A body move does intentionally reauthor constraints attached to
+    // that body, and a manually moved pivot reauthors itself.
+    const constraintIdsToRefresh = new Set(physicsPendingAuthoredConstraintIdsRef.current);
+    for (const constraint of graph.constraints) {
+      if (
+        (constraint.a?.objectRef?.kind === "element" && movedBodyElementIds.has(constraint.a.objectRef.elementId))
+        || (constraint.b?.objectRef?.kind === "element" && movedBodyElementIds.has(constraint.b.objectRef.elementId))
+      ) constraintIdsToRefresh.add(constraint.id);
+    }
+    const hydratedGraph = hydratePhysicsGraphForElements(
+      graph,
+      [...elementsById.values()],
+      { repairAuthoredPose: false, refreshConstraintIds: constraintIdsToRefresh },
+    );
+    if (!candidateIds.size) {
+      if (physicsRuntimeGraphSignature(hydratedGraph) !== physicsRuntimeGraphSignature(graph)) {
+        relationshipGraphRef.current = hydratedGraph;
+        physicsRuntimeRef.current.setGraph(hydratedGraph);
+        setRelationshipGraph(hydratedGraph);
+      }
+      const refreshedConstraints = hydratedGraph.constraints.filter(constraint => constraintIdsToRefresh.has(constraint.id));
+      if (refreshedConstraints.length) {
+        physicsApplyingRef.current = true;
+        historySuppressSceneRef.current += 1;
+        updatePhysicsCustomDataForConstraints(refreshedConstraints, { commitToHistory: false });
+        window.setTimeout(() => {
+          historySuppressSceneRef.current = Math.max(0, historySuppressSceneRef.current - 1);
+          physicsApplyingRef.current = false;
+        }, 0);
+      }
+      constraintIdsToRefresh.forEach(id => physicsPendingAuthoredConstraintIdsRef.current.delete(id));
+      return hydratedGraph;
+    }
     const synchronizedBodies = [];
-    const nextGraph = normalizeRelationshipGraph({
+    const synchronizedGraph = normalizeRelationshipGraph({
       ...graph,
       bodies: graph.bodies.map(body => {
         if (
@@ -8876,7 +9145,33 @@ function App() {
         return next;
       }),
     });
-    if (!synchronizedBodies.length) return graph;
+    // A queued pivot edit can be the only authored change. It still needs to
+    // resolve and mirror its anchors, even when no connected body moved in
+    // this synchronization pass.
+    if (!synchronizedBodies.length) {
+      if (physicsRuntimeGraphSignature(hydratedGraph) !== physicsRuntimeGraphSignature(graph)) {
+        relationshipGraphRef.current = hydratedGraph;
+        physicsRuntimeRef.current.setGraph(hydratedGraph);
+        setRelationshipGraph(hydratedGraph);
+      }
+      const refreshedConstraints = hydratedGraph.constraints.filter(constraint => constraintIdsToRefresh.has(constraint.id));
+      if (refreshedConstraints.length) {
+        physicsApplyingRef.current = true;
+        historySuppressSceneRef.current += 1;
+        updatePhysicsCustomDataForConstraints(refreshedConstraints, { commitToHistory: false });
+        window.setTimeout(() => {
+          historySuppressSceneRef.current = Math.max(0, historySuppressSceneRef.current - 1);
+          physicsApplyingRef.current = false;
+        }, 0);
+      }
+      constraintIdsToRefresh.forEach(id => physicsPendingAuthoredConstraintIdsRef.current.delete(id));
+      return hydratedGraph;
+    }
+    const nextGraph = hydratePhysicsGraphForElements(
+      synchronizedGraph,
+      [...elementsById.values()],
+      { repairAuthoredPose: false, refreshConstraintIds: constraintIdsToRefresh },
+    );
     // Push the new authored state immediately. This avoids a Reset or Play
     // pressed immediately after a drag using an older worker snapshot.
     relationshipGraphRef.current = nextGraph;
@@ -8885,12 +9180,129 @@ function App() {
     physicsApplyingRef.current = true;
     historySuppressSceneRef.current += 1;
     updatePhysicsCustomDataForBodies(synchronizedBodies, { commitToHistory: false });
+    updatePhysicsCustomDataForConstraints(
+      nextGraph.constraints.filter(constraint => constraintIdsToRefresh.has(constraint.id)),
+      { commitToHistory: false },
+    );
     synchronizedBodies.forEach(body => physicsPendingAuthoredBodyIdsRef.current.delete(body.id));
+    constraintIdsToRefresh.forEach(id => physicsPendingAuthoredConstraintIdsRef.current.delete(id));
     window.setTimeout(() => {
       historySuppressSceneRef.current = Math.max(0, historySuppressSceneRef.current - 1);
       physicsApplyingRef.current = false;
     }, 0);
     return nextGraph;
+  };
+
+  const resolvePausedPhysicsConstraintPose = async (authoredGraph, editedBodyIds) => {
+    const token = ++physicsConstraintPoseSolveRef.current;
+    const graph = normalizeRelationshipGraph(authoredGraph);
+    if (graph.world.pausedEditMode !== "author" || graph.world.pausedConstraintSolve === false) return;
+    const systemIds = new Set(graph.bodies
+      .filter(body => editedBodyIds.has(body.id) && body.tracking === "authored-rigid")
+      .map(body => body.systemId));
+    if (!systemIds.size) return;
+    try {
+      const poseGroups = await Promise.all([...systemIds].map(async systemId => ({
+        systemId,
+        poses: await physicsRuntimeRef.current.relax(
+          systemId,
+          graph.bodies.filter(body => editedBodyIds.has(body.id) && body.systemId === systemId).map(body => body.id),
+          { iterations: 24 },
+        ),
+      })));
+      if (token !== physicsConstraintPoseSolveRef.current) return;
+      const current = normalizeRelationshipGraph(relationshipGraphRef.current);
+      if (current.world.pausedEditMode !== "author" || current.world.pausedConstraintSolve === false) return;
+      const poseByBodyId = new Map(poseGroups.flatMap(group => group.poses || []).map(pose => [pose.bodyId, pose]));
+      if (!poseByBodyId.size) return;
+      const solvedBodies = [];
+      const solvedGraph = normalizeRelationshipGraph({
+        ...current,
+        bodies: current.bodies.map(body => {
+          const pose = poseByBodyId.get(body.id);
+          if (!pose || body.tracking !== "authored-rigid" || physicsRuntimeRef.current.isPlaying(body.systemId)) return body;
+          const next = normalizePhysicsBody({
+            ...body,
+            initial: {
+              ...body.initial,
+              x: Number(pose.x) || 0,
+              y: Number(pose.y) || 0,
+              angle: Number(pose.angle) || 0,
+              velocityX: 0,
+              velocityY: 0,
+              angularVelocity: 0,
+            },
+          });
+          solvedBodies.push(next);
+          return next;
+        }),
+      });
+      if (!solvedBodies.length) return;
+      const api = excalidrawAPIRef.current;
+      const elements = api?.getSceneElementsIncludingDeleted?.() || [];
+      const bodyById = new Map(solvedGraph.bodies.map(body => [body.id, body]));
+      const bodyByElementId = new Map(solvedGraph.bodies
+        .filter(body => body.objectRef?.kind === "element")
+        .map(body => [body.objectRef.elementId, body]));
+      const elementById = new Map(elements.map(element => [element.id, element]));
+      const replacements = new Map();
+      for (const body of solvedBodies) {
+        if (body.objectRef?.kind !== "element") continue;
+        const element = elementById.get(body.objectRef.elementId);
+        if (!element || element.isDeleted) continue;
+        const localCenter = getPhysicsElementLocalCenter(element);
+        replacements.set(element.id, {
+          ...element,
+          x: body.initial.x - localCenter[0],
+          y: body.initial.y - localCenter[1],
+          angle: body.initial.angle,
+          customData: withPhysicsCustomData(element.customData, body),
+          version: (element.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+        });
+      }
+      // Body-body pivot objects are visual markers for their shared local
+      // anchors. Re-evaluate them from the solved poses so paused posing and
+      // rewind use the same visible attachment point as the running solver.
+      for (const constraint of solvedGraph.constraints) {
+        if (!constraint.enabled || constraint.objectRef?.kind !== "element") continue;
+        if (constraint.a?.kind !== "object" || constraint.b?.kind !== "object") continue;
+        const pivot = elementById.get(constraint.objectRef.elementId);
+        const bodyA = bodyByElementId.get(constraint.a.objectRef?.elementId);
+        const bodyB = bodyByElementId.get(constraint.b.objectRef?.elementId);
+        if (!pivot || pivot.isDeleted || !bodyA || !bodyB) continue;
+        const anchorA = physicsEndpointWorldAnchor(constraint.a, bodyById.get(bodyA.id), bodyA.initial);
+        const anchorB = physicsEndpointWorldAnchor(constraint.b, bodyById.get(bodyB.id), bodyB.initial);
+        if (!anchorA || !anchorB) continue;
+        const localCenter = getPhysicsElementLocalCenter(pivot);
+        const x = (anchorA[0] + anchorB[0]) / 2 - localCenter[0];
+        const y = (anchorA[1] + anchorB[1]) / 2 - localCenter[1];
+        replacements.set(pivot.id, {
+          ...pivot,
+          x,
+          y,
+          version: (pivot.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+        });
+      }
+      relationshipGraphRef.current = solvedGraph;
+      physicsRuntimeRef.current.setGraph(solvedGraph);
+      setRelationshipGraph(solvedGraph);
+      if (!replacements.size || !api) return;
+      physicsApplyingRef.current = true;
+      historySuppressSceneRef.current += 1;
+      api.updateScene({ elements: elements.map(element => replacements.get(element.id) || element), commitToHistory: false });
+      window.setTimeout(() => {
+        historySuppressSceneRef.current = Math.max(0, historySuppressSceneRef.current - 1);
+        physicsApplyingRef.current = false;
+      }, 0);
+    } catch (error) {
+      if (token !== physicsConstraintPoseSolveRef.current) return;
+      eventBus.emit("physics.pose.error", { message: error?.message || String(error) }, { source: "physics" });
+      setSceneExchangeStatus(`Could not resolve paused constraints: ${error?.message || String(error)}`);
+    }
   };
 
   const patchPhysicsBodies = (bodyIds, patch) => {
@@ -8945,13 +9357,124 @@ function App() {
     // React batches state setters, so repeated single-body patches may all see
     // the same old graph. Advance the live reference once and write all
     // selected bodies as one graph/custom-data update.
-    relationshipGraphRef.current = nextGraph;
-    setRelationshipGraph(nextGraph);
+    // Build the new world synchronously.  Updating canvas customData causes an
+    // immediate Excalidraw onChange, so waiting for the React effect here let
+    // an old worker snapshot apply once and visibly move a freshly-authored
+    // body to a different centre.
+    const sceneElements = excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || getPhysicsSelectedElements();
+    // `patchedBodies` is the result of this edit. The old name here came from
+    // the body-assignment path and was undefined in the shared-property path,
+    // so changing a collider threw before the authored customData was written
+    // and the controlled picker immediately fell back to its previous value.
+    const inferredByElementId = new Map(patchedBodies.map(body => [body.objectRef?.elementId, body]));
+    const authoredElements = sceneElements.map(element => {
+      const body = inferredByElementId.get(element.id);
+      return body && !element.isDeleted
+        ? { ...element, customData: withPhysicsCustomData(element.customData, body) }
+        : element;
+    });
+    const hydratedNextGraph = hydratePhysicsGraphForElements(
+      nextGraph,
+      authoredElements,
+      { repairAuthoredPose: false },
+    );
+    relationshipGraphRef.current = hydratedNextGraph;
+    physicsRuntimeRef.current.setGraph(hydratedNextGraph);
+    setRelationshipGraph(hydratedNextGraph);
     updatePhysicsCustomDataForBodies(patchedBodies);
     return patchedBodies;
   };
 
   const patchPhysicsBody = (bodyId, patch) => patchPhysicsBodies([bodyId], patch)[0] || null;
+
+  const patchPhysicsConstraint = (constraintId, patch) => {
+    if (!constraintId) return null;
+    const graph = relationshipGraphRef.current;
+    const next = updateRelationshipItem(graph, "constraints", constraintId, current => ({ ...current, ...(patch || {}) }));
+    const nextConstraint = next.constraints.find(item => item.id === constraintId) || null;
+    relationshipGraphRef.current = next;
+    setRelationshipGraph(next);
+    if (nextConstraint?.objectRef?.kind === "element") {
+      const api = excalidrawAPIRef.current;
+      const elements = api?.getSceneElementsIncludingDeleted?.() || [];
+      const nextElements = elements.map(element => {
+        if (element.id !== nextConstraint.objectRef.elementId || element.isDeleted) return element;
+        return {
+          ...element,
+          customData: withPhysicsCustomData(element.customData, nextConstraint),
+          version: (element.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+        };
+      });
+      api?.updateScene?.({ elements: nextElements, commitToHistory: true });
+    }
+    return nextConstraint;
+  };
+
+  // Properties can edit a pivot's connections without opening the Physics
+  // panel. Keep the authored pivot point as the anchor and resolve the
+  // selected body endpoint in that body's local frame, just like the Physics
+  // panel's constraint editor does.
+  const patchPhysicsConstraintEndpoint = (constraintId, side, elementId) => {
+    const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+    const constraint = graph.constraints.find(item => item.id === constraintId);
+    if (constraint?.objectRef?.kind !== "element") return null;
+    const elements = excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || [];
+    const pivot = elements.find(element => element.id === constraint.objectRef.elementId && !element.isDeleted);
+    if (!pivot) return null;
+    const point = getPhysicsElementCenter(pivot);
+    const endpoint = elementId === "world"
+      ? { kind: "world", point: [point.x, point.y] }
+      : (() => {
+        const target = elements.find(element => element.id === elementId && !element.isDeleted);
+        return target ? physicsEndpointAtPoint(target, [point.x, point.y]) : null;
+      })();
+    if (!endpoint) return null;
+    return patchPhysicsConstraint(constraintId, { [side]: endpoint });
+  };
+
+  const removePhysicsConstraints = constraintIds => {
+    const ids = new Set((Array.isArray(constraintIds) ? constraintIds : [constraintIds]).filter(Boolean));
+    if (!ids.size) return false;
+    const graph = relationshipGraphRef.current;
+    const removed = graph.constraints.filter(item => ids.has(item.id));
+    if (!removed.length) return false;
+    const removedElementIds = new Set(removed
+      .filter(item => item.objectRef?.kind === "element")
+      .map(item => item.objectRef.elementId));
+    const next = normalizeRelationshipGraph({
+      ...graph,
+      constraints: graph.constraints.filter(item => !ids.has(item.id)),
+    });
+    relationshipGraphRef.current = next;
+    setRelationshipGraph(next);
+    if (removedElementIds.size) {
+      const remainingBodiesByElementId = new Map(next.bodies
+        .filter(body => body.objectRef?.kind === "element")
+        .map(body => [body.objectRef.elementId, body]));
+      const api = excalidrawAPIRef.current;
+      const nextElements = (api?.getSceneElementsIncludingDeleted?.() || []).map(element => {
+        if (!removedElementIds.has(element.id) || element.isDeleted) return element;
+        const replacementBody = remainingBodiesByElementId.get(element.id);
+        if (replacementBody) return {
+          ...element,
+          customData: withPhysicsCustomData(element.customData, replacementBody),
+          version: (element.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+        };
+        const customData = { ...(element.customData || {}) };
+        delete customData.physics;
+        delete customData.draweratorPhysics;
+        return { ...element, customData, version: (element.version || 0) + 1, versionNonce: Math.floor(Math.random() * 0x7fffffff), updated: Date.now() };
+      });
+      api?.updateScene?.({ elements: nextElements, commitToHistory: true });
+    }
+    return true;
+  };
+
+  const removePhysicsConstraint = constraintId => removePhysicsConstraints([constraintId]);
 
   const removePhysicsBodies = bodyIds => {
     const ids = new Set((Array.isArray(bodyIds) ? bodyIds : [bodyIds]).filter(Boolean));
@@ -9034,20 +9557,158 @@ function App() {
       tracking: "authored-rigid",
       collisionTags: [sensor ? "sensor" : bodyType === "fixed" ? "wall" : "body"],
       material: { restitution: bodyType === "fixed" ? 0.9 : 0.5, friction: 0.2 },
-    })).filter(Boolean);
-    setRelationshipGraph(previous => {
-      const graph = normalizeRelationshipGraph(previous);
-      const selectedIds = new Set(selected.map(element => element.id));
-      const retained = graph.bodies.filter(body => body.objectRef?.kind !== "element" || !selectedIds.has(body.objectRef.elementId));
-      return {
-        ...graph,
-        systems: createdSystem ? [...graph.systems, createdSystem] : graph.systems,
-        bodies: [...retained, ...inferredBodies],
-      };
+    })).filter(Boolean).map(body => ({
+      ...body,
+      // New and explicitly re-assigned bodies participate in the named layer
+      // stack. Old, untouched customData keeps its raw Rapier masks.
+      collisionLayers: ["default"],
+    }));
+    const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+    const selectedIds = new Set(selected.map(element => element.id));
+    const retained = graph.bodies.filter(body => body.objectRef?.kind !== "element" || !selectedIds.has(body.objectRef.elementId));
+    const nextGraph = normalizeRelationshipGraph({
+      ...graph,
+      systems: createdSystem ? [...graph.systems, createdSystem] : graph.systems,
+      bodies: [...retained, ...inferredBodies],
+      // A canvas object has one explicit physics role. Turning an axle/fixate
+      // pivot back into a body removes the authored constraint it owned.
+      constraints: graph.constraints.filter(constraint => (
+        constraint.objectRef?.kind !== "element" || !selectedIds.has(constraint.objectRef.elementId)
+      )),
     });
+    // Make the new authored pose authoritative before updating element
+    // customData. updateScene synchronously triggers Excalidraw's change
+    // pipeline, and leaving this ref on the old graph briefly allowed an
+    // in-flight worker pose to win that race.
+    relationshipGraphRef.current = nextGraph;
+    // Do not wait for the React graph effect to reach the worker. A role
+    // assignment can be immediately followed by Play/Reset (or another
+    // Excalidraw update); in that window an old worker snapshot used to move
+    // the just-authored body back to its former solver centre.
+    physicsRuntimeRef.current.setGraph(nextGraph);
+    setRelationshipGraph(nextGraph);
     updatePhysicsCustomDataForBodies(inferredBodies);
     setSceneExchangeStatus(`Assigned ${selected.length} ${sensor ? "sensor" : bodyType} physics object${selected.length === 1 ? "" : "s"}.`);
     return selected.map(element => element.id);
+  };
+
+  const assignPhysicsConstraintPivots = ({ kind = "axle", systemId = activePhysicsSystemId } = {}) => {
+    const api = excalidrawAPIRef.current;
+    // Axle/Fixate are direct, selection-first actions. Never leave an old
+    // canvas authoring tool armed after converting the selection.
+    physicsToolStartRef.current = null;
+    physicsToolRef.current = null;
+    setPhysicsTool(null);
+    const selected = getPhysicsSelectedElements();
+    if (!api || !selected.length) {
+      const message = "Select one or more pivot objects first.";
+      eventBus.emit("physics.constraint.assign.error", {
+        kind,
+        systemId: systemId || "",
+        reason: message,
+        pivotIds: [],
+      }, { source: "physics" });
+      setSceneExchangeStatus(message);
+      return [];
+    }
+    const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+    const existingSystemId = systemId || graph.systems[0]?.id;
+    const createdSystem = existingSystemId ? null : createDefaultPhysicsSystem({ name: "World" });
+    const targetSystemId = existingSystemId || createdSystem.id;
+    const selectedIds = new Set(selected.map(element => element.id));
+    eventBus.emit("physics.constraint.assign.attempt", {
+      kind,
+      systemId: targetSystemId,
+      pivotIds: [...selectedIds],
+    }, { source: "physics" });
+    const elements = api.getSceneElementsIncludingDeleted();
+    // Pivot objects are deliberately non-solver entities. If a selected object
+    // was previously a body, conversion removes that binding before it can be
+    // mistaken for an overlapping connection target.
+    const targetBodies = graph.bodies.filter(body => (
+      body.objectRef?.kind !== "element" || !selectedIds.has(body.objectRef.elementId)
+    ));
+    const resolved = selected.map(pivot => ({
+      pivot,
+      result: resolveConstraintPivot({
+        pivot,
+        elements,
+        bodies: targetBodies,
+        systemId: targetSystemId,
+        kind,
+      }),
+    }));
+    const successes = resolved.filter(item => !item.result.error);
+    const failures = resolved.filter(item => item.result.error);
+    if (!successes.length) {
+      const message = failures[0]?.result.error || "Could not create a physics pivot.";
+      eventBus.emit("physics.constraint.assign.error", {
+        kind,
+        systemId: targetSystemId,
+        reason: message,
+        pivots: failures.map(item => ({ id: item.pivot.id, reason: item.result.error || message })),
+      }, { source: "physics" });
+      setSceneExchangeStatus(message);
+      return [];
+    }
+    const successfulIds = new Set(successes.map(item => item.pivot.id));
+    const nextGraph = normalizeRelationshipGraph({
+      ...graph,
+      systems: createdSystem ? [...graph.systems, createdSystem] : graph.systems,
+      bodies: targetBodies,
+      constraints: [
+        ...graph.constraints.filter(constraint => (
+          constraint.objectRef?.kind !== "element" || !successfulIds.has(constraint.objectRef.elementId)
+        )),
+        ...successes.map(item => item.result.constraint),
+      ],
+    });
+    const provisionalConstraintByPivotId = new Map(successes.map(item => [item.pivot.id, item.result.constraint]));
+    const provisionalElements = elements.map(element => {
+      const constraint = provisionalConstraintByPivotId.get(element.id);
+      return constraint && !element.isDeleted
+        ? { ...element, customData: withPhysicsCustomData(element.customData, constraint) }
+        : element;
+    });
+    // Persist the exact solver-local anchors before the update reaches the
+    // worker.  `localPoint` alone is frame-relative and is insufficient for
+    // asymmetrical freehands, which otherwise makes a new axle snap on Play.
+    const hydratedNextGraph = hydratePhysicsGraphForElements(nextGraph, provisionalElements, {
+      repairAuthoredPose: false,
+      refreshConstraintAnchors: true,
+    });
+    const constraintByPivotId = new Map(successes.map(item => {
+      const authored = hydratedNextGraph.constraints.find(constraint => constraint.id === item.result.constraint.id)
+        || item.result.constraint;
+      return [item.pivot.id, authored];
+    }));
+    const nextElements = elements.map(element => {
+      const constraint = constraintByPivotId.get(element.id);
+      if (!constraint || element.isDeleted) return element;
+      return {
+        ...element,
+        customData: withPhysicsCustomData(element.customData, constraint),
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+      };
+    });
+    relationshipGraphRef.current = hydratedNextGraph;
+    physicsRuntimeRef.current.setGraph(hydratedNextGraph);
+    setRelationshipGraph(hydratedNextGraph);
+    api.updateScene({ elements: nextElements, commitToHistory: true });
+    if (createdSystem) setActivePhysicsSystemId(createdSystem.id);
+    const name = kind === "fixate" ? "weld" : "axle";
+    const message = `Made ${successes.length} ${name} pivot${successes.length === 1 ? "" : "s"}.${failures.length ? ` ${failures.length} selected object${failures.length === 1 ? "" : "s"} did not overlap a physics body.` : ""}`;
+    eventBus.emit(failures.length ? "physics.constraint.assign.partial" : "physics.constraint.assign.success", {
+      kind,
+      systemId: targetSystemId,
+      constraints: successes.map(item => item.result.constraint.id),
+      pivots: successes.map(item => item.pivot.id),
+      failures: failures.map(item => ({ id: item.pivot.id, reason: item.result.error })),
+    }, { source: "physics" });
+    setSceneExchangeStatus(message);
+    return successes.map(item => item.result.constraint);
   };
 
   const createPhysicsPopulation = ({ systemId = activePhysicsSystemId, count = 250, radius = 7, bounds = null } = {}) => {
@@ -9107,29 +9768,108 @@ function App() {
   };
 
   const startPhysicsTool = (kind, systemId = activePhysicsSystemId) => {
+    const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+    const existingSystemId = systemId || graph.systems[0]?.id;
+    const createdSystem = existingSystemId ? null : createDefaultPhysicsSystem({ name: "World" });
+    const targetSystemId = existingSystemId || createdSystem.id;
+    if (createdSystem) {
+      const next = normalizeRelationshipGraph({ ...graph, systems: [...graph.systems, createdSystem] });
+      relationshipGraphRef.current = next;
+      setRelationshipGraph(next);
+      setActivePhysicsSystemId(createdSystem.id);
+    }
     physicsToolStartRef.current = null;
-    setPhysicsTool({ kind, systemId });
-    setSceneExchangeStatus(kind === "attract-brush" ? "Drag on a selected canonical curve to sculpt it." : `Physics ${kind}: click the first endpoint, then the second.`);
+    const nextTool = { kind, systemId: targetSystemId };
+    // The following canvas click may arrive before React commits the toolbar
+    // state. Keep the event-facing ref in sync synchronously so tool arming is
+    // never timing-dependent.
+    physicsToolRef.current = nextTool;
+    setPhysicsTool(nextTool);
+    const hint = kind === "attract-brush"
+      ? "Drag on a selected canonical curve to sculpt it."
+      : kind === "fixate"
+        ? "Weld: click a pivot object. It welds the overlapping body to World, or two overlapping bodies together."
+        : kind === "axle"
+          ? "Axle: click a pivot object. Its centre hinges one overlapping body to World, or two bodies together."
+          : `Physics ${kind}: click the first endpoint, then the second.`;
+    setSceneExchangeStatus(hint);
   };
 
-  const physicsElementAtPoint = point => {
+  const canvasElementsAtPhysicsPoint = point => {
     const elements = excalidrawAPIRef.current?.getSceneElements() || [];
-    return [...elements].reverse().find(element => {
-      if (element.isDeleted) return false;
-      const minX = Math.min(element.x, element.x + element.width) - 8;
-      const maxX = Math.max(element.x, element.x + element.width) + 8;
-      const minY = Math.min(element.y, element.y + element.height) - 8;
-      const maxY = Math.max(element.y, element.y + element.height) + 8;
-      return point[0] >= minX && point[0] <= maxX && point[1] >= minY && point[1] <= maxY;
-    }) || null;
+    return [...elements].reverse().filter(element => elementContainsPhysicsPoint(element, point, 6));
   };
 
-  const endpointForPhysicsHit = (element, point) => element
-    ? { kind: "object", objectRef: { kind: "element", elementId: element.id }, anchor: "local", localPoint: [
-      (point[0] - element.x) / Math.max(0.001, element.width),
-      (point[1] - element.y) / Math.max(0.001, element.height),
-    ] }
-    : { kind: "world", point };
+  const physicsElementsAtPoint = (point, systemId = null) => {
+    const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+    const eligibleIds = new Set(graph.bodies
+      .filter(body => body.enabled && body.objectRef?.kind === "element" && (!systemId || body.systemId === systemId))
+      .map(body => body.objectRef.elementId));
+    return canvasElementsAtPhysicsPoint(point).filter(element => eligibleIds.has(element.id));
+  };
+
+  const physicsElementAtPoint = (point, systemId = null) => physicsElementsAtPoint(point, systemId)[0] || null;
+
+  const physicsConstraintAtPoint = (point, systemId = null) => {
+    const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+    const hitElementIds = new Set(canvasElementsAtPhysicsPoint(point).map(element => element.id));
+    return graph.constraints.find(constraint => (
+      constraint.enabled
+      && (!systemId || constraint.systemId === systemId)
+      && constraint.objectRef?.kind === "element"
+      && hitElementIds.has(constraint.objectRef.elementId)
+    )) || null;
+  };
+
+  const endpointForPhysicsHit = (element, point) => physicsEndpointAtPoint(element, point);
+
+  const authorPhysicsConstraintAtPivot = ({ pivot, kind, systemId }) => {
+    const api = excalidrawAPIRef.current;
+    const elements = api?.getSceneElementsIncludingDeleted?.() || [];
+    const pivotPhysics = getPhysicsCustomData(pivot);
+    if (pivotPhysics?.role === "body") {
+      return { error: "Axle and Weld use a separate pivot object; click the small pivot shape, not the body." };
+    }
+    const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+    const resolved = resolveConstraintPivot({ pivot, elements, bodies: graph.bodies, systemId, kind });
+    if (resolved.error) return resolved;
+    const previousConstraintId = pivotPhysics?.id;
+    const next = normalizeRelationshipGraph({
+      ...graph,
+      constraints: [
+        ...graph.constraints.filter(constraint => constraint.id !== previousConstraintId && constraint.objectRef?.elementId !== pivot.id),
+        resolved.constraint,
+      ],
+    });
+    const provisionalElements = elements.map(element => element.id === pivot.id
+      ? { ...element, customData: withPhysicsCustomData(element.customData, resolved.constraint) }
+      : element);
+    // Persist the exact collider-local endpoints before the first worker load.
+    // Delaying this to a React effect leaves a short race where a click on
+    // Play can compile the old frame-relative anchor and yank a valid pivot.
+    const hydratedNext = hydratePhysicsGraphForElements(next, provisionalElements, {
+      repairAuthoredPose: false,
+      refreshConstraintAnchors: true,
+    });
+    const authoredConstraint = hydratedNext.constraints.find(constraint => constraint.id === resolved.constraint.id) || resolved.constraint;
+    const nextElements = elements.map(element => element.id === pivot.id
+      ? {
+          ...element,
+          customData: withPhysicsCustomData(element.customData, authoredConstraint),
+          version: (element.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+        }
+      : element);
+    relationshipGraphRef.current = hydratedNext;
+    // Publish the resolved local anchors before emitting the scene update.
+    // Otherwise an immediate Play could compile provisional, frame-relative
+    // endpoints for one tick.
+    physicsRuntimeRef.current.setGraph(hydratedNext);
+    setRelationshipGraph(hydratedNext);
+    api?.updateScene?.({ elements: nextElements, commitToHistory: true });
+    return resolved;
+  };
 
   const handlePhysicsPointerDown = event => {
     const tool = physicsToolRef.current;
@@ -9138,14 +9878,28 @@ function App() {
     const scenePoint = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, api.getAppState());
     const point = [scenePoint.x, scenePoint.y];
     if (!tool) {
+      const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+      // Cmd temporarily turns a body drag into a live-pose grab without
+      // changing the world's persisted Live pose setting. This preserves
+      // ordinary selection when the modifier is not held.
+      const livePose = graph.world.livePose === true || event.metaKey;
+      // Pivots take precedence in live pose mode. A small pivot normally
+      // overlaps the body it controls, and choosing the joint makes the
+      // intended IK-like handle directly manipulable.
+      const constraint = livePose ? physicsConstraintAtPoint(point) : null;
       const element = physicsElementAtPoint(point);
-      const body = element && relationshipGraphRef.current.bodies.find(candidate => (
+      const body = !constraint && element && graph.bodies.find(candidate => (
         candidate.enabled && candidate.bodyType !== "fixed" && candidate.objectRef?.kind === "element" &&
-        candidate.objectRef.elementId === element.id && physicsRuntimeRef.current.isPlaying(candidate.systemId)
+        candidate.objectRef.elementId === element.id && (physicsRuntimeRef.current.isPlaying(candidate.systemId) || livePose)
       ));
-      if (!body) return false;
-      physicsGestureRef.current = { kind: "grab", pointerId: event.pointerId, systemId: body.systemId };
-      physicsRuntimeRef.current.grab(body.systemId, body.id, point, { stiffness: 55, damping: 8 });
+      if (!body && !constraint) return false;
+      const systemId = constraint?.systemId || body.systemId;
+      physicsGestureRef.current = { kind: "grab", pointerId: event.pointerId, systemId, livePose };
+      if (constraint) {
+        physicsRuntimeRef.current.grabConstraint(systemId, constraint.id, point, { stiffness: 280, damping: 28, livePose });
+      } else {
+        physicsRuntimeRef.current.grab(systemId, body.id, point, { stiffness: livePose ? 280 : 55, damping: livePose ? 28 : 8, livePose });
+      }
       event.currentTarget?.setPointerCapture?.(event.pointerId);
       event.preventDefault();
       event.stopPropagation();
@@ -9163,22 +9917,51 @@ function App() {
       event.stopPropagation();
       return true;
     }
-    const element = physicsElementAtPoint(point);
+    const canvasElements = canvasElementsAtPhysicsPoint(point);
+    const matchingElements = physicsElementsAtPoint(point, tool.systemId);
+    if (["fixate", "axle"].includes(tool.kind)) {
+      const pivot = chooseConstraintPivot(canvasElements);
+      if (!pivot) {
+        setSceneExchangeStatus(`${tool.kind === "fixate" ? "Weld" : "Axle"}: click a visible pivot object over a physics body.`);
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
+      }
+      const authored = authorPhysicsConstraintAtPivot({ pivot, kind: tool.kind, systemId: tool.systemId });
+      if (authored.error) {
+        setSceneExchangeStatus(authored.error);
+      } else {
+        physicsToolRef.current = null;
+        setPhysicsTool(null);
+        setSceneExchangeStatus(`Created ${tool.kind} ${authored.secondary ? "between two bodies" : "to World"} from ${pivot.type} pivot.`);
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      return true;
+    }
+    if (canvasElements.length && !matchingElements.length) {
+      setSceneExchangeStatus("Assign a Physics role before using it as a constraint endpoint.");
+      event.preventDefault();
+      event.stopPropagation();
+      return true;
+    }
+    const element = matchingElements[0] || null;
     const endpoint = endpointForPhysicsHit(element, point);
     if (!physicsToolStartRef.current) {
-      physicsToolStartRef.current = endpoint;
+      physicsToolStartRef.current = { endpoint, point };
       setSceneExchangeStatus(`Physics ${tool.kind}: choose the second endpoint.`);
     } else {
+      const start = physicsToolStartRef.current;
       const constraint = {
         id: `physics-${tool.kind}-${crypto.randomUUID()}`,
         systemId: tool.systemId,
         name: tool.kind,
         kind: tool.kind,
-        a: physicsToolStartRef.current,
+        a: start.endpoint,
         b: endpoint,
         restLength: Math.hypot(
-          point[0] - (physicsToolStartRef.current.point?.[0] ?? point[0]),
-          point[1] - (physicsToolStartRef.current.point?.[1] ?? point[1]),
+          point[0] - start.point[0],
+          point[1] - start.point[1],
         ) || 100,
         stiffness: tool.kind === "distance" ? 180 : 45,
         damping: 6,
@@ -9200,7 +9983,7 @@ function App() {
     const scenePoint = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, api.getAppState());
     const point = [scenePoint.x, scenePoint.y];
     if (gesture.kind === "grab") {
-      physicsRuntimeRef.current.moveGrab(gesture.systemId, point);
+      physicsRuntimeRef.current.moveGrab(gesture.systemId, point, gesture.livePose ? { livePose: true, iterations: 36 } : undefined);
     } else if (gesture.kind === "sculpt") {
       const elements = api.getSceneElementsIncludingDeleted();
       const selected = elements.find(element => element.id === gesture.targetId && !element.isDeleted && hasCubicBezierGeometry(element));
@@ -9219,7 +10002,24 @@ function App() {
     const api = excalidrawAPIRef.current;
     if (!gesture || gesture.pointerId !== event.pointerId) return false;
     physicsGestureRef.current = null;
-    if (gesture.kind === "grab") physicsRuntimeRef.current.releaseGrab(gesture.systemId);
+    if (gesture.kind === "grab") {
+      // Live pose is deliberately runtime-only while posing away from the
+      // transport origin. At t=0, though, it is an intuitive way to author a
+      // new starting pose: preserve the solved snapshot before releasing the
+      // temporary grab, then make that snapshot the new Reset baseline.
+      const atTransportOrigin = Math.abs(Number(scoreTimeRef.current) || 0) < 1e-6;
+      const livePoseSnapshot = gesture.livePose && atTransportOrigin
+        ? physicsRuntimeRef.current.getLatestPoses(gesture.systemId)
+        : null;
+      physicsRuntimeRef.current.releaseGrab(gesture.systemId);
+      if (livePoseSnapshot) {
+        const applied = applyPhysicsPose(gesture.systemId, {
+          snapshot: livePoseSnapshot,
+          statusMessage: "Set the live pose at timeline zero as the physics reset pose.",
+        });
+        if (!applied) setSceneExchangeStatus("Live pose could not be saved: no current physics pose was available.");
+      }
+    }
     if (gesture.kind === "sculpt" && api) {
       api.updateScene({ elements: api.getSceneElementsIncludingDeleted().map(element => ({ ...element })), commitToHistory: true });
     }
@@ -9251,6 +10051,8 @@ function App() {
     if (patch?.pausedEditMode === "preview") {
       window.clearTimeout(physicsAuthoredEditTimerRef.current);
       physicsPendingAuthoredBodyIdsRef.current.clear();
+      physicsPreviewPoseSystemsRef.current.clear();
+      physicsConstraintPoseSolveRef.current += 1;
     }
     setRelationshipGraph(previous => ({
       ...previous,
@@ -9288,6 +10090,8 @@ function App() {
   };
 
   const resetPhysicsWorld = () => {
+    physicsPreviewPoseSystemsRef.current.clear();
+    physicsConstraintPoseSolveRef.current += 1;
     synchronizePausedPhysicsBodies();
     physicsRuntimeRef.current.pause();
     relationshipGraphRef.current.systems.forEach(system => resetPhysicsSystem(system.id));
@@ -9308,8 +10112,8 @@ function App() {
     }
   }, [relationshipGraph.systems, scorePlaying]);
 
-  const applyPhysicsPose = systemId => {
-    const snapshots = physicsRuntimeRef.current.getLatestPoses(systemId);
+  const applyPhysicsPose = (systemId, { snapshot: suppliedSnapshot = null, statusMessage = "Applied the current physics pose as the authored reset pose." } = {}) => {
+    const snapshots = suppliedSnapshot || physicsRuntimeRef.current.getLatestPoses(systemId);
     const snapshot = Array.isArray(snapshots) ? snapshots.find(candidate => candidate.systemId === systemId) : snapshots;
     const poseByEntityId = new Map((snapshot?.metadata || []).map((metadata, index) => [metadata.id, {
       x: snapshot.values[index * 4], y: snapshot.values[index * 4 + 1], angle: snapshot.values[index * 4 + 2],
@@ -9339,9 +10143,16 @@ function App() {
         return body;
       }),
     });
-    if (applied) setRelationshipGraph(nextGraph);
+    if (applied) {
+      // Reset/rewind may be pressed in the same turn as Apply or a Live-pose
+      // release. Update the graph ref and worker immediately so that command
+      // cannot rebuild from a stale t=0 baseline while React schedules state.
+      relationshipGraphRef.current = nextGraph;
+      physicsRuntimeRef.current.setGraph(nextGraph);
+      setRelationshipGraph(nextGraph);
+    }
     if (api && appliedBodies.length) updatePhysicsCustomDataForBodies(appliedBodies, { commitToHistory: true });
-    setSceneExchangeStatus("Applied the current physics pose as the authored reset pose.");
+    setSceneExchangeStatus(applied ? statusMessage : "No current physics pose was available to apply.");
     return applied;
   };
 
@@ -9747,6 +10558,7 @@ function App() {
     ...EXCALIDRAW_COMMANDS,
     { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "performance.toggle", name: "Toggle Performance Monitor /performance", aliases: ["/performance", "/perf", "FPS monitor"], category: "View", action: () => updatePerformanceVisibility(!showPerformanceOverlay) },
+    { id: "physics.toolbar.toggle", name: "Toggle Physics Toolbar /physicstoolbar", aliases: ["/physicstoolbar", "/physics toolbar", "physics toolbar"], category: "Physics", ai: { expose: true, description: "Toggle the floating physics authoring toolbar." }, action: () => setPhysicsToolbarOpen(previous => !previous) },
     { id: "physics.system.create", name: "Physics: Create System", aliases: ["/physics new"], category: "Physics", args: { name: "string?", gravity: "{x,y}?", clock: "realtime|transport?" }, ai: { expose: true, description: "Create an independent canvas physics system." }, action: (_api, args = {}) => {
       const system = createDefaultPhysicsSystem({ name: args.name, gravity: args.gravity, clock: { mode: args.clock === "transport" ? "transport" : "realtime", fixedHz: 60, timeScale: 1 } });
       setRelationshipGraph(previous => addRelationshipItem(previous, "systems", system));
@@ -9758,8 +10570,10 @@ function App() {
       toggleDraweratorPanel("physics", { open: true });
       return result;
     } },
-    { id: "physics.body.assign", name: "Physics: Assign Dynamic Body", aliases: ["/physics body"], category: "Physics", args: { systemId: "string?", bodyType: "dynamic|kinematic?" }, ai: { expose: true, description: "Turn selected canvas drawings into authored physics bodies." }, action: (_api, args) => assignPhysicsBodies(args) },
-    { id: "physics.collider.assign", name: "Physics: Assign Fixed Collider", aliases: ["/physics wall"], category: "Physics", args: { systemId: "string?", sensor: "boolean?" }, ai: { expose: true, description: "Turn selected drawings or curves into fixed colliders or sensors." }, action: (_api, args) => assignPhysicsBodies({ ...args, bodyType: "fixed" }) },
+    { id: "physics.body.assign", name: "Physics: Assign Dynamic", aliases: ["/physics body"], category: "Physics", args: { systemId: "string?", bodyType: "dynamic|kinematic?" }, ai: { expose: true, description: "Turn selected canvas drawings into authored physics bodies." }, action: (_api, args) => assignPhysicsBodies(args) },
+    { id: "physics.collider.assign", name: "Physics: Assign Static", aliases: ["/physics wall"], category: "Physics", args: { systemId: "string?", sensor: "boolean?" }, ai: { expose: true, description: "Turn selected drawings or curves into static colliders or sensors." }, action: (_api, args) => assignPhysicsBodies({ ...args, bodyType: "fixed" }) },
+    { id: "physics.axle.make", name: "Make Axle Object /make axle", aliases: ["/make axle", "/physics axle"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into Axle pivots. Each pivot automatically connects the body or bodies at its centre." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "axle" }) },
+    { id: "physics.fixate.make", name: "Make Weld Object /make weld", aliases: ["/make weld", "/physics weld", "/make fixate", "/physics fixate"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into Weld pivots. Each pivot welds the body or bodies at its centre." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "fixate" }) },
     { id: "physics.population.create", name: "Physics: Create Runtime Population", aliases: ["/physics gas"], category: "Physics", args: { systemId: "string?", count: "number?", radius: "number?", bounds: "{x,y,width,height}?" }, ai: { expose: true, description: "Create a lightweight seeded runtime particle population." }, action: (_api, args) => createPhysicsPopulation(args) },
     { id: "physics.constraint.tool", name: "Physics: Draw Constraint", aliases: ["/physics constraint"], category: "Physics", args: { kind: "pin|spring|distance|revolute|weld|attractor", systemId: "string?" }, action: (_api, args) => startPhysicsTool(args?.kind || "spring", args?.systemId) },
     { id: "physics.play", name: "Physics: Play", aliases: ["/physics play"], category: "Physics", action: (_api, args) => { synchronizePausedPhysicsBodies(); resumePhysicsAudio(); physicsRuntimeRef.current.play(args?.systemId || activePhysicsSystemId); } },
@@ -10012,6 +10826,22 @@ function App() {
       // focused control, leave Bézier editing, and clear the canvas selection.
       // Keep this capture-phase so it also works from number boxes and menus.
       if (e.key === "Escape") {
+        const activePhysicsTool = physicsToolRef.current;
+        if (activePhysicsTool) {
+          physicsToolStartRef.current = null;
+          physicsToolRef.current = null;
+          setPhysicsTool(null);
+          const name = activePhysicsTool.kind === "axle"
+            ? "Axle"
+            : activePhysicsTool.kind === "fixate"
+              ? "Weld"
+              : `Physics ${activePhysicsTool.kind}`;
+          setSceneExchangeStatus(`${name} cancelled.`);
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation?.();
+          return;
+        }
         const activeElement = document.activeElement;
         if (showContextDropdown) setShowContextDropdown(false);
         if (showAutocomplete) setShowAutocomplete(false);
@@ -15473,6 +16303,8 @@ function App() {
   const renderPhysicsWorldSection = () => {
     const world = relationshipGraph.world;
     const physicsTransportSynced = physicsFollowsTransport(relationshipGraph.systems);
+    const contactStayEventsEnabled = relationshipGraph.systems.length > 0
+      && relationshipGraph.systems.every(system => system.emitStayEvents === true);
     const setWorldNumber = (field, value) => {
       const next = Number(value);
       if (Number.isFinite(next)) updatePhysicsWorld({ [field]: next });
@@ -15484,6 +16316,12 @@ function App() {
           ...system,
           clock: { ...system.clock, mode: physicsTransportSynced ? "realtime" : "transport" },
         })),
+      }));
+    };
+    const setContactStayEvents = enabled => {
+      setRelationshipGraph(previous => ({
+        ...previous,
+        systems: previous.systems.map(system => ({ ...system, emitStayEvents: enabled })),
       }));
     };
     return (
@@ -15503,9 +16341,17 @@ function App() {
             <PhysicsWorldIcon type="transport" />
           </button>
         </div>
-        <label className="iannix-field physics-time-scrub-toggle" {...infoProps("Preview physics while scrubbing", "When transport-linked, replay deterministic physics checkpoints while dragging the timeline. This can be expensive for large jumps, so it is off by default. Scrub evaluation never emits live mappings, audio, or commands, but its collision diagnostics appear in the physics debug overlay and event console.")}>
-          <span>Preview physics while scrubbing</span>
+        <label className="iannix-field physics-time-scrub-toggle" {...infoProps("Live timeline preview", "When transport-linked, replay deterministic physics checkpoints while dragging the timeline. This can be expensive for large jumps, so it is off by default. Scrub evaluation never emits live mappings, audio, or commands, but its collision diagnostics appear in the physics debug overlay and event console.")}>
+          <span>Live timeline preview</span>
           <input type="checkbox" checked={physicsTimeScrubEnabled} disabled={!physicsTransportSynced} onChange={event => setPhysicsTimeScrubEnabled(event.target.checked)} />
+        </label>
+        <label className="iannix-field physics-time-scrub-toggle" {...infoProps("Contact stay events", "Contacts normally emit begin, hit, and end. Enable this only when a mapping needs a stay event on every physics step while bodies remain in contact. It can produce up to 60 events per second for each active contact, so it applies to every world in the scene.")}>
+          <span>Contact stay events</span>
+          <input type="checkbox" checked={contactStayEventsEnabled} onChange={event => setContactStayEvents(event.target.checked)} />
+        </label>
+        <label className="iannix-field physics-time-scrub-toggle" {...infoProps("Live pose", "Turn canvas drags into full-strength runtime physics grabs while the simulation is paused or slowed. Connected bodies and pivots solve like an IK rig without advancing transport time. With Live pose off, hold Cmd while dragging a body for the same temporary grab. Releasing at timeline zero makes that solved pose the new Reset pose; away from zero it remains a temporary runtime pose until you choose Apply pose.")}>
+          <span>Live pose</span>
+          <input type="checkbox" checked={world.livePose === true} onChange={event => updatePhysicsWorld({ livePose: event.target.checked })} />
         </label>
         <div className="iannix-two-column">
           <label className="iannix-field" {...infoProps("Gravity X", "Horizontal world gravity in metres per second squared.")}>
@@ -15529,7 +16375,7 @@ function App() {
           <span>Pixels per metre</span>
           <input type="number" min="1" max="1000" step="1" value={world.pixelsPerMeter} onChange={event => setWorldNumber("pixelsPerMeter", event.target.value)} />
         </label>
-        <label className="iannix-field" {...infoProps("Paused edits", "Author reset pose is the default: moving a body while paused changes its saved reset position. Keep reset pose lets you arrange a temporary preview and return to the authored state with Reset.")}>
+        <label className="iannix-field" {...infoProps("Paused edits", "This controls ordinary direct canvas transforms while physics is paused. Author reset pose saves those transforms as the next Reset state; Keep reset pose leaves the saved state untouched. Live pose is separate: it solves constraints, and at timeline zero its released result becomes the Reset pose.")}>
           <span>Paused edits</span>
           <select value={world.pausedEditMode} onChange={event => updatePhysicsWorld({ pausedEditMode: event.target.value })}>
             <option value="author">Author reset pose</option>
@@ -15564,26 +16410,37 @@ function App() {
   const renderPhysicsRoleSection = selectedElements => {
     const selectedIds = new Set(selectedElements.map(element => element.id));
     const bodies = relationshipGraph.bodies.filter(body => body.objectRef?.kind === "element" && selectedIds.has(body.objectRef.elementId));
+    const authoredConstraints = relationshipGraph.constraints.filter(constraint => constraint.objectRef?.kind === "element" && selectedIds.has(constraint.objectRef.elementId));
+    const pivotConstraint = selectedElements.length === 1 ? authoredConstraints[0] || null : null;
     const roleForBody = body => body.collider.sensor ? "sensor" : body.bodyType;
-    const sharedRole = bodies.length === selectedElements.length && bodies.length > 0
-      && new Set(bodies.map(roleForBody)).size === 1
-      ? roleForBody(bodies[0])
-      : bodies.length === 0 ? "none" : "mixed";
+    const rolesByElementId = new Map([
+      ...bodies.map(body => [body.objectRef.elementId, roleForBody(body)]),
+      ...authoredConstraints.map(constraint => [constraint.objectRef.elementId, constraint.kind]),
+    ]);
+    const selectedRoles = selectedElements.map(element => rolesByElementId.get(element.id) || "none");
+    const sharedRole = new Set(selectedRoles).size === 1 ? selectedRoles[0] : "mixed";
     const roleOptions = [
       ["none", "None", "Remove the physics role"],
-      ["dynamic", "Dynamic body", "Dynamic body — responds to forces and gravity"],
+      ["dynamic", "Dynamic", "Dynamic — responds to forces and gravity"],
       ["kinematic", "Kinematic body", "Kinematic body — moved by authored animation or interaction"],
-      ["fixed", "Fixed collider", "Fixed collider — a stationary physical wall"],
+      ["fixed", "Static", "Static — a stationary physical wall"],
       ["sensor", "Sensor", "Sensor — reports overlaps without blocking bodies"],
+      ["axle", "Axle pivot", "Axle pivot — auto-connects one overlapping body to World, or two bodies together"],
+      ["fixate", "Weld pivot", "Weld pivot — welds one overlapping body to World, or two bodies together"],
     ];
     const applyRole = role => {
       if (role === "none") {
         removePhysicsBodies(bodies.map(body => body.id));
+        removePhysicsConstraints(authoredConstraints.map(constraint => constraint.id));
+        return;
+      }
+      if (["axle", "fixate"].includes(role)) {
+        assignPhysicsConstraintPivots({ kind: role });
         return;
       }
       assignPhysicsBodies({ bodyType: role === "sensor" ? "fixed" : role, sensor: role === "sensor" });
     };
-    const body = sharedRole === "none" || sharedRole === "mixed" ? null : bodies[0];
+    const body = ["none", "mixed", "axle", "fixate"].includes(sharedRole) ? null : bodies[0];
     const allSelectedHavePhysicsBodies = selectedElements.length > 0 && bodies.length === selectedElements.length;
     const supportsColliderChoices = allSelectedHavePhysicsBodies;
     const supportsPathCollider = allSelectedHavePhysicsBodies && selectedElements.every(element => (
@@ -15595,6 +16452,38 @@ function App() {
     const roleLabel = roleOptions.find(([value]) => value === sharedRole)?.[1] || "Physics";
     const patchBody = patch => patchPhysicsBodies(bodies.map(candidate => candidate.id), patch);
     const patchMaterial = patch => patchBody({ material: patch });
+    const pivotSceneElements = pivotConstraint
+      ? (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || [])
+      : [];
+    const pivotElement = pivotConstraint
+      ? pivotSceneElements.find(element => element.id === selectedElements[0]?.id && !element.isDeleted) || selectedElements[0]
+      : null;
+    const pivotPoint = pivotElement ? getPhysicsElementCenter(pivotElement) : null;
+    const connectionBodies = pivotConstraint
+      ? relationshipGraph.bodies.filter(candidate => (
+        candidate.enabled
+        && candidate.systemId === pivotConstraint.systemId
+        && candidate.objectRef?.kind === "element"
+        && candidate.objectRef.elementId !== pivotElement?.id
+      ))
+      : [];
+    const connectionElementById = new Map(pivotSceneElements.map(element => [element.id, element]));
+    const connectionLabel = body => {
+      const element = connectionElementById.get(body.objectRef?.elementId);
+      return `${body.name || element?.type || "Body"} · ${body.objectRef?.elementId?.slice(0, 8) || "missing"}`;
+    };
+    const endpointElementId = endpoint => endpoint?.kind === "object" ? endpoint.objectRef?.elementId || "" : "";
+    const patchPivotConnection = (side, elementId) => {
+      if (!pivotConstraint || !pivotPoint) return;
+      const endpoint = elementId === "world"
+        ? { kind: "world", point: [pivotPoint.x, pivotPoint.y] }
+        : (() => {
+          const target = connectionElementById.get(elementId);
+          return target ? physicsEndpointAtPoint(target, [pivotPoint.x, pivotPoint.y]) : null;
+        })();
+      if (!endpoint) return;
+      patchPhysicsConstraint(pivotConstraint.id, { [side]: endpoint });
+    };
     const colliderPicker = supportsColliderChoices ? (
       <label className="iannix-field" {...infoProps("Collider", "Bounding shapes are fast. Path chain follows the drawing's visible stroke width with rounded, continuous segments, for fixed walls and moving paths alike.")}>
         <span>Collider</span>
@@ -15609,23 +16498,14 @@ function App() {
     ) : null;
     return (
       <>
-        <InspectorSection title="Physics role" className="iannix-section physics-role-selector" aside={<span className="iannix-selection-count">{selectedElements.length} objects</span>} {...infoProps("Physics role", "Attach or remove a Rapier body binding for the selected canvas objects. Role-specific settings appear directly below.")}>
-          <div className="iannix-role-grid physics-role-grid" role="radiogroup" aria-label="Physics role for selected objects">
-            {roleOptions.map(([value, label, description]) => (
-              <button
-                key={value}
-                type="button"
-                className={`iannix-role-button physics-role-icon role-${value} ${sharedRole === value ? "active" : ""}`}
-                role="radio"
-                aria-checked={sharedRole === value}
-                onClick={() => applyRole(value)}
-                title={description}
-                aria-label={label}
-              >
-                <PhysicsRoleIcon type={value} />
-              </button>
-            ))}
-          </div>
+        <InspectorSection title="Physics role" className="iannix-section physics-role-selector" aside={<span className="iannix-selection-count">{selectedElements.length} objects</span>} {...infoProps("Physics role", "A canvas object has one explicit physics role. Axle and Weld are authored pivot constraints: selecting either automatically resolves overlapping body connections.")}>
+          <label className="iannix-field" {...infoProps("Physics role", "Choose a solver body, sensor, or authored pivot role. Selecting Axle or Weld converts the selected object into a pivot and calculates its overlapping body connections.")}>
+            <span>Role</span>
+            <select value={sharedRole} onChange={event => applyRole(event.target.value)}>
+              {sharedRole === "mixed" && <option value="mixed" disabled>Mixed roles</option>}
+              {roleOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
         </InspectorSection>
 
         {body && (
@@ -15677,6 +16557,30 @@ function App() {
         {!body && colliderPicker && (
           <InspectorSection title="Collider" className="iannix-section physics-role-details" {...infoProps("Collider", "Apply one collider shape to every selected physics object.")}>
             {colliderPicker}
+          </InspectorSection>
+        )}
+        {pivotConstraint && (
+          <InspectorSection title={`${pivotConstraint.kind === "fixate" ? "Weld" : "Axle"} pivot`} className="iannix-section physics-role-details" {...infoProps("Constraint pivot", "This canvas object is the authored constraint entity. Its centre resolves overlapping physics bodies: one body attaches to World; two bodies attach to each other. The complete record is stored in object.customData.physics.")}>
+            <label className="iannix-field"><span>Physics name</span><input type="text" value={pivotConstraint.name} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { name: event.target.value })} /></label>
+            <div className="iannix-two-column">
+              <label className="iannix-field" {...infoProps("First connection", "The first body attached at this pivot. Changing it recalculates the local anchor at the pivot centre.")}><span>Connect A</span><select value={endpointElementId(pivotConstraint.a)} onChange={event => patchPivotConnection("a", event.target.value)}>
+                <option value="" disabled>Choose body</option>
+                {connectionBodies.map(candidate => <option key={candidate.id} value={candidate.objectRef.elementId}>{connectionLabel(candidate)}</option>)}
+              </select></label>
+              <label className="iannix-field" {...infoProps("Second connection", "Choose World to pin the first body at this pivot, or another body to connect both bodies together.")}><span>Connect B</span><select value={pivotConstraint.b?.kind === "world" ? "world" : endpointElementId(pivotConstraint.b)} onChange={event => patchPivotConnection("b", event.target.value)}>
+                <option value="world">World</option>
+                {connectionBodies.filter(candidate => candidate.objectRef.elementId !== endpointElementId(pivotConstraint.a)).map(candidate => <option key={candidate.id} value={candidate.objectRef.elementId}>{connectionLabel(candidate)}</option>)}
+              </select></label>
+            </div>
+            <label className="iannix-check-row"><span>Enabled</span><input type="checkbox" checked={pivotConstraint.enabled} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { enabled: event.target.checked })} /></label>
+            {pivotConstraint.kind === "axle" && <>
+              <label className="iannix-check-row" {...infoProps("Limit rotation", "Off is a freely rotating axle. Enable to constrain the relative angle in degrees.")}><span>Limit rotation</span><input type="checkbox" checked={pivotConstraint.limitsEnabled === true} onChange={event => patchPhysicsConstraint(pivotConstraint.id, event.target.checked ? { limitsEnabled: true, lowerLimit: pivotConstraint.lowerLimit ?? -Math.PI, upperLimit: pivotConstraint.upperLimit ?? Math.PI } : { limitsEnabled: false, lowerLimit: null, upperLimit: null })} /></label>
+              {pivotConstraint.limitsEnabled && <div className="iannix-two-column">
+                <label className="iannix-field"><span>Lower limit (°)</span><input type="number" step="1" value={Math.round((pivotConstraint.lowerLimit || 0) * 180 / Math.PI)} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { lowerLimit: event.target.valueAsNumber * Math.PI / 180 })} /></label>
+                <label className="iannix-field"><span>Upper limit (°)</span><input type="number" step="1" value={Math.round((pivotConstraint.upperLimit || 0) * 180 / Math.PI)} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { upperLimit: event.target.valueAsNumber * Math.PI / 180 })} /></label>
+              </div>}
+            </>}
+            <button type="button" className="iannix-flat-button" onClick={() => removePhysicsConstraint(pivotConstraint.id)}>Remove {pivotConstraint.kind}</button>
           </InspectorSection>
         )}
       </>
@@ -18738,6 +19642,13 @@ function App() {
     const previewTransportSeek = seconds => {
       const shouldPreviewPhysics = physicsTimeScrubEnabled && physicsFollowsTransport(relationshipGraphRef.current.systems);
       physicsTransportScrubbingRef.current = shouldPreviewPhysics;
+      if (shouldPreviewPhysics) {
+        physicsPreviewPoseSystemsRef.current = new Set(
+          relationshipGraphRef.current.systems
+            .filter(system => system.enabled && system.adapter === "rapier2d" && system.clock?.mode === "transport")
+            .map(system => system.id),
+        );
+      }
       const nextTime = Math.max(0, Number(seconds) || 0);
       setScoreTime(nextTime);
       if (shouldPreviewPhysics) physicsRuntimeRef.current.transport(nextTime, { scrub: true });
@@ -19766,6 +20677,20 @@ function App() {
     });
     if (!changed) return;
     excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
+    // The generic Object tree intentionally exposes the canonical authored
+    // role record. Keep that escape hatch live: editing
+    // `object.customData.physics` must update the relationship graph used by
+    // Rapier just like the promoted Physics-role controls do. The hydrator
+    // preserves each graph body's stable relationship id while taking its
+    // authored configuration from the native object.
+    if (path[0] === "customData" && path[1] === "physics") {
+      const nextGraph = hydrateRelationshipGraphFromElements(
+        relationshipGraphRef.current,
+        nextElements,
+      );
+      relationshipGraphRef.current = nextGraph;
+      setRelationshipGraph(nextGraph);
+    }
     setModifierUpdateNonce(nonce => nonce + 1);
   };
 
@@ -20085,7 +21010,7 @@ function App() {
         onDragOverCapture={handleCanvasMediaPreviewDragOver}
         onDropCapture={handleCanvasMediaPreviewDrop}
         style={{ width: "100%", height: "100%", position: "relative" }}
-        className={`${modifierDrawingActive && drawingPoints.length > 0 ? "custom-brush-drawing" : ""} ${objectEyedropper ? "drawerator-object-eyedropper" : ""}`.trim()}
+        className={`${modifierDrawingActive && drawingPoints.length > 0 ? "custom-brush-drawing" : ""} ${objectEyedropper ? "drawerator-object-eyedropper" : ""} ${physicsTool?.kind ? `physics-authoring-${physicsTool.kind}` : ""}`.trim()}
       >
         <Excalidraw 
           theme={theme} 
@@ -20375,6 +21300,11 @@ function App() {
                   physicsAuthoredElementSignaturesRef.current.delete(body.id);
                   physicsPendingAuthoredBodyIdsRef.current.delete(body.id);
                 });
+                physicsGraph.constraints.forEach(constraint => {
+                  if (constraint.objectRef?.kind !== "element" || !deletedElementIdSet.has(constraint.objectRef.elementId)) return;
+                  physicsAuthoredConstraintSignaturesRef.current.delete(constraint.id);
+                  physicsPendingAuthoredConstraintIdsRef.current.delete(constraint.id);
+                });
                 livePhysicsGraph = prunedPhysicsGraph;
               }
             }
@@ -20396,7 +21326,7 @@ function App() {
               setRelationshipGraph(livePhysicsGraph);
             }
             const pausedPhysicsEdits = [];
-            for (const body of physicsGraph.bodies) {
+            for (const body of livePhysicsGraph.bodies) {
               if (body.tracking !== "authored-rigid" || body.objectRef?.kind !== "element") continue;
               const element = currentElementsById.get(body.objectRef.elementId);
               if (!element || element.isDeleted) continue;
@@ -20412,8 +21342,26 @@ function App() {
                 && !physicsRuntimeRef.current.isPlaying(body.systemId)
               ) pausedPhysicsEdits.push(body);
             }
-            if (pausedPhysicsEdits.length) {
+            const pausedConstraintEdits = [];
+            for (const constraint of livePhysicsGraph.constraints) {
+              if (constraint.objectRef?.kind !== "element") continue;
+              const pivot = currentElementsById.get(constraint.objectRef.elementId);
+              if (!pivot || pivot.isDeleted) continue;
+              const signature = physicsAuthoredElementSignature(pivot);
+              const previousSignature = physicsAuthoredConstraintSignaturesRef.current.get(constraint.id);
+              physicsAuthoredConstraintSignaturesRef.current.set(constraint.id, signature);
+              if (
+                previousSignature !== undefined
+                && previousSignature !== signature
+                && !physicsApplyingRef.current
+                && historySuppressSceneRef.current === 0
+                && livePhysicsGraph.world.pausedEditMode === "author"
+                && !physicsRuntimeRef.current.isPlaying(constraint.systemId)
+              ) pausedConstraintEdits.push(constraint);
+            }
+            if (pausedPhysicsEdits.length || pausedConstraintEdits.length) {
               pausedPhysicsEdits.forEach(body => physicsPendingAuthoredBodyIdsRef.current.add(body.id));
+              pausedConstraintEdits.forEach(constraint => physicsPendingAuthoredConstraintIdsRef.current.add(constraint.id));
               window.clearTimeout(physicsAuthoredEditTimerRef.current);
               physicsAuthoredEditTimerRef.current = window.setTimeout(() => {
                 synchronizePausedPhysicsBodies();
@@ -21350,9 +22298,14 @@ function App() {
               elements={(excalidrawAPI?.getSceneElementsIncludingDeleted() || []).filter(element => selectedElementIds[element.id])}
               availableElements={(excalidrawAPI?.getSceneElementsIncludingDeleted() || []).filter(element => !element.isDeleted)}
               physicsBodies={relationshipGraph.bodies}
+              physicsCollisionLayers={relationshipGraph.world.collisionLayers.layers}
+              physicsConstraints={relationshipGraph.constraints}
               onPhysicsBodyChange={patchPhysicsBody}
               onPhysicsBodiesChange={patchPhysicsBodies}
               onPhysicsBodyRemove={removePhysicsBody}
+              onPhysicsConstraintChange={patchPhysicsConstraint}
+              onPhysicsConstraintRemove={removePhysicsConstraint}
+              onPhysicsConstraintEndpointChange={patchPhysicsConstraintEndpoint}
               onScoreChange={(elementId, patch) => updateIannixElement(elementId, current => ({ ...current, ...patch }))}
               selectedSvgNode={selectedSvgNode}
               onChange={updateSceneObjectProperty}
@@ -21899,13 +22852,16 @@ function App() {
               onActiveSystemChange={setActivePhysicsSystemId}
               selectedElementCount={Object.values(selectedElementIds).filter(Boolean).length}
               selectedElementIds={selectedElementIds}
-              activeTool={physicsTool?.kind || null}
               telemetry={physicsTelemetry}
               debug={physicsDebug}
               onDebugChange={setPhysicsDebug}
               onSetGraph={setRelationshipGraph}
               onPatchBody={patchPhysicsBody}
+              onPatchBodies={patchPhysicsBodies}
               onRemoveBody={removePhysicsBody}
+              onRemoveBodies={removePhysicsBodies}
+              onPatchConstraint={patchPhysicsConstraint}
+              onRemoveConstraint={removePhysicsConstraint}
               onRemoveSystem={removePhysicsSystem}
               onPlay={systemId => { synchronizePausedPhysicsBodies(); resumePhysicsAudio(); physicsRuntimeRef.current.play(systemId); }}
               onPause={systemId => physicsRuntimeRef.current.pause(systemId)}
@@ -21913,6 +22869,7 @@ function App() {
               onApply={applyPhysicsPose}
               onAssignBody={assignPhysicsBodies}
               onAssignCollider={options => assignPhysicsBodies({ ...options, bodyType: "fixed" })}
+              onMakeConstraint={options => assignPhysicsConstraintPivots(options)}
               onCreatePopulation={createPhysicsPopulation}
               onBeginTool={startPhysicsTool}
               onAddMapping={createPhysicsMapping}
@@ -21920,6 +22877,7 @@ function App() {
               onSculpt={sculptPhysicsSelection}
               onLoadExample={loadPhysicsExample}
               expressivePrograms={getExpressiveSynthPrograms(expressiveSynthConfig)}
+              selectedElements={getSelectedElements()}
             />
           </DraweratorPanel>
           )}
@@ -22219,6 +23177,15 @@ function App() {
             </DraweratorPanel>
           )}
         </Excalidraw>
+
+        <PhysicsCanvasToolbar
+          open={physicsToolbarOpen}
+          onOpenChange={setPhysicsToolbarOpen}
+          selectedCount={Object.values(selectedElementIds).filter(Boolean).length}
+          onAssignBody={options => assignPhysicsBodies({ systemId: activePhysicsSystemId, ...options })}
+          onAssignCollider={options => assignPhysicsBodies({ systemId: activePhysicsSystemId, bodyType: "fixed", ...options })}
+          onMakeConstraint={kind => assignPhysicsConstraintPivots({ kind, systemId: activePhysicsSystemId })}
+        />
 
         {showPerformanceOverlay && performanceOverlayPlacement === "floating" ? <PerformanceOverlay
           placement="floating"

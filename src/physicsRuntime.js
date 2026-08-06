@@ -36,6 +36,11 @@ export class PhysicsRuntimeController {
     this.listeners = new Map();
     this.latestPoses = new Map();
     this.metadata = new Map();
+    // A graph rebuild is asynchronous: the worker may still have a pose
+    // buffer in flight for the previous graph when a canvas object is made
+    // dynamic or changes role.  Treat those messages as stale rather than
+    // briefly applying an old solver pose to the newly-authored object.
+    this.graphRevision = 0;
     this.telemetry = { systems: [], stepMs: 0, sampledAt: 0, transferMs: 0, eventRate: 0, routeMs: 0, mappingRate: 0 };
     this.mappingRuntime = new PhysicsMappingRuntime({
       onError: detail => {
@@ -46,6 +51,7 @@ export class PhysicsRuntimeController {
     this.writerRegistry = new RelationshipWriterRegistry();
     this.snapshotRequests = new Map();
     this.queryRequests = new Map();
+    this.relaxRequests = new Map();
     this.lastEventSample = performance.now();
     this.eventsSinceSample = 0;
     this.mappingsSinceSample = 0;
@@ -97,6 +103,11 @@ export class PhysicsRuntimeController {
   }
 
   setGraph(value) {
+    const revision = ++this.graphRevision;
+    // A paused pose solve belongs to one authored graph. Do not let an older
+    // solver reply overwrite a newer edit after a graph rebuild.
+    for (const request of this.relaxRequests.values()) request.reject(new Error("Physics graph changed while posing."));
+    this.relaxRequests.clear();
     this.graph = normalizeRelationshipGraph(value);
     this.mappingRuntime.setGraph(this.graph, descriptor => this.#executeMappingTarget(descriptor));
     this.writerRegistry.clear();
@@ -120,8 +131,18 @@ export class PhysicsRuntimeController {
       });
     }
     this.ready = false;
+    // Do not leave the previous graph's snapshot available while its worker
+    // replacement is being built. Besides avoiding a one-frame visual jump,
+    // this makes Apply/Bake unable to accidentally consume a stale pose.
+    for (const snapshot of this.latestPoses.values()) {
+      if (snapshot?.values?.buffer && this.worker) {
+        this.worker.postMessage({ type: "buffer.return", systemId: snapshot.systemId, buffer: snapshot.values.buffer }, [snapshot.values.buffer]);
+      }
+    }
+    this.latestPoses.clear();
+    this.metadata.clear();
     if (this.graph.systems.some(system => system.enabled && system.adapter === "rapier2d")) {
-      this.#post({ type: "load", graph: this.graph });
+      this.#post({ type: "load", graph: this.graph, revision });
     } else if (this.worker || this.workerPromise) {
       (this.worker ? Promise.resolve(this.worker) : this.workerPromise).then(worker => {
         worker.postMessage({ type: "dispose" });
@@ -147,6 +168,16 @@ export class PhysicsRuntimeController {
   listAdapters() { return [...this.adapters.values()]; }
 
   #handleMessage(message) {
+    // A worker build can overlap the next one when a tool changes an object's
+    // physics role. Ignore all outputs from a prior graph revision; applying
+    // one of those poses is what makes a newly dynamic drawing appear to
+    // teleport before the first simulation step.
+    if (Number.isInteger(message.graphRevision) && message.graphRevision !== this.graphRevision) {
+      if (message.type === "poses" && message.values?.buffer && this.worker) {
+        this.worker.postMessage({ type: "buffer.return", systemId: message.systemId, buffer: message.values.buffer }, [message.values.buffer]);
+      }
+      return;
+    }
     if (message.type === "ready") {
       this.ready = true;
       Object.entries(message.metadata || {}).forEach(([systemId, metadata]) => this.metadata.set(systemId, metadata));
@@ -210,6 +241,14 @@ export class PhysicsRuntimeController {
       if (request) {
         this.queryRequests.delete(message.requestId);
         request.resolve(message.result);
+      }
+      return;
+    }
+    if (message.type === "relaxed") {
+      const request = this.relaxRequests.get(message.requestId);
+      if (request) {
+        this.relaxRequests.delete(message.requestId);
+        request.resolve(message.poses || []);
       }
       return;
     }
@@ -325,8 +364,34 @@ export class PhysicsRuntimeController {
   }
   impulse(systemId, entityId, impulse) { return this.#post({ type: "impulse", systemId, entityId, impulse }); }
   grab(systemId, entityId, point, options = {}) { return this.#post({ type: "grab", systemId, entityId, point, ...options }); }
-  moveGrab(systemId, point) { return this.#post({ type: "grab.move", systemId, point }); }
+  grabConstraint(systemId, constraintId, point, options = {}) { return this.#post({ type: "grab.constraint", systemId, constraintId, point, ...options }); }
+  moveGrab(systemId, point, options = {}) { return this.#post({ type: "grab.move", systemId, point, ...options }); }
   releaseGrab(systemId) { return this.#post({ type: "grab.release", systemId }); }
+
+  async relax(systemId, entityIds = [], { iterations = 18 } = {}) {
+    if (!systemId || !this.#hasRapierTarget(systemId)) return [];
+    const worker = await this.#ensureWorker();
+    const requestId = crypto.randomUUID();
+    const revision = this.graphRevision;
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        this.relaxRequests.delete(requestId);
+        reject(new Error("Physics pose solve timed out."));
+      }, 5000);
+      this.relaxRequests.set(requestId, {
+        resolve: value => { window.clearTimeout(timeout); resolve(value); },
+        reject: error => { window.clearTimeout(timeout); reject(error); },
+      });
+      worker.postMessage({
+        type: "relax",
+        requestId,
+        systemId,
+        entityIds: Array.isArray(entityIds) ? entityIds : [entityIds],
+        iterations: Math.max(1, Math.min(96, Math.round(Number(iterations) || 18))),
+        revision,
+      });
+    });
+  }
 
   async snapshot(systemId) {
     if (!this.worker && !this.workerPromise) return null;
@@ -379,6 +444,8 @@ export class PhysicsRuntimeController {
     this.snapshotRequests.clear();
     for (const request of this.queryRequests.values()) request.reject(new Error("Physics runtime disposed."));
     this.queryRequests.clear();
+    for (const request of this.relaxRequests.values()) request.reject(new Error("Physics runtime disposed."));
+    this.relaxRequests.clear();
   }
 }
 
@@ -430,7 +497,8 @@ export const createPhysicsApi = ({ runtime, getGraph, setGraph, applyPose, reset
   materialize: options => materialize?.(options),
   impulse: (systemId, entityId, impulse) => runtime.impulse(systemId, entityId, impulse),
   grab: (systemId, entityId, point, options) => runtime.grab(systemId, entityId, point, options),
-  moveGrab: (systemId, point) => runtime.moveGrab(systemId, point),
+  grabConstraint: (systemId, constraintId, point, options) => runtime.grabConstraint(systemId, constraintId, point, options),
+  moveGrab: (systemId, point, options) => runtime.moveGrab(systemId, point, options),
   releaseGrab: systemId => runtime.releaseGrab(systemId),
   poses: systemId => runtime.getLatestPoses(systemId),
   telemetry: () => runtime.getTelemetry(),

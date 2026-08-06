@@ -1,10 +1,154 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import InspectorSection from "./InspectorSection.jsx";
-import { createDefaultPhysicsSystem, normalizeRelationshipGraph, normalizeRelationshipMapping } from "./relationshipGraph.js";
+import {
+  MAX_PHYSICS_COLLISION_LAYERS,
+  collisionLayerPairKey,
+  createDefaultPhysicsSystem,
+  normalizePhysicsCollisionLayers,
+  normalizePhysicsConstraint,
+  normalizeRelationshipGraph,
+  normalizeRelationshipMapping,
+  setPhysicsCollisionLayerPair,
+} from "./relationshipGraph.js";
 import { compileMappingExpression } from "./mappingExpression.js";
+import { getPhysicsColliderSelectionValue } from "./physicsGeometry.js";
 import { infoProps } from "./uiInfo.js";
 
 const Button = ({ children, active = false, ...props }) => <button type="button" className={`iannix-flat-button physics-flat-button${active ? " active" : ""}`} {...props}>{children}</button>;
+
+const DEBUG_ENTRIES = Object.freeze([
+  ["bodies", "Bodies", "Physics body outlines"],
+  ["colliders", "Colliders", "Collision shapes and contact skin"],
+  ["constraints", "Springs + constraints", "Joints, springs, and constraint links"],
+  ["labels", "Labels", "Object and constraint labels"],
+  ["contacts", "Contacts", "Contact points"],
+  ["collisions", "Collision pulses", "Recent collision rings"],
+  ["forces", "Contact forces", "Contact normal and impulse vectors"],
+]);
+
+const DEBUG_COLOR_FALLBACKS = Object.freeze({
+  bodies: "#518effe6",
+  colliders: "#61d5b1f2",
+  constraints: "#ffbe50f2",
+  labels: "#6db7ffff",
+  contacts: "#61d5b1ff",
+  collisions: "#ff7867ff",
+  forces: "#ffd05eff",
+});
+
+const isCssColor = value => {
+  const candidate = String(value || "").trim();
+  if (!candidate) return false;
+  if (typeof CSS !== "undefined" && typeof CSS.supports === "function") {
+    return CSS.supports("color", candidate);
+  }
+  if (typeof document !== "undefined") {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (context) {
+      const sentinel = "#010203";
+      context.fillStyle = sentinel;
+      context.fillStyle = candidate;
+      return String(context.fillStyle || "").toLowerCase() !== sentinel;
+    }
+  }
+  return /^(?:[a-z][a-z0-9-]*|(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color|color-mix)\s*\()/i.test(candidate);
+};
+
+const normalizeDebugColor = (value, fallback) => {
+  const candidate = String(value || "").trim();
+  if (candidate.toLowerCase() === "object") return "object";
+  if (/^#[0-9a-f]{6}$/i.test(candidate)) return `${candidate.toLowerCase()}ff`;
+  if (/^#[0-9a-f]{8}$/i.test(candidate)) return candidate.toLowerCase();
+  return isCssColor(candidate) ? candidate : fallback;
+};
+
+const cssColorToHex = (value, fallback) => {
+  const candidate = String(value || "").trim();
+  if (/^#[0-9a-f]{6}$/i.test(candidate)) return candidate.toLowerCase();
+  if (/^#[0-9a-f]{8}$/i.test(candidate)) return candidate.slice(0, 7).toLowerCase();
+  if (typeof document === "undefined") return fallback;
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) return fallback;
+  const sentinel = "#010203";
+  context.fillStyle = sentinel;
+  context.fillStyle = candidate;
+  const resolved = String(context.fillStyle || "");
+  const match = resolved.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
+  if (!match || resolved.toLowerCase() === sentinel) return fallback;
+  return `#${match.slice(1, 4).map(channel => Math.min(255, Math.max(0, Math.round(Number(channel)))).toString(16).padStart(2, "0")).join("")}`;
+};
+
+function DebugColorPicker({ keyName, label, description, value, active, disabled, onToggle, onChange }) {
+  const fallback = DEBUG_COLOR_FALLBACKS[keyName] || "#ffffffcc";
+  const color = normalizeDebugColor(value, fallback);
+  const [draft, setDraft] = useState(color);
+  useEffect(() => setDraft(color), [color]);
+  const colorInputValue = color === "object" ? fallback.slice(0, 7) : cssColorToHex(draft, fallback.slice(0, 7));
+  const alphaSuffix = /^#[0-9a-f]{8}$/i.test(color) ? color.slice(7) : "";
+  const commit = next => {
+    const normalized = normalizeDebugColor(next, color);
+    setDraft(normalized);
+    onChange(normalized);
+  };
+  return <div className="physics-debug-color-field" title={description}>
+    <button
+      type="button"
+      className={`physics-debug-color-toggle${active ? " active" : ""}`}
+      disabled={disabled}
+      onClick={onToggle}
+    >{label}</button>
+    <span className="physics-debug-color-control">
+      <input
+        type="color"
+        aria-label={`${label} color`}
+        value={colorInputValue}
+        disabled={disabled}
+        onChange={event => commit(`${event.target.value}${color === "object" ? "" : alphaSuffix}`)}
+      />
+      <input
+        type="text"
+        aria-label={`${label} CSS color`}
+        value={draft}
+        disabled={disabled}
+        spellCheck="false"
+        onChange={event => setDraft(event.target.value)}
+        onBlur={() => commit(draft)}
+        onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); commit(draft); event.currentTarget.blur(); } }}
+      />
+    </span>
+  </div>;
+}
+
+function CollisionLayerMembershipPicker({ layers, values, disabled = false, onChange }) {
+  const defaultId = layers[0]?.id;
+  const membershipFor = value => Array.isArray(value) ? value : (defaultId ? [defaultId] : []);
+  const memberships = values.map(membershipFor);
+  const toggle = layerId => {
+    const current = new Set(memberships[0] || []);
+    if (current.has(layerId)) current.delete(layerId);
+    else current.add(layerId);
+    onChange?.([...current]);
+  };
+  return <div className="physics-collision-layer-memberships" aria-label="Collision layer memberships">
+    {layers.map(layer => {
+      const included = memberships.map(membership => membership.includes(layer.id));
+      const active = included.length > 0 && included.every(Boolean);
+      const mixed = included.some(Boolean) && !active;
+      return <label key={layer.id} title={`Collide as ${layer.name}`}>
+        <input
+          type="checkbox"
+          checked={active}
+          ref={node => { if (node) node.indeterminate = mixed; }}
+          disabled={disabled}
+          onChange={() => toggle(layer.id)}
+        />
+        <span>{layer.name}</span>
+      </label>;
+    })}
+  </div>;
+}
 
 const COLLISION_FORMULA_VALUES = "Values: raw (selected source field), norm (source range normalized), value (transformed output), impulse, speed (relative impact speed), x/y (contact point), normalX/normalY; aX/aY/aVx/aVy/aSpeed and bX/bY/bVx/bVy/bSpeed; a/b angle, angular velocity, mass, friction, bounce, density; object note as aNote/noteA and bNote/noteB; gravityX/gravityY, worldTime, step, timeScale, simSpeed, pixelsPerMeter.";
 const FORMULA_LANGUAGE = "Safe language: numbers, arithmetic, comparisons, &&, ||, !, parentheses, if, abs, min, max, clamp, round, floor, ceil, pow. No JavaScript or object access.";
@@ -41,13 +185,16 @@ export default function PhysicsPanel({
   onActiveSystemChange,
   selectedElementCount = 0,
   selectedElementIds = {},
-  activeTool = null,
   telemetry = {},
   debug = {},
   onDebugChange,
   onSetGraph,
   onPatchBody,
+  onPatchBodies,
   onRemoveBody,
+  onRemoveBodies,
+  onPatchConstraint,
+  onRemoveConstraint,
   onRemoveSystem,
   onPlay,
   onPause,
@@ -55,6 +202,7 @@ export default function PhysicsPanel({
   onApply,
   onAssignBody,
   onAssignCollider,
+  onMakeConstraint,
   onCreatePopulation,
   onBeginTool,
   onAddMapping,
@@ -62,16 +210,22 @@ export default function PhysicsPanel({
   onSculpt,
   onLoadExample,
   expressivePrograms = [],
+  selectedElements = [],
 }) {
   const graph = normalizeRelationshipGraph(graphValue);
   const system = graph.systems.find(candidate => candidate.id === activeSystemId) || graph.systems[0] || null;
   const [populationCount, setPopulationCount] = useState(250);
   const [particleSize, setParticleSize] = useState(7);
   const [expandedMappingId, setExpandedMappingId] = useState(null);
+  const [expandedConstraintId, setExpandedConstraintId] = useState(null);
   const systemTelemetry = telemetry.systems?.find(candidate => candidate.systemId === system?.id);
   const selectedIdSet = useMemo(() => new Set(Object.keys(selectedElementIds).filter(id => selectedElementIds[id])), [selectedElementIds]);
   const selectedBodies = useMemo(() => graph.bodies.filter(body => body.objectRef?.kind === "element" && selectedIdSet.has(body.objectRef.elementId)), [graph.bodies, selectedIdSet]);
   const selectedBody = selectedBodies[0] || null;
+  const selectedElementsById = useMemo(() => new Map(selectedElements.map(element => [element.id, element])), [selectedElements]);
+  const selectedBodyElements = useMemo(() => selectedBodies
+    .map(body => selectedElementsById.get(body.objectRef?.elementId))
+    .filter(Boolean), [selectedBodies, selectedElementsById]);
   const patchDebug = patch => onDebugChange?.({ ...debug, ...patch });
   const patchSystem = patch => {
     if (!system) return;
@@ -85,6 +239,10 @@ export default function PhysicsPanel({
   };
   const patchSelectedBody = patch => {
     if (!selectedBody) return;
+    if (onPatchBodies) {
+      onPatchBodies(selectedBodies.map(body => body.id), patch);
+      return;
+    }
     if (onPatchBody) {
       onPatchBody(selectedBody.id, patch);
       return;
@@ -93,6 +251,10 @@ export default function PhysicsPanel({
   };
   const removeSelectedBody = () => {
     if (!selectedBody) return;
+    if (onRemoveBodies) {
+      onRemoveBodies(selectedBodies.map(body => body.id));
+      return;
+    }
     if (onRemoveBody) {
       onRemoveBody(selectedBody.id);
       return;
@@ -122,6 +284,7 @@ export default function PhysicsPanel({
     mappings: graph.mappings.filter(item => item.source.systemId === system.id).length,
   } : { bodies: 0, populations: 0, constraints: 0, mappings: 0 }, [graph, system]);
   const systemMappings = useMemo(() => graph.mappings.filter(mapping => mapping.source.systemId === system?.id), [graph.mappings, system?.id]);
+  const systemConstraints = useMemo(() => graph.constraints.filter(constraint => constraint.systemId === system?.id), [graph.constraints, system?.id]);
   const updateMapping = (mappingId, patch) => onSetGraph({
     ...graph,
     mappings: graph.mappings.map(mapping => mapping.id === mappingId ? normalizeRelationshipMapping({ ...mapping, ...patch }) : mapping),
@@ -136,15 +299,51 @@ export default function PhysicsPanel({
     onSetGraph({ ...graph, mappings: [...graph.mappings, copy] });
     setExpandedMappingId(copy.id);
   };
+  const updateConstraint = (constraintId, patch) => {
+    if (onPatchConstraint) {
+      onPatchConstraint(constraintId, patch);
+      return;
+    }
+    onSetGraph({
+      ...graph,
+      constraints: graph.constraints.map(constraint => constraint.id === constraintId
+        ? normalizePhysicsConstraint({ ...constraint, ...patch })
+        : constraint),
+    });
+  };
+  const removeConstraint = constraintId => {
+    if (onRemoveConstraint) {
+      onRemoveConstraint(constraintId);
+      return;
+    }
+    onSetGraph({ ...graph, constraints: graph.constraints.filter(constraint => constraint.id !== constraintId) });
+  };
+  const collisionLayerStack = graph.world.collisionLayers;
+  const patchCollisionLayers = updater => {
+    const nextLayers = normalizePhysicsCollisionLayers(updater(collisionLayerStack));
+    onSetGraph({ ...graph, world: { ...graph.world, collisionLayers: nextLayers } });
+  };
+  const addCollisionLayer = () => {
+    if (collisionLayerStack.layers.length >= MAX_PHYSICS_COLLISION_LAYERS) return;
+    patchCollisionLayers(stack => ({
+      ...stack,
+      layers: [...stack.layers, {
+        id: `layer-${crypto.randomUUID().slice(0, 8)}`,
+        name: `Layer ${stack.layers.length + 1}`,
+      }],
+    }));
+  };
+  const renameCollisionLayer = (layerId, name) => patchCollisionLayers(stack => ({
+    ...stack,
+    layers: stack.layers.map(layer => layer.id === layerId ? { ...layer, name } : layer),
+  }));
+  const removeCollisionLayer = layerId => {
+    if (layerId === "default" || collisionLayerStack.layers.length <= 1) return;
+    patchCollisionLayers(stack => ({ ...stack, layers: stack.layers.filter(layer => layer.id !== layerId) }));
+  };
+  const updateSelectedCollisionLayers = collisionLayers => patchSelectedBody({ collisionLayers });
 
   return <div className="physics-panel">
-    <div className="physics-toolbar">
-      <Button onClick={createSystem} {...infoProps("Add physics system", "Create an independent physics world with its own clock, gravity, bodies, and mappings.")}>Add system</Button>
-      <Button onClick={() => onLoadExample?.("gas")}>Musical gas</Button>
-      <Button onClick={() => onLoadExample?.("marionette")}>Marionette</Button>
-      <Button onClick={() => onLoadExample?.("portrait")}>Portrait</Button>
-    </div>
-
     {system ? <>
       <InspectorSection title={`Mappings · ${systemMappings.length}`} defaultOpen>
         <div className="physics-toolbar">
@@ -167,20 +366,28 @@ export default function PhysicsPanel({
         </div>
       </InspectorSection>
 
-      <InspectorSection title="System" defaultOpen>
-        <label className="physics-field"><span>System</span><select value={system.id} onChange={event => onActiveSystemChange(event.target.value)}>{graph.systems.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
-        <label className="physics-field"><span>Name</span><input value={system.name} onChange={event => patchSystem({ name: event.target.value })} /></label>
-        <div className="physics-two-column">
-          <label className="physics-field"><span>{system.gravityMode === "world" ? "Gravity X (world)" : "Gravity X"}</span><input type="number" step="10" value={system.gravityMode === "world" ? graph.world.gravity.x : system.gravity.x} disabled={system.gravityMode === "world"} onChange={event => patchSystem({ gravity: { ...system.gravity, x: Number(event.target.value) } })} /></label>
-          <label className="physics-field"><span>{system.gravityMode === "world" ? "Gravity Y (world)" : "Gravity Y"}</span><input type="number" step="10" value={system.gravityMode === "world" ? graph.world.gravity.y : system.gravity.y} disabled={system.gravityMode === "world"} onChange={event => patchSystem({ gravity: { ...system.gravity, y: Number(event.target.value) } })} /></label>
+      <InspectorSection title={`Collision layers · ${collisionLayerStack.layers.length}`} defaultOpen={false} {...infoProps("Collision layers", "Each body belongs to one or more named layers. The symmetric matrix decides which layer pairs make physical contact. New layers start fully connected so existing scenes retain their historical behaviour.")}>
+        <div className="physics-layer-toolbar">
+          <Button disabled={collisionLayerStack.layers.length >= MAX_PHYSICS_COLLISION_LAYERS} onClick={addCollisionLayer}>Add layer</Button>
         </div>
-        <label className="physics-check" {...infoProps("Contact stay events", "Contacts normally emit begin, hit, and end. Enable this only when a mapping needs an additional stay event on every physics step while bodies remain in contact; it can produce up to 60 events per second for each active contact.")}><input type="checkbox" checked={system.emitStayEvents} onChange={event => patchSystem({ emitStayEvents: event.target.checked })} /><span>Contact stay events</span></label>
-        <div className="physics-transport">
-          <Button onClick={() => onPlay(system.id)}>Play</Button>
-          <Button onClick={() => onPause(system.id)}>Pause</Button>
-          <Button onClick={() => onReset(system.id)}>Reset</Button>
-          <Button onClick={() => onApply(system.id)}>Apply pose</Button>
-          <Button onClick={removeSystem}>Remove</Button>
+        <div className="physics-layer-list">
+          {collisionLayerStack.layers.map(layer => <div key={layer.id} className="physics-layer-row">
+            <label className="physics-field"><span>{layer.id === "default" ? "Default" : "Layer"}</span><input value={layer.name} onChange={event => renameCollisionLayer(layer.id, event.target.value)} /></label>
+            <Button disabled={layer.id === "default" || collisionLayerStack.layers.length <= 1} onClick={() => removeCollisionLayer(layer.id)}>Remove</Button>
+          </div>)}
+        </div>
+        <div className="physics-layer-matrix" role="grid" aria-label="Collision layer matrix" style={{ "--physics-layer-count": collisionLayerStack.layers.length }}>
+          <div className="physics-layer-matrix-head" aria-hidden="true"><span>Collides with</span>{collisionLayerStack.layers.map(layer => <span key={layer.id} title={layer.name}>{layer.name}</span>)}</div>
+          {collisionLayerStack.layers.map(first => <div key={first.id} className="physics-layer-matrix-row" role="row">
+            <strong title={first.name}>{first.name}</strong>
+            {collisionLayerStack.layers.map(second => {
+              const key = collisionLayerPairKey(first.id, second.id);
+              const enabled = collisionLayerStack.matrix[key] !== false;
+              return <label key={second.id} title={`${first.name} ${enabled ? "collides with" : "does not collide with"} ${second.name}`}>
+                <input type="checkbox" checked={enabled} onChange={event => patchCollisionLayers(stack => setPhysicsCollisionLayerPair(stack, first.id, second.id, event.target.checked))} />
+              </label>;
+            })}
+          </div>)}
         </div>
       </InspectorSection>
 
@@ -189,32 +396,62 @@ export default function PhysicsPanel({
           <input type="checkbox" checked={debug.enabled === true} onChange={event => patchDebug({ enabled: event.target.checked })} />
           <span>Show physics diagnostics</span>
         </label>
-        <div className="physics-debug-grid" aria-disabled={!debug.enabled}>
-          {[
-            ["bodies", "Bodies"],
-            ["colliders", "Colliders"],
-            ["constraints", "Springs + constraints"],
-            ["labels", "Body labels"],
-            ["contacts", "Contacts"],
-            ["collisions", "Collision pulses"],
-            ["forces", "Contact forces"],
-          ].map(([key, label]) => <Button key={key} active={debug[key] === true} disabled={!debug.enabled} onClick={() => patchDebug({ [key]: !debug[key] })}>{label}</Button>)}
+        <div className="physics-debug-colors" aria-disabled={!debug.enabled}>
+          {DEBUG_ENTRIES.map(([key, label, description]) => <DebugColorPicker
+            key={key}
+            keyName={key}
+            label={label}
+            description={description}
+            value={debug.colors?.[key]}
+            active={debug[key] === true}
+            disabled={!debug.enabled}
+            onToggle={() => patchDebug({ [key]: !debug[key] })}
+            onChange={value => patchDebug({ colors: { ...(debug.colors || {}), [key]: value } })}
+          />)}
+        </div>
+      </InspectorSection>
+
+      <InspectorSection title={`Constraints · ${systemConstraints.length}`} defaultOpen>
+        <div className="physics-constraint-list">
+          {systemConstraints.map((constraint, index) => <ConstraintCard
+            key={constraint.id}
+            constraint={constraint}
+            expanded={expandedConstraintId === null ? index === 0 : expandedConstraintId === constraint.id}
+            onToggle={() => setExpandedConstraintId(current => current === constraint.id ? false : constraint.id)}
+            onUpdate={patch => updateConstraint(constraint.id, patch)}
+            onRemove={() => removeConstraint(constraint.id)}
+          />)}
+          {!systemConstraints.length && <div className="physics-empty">Select a pivot object, then choose axle or weld.</div>}
         </div>
       </InspectorSection>
 
       <InspectorSection title={`Selection · ${selectedElementCount}`} defaultOpen>
         <div className="physics-role-grid">
-          <Button disabled={!selectedElementCount} onClick={() => onAssignBody({ systemId: system.id, bodyType: "dynamic" })}>Dynamic body</Button>
+          <Button disabled={!selectedElementCount} onClick={() => onAssignBody({ systemId: system.id, bodyType: "dynamic" })}>Dynamic</Button>
           <Button disabled={!selectedElementCount} onClick={() => onAssignBody({ systemId: system.id, bodyType: "kinematic" })}>Kinematic</Button>
-          <Button disabled={!selectedElementCount} onClick={() => onAssignCollider({ systemId: system.id, sensor: false })}>Fixed collider</Button>
+          <Button disabled={!selectedElementCount} onClick={() => onAssignCollider({ systemId: system.id, sensor: false })}>Static</Button>
           <Button disabled={!selectedElementCount} onClick={() => onAssignCollider({ systemId: system.id, sensor: true })}>Sensor</Button>
         </div>
         <div className="physics-tool-grid">
-          {["pin", "spring", "distance", "revolute", "weld", "attractor"].map(kind => <Button key={kind} active={activeTool === kind} onClick={() => onBeginTool(kind, system.id)}>{kind}</Button>)}
+          <Button
+            disabled={!selectedElementCount}
+            onClick={() => onMakeConstraint?.({ kind: "fixate", systemId: system.id })}
+            {...infoProps("Weld", "Converts each selected canvas object into a Weld pivot. The pivot centre automatically welds one overlapping body to World, or two overlapping bodies together.")}
+          >Weld</Button>
+          <Button
+            disabled={!selectedElementCount}
+            onClick={() => onMakeConstraint?.({ kind: "axle", systemId: system.id })}
+            {...infoProps("Make axle object", "Converts each selected canvas object into a freely rotating Axle pivot. The pivot centre automatically connects one overlapping body to World, or two overlapping bodies together.")}
+          >Axle</Button>
         </div>
         {selectedBody && <div className="physics-selected-properties">
-          <label className="physics-field"><span>Physics name</span><input value={selectedBody.name} onChange={event => patchSelectedBody({ name: event.target.value })} /></label>
+          {selectedBodies.length === 1 && <label className="physics-field"><span>Physics name</span><input value={selectedBody.name} onChange={event => patchSelectedBody({ name: event.target.value })} /></label>}
+          <label className="physics-check"><input type="checkbox" checked={selectedBody.enabled} onChange={event => patchSelectedBody({ enabled: event.target.checked })} /><span>Enabled{selectedBodies.length > 1 ? ` · ${selectedBodies.length} bodies` : ""}</span></label>
           <label className="physics-field"><span>Tags</span><input value={selectedBody.collisionTags.join(", ")} onChange={event => patchSelectedBody({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} /></label>
+          <div className="physics-field physics-collision-layer-field"><span>Collision layers</span><CollisionLayerMembershipPicker layers={collisionLayerStack.layers} values={selectedBodies.map(body => body.collisionLayers)} onChange={updateSelectedCollisionLayers} /></div>
+          <label className="physics-field" {...infoProps("Object note", "A per-body value available to collision mappings as aNote/noteA or bNote/noteB.")}><span>Object note</span><input type="number" min="0" max="127" step="1" value={selectedBody.mappingValues.note} onChange={event => patchSelectedBody({ mappingValues: { note: event.target.valueAsNumber } })} /></label>
+          {selectedBodyElements.length === selectedBodies.length && <label className="physics-field"><span>Collider</span><select value={getPhysicsColliderSelectionValue(selectedBody.collider, { allowPath: selectedBodyElements.every(element => ["freedraw", "line", "arrow"].includes(element.type) || element.customData?.draweratorGeometry?.kind === "cubicBezierPath") })} onChange={event => patchSelectedBody({ colliderKind: event.target.value })}><option value="box">Bounding box</option><option value="ellipse">Bounding ellipse</option><option value="convex">Convex hull</option>{selectedBodyElements.every(element => ["freedraw", "line", "arrow"].includes(element.type) || element.customData?.draweratorGeometry?.kind === "cubicBezierPath") && <option value="chain">Path chain</option>}</select></label>}
+          <label className="physics-field" {...infoProps("Collision skin", "Invisible scene-pixel padding around this collider. It helps small or fast bodies make stable contact with fine paths.")}><span>Collision skin</span><input type="number" min="0" max="64" step="0.5" value={selectedBody.collider.contactSkin} onChange={event => patchSelectedBody({ collider: { contactSkin: event.target.valueAsNumber } })} /></label>
           <div className="physics-two-column">
             <label className="physics-field"><span>Friction</span><input type="number" min="0" max="10" step="0.05" value={selectedBody.material.friction} onChange={event => patchSelectedBody({ material: { ...selectedBody.material, friction: Number(event.target.value) } })} /></label>
             <label className="physics-field"><span>Bounce</span><input type="number" min="0" max="2" step="0.05" value={selectedBody.material.restitution} onChange={event => patchSelectedBody({ material: { ...selectedBody.material, restitution: Number(event.target.value) } })} /></label>
@@ -225,14 +462,36 @@ export default function PhysicsPanel({
         </div>}
       </InspectorSection>
 
-      <InspectorSection title="Population" defaultOpen>
-        <div className="physics-two-column">
-          <label className="physics-field"><span>Count</span><input type="number" min="1" max="5000" step="1" value={populationCount} onChange={event => setPopulationCount(Number(event.target.value))} /></label>
-          <label className="physics-field"><span>Point size</span><input type="number" min="1" max="80" step="1" value={particleSize} onChange={event => setParticleSize(Number(event.target.value))} /></label>
-        </div>
+      <InspectorSection title="System" defaultOpen>
         <div className="physics-toolbar">
-          <Button onClick={() => onCreatePopulation({ systemId: system.id, count: populationCount, radius: particleSize })}>Add runtime gas</Button>
-          <Button onClick={() => onMaterialize({ systemId: system.id })}>Materialize all</Button>
+          <Button onClick={createSystem} {...infoProps("Add physics system", "Create an independent physics world with its own clock, gravity, bodies, and mappings.")}>Add system</Button>
+          <Button onClick={() => onLoadExample?.("gas")}>Musical gas</Button>
+          <Button onClick={() => onLoadExample?.("marionette")}>Marionette</Button>
+          <Button onClick={() => onLoadExample?.("portrait")}>Portrait</Button>
+        </div>
+        <label className="physics-field"><span>System</span><select value={system.id} onChange={event => onActiveSystemChange(event.target.value)}>{graph.systems.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
+        <label className="physics-field"><span>Name</span><input value={system.name} onChange={event => patchSystem({ name: event.target.value })} /></label>
+        <div className="physics-two-column">
+          <label className="physics-field"><span>{system.gravityMode === "world" ? "Gravity X (world)" : "Gravity X"}</span><input type="number" step="10" value={system.gravityMode === "world" ? graph.world.gravity.x : system.gravity.x} disabled={system.gravityMode === "world"} onChange={event => patchSystem({ gravity: { ...system.gravity, x: Number(event.target.value) } })} /></label>
+          <label className="physics-field"><span>{system.gravityMode === "world" ? "Gravity Y (world)" : "Gravity Y"}</span><input type="number" step="10" value={system.gravityMode === "world" ? graph.world.gravity.y : system.gravity.y} disabled={system.gravityMode === "world"} onChange={event => patchSystem({ gravity: { ...system.gravity, y: Number(event.target.value) } })} /></label>
+        </div>
+        <div className="physics-transport">
+          <Button onClick={() => onPlay(system.id)}>Play</Button>
+          <Button onClick={() => onPause(system.id)}>Pause</Button>
+          <Button onClick={() => onReset(system.id)}>Reset</Button>
+          <Button onClick={() => onApply(system.id)}>Apply pose</Button>
+          <Button onClick={removeSystem}>Remove</Button>
+        </div>
+        <div className="physics-subsection" aria-label="Population">
+          <strong>Population</strong>
+          <div className="physics-two-column">
+            <label className="physics-field"><span>Count</span><input type="number" min="1" max="5000" step="1" value={populationCount} onChange={event => setPopulationCount(Number(event.target.value))} /></label>
+            <label className="physics-field"><span>Point size</span><input type="number" min="1" max="80" step="1" value={particleSize} onChange={event => setParticleSize(Number(event.target.value))} /></label>
+          </div>
+          <div className="physics-toolbar">
+            <Button onClick={() => onCreatePopulation({ systemId: system.id, count: populationCount, radius: particleSize })}>Add runtime gas</Button>
+            <Button onClick={() => onMaterialize({ systemId: system.id })}>Materialize all</Button>
+          </div>
         </div>
       </InspectorSection>
 
@@ -256,8 +515,83 @@ export default function PhysicsPanel({
         <div className="physics-readout"><span>Mapping outputs</span><strong>{Number(telemetry.mappingRate || 0).toFixed(1)}/s</strong></div>
         <div className="physics-readout"><span>Dropped</span><strong>{systemTelemetry?.droppedEvents || 0}</strong></div>
       </InspectorSection>
-    </> : <div className="physics-empty">Add a physics system, then draw or select objects on the canvas.</div>}
+    </> : <InspectorSection title="System" defaultOpen>
+      <div className="physics-toolbar">
+        <Button onClick={createSystem} {...infoProps("Add physics system", "Create an independent physics world with its own clock, gravity, bodies, and mappings.")}>Add system</Button>
+        <Button onClick={() => onLoadExample?.("gas")}>Musical gas</Button>
+        <Button onClick={() => onLoadExample?.("marionette")}>Marionette</Button>
+        <Button onClick={() => onLoadExample?.("portrait")}>Portrait</Button>
+      </div>
+      <div className="physics-empty">Add a physics system, then draw or select objects on the canvas.</div>
+    </InspectorSection>}
   </div>;
+}
+
+const constraintLabel = kind => ({
+  fixate: "Weld",
+  axle: "Axle",
+  spring: "Spring",
+  distance: "Distance",
+  pin: "Pin",
+  revolute: "Revolute",
+  weld: "Weld",
+  attractor: "Attractor",
+}[kind] || "Constraint");
+
+const endpointLabel = endpoint => {
+  if (!endpoint) return "Missing endpoint";
+  if (endpoint.kind === "world") return `World · ${Math.round(endpoint.point?.[0] || 0)}, ${Math.round(endpoint.point?.[1] || 0)}`;
+  if (endpoint.kind === "stream") return `Stream · ${endpoint.featureId || endpoint.streamId}`;
+  if (endpoint.kind === "bezier-anchor") return `Curve anchor · ${endpoint.anchorId}`;
+  if (endpoint.kind === "curve-progress") return `Curve · ${Math.round((endpoint.progress || 0) * 100)}%`;
+  return `Object · ${endpoint.objectRef?.elementId?.slice(0, 10) || "missing"}`;
+};
+
+function ConstraintCard({ constraint: constraintValue, expanded, onToggle, onUpdate, onRemove }) {
+  const constraint = normalizePhysicsConstraint(constraintValue);
+  const isSpring = ["spring", "distance"].includes(constraint.kind);
+  const isAxle = ["axle", "pin", "revolute"].includes(constraint.kind);
+  const limitDegrees = radians => Number((radians * 180 / Math.PI).toFixed(2));
+  const setLimitsEnabled = enabled => onUpdate(enabled
+    ? {
+        limitsEnabled: true,
+        lowerLimit: constraint.lowerLimit ?? -Math.PI,
+        upperLimit: constraint.upperLimit ?? Math.PI,
+      }
+    : { limitsEnabled: false, lowerLimit: null, upperLimit: null });
+  return <article className="physics-constraint-card">
+    <div className="physics-constraint-header">
+      <button type="button" className="physics-mapping-toggle" onClick={onToggle} aria-expanded={expanded}>
+        {expanded ? "⌄" : "›"} {constraint.name || constraintLabel(constraint.kind)}
+      </button>
+      <span className="physics-constraint-kind">{constraintLabel(constraint.kind)}</span>
+      <label className="physics-mapping-enable"><input type="checkbox" checked={constraint.enabled} onChange={event => onUpdate({ enabled: event.target.checked })} />Enabled</label>
+      <Button onClick={onRemove}>Remove</Button>
+    </div>
+    {expanded && <div className="physics-constraint-editor">
+      <label className="physics-field"><span>Name</span><input value={constraint.name} onChange={event => onUpdate({ name: event.target.value })} /></label>
+      <div className="physics-two-column">
+        <label className="physics-field"><span>Kind</span><select value={constraint.kind} onChange={event => onUpdate({ kind: event.target.value })}>
+          <option value="fixate">Weld</option><option value="axle">Axle</option><option value="spring">Spring</option><option value="distance">Distance</option>
+          <option value="pin">Pin (legacy)</option><option value="revolute">Revolute (legacy)</option><option value="weld">Weld (legacy)</option>
+        </select></label>
+        <label className="physics-check" {...infoProps("Collide while connected", "Off by default so connected parts do not immediately collide with one another. Enable when their colliders should still make contact.")}><input type="checkbox" checked={constraint.collideConnected} onChange={event => onUpdate({ collideConnected: event.target.checked })} /><span>Collide while connected</span></label>
+      </div>
+      <div className="physics-constraint-endpoints"><span>A · {endpointLabel(constraint.a)}</span><span>B · {endpointLabel(constraint.b)}</span></div>
+      {isSpring && <div className="physics-two-column">
+        <label className="physics-field"><span>Rest length</span><input type="number" min="0" step="1" value={constraint.restLength} onChange={event => onUpdate({ restLength: event.target.valueAsNumber })} /></label>
+        <label className="physics-field"><span>Stiffness</span><input type="number" min="0" step="1" value={constraint.stiffness} onChange={event => onUpdate({ stiffness: event.target.valueAsNumber })} /></label>
+        <label className="physics-field"><span>Damping</span><input type="number" min="0" step="0.1" value={constraint.damping} onChange={event => onUpdate({ damping: event.target.valueAsNumber })} /></label>
+      </div>}
+      {isAxle && <>
+        <label className="physics-check" {...infoProps("Limit rotation", "Off means an axle can rotate freely through 360 degrees. Enable it to define a lower and upper angle in degrees.")}><input type="checkbox" checked={constraint.limitsEnabled === true} onChange={event => setLimitsEnabled(event.target.checked)} /><span>Limit rotation · {constraint.limitsEnabled ? "custom" : "full 360°"}</span></label>
+        <div className="physics-two-column">
+          <label className="physics-field" {...infoProps("Lower angle limit", "Axle limit in degrees. Both limits are required when rotation limits are enabled.")}><span>Lower limit (°)</span><input type="number" step="1" disabled={!constraint.limitsEnabled} value={constraint.lowerLimit === null ? "" : limitDegrees(constraint.lowerLimit)} onChange={event => onUpdate({ limitsEnabled: true, lowerLimit: event.target.value === "" ? null : event.target.valueAsNumber * Math.PI / 180 })} /></label>
+          <label className="physics-field" {...infoProps("Upper angle limit", "Axle limit in degrees. Both limits are required when rotation limits are enabled.")}><span>Upper limit (°)</span><input type="number" step="1" disabled={!constraint.limitsEnabled} value={constraint.upperLimit === null ? "" : limitDegrees(constraint.upperLimit)} onChange={event => onUpdate({ limitsEnabled: true, upperLimit: event.target.value === "" ? null : event.target.valueAsNumber * Math.PI / 180 })} /></label>
+        </div>
+      </>}
+    </div>}
+  </article>;
 }
 
 function MappingCard({ mapping: mappingValue, systems, programs, expanded, onToggle, onUpdate, onDuplicate, onRemove, index }) {
