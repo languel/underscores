@@ -16,6 +16,9 @@ import { getScoreData } from "./iannixEngine.js";
 import { getPhysicsColliderSelectionValue } from "./physicsGeometry.js";
 import { normalizePhysicsConstraint } from "./relationshipGraph.js";
 import { getInspectableCustomData } from "./propertyInspectorModel.js";
+import NumericInput from "./NumericInput.jsx";
+import { getSpringGeometricLength } from "./physicsConstraintAuthoring.js";
+import GeometryResetIcon from "./GeometryResetIcon.jsx";
 
 const READ_ONLY_KEYS = new Set([
   "id", "type", "width", "height", "version", "versionNonce", "updated", "index", "seed",
@@ -800,6 +803,11 @@ const PhysicsConstraintControls = ({
     ["pin", "Pin"], ["revolute", "Revolute"], ["weld", "Weld"], ["attractor", "Attractor"],
     ["thruster", "Thruster"], ["tracer", "Tracer"], ["chain", "Chain"],
   ];
+  const resetSpringRestLength = () => {
+    const restLength = getSpringGeometricLength(availableElements.find(element => element.id === constraint.objectRef?.elementId));
+    if (restLength === null) return;
+    onChange({ restLength });
+  };
   return <>
     <details className="properties-group properties-physics-group" open>
       <summary><span>Physics role</span><small>{label}</small></summary>
@@ -827,9 +835,9 @@ const PhysicsConstraintControls = ({
         {matches("enabled") && <div className="properties-row editable"><span>enabled</span><input type="checkbox" checked={constraint.enabled} onChange={event => onChange({ enabled: event.target.checked })} /></div>}
         {matches("collide") && <div className="properties-row editable"><span>collide while connected</span><input type="checkbox" checked={constraint.collideConnected} onChange={event => onChange({ collideConnected: event.target.checked })} /></div>}
         {isSpring && <>
-          {matches("rest length") && <div className="properties-row editable"><span>rest length</span><input type="number" min="0" step="1" value={constraint.restLength} onChange={event => onChange({ restLength: event.target.valueAsNumber })} /></div>}
-          {matches("stiffness") && <div className="properties-row editable"><span>stiffness</span><input type="number" min="0" step="1" value={constraint.stiffness} onChange={event => onChange({ stiffness: event.target.valueAsNumber })} /></div>}
-          {matches("damping") && <div className="properties-row editable"><span>damping</span><input type="number" min="0" step="0.1" value={constraint.damping} onChange={event => onChange({ damping: event.target.valueAsNumber })} /></div>}
+          {matches("rest length") && <div className="properties-row editable properties-row-with-action"><span>rest length</span><div className="properties-row-action"><NumericInput min="0" step="any" value={constraint.restLength} defaultValue={100} onCommit={restLength => onChange({ restLength })} /><button type="button" className="iannix-flat-button geometry-reset-button" onClick={resetSpringRestLength} title="Set to current geometry" aria-label="Set rest length to current geometry"><GeometryResetIcon /></button></div></div>}
+          {matches("stiffness") && <div className="properties-row editable"><span>stiffness</span><NumericInput min="0" step="any" value={constraint.stiffness} defaultValue={40} onCommit={stiffness => onChange({ stiffness })} /></div>}
+          {matches("damping") && <div className="properties-row editable"><span>damping</span><NumericInput min="0" step="any" value={constraint.damping} defaultValue={4} onCommit={damping => onChange({ damping })} /></div>}
         </>}
         {isHinge && <>
           {matches("limit") && <div className="properties-row editable"><span>limit rotation</span><input type="checkbox" checked={constraint.limitsEnabled === true} onChange={event => setLimitsEnabled(event.target.checked)} /></div>}

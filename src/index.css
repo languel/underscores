@@ -5265,6 +5265,19 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .properties-row select { min-width: 0; width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--color-primary); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .properties-row input.properties-embed-url { color: var(--drawerator-foreground, var(--color-primary)) !important; caret-color: var(--drawerator-foreground, var(--color-primary)); -webkit-text-fill-color: var(--drawerator-foreground, var(--color-primary)); }
 .properties-row input[type="checkbox"] { justify-self: start; accent-color: var(--drawerator-accent); }
+.properties-row.properties-row-with-action { align-items: center; }
+.properties-row-action { display: flex; min-width: 0; gap: 4px; }
+.properties-row-action input { min-width: 0; flex: 1; }
+.geometry-reset-button {
+  display: inline-grid;
+  flex: 0 0 28px;
+  width: 28px;
+  min-width: 28px !important;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+}
+.geometry-reset-icon { display: block; }
 .properties-row.properties-collision-layers { align-items: start; }
 .properties-collision-layer-list { display: flex; flex-wrap: wrap; gap: 3px 8px; min-width: 0; }
 .properties-collision-layer-list label { display: inline-flex; align-items: center; gap: 3px; min-width: 0; color: var(--color-secondary); font-size: 10px; cursor: pointer; }

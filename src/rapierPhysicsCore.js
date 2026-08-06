@@ -4,6 +4,12 @@ import { normalizeRelationshipGraph, normalizePhysicsEndpoint, resolvePhysicsCol
 export const PHYSICS_WORLD_SCALE = 0.01;
 const INV_SCALE = 1 / PHYSICS_WORLD_SCALE;
 const MAX_EVENTS_PER_STEP = 512;
+// Rope links use this private group so individual links collide with authored
+// bodies and walls, but never with other links in the same (or another) rope.
+// The relationship graph reserves the high bit for runtime-only participants.
+const ROPE_COLLISION_GROUP = 1 << 15;
+const ROPE_COLLISION_MASK = ROPE_COLLISION_GROUP - 1;
+const MAX_ROPE_LINKS = 96;
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 
 const resolveSystemGravity = (graph, system) => system.gravityMode === "world"
@@ -50,13 +56,18 @@ const bodyDescription = (body, viscosity = 0) => {
 const colliderDescriptions = (body, world) => {
   const collider = body.collider;
   const collisionGroups = resolvePhysicsCollisionGroups(world, body);
+  // Runtime ropes live in a private group. Active authored bodies need to
+  // listen to that group without changing their authored layer membership.
+  const collisionMask = collisionGroups.group === 0
+    ? collisionGroups.mask
+    : collisionGroups.mask | ROPE_COLLISION_GROUP;
   const configureCollider = candidate => candidate
     .setSensor(collider.sensor)
     .setDensity(body.material.density)
     .setFriction(body.material.friction)
     .setRestitution(body.material.restitution)
     .setContactSkin(collider.contactSkin * PHYSICS_WORLD_SCALE)
-    .setCollisionGroups(((collisionGroups.group & 0xffff) << 16) | (collisionGroups.mask & 0xffff))
+    .setCollisionGroups(((collisionGroups.group & 0xffff) << 16) | (collisionMask & 0xffff))
     .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS | RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
     .setContactForceEventThreshold(0);
   let desc;
@@ -117,6 +128,51 @@ const localAnchorForBody = (body, endpoint) => {
     x: (endpoint.localPoint[0] - 0.5) * width * PHYSICS_WORLD_SCALE,
     y: (endpoint.localPoint[1] - 0.5) * height * PHYSICS_WORLD_SCALE,
   };
+};
+
+const polylineLength = points => points.slice(1).reduce((length, point, index) => (
+  length + Math.hypot(point[0] - points[index][0], point[1] - points[index][1])
+), 0);
+
+const resamplePolyline = (points, maximumSegmentLength) => {
+  const clean = points
+    .filter(point => Array.isArray(point) && Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1])))
+    .map(point => [Number(point[0]), Number(point[1])]);
+  if (clean.length < 2) return [];
+  const totalLength = polylineLength(clean);
+  if (totalLength < 1e-4) return [];
+  const requestedSpacing = Math.max(2, finite(maximumSegmentLength, 24));
+  // Pointer input can be sampled at a much higher rate than visual detail
+  // warrants. Convert it to a fixed, arc-length simulation path rather than
+  // creating a rigid link for every raw freehand point.
+  const linkCount = Math.min(MAX_ROPE_LINKS, Math.max(1, Math.ceil(totalLength / requestedSpacing)));
+  const sampled = [clean[0]];
+  let segmentIndex = 1;
+  let lengthBeforeSegment = 0;
+  for (let sampleIndex = 1; sampleIndex < linkCount; sampleIndex += 1) {
+    const targetDistance = totalLength * sampleIndex / linkCount;
+    while (segmentIndex < clean.length) {
+      const start = clean[segmentIndex - 1];
+      const end = clean[segmentIndex];
+      const segmentLength = Math.hypot(end[0] - start[0], end[1] - start[1]);
+      if (segmentLength < 1e-4) {
+        segmentIndex += 1;
+        continue;
+      }
+      if (targetDistance <= lengthBeforeSegment + segmentLength || segmentIndex === clean.length - 1) {
+        const ratio = Math.max(0, Math.min(1, (targetDistance - lengthBeforeSegment) / segmentLength));
+        sampled.push([
+          start[0] + (end[0] - start[0]) * ratio,
+          start[1] + (end[1] - start[1]) * ratio,
+        ]);
+        break;
+      }
+      lengthBeforeSegment += segmentLength;
+      segmentIndex += 1;
+    }
+  }
+  sampled.push(clean.at(-1));
+  return sampled;
 };
 
 const collisionClassFor = (a, b) => {
@@ -267,6 +323,10 @@ export class RapierPhysicsSystem {
   }
 
   #addConstraint(constraint) {
+    if (constraint.kind === "rope") {
+      this.#addRope(constraint);
+      return;
+    }
     const a = this.#resolveBodyEndpoint(constraint.a);
     const b = this.#resolveBodyEndpoint(constraint.b);
     let entityA = a.entity;
@@ -301,6 +361,114 @@ export class RapierPhysicsSystem {
       anchorA,
       anchorB,
     });
+  }
+
+  #addRope(constraint) {
+    const points = resamplePolyline(constraint.pathPoints || [], constraint.segmentLength);
+    if (points.length < 2) return;
+    const attachmentA = this.#resolveBodyEndpoint(constraint.a);
+    const attachmentB = this.#resolveBodyEndpoint(constraint.b);
+    const entityA = attachmentA.entity;
+    const entityB = attachmentB.entity;
+    const worldAnchorA = !entityA && attachmentA.endpoint?.kind === "world" ? this.#fixedAnchor(attachmentA.endpoint.point) : null;
+    const worldAnchorB = !entityB && attachmentB.endpoint?.kind === "world" ? this.#fixedAnchor(attachmentB.endpoint.point) : null;
+    const bodyA = entityA?.rigidBody || worldAnchorA;
+    const bodyB = entityB?.rigidBody || worldAnchorB;
+    const authoredA = entityA ? this.graph.bodies.find(body => body.id === entityA.bodyId) : null;
+    const authoredB = entityB ? this.graph.bodies.find(body => body.id === entityB.bodyId) : null;
+    const anchorA = entityA ? localAnchorForBody(authoredA, attachmentA.endpoint) : { x: 0, y: 0 };
+    const anchorB = entityB ? localAnchorForBody(authoredB, attachmentB.endpoint) : { x: 0, y: 0 };
+    const thickness = Math.max(0.5, finite(constraint.thickness, 4));
+    const links = [];
+    const joints = [];
+    const makeLink = (start, end, index) => {
+      const dx = end[0] - start[0];
+      const dy = end[1] - start[1];
+      const length = Math.hypot(dx, dy);
+      if (length < 1e-4) return null;
+      const halfLength = length * PHYSICS_WORLD_SCALE / 2;
+      const halfThickness = thickness * PHYSICS_WORLD_SCALE / 2;
+      const rigidBody = this.world.createRigidBody(RAPIER.RigidBodyDesc.dynamic()
+        .setTranslation((start[0] + end[0]) * PHYSICS_WORLD_SCALE / 2, (start[1] + end[1]) * PHYSICS_WORLD_SCALE / 2)
+        .setRotation(Math.atan2(dy, dx))
+        .setLinearDamping(Math.max(0.02, this.graph.world.viscosity + 0.02))
+        .setAngularDamping(0.03)
+        .setCcdEnabled(true));
+      const collider = this.world.createCollider(RAPIER.ColliderDesc
+        .roundCuboid(halfLength, halfThickness, Math.min(halfLength, halfThickness))
+        .setDensity(1)
+        .setFriction(0.5)
+        .setRestitution(0.05)
+        .setCollisionGroups((ROPE_COLLISION_GROUP << 16) | ROPE_COLLISION_MASK)
+        .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS | RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS), rigidBody);
+      const entity = {
+        id: `rope:${constraint.id}:${index}`,
+        bodyId: `rope:${constraint.id}:${index}`,
+        populationId: null,
+        instanceId: null,
+        objectRef: null,
+        tracking: "runtime-lite",
+        bodyType: "dynamic",
+        tags: ["rope", ...((entityA?.tags || []).filter(tag => tag !== "wall"))],
+        mappingValues: {},
+        sensor: false,
+        material: { friction: 0.5, restitution: 0.05, density: 1 },
+        render: {},
+        collider: { kind: "rope-link", width: length, height: thickness },
+        ropeLink: true,
+        rigidBody,
+        colliderHandle: collider.handle,
+        colliderHandles: [collider.handle],
+      };
+      this.bodyById.set(entity.id, entity);
+      this.entityByCollider.set(collider.handle, entity);
+      this.entityByRigidBody.set(rigidBody.handle, entity);
+      return { rigidBody, entity, halfLength, length: length * PHYSICS_WORLD_SCALE };
+    };
+    for (let index = 1; index < points.length; index += 1) {
+      const link = makeLink(points[index - 1], points[index], links.length);
+      if (link) links.push(link);
+    }
+    if (!links.length) return;
+    const attach = (firstBody, secondBody, firstAnchor, secondAnchor) => {
+      if (!firstBody || !secondBody) return;
+      const joint = this.world.createImpulseJoint(RAPIER.JointData.revolute(firstAnchor, secondAnchor), firstBody, secondBody, true);
+      joint.setContactsEnabled(constraint.collideConnected === true);
+      joints.push(joint);
+    };
+    attach(bodyA, links[0].rigidBody, anchorA, { x: -links[0].halfLength, y: 0 });
+    for (let index = 1; index < links.length; index += 1) {
+      attach(links[index - 1].rigidBody, links[index].rigidBody, { x: links[index - 1].halfLength, y: 0 }, { x: -links[index].halfLength, y: 0 });
+    }
+    attach(links.at(-1).rigidBody, bodyB, { x: links.at(-1).halfLength, y: 0 }, anchorB);
+    this.constraints.set(constraint.id, {
+      definition: { ...constraint, restLength: constraint.restLength || polylineLength(points) },
+      rope: true,
+      joints,
+      links,
+      bodyA,
+      bodyB,
+      entityA,
+      entityB,
+      worldAnchorA,
+      worldAnchorB,
+      anchorA,
+      anchorB,
+    });
+  }
+
+  #ropePath(state) {
+    if (!state?.rope || !state.links?.length) return null;
+    const endpoint = (link, side) => {
+      const translation = link.rigidBody.translation();
+      const angle = link.rigidBody.rotation();
+      const local = side * link.halfLength;
+      return [
+        (translation.x + Math.cos(angle) * local) * INV_SCALE,
+        (translation.y + Math.sin(angle) * local) * INV_SCALE,
+      ];
+    };
+    return [endpoint(state.links[0], -1), ...state.links.map(link => endpoint(link, 1))];
   }
 
   #contactDetails(handleA, handleB) {
@@ -425,7 +593,7 @@ export class RapierPhysicsSystem {
     const broken = [];
     for (const [constraintId, state] of this.constraints) {
       const threshold = state.definition.breakForce;
-      if (!Number.isFinite(threshold) || threshold <= 0 || !state.joint?.isValid?.()) continue;
+      if (state.rope || !Number.isFinite(threshold) || threshold <= 0 || !state.joint?.isValid?.()) continue;
       const aPosition = state.bodyA.translation();
       const bPosition = state.bodyB.translation();
       const distance = Math.hypot(aPosition.x - bPosition.x, aPosition.y - bPosition.y) * INV_SCALE;
@@ -462,7 +630,10 @@ export class RapierPhysicsSystem {
   }
 
   poses(reusable = null) {
-    const entities = [...this.bodyById.values()];
+    // Rope links are a solver implementation detail. Their generated path is
+    // returned separately below, so they must not masquerade as authored or
+    // population poses in the canvas transfer buffer.
+    const entities = [...this.bodyById.values()].filter(entity => !entity.ropeLink);
     const values = reusable instanceof Float32Array && reusable.length === entities.length * 4
       ? reusable
       : new Float32Array(entities.length * 4);
@@ -479,7 +650,11 @@ export class RapierPhysicsSystem {
         collider: entity.collider,
       };
     });
-    return { values, metadata };
+    const ropePaths = [...this.constraints.entries()]
+      .filter(([, state]) => state.rope)
+      .map(([constraintId, state]) => ({ constraintId, points: this.#ropePath(state) }))
+      .filter(path => path.points?.length >= 2);
+    return { values, metadata, ropePaths };
   }
 
   setKinematicTarget(entityId, point, angle = null) {
@@ -681,6 +856,10 @@ export class RapierPhysicsSystem {
   snapshot() { return this.world.takeSnapshot(); }
 
   reset() {
+    if (this.#hasRopes()) {
+      this.#rebuildWorld();
+      return;
+    }
     this.releaseGrab();
     this.world.free();
     this.world = RAPIER.World.restoreSnapshot(this.initialSnapshot);
@@ -693,6 +872,12 @@ export class RapierPhysicsSystem {
   }
 
   restore(snapshot, step = 0) {
+    if (this.#hasRopes()) {
+      this.#rebuildWorld();
+      const targetStep = Math.max(0, Math.round(finite(step)));
+      while (this.stepIndex < targetStep) this.step();
+      return;
+    }
     this.releaseGrab();
     this.world.free();
     this.world = RAPIER.World.restoreSnapshot(snapshot);
@@ -751,6 +936,30 @@ export class RapierPhysicsSystem {
         worldAnchorB: previous.worldAnchorB ? bodyB : null,
       });
     });
+  }
+
+  #hasRopes() {
+    return [...this.constraints.values()].some(state => state.rope);
+  }
+
+  #rebuildWorld() {
+    this.releaseGrab();
+    this.world?.free();
+    const gravity = resolveSystemGravity(this.graph, this.system);
+    this.world = new RAPIER.World({ x: gravity.x * PHYSICS_WORLD_SCALE, y: gravity.y * PHYSICS_WORLD_SCALE });
+    this.world.timestep = this.fixedDt;
+    this.bodyById.clear();
+    this.entityByCollider.clear();
+    this.entityByRigidBody.clear();
+    this.bodyIdByObjectId.clear();
+    this.constraints.clear();
+    this.activePairs.clear();
+    this.anchorBodies = [];
+    this.stepIndex = 0;
+    this.time = 0;
+    this.droppedEvents = 0;
+    this.#build();
+    this.initialSnapshot = this.world.takeSnapshot();
   }
 
   dispose() {

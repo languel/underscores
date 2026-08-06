@@ -21,6 +21,8 @@ import HistoryPanel from "./HistoryPanel.jsx";
 import EventConsole from "./EventConsole.jsx";
 import { buildConsoleLiveStatus, changedConsoleStatusRows } from "./consoleStatus.js";
 import PropertiesPanel from "./PropertiesPanel.jsx";
+import NumericInput from "./NumericInput.jsx";
+import GeometryResetIcon from "./GeometryResetIcon.jsx";
 import { embedPolicyForElement, isAllowedEmbedURL, sanitizeEmbedURL, shouldRenderEmbed } from "./embedPolicy.js";
 import OutlinerPanel from "./OutlinerPanel.jsx";
 import { groupSceneElements, moveSceneElementsToGroup, moveSceneElementsToGroupParent, moveSceneGroupToParent, renameSceneGroup, reorderSceneElements, ungroupSceneElements } from "./sceneLayers.js";
@@ -103,7 +105,7 @@ import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, se
 import { createUnifiedStreamsApi, DraweratorStreamRegistry } from "./streamRuntime.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
 import { addRelationshipItem, createDefaultPhysicsSystem, createEmptyRelationshipGraph, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, removeRelationshipBindingsForElements, removeRelationshipItem, updateRelationshipItem, withPhysicsCustomData } from "./relationshipGraph.js";
-import { chooseConstraintPivot, elementContainsPhysicsPoint, getPhysicsElementCenter, physicsEndpointAtPoint, resolveConstraintPivot } from "./physicsConstraintAuthoring.js";
+import { chooseConstraintPivot, elementContainsPhysicsPoint, getPhysicsElementCenter, getRopeVisualGeometryPatch, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, physicsEndpointAtPoint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint } from "./physicsConstraintAuthoring.js";
 import { applyAnchorAttractorFrame, applyBezierSculptOperator, getPhysicsColliderSelectionValue, getPhysicsElementCenter as getPhysicsGeometryElementCenter, getPhysicsElementLocalCenter, inferPhysicsBodyFromElement, inferPhysicsColliderForBody, inferPhysicsColliderFromElement, needsLegacyPhysicsColliderOriginRebase } from "./physicsGeometry.js";
 import { createPhysicsApi, createRelationshipApi, PhysicsRuntimeController } from "./physicsRuntime.js";
 import { mappingTargetValue } from "./mappingRuntime.js";
@@ -1974,6 +1976,29 @@ const physicsEndpointWorldAnchor = (endpoint, body, pose) => {
   ];
 };
 
+const physicsEndpointSceneAnchor = (endpoint, body, pose) => {
+  if (endpoint?.kind === "world" && Array.isArray(endpoint.point)) {
+    const point = [Number(endpoint.point[0]), Number(endpoint.point[1])];
+    return point.every(Number.isFinite) ? point : null;
+  }
+  // Fixed bodies do not need a display-cadence pose record, but a spring can
+  // still be attached to one. Its authored initial pose is the stable anchor
+  // in that case; dynamic bodies continue to use the current solver pose.
+  return physicsEndpointWorldAnchor(endpoint, body, pose || body?.initial);
+};
+
+const springVisualGeometryDiffers = (element, patch) => {
+  if (!element || !patch) return true;
+  const numberChanged = ["x", "y", "width", "height", "angle"].some(key => (
+    Math.abs((Number(element[key]) || 0) - (Number(patch[key]) || 0)) > 0.05
+  ));
+  if (numberChanged || !Array.isArray(element.points) || element.points.length !== patch.points.length) return true;
+  return element.points.some((point, index) => (
+    Math.abs((Number(point?.[0]) || 0) - (Number(patch.points[index]?.[0]) || 0)) > 0.05
+    || Math.abs((Number(point?.[1]) || 0) - (Number(patch.points[index]?.[1]) || 0)) > 0.05
+  ));
+};
+
 // The native element is the authored source of truth while the world is
 // paused. Older scenes can contain a stale customData.physics.initial value
 // from before an object was moved, so repair the reset pose from the current
@@ -2064,21 +2089,30 @@ const hydratePhysicsGraphForElements = (graphValue, elements = [], {
     // A constraint visual is authoritative when present. Generic programmatic
     // constraints without one retain their endpoint coordinates unchanged.
     const pivotPoint = pivot ? getPhysicsGeometryElementCenter(pivot) : null;
-    const resolveEndpoint = endpoint => {
+    const springEndpoints = ["spring", "rope"].includes(constraint.kind) && pivot
+      ? getSpringEndpointWorldPoints(pivot)
+      : null;
+    const authoredPointForEndpoint = side => (
+      springEndpoints
+        ? (side === "a" ? springEndpoints.start : springEndpoints.end)
+        : pivotPoint
+    );
+    const resolveEndpoint = (endpoint, side) => {
       if (!endpoint) return endpoint;
+      const authoredPoint = authoredPointForEndpoint(side);
       if (endpoint.kind === "world") {
-        return pivotPoint ? { ...endpoint, point: [...pivotPoint] } : endpoint;
+        return authoredPoint ? { ...endpoint, point: [...authoredPoint] } : endpoint;
       }
       if (endpoint.kind !== "object" || endpoint.objectRef?.kind !== "element") return endpoint;
       const body = bodyByElementId.get(endpoint.objectRef.elementId);
       if (!body) return endpoint;
       const shouldRefresh = refreshConstraintAnchors || requestedConstraintRefreshes.has(constraint.id);
       if (!shouldRefresh && Array.isArray(endpoint.localAnchor)) return endpoint;
-      const scenePoint = pivotPoint || scenePointForPhysicsEndpoint(endpoint, elementById);
+      const scenePoint = authoredPoint || scenePointForPhysicsEndpoint(endpoint, elementById);
       if (!scenePoint) return endpoint;
       return { ...endpoint, localAnchor: localPhysicsAnchorAtScenePoint(body, scenePoint) };
     };
-    const next = { ...constraint, a: resolveEndpoint(constraint.a), b: resolveEndpoint(constraint.b) };
+    const next = { ...constraint, a: resolveEndpoint(constraint.a, "a"), b: resolveEndpoint(constraint.b, "b") };
     if (JSON.stringify(next) !== JSON.stringify(constraint)) constraintsChanged = true;
     return next;
   });
@@ -2610,6 +2644,8 @@ function App() {
         updated: Date.now(),
       });
     });
+    const ropePathByConstraintId = new Map((snapshot.ropePaths || [])
+      .map(path => [path.constraintId, path.points]));
     // An authored axle is a zero-mass marker for a Rapier joint, not another
     // solver body. For a body-body joint the marker follows the shared anchor
     // so the canvas remains truthful as the connected pair moves. World pins
@@ -2617,14 +2653,41 @@ function App() {
     for (const constraint of graph.constraints) {
       if (!constraint.enabled || constraint.objectRef?.kind !== "element") continue;
       const pivot = elementById.get(constraint.objectRef.elementId);
-      if (!pivot || pivot.isDeleted || constraint.a?.kind !== "object" || constraint.b?.kind !== "object") continue;
+      if (!pivot || pivot.isDeleted) continue;
       const bodyA = bodyByElementId.get(constraint.a.objectRef?.elementId);
       const bodyB = bodyByElementId.get(constraint.b.objectRef?.elementId);
       const poseA = bodyA ? poseByBodyId.get(bodyA.id) : null;
       const poseB = bodyB ? poseByBodyId.get(bodyB.id) : null;
-      const anchorA = physicsEndpointWorldAnchor(constraint.a, bodyA, poseA);
-      const anchorB = physicsEndpointWorldAnchor(constraint.b, bodyB, poseB);
+      const anchorA = physicsEndpointSceneAnchor(constraint.a, bodyA, poseA);
+      const anchorB = physicsEndpointSceneAnchor(constraint.b, bodyB, poseB);
       if (!anchorA || !anchorB) continue;
+      if (constraint.kind === "rope") {
+        const patch = getRopeVisualGeometryPatch(pivot, ropePathByConstraintId.get(constraint.id));
+        if (!patch || !springVisualGeometryDiffers(pivot, patch)) continue;
+        changed = true;
+        replacements.set(pivot.id, {
+          ...pivot,
+          ...patch,
+          version: (pivot.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+        });
+        continue;
+      }
+      if (constraint.kind === "spring") {
+        const patch = getSpringVisualGeometryPatch(pivot, anchorA, anchorB);
+        if (!patch || !springVisualGeometryDiffers(pivot, patch)) continue;
+        changed = true;
+        replacements.set(pivot.id, {
+          ...pivot,
+          ...patch,
+          version: (pivot.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+        });
+        continue;
+      }
+      if (constraint.a?.kind !== "object" || constraint.b?.kind !== "object") continue;
       const centerX = (anchorA[0] + anchorB[0]) / 2;
       const centerY = (anchorA[1] + anchorB[1]) / 2;
       const localCenter = getPhysicsElementLocalCenter(pivot);
@@ -9267,14 +9330,26 @@ function App() {
       // rewind use the same visible attachment point as the running solver.
       for (const constraint of solvedGraph.constraints) {
         if (!constraint.enabled || constraint.objectRef?.kind !== "element") continue;
-        if (constraint.a?.kind !== "object" || constraint.b?.kind !== "object") continue;
         const pivot = elementById.get(constraint.objectRef.elementId);
         const bodyA = bodyByElementId.get(constraint.a.objectRef?.elementId);
         const bodyB = bodyByElementId.get(constraint.b.objectRef?.elementId);
-        if (!pivot || pivot.isDeleted || !bodyA || !bodyB) continue;
-        const anchorA = physicsEndpointWorldAnchor(constraint.a, bodyById.get(bodyA.id), bodyA.initial);
-        const anchorB = physicsEndpointWorldAnchor(constraint.b, bodyById.get(bodyB.id), bodyB.initial);
+        if (!pivot || pivot.isDeleted) continue;
+        const anchorA = physicsEndpointSceneAnchor(constraint.a, bodyA ? bodyById.get(bodyA.id) : null, bodyA?.initial);
+        const anchorB = physicsEndpointSceneAnchor(constraint.b, bodyB ? bodyById.get(bodyB.id) : null, bodyB?.initial);
         if (!anchorA || !anchorB) continue;
+        if (constraint.kind === "spring") {
+          const patch = getSpringVisualGeometryPatch(pivot, anchorA, anchorB);
+          if (!patch || !springVisualGeometryDiffers(pivot, patch)) continue;
+          replacements.set(pivot.id, {
+            ...pivot,
+            ...patch,
+            version: (pivot.version || 0) + 1,
+            versionNonce: Math.floor(Math.random() * 0x7fffffff),
+            updated: Date.now(),
+          });
+          continue;
+        }
+        if (constraint.a?.kind !== "object" || constraint.b?.kind !== "object" || !bodyA || !bodyB) continue;
         const localCenter = getPhysicsElementLocalCenter(pivot);
         const x = (anchorA[0] + anchorB[0]) / 2 - localCenter[0];
         const y = (anchorA[1] + anchorB[1]) / 2 - localCenter[1];
@@ -9594,14 +9669,17 @@ function App() {
 
   const assignPhysicsConstraintPivots = ({ kind = "axle", systemId = activePhysicsSystemId } = {}) => {
     const api = excalidrawAPIRef.current;
-    // Axle/Fixate are direct, selection-first actions. Never leave an old
+    // Constraint visuals are direct, selection-first actions. Never leave an old
     // canvas authoring tool armed after converting the selection.
     physicsToolStartRef.current = null;
     physicsToolRef.current = null;
     setPhysicsTool(null);
     const selected = getPhysicsSelectedElements();
+    const isPathConstraint = kind === "spring" || kind === "rope";
     if (!api || !selected.length) {
-      const message = "Select one or more pivot objects first.";
+      const message = isPathConstraint
+        ? `Select one or more two-ended ${kind} objects first.`
+        : "Select one or more pivot objects first.";
       eventBus.emit("physics.constraint.assign.error", {
         kind,
         systemId: systemId || "",
@@ -9622,7 +9700,7 @@ function App() {
       pivotIds: [...selectedIds],
     }, { source: "physics" });
     const elements = api.getSceneElementsIncludingDeleted();
-    // Pivot objects are deliberately non-solver entities. If a selected object
+    // Constraint visuals are deliberately non-solver entities. If a selected object
     // was previously a body, conversion removes that binding before it can be
     // mistaken for an overlapping connection target.
     const targetBodies = graph.bodies.filter(body => (
@@ -9630,13 +9708,27 @@ function App() {
     ));
     const resolved = selected.map(pivot => ({
       pivot,
-      result: resolveConstraintPivot({
-        pivot,
-        elements,
-        bodies: targetBodies,
-        systemId: targetSystemId,
-        kind,
-      }),
+      result: kind === "rope"
+        ? resolveRopeConstraint({
+          rope: pivot,
+          elements,
+          bodies: targetBodies,
+          systemId: targetSystemId,
+        })
+        : kind === "spring"
+          ? resolveSpringConstraint({
+          spring: pivot,
+          elements,
+          bodies: targetBodies,
+          systemId: targetSystemId,
+        })
+        : resolveConstraintPivot({
+          pivot,
+          elements,
+          bodies: targetBodies,
+          systemId: targetSystemId,
+          kind,
+        }),
     }));
     const successes = resolved.filter(item => !item.result.error);
     const failures = resolved.filter(item => item.result.error);
@@ -9698,8 +9790,12 @@ function App() {
     setRelationshipGraph(hydratedNextGraph);
     api.updateScene({ elements: nextElements, commitToHistory: true });
     if (createdSystem) setActivePhysicsSystemId(createdSystem.id);
-    const name = kind === "fixate" ? "weld" : "axle";
-    const message = `Made ${successes.length} ${name} pivot${successes.length === 1 ? "" : "s"}.${failures.length ? ` ${failures.length} selected object${failures.length === 1 ? "" : "s"} did not overlap a physics body.` : ""}`;
+    const name = kind === "fixate" ? "weld" : kind;
+    const noun = isPathConstraint ? kind : `${name} pivot`;
+    const failureReason = isPathConstraint
+      ? " did not have two distinct endpoints."
+      : " did not overlap a physics body.";
+    const message = `Made ${successes.length} ${noun}${successes.length === 1 ? "" : "s"}.${failures.length ? ` ${failures.length} selected object${failures.length === 1 ? "" : "s"}${failureReason}` : ""}`;
     eventBus.emit(failures.length ? "physics.constraint.assign.partial" : "physics.constraint.assign.success", {
       kind,
       systemId: targetSystemId,
@@ -10574,6 +10670,8 @@ function App() {
     { id: "physics.collider.assign", name: "Physics: Assign Static", aliases: ["/physics wall"], category: "Physics", args: { systemId: "string?", sensor: "boolean?" }, ai: { expose: true, description: "Turn selected drawings or curves into static colliders or sensors." }, action: (_api, args) => assignPhysicsBodies({ ...args, bodyType: "fixed" }) },
     { id: "physics.axle.make", name: "Make Axle Object /make axle", aliases: ["/make axle", "/physics axle"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into Axle pivots. Each pivot automatically connects the body or bodies at its centre." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "axle" }) },
     { id: "physics.fixate.make", name: "Make Weld Object /make weld", aliases: ["/make weld", "/physics weld", "/make fixate", "/physics fixate"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into Weld pivots. Each pivot welds the body or bodies at its centre." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "fixate" }) },
+    { id: "physics.spring.make", name: "Make Spring Object /make spring", aliases: ["/make spring", "/physics spring"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected lines, arrows, paths, or freehand strokes into Springs. Their rendered start and end attach to bodies beneath them, or World." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "spring" }) },
+    { id: "physics.rope.make", name: "Make Rope Object /make rope", aliases: ["/make rope", "/physics rope"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected lines, arrows, paths, or freehand strokes into articulated physics ropes. Every rendered path point becomes a sampled chain of generated links, with its ends attaching to bodies beneath them or World." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "rope" }) },
     { id: "physics.population.create", name: "Physics: Create Runtime Population", aliases: ["/physics gas"], category: "Physics", args: { systemId: "string?", count: "number?", radius: "number?", bounds: "{x,y,width,height}?" }, ai: { expose: true, description: "Create a lightweight seeded runtime particle population." }, action: (_api, args) => createPhysicsPopulation(args) },
     { id: "physics.constraint.tool", name: "Physics: Draw Constraint", aliases: ["/physics constraint"], category: "Physics", args: { kind: "pin|spring|distance|revolute|weld|attractor", systemId: "string?" }, action: (_api, args) => startPhysicsTool(args?.kind || "spring", args?.systemId) },
     { id: "physics.play", name: "Physics: Play", aliases: ["/physics play"], category: "Physics", action: (_api, args) => { synchronizePausedPhysicsBodies(); resumePhysicsAudio(); physicsRuntimeRef.current.play(args?.systemId || activePhysicsSystemId); } },
@@ -16427,6 +16525,8 @@ function App() {
       ["sensor", "Sensor", "Sensor — reports overlaps without blocking bodies"],
       ["axle", "Axle pivot", "Axle pivot — auto-connects one overlapping body to World, or two bodies together"],
       ["fixate", "Weld pivot", "Weld pivot — welds one overlapping body to World, or two bodies together"],
+      ["spring", "Spring", "Spring — attaches this object's rendered start and end to bodies beneath them, or World"],
+      ["rope", "Rope", "Rope — turns this object's rendered path into articulated physics links, with endpoints attached to bodies or World"],
     ];
     const applyRole = role => {
       if (role === "none") {
@@ -16434,13 +16534,13 @@ function App() {
         removePhysicsConstraints(authoredConstraints.map(constraint => constraint.id));
         return;
       }
-      if (["axle", "fixate"].includes(role)) {
+      if (["axle", "fixate", "spring", "rope"].includes(role)) {
         assignPhysicsConstraintPivots({ kind: role });
         return;
       }
       assignPhysicsBodies({ bodyType: role === "sensor" ? "fixed" : role, sensor: role === "sensor" });
     };
-    const body = ["none", "mixed", "axle", "fixate"].includes(sharedRole) ? null : bodies[0];
+    const body = ["none", "mixed", "axle", "fixate", "spring", "rope"].includes(sharedRole) ? null : bodies[0];
     const allSelectedHavePhysicsBodies = selectedElements.length > 0 && bodies.length === selectedElements.length;
     const supportsColliderChoices = allSelectedHavePhysicsBodies;
     const supportsPathCollider = allSelectedHavePhysicsBodies && selectedElements.every(element => (
@@ -16459,6 +16559,15 @@ function App() {
       ? pivotSceneElements.find(element => element.id === selectedElements[0]?.id && !element.isDeleted) || selectedElements[0]
       : null;
     const pivotPoint = pivotElement ? getPhysicsElementCenter(pivotElement) : null;
+    const isPathConstraint = ["spring", "rope"].includes(pivotConstraint?.kind) && pivotElement;
+    const springEndpoints = isPathConstraint
+      ? getSpringEndpointWorldPoints(pivotElement)
+      : null;
+    const resetSpringRestLength = () => {
+      const restLength = getSpringGeometricLength(pivotElement);
+      if (!pivotConstraint || restLength === null) return;
+      patchPhysicsConstraint(pivotConstraint.id, { restLength });
+    };
     const connectionBodies = pivotConstraint
       ? relationshipGraph.bodies.filter(candidate => (
         candidate.enabled
@@ -16474,12 +16583,15 @@ function App() {
     };
     const endpointElementId = endpoint => endpoint?.kind === "object" ? endpoint.objectRef?.elementId || "" : "";
     const patchPivotConnection = (side, elementId) => {
-      if (!pivotConstraint || !pivotPoint) return;
+      const anchorPoint = springEndpoints
+        ? (side === "a" ? springEndpoints.start : springEndpoints.end)
+        : pivotPoint ? [pivotPoint.x, pivotPoint.y] : null;
+      if (!pivotConstraint || !anchorPoint) return;
       const endpoint = elementId === "world"
-        ? { kind: "world", point: [pivotPoint.x, pivotPoint.y] }
+        ? { kind: "world", point: [...anchorPoint] }
         : (() => {
           const target = connectionElementById.get(elementId);
-          return target ? physicsEndpointAtPoint(target, [pivotPoint.x, pivotPoint.y]) : null;
+          return target ? physicsEndpointAtPoint(target, anchorPoint) : null;
         })();
       if (!endpoint) return;
       patchPhysicsConstraint(pivotConstraint.id, { [side]: endpoint });
@@ -16498,8 +16610,8 @@ function App() {
     ) : null;
     return (
       <>
-        <InspectorSection title="Physics role" className="iannix-section physics-role-selector" aside={<span className="iannix-selection-count">{selectedElements.length} objects</span>} {...infoProps("Physics role", "A canvas object has one explicit physics role. Axle and Weld are authored pivot constraints: selecting either automatically resolves overlapping body connections.")}>
-          <label className="iannix-field" {...infoProps("Physics role", "Choose a solver body, sensor, or authored pivot role. Selecting Axle or Weld converts the selected object into a pivot and calculates its overlapping body connections.")}>
+        <InspectorSection title="Physics role" className="iannix-section physics-role-selector" aside={<span className="iannix-selection-count">{selectedElements.length} objects</span>} {...infoProps("Physics role", "A canvas object has one explicit physics role. Axle and Weld use the visual centre; Spring uses its two endpoints and Rope uses its complete visible path.")}>
+          <label className="iannix-field" {...infoProps("Physics role", "Choose a solver body, sensor, or authored constraint role. Axle and Weld resolve at the object's centre; Spring resolves each visible endpoint separately; Rope resolves the visible path into generated joints.")}>
             <span>Role</span>
             <select value={sharedRole} onChange={event => applyRole(event.target.value)}>
               {sharedRole === "mixed" && <option value="mixed" disabled>Mixed roles</option>}
@@ -16560,19 +16672,31 @@ function App() {
           </InspectorSection>
         )}
         {pivotConstraint && (
-          <InspectorSection title={`${pivotConstraint.kind === "fixate" ? "Weld" : "Axle"} pivot`} className="iannix-section physics-role-details" {...infoProps("Constraint pivot", "This canvas object is the authored constraint entity. Its centre resolves overlapping physics bodies: one body attaches to World; two bodies attach to each other. The complete record is stored in object.customData.physics.")}>
+          <InspectorSection title={pivotConstraint.kind === "rope" ? "Rope" : pivotConstraint.kind === "spring" ? "Spring" : `${pivotConstraint.kind === "fixate" ? "Weld" : "Axle"} pivot`} className="iannix-section physics-role-details" {...infoProps(pivotConstraint.kind === "rope" ? "Rope" : pivotConstraint.kind === "spring" ? "Spring" : "Constraint pivot", pivotConstraint.kind === "rope" ? "This canvas path is an authored rope. Its rendered points are sampled into generated solver links, while its visible geometry follows the simulated chain. The record is stored in object.customData.physics." : pivotConstraint.kind === "spring" ? "This canvas object is an authored spring. Its rendered start and end independently attach to bodies beneath them, or World. The complete record is stored in object.customData.physics." : "This canvas object is the authored constraint entity. Its centre resolves overlapping physics bodies: one body attaches to World; two bodies attach to each other. The complete record is stored in object.customData.physics.")}>
             <label className="iannix-field"><span>Physics name</span><input type="text" value={pivotConstraint.name} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { name: event.target.value })} /></label>
             <div className="iannix-two-column">
-              <label className="iannix-field" {...infoProps("First connection", "The first body attached at this pivot. Changing it recalculates the local anchor at the pivot centre.")}><span>Connect A</span><select value={endpointElementId(pivotConstraint.a)} onChange={event => patchPivotConnection("a", event.target.value)}>
+              <label className="iannix-field" {...infoProps(isPathConstraint ? `${pivotConstraint.kind === "rope" ? "Rope" : "Spring"} start attachment` : "First connection", isPathConstraint ? "The rendered path start attaches to this body, or World when no body overlaps that endpoint." : "The first body attached at this pivot. Changing it recalculates the local anchor at the pivot centre.")}><span>{isPathConstraint ? "Start attachment" : "Connect A"}</span><select value={pivotConstraint.a?.kind === "world" ? "world" : endpointElementId(pivotConstraint.a)} onChange={event => patchPivotConnection("a", event.target.value)}>
+                {isPathConstraint && <option value="world">World</option>}
                 <option value="" disabled>Choose body</option>
                 {connectionBodies.map(candidate => <option key={candidate.id} value={candidate.objectRef.elementId}>{connectionLabel(candidate)}</option>)}
               </select></label>
-              <label className="iannix-field" {...infoProps("Second connection", "Choose World to pin the first body at this pivot, or another body to connect both bodies together.")}><span>Connect B</span><select value={pivotConstraint.b?.kind === "world" ? "world" : endpointElementId(pivotConstraint.b)} onChange={event => patchPivotConnection("b", event.target.value)}>
+              <label className="iannix-field" {...infoProps(isPathConstraint ? `${pivotConstraint.kind === "rope" ? "Rope" : "Spring"} end attachment` : "Second connection", isPathConstraint ? "The rendered path end attaches to this body, or World when no body overlaps that endpoint." : "Choose World to pin the first body at this pivot, or another body to connect both bodies together.")}><span>{isPathConstraint ? "End attachment" : "Connect B"}</span><select value={pivotConstraint.b?.kind === "world" ? "world" : endpointElementId(pivotConstraint.b)} onChange={event => patchPivotConnection("b", event.target.value)}>
                 <option value="world">World</option>
                 {connectionBodies.filter(candidate => candidate.objectRef.elementId !== endpointElementId(pivotConstraint.a)).map(candidate => <option key={candidate.id} value={candidate.objectRef.elementId}>{connectionLabel(candidate)}</option>)}
               </select></label>
             </div>
             <label className="iannix-check-row"><span>Enabled</span><input type="checkbox" checked={pivotConstraint.enabled} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { enabled: event.target.checked })} /></label>
+            {pivotConstraint.kind === "spring" && <>
+              <label className="iannix-field" {...infoProps("Rest length", "The spring's neutral length in scene pixels. Set to current geometry uses this spring object's current visible start-to-end distance.")}><span>Rest length</span><div className="iannix-inline-action"><NumericInput min="0" step="any" value={pivotConstraint.restLength ?? 0} defaultValue={100} onCommit={restLength => patchPhysicsConstraint(pivotConstraint.id, { restLength })} /><button type="button" className="iannix-flat-button geometry-reset-button" onClick={resetSpringRestLength} disabled={!springEndpoints} title="Set to current geometry" aria-label="Set rest length to current geometry"><GeometryResetIcon /></button></div></label>
+              <label className="iannix-field" {...infoProps("Stiffness", "How firmly the spring pulls toward its rest length.")}><span>Stiffness</span><NumericInput min="0" step="any" value={pivotConstraint.stiffness ?? 40} defaultValue={40} onCommit={stiffness => patchPhysicsConstraint(pivotConstraint.id, { stiffness })} /></label>
+              <label className="iannix-field" {...infoProps("Damping", "How strongly the spring absorbs oscillation.")}><span>Damping</span><NumericInput min="0" step="any" value={pivotConstraint.damping ?? 4} defaultValue={4} onCommit={damping => patchPhysicsConstraint(pivotConstraint.id, { damping })} /></label>
+              <label className="iannix-check-row" {...infoProps("Collide while connected", "Allow the two attached bodies to collide with one another while the spring is active.")}><span>Collide while connected</span><input type="checkbox" checked={pivotConstraint.collideConnected === true} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { collideConnected: event.target.checked })} /></label>
+            </>}
+            {pivotConstraint.kind === "rope" && <>
+              <label className="iannix-field" {...infoProps("Link length", "Maximum scene-pixel length of each generated rope link. Smaller links follow curves more closely, at higher solver cost.")}><span>Link length</span><NumericInput min="2" step="any" value={pivotConstraint.segmentLength ?? 24} defaultValue={24} onCommit={segmentLength => patchPhysicsConstraint(pivotConstraint.id, { segmentLength })} /></label>
+              <label className="iannix-field" {...infoProps("Thickness", "Physical diameter of the generated rope links in scene pixels. This does not change the original stroke appearance.")}><span>Thickness</span><NumericInput min="0.5" step="any" value={pivotConstraint.thickness ?? 4} defaultValue={4} onCommit={thickness => patchPhysicsConstraint(pivotConstraint.id, { thickness })} /></label>
+              <label className="iannix-check-row" {...infoProps("Collide while connected", "Allow adjacent generated rope links to collide. Keep this off for a stable default rope.")}><span>Collide while connected</span><input type="checkbox" checked={pivotConstraint.collideConnected === true} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { collideConnected: event.target.checked })} /></label>
+            </>}
             {pivotConstraint.kind === "axle" && <>
               <label className="iannix-check-row" {...infoProps("Limit rotation", "Off is a freely rotating axle. Enable to constrain the relative angle in degrees.")}><span>Limit rotation</span><input type="checkbox" checked={pivotConstraint.limitsEnabled === true} onChange={event => patchPhysicsConstraint(pivotConstraint.id, event.target.checked ? { limitsEnabled: true, lowerLimit: pivotConstraint.lowerLimit ?? -Math.PI, upperLimit: pivotConstraint.upperLimit ?? Math.PI } : { limitsEnabled: false, lowerLimit: null, upperLimit: null })} /></label>
               {pivotConstraint.limitsEnabled && <div className="iannix-two-column">
@@ -22878,6 +23002,7 @@ function App() {
               onLoadExample={loadPhysicsExample}
               expressivePrograms={getExpressiveSynthPrograms(expressiveSynthConfig)}
               selectedElements={getSelectedElements()}
+              sceneElements={(excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || []).filter(element => !element.isDeleted)}
             />
           </DraweratorPanel>
           )}

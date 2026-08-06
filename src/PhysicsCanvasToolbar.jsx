@@ -7,6 +7,7 @@ const Glyph = ({ kind }) => {
   if (kind === "fixed") return <svg {...common}><path d="M4 15h16M6 15l2-5 2 5 2-5 2 5 2-5 2 5" /><path d="M5 19h14" /></svg>;
   if (kind === "sensor") return <svg {...common}><circle cx="12" cy="12" r="7" strokeDasharray="2.5 2.5" /><circle cx="12" cy="12" r="1" /></svg>;
   if (kind === "spring") return <svg {...common}><path d="M3 12h3l2-5 3 10 3-10 3 5h3" /></svg>;
+  if (kind === "rope") return <svg {...common}><path d="M2.5 12h3l2-4 3 8 3-8 3 4h3" /><circle cx="3" cy="12" r="1" /><circle cx="21" cy="12" r="1" /></svg>;
   if (kind === "fixate") return <svg {...common}><path d="M6 5v14m12-14v14M3 9h6m6 0h6M3 15h6m6 0h6" /><path d="M9 12h6" /></svg>;
   return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M12 3v6m0 6v6M3 12h6m6 0h6" /></svg>;
 };
@@ -169,6 +170,8 @@ export default function PhysicsCanvasToolbar({ selectedCount = 0, open = true, o
       <div className="physics-canvas-tool-group" aria-label="Physics constraints">
         <Tool kind="fixate" label="Make selected objects Weld pivots" disabled={!selectedCount} onClick={() => onMakeConstraint?.("fixate")} />
         <Tool kind="axle" label="Make selected objects Axle pivots" disabled={!selectedCount} onClick={() => onMakeConstraint?.("axle")} />
+        <Tool kind="spring" label="Make selected objects Springs" disabled={!selectedCount} onClick={() => onMakeConstraint?.("spring")} />
+        <Tool kind="rope" label="Make selected paths into Ropes" disabled={!selectedCount} onClick={() => onMakeConstraint?.("rope")} />
       </div>
     </div>}
   </aside>

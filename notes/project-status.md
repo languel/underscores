@@ -122,8 +122,12 @@ articulated rigs can deliberately suppress self-collisions.
 
 ## Next phase
 
-Build springs, motors, attractors, thrusters, and chains on top of the collision-layer and pivot
-baseline, then add source adapters for palm openness, calibrated gaze, score and command events.
+The baseline now also includes authored Springs and Ropes: one selected path can become a solver
+generated, arc-length-sampled jointed rope while retaining only its original canvas object in the
+scene. Rope links are capped and use a private no-self-contact runtime group, so dense freehand
+input cannot turn into an unbounded collision workload. Build motors,
+attractors, thrusters, and more specialized chain controls on top of the collision-layer, pivot,
+and rope baseline, then add source adapters for palm openness, calibrated gaze, score and command events.
 The infinite canvas remains the authoring surface; the compact Physics inspector should not become a
 node editor. The future canvas graph will edit the same mapping records.
 The unchanged MediaMime body-map references can become ontology-generated selectable
