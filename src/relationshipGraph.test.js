@@ -41,6 +41,36 @@ test("canvas Fixate and Axle constraints remain canonical graph relationships", 
   assert.equal(graph.constraints[0].b.kind, "world");
 });
 
+test("new Axles leave angular limits disabled until the author enables both limits", () => {
+  const graph = normalizeRelationshipGraph({
+    systems: [{ id: "world" }],
+    constraints: [{
+      id: "free-axle",
+      systemId: "world",
+      kind: "axle",
+      lowerLimit: null,
+      upperLimit: null,
+      a: { kind: "object", objectRef: { kind: "element", elementId: "arm" }, anchor: "center" },
+      b: { kind: "world", point: [0, 0] },
+    }],
+  });
+  assert.equal(graph.constraints[0].lowerLimit, null);
+  assert.equal(graph.constraints[0].upperLimit, null);
+  assert.equal(graph.constraints[0].limitsEnabled, false);
+
+  const legacy = normalizeRelationshipGraph({
+    systems: [{ id: "world" }],
+    constraints: [{
+      id: "legacy-axle", systemId: "world", kind: "axle", lowerLimit: 0, upperLimit: 0,
+      a: { kind: "object", objectRef: { kind: "element", elementId: "arm" }, anchor: "center" },
+      b: { kind: "world", point: [0, 0] },
+    }],
+  });
+  assert.equal(legacy.constraints[0].limitsEnabled, false);
+  assert.equal(legacy.constraints[0].lowerLimit, null);
+  assert.equal(legacy.constraints[0].upperLimit, null);
+});
+
 test("world physics defaults use real-world gravity and custom systems remain explicit", () => {
   const graph = normalizeRelationshipGraph({ systems: [{ id: "world-system" }] });
   assert.deepEqual(graph.world.gravity, { x: 0, y: -9.8 });
@@ -52,9 +82,12 @@ test("world physics defaults use real-world gravity and custom systems remain ex
   assert.equal(custom.gravityMode, "custom");
 });
 
-test("world physics can lock authored reset poses during paused preview edits", () => {
+test("world physics keeps reset-pose authoring separate from opt-in live pose", () => {
   const graph = normalizeRelationshipGraph({ world: { pausedEditMode: "preview" } });
   assert.equal(graph.world.pausedEditMode, "preview");
+  assert.equal(graph.world.livePose, false);
+  assert.equal(graph.world.pausedConstraintSolve, false);
+  assert.equal(normalizeRelationshipGraph({ world: { livePose: true } }).world.livePose, true);
 });
 
 test("physics body custom-data mirror keeps authored material and collider fields", () => {
@@ -124,6 +157,72 @@ test("object physics metadata restores a missing graph binding", () => {
   assert.deepEqual(hydrated.bodies[0].objectRef, { kind: "element", elementId: "wall" });
   assert.equal(hydrated.bodies[0].bodyType, "fixed");
   assert.equal(hydrated.bodies[0].collider.width, 320);
+});
+
+test("explicit collider choices survive authored custom-data hydration", () => {
+  const element = {
+    id: "freehand-body",
+    type: "freedraw",
+    customData: withPhysicsCustomData({}, {
+      id: "freehand-body-physics",
+      systemId: "world",
+      bodyType: "dynamic",
+      collider: {
+        kind: "chain",
+        points: [[-20, 0], [0, 30], [20, 0]],
+        thickness: 4,
+        localOriginVersion: 2,
+      },
+    }),
+  };
+  const hydrated = hydrateRelationshipGraphFromElements({ systems: [{ id: "world" }] }, [element]);
+  assert.equal(hydrated.bodies[0].collider.kind, "chain");
+  assert.deepEqual(hydrated.bodies[0].collider.points, [[-20, 0], [0, 30], [20, 0]]);
+});
+
+test("an authored axle pivot restores from object customData and is pruned when deleted", () => {
+  const axle = {
+    id: "pivot-axle",
+    systemId: "world",
+    kind: "axle",
+    objectRef: { kind: "element", elementId: "pivot" },
+    a: { kind: "object", objectRef: "arm", anchor: "center" },
+    b: { kind: "world", point: [30, 40] },
+  };
+  const pivot = { id: "pivot", customData: withPhysicsCustomData({}, axle) };
+  const arm = { id: "arm", customData: withPhysicsCustomData({}, { id: "arm-body", systemId: "world" }) };
+  const hydrated = hydrateRelationshipGraphFromElements({ systems: [{ id: "world" }] }, [pivot, arm]);
+  assert.equal(hydrated.constraints.length, 1);
+  assert.equal(hydrated.constraints[0].objectRef.elementId, "pivot");
+  assert.equal(getPhysicsCustomData(pivot).role, "axle");
+  assert.equal(removeRelationshipBindingsForElements(hydrated, ["pivot"]).constraints.length, 0);
+});
+
+test("legacy pivot customData does not discard a graph's resolved collider-local anchor", () => {
+  const graph = normalizeRelationshipGraph({
+    systems: [{ id: "world" }],
+    bodies: [{ id: "arm-body", systemId: "world", objectRef: "arm" }],
+    constraints: [{
+      id: "axle", systemId: "world", kind: "axle",
+      objectRef: { kind: "element", elementId: "pivot" },
+      a: {
+        kind: "object", objectRef: { kind: "element", elementId: "arm" },
+        localPoint: [0.12, 0.73], localAnchor: [-31.5, 18.25],
+      },
+      b: { kind: "world", point: [10, 20] },
+    }],
+  });
+  const pivot = {
+    id: "pivot",
+    customData: withPhysicsCustomData({}, {
+      ...graph.constraints[0],
+      // Earlier object metadata stored only this portable frame coordinate.
+      a: { ...graph.constraints[0].a, localAnchor: undefined },
+    }),
+  };
+  const arm = { id: "arm", customData: withPhysicsCustomData({}, graph.bodies[0]) };
+  const hydrated = hydrateRelationshipGraphFromElements(graph, [pivot, arm]);
+  assert.deepEqual(hydrated.constraints[0].a.localAnchor, [-31.5, 18.25]);
 });
 
 test("relationship imports remap object and endpoint references", () => {

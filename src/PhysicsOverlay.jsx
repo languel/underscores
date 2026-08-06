@@ -1,7 +1,94 @@
 import { memo, useEffect, useRef } from "react";
 import { sceneCoordsToViewportCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
 import { normalizeRelationshipGraph, normalizePhysicsEndpoint } from "./relationshipGraph.js";
-import { getPhysicsElementCenter, resolvePhysicsEndpoint } from "./physicsGeometry.js";
+import { getPhysicsElementCenter, resolvePhysicsEndpointAtPose } from "./physicsGeometry.js";
+import { getScoreData } from "./iannixEngine.js";
+
+// Keep debug labels aligned with the Outliner naming order. Physics IDs are
+// useful as a last resort, but authored names should make the overlay readable
+// without requiring users to cross-reference solver metadata.
+const debugObjectLabel = (element, metadata = {}) => {
+  if (element) {
+    const scoreLabel = getScoreData(element)?.label;
+    if (scoreLabel) return scoreLabel;
+    const customLabel = element.customData?.draweratorLabel;
+    if (customLabel) return customLabel;
+    const livecodeName = element.customData?.draweratorLivecode?.name;
+    if (livecodeName) return livecodeName;
+    const mediaName = element.customData?.draweratorMediaStream?.name;
+    if (mediaName) return mediaName;
+    return element.id;
+  }
+  return metadata.label || metadata.name || metadata.instanceId || metadata.bodyId || metadata.id || "Physics body";
+};
+
+const parseCanvasColor = (candidate, colorContext) => {
+  const source = String(candidate || "").trim();
+  if (!source) return null;
+  const hex = source.match(/^#([0-9a-f]{6}|[0-9a-f]{8})$/i);
+  if (hex) {
+    return {
+      red: Number.parseInt(hex[1].slice(0, 2), 16),
+      green: Number.parseInt(hex[1].slice(2, 4), 16),
+      blue: Number.parseInt(hex[1].slice(4, 6), 16),
+      alpha: hex[1].length === 8 ? Number.parseInt(hex[1].slice(6, 8), 16) / 255 : 1,
+    };
+  }
+  const rgb = source.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)$/i);
+  if (rgb) {
+    return {
+      red: Number(rgb[1]),
+      green: Number(rgb[2]),
+      blue: Number(rgb[3]),
+      alpha: rgb[4] === undefined ? 1 : Number(rgb[4]),
+    };
+  }
+  if (!colorContext) return null;
+  const sentinel = "#010203";
+  const previous = colorContext.fillStyle;
+  colorContext.fillStyle = sentinel;
+  colorContext.fillStyle = source;
+  const resolved = String(colorContext.fillStyle || "");
+  colorContext.fillStyle = previous;
+  if (!resolved || resolved.toLowerCase() === sentinel) return null;
+  return parseCanvasColor(resolved, null);
+};
+
+const themedObjectColor = (objectColor, theme, colorContext) => {
+  const parsed = parseCanvasColor(objectColor, colorContext);
+  if (!parsed) return null;
+  if (theme !== "dark") return parsed;
+  // Excalidraw applies a dark-mode filter to its authored canvas. Apply the
+  // same transform to object-derived diagnostics so the overlay stays aligned
+  // with the visible stroke instead of disappearing as black on dark canvas.
+  const desired = [parsed.red, parsed.green, parsed.blue].map(channel => channel / 255);
+  const invertAmount = 0.93;
+  const invertScale = 1 - 2 * invertAmount;
+  const beforeHue = desired.map(channel => (channel - invertAmount) / invertScale);
+  const hue180 = [
+    [-0.574, 1.43, 0.144],
+    [0.426, 0.43, 0.144],
+    [0.426, 1.43, -0.856],
+  ];
+  const transformed = hue180.map(row => row.reduce((sum, coefficient, index) => sum + coefficient * beforeHue[index], 0));
+  return {
+    red: Math.min(255, Math.max(0, transformed[0] * 255)),
+    green: Math.min(255, Math.max(0, transformed[1] * 255)),
+    blue: Math.min(255, Math.max(0, transformed[2] * 255)),
+    alpha: parsed.alpha,
+  };
+};
+
+const debugColor = (settings, key, fallback, alphaMultiplier = 1, objectColor = null, theme = "light", colorContext = null) => {
+  const configured = String(settings?.colors?.[key] || fallback).trim();
+  const objectMode = configured.toLowerCase() === "object";
+  const parsed = objectMode
+    ? themedObjectColor(String(objectColor || fallback).trim(), theme, colorContext)
+    : parseCanvasColor(configured, colorContext);
+  if (!parsed) return fallback;
+  const { red, green, blue, alpha } = parsed;
+  return `rgba(${Math.round(red)}, ${Math.round(green)}, ${Math.round(blue)}, ${Math.max(0, Math.min(1, alpha * alphaMultiplier))})`;
+};
 
 const selectedEndpoint = (endpointValue, selectedIds) => {
   const endpoint = normalizePhysicsEndpoint(endpointValue);
@@ -89,15 +176,15 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
       context.restore();
     };
 
-    const drawRelationships = (context, graph, currentElements, selectedIds, showAll, toViewport) => {
+    const drawRelationships = (context, graph, currentElements, selectedIds, showAll, toViewport, poseByBodyId) => {
       const selected = new Set(Object.keys(selectedIds || {}).filter(key => selectedIds[key]));
       context.save();
       context.lineWidth = 1;
       context.setLineDash([5, 4]);
       for (const constraint of graph.constraints) {
         if (!constraint.enabled || (!showAll && !selectedEndpoint(constraint.a, selected) && !selectedEndpoint(constraint.b, selected))) continue;
-        const a = resolvePhysicsEndpoint(constraint.a, { elements: currentElements });
-        const b = resolvePhysicsEndpoint(constraint.b, { elements: currentElements });
+        const a = resolvePhysicsEndpointAtPose(constraint.a, { elements: currentElements, bodies: graph.bodies, poseByBodyId });
+        const b = resolvePhysicsEndpointAtPose(constraint.b, { elements: currentElements, bodies: graph.bodies, poseByBodyId });
         if (!a.ok || !b.ok) continue;
         const start = toViewport(a.point);
         const end = toViewport(b.point);
@@ -151,7 +238,7 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
       }
     };
 
-    const drawDebugBodies = (context, snapshots, currentElements, graph, toViewport, zoom, settings) => {
+    const drawDebugBodies = (context, snapshots, currentElements, graph, toViewport, zoom, settings, theme) => {
       if (!settings.bodies && !settings.colliders && !settings.labels) return;
       const elementById = new Map(currentElements.filter(element => element && !element.isDeleted).map(element => [element.id, element]));
       context.save();
@@ -171,7 +258,7 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
           context.translate(point[0], point[1]);
           context.rotate(pose[2]);
           if (settings.bodies) {
-            context.strokeStyle = metadataEntry.bodyType === "fixed" ? "rgba(149, 157, 173, 0.9)" : "rgba(81, 142, 255, 0.9)";
+            context.strokeStyle = debugColor(settings, "bodies", "#518effe6", 1, element?.strokeColor, theme, context);
             context.setLineDash([4, 3]);
             context.strokeRect(-4, -4, 8, 8);
             context.setLineDash([]);
@@ -179,50 +266,69 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
           if (settings.colliders) {
             context.beginPath();
             traceCollider(context, collider, zoom);
-            context.strokeStyle = metadataEntry.sensor ? "rgba(211, 112, 194, 0.95)" : "rgba(97, 213, 177, 0.95)";
+            context.strokeStyle = debugColor(settings, "colliders", "#61d5b1f2", 1, element?.strokeColor, theme, context);
             context.stroke();
           }
           context.restore();
           if (settings.labels) {
-            context.fillStyle = "rgba(109, 183, 255, 0.96)";
+            context.fillStyle = debugColor(settings, "labels", "#6db7ffff", 1, element?.strokeColor, theme, context);
             context.font = "10px monospace";
-            context.fillText(metadataEntry.instanceId || metadataEntry.bodyId || metadataEntry.id, point[0] + 6, point[1] - 6);
+            context.fillText(debugObjectLabel(element, metadataEntry), point[0] + 6, point[1] - 6);
           }
         }
       }
       context.restore();
     };
 
-    const drawDebugConstraints = (context, graph, currentElements, toViewport, settings) => {
-      if (!settings.constraints) return;
+    const drawDebugConstraints = (context, graph, currentElements, toViewport, settings, poseByBodyId, theme) => {
+      if (!settings.constraints && !settings.labels) return;
+      const elementById = new Map(currentElements.filter(element => element && !element.isDeleted).map(element => [element.id, element]));
       context.save();
       context.lineWidth = 1;
       for (const constraint of graph.constraints) {
         if (!constraint.enabled) continue;
-        const a = resolvePhysicsEndpoint(constraint.a, { elements: currentElements });
-        const b = resolvePhysicsEndpoint(constraint.b, { elements: currentElements });
+        const a = resolvePhysicsEndpointAtPose(constraint.a, { elements: currentElements, bodies: graph.bodies, poseByBodyId });
+        const b = resolvePhysicsEndpointAtPose(constraint.b, { elements: currentElements, bodies: graph.bodies, poseByBodyId });
         if (!a.ok || !b.ok) continue;
         const start = toViewport(a.point);
         const end = toViewport(b.point);
-        context.strokeStyle = constraint.kind === "attractor" ? "rgba(224, 111, 202, 0.95)" : "rgba(255, 190, 80, 0.95)";
-        context.setLineDash(constraint.kind === "spring" ? [2, 3] : [6, 3]);
-        context.beginPath();
-        context.moveTo(start[0], start[1]);
-        context.lineTo(end[0], end[1]);
-        context.stroke();
-        context.setLineDash([]);
-        context.fillStyle = context.strokeStyle;
-        context.fillRect(start[0] - 2, start[1] - 2, 4, 4);
-        context.fillRect(end[0] - 2, end[1] - 2, 4, 4);
+        if (settings.constraints) {
+          const endpointElement = a.endpoint?.kind === "object"
+            ? elementById.get(a.endpoint.objectRef?.elementId)
+            : b.endpoint?.kind === "object" ? elementById.get(b.endpoint.objectRef?.elementId) : null;
+          context.strokeStyle = debugColor(settings, "constraints", "#ffbe50f2", 1, endpointElement?.strokeColor, theme, context);
+          context.setLineDash(constraint.kind === "spring" ? [2, 3] : [6, 3]);
+          context.beginPath();
+          context.moveTo(start[0], start[1]);
+          context.lineTo(end[0], end[1]);
+          context.stroke();
+          context.setLineDash([]);
+          context.fillStyle = context.strokeStyle;
+          context.fillRect(start[0] - 2, start[1] - 2, 4, 4);
+          context.fillRect(end[0] - 2, end[1] - 2, 4, 4);
+        }
+        if (settings.labels) {
+          const pivot = constraint.objectRef?.kind === "element"
+            ? elementById.get(constraint.objectRef.elementId)
+            : null;
+          const label = debugObjectLabel(pivot, {
+            label: constraint.name || `${constraint.kind || "constraint"} constraint`,
+            id: constraint.id,
+          });
+          context.fillStyle = debugColor(settings, "labels", "#6db7ffff", 1, pivot?.strokeColor, theme, context);
+          context.font = "10px monospace";
+          context.fillText(label, (start[0] + end[0]) / 2 + 6, (start[1] + end[1]) / 2 - 6);
+        }
       }
       context.restore();
     };
 
-    const drawDebugEvents = (context, toViewport, settings) => {
+    const drawDebugEvents = (context, toViewport, settings, currentElements, theme) => {
       if (!settings.contacts && !settings.collisions && !settings.forces) return;
       const now = performance.now();
       const events = debugEventsRef.current.filter(event => now - event.receivedAt < 900);
       debugEventsRef.current = events;
+      const elementById = new Map(currentElements.filter(element => element && !element.isDeleted).map(element => [element.id, element]));
       context.save();
       for (const event of events) {
         if (!event.point) continue;
@@ -230,14 +336,17 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
         const point = toViewport(event.point);
         const alpha = Math.max(0, 1 - age);
         const isImpact = event.phase === "hit" || event.phase === "begin";
+        const eventElement = elementById.get(event.a?.objectRef?.elementId)
+          || elementById.get(event.b?.objectRef?.elementId);
+        const eventObjectColor = eventElement?.strokeColor;
         if (settings.contacts) {
-          context.fillStyle = isImpact ? `rgba(97, 213, 177, ${alpha})` : `rgba(151, 214, 255, ${alpha})`;
+          context.fillStyle = debugColor(settings, "contacts", "#61d5b1ff", alpha, eventObjectColor, theme, context);
           context.beginPath();
           context.arc(point[0], point[1], 3, 0, Math.PI * 2);
           context.fill();
         }
         if (settings.collisions && isImpact) {
-          context.strokeStyle = `rgba(255, 120, 103, ${alpha})`;
+          context.strokeStyle = debugColor(settings, "collisions", "#ff7867ff", alpha, eventObjectColor, theme, context);
           context.lineWidth = 1.5;
           context.beginPath();
           context.arc(point[0], point[1], 4 + age * 18, 0, Math.PI * 2);
@@ -245,7 +354,7 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
         }
         if (settings.forces && event.normal) {
           const length = Math.min(72, Math.max(10, Number(event.impulse || 0) * 10));
-          context.strokeStyle = `rgba(255, 208, 94, ${alpha})`;
+          context.strokeStyle = debugColor(settings, "forces", "#ffd05eff", alpha, eventObjectColor, theme, context);
           context.lineWidth = 1.5;
           context.beginPath();
           context.moveTo(point[0], point[1]);
@@ -279,18 +388,31 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
           return [value.x - rect.left, value.y - rect.top];
         };
         const snapshots = runtime.getLatestPoses();
+        const poseByBodyId = new Map();
+        for (const snapshot of snapshots) {
+          for (let index = 0; index < snapshot.metadata.length; index += 1) {
+            const metadata = snapshot.metadata[index];
+            if (!metadata?.bodyId) continue;
+            poseByBodyId.set(metadata.bodyId, {
+              x: snapshot.values[index * 4],
+              y: snapshot.values[index * 4 + 1],
+              angle: snapshot.values[index * 4 + 2],
+            });
+          }
+        }
         for (const snapshot of snapshots) {
           const values = snapshot.values;
           for (let index = 0; index < snapshot.metadata.length; index += 1) {
             drawBody(context, snapshot.metadata[index], values[index * 4], values[index * 4 + 1], values[index * 4 + 2], toViewport, zoom);
           }
         }
-        drawRelationships(context, normalizeRelationshipGraph(currentGraph), diagnosticElements, selectedIds, showAll, toViewport);
+        drawRelationships(context, normalizeRelationshipGraph(currentGraph), diagnosticElements, selectedIds, showAll, toViewport, poseByBodyId);
         if (debugSettings?.enabled) {
           const graph = normalizeRelationshipGraph(currentGraph);
-          drawDebugBodies(context, snapshots, diagnosticElements, graph, toViewport, zoom, debugSettings);
-          drawDebugConstraints(context, graph, diagnosticElements, toViewport, debugSettings);
-          drawDebugEvents(context, toViewport, debugSettings);
+          const theme = diagnosticAppState.theme || "light";
+          drawDebugBodies(context, snapshots, diagnosticElements, graph, toViewport, zoom, debugSettings, theme);
+          drawDebugConstraints(context, graph, diagnosticElements, toViewport, debugSettings, poseByBodyId, theme);
+          drawDebugEvents(context, toViewport, debugSettings, diagnosticElements, theme);
         }
       }
       if (started - lastMetricAt >= 200) {

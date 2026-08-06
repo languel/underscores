@@ -784,15 +784,89 @@ body .excalidraw .sidebar {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.physics-debug-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.physics-debug-colors {
+  display: flex;
+  flex-direction: column;
   gap: 4px;
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
-.physics-debug-grid[aria-disabled="true"] {
+.physics-debug-colors[aria-disabled="true"] {
   opacity: 0.5;
+}
+
+.physics-debug-color-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(132px, 1.2fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  margin: 0;
+}
+
+.physics-debug-color-toggle {
+  width: 100%;
+  min-height: 28px;
+  padding: 3px 6px;
+  overflow: hidden;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.28));
+  border-radius: 2px;
+  background: transparent;
+  color: var(--color-secondary);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.physics-debug-color-toggle:hover {
+  background: color-mix(in srgb, var(--bg-hover-btn, rgba(128, 128, 128, 0.16)) 58%, transparent);
+  color: var(--color-primary);
+}
+
+.physics-debug-color-toggle.active {
+  background: var(--bg-hover-btn, rgba(128, 128, 128, 0.16));
+  border-color: var(--border-color, rgba(128, 128, 128, 0.28));
+  color: var(--color-primary);
+}
+
+.physics-debug-color-toggle:disabled {
+  cursor: default;
+}
+
+.physics-debug-color-field > .physics-debug-color-toggle {
+  min-width: 0;
+}
+
+.physics-debug-color-control {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 4px;
+  align-items: center;
+}
+
+.physics-debug-color-control input[type="color"] {
+  width: 30px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.28));
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.physics-debug-color-control input[type="color"]:disabled {
+  cursor: default;
+}
+
+.physics-debug-color-control input[type="text"] {
+  min-width: 0;
+  height: 28px;
+  padding: 3px 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
 }
 
 .iannix-role-grid.physics-role-grid {
@@ -1007,20 +1081,102 @@ body .excalidraw .sidebar {
 .physics-canvas-toolbar {
   position: absolute;
   z-index: 6;
-  top: 92px;
-  left: 12px;
   display: grid;
-  gap: 5px;
-  padding: 5px;
+  gap: 3px;
+  min-width: 34px;
+  padding: 3px;
   border: 1px solid var(--border-color, rgba(128, 128, 128, 0.34));
   border-radius: 3px;
   background: color-mix(in srgb, var(--drawerator-panel-bg, Canvas) 94%, transparent);
   box-shadow: none;
 }
 
+.physics-canvas-toolbar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.physics-canvas-toolbar-header:active {
+  cursor: grabbing;
+}
+
+.physics-canvas-toolbar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: var(--color-primary, currentColor);
+  background: transparent;
+  cursor: pointer;
+}
+
+.physics-canvas-toolbar-toggle:hover {
+  border-color: var(--border-color, rgba(128, 128, 128, 0.34));
+  background: color-mix(in srgb, var(--drawerator-highlight, currentColor) 17%, transparent);
+}
+
+.physics-canvas-toolbar-reopen {
+  position: absolute;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 3px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.34));
+  border-radius: 3px;
+  color: var(--color-primary, currentColor);
+  background: color-mix(in srgb, var(--drawerator-panel-bg, Canvas) 94%, transparent);
+  cursor: grab;
+}
+
+.physics-canvas-toolbar-reopen:active {
+  cursor: grabbing;
+}
+
+.physics-canvas-toolbar-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 150px;
+  padding: 3px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.34));
+  border-radius: 3px;
+  background: var(--drawerator-panel-bg, Canvas);
+}
+
+.physics-canvas-toolbar-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 2px;
+  color: var(--color-primary, currentColor);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.physics-canvas-toolbar-menu button:hover {
+  background: color-mix(in srgb, var(--drawerator-highlight, currentColor) 17%, transparent);
+}
+
+.physics-canvas-toolbar-body {
+  display: grid;
+  gap: 3px;
+}
+
 .physics-canvas-tool-group {
   display: grid;
-  grid-template-columns: repeat(2, 30px);
+  grid-template-columns: 30px;
   gap: 3px;
 }
 
@@ -4662,6 +4818,29 @@ a.iannix-flat-button {
   pointer-events: none;
 }
 
+/* The loop range deliberately captures the body of the track, so expose a
+ * higher, generous target for the frame label and playhead itself. Its offset
+ * is retained by TransportTimeline while dragging, preventing a label click
+ * from moving the playhead before the pointer travels. */
+body .excalidraw .iannix-timeline-playhead-hitbox {
+  position: absolute;
+  z-index: 6;
+  top: -24px;
+  bottom: 0;
+  width: 40px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: ew-resize;
+  transform: translateX(-25%);
+  touch-action: none;
+}
+
+body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
+  outline: 1px solid var(--transport-accent);
+  outline-offset: -2px;
+}
+
 .iannix-timeline-playhead::before {
   content: "";
   position: absolute;
@@ -4943,7 +5122,7 @@ a.iannix-flat-button {
 .properties-group summary { display: flex; align-items: center; gap: 7px; padding: 6px 9px; cursor: pointer; }
 .properties-group summary small { margin-left: auto; color: var(--color-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .properties-children { margin-left: 12px; border-left: 1px solid var(--border-color, rgba(128,128,128,.2)); }
-.properties-two-column { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 6px; }
+.properties-two-column { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
 .properties-row { display: grid; grid-template-columns: minmax(74px, .7fr) minmax(0, 1.3fr); gap: 6px; padding: 2px 9px; }
 .properties-row > span { overflow: hidden; color: var(--color-secondary); text-overflow: ellipsis; }
 .properties-row code { overflow-wrap: anywhere; color: var(--color-primary); }
@@ -5007,6 +5186,18 @@ a.iannix-flat-button {
 
 #canvas-container.drawerator-object-eyedropper .excalidraw__canvas,
 #canvas-container.drawerator-object-eyedropper .excalidraw__canvas * {
+  cursor: crosshair !important;
+}
+
+/* Constraint tools author a visible pivot object, rather than a hidden
+   two-click relationship. Keep their cursor distinct from selection. */
+#canvas-container.physics-authoring-axle .excalidraw__canvas,
+#canvas-container.physics-authoring-axle .excalidraw__canvas * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Ccircle cx='12' cy='12' r='7' fill='white' stroke='%231b1b1b' stroke-width='2'/%3E%3Cpath d='M12 1v5m0 12v5M1 12h5m12 0h5' stroke='%231b1b1b' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") 12 12, crosshair !important;
+}
+
+#canvas-container.physics-authoring-fixate .excalidraw__canvas,
+#canvas-container.physics-authoring-fixate .excalidraw__canvas * {
   cursor: crosshair !important;
 }
 

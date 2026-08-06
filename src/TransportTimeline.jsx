@@ -137,10 +137,15 @@ const TransportTimeline = memo(function TransportTimeline({
       const currentViewEnd = interactionRef.current.viewEnd;
       const currentViewDuration = currentViewEnd - currentViewStart;
       const rawTime = clamp(currentViewStart + (event.clientX - rect.left) / rect.width * currentViewDuration, currentViewStart, currentViewEnd);
+      // The playhead has a generous label-sized target. Preserve where within
+      // that target it was grabbed so the marker does not jump under the
+      // pointer before the user begins dragging.
+      const offsetTime = drag.kind === "playhead" ? (drag.playheadOffset || 0) : 0;
+      const offsetRawTime = clamp(rawTime + offsetTime, currentViewStart, currentViewEnd);
       const snapLevel = snapLevelFromPointer(event);
       const time = snapLevel && drag.kind !== "loop-range"
-        ? snapTimelineTime(rawTime, currentDuration, interactionRef.current.displayMode, interactionRef.current, snapLevel)
-        : rawTime;
+        ? snapTimelineTime(offsetRawTime, currentDuration, interactionRef.current.displayMode, interactionRef.current, snapLevel)
+        : offsetRawTime;
       if (drag.kind === "playhead") {
         drag.time = time;
         seek(time);
@@ -233,6 +238,20 @@ const TransportTimeline = memo(function TransportTimeline({
     beginDrag(event, { kind: "playhead", time });
   };
 
+  const grabExistingPlayhead = event => {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    const rawTime = timeFromPointer(event.clientX);
+    beginDrag(event, {
+      kind: "playhead",
+      time: currentTime,
+      // The hit target intentionally extends over the frame label, which is
+      // offset to the right of the line. Holding this offset keeps a label
+      // drag anchored to the current playhead until it is moved.
+      playheadOffset: currentTime - rawTime,
+    });
+  };
+
   const percentInView = time => (time - viewStart) / viewDuration * 100;
   const playheadVisible = currentTime >= viewStart && currentTime <= viewEnd;
   const playheadPercent = percentInView(currentTime);
@@ -300,9 +319,19 @@ const TransportTimeline = memo(function TransportTimeline({
               /> : null}
           </>
         ) : null}
-        {playheadVisible ? <div className="iannix-timeline-playhead" style={{ left: `${playheadPercent}%` }} aria-hidden="true">
-          <span>{formatTimelinePosition(currentTime, "frame", options)}</span>
-        </div> : null}
+        {playheadVisible ? <>
+          <div className="iannix-timeline-playhead" style={{ left: `${playheadPercent}%` }} aria-hidden="true">
+            <span>{formatTimelinePosition(currentTime, "frame", options)}</span>
+          </div>
+          <button
+            type="button"
+            className="iannix-timeline-playhead-hitbox"
+            style={{ left: `${playheadPercent}%` }}
+            onPointerDown={grabExistingPlayhead}
+            aria-label={`Drag playhead at ${formatTimelinePosition(currentTime, "frame", options)}`}
+            title="Drag playhead"
+          />
+        </> : null}
       </div>
       <div
         ref={zoomRef}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import InspectorSection from "./InspectorSection.jsx";
 import { createDefaultPhysicsSystem, normalizePhysicsConstraint, normalizeRelationshipGraph, normalizeRelationshipMapping } from "./relationshipGraph.js";
 import { compileMappingExpression } from "./mappingExpression.js";
@@ -6,6 +6,111 @@ import { getPhysicsColliderSelectionValue } from "./physicsGeometry.js";
 import { infoProps } from "./uiInfo.js";
 
 const Button = ({ children, active = false, ...props }) => <button type="button" className={`iannix-flat-button physics-flat-button${active ? " active" : ""}`} {...props}>{children}</button>;
+
+const DEBUG_ENTRIES = Object.freeze([
+  ["bodies", "Bodies", "Physics body outlines"],
+  ["colliders", "Colliders", "Collision shapes and contact skin"],
+  ["constraints", "Springs + constraints", "Joints, springs, and constraint links"],
+  ["labels", "Labels", "Object and constraint labels"],
+  ["contacts", "Contacts", "Contact points"],
+  ["collisions", "Collision pulses", "Recent collision rings"],
+  ["forces", "Contact forces", "Contact normal and impulse vectors"],
+]);
+
+const DEBUG_COLOR_FALLBACKS = Object.freeze({
+  bodies: "#518effe6",
+  colliders: "#61d5b1f2",
+  constraints: "#ffbe50f2",
+  labels: "#6db7ffff",
+  contacts: "#61d5b1ff",
+  collisions: "#ff7867ff",
+  forces: "#ffd05eff",
+});
+
+const isCssColor = value => {
+  const candidate = String(value || "").trim();
+  if (!candidate) return false;
+  if (typeof CSS !== "undefined" && typeof CSS.supports === "function") {
+    return CSS.supports("color", candidate);
+  }
+  if (typeof document !== "undefined") {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (context) {
+      const sentinel = "#010203";
+      context.fillStyle = sentinel;
+      context.fillStyle = candidate;
+      return String(context.fillStyle || "").toLowerCase() !== sentinel;
+    }
+  }
+  return /^(?:[a-z][a-z0-9-]*|(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color|color-mix)\s*\()/i.test(candidate);
+};
+
+const normalizeDebugColor = (value, fallback) => {
+  const candidate = String(value || "").trim();
+  if (candidate.toLowerCase() === "object") return "object";
+  if (/^#[0-9a-f]{6}$/i.test(candidate)) return `${candidate.toLowerCase()}ff`;
+  if (/^#[0-9a-f]{8}$/i.test(candidate)) return candidate.toLowerCase();
+  return isCssColor(candidate) ? candidate : fallback;
+};
+
+const cssColorToHex = (value, fallback) => {
+  const candidate = String(value || "").trim();
+  if (/^#[0-9a-f]{6}$/i.test(candidate)) return candidate.toLowerCase();
+  if (/^#[0-9a-f]{8}$/i.test(candidate)) return candidate.slice(0, 7).toLowerCase();
+  if (typeof document === "undefined") return fallback;
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) return fallback;
+  const sentinel = "#010203";
+  context.fillStyle = sentinel;
+  context.fillStyle = candidate;
+  const resolved = String(context.fillStyle || "");
+  const match = resolved.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
+  if (!match || resolved.toLowerCase() === sentinel) return fallback;
+  return `#${match.slice(1, 4).map(channel => Math.min(255, Math.max(0, Math.round(Number(channel)))).toString(16).padStart(2, "0")).join("")}`;
+};
+
+function DebugColorPicker({ keyName, label, description, value, active, disabled, onToggle, onChange }) {
+  const fallback = DEBUG_COLOR_FALLBACKS[keyName] || "#ffffffcc";
+  const color = normalizeDebugColor(value, fallback);
+  const [draft, setDraft] = useState(color);
+  useEffect(() => setDraft(color), [color]);
+  const colorInputValue = color === "object" ? fallback.slice(0, 7) : cssColorToHex(draft, fallback.slice(0, 7));
+  const alphaSuffix = /^#[0-9a-f]{8}$/i.test(color) ? color.slice(7) : "";
+  const commit = next => {
+    const normalized = normalizeDebugColor(next, color);
+    setDraft(normalized);
+    onChange(normalized);
+  };
+  return <div className="physics-debug-color-field" title={description}>
+    <button
+      type="button"
+      className={`physics-debug-color-toggle${active ? " active" : ""}`}
+      disabled={disabled}
+      onClick={onToggle}
+    >{label}</button>
+    <span className="physics-debug-color-control">
+      <input
+        type="color"
+        aria-label={`${label} color`}
+        value={colorInputValue}
+        disabled={disabled}
+        onChange={event => commit(`${event.target.value}${color === "object" ? "" : alphaSuffix}`)}
+      />
+      <input
+        type="text"
+        aria-label={`${label} CSS color`}
+        value={draft}
+        disabled={disabled}
+        spellCheck="false"
+        onChange={event => setDraft(event.target.value)}
+        onBlur={() => commit(draft)}
+        onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); commit(draft); event.currentTarget.blur(); } }}
+      />
+    </span>
+  </div>;
+}
 
 const COLLISION_FORMULA_VALUES = "Values: raw (selected source field), norm (source range normalized), value (transformed output), impulse, speed (relative impact speed), x/y (contact point), normalX/normalY; aX/aY/aVx/aVy/aSpeed and bX/bY/bVx/bVy/bSpeed; a/b angle, angular velocity, mass, friction, bounce, density; object note as aNote/noteA and bNote/noteB; gravityX/gravityY, worldTime, step, timeScale, simSpeed, pixelsPerMeter.";
 const FORMULA_LANGUAGE = "Safe language: numbers, arithmetic, comparisons, &&, ||, !, parentheses, if, abs, min, max, clamp, round, floor, ceil, pow. No JavaScript or object access.";
@@ -42,7 +147,6 @@ export default function PhysicsPanel({
   onActiveSystemChange,
   selectedElementCount = 0,
   selectedElementIds = {},
-  activeTool = null,
   telemetry = {},
   debug = {},
   onDebugChange,
@@ -60,6 +164,7 @@ export default function PhysicsPanel({
   onApply,
   onAssignBody,
   onAssignCollider,
+  onMakeConstraint,
   onCreatePopulation,
   onBeginTool,
   onAddMapping,
@@ -228,16 +333,18 @@ export default function PhysicsPanel({
           <input type="checkbox" checked={debug.enabled === true} onChange={event => patchDebug({ enabled: event.target.checked })} />
           <span>Show physics diagnostics</span>
         </label>
-        <div className="physics-debug-grid" aria-disabled={!debug.enabled}>
-          {[
-            ["bodies", "Bodies"],
-            ["colliders", "Colliders"],
-            ["constraints", "Springs + constraints"],
-            ["labels", "Body labels"],
-            ["contacts", "Contacts"],
-            ["collisions", "Collision pulses"],
-            ["forces", "Contact forces"],
-          ].map(([key, label]) => <Button key={key} active={debug[key] === true} disabled={!debug.enabled} onClick={() => patchDebug({ [key]: !debug[key] })}>{label}</Button>)}
+        <div className="physics-debug-colors" aria-disabled={!debug.enabled}>
+          {DEBUG_ENTRIES.map(([key, label, description]) => <DebugColorPicker
+            key={key}
+            keyName={key}
+            label={label}
+            description={description}
+            value={debug.colors?.[key]}
+            active={debug[key] === true}
+            disabled={!debug.enabled}
+            onToggle={() => patchDebug({ [key]: !debug[key] })}
+            onChange={value => patchDebug({ colors: { ...(debug.colors || {}), [key]: value } })}
+          />)}
         </div>
       </InspectorSection>
 
@@ -251,7 +358,7 @@ export default function PhysicsPanel({
             onUpdate={patch => updateConstraint(constraint.id, patch)}
             onRemove={() => removeConstraint(constraint.id)}
           />)}
-          {!systemConstraints.length && <div className="physics-empty">Choose Spring, Fixate, or Axle, then author it on the canvas.</div>}
+          {!systemConstraints.length && <div className="physics-empty">Select a pivot object, then choose Make axle or Make fixate.</div>}
         </div>
       </InspectorSection>
 
@@ -263,14 +370,16 @@ export default function PhysicsPanel({
           <Button disabled={!selectedElementCount} onClick={() => onAssignCollider({ systemId: system.id, sensor: true })}>Sensor</Button>
         </div>
         <div className="physics-tool-grid">
-          {[
-            ["spring", "Spring", "Click two attachment points; its initial length becomes the resting length."],
-            ["fixate", "Fixate", "Click one body: it welds to the body underneath, or to World when there is none."],
-            ["axle", "Axle", "Click one body: it hinges to the body underneath, or to World when there is none."],
-            ["distance", "Distance", "A stiffer spring between two attachment points."],
-            ["revolute", "Revolute", "Compatibility hinge tool; Axle is the canvas-first equivalent."],
-            ["weld", "Weld", "Compatibility rigid joint tool; Fixate is the canvas-first equivalent."],
-          ].map(([kind, label, help]) => <Button key={kind} active={activeTool === kind} onClick={() => onBeginTool(kind, system.id)} {...infoProps(label, help)}>{label}</Button>)}
+          <Button
+            disabled={!selectedElementCount}
+            onClick={() => onMakeConstraint?.({ kind: "fixate", systemId: system.id })}
+            {...infoProps("Make fixate object", "Converts each selected canvas object into a Fixate pivot. The pivot centre automatically welds one overlapping body to World, or two overlapping bodies together.")}
+          >Make fixate</Button>
+          <Button
+            disabled={!selectedElementCount}
+            onClick={() => onMakeConstraint?.({ kind: "axle", systemId: system.id })}
+            {...infoProps("Make axle object", "Converts each selected canvas object into a freely rotating Axle pivot. The pivot centre automatically connects one overlapping body to World, or two overlapping bodies together.")}
+          >Make axle</Button>
         </div>
         {selectedBody && <div className="physics-selected-properties">
           {selectedBodies.length === 1 && <label className="physics-field"><span>Physics name</span><input value={selectedBody.name} onChange={event => patchSelectedBody({ name: event.target.value })} /></label>}
@@ -348,6 +457,14 @@ function ConstraintCard({ constraint: constraintValue, expanded, onToggle, onUpd
   const constraint = normalizePhysicsConstraint(constraintValue);
   const isSpring = ["spring", "distance"].includes(constraint.kind);
   const isAxle = ["axle", "pin", "revolute"].includes(constraint.kind);
+  const limitDegrees = radians => Number((radians * 180 / Math.PI).toFixed(2));
+  const setLimitsEnabled = enabled => onUpdate(enabled
+    ? {
+        limitsEnabled: true,
+        lowerLimit: constraint.lowerLimit ?? -Math.PI,
+        upperLimit: constraint.upperLimit ?? Math.PI,
+      }
+    : { limitsEnabled: false, lowerLimit: null, upperLimit: null });
   return <article className="physics-constraint-card">
     <div className="physics-constraint-header">
       <button type="button" className="physics-mapping-toggle" onClick={onToggle} aria-expanded={expanded}>
@@ -372,10 +489,13 @@ function ConstraintCard({ constraint: constraintValue, expanded, onToggle, onUpd
         <label className="physics-field"><span>Stiffness</span><input type="number" min="0" step="1" value={constraint.stiffness} onChange={event => onUpdate({ stiffness: event.target.valueAsNumber })} /></label>
         <label className="physics-field"><span>Damping</span><input type="number" min="0" step="0.1" value={constraint.damping} onChange={event => onUpdate({ damping: event.target.valueAsNumber })} /></label>
       </div>}
-      {isAxle && <div className="physics-two-column">
-        <label className="physics-field" {...infoProps("Lower angle limit", "Optional axle limit in radians. Enter both limits to enable them.")}><span>Lower limit</span><input type="number" step="0.1" value={constraint.lowerLimit ?? ""} onChange={event => onUpdate({ lowerLimit: event.target.value === "" ? null : event.target.valueAsNumber })} /></label>
-        <label className="physics-field" {...infoProps("Upper angle limit", "Optional axle limit in radians. Enter both limits to enable them.")}><span>Upper limit</span><input type="number" step="0.1" value={constraint.upperLimit ?? ""} onChange={event => onUpdate({ upperLimit: event.target.value === "" ? null : event.target.valueAsNumber })} /></label>
-      </div>}
+      {isAxle && <>
+        <label className="physics-check" {...infoProps("Limit rotation", "Off means an axle can rotate freely through 360 degrees. Enable it to define a lower and upper angle in degrees.")}><input type="checkbox" checked={constraint.limitsEnabled === true} onChange={event => setLimitsEnabled(event.target.checked)} /><span>Limit rotation · {constraint.limitsEnabled ? "custom" : "full 360°"}</span></label>
+        <div className="physics-two-column">
+          <label className="physics-field" {...infoProps("Lower angle limit", "Axle limit in degrees. Both limits are required when rotation limits are enabled.")}><span>Lower limit (°)</span><input type="number" step="1" disabled={!constraint.limitsEnabled} value={constraint.lowerLimit === null ? "" : limitDegrees(constraint.lowerLimit)} onChange={event => onUpdate({ limitsEnabled: true, lowerLimit: event.target.value === "" ? null : event.target.valueAsNumber * Math.PI / 180 })} /></label>
+          <label className="physics-field" {...infoProps("Upper angle limit", "Axle limit in degrees. Both limits are required when rotation limits are enabled.")}><span>Upper limit (°)</span><input type="number" step="1" disabled={!constraint.limitsEnabled} value={constraint.upperLimit === null ? "" : limitDegrees(constraint.upperLimit)} onChange={event => onUpdate({ limitsEnabled: true, upperLimit: event.target.value === "" ? null : event.target.valueAsNumber * Math.PI / 180 })} /></label>
+        </div>
+      </>}
     </div>}
   </article>;
 }

@@ -14,6 +14,7 @@ import { getSvgNodeStyleCascade, updateStructuredSvgStyleDeclaration } from "./s
 import { isMediaStreamElement, MEDIA_STREAM_KINDS, normalizeMediaStreamConfig, patchMediaStreamConfig } from "./mediaStream.js";
 import { getScoreData } from "./iannixEngine.js";
 import { getPhysicsColliderSelectionValue } from "./physicsGeometry.js";
+import { normalizePhysicsConstraint } from "./relationshipGraph.js";
 import { getInspectableCustomData } from "./propertyInspectorModel.js";
 
 const READ_ONLY_KEYS = new Set([
@@ -730,6 +731,120 @@ const physicsBodyMatchesQuery = (body, query) => {
 
 const physicsBodyFieldCount = (body, query) => physicsBodyMatchesQuery(body, query) ? 12 : 0;
 
+const physicsConstraintLabel = kind => ({
+  fixate: "Fixate",
+  axle: "Axle",
+  spring: "Spring",
+  distance: "Distance",
+  pin: "Pin",
+  revolute: "Revolute",
+  weld: "Weld",
+  attractor: "Attractor",
+  thruster: "Thruster",
+  tracer: "Tracer",
+  chain: "Chain",
+}[kind] || "Constraint");
+
+const physicsConstraintMatchesQuery = (constraint, query) => {
+  if (!constraint) return false;
+  if (!query?.needle) return true;
+  const label = physicsConstraintLabel(constraint.kind).toLowerCase();
+  return [
+    "physics", "constraint", "role", "name", "kind", "connect", "endpoint", "enabled",
+    "collide", "rest length", "stiffness", "damping", "limit", "lower", "upper", "break", label,
+    constraint.name, constraint.kind,
+  ].some(value => String(value || "").toLowerCase().includes(query.needle));
+};
+
+const physicsConstraintFieldCount = (constraint, query) => physicsConstraintMatchesQuery(constraint, query) ? 10 : 0;
+
+const constraintEndpointElementId = endpoint => endpoint?.kind === "object" ? endpoint.objectRef?.elementId || "" : "";
+
+const PhysicsConstraintControls = ({
+  constraint: constraintValue,
+  physicsBodies = [],
+  availableElements = [],
+  query,
+  onChange,
+  onEndpointChange,
+  onRemove,
+}) => {
+  const constraint = constraintValue ? normalizePhysicsConstraint(constraintValue) : null;
+  if (!physicsConstraintMatchesQuery(constraint, query)) return null;
+  const matches = name => !query?.needle || name.includes(query.needle) || String(constraint.kind).includes(query.needle);
+  const label = physicsConstraintLabel(constraint.kind);
+  const isSpring = ["spring", "distance"].includes(constraint.kind);
+  const isHinge = ["axle", "pin", "revolute"].includes(constraint.kind);
+  const elementById = new Map(availableElements.map(element => [element.id, element]));
+  const endpointOptions = physicsBodies
+    .filter(body => (
+      body.systemId === constraint.systemId
+      && body.objectRef?.kind === "element"
+      && body.objectRef.elementId !== constraint.objectRef?.elementId
+    ))
+    .map(body => {
+      const id = body.objectRef.elementId;
+      const element = elementById.get(id);
+      const name = body.name || getElementName(element) || element?.type || "Object";
+      return { id, label: `${name} · ${id.slice(0, 8)}` };
+    });
+  const endpointOptionMap = new Map(endpointOptions.map(option => [option.id, option]));
+  const endpointLabel = elementId => endpointOptionMap.get(elementId)?.label
+    || `${getElementName(elementById.get(elementId)) || elementById.get(elementId)?.type || "Object"} · ${elementId.slice(0, 8)}`;
+  const setLimitsEnabled = enabled => onChange(enabled
+    ? { limitsEnabled: true, lowerLimit: constraint.lowerLimit ?? -Math.PI, upperLimit: constraint.upperLimit ?? Math.PI }
+    : { limitsEnabled: false, lowerLimit: null, upperLimit: null });
+  const limitDegrees = radians => Number((radians * 180 / Math.PI).toFixed(2));
+  const kindOptions = [
+    ["fixate", "Fixate"], ["axle", "Axle"], ["spring", "Spring"], ["distance", "Distance"],
+    ["pin", "Pin"], ["revolute", "Revolute"], ["weld", "Weld"], ["attractor", "Attractor"],
+    ["thruster", "Thruster"], ["tracer", "Tracer"], ["chain", "Chain"],
+  ];
+  return <>
+    <details className="properties-group properties-physics-group" open>
+      <summary><span>Physics role</span><small>{label}</small></summary>
+      <div className="properties-children">
+        {matches("role") && <div className="properties-row editable"><span>role</span><select value={constraint.kind} onChange={event => onChange({ kind: event.target.value })}>
+          {kindOptions.map(([value, optionLabel]) => <option key={value} value={value}>{optionLabel}</option>)}
+        </select></div>}
+      </div>
+    </details>
+    <details className="properties-group properties-physics-group" open>
+      <summary><span>Constraint pivot</span><small>{label} · {constraint.enabled ? "enabled" : "disabled"}</small></summary>
+      <div className="properties-children">
+        {matches("name") && <div className="properties-row editable"><span>name</span><input type="text" value={constraint.name} onChange={event => onChange({ name: event.target.value })} /></div>}
+        {matches("connect") && <>
+          <div className="properties-row editable"><span>connect A</span><select value={constraint.a?.kind === "world" ? "world" : constraintEndpointElementId(constraint.a)} onChange={event => onEndpointChange?.("a", event.target.value)}>
+            <option value="world">World</option>
+            <option value="" disabled>Choose body</option>
+            {endpointOptions.map(option => <option key={option.id} value={option.id}>{endpointLabel(option.id)}</option>)}
+          </select></div>
+          <div className="properties-row editable"><span>connect B</span><select value={constraint.b?.kind === "world" ? "world" : constraintEndpointElementId(constraint.b)} onChange={event => onEndpointChange?.("b", event.target.value)}>
+            <option value="world">World</option>
+            {endpointOptions.filter(option => option.id !== constraintEndpointElementId(constraint.a)).map(option => <option key={option.id} value={option.id}>{endpointLabel(option.id)}</option>)}
+          </select></div>
+        </>}
+        {matches("enabled") && <div className="properties-row editable"><span>enabled</span><input type="checkbox" checked={constraint.enabled} onChange={event => onChange({ enabled: event.target.checked })} /></div>}
+        {matches("collide") && <div className="properties-row editable"><span>collide while connected</span><input type="checkbox" checked={constraint.collideConnected} onChange={event => onChange({ collideConnected: event.target.checked })} /></div>}
+        {isSpring && <>
+          {matches("rest length") && <div className="properties-row editable"><span>rest length</span><input type="number" min="0" step="1" value={constraint.restLength} onChange={event => onChange({ restLength: event.target.valueAsNumber })} /></div>}
+          {matches("stiffness") && <div className="properties-row editable"><span>stiffness</span><input type="number" min="0" step="1" value={constraint.stiffness} onChange={event => onChange({ stiffness: event.target.valueAsNumber })} /></div>}
+          {matches("damping") && <div className="properties-row editable"><span>damping</span><input type="number" min="0" step="0.1" value={constraint.damping} onChange={event => onChange({ damping: event.target.valueAsNumber })} /></div>}
+        </>}
+        {isHinge && <>
+          {matches("limit") && <div className="properties-row editable"><span>limit rotation</span><input type="checkbox" checked={constraint.limitsEnabled === true} onChange={event => setLimitsEnabled(event.target.checked)} /></div>}
+          <>
+            {matches("lower") && <div className="properties-row editable"><span>lower limit (°)</span><input type="number" step="1" disabled={!constraint.limitsEnabled} value={constraint.lowerLimit === null ? "" : limitDegrees(constraint.lowerLimit)} onChange={event => onChange({ limitsEnabled: true, lowerLimit: event.target.value === "" ? null : event.target.valueAsNumber * Math.PI / 180 })} /></div>}
+            {matches("upper") && <div className="properties-row editable"><span>upper limit (°)</span><input type="number" step="1" disabled={!constraint.limitsEnabled} value={constraint.upperLimit === null ? "" : limitDegrees(constraint.upperLimit)} onChange={event => onChange({ limitsEnabled: true, upperLimit: event.target.value === "" ? null : event.target.valueAsNumber * Math.PI / 180 })} /></div>}
+          </>
+        </>}
+        {matches("break") && <div className="properties-row editable"><span>break force</span><input type="number" min="0" step="1" value={constraint.breakForce ?? ""} placeholder="unlimited" onChange={event => onChange({ breakForce: event.target.value === "" ? null : event.target.valueAsNumber })} /></div>}
+        <button type="button" className="iannix-flat-button" onClick={() => onRemove?.()}>Remove {label.toLowerCase()}</button>
+      </div>
+    </details>
+  </>;
+};
+
 const PhysicsRoleControls = ({ body, element, query, onChange, onColliderKindChange, onRemove }) => {
   if (!physicsBodyMatchesQuery(body, query)) return null;
   const matches = name => !query?.needle || name.includes(query.needle);
@@ -882,9 +997,13 @@ const PropertiesPanel = memo(function PropertiesPanel({
   elements = [],
   availableElements = elements,
   physicsBodies = [],
+  physicsConstraints = [],
   onPhysicsBodyChange,
   onPhysicsBodiesChange,
   onPhysicsBodyRemove,
+  onPhysicsConstraintChange,
+  onPhysicsConstraintRemove,
+  onPhysicsConstraintEndpointChange,
   onScoreChange,
   selectedSvgNode = null,
   onChange,
@@ -934,10 +1053,11 @@ const PropertiesPanel = memo(function PropertiesPanel({
       + collectLeafEntries(propertyTreeValue(element)).filter(entry => leafMatches(entry.value, entry.path, query)).length
       + scoreRoleFieldCount(element, query)
       + physicsBodyFieldCount(physicsBodies.find(body => body.objectRef?.kind === "element" && body.objectRef.elementId === element.id), query)
+      + physicsConstraintFieldCount(physicsConstraints.find(constraint => constraint.objectRef?.kind === "element" && constraint.objectRef.elementId === element.id), query)
       + (embedMatchesQuery(element, query) ? 4 : 0)
       + (p5MatchesQuery(element, query) ? 6 : 0)
       + (svgMatchesQuery(element, query) ? svgFieldCount(element) : 0)
-  ), 0), [elements, physicsBodies, query]);
+  ), 0), [elements, physicsBodies, physicsConstraints, query]);
   const sharedPath = path => isSharedEditablePath(elements, path);
   const selectedPhysicsBodies = useMemo(() => elements.map(element => physicsBodies.find(body => (
     body.objectRef?.kind === "element" && body.objectRef.elementId === element.id
@@ -1027,6 +1147,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
           const elementMatchCount = collectLeafEntries(elementValue).filter(entry => leafMatches(entry.value, entry.path, query)).length
             + scoreRoleFieldCount(element, query)
             + physicsBodyFieldCount(physicsBodies.find(body => body.objectRef?.kind === "element" && body.objectRef.elementId === element.id), query)
+            + physicsConstraintFieldCount(physicsConstraints.find(constraint => constraint.objectRef?.kind === "element" && constraint.objectRef.elementId === element.id), query)
             + (embedMatchesQuery(element, query) ? 4 : 0)
             + (p5MatchesQuery(element, query) ? 6 : 0)
             + (svgMatchesQuery(element, query) ? svgFieldCount(element) : 0);
@@ -1109,6 +1230,24 @@ const PropertiesPanel = memo(function PropertiesPanel({
                 onRemove={() => {
                   const body = physicsBodies.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id);
                   if (body) onPhysicsBodyRemove?.(body.id);
+                }}
+              />
+              <PhysicsConstraintControls
+                constraint={physicsConstraints.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id)}
+                physicsBodies={physicsBodies}
+                availableElements={availableElements}
+                query={query}
+                onChange={patch => {
+                  const constraint = physicsConstraints.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id);
+                  if (constraint) onPhysicsConstraintChange?.(constraint.id, patch);
+                }}
+                onEndpointChange={(side, endpointElementId) => {
+                  const constraint = physicsConstraints.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id);
+                  if (constraint) onPhysicsConstraintEndpointChange?.(constraint.id, side, endpointElementId);
+                }}
+                onRemove={() => {
+                  const constraint = physicsConstraints.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id);
+                  if (constraint) onPhysicsConstraintRemove?.(constraint.id);
                 }}
               />
               <EmbedControls element={element} query={query} onChange={(path, value) => onChange([element.id], path, value)} />

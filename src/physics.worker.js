@@ -15,12 +15,20 @@ let timer = 0;
 let transportTime = 0;
 let transportScrubbing = false;
 let loadRevision = 0;
+// This is supplied by the main thread for every graph load. Message delivery
+// is asynchronous, so tag every result with it and let the main thread ignore
+// poses/events from a superseded graph.
+let graphRevision = 0;
 // `play` can arrive immediately after `load`, while Rapier is still resolving.
 // Keep intent outside the rebuilt runtime so the request survives initialization.
 let playAllRequested = false;
 const requestedPlayingSystems = new Set();
+// A graph load awaits the Rapier module. Paused posing can be requested in the
+// same authoring gesture that rebuilds the graph, so retain the request until
+// that graph's runtime exists instead of solving against the previous world.
+const pendingRelaxMessages = [];
 
-const post = (type, detail = {}, transfer = []) => self.postMessage({ type, ...detail }, transfer);
+const post = (type, detail = {}, transfer = []) => self.postMessage({ type, graphRevision, ...detail }, transfer);
 
 const disposeSystems = () => {
   for (const runtime of systems.values()) runtime.dispose();
@@ -32,7 +40,7 @@ const disposeSystems = () => {
   transportScrubbing = false;
 };
 
-const initialize = async graphValue => {
+const initialize = async (graphValue, requestedGraphRevision = graphRevision + 1) => {
   const revision = ++loadRevision;
   disposeSystems();
   const nextGraph = normalizeRelationshipGraph(graphValue);
@@ -52,6 +60,7 @@ const initialize = async graphValue => {
     return;
   }
   graph = nextGraph;
+  graphRevision = requestedGraphRevision;
   for (const [systemId, runtime] of nextSystems) systems.set(systemId, runtime);
   for (const [systemId, values] of nextCheckpoints) checkpoints.set(systemId, values);
   for (const system of graph.systems) {
@@ -63,6 +72,16 @@ const initialize = async graphValue => {
   const metadata = {};
   for (const [systemId, runtime] of systems) metadata[systemId] = runtime.poses().metadata;
   post("ready", { systems: graph.systems, metadata });
+  const pending = pendingRelaxMessages.splice(0);
+  for (const message of pending) {
+    if (message.revision !== undefined && message.revision !== graphRevision) continue;
+    const runtime = systems.get(message.systemId);
+    if (!runtime) continue;
+    const poses = runtime.relaxConstraints(message.entityIds, message.iterations);
+    dirtySystems.add(message.systemId);
+    post("relaxed", { requestId: message.requestId, systemId: message.systemId, poses });
+  }
+  if (pending.length) publishPoses(performance.now());
 };
 
 const recordCheckpoint = (systemId, runtime) => {
@@ -173,11 +192,12 @@ const tick = () => {
 self.onmessage = event => {
   const message = event.data || {};
   if (message.type === "load") {
-    initialize(message.graph).catch(error => post("error", { message: error?.message || String(error), stack: error?.stack || "" }));
+    initialize(message.graph, message.revision).catch(error => post("error", { message: error?.message || String(error), stack: error?.stack || "" }));
     return;
   }
   if (message.type === "dispose") {
     disposeSystems();
+    pendingRelaxMessages.length = 0;
     playAllRequested = false;
     requestedPlayingSystems.clear();
     if (timer) clearInterval(timer);
@@ -238,14 +258,38 @@ self.onmessage = event => {
     runtime?.applyImpulse(message.entityId, message.impulse);
     if (runtime) dirtySystems.add(message.systemId);
   } else if (message.type === "grab") {
-    runtime?.grab(message.entityId, message.point, message.stiffness, message.damping);
-    if (runtime) dirtySystems.add(message.systemId);
+    runtime?.grab(message.entityId, message.point, message.stiffness, message.damping, { livePose: message.livePose === true });
+    if (runtime) {
+      dirtySystems.add(message.systemId);
+      if (message.livePose === true) publishPoses(performance.now());
+    }
+  } else if (message.type === "grab.constraint") {
+    runtime?.grabConstraint(message.constraintId, message.point, message.stiffness, message.damping, { livePose: message.livePose === true });
+    if (runtime) {
+      dirtySystems.add(message.systemId);
+      if (message.livePose === true) publishPoses(performance.now());
+    }
   } else if (message.type === "grab.move") {
-    runtime?.moveGrab(message.point);
-    if (runtime) dirtySystems.add(message.systemId);
+    runtime?.moveGrab(message.point, { livePose: message.livePose === true, iterations: message.iterations });
+    if (runtime) {
+      dirtySystems.add(message.systemId);
+      if (message.livePose === true) publishPoses(performance.now());
+    }
   } else if (message.type === "grab.release") {
     runtime?.releaseGrab();
     if (runtime) dirtySystems.add(message.systemId);
+  } else if (message.type === "relax") {
+    // `load` is ordered before this message but finishes asynchronously. Queue
+    // until the matching graph is available so a scrubbed authoring pose does
+    // not accidentally solve against an older reset state.
+    if (!runtime || (message.revision !== undefined && message.revision !== graphRevision)) {
+      pendingRelaxMessages.push(message);
+      return;
+    }
+    const poses = runtime.relaxConstraints(message.entityIds, message.iterations);
+    dirtySystems.add(message.systemId);
+    post("relaxed", { requestId: message.requestId, systemId: message.systemId, poses });
+    publishPoses(performance.now());
   } else if (message.type === "buffer.return" && message.buffer instanceof ArrayBuffer) {
     bufferPool.set(message.systemId, message.buffer);
   } else if (message.type === "snapshot") {
