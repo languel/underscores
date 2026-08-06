@@ -51,7 +51,7 @@ return { char: "●", color: __.colors.foreground.css };
 | `inputs` | `registerAdapter(adapter)`, `unregisterAdapter(id)`, `emit(sample)` |
 | `events` | `subscribe(pattern, listener)` |
 | `relations` | Graph `get()`, `set(graph)`, `add(collection, item)`, `update(collection, id, patch)`, `remove(collection, id)`; `mappings.list(systemId)`, `mappings.create(item)`, `mappings.update(id, patch)`, and `mappings.remove(id)`; endpoint, adapter, collision-stream, and relationship-event helpers |
-| `physics` | `world.get()` / `world.update(patch)`; system/body/population/constraint/mapping helpers; a legacy `routes` compatibility collection; `play`, `pause`, `reset`, `apply`, `materialize`, `impulse`, `grab`, `moveGrab`, `releaseGrab`, `poses`, `telemetry`, and `snapshot`. `world.pausedEditMode` defaults to `author` (paused canvas edits update the reset pose); set it to `preview` to preserve the reset pose. Authored body settings live at `object.customData.physics`, including `collider.kind` (`circle`, `ellipse`, `box`, `convex`, `polyline`, or compound `chain`); the relationship graph supplies only its stable relationship binding. `customData.draweratorPhysics` remains a read-only legacy alias. |
+| `physics` | `world.get()` / `world.update(patch)`; system/body/population/constraint/mapping helpers; a legacy `routes` compatibility collection; `play`, `pause`, `reset`, `apply`, `materialize`, `impulse`, `grab`, `moveGrab`, `releaseGrab`, `poses`, `telemetry`, and `snapshot`. `world.pausedEditMode` defaults to `author` (paused canvas edits update the reset pose); set it to `preview` to preserve the reset pose. `world.collisionLayers` owns the named layer stack and symmetric contact matrix. Authored body settings live at `object.customData.physics`, including `collider.kind` (`circle`, `ellipse`, `box`, `convex`, `polyline`, or compound `chain`) and optional `collisionLayers` membership; the relationship graph supplies only its stable relationship binding. `customData.draweratorPhysics` remains a read-only legacy alias. |
 | `mixer` | `get()`, `updateTrack(trackId, patch)`, `addTrack(overrides)`, `removeTrack(trackId)` |
 | `streams` | `list()`, `get(idOrName)`, `subscribe(listener)`; returned streams expose `feature(id, { space })`, `features(query)`, and `subscribe(listener)` |
 
@@ -79,6 +79,8 @@ and actor commands.
 API version 7 adds the solver-independent `relations` and worker-backed `physics` namespaces. API
 version 8 adds canonical Source -> Filter -> Transform -> Target mappings at
 `__.relations.mappings`; the narrow `__.physics.routes` API remains a compatibility wrapper.
+Relationship graph version 3 adds named Physics collision layers. Bodies with no named
+membership retain their legacy raw Rapier collision masks until edited.
 Trusted script hosts also expose the same public surface at `__.api` for compatibility.
 Scene exchange version 10 persists `drawerator.relationshipGraph`; runtime handles, live poses,
 samples, queues, and checkpoints never enter scene JSON. See [Canvas-first relationships and physics](physics.md)

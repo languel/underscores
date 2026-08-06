@@ -1027,6 +1027,107 @@ body .excalidraw .sidebar {
   color: var(--color-secondary);
 }
 
+.physics-layer-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+.physics-layer-toolbar .physics-flat-button {
+  min-width: 96px;
+}
+
+.physics-layer-list {
+  display: grid;
+  gap: 4px;
+}
+
+.physics-layer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 6px;
+}
+
+.physics-layer-row .physics-field {
+  margin-bottom: 0;
+}
+
+.physics-layer-row .physics-flat-button {
+  min-height: 28px;
+  padding: 2px 7px;
+}
+
+.physics-layer-matrix {
+  display: grid;
+  gap: 3px;
+  margin-top: 9px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.physics-layer-matrix-head,
+.physics-layer-matrix-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) repeat(var(--physics-layer-count, 1), 30px);
+  align-items: center;
+  gap: 3px;
+  min-width: max-content;
+}
+
+.physics-layer-matrix-head {
+  color: var(--color-secondary);
+  font-size: 11px;
+}
+
+.physics-layer-matrix-head > span:not(:first-child),
+.physics-layer-matrix-row > label {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.physics-layer-matrix-row > strong {
+  overflow: hidden;
+  color: var(--color-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.physics-layer-matrix input[type="checkbox"],
+.physics-collision-layer-memberships input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--drawerator-accent, currentColor);
+}
+
+.physics-collision-layer-field {
+  align-items: start;
+}
+
+.physics-collision-layer-memberships {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-height: 28px;
+  padding-top: 4px;
+}
+
+.physics-collision-layer-memberships label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-primary, inherit);
+  font-size: 12px;
+}
+
 .physics-mapping-list {
   display: grid;
   gap: 6px;
@@ -5144,6 +5245,10 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .properties-row select { min-width: 0; width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--color-primary); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .properties-row input.properties-embed-url { color: var(--drawerator-foreground, var(--color-primary)) !important; caret-color: var(--drawerator-foreground, var(--color-primary)); -webkit-text-fill-color: var(--drawerator-foreground, var(--color-primary)); }
 .properties-row input[type="checkbox"] { justify-self: start; accent-color: var(--drawerator-accent); }
+.properties-row.properties-collision-layers { align-items: start; }
+.properties-collision-layer-list { display: flex; flex-wrap: wrap; gap: 3px 8px; min-width: 0; }
+.properties-collision-layer-list label { display: inline-flex; align-items: center; gap: 3px; min-width: 0; color: var(--color-secondary); font-size: 10px; cursor: pointer; }
+.properties-collision-layer-list input { width: 12px; height: 12px; margin: 0; accent-color: var(--drawerator-accent); }
 .properties-row.readonly code { opacity: .72; }
 .properties-embed-group { background: color-mix(in srgb, var(--drawerator-panel-bg, transparent) 92%, var(--drawerator-highlight, transparent)); }
 .properties-embed-note { margin: 0; padding: 4px 9px 8px; color: var(--color-secondary); font-size: 10px; line-height: 1.35; }

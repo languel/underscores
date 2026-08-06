@@ -14,7 +14,9 @@ canvas nodes can use the same data without translating a physics-specific route 
 ## Mapping records
 
 Every mapping has an id, name, enabled flag, source, filter, transform, target, cooldown, and
-per-pair gate behaviour. `relationshipGraph.version` 2 introduced `mappings`. Legacy
+per-pair gate behaviour. `relationshipGraph.version` 2 introduced `mappings`; version 3 adds
+named physics collision layers alongside them. Layer membership and the world's contact matrix
+decide whether Rapier produces a collision before the collision source can map it. Legacy
 `routes` are imported as compatible `legacy-action` targets, remain accessible at
 `__.physics.routes` for scripts, and are not written to new scene JSON.
 

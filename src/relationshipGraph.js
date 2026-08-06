@@ -1,6 +1,6 @@
 import { normalizeDraweratorObjectRef, draweratorObjectRefKey } from "./draweratorObjectRef.js";
 
-export const RELATIONSHIP_GRAPH_VERSION = 2;
+export const RELATIONSHIP_GRAPH_VERSION = 3;
 export const PHYSICS_FIXED_HZ = 60;
 
 export const TRACKING_CLASSES = Object.freeze(["runtime-lite", "authored-rigid", "authored-deformable"]);
@@ -16,6 +16,10 @@ export const MAPPING_SOURCE_KINDS = Object.freeze(["physics-collision"]);
 export const MAPPING_TARGET_KINDS = Object.freeze(["midi-note", "midi-cc", "midi-bend", "expressive-voice", "legacy-action"]);
 export const PHYSICS_COLLISION_FIELDS = Object.freeze(["impulse", "relativeSpeed", "contactX", "contactY", "normalX", "normalY"]);
 export const PHYSICS_PIXELS_PER_METER = 100;
+export const MAX_PHYSICS_COLLISION_LAYERS = 16;
+export const DEFAULT_PHYSICS_COLLISION_LAYERS = Object.freeze([
+  Object.freeze({ id: "default", name: "Default" }),
+]);
 
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, finite(value, minimum)));
@@ -23,6 +27,70 @@ const id = (value, prefix = "physics") => String(value || `${prefix}-${crypto.ra
 const clone = value => value === undefined ? undefined : structuredClone(value);
 const list = value => Array.isArray(value) ? value : [];
 const uniqueStrings = value => [...new Set(list(value).map(item => String(item || "").trim()).filter(Boolean))];
+const collisionLayerPairKey = (a, b) => [String(a || ""), String(b || "")].sort().join("|");
+export { collisionLayerPairKey };
+
+const normalizeCollisionLayerId = (value, index) => {
+  const candidate = String(value || "").trim().replace(/[^A-Za-z0-9_-]/g, "-").replace(/-+/g, "-");
+  return candidate || `layer-${index + 1}`;
+};
+
+export const normalizePhysicsCollisionLayers = value => {
+  const source = value && typeof value === "object" ? value : {};
+  const seen = new Set();
+  const layers = list(source.layers)
+    .map((layer, index) => {
+      const id = normalizeCollisionLayerId(layer?.id, index);
+      if (seen.has(id)) return null;
+      seen.add(id);
+      return { id, name: String(layer?.name || id) };
+    })
+    .filter(Boolean)
+    .slice(0, MAX_PHYSICS_COLLISION_LAYERS);
+  if (!layers.length) layers.push(...DEFAULT_PHYSICS_COLLISION_LAYERS.map(layer => ({ ...layer })));
+  const sourceMatrix = source.matrix && typeof source.matrix === "object" ? source.matrix : {};
+  const matrix = {};
+  for (let a = 0; a < layers.length; a += 1) {
+    for (let b = a; b < layers.length; b += 1) {
+      const key = collisionLayerPairKey(layers[a].id, layers[b].id);
+      // A fresh layer stack preserves the historical "everything collides"
+      // behavior. Authors opt out by clearing a matrix cell.
+      matrix[key] = sourceMatrix[key] !== false;
+    }
+  }
+  return { layers, matrix };
+};
+
+export const setPhysicsCollisionLayerPair = (value, firstId, secondId, enabled) => {
+  const layers = normalizePhysicsCollisionLayers(value);
+  const key = collisionLayerPairKey(firstId, secondId);
+  if (!layers.layers.some(layer => layer.id === firstId) || !layers.layers.some(layer => layer.id === secondId)) return layers;
+  return { ...layers, matrix: { ...layers.matrix, [key]: enabled !== false } };
+};
+
+export const resolvePhysicsCollisionGroups = (worldValue, bodyValue) => {
+  const world = normalizePhysicsWorld(worldValue);
+  const body = normalizePhysicsBody(bodyValue);
+  // A missing membership is intentionally a legacy marker. Existing scene
+  // JSON keeps its explicit Rapier group/mask semantics until an author edits
+  // the body into the named layer stack.
+  if (!Array.isArray(body.collisionLayers)) {
+    return { group: body.collisionGroup, mask: body.collisionMask, legacy: true };
+  }
+  const layers = world.collisionLayers.layers;
+  const byId = new Map(layers.map((layer, index) => [layer.id, index]));
+  const membership = body.collisionLayers.filter(id => byId.has(id));
+  const activeMembership = membership.length ? membership : [layers[0].id];
+  let group = 0;
+  let mask = 0;
+  for (const layerId of activeMembership) group |= 1 << byId.get(layerId);
+  for (const target of layers) {
+    if (activeMembership.some(sourceId => world.collisionLayers.matrix[collisionLayerPairKey(sourceId, target.id)] !== false)) {
+      mask |= 1 << byId.get(target.id);
+    }
+  }
+  return { group, mask, legacy: false };
+};
 const normalizeMappingValues = value => {
   const values = value && typeof value === "object" ? value : {};
   const normalized = {};
@@ -93,6 +161,7 @@ export const normalizePhysicsWorld = value => ({
   // Kept only so old scene data remains readable. The old implementation
   // rewrote reset poses after solving and is intentionally no longer used.
   pausedConstraintSolve: value?.pausedConstraintSolve === true,
+  collisionLayers: normalizePhysicsCollisionLayers(value?.collisionLayers),
 });
 
 export const normalizePhysicsEndpoint = value => {
@@ -195,6 +264,11 @@ export const normalizePhysicsBody = value => {
     mappingValues: normalizeMappingValues(value?.mappingValues),
     collisionGroup: Math.max(0, Math.round(finite(value?.collisionGroup, 1))),
     collisionMask: Math.max(0, Math.round(finite(value?.collisionMask, 0xffff))),
+    // `null` is deliberate: it means this is a pre-layer-stack body and its
+    // raw collisionGroup/collisionMask values must remain authoritative.
+    collisionLayers: Array.isArray(value?.collisionLayers)
+      ? uniqueStrings(value.collisionLayers).slice(0, MAX_PHYSICS_COLLISION_LAYERS)
+      : null,
     initial: {
       x: finite(value?.initial?.x),
       y: finite(value?.initial?.y),
@@ -231,6 +305,7 @@ export const serializePhysicsBodyCustomData = value => {
     mappingValues: clone(body.mappingValues),
     collisionGroup: body.collisionGroup,
     collisionMask: body.collisionMask,
+    ...(Array.isArray(body.collisionLayers) ? { collisionLayers: [...body.collisionLayers] } : {}),
     collider: clone(body.collider),
     material: clone(body.material),
     initial: clone(body.initial),
@@ -638,18 +713,25 @@ export const migratePhysicsRoutesToMappings = routes => list(routes).flatMap(leg
 
 export const normalizeRelationshipGraph = value => {
   const graph = value && typeof value === "object" ? value : {};
+  const world = normalizePhysicsWorld(graph.world);
   const systems = list(graph.systems).map(normalizePhysicsSystem);
   const systemIds = new Set(systems.map(system => system.id));
   const keepSystem = item => !item.systemId || systemIds.has(item.systemId);
+  const validLayerIds = new Set(world.collisionLayers.layers.map(layer => layer.id));
+  const bodies = list(graph.bodies).map(normalizePhysicsBody).map(body => {
+    if (!Array.isArray(body.collisionLayers)) return body;
+    const collisionLayers = body.collisionLayers.filter(layerId => validLayerIds.has(layerId));
+    return { ...body, collisionLayers: collisionLayers.length ? collisionLayers : [world.collisionLayers.layers[0].id] };
+  }).filter(keepSystem);
   const legacyRoutes = list(graph.routes).map(normalizePhysicsRoute).filter(keepSystem);
   const mappings = list(graph.mappings).length
     ? list(graph.mappings).map(normalizeRelationshipMapping)
     : legacyRoutes.flatMap(legacyRouteMappings);
   return {
     version: RELATIONSHIP_GRAPH_VERSION,
-    world: normalizePhysicsWorld(graph.world),
+    world,
     systems,
-    bodies: list(graph.bodies).map(normalizePhysicsBody).filter(keepSystem),
+    bodies,
     populations: list(graph.populations).map(normalizePhysicsPopulation).filter(keepSystem),
     constraints: list(graph.constraints).map(normalizePhysicsConstraint).filter(keepSystem),
     // Routes were the first narrow collision-action experiment. They migrate

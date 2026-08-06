@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import InspectorSection from "./InspectorSection.jsx";
-import { createDefaultPhysicsSystem, normalizePhysicsConstraint, normalizeRelationshipGraph, normalizeRelationshipMapping } from "./relationshipGraph.js";
+import {
+  MAX_PHYSICS_COLLISION_LAYERS,
+  collisionLayerPairKey,
+  createDefaultPhysicsSystem,
+  normalizePhysicsCollisionLayers,
+  normalizePhysicsConstraint,
+  normalizeRelationshipGraph,
+  normalizeRelationshipMapping,
+  setPhysicsCollisionLayerPair,
+} from "./relationshipGraph.js";
 import { compileMappingExpression } from "./mappingExpression.js";
 import { getPhysicsColliderSelectionValue } from "./physicsGeometry.js";
 import { infoProps } from "./uiInfo.js";
@@ -109,6 +118,36 @@ function DebugColorPicker({ keyName, label, description, value, active, disabled
         onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); commit(draft); event.currentTarget.blur(); } }}
       />
     </span>
+  </div>;
+}
+
+function CollisionLayerMembershipPicker({ layers, values, disabled = false, onChange }) {
+  const defaultId = layers[0]?.id;
+  const membershipFor = value => Array.isArray(value) && value.length ? value : (defaultId ? [defaultId] : []);
+  const memberships = values.map(membershipFor);
+  const toggle = layerId => {
+    const current = new Set(memberships[0] || []);
+    if (current.has(layerId)) current.delete(layerId);
+    else current.add(layerId);
+    if (!current.size && defaultId) current.add(defaultId);
+    onChange?.([...current]);
+  };
+  return <div className="physics-collision-layer-memberships" aria-label="Collision layer memberships">
+    {layers.map(layer => {
+      const included = memberships.map(membership => membership.includes(layer.id));
+      const active = included.length > 0 && included.every(Boolean);
+      const mixed = included.some(Boolean) && !active;
+      return <label key={layer.id} title={`Collide as ${layer.name}`}>
+        <input
+          type="checkbox"
+          checked={active}
+          ref={node => { if (node) node.indeterminate = mixed; }}
+          disabled={disabled}
+          onChange={() => toggle(layer.id)}
+        />
+        <span>{layer.name}</span>
+      </label>;
+    })}
   </div>;
 }
 
@@ -280,6 +319,30 @@ export default function PhysicsPanel({
     }
     onSetGraph({ ...graph, constraints: graph.constraints.filter(constraint => constraint.id !== constraintId) });
   };
+  const collisionLayerStack = graph.world.collisionLayers;
+  const patchCollisionLayers = updater => {
+    const nextLayers = normalizePhysicsCollisionLayers(updater(collisionLayerStack));
+    onSetGraph({ ...graph, world: { ...graph.world, collisionLayers: nextLayers } });
+  };
+  const addCollisionLayer = () => {
+    if (collisionLayerStack.layers.length >= MAX_PHYSICS_COLLISION_LAYERS) return;
+    patchCollisionLayers(stack => ({
+      ...stack,
+      layers: [...stack.layers, {
+        id: `layer-${crypto.randomUUID().slice(0, 8)}`,
+        name: `Layer ${stack.layers.length + 1}`,
+      }],
+    }));
+  };
+  const renameCollisionLayer = (layerId, name) => patchCollisionLayers(stack => ({
+    ...stack,
+    layers: stack.layers.map(layer => layer.id === layerId ? { ...layer, name } : layer),
+  }));
+  const removeCollisionLayer = layerId => {
+    if (layerId === "default" || collisionLayerStack.layers.length <= 1) return;
+    patchCollisionLayers(stack => ({ ...stack, layers: stack.layers.filter(layer => layer.id !== layerId) }));
+  };
+  const updateSelectedCollisionLayers = collisionLayers => patchSelectedBody({ collisionLayers });
 
   return <div className="physics-panel">
     <div className="physics-toolbar">
@@ -325,6 +388,31 @@ export default function PhysicsPanel({
           <Button onClick={() => onReset(system.id)}>Reset</Button>
           <Button onClick={() => onApply(system.id)}>Apply pose</Button>
           <Button onClick={removeSystem}>Remove</Button>
+        </div>
+      </InspectorSection>
+
+      <InspectorSection title={`Collision layers · ${collisionLayerStack.layers.length}`} defaultOpen={false} {...infoProps("Collision layers", "Each body belongs to one or more named layers. The symmetric matrix decides which layer pairs make physical contact. New layers start fully connected so existing scenes retain their historical behaviour.")}>
+        <div className="physics-layer-toolbar">
+          <Button disabled={collisionLayerStack.layers.length >= MAX_PHYSICS_COLLISION_LAYERS} onClick={addCollisionLayer}>Add layer</Button>
+        </div>
+        <div className="physics-layer-list">
+          {collisionLayerStack.layers.map(layer => <div key={layer.id} className="physics-layer-row">
+            <label className="physics-field"><span>{layer.id === "default" ? "Default" : "Layer"}</span><input value={layer.name} onChange={event => renameCollisionLayer(layer.id, event.target.value)} /></label>
+            <Button disabled={layer.id === "default" || collisionLayerStack.layers.length <= 1} onClick={() => removeCollisionLayer(layer.id)}>Remove</Button>
+          </div>)}
+        </div>
+        <div className="physics-layer-matrix" role="grid" aria-label="Collision layer matrix" style={{ "--physics-layer-count": collisionLayerStack.layers.length }}>
+          <div className="physics-layer-matrix-head" aria-hidden="true"><span>Collides with</span>{collisionLayerStack.layers.map(layer => <span key={layer.id} title={layer.name}>{layer.name}</span>)}</div>
+          {collisionLayerStack.layers.map(first => <div key={first.id} className="physics-layer-matrix-row" role="row">
+            <strong title={first.name}>{first.name}</strong>
+            {collisionLayerStack.layers.map(second => {
+              const key = collisionLayerPairKey(first.id, second.id);
+              const enabled = collisionLayerStack.matrix[key] !== false;
+              return <label key={second.id} title={`${first.name} ${enabled ? "collides with" : "does not collide with"} ${second.name}`}>
+                <input type="checkbox" checked={enabled} onChange={event => patchCollisionLayers(stack => setPhysicsCollisionLayerPair(stack, first.id, second.id, event.target.checked))} />
+              </label>;
+            })}
+          </div>)}
         </div>
       </InspectorSection>
 
@@ -385,6 +473,7 @@ export default function PhysicsPanel({
           {selectedBodies.length === 1 && <label className="physics-field"><span>Physics name</span><input value={selectedBody.name} onChange={event => patchSelectedBody({ name: event.target.value })} /></label>}
           <label className="physics-check"><input type="checkbox" checked={selectedBody.enabled} onChange={event => patchSelectedBody({ enabled: event.target.checked })} /><span>Enabled{selectedBodies.length > 1 ? ` · ${selectedBodies.length} bodies` : ""}</span></label>
           <label className="physics-field"><span>Tags</span><input value={selectedBody.collisionTags.join(", ")} onChange={event => patchSelectedBody({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} /></label>
+          <div className="physics-field physics-collision-layer-field"><span>Collision layers</span><CollisionLayerMembershipPicker layers={collisionLayerStack.layers} values={selectedBodies.map(body => body.collisionLayers)} onChange={updateSelectedCollisionLayers} /></div>
           <label className="physics-field" {...infoProps("Object note", "A per-body value available to collision mappings as aNote/noteA or bNote/noteB.")}><span>Object note</span><input type="number" min="0" max="127" step="1" value={selectedBody.mappingValues.note} onChange={event => patchSelectedBody({ mappingValues: { note: event.target.valueAsNumber } })} /></label>
           {selectedBodyElements.length === selectedBodies.length && <label className="physics-field"><span>Collider</span><select value={getPhysicsColliderSelectionValue(selectedBody.collider, { allowPath: selectedBodyElements.every(element => ["freedraw", "line", "arrow"].includes(element.type) || element.customData?.draweratorGeometry?.kind === "cubicBezierPath") })} onChange={event => patchSelectedBody({ colliderKind: event.target.value })}><option value="box">Bounding box</option><option value="ellipse">Bounding ellipse</option><option value="convex">Convex hull</option>{selectedBodyElements.every(element => ["freedraw", "line", "arrow"].includes(element.type) || element.customData?.draweratorGeometry?.kind === "cubicBezierPath") && <option value="chain">Path chain</option>}</select></label>}
           <label className="physics-field" {...infoProps("Collision skin", "Invisible scene-pixel padding around this collider. It helps small or fast bodies make stable contact with fine paths.")}><span>Collision skin</span><input type="number" min="0" max="64" step="0.5" value={selectedBody.collider.contactSkin} onChange={event => patchSelectedBody({ collider: { contactSkin: event.target.valueAsNumber } })} /></label>

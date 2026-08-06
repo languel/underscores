@@ -724,7 +724,7 @@ const physicsBodyMatchesQuery = (body, query) => {
   if (!body || !query?.needle) return Boolean(body);
   return [
     "physics", "body", "enabled", "type", "name", "tags", "sensor", "collider",
-    "friction", "bounce", "restitution", "density", "damping", "angular damping", "collision skin", "object note", "note",
+    "friction", "bounce", "restitution", "density", "damping", "angular damping", "collision skin", "collision layers", "layers", "object note", "note",
     body.name, body.bodyType, body.collisionTags.join(" "), body.collider.kind,
   ].some(value => String(value || "").toLowerCase().includes(query.needle));
 };
@@ -845,7 +845,31 @@ const PhysicsConstraintControls = ({
   </>;
 };
 
-const PhysicsRoleControls = ({ body, element, query, onChange, onColliderKindChange, onRemove }) => {
+const CollisionLayerMembershipControl = ({ layers = [], value, onChange, label = "collision layers" }) => {
+  const selected = new Set(Array.isArray(value) && value.length ? value : [layers[0]?.id].filter(Boolean));
+  if (!layers.length) return null;
+  return <div className="properties-row editable properties-collision-layers">
+    <span>{label}</span>
+    <div className="properties-collision-layer-list" role="group" aria-label={label}>
+      {layers.map(layer => <label key={layer.id} title={`Collide on ${layer.name}`}>
+        <input
+          type="checkbox"
+          checked={selected.has(layer.id)}
+          onChange={event => {
+            const next = new Set(selected);
+            if (event.target.checked) next.add(layer.id);
+            else next.delete(layer.id);
+            if (!next.size) next.add(layers[0].id);
+            onChange?.([...next]);
+          }}
+        />
+        <span>{layer.name}</span>
+      </label>)}
+    </div>
+  </div>;
+};
+
+const PhysicsRoleControls = ({ body, element, query, onChange, onColliderKindChange, onRemove, collisionLayers = [] }) => {
   if (!physicsBodyMatchesQuery(body, query)) return null;
   const matches = name => !query?.needle || name.includes(query.needle);
   const supportsColliderChoices = Boolean(element);
@@ -862,6 +886,7 @@ const PhysicsRoleControls = ({ body, element, query, onChange, onColliderKindCha
         {matches("sensor") && <div className="properties-row editable"><span>sensor</span><input type="checkbox" checked={body.collider.sensor} onChange={event => updateCollider({ sensor: event.target.checked })} /></div>}
         {matches("name") && <div className="properties-row editable"><span>name</span><input type="text" value={body.name} onChange={event => onChange({ name: event.target.value })} /></div>}
         {matches("tags") && <div className="properties-row editable"><span>tags</span><input type="text" value={body.collisionTags.join(", ")} onChange={event => onChange({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} /></div>}
+        {matches("collision layers") && <CollisionLayerMembershipControl layers={collisionLayers} value={body.collisionLayers} onChange={layers => onChange({ collisionLayers: layers })} />}
         {matches("note") && <div className="properties-row editable"><span>object note</span><input type="number" min="0" max="127" step="1" value={body.mappingValues.note} onChange={event => onChange({ mappingValues: { note: event.target.valueAsNumber } })} /></div>}
         {supportsColliderChoices && matches("collider") && <div className="properties-row editable"><span>collider</span><select value={getPhysicsColliderSelectionValue(body.collider, { allowPath: Boolean(supportsPathCollider) })} onChange={event => onColliderKindChange?.(event.target.value)}><option value="box">Bounding box</option><option value="ellipse">Bounding ellipse</option><option value="convex">Convex hull</option>{supportsPathCollider && <option value="chain">Path chain</option>}</select></div>}
         <div className="properties-two-column">
@@ -882,7 +907,7 @@ const sharedValue = (bodies, select) => {
   return bodies.every(body => Object.is(select(body), value)) ? value : null;
 };
 
-const SharedPhysicsControls = ({ elements, physicsBodies, query, onChange }) => {
+const SharedPhysicsControls = ({ elements, physicsBodies, query, onChange, collisionLayers = [] }) => {
   if (elements.length < 2 || !physicsBodyMatchesQuery(physicsBodies[0], query)) return null;
   const matches = name => !query?.needle || name.includes(query.needle);
   const supportsPathCollider = elements.every(element => (
@@ -902,6 +927,10 @@ const SharedPhysicsControls = ({ elements, physicsBodies, query, onChange }) => 
   const density = sharedValue(physicsBodies, body => body.material.density);
   const damping = sharedValue(physicsBodies, body => body.material.linearDamping);
   const contactSkin = sharedValue(physicsBodies, body => body.collider.contactSkin);
+  const commonLayerIds = collisionLayers.filter(layer => physicsBodies.every(body => {
+    const memberships = Array.isArray(body.collisionLayers) && body.collisionLayers.length ? body.collisionLayers : [collisionLayers[0]?.id];
+    return memberships.includes(layer.id);
+  })).map(layer => layer.id);
   const numberChange = (event, patch) => {
     if (Number.isFinite(event.target.valueAsNumber)) onChange?.(patch(event.target.valueAsNumber));
   };
@@ -930,6 +959,7 @@ const SharedPhysicsControls = ({ elements, physicsBodies, query, onChange }) => 
           <span>tags</span>
           <input type="text" value={tags ?? ""} placeholder={tags === null ? "Mixed tags" : undefined} aria-label={`Tags for ${physicsBodies.length} selected objects`} onChange={event => onChange?.({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} />
         </div>}
+        {matches("collision layers") && <CollisionLayerMembershipControl layers={collisionLayers} value={commonLayerIds} label="collision layers" onChange={layers => onChange?.({ collisionLayers: layers })} />}
         {matches("note") && <div className="properties-row editable">
           <span>object note</span>
           <input type="number" min="0" max="127" step="1" value={note ?? ""} placeholder={note === null ? "Mixed" : undefined} aria-label={`Object note for ${physicsBodies.length} selected objects`} onChange={event => numberChange(event, value => ({ mappingValues: { note: value } }))} />
@@ -997,6 +1027,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
   elements = [],
   availableElements = elements,
   physicsBodies = [],
+  physicsCollisionLayers = [],
   physicsConstraints = [],
   onPhysicsBodyChange,
   onPhysicsBodiesChange,
@@ -1135,6 +1166,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
           <SharedPhysicsControls
             elements={elements}
             physicsBodies={selectedPhysicsBodies}
+            collisionLayers={physicsCollisionLayers}
             query={query}
             onChange={patch => onPhysicsBodiesChange?.(
               selectedPhysicsBodies.map(body => body.id),
@@ -1215,6 +1247,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
                 body={physicsBodies.find(body => body.objectRef?.kind === "element" && body.objectRef.elementId === element.id)}
                 element={element}
                 query={query}
+                collisionLayers={physicsCollisionLayers}
                 onChange={patch => {
                   const body = physicsBodies.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id);
                   if (!body) return;

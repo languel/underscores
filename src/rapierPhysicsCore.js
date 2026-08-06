@@ -1,5 +1,5 @@
 import RAPIER from "@dimforge/rapier2d-deterministic-compat";
-import { normalizeRelationshipGraph, normalizePhysicsEndpoint } from "./relationshipGraph.js";
+import { normalizeRelationshipGraph, normalizePhysicsEndpoint, resolvePhysicsCollisionGroups } from "./relationshipGraph.js";
 
 export const PHYSICS_WORLD_SCALE = 0.01;
 const INV_SCALE = 1 / PHYSICS_WORLD_SCALE;
@@ -47,15 +47,16 @@ const bodyDescription = (body, viscosity = 0) => {
     .setCcdEnabled(body.bodyType === "dynamic");
 };
 
-const colliderDescriptions = body => {
+const colliderDescriptions = (body, world) => {
   const collider = body.collider;
+  const collisionGroups = resolvePhysicsCollisionGroups(world, body);
   const configureCollider = candidate => candidate
     .setSensor(collider.sensor)
     .setDensity(body.material.density)
     .setFriction(body.material.friction)
     .setRestitution(body.material.restitution)
     .setContactSkin(collider.contactSkin * PHYSICS_WORLD_SCALE)
-    .setCollisionGroups(((body.collisionGroup & 0xffff) << 16) | (body.collisionMask & 0xffff))
+    .setCollisionGroups(((collisionGroups.group & 0xffff) << 16) | (collisionGroups.mask & 0xffff))
     .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS | RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
     .setContactForceEventThreshold(0);
   let desc;
@@ -197,7 +198,7 @@ export class RapierPhysicsSystem {
 
   #addBody(body, runtime = {}) {
     const rigidBody = this.world.createRigidBody(bodyDescription({ ...body, initial: { ...body.initial, ...runtime.initial } }, this.graph.world.viscosity));
-    const colliders = colliderDescriptions(body).map(description => this.world.createCollider(description, rigidBody));
+    const colliders = colliderDescriptions(body, this.graph.world).map(description => this.world.createCollider(description, rigidBody));
     const entity = {
       id: runtime.id || body.id,
       bodyId: body.id,

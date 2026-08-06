@@ -9557,7 +9557,12 @@ function App() {
       tracking: "authored-rigid",
       collisionTags: [sensor ? "sensor" : bodyType === "fixed" ? "wall" : "body"],
       material: { restitution: bodyType === "fixed" ? 0.9 : 0.5, friction: 0.2 },
-    })).filter(Boolean);
+    })).filter(Boolean).map(body => ({
+      ...body,
+      // New and explicitly re-assigned bodies participate in the named layer
+      // stack. Old, untouched customData keeps its raw Rapier masks.
+      collisionLayers: ["default"],
+    }));
     const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
     const selectedIds = new Set(selected.map(element => element.id));
     const retained = graph.bodies.filter(body => body.objectRef?.kind !== "element" || !selectedIds.has(body.objectRef.elementId));
@@ -22278,6 +22283,7 @@ function App() {
               elements={(excalidrawAPI?.getSceneElementsIncludingDeleted() || []).filter(element => selectedElementIds[element.id])}
               availableElements={(excalidrawAPI?.getSceneElementsIncludingDeleted() || []).filter(element => !element.isDeleted)}
               physicsBodies={relationshipGraph.bodies}
+              physicsCollisionLayers={relationshipGraph.world.collisionLayers.layers}
               physicsConstraints={relationshipGraph.constraints}
               onPhysicsBodyChange={patchPhysicsBody}
               onPhysicsBodiesChange={patchPhysicsBodies}

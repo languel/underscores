@@ -10,6 +10,7 @@ import {
   hydrateRelationshipGraphFromElements,
   normalizeRelationshipGraph,
   physicsRouteMatches,
+  resolvePhysicsCollisionGroups,
   remapRelationshipGraph,
   removeRelationshipBindingsForElements,
   serializePhysicsBodyCustomData,
@@ -23,7 +24,7 @@ test("relationship graphs normalize legacy empty data and typed items", () => {
     systems: [system],
     bodies: [{ id: "body", systemId: "system", objectRef: "old", collider: { kind: "circle", radius: 9 } }],
   });
-  assert.equal(graph.version, 2);
+  assert.equal(graph.version, 3);
   assert.equal(graph.systems[0].clock.fixedHz, 60);
   assert.equal(graph.bodies[0].objectRef.elementId, "old");
   assert.equal(graph.bodies[0].tracking, "authored-rigid");
@@ -80,6 +81,34 @@ test("world physics defaults use real-world gravity and custom systems remain ex
   assert.equal(graph.systems[0].gravityMode, "world");
   const custom = createDefaultPhysicsSystem({ gravity: { x: 0, y: 500 } });
   assert.equal(custom.gravityMode, "custom");
+});
+
+test("named collision layers derive symmetric Rapier groups without changing legacy raw masks", () => {
+  const legacy = resolvePhysicsCollisionGroups(
+    { collisionLayers: { layers: [{ id: "default", name: "Default" }] } },
+    { collisionGroup: 0x0004, collisionMask: 0x0008 },
+  );
+  assert.deepEqual(legacy, { group: 0x0004, mask: 0x0008, legacy: true });
+
+  const world = {
+    collisionLayers: {
+      layers: [{ id: "default", name: "Default" }, { id: "pendulum", name: "Pendulum" }],
+      matrix: { "default|default": true, "default|pendulum": false, "pendulum|pendulum": true },
+    },
+  };
+  const defaultBody = resolvePhysicsCollisionGroups(world, { collisionLayers: ["default"] });
+  const pendulumBody = resolvePhysicsCollisionGroups(world, { collisionLayers: ["pendulum"] });
+  assert.deepEqual(defaultBody, { group: 1, mask: 1, legacy: false });
+  assert.deepEqual(pendulumBody, { group: 2, mask: 2, legacy: false });
+});
+
+test("collision-layer normalization defaults every new layer pair to collide", () => {
+  const graph = normalizeRelationshipGraph({
+    world: { collisionLayers: { layers: [{ id: "default" }, { id: "props" }] } },
+    bodies: [{ id: "body", collisionLayers: ["missing"] }],
+  });
+  assert.equal(graph.world.collisionLayers.matrix["default|props"], true);
+  assert.deepEqual(graph.bodies[0].collisionLayers, ["default"]);
 });
 
 test("world physics keeps reset-pose authoring separate from opt-in live pose", () => {
