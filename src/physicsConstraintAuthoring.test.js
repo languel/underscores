@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chooseConstraintPivot, getPhysicsElementCenter, resolveConstraintPivot } from "./physicsConstraintAuthoring.js";
+import { chooseConstraintPivot, getPhysicsElementCenter, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, resolveConstraintPivot, resolveSpringConstraint } from "./physicsConstraintAuthoring.js";
+import { getPhysicsElementWorldPoints } from "./physicsGeometry.js";
 
 const body = (id, x, y, width, height, angle = 0) => ({ id, type: "rectangle", x, y, width, height, angle });
 const binding = id => ({ id: `body-${id}`, systemId: "world", enabled: true, objectRef: { kind: "element", elementId: id } });
@@ -61,4 +62,80 @@ test("constraint authoring uses a freehand's rendered physics centre, not its Ex
   };
   // The frame centre would be (150, 250); the rendered path centre is (105, 205).
   assert.deepEqual(getPhysicsElementCenter(freehand), { x: 105, y: 205 });
+});
+
+test("a spring resolves its rendered start and end independently", () => {
+  const left = body("left", -20, -20, 40, 40);
+  const right = body("right", 80, -20, 40, 40);
+  const spring = { id: "spring", type: "line", x: 0, y: 0, width: 100, height: 0, points: [[0, 0], [100, 0]], angle: 0 };
+  const result = resolveSpringConstraint({ spring, elements: [left, right, spring], bodies: [binding("left"), binding("right")], systemId: "world" });
+  assert.equal(result.constraint.kind, "spring");
+  assert.equal(result.constraint.a.objectRef.elementId, "left");
+  assert.equal(result.constraint.b.objectRef.elementId, "right");
+  assert.equal(result.constraint.restLength, 100);
+});
+
+test("a spring attaches an unoccupied endpoint to World", () => {
+  const left = body("left", -20, -20, 40, 40);
+  const spring = { id: "spring", type: "line", x: 0, y: 0, width: 100, height: 0, points: [[0, 0], [100, 0]], angle: 0 };
+  const result = resolveSpringConstraint({ spring, elements: [left, spring], bodies: [binding("left")], systemId: "world" });
+  assert.equal(result.constraint.a.objectRef.elementId, "left");
+  assert.equal(result.constraint.b.kind, "world");
+  assert.deepEqual(result.constraint.b.point, [100, 0]);
+});
+
+test("a spring resolves rotated rendered endpoints", () => {
+  const spring = {
+    id: "rotated-spring",
+    type: "arrow",
+    x: 10,
+    y: 20,
+    width: 100,
+    height: 0,
+    points: [[0, 0], [100, 0]],
+    angle: Math.PI / 2,
+  };
+  const endpoints = getSpringEndpointWorldPoints(spring);
+  assert.ok(endpoints);
+  assert.deepEqual(endpoints.start.map(value => Math.round(value)), [60, -30]);
+  assert.deepEqual(endpoints.end.map(value => Math.round(value)), [60, 70]);
+});
+
+test("a spring's geometric rest length follows its rendered endpoints", () => {
+  const spring = {
+    id: "diagonal-spring",
+    type: "line",
+    x: 10,
+    y: 20,
+    width: 30,
+    height: 40,
+    points: [[0, 0], [30, 40]],
+    angle: 0,
+  };
+  assert.equal(getSpringGeometricLength(spring), 50);
+});
+
+test("a spring visual patch follows its two resolved anchors", () => {
+  const spring = {
+    id: "rotated-spring",
+    type: "line",
+    x: 10,
+    y: 20,
+    width: 100,
+    height: 0,
+    points: [[0, 0], [100, 0]],
+    angle: Math.PI / 2,
+  };
+  const patch = getSpringVisualGeometryPatch(spring, [15, 30], [240, 90]);
+  assert.ok(patch);
+  const endpoints = getPhysicsElementWorldPoints({ ...spring, ...patch });
+  assert.deepEqual(endpoints[0].map(value => Math.round(value)), [15, 30]);
+  assert.deepEqual(endpoints.at(-1).map(value => Math.round(value)), [240, 90]);
+  assert.equal(patch.angle, 0);
+});
+
+test("a spring needs two distinct rendered endpoints", () => {
+  const spring = { id: "flat", type: "line", x: 0, y: 0, width: 0, height: 0, points: [[0, 0], [0, 0]], angle: 0 };
+  assert.equal(getSpringEndpointWorldPoints(spring), null);
+  assert.equal(resolveSpringConstraint({ spring }).error, "Spring needs two distinct endpoints.");
 });

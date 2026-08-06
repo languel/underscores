@@ -12,6 +12,9 @@ import {
 } from "./relationshipGraph.js";
 import { compileMappingExpression } from "./mappingExpression.js";
 import { getPhysicsColliderSelectionValue } from "./physicsGeometry.js";
+import { getSpringGeometricLength } from "./physicsConstraintAuthoring.js";
+import NumericInput from "./NumericInput.jsx";
+import GeometryResetIcon from "./GeometryResetIcon.jsx";
 import { infoProps } from "./uiInfo.js";
 
 const Button = ({ children, active = false, ...props }) => <button type="button" className={`iannix-flat-button physics-flat-button${active ? " active" : ""}`} {...props}>{children}</button>;
@@ -211,6 +214,7 @@ export default function PhysicsPanel({
   onLoadExample,
   expressivePrograms = [],
   selectedElements = [],
+  sceneElements = [],
 }) {
   const graph = normalizeRelationshipGraph(graphValue);
   const system = graph.systems.find(candidate => candidate.id === activeSystemId) || graph.systems[0] || null;
@@ -223,6 +227,7 @@ export default function PhysicsPanel({
   const selectedBodies = useMemo(() => graph.bodies.filter(body => body.objectRef?.kind === "element" && selectedIdSet.has(body.objectRef.elementId)), [graph.bodies, selectedIdSet]);
   const selectedBody = selectedBodies[0] || null;
   const selectedElementsById = useMemo(() => new Map(selectedElements.map(element => [element.id, element])), [selectedElements]);
+  const sceneElementsById = useMemo(() => new Map(sceneElements.map(element => [element.id, element])), [sceneElements]);
   const selectedBodyElements = useMemo(() => selectedBodies
     .map(body => selectedElementsById.get(body.objectRef?.elementId))
     .filter(Boolean), [selectedBodies, selectedElementsById]);
@@ -416,12 +421,13 @@ export default function PhysicsPanel({
           {systemConstraints.map((constraint, index) => <ConstraintCard
             key={constraint.id}
             constraint={constraint}
+            springElement={sceneElementsById.get(constraint.objectRef?.elementId)}
             expanded={expandedConstraintId === null ? index === 0 : expandedConstraintId === constraint.id}
             onToggle={() => setExpandedConstraintId(current => current === constraint.id ? false : constraint.id)}
             onUpdate={patch => updateConstraint(constraint.id, patch)}
             onRemove={() => removeConstraint(constraint.id)}
           />)}
-          {!systemConstraints.length && <div className="physics-empty">Select a pivot object, then choose axle or weld.</div>}
+          {!systemConstraints.length && <div className="physics-empty">Select a visual object, then choose axle, weld, or spring.</div>}
         </div>
       </InspectorSection>
 
@@ -443,6 +449,11 @@ export default function PhysicsPanel({
             onClick={() => onMakeConstraint?.({ kind: "axle", systemId: system.id })}
             {...infoProps("Make axle object", "Converts each selected canvas object into a freely rotating Axle pivot. The pivot centre automatically connects one overlapping body to World, or two overlapping bodies together.")}
           >Axle</Button>
+          <Button
+            disabled={!selectedElementCount}
+            onClick={() => onMakeConstraint?.({ kind: "spring", systemId: system.id })}
+            {...infoProps("Make spring object", "Converts each selected visual object into a Spring. Its rendered start and end independently attach to bodies beneath them, or World.")}
+          >Spring</Button>
         </div>
         {selectedBody && <div className="physics-selected-properties">
           {selectedBodies.length === 1 && <label className="physics-field"><span>Physics name</span><input value={selectedBody.name} onChange={event => patchSelectedBody({ name: event.target.value })} /></label>}
@@ -547,7 +558,7 @@ const endpointLabel = endpoint => {
   return `Object · ${endpoint.objectRef?.elementId?.slice(0, 10) || "missing"}`;
 };
 
-function ConstraintCard({ constraint: constraintValue, expanded, onToggle, onUpdate, onRemove }) {
+function ConstraintCard({ constraint: constraintValue, springElement, expanded, onToggle, onUpdate, onRemove }) {
   const constraint = normalizePhysicsConstraint(constraintValue);
   const isSpring = ["spring", "distance"].includes(constraint.kind);
   const isAxle = ["axle", "pin", "revolute"].includes(constraint.kind);
@@ -559,6 +570,10 @@ function ConstraintCard({ constraint: constraintValue, expanded, onToggle, onUpd
         upperLimit: constraint.upperLimit ?? Math.PI,
       }
     : { limitsEnabled: false, lowerLimit: null, upperLimit: null });
+  const resetSpringRestLength = () => {
+    const restLength = getSpringGeometricLength(springElement);
+    if (restLength !== null) onUpdate({ restLength });
+  };
   return <article className="physics-constraint-card">
     <div className="physics-constraint-header">
       <button type="button" className="physics-mapping-toggle" onClick={onToggle} aria-expanded={expanded}>
@@ -579,9 +594,9 @@ function ConstraintCard({ constraint: constraintValue, expanded, onToggle, onUpd
       </div>
       <div className="physics-constraint-endpoints"><span>A · {endpointLabel(constraint.a)}</span><span>B · {endpointLabel(constraint.b)}</span></div>
       {isSpring && <div className="physics-two-column">
-        <label className="physics-field"><span>Rest length</span><input type="number" min="0" step="1" value={constraint.restLength} onChange={event => onUpdate({ restLength: event.target.valueAsNumber })} /></label>
-        <label className="physics-field"><span>Stiffness</span><input type="number" min="0" step="1" value={constraint.stiffness} onChange={event => onUpdate({ stiffness: event.target.valueAsNumber })} /></label>
-        <label className="physics-field"><span>Damping</span><input type="number" min="0" step="0.1" value={constraint.damping} onChange={event => onUpdate({ damping: event.target.valueAsNumber })} /></label>
+        <label className="physics-field"><span>Rest length</span><div className="iannix-inline-action"><NumericInput min="0" step="any" value={constraint.restLength} defaultValue={100} onCommit={restLength => onUpdate({ restLength })} /><Button className="geometry-reset-button" onClick={resetSpringRestLength} disabled={getSpringGeometricLength(springElement) === null} title="Set to current geometry" aria-label="Set rest length to current geometry"><GeometryResetIcon /></Button></div></label>
+        <label className="physics-field"><span>Stiffness</span><NumericInput min="0" step="any" value={constraint.stiffness} defaultValue={40} onCommit={stiffness => onUpdate({ stiffness })} /></label>
+        <label className="physics-field"><span>Damping</span><NumericInput min="0" step="any" value={constraint.damping} defaultValue={4} onCommit={damping => onUpdate({ damping })} /></label>
       </div>}
       {isAxle && <>
         <label className="physics-check" {...infoProps("Limit rotation", "Off means an axle can rotate freely through 360 degrees. Enable it to define a lower and upper angle in degrees.")}><input type="checkbox" checked={constraint.limitsEnabled === true} onChange={event => setLimitsEnabled(event.target.checked)} /><span>Limit rotation · {constraint.limitsEnabled ? "custom" : "full 360°"}</span></label>

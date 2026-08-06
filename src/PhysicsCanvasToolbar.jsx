@@ -169,6 +169,7 @@ export default function PhysicsCanvasToolbar({ selectedCount = 0, open = true, o
       <div className="physics-canvas-tool-group" aria-label="Physics constraints">
         <Tool kind="fixate" label="Make selected objects Weld pivots" disabled={!selectedCount} onClick={() => onMakeConstraint?.("fixate")} />
         <Tool kind="axle" label="Make selected objects Axle pivots" disabled={!selectedCount} onClick={() => onMakeConstraint?.("axle")} />
+        <Tool kind="spring" label="Make selected objects Springs" disabled={!selectedCount} onClick={() => onMakeConstraint?.("spring")} />
       </div>
     </div>}
   </aside>
