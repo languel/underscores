@@ -846,7 +846,9 @@ const PhysicsConstraintControls = ({
 };
 
 const CollisionLayerMembershipControl = ({ layers = [], value, onChange, label = "collision layers" }) => {
-  const selected = new Set(Array.isArray(value) && value.length ? value : [layers[0]?.id].filter(Boolean));
+  // `null` means an older body that still uses raw Rapier masks. Present it as
+  // Default until the user edits it; an explicit empty array means no layers.
+  const selected = new Set(Array.isArray(value) ? value : [layers[0]?.id].filter(Boolean));
   if (!layers.length) return null;
   return <div className="properties-row editable properties-collision-layers">
     <span>{label}</span>
@@ -859,7 +861,6 @@ const CollisionLayerMembershipControl = ({ layers = [], value, onChange, label =
             const next = new Set(selected);
             if (event.target.checked) next.add(layer.id);
             else next.delete(layer.id);
-            if (!next.size) next.add(layers[0].id);
             onChange?.([...next]);
           }}
         />
@@ -928,7 +929,7 @@ const SharedPhysicsControls = ({ elements, physicsBodies, query, onChange, colli
   const damping = sharedValue(physicsBodies, body => body.material.linearDamping);
   const contactSkin = sharedValue(physicsBodies, body => body.collider.contactSkin);
   const commonLayerIds = collisionLayers.filter(layer => physicsBodies.every(body => {
-    const memberships = Array.isArray(body.collisionLayers) && body.collisionLayers.length ? body.collisionLayers : [collisionLayers[0]?.id];
+    const memberships = Array.isArray(body.collisionLayers) ? body.collisionLayers : [collisionLayers[0]?.id];
     return memberships.includes(layer.id);
   })).map(layer => layer.id);
   const numberChange = (event, patch) => {

@@ -80,7 +80,8 @@ API version 7 adds the solver-independent `relations` and worker-backed `physics
 version 8 adds canonical Source -> Filter -> Transform -> Target mappings at
 `__.relations.mappings`; the narrow `__.physics.routes` API remains a compatibility wrapper.
 Relationship graph version 3 adds named Physics collision layers. Bodies with no named
-membership retain their legacy raw Rapier collision masks until edited.
+membership retain their legacy raw Rapier collision masks until edited; an explicitly empty
+membership opts a body out of named-layer collision.
 Trusted script hosts also expose the same public surface at `__.api` for compatibility.
 Scene exchange version 10 persists `drawerator.relationshipGraph`; runtime handles, live poses,
 samples, queues, and checkpoints never enter scene JSON. See [Canvas-first relationships and physics](physics.md)

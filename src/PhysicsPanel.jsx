@@ -123,13 +123,12 @@ function DebugColorPicker({ keyName, label, description, value, active, disabled
 
 function CollisionLayerMembershipPicker({ layers, values, disabled = false, onChange }) {
   const defaultId = layers[0]?.id;
-  const membershipFor = value => Array.isArray(value) && value.length ? value : (defaultId ? [defaultId] : []);
+  const membershipFor = value => Array.isArray(value) ? value : (defaultId ? [defaultId] : []);
   const memberships = values.map(membershipFor);
   const toggle = layerId => {
     const current = new Set(memberships[0] || []);
     if (current.has(layerId)) current.delete(layerId);
     else current.add(layerId);
-    if (!current.size && defaultId) current.add(defaultId);
     onChange?.([...current]);
   };
   return <div className="physics-collision-layer-memberships" aria-label="Collision layer memberships">

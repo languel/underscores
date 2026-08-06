@@ -102,13 +102,18 @@ test("named collision layers derive symmetric Rapier groups without changing leg
   assert.deepEqual(pendulumBody, { group: 2, mask: 2, legacy: false });
 });
 
-test("collision-layer normalization defaults every new layer pair to collide", () => {
+test("collision-layer normalization defaults every new layer pair to collide and permits no memberships", () => {
   const graph = normalizeRelationshipGraph({
     world: { collisionLayers: { layers: [{ id: "default" }, { id: "props" }] } },
     bodies: [{ id: "body", collisionLayers: ["missing"] }],
   });
   assert.equal(graph.world.collisionLayers.matrix["default|props"], true);
-  assert.deepEqual(graph.bodies[0].collisionLayers, ["default"]);
+  assert.deepEqual(graph.bodies[0].collisionLayers, []);
+  assert.deepEqual(resolvePhysicsCollisionGroups(graph.world, graph.bodies[0]), {
+    group: 0,
+    mask: 0,
+    legacy: false,
+  });
 });
 
 test("world physics keeps reset-pose authoring separate from opt-in live pose", () => {

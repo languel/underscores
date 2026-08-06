@@ -80,7 +80,10 @@ export const resolvePhysicsCollisionGroups = (worldValue, bodyValue) => {
   const layers = world.collisionLayers.layers;
   const byId = new Map(layers.map((layer, index) => [layer.id, index]));
   const membership = body.collisionLayers.filter(id => byId.has(id));
-  const activeMembership = membership.length ? membership : [layers[0].id];
+  // An explicit empty membership is useful: it turns a body into a
+  // non-colliding participant while keeping it available to joints, queries,
+  // and the rest of the physics system. Only `null` means a legacy raw mask.
+  const activeMembership = membership;
   let group = 0;
   let mask = 0;
   for (const layerId of activeMembership) group |= 1 << byId.get(layerId);
@@ -721,7 +724,7 @@ export const normalizeRelationshipGraph = value => {
   const bodies = list(graph.bodies).map(normalizePhysicsBody).map(body => {
     if (!Array.isArray(body.collisionLayers)) return body;
     const collisionLayers = body.collisionLayers.filter(layerId => validLayerIds.has(layerId));
-    return { ...body, collisionLayers: collisionLayers.length ? collisionLayers : [world.collisionLayers.layers[0].id] };
+    return { ...body, collisionLayers };
   }).filter(keepSystem);
   const legacyRoutes = list(graph.routes).map(normalizePhysicsRoute).filter(keepSystem);
   const mappings = list(graph.mappings).length
