@@ -4,6 +4,12 @@ import { normalizeRelationshipGraph, normalizePhysicsEndpoint, resolvePhysicsCol
 export const PHYSICS_WORLD_SCALE = 0.01;
 const INV_SCALE = 1 / PHYSICS_WORLD_SCALE;
 const MAX_EVENTS_PER_STEP = 512;
+// Rope links use this private group so individual links collide with authored
+// bodies and walls, but never with other links in the same (or another) rope.
+// The relationship graph reserves the high bit for runtime-only participants.
+const ROPE_COLLISION_GROUP = 1 << 15;
+const ROPE_COLLISION_MASK = ROPE_COLLISION_GROUP - 1;
+const MAX_ROPE_LINKS = 96;
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 
 const resolveSystemGravity = (graph, system) => system.gravityMode === "world"
@@ -50,13 +56,18 @@ const bodyDescription = (body, viscosity = 0) => {
 const colliderDescriptions = (body, world) => {
   const collider = body.collider;
   const collisionGroups = resolvePhysicsCollisionGroups(world, body);
+  // Runtime ropes live in a private group. Active authored bodies need to
+  // listen to that group without changing their authored layer membership.
+  const collisionMask = collisionGroups.group === 0
+    ? collisionGroups.mask
+    : collisionGroups.mask | ROPE_COLLISION_GROUP;
   const configureCollider = candidate => candidate
     .setSensor(collider.sensor)
     .setDensity(body.material.density)
     .setFriction(body.material.friction)
     .setRestitution(body.material.restitution)
     .setContactSkin(collider.contactSkin * PHYSICS_WORLD_SCALE)
-    .setCollisionGroups(((collisionGroups.group & 0xffff) << 16) | (collisionGroups.mask & 0xffff))
+    .setCollisionGroups(((collisionGroups.group & 0xffff) << 16) | (collisionMask & 0xffff))
     .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS | RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
     .setContactForceEventThreshold(0);
   let desc;
@@ -128,21 +139,39 @@ const resamplePolyline = (points, maximumSegmentLength) => {
     .filter(point => Array.isArray(point) && Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1])))
     .map(point => [Number(point[0]), Number(point[1])]);
   if (clean.length < 2) return [];
+  const totalLength = polylineLength(clean);
+  if (totalLength < 1e-4) return [];
+  const requestedSpacing = Math.max(2, finite(maximumSegmentLength, 24));
+  // Pointer input can be sampled at a much higher rate than visual detail
+  // warrants. Convert it to a fixed, arc-length simulation path rather than
+  // creating a rigid link for every raw freehand point.
+  const linkCount = Math.min(MAX_ROPE_LINKS, Math.max(1, Math.ceil(totalLength / requestedSpacing)));
   const sampled = [clean[0]];
-  const spacing = Math.max(2, finite(maximumSegmentLength, 24));
-  for (let index = 1; index < clean.length; index += 1) {
-    const start = clean[index - 1];
-    const end = clean[index];
-    const dx = end[0] - start[0];
-    const dy = end[1] - start[1];
-    const length = Math.hypot(dx, dy);
-    if (length < 1e-4) continue;
-    const count = Math.max(1, Math.ceil(length / spacing));
-    for (let step = 1; step <= count; step += 1) sampled.push([
-      start[0] + dx * step / count,
-      start[1] + dy * step / count,
-    ]);
+  let segmentIndex = 1;
+  let lengthBeforeSegment = 0;
+  for (let sampleIndex = 1; sampleIndex < linkCount; sampleIndex += 1) {
+    const targetDistance = totalLength * sampleIndex / linkCount;
+    while (segmentIndex < clean.length) {
+      const start = clean[segmentIndex - 1];
+      const end = clean[segmentIndex];
+      const segmentLength = Math.hypot(end[0] - start[0], end[1] - start[1]);
+      if (segmentLength < 1e-4) {
+        segmentIndex += 1;
+        continue;
+      }
+      if (targetDistance <= lengthBeforeSegment + segmentLength || segmentIndex === clean.length - 1) {
+        const ratio = Math.max(0, Math.min(1, (targetDistance - lengthBeforeSegment) / segmentLength));
+        sampled.push([
+          start[0] + (end[0] - start[0]) * ratio,
+          start[1] + (end[1] - start[1]) * ratio,
+        ]);
+        break;
+      }
+      lengthBeforeSegment += segmentLength;
+      segmentIndex += 1;
+    }
   }
+  sampled.push(clean.at(-1));
   return sampled;
 };
 
@@ -370,6 +399,7 @@ export class RapierPhysicsSystem {
         .setDensity(1)
         .setFriction(0.5)
         .setRestitution(0.05)
+        .setCollisionGroups((ROPE_COLLISION_GROUP << 16) | ROPE_COLLISION_MASK)
         .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS | RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS), rigidBody);
       const entity = {
         id: `rope:${constraint.id}:${index}`,

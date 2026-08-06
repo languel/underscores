@@ -16,7 +16,10 @@ export const MAPPING_SOURCE_KINDS = Object.freeze(["physics-collision"]);
 export const MAPPING_TARGET_KINDS = Object.freeze(["midi-note", "midi-cc", "midi-bend", "expressive-voice", "legacy-action"]);
 export const PHYSICS_COLLISION_FIELDS = Object.freeze(["impulse", "relativeSpeed", "contactX", "contactY", "normalX", "normalY"]);
 export const PHYSICS_PIXELS_PER_METER = 100;
-export const MAX_PHYSICS_COLLISION_LAYERS = 16;
+// Rapier exposes 16 collision bits. The high bit is reserved at runtime for
+// articulated rope links so they can collide with authored bodies without
+// self-colliding, leaving fifteen explicit author-facing layers.
+export const MAX_PHYSICS_COLLISION_LAYERS = 15;
 export const DEFAULT_PHYSICS_COLLISION_LAYERS = Object.freeze([
   Object.freeze({ id: "default", name: "Default" }),
 ]);

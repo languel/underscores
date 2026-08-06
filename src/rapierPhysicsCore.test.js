@@ -471,6 +471,32 @@ test("rope constraints generate jointed links while publishing one rendered rope
   runtime.dispose();
 });
 
+test("dense authored rope paths are simplified to their requested link spacing", async () => {
+  // Freehand input can contain hundreds of points a few pixels apart. Those
+  // points are visual detail, not an instruction to create one rigid body and
+  // two joints for every input sample.
+  const pathPoints = Array.from({ length: 601 }, (_, index) => [index * 2, 100 + Math.sin(index * 0.08) * 20]);
+  const ropeGraph = normalizeRelationshipGraph({
+    systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
+    constraints: [{
+      id: "dense-rope", systemId: "world", kind: "rope",
+      a: { kind: "world", point: pathPoints[0] },
+      b: { kind: "world", point: pathPoints.at(-1) },
+      pathPoints,
+      segmentLength: 24,
+      thickness: 4,
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(ropeGraph, "world");
+  const links = [...runtime.bodyById.values()].filter(entity => entity.ropeLink);
+  // The curve is roughly 1.2k canvas px long, so a 24 px simulation spacing
+  // should create roughly 50 links rather than 600 raw-pointer samples.
+  // Keep a little room for the curve's true arc length, while preserving the
+  // critical guarantee: no raw-pointer-sized rope explosion.
+  assert.ok(links.length <= 64, `dense rope created ${links.length} links`);
+  runtime.dispose();
+});
+
 test("excluded runtime instances keep stable population identities", async () => {
   const excludedGraph = normalizeRelationshipGraph({
     systems: [{ id: "gas", gravity: { x: 0, y: 0 } }],
