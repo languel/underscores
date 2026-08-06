@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chooseConstraintPivot, getPhysicsElementCenter, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, resolveConstraintPivot, resolveSpringConstraint } from "./physicsConstraintAuthoring.js";
+import { chooseConstraintPivot, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint } from "./physicsConstraintAuthoring.js";
 import { getPhysicsElementWorldPoints } from "./physicsGeometry.js";
 
 const body = (id, x, y, width, height, angle = 0) => ({ id, type: "rectangle", x, y, width, height, angle });
@@ -138,4 +138,45 @@ test("a spring needs two distinct rendered endpoints", () => {
   const spring = { id: "flat", type: "line", x: 0, y: 0, width: 0, height: 0, points: [[0, 0], [0, 0]], angle: 0 };
   assert.equal(getSpringEndpointWorldPoints(spring), null);
   assert.equal(resolveSpringConstraint({ spring }).error, "Spring needs two distinct endpoints.");
+});
+
+test("a rope preserves its full rendered path and attaches both endpoints", () => {
+  const left = body("left", -20, -20, 40, 40);
+  const right = body("right", 180, -20, 40, 40);
+  const rope = {
+    id: "rope",
+    type: "freedraw",
+    x: 0,
+    y: 0,
+    width: 200,
+    height: 60,
+    strokeWidth: 3,
+    points: [[0, 0], [60, 60], [140, 20], [200, 0]],
+    angle: 0,
+  };
+  const result = resolveRopeConstraint({ rope, elements: [left, right, rope], bodies: [binding("left"), binding("right")], systemId: "world" });
+  assert.equal(result.constraint.kind, "rope");
+  assert.equal(result.constraint.a.objectRef.elementId, "left");
+  assert.equal(result.constraint.b.objectRef.elementId, "right");
+  assert.deepEqual(result.constraint.pathPoints, getRopeWorldPoints(rope));
+  assert.ok(result.constraint.restLength > 200);
+});
+
+test("a rope visual patch exactly follows simulated world points", () => {
+  const rope = {
+    id: "rope",
+    type: "line",
+    x: 20,
+    y: 20,
+    width: 100,
+    height: 0,
+    points: [[0, 0], [100, 0]],
+    angle: 0,
+  };
+  const worldPoints = [[15, 30], [90, 95], [240, 90]];
+  const patch = getRopeVisualGeometryPatch(rope, worldPoints);
+  assert.ok(patch);
+  const patched = getPhysicsElementWorldPoints({ ...rope, ...patch });
+  assert.deepEqual(patched.map(point => point.map(value => Math.round(value))), worldPoints);
+  assert.equal(patch.angle, 0);
 });

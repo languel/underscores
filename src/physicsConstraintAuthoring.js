@@ -33,6 +33,10 @@ export const getSpringGeometricLength = element => {
     : null;
 };
 
+export const getRopeWorldPoints = element => (getPhysicsElementWorldPoints(element) || [])
+  .filter(point => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]))
+  .map(point => [Number(point[0]), Number(point[1])]);
+
 // Springs are drawn as ordinary Excalidraw geometry, while Rapier resolves
 // their two anchors independently. Rebuild the visual geometry from the
 // current visible endpoints rather than treating a spring like a point pivot:
@@ -85,6 +89,30 @@ export const getSpringVisualGeometryPatch = (element, start, end) => {
     height,
     angle: 0,
     points: transformed.map(point => [point[0] - x, point[1] - y]),
+  };
+};
+
+// A rope's visible path comes directly from its generated link endpoints. It
+// deliberately does not preserve the original affine transform: the points
+// are now an evaluated physics path, and a flat world-space representation is
+// the only stable form for freehand, lines, arrows, and cubic-path hosts.
+export const getRopeVisualGeometryPatch = (element, worldPoints) => {
+  if (!element || !Array.isArray(worldPoints) || worldPoints.length < 2) return null;
+  const points = worldPoints
+    .filter(point => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]))
+    .map(point => [Number(point[0]), Number(point[1])]);
+  if (points.length < 2) return null;
+  const xs = points.map(point => point[0]);
+  const ys = points.map(point => point[1]);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return {
+    x,
+    y,
+    width: Math.max(...xs) - x,
+    height: Math.max(...ys) - y,
+    angle: 0,
+    points: points.map(point => [point[0] - x, point[1] - y]),
   };
 };
 
@@ -274,6 +302,48 @@ export const resolveSpringConstraint = ({ spring, elements = [], bodies = [], sy
   };
 };
 
+// Ropes use all authored path points rather than only their endpoints. The
+// first and last points attach exactly like a Spring; Rapier fills the path
+// between them with generated runtime links and revolute joints.
+export const resolveRopeConstraint = ({ rope, elements = [], bodies = [], systemId }) => {
+  if (!rope?.id) return { error: "Choose a rope path." };
+  const pathPoints = getRopeWorldPoints(rope);
+  if (pathPoints.length < 2) return { error: "Rope needs at least two path points." };
+  const start = pathPoints[0];
+  const end = pathPoints[pathPoints.length - 1];
+  if (Math.hypot(end[0] - start[0], end[1] - start[1]) < 0.001) return { error: "Rope needs two distinct endpoints." };
+  const primary = bodyCandidatesAtPoint({ visual: rope, point: start, elements, bodies, systemId })[0] || null;
+  const secondary = bodyCandidatesAtPoint({ visual: rope, point: end, elements, bodies, systemId })[0] || null;
+  const restLength = pathPoints.slice(1).reduce((total, point, index) => (
+    total + Math.hypot(point[0] - pathPoints[index][0], point[1] - pathPoints[index][1])
+  ), 0);
+  return {
+    endpointPoints: { start, end },
+    pathPoints,
+    primary,
+    secondary,
+    constraint: {
+      id: `physics-rope-${crypto.randomUUID()}`,
+      systemId: String(systemId || ""),
+      name: "Rope",
+      kind: "rope",
+      objectRef: { kind: "element", elementId: rope.id },
+      a: primary ? physicsEndpointAtPoint(primary, start) : { kind: "world", point: [...start] },
+      b: secondary ? physicsEndpointAtPoint(secondary, end) : { kind: "world", point: [...end] },
+      pathPoints,
+      segmentLength: 24,
+      thickness: Math.max(2, finite(rope.strokeWidth, 2) + 2),
+      restLength,
+      stiffness: 40,
+      damping: 4,
+      collideConnected: false,
+      limitsEnabled: false,
+      lowerLimit: null,
+      upperLimit: null,
+    },
+  };
+};
+
 export const serializePhysicsConstraintCustomData = constraint => ({
   version: 1,
   role: constraint.kind,
@@ -286,6 +356,9 @@ export const serializePhysicsConstraintCustomData = constraint => ({
   a: constraint.a,
   b: constraint.b,
   restLength: constraint.restLength,
+  pathPoints: constraint.pathPoints,
+  segmentLength: constraint.segmentLength,
+  thickness: constraint.thickness,
   stiffness: constraint.stiffness,
   damping: constraint.damping,
   limitsEnabled: constraint.limitsEnabled === true,

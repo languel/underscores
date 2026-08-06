@@ -138,7 +138,14 @@ const publishPoses = timestamp => {
     const values = pooled ? new Float32Array(pooled) : null;
     bufferPool.delete(systemId);
     const poses = runtime.poses(values);
-    post("poses", { systemId, step: runtime.stepIndex, time: runtime.time, sentAt: timestamp, values: poses.values }, [poses.values.buffer]);
+    post("poses", {
+      systemId,
+      step: runtime.stepIndex,
+      time: runtime.time,
+      sentAt: timestamp,
+      values: poses.values,
+      ropePaths: poses.ropePaths,
+    }, [poses.values.buffer]);
     dirtySystems.delete(systemId);
   }
   lastPoseAt = timestamp;

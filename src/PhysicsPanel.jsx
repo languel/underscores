@@ -542,6 +542,7 @@ const constraintLabel = kind => ({
   fixate: "Weld",
   axle: "Axle",
   spring: "Spring",
+  rope: "Rope",
   distance: "Distance",
   pin: "Pin",
   revolute: "Revolute",
@@ -561,6 +562,7 @@ const endpointLabel = endpoint => {
 function ConstraintCard({ constraint: constraintValue, springElement, expanded, onToggle, onUpdate, onRemove }) {
   const constraint = normalizePhysicsConstraint(constraintValue);
   const isSpring = ["spring", "distance"].includes(constraint.kind);
+  const isRope = constraint.kind === "rope";
   const isAxle = ["axle", "pin", "revolute"].includes(constraint.kind);
   const limitDegrees = radians => Number((radians * 180 / Math.PI).toFixed(2));
   const setLimitsEnabled = enabled => onUpdate(enabled
@@ -587,7 +589,7 @@ function ConstraintCard({ constraint: constraintValue, springElement, expanded, 
       <label className="physics-field"><span>Name</span><input value={constraint.name} onChange={event => onUpdate({ name: event.target.value })} /></label>
       <div className="physics-two-column">
         <label className="physics-field"><span>Kind</span><select value={constraint.kind} onChange={event => onUpdate({ kind: event.target.value })}>
-          <option value="fixate">Weld</option><option value="axle">Axle</option><option value="spring">Spring</option><option value="distance">Distance</option>
+          <option value="fixate">Weld</option><option value="axle">Axle</option><option value="spring">Spring</option><option value="rope">Rope</option><option value="distance">Distance</option>
           <option value="pin">Pin (legacy)</option><option value="revolute">Revolute (legacy)</option><option value="weld">Weld (legacy)</option>
         </select></label>
         <label className="physics-check" {...infoProps("Collide while connected", "Off by default so connected parts do not immediately collide with one another. Enable when their colliders should still make contact.")}><input type="checkbox" checked={constraint.collideConnected} onChange={event => onUpdate({ collideConnected: event.target.checked })} /><span>Collide while connected</span></label>
@@ -597,6 +599,10 @@ function ConstraintCard({ constraint: constraintValue, springElement, expanded, 
         <label className="physics-field"><span>Rest length</span><div className="iannix-inline-action"><NumericInput min="0" step="any" value={constraint.restLength} defaultValue={100} onCommit={restLength => onUpdate({ restLength })} /><Button className="geometry-reset-button" onClick={resetSpringRestLength} disabled={getSpringGeometricLength(springElement) === null} title="Set to current geometry" aria-label="Set rest length to current geometry"><GeometryResetIcon /></Button></div></label>
         <label className="physics-field"><span>Stiffness</span><NumericInput min="0" step="any" value={constraint.stiffness} defaultValue={40} onCommit={stiffness => onUpdate({ stiffness })} /></label>
         <label className="physics-field"><span>Damping</span><NumericInput min="0" step="any" value={constraint.damping} defaultValue={4} onCommit={damping => onUpdate({ damping })} /></label>
+      </div>}
+      {isRope && <div className="physics-two-column">
+        <label className="physics-field"><span>Link length</span><NumericInput min="2" step="any" value={constraint.segmentLength} defaultValue={24} onCommit={segmentLength => onUpdate({ segmentLength })} /></label>
+        <label className="physics-field"><span>Thickness</span><NumericInput min="0.5" step="any" value={constraint.thickness} defaultValue={4} onCommit={thickness => onUpdate({ thickness })} /></label>
       </div>}
       {isAxle && <>
         <label className="physics-check" {...infoProps("Limit rotation", "Off means an axle can rotate freely through 360 degrees. Enable it to define a lower and upper angle in degrees.")}><input type="checkbox" checked={constraint.limitsEnabled === true} onChange={event => setLimitsEnabled(event.target.checked)} /><span>Limit rotation · {constraint.limitsEnabled ? "custom" : "full 360°"}</span></label>

@@ -1,6 +1,6 @@
 import { normalizeDraweratorObjectRef, draweratorObjectRefKey } from "./draweratorObjectRef.js";
 
-export const RELATIONSHIP_GRAPH_VERSION = 3;
+export const RELATIONSHIP_GRAPH_VERSION = 4;
 export const PHYSICS_FIXED_HZ = 60;
 
 export const TRACKING_CLASSES = Object.freeze(["runtime-lite", "authored-rigid", "authored-deformable"]);
@@ -10,7 +10,7 @@ export const COLLIDER_KINDS = Object.freeze(["circle", "ellipse", "box", "convex
 // relationships. Keep the older Rapier-oriented names for compatibility and
 // expose the canvas-first vocabulary alongside them: Fixate is a weld and
 // Axle is a revolute joint.
-export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "revolute", "weld", "fixate", "axle", "attractor"]);
+export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "rope", "revolute", "weld", "fixate", "axle", "attractor"]);
 export const ROUTE_ACTION_KINDS = Object.freeze(["event", "stream", "synth", "midi", "command"]);
 export const MAPPING_SOURCE_KINDS = Object.freeze(["physics-collision"]);
 export const MAPPING_TARGET_KINDS = Object.freeze(["midi-note", "midi-cc", "midi-bend", "expressive-voice", "legacy-action"]);
@@ -547,6 +547,9 @@ export const normalizePhysicsConstraint = value => {
   // 0/0 angular lock with `limitsEnabled`.
   const legacyDefaultLock = isHinge && lowerLimit === 0 && upperLimit === 0 && value?.limitsEnabled !== true;
   const hasLimits = isHinge && !legacyDefaultLock && (value?.limitsEnabled === true || (lowerLimit !== null && upperLimit !== null));
+  const pathPoints = list(value?.pathPoints)
+    .filter(point => Array.isArray(point) && Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1])))
+    .map(point => [Number(point[0]), Number(point[1])]);
   return {
     id: id(value?.id, "physics-constraint"),
     systemId: String(value?.systemId || ""),
@@ -557,6 +560,12 @@ export const normalizePhysicsConstraint = value => {
     a: normalizePhysicsEndpoint(value?.a),
     b: normalizePhysicsEndpoint(value?.b),
     restLength: Math.max(0, finite(value?.restLength, 100)),
+    // Rope links are generated only at runtime. Persist the authored curve's
+    // world-space points and lightweight generation settings, never Rapier
+    // handles or the generated link bodies themselves.
+    pathPoints,
+    segmentLength: Math.max(2, finite(value?.segmentLength, 24)),
+    thickness: Math.max(0.5, finite(value?.thickness, 4)),
     stiffness: Math.max(0, finite(value?.stiffness, 40)),
     damping: Math.max(0, finite(value?.damping, 4)),
     limitsEnabled: hasLimits,

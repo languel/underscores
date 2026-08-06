@@ -437,6 +437,40 @@ test("rounded path chains use stroke thickness and CCD to stop a fast small body
   runtime.dispose();
 });
 
+test("rope constraints generate jointed links while publishing one rendered rope path", async () => {
+  const ropeGraph = normalizeRelationshipGraph({
+    systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
+    constraints: [{
+      id: "rope", systemId: "world", kind: "rope",
+      a: { kind: "world", point: [0, 0] },
+      b: { kind: "world", point: [120, 0] },
+      pathPoints: [[0, 0], [30, 20], [90, 20], [120, 0]],
+      segmentLength: 24,
+      thickness: 4,
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(ropeGraph, "world");
+  const initial = runtime.poses();
+  assert.deepEqual(initial.metadata, [], "generated rope links must stay out of the canvas pose transfer");
+  assert.equal(initial.ropePaths.length, 1);
+  assert.deepEqual(initial.ropePaths[0].points[0].map(value => Math.abs(Math.round(value))), [0, 0]);
+  assert.deepEqual(initial.ropePaths[0].points.at(-1).map(value => Math.abs(Math.round(value))), [120, 0]);
+  assert.ok(runtime.bodyById.has("rope:rope:0"), "rope should create runtime link bodies");
+
+  runtime.bodyById.get("rope:rope:1").rigidBody.setTranslation({ x: 0.45, y: 0.45 }, true);
+  runtime.step();
+  const displaced = runtime.poses().ropePaths[0].points;
+  assert.notDeepEqual(displaced, initial.ropePaths[0].points, "the rendered rope path should follow the link chain");
+
+  runtime.reset();
+  const reset = runtime.poses().ropePaths[0].points;
+  assert.deepEqual(
+    reset.map(point => point.map(value => Math.abs(Math.round(value)))),
+    initial.ropePaths[0].points.map(point => point.map(value => Math.abs(Math.round(value)))),
+  );
+  runtime.dispose();
+});
+
 test("excluded runtime instances keep stable population identities", async () => {
   const excludedGraph = normalizeRelationshipGraph({
     systems: [{ id: "gas", gravity: { x: 0, y: 0 } }],
