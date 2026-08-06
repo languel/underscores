@@ -9698,7 +9698,7 @@ function App() {
     setRelationshipGraph(hydratedNextGraph);
     api.updateScene({ elements: nextElements, commitToHistory: true });
     if (createdSystem) setActivePhysicsSystemId(createdSystem.id);
-    const name = kind === "fixate" ? "fixate" : "axle";
+    const name = kind === "fixate" ? "weld" : "axle";
     const message = `Made ${successes.length} ${name} pivot${successes.length === 1 ? "" : "s"}.${failures.length ? ` ${failures.length} selected object${failures.length === 1 ? "" : "s"} did not overlap a physics body.` : ""}`;
     eventBus.emit(failures.length ? "physics.constraint.assign.partial" : "physics.constraint.assign.success", {
       kind,
@@ -9788,7 +9788,7 @@ function App() {
     const hint = kind === "attract-brush"
       ? "Drag on a selected canonical curve to sculpt it."
       : kind === "fixate"
-        ? "Fixate: click a pivot object. It welds the overlapping body to World, or two overlapping bodies together."
+        ? "Weld: click a pivot object. It welds the overlapping body to World, or two overlapping bodies together."
         : kind === "axle"
           ? "Axle: click a pivot object. Its centre hinges one overlapping body to World, or two bodies together."
           : `Physics ${kind}: click the first endpoint, then the second.`;
@@ -9828,7 +9828,7 @@ function App() {
     const elements = api?.getSceneElementsIncludingDeleted?.() || [];
     const pivotPhysics = getPhysicsCustomData(pivot);
     if (pivotPhysics?.role === "body") {
-      return { error: "Axle and Fixate use a separate pivot object; click the small pivot shape, not the body." };
+      return { error: "Axle and Weld use a separate pivot object; click the small pivot shape, not the body." };
     }
     const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
     const resolved = resolveConstraintPivot({ pivot, elements, bodies: graph.bodies, systemId, kind });
@@ -9879,7 +9879,10 @@ function App() {
     const point = [scenePoint.x, scenePoint.y];
     if (!tool) {
       const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
-      const livePose = graph.world.livePose === true;
+      // Cmd temporarily turns a body drag into a live-pose grab without
+      // changing the world's persisted Live pose setting. This preserves
+      // ordinary selection when the modifier is not held.
+      const livePose = graph.world.livePose === true || event.metaKey;
       // Pivots take precedence in live pose mode. A small pivot normally
       // overlaps the body it controls, and choosing the joint makes the
       // intended IK-like handle directly manipulable.
@@ -9919,7 +9922,7 @@ function App() {
     if (["fixate", "axle"].includes(tool.kind)) {
       const pivot = chooseConstraintPivot(canvasElements);
       if (!pivot) {
-        setSceneExchangeStatus(`${tool.kind === "fixate" ? "Fixate" : "Axle"}: click a visible pivot object over a physics body.`);
+        setSceneExchangeStatus(`${tool.kind === "fixate" ? "Weld" : "Axle"}: click a visible pivot object over a physics body.`);
         event.preventDefault();
         event.stopPropagation();
         return true;
@@ -10567,10 +10570,10 @@ function App() {
       toggleDraweratorPanel("physics", { open: true });
       return result;
     } },
-    { id: "physics.body.assign", name: "Physics: Assign Dynamic Body", aliases: ["/physics body"], category: "Physics", args: { systemId: "string?", bodyType: "dynamic|kinematic?" }, ai: { expose: true, description: "Turn selected canvas drawings into authored physics bodies." }, action: (_api, args) => assignPhysicsBodies(args) },
-    { id: "physics.collider.assign", name: "Physics: Assign Fixed Collider", aliases: ["/physics wall"], category: "Physics", args: { systemId: "string?", sensor: "boolean?" }, ai: { expose: true, description: "Turn selected drawings or curves into fixed colliders or sensors." }, action: (_api, args) => assignPhysicsBodies({ ...args, bodyType: "fixed" }) },
+    { id: "physics.body.assign", name: "Physics: Assign Dynamic", aliases: ["/physics body"], category: "Physics", args: { systemId: "string?", bodyType: "dynamic|kinematic?" }, ai: { expose: true, description: "Turn selected canvas drawings into authored physics bodies." }, action: (_api, args) => assignPhysicsBodies(args) },
+    { id: "physics.collider.assign", name: "Physics: Assign Static", aliases: ["/physics wall"], category: "Physics", args: { systemId: "string?", sensor: "boolean?" }, ai: { expose: true, description: "Turn selected drawings or curves into static colliders or sensors." }, action: (_api, args) => assignPhysicsBodies({ ...args, bodyType: "fixed" }) },
     { id: "physics.axle.make", name: "Make Axle Object /make axle", aliases: ["/make axle", "/physics axle"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into Axle pivots. Each pivot automatically connects the body or bodies at its centre." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "axle" }) },
-    { id: "physics.fixate.make", name: "Make Fixate Object /make fixate", aliases: ["/make fixate", "/physics fixate"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into Fixate pivots. Each pivot welds the body or bodies at its centre." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "fixate" }) },
+    { id: "physics.fixate.make", name: "Make Weld Object /make weld", aliases: ["/make weld", "/physics weld", "/make fixate", "/physics fixate"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into Weld pivots. Each pivot welds the body or bodies at its centre." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "fixate" }) },
     { id: "physics.population.create", name: "Physics: Create Runtime Population", aliases: ["/physics gas"], category: "Physics", args: { systemId: "string?", count: "number?", radius: "number?", bounds: "{x,y,width,height}?" }, ai: { expose: true, description: "Create a lightweight seeded runtime particle population." }, action: (_api, args) => createPhysicsPopulation(args) },
     { id: "physics.constraint.tool", name: "Physics: Draw Constraint", aliases: ["/physics constraint"], category: "Physics", args: { kind: "pin|spring|distance|revolute|weld|attractor", systemId: "string?" }, action: (_api, args) => startPhysicsTool(args?.kind || "spring", args?.systemId) },
     { id: "physics.play", name: "Physics: Play", aliases: ["/physics play"], category: "Physics", action: (_api, args) => { synchronizePausedPhysicsBodies(); resumePhysicsAudio(); physicsRuntimeRef.current.play(args?.systemId || activePhysicsSystemId); } },
@@ -10831,7 +10834,7 @@ function App() {
           const name = activePhysicsTool.kind === "axle"
             ? "Axle"
             : activePhysicsTool.kind === "fixate"
-              ? "Fixate"
+              ? "Weld"
               : `Physics ${activePhysicsTool.kind}`;
           setSceneExchangeStatus(`${name} cancelled.`);
           e.preventDefault();
@@ -16300,6 +16303,8 @@ function App() {
   const renderPhysicsWorldSection = () => {
     const world = relationshipGraph.world;
     const physicsTransportSynced = physicsFollowsTransport(relationshipGraph.systems);
+    const contactStayEventsEnabled = relationshipGraph.systems.length > 0
+      && relationshipGraph.systems.every(system => system.emitStayEvents === true);
     const setWorldNumber = (field, value) => {
       const next = Number(value);
       if (Number.isFinite(next)) updatePhysicsWorld({ [field]: next });
@@ -16311,6 +16316,12 @@ function App() {
           ...system,
           clock: { ...system.clock, mode: physicsTransportSynced ? "realtime" : "transport" },
         })),
+      }));
+    };
+    const setContactStayEvents = enabled => {
+      setRelationshipGraph(previous => ({
+        ...previous,
+        systems: previous.systems.map(system => ({ ...system, emitStayEvents: enabled })),
       }));
     };
     return (
@@ -16330,11 +16341,15 @@ function App() {
             <PhysicsWorldIcon type="transport" />
           </button>
         </div>
-        <label className="iannix-field physics-time-scrub-toggle" {...infoProps("Preview physics while scrubbing", "When transport-linked, replay deterministic physics checkpoints while dragging the timeline. This can be expensive for large jumps, so it is off by default. Scrub evaluation never emits live mappings, audio, or commands, but its collision diagnostics appear in the physics debug overlay and event console.")}>
-          <span>Preview physics while scrubbing</span>
+        <label className="iannix-field physics-time-scrub-toggle" {...infoProps("Live timeline preview", "When transport-linked, replay deterministic physics checkpoints while dragging the timeline. This can be expensive for large jumps, so it is off by default. Scrub evaluation never emits live mappings, audio, or commands, but its collision diagnostics appear in the physics debug overlay and event console.")}>
+          <span>Live timeline preview</span>
           <input type="checkbox" checked={physicsTimeScrubEnabled} disabled={!physicsTransportSynced} onChange={event => setPhysicsTimeScrubEnabled(event.target.checked)} />
         </label>
-        <label className="iannix-field physics-time-scrub-toggle" {...infoProps("Live pose", "Turn canvas drags into full-strength runtime physics grabs while the simulation is paused or slowed. Connected bodies and pivots solve like an IK rig without advancing transport time. Releasing at timeline zero makes that solved pose the new Reset pose; away from zero it remains a temporary runtime pose until you choose Apply pose.")}>
+        <label className="iannix-field physics-time-scrub-toggle" {...infoProps("Contact stay events", "Contacts normally emit begin, hit, and end. Enable this only when a mapping needs a stay event on every physics step while bodies remain in contact. It can produce up to 60 events per second for each active contact, so it applies to every world in the scene.")}>
+          <span>Contact stay events</span>
+          <input type="checkbox" checked={contactStayEventsEnabled} onChange={event => setContactStayEvents(event.target.checked)} />
+        </label>
+        <label className="iannix-field physics-time-scrub-toggle" {...infoProps("Live pose", "Turn canvas drags into full-strength runtime physics grabs while the simulation is paused or slowed. Connected bodies and pivots solve like an IK rig without advancing transport time. With Live pose off, hold Cmd while dragging a body for the same temporary grab. Releasing at timeline zero makes that solved pose the new Reset pose; away from zero it remains a temporary runtime pose until you choose Apply pose.")}>
           <span>Live pose</span>
           <input type="checkbox" checked={world.livePose === true} onChange={event => updatePhysicsWorld({ livePose: event.target.checked })} />
         </label>
@@ -16406,12 +16421,12 @@ function App() {
     const sharedRole = new Set(selectedRoles).size === 1 ? selectedRoles[0] : "mixed";
     const roleOptions = [
       ["none", "None", "Remove the physics role"],
-      ["dynamic", "Dynamic body", "Dynamic body — responds to forces and gravity"],
+      ["dynamic", "Dynamic", "Dynamic — responds to forces and gravity"],
       ["kinematic", "Kinematic body", "Kinematic body — moved by authored animation or interaction"],
-      ["fixed", "Fixed collider", "Fixed collider — a stationary physical wall"],
+      ["fixed", "Static", "Static — a stationary physical wall"],
       ["sensor", "Sensor", "Sensor — reports overlaps without blocking bodies"],
       ["axle", "Axle pivot", "Axle pivot — auto-connects one overlapping body to World, or two bodies together"],
-      ["fixate", "Fixate pivot", "Fixate pivot — welds one overlapping body to World, or two bodies together"],
+      ["fixate", "Weld pivot", "Weld pivot — welds one overlapping body to World, or two bodies together"],
     ];
     const applyRole = role => {
       if (role === "none") {
@@ -16483,8 +16498,8 @@ function App() {
     ) : null;
     return (
       <>
-        <InspectorSection title="Physics role" className="iannix-section physics-role-selector" aside={<span className="iannix-selection-count">{selectedElements.length} objects</span>} {...infoProps("Physics role", "A canvas object has one explicit physics role. Axle and Fixate are authored pivot constraints: selecting either automatically resolves overlapping body connections.")}>
-          <label className="iannix-field" {...infoProps("Physics role", "Choose a solver body, sensor, or authored pivot role. Selecting Axle or Fixate converts the selected object into a pivot and calculates its overlapping body connections.")}>
+        <InspectorSection title="Physics role" className="iannix-section physics-role-selector" aside={<span className="iannix-selection-count">{selectedElements.length} objects</span>} {...infoProps("Physics role", "A canvas object has one explicit physics role. Axle and Weld are authored pivot constraints: selecting either automatically resolves overlapping body connections.")}>
+          <label className="iannix-field" {...infoProps("Physics role", "Choose a solver body, sensor, or authored pivot role. Selecting Axle or Weld converts the selected object into a pivot and calculates its overlapping body connections.")}>
             <span>Role</span>
             <select value={sharedRole} onChange={event => applyRole(event.target.value)}>
               {sharedRole === "mixed" && <option value="mixed" disabled>Mixed roles</option>}
@@ -16545,7 +16560,7 @@ function App() {
           </InspectorSection>
         )}
         {pivotConstraint && (
-          <InspectorSection title={`${pivotConstraint.kind === "fixate" ? "Fixate" : "Axle"} pivot`} className="iannix-section physics-role-details" {...infoProps("Constraint pivot", "This canvas object is the authored constraint entity. Its centre resolves overlapping physics bodies: one body attaches to World; two bodies attach to each other. The complete record is stored in object.customData.physics.")}>
+          <InspectorSection title={`${pivotConstraint.kind === "fixate" ? "Weld" : "Axle"} pivot`} className="iannix-section physics-role-details" {...infoProps("Constraint pivot", "This canvas object is the authored constraint entity. Its centre resolves overlapping physics bodies: one body attaches to World; two bodies attach to each other. The complete record is stored in object.customData.physics.")}>
             <label className="iannix-field"><span>Physics name</span><input type="text" value={pivotConstraint.name} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { name: event.target.value })} /></label>
             <div className="iannix-two-column">
               <label className="iannix-field" {...infoProps("First connection", "The first body attached at this pivot. Changing it recalculates the local anchor at the pivot centre.")}><span>Connect A</span><select value={endpointElementId(pivotConstraint.a)} onChange={event => patchPivotConnection("a", event.target.value)}>

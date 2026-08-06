@@ -160,14 +160,14 @@ export default function PhysicsCanvasToolbar({ selectedCount = 0, open = true, o
     </div>
     {!minimized && <div className="physics-canvas-toolbar-body">
       <div className="physics-canvas-tool-group" aria-label="Physics body roles">
-        <Tool kind="dynamic" label="Make selected objects dynamic bodies" disabled={!selectedCount} onClick={() => onAssignBody?.({ bodyType: "dynamic" })} />
+        <Tool kind="dynamic" label="Make selected objects dynamic" disabled={!selectedCount} onClick={() => onAssignBody?.({ bodyType: "dynamic" })} />
         <Tool kind="kinematic" label="Make selected objects kinematic bodies" disabled={!selectedCount} onClick={() => onAssignBody?.({ bodyType: "kinematic" })} />
-        <Tool kind="fixed" label="Make selected objects fixed colliders" disabled={!selectedCount} onClick={() => onAssignCollider?.({ sensor: false })} />
+        <Tool kind="fixed" label="Make selected objects static" disabled={!selectedCount} onClick={() => onAssignCollider?.({ sensor: false })} />
         <Tool kind="sensor" label="Make selected objects sensors" disabled={!selectedCount} onClick={() => onAssignCollider?.({ sensor: true })} />
       </div>
       <div className="physics-canvas-tool-separator" />
       <div className="physics-canvas-tool-group" aria-label="Physics constraints">
-        <Tool kind="fixate" label="Make selected objects Fixate pivots" disabled={!selectedCount} onClick={() => onMakeConstraint?.("fixate")} />
+        <Tool kind="fixate" label="Make selected objects Weld pivots" disabled={!selectedCount} onClick={() => onMakeConstraint?.("fixate")} />
         <Tool kind="axle" label="Make selected objects Axle pivots" disabled={!selectedCount} onClick={() => onMakeConstraint?.("axle")} />
       </div>
     </div>}

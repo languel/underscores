@@ -136,7 +136,7 @@ export const resolveConstraintPivot = ({ pivot, elements = [], bodies = [], syst
     constraint: {
       id: `physics-${kind}-${crypto.randomUUID()}`,
       systemId: String(systemId || ""),
-      name: kind === "fixate" ? "Fixate" : "Axle",
+      name: kind === "fixate" ? "Weld" : "Axle",
       kind,
       objectRef: { kind: "element", elementId: pivot.id },
       a: physicsEndpointAtPoint(first, anchor),

@@ -732,7 +732,7 @@ const physicsBodyMatchesQuery = (body, query) => {
 const physicsBodyFieldCount = (body, query) => physicsBodyMatchesQuery(body, query) ? 12 : 0;
 
 const physicsConstraintLabel = kind => ({
-  fixate: "Fixate",
+  fixate: "Weld",
   axle: "Axle",
   spring: "Spring",
   distance: "Distance",
@@ -796,7 +796,7 @@ const PhysicsConstraintControls = ({
     : { limitsEnabled: false, lowerLimit: null, upperLimit: null });
   const limitDegrees = radians => Number((radians * 180 / Math.PI).toFixed(2));
   const kindOptions = [
-    ["fixate", "Fixate"], ["axle", "Axle"], ["spring", "Spring"], ["distance", "Distance"],
+    ["fixate", "Weld"], ["axle", "Axle"], ["spring", "Spring"], ["distance", "Distance"],
     ["pin", "Pin"], ["revolute", "Revolute"], ["weld", "Weld"], ["attractor", "Attractor"],
     ["thruster", "Thruster"], ["tracer", "Tracer"], ["chain", "Chain"],
   ];

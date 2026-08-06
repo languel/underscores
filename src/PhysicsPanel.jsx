@@ -344,13 +344,6 @@ export default function PhysicsPanel({
   const updateSelectedCollisionLayers = collisionLayers => patchSelectedBody({ collisionLayers });
 
   return <div className="physics-panel">
-    <div className="physics-toolbar">
-      <Button onClick={createSystem} {...infoProps("Add physics system", "Create an independent physics world with its own clock, gravity, bodies, and mappings.")}>Add system</Button>
-      <Button onClick={() => onLoadExample?.("gas")}>Musical gas</Button>
-      <Button onClick={() => onLoadExample?.("marionette")}>Marionette</Button>
-      <Button onClick={() => onLoadExample?.("portrait")}>Portrait</Button>
-    </div>
-
     {system ? <>
       <InspectorSection title={`Mappings · ${systemMappings.length}`} defaultOpen>
         <div className="physics-toolbar">
@@ -370,23 +363,6 @@ export default function PhysicsPanel({
             index={index}
           />)}
           {!systemMappings.length && <div className="physics-empty">No mappings in this world.</div>}
-        </div>
-      </InspectorSection>
-
-      <InspectorSection title="System" defaultOpen>
-        <label className="physics-field"><span>System</span><select value={system.id} onChange={event => onActiveSystemChange(event.target.value)}>{graph.systems.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
-        <label className="physics-field"><span>Name</span><input value={system.name} onChange={event => patchSystem({ name: event.target.value })} /></label>
-        <div className="physics-two-column">
-          <label className="physics-field"><span>{system.gravityMode === "world" ? "Gravity X (world)" : "Gravity X"}</span><input type="number" step="10" value={system.gravityMode === "world" ? graph.world.gravity.x : system.gravity.x} disabled={system.gravityMode === "world"} onChange={event => patchSystem({ gravity: { ...system.gravity, x: Number(event.target.value) } })} /></label>
-          <label className="physics-field"><span>{system.gravityMode === "world" ? "Gravity Y (world)" : "Gravity Y"}</span><input type="number" step="10" value={system.gravityMode === "world" ? graph.world.gravity.y : system.gravity.y} disabled={system.gravityMode === "world"} onChange={event => patchSystem({ gravity: { ...system.gravity, y: Number(event.target.value) } })} /></label>
-        </div>
-        <label className="physics-check" {...infoProps("Contact stay events", "Contacts normally emit begin, hit, and end. Enable this only when a mapping needs an additional stay event on every physics step while bodies remain in contact; it can produce up to 60 events per second for each active contact.")}><input type="checkbox" checked={system.emitStayEvents} onChange={event => patchSystem({ emitStayEvents: event.target.checked })} /><span>Contact stay events</span></label>
-        <div className="physics-transport">
-          <Button onClick={() => onPlay(system.id)}>Play</Button>
-          <Button onClick={() => onPause(system.id)}>Pause</Button>
-          <Button onClick={() => onReset(system.id)}>Reset</Button>
-          <Button onClick={() => onApply(system.id)}>Apply pose</Button>
-          <Button onClick={removeSystem}>Remove</Button>
         </div>
       </InspectorSection>
 
@@ -445,28 +421,28 @@ export default function PhysicsPanel({
             onUpdate={patch => updateConstraint(constraint.id, patch)}
             onRemove={() => removeConstraint(constraint.id)}
           />)}
-          {!systemConstraints.length && <div className="physics-empty">Select a pivot object, then choose Make axle or Make fixate.</div>}
+          {!systemConstraints.length && <div className="physics-empty">Select a pivot object, then choose axle or weld.</div>}
         </div>
       </InspectorSection>
 
       <InspectorSection title={`Selection · ${selectedElementCount}`} defaultOpen>
         <div className="physics-role-grid">
-          <Button disabled={!selectedElementCount} onClick={() => onAssignBody({ systemId: system.id, bodyType: "dynamic" })}>Dynamic body</Button>
+          <Button disabled={!selectedElementCount} onClick={() => onAssignBody({ systemId: system.id, bodyType: "dynamic" })}>Dynamic</Button>
           <Button disabled={!selectedElementCount} onClick={() => onAssignBody({ systemId: system.id, bodyType: "kinematic" })}>Kinematic</Button>
-          <Button disabled={!selectedElementCount} onClick={() => onAssignCollider({ systemId: system.id, sensor: false })}>Fixed collider</Button>
+          <Button disabled={!selectedElementCount} onClick={() => onAssignCollider({ systemId: system.id, sensor: false })}>Static</Button>
           <Button disabled={!selectedElementCount} onClick={() => onAssignCollider({ systemId: system.id, sensor: true })}>Sensor</Button>
         </div>
         <div className="physics-tool-grid">
           <Button
             disabled={!selectedElementCount}
             onClick={() => onMakeConstraint?.({ kind: "fixate", systemId: system.id })}
-            {...infoProps("Make fixate object", "Converts each selected canvas object into a Fixate pivot. The pivot centre automatically welds one overlapping body to World, or two overlapping bodies together.")}
-          >Make fixate</Button>
+            {...infoProps("Weld", "Converts each selected canvas object into a Weld pivot. The pivot centre automatically welds one overlapping body to World, or two overlapping bodies together.")}
+          >Weld</Button>
           <Button
             disabled={!selectedElementCount}
             onClick={() => onMakeConstraint?.({ kind: "axle", systemId: system.id })}
             {...infoProps("Make axle object", "Converts each selected canvas object into a freely rotating Axle pivot. The pivot centre automatically connects one overlapping body to World, or two overlapping bodies together.")}
-          >Make axle</Button>
+          >Axle</Button>
         </div>
         {selectedBody && <div className="physics-selected-properties">
           {selectedBodies.length === 1 && <label className="physics-field"><span>Physics name</span><input value={selectedBody.name} onChange={event => patchSelectedBody({ name: event.target.value })} /></label>}
@@ -486,14 +462,36 @@ export default function PhysicsPanel({
         </div>}
       </InspectorSection>
 
-      <InspectorSection title="Population" defaultOpen>
-        <div className="physics-two-column">
-          <label className="physics-field"><span>Count</span><input type="number" min="1" max="5000" step="1" value={populationCount} onChange={event => setPopulationCount(Number(event.target.value))} /></label>
-          <label className="physics-field"><span>Point size</span><input type="number" min="1" max="80" step="1" value={particleSize} onChange={event => setParticleSize(Number(event.target.value))} /></label>
-        </div>
+      <InspectorSection title="System" defaultOpen>
         <div className="physics-toolbar">
-          <Button onClick={() => onCreatePopulation({ systemId: system.id, count: populationCount, radius: particleSize })}>Add runtime gas</Button>
-          <Button onClick={() => onMaterialize({ systemId: system.id })}>Materialize all</Button>
+          <Button onClick={createSystem} {...infoProps("Add physics system", "Create an independent physics world with its own clock, gravity, bodies, and mappings.")}>Add system</Button>
+          <Button onClick={() => onLoadExample?.("gas")}>Musical gas</Button>
+          <Button onClick={() => onLoadExample?.("marionette")}>Marionette</Button>
+          <Button onClick={() => onLoadExample?.("portrait")}>Portrait</Button>
+        </div>
+        <label className="physics-field"><span>System</span><select value={system.id} onChange={event => onActiveSystemChange(event.target.value)}>{graph.systems.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
+        <label className="physics-field"><span>Name</span><input value={system.name} onChange={event => patchSystem({ name: event.target.value })} /></label>
+        <div className="physics-two-column">
+          <label className="physics-field"><span>{system.gravityMode === "world" ? "Gravity X (world)" : "Gravity X"}</span><input type="number" step="10" value={system.gravityMode === "world" ? graph.world.gravity.x : system.gravity.x} disabled={system.gravityMode === "world"} onChange={event => patchSystem({ gravity: { ...system.gravity, x: Number(event.target.value) } })} /></label>
+          <label className="physics-field"><span>{system.gravityMode === "world" ? "Gravity Y (world)" : "Gravity Y"}</span><input type="number" step="10" value={system.gravityMode === "world" ? graph.world.gravity.y : system.gravity.y} disabled={system.gravityMode === "world"} onChange={event => patchSystem({ gravity: { ...system.gravity, y: Number(event.target.value) } })} /></label>
+        </div>
+        <div className="physics-transport">
+          <Button onClick={() => onPlay(system.id)}>Play</Button>
+          <Button onClick={() => onPause(system.id)}>Pause</Button>
+          <Button onClick={() => onReset(system.id)}>Reset</Button>
+          <Button onClick={() => onApply(system.id)}>Apply pose</Button>
+          <Button onClick={removeSystem}>Remove</Button>
+        </div>
+        <div className="physics-subsection" aria-label="Population">
+          <strong>Population</strong>
+          <div className="physics-two-column">
+            <label className="physics-field"><span>Count</span><input type="number" min="1" max="5000" step="1" value={populationCount} onChange={event => setPopulationCount(Number(event.target.value))} /></label>
+            <label className="physics-field"><span>Point size</span><input type="number" min="1" max="80" step="1" value={particleSize} onChange={event => setParticleSize(Number(event.target.value))} /></label>
+          </div>
+          <div className="physics-toolbar">
+            <Button onClick={() => onCreatePopulation({ systemId: system.id, count: populationCount, radius: particleSize })}>Add runtime gas</Button>
+            <Button onClick={() => onMaterialize({ systemId: system.id })}>Materialize all</Button>
+          </div>
         </div>
       </InspectorSection>
 
@@ -517,12 +515,20 @@ export default function PhysicsPanel({
         <div className="physics-readout"><span>Mapping outputs</span><strong>{Number(telemetry.mappingRate || 0).toFixed(1)}/s</strong></div>
         <div className="physics-readout"><span>Dropped</span><strong>{systemTelemetry?.droppedEvents || 0}</strong></div>
       </InspectorSection>
-    </> : <div className="physics-empty">Add a physics system, then draw or select objects on the canvas.</div>}
+    </> : <InspectorSection title="System" defaultOpen>
+      <div className="physics-toolbar">
+        <Button onClick={createSystem} {...infoProps("Add physics system", "Create an independent physics world with its own clock, gravity, bodies, and mappings.")}>Add system</Button>
+        <Button onClick={() => onLoadExample?.("gas")}>Musical gas</Button>
+        <Button onClick={() => onLoadExample?.("marionette")}>Marionette</Button>
+        <Button onClick={() => onLoadExample?.("portrait")}>Portrait</Button>
+      </div>
+      <div className="physics-empty">Add a physics system, then draw or select objects on the canvas.</div>
+    </InspectorSection>}
   </div>;
 }
 
 const constraintLabel = kind => ({
-  fixate: "Fixate",
+  fixate: "Weld",
   axle: "Axle",
   spring: "Spring",
   distance: "Distance",
@@ -566,7 +572,7 @@ function ConstraintCard({ constraint: constraintValue, expanded, onToggle, onUpd
       <label className="physics-field"><span>Name</span><input value={constraint.name} onChange={event => onUpdate({ name: event.target.value })} /></label>
       <div className="physics-two-column">
         <label className="physics-field"><span>Kind</span><select value={constraint.kind} onChange={event => onUpdate({ kind: event.target.value })}>
-          <option value="fixate">Fixate</option><option value="axle">Axle</option><option value="spring">Spring</option><option value="distance">Distance</option>
+          <option value="fixate">Weld</option><option value="axle">Axle</option><option value="spring">Spring</option><option value="distance">Distance</option>
           <option value="pin">Pin (legacy)</option><option value="revolute">Revolute (legacy)</option><option value="weld">Weld (legacy)</option>
         </select></label>
         <label className="physics-check" {...infoProps("Collide while connected", "Off by default so connected parts do not immediately collide with one another. Enable when their colliders should still make contact.")}><input type="checkbox" checked={constraint.collideConnected} onChange={event => onUpdate({ collideConnected: event.target.checked })} /><span>Collide while connected</span></label>

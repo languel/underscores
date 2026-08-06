@@ -784,6 +784,26 @@ body .excalidraw .sidebar {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.physics-subsection {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color, rgba(128, 128, 128, 0.28));
+}
+
+.physics-subsection > strong {
+  color: var(--color-secondary, var(--drawerator-muted-foreground, currentColor));
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.physics-subsection .physics-toolbar,
+.physics-subsection .physics-two-column {
+  margin-bottom: 0;
+}
+
 .physics-debug-colors {
   display: flex;
   flex-direction: column;
