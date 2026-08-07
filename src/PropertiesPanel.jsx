@@ -175,14 +175,7 @@ const EditableValue = ({ value, path, onChange, mediaSources = [] }) => {
     </select>
   );
   if (typeof value === "boolean") return <input type="checkbox" checked={value} onChange={event => onChange(event.target.checked)} />;
-  if (typeof value === "number") return <input ref={inputRef} type="number" value={draft} onChange={event => {
-    const nextDraft = event.target.value;
-    setDraft(nextDraft);
-    const next = Number(nextDraft);
-    if (nextDraft.trim() && Number.isFinite(next) && next !== value) onChange(next);
-  }} onBlur={() => {
-    if (!draft.trim() || !Number.isFinite(Number(draft))) setDraft(String(value));
-  }} />;
+  if (typeof value === "number") return <NumericInput value={value} defaultValue={value} onCommit={onChange} />;
   if (typeof value === "string") return <input ref={inputRef} type="text" value={draft} onChange={event => {
     const next = event.target.value;
     setDraft(next);
@@ -243,7 +236,7 @@ const EmbedControls = ({ element, query, onChange }) => {
         {matches("enabled") && <div className="properties-row editable"><span>enabled</span><input type="checkbox" checked={policy.enabled} onChange={event => onChange(["customData", "draweratorEmbed", "enabled"], event.target.checked)} /></div>}
         {matches("display") && <div className="properties-row editable"><span>display</span><select value={policy.display} onChange={event => onChange(["customData", "draweratorEmbed", "display"], event.target.value)}>{EMBED_DISPLAY_MODES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>}
         {matches("interaction") && <div className="properties-row editable"><span>interact</span><input type="checkbox" checked={policy.allowInteraction} onChange={event => onChange(["customData", "draweratorEmbed", "allowInteraction"], event.target.checked)} /></div>}
-        {matches("crop") && [["cropTop", "crop top"], ["cropRight", "crop right"], ["cropBottom", "crop bottom"], ["cropLeft", "crop left"]].map(([key, label]) => <div className="properties-row editable" key={key}><span>{label} px</span><input type="number" min="0" step="1" value={policy[key]} onChange={event => onChange(["customData", "draweratorEmbed", key], Number.isFinite(event.target.valueAsNumber) ? event.target.valueAsNumber : 0)} /></div>)}
+        {matches("crop") && [["cropTop", "crop top"], ["cropRight", "crop right"], ["cropBottom", "crop bottom"], ["cropLeft", "crop left"]].map(([key, label]) => <div className="properties-row editable" key={key}><span>{label} px</span><NumericInput min="0" step="1" value={policy[key]} defaultValue={0} onCommit={value => onChange(["customData", "draweratorEmbed", key], value)} /></div>)}
         {matches("css") && <div className="properties-row properties-embed-css editable"><span>inject CSS</span><textarea value={policy.css} onChange={event => onChange(["customData", "draweratorEmbed", "css"], event.target.value)} placeholder="body { margin: 0; }" /></div>}
         {!query?.needle && <p className="properties-embed-note">HTTP(S) only. “Presentation only” embeds appear when Live presentation mode is enabled. Interact passes mouse input to the page; turn it off to select or transform the embed. Crop hides fixed page chrome. CSS is injected only into same-origin embeds—browser security prevents it for external sites such as p5.js.</p>}
       </div>
@@ -270,7 +263,7 @@ const P5FrameControls = ({ element, query, onChange }) => {
         {matches("runtime") && <div className="properties-row editable"><span>runtime</span><select value={frame.runtime} onChange={event => update({ runtime: event.target.value })}><option value="bundled">Bundled p5</option><option value="cdn">CDN URL</option></select></div>}
         {frame.runtime === "cdn" && matches("cdn") && <div className="properties-row editable"><span>cdn url</span><input type="url" value={frame.cdnUrl || DEFAULT_P5_CDN_URL} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => update({ cdnUrl: event.target.value })} /></div>}
         {matches("autoplay") && <div className="properties-row editable"><span>autoplay</span><input type="checkbox" checked={frame.autoplay} onChange={event => update({ autoplay: event.target.checked })} /></div>}
-        {matches("fps") && <div className="properties-row editable"><span>fps</span><input type="number" min="1" max="120" step="1" value={frame.fps} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => update({ fps: event.target.valueAsNumber })} /></div>}
+        {matches("fps") && <div className="properties-row editable"><span>fps</span><NumericInput min="1" max="120" step="1" value={frame.fps} defaultValue={30} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onCommit={fps => update({ fps })} /></div>}
         {matches("transparent") && <div className="properties-row editable"><span>transparent</span><input type="checkbox" checked={frame.transparent} onChange={event => update({ transparent: event.target.checked })} /></div>}
         {matches("interaction") && <div className="properties-row editable"><span>interact</span><input type="checkbox" checked={frame.allowInteraction} onChange={event => update({ allowInteraction: event.target.checked })} /></div>}
         {matches("reload") && <div className="properties-row properties-embed-reload"><span>preview</span><button type="button" className="iannix-flat-button" onClick={() => update({ reloadNonce: Date.now() })}>Reload sketch</button></div>}
@@ -477,8 +470,8 @@ const SvgObjectControls = ({
       <summary><span>SVG document</span><small>{analysis.nodeCount} nodes</small></summary>
       <div className="properties-children">
         {matches("name") && <div className="properties-row editable"><span>name</span><input type="text" value={svg.name} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => update({ name: event.target.value })} /></div>}
-        {matches("width") && <div className="properties-row editable"><span>width</span><input type="number" min="1" max="16384" value={analysis.width} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => updateSource(updateStructuredSvgRootDocument(svg.source, { width: event.target.value }))} /></div>}
-        {matches("height") && <div className="properties-row editable"><span>height</span><input type="number" min="1" max="16384" value={analysis.height} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => updateSource(updateStructuredSvgRootDocument(svg.source, { height: event.target.value }))} /></div>}
+        {matches("width") && <div className="properties-row editable"><span>width</span><NumericInput min="1" max="16384" value={analysis.width} defaultValue={1} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onCommit={width => updateSource(updateStructuredSvgRootDocument(svg.source, { width }))} /></div>}
+        {matches("height") && <div className="properties-row editable"><span>height</span><NumericInput min="1" max="16384" value={analysis.height} defaultValue={1} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onCommit={height => updateSource(updateStructuredSvgRootDocument(svg.source, { height }))} /></div>}
         {matches("viewbox") && <div className="properties-row editable"><span>viewBox</span><input type="text" value={analysis.viewBox.join(" ")} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => updateSource(updateStructuredSvgRootDocument(svg.source, { viewBox: event.target.value }))} /></div>}
         {matches("animation") && <details className="properties-svg-editor-section" open={timingGraph.lanes.length > 0}>
           <summary><span>Animation</span><small>{timingGraph.lanes.length} lanes</small></summary>
@@ -515,9 +508,9 @@ const SvgObjectControls = ({
                 <label><span>repeat</span><input aria-label="CSS animation iteration count" value={lane.repeatCount} onKeyDown={stopCanvasKeys} onChange={event => updateSource(updateStructuredSvgStyleDeclaration(svg.source, lane.styleNodeIndex, lane.selector, "animation-iteration-count", event.target.value))} /></label>
               </div>}
               {lane.kind === "looom" && Number.isInteger(lane.nodeIndex) && <div className="properties-svg-animation-fields">
-                <label><span>fps</span><input type="number" min="0.001" step="1" aria-label="Looom thread speed" value={lane.speed} onKeyDown={stopCanvasKeys} onChange={event => patchLooomVariable(lane.nodeIndex, "--speed", event.target.value)} /></label>
-                <label><span>offset</span><input type="number" step="1" aria-label="Looom thread offset" value={Math.round(lane.begin * lane.speed)} onKeyDown={stopCanvasKeys} onChange={event => patchLooomVariable(lane.nodeIndex, "--timeOffset", event.target.value)} /></label>
-                <label><span>play mode</span><input type="number" step="1" aria-label="Looom thread play mode" value={lane.playMode} onKeyDown={stopCanvasKeys} onChange={event => patchLooomVariable(lane.nodeIndex, "--playMode", event.target.value)} /></label>
+                <label><span>fps</span><NumericInput min="0.001" step="1" aria-label="Looom thread speed" value={lane.speed} defaultValue={1} onKeyDown={stopCanvasKeys} onCommit={value => patchLooomVariable(lane.nodeIndex, "--speed", value)} /></label>
+                <label><span>offset</span><NumericInput step="1" aria-label="Looom thread offset" value={Math.round(lane.begin * lane.speed)} defaultValue={0} onKeyDown={stopCanvasKeys} onCommit={value => patchLooomVariable(lane.nodeIndex, "--timeOffset", value)} /></label>
+                <label><span>play mode</span><NumericInput step="1" aria-label="Looom thread play mode" value={lane.playMode} defaultValue={0} onKeyDown={stopCanvasKeys} onCommit={value => patchLooomVariable(lane.nodeIndex, "--playMode", value)} /></label>
               </div>}
             </div>)}
             {analysis.hasScript && <>
@@ -754,14 +747,19 @@ const physicsConstraintMatchesQuery = (constraint, query) => {
   const label = physicsConstraintLabel(constraint.kind).toLowerCase();
   return [
     "physics", "constraint", "role", "name", "kind", "connect", "endpoint", "enabled",
-    "collide", "rest length", "stiffness", "damping", "limit", "lower", "upper", "break", label,
+    "collide", "rest length", "stiffness", "damping", "motor", "speed", "torque", "limit", "lower", "upper", "break", label,
     constraint.name, constraint.kind,
   ].some(value => String(value || "").toLowerCase().includes(query.needle));
 };
 
-const physicsConstraintFieldCount = (constraint, query) => physicsConstraintMatchesQuery(constraint, query) ? 10 : 0;
+const physicsConstraintFieldCount = (constraint, query) => physicsConstraintMatchesQuery(constraint, query) ? 13 : 0;
 
 const constraintEndpointElementId = endpoint => endpoint?.kind === "object" ? endpoint.objectRef?.elementId || "" : "";
+const constraintEndpointSelectionValue = endpoint => {
+  if (endpoint?.kind === "none") return "none";
+  if (endpoint?.kind === "world") return "world";
+  return constraintEndpointElementId(endpoint);
+};
 
 const PhysicsConstraintControls = ({
   constraint: constraintValue,
@@ -822,12 +820,14 @@ const PhysicsConstraintControls = ({
       <div className="properties-children">
         {matches("name") && <div className="properties-row editable"><span>name</span><input type="text" value={constraint.name} onChange={event => onChange({ name: event.target.value })} /></div>}
         {matches("connect") && <>
-          <div className="properties-row editable"><span>connect A</span><select value={constraint.a?.kind === "world" ? "world" : constraintEndpointElementId(constraint.a)} onChange={event => onEndpointChange?.("a", event.target.value)}>
+          <div className="properties-row editable"><span>connect A</span><select value={constraintEndpointSelectionValue(constraint.a)} onChange={event => onEndpointChange?.("a", event.target.value)}>
+            <option value="none">None</option>
             <option value="world">World</option>
             <option value="" disabled>Choose body</option>
             {endpointOptions.map(option => <option key={option.id} value={option.id}>{endpointLabel(option.id)}</option>)}
           </select></div>
-          <div className="properties-row editable"><span>connect B</span><select value={constraint.b?.kind === "world" ? "world" : constraintEndpointElementId(constraint.b)} onChange={event => onEndpointChange?.("b", event.target.value)}>
+          <div className="properties-row editable"><span>connect B</span><select value={constraintEndpointSelectionValue(constraint.b)} onChange={event => onEndpointChange?.("b", event.target.value)}>
+            <option value="none">None</option>
             <option value="world">World</option>
             {endpointOptions.filter(option => option.id !== constraintEndpointElementId(constraint.a)).map(option => <option key={option.id} value={option.id}>{endpointLabel(option.id)}</option>)}
           </select></div>
@@ -840,13 +840,16 @@ const PhysicsConstraintControls = ({
           {matches("damping") && <div className="properties-row editable"><span>damping</span><NumericInput min="0" step="any" value={constraint.damping} defaultValue={4} onCommit={damping => onChange({ damping })} /></div>}
         </>}
         {isHinge && <>
+          {matches("motor") && <div className="properties-row editable"><span>motor enabled</span><input type="checkbox" checked={constraint.motorEnabled === true} onChange={event => onChange({ motorEnabled: event.target.checked })} /></div>}
+          {matches("speed") && <div className="properties-row editable"><span>motor speed (°/s)</span><NumericInput step="any" value={constraint.motorSpeed} defaultValue={0} onCommit={motorSpeed => onChange({ motorSpeed })} /></div>}
+          {matches("torque") && <div className="properties-row editable"><span>motor torque</span><NumericInput min="0" step="any" value={constraint.motorTorque} defaultValue={10} onCommit={motorTorque => onChange({ motorTorque })} /></div>}
           {matches("limit") && <div className="properties-row editable"><span>limit rotation</span><input type="checkbox" checked={constraint.limitsEnabled === true} onChange={event => setLimitsEnabled(event.target.checked)} /></div>}
           <>
-            {matches("lower") && <div className="properties-row editable"><span>lower limit (°)</span><input type="number" step="1" disabled={!constraint.limitsEnabled} value={constraint.lowerLimit === null ? "" : limitDegrees(constraint.lowerLimit)} onChange={event => onChange({ limitsEnabled: true, lowerLimit: event.target.value === "" ? null : event.target.valueAsNumber * Math.PI / 180 })} /></div>}
-            {matches("upper") && <div className="properties-row editable"><span>upper limit (°)</span><input type="number" step="1" disabled={!constraint.limitsEnabled} value={constraint.upperLimit === null ? "" : limitDegrees(constraint.upperLimit)} onChange={event => onChange({ limitsEnabled: true, upperLimit: event.target.value === "" ? null : event.target.valueAsNumber * Math.PI / 180 })} /></div>}
+            {matches("lower") && <div className="properties-row editable"><span>lower limit (°)</span><NumericInput step="1" disabled={!constraint.limitsEnabled} value={constraint.lowerLimit === null ? "" : limitDegrees(constraint.lowerLimit)} emptyValue={null} onCommit={lowerLimit => onChange({ limitsEnabled: true, lowerLimit: lowerLimit === null ? null : lowerLimit * Math.PI / 180 })} /></div>}
+            {matches("upper") && <div className="properties-row editable"><span>upper limit (°)</span><NumericInput step="1" disabled={!constraint.limitsEnabled} value={constraint.upperLimit === null ? "" : limitDegrees(constraint.upperLimit)} emptyValue={null} onCommit={upperLimit => onChange({ limitsEnabled: true, upperLimit: upperLimit === null ? null : upperLimit * Math.PI / 180 })} /></div>}
           </>
         </>}
-        {matches("break") && <div className="properties-row editable"><span>break force</span><input type="number" min="0" step="1" value={constraint.breakForce ?? ""} placeholder="unlimited" onChange={event => onChange({ breakForce: event.target.value === "" ? null : event.target.valueAsNumber })} /></div>}
+        {matches("break") && <div className="properties-row editable"><span>break force</span><NumericInput min="0" step="1" value={constraint.breakForce ?? ""} emptyValue={null} placeholder="unlimited" onCommit={breakForce => onChange({ breakForce })} /></div>}
         <button type="button" className="iannix-flat-button" onClick={() => onRemove?.()}>Remove {label.toLowerCase()}</button>
       </div>
     </details>
@@ -896,15 +899,15 @@ const PhysicsRoleControls = ({ body, element, query, onChange, onColliderKindCha
         {matches("name") && <div className="properties-row editable"><span>name</span><input type="text" value={body.name} onChange={event => onChange({ name: event.target.value })} /></div>}
         {matches("tags") && <div className="properties-row editable"><span>tags</span><input type="text" value={body.collisionTags.join(", ")} onChange={event => onChange({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} /></div>}
         {matches("collision layers") && <CollisionLayerMembershipControl layers={collisionLayers} value={body.collisionLayers} onChange={layers => onChange({ collisionLayers: layers })} />}
-        {matches("note") && <div className="properties-row editable"><span>object note</span><input type="number" min="0" max="127" step="1" value={body.mappingValues.note} onChange={event => onChange({ mappingValues: { note: event.target.valueAsNumber } })} /></div>}
+        {matches("note") && <div className="properties-row editable"><span>object note</span><NumericInput min="0" max="127" step="1" value={body.mappingValues.note} defaultValue={60} onCommit={note => onChange({ mappingValues: { note } })} /></div>}
         {supportsColliderChoices && matches("collider") && <div className="properties-row editable"><span>collider</span><select value={getPhysicsColliderSelectionValue(body.collider, { allowPath: Boolean(supportsPathCollider) })} onChange={event => onColliderKindChange?.(event.target.value)}><option value="box">Bounding box</option><option value="ellipse">Bounding ellipse</option><option value="convex">Convex hull</option>{supportsPathCollider && <option value="chain">Path chain</option>}</select></div>}
         <div className="properties-two-column">
-          {matches("friction") && <div className="properties-row editable"><span>friction</span><input type="number" min="0" max="10" step="0.05" value={body.material.friction} onChange={event => updateMaterial({ friction: event.target.valueAsNumber })} /></div>}
-          {matches("bounce") && <div className="properties-row editable"><span>bounce</span><input type="number" min="0" max="2" step="0.05" value={body.material.restitution} onChange={event => updateMaterial({ restitution: event.target.valueAsNumber })} /></div>}
-          {matches("density") && <div className="properties-row editable"><span>density</span><input type="number" min="0.01" max="100" step="0.1" value={body.material.density} onChange={event => updateMaterial({ density: event.target.valueAsNumber })} /></div>}
-          {matches("damping") && <div className="properties-row editable"><span>damping</span><input type="number" min="0" max="100" step="0.05" value={body.material.linearDamping} onChange={event => updateMaterial({ linearDamping: event.target.valueAsNumber })} /></div>}
+          {matches("friction") && <div className="properties-row editable"><span>friction</span><NumericInput min="0" max="10" step="0.05" value={body.material.friction} defaultValue={0.2} onCommit={friction => updateMaterial({ friction })} /></div>}
+          {matches("bounce") && <div className="properties-row editable"><span>bounce</span><NumericInput min="0" max="2" step="0.05" value={body.material.restitution} defaultValue={0.5} onCommit={restitution => updateMaterial({ restitution })} /></div>}
+          {matches("density") && <div className="properties-row editable"><span>density</span><NumericInput min="0.01" max="100" step="0.1" value={body.material.density} defaultValue={1} onCommit={density => updateMaterial({ density })} /></div>}
+          {matches("damping") && <div className="properties-row editable"><span>damping</span><NumericInput min="0" max="100" step="0.05" value={body.material.linearDamping} defaultValue={0.01} onCommit={linearDamping => updateMaterial({ linearDamping })} /></div>}
         </div>
-        {matches("collision skin") && <div className="properties-row editable"><span>collision skin</span><input type="number" min="0" max="64" step="0.5" value={body.collider.contactSkin} onChange={event => updateCollider({ contactSkin: event.target.valueAsNumber })} /></div>}
+        {matches("collision skin") && <div className="properties-row editable"><span>collision skin</span><NumericInput min="0" max="64" step="0.5" value={body.collider.contactSkin} defaultValue={0} onCommit={contactSkin => updateCollider({ contactSkin })} /></div>}
         <button type="button" className="iannix-flat-button" onClick={() => onRemove?.()}>Remove physics role</button>
       </div>
     </details>
@@ -940,9 +943,6 @@ const SharedPhysicsControls = ({ elements, physicsBodies, query, onChange, colli
     const memberships = Array.isArray(body.collisionLayers) ? body.collisionLayers : [collisionLayers[0]?.id];
     return memberships.includes(layer.id);
   })).map(layer => layer.id);
-  const numberChange = (event, patch) => {
-    if (Number.isFinite(event.target.valueAsNumber)) onChange?.(patch(event.target.valueAsNumber));
-  };
   return (
     <details className="properties-group properties-physics-group properties-shared-physics-group" open>
       <summary><span>Shared physics</span><small>{physicsBodies.length} objects</small></summary>
@@ -971,7 +971,7 @@ const SharedPhysicsControls = ({ elements, physicsBodies, query, onChange, colli
         {matches("collision layers") && <CollisionLayerMembershipControl layers={collisionLayers} value={commonLayerIds} label="collision layers" onChange={layers => onChange?.({ collisionLayers: layers })} />}
         {matches("note") && <div className="properties-row editable">
           <span>object note</span>
-          <input type="number" min="0" max="127" step="1" value={note ?? ""} placeholder={note === null ? "Mixed" : undefined} aria-label={`Object note for ${physicsBodies.length} selected objects`} onChange={event => numberChange(event, value => ({ mappingValues: { note: value } }))} />
+          <NumericInput min="0" max="127" step="1" value={note ?? ""} defaultValue={60} placeholder={note === null ? "Mixed" : undefined} aria-label={`Object note for ${physicsBodies.length} selected objects`} onCommit={note => onChange?.({ mappingValues: { note } })} />
         </div>}
         {matches("collider") && <div className="properties-row editable">
           <span>collider</span>
@@ -988,12 +988,12 @@ const SharedPhysicsControls = ({ elements, physicsBodies, query, onChange, colli
           </select>
         </div>}
         <div className="properties-two-column">
-          {matches("friction") && <div className="properties-row editable"><span>friction</span><input type="number" min="0" max="10" step="0.05" value={friction ?? ""} placeholder={friction === null ? "Mixed" : undefined} aria-label={`Friction for ${physicsBodies.length} selected objects`} onChange={event => numberChange(event, value => ({ material: { friction: value } }))} /></div>}
-          {matches("bounce") && <div className="properties-row editable"><span>bounce</span><input type="number" min="0" max="2" step="0.05" value={restitution ?? ""} placeholder={restitution === null ? "Mixed" : undefined} aria-label={`Bounce for ${physicsBodies.length} selected objects`} onChange={event => numberChange(event, value => ({ material: { restitution: value } }))} /></div>}
-          {matches("density") && <div className="properties-row editable"><span>density</span><input type="number" min="0.0001" max="100" step="0.1" value={density ?? ""} placeholder={density === null ? "Mixed" : undefined} aria-label={`Density for ${physicsBodies.length} selected objects`} onChange={event => numberChange(event, value => ({ material: { density: value } }))} /></div>}
-          {matches("damping") && <div className="properties-row editable"><span>damping</span><input type="number" min="0" max="100" step="0.05" value={damping ?? ""} placeholder={damping === null ? "Mixed" : undefined} aria-label={`Damping for ${physicsBodies.length} selected objects`} onChange={event => numberChange(event, value => ({ material: { linearDamping: value } }))} /></div>}
+          {matches("friction") && <div className="properties-row editable"><span>friction</span><NumericInput min="0" max="10" step="0.05" value={friction ?? ""} defaultValue={0.2} placeholder={friction === null ? "Mixed" : undefined} aria-label={`Friction for ${physicsBodies.length} selected objects`} onCommit={friction => onChange?.({ material: { friction } })} /></div>}
+          {matches("bounce") && <div className="properties-row editable"><span>bounce</span><NumericInput min="0" max="2" step="0.05" value={restitution ?? ""} defaultValue={0.5} placeholder={restitution === null ? "Mixed" : undefined} aria-label={`Bounce for ${physicsBodies.length} selected objects`} onCommit={restitution => onChange?.({ material: { restitution } })} /></div>}
+          {matches("density") && <div className="properties-row editable"><span>density</span><NumericInput min="0.0001" max="100" step="0.1" value={density ?? ""} defaultValue={1} placeholder={density === null ? "Mixed" : undefined} aria-label={`Density for ${physicsBodies.length} selected objects`} onCommit={density => onChange?.({ material: { density } })} /></div>}
+          {matches("damping") && <div className="properties-row editable"><span>damping</span><NumericInput min="0" max="100" step="0.05" value={damping ?? ""} defaultValue={0.01} placeholder={damping === null ? "Mixed" : undefined} aria-label={`Damping for ${physicsBodies.length} selected objects`} onCommit={linearDamping => onChange?.({ material: { linearDamping } })} /></div>}
         </div>
-        {matches("collision skin") && <div className="properties-row editable"><span>collision skin</span><input type="number" min="0" max="64" step="0.5" value={contactSkin ?? ""} placeholder={contactSkin === null ? "Mixed" : undefined} aria-label={`Collision skin for ${physicsBodies.length} selected objects`} onChange={event => numberChange(event, value => ({ collider: { contactSkin: value } }))} /></div>}
+        {matches("collision skin") && <div className="properties-row editable"><span>collision skin</span><NumericInput min="0" max="64" step="0.5" value={contactSkin ?? ""} defaultValue={0} placeholder={contactSkin === null ? "Mixed" : undefined} aria-label={`Collision skin for ${physicsBodies.length} selected objects`} onCommit={contactSkin => onChange?.({ collider: { contactSkin } })} /></div>}
       </div>
     </details>
   );

@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chooseConstraintPivot, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint } from "./physicsConstraintAuthoring.js";
+import { chooseConstraintPivot, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint } from "./physicsConstraintAuthoring.js";
 import { getPhysicsElementWorldPoints } from "./physicsGeometry.js";
 
 const body = (id, x, y, width, height, angle = 0) => ({ id, type: "rectangle", x, y, width, height, angle });
-const binding = id => ({ id: `body-${id}`, systemId: "world", enabled: true, objectRef: { kind: "element", elementId: id } });
+const binding = (id, patch = {}) => ({ id: `body-${id}`, systemId: "world", enabled: true, bodyType: "dynamic", objectRef: { kind: "element", elementId: id }, ...patch });
 
 test("an axle pivot discovers one overlapping body and attaches it to World", () => {
   const arm = body("arm", 100, 100, 80, 20);
@@ -138,6 +138,37 @@ test("a spring needs two distinct rendered endpoints", () => {
   const spring = { id: "flat", type: "line", x: 0, y: 0, width: 0, height: 0, points: [[0, 0], [0, 0]], angle: 0 };
   assert.equal(getSpringEndpointWorldPoints(spring), null);
   assert.equal(resolveSpringConstraint({ spring }).error, "Spring needs two distinct endpoints.");
+});
+
+test("an attractor persists its visual centre as a World force origin", () => {
+  const attractor = { ...body("attractor", 80, 160, 40, 20), type: "ellipse" };
+  const result = resolveAttractorConstraint({ attractor, systemId: "world" });
+  assert.equal(result.constraint.kind, "attractor");
+  assert.deepEqual(result.constraint.a, { kind: "world", point: [100, 170] });
+  assert.deepEqual(result.constraint.b, { kind: "world", point: [100, 170] });
+  assert.equal(result.constraint.attractionStrength, 20);
+});
+
+test("a thruster binds its start endpoint to an overlapping dynamic body", () => {
+  const host = body("host", -20, -20, 60, 60);
+  const thruster = { id: "thruster", type: "line", x: 0, y: 0, width: 100, height: 0, points: [[0, 0], [100, 0]], angle: 0 };
+  const result = resolveThrusterConstraint({ thruster, elements: [host, thruster], bodies: [binding("host")], systemId: "world" });
+  assert.equal(result.constraint.kind, "thruster");
+  assert.equal(result.constraint.a.objectRef.elementId, "host");
+  assert.deepEqual(result.constraint.b, { kind: "world", point: [100, 0] });
+  assert.equal(result.constraint.thrusterForce, 20);
+});
+
+test("a thruster ignores static shapes and reports a missing dynamic attachment", () => {
+  const wall = body("wall", -20, -20, 60, 60);
+  const thruster = { id: "thruster", type: "line", x: 0, y: 0, width: 100, height: 0, points: [[0, 0], [100, 0]], angle: 0 };
+  const result = resolveThrusterConstraint({
+    thruster,
+    elements: [wall, thruster],
+    bodies: [binding("wall", { bodyType: "fixed" })],
+    systemId: "world",
+  });
+  assert.equal(result.error, "Place the thruster start point on a dynamic body.");
 });
 
 test("a rope preserves its full rendered path and attaches both endpoints", () => {

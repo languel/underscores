@@ -10,7 +10,7 @@ export const COLLIDER_KINDS = Object.freeze(["circle", "ellipse", "box", "convex
 // relationships. Keep the older Rapier-oriented names for compatibility and
 // expose the canvas-first vocabulary alongside them: Fixate is a weld and
 // Axle is a revolute joint.
-export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "rope", "revolute", "weld", "fixate", "axle", "attractor"]);
+export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "rope", "revolute", "weld", "fixate", "axle", "attractor", "thruster"]);
 export const ROUTE_ACTION_KINDS = Object.freeze(["event", "stream", "synth", "midi", "command"]);
 export const MAPPING_SOURCE_KINDS = Object.freeze(["physics-collision"]);
 export const MAPPING_TARGET_KINDS = Object.freeze(["midi-note", "midi-cc", "midi-bend", "expressive-voice", "legacy-action"]);
@@ -172,6 +172,7 @@ export const normalizePhysicsWorld = value => ({
 
 export const normalizePhysicsEndpoint = value => {
   if (!value || typeof value !== "object") return null;
+  if (value.kind === "none") return { kind: "none" };
   if (value.kind === "world") {
     return { kind: "world", point: [finite(value.point?.[0]), finite(value.point?.[1])] };
   }
@@ -215,6 +216,7 @@ export const normalizePhysicsEndpoint = value => {
 export const physicsEndpointKey = value => {
   const endpoint = normalizePhysicsEndpoint(value);
   if (!endpoint) return "";
+  if (endpoint.kind === "none") return "none";
   if (endpoint.kind === "world") return `world:${endpoint.point.join(":")}`;
   if (endpoint.kind === "stream") return `stream:${endpoint.streamId}:${endpoint.featureId || ""}:${endpoint.path}`;
   const objectKey = draweratorObjectRefKey(endpoint.objectRef);
@@ -359,8 +361,20 @@ export const serializePhysicsConstraintCustomData = value => {
     a: clone(constraint.a),
     b: clone(constraint.b),
     restLength: constraint.restLength,
+    pathPoints: clone(constraint.pathPoints),
+    segmentLength: constraint.segmentLength,
+    thickness: constraint.thickness,
     stiffness: constraint.stiffness,
     damping: constraint.damping,
+    motorEnabled: constraint.motorEnabled,
+    motorSpeed: constraint.motorSpeed,
+    motorTorque: constraint.motorTorque,
+    attractionStrength: constraint.attractionStrength,
+    attractionRadius: constraint.attractionRadius,
+    attractionFalloff: constraint.attractionFalloff,
+    attractionMode: constraint.attractionMode,
+    targetTags: clone(constraint.targetTags),
+    thrusterForce: constraint.thrusterForce,
     limitsEnabled: constraint.limitsEnabled,
     lowerLimit: constraint.lowerLimit,
     upperLimit: constraint.upperLimit,
@@ -571,6 +585,19 @@ export const normalizePhysicsConstraint = value => {
     thickness: Math.max(0.5, finite(value?.thickness, 4)),
     stiffness: Math.max(0, finite(value?.stiffness, 40)),
     damping: Math.max(0, finite(value?.damping, 4)),
+    // Axle motors are authored in the friendly canvas unit of degrees per
+    // second. The Rapier adapter converts that value to radians per second.
+    motorEnabled: isHinge && value?.motorEnabled === true,
+    motorSpeed: finite(value?.motorSpeed, 0),
+    motorTorque: Math.max(0, finite(value?.motorTorque, 10)),
+    // Attractors and thrusters are authored as visible canvas objects. Their
+    // force settings stay solver-independent in the relationship graph.
+    attractionStrength: Math.max(0, finite(value?.attractionStrength, 20)),
+    attractionRadius: Math.max(0, finite(value?.attractionRadius, 300)),
+    attractionFalloff: Math.max(0, finite(value?.attractionFalloff, 1)),
+    attractionMode: value?.attractionMode === "repel" ? "repel" : "attract",
+    targetTags: uniqueStrings(value?.targetTags),
+    thrusterForce: finite(value?.thrusterForce, 20),
     limitsEnabled: hasLimits,
     lowerLimit: hasLimits ? lowerLimit : null,
     upperLimit: hasLimits ? upperLimit : null,
@@ -822,7 +849,7 @@ export const removeRelationshipBindingsForElements = (graphValue, elementIds) =>
   };
   const endpointReferencesDeletedElement = endpointValue => {
     const endpoint = normalizePhysicsEndpoint(endpointValue);
-    return Boolean(endpoint && !["world", "stream"].includes(endpoint.kind)
+    return Boolean(endpoint && !["none", "world", "stream"].includes(endpoint.kind)
       && referencesDeletedElement(endpoint.objectRef));
   };
   const bodies = graph.bodies.filter(body => !referencesDeletedElement(body.objectRef));
@@ -846,7 +873,7 @@ export const remapRelationshipGraph = (graphValue, idMap, existingIds = new Set(
   };
   const remapEndpoint = endpointValue => {
     const endpoint = normalizePhysicsEndpoint(endpointValue);
-    if (!endpoint || ["world", "stream"].includes(endpoint.kind)) return endpoint;
+    if (!endpoint || ["none", "world", "stream"].includes(endpoint.kind)) return endpoint;
     const objectRef = remapRef(endpoint.objectRef);
     return objectRef ? { ...endpoint, objectRef } : null;
   };
@@ -871,7 +898,7 @@ export const relationshipGraphForSelection = (graphValue, selectedElementIds) =>
   const bodyIds = new Set(bodies.map(body => body.id));
   const endpointSelected = endpoint => {
     const normalized = normalizePhysicsEndpoint(endpoint);
-    return !normalized || ["world", "stream"].includes(normalized.kind) || selected.has(normalized.objectRef.elementId);
+    return !normalized || ["none", "world", "stream"].includes(normalized.kind) || selected.has(normalized.objectRef.elementId);
   };
   const constraints = graph.constraints.filter(constraint => (
     (!constraint.objectRef || selected.has(constraint.objectRef.elementId))
@@ -947,7 +974,7 @@ export const findRelationshipOrphans = (graphValue, elements = []) => {
     .map(element => [element.id, element]));
   const endpointIsOrphaned = endpointValue => {
     const endpoint = normalizePhysicsEndpoint(endpointValue);
-    if (!endpoint || ["world", "stream"].includes(endpoint.kind)) return false;
+    if (!endpoint || ["none", "world", "stream"].includes(endpoint.kind)) return false;
     const element = liveElements.get(endpoint.objectRef.elementId);
     if (!element) return true;
     if (endpoint.kind !== "bezier-anchor") return false;

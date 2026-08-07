@@ -197,6 +197,7 @@ export class PhysicsRuntimeController {
         time: message.time,
         values: message.values,
         ropePaths: Array.isArray(message.ropePaths) ? message.ropePaths : [],
+        thrusterPaths: Array.isArray(message.thrusterPaths) ? message.thrusterPaths : [],
         metadata: this.metadata.get(message.systemId) || [],
         receivedAt,
       });

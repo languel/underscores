@@ -116,8 +116,8 @@ bodies against each other, with free 360-degree rotation by default. The compact
 is a draggable canvas utility, while the Physics panel remains the detailed inspector.
 
 Live pose now provides constraint-solving manipulation without advancing timeline time. It can be
-enabled persistently in Physics World or invoked for one drag with `Cmd`; a release at timeline zero
-becomes the new reset pose. Collision layers are available before the next constraint family so
+enabled persistently in Physics World or toggled with `\\`; a release at timeline zero becomes the
+new reset pose. Collision layers are available before the next constraint family so
 articulated rigs can deliberately suppress self-collisions.
 
 ## Next phase

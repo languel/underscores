@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import InspectorSection from "./InspectorSection.jsx";
 import { infoProps } from "./uiInfo.js";
 import TimeValueInput from "./TimeValueInput.jsx";
+import NumericInput from "./NumericInput.jsx";
 import { createTimeValue } from "./timeValue.js";
 import {
   DEFAULT_EXPRESSIVE_SYNTH_CONFIG,
@@ -13,15 +14,14 @@ const NumericField = ({ label, value, min, max, step, defaultValue, unit, onChan
   <label className="settings-panel-field expressive-synth-field" {...infoProps(label, help)}>
     <span>{label}</span>
     <span className="expressive-synth-value">
-      <input
-        type="number"
+      <NumericInput
         min={min}
         max={max}
         step={step}
         value={value}
-        data-default={defaultValue}
+        defaultValue={defaultValue}
         aria-label={label}
-        onChange={event => onChange(Number(event.target.value))}
+        onCommit={onChange}
       />
       {unit ? <small>{unit}</small> : null}
     </span>

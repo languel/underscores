@@ -14,6 +14,7 @@ import {
   remapRelationshipGraph,
   removeRelationshipBindingsForElements,
   serializePhysicsBodyCustomData,
+  serializePhysicsConstraintCustomData,
   serializeRelationshipGraphForScene,
   withPhysicsCustomData,
 } from "./relationshipGraph.js";
@@ -40,6 +41,21 @@ test("canvas Fixate and Axle constraints remain canonical graph relationships", 
   });
   assert.deepEqual(graph.constraints.map(item => item.kind), ["fixate", "axle"]);
   assert.equal(graph.constraints[0].b.kind, "world");
+});
+
+test("physics constraints preserve explicit None endpoints without orphaning them", () => {
+  const graph = normalizeRelationshipGraph({
+    systems: [{ id: "world" }],
+    constraints: [{
+      id: "free-rope", systemId: "world", kind: "rope",
+      a: { kind: "none" },
+      b: { kind: "none" },
+      pathPoints: [[0, 0], [100, 0]],
+    }],
+  });
+  assert.deepEqual(graph.constraints[0].a, { kind: "none" });
+  assert.deepEqual(graph.constraints[0].b, { kind: "none" });
+  assert.deepEqual(findRelationshipOrphans(graph, []), []);
 });
 
 test("new Axles leave angular limits disabled until the author enables both limits", () => {
@@ -150,6 +166,25 @@ test("physics metadata uses the short canonical key and reads the legacy alias",
   const customData = { physics: serializePhysicsBodyCustomData(body) };
   assert.equal(getPhysicsCustomData({ customData }).bodyType, "fixed");
   assert.equal(getPhysicsCustomData({ customData: { draweratorPhysics: customData.physics } }).bodyType, "fixed");
+});
+
+test("constraint custom-data mirrors motor settings and detached endpoints", () => {
+  const mirror = serializePhysicsConstraintCustomData({
+    id: "axle",
+    systemId: "world",
+    kind: "axle",
+    a: { kind: "none" },
+    b: { kind: "world", point: [10, 20] },
+    motorEnabled: true,
+    motorSpeed: 120,
+    motorTorque: 25,
+  });
+  assert.equal(mirror.role, "axle");
+  assert.deepEqual(mirror.a, { kind: "none" });
+  assert.deepEqual(mirror.b, { kind: "world", point: [10, 20] });
+  assert.equal(mirror.motorEnabled, true);
+  assert.equal(mirror.motorSpeed, 120);
+  assert.equal(mirror.motorTorque, 25);
 });
 
 test("authored body settings persist on the canvas object while the graph keeps its binding", () => {

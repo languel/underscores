@@ -1,8 +1,10 @@
 import RAPIER from "@dimforge/rapier2d-deterministic-compat";
 import { normalizeRelationshipGraph, normalizePhysicsEndpoint, resolvePhysicsCollisionGroups } from "./relationshipGraph.js";
 
+// Drawerator authors geometry in pixels while Rapier works in metres.  The
+// default of 100 px/m remains compatible with older scenes, but each system
+// now derives its conversion from the authored pixels-per-metre setting.
 export const PHYSICS_WORLD_SCALE = 0.01;
-const INV_SCALE = 1 / PHYSICS_WORLD_SCALE;
 const MAX_EVENTS_PER_STEP = 512;
 // Rope links use this private group so individual links collide with authored
 // bodies and walls, but never with other links in the same (or another) rope.
@@ -11,15 +13,21 @@ const ROPE_COLLISION_GROUP = 1 << 15;
 const ROPE_COLLISION_MASK = ROPE_COLLISION_GROUP - 1;
 const MAX_ROPE_LINKS = 96;
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+// Geometry is authored in canvas pixels, while all solver values are SI-ish
+// metres. Keep this conversion on the world instead of baking the historical
+// 100 px/m default into individual features.
+const worldScaleFor = graph => 1 / Math.max(1, finite(graph?.world?.pixelsPerMeter, 100));
 
-const resolveSystemGravity = (graph, system) => system.gravityMode === "world"
+const resolveSystemGravity = (graph, system, worldScale = PHYSICS_WORLD_SCALE) => system.gravityMode === "world"
   ? {
-      x: graph.world.gravity.x * graph.world.pixelsPerMeter,
+      x: graph.world.gravity.x,
       // Canvas Y grows downwards; the authored world convention follows the
       // usual physics sign where negative Y is up.
-      y: -graph.world.gravity.y * graph.world.pixelsPerMeter,
+      y: -graph.world.gravity.y,
     }
-  : system.gravity;
+  // Older custom systems stored canvas acceleration rather than metres/s².
+  // Preserve those scenes while world gravity follows real-world units.
+  : { x: finite(system.gravity?.x) * worldScale, y: finite(system.gravity?.y) * worldScale };
 
 let rapierReady = null;
 export const initializeRapier = () => {
@@ -37,23 +45,23 @@ const randomGenerator = seedValue => {
   };
 };
 
-const bodyDescription = (body, viscosity = 0) => {
+const bodyDescription = (body, viscosity = 0, worldScale = PHYSICS_WORLD_SCALE) => {
   const desc = body.bodyType === "fixed"
     ? RAPIER.RigidBodyDesc.fixed()
     : body.bodyType === "kinematic"
       ? RAPIER.RigidBodyDesc.kinematicPositionBased()
       : RAPIER.RigidBodyDesc.dynamic();
   return desc
-    .setTranslation(body.initial.x * PHYSICS_WORLD_SCALE, body.initial.y * PHYSICS_WORLD_SCALE)
+    .setTranslation(body.initial.x * worldScale, body.initial.y * worldScale)
     .setRotation(body.initial.angle)
-    .setLinvel(body.initial.velocityX * PHYSICS_WORLD_SCALE, body.initial.velocityY * PHYSICS_WORLD_SCALE)
+    .setLinvel(body.initial.velocityX * worldScale, body.initial.velocityY * worldScale)
     .setAngvel(body.initial.angularVelocity)
     .setLinearDamping(body.material.linearDamping + viscosity)
     .setAngularDamping(body.material.angularDamping)
     .setCcdEnabled(body.bodyType === "dynamic");
 };
 
-const colliderDescriptions = (body, world) => {
+const colliderDescriptions = (body, world, worldScale = PHYSICS_WORLD_SCALE) => {
   const collider = body.collider;
   const collisionGroups = resolvePhysicsCollisionGroups(world, body);
   // Runtime ropes live in a private group. Active authored bodies need to
@@ -66,25 +74,25 @@ const colliderDescriptions = (body, world) => {
     .setDensity(body.material.density)
     .setFriction(body.material.friction)
     .setRestitution(body.material.restitution)
-    .setContactSkin(collider.contactSkin * PHYSICS_WORLD_SCALE)
+    .setContactSkin(collider.contactSkin * worldScale)
     .setCollisionGroups(((collisionGroups.group & 0xffff) << 16) | (collisionMask & 0xffff))
     .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS | RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
     .setContactForceEventThreshold(0);
   let desc;
-  if (collider.kind === "circle") desc = RAPIER.ColliderDesc.ball(collider.radius * PHYSICS_WORLD_SCALE);
+  if (collider.kind === "circle") desc = RAPIER.ColliderDesc.ball(collider.radius * worldScale);
   else if (collider.kind === "ellipse") {
     const vertices = new Float32Array(Array.from({ length: 24 }, (_, index) => {
       const angle = index / 24 * Math.PI * 2;
       return [
-        Math.cos(angle) * collider.width * PHYSICS_WORLD_SCALE / 2,
-        Math.sin(angle) * collider.height * PHYSICS_WORLD_SCALE / 2,
+        Math.cos(angle) * collider.width * worldScale / 2,
+        Math.sin(angle) * collider.height * worldScale / 2,
       ];
     }).flat());
     desc = RAPIER.ColliderDesc.convexHull(vertices);
   }
   else if (collider.kind === "convex") {
-    desc = RAPIER.ColliderDesc.convexHull(new Float32Array(collider.points.flatMap(point => [point[0] * PHYSICS_WORLD_SCALE, point[1] * PHYSICS_WORLD_SCALE])));
-  } else desc = RAPIER.ColliderDesc.cuboid(collider.width * PHYSICS_WORLD_SCALE / 2, collider.height * PHYSICS_WORLD_SCALE / 2);
+    desc = RAPIER.ColliderDesc.convexHull(new Float32Array(collider.points.flatMap(point => [point[0] * worldScale, point[1] * worldScale])));
+  } else desc = RAPIER.ColliderDesc.cuboid(collider.width * worldScale / 2, collider.height * worldScale / 2);
   if (collider.kind === "chain" || collider.kind === "polyline") {
     const segments = [];
     for (let index = 1; index < collider.points.length; index += 1) {
@@ -94,14 +102,14 @@ const colliderDescriptions = (body, world) => {
       const dy = by - ay;
       const length = Math.hypot(dx, dy);
       if (length < 0.01) continue;
-      const halfLength = length * PHYSICS_WORLD_SCALE / 2;
-      const halfThickness = collider.thickness * PHYSICS_WORLD_SCALE / 2;
+      const halfLength = length * worldScale / 2;
+      const halfThickness = collider.thickness * worldScale / 2;
       // Capsules overlap at consecutive endpoints. That keeps collision
       // geometry watertight around sharp turns instead of leaving tiny square
       // gaps a small body can fall through.
       segments.push(RAPIER.ColliderDesc
         .roundCuboid(halfLength, halfThickness, Math.min(halfLength, halfThickness))
-        .setTranslation((ax + bx) * PHYSICS_WORLD_SCALE / 2, (ay + by) * PHYSICS_WORLD_SCALE / 2)
+        .setTranslation((ax + bx) * worldScale / 2, (ay + by) * worldScale / 2)
         .setRotation(Math.atan2(dy, dx)));
     }
     desc = segments.length ? null : RAPIER.ColliderDesc.cuboid(0.12, 0.12);
@@ -112,21 +120,21 @@ const colliderDescriptions = (body, world) => {
   return [configureCollider(desc)];
 };
 
-const localAnchorForBody = (body, endpoint) => {
+const localAnchorForBody = (body, endpoint, worldScale = PHYSICS_WORLD_SCALE) => {
   if (!endpoint || endpoint.kind !== "object" || endpoint.anchor === "center") return { x: 0, y: 0 };
   // First-class visual constraints hydrate their precise body-local offset
   // from the axle/fixate object's centre. This must win over the normalized
   // Excalidraw-frame coordinate below: a freehand collider can be rebased to
   // its rendered path centre, which is often nowhere near the frame centre.
   if (Array.isArray(endpoint.localAnchor)) return {
-    x: endpoint.localAnchor[0] * PHYSICS_WORLD_SCALE,
-    y: endpoint.localAnchor[1] * PHYSICS_WORLD_SCALE,
+    x: endpoint.localAnchor[0] * worldScale,
+    y: endpoint.localAnchor[1] * worldScale,
   };
   const width = body.collider.kind === "circle" ? body.collider.radius * 2 : body.collider.width;
   const height = body.collider.kind === "circle" ? body.collider.radius * 2 : body.collider.height;
   return {
-    x: (endpoint.localPoint[0] - 0.5) * width * PHYSICS_WORLD_SCALE,
-    y: (endpoint.localPoint[1] - 0.5) * height * PHYSICS_WORLD_SCALE,
+    x: (endpoint.localPoint[0] - 0.5) * width * worldScale,
+    y: (endpoint.localPoint[1] - 0.5) * height * worldScale,
   };
 };
 
@@ -196,14 +204,14 @@ const entityPayload = entity => ({
 // Collision routing is allowed to be richer than display-pose metadata. The
 // latter crosses the worker boundary every paint frame, so keeping velocity and
 // material data out of it protects runtime population performance.
-const collisionEntityPayload = entity => {
+const collisionEntityPayload = (entity, inverseWorldScale = 1 / PHYSICS_WORLD_SCALE) => {
   const position = entity.rigidBody.translation();
   const velocity = entity.rigidBody.linvel();
   return {
     ...entityPayload(entity),
     mappingValues: { ...entity.mappingValues },
-    position: [position.x * INV_SCALE, position.y * INV_SCALE],
-    velocity: [velocity.x * INV_SCALE, velocity.y * INV_SCALE],
+    position: [position.x * inverseWorldScale, position.y * inverseWorldScale],
+    velocity: [velocity.x * inverseWorldScale, velocity.y * inverseWorldScale],
     angle: entity.rigidBody.rotation(),
     angularVelocity: entity.rigidBody.angvel(),
     mass: entity.rigidBody.mass(),
@@ -224,11 +232,10 @@ export class RapierPhysicsSystem {
     this.system = this.graph.systems.find(candidate => candidate.id === systemId) || this.graph.systems[0];
     if (!this.system) throw new Error("Physics runtime requires a system.");
     this.fixedDt = 1 / this.system.clock.fixedHz;
-    const gravity = resolveSystemGravity(this.graph, this.system);
-    this.world = new RAPIER.World({
-      x: gravity.x * PHYSICS_WORLD_SCALE,
-      y: gravity.y * PHYSICS_WORLD_SCALE,
-    });
+    this.worldScale = worldScaleFor(this.graph);
+    this.inverseWorldScale = 1 / this.worldScale;
+    const gravity = resolveSystemGravity(this.graph, this.system, this.worldScale);
+    this.world = new RAPIER.World(gravity);
     this.world.timestep = this.fixedDt;
     this.eventQueue = new RAPIER.EventQueue(true);
     this.bodyById = new Map();
@@ -253,8 +260,13 @@ export class RapierPhysicsSystem {
   }
 
   #addBody(body, runtime = {}) {
-    const rigidBody = this.world.createRigidBody(bodyDescription({ ...body, initial: { ...body.initial, ...runtime.initial } }, this.graph.world.viscosity));
-    const colliders = colliderDescriptions(body, this.graph.world).map(description => this.world.createCollider(description, rigidBody));
+    const rigidBody = this.world.createRigidBody(bodyDescription(
+      { ...body, initial: { ...body.initial, ...runtime.initial } },
+      this.graph.world.viscosity,
+      this.worldScale,
+    ));
+    const colliders = colliderDescriptions(body, this.graph.world, this.worldScale)
+      .map(description => this.world.createCollider(description, rigidBody));
     const entity = {
       id: runtime.id || body.id,
       bodyId: body.id,
@@ -311,13 +323,16 @@ export class RapierPhysicsSystem {
 
   #resolveBodyEndpoint(endpointValue) {
     const endpoint = normalizePhysicsEndpoint(endpointValue);
-    if (!endpoint || ["world", "stream", "bezier-anchor", "curve-progress"].includes(endpoint.kind)) return { endpoint, entity: null };
+    if (!endpoint || ["none", "world", "stream", "bezier-anchor", "curve-progress"].includes(endpoint.kind)) return { endpoint, entity: null };
     const entityId = this.bodyIdByObjectId.get(endpoint.objectRef.elementId);
     return { endpoint, entity: this.bodyById.get(entityId) || null };
   }
 
   #fixedAnchor(point) {
-    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(point[0] * PHYSICS_WORLD_SCALE, point[1] * PHYSICS_WORLD_SCALE));
+    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(
+      point[0] * this.worldScale,
+      point[1] * this.worldScale,
+    ));
     this.anchorBodies.push(body);
     return body;
   }
@@ -327,27 +342,65 @@ export class RapierPhysicsSystem {
       this.#addRope(constraint);
       return;
     }
+    if (constraint.kind === "attractor") {
+      this.#addAttractor(constraint);
+      return;
+    }
+    if (constraint.kind === "thruster") {
+      this.#addThruster(constraint);
+      return;
+    }
     const a = this.#resolveBodyEndpoint(constraint.a);
     const b = this.#resolveBodyEndpoint(constraint.b);
     let entityA = a.entity;
     let entityB = b.entity;
     let bodyA = entityA?.rigidBody;
     let bodyB = entityB?.rigidBody;
+    const anchorA = entityA ? localAnchorForBody(this.graph.bodies.find(body => body.id === entityA.bodyId), a.endpoint, this.worldScale) : { x: 0, y: 0 };
+    const anchorB = entityB ? localAnchorForBody(this.graph.bodies.find(body => body.id === entityB.bodyId), b.endpoint, this.worldScale) : { x: 0, y: 0 };
     const worldAnchorA = !bodyA && a.endpoint?.kind === "world" ? this.#fixedAnchor(a.endpoint.point) : null;
     const worldAnchorB = !bodyB && b.endpoint?.kind === "world" ? this.#fixedAnchor(b.endpoint.point) : null;
     bodyA = bodyA || worldAnchorA;
     bodyB = bodyB || worldAnchorB;
+    // A free axle is a motor mounted on one authored body.  It intentionally
+    // has no second Rapier body: forcing a fixed anchor here would turn a
+    // rolling wheel into a world-pinned wheel.  The force path below drives
+    // angular velocity by bounded torque, allowing floor contact to convert
+    // spin into translation.
+    if (["revolute", "pin", "axle"].includes(constraint.kind)
+      && a.endpoint?.kind === "object"
+      && b.endpoint?.kind === "none"
+      && entityA?.rigidBody) {
+      this.constraints.set(constraint.id, {
+        definition: constraint,
+        directMotor: true,
+        joint: null,
+        bodyA: entityA.rigidBody,
+        bodyB: null,
+        entityA,
+        entityB: null,
+        worldAnchorA: null,
+        worldAnchorB: null,
+        anchorA,
+        anchorB,
+      });
+      return;
+    }
     if (!bodyA || !bodyB) return;
-    const anchorA = entityA ? localAnchorForBody(this.graph.bodies.find(body => body.id === entityA.bodyId), a.endpoint) : { x: 0, y: 0 };
-    const anchorB = entityB ? localAnchorForBody(this.graph.bodies.find(body => body.id === entityB.bodyId), b.endpoint) : { x: 0, y: 0 };
     let data;
     if (["revolute", "pin", "axle"].includes(constraint.kind)) data = RAPIER.JointData.revolute(anchorA, anchorB);
     else if (["weld", "fixate"].includes(constraint.kind)) data = RAPIER.JointData.fixed(anchorA, 0, anchorB, 0);
-    else data = RAPIER.JointData.spring(constraint.restLength * PHYSICS_WORLD_SCALE, constraint.stiffness, constraint.damping, anchorA, anchorB);
+    else data = RAPIER.JointData.spring(constraint.restLength * this.worldScale, constraint.stiffness, constraint.damping, anchorA, anchorB);
     const joint = this.world.createImpulseJoint(data, bodyA, bodyB, true);
     joint.setContactsEnabled(constraint.collideConnected);
     if (constraint.limitsEnabled && typeof joint.setLimits === "function" && constraint.lowerLimit !== null && constraint.upperLimit !== null) {
       joint.setLimits(constraint.lowerLimit, constraint.upperLimit);
+    }
+    if (["revolute", "pin", "axle"].includes(constraint.kind) && constraint.motorEnabled === true && typeof joint.configureMotorVelocity === "function") {
+      // Authoring uses degrees/second while Rapier stores angular velocity in
+      // radians/second. `motorTorque` is deliberately a visible, bounded
+      // strength rather than a hidden joint default.
+      joint.configureMotorVelocity(constraint.motorSpeed * Math.PI / 180, Math.max(0, constraint.motorTorque));
     }
     this.constraints.set(constraint.id, {
       definition: constraint,
@@ -363,6 +416,121 @@ export class RapierPhysicsSystem {
     });
   }
 
+  #addAttractor(constraint) {
+    const endpoint = normalizePhysicsEndpoint(constraint.a);
+    if (endpoint?.kind !== "world" || !Array.isArray(endpoint.point)) return;
+    this.constraints.set(constraint.id, {
+      definition: constraint,
+      attractor: true,
+      point: [finite(endpoint.point[0]), finite(endpoint.point[1])],
+    });
+  }
+
+  #worldPointForAnchor(rigidBody, anchor = { x: 0, y: 0 }) {
+    const translation = rigidBody.translation();
+    const angle = rigidBody.rotation();
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    return {
+      x: translation.x + cosine * finite(anchor.x) - sine * finite(anchor.y),
+      y: translation.y + sine * finite(anchor.x) + cosine * finite(anchor.y),
+    };
+  }
+
+  #addThruster(constraint) {
+    const attachment = this.#resolveBodyEndpoint(constraint.a);
+    const entity = attachment.entity;
+    const directionEndpoint = normalizePhysicsEndpoint(constraint.b);
+    if (!entity?.rigidBody || entity.bodyType !== "dynamic" || directionEndpoint?.kind !== "world" || !Array.isArray(directionEndpoint.point)) return;
+    const body = this.graph.bodies.find(candidate => candidate.id === entity.bodyId);
+    const anchor = localAnchorForBody(body, attachment.endpoint, this.worldScale);
+    const start = this.#worldPointForAnchor(entity.rigidBody, anchor);
+    const end = {
+      x: finite(directionEndpoint.point[0]) * this.worldScale,
+      y: finite(directionEndpoint.point[1]) * this.worldScale,
+    };
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.hypot(dx, dy);
+    if (length < 1e-6) return;
+    const angle = entity.rigidBody.rotation();
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    // Store direction in the body's local space so the visual and force turn
+    // with its host rather than remaining pinned to an old world direction.
+    const localDirection = {
+      x: (cosine * dx + sine * dy) / length,
+      y: (-sine * dx + cosine * dy) / length,
+    };
+    this.constraints.set(constraint.id, {
+      definition: constraint,
+      thruster: true,
+      entity,
+      anchor,
+      localDirection,
+      length,
+    });
+  }
+
+  #applyAuthoredForces() {
+    for (const state of this.constraints.values()) {
+      if (state.attractor) {
+        const radius = Math.max(0, finite(state.definition.attractionRadius)) * this.worldScale;
+        if (radius <= 0) continue;
+        const target = { x: state.point[0] * this.worldScale, y: state.point[1] * this.worldScale };
+        const tags = Array.isArray(state.definition.targetTags) ? state.definition.targetTags : [];
+        const direction = state.definition.attractionMode === "repel" ? -1 : 1;
+        const strength = Math.max(0, finite(state.definition.attractionStrength));
+        const falloff = Math.max(0, finite(state.definition.attractionFalloff, 1));
+        for (const entity of this.bodyById.values()) {
+          if (entity.ropeLink || entity.bodyType !== "dynamic") continue;
+          if (tags.length && !tags.some(tag => entity.tags?.includes(tag))) continue;
+          const position = entity.rigidBody.translation();
+          const dx = target.x - position.x;
+          const dy = target.y - position.y;
+          const distance = Math.hypot(dx, dy);
+          if (distance < 1e-6 || distance > radius) continue;
+          const attenuation = Math.pow(Math.max(0, 1 - distance / radius), falloff);
+          entity.rigidBody.addForce({
+            x: direction * dx / distance * strength * attenuation,
+            y: direction * dy / distance * strength * attenuation,
+          }, true);
+        }
+      } else if (state.thruster && state.entity?.bodyType === "dynamic") {
+        const angle = state.entity.rigidBody.rotation();
+        const cosine = Math.cos(angle);
+        const sine = Math.sin(angle);
+        const direction = {
+          x: cosine * state.localDirection.x - sine * state.localDirection.y,
+          y: sine * state.localDirection.x + cosine * state.localDirection.y,
+        };
+        const force = finite(state.definition.thrusterForce);
+        state.entity.rigidBody.addForceAtPoint(
+          { x: direction.x * force, y: direction.y * force },
+          this.#worldPointForAnchor(state.entity.rigidBody, state.anchor),
+          true,
+        );
+      } else if (state.definition.motorEnabled === true
+        && ["revolute", "pin", "axle"].includes(state.definition.kind)) {
+        // Rapier puts a sufficiently still island to sleep. A motor targeting
+        // a low angular velocity can therefore stop after its initial motion
+        // unless we keep the bodies participating in that active drive awake.
+        if (state.entityA?.bodyType === "dynamic") state.entityA.rigidBody.wakeUp();
+        if (state.entityB?.bodyType === "dynamic") state.entityB.rigidBody.wakeUp();
+        if (!state.directMotor || state.entityA?.bodyType !== "dynamic") continue;
+        // Keep this a torque-controlled drive rather than assigning angular
+        // velocity directly. Contact can then slow the wheel, and friction can
+        // turn its rotation into a physically meaningful rolling motion.
+        const targetSpeed = finite(state.definition.motorSpeed) * Math.PI / 180;
+        const torqueLimit = Math.max(0, finite(state.definition.motorTorque));
+        if (torqueLimit <= 0) continue;
+        const speedError = targetSpeed - finite(state.entityA.rigidBody.angvel());
+        const torque = Math.max(-torqueLimit, Math.min(torqueLimit, speedError * torqueLimit));
+        state.entityA.rigidBody.applyTorqueImpulse(torque * this.fixedDt, true);
+      }
+    }
+  }
+
   #addRope(constraint) {
     const points = resamplePolyline(constraint.pathPoints || [], constraint.segmentLength);
     if (points.length < 2) return;
@@ -376,8 +544,8 @@ export class RapierPhysicsSystem {
     const bodyB = entityB?.rigidBody || worldAnchorB;
     const authoredA = entityA ? this.graph.bodies.find(body => body.id === entityA.bodyId) : null;
     const authoredB = entityB ? this.graph.bodies.find(body => body.id === entityB.bodyId) : null;
-    const anchorA = entityA ? localAnchorForBody(authoredA, attachmentA.endpoint) : { x: 0, y: 0 };
-    const anchorB = entityB ? localAnchorForBody(authoredB, attachmentB.endpoint) : { x: 0, y: 0 };
+    const anchorA = entityA ? localAnchorForBody(authoredA, attachmentA.endpoint, this.worldScale) : { x: 0, y: 0 };
+    const anchorB = entityB ? localAnchorForBody(authoredB, attachmentB.endpoint, this.worldScale) : { x: 0, y: 0 };
     const thickness = Math.max(0.5, finite(constraint.thickness, 4));
     const links = [];
     const joints = [];
@@ -386,10 +554,10 @@ export class RapierPhysicsSystem {
       const dy = end[1] - start[1];
       const length = Math.hypot(dx, dy);
       if (length < 1e-4) return null;
-      const halfLength = length * PHYSICS_WORLD_SCALE / 2;
-      const halfThickness = thickness * PHYSICS_WORLD_SCALE / 2;
+      const halfLength = length * this.worldScale / 2;
+      const halfThickness = thickness * this.worldScale / 2;
       const rigidBody = this.world.createRigidBody(RAPIER.RigidBodyDesc.dynamic()
-        .setTranslation((start[0] + end[0]) * PHYSICS_WORLD_SCALE / 2, (start[1] + end[1]) * PHYSICS_WORLD_SCALE / 2)
+        .setTranslation((start[0] + end[0]) * this.worldScale / 2, (start[1] + end[1]) * this.worldScale / 2)
         .setRotation(Math.atan2(dy, dx))
         .setLinearDamping(Math.max(0.02, this.graph.world.viscosity + 0.02))
         .setAngularDamping(0.03)
@@ -423,7 +591,7 @@ export class RapierPhysicsSystem {
       this.bodyById.set(entity.id, entity);
       this.entityByCollider.set(collider.handle, entity);
       this.entityByRigidBody.set(rigidBody.handle, entity);
-      return { rigidBody, entity, halfLength, length: length * PHYSICS_WORLD_SCALE };
+      return { rigidBody, entity, halfLength, length: length * this.worldScale };
     };
     for (let index = 1; index < points.length; index += 1) {
       const link = makeLink(points[index - 1], points[index], links.length);
@@ -464,11 +632,27 @@ export class RapierPhysicsSystem {
       const angle = link.rigidBody.rotation();
       const local = side * link.halfLength;
       return [
-        (translation.x + Math.cos(angle) * local) * INV_SCALE,
-        (translation.y + Math.sin(angle) * local) * INV_SCALE,
+        (translation.x + Math.cos(angle) * local) * this.inverseWorldScale,
+        (translation.y + Math.sin(angle) * local) * this.inverseWorldScale,
       ];
     };
     return [endpoint(state.links[0], -1), ...state.links.map(link => endpoint(link, 1))];
+  }
+
+  #thrusterPath(state) {
+    if (!state?.thruster || !state.entity?.rigidBody) return null;
+    const start = this.#worldPointForAnchor(state.entity.rigidBody, state.anchor);
+    const angle = state.entity.rigidBody.rotation();
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    const direction = {
+      x: cosine * state.localDirection.x - sine * state.localDirection.y,
+      y: sine * state.localDirection.x + cosine * state.localDirection.y,
+    };
+    return [
+      [start.x * this.inverseWorldScale, start.y * this.inverseWorldScale],
+      [(start.x + direction.x * state.length) * this.inverseWorldScale, (start.y + direction.y * state.length) * this.inverseWorldScale],
+    ];
   }
 
   #contactDetails(handleA, handleB) {
@@ -484,9 +668,9 @@ export class RapierPhysicsSystem {
       }
       if (!point && manifold.numSolverContacts() > 0) {
         const value = manifold.solverContactPoint(0);
-        point = [value.x * INV_SCALE, value.y * INV_SCALE];
+        point = [value.x * this.inverseWorldScale, value.y * this.inverseWorldScale];
       }
-      for (let index = 0; index < manifold.numContacts(); index += 1) impulse += Math.abs(manifold.contactImpulse(index)) * INV_SCALE;
+      for (let index = 0; index < manifold.numContacts(); index += 1) impulse += Math.abs(manifold.contactImpulse(index)) * this.inverseWorldScale;
     });
     return { point, normal, impulse };
   }
@@ -494,15 +678,16 @@ export class RapierPhysicsSystem {
   #relativeSpeed(a, b) {
     const av = a.rigidBody.linvel();
     const bv = b.rigidBody.linvel();
-    return Math.hypot(av.x - bv.x, av.y - bv.y) * INV_SCALE;
+    return Math.hypot(av.x - bv.x, av.y - bv.y) * this.inverseWorldScale;
   }
 
   step() {
     const started = performance.now();
+    this.#applyAuthoredForces();
     this.world.step(this.eventQueue);
     this.stepIndex += 1;
     this.time = this.stepIndex * this.fixedDt;
-    const gravity = resolveSystemGravity(this.graph, this.system);
+    const gravity = resolveSystemGravity(this.graph, this.system, this.worldScale);
     const world = {
       gravityX: gravity.x,
       gravityY: gravity.y,
@@ -533,8 +718,8 @@ export class RapierPhysicsSystem {
         simTime: this.time,
         phase: sensor ? (startedCollision ? "enter" : "exit") : (startedCollision ? "begin" : "end"),
         collisionClass: collisionClassFor(a, b),
-        a: collisionEntityPayload(a),
-        b: collisionEntityPayload(b),
+        a: collisionEntityPayload(a, this.inverseWorldScale),
+        b: collisionEntityPayload(b, this.inverseWorldScale),
         world,
         point: details.point,
         normal: details.normal,
@@ -557,12 +742,12 @@ export class RapierPhysicsSystem {
         simTime: this.time,
         phase: "hit",
         collisionClass: collisionClassFor(a, b),
-        a: collisionEntityPayload(a),
-        b: collisionEntityPayload(b),
+        a: collisionEntityPayload(a, this.inverseWorldScale),
+        b: collisionEntityPayload(b, this.inverseWorldScale),
         world,
         point: details.point,
         normal: [direction.x, direction.y],
-        impulse: forceEvent.totalForceMagnitude() * this.fixedDt * INV_SCALE,
+        impulse: forceEvent.totalForceMagnitude() * this.fixedDt * this.inverseWorldScale,
         relativeSpeed: this.#relativeSpeed(a, b),
       });
     });
@@ -580,8 +765,8 @@ export class RapierPhysicsSystem {
           simTime: this.time,
           phase: "stay",
           collisionClass: collisionClassFor(a, b),
-          a: collisionEntityPayload(a),
-          b: collisionEntityPayload(b),
+          a: collisionEntityPayload(a, this.inverseWorldScale),
+          b: collisionEntityPayload(b, this.inverseWorldScale),
           world,
           point: details.point,
           normal: details.normal,
@@ -596,10 +781,10 @@ export class RapierPhysicsSystem {
       if (state.rope || !Number.isFinite(threshold) || threshold <= 0 || !state.joint?.isValid?.()) continue;
       const aPosition = state.bodyA.translation();
       const bPosition = state.bodyB.translation();
-      const distance = Math.hypot(aPosition.x - bPosition.x, aPosition.y - bPosition.y) * INV_SCALE;
+      const distance = Math.hypot(aPosition.x - bPosition.x, aPosition.y - bPosition.y) * this.inverseWorldScale;
       const aVelocity = state.bodyA.linvel();
       const bVelocity = state.bodyB.linvel();
-      const relativeSpeed = Math.hypot(aVelocity.x - bVelocity.x, aVelocity.y - bVelocity.y) * INV_SCALE;
+      const relativeSpeed = Math.hypot(aVelocity.x - bVelocity.x, aVelocity.y - bVelocity.y) * this.inverseWorldScale;
       const estimatedForce = Math.abs(distance - state.definition.restLength) * state.definition.stiffness + relativeSpeed * state.definition.damping;
       if (estimatedForce < threshold) continue;
       broken.push([constraintId, state, estimatedForce]);
@@ -617,8 +802,8 @@ export class RapierPhysicsSystem {
         phase: "break",
         collisionClass: "constraint-break",
         constraintId,
-        a: a ? collisionEntityPayload(a) : null,
-        b: b ? collisionEntityPayload(b) : null,
+        a: a ? collisionEntityPayload(a, this.inverseWorldScale) : null,
+        b: b ? collisionEntityPayload(b, this.inverseWorldScale) : null,
         world,
         point: null,
         normal: null,
@@ -640,8 +825,8 @@ export class RapierPhysicsSystem {
     const metadata = new Array(entities.length);
     entities.forEach((entity, index) => {
       const translation = entity.rigidBody.translation();
-      values[index * 4] = translation.x * INV_SCALE;
-      values[index * 4 + 1] = translation.y * INV_SCALE;
+      values[index * 4] = translation.x * this.inverseWorldScale;
+      values[index * 4 + 1] = translation.y * this.inverseWorldScale;
       values[index * 4 + 2] = entity.rigidBody.rotation();
       values[index * 4 + 3] = entity.rigidBody.isSleeping() ? 0 : 1;
       metadata[index] = {
@@ -654,13 +839,17 @@ export class RapierPhysicsSystem {
       .filter(([, state]) => state.rope)
       .map(([constraintId, state]) => ({ constraintId, points: this.#ropePath(state) }))
       .filter(path => path.points?.length >= 2);
-    return { values, metadata, ropePaths };
+    const thrusterPaths = [...this.constraints.entries()]
+      .filter(([, state]) => state.thruster)
+      .map(([constraintId, state]) => ({ constraintId, points: this.#thrusterPath(state) }))
+      .filter(path => path.points?.length >= 2);
+    return { values, metadata, ropePaths, thrusterPaths };
   }
 
   setKinematicTarget(entityId, point, angle = null) {
     const entity = this.bodyById.get(entityId);
     if (!entity) return false;
-    entity.rigidBody.setNextKinematicTranslation({ x: finite(point?.[0]) * PHYSICS_WORLD_SCALE, y: finite(point?.[1]) * PHYSICS_WORLD_SCALE });
+    entity.rigidBody.setNextKinematicTranslation({ x: finite(point?.[0]) * this.worldScale, y: finite(point?.[1]) * this.worldScale });
     if (Number.isFinite(Number(angle))) entity.rigidBody.setNextKinematicRotation(Number(angle));
     return true;
   }
@@ -728,8 +917,8 @@ export class RapierPhysicsSystem {
         const translation = entity.rigidBody.translation();
         return {
           bodyId: entity.bodyId,
-          x: translation.x * INV_SCALE,
-          y: translation.y * INV_SCALE,
+          x: translation.x * this.inverseWorldScale,
+          y: translation.y * this.inverseWorldScale,
           angle: entity.rigidBody.rotation(),
         };
       });
@@ -738,13 +927,13 @@ export class RapierPhysicsSystem {
   applyImpulse(entityId, impulse, wake = true) {
     const entity = this.bodyById.get(entityId);
     if (!entity) return false;
-    entity.rigidBody.applyImpulse({ x: finite(impulse?.[0]) * PHYSICS_WORLD_SCALE, y: finite(impulse?.[1]) * PHYSICS_WORLD_SCALE }, wake);
+    entity.rigidBody.applyImpulse({ x: finite(impulse?.[0]) * this.worldScale, y: finite(impulse?.[1]) * this.worldScale }, wake);
     return true;
   }
 
   queryPoint(point) {
     const hits = [];
-    this.world.intersectionsWithPoint({ x: finite(point?.[0]) * PHYSICS_WORLD_SCALE, y: finite(point?.[1]) * PHYSICS_WORLD_SCALE }, collider => {
+    this.world.intersectionsWithPoint({ x: finite(point?.[0]) * this.worldScale, y: finite(point?.[1]) * this.worldScale }, collider => {
       const entity = this.entityByCollider.get(collider.handle);
       if (entity) hits.push(entityPayload(entity));
       return true;
@@ -755,13 +944,13 @@ export class RapierPhysicsSystem {
   castRay(origin, direction, maxDistance = 10000) {
     const length = Math.max(1e-9, Math.hypot(finite(direction?.[0]), finite(direction?.[1])));
     const ray = new RAPIER.Ray(
-      { x: finite(origin?.[0]) * PHYSICS_WORLD_SCALE, y: finite(origin?.[1]) * PHYSICS_WORLD_SCALE },
+      { x: finite(origin?.[0]) * this.worldScale, y: finite(origin?.[1]) * this.worldScale },
       { x: finite(direction?.[0]) / length, y: finite(direction?.[1]) / length },
     );
-    const hit = this.world.castRayAndGetNormal(ray, Math.max(0, finite(maxDistance)) * PHYSICS_WORLD_SCALE, true);
+    const hit = this.world.castRayAndGetNormal(ray, Math.max(0, finite(maxDistance)) * this.worldScale, true);
     if (!hit) return null;
     const entity = this.entityByCollider.get(hit.collider.handle);
-    const distance = hit.timeOfImpact * INV_SCALE;
+    const distance = hit.timeOfImpact * this.inverseWorldScale;
     return {
       entity: entity ? entityPayload(entity) : null,
       distance,
@@ -772,8 +961,8 @@ export class RapierPhysicsSystem {
 
   #localAnchorAtPoint(entity, point) {
     const translation = entity.rigidBody.translation();
-    const dx = finite(point?.[0]) * PHYSICS_WORLD_SCALE - translation.x;
-    const dy = finite(point?.[1]) * PHYSICS_WORLD_SCALE - translation.y;
+    const dx = finite(point?.[0]) * this.worldScale - translation.x;
+    const dy = finite(point?.[1]) * this.worldScale - translation.y;
     const angle = entity.rigidBody.rotation();
     const cosine = Math.cos(angle);
     const sine = Math.sin(angle);
@@ -790,6 +979,23 @@ export class RapierPhysicsSystem {
   #solveLivePose(iterations = 24) {
     const gravity = this.world.gravity;
     const eventQueue = new RAPIER.EventQueue(false);
+    // Live pose is a constraint relaxation pass, not simulation time. Rapier
+    // motors are evaluated by world.step(), so mute them just for this pass:
+    // otherwise a live-pose drag at transport zero can spin an unrelated axle
+    // even though Drawerator's public clock never advances.
+    const mutedMotors = [];
+    for (const state of this.constraints.values()) {
+      if (!state.joint
+        || state.definition.motorEnabled !== true
+        || !["revolute", "pin", "axle"].includes(state.definition.kind)
+        || typeof state.joint.configureMotorVelocity !== "function") continue;
+      mutedMotors.push({
+        joint: state.joint,
+        speed: finite(state.definition.motorSpeed) * Math.PI / 180,
+        torque: Math.max(0, finite(state.definition.motorTorque)),
+      });
+      state.joint.configureMotorVelocity(0, 0);
+    }
     try {
       this.world.gravity = { x: 0, y: 0 };
       const count = Math.max(1, Math.min(96, Math.round(finite(iterations, 24))));
@@ -801,6 +1007,7 @@ export class RapierPhysicsSystem {
       }
       this.activePairs.clear();
     } finally {
+      for (const motor of mutedMotors) motor.joint.configureMotorVelocity(motor.speed, motor.torque);
       this.world.gravity = gravity;
       eventQueue.free();
     }
@@ -839,7 +1046,7 @@ export class RapierPhysicsSystem {
 
   moveGrab(point, { livePose = false, iterations = 24 } = {}) {
     if (!this.grabState) return false;
-    const target = { x: finite(point?.[0]) * PHYSICS_WORLD_SCALE, y: finite(point?.[1]) * PHYSICS_WORLD_SCALE };
+    const target = { x: finite(point?.[0]) * this.worldScale, y: finite(point?.[1]) * this.worldScale };
     if (this.grabState.worldAnchor) this.grabState.worldAnchor.setTranslation(target, true);
     else this.grabState.anchor?.setTranslation(target, true);
     if (this.grabState.livePose || livePose) this.#solveLivePose(iterations);
@@ -920,8 +1127,25 @@ export class RapierPhysicsSystem {
       this.entityByRigidBody.set(rigidBody.handle, entity);
       if (entity.objectRef?.kind === "element") this.bodyIdByObjectId.set(entity.objectRef.elementId, entity.id);
     });
-    oldConstraints.forEach(([constraintId, previous], index) => {
-      const joint = joints[index];
+    let jointIndex = 0;
+    oldConstraints.forEach(([constraintId, previous]) => {
+      // Free axles deliberately have no Rapier joint. Rebind their authored
+      // body after snapshot restoration so reset/transport rewind keeps the
+      // same motor semantics rather than silently dropping the drive.
+      if (previous.directMotor) {
+        const entityA = previous.entityA ? this.bodyById.get(previous.entityA.id) || null : null;
+        const entityB = previous.entityB ? this.bodyById.get(previous.entityB.id) || null : null;
+        this.constraints.set(constraintId, {
+          ...previous,
+          bodyA: entityA?.rigidBody || null,
+          bodyB: entityB?.rigidBody || null,
+          entityA,
+          entityB,
+        });
+        return;
+      }
+      const joint = joints[jointIndex];
+      jointIndex += 1;
       if (!joint) return;
       const bodyA = joint.body1();
       const bodyB = joint.body2();
@@ -945,8 +1169,8 @@ export class RapierPhysicsSystem {
   #rebuildWorld() {
     this.releaseGrab();
     this.world?.free();
-    const gravity = resolveSystemGravity(this.graph, this.system);
-    this.world = new RAPIER.World({ x: gravity.x * PHYSICS_WORLD_SCALE, y: gravity.y * PHYSICS_WORLD_SCALE });
+    const gravity = resolveSystemGravity(this.graph, this.system, this.worldScale);
+    this.world = new RAPIER.World(gravity);
     this.world.timestep = this.fixedDt;
     this.bodyById.clear();
     this.entityByCollider.clear();

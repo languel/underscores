@@ -8,13 +8,28 @@ import {
 } from "./numberInputSystem.js";
 
 const nativeValueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-const isNumberInput = target => target instanceof HTMLInputElement && target.type === "number" && !target.disabled;
+// NumericInput deliberately uses type=text so a user can temporarily leave a
+// field blank or type a leading minus sign. Treat it as a first-class numeric
+// field here as well, so it keeps all of the number-box affordances.
+const isDraftNumericInput = target => target instanceof HTMLInputElement && target.classList.contains("numeric-input");
+const isNumberInput = target => target instanceof HTMLInputElement
+  && (target.type === "number" || isDraftNumericInput(target))
+  && !target.disabled;
 
 const setInputValue = (input, value) => {
   if (!input || !nativeValueSetter) return;
   nativeValueSetter.call(input, String(value));
   input.dispatchEvent(new Event("input", { bubbles: true }));
   input.dispatchEvent(new Event("change", { bubbles: true }));
+  // React's draft-safe text inputs intentionally do not publish their normal
+  // input event until a commit. Scrubs, steppers, and resets are already a
+  // committed gesture, so notify the shared component explicitly.
+  if (isDraftNumericInput(input)) {
+    input.dispatchEvent(new CustomEvent("drawerator:numeric-scrub", {
+      bubbles: true,
+      detail: { value },
+    }));
+  }
 };
 
 const getLabel = input => {
@@ -68,7 +83,7 @@ export default function NumberInputController({ onRouteRequest }) {
         input,
         pointerId: event.pointerId,
         startX: event.clientX,
-        startValue: Number(input.value) || 0,
+        startValue: Number.isFinite(Number(input.value)) ? Number(input.value) : rememberDefault(input),
         dragged: false,
       };
       input.setPointerCapture?.(event.pointerId);
@@ -136,6 +151,9 @@ export default function NumberInputController({ onRouteRequest }) {
     };
     const input = event => {
       if (!isNumberInput(event.target)) return;
+      // NumericInput owns its own transient draft state. Let its local React
+      // handler observe every keystroke, including an empty field or "-".
+      if (isDraftNumericInput(event.target)) return;
       if (!isTransientNumberInputValue(event.target.value)) return;
 
       // A controlled React number input commonly turns an empty native value
@@ -145,6 +163,14 @@ export default function NumberInputController({ onRouteRequest }) {
     };
     const focusOut = event => {
       if (!isNumberInput(event.target)) return;
+      if (isDraftNumericInput(event.target)) {
+        editStartValuesRef.current.delete(event.target);
+        if (!event.relatedTarget?.closest?.(".number-box-stepper")) {
+          stepperInputRef.current = null;
+          setStepper(null);
+        }
+        return;
+      }
       if (isTransientNumberInputValue(event.target.value)) {
         const startValue = editStartValuesRef.current.get(event.target);
         const fallback = startValue !== undefined && startValue !== ""

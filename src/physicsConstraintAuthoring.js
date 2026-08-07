@@ -344,6 +344,73 @@ export const resolveRopeConstraint = ({ rope, elements = [], bodies = [], system
   };
 };
 
+// An attractor is a first-class authored point object. It does not need to
+// overlap a body: its centre is the field origin and its optional tag filter
+// selects the dynamic bodies it influences at runtime.
+export const resolveAttractorConstraint = ({ attractor, systemId }) => {
+  if (!attractor?.id) return { error: "Choose an attractor object." };
+  const point = getPhysicsElementCenter(attractor);
+  const anchor = [point.x, point.y];
+  return {
+    pivotPoint: anchor,
+    constraint: {
+      id: `physics-attractor-${crypto.randomUUID()}`,
+      systemId: String(systemId || ""),
+      name: "Attractor",
+      kind: "attractor",
+      objectRef: { kind: "element", elementId: attractor.id },
+      a: { kind: "world", point: anchor },
+      b: { kind: "world", point: anchor },
+      attractionStrength: 20,
+      attractionRadius: 300,
+      attractionFalloff: 1,
+      attractionMode: "attract",
+      targetTags: [],
+      collideConnected: false,
+    },
+  };
+};
+
+// A thruster is a two-ended visual. Its start point must sit on a dynamic
+// body; its end gives the authored force direction and remains a live visual
+// guide as the body rotates.
+export const resolveThrusterConstraint = ({ thruster, elements = [], bodies = [], systemId }) => {
+  if (!thruster?.id) return { error: "Choose a thruster object." };
+  const endpoints = getSpringEndpointWorldPoints(thruster);
+  if (!endpoints) return { error: "Thruster needs two distinct endpoints." };
+  // A visual can overlap a wall, a sensor, and a dynamic body at once. A
+  // thruster needs an impulse receiver, so deliberately ignore any
+  // non-dynamic candidates instead of accepting the topmost physics object
+  // and silently creating a no-op runtime force.
+  const dynamicElementIds = new Set((bodies || [])
+    .filter(body => (
+      body?.enabled !== false
+      && body?.bodyType === "dynamic"
+      && body?.collider?.sensor !== true
+      && body?.objectRef?.kind === "element"
+      && (!systemId || body.systemId === systemId)
+    ))
+    .map(body => body.objectRef.elementId));
+  const primary = bodyCandidatesAtPoint({ visual: thruster, point: endpoints.start, elements, bodies, systemId })
+    .find(candidate => dynamicElementIds.has(candidate.id)) || null;
+  if (!primary) return { error: "Place the thruster start point on a dynamic body." };
+  return {
+    endpointPoints: endpoints,
+    primary,
+    constraint: {
+      id: `physics-thruster-${crypto.randomUUID()}`,
+      systemId: String(systemId || ""),
+      name: "Thruster",
+      kind: "thruster",
+      objectRef: { kind: "element", elementId: thruster.id },
+      a: physicsEndpointAtPoint(primary, endpoints.start),
+      b: { kind: "world", point: [...endpoints.end] },
+      thrusterForce: 20,
+      collideConnected: false,
+    },
+  };
+};
+
 export const serializePhysicsConstraintCustomData = constraint => ({
   version: 1,
   role: constraint.kind,
@@ -361,6 +428,15 @@ export const serializePhysicsConstraintCustomData = constraint => ({
   thickness: constraint.thickness,
   stiffness: constraint.stiffness,
   damping: constraint.damping,
+  motorEnabled: constraint.motorEnabled === true,
+  motorSpeed: constraint.motorSpeed,
+  motorTorque: constraint.motorTorque,
+  attractionStrength: constraint.attractionStrength,
+  attractionRadius: constraint.attractionRadius,
+  attractionFalloff: constraint.attractionFalloff,
+  attractionMode: constraint.attractionMode,
+  targetTags: constraint.targetTags,
+  thrusterForce: constraint.thrusterForce,
   limitsEnabled: constraint.limitsEnabled === true,
   lowerLimit: constraint.lowerLimit ?? null,
   upperLimit: constraint.upperLimit ?? null,

@@ -290,6 +290,41 @@ test("live pose grabs solve bodies and world pivots without advancing authored t
   runtime.dispose();
 });
 
+test("live pose does not advance unrelated axle motors", async () => {
+  const graph = normalizeRelationshipGraph({
+    systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
+    bodies: [
+      {
+        id: "motor-arm", systemId: "world", bodyType: "dynamic",
+        objectRef: { kind: "element", elementId: "motor-arm" },
+        collider: { kind: "box", width: 120, height: 20 }, initial: { x: 60, y: 0 },
+      },
+      {
+        id: "dragged", systemId: "world", bodyType: "dynamic",
+        objectRef: { kind: "element", elementId: "dragged" },
+        collider: { kind: "circle", radius: 12 }, initial: { x: 240, y: 80 },
+      },
+    ],
+    constraints: [{
+      id: "motor", systemId: "world", kind: "axle",
+      a: { kind: "object", objectRef: { kind: "element", elementId: "motor-arm" }, anchor: "local", localAnchor: [-60, 0] },
+      b: { kind: "world", point: [0, 0] },
+      motorEnabled: true,
+      motorSpeed: 180,
+      motorTorque: 100,
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(graph, "world");
+  const startStep = runtime.stepIndex;
+  const motorAngle = runtime.poses().values[2];
+  assert.equal(runtime.grab("dragged", [240, 80], 600, 45, { livePose: true }), true);
+  assert.equal(runtime.moveGrab([310, 170], { livePose: true, iterations: 72 }), true);
+  assert.ok(Math.abs(runtime.poses().values[2] - motorAngle) < 1e-6, "live posing must not run axle motors");
+  assert.equal(runtime.stepIndex, startStep, "live posing must not advance simulation time");
+  runtime.releaseGrab();
+  runtime.dispose();
+});
+
 test("a live pose committed at transport zero becomes the next reset baseline", async () => {
   const graph = normalizeRelationshipGraph({
     systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
@@ -471,6 +506,29 @@ test("rope constraints generate jointed links while publishing one rendered rope
   runtime.dispose();
 });
 
+test("rope constraints leave explicit None endpoints free", async () => {
+  const ropeGraph = normalizeRelationshipGraph({
+    systems: [{ id: "world", gravity: { x: 0, y: 9.8 }, clock: { fixedHz: 60 } }],
+    constraints: [{
+      id: "free-rope", systemId: "world", kind: "rope",
+      a: { kind: "none" },
+      b: { kind: "none" },
+      pathPoints: [[0, 0], [60, 0], [120, 0]],
+      segmentLength: 24,
+      thickness: 4,
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(ropeGraph, "world");
+  const initial = runtime.poses().ropePaths[0].points;
+  for (let index = 0; index < 30; index += 1) runtime.step();
+  const fallen = runtime.poses().ropePaths[0].points;
+  assert.ok(
+    fallen.every((point, index) => point[1] > initial[index][1]),
+    "a rope with no endpoints should remain unpinned and fall under gravity",
+  );
+  runtime.dispose();
+});
+
 test("dense authored rope paths are simplified to their requested link spacing", async () => {
   // Freehand input can contain hundreds of points a few pixels apart. Those
   // points are visual detail, not an instruction to create one rigid body and
@@ -505,4 +563,175 @@ test("excluded runtime instances keep stable population identities", async () =>
   const runtime = await RapierPhysicsSystem.create(excludedGraph, "gas");
   assert.deepEqual(runtime.poses().metadata.map(metadata => metadata.instanceId), ["particles:0", "particles:2", "particles:3"]);
   runtime.dispose();
+});
+
+test("authored attractors apply fixed-step forces only to matching dynamic bodies", async () => {
+  const attractorGraph = normalizeRelationshipGraph({
+    systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
+    bodies: [
+      {
+        id: "target", systemId: "world", bodyType: "dynamic",
+        objectRef: { kind: "element", elementId: "target" },
+        collider: { kind: "circle", radius: 16 }, initial: { x: 180, y: 0 },
+        collisionTags: ["attracted"],
+      },
+      {
+        id: "ignored", systemId: "world", bodyType: "dynamic",
+        objectRef: { kind: "element", elementId: "ignored" },
+        collider: { kind: "circle", radius: 16 }, initial: { x: -180, y: 0 },
+        collisionTags: ["ignored"],
+      },
+    ],
+    constraints: [{
+      id: "attractor", systemId: "world", kind: "attractor",
+      a: { kind: "world", point: [0, 0] },
+      b: { kind: "world", point: [0, 0] },
+      attractionStrength: 1,
+      attractionRadius: 400,
+      attractionFalloff: 0,
+      attractionMode: "attract",
+      targetTags: ["attracted"],
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(attractorGraph, "world");
+  // Keep this short enough that the pulled body cannot subsequently collide
+  // with the deliberately non-target body and move it through contact.
+  for (let step = 0; step < 3; step += 1) runtime.step();
+  const poses = runtime.poses();
+  const targetIndex = poses.metadata.findIndex(pose => pose.id === "target");
+  const ignoredIndex = poses.metadata.findIndex(pose => pose.id === "ignored");
+  assert.ok(poses.values[targetIndex * 4] < 180, "matching target should move toward the attractor");
+  assert.ok(Math.abs(poses.values[ignoredIndex * 4] + 180) < 0.001, "tag-filtered body should remain still");
+  runtime.dispose();
+});
+
+test("authored thrusters push their dynamic host and publish their current path", async () => {
+  const thrusterGraph = normalizeRelationshipGraph({
+    systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
+    bodies: [{
+      id: "host", systemId: "world", bodyType: "dynamic",
+      objectRef: { kind: "element", elementId: "host" },
+      collider: { kind: "box", width: 60, height: 24 }, initial: { x: 100, y: 100 },
+    }],
+    constraints: [{
+      id: "thruster", systemId: "world", kind: "thruster",
+      objectRef: { kind: "element", elementId: "thruster-visual" },
+      a: { kind: "object", objectRef: { kind: "element", elementId: "host" }, anchor: "local", localAnchor: [0, 0] },
+      b: { kind: "world", point: [220, 100] },
+      thrusterForce: 1,
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(thrusterGraph, "world");
+  const initialPath = runtime.poses().thrusterPaths[0]?.points;
+  assert.deepEqual(initialPath?.map(point => Math.round(point[1])), [100, 100]);
+  for (let step = 0; step < 30; step += 1) runtime.step();
+  const poses = runtime.poses();
+  assert.ok(poses.values[0] > 100, "thruster should accelerate its host along the authored direction");
+  assert.equal(poses.thrusterPaths.length, 1, "thruster visual should be returned separately from body poses");
+  assert.ok(poses.thrusterPaths[0].points[0][0] > initialPath[0][0], "thruster path should follow its host");
+  runtime.dispose();
+});
+
+test("axle motors drive revolute joints in authored degrees per second", async () => {
+  const motorGraph = normalizeRelationshipGraph({
+    systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
+    bodies: [{
+      id: "arm", systemId: "world", bodyType: "dynamic",
+      objectRef: { kind: "element", elementId: "arm" },
+      collider: { kind: "box", width: 120, height: 20 }, initial: { x: 60, y: 0 },
+    }],
+    constraints: [{
+      id: "motor", systemId: "world", kind: "axle",
+      a: { kind: "object", objectRef: { kind: "element", elementId: "arm" }, anchor: "local", localAnchor: [-60, 0] },
+      b: { kind: "world", point: [0, 0] },
+      motorEnabled: true,
+      motorSpeed: 180,
+      motorTorque: 100,
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(motorGraph, "world");
+  for (let step = 0; step < 30; step += 1) runtime.step();
+  const angle = runtime.poses().values[2];
+  assert.ok(Math.abs(angle) > 0.2, `motor did not rotate its axle: ${angle}`);
+  runtime.dispose();
+});
+
+test("free axle motors spin their host without pinning it to the world", async () => {
+  const motorGraph = normalizeRelationshipGraph({
+    systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
+    bodies: [{
+      id: "wheel", systemId: "world", bodyType: "dynamic",
+      objectRef: { kind: "element", elementId: "wheel" },
+      collider: { kind: "circle", radius: 30 }, initial: { x: 120, y: 80 },
+    }],
+    constraints: [{
+      id: "free-motor", systemId: "world", kind: "axle",
+      a: { kind: "object", objectRef: { kind: "element", elementId: "wheel" }, anchor: "center", localPoint: [0.5, 0.5] },
+      b: { kind: "none" },
+      motorEnabled: true,
+      motorSpeed: 180,
+      motorTorque: 100,
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(motorGraph, "world");
+  for (let step = 0; step < 60; step += 1) runtime.step();
+  const poses = runtime.poses();
+  assert.ok(Math.abs(poses.values[2]) > 0.2, `free axle motor did not rotate its host: ${poses.values[2]}`);
+  assert.ok(Math.abs(poses.values[0] - 120) < 0.01, "free axle motor must not create a world pin");
+  assert.ok(Math.abs(poses.values[1] - 80) < 0.01, "free axle motor must not create a world pin");
+  runtime.reset();
+  for (let step = 0; step < 30; step += 1) runtime.step();
+  assert.ok(Math.abs(runtime.poses().values[2]) > 0.1, "free axle motor should survive reset");
+  runtime.dispose();
+});
+
+test("low-speed axle motors stay awake at zero gravity", async () => {
+  const motorGraph = normalizeRelationshipGraph({
+    world: { gravity: { x: 0, y: 0 }, pixelsPerMeter: 100 },
+    systems: [{ id: "world", gravityMode: "world", clock: { fixedHz: 60 } }],
+    bodies: [{
+      id: "wheel", systemId: "world", bodyType: "dynamic",
+      objectRef: { kind: "element", elementId: "wheel" },
+      collider: { kind: "circle", radius: 185 },
+      material: { density: 0.1 },
+      initial: { x: 240, y: 538 },
+    }],
+    constraints: [{
+      id: "motor", systemId: "world", kind: "axle",
+      a: { kind: "object", objectRef: { kind: "element", elementId: "wheel" }, anchor: "local", localAnchor: [-100, -15] },
+      b: { kind: "world", point: [140, 522] },
+      motorEnabled: true,
+      motorSpeed: 10,
+      motorTorque: 100,
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(motorGraph, "world");
+  for (let step = 0; step < 120; step += 1) runtime.step();
+  const firstAngle = runtime.poses().values[2];
+  for (let step = 0; step < 120; step += 1) runtime.step();
+  const secondAngle = runtime.poses().values[2];
+  assert.ok(Math.abs(secondAngle - firstAngle) > 0.2, `low-speed motor fell asleep: ${firstAngle} -> ${secondAngle}`);
+  runtime.dispose();
+});
+
+test("world gravity keeps metre units when pixels per metre changes", async () => {
+  const fallDistance = async pixelsPerMeter => {
+    const fallGraph = normalizeRelationshipGraph({
+      world: { gravity: { x: 0, y: -9.8 }, pixelsPerMeter },
+      systems: [{ id: "world", gravityMode: "world", clock: { fixedHz: 60 } }],
+      bodies: [{
+        id: "ball", systemId: "world", bodyType: "dynamic",
+        collider: { kind: "circle", radius: 12 }, initial: { x: 0, y: 0 },
+      }],
+    });
+    const runtime = await RapierPhysicsSystem.create(fallGraph, "world");
+    for (let step = 0; step < 60; step += 1) runtime.step();
+    const y = runtime.poses().values[1];
+    runtime.dispose();
+    return y;
+  };
+  const at100 = await fallDistance(100);
+  const at200 = await fallDistance(200);
+  assert.ok(at100 > 400, `expected roughly 4.9 m of falling at 100 px/m, got ${at100}px`);
+  assert.ok(Math.abs(at200 / at100 - 2) < 0.05, `pixels-per-metre did not scale world gravity: ${at100}px vs ${at200}px`);
 });

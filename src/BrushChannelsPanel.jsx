@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BRUSH_DESTINATIONS, normalizeBrushChannel } from "./brushChannelRuntime.js";
 import { objectBoundsTargetLabel } from "./mediaStream.js";
+import NumericInput from "./NumericInput.jsx";
 
 const channelSourceLabel = stream => `${stream.name} · ${stream.kind}`;
 
@@ -8,10 +9,10 @@ const formatNumber = value => Number.isFinite(Number(value)) ? Number(value).toF
 
 const RangeControls = ({ label, range, onChange }) => <div className="brush-channel-range">
   <span>{label}</span>
-  <input aria-label={`${label} minimum`} type="number" step="0.01" value={range.min} onChange={event => onChange({ min: event.target.value, auto: false })} />
-  <input aria-label={`${label} maximum`} type="number" step="0.01" value={range.max} onChange={event => onChange({ max: event.target.value, auto: false })} />
-  <input aria-label={`${label} scale`} type="number" step="0.01" value={range.scale} onChange={event => onChange({ scale: event.target.value })} title={`${label} scale`} />
-  <input aria-label={`${label} offset`} type="number" step="0.01" value={range.offset} onChange={event => onChange({ offset: event.target.value })} title={`${label} offset`} />
+  <NumericInput aria-label={`${label} minimum`} step="0.01" value={range.min} defaultValue={0} onCommit={min => onChange({ min, auto: false })} />
+  <NumericInput aria-label={`${label} maximum`} step="0.01" value={range.max} defaultValue={1} onCommit={max => onChange({ max, auto: false })} />
+  <NumericInput aria-label={`${label} scale`} step="0.01" value={range.scale} defaultValue={1} onCommit={scale => onChange({ scale })} title={`${label} scale`} />
+  <NumericInput aria-label={`${label} offset`} step="0.01" value={range.offset} defaultValue={0} onCommit={offset => onChange({ offset })} title={`${label} offset`} />
   <label title={`Invert ${label}`}><input type="checkbox" checked={range.invert} onChange={event => onChange({ invert: event.target.checked })} />Inv</label>
   <label title={`Clamp ${label} to its range`}><input type="checkbox" checked={range.clamp} onChange={event => onChange({ clamp: event.target.checked })} />Clamp</label>
 </div>;
@@ -44,7 +45,7 @@ export default function BrushChannelsPanel({ channels, streams, channelStatus = 
       {selected.nativePointer ? <div className="media-stream-panel-note">Native pointer channel preserves the normal mouse, pen, and touch drawing path.</div> : <>
         <label className="media-stream-panel-field"><span>Position</span><select value={selected.spatialStreamId} onChange={event => patch({ spatialStreamId: event.target.value })}><option value="">Choose a space stream</option>{spatial.map(stream => <option key={stream.id} value={stream.id}>{channelSourceLabel(stream)}</option>)}</select></label>
         <label className="media-stream-panel-field"><span>Gate</span><select value={selected.gateStreamId} onChange={event => patch({ gateStreamId: event.target.value })}><option value="">Always on</option>{gates.map(stream => <option key={stream.id} value={stream.id}>{channelSourceLabel(stream)}</option>)}</select></label>
-        {selected.gateStreamId && <div className="input-streams-processor-values"><label><span>Gate test</span><select value={selected.gate.comparator} onChange={event => patch({ gate: { ...selected.gate, comparator: event.target.value } })}><option value="active">Active</option><option value="above">Above</option><option value="below">Below</option></select></label><label><span>Threshold</span><input type="number" step="0.01" value={selected.gate.threshold} onChange={event => patch({ gate: { ...selected.gate, threshold: event.target.value } })} /></label></div>}
+        {selected.gateStreamId && <div className="input-streams-processor-values"><label><span>Gate test</span><select value={selected.gate.comparator} onChange={event => patch({ gate: { ...selected.gate, comparator: event.target.value } })}><option value="active">Active</option><option value="above">Above</option><option value="below">Below</option></select></label><label><span>Threshold</span><NumericInput step="0.01" value={selected.gate.threshold} defaultValue={0} onCommit={threshold => patch({ gate: { ...selected.gate, threshold } })} /></label></div>}
         <label className="media-stream-panel-field"><span>Pressure</span><select value={selected.pressureStreamId} onChange={event => patch({ pressureStreamId: event.target.value })}><option value="">Position pressure</option>{scalars.map(stream => <option key={stream.id} value={stream.id}>{channelSourceLabel(stream)}</option>)}</select></label>
         <RangeControls label="X range" range={selected.range.x} onChange={range => patch({ range: { ...selected.range, x: { ...selected.range.x, ...range } } })} />
         <RangeControls label="Y range" range={selected.range.y} onChange={range => patch({ range: { ...selected.range, y: { ...selected.range.y, ...range } } })} />

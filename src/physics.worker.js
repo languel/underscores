@@ -145,6 +145,7 @@ const publishPoses = timestamp => {
       sentAt: timestamp,
       values: poses.values,
       ropePaths: poses.ropePaths,
+      thrusterPaths: poses.thrusterPaths,
     }, [poses.values.buffer]);
     dirtySystems.delete(systemId);
   }

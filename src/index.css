@@ -2521,7 +2521,8 @@ body .excalidraw .sidebar {
 }
 
 .script-font-size-control input,
-.iannix-script-parameter input[type="number"] {
+.iannix-script-parameter input[type="number"],
+.iannix-script-parameter .numeric-input {
   color: var(--color-primary);
   background: var(--drawerator-input-bg, var(--input-bg-color, transparent));
   border: 1px solid var(--border-color);
@@ -4030,7 +4031,8 @@ html[data-drawerator-code-theme="teaching"] .drawerator-shell.drawerator-theme-l
 }
 
 .iannix-data-row input[type="text"],
-.iannix-data-row input[type="number"] {
+.iannix-data-row input[type="number"],
+.iannix-data-row .numeric-input {
   width: min(58%, 180px);
   min-width: 0;
   padding: 4px 6px;
@@ -5261,6 +5263,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .properties-object-picker:hover { color: var(--drawerator-accent, var(--color-primary)); background: var(--drawerator-hover-bg, rgba(128,128,128,.12)); }
 .properties-row input[type="text"],
 .properties-row input[type="number"],
+.properties-row .numeric-input,
 .properties-row input[type="url"],
 .properties-row select { min-width: 0; width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--color-primary); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .properties-row input.properties-embed-url { color: var(--drawerator-foreground, var(--color-primary)) !important; caret-color: var(--drawerator-foreground, var(--color-primary)); -webkit-text-fill-color: var(--drawerator-foreground, var(--color-primary)); }
@@ -6406,6 +6409,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 /* Numeric fields support horizontal scrubbing without changing the existing
    panel styling. The context menu reuses Drawerator's current menu surface. */
 .drawerator-shell input[type="number"]:not(:disabled),
+.drawerator-shell .numeric-input:not(:disabled),
 .drawerator-shell input[data-time-value="true"]:not(:disabled),
 .number-box-global-dragging,
 .number-box-global-dragging * {
@@ -7354,6 +7358,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 }
 
 .modifiers-panel-container input[type="number"],
+.modifiers-panel-container .numeric-input,
 .modifiers-panel-container input[type="text"],
 .modifiers-panel-container select {
   box-sizing: border-box;
@@ -7743,7 +7748,8 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .drawerator-mods-tabs button.active { background: var(--button-hover-bg, rgba(127,127,127,.14)); color: var(--color-primary); border-color: var(--border-color, rgba(128,128,128,.28)); }
 .brush-channels-panel { padding: 12px; overflow: auto; height: calc(100% - 36px); }
 .brush-channel-range { align-items: center; display: grid; gap: 5px; grid-template-columns: 52px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto auto; font-size: 10px; }
-.brush-channel-range input[type="number"] { min-width: 0; }
+.brush-channel-range input[type="number"],
+.brush-channel-range .numeric-input { min-width: 0; }
 .brush-channel-range label { align-items: center; display: inline-flex; gap: 2px; white-space: nowrap; }
 
 .brush-channel-debug { border-top: 1px solid var(--drawerator-panel-border, var(--border-color)); display: grid; gap: 6px; margin-top: 10px; padding-top: 9px; }
