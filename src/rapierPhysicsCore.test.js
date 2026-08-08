@@ -529,6 +529,80 @@ test("rope constraints leave explicit None endpoints free", async () => {
   runtime.dispose();
 });
 
+test("a free rope can be grabbed through its authored constraint", async () => {
+  const ropeGraph = normalizeRelationshipGraph({
+    systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
+    constraints: [{
+      id: "free-rope", systemId: "world", kind: "rope",
+      a: { kind: "none" }, b: { kind: "none" },
+      pathPoints: [[0, 0], [60, 0], [120, 0]], segmentLength: 24, thickness: 4,
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(ropeGraph, "world");
+  const initial = runtime.poses().ropePaths[0].points;
+  assert.equal(runtime.grabConstraint("free-rope", [60, 0], 280, 28, { livePose: true }), true);
+  runtime.moveGrab([60, 40], { livePose: true, iterations: 36 });
+  const posed = runtime.poses().ropePaths[0].points;
+  assert.notDeepEqual(posed, initial, "grabbing a free rope should move its generated links");
+  runtime.releaseGrab();
+  runtime.dispose();
+});
+
+test("rope-attached pivots publish their live joint anchor", async () => {
+  const graph = normalizeRelationshipGraph({
+    systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
+    constraints: [
+      { id: "rope", systemId: "world", kind: "rope", a: { kind: "none" }, b: { kind: "none" }, pathPoints: [[0, 0], [60, 0], [120, 0]], segmentLength: 24, thickness: 4 },
+      { id: "pivot", systemId: "world", kind: "fixate", a: { kind: "rope", objectRef: { kind: "element", elementId: "rope-visual" }, constraintId: "rope", point: [60, 0] }, b: { kind: "world", point: [60, 0] } },
+    ],
+  });
+  const runtime = await RapierPhysicsSystem.create(graph, "world");
+  const anchor = runtime.poses().constraintAnchors.find(value => value.constraintId === "pivot");
+  assert.deepEqual(anchor?.point.map(value => Math.round(value)), [60, 0]);
+  assert.equal(runtime.grabConstraint("pivot", [60, 0], 280, 28, { livePose: true }), true);
+  runtime.moveGrab([95, 45], { livePose: true, iterations: 96 });
+  const movedAnchor = runtime.poses().constraintAnchors.find(value => value.constraintId === "pivot");
+  assert.deepEqual(movedAnchor?.point.map(value => Math.round(value)), [95, 45]);
+  assert.equal(movedAnchor?.ropeAttachments?.[0]?.side, "a");
+  assert.equal(movedAnchor?.ropeAttachments?.[0]?.linkIndex, 2);
+  assert.equal(movedAnchor?.ropeAttachments?.[0]?.ropeProgress, 0.5);
+  assert.ok(Array.isArray(movedAnchor?.ropeAttachments?.[0]?.point));
+  assert.ok(Math.hypot(
+    movedAnchor.point[0] - movedAnchor.ropeAttachments[0].point[0],
+    movedAnchor.point[1] - movedAnchor.ropeAttachments[0].point[1],
+  ) < 0.5, "the release-grade solve must keep the axle on its rope point");
+  const posedPath = runtime.poses().ropePaths.find(value => value.constraintId === "rope")?.points;
+  const persistedAttachment = movedAnchor.ropeAttachments[0];
+  runtime.dispose();
+
+  const rebuiltGraph = normalizeRelationshipGraph({
+    systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
+    constraints: [
+      { id: "rope", systemId: "world", kind: "rope", a: { kind: "none" }, b: { kind: "none" }, pathPoints: posedPath, segmentLength: 24, thickness: 4 },
+      {
+        id: "pivot",
+        systemId: "world",
+        kind: "fixate",
+        a: {
+          kind: "rope",
+          objectRef: { kind: "element", elementId: "rope-visual" },
+          constraintId: "rope",
+          point: persistedAttachment.point,
+          linkIndex: persistedAttachment.linkIndex,
+          ropeProgress: persistedAttachment.ropeProgress,
+        },
+        b: { kind: "world", point: movedAnchor.point },
+      },
+    ],
+  });
+  const rebuilt = await RapierPhysicsSystem.create(rebuiltGraph, "world");
+  const rebuiltAttachment = rebuilt.poses().constraintAnchors
+    .find(value => value.constraintId === "pivot")?.ropeAttachments?.[0];
+  assert.equal(rebuiltAttachment?.side, "a");
+  assert.ok(Math.abs(rebuiltAttachment.ropeProgress - 0.5) < 1e-6);
+  rebuilt.dispose();
+});
+
 test("dense authored rope paths are simplified to their requested link spacing", async () => {
   // Freehand input can contain hundreds of points a few pixels apart. Those
   // points are visual detail, not an instruction to create one rigid body and

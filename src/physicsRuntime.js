@@ -52,6 +52,7 @@ export class PhysicsRuntimeController {
     this.snapshotRequests = new Map();
     this.queryRequests = new Map();
     this.relaxRequests = new Map();
+    this.grabCommitRequests = new Map();
     this.lastEventSample = performance.now();
     this.eventsSinceSample = 0;
     this.mappingsSinceSample = 0;
@@ -197,6 +198,7 @@ export class PhysicsRuntimeController {
         time: message.time,
         values: message.values,
         ropePaths: Array.isArray(message.ropePaths) ? message.ropePaths : [],
+        constraintAnchors: Array.isArray(message.constraintAnchors) ? message.constraintAnchors : [],
         thrusterPaths: Array.isArray(message.thrusterPaths) ? message.thrusterPaths : [],
         metadata: this.metadata.get(message.systemId) || [],
         receivedAt,
@@ -252,6 +254,25 @@ export class PhysicsRuntimeController {
         this.relaxRequests.delete(message.requestId);
         request.resolve(message.poses || []);
       }
+      return;
+    }
+    if (message.type === "grab.committed") {
+      const request = this.grabCommitRequests.get(message.requestId);
+      if (!request) return;
+      this.grabCommitRequests.delete(message.requestId);
+      const snapshot = message.values ? {
+        systemId: message.systemId,
+        step: message.step,
+        time: message.time,
+        values: message.values,
+        ropePaths: Array.isArray(message.ropePaths) ? message.ropePaths : [],
+        constraintAnchors: Array.isArray(message.constraintAnchors) ? message.constraintAnchors : [],
+        thrusterPaths: Array.isArray(message.thrusterPaths) ? message.thrusterPaths : [],
+        metadata: this.metadata.get(message.systemId) || [],
+        receivedAt: performance.now(),
+      } : null;
+      if (snapshot) this.latestPoses.set(message.systemId, snapshot);
+      request.resolve(snapshot);
       return;
     }
     if (["warning", "error"].includes(message.type)) {
@@ -370,6 +391,29 @@ export class PhysicsRuntimeController {
   moveGrab(systemId, point, options = {}) { return this.#post({ type: "grab.move", systemId, point, ...options }); }
   releaseGrab(systemId) { return this.#post({ type: "grab.release", systemId }); }
 
+  async commitGrab(systemId, point, { livePose = false, iterations = 96 } = {}) {
+    const worker = await this.#ensureWorker();
+    const requestId = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        this.grabCommitRequests.delete(requestId);
+        reject(new Error("Physics grab commit timed out."));
+      }, 5000);
+      this.grabCommitRequests.set(requestId, {
+        resolve: value => { window.clearTimeout(timeout); resolve(value); },
+        reject: error => { window.clearTimeout(timeout); reject(error); },
+      });
+      worker.postMessage({
+        type: "grab.commit",
+        requestId,
+        systemId,
+        point,
+        livePose: livePose === true,
+        iterations: Math.max(1, Math.min(96, Math.round(Number(iterations) || 96))),
+      });
+    });
+  }
+
   async relax(systemId, entityIds = [], { iterations = 18 } = {}) {
     if (!systemId || !this.#hasRapierTarget(systemId)) return [];
     const worker = await this.#ensureWorker();
@@ -448,6 +492,8 @@ export class PhysicsRuntimeController {
     this.queryRequests.clear();
     for (const request of this.relaxRequests.values()) request.reject(new Error("Physics runtime disposed."));
     this.relaxRequests.clear();
+    for (const request of this.grabCommitRequests.values()) request.reject(new Error("Physics runtime disposed."));
+    this.grabCommitRequests.clear();
   }
 }
 

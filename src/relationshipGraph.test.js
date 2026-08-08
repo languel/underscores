@@ -55,7 +55,65 @@ test("physics constraints preserve explicit None endpoints without orphaning the
   });
   assert.deepEqual(graph.constraints[0].a, { kind: "none" });
   assert.deepEqual(graph.constraints[0].b, { kind: "none" });
+  assert.deepEqual(graph.constraints[0].collisionLayers, ["default"]);
   assert.deepEqual(findRelationshipOrphans(graph, []), []);
+});
+
+test("ropes persist named collision-layer membership", () => {
+  const graph = normalizeRelationshipGraph({
+    world: {
+      collisionLayers: {
+        layers: [{ id: "default" }, { id: "soft" }],
+        matrix: { "default|default": true, "default|soft": false, "soft|soft": true },
+      },
+    },
+    systems: [{ id: "world" }],
+    constraints: [{
+      id: "rope", systemId: "world", kind: "rope", collisionLayers: ["soft", "missing"],
+      pathPoints: [[0, 0], [100, 0]], a: { kind: "none" }, b: { kind: "none" },
+    }],
+  });
+  assert.deepEqual(graph.constraints[0].collisionLayers, ["soft"]);
+  assert.deepEqual(resolvePhysicsCollisionGroups(graph.world, graph.constraints[0]), { group: 2, mask: 2, legacy: false });
+});
+
+test("rope endpoints preserve stable generated-link identity", () => {
+  const graph = normalizeRelationshipGraph({
+    systems: [{ id: "world" }],
+    constraints: [
+      { id: "rope", systemId: "world", kind: "rope", pathPoints: [[0, 0], [100, 0]], a: { kind: "none" }, b: { kind: "none" } },
+      {
+        id: "pivot",
+        systemId: "world",
+        kind: "axle",
+        a: {
+          kind: "rope",
+          objectRef: { kind: "element", elementId: "rope-path" },
+          constraintId: "rope",
+          point: [48, 12],
+          linkIndex: 3,
+          ropeProgress: 0.375,
+        },
+        b: { kind: "world", point: [48, 12] },
+      },
+    ],
+  });
+  assert.equal(graph.constraints[1].a.linkIndex, 3);
+  assert.equal(graph.constraints[1].a.ropeProgress, 0.375);
+});
+
+test("canvas constraint metadata can change an existing Weld into a Rope", () => {
+  const weld = {
+    id: "joint", systemId: "world", kind: "fixate",
+    objectRef: { kind: "element", elementId: "path" },
+    a: { kind: "none" }, b: { kind: "none" },
+  };
+  const rope = { ...weld, kind: "rope", name: "Rope", pathPoints: [[0, 0], [100, 0]] };
+  const path = { id: "path", customData: withPhysicsCustomData({}, rope) };
+  const hydrated = hydrateRelationshipGraphFromElements({ systems: [{ id: "world" }], constraints: [weld] }, [path]);
+  assert.equal(hydrated.constraints[0].kind, "rope");
+  assert.deepEqual(hydrated.constraints[0].a, { kind: "none" });
+  assert.deepEqual(hydrated.constraints[0].b, { kind: "none" });
 });
 
 test("new Axles leave angular limits disabled until the author enables both limits", () => {

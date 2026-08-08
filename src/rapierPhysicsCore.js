@@ -6,11 +6,6 @@ import { normalizeRelationshipGraph, normalizePhysicsEndpoint, resolvePhysicsCol
 // now derives its conversion from the authored pixels-per-metre setting.
 export const PHYSICS_WORLD_SCALE = 0.01;
 const MAX_EVENTS_PER_STEP = 512;
-// Rope links use this private group so individual links collide with authored
-// bodies and walls, but never with other links in the same (or another) rope.
-// The relationship graph reserves the high bit for runtime-only participants.
-const ROPE_COLLISION_GROUP = 1 << 15;
-const ROPE_COLLISION_MASK = ROPE_COLLISION_GROUP - 1;
 const MAX_ROPE_LINKS = 96;
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 // Geometry is authored in canvas pixels, while all solver values are SI-ish
@@ -64,18 +59,13 @@ const bodyDescription = (body, viscosity = 0, worldScale = PHYSICS_WORLD_SCALE) 
 const colliderDescriptions = (body, world, worldScale = PHYSICS_WORLD_SCALE) => {
   const collider = body.collider;
   const collisionGroups = resolvePhysicsCollisionGroups(world, body);
-  // Runtime ropes live in a private group. Active authored bodies need to
-  // listen to that group without changing their authored layer membership.
-  const collisionMask = collisionGroups.group === 0
-    ? collisionGroups.mask
-    : collisionGroups.mask | ROPE_COLLISION_GROUP;
   const configureCollider = candidate => candidate
     .setSensor(collider.sensor)
     .setDensity(body.material.density)
     .setFriction(body.material.friction)
     .setRestitution(body.material.restitution)
     .setContactSkin(collider.contactSkin * worldScale)
-    .setCollisionGroups(((collisionGroups.group & 0xffff) << 16) | (collisionMask & 0xffff))
+    .setCollisionGroups(((collisionGroups.group & 0xffff) << 16) | (collisionGroups.mask & 0xffff))
     .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS | RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
     .setContactForceEventThreshold(0);
   let desc;
@@ -256,7 +246,11 @@ export class RapierPhysicsSystem {
   #build() {
     this.graph.bodies.filter(body => body.enabled && body.systemId === this.system.id).forEach(body => this.#addBody(body));
     this.graph.populations.filter(population => population.enabled && population.systemId === this.system.id).forEach(population => this.#addPopulation(population));
-    this.graph.constraints.filter(constraint => constraint.enabled && constraint.systemId === this.system.id).forEach(constraint => this.#addConstraint(constraint));
+    const constraints = this.graph.constraints.filter(constraint => constraint.enabled && constraint.systemId === this.system.id);
+    // Rope control-point endpoints resolve to generated rope links, so create
+    // every rope before the axle/weld constraints that may reference one.
+    [...constraints.filter(constraint => constraint.kind === "rope"), ...constraints.filter(constraint => constraint.kind !== "rope")]
+      .forEach(constraint => this.#addConstraint(constraint));
   }
 
   #addBody(body, runtime = {}) {
@@ -324,6 +318,35 @@ export class RapierPhysicsSystem {
   #resolveBodyEndpoint(endpointValue) {
     const endpoint = normalizePhysicsEndpoint(endpointValue);
     if (!endpoint || ["none", "world", "stream", "bezier-anchor", "curve-progress"].includes(endpoint.kind)) return { endpoint, entity: null };
+    if (endpoint.kind === "rope") {
+      const rope = this.constraints.get(endpoint.constraintId);
+      const links = rope?.links || [];
+      let linkIndex = -1;
+      if (links.length && Number.isFinite(Number(endpoint.ropeProgress))) {
+        linkIndex = Math.round(Math.max(0, Math.min(1, Number(endpoint.ropeProgress))) * Math.max(0, links.length - 1));
+      } else if (links.length && Number.isInteger(Number(endpoint.linkIndex))) {
+        linkIndex = Math.max(0, Math.min(links.length - 1, Number(endpoint.linkIndex)));
+      } else if (links.length) {
+        linkIndex = links.reduce((closestIndex, candidate, candidateIndex) => {
+          const translation = candidate.rigidBody.translation();
+          const distance = Math.hypot(translation.x * this.inverseWorldScale - endpoint.point[0], translation.y * this.inverseWorldScale - endpoint.point[1]);
+          if (closestIndex < 0) return candidateIndex;
+          const closestTranslation = links[closestIndex].rigidBody.translation();
+          const closestDistance = Math.hypot(closestTranslation.x * this.inverseWorldScale - endpoint.point[0], closestTranslation.y * this.inverseWorldScale - endpoint.point[1]);
+          return distance < closestDistance ? candidateIndex : closestIndex;
+        }, -1);
+      }
+      const link = linkIndex >= 0 ? links[linkIndex] : null;
+      return {
+        endpoint,
+        entity: link?.entity || null,
+        ropeLinkIndex: linkIndex,
+        ropeLinkCount: links.length,
+        ropeProgress: Number.isFinite(Number(endpoint.ropeProgress))
+          ? Math.max(0, Math.min(1, Number(endpoint.ropeProgress)))
+          : (links.length > 1 && linkIndex >= 0 ? linkIndex / (links.length - 1) : 0),
+      };
+    }
     const entityId = this.bodyIdByObjectId.get(endpoint.objectRef.elementId);
     return { endpoint, entity: this.bodyById.get(entityId) || null };
   }
@@ -356,8 +379,16 @@ export class RapierPhysicsSystem {
     let entityB = b.entity;
     let bodyA = entityA?.rigidBody;
     let bodyB = entityB?.rigidBody;
-    const anchorA = entityA ? localAnchorForBody(this.graph.bodies.find(body => body.id === entityA.bodyId), a.endpoint, this.worldScale) : { x: 0, y: 0 };
-    const anchorB = entityB ? localAnchorForBody(this.graph.bodies.find(body => body.id === entityB.bodyId), b.endpoint, this.worldScale) : { x: 0, y: 0 };
+    const ropeAnchor = (entity, endpoint) => {
+      if (endpoint?.kind !== "rope") return null;
+      const translation = entity.rigidBody.translation();
+      const angle = entity.rigidBody.rotation();
+      const dx = endpoint.point[0] * this.worldScale - translation.x;
+      const dy = endpoint.point[1] * this.worldScale - translation.y;
+      return { x: Math.cos(angle) * dx + Math.sin(angle) * dy, y: -Math.sin(angle) * dx + Math.cos(angle) * dy };
+    };
+    const anchorA = entityA ? (ropeAnchor(entityA, a.endpoint) || localAnchorForBody(this.graph.bodies.find(body => body.id === entityA.bodyId), a.endpoint, this.worldScale)) : { x: 0, y: 0 };
+    const anchorB = entityB ? (ropeAnchor(entityB, b.endpoint) || localAnchorForBody(this.graph.bodies.find(body => body.id === entityB.bodyId), b.endpoint, this.worldScale)) : { x: 0, y: 0 };
     const worldAnchorA = !bodyA && a.endpoint?.kind === "world" ? this.#fixedAnchor(a.endpoint.point) : null;
     const worldAnchorB = !bodyB && b.endpoint?.kind === "world" ? this.#fixedAnchor(b.endpoint.point) : null;
     bodyA = bodyA || worldAnchorA;
@@ -413,6 +444,12 @@ export class RapierPhysicsSystem {
       worldAnchorB,
       anchorA,
       anchorB,
+      ropeLinkIndexA: a.ropeLinkIndex,
+      ropeLinkIndexB: b.ropeLinkIndex,
+      ropeLinkCountA: a.ropeLinkCount,
+      ropeLinkCountB: b.ropeLinkCount,
+      ropeProgressA: a.ropeProgress,
+      ropeProgressB: b.ropeProgress,
     });
   }
 
@@ -547,6 +584,7 @@ export class RapierPhysicsSystem {
     const anchorA = entityA ? localAnchorForBody(authoredA, attachmentA.endpoint, this.worldScale) : { x: 0, y: 0 };
     const anchorB = entityB ? localAnchorForBody(authoredB, attachmentB.endpoint, this.worldScale) : { x: 0, y: 0 };
     const thickness = Math.max(0.5, finite(constraint.thickness, 4));
+    const collisionGroups = resolvePhysicsCollisionGroups(this.graph.world, constraint);
     const links = [];
     const joints = [];
     const makeLink = (start, end, index) => {
@@ -567,7 +605,7 @@ export class RapierPhysicsSystem {
         .setDensity(1)
         .setFriction(0.5)
         .setRestitution(0.05)
-        .setCollisionGroups((ROPE_COLLISION_GROUP << 16) | ROPE_COLLISION_MASK)
+        .setCollisionGroups(((collisionGroups.group & 0xffff) << 16) | (collisionGroups.mask & 0xffff))
         .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS | RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS), rigidBody);
       const entity = {
         id: `rope:${constraint.id}:${index}`,
@@ -839,11 +877,48 @@ export class RapierPhysicsSystem {
       .filter(([, state]) => state.rope)
       .map(([constraintId, state]) => ({ constraintId, points: this.#ropePath(state) }))
       .filter(path => path.points?.length >= 2);
+    const constraintAnchors = [...this.constraints.entries()]
+      .filter(([, state]) => state.definition?.a?.kind === "rope" || state.definition?.b?.kind === "rope")
+      .flatMap(([constraintId, state]) => {
+        const ropeAttachments = [];
+        for (const side of ["a", "b"]) {
+          if (state.definition?.[side]?.kind !== "rope") continue;
+          const entity = side === "a" ? state.entityA : state.entityB;
+          const localAnchor = side === "a" ? state.anchorA : state.anchorB;
+          const linkIndex = side === "a" ? state.ropeLinkIndexA : state.ropeLinkIndexB;
+          const linkCount = side === "a" ? state.ropeLinkCountA : state.ropeLinkCountB;
+          const stableProgress = side === "a" ? state.ropeProgressA : state.ropeProgressB;
+          if (!entity?.rigidBody || !localAnchor || !Number.isInteger(linkIndex) || linkIndex < 0) continue;
+          const ropePoint = this.#worldPointForAnchor(entity.rigidBody, localAnchor);
+          ropeAttachments.push({
+            side,
+            point: [ropePoint.x * this.inverseWorldScale, ropePoint.y * this.inverseWorldScale],
+            linkIndex,
+            ropeProgress: Number.isFinite(Number(stableProgress))
+              ? Number(stableProgress)
+              : (linkCount > 1 ? linkIndex / (linkCount - 1) : 0),
+          });
+        }
+        // A rope-to-World pivot is authored and dragged by its fixed World
+        // anchor. The rope-side joint point can lag behind that target while
+        // the solver relaxes the chain, so publishing it makes the visible
+        // pivot snap/lag even though the requested anchor moved correctly.
+        const worldAnchor = state.worldAnchorA || state.worldAnchorB;
+        if (worldAnchor) {
+          const point = worldAnchor.translation();
+          return [{ constraintId, point: [point.x * this.inverseWorldScale, point.y * this.inverseWorldScale], ropeAttachments }];
+        }
+        const entity = state.entityA || state.entityB;
+        const localAnchor = state.entityA ? state.anchorA : state.anchorB;
+        if (!entity?.rigidBody || !localAnchor) return [];
+        const point = this.#worldPointForAnchor(entity.rigidBody, localAnchor);
+        return [{ constraintId, point: [point.x * this.inverseWorldScale, point.y * this.inverseWorldScale], ropeAttachments }];
+      });
     const thrusterPaths = [...this.constraints.entries()]
       .filter(([, state]) => state.thruster)
       .map(([constraintId, state]) => ({ constraintId, points: this.#thrusterPath(state) }))
       .filter(path => path.points?.length >= 2);
-    return { values, metadata, ropePaths, thrusterPaths };
+    return { values, metadata, ropePaths, constraintAnchors, thrusterPaths };
   }
 
   setKinematicTarget(entityId, point, angle = null) {
@@ -1029,6 +1104,17 @@ export class RapierPhysicsSystem {
     this.releaseGrab();
     const state = this.constraints.get(constraintId);
     if (!state) return false;
+    // A free rope has no authored endpoint entity to grab. Its generated links
+    // are the physical body, so choose the link under the pointer and reuse
+    // the normal body-grab path for both playback and Live pose.
+    if (state.rope) {
+      const link = state.links?.reduce((closest, candidate) => {
+        const translation = candidate.rigidBody.translation();
+        const distance = Math.hypot(translation.x * this.inverseWorldScale - finite(point?.[0]), translation.y * this.inverseWorldScale - finite(point?.[1]));
+        return !closest || distance < closest.distance ? { candidate, distance } : closest;
+      }, null)?.candidate;
+      return link ? this.grab(link.entity.id, point, stiffness, damping, { livePose }) : false;
+    }
     const worldAnchor = state.worldAnchorA || state.worldAnchorB;
     if (worldAnchor) {
       this.grabState = { kind: "constraint-world", constraintId, worldAnchor, livePose };

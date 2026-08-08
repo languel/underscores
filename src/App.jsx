@@ -105,7 +105,7 @@ import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, se
 import { createUnifiedStreamsApi, DraweratorStreamRegistry } from "./streamRuntime.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
 import { addRelationshipItem, createDefaultPhysicsSystem, createEmptyRelationshipGraph, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, removeRelationshipBindingsForElements, removeRelationshipItem, updateRelationshipItem, withPhysicsCustomData } from "./relationshipGraph.js";
-import { chooseConstraintPivot, elementContainsPhysicsPoint, getPhysicsElementCenter, getRopeVisualGeometryPatch, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, physicsEndpointAtPoint, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint } from "./physicsConstraintAuthoring.js";
+import { chooseConstraintPivot, elementContainsPhysicsPoint, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, physicsEndpointAtPoint, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint } from "./physicsConstraintAuthoring.js";
 import { applyAnchorAttractorFrame, applyBezierSculptOperator, getPhysicsColliderSelectionValue, getPhysicsElementCenter as getPhysicsGeometryElementCenter, getPhysicsElementLocalCenter, inferPhysicsBodyFromElement, inferPhysicsColliderForBody, inferPhysicsColliderFromElement, needsLegacyPhysicsColliderOriginRebase } from "./physicsGeometry.js";
 import { createPhysicsApi, createRelationshipApi, PhysicsRuntimeController } from "./physicsRuntime.js";
 import { mappingTargetValue } from "./mappingRuntime.js";
@@ -2682,6 +2682,10 @@ function App() {
       .map(path => [path.constraintId, path.points]));
     const thrusterPathByConstraintId = new Map((snapshot.thrusterPaths || [])
       .map(path => [path.constraintId, path.points]));
+    const ropePivotAnchorByConstraintId = new Map((snapshot.constraintAnchors || [])
+      .filter(anchor => anchor?.constraintId && Array.isArray(anchor.point)
+        && Number.isFinite(Number(anchor.point[0])) && Number.isFinite(Number(anchor.point[1])))
+      .map(anchor => [anchor.constraintId, [Number(anchor.point[0]), Number(anchor.point[1])]]));
     // An authored axle is a zero-mass marker for a Rapier joint, not another
     // solver body. For a body-body joint the marker follows the shared anchor
     // so the canvas remains truthful as the connected pair moves. World pins
@@ -2697,7 +2701,6 @@ function App() {
       const anchorA = physicsEndpointSceneAnchor(constraint.a, bodyA, poseA);
       const anchorB = physicsEndpointSceneAnchor(constraint.b, bodyB, poseB);
       if (constraint.kind === "rope") {
-        if (!anchorA || !anchorB) continue;
         const patch = getRopeVisualGeometryPatch(pivot, ropePathByConstraintId.get(constraint.id));
         if (!patch || !springVisualGeometryDiffers(pivot, patch)) continue;
         changed = true;
@@ -2734,6 +2737,29 @@ function App() {
         replacements.set(pivot.id, {
           ...pivot,
           ...patch,
+          version: (pivot.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+        });
+        continue;
+      }
+      // A rope endpoint resolves to a generated link rather than an authored
+      // body, so its current joint position only exists in the runtime pose.
+      // Keep the visible axle/weld marker on that link while Live pose drags
+      // it; otherwise the marker appears detached despite a sound joint.
+      const ropePivotAnchor = (constraint.a?.kind === "rope" || constraint.b?.kind === "rope")
+        ? ropePivotAnchorByConstraintId.get(constraint.id)
+        : null;
+      if (ropePivotAnchor) {
+        const localCenter = getPhysicsElementLocalCenter(pivot);
+        const x = ropePivotAnchor[0] - localCenter[0];
+        const y = ropePivotAnchor[1] - localCenter[1];
+        if (Math.abs(pivot.x - x) < 0.05 && Math.abs(pivot.y - y) < 0.05) continue;
+        changed = true;
+        replacements.set(pivot.id, {
+          ...pivot,
+          x,
+          y,
           version: (pivot.version || 0) + 1,
           versionNonce: Math.floor(Math.random() * 0x7fffffff),
           updated: Date.now(),
@@ -9557,12 +9583,27 @@ function App() {
   const patchPhysicsConstraint = (constraintId, patch) => {
     if (!constraintId) return null;
     const graph = relationshipGraphRef.current;
-    const next = updateRelationshipItem(graph, "constraints", constraintId, current => ({ ...current, ...(patch || {}) }));
+    const api = excalidrawAPIRef.current;
+    const ropeElement = patch?.kind === "rope"
+      ? (api?.getSceneElementsIncludingDeleted?.() || []).find(element => (
+        !element.isDeleted && graph.constraints.find(constraint => constraint.id === constraintId)?.objectRef?.elementId === element.id
+      ))
+      : null;
+    const ropePathPoints = ropeElement ? getRopeWorldPoints(ropeElement) : null;
+    const next = updateRelationshipItem(graph, "constraints", constraintId, current => ({
+      ...current,
+      ...(patch || {}),
+      // The generic Properties panel can convert an existing pivot into a
+      // Rope. That transition needs the visual path and detached ends, not
+      // just a different enum value on the old Weld record.
+      ...(patch?.kind === "rope" && current.kind !== "rope" && ropePathPoints?.length >= 2
+        ? { a: { kind: "none" }, b: { kind: "none" }, pathPoints: ropePathPoints }
+        : {}),
+    }));
     const nextConstraint = next.constraints.find(item => item.id === constraintId) || null;
     relationshipGraphRef.current = next;
     setRelationshipGraph(next);
     if (nextConstraint?.objectRef?.kind === "element") {
-      const api = excalidrawAPIRef.current;
       const elements = api?.getSceneElementsIncludingDeleted?.() || [];
       const nextElements = elements.map(element => {
         if (element.id !== nextConstraint.objectRef.elementId || element.isDeleted) return element;
@@ -9835,6 +9876,7 @@ function App() {
           pivot,
           elements,
           bodies: targetBodies,
+          constraints: graph.constraints.filter(constraint => !selectedIds.has(constraint.objectRef?.elementId)),
           systemId: targetSystemId,
           kind,
         }),
@@ -10019,13 +10061,18 @@ function App() {
 
   const physicsConstraintAtPoint = (point, systemId = null) => {
     const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
-    const hitElementIds = new Set(canvasElementsAtPhysicsPoint(point).map(element => element.id));
-    return graph.constraints.find(constraint => (
-      constraint.enabled
-      && (!systemId || constraint.systemId === systemId)
-      && constraint.objectRef?.kind === "element"
-      && hitElementIds.has(constraint.objectRef.elementId)
-    )) || null;
+    // Canvas hit-testing is front-to-back. Respect it so an authored pivot on
+    // a rope is grabbed as the joint the user sees, not as the rope beneath.
+    for (const element of canvasElementsAtPhysicsPoint(point)) {
+      const constraint = graph.constraints.find(candidate => (
+        candidate.enabled
+        && (!systemId || candidate.systemId === systemId)
+        && candidate.objectRef?.kind === "element"
+        && candidate.objectRef.elementId === element.id
+      ));
+      if (constraint) return constraint;
+    }
+    return null;
   };
 
   const endpointForPhysicsHit = (element, point) => physicsEndpointAtPoint(element, point);
@@ -10038,7 +10085,7 @@ function App() {
       return { error: "Axle and Weld use a separate pivot object; click the small pivot shape, not the body." };
     }
     const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
-    const resolved = resolveConstraintPivot({ pivot, elements, bodies: graph.bodies, systemId, kind });
+    const resolved = resolveConstraintPivot({ pivot, elements, bodies: graph.bodies, constraints: graph.constraints, systemId, kind });
     if (resolved.error) return resolved;
     const previousConstraintId = pivotPhysics?.id;
     const next = normalizeRelationshipGraph({
@@ -10214,16 +10261,19 @@ function App() {
       // new starting pose: preserve the solved snapshot before releasing the
       // temporary grab, then make that snapshot the new Reset baseline.
       const atTransportOrigin = Math.abs(Number(scoreTimeRef.current) || 0) < 1e-6;
-      const livePoseSnapshot = gesture.livePose && atTransportOrigin
-        ? physicsRuntimeRef.current.getLatestPoses(gesture.systemId)
-        : null;
-      physicsRuntimeRef.current.releaseGrab(gesture.systemId);
-      if (livePoseSnapshot) {
-        const applied = applyPhysicsPose(gesture.systemId, {
-          snapshot: livePoseSnapshot,
-          statusMessage: "Set the live pose at timeline zero as the physics reset pose.",
-        });
-        if (!applied) setSceneExchangeStatus("Live pose could not be saved: no current physics pose was available.");
+      if (gesture.livePose && atTransportOrigin && api) {
+        const scenePoint = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, api.getAppState());
+        void physicsRuntimeRef.current.commitGrab(gesture.systemId, [scenePoint.x, scenePoint.y], { livePose: true, iterations: 96 })
+          .then(snapshot => {
+            const applied = snapshot && applyPhysicsPose(gesture.systemId, {
+              snapshot,
+              statusMessage: "Set the live pose at timeline zero as the physics reset pose.",
+            });
+            if (!applied) setSceneExchangeStatus("Live pose could not be saved: no current physics pose was available.");
+          })
+          .catch(error => setSceneExchangeStatus(`Live pose could not be saved: ${error?.message || String(error)}`));
+      } else {
+        physicsRuntimeRef.current.releaseGrab(gesture.systemId);
       }
     }
     if (gesture.kind === "sculpt" && api) {
@@ -10359,11 +10409,40 @@ function App() {
     const poseByEntityId = new Map((snapshot?.metadata || []).map((metadata, index) => [metadata.id, {
       x: snapshot.values[index * 4], y: snapshot.values[index * 4 + 1], angle: snapshot.values[index * 4 + 2],
     }]));
+    // Rope links are runtime-only bodies, so their solved shape is carried in
+    // the pose snapshot rather than in `metadata`. Applying a live pose must
+    // promote that shape to the authored rope path as well as applying rigid
+    // body transforms. Otherwise the next reset/rebuild recreates the old
+    // straight (orange diagnostic) path and overwrites the rope host.
+    const ropePathByConstraintId = new Map((snapshot?.ropePaths || [])
+      .filter(path => path?.constraintId && Array.isArray(path.points))
+      .map(path => [path.constraintId, path.points
+        .filter(point => Array.isArray(point) && Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1])))
+        .map(point => [Number(point[0]), Number(point[1])])
+      ]));
     const api = excalidrawAPIRef.current;
     const elementById = new Map((api?.getSceneElementsIncludingDeleted() || []).map(element => [element.id, element]));
+    const pivotAnchorByConstraintId = new Map((snapshot?.constraintAnchors || [])
+      .filter(anchor => anchor?.constraintId && Array.isArray(anchor.point)
+        && Number.isFinite(Number(anchor.point[0])) && Number.isFinite(Number(anchor.point[1])))
+      .map(anchor => [anchor.constraintId, {
+        point: [Number(anchor.point[0]), Number(anchor.point[1])],
+        ropeAttachments: Array.isArray(anchor.ropeAttachments) ? anchor.ropeAttachments : [],
+      }]));
     let applied = false;
     const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
     const appliedBodies = [];
+    const appliedConstraints = [];
+    const appliedPivotPositions = new Map();
+    for (const constraint of graph.constraints) {
+      if (constraint.systemId !== systemId || constraint.kind === "rope" || constraint.objectRef?.kind !== "element") continue;
+      const anchor = pivotAnchorByConstraintId.get(constraint.id)?.point;
+      const pivot = elementById.get(constraint.objectRef.elementId);
+      if (!anchor || !pivot || pivot.isDeleted) continue;
+      const localCenter = getPhysicsElementLocalCenter(pivot);
+      appliedPivotPositions.set(pivot.id, { x: anchor[0] - localCenter[0], y: anchor[1] - localCenter[1] });
+      applied = true;
+    }
     const nextGraph = normalizeRelationshipGraph({
       ...graph,
       bodies: graph.bodies.map(body => {
@@ -10383,6 +10462,36 @@ function App() {
         }
         return body;
       }),
+      constraints: graph.constraints.map(constraint => {
+        if (constraint.systemId !== systemId) return constraint;
+        if (constraint.kind === "rope") {
+          const pathPoints = ropePathByConstraintId.get(constraint.id);
+          if (!pathPoints || pathPoints.length < 2) return constraint;
+          applied = true;
+          const next = { ...constraint, pathPoints };
+          appliedConstraints.push(next);
+          return next;
+        }
+
+        // Dragging a rope-bound pivot moves Rapier's temporary World anchor.
+        // Promote that solved anchor to the authored endpoint on release, or a
+        // subsequent graph rebuild recreates the joint at its pre-drag point
+        // and the pivot/rope appears to snap back.
+        const anchorState = pivotAnchorByConstraintId.get(constraint.id);
+        if (!anchorState) return constraint;
+        const hasWorldEndpoint = constraint.a?.kind === "world" || constraint.b?.kind === "world";
+        const hasRopeEndpoint = constraint.a?.kind === "rope" || constraint.b?.kind === "rope";
+        if (!hasWorldEndpoint && !hasRopeEndpoint) return constraint;
+        applied = true;
+        const withWorldAnchor = hasWorldEndpoint
+          ? persistConstraintWorldAnchor(constraint, anchorState.point)
+          : constraint;
+        const next = hasRopeEndpoint
+          ? persistConstraintRopeAttachments(withWorldAnchor, anchorState.ropeAttachments)
+          : withWorldAnchor;
+        appliedConstraints.push(next);
+        return next;
+      }),
     });
     if (applied) {
       // Reset/rewind may be pressed in the same turn as Apply or a Live-pose
@@ -10392,7 +10501,39 @@ function App() {
       physicsRuntimeRef.current.setGraph(nextGraph);
       setRelationshipGraph(nextGraph);
     }
-    if (api && appliedBodies.length) updatePhysicsCustomDataForBodies(appliedBodies, { commitToHistory: true });
+    if (api && (appliedBodies.length || appliedConstraints.length || appliedPivotPositions.size)) {
+      const bodyByElementId = new Map(appliedBodies
+        .filter(body => body?.objectRef?.kind === "element")
+        .map(body => [body.objectRef.elementId, body]));
+      const constraintByElementId = new Map(appliedConstraints
+        .filter(constraint => constraint?.objectRef?.kind === "element")
+        .map(constraint => [constraint.objectRef.elementId, constraint]));
+      let changed = false;
+      const nextElements = api.getSceneElementsIncludingDeleted().map(element => {
+        if (element.isDeleted) return element;
+        const body = bodyByElementId.get(element.id);
+        const constraint = constraintByElementId.get(element.id);
+        const pivotPosition = appliedPivotPositions.get(element.id);
+        if (!body && !constraint && !pivotPosition) return element;
+        let customData = element.customData;
+        if (body) customData = withPhysicsCustomData(customData, body);
+        if (constraint) customData = withPhysicsCustomData(customData, constraint);
+        const ropePatch = constraint
+          ? getRopeVisualGeometryPatch(element, constraint.pathPoints)
+          : null;
+        changed = true;
+        return {
+          ...element,
+          ...(ropePatch || {}),
+          ...(pivotPosition || {}),
+          customData,
+          version: (element.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+        };
+      });
+      if (changed) api.updateScene({ elements: nextElements, commitToHistory: true });
+    }
     setSceneExchangeStatus(applied ? statusMessage : "No current physics pose was available to apply.");
     return applied;
   };
@@ -10816,7 +10957,7 @@ function App() {
     { id: "physics.axle.make", name: "Make Axle Object /make axle", aliases: ["/make axle", "/physics axle"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into Axle pivots. Each pivot automatically connects the body or bodies at its centre." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "axle" }) },
     { id: "physics.fixate.make", name: "Make Weld Object /make weld", aliases: ["/make weld", "/physics weld", "/make fixate", "/physics fixate"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into Weld pivots. Each pivot welds the body or bodies at its centre." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "fixate" }) },
     { id: "physics.spring.make", name: "Make Spring Object /make spring", aliases: ["/make spring", "/physics spring"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected lines, arrows, paths, or freehand strokes into Springs. Their rendered start and end attach to bodies beneath them, or World." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "spring" }) },
-    { id: "physics.rope.make", name: "Make Rope Object /make rope", aliases: ["/make rope", "/physics rope"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected lines, arrows, paths, or freehand strokes into articulated physics ropes. Every rendered path point becomes a sampled chain of generated links, with its ends attaching to bodies beneath them or World." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "rope" }) },
+    { id: "physics.rope.make", name: "Make Rope Object /make rope", aliases: ["/make rope", "/physics rope"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected lines, arrows, paths, or freehand strokes into free articulated physics ropes. Every rendered path point becomes a sampled chain of generated links; use an axle or weld on any control point to bind it." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "rope" }) },
     { id: "physics.attractor.make", name: "Make Attractor Object /make attractor", aliases: ["/make attractor", "/physics attractor"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into radial physics attractors. They can attract or repel dynamic bodies within a configurable radius." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "attractor" }) },
     { id: "physics.thruster.make", name: "Make Thruster Object /make thruster", aliases: ["/make thruster", "/physics thruster"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected lines, arrows, paths, or freehand strokes into thrusters. Their start attaches to a dynamic body and their visible direction applies continuous force." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "thruster" }) },
     { id: "physics.population.create", name: "Physics: Create Runtime Population", aliases: ["/physics gas"], category: "Physics", args: { systemId: "string?", count: "number?", radius: "number?", bounds: "{x,y,width,height}?" }, ai: { expose: true, description: "Create a lightweight seeded runtime particle population." }, action: (_api, args) => createPhysicsPopulation(args) },
@@ -16836,7 +16977,7 @@ function App() {
         {pivotConstraint && (
           <InspectorSection title={pivotConstraint.kind === "rope" ? "Rope" : pivotConstraint.kind === "spring" ? "Spring" : isThrusterConstraint ? "Thruster" : isAttractorConstraint ? "Attractor" : `${pivotConstraint.kind === "fixate" ? "Weld" : "Axle"} pivot`} className="iannix-section physics-role-details" {...infoProps(pivotConstraint.kind === "rope" ? "Rope" : pivotConstraint.kind === "spring" ? "Spring" : isThrusterConstraint ? "Thruster" : isAttractorConstraint ? "Attractor" : "Constraint pivot", pivotConstraint.kind === "rope" ? "This canvas path is an authored rope. Its rendered points are sampled into generated solver links, while its visible geometry follows the simulated chain. The record is stored in object.customData.physics." : pivotConstraint.kind === "spring" ? "This canvas object is an authored spring. Its rendered start and end independently attach to bodies beneath them, or World. The complete record is stored in object.customData.physics." : isThrusterConstraint ? "This canvas path is an authored thruster. Its start attaches to a dynamic body and its visible start-to-end direction applies force." : isAttractorConstraint ? "This canvas object is an authored radial force. It attracts or repels dynamic bodies within its radius." : "This canvas object is the authored constraint entity. Its centre resolves overlapping physics bodies: one body attaches to World; two bodies attach to each other. The complete record is stored in object.customData.physics.")}>
             <label className="iannix-field"><span>Physics name</span><input type="text" value={pivotConstraint.name} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { name: event.target.value })} /></label>
-            {!isAttractorConstraint && <div className="iannix-two-column">
+            {!isAttractorConstraint && pivotConstraint.kind !== "rope" && <div className="iannix-two-column">
               <label className="iannix-field" {...infoProps(isThrusterConstraint ? "Thruster attachment" : isPathConstraint ? `${pivotConstraint.kind === "rope" ? "Rope" : "Spring"} start attachment` : "First connection", isThrusterConstraint ? "The thruster start attaches to a dynamic body. Its visible end determines the force direction. Choose None to disable this endpoint without deleting the thruster." : isPathConstraint ? "The rendered path start attaches to this body or World. Choose None to leave that end free." : "The first body attached at this pivot. Changing it recalculates the local anchor at the pivot centre. Choose None to disable this constraint until you reconnect it.")}><span>{isThrusterConstraint ? "Attach body" : isPathConstraint ? "Start attachment" : "Connect A"}</span><select value={endpointSelectionValue(pivotConstraint.a)} onChange={event => patchPivotConnection("a", event.target.value)}>
                 <option value="none">None</option>
                 {isPathConstraint && !isThrusterConstraint && <option value="world">World</option>}

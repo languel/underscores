@@ -765,6 +765,7 @@ const PhysicsConstraintControls = ({
   constraint: constraintValue,
   physicsBodies = [],
   availableElements = [],
+  collisionLayers = [],
   query,
   onChange,
   onEndpointChange,
@@ -775,6 +776,7 @@ const PhysicsConstraintControls = ({
   const matches = name => !query?.needle || name.includes(query.needle) || String(constraint.kind).includes(query.needle);
   const label = physicsConstraintLabel(constraint.kind);
   const isSpring = ["spring", "distance"].includes(constraint.kind);
+  const isRope = constraint.kind === "rope";
   const isHinge = ["axle", "pin", "revolute"].includes(constraint.kind);
   const elementById = new Map(availableElements.map(element => [element.id, element]));
   const endpointOptions = physicsBodies
@@ -797,7 +799,7 @@ const PhysicsConstraintControls = ({
     : { limitsEnabled: false, lowerLimit: null, upperLimit: null });
   const limitDegrees = radians => Number((radians * 180 / Math.PI).toFixed(2));
   const kindOptions = [
-    ["fixate", "Weld"], ["axle", "Axle"], ["spring", "Spring"], ["distance", "Distance"],
+    ["fixate", "Weld"], ["axle", "Axle"], ["spring", "Spring"], ["rope", "Rope"], ["distance", "Distance"],
     ["pin", "Pin"], ["revolute", "Revolute"], ["weld", "Weld"], ["attractor", "Attractor"],
     ["thruster", "Thruster"], ["tracer", "Tracer"], ["chain", "Chain"],
   ];
@@ -819,7 +821,7 @@ const PhysicsConstraintControls = ({
       <summary><span>Constraint pivot</span><small>{label} · {constraint.enabled ? "enabled" : "disabled"}</small></summary>
       <div className="properties-children">
         {matches("name") && <div className="properties-row editable"><span>name</span><input type="text" value={constraint.name} onChange={event => onChange({ name: event.target.value })} /></div>}
-        {matches("connect") && <>
+        {!isRope && matches("connect") && <>
           <div className="properties-row editable"><span>connect A</span><select value={constraintEndpointSelectionValue(constraint.a)} onChange={event => onEndpointChange?.("a", event.target.value)}>
             <option value="none">None</option>
             <option value="world">World</option>
@@ -833,6 +835,7 @@ const PhysicsConstraintControls = ({
           </select></div>
         </>}
         {matches("enabled") && <div className="properties-row editable"><span>enabled</span><input type="checkbox" checked={constraint.enabled} onChange={event => onChange({ enabled: event.target.checked })} /></div>}
+        {isRope && matches("collision layers") && <CollisionLayerMembershipControl layers={collisionLayers} value={constraint.collisionLayers} onChange={layers => onChange({ collisionLayers: layers })} />}
         {matches("collide") && <div className="properties-row editable"><span>collide while connected</span><input type="checkbox" checked={constraint.collideConnected} onChange={event => onChange({ collideConnected: event.target.checked })} /></div>}
         {isSpring && <>
           {matches("rest length") && <div className="properties-row editable properties-row-with-action"><span>rest length</span><div className="properties-row-action"><NumericInput min="0" step="any" value={constraint.restLength} defaultValue={100} onCommit={restLength => onChange({ restLength })} /><button type="button" className="iannix-flat-button geometry-reset-button" onClick={resetSpringRestLength} title="Set to current geometry" aria-label="Set rest length to current geometry"><GeometryResetIcon /></button></div></div>}
@@ -1278,6 +1281,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
                 constraint={physicsConstraints.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id)}
                 physicsBodies={physicsBodies}
                 availableElements={availableElements}
+                collisionLayers={physicsCollisionLayers}
                 query={query}
                 onChange={patch => {
                   const constraint = physicsConstraints.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id);
