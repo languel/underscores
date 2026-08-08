@@ -116,6 +116,51 @@ export const getRopeVisualGeometryPatch = (element, worldPoints) => {
   };
 };
 
+// A Live-pose drag solves World-bound pivot anchors inside Rapier. Persisting
+// that pose means moving the authored World endpoint to the solved point while
+// preserving whichever rope/body endpoint the pivot is bound to.
+export const persistConstraintWorldAnchor = (constraint, worldPoint) => {
+  if (!constraint || !Array.isArray(worldPoint)
+    || !Number.isFinite(Number(worldPoint[0])) || !Number.isFinite(Number(worldPoint[1]))) return constraint;
+  const point = [Number(worldPoint[0]), Number(worldPoint[1])];
+  if (constraint.a?.kind !== "world" && constraint.b?.kind !== "world") return constraint;
+  return {
+    ...constraint,
+    ...(constraint.a?.kind === "world" ? { a: { ...constraint.a, point: [...point] } } : {}),
+    ...(constraint.b?.kind === "world" ? { b: { ...constraint.b, point: [...point] } } : {}),
+  };
+};
+
+export const persistConstraintRopeAttachments = (constraint, attachments = []) => {
+  if (!constraint || !Array.isArray(attachments) || !attachments.length) return constraint;
+  const bySide = new Map(attachments
+    .filter(attachment => ["a", "b"].includes(attachment?.side)
+      && Array.isArray(attachment.point)
+      && Number.isFinite(Number(attachment.point[0]))
+      && Number.isFinite(Number(attachment.point[1])))
+    .map(attachment => [attachment.side, attachment]));
+  let changed = false;
+  const updateEndpoint = side => {
+    const endpoint = constraint[side];
+    const attachment = bySide.get(side);
+    if (endpoint?.kind !== "rope" || !attachment) return endpoint;
+    changed = true;
+    return {
+      ...endpoint,
+      point: [Number(attachment.point[0]), Number(attachment.point[1])],
+      ...(Number.isInteger(Number(attachment.linkIndex)) && Number(attachment.linkIndex) >= 0
+        ? { linkIndex: Math.floor(Number(attachment.linkIndex)) }
+        : {}),
+      ...(Number.isFinite(Number(attachment.ropeProgress))
+        ? { ropeProgress: Math.max(0, Math.min(1, Number(attachment.ropeProgress))) }
+        : {}),
+    };
+  };
+  const a = updateEndpoint("a");
+  const b = updateEndpoint("b");
+  return changed ? { ...constraint, a, b } : constraint;
+};
+
 const rotateIntoElementSpace = (element, point) => {
   const center = getPhysicsElementCenter(element);
   const angle = finite(element?.angle);
@@ -217,14 +262,15 @@ export const chooseConstraintPivot = elements => (elements || []).find(element =
 
 // Constraint tools act on a small visual pivot object. The pivot's centre is
 // the anchor and it discovers the topmost one or two overlapping physics
-// bodies. One body becomes a World constraint; two bodies become a joint.
-export const resolveConstraintPivot = ({ pivot, elements = [], bodies = [], systemId, kind = "axle" }) => {
+// bodies or exact rope control points. One target becomes a World constraint;
+// two targets become a joint.
+export const resolveConstraintPivot = ({ pivot, elements = [], bodies = [], constraints = [], systemId, kind = "axle" }) => {
   if (!pivot?.id) return { error: "Choose a pivot object." };
   const bodyIds = new Set((bodies || [])
     .filter(body => body?.enabled !== false && body?.objectRef?.kind === "element" && (!systemId || body.systemId === systemId))
     .map(body => body.objectRef.elementId));
   const point = getPhysicsElementCenter(pivot);
-  const candidates = [...elements].reverse().filter(element => (
+  const bodyCandidates = [...elements].reverse().filter(element => (
     element?.id !== pivot.id
     && bodyIds.has(element?.id)
     && (
@@ -232,9 +278,35 @@ export const resolveConstraintPivot = ({ pivot, elements = [], bodies = [], syst
       || physicsElementsOverlap(pivot, element)
     )
   ));
+  const ropeCandidates = constraints
+    .filter(constraint => constraint?.enabled !== false && constraint?.kind === "rope" && (!systemId || constraint.systemId === systemId))
+    .flatMap(constraint => (constraint.pathPoints || []).map((controlPoint, pointIndex) => ({ constraint, controlPoint, pointIndex })))
+    .filter(({ constraint, controlPoint }) => constraint.objectRef?.kind === "element"
+      && constraint.objectRef.elementId !== pivot.id
+      && Math.hypot(controlPoint[0] - point.x, controlPoint[1] - point.y) <= 10);
+  const candidates = [...ropeCandidates, ...bodyCandidates];
   const [first, second] = candidates;
-  if (!first) return { error: "Place the pivot over one or two physics bodies." };
+  if (!first) return { error: "Place the pivot over a physics body or rope control point." };
   const anchor = [point.x, point.y];
+  const endpointForCandidate = candidate => candidate.constraint
+    ? {
+      kind: "rope",
+      objectRef: { kind: "element", elementId: candidate.constraint.objectRef.elementId },
+      constraintId: candidate.constraint.id,
+      point: [...candidate.controlPoint],
+      ropeProgress: (() => {
+        const points = candidate.constraint.pathPoints || [];
+        const total = points.slice(1).reduce((length, point, index) => (
+          length + Math.hypot(point[0] - points[index][0], point[1] - points[index][1])
+        ), 0);
+        if (total <= 1e-6) return 0;
+        const preceding = points.slice(1, candidate.pointIndex + 1).reduce((length, point, index) => (
+          length + Math.hypot(point[0] - points[index][0], point[1] - points[index][1])
+        ), 0);
+        return Math.max(0, Math.min(1, preceding / total));
+      })(),
+    }
+    : physicsEndpointAtPoint(candidate, anchor);
   return {
     pivotPoint: anchor,
     primary: first,
@@ -245,8 +317,10 @@ export const resolveConstraintPivot = ({ pivot, elements = [], bodies = [], syst
       name: kind === "fixate" ? "Weld" : "Axle",
       kind,
       objectRef: { kind: "element", elementId: pivot.id },
-      a: physicsEndpointAtPoint(first, anchor),
-      b: second ? physicsEndpointAtPoint(second, anchor) : { kind: "world", point: anchor },
+      a: endpointForCandidate(first),
+      b: second ? endpointForCandidate(second) : first.constraint
+        ? { kind: "world", point: [...first.controlPoint] }
+        : { kind: "world", point: anchor },
       collideConnected: false,
       limitsEnabled: false,
       lowerLimit: null,
@@ -302,9 +376,8 @@ export const resolveSpringConstraint = ({ spring, elements = [], bodies = [], sy
   };
 };
 
-// Ropes use all authored path points rather than only their endpoints. The
-// first and last points attach exactly like a Spring; Rapier fills the path
-// between them with generated runtime links and revolute joints.
+// Ropes use all authored path points to create generated runtime links. The
+// rope is otherwise free: pivots can later bind any of these control points.
 export const resolveRopeConstraint = ({ rope, elements = [], bodies = [], systemId }) => {
   if (!rope?.id) return { error: "Choose a rope path." };
   const pathPoints = getRopeWorldPoints(rope);
@@ -312,27 +385,24 @@ export const resolveRopeConstraint = ({ rope, elements = [], bodies = [], system
   const start = pathPoints[0];
   const end = pathPoints[pathPoints.length - 1];
   if (Math.hypot(end[0] - start[0], end[1] - start[1]) < 0.001) return { error: "Rope needs two distinct endpoints." };
-  const primary = bodyCandidatesAtPoint({ visual: rope, point: start, elements, bodies, systemId })[0] || null;
-  const secondary = bodyCandidatesAtPoint({ visual: rope, point: end, elements, bodies, systemId })[0] || null;
   const restLength = pathPoints.slice(1).reduce((total, point, index) => (
     total + Math.hypot(point[0] - pathPoints[index][0], point[1] - pathPoints[index][1])
   ), 0);
   return {
     endpointPoints: { start, end },
     pathPoints,
-    primary,
-    secondary,
     constraint: {
       id: `physics-rope-${crypto.randomUUID()}`,
       systemId: String(systemId || ""),
       name: "Rope",
       kind: "rope",
       objectRef: { kind: "element", elementId: rope.id },
-      a: primary ? physicsEndpointAtPoint(primary, start) : { kind: "world", point: [...start] },
-      b: secondary ? physicsEndpointAtPoint(secondary, end) : { kind: "world", point: [...end] },
+      a: { kind: "none" },
+      b: { kind: "none" },
       pathPoints,
       segmentLength: 24,
       thickness: Math.max(2, finite(rope.strokeWidth, 2) + 2),
+      collisionLayers: ["default"],
       restLength,
       stiffness: 40,
       damping: 4,
@@ -340,6 +410,73 @@ export const resolveRopeConstraint = ({ rope, elements = [], bodies = [], system
       limitsEnabled: false,
       lowerLimit: null,
       upperLimit: null,
+    },
+  };
+};
+
+// An attractor is a first-class authored point object. It does not need to
+// overlap a body: its centre is the field origin and its optional tag filter
+// selects the dynamic bodies it influences at runtime.
+export const resolveAttractorConstraint = ({ attractor, systemId }) => {
+  if (!attractor?.id) return { error: "Choose an attractor object." };
+  const point = getPhysicsElementCenter(attractor);
+  const anchor = [point.x, point.y];
+  return {
+    pivotPoint: anchor,
+    constraint: {
+      id: `physics-attractor-${crypto.randomUUID()}`,
+      systemId: String(systemId || ""),
+      name: "Attractor",
+      kind: "attractor",
+      objectRef: { kind: "element", elementId: attractor.id },
+      a: { kind: "world", point: anchor },
+      b: { kind: "world", point: anchor },
+      attractionStrength: 20,
+      attractionRadius: 300,
+      attractionFalloff: 1,
+      attractionMode: "attract",
+      targetTags: [],
+      collideConnected: false,
+    },
+  };
+};
+
+// A thruster is a two-ended visual. Its start point must sit on a dynamic
+// body; its end gives the authored force direction and remains a live visual
+// guide as the body rotates.
+export const resolveThrusterConstraint = ({ thruster, elements = [], bodies = [], systemId }) => {
+  if (!thruster?.id) return { error: "Choose a thruster object." };
+  const endpoints = getSpringEndpointWorldPoints(thruster);
+  if (!endpoints) return { error: "Thruster needs two distinct endpoints." };
+  // A visual can overlap a wall, a sensor, and a dynamic body at once. A
+  // thruster needs an impulse receiver, so deliberately ignore any
+  // non-dynamic candidates instead of accepting the topmost physics object
+  // and silently creating a no-op runtime force.
+  const dynamicElementIds = new Set((bodies || [])
+    .filter(body => (
+      body?.enabled !== false
+      && body?.bodyType === "dynamic"
+      && body?.collider?.sensor !== true
+      && body?.objectRef?.kind === "element"
+      && (!systemId || body.systemId === systemId)
+    ))
+    .map(body => body.objectRef.elementId));
+  const primary = bodyCandidatesAtPoint({ visual: thruster, point: endpoints.start, elements, bodies, systemId })
+    .find(candidate => dynamicElementIds.has(candidate.id)) || null;
+  if (!primary) return { error: "Place the thruster start point on a dynamic body." };
+  return {
+    endpointPoints: endpoints,
+    primary,
+    constraint: {
+      id: `physics-thruster-${crypto.randomUUID()}`,
+      systemId: String(systemId || ""),
+      name: "Thruster",
+      kind: "thruster",
+      objectRef: { kind: "element", elementId: thruster.id },
+      a: physicsEndpointAtPoint(primary, endpoints.start),
+      b: { kind: "world", point: [...endpoints.end] },
+      thrusterForce: 20,
+      collideConnected: false,
     },
   };
 };
@@ -361,6 +498,15 @@ export const serializePhysicsConstraintCustomData = constraint => ({
   thickness: constraint.thickness,
   stiffness: constraint.stiffness,
   damping: constraint.damping,
+  motorEnabled: constraint.motorEnabled === true,
+  motorSpeed: constraint.motorSpeed,
+  motorTorque: constraint.motorTorque,
+  attractionStrength: constraint.attractionStrength,
+  attractionRadius: constraint.attractionRadius,
+  attractionFalloff: constraint.attractionFalloff,
+  attractionMode: constraint.attractionMode,
+  targetTags: constraint.targetTags,
+  thrusterForce: constraint.thrusterForce,
   limitsEnabled: constraint.limitsEnabled === true,
   lowerLimit: constraint.lowerLimit ?? null,
   upperLimit: constraint.upperLimit ?? null,

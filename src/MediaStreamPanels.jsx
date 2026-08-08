@@ -10,6 +10,7 @@ import { FACE_DISPLAY_GROUPS } from "./mediaLandmarkOntology.js";
 import { MediaRuntimePreview } from "./MediaStreamOverlay.jsx";
 import { getMediaRuntimeSource } from "./mediaStreamRuntime.js";
 import { infoProps } from "./uiInfo.js";
+import NumericInput from "./NumericInput.jsx";
 
 const stopKeyPropagation = event => event.stopPropagation();
 
@@ -141,14 +142,14 @@ const CropControls = ({ crop, onPatch }) => <div className="media-stream-panel-c
     ["height", "H", 0.01, 1],
   ].map(([field, label, min, max]) => <label key={field}>
     <span>{label}</span>
-    <input
-      type="number"
+    <NumericInput
       min={min}
       max={max}
       step="0.01"
       value={crop[field]}
+      defaultValue={field === "width" || field === "height" ? 1 : 0}
       onKeyDown={stopKeyPropagation}
-      onChange={event => onPatch({ crop: { [field]: event.target.value } })}
+      onCommit={value => onPatch({ crop: { [field]: value } })}
     />
   </label>)}
 </div>;
@@ -184,7 +185,7 @@ const SourceTransportControls = ({ source, onPatch }) => {
     </button>
     {canSetRate && <label className="media-stream-panel-field">
       <span>Speed</span>
-      <input type="number" min="0.1" max="8" step="0.1" value={source.media.playbackRate} onKeyDown={stopKeyPropagation} onChange={event => onPatch({ media: { playbackRate: event.target.value } })} />
+      <NumericInput min="0.1" max="8" step="0.1" value={source.media.playbackRate} defaultValue={1} onKeyDown={stopKeyPropagation} onCommit={playbackRate => onPatch({ media: { playbackRate } })} />
     </label>}
   </div>;
 };
@@ -454,11 +455,11 @@ export function HolisticPanel({ elements, sources, selectedElementIds, onCreate,
       <div className="media-stream-panel-style-row">
         <label className="media-stream-panel-field">
           <span>Point size</span>
-          <input type="number" min="1" max="20" step="0.5" value={config.holistic.pointSize} onKeyDown={stopKeyPropagation} onChange={event => onPatch(selected.id, { holistic: { pointSize: event.target.value } })} />
+          <NumericInput min="1" max="20" step="0.5" value={config.holistic.pointSize} defaultValue={3} onKeyDown={stopKeyPropagation} onCommit={pointSize => onPatch(selected.id, { holistic: { pointSize } })} />
         </label>
         <label className="media-stream-panel-field">
           <span>Line thickness</span>
-          <input type="number" min="0.5" max="12" step="0.5" value={config.holistic.lineThickness} onKeyDown={stopKeyPropagation} onChange={event => onPatch(selected.id, { holistic: { lineThickness: event.target.value } })} />
+          <NumericInput min="0.5" max="12" step="0.5" value={config.holistic.lineThickness} defaultValue={2} onKeyDown={stopKeyPropagation} onCommit={lineThickness => onPatch(selected.id, { holistic: { lineThickness } })} />
         </label>
       </div>
       <label className="media-stream-panel-field">

@@ -3,11 +3,12 @@ import { formatGridTimeMapping } from "./gridSystem.js";
 import InspectorSection from "./InspectorSection.jsx";
 import { infoProps } from "./uiInfo.js";
 import TimeValueInput from "./TimeValueInput.jsx";
+import NumericInput from "./NumericInput.jsx";
 
 const NumberField = ({ label, value, onChange, defaultValue, help, ...inputProps }) => (
   <label className="grid-panel-field" {...(help ? infoProps(label, help) : {})}>
     <span>{label}</span>
-    <input type="number" value={value} onChange={onChange} data-default={defaultValue} {...inputProps} />
+    <NumericInput value={value} defaultValue={defaultValue} onCommit={next => onChange({ target: { value: String(next), valueAsNumber: next } })} data-default={defaultValue} {...inputProps} />
   </label>
 );
 

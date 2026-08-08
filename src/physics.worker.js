@@ -145,6 +145,8 @@ const publishPoses = timestamp => {
       sentAt: timestamp,
       values: poses.values,
       ropePaths: poses.ropePaths,
+      constraintAnchors: poses.constraintAnchors,
+      thrusterPaths: poses.thrusterPaths,
     }, [poses.values.buffer]);
     dirtySystems.delete(systemId);
   }
@@ -281,6 +283,25 @@ self.onmessage = event => {
     if (runtime) {
       dirtySystems.add(message.systemId);
       if (message.livePose === true) publishPoses(performance.now());
+    }
+  } else if (message.type === "grab.commit") {
+    if (!runtime) {
+      post("grab.committed", { requestId: message.requestId, systemId: message.systemId });
+    } else {
+      runtime.moveGrab(message.point, { livePose: message.livePose === true, iterations: message.iterations });
+      const poses = runtime.poses();
+      runtime.releaseGrab();
+      dirtySystems.delete(message.systemId);
+      post("grab.committed", {
+        requestId: message.requestId,
+        systemId: message.systemId,
+        step: runtime.stepIndex,
+        time: runtime.time,
+        values: poses.values,
+        ropePaths: poses.ropePaths,
+        constraintAnchors: poses.constraintAnchors,
+        thrusterPaths: poses.thrusterPaths,
+      }, [poses.values.buffer]);
     }
   } else if (message.type === "grab.release") {
     runtime?.releaseGrab();

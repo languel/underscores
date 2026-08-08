@@ -105,7 +105,7 @@ import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, se
 import { createUnifiedStreamsApi, DraweratorStreamRegistry } from "./streamRuntime.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
 import { addRelationshipItem, createDefaultPhysicsSystem, createEmptyRelationshipGraph, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, removeRelationshipBindingsForElements, removeRelationshipItem, updateRelationshipItem, withPhysicsCustomData } from "./relationshipGraph.js";
-import { chooseConstraintPivot, elementContainsPhysicsPoint, getPhysicsElementCenter, getRopeVisualGeometryPatch, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, physicsEndpointAtPoint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint } from "./physicsConstraintAuthoring.js";
+import { chooseConstraintPivot, elementContainsPhysicsPoint, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, physicsEndpointAtPoint, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint } from "./physicsConstraintAuthoring.js";
 import { applyAnchorAttractorFrame, applyBezierSculptOperator, getPhysicsColliderSelectionValue, getPhysicsElementCenter as getPhysicsGeometryElementCenter, getPhysicsElementLocalCenter, inferPhysicsBodyFromElement, inferPhysicsColliderForBody, inferPhysicsColliderFromElement, needsLegacyPhysicsColliderOriginRebase } from "./physicsGeometry.js";
 import { createPhysicsApi, createRelationshipApi, PhysicsRuntimeController } from "./physicsRuntime.js";
 import { mappingTargetValue } from "./mappingRuntime.js";
@@ -770,13 +770,13 @@ const physicsFollowsTransport = systems => Array.isArray(systems)
 const ScriptFontSizeControl = ({ value, onChange }) => (
   <label className="script-font-size-control" title="Script editor font size">
     <span>Font</span>
-    <input
-      type="number"
+    <NumericInput
       min="8"
       max="32"
       step="1"
       value={value}
-      onChange={event => onChange(Number(event.target.value))}
+      defaultValue={value}
+      onCommit={onChange}
       aria-label="Script editor font size"
     />
   </label>
@@ -2089,7 +2089,7 @@ const hydratePhysicsGraphForElements = (graphValue, elements = [], {
     // A constraint visual is authoritative when present. Generic programmatic
     // constraints without one retain their endpoint coordinates unchanged.
     const pivotPoint = pivot ? getPhysicsGeometryElementCenter(pivot) : null;
-    const springEndpoints = ["spring", "rope"].includes(constraint.kind) && pivot
+    const springEndpoints = ["spring", "rope", "thruster"].includes(constraint.kind) && pivot
       ? getSpringEndpointWorldPoints(pivot)
       : null;
     const authoredPointForEndpoint = side => (
@@ -2535,6 +2535,40 @@ function App() {
       setRelationshipGraph(hydratedGraph);
     }
   }, [relationshipGraph, setRelationshipGraph]);
+  // The graph is the runtime source of truth, while `customData.physics` is
+  // the portable object-level mirror. Keep the mirror complete when a newer
+  // graph field (for example axle motor settings) is opened from an older
+  // scene. This is deliberately a non-history migration: it changes no
+  // authored pose and must not add an undo step merely because a scene was
+  // loaded or a panel was opened.
+  useEffect(() => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+    const physicsByElementId = new Map();
+    relationshipGraph.bodies.forEach(body => {
+      if (body.objectRef?.kind === "element") physicsByElementId.set(body.objectRef.elementId, body);
+    });
+    relationshipGraph.constraints.forEach(constraint => {
+      if (constraint.objectRef?.kind === "element") physicsByElementId.set(constraint.objectRef.elementId, constraint);
+    });
+    if (!physicsByElementId.size) return;
+    let changed = false;
+    const nextElements = api.getSceneElementsIncludingDeleted().map(element => {
+      const physics = physicsByElementId.get(element.id);
+      if (!physics || element.isDeleted) return element;
+      const customData = withPhysicsCustomData(element.customData, physics);
+      if (JSON.stringify(getPhysicsCustomData(element)) === JSON.stringify(getPhysicsCustomData(customData))) return element;
+      changed = true;
+      return {
+        ...element,
+        customData,
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+      };
+    });
+    if (changed) api.updateScene({ elements: nextElements, commitToHistory: false });
+  }, [excalidrawAPI, relationshipGraph]);
   // A deletion keeps an Excalidraw tombstone in the scene list. Sweep those
   // bindings when the app starts, reloads, or hot-reloads as well as during
   // `onChange`, so a ghost solver body can never survive until the next edit.
@@ -2646,6 +2680,12 @@ function App() {
     });
     const ropePathByConstraintId = new Map((snapshot.ropePaths || [])
       .map(path => [path.constraintId, path.points]));
+    const thrusterPathByConstraintId = new Map((snapshot.thrusterPaths || [])
+      .map(path => [path.constraintId, path.points]));
+    const ropePivotAnchorByConstraintId = new Map((snapshot.constraintAnchors || [])
+      .filter(anchor => anchor?.constraintId && Array.isArray(anchor.point)
+        && Number.isFinite(Number(anchor.point[0])) && Number.isFinite(Number(anchor.point[1])))
+      .map(anchor => [anchor.constraintId, [Number(anchor.point[0]), Number(anchor.point[1])]]));
     // An authored axle is a zero-mass marker for a Rapier joint, not another
     // solver body. For a body-body joint the marker follows the shared anchor
     // so the canvas remains truthful as the connected pair moves. World pins
@@ -2660,7 +2700,6 @@ function App() {
       const poseB = bodyB ? poseByBodyId.get(bodyB.id) : null;
       const anchorA = physicsEndpointSceneAnchor(constraint.a, bodyA, poseA);
       const anchorB = physicsEndpointSceneAnchor(constraint.b, bodyB, poseB);
-      if (!anchorA || !anchorB) continue;
       if (constraint.kind === "rope") {
         const patch = getRopeVisualGeometryPatch(pivot, ropePathByConstraintId.get(constraint.id));
         if (!patch || !springVisualGeometryDiffers(pivot, patch)) continue;
@@ -2675,6 +2714,7 @@ function App() {
         continue;
       }
       if (constraint.kind === "spring") {
+        if (!anchorA || !anchorB) continue;
         const patch = getSpringVisualGeometryPatch(pivot, anchorA, anchorB);
         if (!patch || !springVisualGeometryDiffers(pivot, patch)) continue;
         changed = true;
@@ -2687,6 +2727,68 @@ function App() {
         });
         continue;
       }
+      if (constraint.kind === "thruster") {
+        const points = thrusterPathByConstraintId.get(constraint.id);
+        const patch = Array.isArray(points) && points.length >= 2
+          ? getSpringVisualGeometryPatch(pivot, points[0], points[1])
+          : null;
+        if (!patch || !springVisualGeometryDiffers(pivot, patch)) continue;
+        changed = true;
+        replacements.set(pivot.id, {
+          ...pivot,
+          ...patch,
+          version: (pivot.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+        });
+        continue;
+      }
+      // A rope endpoint resolves to a generated link rather than an authored
+      // body, so its current joint position only exists in the runtime pose.
+      // Keep the visible axle/weld marker on that link while Live pose drags
+      // it; otherwise the marker appears detached despite a sound joint.
+      const ropePivotAnchor = (constraint.a?.kind === "rope" || constraint.b?.kind === "rope")
+        ? ropePivotAnchorByConstraintId.get(constraint.id)
+        : null;
+      if (ropePivotAnchor) {
+        const localCenter = getPhysicsElementLocalCenter(pivot);
+        const x = ropePivotAnchor[0] - localCenter[0];
+        const y = ropePivotAnchor[1] - localCenter[1];
+        if (Math.abs(pivot.x - x) < 0.05 && Math.abs(pivot.y - y) < 0.05) continue;
+        changed = true;
+        replacements.set(pivot.id, {
+          ...pivot,
+          x,
+          y,
+          version: (pivot.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+        });
+        continue;
+      }
+      // A free axle is mounted on its A body but deliberately has no second
+      // endpoint. Keep its authored marker on that local attachment while the
+      // body rolls through the world under the torque motor.
+      if (["axle", "revolute", "pin"].includes(constraint.kind)
+        && constraint.a?.kind === "object"
+        && constraint.b?.kind === "none"
+        && anchorA) {
+        const localCenter = getPhysicsElementLocalCenter(pivot);
+        const x = anchorA[0] - localCenter[0];
+        const y = anchorA[1] - localCenter[1];
+        if (Math.abs(pivot.x - x) < 0.05 && Math.abs(pivot.y - y) < 0.05) continue;
+        changed = true;
+        replacements.set(pivot.id, {
+          ...pivot,
+          x,
+          y,
+          version: (pivot.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+        });
+        continue;
+      }
+      if (!anchorA || !anchorB) continue;
       if (constraint.a?.kind !== "object" || constraint.b?.kind !== "object") continue;
       const centerX = (anchorA[0] + anchorB[0]) / 2;
       const centerY = (anchorA[1] + anchorB[1]) / 2;
@@ -9336,8 +9438,8 @@ function App() {
         if (!pivot || pivot.isDeleted) continue;
         const anchorA = physicsEndpointSceneAnchor(constraint.a, bodyA ? bodyById.get(bodyA.id) : null, bodyA?.initial);
         const anchorB = physicsEndpointSceneAnchor(constraint.b, bodyB ? bodyById.get(bodyB.id) : null, bodyB?.initial);
-        if (!anchorA || !anchorB) continue;
         if (constraint.kind === "spring") {
+          if (!anchorA || !anchorB) continue;
           const patch = getSpringVisualGeometryPatch(pivot, anchorA, anchorB);
           if (!patch || !springVisualGeometryDiffers(pivot, patch)) continue;
           replacements.set(pivot.id, {
@@ -9349,6 +9451,22 @@ function App() {
           });
           continue;
         }
+        if (["axle", "revolute", "pin"].includes(constraint.kind)
+          && constraint.a?.kind === "object"
+          && constraint.b?.kind === "none"
+          && anchorA) {
+          const localCenter = getPhysicsElementLocalCenter(pivot);
+          replacements.set(pivot.id, {
+            ...pivot,
+            x: anchorA[0] - localCenter[0],
+            y: anchorA[1] - localCenter[1],
+            version: (pivot.version || 0) + 1,
+            versionNonce: Math.floor(Math.random() * 0x7fffffff),
+            updated: Date.now(),
+          });
+          continue;
+        }
+        if (!anchorA || !anchorB) continue;
         if (constraint.a?.kind !== "object" || constraint.b?.kind !== "object" || !bodyA || !bodyB) continue;
         const localCenter = getPhysicsElementLocalCenter(pivot);
         const x = (anchorA[0] + anchorB[0]) / 2 - localCenter[0];
@@ -9465,12 +9583,27 @@ function App() {
   const patchPhysicsConstraint = (constraintId, patch) => {
     if (!constraintId) return null;
     const graph = relationshipGraphRef.current;
-    const next = updateRelationshipItem(graph, "constraints", constraintId, current => ({ ...current, ...(patch || {}) }));
+    const api = excalidrawAPIRef.current;
+    const ropeElement = patch?.kind === "rope"
+      ? (api?.getSceneElementsIncludingDeleted?.() || []).find(element => (
+        !element.isDeleted && graph.constraints.find(constraint => constraint.id === constraintId)?.objectRef?.elementId === element.id
+      ))
+      : null;
+    const ropePathPoints = ropeElement ? getRopeWorldPoints(ropeElement) : null;
+    const next = updateRelationshipItem(graph, "constraints", constraintId, current => ({
+      ...current,
+      ...(patch || {}),
+      // The generic Properties panel can convert an existing pivot into a
+      // Rope. That transition needs the visual path and detached ends, not
+      // just a different enum value on the old Weld record.
+      ...(patch?.kind === "rope" && current.kind !== "rope" && ropePathPoints?.length >= 2
+        ? { a: { kind: "none" }, b: { kind: "none" }, pathPoints: ropePathPoints }
+        : {}),
+    }));
     const nextConstraint = next.constraints.find(item => item.id === constraintId) || null;
     relationshipGraphRef.current = next;
     setRelationshipGraph(next);
     if (nextConstraint?.objectRef?.kind === "element") {
-      const api = excalidrawAPIRef.current;
       const elements = api?.getSceneElementsIncludingDeleted?.() || [];
       const nextElements = elements.map(element => {
         if (element.id !== nextConstraint.objectRef.elementId || element.isDeleted) return element;
@@ -9499,8 +9632,10 @@ function App() {
     const pivot = elements.find(element => element.id === constraint.objectRef.elementId && !element.isDeleted);
     if (!pivot) return null;
     const point = getPhysicsElementCenter(pivot);
-    const endpoint = elementId === "world"
-      ? { kind: "world", point: [point.x, point.y] }
+    const endpoint = elementId === "none"
+      ? { kind: "none" }
+      : elementId === "world"
+        ? { kind: "world", point: [point.x, point.y] }
       : (() => {
         const target = elements.find(element => element.id === elementId && !element.isDeleted);
         return target ? physicsEndpointAtPoint(target, [point.x, point.y]) : null;
@@ -9675,9 +9810,12 @@ function App() {
     physicsToolRef.current = null;
     setPhysicsTool(null);
     const selected = getPhysicsSelectedElements();
-    const isPathConstraint = kind === "spring" || kind === "rope";
+    const isPathConstraint = kind === "spring" || kind === "rope" || kind === "thruster";
+    const isAttractor = kind === "attractor";
     if (!api || !selected.length) {
-      const message = isPathConstraint
+      const message = isAttractor
+        ? "Select one or more objects to turn into attractors first."
+        : isPathConstraint
         ? `Select one or more two-ended ${kind} objects first.`
         : "Select one or more pivot objects first.";
       eventBus.emit("physics.constraint.assign.error", {
@@ -9708,7 +9846,19 @@ function App() {
     ));
     const resolved = selected.map(pivot => ({
       pivot,
-      result: kind === "rope"
+      result: kind === "attractor"
+        ? resolveAttractorConstraint({
+          attractor: pivot,
+          systemId: targetSystemId,
+        })
+        : kind === "thruster"
+          ? resolveThrusterConstraint({
+            thruster: pivot,
+            elements,
+            bodies: targetBodies,
+            systemId: targetSystemId,
+          })
+        : kind === "rope"
         ? resolveRopeConstraint({
           rope: pivot,
           elements,
@@ -9726,6 +9876,7 @@ function App() {
           pivot,
           elements,
           bodies: targetBodies,
+          constraints: graph.constraints.filter(constraint => !selectedIds.has(constraint.objectRef?.elementId)),
           systemId: targetSystemId,
           kind,
         }),
@@ -9791,8 +9942,10 @@ function App() {
     api.updateScene({ elements: nextElements, commitToHistory: true });
     if (createdSystem) setActivePhysicsSystemId(createdSystem.id);
     const name = kind === "fixate" ? "weld" : kind;
-    const noun = isPathConstraint ? kind : `${name} pivot`;
-    const failureReason = isPathConstraint
+    const noun = isAttractor ? "attractor" : isPathConstraint ? kind : `${name} pivot`;
+    const failureReason = isAttractor
+      ? " could not be made into an attractor."
+      : isPathConstraint
       ? " did not have two distinct endpoints."
       : " did not overlap a physics body.";
     const message = `Made ${successes.length} ${noun}${successes.length === 1 ? "" : "s"}.${failures.length ? ` ${failures.length} selected object${failures.length === 1 ? "" : "s"}${failureReason}` : ""}`;
@@ -9908,13 +10061,18 @@ function App() {
 
   const physicsConstraintAtPoint = (point, systemId = null) => {
     const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
-    const hitElementIds = new Set(canvasElementsAtPhysicsPoint(point).map(element => element.id));
-    return graph.constraints.find(constraint => (
-      constraint.enabled
-      && (!systemId || constraint.systemId === systemId)
-      && constraint.objectRef?.kind === "element"
-      && hitElementIds.has(constraint.objectRef.elementId)
-    )) || null;
+    // Canvas hit-testing is front-to-back. Respect it so an authored pivot on
+    // a rope is grabbed as the joint the user sees, not as the rope beneath.
+    for (const element of canvasElementsAtPhysicsPoint(point)) {
+      const constraint = graph.constraints.find(candidate => (
+        candidate.enabled
+        && (!systemId || candidate.systemId === systemId)
+        && candidate.objectRef?.kind === "element"
+        && candidate.objectRef.elementId === element.id
+      ));
+      if (constraint) return constraint;
+    }
+    return null;
   };
 
   const endpointForPhysicsHit = (element, point) => physicsEndpointAtPoint(element, point);
@@ -9927,7 +10085,7 @@ function App() {
       return { error: "Axle and Weld use a separate pivot object; click the small pivot shape, not the body." };
     }
     const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
-    const resolved = resolveConstraintPivot({ pivot, elements, bodies: graph.bodies, systemId, kind });
+    const resolved = resolveConstraintPivot({ pivot, elements, bodies: graph.bodies, constraints: graph.constraints, systemId, kind });
     if (resolved.error) return resolved;
     const previousConstraintId = pivotPhysics?.id;
     const next = normalizeRelationshipGraph({
@@ -9975,10 +10133,9 @@ function App() {
     const point = [scenePoint.x, scenePoint.y];
     if (!tool) {
       const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
-      // Cmd temporarily turns a body drag into a live-pose grab without
-      // changing the world's persisted Live pose setting. This preserves
-      // ordinary selection when the modifier is not held.
-      const livePose = graph.world.livePose === true || event.metaKey;
+      // Live pose is an explicit world mode. Its keyboard shortcut leaves Cmd
+      // available for Excalidraw's native alignment gesture.
+      const livePose = graph.world.livePose === true;
       // Pivots take precedence in live pose mode. A small pivot normally
       // overlaps the body it controls, and choosing the joint makes the
       // intended IK-like handle directly manipulable.
@@ -10104,16 +10261,19 @@ function App() {
       // new starting pose: preserve the solved snapshot before releasing the
       // temporary grab, then make that snapshot the new Reset baseline.
       const atTransportOrigin = Math.abs(Number(scoreTimeRef.current) || 0) < 1e-6;
-      const livePoseSnapshot = gesture.livePose && atTransportOrigin
-        ? physicsRuntimeRef.current.getLatestPoses(gesture.systemId)
-        : null;
-      physicsRuntimeRef.current.releaseGrab(gesture.systemId);
-      if (livePoseSnapshot) {
-        const applied = applyPhysicsPose(gesture.systemId, {
-          snapshot: livePoseSnapshot,
-          statusMessage: "Set the live pose at timeline zero as the physics reset pose.",
-        });
-        if (!applied) setSceneExchangeStatus("Live pose could not be saved: no current physics pose was available.");
+      if (gesture.livePose && atTransportOrigin && api) {
+        const scenePoint = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, api.getAppState());
+        void physicsRuntimeRef.current.commitGrab(gesture.systemId, [scenePoint.x, scenePoint.y], { livePose: true, iterations: 96 })
+          .then(snapshot => {
+            const applied = snapshot && applyPhysicsPose(gesture.systemId, {
+              snapshot,
+              statusMessage: "Set the live pose at timeline zero as the physics reset pose.",
+            });
+            if (!applied) setSceneExchangeStatus("Live pose could not be saved: no current physics pose was available.");
+          })
+          .catch(error => setSceneExchangeStatus(`Live pose could not be saved: ${error?.message || String(error)}`));
+      } else {
+        physicsRuntimeRef.current.releaseGrab(gesture.systemId);
       }
     }
     if (gesture.kind === "sculpt" && api) {
@@ -10199,6 +10359,41 @@ function App() {
     }
   };
 
+  const togglePhysicsTransportSync = () => {
+    const wasSynced = physicsFollowsTransport(relationshipGraphRef.current.systems);
+    if (wasSynced) setPhysicsTimeScrubEnabled(false);
+    setRelationshipGraph(previous => ({
+      ...previous,
+      systems: previous.systems.map(system => ({
+        ...system,
+        clock: { ...system.clock, mode: wasSynced ? "realtime" : "transport" },
+      })),
+    }));
+    setSceneExchangeStatus(wasSynced
+      ? "Physics uses an independent clock."
+      : "Physics follows the music transport.");
+  };
+
+  const setLiveTimelinePreview = enabled => {
+    const next = Boolean(enabled);
+    if (next && !physicsFollowsTransport(relationshipGraphRef.current.systems)) {
+      setSceneExchangeStatus("Sync physics to transport before enabling live timeline preview.");
+      return;
+    }
+    setPhysicsTimeScrubEnabled(next);
+    setSceneExchangeStatus(`Live timeline preview ${next ? "on" : "off"}.`);
+  };
+
+  const toggleLiveTimelinePreview = () => setLiveTimelinePreview(!physicsTimeScrubEnabled);
+
+  const setLivePose = enabled => {
+    const next = Boolean(enabled);
+    updatePhysicsWorld({ livePose: next });
+    setSceneExchangeStatus(`Live pose ${next ? "on" : "off"}.`);
+  };
+
+  const toggleLivePose = () => setLivePose(!(relationshipGraphRef.current.world?.livePose === true));
+
   useEffect(() => {
     if (!physicsFollowsTransport(relationshipGraph.systems)) return;
     if (scorePlaying) {
@@ -10214,11 +10409,40 @@ function App() {
     const poseByEntityId = new Map((snapshot?.metadata || []).map((metadata, index) => [metadata.id, {
       x: snapshot.values[index * 4], y: snapshot.values[index * 4 + 1], angle: snapshot.values[index * 4 + 2],
     }]));
+    // Rope links are runtime-only bodies, so their solved shape is carried in
+    // the pose snapshot rather than in `metadata`. Applying a live pose must
+    // promote that shape to the authored rope path as well as applying rigid
+    // body transforms. Otherwise the next reset/rebuild recreates the old
+    // straight (orange diagnostic) path and overwrites the rope host.
+    const ropePathByConstraintId = new Map((snapshot?.ropePaths || [])
+      .filter(path => path?.constraintId && Array.isArray(path.points))
+      .map(path => [path.constraintId, path.points
+        .filter(point => Array.isArray(point) && Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1])))
+        .map(point => [Number(point[0]), Number(point[1])])
+      ]));
     const api = excalidrawAPIRef.current;
     const elementById = new Map((api?.getSceneElementsIncludingDeleted() || []).map(element => [element.id, element]));
+    const pivotAnchorByConstraintId = new Map((snapshot?.constraintAnchors || [])
+      .filter(anchor => anchor?.constraintId && Array.isArray(anchor.point)
+        && Number.isFinite(Number(anchor.point[0])) && Number.isFinite(Number(anchor.point[1])))
+      .map(anchor => [anchor.constraintId, {
+        point: [Number(anchor.point[0]), Number(anchor.point[1])],
+        ropeAttachments: Array.isArray(anchor.ropeAttachments) ? anchor.ropeAttachments : [],
+      }]));
     let applied = false;
     const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
     const appliedBodies = [];
+    const appliedConstraints = [];
+    const appliedPivotPositions = new Map();
+    for (const constraint of graph.constraints) {
+      if (constraint.systemId !== systemId || constraint.kind === "rope" || constraint.objectRef?.kind !== "element") continue;
+      const anchor = pivotAnchorByConstraintId.get(constraint.id)?.point;
+      const pivot = elementById.get(constraint.objectRef.elementId);
+      if (!anchor || !pivot || pivot.isDeleted) continue;
+      const localCenter = getPhysicsElementLocalCenter(pivot);
+      appliedPivotPositions.set(pivot.id, { x: anchor[0] - localCenter[0], y: anchor[1] - localCenter[1] });
+      applied = true;
+    }
     const nextGraph = normalizeRelationshipGraph({
       ...graph,
       bodies: graph.bodies.map(body => {
@@ -10238,6 +10462,36 @@ function App() {
         }
         return body;
       }),
+      constraints: graph.constraints.map(constraint => {
+        if (constraint.systemId !== systemId) return constraint;
+        if (constraint.kind === "rope") {
+          const pathPoints = ropePathByConstraintId.get(constraint.id);
+          if (!pathPoints || pathPoints.length < 2) return constraint;
+          applied = true;
+          const next = { ...constraint, pathPoints };
+          appliedConstraints.push(next);
+          return next;
+        }
+
+        // Dragging a rope-bound pivot moves Rapier's temporary World anchor.
+        // Promote that solved anchor to the authored endpoint on release, or a
+        // subsequent graph rebuild recreates the joint at its pre-drag point
+        // and the pivot/rope appears to snap back.
+        const anchorState = pivotAnchorByConstraintId.get(constraint.id);
+        if (!anchorState) return constraint;
+        const hasWorldEndpoint = constraint.a?.kind === "world" || constraint.b?.kind === "world";
+        const hasRopeEndpoint = constraint.a?.kind === "rope" || constraint.b?.kind === "rope";
+        if (!hasWorldEndpoint && !hasRopeEndpoint) return constraint;
+        applied = true;
+        const withWorldAnchor = hasWorldEndpoint
+          ? persistConstraintWorldAnchor(constraint, anchorState.point)
+          : constraint;
+        const next = hasRopeEndpoint
+          ? persistConstraintRopeAttachments(withWorldAnchor, anchorState.ropeAttachments)
+          : withWorldAnchor;
+        appliedConstraints.push(next);
+        return next;
+      }),
     });
     if (applied) {
       // Reset/rewind may be pressed in the same turn as Apply or a Live-pose
@@ -10247,7 +10501,39 @@ function App() {
       physicsRuntimeRef.current.setGraph(nextGraph);
       setRelationshipGraph(nextGraph);
     }
-    if (api && appliedBodies.length) updatePhysicsCustomDataForBodies(appliedBodies, { commitToHistory: true });
+    if (api && (appliedBodies.length || appliedConstraints.length || appliedPivotPositions.size)) {
+      const bodyByElementId = new Map(appliedBodies
+        .filter(body => body?.objectRef?.kind === "element")
+        .map(body => [body.objectRef.elementId, body]));
+      const constraintByElementId = new Map(appliedConstraints
+        .filter(constraint => constraint?.objectRef?.kind === "element")
+        .map(constraint => [constraint.objectRef.elementId, constraint]));
+      let changed = false;
+      const nextElements = api.getSceneElementsIncludingDeleted().map(element => {
+        if (element.isDeleted) return element;
+        const body = bodyByElementId.get(element.id);
+        const constraint = constraintByElementId.get(element.id);
+        const pivotPosition = appliedPivotPositions.get(element.id);
+        if (!body && !constraint && !pivotPosition) return element;
+        let customData = element.customData;
+        if (body) customData = withPhysicsCustomData(customData, body);
+        if (constraint) customData = withPhysicsCustomData(customData, constraint);
+        const ropePatch = constraint
+          ? getRopeVisualGeometryPatch(element, constraint.pathPoints)
+          : null;
+        changed = true;
+        return {
+          ...element,
+          ...(ropePatch || {}),
+          ...(pivotPosition || {}),
+          customData,
+          version: (element.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+        };
+      });
+      if (changed) api.updateScene({ elements: nextElements, commitToHistory: true });
+    }
     setSceneExchangeStatus(applied ? statusMessage : "No current physics pose was available to apply.");
     return applied;
   };
@@ -10671,9 +10957,11 @@ function App() {
     { id: "physics.axle.make", name: "Make Axle Object /make axle", aliases: ["/make axle", "/physics axle"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into Axle pivots. Each pivot automatically connects the body or bodies at its centre." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "axle" }) },
     { id: "physics.fixate.make", name: "Make Weld Object /make weld", aliases: ["/make weld", "/physics weld", "/make fixate", "/physics fixate"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into Weld pivots. Each pivot welds the body or bodies at its centre." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "fixate" }) },
     { id: "physics.spring.make", name: "Make Spring Object /make spring", aliases: ["/make spring", "/physics spring"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected lines, arrows, paths, or freehand strokes into Springs. Their rendered start and end attach to bodies beneath them, or World." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "spring" }) },
-    { id: "physics.rope.make", name: "Make Rope Object /make rope", aliases: ["/make rope", "/physics rope"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected lines, arrows, paths, or freehand strokes into articulated physics ropes. Every rendered path point becomes a sampled chain of generated links, with its ends attaching to bodies beneath them or World." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "rope" }) },
+    { id: "physics.rope.make", name: "Make Rope Object /make rope", aliases: ["/make rope", "/physics rope"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected lines, arrows, paths, or freehand strokes into free articulated physics ropes. Every rendered path point becomes a sampled chain of generated links; use an axle or weld on any control point to bind it." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "rope" }) },
+    { id: "physics.attractor.make", name: "Make Attractor Object /make attractor", aliases: ["/make attractor", "/physics attractor"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into radial physics attractors. They can attract or repel dynamic bodies within a configurable radius." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "attractor" }) },
+    { id: "physics.thruster.make", name: "Make Thruster Object /make thruster", aliases: ["/make thruster", "/physics thruster"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected lines, arrows, paths, or freehand strokes into thrusters. Their start attaches to a dynamic body and their visible direction applies continuous force." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "thruster" }) },
     { id: "physics.population.create", name: "Physics: Create Runtime Population", aliases: ["/physics gas"], category: "Physics", args: { systemId: "string?", count: "number?", radius: "number?", bounds: "{x,y,width,height}?" }, ai: { expose: true, description: "Create a lightweight seeded runtime particle population." }, action: (_api, args) => createPhysicsPopulation(args) },
-    { id: "physics.constraint.tool", name: "Physics: Draw Constraint", aliases: ["/physics constraint"], category: "Physics", args: { kind: "pin|spring|distance|revolute|weld|attractor", systemId: "string?" }, action: (_api, args) => startPhysicsTool(args?.kind || "spring", args?.systemId) },
+    { id: "physics.constraint.tool", name: "Physics: Draw Constraint", aliases: ["/physics constraint"], category: "Physics", args: { kind: "pin|spring|distance|revolute|weld|attractor|thruster", systemId: "string?" }, action: (_api, args) => startPhysicsTool(args?.kind || "spring", args?.systemId) },
     { id: "physics.play", name: "Physics: Play", aliases: ["/physics play"], category: "Physics", action: (_api, args) => { synchronizePausedPhysicsBodies(); resumePhysicsAudio(); physicsRuntimeRef.current.play(args?.systemId || activePhysicsSystemId); } },
     { id: "physics.pause", name: "Physics: Pause", aliases: ["/physics pause"], category: "Physics", action: (_api, args) => physicsRuntimeRef.current.pause(args?.systemId || activePhysicsSystemId) },
     { id: "physics.reset", name: "Physics: Reset", aliases: ["/physics reset"], category: "Physics", action: (_api, args) => resetPhysicsSystem(args?.systemId || activePhysicsSystemId) },
@@ -10980,6 +11268,14 @@ function App() {
         activeElement.isContentEditable ||
         activeElement.closest?.(".cm-editor")
       );
+      if (!isTextControlFocused && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "Backslash") {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation?.();
+        if (e.repeat) return;
+        toggleLivePose();
+        return;
+      }
       // A Livecode Node's source is its editing surface. Enter on a selected
       // node must open and focus that source editor instead of allowing
       // Excalidraw to enter its unrelated element-label editing mode.
@@ -16407,15 +16703,6 @@ function App() {
       const next = Number(value);
       if (Number.isFinite(next)) updatePhysicsWorld({ [field]: next });
     };
-    const togglePhysicsTransportSync = () => {
-      setRelationshipGraph(previous => ({
-        ...previous,
-        systems: previous.systems.map(system => ({
-          ...system,
-          clock: { ...system.clock, mode: physicsTransportSynced ? "realtime" : "transport" },
-        })),
-      }));
-    };
     const setContactStayEvents = enabled => {
       setRelationshipGraph(previous => ({
         ...previous,
@@ -16441,37 +16728,37 @@ function App() {
         </div>
         <label className="iannix-field physics-time-scrub-toggle" {...infoProps("Live timeline preview", "When transport-linked, replay deterministic physics checkpoints while dragging the timeline. This can be expensive for large jumps, so it is off by default. Scrub evaluation never emits live mappings, audio, or commands, but its collision diagnostics appear in the physics debug overlay and event console.")}>
           <span>Live timeline preview</span>
-          <input type="checkbox" checked={physicsTimeScrubEnabled} disabled={!physicsTransportSynced} onChange={event => setPhysicsTimeScrubEnabled(event.target.checked)} />
+          <input type="checkbox" checked={physicsTimeScrubEnabled} disabled={!physicsTransportSynced} onChange={event => setLiveTimelinePreview(event.target.checked)} />
         </label>
         <label className="iannix-field physics-time-scrub-toggle" {...infoProps("Contact stay events", "Contacts normally emit begin, hit, and end. Enable this only when a mapping needs a stay event on every physics step while bodies remain in contact. It can produce up to 60 events per second for each active contact, so it applies to every world in the scene.")}>
           <span>Contact stay events</span>
           <input type="checkbox" checked={contactStayEventsEnabled} onChange={event => setContactStayEvents(event.target.checked)} />
         </label>
-        <label className="iannix-field physics-time-scrub-toggle" {...infoProps("Live pose", "Turn canvas drags into full-strength runtime physics grabs while the simulation is paused or slowed. Connected bodies and pivots solve like an IK rig without advancing transport time. With Live pose off, hold Cmd while dragging a body for the same temporary grab. Releasing at timeline zero makes that solved pose the new Reset pose; away from zero it remains a temporary runtime pose until you choose Apply pose.")}>
+        <label className="iannix-field physics-time-scrub-toggle" {...infoProps("Live pose", "Press \\ to toggle. Turn canvas drags into full-strength runtime physics grabs while the simulation is paused or slowed. Connected bodies and pivots solve like an IK rig without advancing transport time. Plain Cmd remains available to Excalidraw alignment. Releasing at timeline zero makes that solved pose the new Reset pose; away from zero it remains a temporary runtime pose until you choose Apply pose.")}>
           <span>Live pose</span>
-          <input type="checkbox" checked={world.livePose === true} onChange={event => updatePhysicsWorld({ livePose: event.target.checked })} />
+          <input type="checkbox" checked={world.livePose === true} onChange={event => setLivePose(event.target.checked)} />
         </label>
         <div className="iannix-two-column">
           <label className="iannix-field" {...infoProps("Gravity X", "Horizontal world gravity in metres per second squared.")}>
             <span>Gravity X (m/s²)</span>
-            <input type="number" step="0.1" value={world.gravity.x} onChange={event => updatePhysicsWorld({ gravity: { ...world.gravity, x: Number(event.target.value) } })} />
+            <NumericInput step="0.1" value={world.gravity.x} defaultValue={0} onCommit={x => updatePhysicsWorld({ gravity: { ...world.gravity, x } })} />
           </label>
           <label className="iannix-field" {...infoProps("Gravity Y", "Vertical world gravity in metres per second squared. Negative is down in the scene because canvas Y is inverted relative to the physics convention.")}>
             <span>Gravity Y (m/s²)</span>
-            <input type="number" step="0.1" value={world.gravity.y} onChange={event => updatePhysicsWorld({ gravity: { ...world.gravity, y: Number(event.target.value) } })} />
+            <NumericInput step="0.1" value={world.gravity.y} defaultValue={-9.8} onCommit={y => updatePhysicsWorld({ gravity: { ...world.gravity, y } })} />
           </label>
           <label className="iannix-field" {...infoProps("Viscosity", "Global linear drag added to dynamic bodies. Zero leaves each body's own damping unchanged.")}>
             <span>Viscosity</span>
-            <input type="number" min="0" max="100" step="0.01" value={world.viscosity} onChange={event => setWorldNumber("viscosity", event.target.value)} />
+            <NumericInput min="0" max="100" step="0.01" value={world.viscosity} defaultValue={0} onCommit={viscosity => setWorldNumber("viscosity", viscosity)} />
           </label>
           <label className="iannix-field" {...infoProps("Simulation speed", "Scales elapsed physics time without changing the fixed solver cadence. Set to zero to hold the simulation.")}>
             <span>Time scale</span>
-            <input type="number" min="0" max="8" step="0.05" value={world.simSpeed} onChange={event => setWorldNumber("simSpeed", event.target.value)} />
+            <NumericInput min="0" max="8" step="0.05" value={world.simSpeed} defaultValue={1} onCommit={simSpeed => setWorldNumber("simSpeed", simSpeed)} />
           </label>
         </div>
         <label className="iannix-field" {...infoProps("Pixels per metre", "Scene scale used when converting real-world gravity to canvas coordinates. 100 px/m keeps the default gravity close to the prior 980 px/s² behavior.")}>
           <span>Pixels per metre</span>
-          <input type="number" min="1" max="1000" step="1" value={world.pixelsPerMeter} onChange={event => setWorldNumber("pixelsPerMeter", event.target.value)} />
+          <NumericInput min="1" max="1000" step="1" value={world.pixelsPerMeter} defaultValue={100} onCommit={pixelsPerMeter => setWorldNumber("pixelsPerMeter", pixelsPerMeter)} />
         </label>
         <label className="iannix-field" {...infoProps("Paused edits", "This controls ordinary direct canvas transforms while physics is paused. Author reset pose saves those transforms as the next Reset state; Keep reset pose leaves the saved state untouched. Live pose is separate: it solves constraints, and at timeline zero its released result becomes the Reset pose.")}>
           <span>Paused edits</span>
@@ -16527,6 +16814,8 @@ function App() {
       ["fixate", "Weld pivot", "Weld pivot — welds one overlapping body to World, or two bodies together"],
       ["spring", "Spring", "Spring — attaches this object's rendered start and end to bodies beneath them, or World"],
       ["rope", "Rope", "Rope — turns this object's rendered path into articulated physics links, with endpoints attached to bodies or World"],
+      ["attractor", "Attractor", "Attractor — applies a radial force to dynamic bodies within its radius"],
+      ["thruster", "Thruster", "Thruster — applies force from this object's visible start toward its end"],
     ];
     const applyRole = role => {
       if (role === "none") {
@@ -16534,13 +16823,13 @@ function App() {
         removePhysicsConstraints(authoredConstraints.map(constraint => constraint.id));
         return;
       }
-      if (["axle", "fixate", "spring", "rope"].includes(role)) {
+      if (["axle", "fixate", "spring", "rope", "attractor", "thruster"].includes(role)) {
         assignPhysicsConstraintPivots({ kind: role });
         return;
       }
       assignPhysicsBodies({ bodyType: role === "sensor" ? "fixed" : role, sensor: role === "sensor" });
     };
-    const body = ["none", "mixed", "axle", "fixate", "spring", "rope"].includes(sharedRole) ? null : bodies[0];
+    const body = ["none", "mixed", "axle", "fixate", "spring", "rope", "attractor", "thruster"].includes(sharedRole) ? null : bodies[0];
     const allSelectedHavePhysicsBodies = selectedElements.length > 0 && bodies.length === selectedElements.length;
     const supportsColliderChoices = allSelectedHavePhysicsBodies;
     const supportsPathCollider = allSelectedHavePhysicsBodies && selectedElements.every(element => (
@@ -16559,7 +16848,9 @@ function App() {
       ? pivotSceneElements.find(element => element.id === selectedElements[0]?.id && !element.isDeleted) || selectedElements[0]
       : null;
     const pivotPoint = pivotElement ? getPhysicsElementCenter(pivotElement) : null;
-    const isPathConstraint = ["spring", "rope"].includes(pivotConstraint?.kind) && pivotElement;
+    const isPathConstraint = ["spring", "rope", "thruster"].includes(pivotConstraint?.kind) && pivotElement;
+    const isAttractorConstraint = pivotConstraint?.kind === "attractor";
+    const isThrusterConstraint = pivotConstraint?.kind === "thruster";
     const springEndpoints = isPathConstraint
       ? getSpringEndpointWorldPoints(pivotElement)
       : null;
@@ -16576,17 +16867,29 @@ function App() {
         && candidate.objectRef.elementId !== pivotElement?.id
       ))
       : [];
+    const dynamicConnectionBodies = connectionBodies.filter(candidate => candidate.bodyType === "dynamic");
     const connectionElementById = new Map(pivotSceneElements.map(element => [element.id, element]));
     const connectionLabel = body => {
       const element = connectionElementById.get(body.objectRef?.elementId);
       return `${body.name || element?.type || "Body"} · ${body.objectRef?.elementId?.slice(0, 8) || "missing"}`;
     };
     const endpointElementId = endpoint => endpoint?.kind === "object" ? endpoint.objectRef?.elementId || "" : "";
+    const endpointSelectionValue = endpoint => {
+      const normalized = normalizePhysicsEndpoint(endpoint);
+      if (normalized?.kind === "none") return "none";
+      if (normalized?.kind === "world") return "world";
+      return endpointElementId(normalized);
+    };
     const patchPivotConnection = (side, elementId) => {
+      if (!pivotConstraint) return;
+      if (elementId === "none") {
+        patchPhysicsConstraint(pivotConstraint.id, { [side]: { kind: "none" } });
+        return;
+      }
       const anchorPoint = springEndpoints
         ? (side === "a" ? springEndpoints.start : springEndpoints.end)
         : pivotPoint ? [pivotPoint.x, pivotPoint.y] : null;
-      if (!pivotConstraint || !anchorPoint) return;
+      if (!anchorPoint) return;
       const endpoint = elementId === "world"
         ? { kind: "world", point: [...anchorPoint] }
         : (() => {
@@ -16634,29 +16937,29 @@ function App() {
             </label>
             <label className="iannix-field" {...infoProps("Object note", "A numeric body value for collision mappings. It is available as aNote and noteA when this object is collision side A, or bNote and noteB on side B. For example: pentatonic((noteA + noteB) / 2, floor(speed / 12)).")}>
               <span>Object note</span>
-              <input type="number" min="0" max="127" step="1" value={body.mappingValues.note} onChange={event => patchBody({ mappingValues: { note: event.target.valueAsNumber } })} />
+              <NumericInput min="0" max="127" step="1" value={body.mappingValues.note} defaultValue={60} onCommit={note => patchBody({ mappingValues: { note } })} />
             </label>
             {colliderPicker}
             <label className="iannix-field" {...infoProps("Collision skin", "An invisible per-object padding around the collider, in scene pixels. The two colliding skins add together, so use small values to keep the visual gap subtle. Dynamic bodies already use continuous collision detection for fast motion.")}>
               <span>Collision skin</span>
-              <input type="number" min="0" max="64" step="0.5" value={body.collider.contactSkin} onChange={event => patchBody({ collider: { contactSkin: event.target.valueAsNumber } })} />
+              <NumericInput min="0" max="64" step="0.5" value={body.collider.contactSkin} defaultValue={0} onCommit={contactSkin => patchBody({ collider: { contactSkin } })} />
             </label>
             <div className="iannix-two-column">
               <label className="iannix-field">
                 <span>Friction</span>
-                <input type="number" min="0" max="10" step="0.05" value={body.material.friction} onChange={event => patchMaterial({ friction: event.target.valueAsNumber })} />
+                <NumericInput min="0" max="10" step="0.05" value={body.material.friction} defaultValue={0.2} onCommit={friction => patchMaterial({ friction })} />
               </label>
               <label className="iannix-field">
                 <span>Bounce</span>
-                <input type="number" min="0" max="2" step="0.05" value={body.material.restitution} onChange={event => patchMaterial({ restitution: event.target.valueAsNumber })} />
+                <NumericInput min="0" max="2" step="0.05" value={body.material.restitution} defaultValue={0.5} onCommit={restitution => patchMaterial({ restitution })} />
               </label>
               {sharedRole === "dynamic" && <label className="iannix-field">
                 <span>Density</span>
-                <input type="number" min="0.01" max="100" step="0.1" value={body.material.density} onChange={event => patchMaterial({ density: event.target.valueAsNumber })} />
+                <NumericInput min="0.01" max="100" step="0.1" value={body.material.density} defaultValue={1} onCommit={density => patchMaterial({ density })} />
               </label>}
               {sharedRole === "dynamic" && <label className="iannix-field">
                 <span>Damping</span>
-                <input type="number" min="0" max="100" step="0.05" value={body.material.linearDamping} onChange={event => patchMaterial({ linearDamping: event.target.valueAsNumber })} />
+                <NumericInput min="0" max="100" step="0.05" value={body.material.linearDamping} defaultValue={0.01} onCommit={linearDamping => patchMaterial({ linearDamping })} />
               </label>}
             </div>
             <label className="iannix-check-row">
@@ -16672,20 +16975,30 @@ function App() {
           </InspectorSection>
         )}
         {pivotConstraint && (
-          <InspectorSection title={pivotConstraint.kind === "rope" ? "Rope" : pivotConstraint.kind === "spring" ? "Spring" : `${pivotConstraint.kind === "fixate" ? "Weld" : "Axle"} pivot`} className="iannix-section physics-role-details" {...infoProps(pivotConstraint.kind === "rope" ? "Rope" : pivotConstraint.kind === "spring" ? "Spring" : "Constraint pivot", pivotConstraint.kind === "rope" ? "This canvas path is an authored rope. Its rendered points are sampled into generated solver links, while its visible geometry follows the simulated chain. The record is stored in object.customData.physics." : pivotConstraint.kind === "spring" ? "This canvas object is an authored spring. Its rendered start and end independently attach to bodies beneath them, or World. The complete record is stored in object.customData.physics." : "This canvas object is the authored constraint entity. Its centre resolves overlapping physics bodies: one body attaches to World; two bodies attach to each other. The complete record is stored in object.customData.physics.")}>
+          <InspectorSection title={pivotConstraint.kind === "rope" ? "Rope" : pivotConstraint.kind === "spring" ? "Spring" : isThrusterConstraint ? "Thruster" : isAttractorConstraint ? "Attractor" : `${pivotConstraint.kind === "fixate" ? "Weld" : "Axle"} pivot`} className="iannix-section physics-role-details" {...infoProps(pivotConstraint.kind === "rope" ? "Rope" : pivotConstraint.kind === "spring" ? "Spring" : isThrusterConstraint ? "Thruster" : isAttractorConstraint ? "Attractor" : "Constraint pivot", pivotConstraint.kind === "rope" ? "This canvas path is an authored rope. Its rendered points are sampled into generated solver links, while its visible geometry follows the simulated chain. The record is stored in object.customData.physics." : pivotConstraint.kind === "spring" ? "This canvas object is an authored spring. Its rendered start and end independently attach to bodies beneath them, or World. The complete record is stored in object.customData.physics." : isThrusterConstraint ? "This canvas path is an authored thruster. Its start attaches to a dynamic body and its visible start-to-end direction applies force." : isAttractorConstraint ? "This canvas object is an authored radial force. It attracts or repels dynamic bodies within its radius." : "This canvas object is the authored constraint entity. Its centre resolves overlapping physics bodies: one body attaches to World; two bodies attach to each other. The complete record is stored in object.customData.physics.")}>
             <label className="iannix-field"><span>Physics name</span><input type="text" value={pivotConstraint.name} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { name: event.target.value })} /></label>
-            <div className="iannix-two-column">
-              <label className="iannix-field" {...infoProps(isPathConstraint ? `${pivotConstraint.kind === "rope" ? "Rope" : "Spring"} start attachment` : "First connection", isPathConstraint ? "The rendered path start attaches to this body, or World when no body overlaps that endpoint." : "The first body attached at this pivot. Changing it recalculates the local anchor at the pivot centre.")}><span>{isPathConstraint ? "Start attachment" : "Connect A"}</span><select value={pivotConstraint.a?.kind === "world" ? "world" : endpointElementId(pivotConstraint.a)} onChange={event => patchPivotConnection("a", event.target.value)}>
-                {isPathConstraint && <option value="world">World</option>}
+            {!isAttractorConstraint && pivotConstraint.kind !== "rope" && <div className="iannix-two-column">
+              <label className="iannix-field" {...infoProps(isThrusterConstraint ? "Thruster attachment" : isPathConstraint ? `${pivotConstraint.kind === "rope" ? "Rope" : "Spring"} start attachment` : "First connection", isThrusterConstraint ? "The thruster start attaches to a dynamic body. Its visible end determines the force direction. Choose None to disable this endpoint without deleting the thruster." : isPathConstraint ? "The rendered path start attaches to this body or World. Choose None to leave that end free." : "The first body attached at this pivot. Changing it recalculates the local anchor at the pivot centre. Choose None to disable this constraint until you reconnect it.")}><span>{isThrusterConstraint ? "Attach body" : isPathConstraint ? "Start attachment" : "Connect A"}</span><select value={endpointSelectionValue(pivotConstraint.a)} onChange={event => patchPivotConnection("a", event.target.value)}>
+                <option value="none">None</option>
+                {isPathConstraint && !isThrusterConstraint && <option value="world">World</option>}
                 <option value="" disabled>Choose body</option>
-                {connectionBodies.map(candidate => <option key={candidate.id} value={candidate.objectRef.elementId}>{connectionLabel(candidate)}</option>)}
+                {(isThrusterConstraint ? dynamicConnectionBodies : connectionBodies).map(candidate => <option key={candidate.id} value={candidate.objectRef.elementId}>{connectionLabel(candidate)}</option>)}
               </select></label>
-              <label className="iannix-field" {...infoProps(isPathConstraint ? `${pivotConstraint.kind === "rope" ? "Rope" : "Spring"} end attachment` : "Second connection", isPathConstraint ? "The rendered path end attaches to this body, or World when no body overlaps that endpoint." : "Choose World to pin the first body at this pivot, or another body to connect both bodies together.")}><span>{isPathConstraint ? "End attachment" : "Connect B"}</span><select value={pivotConstraint.b?.kind === "world" ? "world" : endpointElementId(pivotConstraint.b)} onChange={event => patchPivotConnection("b", event.target.value)}>
+              {!isThrusterConstraint && <label className="iannix-field" {...infoProps(isPathConstraint ? `${pivotConstraint.kind === "rope" ? "Rope" : "Spring"} end attachment` : "Second connection", isPathConstraint ? "The rendered path end attaches to this body or World. Choose None to leave that end free." : "Choose World to pin the first body at this pivot, another body to connect both bodies together, or None to disable the constraint until it is reconnected.")}><span>{isPathConstraint ? "End attachment" : "Connect B"}</span><select value={endpointSelectionValue(pivotConstraint.b)} onChange={event => patchPivotConnection("b", event.target.value)}>
+                <option value="none">None</option>
                 <option value="world">World</option>
                 {connectionBodies.filter(candidate => candidate.objectRef.elementId !== endpointElementId(pivotConstraint.a)).map(candidate => <option key={candidate.id} value={candidate.objectRef.elementId}>{connectionLabel(candidate)}</option>)}
-              </select></label>
-            </div>
+              </select></label>}
+            </div>}
             <label className="iannix-check-row"><span>Enabled</span><input type="checkbox" checked={pivotConstraint.enabled} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { enabled: event.target.checked })} /></label>
+            {isAttractorConstraint && <>
+              <label className="iannix-field" {...infoProps("Force mode", "Attract pulls matching dynamic bodies toward this object. Repel pushes them away.")}><span>Mode</span><select value={pivotConstraint.attractionMode} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { attractionMode: event.target.value })}><option value="attract">Attract</option><option value="repel">Repel</option></select></label>
+              <label className="iannix-field" {...infoProps("Strength", "The peak radial force applied to bodies at the attractor centre.")}><span>Strength</span><NumericInput min="0" step="any" value={pivotConstraint.attractionStrength ?? 20} defaultValue={20} onCommit={attractionStrength => patchPhysicsConstraint(pivotConstraint.id, { attractionStrength })} /></label>
+              <label className="iannix-field" {...infoProps("Radius", "The scene-pixel radius within which this attractor affects matching dynamic bodies.")}><span>Radius</span><NumericInput min="0" step="any" value={pivotConstraint.attractionRadius ?? 300} defaultValue={300} onCommit={attractionRadius => patchPhysicsConstraint(pivotConstraint.id, { attractionRadius })} /></label>
+              <label className="iannix-field" {...infoProps("Falloff", "0 applies the same force across the radius; higher values reduce force more quickly toward the edge.")}><span>Falloff</span><NumericInput min="0" step="0.1" value={pivotConstraint.attractionFalloff ?? 1} defaultValue={1} onCommit={attractionFalloff => patchPhysicsConstraint(pivotConstraint.id, { attractionFalloff })} /></label>
+              <label className="iannix-field" {...infoProps("Target tags", "Optional comma-separated collision tags. Leave blank to affect every dynamic body in this physics world.")}><span>Target tags</span><input type="text" value={(pivotConstraint.targetTags || []).join(", ")} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { targetTags: event.target.value.split(",").map(tag => tag.trim()).filter(Boolean) })} /></label>
+            </>}
+            {isThrusterConstraint && <label className="iannix-field" {...infoProps("Force", "Continuous force in this object's visible start-to-end direction. Its start must be attached to a dynamic body.")}><span>Force</span><NumericInput step="any" value={pivotConstraint.thrusterForce ?? 20} defaultValue={20} onCommit={thrusterForce => patchPhysicsConstraint(pivotConstraint.id, { thrusterForce })} /></label>}
             {pivotConstraint.kind === "spring" && <>
               <label className="iannix-field" {...infoProps("Rest length", "The spring's neutral length in scene pixels. Set to current geometry uses this spring object's current visible start-to-end distance.")}><span>Rest length</span><div className="iannix-inline-action"><NumericInput min="0" step="any" value={pivotConstraint.restLength ?? 0} defaultValue={100} onCommit={restLength => patchPhysicsConstraint(pivotConstraint.id, { restLength })} /><button type="button" className="iannix-flat-button geometry-reset-button" onClick={resetSpringRestLength} disabled={!springEndpoints} title="Set to current geometry" aria-label="Set rest length to current geometry"><GeometryResetIcon /></button></div></label>
               <label className="iannix-field" {...infoProps("Stiffness", "How firmly the spring pulls toward its rest length.")}><span>Stiffness</span><NumericInput min="0" step="any" value={pivotConstraint.stiffness ?? 40} defaultValue={40} onCommit={stiffness => patchPhysicsConstraint(pivotConstraint.id, { stiffness })} /></label>
@@ -16698,10 +17011,13 @@ function App() {
               <label className="iannix-check-row" {...infoProps("Collide while connected", "Allow adjacent generated rope links to collide. Keep this off for a stable default rope.")}><span>Collide while connected</span><input type="checkbox" checked={pivotConstraint.collideConnected === true} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { collideConnected: event.target.checked })} /></label>
             </>}
             {pivotConstraint.kind === "axle" && <>
+              <label className="iannix-check-row" {...infoProps("Motor", "Drives the axle at the chosen angular speed. Positive speed rotates counter-clockwise; torque limits how strongly the motor corrects that speed.")}><span>Motor enabled</span><input type="checkbox" checked={pivotConstraint.motorEnabled === true} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { motorEnabled: event.target.checked })} /></label>
+              <label className="iannix-field" {...infoProps("Motor speed", "Angular target speed in degrees per second. This value is remembered while the motor is disabled.")}><span>Motor speed (°/s)</span><NumericInput step="1" value={pivotConstraint.motorSpeed ?? 0} defaultValue={0} onCommit={motorSpeed => patchPhysicsConstraint(pivotConstraint.id, { motorSpeed })} /></label>
+              <label className="iannix-field" {...infoProps("Motor torque", "Maximum torque used to reach the motor speed. This value is remembered while the motor is disabled.")}><span>Motor torque</span><NumericInput min="0" step="any" value={pivotConstraint.motorTorque ?? 10} defaultValue={10} onCommit={motorTorque => patchPhysicsConstraint(pivotConstraint.id, { motorTorque })} /></label>
               <label className="iannix-check-row" {...infoProps("Limit rotation", "Off is a freely rotating axle. Enable to constrain the relative angle in degrees.")}><span>Limit rotation</span><input type="checkbox" checked={pivotConstraint.limitsEnabled === true} onChange={event => patchPhysicsConstraint(pivotConstraint.id, event.target.checked ? { limitsEnabled: true, lowerLimit: pivotConstraint.lowerLimit ?? -Math.PI, upperLimit: pivotConstraint.upperLimit ?? Math.PI } : { limitsEnabled: false, lowerLimit: null, upperLimit: null })} /></label>
               {pivotConstraint.limitsEnabled && <div className="iannix-two-column">
-                <label className="iannix-field"><span>Lower limit (°)</span><input type="number" step="1" value={Math.round((pivotConstraint.lowerLimit || 0) * 180 / Math.PI)} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { lowerLimit: event.target.valueAsNumber * Math.PI / 180 })} /></label>
-                <label className="iannix-field"><span>Upper limit (°)</span><input type="number" step="1" value={Math.round((pivotConstraint.upperLimit || 0) * 180 / Math.PI)} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { upperLimit: event.target.valueAsNumber * Math.PI / 180 })} /></label>
+                <label className="iannix-field"><span>Lower limit (°)</span><NumericInput step="1" value={Math.round((pivotConstraint.lowerLimit || 0) * 180 / Math.PI)} defaultValue={-180} onCommit={lowerLimit => patchPhysicsConstraint(pivotConstraint.id, { lowerLimit: lowerLimit * Math.PI / 180 })} /></label>
+                <label className="iannix-field"><span>Upper limit (°)</span><NumericInput step="1" value={Math.round((pivotConstraint.upperLimit || 0) * 180 / Math.PI)} defaultValue={180} onCommit={upperLimit => patchPhysicsConstraint(pivotConstraint.id, { upperLimit: upperLimit * Math.PI / 180 })} /></label>
               </div>}
             </>}
             <button type="button" className="iannix-flat-button" onClick={() => removePhysicsConstraint(pivotConstraint.id)}>Remove {pivotConstraint.kind}</button>
@@ -16907,31 +17223,30 @@ function App() {
             </label>
             <label className="iannix-field" {...infoProps("Visual smoothing", "Display-only position and angle damping. Trigger timing continues to use the exact cursor path.")}>
               <span>Visual smoothing</span>
-              <input
-                type="number"
+              <NumericInput
                 min="0"
                 max="0.95"
                 step="0.05"
-                data-default="0.65"
                 value={data.cursor.visualSmoothing}
-                onChange={event => updateIannixElement(element.id, current => ({
+                defaultValue={0.65}
+                onCommit={visualSmoothing => updateIannixElement(element.id, current => ({
                   ...current,
-                  cursor: { ...current.cursor, visualSmoothing: Number(event.target.value) },
+                  cursor: { ...current.cursor, visualSmoothing },
                 }))}
               />
             </label>
             <div className="iannix-two-column">
               <label className="iannix-field" {...infoProps("MIDI channel", "Mixer tracks listening to this MIDI channel receive score output from the object.")}>
                 <span>MIDI channel</span>
-                <input type="number" min="1" max="16" step="1" data-default="1" value={data.midi.midiChannel} onChange={event => setNumber("midi", "midiChannel", event.target.value)} />
+                <NumericInput min="1" max="16" step="1" defaultValue={1} value={data.midi.midiChannel} onCommit={value => setNumber("midi", "midiChannel", value)} />
               </label>
               <label className="iannix-field" {...infoProps("MIDI base note", "Pitch at the cursor center for cursor-relative pitch mapping.")}>
                 <span>MIDI base note</span>
-                <input type="number" min="0" max="127" step="1" data-default="60" value={data.midi.baseNote} onChange={event => setNumber("midi", "baseNote", event.target.value)} />
+                <NumericInput min="0" max="127" step="1" defaultValue={60} value={data.midi.baseNote} onCommit={value => setNumber("midi", "baseNote", value)} />
               </label>
               <label className="iannix-field" {...infoProps("Pitch range", "The cursor's two ends span this many octaves below and above its base note.")}>
                 <span>Pitch range ± oct.</span>
-                <input type="number" min="0" max="5" step="0.25" data-default="2" value={data.midi.pitchRangeOctaves} onChange={event => setNumber("midi", "pitchRangeOctaves", event.target.value)} />
+                <NumericInput min="0" max="5" step="0.25" defaultValue={2} value={data.midi.pitchRangeOctaves} onCommit={value => setNumber("midi", "pitchRangeOctaves", value)} />
               </label>
             </div>
             {curves.length === 0 && (
@@ -16946,15 +17261,15 @@ function App() {
             <div className="iannix-two-column">
               <label className="iannix-field">
                 <span>MIDI channel</span>
-                <input type="number" min="1" max="16" step="1" data-default="1" value={data.midi.midiChannel} onChange={event => setNumber("midi", "midiChannel", event.target.value)} />
+                <NumericInput min="1" max="16" step="1" defaultValue={1} value={data.midi.midiChannel} onCommit={value => setNumber("midi", "midiChannel", value)} />
               </label>
               <label className="iannix-field">
                 <span>MIDI base note</span>
-                <input type="number" min="0" max="127" step="1" data-default="60" value={data.midi.baseNote} onChange={event => setNumber("midi", "baseNote", event.target.value)} />
+                <NumericInput min="0" max="127" step="1" defaultValue={60} value={data.midi.baseNote} onCommit={value => setNumber("midi", "baseNote", value)} />
               </label>
               <label className="iannix-field">
                 <span>Pitch range ± oct.</span>
-                <input type="number" min="0" max="5" step="0.25" data-default="2" value={data.midi.pitchRangeOctaves} onChange={event => setNumber("midi", "pitchRangeOctaves", event.target.value)} />
+                <NumericInput min="0" max="5" step="0.25" defaultValue={2} value={data.midi.pitchRangeOctaves} onCommit={value => setNumber("midi", "pitchRangeOctaves", value)} />
               </label>
             </div>
           </InspectorSection>
@@ -17026,24 +17341,24 @@ function App() {
                   <div className="iannix-two-column">
                     <label className="iannix-field" {...infoProps("Base note source", "Pitch uses the signed intersection offset along the cursor shape. The chosen object's base note is at center; its ends use the configured octave range.")}>
                       <span>Channel</span>
-                      <input type="number" min="1" max="16" step="1" data-default="1" value={data.trigger.midiChannel} onChange={event => updateTriggerMidi({ midiChannel: Number(event.target.value) })} />
+                      <NumericInput min="1" max="16" step="1" defaultValue={1} value={data.trigger.midiChannel} onCommit={midiChannel => updateTriggerMidi({ midiChannel })} />
                     </label>
                     {(data.trigger.behavior === "glissando" || data.trigger.midiTemplate === "relativePitch" || data.trigger.midiTemplate === "fixedNote") && (
                       <label className="iannix-field">
                         <span>Velocity</span>
-                        <input type="number" min="0" max="127" step="1" data-default="100" value={data.trigger.midiVelocity} onChange={event => updateTriggerMidi({ midiVelocity: Number(event.target.value) })} />
+                        <NumericInput min="0" max="127" step="1" defaultValue={100} value={data.trigger.midiVelocity} onCommit={midiVelocity => updateTriggerMidi({ midiVelocity })} />
                       </label>
                     )}
                     {data.trigger.midiTemplate === "fixedNote" && (
                       <label className="iannix-field">
                         <span>Note</span>
-                        <input type="number" min="0" max="127" step="1" data-default="69" value={data.trigger.midiFixedNote} onChange={event => updateTriggerMidi({ midiFixedNote: Number(event.target.value) })} />
+                        <NumericInput min="0" max="127" step="1" defaultValue={69} value={data.trigger.midiFixedNote} onCommit={midiFixedNote => updateTriggerMidi({ midiFixedNote })} />
                       </label>
                     )}
                     {data.trigger.midiTemplate === "cursorCC" && (
                       <label className="iannix-field">
                         <span>Controller</span>
-                        <input type="number" min="0" max="127" step="1" data-default="0" value={data.trigger.midiController} onChange={event => updateTriggerMidi({ midiController: Number(event.target.value) })} />
+                        <NumericInput min="0" max="127" step="1" defaultValue={0} value={data.trigger.midiController} onCommit={midiController => updateTriggerMidi({ midiController })} />
                       </label>
                     )}
                   </div>
@@ -17156,7 +17471,7 @@ function App() {
             </label>
             <label className="iannix-field">
               <span>Rate</span>
-              <input type="number" min="0" step="0.1" data-default="1" value={data.time.rate} onChange={event => setNumber("time", "rate", event.target.value)} />
+              <NumericInput min="0" step="0.1" defaultValue={1} value={data.time.rate} onCommit={value => setNumber("time", "rate", value)} />
             </label>
             <label className="iannix-field">
               <span>Loop</span>
@@ -17212,10 +17527,10 @@ function App() {
           ) : null}
           {data.role === "cursor" ? (
             <div className="iannix-two-column">
-              <label className="iannix-field"><span>Curve range start</span><input type="number" min="0" max="1" step="0.01" data-default="0" value={data.cursor.range[0]} onChange={event => updateIannixElement(element.id, current => ({ ...current, cursor: { ...current.cursor, range: [Number(event.target.value), current.cursor.range[1]] } }))} /></label>
-              <label className="iannix-field"><span>Curve range end</span><input type="number" min="0" max="1" step="0.01" data-default="1" value={data.cursor.range[1]} onChange={event => updateIannixElement(element.id, current => ({ ...current, cursor: { ...current.cursor, range: [current.cursor.range[0], Number(event.target.value)] } }))} /></label>
+              <label className="iannix-field"><span>Curve range start</span><NumericInput min="0" max="1" step="0.01" defaultValue={0} value={data.cursor.range[0]} onCommit={value => updateIannixElement(element.id, current => ({ ...current, cursor: { ...current.cursor, range: [value, current.cursor.range[1]] } }))} /></label>
+              <label className="iannix-field"><span>Curve range end</span><NumericInput min="0" max="1" step="0.01" defaultValue={1} value={data.cursor.range[1]} onCommit={value => updateIannixElement(element.id, current => ({ ...current, cursor: { ...current.cursor, range: [current.cursor.range[0], value] } }))} /></label>
               <label className="iannix-field"><span>Curve start offset</span><TimeValueInput aria-label="Cursor curve start offset" data-route-path={`objects.${element.id}.cursor.startOffset`} value={data.cursor.startOffsetValue} context={timeContext} defaultValue="0 s" minSeconds={-Infinity} onChange={next => updateIannixElement(element.id, current => ({ ...current, cursor: { ...current.cursor, startOffsetValue: next }, time: { ...current.time, startMode: "curve" } }))} /></label>
-              <label className="iannix-field"><span>Duration ratio</span><input type="number" min="0" step="0.1" data-default="1" value={data.cursor.durationRatio} onChange={event => updateIannixElement(element.id, current => ({ ...current, cursor: { ...current.cursor, durationRatio: Number(event.target.value) }, time: { ...current.time, durationMode: "ratio" } }))} /></label>
+              <label className="iannix-field"><span>Duration ratio</span><NumericInput min="0" step="0.1" defaultValue={1} value={data.cursor.durationRatio} onCommit={durationRatio => updateIannixElement(element.id, current => ({ ...current, cursor: { ...current.cursor, durationRatio }, time: { ...current.time, durationMode: "ratio" } }))} /></label>
             </div>
           ) : null}
           <div className="iannix-time-bar" aria-label="Object time progress">
@@ -17416,14 +17731,14 @@ function App() {
                   title={[parameter.category, parameter.name].filter(Boolean).join(" · ")}
                 >
                   <span className="iannix-script-parameter-header">{parameter.label || parameter.name}</span>
-                  <input
-                    type="number"
+                  <NumericInput
                     min={parameter.min}
                     max={parameter.max}
                     step={parameter.step}
                     data-default={parameter.default}
                     value={parameter.value}
-                    onChange={event => updateScriptParameter(parameter.name, event.target.value)}
+                    defaultValue={parameter.default ?? parameter.value}
+                    onCommit={value => updateScriptParameter(parameter.name, value)}
                     disabled={!activeScript}
                     aria-label={`${parameter.label || parameter.name} (${parameter.name})`}
                   />
@@ -17729,18 +18044,25 @@ function App() {
               <strong>{parameter.label}</strong>
               {parameter.type === "object" && <em>Canvas object</em>}
             </span>
-            <input
-              className="custom-brush-param-input"
-              type={parameter.type === "object" ? "text" : "number"}
-              value={parameter.value}
-              placeholder={parameter.type === "object" ? "Object id, label, or group" : undefined}
-              disabled={!selectedP5Host}
-              onChange={event => {
-                const value = parameter.type === "object" ? event.target.value : Number(event.target.value);
-                if (parameter.type !== "object" && !Number.isFinite(value)) return;
-                updateP5Parameters({ [parameter.name]: value });
-              }}
-            />
+            {parameter.type === "object"
+              ? <input
+                className="custom-brush-param-input"
+                type="text"
+                value={parameter.value}
+                placeholder="Object id, label, or group"
+                disabled={!selectedP5Host}
+                onChange={event => updateP5Parameters({ [parameter.name]: event.target.value })}
+              />
+              : <NumericInput
+                className="custom-brush-param-input"
+                min={parameter.min}
+                max={parameter.max}
+                step={parameter.step}
+                value={parameter.value}
+                defaultValue={parameter.default ?? parameter.value}
+                disabled={!selectedP5Host}
+                onCommit={value => updateP5Parameters({ [parameter.name]: value })}
+              />}
           </label>)}
         </div>}
         <div className="script-icon-toolbar">
@@ -17997,21 +18319,25 @@ function App() {
       {parameters.length > 0 && <div className="iannix-script-parameters p5-script-parameters" aria-label="Play Core parameters">
         {parameters.map(parameter => <label className="iannix-script-parameter" key={parameter.name}>
           <span className="iannix-script-parameter-header"><strong>{parameter.label}</strong>{parameter.type === "object" && <em>Canvas object</em>}</span>
-          <input
-            className="custom-brush-param-input"
-            type={parameter.type === "object" ? "text" : "number"}
-            min={parameter.min}
-            max={parameter.max}
-            step={parameter.step}
-            value={parameter.value}
-            placeholder={parameter.type === "object" ? "Object id, label, or group" : undefined}
-            disabled={!selectedConfig}
-            onChange={event => {
-              const value = parameter.type === "object" ? event.target.value : Number(event.target.value);
-              if (parameter.type !== "object" && !Number.isFinite(value)) return;
-              updateParameters({ [parameter.name]: value });
-            }}
-          />
+          {parameter.type === "object"
+            ? <input
+              className="custom-brush-param-input"
+              type="text"
+              value={parameter.value}
+              placeholder="Object id, label, or group"
+              disabled={!selectedConfig}
+              onChange={event => updateParameters({ [parameter.name]: event.target.value })}
+            />
+            : <NumericInput
+              className="custom-brush-param-input"
+              min={parameter.min}
+              max={parameter.max}
+              step={parameter.step}
+              value={parameter.value}
+              defaultValue={parameter.default ?? parameter.value}
+              disabled={!selectedConfig}
+              onCommit={value => updateParameters({ [parameter.name]: value })}
+            />}
         </label>)}
       </div>}
       <div className="script-icon-toolbar">
@@ -18073,29 +18399,32 @@ function App() {
         <label title="Ctrl-M, then L">Lines <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.showLineNumbers} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { showLineNumbers: event.target.checked } }, { commitToHistory: true })} />Numbers</span></label>
         <label>Fold <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.showFoldGutter} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { showFoldGutter: event.target.checked } }, { commitToHistory: true })} />Gutter</span></label>
         <label title="Keep blank overlay space transparent while code is shown over output">Overlay <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.glyphOnlyOverlay} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { glyphOnlyOverlay: event.target.checked } }, { commitToHistory: true })} />Glyphs only</span></label>
-        <label title={node.typography.glyphOnlyOverlay ? "Applies behind non-space code when Glyphs only is enabled" : "Applies across the full code surface"}>Code opacity % <input type="number" min="0" max="100" step="5" value={Math.round(node.typography.codeOverlayOpacity * 100)} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { codeOverlayOpacity: Number(event.target.value) / 100 } }, { commitToHistory: true })} /></label>
-        <label>Size <input type="number" min="8" max="72" step="1" value={node.typography.fontSize} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontSize: Number(event.target.value) } }, { commitToHistory: true })} /></label>
-        <label>Line <input type="number" min="0.8" max="3" step="0.05" value={node.typography.lineHeight} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { lineHeight: Number(event.target.value) } }, { commitToHistory: true })} /></label>
+        <label title={node.typography.glyphOnlyOverlay ? "Applies behind non-space code when Glyphs only is enabled" : "Applies across the full code surface"}>Code opacity % <NumericInput min="0" max="100" step="5" value={Math.round(node.typography.codeOverlayOpacity * 100)} defaultValue={100} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { codeOverlayOpacity: value / 100 } }, { commitToHistory: true })} /></label>
+        <label>Size <NumericInput min="8" max="72" step="1" value={node.typography.fontSize} defaultValue={14} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontSize: value } }, { commitToHistory: true })} /></label>
+        <label>Line <NumericInput min="0.8" max="3" step="0.05" value={node.typography.lineHeight} defaultValue={1.4} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { lineHeight: value } }, { commitToHistory: true })} /></label>
         <label>Weight <select value={node.typography.fontWeight} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontWeight: Number(event.target.value) } }, { commitToHistory: true })}>{[300, 400, 500, 600, 700].map(weight => <option key={weight} value={weight}>{weight}</option>)}</select></label>
-        <label>Track <input type="number" min="-2" max="8" step="0.1" value={node.typography.letterSpacing} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { letterSpacing: Number(event.target.value) } }, { commitToHistory: true })} /></label>
+        <label>Track <NumericInput min="-2" max="8" step="0.1" value={node.typography.letterSpacing} defaultValue={0} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { letterSpacing: value } }, { commitToHistory: true })} /></label>
       </div>
       {parameters.length > 0 && <div className="iannix-script-parameters p5-script-parameters" aria-label="Livecode node parameters">
         {parameters.map(parameter => <label className="iannix-script-parameter" key={parameter.name}>
           <span className="iannix-script-parameter-header"><strong>{parameter.label}</strong>{parameter.type === "object" && <em>Canvas object</em>}</span>
-          <input
-            className="custom-brush-param-input"
-            type={parameter.type === "object" ? "text" : "number"}
-            min={parameter.min}
-            max={parameter.max}
-            step={parameter.step}
-            value={parameter.value}
-            placeholder={parameter.type === "object" ? "Object id, label, or group" : undefined}
-            onChange={event => {
-              const value = parameter.type === "object" ? event.target.value : Number(event.target.value);
-              if (parameter.type !== "object" && !Number.isFinite(value)) return;
-              patchLivecodeCanvasNode(nodeElement.id, { parameters: { [parameter.name]: value } }, { commitToHistory: true });
-            }}
-          />
+          {parameter.type === "object"
+            ? <input
+              className="custom-brush-param-input"
+              type="text"
+              value={parameter.value}
+              placeholder="Object id, label, or group"
+              onChange={event => patchLivecodeCanvasNode(nodeElement.id, { parameters: { [parameter.name]: event.target.value } }, { commitToHistory: true })}
+            />
+            : <NumericInput
+              className="custom-brush-param-input"
+              min={parameter.min}
+              max={parameter.max}
+              step={parameter.step}
+              value={parameter.value}
+              defaultValue={parameter.default ?? parameter.value}
+              onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { parameters: { [parameter.name]: value } }, { commitToHistory: true })}
+            />}
         </label>)}
       </div>}
       <div className="script-icon-toolbar">
@@ -19169,14 +19498,14 @@ function App() {
                                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
                                           <span>{sp.name}:</span>
                                         </div>
-                                        <input
-                                          type="number"
+                                        <NumericInput
                                           min={sp.min}
                                           max={sp.max}
                                           step={sp.step}
                                           data-default={sp.default ?? sp.min ?? 0}
                                           value={val}
-                                          onChange={(e) => handleUpdateModifierParams(index, sp.name, parseFloat(e.target.value))}
+                                          defaultValue={sp.default ?? sp.min ?? 0}
+                                          onCommit={value => handleUpdateModifierParams(index, sp.name, value)}
                                           style={{ width: "100%" }}
                                         />
                                       </>
@@ -19910,13 +20239,13 @@ function App() {
 
         <div className="iannix-transport-tempo">
           <button type="button" onClick={tapTempo} disabled={midiClockMode === "receive" && followMidiClockTempo} title="Tap repeatedly to set tempo">BPM</button>
-          <input type="number" min="20" max="400" step="1" data-default="120" value={scoreTempoDraft} disabled={midiClockMode === "receive" && followMidiClockTempo} onChange={updateTempoDraft} onBlur={commitTempoDraft} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} aria-label="Tempo in BPM" />
+          <input type="text" inputMode="decimal" min="20" max="400" step="1" data-default="120" value={scoreTempoDraft} disabled={midiClockMode === "receive" && followMidiClockTempo} onChange={updateTempoDraft} onBlur={commitTempoDraft} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} aria-label="Tempo in BPM" />
         </div>
 
         <div className="iannix-transport-signature" aria-label="Time signature">
-          <input aria-label="Time signature numerator" type="number" min="1" max="32" step="1" data-default="4" value={scoreTimeSignature.numerator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, numerator: event.target.value }))} />
+          <NumericInput aria-label="Time signature numerator" min="1" max="32" step="1" data-default="4" value={scoreTimeSignature.numerator} defaultValue={4} onCommit={numerator => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, numerator }))} />
           <span>/</span>
-          <input aria-label="Time signature denominator" type="number" min="1" max="16" step="1" data-default="4" value={scoreTimeSignature.denominator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, denominator: event.target.value }))} />
+          <NumericInput aria-label="Time signature denominator" min="1" max="16" step="1" data-default="4" value={scoreTimeSignature.denominator} defaultValue={4} onCommit={denominator => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, denominator }))} />
         </div>
 
         <select className="iannix-transport-sync" aria-label="Clock synchronization" value={midiClockMode} onChange={event => setMidiClockMode(event.target.value)}>
@@ -20221,7 +20550,7 @@ function App() {
               <div className="settings-color-control" {...infoProps("Accent color", CSS_COLOR_HELP)}>
                 <input type="color" value={colorInputHex(accentColor)} style={{ backgroundColor: accentColor }} onChange={event => { setInterfaceThemePreset("custom"); setAccentColor(event.target.value); localStorage.setItem("drawerator_accent_color", event.target.value); }} aria-label="Accent color picker" {...infoProps("Accent color", CSS_COLOR_HELP)} />
                 <input key={accentColor} type="text" defaultValue={accentColor} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, accentColor, value => { setInterfaceThemePreset("custom"); setAccentColor(value); localStorage.setItem("drawerator_accent_color", value); })} onKeyDown={event => commitCssColorOnEnter(event, accentColor, value => { setInterfaceThemePreset("custom"); setAccentColor(value); localStorage.setItem("drawerator_accent_color", value); })} aria-label="Accent color value" {...infoProps("Accent color", CSS_COLOR_HELP)} />
-                <input type="number" min="0" max="100" step="1" data-default="100" value={accentOpacity} onChange={event => { const value = Number(event.target.value); setInterfaceThemePreset("custom"); setAccentOpacity(value); localStorage.setItem("drawerator_accent_opacity", String(value)); }} aria-label="Accent opacity" />
+                <NumericInput min="0" max="100" step="1" data-default="100" value={accentOpacity} defaultValue={100} onCommit={value => { setInterfaceThemePreset("custom"); setAccentOpacity(value); localStorage.setItem("drawerator_accent_opacity", String(value)); }} aria-label="Accent opacity" />
                 <output>%</output>
               </div>
             </label>
@@ -20230,7 +20559,7 @@ function App() {
               <div className="settings-color-control" {...infoProps("Hover highlight", CSS_COLOR_HELP)}>
                 <input type="color" value={colorInputHex(highlightColor)} style={{ backgroundColor: highlightColor }} onChange={event => { setInterfaceThemePreset("custom"); setHighlightColor(event.target.value); localStorage.setItem("drawerator_highlight_color", event.target.value); }} aria-label="Hover highlight color picker" {...infoProps("Hover highlight", CSS_COLOR_HELP)} />
                 <input key={highlightColor} type="text" defaultValue={highlightColor} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, highlightColor, value => { setInterfaceThemePreset("custom"); setHighlightColor(value); localStorage.setItem("drawerator_highlight_color", value); })} onKeyDown={event => commitCssColorOnEnter(event, highlightColor, value => { setInterfaceThemePreset("custom"); setHighlightColor(value); localStorage.setItem("drawerator_highlight_color", value); })} aria-label="Hover highlight color value" {...infoProps("Hover highlight", CSS_COLOR_HELP)} />
-                <input type="number" min="0" max="100" step="1" data-default="100" value={highlightOpacity} onChange={event => { const value = Number(event.target.value); setInterfaceThemePreset("custom"); setHighlightOpacity(value); localStorage.setItem("drawerator_highlight_opacity", String(value)); }} aria-label="Hover highlight opacity" />
+                <NumericInput min="0" max="100" step="1" data-default="100" value={highlightOpacity} defaultValue={100} onCommit={value => { setInterfaceThemePreset("custom"); setHighlightOpacity(value); localStorage.setItem("drawerator_highlight_opacity", String(value)); }} aria-label="Hover highlight opacity" />
                 <output>%</output>
               </div>
             </label>
@@ -20243,7 +20572,7 @@ function App() {
                 <div className="settings-color-control" {...infoProps(`${label} color`, CSS_COLOR_HELP)}>
                   <input type="color" value={colorInputHex(color)} style={{ backgroundColor: color }} onChange={event => { setInterfaceThemePreset("custom"); setColor(event.target.value); localStorage.setItem(`${storageKey}_color`, event.target.value); }} aria-label={`${label} color picker`} {...infoProps(label, CSS_COLOR_HELP)} />
                   <input key={color} type="text" defaultValue={color} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, color, value => { setInterfaceThemePreset("custom"); setColor(value); localStorage.setItem(`${storageKey}_color`, value); })} onKeyDown={event => commitCssColorOnEnter(event, color, value => { setInterfaceThemePreset("custom"); setColor(value); localStorage.setItem(`${storageKey}_color`, value); })} aria-label={`${label} color value`} {...infoProps(label, CSS_COLOR_HELP)} />
-                  <input type="number" min="0" max="100" step="1" data-default="100" value={opacity} onChange={event => { const value = Number(event.target.value); setInterfaceThemePreset("custom"); setOpacity(value); localStorage.setItem(`${storageKey}_opacity`, String(value)); }} aria-label={`${label} opacity`} />
+                  <NumericInput min="0" max="100" step="1" data-default="100" value={opacity} defaultValue={100} onCommit={value => { setInterfaceThemePreset("custom"); setOpacity(value); localStorage.setItem(`${storageKey}_opacity`, String(value)); }} aria-label={`${label} opacity`} />
                   <output>%</output>
                 </div>
               </label>
@@ -20264,7 +20593,7 @@ function App() {
                   <div className="settings-color-control" {...infoProps(`${label} color`, CSS_COLOR_HELP)}>
                     <input type="color" value={colorInputHex(entry.color)} style={{ backgroundColor: entry.color }} onChange={event => updateInterfaceThemeEntry(key, { color: event.target.value })} aria-label={`${label} color picker`} {...infoProps(label, CSS_COLOR_HELP)} />
                     <input key={entry.color} type="text" defaultValue={entry.color} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, entry.color, value => updateInterfaceThemeEntry(key, { color: value }))} onKeyDown={event => commitCssColorOnEnter(event, entry.color, value => updateInterfaceThemeEntry(key, { color: value }))} aria-label={`${label} color value`} {...infoProps(label, CSS_COLOR_HELP)} />
-                    <input type="number" min="0" max="100" step="1" data-default={key === "grid" ? "32" : "100"} value={entry.opacity} onChange={event => updateInterfaceThemeEntry(key, { opacity: Number(event.target.value) })} aria-label={key === "grid" ? "Global grid opacity" : `${label} opacity`} />
+                    <NumericInput min="0" max="100" step="1" data-default={key === "grid" ? "32" : "100"} value={entry.opacity} defaultValue={key === "grid" ? 32 : 100} onCommit={opacity => updateInterfaceThemeEntry(key, { opacity })} aria-label={key === "grid" ? "Global grid opacity" : `${label} opacity`} />
                     <output>%</output>
                   </div>
                 </label>
@@ -20290,7 +20619,7 @@ function App() {
                       <div className="settings-color-control" {...infoProps(`${label} color`, CSS_COLOR_HELP)}>
                         <input type="color" value={colorInputHex(entry.color)} style={{ backgroundColor: entry.color }} onChange={event => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: event.target.value } }))} aria-label={`${label} color picker`} {...infoProps(label, CSS_COLOR_HELP)} />
                         <input key={entry.color} type="text" defaultValue={entry.color} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, entry.color, value => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: value } })))} onKeyDown={event => commitCssColorOnEnter(event, entry.color, value => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], color: value } })))} aria-label={`${label} color value`} {...infoProps(label, CSS_COLOR_HELP)} />
-                        <input type="number" min="0" max="100" step="1" data-default={DEFAULT_ROLE_THEME[key].opacity} value={entry.opacity} onChange={event => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], opacity: Number(event.target.value) } }))} aria-label={`${label} opacity`} />
+                        <NumericInput min="0" max="100" step="1" data-default={DEFAULT_ROLE_THEME[key].opacity} value={entry.opacity} defaultValue={DEFAULT_ROLE_THEME[key].opacity} onCommit={opacity => setRoleTheme(previous => ({ ...previous, [key]: { ...previous[key], opacity } }))} aria-label={`${label} opacity`} />
                         <output>%</output>
                       </div>
                     </label>
@@ -20315,8 +20644,7 @@ function App() {
             ))}
             <label className="settings-panel-field" {...infoProps("Default stabilizer damping", "Default smoothing strength for newly stabilized strokes. Higher values follow the pointer more slowly.")}>
               <span>Default stabilizer damping</span>
-              <input type="number" min="0.01" max="0.5" step="0.01" data-default="0.12" value={defaultStabilizerDamping} onChange={event => {
-                const value = Number(event.target.value);
+              <NumericInput min="0.01" max="0.5" step="0.01" data-default="0.12" value={defaultStabilizerDamping} defaultValue={0.12} onCommit={value => {
                 setDefaultStabilizerDamping(value);
                 localStorage.setItem("drawerator_default_stabilizer_damping", value);
               }} />
@@ -20357,17 +20685,11 @@ function App() {
             <div className="settings-panel-two-column">
               <label className="settings-panel-field" {...infoProps("Tempo", "Global score tempo in beats per minute.")}>
                 <span>Tempo (BPM)</span>
-                <input type="number" min="20" max="400" step="1" data-default="120" value={scoreTempo} onChange={event => {
-                  const value = Math.min(400, Math.max(20, Number(event.target.value) || 120));
-                  setScoreTempo(value);
-                }} />
+                <NumericInput min="20" max="400" step="1" data-default="120" value={scoreTempo} defaultValue={120} onCommit={setScoreTempo} />
               </label>
               <label className="settings-panel-field" {...infoProps("Playback rate", "Multiplier applied to global score-time progression without changing the stored timeline.")}>
                 <span>Playback rate</span>
-                <input type="number" min="0.05" max="8" step="0.05" data-default="1" value={scoreRate} onChange={event => {
-                  const value = Number(event.target.value);
-                  if (Number.isFinite(value) && value > 0) setScoreRate(value);
-                }} />
+                <NumericInput min="0.05" max="8" step="0.05" data-default="1" value={scoreRate} defaultValue={1} onCommit={setScoreRate} />
               </label>
             </div>
             <div className="settings-panel-two-column">
@@ -20388,12 +20710,12 @@ function App() {
             </div>
             <label className="settings-panel-field" {...infoProps("Score sample rate", "Persisted sample rate used to resolve authored sample-count time expressions.")}>
               <span>Score sample rate</span>
-              <input type="number" min="8000" max="768000" step="1" data-default="48000" value={scoreSampleRate} onChange={event => setScoreSampleRate(Math.min(768000, Math.max(8000, Number(event.target.value) || 48000)))} />
+              <NumericInput min="8000" max="768000" step="1" data-default="48000" value={scoreSampleRate} defaultValue={48000} onCommit={setScoreSampleRate} />
             </label>
             <div className="settings-panel-two-column">
               <label className="settings-panel-field">
                 <span>Meter numerator</span>
-                <input type="number" min="1" max="32" step="1" data-default="4" value={scoreTimeSignature.numerator} onChange={event => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, numerator: event.target.value }))} />
+                <NumericInput min="1" max="32" step="1" data-default="4" value={scoreTimeSignature.numerator} defaultValue={4} onCommit={numerator => setScoreTimeSignature(normalizeTimeSignature({ ...scoreTimeSignature, numerator }))} />
               </label>
               <label className="settings-panel-field">
                 <span>Meter denominator</span>
@@ -23307,6 +23629,15 @@ function App() {
           open={physicsToolbarOpen}
           onOpenChange={setPhysicsToolbarOpen}
           selectedCount={Object.values(selectedElementIds).filter(Boolean).length}
+          worldPlaying={physicsWorldPlaying}
+          transportSynced={physicsFollowsTransport(relationshipGraph.systems)}
+          timeScrubEnabled={physicsTimeScrubEnabled}
+          livePose={relationshipGraph.world?.livePose === true}
+          onPlayPause={physicsWorldPlaying ? pausePhysicsWorld : playPhysicsWorld}
+          onResetWorld={resetPhysicsWorld}
+          onToggleTransportSync={togglePhysicsTransportSync}
+          onToggleLiveTimelinePreview={toggleLiveTimelinePreview}
+          onToggleLivePose={toggleLivePose}
           onAssignBody={options => assignPhysicsBodies({ systemId: activePhysicsSystemId, ...options })}
           onAssignCollider={options => assignPhysicsBodies({ systemId: activePhysicsSystemId, bodyType: "fixed", ...options })}
           onMakeConstraint={kind => assignPhysicsConstraintPivots({ kind, systemId: activePhysicsSystemId })}

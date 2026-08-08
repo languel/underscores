@@ -454,20 +454,30 @@ export default function PhysicsPanel({
             onClick={() => onMakeConstraint?.({ kind: "spring", systemId: system.id })}
             {...infoProps("Make spring object", "Converts each selected visual object into a Spring. Its rendered start and end independently attach to bodies beneath them, or World.")}
           >Spring</Button>
+          <Button
+            disabled={!selectedElementCount}
+            onClick={() => onMakeConstraint?.({ kind: "attractor", systemId: system.id })}
+            {...infoProps("Make attractor object", "Converts each selected canvas object into a radial force. It attracts or repels dynamic bodies within a configurable radius.")}
+          >Attractor</Button>
+          <Button
+            disabled={!selectedElementCount}
+            onClick={() => onMakeConstraint?.({ kind: "thruster", systemId: system.id })}
+            {...infoProps("Make thruster object", "Converts each selected two-ended canvas path into a Thruster. Its start attaches to a dynamic body and its visible direction applies continuous force.")}
+          >Thruster</Button>
         </div>
         {selectedBody && <div className="physics-selected-properties">
           {selectedBodies.length === 1 && <label className="physics-field"><span>Physics name</span><input value={selectedBody.name} onChange={event => patchSelectedBody({ name: event.target.value })} /></label>}
           <label className="physics-check"><input type="checkbox" checked={selectedBody.enabled} onChange={event => patchSelectedBody({ enabled: event.target.checked })} /><span>Enabled{selectedBodies.length > 1 ? ` · ${selectedBodies.length} bodies` : ""}</span></label>
           <label className="physics-field"><span>Tags</span><input value={selectedBody.collisionTags.join(", ")} onChange={event => patchSelectedBody({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} /></label>
           <div className="physics-field physics-collision-layer-field"><span>Collision layers</span><CollisionLayerMembershipPicker layers={collisionLayerStack.layers} values={selectedBodies.map(body => body.collisionLayers)} onChange={updateSelectedCollisionLayers} /></div>
-          <label className="physics-field" {...infoProps("Object note", "A per-body value available to collision mappings as aNote/noteA or bNote/noteB.")}><span>Object note</span><input type="number" min="0" max="127" step="1" value={selectedBody.mappingValues.note} onChange={event => patchSelectedBody({ mappingValues: { note: event.target.valueAsNumber } })} /></label>
+          <label className="physics-field" {...infoProps("Object note", "A per-body value available to collision mappings as aNote/noteA or bNote/noteB.")}><span>Object note</span><NumericInput min="0" max="127" step="1" value={selectedBody.mappingValues.note} defaultValue={60} onCommit={note => patchSelectedBody({ mappingValues: { note } })} /></label>
           {selectedBodyElements.length === selectedBodies.length && <label className="physics-field"><span>Collider</span><select value={getPhysicsColliderSelectionValue(selectedBody.collider, { allowPath: selectedBodyElements.every(element => ["freedraw", "line", "arrow"].includes(element.type) || element.customData?.draweratorGeometry?.kind === "cubicBezierPath") })} onChange={event => patchSelectedBody({ colliderKind: event.target.value })}><option value="box">Bounding box</option><option value="ellipse">Bounding ellipse</option><option value="convex">Convex hull</option>{selectedBodyElements.every(element => ["freedraw", "line", "arrow"].includes(element.type) || element.customData?.draweratorGeometry?.kind === "cubicBezierPath") && <option value="chain">Path chain</option>}</select></label>}
-          <label className="physics-field" {...infoProps("Collision skin", "Invisible scene-pixel padding around this collider. It helps small or fast bodies make stable contact with fine paths.")}><span>Collision skin</span><input type="number" min="0" max="64" step="0.5" value={selectedBody.collider.contactSkin} onChange={event => patchSelectedBody({ collider: { contactSkin: event.target.valueAsNumber } })} /></label>
+          <label className="physics-field" {...infoProps("Collision skin", "Invisible scene-pixel padding around this collider. It helps small or fast bodies make stable contact with fine paths.")}><span>Collision skin</span><NumericInput min="0" max="64" step="0.5" value={selectedBody.collider.contactSkin} defaultValue={0} onCommit={contactSkin => patchSelectedBody({ collider: { contactSkin } })} /></label>
           <div className="physics-two-column">
-            <label className="physics-field"><span>Friction</span><input type="number" min="0" max="10" step="0.05" value={selectedBody.material.friction} onChange={event => patchSelectedBody({ material: { ...selectedBody.material, friction: Number(event.target.value) } })} /></label>
-            <label className="physics-field"><span>Bounce</span><input type="number" min="0" max="2" step="0.05" value={selectedBody.material.restitution} onChange={event => patchSelectedBody({ material: { ...selectedBody.material, restitution: Number(event.target.value) } })} /></label>
-            <label className="physics-field"><span>Density</span><input type="number" min="0.01" max="100" step="0.1" value={selectedBody.material.density} onChange={event => patchSelectedBody({ material: { ...selectedBody.material, density: Number(event.target.value) } })} /></label>
-            <label className="physics-field"><span>Damping</span><input type="number" min="0" max="100" step="0.05" value={selectedBody.material.linearDamping} onChange={event => patchSelectedBody({ material: { ...selectedBody.material, linearDamping: Number(event.target.value) } })} /></label>
+            <label className="physics-field"><span>Friction</span><NumericInput min="0" max="10" step="0.05" value={selectedBody.material.friction} defaultValue={0.2} onCommit={friction => patchSelectedBody({ material: { ...selectedBody.material, friction } })} /></label>
+            <label className="physics-field"><span>Bounce</span><NumericInput min="0" max="2" step="0.05" value={selectedBody.material.restitution} defaultValue={0.5} onCommit={restitution => patchSelectedBody({ material: { ...selectedBody.material, restitution } })} /></label>
+            <label className="physics-field"><span>Density</span><NumericInput min="0.01" max="100" step="0.1" value={selectedBody.material.density} defaultValue={1} onCommit={density => patchSelectedBody({ material: { ...selectedBody.material, density } })} /></label>
+            <label className="physics-field"><span>Damping</span><NumericInput min="0" max="100" step="0.05" value={selectedBody.material.linearDamping} defaultValue={0.01} onCommit={linearDamping => patchSelectedBody({ material: { ...selectedBody.material, linearDamping } })} /></label>
           </div>
           <Button onClick={removeSelectedBody}>Remove physics role</Button>
         </div>}
@@ -483,8 +493,8 @@ export default function PhysicsPanel({
         <label className="physics-field"><span>System</span><select value={system.id} onChange={event => onActiveSystemChange(event.target.value)}>{graph.systems.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select></label>
         <label className="physics-field"><span>Name</span><input value={system.name} onChange={event => patchSystem({ name: event.target.value })} /></label>
         <div className="physics-two-column">
-          <label className="physics-field"><span>{system.gravityMode === "world" ? "Gravity X (world)" : "Gravity X"}</span><input type="number" step="10" value={system.gravityMode === "world" ? graph.world.gravity.x : system.gravity.x} disabled={system.gravityMode === "world"} onChange={event => patchSystem({ gravity: { ...system.gravity, x: Number(event.target.value) } })} /></label>
-          <label className="physics-field"><span>{system.gravityMode === "world" ? "Gravity Y (world)" : "Gravity Y"}</span><input type="number" step="10" value={system.gravityMode === "world" ? graph.world.gravity.y : system.gravity.y} disabled={system.gravityMode === "world"} onChange={event => patchSystem({ gravity: { ...system.gravity, y: Number(event.target.value) } })} /></label>
+          <label className="physics-field"><span>{system.gravityMode === "world" ? "Gravity X (world)" : "Gravity X"}</span><NumericInput step="10" value={system.gravityMode === "world" ? graph.world.gravity.x : system.gravity.x} defaultValue={0} disabled={system.gravityMode === "world"} onCommit={x => patchSystem({ gravity: { ...system.gravity, x } })} /></label>
+          <label className="physics-field"><span>{system.gravityMode === "world" ? "Gravity Y (world)" : "Gravity Y"}</span><NumericInput step="10" value={system.gravityMode === "world" ? graph.world.gravity.y : system.gravity.y} defaultValue={-9.8} disabled={system.gravityMode === "world"} onCommit={y => patchSystem({ gravity: { ...system.gravity, y } })} /></label>
         </div>
         <div className="physics-transport">
           <Button onClick={() => onPlay(system.id)}>Play</Button>
@@ -496,8 +506,8 @@ export default function PhysicsPanel({
         <div className="physics-subsection" aria-label="Population">
           <strong>Population</strong>
           <div className="physics-two-column">
-            <label className="physics-field"><span>Count</span><input type="number" min="1" max="5000" step="1" value={populationCount} onChange={event => setPopulationCount(Number(event.target.value))} /></label>
-            <label className="physics-field"><span>Point size</span><input type="number" min="1" max="80" step="1" value={particleSize} onChange={event => setParticleSize(Number(event.target.value))} /></label>
+            <label className="physics-field"><span>Count</span><NumericInput min="1" max="5000" step="1" value={populationCount} defaultValue={250} onCommit={setPopulationCount} /></label>
+            <label className="physics-field"><span>Point size</span><NumericInput min="1" max="80" step="1" value={particleSize} defaultValue={7} onCommit={setParticleSize} /></label>
           </div>
           <div className="physics-toolbar">
             <Button onClick={() => onCreatePopulation({ systemId: system.id, count: populationCount, radius: particleSize })}>Add runtime gas</Button>
@@ -548,10 +558,12 @@ const constraintLabel = kind => ({
   revolute: "Revolute",
   weld: "Weld",
   attractor: "Attractor",
+  thruster: "Thruster",
 }[kind] || "Constraint");
 
 const endpointLabel = endpoint => {
   if (!endpoint) return "Missing endpoint";
+  if (endpoint.kind === "none") return "None";
   if (endpoint.kind === "world") return `World · ${Math.round(endpoint.point?.[0] || 0)}, ${Math.round(endpoint.point?.[1] || 0)}`;
   if (endpoint.kind === "stream") return `Stream · ${endpoint.featureId || endpoint.streamId}`;
   if (endpoint.kind === "bezier-anchor") return `Curve anchor · ${endpoint.anchorId}`;
@@ -564,6 +576,8 @@ function ConstraintCard({ constraint: constraintValue, springElement, expanded, 
   const isSpring = ["spring", "distance"].includes(constraint.kind);
   const isRope = constraint.kind === "rope";
   const isAxle = ["axle", "pin", "revolute"].includes(constraint.kind);
+  const isAttractor = constraint.kind === "attractor";
+  const isThruster = constraint.kind === "thruster";
   const limitDegrees = radians => Number((radians * 180 / Math.PI).toFixed(2));
   const setLimitsEnabled = enabled => onUpdate(enabled
     ? {
@@ -589,7 +603,7 @@ function ConstraintCard({ constraint: constraintValue, springElement, expanded, 
       <label className="physics-field"><span>Name</span><input value={constraint.name} onChange={event => onUpdate({ name: event.target.value })} /></label>
       <div className="physics-two-column">
         <label className="physics-field"><span>Kind</span><select value={constraint.kind} onChange={event => onUpdate({ kind: event.target.value })}>
-          <option value="fixate">Weld</option><option value="axle">Axle</option><option value="spring">Spring</option><option value="rope">Rope</option><option value="distance">Distance</option>
+          <option value="fixate">Weld</option><option value="axle">Axle</option><option value="spring">Spring</option><option value="rope">Rope</option><option value="attractor">Attractor</option><option value="thruster">Thruster</option><option value="distance">Distance</option>
           <option value="pin">Pin (legacy)</option><option value="revolute">Revolute (legacy)</option><option value="weld">Weld (legacy)</option>
         </select></label>
         <label className="physics-check" {...infoProps("Collide while connected", "Off by default so connected parts do not immediately collide with one another. Enable when their colliders should still make contact.")}><input type="checkbox" checked={constraint.collideConnected} onChange={event => onUpdate({ collideConnected: event.target.checked })} /><span>Collide while connected</span></label>
@@ -605,12 +619,27 @@ function ConstraintCard({ constraint: constraintValue, springElement, expanded, 
         <label className="physics-field"><span>Thickness</span><NumericInput min="0.5" step="any" value={constraint.thickness} defaultValue={4} onCommit={thickness => onUpdate({ thickness })} /></label>
       </div>}
       {isAxle && <>
+        <label className="physics-check" {...infoProps("Motor", "Drives the axle at the chosen angular speed. Positive values rotate counter-clockwise; torque limits how strongly the motor corrects the speed.")}><input type="checkbox" checked={constraint.motorEnabled === true} onChange={event => onUpdate({ motorEnabled: event.target.checked })} /><span>Motor enabled</span></label>
+        <div className="physics-two-column">
+          <label className="physics-field"><span>Motor speed (°/s)</span><NumericInput step="1" value={constraint.motorSpeed} defaultValue={0} onCommit={motorSpeed => onUpdate({ motorSpeed })} /></label>
+          <label className="physics-field"><span>Motor torque</span><NumericInput min="0" step="any" value={constraint.motorTorque} defaultValue={10} onCommit={motorTorque => onUpdate({ motorTorque })} /></label>
+        </div>
         <label className="physics-check" {...infoProps("Limit rotation", "Off means an axle can rotate freely through 360 degrees. Enable it to define a lower and upper angle in degrees.")}><input type="checkbox" checked={constraint.limitsEnabled === true} onChange={event => setLimitsEnabled(event.target.checked)} /><span>Limit rotation · {constraint.limitsEnabled ? "custom" : "full 360°"}</span></label>
         <div className="physics-two-column">
-          <label className="physics-field" {...infoProps("Lower angle limit", "Axle limit in degrees. Both limits are required when rotation limits are enabled.")}><span>Lower limit (°)</span><input type="number" step="1" disabled={!constraint.limitsEnabled} value={constraint.lowerLimit === null ? "" : limitDegrees(constraint.lowerLimit)} onChange={event => onUpdate({ limitsEnabled: true, lowerLimit: event.target.value === "" ? null : event.target.valueAsNumber * Math.PI / 180 })} /></label>
-          <label className="physics-field" {...infoProps("Upper angle limit", "Axle limit in degrees. Both limits are required when rotation limits are enabled.")}><span>Upper limit (°)</span><input type="number" step="1" disabled={!constraint.limitsEnabled} value={constraint.upperLimit === null ? "" : limitDegrees(constraint.upperLimit)} onChange={event => onUpdate({ limitsEnabled: true, upperLimit: event.target.value === "" ? null : event.target.valueAsNumber * Math.PI / 180 })} /></label>
+          <label className="physics-field" {...infoProps("Lower angle limit", "Axle limit in degrees. Both limits are required when rotation limits are enabled.")}><span>Lower limit (°)</span><NumericInput step="1" disabled={!constraint.limitsEnabled} value={constraint.lowerLimit === null ? "" : limitDegrees(constraint.lowerLimit)} emptyValue={null} onCommit={lowerLimit => onUpdate({ limitsEnabled: true, lowerLimit: lowerLimit === null ? null : lowerLimit * Math.PI / 180 })} /></label>
+          <label className="physics-field" {...infoProps("Upper angle limit", "Axle limit in degrees. Both limits are required when rotation limits are enabled.")}><span>Upper limit (°)</span><NumericInput step="1" disabled={!constraint.limitsEnabled} value={constraint.upperLimit === null ? "" : limitDegrees(constraint.upperLimit)} emptyValue={null} onCommit={upperLimit => onUpdate({ limitsEnabled: true, upperLimit: upperLimit === null ? null : upperLimit * Math.PI / 180 })} /></label>
         </div>
       </>}
+      {isAttractor && <>
+        <div className="physics-two-column">
+          <label className="physics-field"><span>Mode</span><select value={constraint.attractionMode} onChange={event => onUpdate({ attractionMode: event.target.value })}><option value="attract">Attract</option><option value="repel">Repel</option></select></label>
+          <label className="physics-field"><span>Strength</span><NumericInput min="0" step="any" value={constraint.attractionStrength} defaultValue={20} onCommit={attractionStrength => onUpdate({ attractionStrength })} /></label>
+          <label className="physics-field"><span>Radius</span><NumericInput min="0" step="any" value={constraint.attractionRadius} defaultValue={300} onCommit={attractionRadius => onUpdate({ attractionRadius })} /></label>
+          <label className="physics-field"><span>Falloff</span><NumericInput min="0" step="0.1" value={constraint.attractionFalloff} defaultValue={1} onCommit={attractionFalloff => onUpdate({ attractionFalloff })} /></label>
+        </div>
+        <label className="physics-field" {...infoProps("Target tags", "Optional comma-separated collision tags. Leave blank to affect every dynamic body in this physics system.")}><span>Target tags</span><input value={constraint.targetTags.join(", ")} onChange={event => onUpdate({ targetTags: event.target.value.split(",").map(tag => tag.trim()).filter(Boolean) })} /></label>
+      </>}
+      {isThruster && <label className="physics-field" {...infoProps("Force", "Continuous force in the path's start-to-end direction. The thruster start must attach to a dynamic body.")}><span>Force</span><NumericInput step="any" value={constraint.thrusterForce} defaultValue={20} onCommit={thrusterForce => onUpdate({ thrusterForce })} /></label>}
     </div>}
   </article>;
 }
@@ -645,8 +674,8 @@ function MappingCard({ mapping: mappingValue, systems, programs, expanded, onTog
           {(gate ? ["begin", "end", "stay"] : ["hit", "begin", "end", "stay", "enter", "exit"]).map(phase => <label key={phase}><input type="checkbox" checked={mapping.source.phases.includes(phase)} disabled={gate && phase !== "stay"} onChange={event => setPhase(phase, event.target.checked)} />{phase}</label>)}
         </div>
         <div className="physics-two-column">
-          <label className="physics-field"><span>Input min</span><input type="number" value={mapping.source.range.min} onChange={event => patchSource({ range: { ...mapping.source.range, min: Number(event.target.value) } })} /></label>
-          <label className="physics-field"><span>Input max</span><input type="number" value={mapping.source.range.max} onChange={event => patchSource({ range: { ...mapping.source.range, max: Number(event.target.value) } })} /></label>
+          <label className="physics-field"><span>Input min</span><NumericInput value={mapping.source.range.min} defaultValue={0} onCommit={min => patchSource({ range: { ...mapping.source.range, min } })} /></label>
+          <label className="physics-field"><span>Input max</span><NumericInput value={mapping.source.range.max} defaultValue={10} onCommit={max => patchSource({ range: { ...mapping.source.range, max } })} /></label>
         </div>
         <div className="physics-two-column">
           <label className="physics-field"><span>A tags</span><input value={mapping.source.tagsA.join(", ")} onChange={event => patchSource({ tagsA: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} /></label>
@@ -656,18 +685,18 @@ function MappingCard({ mapping: mappingValue, systems, programs, expanded, onTog
 
       <fieldset className="physics-mapping-block"><legend>Filter</legend>
         <div className="physics-two-column">
-          <label className="physics-field"><span>Minimum</span><input type="number" value={mapping.filter.min ?? ""} onChange={event => patchFilter({ min: event.target.value === "" ? null : Number(event.target.value) })} /></label>
-          <label className="physics-field"><span>Maximum</span><input type="number" value={mapping.filter.max ?? ""} onChange={event => patchFilter({ max: event.target.value === "" ? null : Number(event.target.value) })} /></label>
+          <label className="physics-field"><span>Minimum</span><NumericInput value={mapping.filter.min ?? ""} emptyValue={null} onCommit={min => patchFilter({ min })} /></label>
+          <label className="physics-field"><span>Maximum</span><NumericInput value={mapping.filter.max ?? ""} emptyValue={null} onCommit={max => patchFilter({ max })} /></label>
         </div>
         <label className="physics-field" {...infoProps("Filter formula", FORMULA_HELP.filter, FORMULA_EXAMPLES.filter)}><span>Formula</span><input value={mapping.filter.expression} placeholder="e.g. impulse > 0.3 && speed > 0.1" onChange={event => patchFilter({ expression: event.target.value })} /></label>
       </fieldset>
 
       <fieldset className="physics-mapping-block"><legend>Transform</legend>
         <div className="physics-two-column">
-          <label className="physics-field"><span>Output min</span><input type="number" value={mapping.transform.outputMin} onChange={event => patchTransform({ outputMin: Number(event.target.value) })} /></label>
-          <label className="physics-field"><span>Output max</span><input type="number" value={mapping.transform.outputMax} onChange={event => patchTransform({ outputMax: Number(event.target.value) })} /></label>
-          <label className="physics-field"><span>Scale</span><input type="number" step="0.1" value={mapping.transform.scale} onChange={event => patchTransform({ scale: Number(event.target.value) })} /></label>
-          <label className="physics-field"><span>Offset</span><input type="number" step="0.1" value={mapping.transform.offset} onChange={event => patchTransform({ offset: Number(event.target.value) })} /></label>
+          <label className="physics-field"><span>Output min</span><NumericInput value={mapping.transform.outputMin} defaultValue={0} onCommit={outputMin => patchTransform({ outputMin })} /></label>
+          <label className="physics-field"><span>Output max</span><NumericInput value={mapping.transform.outputMax} defaultValue={1} onCommit={outputMax => patchTransform({ outputMax })} /></label>
+          <label className="physics-field"><span>Scale</span><NumericInput value={mapping.transform.scale} defaultValue={1} step="0.1" onCommit={scale => patchTransform({ scale })} /></label>
+          <label className="physics-field"><span>Offset</span><NumericInput value={mapping.transform.offset} defaultValue={0} step="0.1" onCommit={offset => patchTransform({ offset })} /></label>
         </div>
         <label className="physics-check"><input type="checkbox" checked={mapping.transform.clamp} onChange={event => patchTransform({ clamp: event.target.checked })} /><span>Clamp output</span></label>
         <label className="physics-field" {...infoProps("Transform formula", FORMULA_HELP.transform, FORMULA_EXAMPLES.transform)}><span>Formula</span><input value={mapping.transform.expression} placeholder="e.g. clamp(norm * 127, 1, 127)" onChange={event => patchTransform({ expression: event.target.value })} /></label>
@@ -676,20 +705,20 @@ function MappingCard({ mapping: mappingValue, systems, programs, expanded, onTog
       <fieldset className="physics-mapping-block"><legend>Target</legend>
         <label className="physics-field"><span>Type</span><select value={target.kind} onChange={event => patchTarget({ kind: event.target.value })}><option value="midi-note">MIDI Note</option><option value="midi-cc">MIDI CC</option><option value="midi-bend">MIDI Pitch Bend</option><option value="expressive-voice">Expressive Synth</option>{target.kind === "legacy-action" && <option value="legacy-action">Compatibility route</option>}</select></label>
         {target.kind === "midi-note" && <>
-          <div className="physics-two-column"><label className="physics-field"><span>Mode</span><select value={target.mode} onChange={event => patchTarget({ mode: event.target.value })}><option value="hit">Hit</option><option value="gate">Begin / end gate</option></select></label><label className="physics-field"><span>Channel</span><input type="number" min="1" max="16" value={target.channel} onChange={event => patchTarget({ channel: Number(event.target.value) })} /></label><label className="physics-field"><span>Note</span><input type="number" min="0" max="127" value={target.note} onChange={event => patchTarget({ note: Number(event.target.value) })} /></label><label className="physics-field"><span>Duration</span><input type="number" min="0.01" step="0.01" value={target.duration} onChange={event => patchTarget({ duration: Number(event.target.value) })} /></label></div>
+          <div className="physics-two-column"><label className="physics-field"><span>Mode</span><select value={target.mode} onChange={event => patchTarget({ mode: event.target.value })}><option value="hit">Hit</option><option value="gate">Begin / end gate</option></select></label><label className="physics-field"><span>Channel</span><NumericInput min="1" max="16" value={target.channel} defaultValue={1} onCommit={channel => patchTarget({ channel })} /></label><label className="physics-field"><span>Note</span><NumericInput min="0" max="127" value={target.note} defaultValue={60} onCommit={note => patchTarget({ note })} /></label><label className="physics-field"><span>Duration</span><NumericInput min="0.01" step="0.01" value={target.duration} defaultValue={0.16} onCommit={duration => patchTarget({ duration })} /></label></div>
           <label className="physics-field" {...infoProps("Pitch formula", FORMULA_HELP.pitch, FORMULA_EXAMPLES.pitch)}><span>Pitch formula</span><input value={target.noteExpression} placeholder="e.g. major(baseNote, floor(speed / 12))" onChange={event => patchTarget({ noteExpression: event.target.value })} /></label>
           <label className="physics-field" {...infoProps("Velocity formula", FORMULA_HELP.velocity, FORMULA_EXAMPLES.velocity)}><span>Velocity formula</span><input value={target.velocityExpression} onChange={event => patchTarget({ velocityExpression: event.target.value })} /></label>
-          <label className="physics-field"><span>Minimum hold</span><input type="number" min="0" step="0.01" value={target.minimumHold} onChange={event => patchTarget({ minimumHold: Number(event.target.value) })} /></label>
+          <label className="physics-field"><span>Minimum hold</span><NumericInput min="0" step="0.01" value={target.minimumHold} defaultValue={0.02} onCommit={minimumHold => patchTarget({ minimumHold })} /></label>
         </>}
-        {target.kind === "midi-cc" && <div className="physics-two-column"><label className="physics-field"><span>Channel</span><input type="number" min="1" max="16" value={target.channel} onChange={event => patchTarget({ channel: Number(event.target.value) })} /></label><label className="physics-field"><span>Controller</span><input type="number" min="0" max="127" value={target.controller} onChange={event => patchTarget({ controller: Number(event.target.value) })} /></label><label className="physics-field" {...infoProps("CC value formula", FORMULA_HELP.cc, FORMULA_EXAMPLES.cc)}><span>Value formula</span><input value={target.valueExpression} onChange={event => patchTarget({ valueExpression: event.target.value })} /></label></div>}
-        {target.kind === "midi-bend" && <div className="physics-two-column"><label className="physics-field"><span>Channel</span><input type="number" min="1" max="16" value={target.channel} onChange={event => patchTarget({ channel: Number(event.target.value) })} /></label><label className="physics-field" {...infoProps("Pitch bend formula", FORMULA_HELP.bend, FORMULA_EXAMPLES.bend)}><span>Bend formula</span><input value={target.valueExpression} onChange={event => patchTarget({ valueExpression: event.target.value })} /></label></div>}
+        {target.kind === "midi-cc" && <div className="physics-two-column"><label className="physics-field"><span>Channel</span><NumericInput min="1" max="16" value={target.channel} defaultValue={1} onCommit={channel => patchTarget({ channel })} /></label><label className="physics-field"><span>Controller</span><NumericInput min="0" max="127" value={target.controller} defaultValue={1} onCommit={controller => patchTarget({ controller })} /></label><label className="physics-field" {...infoProps("CC value formula", FORMULA_HELP.cc, FORMULA_EXAMPLES.cc)}><span>Value formula</span><input value={target.valueExpression} onChange={event => patchTarget({ valueExpression: event.target.value })} /></label></div>}
+        {target.kind === "midi-bend" && <div className="physics-two-column"><label className="physics-field"><span>Channel</span><NumericInput min="1" max="16" value={target.channel} defaultValue={1} onCommit={channel => patchTarget({ channel })} /></label><label className="physics-field" {...infoProps("Pitch bend formula", FORMULA_HELP.bend, FORMULA_EXAMPLES.bend)}><span>Bend formula</span><input value={target.valueExpression} onChange={event => patchTarget({ valueExpression: event.target.value })} /></label></div>}
         {target.kind === "expressive-voice" && <>
           <div className="physics-two-column"><label className="physics-field"><span>Mode</span><select value={target.mode} onChange={event => patchTarget({ mode: event.target.value })}><option value="hit">Hit</option><option value="gate">Begin / end gate</option></select></label><label className="physics-field"><span>Program</span><select value={target.program} onChange={event => patchTarget({ program: event.target.value })}>{(programs.length ? programs : [{ id: "bowed", name: "Bowed" }]).map(program => <option key={program.id} value={program.id}>{program.name || program.id}</option>)}</select></label></div>
-          <div className="physics-two-column"><label className="physics-field" {...infoProps("Voice note formula", FORMULA_HELP.voiceNote, FORMULA_EXAMPLES.voiceNote)}><span>Note formula</span><input value={target.noteExpression} onChange={event => patchTarget({ noteExpression: event.target.value })} /></label><label className="physics-field" {...infoProps("Voice gain formula", FORMULA_HELP.voiceGain, FORMULA_EXAMPLES.voiceGain)}><span>Gain formula</span><input value={target.gainExpression} onChange={event => patchTarget({ gainExpression: event.target.value })} /></label><label className="physics-field" {...infoProps("Voice pressure formula", FORMULA_HELP.voicePressure, FORMULA_EXAMPLES.voicePressure)}><span>Pressure formula</span><input value={target.pressureExpression} onChange={event => patchTarget({ pressureExpression: event.target.value })} /></label><label className="physics-field" {...infoProps("Voice brightness formula", FORMULA_HELP.voiceBrightness, FORMULA_EXAMPLES.voiceBrightness)}><span>Brightness formula</span><input value={target.brightnessExpression} onChange={event => patchTarget({ brightnessExpression: event.target.value })} /></label><label className="physics-field" {...infoProps("Voice pan formula", FORMULA_HELP.voicePan, FORMULA_EXAMPLES.voicePan)}><span>Pan formula</span><input value={target.panExpression} onChange={event => patchTarget({ panExpression: event.target.value })} /></label><label className="physics-field"><span>Duration</span><input type="number" min="0.01" step="0.01" value={target.duration} onChange={event => patchTarget({ duration: Number(event.target.value) })} /></label></div>
+          <div className="physics-two-column"><label className="physics-field" {...infoProps("Voice note formula", FORMULA_HELP.voiceNote, FORMULA_EXAMPLES.voiceNote)}><span>Note formula</span><input value={target.noteExpression} onChange={event => patchTarget({ noteExpression: event.target.value })} /></label><label className="physics-field" {...infoProps("Voice gain formula", FORMULA_HELP.voiceGain, FORMULA_EXAMPLES.voiceGain)}><span>Gain formula</span><input value={target.gainExpression} onChange={event => patchTarget({ gainExpression: event.target.value })} /></label><label className="physics-field" {...infoProps("Voice pressure formula", FORMULA_HELP.voicePressure, FORMULA_EXAMPLES.voicePressure)}><span>Pressure formula</span><input value={target.pressureExpression} onChange={event => patchTarget({ pressureExpression: event.target.value })} /></label><label className="physics-field" {...infoProps("Voice brightness formula", FORMULA_HELP.voiceBrightness, FORMULA_EXAMPLES.voiceBrightness)}><span>Brightness formula</span><input value={target.brightnessExpression} onChange={event => patchTarget({ brightnessExpression: event.target.value })} /></label><label className="physics-field" {...infoProps("Voice pan formula", FORMULA_HELP.voicePan, FORMULA_EXAMPLES.voicePan)}><span>Pan formula</span><input value={target.panExpression} onChange={event => patchTarget({ panExpression: event.target.value })} /></label><label className="physics-field"><span>Duration</span><NumericInput min="0.01" step="0.01" value={target.duration} defaultValue={0.16} onCommit={duration => patchTarget({ duration })} /></label></div>
         </>}
         {target.kind === "legacy-action" && <small>Imported compatibility route. Create a new MIDI or Expressive Synth mapping to edit the canonical target.</small>}
       </fieldset>
-      <div className="physics-two-column"><label className="physics-field"><span>Cooldown ms</span><input type="number" min="0" value={mapping.cooldownMs} onChange={event => onUpdate({ cooldownMs: Number(event.target.value) })} /></label><label className="physics-check"><input type="checkbox" checked={mapping.perPair} onChange={event => onUpdate({ perPair: event.target.checked })} /><span>Cooldown per pair</span></label></div>
+      <div className="physics-two-column"><label className="physics-field"><span>Cooldown ms</span><NumericInput min="0" value={mapping.cooldownMs} defaultValue={35} onCommit={cooldownMs => onUpdate({ cooldownMs })} /></label><label className="physics-check"><input type="checkbox" checked={mapping.perPair} onChange={event => onUpdate({ perPair: event.target.checked })} /><span>Cooldown per pair</span></label></div>
       {expressionError && <div className="physics-mapping-error">{expressionError}</div>}
     </div>}
   </article>;

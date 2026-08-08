@@ -14,6 +14,7 @@ import {
   remapRelationshipGraph,
   removeRelationshipBindingsForElements,
   serializePhysicsBodyCustomData,
+  serializePhysicsConstraintCustomData,
   serializeRelationshipGraphForScene,
   withPhysicsCustomData,
 } from "./relationshipGraph.js";
@@ -40,6 +41,79 @@ test("canvas Fixate and Axle constraints remain canonical graph relationships", 
   });
   assert.deepEqual(graph.constraints.map(item => item.kind), ["fixate", "axle"]);
   assert.equal(graph.constraints[0].b.kind, "world");
+});
+
+test("physics constraints preserve explicit None endpoints without orphaning them", () => {
+  const graph = normalizeRelationshipGraph({
+    systems: [{ id: "world" }],
+    constraints: [{
+      id: "free-rope", systemId: "world", kind: "rope",
+      a: { kind: "none" },
+      b: { kind: "none" },
+      pathPoints: [[0, 0], [100, 0]],
+    }],
+  });
+  assert.deepEqual(graph.constraints[0].a, { kind: "none" });
+  assert.deepEqual(graph.constraints[0].b, { kind: "none" });
+  assert.deepEqual(graph.constraints[0].collisionLayers, ["default"]);
+  assert.deepEqual(findRelationshipOrphans(graph, []), []);
+});
+
+test("ropes persist named collision-layer membership", () => {
+  const graph = normalizeRelationshipGraph({
+    world: {
+      collisionLayers: {
+        layers: [{ id: "default" }, { id: "soft" }],
+        matrix: { "default|default": true, "default|soft": false, "soft|soft": true },
+      },
+    },
+    systems: [{ id: "world" }],
+    constraints: [{
+      id: "rope", systemId: "world", kind: "rope", collisionLayers: ["soft", "missing"],
+      pathPoints: [[0, 0], [100, 0]], a: { kind: "none" }, b: { kind: "none" },
+    }],
+  });
+  assert.deepEqual(graph.constraints[0].collisionLayers, ["soft"]);
+  assert.deepEqual(resolvePhysicsCollisionGroups(graph.world, graph.constraints[0]), { group: 2, mask: 2, legacy: false });
+});
+
+test("rope endpoints preserve stable generated-link identity", () => {
+  const graph = normalizeRelationshipGraph({
+    systems: [{ id: "world" }],
+    constraints: [
+      { id: "rope", systemId: "world", kind: "rope", pathPoints: [[0, 0], [100, 0]], a: { kind: "none" }, b: { kind: "none" } },
+      {
+        id: "pivot",
+        systemId: "world",
+        kind: "axle",
+        a: {
+          kind: "rope",
+          objectRef: { kind: "element", elementId: "rope-path" },
+          constraintId: "rope",
+          point: [48, 12],
+          linkIndex: 3,
+          ropeProgress: 0.375,
+        },
+        b: { kind: "world", point: [48, 12] },
+      },
+    ],
+  });
+  assert.equal(graph.constraints[1].a.linkIndex, 3);
+  assert.equal(graph.constraints[1].a.ropeProgress, 0.375);
+});
+
+test("canvas constraint metadata can change an existing Weld into a Rope", () => {
+  const weld = {
+    id: "joint", systemId: "world", kind: "fixate",
+    objectRef: { kind: "element", elementId: "path" },
+    a: { kind: "none" }, b: { kind: "none" },
+  };
+  const rope = { ...weld, kind: "rope", name: "Rope", pathPoints: [[0, 0], [100, 0]] };
+  const path = { id: "path", customData: withPhysicsCustomData({}, rope) };
+  const hydrated = hydrateRelationshipGraphFromElements({ systems: [{ id: "world" }], constraints: [weld] }, [path]);
+  assert.equal(hydrated.constraints[0].kind, "rope");
+  assert.deepEqual(hydrated.constraints[0].a, { kind: "none" });
+  assert.deepEqual(hydrated.constraints[0].b, { kind: "none" });
 });
 
 test("new Axles leave angular limits disabled until the author enables both limits", () => {
@@ -150,6 +224,25 @@ test("physics metadata uses the short canonical key and reads the legacy alias",
   const customData = { physics: serializePhysicsBodyCustomData(body) };
   assert.equal(getPhysicsCustomData({ customData }).bodyType, "fixed");
   assert.equal(getPhysicsCustomData({ customData: { draweratorPhysics: customData.physics } }).bodyType, "fixed");
+});
+
+test("constraint custom-data mirrors motor settings and detached endpoints", () => {
+  const mirror = serializePhysicsConstraintCustomData({
+    id: "axle",
+    systemId: "world",
+    kind: "axle",
+    a: { kind: "none" },
+    b: { kind: "world", point: [10, 20] },
+    motorEnabled: true,
+    motorSpeed: 120,
+    motorTorque: 25,
+  });
+  assert.equal(mirror.role, "axle");
+  assert.deepEqual(mirror.a, { kind: "none" });
+  assert.deepEqual(mirror.b, { kind: "world", point: [10, 20] });
+  assert.equal(mirror.motorEnabled, true);
+  assert.equal(mirror.motorSpeed, 120);
+  assert.equal(mirror.motorTorque, 25);
 });
 
 test("authored body settings persist on the canvas object while the graph keeps its binding", () => {

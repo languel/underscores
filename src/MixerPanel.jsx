@@ -1,4 +1,5 @@
 import { GM_PROGRAMS, isPercussionChannel } from "./generalMidi.js";
+import NumericInput from "./NumericInput.jsx";
 import { infoProps } from "./uiInfo.js";
 import {
   externalMixerDestination,
@@ -118,7 +119,7 @@ export default function MixerPanel({
                 </label>
                 <label className="mixer-field mixer-channel-field" {...infoProps("MIDI channel", "Score events on this MIDI channel are routed through this track. Multiple tracks may listen to the same channel.")}>
                   <span>MIDI channel</span>
-                  <input type="number" min="1" max="16" step="1" data-default={index % 16 + 1} value={track.midiChannel} onChange={event => onUpdateTrack(track.id, { midiChannel: Number(event.target.value) })} />
+                  <NumericInput min="1" max="16" step="1" defaultValue={index % 16 + 1} value={track.midiChannel} onCommit={midiChannel => onUpdateTrack(track.id, { midiChannel })} />
                 </label>
                 <div className="mixer-track-actions-row">
                   <label className="mixer-track-enabled" {...infoProps("Track enabled", "Disable this track without removing its destination, instrument, program, or MIDI channel settings.")}>

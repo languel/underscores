@@ -8,7 +8,15 @@ const Glyph = ({ kind }) => {
   if (kind === "sensor") return <svg {...common}><circle cx="12" cy="12" r="7" strokeDasharray="2.5 2.5" /><circle cx="12" cy="12" r="1" /></svg>;
   if (kind === "spring") return <svg {...common}><path d="M3 12h3l2-5 3 10 3-10 3 5h3" /></svg>;
   if (kind === "rope") return <svg {...common}><path d="M2.5 12h3l2-4 3 8 3-8 3 4h3" /><circle cx="3" cy="12" r="1" /><circle cx="21" cy="12" r="1" /></svg>;
+  if (kind === "attractor") return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="m4 5 3 3m13-3-3 3m3 11-3-3M4 19l3-3" /><path d="m7 8 2 1m6-1-2 1m2 6-2-1m-6 1 2-1" /></svg>;
+  if (kind === "thruster") return <svg {...common}><path d="M4 12h10m0 0-4-4m4 4-4 4" /><path d="M17 8c2 1 3 2.3 3 4s-1 3-3 4" /><path d="M17 10c1 .6 1.5 1.3 1.5 2S18 13.4 17 14" /></svg>;
   if (kind === "fixate") return <svg {...common}><path d="M6 5v14m12-14v14M3 9h6m6 0h6M3 15h6m6 0h6" /><path d="M9 12h6" /></svg>;
+  if (kind === "play") return <svg {...common}><circle cx="6" cy="12" r="2" /><path d="m10 5 8 7-8 7z" /></svg>;
+  if (kind === "pause") return <svg {...common}><circle cx="6" cy="12" r="2" /><path d="M11 6v12m5-12v12" /></svg>;
+  if (kind === "reset") return <svg {...common}><circle cx="18" cy="12" r="2" /><path d="m14 5-6 7 6 7M8 12h8" /></svg>;
+  if (kind === "transport") return <svg {...common}><circle cx="5" cy="12" r="2" /><path d="m9 7 7 5-7 5M17 7v10" /></svg>;
+  if (kind === "timeline") return <svg {...common}><path d="M4 18h16M12 4v14" /><circle cx="12" cy="5" r="2" /></svg>;
+  if (kind === "livePose") return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M4 12h4m8 0h4M12 4v4m0 8v4" /><path d="m6.5 6.5 2.5 2.5m6-2.5L15 9m-8.5 8.5L9 15m6 2.5L15 15" /></svg>;
   return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M12 3v6m0 6v6M3 12h6m6 0h6" /></svg>;
 };
 
@@ -25,12 +33,29 @@ const Tool = ({ kind, label, active, disabled, onClick }) => <button
   aria-label={label}
   title={label}
   disabled={disabled}
+  aria-pressed={typeof active === "boolean" ? active : undefined}
   onClick={onClick}
 >
   <Glyph kind={kind} />
 </button>;
 
-export default function PhysicsCanvasToolbar({ selectedCount = 0, open = true, onOpenChange, onAssignBody, onAssignCollider, onMakeConstraint }) {
+export default function PhysicsCanvasToolbar({
+  selectedCount = 0,
+  open = true,
+  worldPlaying = false,
+  transportSynced = false,
+  timeScrubEnabled = false,
+  livePose = false,
+  onOpenChange,
+  onAssignBody,
+  onAssignCollider,
+  onMakeConstraint,
+  onPlayPause,
+  onResetWorld,
+  onToggleTransportSync,
+  onToggleLiveTimelinePreview,
+  onToggleLivePose,
+}) {
   const [minimized, setMinimized] = useState(false);
   const [closed, setClosed] = useState(!open);
   const [contextMenu, setContextMenu] = useState(null);
@@ -172,6 +197,16 @@ export default function PhysicsCanvasToolbar({ selectedCount = 0, open = true, o
         <Tool kind="axle" label="Make selected objects Axle pivots" disabled={!selectedCount} onClick={() => onMakeConstraint?.("axle")} />
         <Tool kind="spring" label="Make selected objects Springs" disabled={!selectedCount} onClick={() => onMakeConstraint?.("spring")} />
         <Tool kind="rope" label="Make selected paths into Ropes" disabled={!selectedCount} onClick={() => onMakeConstraint?.("rope")} />
+        <Tool kind="attractor" label="Make selected objects Attractors" disabled={!selectedCount} onClick={() => onMakeConstraint?.("attractor")} />
+        <Tool kind="thruster" label="Make selected paths into Thrusters" disabled={!selectedCount} onClick={() => onMakeConstraint?.("thruster")} />
+      </div>
+      <div className="physics-canvas-tool-separator" />
+      <div className="physics-canvas-tool-group" aria-label="Physics world controls">
+        <Tool kind={worldPlaying ? "pause" : "play"} label={worldPlaying ? "Pause physics world" : "Play physics world"} active={worldPlaying} onClick={onPlayPause} />
+        <Tool kind="reset" label="Reset physics world" onClick={onResetWorld} />
+        <Tool kind="transport" label={transportSynced ? "Use an independent physics clock" : "Sync physics to music transport"} active={transportSynced} onClick={onToggleTransportSync} />
+        <Tool kind="timeline" label={transportSynced ? `Live timeline preview ${timeScrubEnabled ? "on" : "off"}` : "Live timeline preview requires transport sync"} active={timeScrubEnabled} disabled={!transportSynced} onClick={onToggleLiveTimelinePreview} />
+        <Tool kind="livePose" label={`Live pose ${livePose ? "on" : "off"} (\\)`} active={livePose} onClick={onToggleLivePose} />
       </div>
     </div>}
   </aside>

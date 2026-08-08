@@ -15,10 +15,10 @@ import {
   subscribeMediaSemanticFrame,
 } from "./mediaStreamRuntime.js";
 import MediaVisualFeaturePicker from "./MediaVisualFeaturePicker.jsx";
+import NumericInput from "./NumericInput.jsx";
 import { getScoreData } from "./iannixEngine.js";
 
 const stopKeyPropagation = event => event.stopPropagation();
-const numberValue = event => Number(event.target.value);
 
 const processorElements = elements => (elements || []).filter(element => (
   isMediaStreamElement(element)
@@ -174,8 +174,8 @@ const BindingEditor = ({
           </select>
         </label>
         <div className="media-mapping-pair">
-          <label><span>Offset X</span><input type="number" value={binding.offset.x} onKeyDown={stopKeyPropagation} onChange={event => onUpdate({ offset: { x: numberValue(event) } })} /></label>
-          <label><span>Offset Y</span><input type="number" value={binding.offset.y} onKeyDown={stopKeyPropagation} onChange={event => onUpdate({ offset: { y: numberValue(event) } })} /></label>
+          <label><span>Offset X</span><NumericInput value={binding.offset.x} defaultValue={0} onKeyDown={stopKeyPropagation} onCommit={x => onUpdate({ offset: { x } })} /></label>
+          <label><span>Offset Y</span><NumericInput value={binding.offset.y} defaultValue={0} onKeyDown={stopKeyPropagation} onCommit={y => onUpdate({ offset: { y } })} /></label>
         </div>
       </> : <>
         <label className="media-stream-panel-field">
@@ -193,20 +193,20 @@ const BindingEditor = ({
             <option value="above">Above</option>
             <option value="below">Below</option>
           </select></label>
-          <label><span>Threshold</span><input type="number" step="0.01" value={binding.gate.threshold} onKeyDown={stopKeyPropagation} onChange={event => onUpdate({ gate: { threshold: numberValue(event) } })} /></label>
+          <label><span>Threshold</span><NumericInput step="0.01" value={binding.gate.threshold} defaultValue={0} onKeyDown={stopKeyPropagation} onCommit={threshold => onUpdate({ gate: { threshold } })} /></label>
         </div>
         <div className="media-mapping-pair">
-          <label><span>Width</span><input type="number" min="1" max="32" value={binding.style.strokeWidth} onKeyDown={stopKeyPropagation} onChange={event => onUpdate({ style: { strokeWidth: numberValue(event) } })} /></label>
+          <label><span>Width</span><NumericInput min="1" max="32" value={binding.style.strokeWidth} defaultValue={1} onKeyDown={stopKeyPropagation} onCommit={strokeWidth => onUpdate({ style: { strokeWidth } })} /></label>
           <label><span>Color</span><input type="color" value={binding.style.strokeColor || "#52d5ff"} onChange={event => onUpdate({ style: { strokeColor: event.target.value } })} /></label>
         </div>
       </>}
       <div className="media-mapping-pair">
-        <label><span>Smoothing ms</span><input type="number" min="0" max="1000" value={binding.signal.smoothingMs} onKeyDown={stopKeyPropagation} onChange={event => onUpdate({ signal: { smoothingMs: numberValue(event) } })} /></label>
-        <label><span>Grace ms</span><input type="number" min="0" max="5000" value={binding.signal.missingGraceMs} onKeyDown={stopKeyPropagation} onChange={event => onUpdate({ signal: { missingGraceMs: numberValue(event) } })} /></label>
+        <label><span>Smoothing ms</span><NumericInput min="0" max="1000" value={binding.signal.smoothingMs} defaultValue={0} onKeyDown={stopKeyPropagation} onCommit={smoothingMs => onUpdate({ signal: { smoothingMs } })} /></label>
+        <label><span>Grace ms</span><NumericInput min="0" max="5000" value={binding.signal.missingGraceMs} defaultValue={0} onKeyDown={stopKeyPropagation} onCommit={missingGraceMs => onUpdate({ signal: { missingGraceMs } })} /></label>
       </div>
       <label className="media-stream-panel-field">
         <span>Minimum confidence</span>
-        <input type="number" min="0" max="1" step="0.05" value={binding.signal.confidenceMin} onKeyDown={stopKeyPropagation} onChange={event => onUpdate({ signal: { confidenceMin: numberValue(event) } })} />
+        <NumericInput min="0" max="1" step="0.05" value={binding.signal.confidenceMin} defaultValue={0} onKeyDown={stopKeyPropagation} onCommit={confidenceMin => onUpdate({ signal: { confidenceMin } })} />
       </label>
       <div className="media-mapping-pair is-checks">
         <label className="media-stream-panel-check"><input type="checkbox" checked={binding.visualize} onChange={event => onUpdate({ visualize: event.target.checked })} /><span>Highlight</span></label>

@@ -10,7 +10,7 @@ export const COLLIDER_KINDS = Object.freeze(["circle", "ellipse", "box", "convex
 // relationships. Keep the older Rapier-oriented names for compatibility and
 // expose the canvas-first vocabulary alongside them: Fixate is a weld and
 // Axle is a revolute joint.
-export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "rope", "revolute", "weld", "fixate", "axle", "attractor"]);
+export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "rope", "revolute", "weld", "fixate", "axle", "attractor", "thruster"]);
 export const ROUTE_ACTION_KINDS = Object.freeze(["event", "stream", "synth", "midi", "command"]);
 export const MAPPING_SOURCE_KINDS = Object.freeze(["physics-collision"]);
 export const MAPPING_TARGET_KINDS = Object.freeze(["midi-note", "midi-cc", "midi-bend", "expressive-voice", "legacy-action"]);
@@ -172,6 +172,7 @@ export const normalizePhysicsWorld = value => ({
 
 export const normalizePhysicsEndpoint = value => {
   if (!value || typeof value !== "object") return null;
+  if (value.kind === "none") return { kind: "none" };
   if (value.kind === "world") {
     return { kind: "world", point: [finite(value.point?.[0]), finite(value.point?.[1])] };
   }
@@ -194,6 +195,28 @@ export const normalizePhysicsEndpoint = value => {
   if (value.kind === "curve-progress") {
     return { kind: "curve-progress", objectRef, progress: clamp(value.progress, 0, 1) };
   }
+  if (value.kind === "rope") {
+    const constraintId = String(value.constraintId || "");
+    const point = Array.isArray(value.point)
+      && Number.isFinite(Number(value.point[0]))
+      && Number.isFinite(Number(value.point[1]))
+      ? [Number(value.point[0]), Number(value.point[1])]
+      : null;
+    const linkIndex = Number.isInteger(Number(value.linkIndex)) && Number(value.linkIndex) >= 0
+      ? Math.floor(Number(value.linkIndex))
+      : null;
+    const ropeProgress = Number.isFinite(Number(value.ropeProgress))
+      ? clamp(Number(value.ropeProgress), 0, 1)
+      : null;
+    return constraintId && point ? {
+      kind: "rope",
+      objectRef,
+      constraintId,
+      point,
+      ...(linkIndex !== null ? { linkIndex } : {}),
+      ...(ropeProgress !== null ? { ropeProgress } : {}),
+    } : null;
+  }
   const localAnchor = Array.isArray(value.localAnchor)
     && Number.isFinite(Number(value.localAnchor[0]))
     && Number.isFinite(Number(value.localAnchor[1]))
@@ -215,11 +238,13 @@ export const normalizePhysicsEndpoint = value => {
 export const physicsEndpointKey = value => {
   const endpoint = normalizePhysicsEndpoint(value);
   if (!endpoint) return "";
+  if (endpoint.kind === "none") return "none";
   if (endpoint.kind === "world") return `world:${endpoint.point.join(":")}`;
   if (endpoint.kind === "stream") return `stream:${endpoint.streamId}:${endpoint.featureId || ""}:${endpoint.path}`;
   const objectKey = draweratorObjectRefKey(endpoint.objectRef);
   if (endpoint.kind === "bezier-anchor") return `${objectKey}:anchor:${endpoint.anchorId}`;
   if (endpoint.kind === "curve-progress") return `${objectKey}:progress:${endpoint.progress}`;
+  if (endpoint.kind === "rope") return `${objectKey}:rope:${endpoint.constraintId}:${endpoint.ropeProgress ?? endpoint.linkIndex ?? endpoint.point.join(":")}`;
   return `${objectKey}:object:${endpoint.anchor}:${endpoint.localPoint.join(":")}`;
 };
 
@@ -359,8 +384,21 @@ export const serializePhysicsConstraintCustomData = value => {
     a: clone(constraint.a),
     b: clone(constraint.b),
     restLength: constraint.restLength,
+    pathPoints: clone(constraint.pathPoints),
+    segmentLength: constraint.segmentLength,
+    thickness: constraint.thickness,
     stiffness: constraint.stiffness,
     damping: constraint.damping,
+    ...(Array.isArray(constraint.collisionLayers) ? { collisionLayers: [...constraint.collisionLayers] } : {}),
+    motorEnabled: constraint.motorEnabled,
+    motorSpeed: constraint.motorSpeed,
+    motorTorque: constraint.motorTorque,
+    attractionStrength: constraint.attractionStrength,
+    attractionRadius: constraint.attractionRadius,
+    attractionFalloff: constraint.attractionFalloff,
+    attractionMode: constraint.attractionMode,
+    targetTags: clone(constraint.targetTags),
+    thrusterForce: constraint.thrusterForce,
     limitsEnabled: constraint.limitsEnabled,
     lowerLimit: constraint.lowerLimit,
     upperLimit: constraint.upperLimit,
@@ -452,6 +490,10 @@ export const hydrateRelationshipGraphFromElements = (graphValue, elements = []) 
       return normalizePhysicsConstraint({
         ...constraint,
         ...physics,
+        // The canvas object is the source of truth for its explicit role.
+        // Without promoting it back to `kind`, converting a Weld into a Rope
+        // retained the old graph kind even though customData.physics said Rope.
+        kind: physics.constraintKind || physics.role || constraint.kind,
         a: mergeConstraintEndpointFromObjectData(constraint.a, physics.a),
         b: mergeConstraintEndpointFromObjectData(constraint.b, physics.b),
         id: constraint.id,
@@ -560,8 +602,11 @@ export const normalizePhysicsConstraint = value => {
     enabled: value?.enabled !== false,
     kind,
     objectRef: normalizeDraweratorObjectRef(value?.objectRef),
-    a: normalizePhysicsEndpoint(value?.a),
-    b: normalizePhysicsEndpoint(value?.b),
+    // Ropes are freestanding chains. Axles and welds attach individual runtime
+    // links through their own rope endpoints; a rope itself never owns two
+    // hidden start/end connections.
+    a: kind === "rope" ? { kind: "none" } : normalizePhysicsEndpoint(value?.a),
+    b: kind === "rope" ? { kind: "none" } : normalizePhysicsEndpoint(value?.b),
     restLength: Math.max(0, finite(value?.restLength, 100)),
     // Rope links are generated only at runtime. Persist the authored curve's
     // world-space points and lightweight generation settings, never Rapier
@@ -569,8 +614,29 @@ export const normalizePhysicsConstraint = value => {
     pathPoints,
     segmentLength: Math.max(2, finite(value?.segmentLength, 24)),
     thickness: Math.max(0.5, finite(value?.thickness, 4)),
+    // Rope links are runtime bodies, so they participate in the same named
+    // collision stack as authored bodies. Older ropes gain Default rather than
+    // silently keeping their previous collide-with-everything behavior.
+    collisionLayers: kind === "rope"
+      ? (Array.isArray(value?.collisionLayers)
+        ? uniqueStrings(value.collisionLayers).slice(0, MAX_PHYSICS_COLLISION_LAYERS)
+        : ["default"])
+      : null,
     stiffness: Math.max(0, finite(value?.stiffness, 40)),
     damping: Math.max(0, finite(value?.damping, 4)),
+    // Axle motors are authored in the friendly canvas unit of degrees per
+    // second. The Rapier adapter converts that value to radians per second.
+    motorEnabled: isHinge && value?.motorEnabled === true,
+    motorSpeed: finite(value?.motorSpeed, 0),
+    motorTorque: Math.max(0, finite(value?.motorTorque, 10)),
+    // Attractors and thrusters are authored as visible canvas objects. Their
+    // force settings stay solver-independent in the relationship graph.
+    attractionStrength: Math.max(0, finite(value?.attractionStrength, 20)),
+    attractionRadius: Math.max(0, finite(value?.attractionRadius, 300)),
+    attractionFalloff: Math.max(0, finite(value?.attractionFalloff, 1)),
+    attractionMode: value?.attractionMode === "repel" ? "repel" : "attract",
+    targetTags: uniqueStrings(value?.targetTags),
+    thrusterForce: finite(value?.thrusterForce, 20),
     limitsEnabled: hasLimits,
     lowerLimit: hasLimits ? lowerLimit : null,
     upperLimit: hasLimits ? upperLimit : null,
@@ -738,6 +804,10 @@ export const normalizeRelationshipGraph = value => {
     const collisionLayers = body.collisionLayers.filter(layerId => validLayerIds.has(layerId));
     return { ...body, collisionLayers };
   }).filter(keepSystem);
+  const constraints = list(graph.constraints).map(normalizePhysicsConstraint).map(constraint => {
+    if (constraint.kind !== "rope" || !Array.isArray(constraint.collisionLayers)) return constraint;
+    return { ...constraint, collisionLayers: constraint.collisionLayers.filter(layerId => validLayerIds.has(layerId)) };
+  }).filter(keepSystem);
   const legacyRoutes = list(graph.routes).map(normalizePhysicsRoute).filter(keepSystem);
   const mappings = list(graph.mappings).length
     ? list(graph.mappings).map(normalizeRelationshipMapping)
@@ -748,7 +818,7 @@ export const normalizeRelationshipGraph = value => {
     systems,
     bodies,
     populations: list(graph.populations).map(normalizePhysicsPopulation).filter(keepSystem),
-    constraints: list(graph.constraints).map(normalizePhysicsConstraint).filter(keepSystem),
+    constraints,
     // Routes were the first narrow collision-action experiment. They migrate
     // into mappings on read and are intentionally absent from new scene JSON.
     mappings: mappings.filter(mapping => !mapping.source.systemId || systemIds.has(mapping.source.systemId)),
@@ -822,7 +892,7 @@ export const removeRelationshipBindingsForElements = (graphValue, elementIds) =>
   };
   const endpointReferencesDeletedElement = endpointValue => {
     const endpoint = normalizePhysicsEndpoint(endpointValue);
-    return Boolean(endpoint && !["world", "stream"].includes(endpoint.kind)
+    return Boolean(endpoint && !["none", "world", "stream"].includes(endpoint.kind)
       && referencesDeletedElement(endpoint.objectRef));
   };
   const bodies = graph.bodies.filter(body => !referencesDeletedElement(body.objectRef));
@@ -846,7 +916,7 @@ export const remapRelationshipGraph = (graphValue, idMap, existingIds = new Set(
   };
   const remapEndpoint = endpointValue => {
     const endpoint = normalizePhysicsEndpoint(endpointValue);
-    if (!endpoint || ["world", "stream"].includes(endpoint.kind)) return endpoint;
+    if (!endpoint || ["none", "world", "stream"].includes(endpoint.kind)) return endpoint;
     const objectRef = remapRef(endpoint.objectRef);
     return objectRef ? { ...endpoint, objectRef } : null;
   };
@@ -871,7 +941,7 @@ export const relationshipGraphForSelection = (graphValue, selectedElementIds) =>
   const bodyIds = new Set(bodies.map(body => body.id));
   const endpointSelected = endpoint => {
     const normalized = normalizePhysicsEndpoint(endpoint);
-    return !normalized || ["world", "stream"].includes(normalized.kind) || selected.has(normalized.objectRef.elementId);
+    return !normalized || ["none", "world", "stream"].includes(normalized.kind) || selected.has(normalized.objectRef.elementId);
   };
   const constraints = graph.constraints.filter(constraint => (
     (!constraint.objectRef || selected.has(constraint.objectRef.elementId))
@@ -947,7 +1017,7 @@ export const findRelationshipOrphans = (graphValue, elements = []) => {
     .map(element => [element.id, element]));
   const endpointIsOrphaned = endpointValue => {
     const endpoint = normalizePhysicsEndpoint(endpointValue);
-    if (!endpoint || ["world", "stream"].includes(endpoint.kind)) return false;
+    if (!endpoint || ["none", "world", "stream"].includes(endpoint.kind)) return false;
     const element = liveElements.get(endpoint.objectRef.elementId);
     if (!element) return true;
     if (endpoint.kind !== "bezier-anchor") return false;

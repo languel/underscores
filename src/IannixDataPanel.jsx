@@ -3,6 +3,7 @@ import { getScoreData, normalizeIannixData } from "./iannixEngine.js";
 import { getBulkIannixEditorValue, getSharedPrimitiveValue } from "./iannixBulkEdit.js";
 import { infoProps } from "./uiInfo.js";
 import TimeValueInput from "./TimeValueInput.jsx";
+import NumericInput from "./NumericInput.jsx";
 
 const roleName = (role, count) => {
   const name = `${role.charAt(0).toUpperCase()}${role.slice(1)}`;
@@ -36,16 +37,14 @@ const PrimitiveEditor = ({ name, value, mixed, onChange, isLabelTemplate = false
   }
   if (typeof value === "number") {
     return (
-      <input
+      <NumericInput
         key={`${value}:${mixed}`}
         aria-label={name}
-        type="number"
-        defaultValue={mixed ? "" : value}
+        value={mixed ? null : value}
+        defaultValue={mixed ? undefined : value}
         placeholder={mixed ? "Mixed" : ""}
-        onBlur={event => {
-          if (!event.currentTarget.value.trim()) return;
-          const next = Number(event.currentTarget.value);
-          if (Number.isFinite(next) && (mixed || next !== value)) onChange(next);
+        onCommit={next => {
+          if (mixed || next !== value) onChange(next);
         }}
       />
     );

@@ -106,7 +106,7 @@ still composed above Excalidraw's native canvas. A unified compositor remains th
 true native/SVG per-object z-order and exact time-specific PNG parity. See
 [SVG architecture](svg.md#remaining-compositor-boundary).
 
-## Physics interaction checkpoint (2026-08-06)
+## Physics interaction checkpoint (2026-08-08)
 
 The current `livecode` physics milestone establishes the canvas-first interaction baseline: authored
 Dynamic/Kinematic/Static/Sensor bodies, named collision-layer stacks, body and pivot properties in
@@ -116,9 +116,13 @@ bodies against each other, with free 360-degree rotation by default. The compact
 is a draggable canvas utility, while the Physics panel remains the detailed inspector.
 
 Live pose now provides constraint-solving manipulation without advancing timeline time. It can be
-enabled persistently in Physics World or invoked for one drag with `Cmd`; a release at timeline zero
-becomes the new reset pose. Collision layers are available before the next constraint family so
-articulated rigs can deliberately suppress self-collisions.
+enabled persistently in Physics World or toggled with `\\`; a release at timeline zero becomes the
+new reset pose. Ropes are free solver chains rather than hidden start/end constraints, and Axle or
+Weld pivots can bind any rope control point to a body or World. Rope collision-layer memberships
+are exposed in Properties. A Live-pose release commits the final worker snapshot—including the
+rope shape, World pivot anchor, and normalized rope-link attachment—after a 96-iteration settle,
+so the saved reset pose keeps the attachment intact. Collision layers let articulated rigs
+deliberately suppress self-collisions.
 
 ## Next phase
 
