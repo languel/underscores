@@ -1074,7 +1074,18 @@ export class RapierPhysicsSystem {
     try {
       this.world.gravity = { x: 0, y: 0 };
       const count = Math.max(1, Math.min(96, Math.round(finite(iterations, 24))));
-      for (let index = 0; index < count; index += 1) this.world.step(eventQueue);
+      for (let index = 0; index < count; index += 1) {
+        // Live pose is an iterative position solve. Rope links otherwise carry
+        // residual velocity from the previous correction into the next pass,
+        // so an unchanged pointer target can publish a visibly different chain
+        // shape on the following frame.
+        for (const entity of this.bodyById.values()) {
+          if (!entity.ropeLink) continue;
+          entity.rigidBody.setLinvel({ x: 0, y: 0 }, true);
+          entity.rigidBody.setAngvel(0, true);
+        }
+        this.world.step(eventQueue);
+      }
       for (const entity of this.bodyById.values()) {
         if (entity.rigidBody.isFixed()) continue;
         entity.rigidBody.setLinvel({ x: 0, y: 0 }, true);
@@ -1123,19 +1134,94 @@ export class RapierPhysicsSystem {
     const entity = state.entityA || state.entityB;
     const localAnchor = state.entityA ? state.anchorA : state.anchorB;
     if (!entity || !localAnchor) return false;
-    const anchor = this.#fixedAnchor(point);
+    const ropeConstraintGrab = state.definition?.a?.kind === "rope"
+      || state.definition?.b?.kind === "rope";
+    const ropeGrabReferences = ropeConstraintGrab ? this.#ropeGrabAnchorReferences(constraintId) : null;
+    const grabPoint = ropeConstraintGrab
+      ? this.#clampRopeGrabTarget(constraintId, point, ropeGrabReferences)
+      : point;
+    const anchor = this.#fixedAnchor(grabPoint);
     const joint = this.world.createImpulseJoint(RAPIER.JointData.spring(0, stiffness, damping, { x: 0, y: 0 }, localAnchor), anchor, entity.rigidBody, true);
-    this.grabState = { kind: "constraint", constraintId, anchor, joint, livePose };
+    this.grabState = { kind: "constraint", constraintId, anchor, joint, livePose, ropeGrabReferences };
     if (livePose) this.#solveLivePose();
     return true;
   }
 
+  #ropeGrabAnchorReferences(constraintId) {
+    const grabbed = this.constraints.get(constraintId);
+    const ropeEndpointSide = grabbed?.definition?.a?.kind === "rope"
+      ? "a"
+      : grabbed?.definition?.b?.kind === "rope" ? "b" : null;
+    const ropeId = ropeEndpointSide ? grabbed.definition[ropeEndpointSide].constraintId : null;
+    const rope = ropeId ? this.constraints.get(ropeId) : null;
+    if (!rope?.rope || !Number.isFinite(Number(rope.definition?.restLength))) return null;
+    const grabbedProgress = Number(grabbed[ropeEndpointSide === "a" ? "ropeProgressA" : "ropeProgressB"]);
+    if (!Number.isFinite(grabbedProgress)) return null;
+    const ropeLength = Math.max(0, Number(rope.definition.restLength));
+    const anchors = [];
+    const attachmentPoint = (candidate, side) => {
+      const worldAnchor = side === "a" ? candidate.worldAnchorA : candidate.worldAnchorB;
+      if (worldAnchor) {
+        const translation = worldAnchor.translation();
+        return [translation.x * this.inverseWorldScale, translation.y * this.inverseWorldScale];
+      }
+      const entity = side === "a" ? candidate.entityA : candidate.entityB;
+      const localAnchor = side === "a" ? candidate.anchorA : candidate.anchorB;
+      if (!entity?.rigidBody || !localAnchor) return null;
+      const point = this.#worldPointForAnchor(entity.rigidBody, localAnchor);
+      return [point.x * this.inverseWorldScale, point.y * this.inverseWorldScale];
+    };
+    for (const [candidateId, candidate] of this.constraints) {
+      if (candidateId === constraintId) continue;
+      for (const side of ["a", "b"]) {
+        const endpoint = candidate.definition?.[side];
+        if (endpoint?.kind !== "rope" || endpoint.constraintId !== ropeId) continue;
+        const progress = Number(candidate[side === "a" ? "ropeProgressA" : "ropeProgressB"]);
+        const point = attachmentPoint(candidate, side);
+        if (!Number.isFinite(progress) || !point) continue;
+        anchors.push({
+          point,
+          maxDistance: Math.max(0, ropeLength * Math.abs(progress - grabbedProgress) - 0.5),
+        });
+      }
+    }
+    return { anchors, ropeLength };
+  }
+
+  #clampRopeGrabTarget(constraintId, point, references = null) {
+    const target = [finite(point?.[0]), finite(point?.[1])];
+    const resolved = references || this.#ropeGrabAnchorReferences(constraintId);
+    if (!resolved) return target;
+    for (const anchor of resolved.anchors) {
+      const dx = target[0] - anchor.point[0];
+      const dy = target[1] - anchor.point[1];
+      const distance = Math.hypot(dx, dy);
+      if (distance <= anchor.maxDistance || distance < 1e-6) continue;
+      const scale = anchor.maxDistance / distance;
+      target[0] = anchor.point[0] + dx * scale;
+      target[1] = anchor.point[1] + dy * scale;
+    }
+    return target;
+  }
+
   moveGrab(point, { livePose = false, iterations = 24 } = {}) {
     if (!this.grabState) return false;
-    const target = { x: finite(point?.[0]) * this.worldScale, y: finite(point?.[1]) * this.worldScale };
+    const grabbedConstraint = this.grabState.kind === "constraint-world" || this.grabState.kind === "constraint"
+      ? this.constraints.get(this.grabState.constraintId)
+      : null;
+    const ropeConstraintGrab = grabbedConstraint?.definition?.a?.kind === "rope"
+      || grabbedConstraint?.definition?.b?.kind === "rope";
+    const ropeGrabReferences = ropeConstraintGrab
+      ? (this.grabState.ropeGrabReferences
+        || (this.grabState.ropeGrabReferences = this.#ropeGrabAnchorReferences(this.grabState.constraintId)))
+      : null;
+    const targetPoint = ropeConstraintGrab
+      ? this.#clampRopeGrabTarget(this.grabState.constraintId, point, ropeGrabReferences)
+      : [finite(point?.[0]), finite(point?.[1])];
+    const target = { x: targetPoint[0] * this.worldScale, y: targetPoint[1] * this.worldScale };
     if (this.grabState.worldAnchor) this.grabState.worldAnchor.setTranslation(target, true);
     else this.grabState.anchor?.setTranslation(target, true);
-    if (this.grabState.livePose || livePose) this.#solveLivePose(iterations);
+    if (this.grabState.livePose || livePose) this.#solveLivePose(ropeConstraintGrab ? Math.max(96, iterations) : iterations);
     return true;
   }
 

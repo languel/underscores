@@ -92,7 +92,12 @@ const debugColor = (settings, key, fallback, alphaMultiplier = 1, objectColor = 
 
 const selectedEndpoint = (endpointValue, selectedIds) => {
   const endpoint = normalizePhysicsEndpoint(endpointValue);
-  return endpoint && !["world", "stream"].includes(endpoint.kind) && selectedIds.has(endpoint.objectRef.elementId);
+  return Boolean(
+    endpoint
+    && endpoint.objectRef?.kind === "element"
+    && !["world", "stream"].includes(endpoint.kind)
+    && selectedIds.has(endpoint.objectRef.elementId),
+  );
 };
 
 const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue, appState, elements = [], getLiveScene = null, selectedElementIds = {}, showAllRelationships = false, debug = null, onRenderMetric = null }) {

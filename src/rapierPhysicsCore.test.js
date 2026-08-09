@@ -603,6 +603,113 @@ test("rope-attached pivots publish their live joint anchor", async () => {
   rebuilt.dispose();
 });
 
+test("two rope-bound world pivots clamp Live pose without stretching or jitter", async () => {
+  const restLength = 130;
+  const graph = normalizeRelationshipGraph({
+    world: { gravity: { x: 0, y: 0 }, pixelsPerMeter: 100 },
+    systems: [{ id: "world", gravityMode: "world", clock: { fixedHz: 60 } }],
+    constraints: [
+      {
+        id: "rope", systemId: "world", kind: "rope", a: { kind: "none" }, b: { kind: "none" },
+        pathPoints: [[0, 0], [60, 25], [120, 0]], restLength, segmentLength: 24, thickness: 4,
+      },
+      {
+        id: "left", systemId: "world", kind: "axle",
+        a: { kind: "rope", objectRef: { kind: "element", elementId: "rope-visual" }, constraintId: "rope", point: [0, 0], ropeProgress: 0 },
+        b: { kind: "world", point: [0, 0] },
+      },
+      {
+        id: "right", systemId: "world", kind: "axle",
+        a: { kind: "rope", objectRef: { kind: "element", elementId: "rope-visual" }, constraintId: "rope", point: [120, 0], ropeProgress: 1 },
+        b: { kind: "world", point: [120, 0] },
+      },
+    ],
+  });
+  const runtime = await RapierPhysicsSystem.create(graph, "world");
+  const pathLength = points => points.slice(1).reduce((total, point, index) => (
+    total + Math.hypot(point[0] - points[index][0], point[1] - points[index][1])
+  ), 0);
+  assert.equal(runtime.grabConstraint("left", [0, 0], 280, 28, { livePose: true }), true);
+  runtime.moveGrab([-40, 40], { livePose: true, iterations: 36 });
+  const firstPose = runtime.poses();
+  const firstPath = firstPose.ropePaths[0].points;
+  const leftAnchor = firstPose.constraintAnchors.find(anchor => anchor.constraintId === "left")?.point;
+  assert.ok(leftAnchor);
+  assert.ok(pathLength(firstPath) <= restLength + 1, `rope stretched to ${pathLength(firstPath).toFixed(3)} px`);
+  assert.ok(Math.hypot(leftAnchor[0] - 120, leftAnchor[1]) <= restLength + 0.5, "drag target exceeded rope reach");
+
+  runtime.moveGrab([-40, 40], { livePose: true, iterations: 36 });
+  const secondPath = runtime.poses().ropePaths[0].points;
+  const jitter = firstPath.reduce((maximum, point, index) => Math.max(
+    maximum,
+    Math.hypot(point[0] - secondPath[index][0], point[1] - secondPath[index][1]),
+  ), 0);
+  assert.ok(jitter < 0.01, `repeated drag target moved the rope by ${jitter.toFixed(3)} px`);
+  runtime.releaseGrab();
+  runtime.dispose();
+});
+
+test("rope-bound axle pivots preserve rope length while dragging", async () => {
+  const restLength = 120;
+  const graph = normalizeRelationshipGraph({
+    world: { gravity: { x: 0, y: 0 }, pixelsPerMeter: 100 },
+    systems: [{ id: "world", gravityMode: "world", clock: { fixedHz: 60 } }],
+    bodies: [
+      {
+        id: "left-body", systemId: "world", bodyType: "dynamic",
+        objectRef: { kind: "element", elementId: "left-body" },
+        collider: { kind: "circle", width: 20, height: 20 }, initial: { x: 0, y: 0 },
+      },
+      {
+        id: "right-body", systemId: "world", bodyType: "dynamic",
+        objectRef: { kind: "element", elementId: "right-body" },
+        collider: { kind: "circle", width: 20, height: 20 }, initial: { x: 120, y: 0 },
+      },
+    ],
+    constraints: [
+      {
+        id: "rope", systemId: "world", kind: "rope", a: { kind: "none" }, b: { kind: "none" },
+        pathPoints: [[0, 0], [60, 0], [120, 0]], restLength, segmentLength: 20, thickness: 4,
+      },
+      {
+        id: "left-axle", systemId: "world", kind: "axle",
+        a: { kind: "rope", objectRef: { kind: "element", elementId: "rope-visual" }, constraintId: "rope", point: [0, 0], ropeProgress: 0 },
+        b: { kind: "object", objectRef: { kind: "element", elementId: "left-body" }, anchor: "local", localAnchor: [0, 0] },
+      },
+      {
+        id: "right-axle", systemId: "world", kind: "axle",
+        a: { kind: "rope", objectRef: { kind: "element", elementId: "rope-visual" }, constraintId: "rope", point: [120, 0], ropeProgress: 1 },
+        b: { kind: "object", objectRef: { kind: "element", elementId: "right-body" }, anchor: "local", localAnchor: [0, 0] },
+      },
+    ],
+  });
+  const runtime = await RapierPhysicsSystem.create(graph, "world");
+  const pathLength = points => points.slice(1).reduce((total, point, index) => (
+    total + Math.hypot(point[0] - points[index][0], point[1] - points[index][1])
+  ), 0);
+  assert.equal(runtime.grabConstraint("left-axle", [0, 0], 280, 28, { livePose: true }), true);
+  runtime.moveGrab([-200, 200], { livePose: true, iterations: 36 });
+  const pose = runtime.poses();
+  const ropePath = pose.ropePaths[0].points;
+  const leftAnchor = pose.constraintAnchors.find(anchor => anchor.constraintId === "left-axle")?.point;
+  const rightAnchor = pose.constraintAnchors.find(anchor => anchor.constraintId === "right-axle")?.point;
+  assert.ok(leftAnchor && rightAnchor);
+  assert.ok(pathLength(ropePath) <= restLength + 1, `rope stretched to ${pathLength(ropePath).toFixed(3)} px`);
+  assert.ok(
+    Math.hypot(leftAnchor[0] - rightAnchor[0], leftAnchor[1] - rightAnchor[1]) <= restLength + 0.5,
+    "drag target exceeded the rope's available length",
+  );
+  runtime.moveGrab([-200, 200], { livePose: true, iterations: 36 });
+  const repeatedPath = runtime.poses().ropePaths[0].points;
+  const jitter = ropePath.reduce((maximum, point, index) => Math.max(
+    maximum,
+    Math.hypot(point[0] - repeatedPath[index][0], point[1] - repeatedPath[index][1]),
+  ), 0);
+  assert.ok(jitter < 0.01, `repeated axle drag moved the rope by ${jitter.toFixed(3)} px`);
+  runtime.releaseGrab();
+  runtime.dispose();
+});
+
 test("dense authored rope paths are simplified to their requested link spacing", async () => {
   // Freehand input can contain hundreds of points a few pixels apart. Those
   // points are visual detail, not an instruction to create one rigid body and

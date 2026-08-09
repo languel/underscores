@@ -10133,14 +10133,27 @@ function App() {
     const point = [scenePoint.x, scenePoint.y];
     if (!tool) {
       const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+      const appState = api.getAppState();
+      const selectedIds = appState.selectedElementIds || {};
       // Live pose is an explicit world mode. Its keyboard shortcut leaves Cmd
       // available for Excalidraw's native alignment gesture.
       const livePose = graph.world.livePose === true;
       // Pivots take precedence in live pose mode. A small pivot normally
       // overlaps the body it controls, and choosing the joint makes the
       // intended IK-like handle directly manipulable.
-      const constraint = livePose ? physicsConstraintAtPoint(point) : null;
+      const hoveredConstraint = physicsConstraintAtPoint(point);
+      const constraint = livePose ? hoveredConstraint : null;
       const element = physicsElementAtPoint(point);
+      // A selected physics object belongs to Excalidraw's native transform
+      // gesture. Intercepting it here starts a runtime grab instead, which
+      // makes box-selected groups appear to lose their selection depending on
+      // whether the pointer-down happened over a body or an empty part of the
+      // selection. Live posing remains available by starting on an unselected
+      // pivot/body, while an existing selection always transforms as a unit.
+      const selectedConstraint = hoveredConstraint?.objectRef?.kind === "element"
+        && selectedIds[hoveredConstraint.objectRef.elementId];
+      const selectedBody = element && selectedIds[element.id];
+      if (appState.activeTool?.type === "selection" && (selectedConstraint || selectedBody)) return false;
       const body = !constraint && element && graph.bodies.find(candidate => (
         candidate.enabled && candidate.bodyType !== "fixed" && candidate.objectRef?.kind === "element" &&
         candidate.objectRef.elementId === element.id && (physicsRuntimeRef.current.isPlaying(candidate.systemId) || livePose)
