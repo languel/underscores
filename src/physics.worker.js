@@ -1,5 +1,6 @@
 import { RapierPhysicsSystem } from "./rapierPhysicsCore.js";
 import { normalizeRelationshipGraph } from "./relationshipGraph.js";
+import { createPhysicsInteractionQueue } from "./physicsInteractionQueue.js";
 
 const systems = new Map();
 const playing = new Set();
@@ -27,6 +28,7 @@ const requestedPlayingSystems = new Set();
 // same authoring gesture that rebuilds the graph, so retain the request until
 // that graph's runtime exists instead of solving against the previous world.
 const pendingRelaxMessages = [];
+const pendingInteractionQueue = createPhysicsInteractionQueue();
 
 const post = (type, detail = {}, transfer = []) => self.postMessage({ type, graphRevision, ...detail }, transfer);
 
@@ -42,6 +44,7 @@ const disposeSystems = () => {
 
 const initialize = async (graphValue, requestedGraphRevision = graphRevision + 1) => {
   const revision = ++loadRevision;
+  pendingInteractionQueue.reset();
   disposeSystems();
   const nextGraph = normalizeRelationshipGraph(graphValue);
   const nextSystems = new Map();
@@ -81,6 +84,8 @@ const initialize = async (graphValue, requestedGraphRevision = graphRevision + 1
     dirtySystems.add(message.systemId);
     post("relaxed", { requestId: message.requestId, systemId: message.systemId, poses });
   }
+  const pendingInteractions = pendingInteractionQueue.drain();
+  for (const message of pendingInteractions) self.onmessage({ data: message });
   if (pending.length) publishPoses(performance.now());
 };
 
@@ -214,6 +219,7 @@ self.onmessage = event => {
     return;
   }
   const runtime = systems.get(message.systemId);
+  if (pendingInteractionQueue.defer(message, runtime)) return;
   if (message.type === "play") {
     if (message.systemId) {
       requestedPlayingSystems.add(message.systemId);

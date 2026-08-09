@@ -139,7 +139,7 @@ function CollisionLayerMembershipPicker({ layers, values, disabled = false, onCh
       const included = memberships.map(membership => membership.includes(layer.id));
       const active = included.length > 0 && included.every(Boolean);
       const mixed = included.some(Boolean) && !active;
-      return <label key={layer.id} title={`Collide as ${layer.name}`}>
+      return <label key={layer.id} title={`Belongs to ${layer.name}`}>
         <input
           type="checkbox"
           checked={active}
@@ -381,6 +381,7 @@ export default function PhysicsPanel({
             <Button disabled={layer.id === "default" || collisionLayerStack.layers.length <= 1} onClick={() => removeCollisionLayer(layer.id)}>Remove</Button>
           </div>)}
         </div>
+        <small className="physics-layer-help">Assign objects with <em>Belongs to layers</em>; use this table to choose which layer pairs can contact.</small>
         <div className="physics-layer-matrix" role="grid" aria-label="Collision layer matrix" style={{ "--physics-layer-count": collisionLayerStack.layers.length }}>
           <div className="physics-layer-matrix-head" aria-hidden="true"><span>Collides with</span>{collisionLayerStack.layers.map(layer => <span key={layer.id} title={layer.name}>{layer.name}</span>)}</div>
           {collisionLayerStack.layers.map(first => <div key={first.id} className="physics-layer-matrix-row" role="row">
@@ -421,6 +422,7 @@ export default function PhysicsPanel({
           {systemConstraints.map((constraint, index) => <ConstraintCard
             key={constraint.id}
             constraint={constraint}
+            collisionLayers={collisionLayerStack.layers}
             springElement={sceneElementsById.get(constraint.objectRef?.elementId)}
             expanded={expandedConstraintId === null ? index === 0 : expandedConstraintId === constraint.id}
             onToggle={() => setExpandedConstraintId(current => current === constraint.id ? false : constraint.id)}
@@ -469,7 +471,7 @@ export default function PhysicsPanel({
           {selectedBodies.length === 1 && <label className="physics-field"><span>Physics name</span><input value={selectedBody.name} onChange={event => patchSelectedBody({ name: event.target.value })} /></label>}
           <label className="physics-check"><input type="checkbox" checked={selectedBody.enabled} onChange={event => patchSelectedBody({ enabled: event.target.checked })} /><span>Enabled{selectedBodies.length > 1 ? ` · ${selectedBodies.length} bodies` : ""}</span></label>
           <label className="physics-field"><span>Tags</span><input value={selectedBody.collisionTags.join(", ")} onChange={event => patchSelectedBody({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} /></label>
-          <div className="physics-field physics-collision-layer-field"><span>Collision layers</span><CollisionLayerMembershipPicker layers={collisionLayerStack.layers} values={selectedBodies.map(body => body.collisionLayers)} onChange={updateSelectedCollisionLayers} /></div>
+          <div className="physics-field physics-collision-layer-field" {...infoProps("Collision-layer membership", "These checkboxes assign the selected body to one or more layers. The matrix above controls which layer pairs make contact.")}><span>Belongs to layers</span><CollisionLayerMembershipPicker layers={collisionLayerStack.layers} values={selectedBodies.map(body => body.collisionLayers)} onChange={updateSelectedCollisionLayers} /></div>
           <label className="physics-field" {...infoProps("Object note", "A per-body value available to collision mappings as aNote/noteA or bNote/noteB.")}><span>Object note</span><NumericInput min="0" max="127" step="1" value={selectedBody.mappingValues.note} defaultValue={60} onCommit={note => patchSelectedBody({ mappingValues: { note } })} /></label>
           {selectedBodyElements.length === selectedBodies.length && <label className="physics-field"><span>Collider</span><select value={getPhysicsColliderSelectionValue(selectedBody.collider, { allowPath: selectedBodyElements.every(element => ["freedraw", "line", "arrow"].includes(element.type) || element.customData?.draweratorGeometry?.kind === "cubicBezierPath") })} onChange={event => patchSelectedBody({ colliderKind: event.target.value })}><option value="box">Bounding box</option><option value="ellipse">Bounding ellipse</option><option value="convex">Convex hull</option>{selectedBodyElements.every(element => ["freedraw", "line", "arrow"].includes(element.type) || element.customData?.draweratorGeometry?.kind === "cubicBezierPath") && <option value="chain">Path chain</option>}</select></label>}
           <label className="physics-field" {...infoProps("Collision skin", "Invisible scene-pixel padding around this collider. It helps small or fast bodies make stable contact with fine paths.")}><span>Collision skin</span><NumericInput min="0" max="64" step="0.5" value={selectedBody.collider.contactSkin} defaultValue={0} onCommit={contactSkin => patchSelectedBody({ collider: { contactSkin } })} /></label>
@@ -571,7 +573,7 @@ const endpointLabel = endpoint => {
   return `Object · ${endpoint.objectRef?.elementId?.slice(0, 10) || "missing"}`;
 };
 
-function ConstraintCard({ constraint: constraintValue, springElement, expanded, onToggle, onUpdate, onRemove }) {
+function ConstraintCard({ constraint: constraintValue, collisionLayers = [], springElement, expanded, onToggle, onUpdate, onRemove }) {
   const constraint = normalizePhysicsConstraint(constraintValue);
   const isSpring = ["spring", "distance"].includes(constraint.kind);
   const isRope = constraint.kind === "rope";
@@ -606,7 +608,7 @@ function ConstraintCard({ constraint: constraintValue, springElement, expanded, 
           <option value="fixate">Weld</option><option value="axle">Axle</option><option value="spring">Spring</option><option value="rope">Rope</option><option value="attractor">Attractor</option><option value="thruster">Thruster</option><option value="distance">Distance</option>
           <option value="pin">Pin (legacy)</option><option value="revolute">Revolute (legacy)</option><option value="weld">Weld (legacy)</option>
         </select></label>
-        <label className="physics-check" {...infoProps("Collide while connected", "Off by default so connected parts do not immediately collide with one another. Enable when their colliders should still make contact.")}><input type="checkbox" checked={constraint.collideConnected} onChange={event => onUpdate({ collideConnected: event.target.checked })} /><span>Collide while connected</span></label>
+        <label className="physics-check" {...infoProps("Collide while connected", "Controls only colliders joined directly by this pivot. It does not assign collision layers and it does not enable a rope to collide with every other link.")}><input type="checkbox" checked={constraint.collideConnected} onChange={event => onUpdate({ collideConnected: event.target.checked })} /><span>Collide while connected</span></label>
       </div>
       <div className="physics-constraint-endpoints"><span>A · {endpointLabel(constraint.a)}</span><span>B · {endpointLabel(constraint.b)}</span></div>
       {isSpring && <div className="physics-two-column">
@@ -618,6 +620,10 @@ function ConstraintCard({ constraint: constraintValue, springElement, expanded, 
         <label className="physics-field"><span>Link length</span><NumericInput min="2" step="any" value={constraint.segmentLength} defaultValue={24} onCommit={segmentLength => onUpdate({ segmentLength })} /></label>
         <label className="physics-field"><span>Thickness</span><NumericInput min="0.5" step="any" value={constraint.thickness} defaultValue={4} onCommit={thickness => onUpdate({ thickness })} /></label>
       </div>}
+      {isRope && <>
+        <div className="physics-field physics-collision-layer-field" {...infoProps("Collision-layer membership", "These checkboxes assign the rope to one or more layers. The world matrix controls which layer pairs make contact with the rope.")}><span>Belongs to layers</span><CollisionLayerMembershipPicker layers={collisionLayers} values={[constraint.collisionLayers]} onChange={collisionLayersValue => onUpdate({ collisionLayers: collisionLayersValue })} /></div>
+        <label className="physics-check" {...infoProps("Self collisions", "Allow non-adjacent links in this rope to collide with one another. Leave this off for a lighter, more stable rope; layer-pair settings still control rope-to-body contact.")}><input type="checkbox" checked={constraint.selfCollisions === true} onChange={event => onUpdate({ selfCollisions: event.target.checked })} /><span>Self collisions</span></label>
+      </>}
       {isAxle && <>
         <label className="physics-check" {...infoProps("Motor", "Drives the axle at the chosen angular speed. Positive values rotate counter-clockwise; torque limits how strongly the motor corrects the speed.")}><input type="checkbox" checked={constraint.motorEnabled === true} onChange={event => onUpdate({ motorEnabled: event.target.checked })} /><span>Motor enabled</span></label>
         <div className="physics-two-column">

@@ -529,6 +529,61 @@ test("rope constraints leave explicit None endpoints free", async () => {
   runtime.dispose();
 });
 
+test("ropes use their named layers to reach a spool without self-contact by default", async () => {
+  const graph = normalizeRelationshipGraph({
+    world: {
+      collisionLayers: {
+        layers: [
+          { id: "default", name: "Default" },
+          { id: "ropes", name: "Ropes" },
+          { id: "spool", name: "Spool" },
+        ],
+        matrix: {
+          "default|default": true,
+          "default|ropes": false,
+          "default|spool": false,
+          "ropes|ropes": false,
+          "ropes|spool": true,
+          "spool|spool": false,
+        },
+      },
+    },
+    systems: [{ id: "world", gravity: { x: 0, y: 0 } }],
+    bodies: [{
+      id: "spool", systemId: "world", bodyType: "fixed", collisionLayers: ["spool"],
+      collider: { kind: "circle", radius: 24 }, initial: { x: 0, y: 0 },
+    }],
+    constraints: [{
+      id: "rope", systemId: "world", kind: "rope", collisionLayers: ["ropes"],
+      pathPoints: [[-100, 0], [100, 0]], a: { kind: "none" }, b: { kind: "none" },
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(graph, "world");
+  const spool = runtime.world.getCollider(runtime.bodyById.get("spool").colliderHandle).collisionGroups();
+  const rope = runtime.world.getCollider(runtime.bodyById.get("rope:rope:0").colliderHandle).collisionGroups();
+  assert.equal(spool >>> 16, 1 << 2, "spool belongs to its named layer");
+  assert.equal(rope >>> 16, 1 << 15, "default rope links use the private no-self-contact group");
+  assert.equal(rope & 0xffff, 1 << 2, "rope listens to the spool layer");
+  assert.ok((spool & 0xffff) & (1 << 15), "spool listens to private rope links");
+  runtime.dispose();
+});
+
+test("rope self collisions opt in to the authored layer matrix", async () => {
+  const graph = normalizeRelationshipGraph({
+    world: { collisionLayers: { layers: [{ id: "default" }, { id: "ropes" }], matrix: { "default|default": true, "default|ropes": true, "ropes|ropes": true } } },
+    systems: [{ id: "world", gravity: { x: 0, y: 0 } }],
+    constraints: [{
+      id: "rope", systemId: "world", kind: "rope", selfCollisions: true, collisionLayers: ["ropes"],
+      pathPoints: [[0, 0], [100, 0]], a: { kind: "none" }, b: { kind: "none" },
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(graph, "world");
+  const rope = runtime.world.getCollider(runtime.bodyById.get("rope:rope:0").colliderHandle).collisionGroups();
+  assert.equal(rope >>> 16, 1 << 1, "self-colliding rope links use their authored membership");
+  assert.equal(rope & 0xffff, 0b11, "the authored layer matrix controls their targets");
+  runtime.dispose();
+});
+
 test("a free rope can be grabbed through its authored constraint", async () => {
   const ropeGraph = normalizeRelationshipGraph({
     systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
@@ -544,6 +599,39 @@ test("a free rope can be grabbed through its authored constraint", async () => {
   runtime.moveGrab([60, 40], { livePose: true, iterations: 36 });
   const posed = runtime.poses().ropePaths[0].points;
   assert.notDeepEqual(posed, initial, "grabbing a free rope should move its generated links");
+  runtime.releaseGrab();
+  runtime.dispose();
+});
+
+test("live posing one rope does not relax an unrelated self-colliding rope", async () => {
+  const graph = normalizeRelationshipGraph({
+    world: { gravity: { x: 0, y: 0 } },
+    systems: [{ id: "world", gravity: { x: 0, y: 0 } }],
+    constraints: [
+      {
+        id: "grabbed", systemId: "world", kind: "rope", selfCollisions: true,
+        pathPoints: [[0, 0], [60, 20], [120, 0]], segmentLength: 24,
+      },
+      {
+        id: "untouched", systemId: "world", kind: "rope", selfCollisions: true,
+        // Deliberately overlapping turns: a whole-world pose solve would
+        // continue resolving this rope even though it is far from the grab.
+        pathPoints: [[700, 0], [760, 80], [820, 0], [760, -80], [700, 0], [760, 80], [820, 0]],
+        segmentLength: 18,
+      },
+    ],
+  });
+  const runtime = await RapierPhysicsSystem.create(graph, "world");
+  const initial = runtime.poses().ropePaths.map(path => path.points.map(point => [...point]));
+  assert.equal(runtime.grabConstraint("grabbed", [60, 10], 280, 28, { livePose: true }), true);
+  runtime.moveGrab([70, 50], { livePose: true, iterations: 36 });
+  const posed = runtime.poses().ropePaths;
+  const maxDelta = (points, baseline) => points.reduce((maximum, point, index) => Math.max(
+    maximum,
+    Math.hypot(point[0] - baseline[index][0], point[1] - baseline[index][1]),
+  ), 0);
+  assert.ok(maxDelta(posed.find(path => path.constraintId === "grabbed").points, initial[0]) > 1);
+  assert.ok(maxDelta(posed.find(path => path.constraintId === "untouched").points, initial[1]) < 0.01);
   runtime.releaseGrab();
   runtime.dispose();
 });

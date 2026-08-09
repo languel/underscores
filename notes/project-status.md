@@ -113,7 +113,10 @@ Dynamic/Kinematic/Static/Sensor bodies, named collision-layer stacks, body and p
 the native Properties panel, a color-configurable world-aligned debug overlay, and first-class
 Axle/Weld pivot objects. Axle pivots resolve one overlapping body against World or two overlapping
 bodies against each other, with free 360-degree rotation by default. The compact Physics toolbar
-is a draggable canvas utility, while the Physics panel remains the detailed inspector.
+is a draggable canvas utility, while the Physics panel remains the detailed inspector. The toolbar
+can also be docked as a centered compact single-row strip across the top of the canvas. It respects
+open left/right dock widths so it does not cover their icon rails; the dock preference is stored
+locally and can be changed from the toolbar context menu.
 
 Live pose now provides constraint-solving manipulation without advancing timeline time. It can be
 enabled persistently in Physics World or toggled with `\\`; a release at timeline zero becomes the

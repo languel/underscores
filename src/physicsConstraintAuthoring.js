@@ -139,6 +139,24 @@ export const getRopeVisualGeometryPatch = (element, worldPoints) => {
   };
 };
 
+// A direct rope grab should author only that rope on release. A pivot that is
+// attached to a rope carries the rope ID in either endpoint, so it promotes
+// that rope together with its moved anchor. Other free ropes in the worker
+// snapshot are independent runtime state and must remain untouched.
+export const getLivePoseRopeConstraintIds = constraint => [...new Set([
+  constraint?.kind === "rope" ? constraint.id : null,
+  ...[constraint?.a, constraint?.b]
+    .filter(endpoint => endpoint?.kind === "rope" && endpoint.constraintId)
+    .map(endpoint => endpoint.constraintId),
+].filter(Boolean))];
+
+export const selectRopePathsForLivePose = (ropePaths, constraintIds = null) => {
+  const paths = Array.isArray(ropePaths) ? ropePaths : [];
+  if (constraintIds === null) return paths;
+  const ids = new Set(constraintIds || []);
+  return paths.filter(path => ids.has(path?.constraintId));
+};
+
 // A Live-pose drag solves World-bound pivot anchors inside Rapier. Persisting
 // that pose means moving the authored World endpoint to the solved point while
 // preserving whichever rope/body endpoint the pivot is bound to.
@@ -426,6 +444,7 @@ export const resolveRopeConstraint = ({ rope, elements = [], bodies = [], system
       segmentLength: 24,
       thickness: Math.max(2, finite(rope.strokeWidth, 2) + 2),
       collisionLayers: ["default"],
+      selfCollisions: false,
       restLength,
       stiffness: 40,
       damping: 4,

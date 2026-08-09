@@ -49,6 +49,7 @@ const Tool = ({ kind, label, active, disabled, onClick }) => <button
 export default function PhysicsCanvasToolbar({
   selectedCount = 0,
   open = true,
+  docked = false,
   worldPlaying = false,
   transportSynced = false,
   timeScrubEnabled = false,
@@ -62,6 +63,7 @@ export default function PhysicsCanvasToolbar({
   onToggleTransportSync,
   onToggleLiveTimelinePreview,
   onToggleLivePose,
+  onDockChange,
 }) {
   const [minimized, setMinimized] = useState(false);
   const [closed, setClosed] = useState(!open);
@@ -79,7 +81,7 @@ export default function PhysicsCanvasToolbar({
     return () => window.removeEventListener("pointerdown", closeMenu);
   }, [contextMenu]);
   const startDrag = event => {
-    if (event.button !== 0) return;
+    if (docked || event.button !== 0) return;
     didDragRef.current = false;
     dragRef.current = {
       pointerId: event.pointerId,
@@ -142,26 +144,11 @@ export default function PhysicsCanvasToolbar({
     setClosed(true);
     onOpenChange?.(false);
   };
-  const toolbarStyle = { top: `${position.top}px`, left: `${position.left}px` };
-  if (closed) return <button
-    type="button"
-    className="physics-canvas-toolbar-reopen"
-    aria-label="Open physics tools"
-    title="Physics toolbar: open tools"
-    style={toolbarStyle}
-    onPointerDown={event => { event.stopPropagation(); startDrag(event); }}
-    onPointerMove={handlePointerMove}
-    onPointerUp={handlePointerUp}
-    onPointerCancel={handlePointerUp}
-    onClick={handleIconClick}
-    onDoubleClick={handleIconDoubleClick}
-    onContextMenu={handleIconContextMenu}
-  >
-    <PhysicsGlyph />
-  </button>;
+  const toolbarStyle = docked ? undefined : { top: `${position.top}px`, left: `${position.left}px` };
+  if (closed || !open) return null;
   return <>
   <aside
-    className={`physics-canvas-toolbar${minimized ? " is-collapsed" : " is-open"}`}
+    className={`physics-canvas-toolbar${minimized ? " is-collapsed" : " is-open"}${docked ? " is-docked" : ""}`}
     aria-label="Physics tools"
     style={toolbarStyle}
     onPointerDown={event => event.stopPropagation()}
@@ -172,14 +159,16 @@ export default function PhysicsCanvasToolbar({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
-      title="Physics toolbar: drag to move"
+      title={docked ? "Physics toolbar docked to the top" : "Physics toolbar: drag to move"}
     >
       <button
         type="button"
         className="physics-canvas-toolbar-toggle"
         aria-label={minimized ? "Open physics tools" : "Physics tools drag handle"}
         aria-expanded={!minimized}
-        title="Physics toolbar: drag to move. Shift-double-click to minimize. Option-double-click to close."
+        title={docked
+          ? "Physics toolbar docked to the top. Shift-double-click to minimize. Option-double-click to close."
+          : "Physics toolbar: drag to move. Shift-double-click to minimize. Option-double-click to close."}
         onPointerDown={event => { event.stopPropagation(); startDrag(event); }}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -223,6 +212,26 @@ export default function PhysicsCanvasToolbar({
     style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
     onPointerDown={event => event.stopPropagation()}
   >
+    {onDockChange && <button
+      type="button"
+      role="menuitem"
+      onClick={() => {
+        setContextMenu(null);
+        onDockChange(!docked);
+      }}
+    >
+      {docked ? "Float physics tools" : "Dock to top"}
+    </button>}
+    <button
+      type="button"
+      role="menuitem"
+      onClick={() => {
+        setContextMenu(null);
+        setMinimized(value => !value);
+      }}
+    >
+      {minimized ? "Restore physics tools" : "Minimize physics tools"}
+    </button>
     <button type="button" role="menuitem" onClick={closeToolbar}>Close physics tools</button>
   </div>}
   </>;

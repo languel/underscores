@@ -1120,6 +1120,14 @@ body .excalidraw .sidebar {
   white-space: nowrap;
 }
 
+.physics-layer-help {
+  display: block;
+  margin: 6px 0 4px;
+  color: var(--color-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .physics-layer-matrix input[type="checkbox"],
 .physics-collision-layer-memberships input[type="checkbox"] {
   width: 15px;
@@ -1212,6 +1220,76 @@ body .excalidraw .sidebar {
   box-shadow: none;
 }
 
+.physics-canvas-toolbar.is-docked {
+  position: relative;
+  top: auto;
+  left: auto;
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.physics-canvas-toolbar-dock-top {
+  position: fixed;
+  z-index: 31;
+  top: 0;
+  right: 48px;
+  left: 48px;
+  height: 42px;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  pointer-events: none;
+  border-bottom: 1px solid var(--border-color, rgba(128, 128, 128, 0.34));
+  background: color-mix(in srgb, var(--drawerator-panel-bg, Canvas) 94%, transparent);
+}
+
+.drawerator-shell.left-sidebar-open .physics-canvas-toolbar-dock-top {
+  left: var(--drawerator-left-dock-width, 380px);
+}
+
+.drawerator-shell.right-sidebar-open .physics-canvas-toolbar-dock-top {
+  right: var(--drawerator-right-dock-width, 380px);
+}
+
+.physics-canvas-toolbar-dock-top > .physics-canvas-toolbar {
+  pointer-events: auto;
+}
+
+.physics-canvas-toolbar.is-docked .physics-canvas-toolbar-header {
+  min-height: 0;
+  height: 30px;
+}
+
+.physics-canvas-toolbar.is-docked .physics-canvas-toolbar-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+}
+
+.physics-canvas-toolbar.is-docked .physics-canvas-tool-group {
+  display: flex;
+  grid-template-columns: none;
+  gap: 3px;
+}
+
+.physics-canvas-toolbar.is-docked .physics-canvas-tool-separator {
+  width: 1px;
+  height: 24px;
+}
+
 .physics-canvas-toolbar-header {
   display: flex;
   align-items: center;
@@ -1242,26 +1320,6 @@ body .excalidraw .sidebar {
 .physics-canvas-toolbar-toggle:hover {
   border-color: var(--border-color, rgba(128, 128, 128, 0.34));
   background: color-mix(in srgb, var(--drawerator-highlight, currentColor) 17%, transparent);
-}
-
-.physics-canvas-toolbar-reopen {
-  position: absolute;
-  z-index: 6;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  padding: 3px;
-  border: 1px solid var(--border-color, rgba(128, 128, 128, 0.34));
-  border-radius: 3px;
-  color: var(--color-primary, currentColor);
-  background: color-mix(in srgb, var(--drawerator-panel-bg, Canvas) 94%, transparent);
-  cursor: grab;
-}
-
-.physics-canvas-toolbar-reopen:active {
-  cursor: grabbing;
 }
 
 .physics-canvas-toolbar-menu {

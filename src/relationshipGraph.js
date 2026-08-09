@@ -390,6 +390,7 @@ export const serializePhysicsConstraintCustomData = value => {
     stiffness: constraint.stiffness,
     damping: constraint.damping,
     ...(Array.isArray(constraint.collisionLayers) ? { collisionLayers: [...constraint.collisionLayers] } : {}),
+    ...(constraint.kind === "rope" ? { selfCollisions: constraint.selfCollisions === true } : {}),
     motorEnabled: constraint.motorEnabled,
     motorSpeed: constraint.motorSpeed,
     motorTorque: constraint.motorTorque,
@@ -622,6 +623,10 @@ export const normalizePhysicsConstraint = value => {
         ? uniqueStrings(value.collisionLayers).slice(0, MAX_PHYSICS_COLLISION_LAYERS)
         : ["default"])
       : null,
+    // Rope links are deformable runtime bodies. Keep their expensive
+    // link-to-link contact path opt-in; authored bodies and walls still use
+    // the named collision-layer matrix independently of this switch.
+    selfCollisions: kind === "rope" ? value?.selfCollisions === true : null,
     stiffness: Math.max(0, finite(value?.stiffness, 40)),
     damping: Math.max(0, finite(value?.damping, 4)),
     // Axle motors are authored in the friendly canvas unit of degrees per

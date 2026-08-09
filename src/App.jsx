@@ -105,7 +105,7 @@ import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, se
 import { createUnifiedStreamsApi, DraweratorStreamRegistry } from "./streamRuntime.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
 import { addRelationshipItem, createDefaultPhysicsSystem, createEmptyRelationshipGraph, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, removeRelationshipBindingsForElements, removeRelationshipItem, updateRelationshipItem, withPhysicsCustomData } from "./relationshipGraph.js";
-import { chooseConstraintPivot, elementContainsPhysicsPoint, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, physicsEndpointAtPoint, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint } from "./physicsConstraintAuthoring.js";
+import { chooseConstraintPivot, elementContainsPhysicsPoint, getLivePoseRopeConstraintIds, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, physicsEndpointAtPoint, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint, selectRopePathsForLivePose } from "./physicsConstraintAuthoring.js";
 import { applyAnchorAttractorFrame, applyBezierSculptOperator, getPhysicsColliderSelectionValue, getPhysicsElementCenter as getPhysicsGeometryElementCenter, getPhysicsElementLocalCenter, inferPhysicsBodyFromElement, inferPhysicsColliderForBody, inferPhysicsColliderFromElement, needsLegacyPhysicsColliderOriginRebase } from "./physicsGeometry.js";
 import { createPhysicsApi, createRelationshipApi, PhysicsRuntimeController } from "./physicsRuntime.js";
 import { mappingTargetValue } from "./mappingRuntime.js";
@@ -175,6 +175,7 @@ import {
   readAITextStream,
 } from "./aiProviders.js";
 import { convertShapeElementToPath, fitRectangularElementToViewport, getCanvasContextMenuCapabilities, setSelectedElementRoundness } from "./canvasContextMenu.js";
+import { normalizeRoughnessValue, normalizeRoundnessValue, parseDrawingStyleSlash } from "./drawingStyleCommands.js";
 import { DEFAULT_SELECTION_FILTER, filterSelectedElementIds, isInteriorObjectSelectionGesture, normalizeSelectionFilter, selectionFilterAllowsElement, selectionMapsEqual, SELECTION_FILTER_STORAGE_KEY, toggleSelectionFilter } from "./selectionFilter.js";
 import {
   DEFAULT_GLOBAL_GRID,
@@ -264,6 +265,18 @@ Guidelines:
 `;
 
 const INITIAL_GREETING = "Hello! I am your drawing assistant powered by local AI. You can write prompts like \"draw a flow chart\", \"sketch a house\", or \"clear the canvas\" and I will execute the drawing tools programmatically!";
+
+const DRAWING_ROUNDNESS_STORAGE_KEY = "drawerator_drawing_roundness";
+const CUSTOM_BRUSH_ROUNDNESS_STORAGE_KEY = "drawerator_custom_brush_roundness";
+const readDrawingRoundness = () => {
+  try {
+    const stored = localStorage.getItem(DRAWING_ROUNDNESS_STORAGE_KEY)
+      ?? localStorage.getItem(CUSTOM_BRUSH_ROUNDNESS_STORAGE_KEY);
+    return stored === "1" || stored === "true";
+  } catch {
+    return false;
+  }
+};
 
 const resolveMidiInputs = (access, portId) => {
   if (!access || portId === MIDI_PORT_NONE) return [];
@@ -2414,6 +2427,15 @@ function App() {
   const [physicsWorldPlaying, setPhysicsWorldPlaying] = useState(false);
   const [physicsTimeScrubEnabled, setPhysicsTimeScrubEnabled] = useState(() => localStorage.getItem(PHYSICS_TIME_SCRUB_STORAGE_KEY) === "true");
   const [physicsToolbarOpen, setPhysicsToolbarOpen] = useState(true);
+  const [physicsToolbarDockedTop, setPhysicsToolbarDockedTop] = useState(() => {
+    try {
+      if (localStorage.getItem("drawerator_physics_toolbar_docked") === "true") return true;
+      const savedPanelVisibility = JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null");
+      return savedPanelVisibility?.["physics-toolbar"] === true;
+    } catch {
+      return false;
+    }
+  });
   const [physicsTool, setPhysicsTool] = useState(null);
   const physicsToolRef = useRef(null);
   physicsToolRef.current = physicsTool;
@@ -3760,6 +3782,12 @@ function App() {
   useEffect(() => {
     excalidrawAPIRef.current = excalidrawAPI;
     if (excalidrawAPI) {
+      // Keep a newly opened board deterministic even when Excalidraw has a
+      // stale current-item style from a previous session.
+      excalidrawAPI.updateScene({
+        appState: { currentItemRoughness: 0, currentItemRoundness: readDrawingRoundness() ? "round" : "sharp" },
+        commitToHistory: false,
+      });
       lastSceneElementsRef.current = new Map(
         excalidrawAPI.getSceneElementsIncludingDeleted().map(element => [element.id, element])
       );
@@ -4310,7 +4338,7 @@ function App() {
   const [globalModifiers, setGlobalModifiers] = useState([]);
   const [globalMuteStack, setGlobalMuteStack] = useState(false);
   const [nextStrokeHideOriginal, setNextStrokeHideOriginal] = useState(false);
-  const [globalRoundness, setGlobalRoundness] = useState(false);
+  const [globalRoundness, setGlobalRoundness] = useState(readDrawingRoundness);
   const brushChannelModifierSnapshotRef = useRef(null);
   const brushChannelModifierRuntimeRef = useRef(null);
 
@@ -4623,6 +4651,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem("drawerator_panel_visibility_v1", JSON.stringify(openPanels));
   }, [openPanels]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_physics_toolbar_docked", String(physicsToolbarDockedTop));
+  }, [physicsToolbarDockedTop]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_panel_dock_tabs_v1", JSON.stringify(activeDockPanels));
@@ -5513,10 +5545,11 @@ function App() {
 
   const [customBrushActive, setCustomBrushActive] = useState(false);
   const modifierDrawingActive = customBrushActive && globalModifiers.length > 0;
-  const [customBrushRoundness, setCustomBrushRoundness] = useState(() => localStorage.getItem("drawerator_custom_brush_roundness") === "true");
+  const [customBrushRoundness, setCustomBrushRoundness] = useState(readDrawingRoundness);
   
   useEffect(() => {
-    localStorage.setItem("drawerator_custom_brush_roundness", customBrushRoundness);
+    localStorage.setItem(CUSTOM_BRUSH_ROUNDNESS_STORAGE_KEY, customBrushRoundness ? "true" : "false");
+    localStorage.setItem(DRAWING_ROUNDNESS_STORAGE_KEY, customBrushRoundness ? "1" : "0");
   }, [customBrushRoundness]);
   const [customContextMenu, setCustomContextMenu] = useState(null);
   const customContextMenuRef = useRef(null);
@@ -8960,6 +8993,21 @@ function App() {
     setOpenPanels(previous => ({ ...previous, [panelId]: true }));
   };
 
+  const closePhysicsToolbar = () => {
+    setPhysicsToolbarOpen(false);
+    setPhysicsToolbarDockedTop(false);
+  };
+
+  const dockPhysicsToolbar = () => {
+    setPhysicsToolbarOpen(true);
+    setPhysicsToolbarDockedTop(true);
+  };
+
+  const floatPhysicsToolbar = () => {
+    setPhysicsToolbarOpen(true);
+    setPhysicsToolbarDockedTop(false);
+  };
+
   const updatePerformanceVisibility = visible => {
     setShowPerformanceOverlay(visible);
     if (visible && performanceOverlayPlacement === "console") {
@@ -10150,7 +10198,13 @@ function App() {
       ));
       if (!body && !constraint) return false;
       const systemId = constraint?.systemId || body.systemId;
-      physicsGestureRef.current = { kind: "grab", pointerId: event.pointerId, systemId, livePose };
+      physicsGestureRef.current = {
+        kind: "grab",
+        pointerId: event.pointerId,
+        systemId,
+        livePose,
+        ropeConstraintIds: constraint ? getLivePoseRopeConstraintIds(constraint) : null,
+      };
       if (constraint) {
         physicsRuntimeRef.current.grabConstraint(systemId, constraint.id, point, { stiffness: 280, damping: 28, livePose });
       } else {
@@ -10264,12 +10318,13 @@ function App() {
       // new starting pose: preserve the solved snapshot before releasing the
       // temporary grab, then make that snapshot the new Reset baseline.
       const atTransportOrigin = Math.abs(Number(scoreTimeRef.current) || 0) < 1e-6;
-      if (gesture.livePose && atTransportOrigin && api) {
+      if (gesture.livePose && atTransportOrigin && api && event.type === "pointerup") {
         const scenePoint = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, api.getAppState());
         void physicsRuntimeRef.current.commitGrab(gesture.systemId, [scenePoint.x, scenePoint.y], { livePose: true, iterations: 96 })
           .then(snapshot => {
             const applied = snapshot && applyPhysicsPose(gesture.systemId, {
               snapshot,
+              ropeConstraintIds: gesture.ropeConstraintIds,
               statusMessage: "Set the live pose at timeline zero as the physics reset pose.",
             });
             if (!applied) setSceneExchangeStatus("Live pose could not be saved: no current physics pose was available.");
@@ -10406,7 +10461,7 @@ function App() {
     }
   }, [relationshipGraph.systems, scorePlaying]);
 
-  const applyPhysicsPose = (systemId, { snapshot: suppliedSnapshot = null, statusMessage = "Applied the current physics pose as the authored reset pose." } = {}) => {
+  const applyPhysicsPose = (systemId, { snapshot: suppliedSnapshot = null, ropeConstraintIds = null, statusMessage = "Applied the current physics pose as the authored reset pose." } = {}) => {
     const snapshots = suppliedSnapshot || physicsRuntimeRef.current.getLatestPoses(systemId);
     const snapshot = Array.isArray(snapshots) ? snapshots.find(candidate => candidate.systemId === systemId) : snapshots;
     const poseByEntityId = new Map((snapshot?.metadata || []).map((metadata, index) => [metadata.id, {
@@ -10417,7 +10472,7 @@ function App() {
     // promote that shape to the authored rope path as well as applying rigid
     // body transforms. Otherwise the next reset/rebuild recreates the old
     // straight (orange diagnostic) path and overwrites the rope host.
-    const ropePathByConstraintId = new Map((snapshot?.ropePaths || [])
+    const ropePathByConstraintId = new Map(selectRopePathsForLivePose(snapshot?.ropePaths, ropeConstraintIds)
       .filter(path => path?.constraintId && Array.isArray(path.points))
       .map(path => [path.constraintId, path.points
         .filter(point => Array.isArray(point) && Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1])))
@@ -10938,12 +10993,64 @@ function App() {
     },
     ...EXCALIDRAW_TOOL_COMMANDS,
   ];
+  const setDrawingRoughness = value => {
+    const roughness = normalizeRoughnessValue(value);
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const selectedIds = api.getAppState().selectedElementIds || {};
+    const elements = api.getSceneElementsIncludingDeleted();
+    const drawableTypes = new Set(["freedraw", "line", "arrow", "ellipse", "rectangle", "diamond"]);
+    let changed = 0;
+    const nextElements = elements.map(element => {
+      if (!selectedIds[element.id] || element.isDeleted || !drawableTypes.has(element.type)) return element;
+      if (Number(element.roughness) === roughness) return element;
+      changed += 1;
+      return {
+        ...element,
+        roughness,
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+      };
+    });
+    const sceneUpdate = { appState: { currentItemRoughness: roughness }, commitToHistory: changed > 0 };
+    if (changed) sceneUpdate.elements = nextElements;
+    api.updateScene(sceneUpdate);
+    setSceneExchangeStatus(changed
+      ? `Set roughness ${roughness} on ${changed} selected shape${changed === 1 ? "" : "s"}; new shapes will use it too.`
+      : `New shapes will use roughness ${roughness}.`);
+    return { roughness, changed };
+  };
+
+  const setDrawingRoundness = value => {
+    const roundness = normalizeRoundnessValue(value);
+    const rounded = roundness === 1;
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    setGlobalRoundness(rounded);
+    setCustomBrushRoundness(rounded);
+    const selectedIds = api.getAppState().selectedElementIds || {};
+    const currentElements = api.getSceneElementsIncludingDeleted();
+    const selectedUpdate = setSelectedElementRoundness(currentElements, selectedIds, rounded ? "round" : "sharp");
+    const sceneUpdate = {
+      appState: { currentItemRoundness: rounded ? "round" : "sharp" },
+      commitToHistory: selectedUpdate.changed > 0,
+    };
+    if (selectedUpdate.changed) sceneUpdate.elements = selectedUpdate.elements;
+    api.updateScene(sceneUpdate);
+    setSceneExchangeStatus(selectedUpdate.changed
+      ? `Set ${rounded ? "round" : "sharp"} geometry on ${selectedUpdate.changed} selected shape${selectedUpdate.changed === 1 ? "" : "s"}; new shapes will match.`
+      : `New shapes will use ${rounded ? "round" : "sharp"} geometry.`);
+    return { roundness, changed: selectedUpdate.changed };
+  };
+
   const COMMANDS = [
     ...PANEL_COMMANDS,
     ...EXCALIDRAW_COMMANDS,
+    { id: "panel-properties.open", name: "Open Properties Panel", category: "Panels", action: () => toggleDraweratorPanel("properties", { open: true }) },
     { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "performance.toggle", name: "Toggle Performance Monitor /performance", aliases: ["/performance", "/perf", "FPS monitor"], category: "View", action: () => updatePerformanceVisibility(!showPerformanceOverlay) },
-    { id: "physics.toolbar.toggle", name: "Toggle Physics Toolbar /physicstoolbar", aliases: ["/physicstoolbar", "/physics toolbar", "physics toolbar"], category: "Physics", ai: { expose: true, description: "Toggle the floating physics authoring toolbar." }, action: () => setPhysicsToolbarOpen(previous => !previous) },
+    { id: "physics.toolbar.toggle", name: "Toggle Physics Toolbar /physicstoolbar", aliases: ["/physicstoolbar", "/physics toolbar", "physics toolbar"], category: "Physics", ai: { expose: true, description: "Toggle the floating or docked physics authoring toolbar." }, action: () => physicsToolbarOpen ? closePhysicsToolbar() : setPhysicsToolbarOpen(true) },
     { id: "physics.system.create", name: "Physics: Create System", aliases: ["/physics new"], category: "Physics", args: { name: "string?", gravity: "{x,y}?", clock: "realtime|transport?" }, ai: { expose: true, description: "Create an independent canvas physics system." }, action: (_api, args = {}) => {
       const system = createDefaultPhysicsSystem({ name: args.name, gravity: args.gravity, clock: { mode: args.clock === "transport" ? "transport" : "realtime", fixedHz: 60, timeScale: 1 } });
       setRelationshipGraph(previous => addRelationshipItem(previous, "systems", system));
@@ -11084,6 +11191,10 @@ function App() {
     { id: "convert-to-freedraw", name: "Convert Selected Lines to Freehand Pencil", category: "Brushes", action: () => handleConvertType("freedraw") },
     { id: "iannix.cursor.addToSelectedCurves", name: "Add Cursor to Selected Curves /add cursor to selected curves", aliases: ["/add cursor to selected curves", "Add Cursor to Selected Curves"], category: "Score", action: () => addCursorsToSelectedCurves() },
     { id: "expressiveSynth.demo.create", name: "Add and Play Expressive Synth Demo /synth demo", aliases: ["/synth demo", "Expressive Synth Demo"], category: "Score", action: () => addExpressiveSynthDemo() },
+    { id: "geometry.roughness.set", name: "Set Drawing Roughness /roughness n", aliases: ["/roughness"], category: "Geometry", args: { value: "0|1|2" }, ai: { expose: true, description: "Set the default Excalidraw sloppiness for newly drawn shapes to 0, 1, or 2." }, action: (_api, args = {}) => setDrawingRoughness(args.value) },
+    { id: "geometry.roundness.set", name: "Set Drawing Roundness /roundness 0|1", aliases: ["/roundness"], category: "Geometry", args: { value: "0|1" }, ai: { expose: true, description: "Set the default corner style for newly drawn shapes: 0 is sharp and 1 is round." }, action: (_api, args = {}) => setDrawingRoundness(args.value) },
+    { id: "geometry.roundness.sharp", name: "Use Sharp Drawing Geometry /sharp", aliases: ["/sharp"], category: "Geometry", action: () => setDrawingRoundness(0) },
+    { id: "geometry.roundness.round", name: "Use Round Drawing Geometry /round", aliases: ["/round"], category: "Geometry", action: () => setDrawingRoundness(1) },
     { id: "geometry.bezier.convert", name: "Convert Selection to Bézier /bezier convert", aliases: ["/bezier convert", "Convert to Bézier"], category: "Geometry", action: () => convertSelectedToBezier() },
     { id: "geometry.bezier.edit", name: "Edit Selected Bézier /bezier edit", aliases: ["/bezier edit", "Edit Bézier"], category: "Geometry", action: () => enterBezierEditMode() },
     { id: "geometry.bezier.close", name: "Close Selected Bézier Path /bezier close", aliases: ["/bezier close"], category: "Geometry", action: () => setSelectedBezierClosed(true) },
@@ -11326,15 +11437,8 @@ function App() {
           commandRegistry.execute("panel-script", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
           return;
         }
-        if (shortcutAction.id === "mods.float.toggle") {
-          setPanelLayouts(previous => ({
-            ...previous,
-            mods: {
-              ...previous.mods,
-              placement: previous.mods.placement === PANEL_PLACEMENTS.FLOATING ? PANEL_PLACEMENTS.RIGHT : PANEL_PLACEMENTS.FLOATING,
-            },
-          }));
-          setOpenPanels(previous => ({ ...previous, mods: true }));
+        if (shortcutAction.id === "panel-properties.open") {
+          commandRegistry.execute("panel-properties.open", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
           return;
         }
         if (shortcutAction.id === "history.record.toggle") {
@@ -11368,6 +11472,7 @@ function App() {
           if (count) excalidrawAPI.updateScene({ elements, commitToHistory: true });
           else {
             const nextRoundness = appState.currentItemRoundness === "round" ? "sharp" : "round";
+            setGlobalRoundness(nextRoundness === "round");
             setCustomBrushRoundness(nextRoundness === "round");
             excalidrawAPI.updateScene({ appState: { currentItemRoundness: nextRoundness } });
           }
@@ -11575,6 +11680,8 @@ function App() {
     if (!input.startsWith("/")) return null;
     const exact = COMMANDS.find(command => command.aliases?.some(alias => alias.toLowerCase() === input.toLowerCase()));
     if (exact) return { command: exact, args: {} };
+    const drawingStyle = parseDrawingStyleSlash(input);
+    if (drawingStyle) return { command: COMMANDS.find(command => command.id === drawingStyle.id), args: drawingStyle.args };
     let match = /^\/(?:ix|iannix|score)\s+(.+)$/i.exec(input);
     if (match) return {
       command: COMMANDS.find(command => command.id === "iannix.command.execute"),
@@ -15103,6 +15210,8 @@ function App() {
       appState: {
         ...restoredAppState,
         theme,
+        currentItemRoughness: 0,
+        currentItemRoundness: globalRoundness ? "round" : "sharp",
         selectedElementIds: {},
         gridSize: null,
         gridModeEnabled: false,
@@ -17011,7 +17120,8 @@ function App() {
             {pivotConstraint.kind === "rope" && <>
               <label className="iannix-field" {...infoProps("Link length", "Maximum scene-pixel length of each generated rope link. Smaller links follow curves more closely, at higher solver cost.")}><span>Link length</span><NumericInput min="2" step="any" value={pivotConstraint.segmentLength ?? 24} defaultValue={24} onCommit={segmentLength => patchPhysicsConstraint(pivotConstraint.id, { segmentLength })} /></label>
               <label className="iannix-field" {...infoProps("Thickness", "Physical diameter of the generated rope links in scene pixels. This does not change the original stroke appearance.")}><span>Thickness</span><NumericInput min="0.5" step="any" value={pivotConstraint.thickness ?? 4} defaultValue={4} onCommit={thickness => patchPhysicsConstraint(pivotConstraint.id, { thickness })} /></label>
-              <label className="iannix-check-row" {...infoProps("Collide while connected", "Allow adjacent generated rope links to collide. Keep this off for a stable default rope.")}><span>Collide while connected</span><input type="checkbox" checked={pivotConstraint.collideConnected === true} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { collideConnected: event.target.checked })} /></label>
+              <label className="iannix-check-row" {...infoProps("Self collisions", "Allow non-adjacent generated rope links to collide. This is off by default for a lighter, more stable rope; the collision-layer matrix still controls rope-to-body contact.")}><span>Self collisions</span><input type="checkbox" checked={pivotConstraint.selfCollisions === true} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { selfCollisions: event.target.checked })} /></label>
+              <label className="iannix-check-row" {...infoProps("Collide while connected", "Allow directly jointed rope neighbors to collide when Self collisions is enabled. This does not assign collision layers or turn on non-adjacent self-contact.")}><span>Collide while connected</span><input type="checkbox" checked={pivotConstraint.collideConnected === true} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { collideConnected: event.target.checked })} /></label>
             </>}
             {pivotConstraint.kind === "axle" && <>
               <label className="iannix-check-row" {...infoProps("Motor", "Drives the axle at the chosen angular speed. Positive speed rotates counter-clockwise; torque limits how strongly the motor corrects that speed.")}><span>Motor enabled</span><input type="checkbox" checked={pivotConstraint.motorEnabled === true} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { motorEnabled: event.target.checked })} /></label>
@@ -19558,7 +19668,10 @@ function App() {
       excalidrawAPI.updateScene({ elements: nextElements });
       setModifierUpdateNonce(n => n + 1);
     } else {
-      setGlobalRoundness(sharpness === "round");
+      const rounded = sharpness === "round";
+      setGlobalRoundness(rounded);
+      setCustomBrushRoundness(rounded);
+      excalidrawAPI.updateScene({ appState: { currentItemRoundness: rounded ? "round" : "sharp" }, commitToHistory: false });
     }
   };
 
@@ -20334,6 +20447,8 @@ function App() {
     setActiveDockPanels({ left: "mods", right: "mods", bottom: "transport" });
     setCollapsedDocks({ left: true, right: true, bottom: true });
     setShowIannixTransport(true);
+    setPhysicsToolbarOpen(false);
+    setPhysicsToolbarDockedTop(false);
     setDraggingPanelId(null);
     setDockPreview(null);
     setShowCommandPalette(false);
@@ -20356,7 +20471,8 @@ function App() {
     localStorage.setItem("drawerator_show_debug_layer", "false");
     localStorage.setItem("drawerator_default_stabilizer_damping", "0.12");
     localStorage.setItem("drawerator_export_transparent", "false");
-    localStorage.setItem("drawerator_custom_brush_roundness", "false");
+    localStorage.setItem(CUSTOM_BRUSH_ROUNDNESS_STORAGE_KEY, "false");
+    localStorage.setItem(DRAWING_ROUNDNESS_STORAGE_KEY, "0");
     localStorage.setItem("drawerator_presentation_mode", "false");
     localStorage.setItem("drawerator_script_editor_theme", "drawerator");
     excalidrawAPI?.updateScene({
@@ -21155,6 +21271,24 @@ function App() {
     });
   };
 
+  const physicsToolbarProps = {
+    open: physicsToolbarOpen,
+    onOpenChange: nextOpen => nextOpen ? setPhysicsToolbarOpen(true) : closePhysicsToolbar(),
+    onDockChange: nextDocked => nextDocked ? dockPhysicsToolbar() : floatPhysicsToolbar(),
+    selectedCount: Object.values(selectedElementIds).filter(Boolean).length,
+    worldPlaying: physicsWorldPlaying,
+    transportSynced: physicsFollowsTransport(relationshipGraph.systems),
+    timeScrubEnabled: physicsTimeScrubEnabled,
+    livePose: relationshipGraph.world?.livePose === true,
+    onPlayPause: physicsWorldPlaying ? pausePhysicsWorld : playPhysicsWorld,
+    onResetWorld: resetPhysicsWorld,
+    onToggleTransportSync: togglePhysicsTransportSync,
+    onToggleLiveTimelinePreview: toggleLiveTimelinePreview,
+    onToggleLivePose: toggleLivePose,
+    onAssignBody: options => assignPhysicsBodies({ systemId: activePhysicsSystemId, ...options }),
+    onAssignCollider: options => assignPhysicsBodies({ systemId: activePhysicsSystemId, bodyType: "fixed", ...options }),
+    onMakeConstraint: kind => assignPhysicsConstraintPivots({ kind, systemId: activePhysicsSystemId }),
+  };
   const sidePanels = DRAWERATOR_PANELS.filter(panel => panel.placements.includes(PANEL_PLACEMENTS.LEFT) || panel.placements.includes(PANEL_PLACEMENTS.RIGHT));
   const horizontalPanels = DRAWERATOR_PANELS.filter(panel => panel.placements.includes(PANEL_PLACEMENTS.BOTTOM));
   const getDockTabs = placement => getOpenPanelsForPlacement(sidePanels, openPanels, panelLayouts, placement);
@@ -21184,12 +21318,9 @@ function App() {
   const closeHorizontalPanel = panelId => {
     closeDraweratorPanel(panelId);
   };
-  const anySidePanelOpen = sidePanels.some(panel => {
-    const placement = panelLayouts[panel.id]?.placement;
-    return openPanels[panel.id] &&
-      [PANEL_PLACEMENTS.LEFT, PANEL_PLACEMENTS.RIGHT].includes(placement) &&
-      !collapsedDocks[placement];
-  });
+  const leftDockOpen = leftDockTabs.length > 0 && !collapsedDocks.left;
+  const rightDockOpen = rightDockTabs.length > 0 && !collapsedDocks.right;
+  const anySidePanelOpen = leftDockOpen || rightDockOpen;
   const bottomDockOpen = bottomDockTabs.length > 0 && !collapsedDocks.bottom;
   const bottomDockExpandedHeight = Math.max(BOTTOM_DOCK_MIN_HEIGHT, dockSizes.bottom);
   const bottomDockHeight = collapsedDocks.bottom ? COLLAPSED_DOCK_EDGE_SIZE : bottomDockExpandedHeight;
@@ -21420,7 +21551,7 @@ function App() {
   return (
     <div 
       id="root" 
-      className={`drawerator-shell drawerator-theme-${theme} ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} ${bottomDockOpen ? "horizontal-dock-open" : ""} ${collapsedDocks.bottom ? "bottom-dock-collapsed" : ""} ${draggingPanelId || transportDragging ? "panel-is-dragging" : ""}`}
+      className={`drawerator-shell drawerator-theme-${theme} ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} ${leftDockOpen ? "left-sidebar-open" : ""} ${rightDockOpen ? "right-sidebar-open" : ""} ${bottomDockOpen ? "horizontal-dock-open" : ""} ${collapsedDocks.bottom ? "bottom-dock-collapsed" : ""} ${draggingPanelId || transportDragging ? "panel-is-dragging" : ""}`}
       style={{
         "--drawerator-accent": colorWithOpacity(accentColor, accentOpacity),
         "--drawerator-highlight": colorWithOpacity(highlightColor, highlightOpacity),
@@ -21453,7 +21584,9 @@ function App() {
         id="canvas-container" 
         onPointerDownCapture={handleCanvasPointerDown}
         onPointerMoveCapture={handleCanvasPointerMove}
-        onPointerUpCapture={handleCanvasPointerUp} 
+        onPointerUpCapture={handleCanvasPointerUp}
+        onPointerCancelCapture={handleCanvasPointerUp}
+        onLostPointerCaptureCapture={handleCanvasPointerUp}
         onDoubleClickCapture={handleCanvasDoubleClick}
         onContextMenuCapture={handleCanvasContextMenu}
         onDragOverCapture={handleCanvasMediaPreviewDragOver}
@@ -21476,7 +21609,7 @@ function App() {
           initialData={{
             appState: {
               currentItemRoughness: 0,
-              currentItemRoundness: "sharp",
+              currentItemRoundness: globalRoundness ? "round" : "sharp",
               viewBackgroundColor: canvasColorForExcalidraw(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme),
               gridSize: null,
               gridModeEnabled: false,
@@ -23626,25 +23759,12 @@ function App() {
               />
             </DraweratorPanel>
           )}
+
         </Excalidraw>
 
-        <PhysicsCanvasToolbar
-          open={physicsToolbarOpen}
-          onOpenChange={setPhysicsToolbarOpen}
-          selectedCount={Object.values(selectedElementIds).filter(Boolean).length}
-          worldPlaying={physicsWorldPlaying}
-          transportSynced={physicsFollowsTransport(relationshipGraph.systems)}
-          timeScrubEnabled={physicsTimeScrubEnabled}
-          livePose={relationshipGraph.world?.livePose === true}
-          onPlayPause={physicsWorldPlaying ? pausePhysicsWorld : playPhysicsWorld}
-          onResetWorld={resetPhysicsWorld}
-          onToggleTransportSync={togglePhysicsTransportSync}
-          onToggleLiveTimelinePreview={toggleLiveTimelinePreview}
-          onToggleLivePose={toggleLivePose}
-          onAssignBody={options => assignPhysicsBodies({ systemId: activePhysicsSystemId, ...options })}
-          onAssignCollider={options => assignPhysicsBodies({ systemId: activePhysicsSystemId, bodyType: "fixed", ...options })}
-          onMakeConstraint={kind => assignPhysicsConstraintPivots({ kind, systemId: activePhysicsSystemId })}
-        />
+        {physicsToolbarDockedTop ? <div className="physics-canvas-toolbar-dock-top">
+          <PhysicsCanvasToolbar {...physicsToolbarProps} docked />
+        </div> : <PhysicsCanvasToolbar {...physicsToolbarProps} />}
 
         {showPerformanceOverlay && performanceOverlayPlacement === "floating" ? <PerformanceOverlay
           placement="floating"

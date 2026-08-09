@@ -19,6 +19,7 @@ import { getInspectableCustomData } from "./propertyInspectorModel.js";
 import NumericInput from "./NumericInput.jsx";
 import { getSpringGeometricLength } from "./physicsConstraintAuthoring.js";
 import GeometryResetIcon from "./GeometryResetIcon.jsx";
+import { infoProps } from "./uiInfo.js";
 
 const READ_ONLY_KEYS = new Set([
   "id", "type", "width", "height", "version", "versionNonce", "updated", "index", "seed",
@@ -747,12 +748,14 @@ const physicsConstraintMatchesQuery = (constraint, query) => {
   const label = physicsConstraintLabel(constraint.kind).toLowerCase();
   return [
     "physics", "constraint", "role", "name", "kind", "connect", "endpoint", "enabled",
-    "collide", "rest length", "stiffness", "damping", "motor", "speed", "torque", "limit", "lower", "upper", "break", label,
+    "collide", "self collisions", "rest length", "stiffness", "damping", "motor", "speed", "torque", "limit", "lower", "upper", "break", label,
     constraint.name, constraint.kind,
   ].some(value => String(value || "").toLowerCase().includes(query.needle));
 };
 
-const physicsConstraintFieldCount = (constraint, query) => physicsConstraintMatchesQuery(constraint, query) ? 13 : 0;
+const physicsConstraintFieldCount = (constraint, query) => physicsConstraintMatchesQuery(constraint, query)
+  ? 13 + (constraint?.kind === "rope" ? 1 : 0)
+  : 0;
 
 const constraintEndpointElementId = endpoint => endpoint?.kind === "object" ? endpoint.objectRef?.elementId || "" : "";
 const constraintEndpointSelectionValue = endpoint => {
@@ -836,7 +839,8 @@ const PhysicsConstraintControls = ({
         </>}
         {matches("enabled") && <div className="properties-row editable"><span>enabled</span><input type="checkbox" checked={constraint.enabled} onChange={event => onChange({ enabled: event.target.checked })} /></div>}
         {isRope && matches("collision layers") && <CollisionLayerMembershipControl layers={collisionLayers} value={constraint.collisionLayers} onChange={layers => onChange({ collisionLayers: layers })} />}
-        {matches("collide") && <div className="properties-row editable"><span>collide while connected</span><input type="checkbox" checked={constraint.collideConnected} onChange={event => onChange({ collideConnected: event.target.checked })} /></div>}
+        {isRope && matches("self collisions") && <div className="properties-row editable" {...infoProps("Self collisions", "Allow non-adjacent links in this rope to collide with one another. Leave this off for a lighter, more stable rope; layer-pair settings still control rope-to-body contact.")}><span>self collisions</span><input type="checkbox" checked={constraint.selfCollisions === true} onChange={event => onChange({ selfCollisions: event.target.checked })} /></div>}
+        {matches("collide") && <div className="properties-row editable" {...infoProps("Collide while connected", "Controls only colliders joined directly by this pivot. It does not assign collision layers and it does not enable a rope to collide with every other link.")}><span>collide while connected</span><input type="checkbox" checked={constraint.collideConnected} onChange={event => onChange({ collideConnected: event.target.checked })} /></div>}
         {isSpring && <>
           {matches("rest length") && <div className="properties-row editable properties-row-with-action"><span>rest length</span><div className="properties-row-action"><NumericInput min="0" step="any" value={constraint.restLength} defaultValue={100} onCommit={restLength => onChange({ restLength })} /><button type="button" className="iannix-flat-button geometry-reset-button" onClick={resetSpringRestLength} title="Set to current geometry" aria-label="Set rest length to current geometry"><GeometryResetIcon /></button></div></div>}
           {matches("stiffness") && <div className="properties-row editable"><span>stiffness</span><NumericInput min="0" step="any" value={constraint.stiffness} defaultValue={40} onCommit={stiffness => onChange({ stiffness })} /></div>}
@@ -859,15 +863,15 @@ const PhysicsConstraintControls = ({
   </>;
 };
 
-const CollisionLayerMembershipControl = ({ layers = [], value, onChange, label = "collision layers" }) => {
+const CollisionLayerMembershipControl = ({ layers = [], value, onChange, label = "belongs to layers" }) => {
   // `null` means an older body that still uses raw Rapier masks. Present it as
   // Default until the user edits it; an explicit empty array means no layers.
   const selected = new Set(Array.isArray(value) ? value : [layers[0]?.id].filter(Boolean));
   if (!layers.length) return null;
-  return <div className="properties-row editable properties-collision-layers">
+  return <div className="properties-row editable properties-collision-layers" {...infoProps("Collision-layer membership", "These checkboxes assign the object to one or more layers. The world matrix controls which layer pairs make contact.")}>
     <span>{label}</span>
     <div className="properties-collision-layer-list" role="group" aria-label={label}>
-      {layers.map(layer => <label key={layer.id} title={`Collide on ${layer.name}`}>
+      {layers.map(layer => <label key={layer.id} title={`Belongs to ${layer.name}`}>
         <input
           type="checkbox"
           checked={selected.has(layer.id)}
@@ -971,7 +975,7 @@ const SharedPhysicsControls = ({ elements, physicsBodies, query, onChange, colli
           <span>tags</span>
           <input type="text" value={tags ?? ""} placeholder={tags === null ? "Mixed tags" : undefined} aria-label={`Tags for ${physicsBodies.length} selected objects`} onChange={event => onChange?.({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} />
         </div>}
-        {matches("collision layers") && <CollisionLayerMembershipControl layers={collisionLayers} value={commonLayerIds} label="collision layers" onChange={layers => onChange?.({ collisionLayers: layers })} />}
+        {matches("collision layers") && <CollisionLayerMembershipControl layers={collisionLayers} value={commonLayerIds} onChange={layers => onChange?.({ collisionLayers: layers })} />}
         {matches("note") && <div className="properties-row editable">
           <span>object note</span>
           <NumericInput min="0" max="127" step="1" value={note ?? ""} defaultValue={60} placeholder={note === null ? "Mixed" : undefined} aria-label={`Object note for ${physicsBodies.length} selected objects`} onCommit={note => onChange?.({ mappingValues: { note } })} />

@@ -74,7 +74,21 @@ test("ropes persist named collision-layer membership", () => {
     }],
   });
   assert.deepEqual(graph.constraints[0].collisionLayers, ["soft"]);
+  assert.equal(graph.constraints[0].selfCollisions, false);
   assert.deepEqual(resolvePhysicsCollisionGroups(graph.world, graph.constraints[0]), { group: 2, mask: 2, legacy: false });
+});
+
+test("rope self-collision preference survives normalization", () => {
+  const graph = normalizeRelationshipGraph({
+    systems: [{ id: "world" }],
+    constraints: [{
+      id: "rope", systemId: "world", kind: "rope", selfCollisions: true,
+      pathPoints: [[0, 0], [10, 0]], a: { kind: "none" }, b: { kind: "none" },
+    }],
+  });
+  assert.equal(graph.constraints[0].selfCollisions, true);
+  const serialized = serializePhysicsConstraintCustomData(graph.constraints[0]);
+  assert.equal(serialized.selfCollisions, true);
 });
 
 test("rope endpoints preserve stable generated-link identity", () => {

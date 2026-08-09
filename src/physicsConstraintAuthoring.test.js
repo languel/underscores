@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chooseConstraintPivot, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint } from "./physicsConstraintAuthoring.js";
+import { chooseConstraintPivot, getLivePoseRopeConstraintIds, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint, selectRopePathsForLivePose } from "./physicsConstraintAuthoring.js";
 import { getPhysicsElementWorldPoints } from "./physicsGeometry.js";
 
 const body = (id, x, y, width, height, angle = 0) => ({ id, type: "rectangle", x, y, width, height, angle });
@@ -233,6 +233,21 @@ test("a rope visual patch exactly follows simulated world points", () => {
   const patched = getPhysicsElementWorldPoints({ ...rope, ...patch });
   assert.deepEqual(patched.map(point => point.map(value => Math.round(value))), worldPoints);
   assert.equal(patch.angle, 0);
+});
+
+test("a Live pose release keeps an independent copied rope out of the authored snapshot", () => {
+  const posedRope = { id: "rope-posed", kind: "rope" };
+  const copiedRope = { id: "rope-copy", kind: "rope" };
+  const snapshotPaths = [
+    { constraintId: copiedRope.id, points: [[10, 10], [20, 20]] },
+    { constraintId: posedRope.id, points: [[100, 100], [140, 120]] },
+  ];
+
+  assert.deepEqual(getLivePoseRopeConstraintIds(posedRope), [posedRope.id]);
+  assert.deepEqual(
+    selectRopePathsForLivePose(snapshotPaths, getLivePoseRopeConstraintIds(posedRope)),
+    [snapshotPaths[1]],
+  );
 });
 
 test("a solved rope pivot persists its moved World endpoint", () => {
