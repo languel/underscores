@@ -1,4 +1,9 @@
 import {
+  createBezierGeometryFromElement,
+  getBezierWorldPath,
+  hasCubicBezierGeometry,
+} from "./bezierGeometry.js";
+import {
   getPhysicsElementCenter as getGeometryPhysicsElementCenter,
   getPhysicsElementWorldPoints,
 } from "./physicsGeometry.js";
@@ -33,9 +38,27 @@ export const getSpringGeometricLength = element => {
     : null;
 };
 
-export const getRopeWorldPoints = element => (getPhysicsElementWorldPoints(element) || [])
-  .filter(point => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]))
-  .map(point => [Number(point[0]), Number(point[1])]);
+export const getRopeWorldPoints = element => {
+  // Rounded native lines keep their source polyline in `points`, while the
+  // canvas renders a smooth curve. Sample a transient cubic representation so
+  // turning that line into a rope preserves the visible shape without changing
+  // the source element or leaving canonical geometry behind.
+  const smoothGeometry = !hasCubicBezierGeometry(element)
+    && Boolean(element?.roundness)
+    && (element?.type === "line" || element?.type === "freedraw")
+    ? createBezierGeometryFromElement(element)
+    : null;
+  const source = smoothGeometry
+    ? {
+      ...element,
+      customData: { ...(element.customData || {}), draweratorGeometry: smoothGeometry },
+    }
+    : element;
+  const points = smoothGeometry ? getBezierWorldPath(source, 1.2) : getPhysicsElementWorldPoints(source);
+  return (points || [])
+    .filter(point => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]))
+    .map(point => [Number(point[0]), Number(point[1])]);
+};
 
 // Springs are drawn as ordinary Excalidraw geometry, while Rapier resolves
 // their two anchors independently. Rebuild the visual geometry from the

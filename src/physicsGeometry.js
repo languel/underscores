@@ -314,6 +314,7 @@ const pointAtProgress = (points, progress) => {
 export const resolvePhysicsEndpoint = (endpointValue, { elements = [], streams = null } = {}) => {
   const endpoint = normalizePhysicsEndpoint(endpointValue);
   if (!endpoint) return { ok: false, reason: "invalid-endpoint" };
+  if (endpoint.kind === "none") return { ok: false, reason: "unbound-endpoint", endpoint };
   if (endpoint.kind === "world") return { ok: true, point: endpoint.point, endpoint };
   if (endpoint.kind === "stream") {
     const value = streams?.get?.(endpoint.streamId, endpoint.featureId) ?? streams?.read?.(endpoint.streamId, endpoint.featureId);
@@ -325,6 +326,7 @@ export const resolvePhysicsEndpoint = (endpointValue, { elements = [], streams =
       ? { ok: true, point: [Number(point[0]), Number(point[1])], endpoint }
       : { ok: false, reason: "missing-stream-value", endpoint };
   }
+  if (!endpoint.objectRef?.elementId) return { ok: false, reason: "missing-object", endpoint };
   const element = elements.find(candidate => candidate.id === endpoint.objectRef.elementId && !candidate.isDeleted);
   if (!element) return { ok: false, reason: "missing-object", endpoint };
   if (endpoint.kind === "object") {

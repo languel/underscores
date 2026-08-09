@@ -27,6 +27,13 @@ test("canonical Bezier anchors receive stable ids and resolve as endpoints", () 
   assert.deepEqual(resolved.point, [60, 45]);
 });
 
+test("unbound endpoints remain unresolved without dereferencing an object", () => {
+  const resolved = resolvePhysicsEndpoint({ kind: "none" });
+  assert.equal(resolved.ok, false);
+  assert.equal(resolved.reason, "unbound-endpoint");
+  assert.deepEqual(resolved.endpoint, { kind: "none" });
+});
+
 test("running constraint diagnostics use the precise hydrated body-local anchor", () => {
   const body = {
     id: "freehand-body",

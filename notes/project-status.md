@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-08-04
+Last updated: 2026-08-09
 
 ## Release checkpoint
 
@@ -123,6 +123,16 @@ are exposed in Properties. A Live-pose release commits the final worker snapshot
 rope shape, World pivot anchor, and normalized rope-link attachment—after a 96-iteration settle,
 so the saved reset pose keeps the attachment intact. Collision layers let articulated rigs
 deliberately suppress self-collisions.
+
+### Physics regression follow-up (2026-08-09)
+
+Rope authoring now preserves the rendered smooth geometry of rounded line and freehand sources.
+Rope-bound Axle/Weld live posing caches normalized attachment progress and authored rest length,
+clamps unattainable targets, and settles without the frame-to-frame jitter or length growth seen
+when both ends are attached. Unbound endpoints are safe no-ops in the debug overlay, while
+selected physics objects continue through Excalidraw's native group-transform path instead of
+being intercepted as runtime grabs. The checkpoint passes 574 automated tests, a production build,
+and a browser play/pause smoke check with no console errors.
 
 ## Next phase
 
