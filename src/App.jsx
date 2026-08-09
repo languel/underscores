@@ -114,7 +114,7 @@ import { createPhysicsExample } from "./physicsExamples.js";
 import { samplePortraitLandmarkFixture } from "./physicsFixtures.js";
 import PhysicsPanel from "./PhysicsPanel.jsx";
 import PhysicsOverlay from "./PhysicsOverlay.jsx";
-import PhysicsCanvasToolbar from "./PhysicsCanvasToolbar.jsx";
+import PhysicsCanvasToolbar, { PhysicsWorldIcon } from "./PhysicsCanvasToolbar.jsx";
 import { BrowserStreamAdapterRuntime, mapAdapterRecordToSample, parseMidiMessage } from "./streamAdapters.js";
 import { BrushChannelRuntime, DEFAULT_BRUSH_CHANNELS, normalizeBrushChannel, normalizeBrushChannels } from "./brushChannelRuntime.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
@@ -741,16 +741,6 @@ const ScriptActionIcon = ({ type }) => {
     import: <><path d="M4 19h16M12 4v10M8 10l4 4 4-4"/></>,
   };
   return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[type]}</svg>;
-};
-
-const PhysicsWorldIcon = ({ type }) => {
-  const shapes = {
-    play: <><circle cx="30" cy="110" r="20"/><path d="M70 10v200l100-100L70 10Z"/></>,
-    pause: <><path d="M10 10h40v200H10zM130 10h40v200h-40z"/><circle cx="90" cy="110" r="20"/></>,
-    reset: <><circle cx="30" cy="110" r="20"/><path d="M110 10v200L70 110l40-100ZM170 10v200l-40-100 40-100Z"/></>,
-    transport: <><circle cx="30" cy="110" r="20"/><path d="M70 10v200l80-100L70 10ZM110 10v200l60-100-60-100Z"/></>,
-  };
-  return <svg width="12" height="14" viewBox="0 0 180 220" fill="none" stroke="currentColor" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{shapes[type]}</svg>;
 };
 
 const ScoreRoleIcon = ({ type }) => {
