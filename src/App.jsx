@@ -17142,6 +17142,29 @@ function App() {
     const roleLabel = roleOptions.find(([value]) => value === sharedRole)?.[1] || "Physics";
     const patchBody = patch => patchPhysicsBodies(bodies.map(candidate => candidate.id), patch);
     const patchMaterial = patch => patchBody({ material: patch });
+    const renderTrajectoryTrailControls = ({ trail, onChange, joint = false }) => {
+      const value = trail || { enabled: false, color: "#4f8cff", duration: 4, opacity: 0.75 };
+      const patchTrail = patch => onChange({ ...value, ...patch });
+      const color = /^#[0-9a-f]{6}$/i.test(value.color) ? value.color : "#4f8cff";
+      return <>
+        <label className="iannix-check-row" {...infoProps(
+          joint ? "Attachment trails" : "Centre-of-mass trail",
+          joint
+            ? "Plot both resolved attachment anchors independently. A stable joint produces one overlapping path; solver or render drift separates the two paths."
+            : "Plot this body's runtime centre of mass. Compare it with an Axle or Weld attachment trail to separate whole-body motion from joint drift.",
+        )}>
+          <span>{joint ? "Attachment trails (A + B)" : "Centre-of-mass trail"}</span>
+          <input type="checkbox" checked={value.enabled === true} onChange={event => patchTrail({ enabled: event.target.checked })} />
+        </label>
+        {value.enabled === true && <>
+          <label className="iannix-field"><span>Trail color</span><input type="color" value={color} onChange={event => patchTrail({ color: event.target.value })} /></label>
+          <div className="iannix-two-column">
+            <label className="iannix-field"><span>Time length (s)</span><NumericInput min="0.1" max="120" step="0.25" value={value.duration} defaultValue={4} onCommit={duration => patchTrail({ duration })} /></label>
+            <label className="iannix-field"><span>Opacity</span><NumericInput min="0" max="1" step="0.05" value={value.opacity} defaultValue={0.75} onCommit={opacity => patchTrail({ opacity })} /></label>
+          </div>
+        </>}
+      </>;
+    };
     const pivotSceneElements = pivotConstraint
       ? (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || [])
       : [];
@@ -17287,6 +17310,7 @@ function App() {
               <span>Enabled</span>
               <input type="checkbox" checked={body.enabled} onChange={event => patchBody({ enabled: event.target.checked })} />
             </label>
+            {renderTrajectoryTrailControls({ trail: body.trail, onChange: trail => patchBody({ trail }) })}
             {sharedRole === "sensor" && <div className="iannix-hint">Sensors report overlaps but do not physically block other bodies.</div>}
           </InspectorSection>
         )}
@@ -17343,6 +17367,11 @@ function App() {
                 <label className="iannix-field"><span>Upper limit (°)</span><NumericInput step="1" value={Math.round((pivotConstraint.upperLimit || 0) * 180 / Math.PI)} defaultValue={180} onCommit={upperLimit => patchPhysicsConstraint(pivotConstraint.id, { upperLimit: upperLimit * Math.PI / 180 })} /></label>
               </div>}
             </>}
+            {["axle", "pin", "revolute", "fixate", "weld"].includes(pivotConstraint.kind) && renderTrajectoryTrailControls({
+              trail: pivotConstraint.trail,
+              joint: true,
+              onChange: trail => patchPhysicsConstraint(pivotConstraint.id, { trail }),
+            })}
             <button type="button" className="iannix-flat-button" onClick={() => removePhysicsConstraint(pivotConstraint.id)}>Remove {pivotConstraint.kind}</button>
           </InspectorSection>
         )}

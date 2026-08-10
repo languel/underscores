@@ -148,6 +148,16 @@ motion in articulated scenes. The current worker/overlay separation keeps solver
 of React's render path, while worker cadence and exact-width path-capsule work reduce incidental
 visual stutter and collision cost.
 
+Axle and Weld inspectors now expose explicit attachment trails for both body-A and body-B anchors,
+alongside the existing body centre-of-mass controls. The articulated freehand comparison showed a
+remaining presentation issue rather than a grossly unstable constraint: default solver error stayed
+subpixel (worst measured freehand axle sample about `0.99 px`, falling below `0.025 px` at sixteen
+iterations), while the debug overlay and Excalidraw body can be drawn from adjacent runtime snapshots.
+Irregular freehand hull/inertia and rerasterization appear to contribute a smaller real/compositional
+shimmer. A future pass can share one applied-pose snapshot between the overlay and Excalidraw and
+then evaluate configurable solver iterations; this checkpoint deliberately makes no further physics
+or presentation change.
+
 For the articulated-mobile investigation, measured A1 solver-anchor error stayed below 0.005 px;
 the visible B1 endpoint was authored 5.54 px away from that anchor, producing a visible orbit even
 with a stable constraint. New one-body Axle authoring detects a marker containing a line, arrow,

@@ -866,7 +866,7 @@ const PhysicsConstraintControls = ({
         {isRope && matches("collision layers") && <CollisionLayerMembershipControl layers={collisionLayers} value={constraint.collisionLayers} onChange={layers => onChange({ collisionLayers: layers })} />}
         {isRope && matches("self collisions") && <div className="properties-row editable" {...infoProps("Self collisions", "Allow non-adjacent links in this rope to collide with one another. Leave this off for a lighter, more stable rope; layer-pair settings still control rope-to-body contact.")}><span>self collisions</span><input type="checkbox" checked={constraint.selfCollisions === true} onChange={event => onChange({ selfCollisions: event.target.checked })} /></div>}
         {!isTracer && matches("collide") && <div className="properties-row editable" {...infoProps("Collide while connected", "Controls only colliders joined directly by this pivot. It does not assign collision layers and it does not enable a rope to collide with every other link.")}><span>collide while connected</span><input type="checkbox" checked={constraint.collideConnected} onChange={event => onChange({ collideConnected: event.target.checked })} /></div>}
-        {supportsTrail && <PhysicsTrailControls trail={constraint.trail} query={query} onChange={trail => onChange({ trail })} />}
+        {supportsTrail && <PhysicsTrailControls trail={constraint.trail} joint={isHinge || ["weld", "fixate"].includes(constraint.kind)} query={query} onChange={trail => onChange({ trail })} />}
         {isSpring && <>
           {matches("rest length") && <div className="properties-row editable properties-row-with-action"><span>rest length</span><div className="properties-row-action"><NumericInput min="0" step="any" value={constraint.restLength} defaultValue={100} onCommit={restLength => onChange({ restLength })} /><button type="button" className="iannix-flat-button geometry-reset-button" onClick={resetSpringRestLength} title="Set to current geometry" aria-label="Set rest length to current geometry"><GeometryResetIcon /></button></div></div>}
           {matches("stiffness") && <div className="properties-row editable"><span>stiffness</span><NumericInput min="0" step="any" value={constraint.stiffness} defaultValue={40} onCommit={stiffness => onChange({ stiffness })} /></div>}
@@ -914,13 +914,13 @@ const CollisionLayerMembershipControl = ({ layers = [], value, onChange, label =
   </div>;
 };
 
-const PhysicsTrailControls = ({ trail, query, onChange }) => {
+const PhysicsTrailControls = ({ trail, joint = false, query, onChange }) => {
   const matches = name => !query?.needle || name.includes(query.needle);
   const value = trail || { enabled: false, color: "#4f8cff", duration: 4, opacity: 0.75 };
   const patch = next => onChange?.({ ...value, ...next });
   const color = /^#[0-9a-f]{6}$/i.test(value.color) ? value.color : "#4f8cff";
   return <>
-    {(matches("trail") || matches("trajectory")) && <div className="properties-row editable" {...infoProps("Trajectory trail", "Draw a runtime-only tracked trajectory. Bodies trace their centre of mass; Axles and Welds trace both attachment points so joint drift visibly forks. Diagnostic trails are never exported as scene geometry.")}><span>trail</span><input type="checkbox" checked={value.enabled === true} onChange={event => patch({ enabled: event.target.checked })} /></div>}
+    {(matches("trail") || matches("trajectory")) && <div className="properties-row editable" {...infoProps(joint ? "Attachment trails" : "Trajectory trail", joint ? "Plot the A and B attachment anchors independently. A stable joint produces one overlapping path; joint drift visibly forks the paths." : "Draw a runtime-only centre-of-mass trajectory. Diagnostic trails are never exported as scene geometry.")}><span>{joint ? "attachment trails (A + B)" : "trail"}</span><input type="checkbox" checked={value.enabled === true} onChange={event => patch({ enabled: event.target.checked })} /></div>}
     {matches("color") && <div className="properties-row editable"><span>trail color</span><input type="color" value={color} onChange={event => patch({ color: event.target.value })} /></div>}
     {(matches("time length") || matches("duration")) && <div className="properties-row editable"><span>time length (s)</span><NumericInput min="0.1" max="120" step="0.25" value={value.duration} defaultValue={4} onCommit={duration => patch({ duration })} /></div>}
     {matches("opacity") && <div className="properties-row editable"><span>trail opacity</span><NumericInput min="0" max="1" step="0.05" value={value.opacity} defaultValue={0.75} onCommit={opacity => patch({ opacity })} /></div>}
