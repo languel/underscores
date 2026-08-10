@@ -11,6 +11,17 @@ const groupLabel = groupId => `Group · ${String(groupId).slice(0, 8)}`;
 const scoreLabel = label => `Score · ${label}`;
 const iannixGroupLabel = groupId => `Score · ${groupId}`;
 
+// Keep object-facing labels consistent anywhere a scene object is referenced
+// outside the Outliner (for example physics connection selectors). An
+// authored label wins; the full element id is the final fallback.
+export const getOutlinerElementLabel = element => {
+  if (getScoreData(element)?.label) return getScoreData(element).label;
+  if (element?.customData?.draweratorLabel) return element.customData.draweratorLabel;
+  if (isLivecodeNodeElement(element)) return normalizeLivecodeNode(element.customData.draweratorLivecode).name;
+  if (isMediaStreamElement(element)) return normalizeMediaStreamConfig(element.customData.draweratorMediaStream).name;
+  return element?.id || "";
+};
+
 const OutlinerPanel = memo(function OutlinerPanel({
   elements = [],
   selectedElementIds = {},
@@ -52,13 +63,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
     if (isLivecodeNodeElement(element)) return getLivecodeKindDefinition(normalizeLivecodeNode(element.customData.draweratorLivecode).kind).label;
     return element.type;
   };
-  const getElementLabel = element => {
-    if (getScoreData(element)?.label) return getScoreData(element).label;
-    if (element.customData?.draweratorLabel) return element.customData.draweratorLabel;
-    if (isLivecodeNodeElement(element)) return normalizeLivecodeNode(element.customData.draweratorLivecode).name;
-    if (isMediaStreamElement(element)) return normalizeMediaStreamConfig(element.customData.draweratorMediaStream).name;
-    return element.id;
-  };
+  const getElementLabel = getOutlinerElementLabel;
 
   useEffect(() => {
     const selectedId = Object.keys(selectedElementIds).filter(id => selectedElementIds[id]).at(-1);

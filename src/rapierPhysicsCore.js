@@ -443,6 +443,29 @@ export class RapierPhysicsSystem {
       });
       return;
     }
+    // A one-sided weld is a visual attachment (for example an image/skin
+    // mounted on a dynamic skeleton). It deliberately has no second Rapier
+    // body: the authored object follows this body's local anchor instead of
+    // being pinned to a synthetic world body. Keep a runtime state so poses,
+    // Live pose, and reset/replay can all resolve the attachment point.
+    if (["weld", "fixate"].includes(constraint.kind)
+      && ((a.endpoint?.kind === "object" && b.endpoint?.kind === "none" && entityA?.rigidBody)
+        || (a.endpoint?.kind === "none" && b.endpoint?.kind === "object" && entityB?.rigidBody))) {
+      this.constraints.set(constraint.id, {
+        definition: constraint,
+        directAnchor: true,
+        joint: null,
+        bodyA: entityA?.rigidBody || null,
+        bodyB: entityB?.rigidBody || null,
+        entityA,
+        entityB,
+        worldAnchorA: null,
+        worldAnchorB: null,
+        anchorA,
+        anchorB,
+      });
+      return;
+    }
     if (!bodyA || !bodyB) return;
     let data;
     if (["revolute", "pin", "axle"].includes(constraint.kind)) data = RAPIER.JointData.revolute(anchorA, anchorB);
@@ -907,7 +930,7 @@ export class RapierPhysicsSystem {
       .map(([constraintId, state]) => ({ constraintId, points: this.#ropePath(state) }))
       .filter(path => path.points?.length >= 2);
     const constraintAnchors = [...this.constraints.entries()]
-      .filter(([, state]) => state.definition?.a?.kind === "rope" || state.definition?.b?.kind === "rope")
+      .filter(([, state]) => state.directAnchor || state.definition?.a?.kind === "rope" || state.definition?.b?.kind === "rope")
       .flatMap(([constraintId, state]) => {
         const ropeAttachments = [];
         for (const side of ["a", "b"]) {
@@ -1386,7 +1409,7 @@ export class RapierPhysicsSystem {
       // Free axles deliberately have no Rapier joint. Rebind their authored
       // body after snapshot restoration so reset/transport rewind keeps the
       // same motor semantics rather than silently dropping the drive.
-      if (previous.directMotor) {
+      if (previous.directMotor || previous.directAnchor) {
         const entityA = previous.entityA ? this.bodyById.get(previous.entityA.id) || null : null;
         const entityB = previous.entityB ? this.bodyById.get(previous.entityB.id) || null : null;
         this.constraints.set(constraintId, {

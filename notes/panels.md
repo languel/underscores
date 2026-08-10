@@ -41,9 +41,10 @@ The following state persists independently:
 Every panel is available from the main menu and command palette, including `/chat`, `/brush` (legacy `/mods`), `/script`, `/score` (legacy `/iannix` and `/scene`), `/physics` (also `/relations`), `/synth`, `/media` (legacy `/media-input`), `/inputs` (also `/signals`), `/holistic`, `/mapping`, `/settings`, `/console`, and `/transport`. `/svg` opens the Script panel with its SVG adapter selected. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline.
 
 Physics also has an optional compact **Physics toolbar** on the canvas. It is a draggable single-column
-tool utility, not a second inspector: its atom identity icon starts a drag, Shift-double-click
-minimizes it, and Option-double-click or its context menu closes it. Use the toolbar context menu to
-switch between floating mode and a compact, centered single-row top dock. The top dock respects open
+tool utility, not a second inspector: drag its atom identity icon near the top to dock it, or drag
+the docked atom away to float it. Shift-double-click minimizes it, and Option-double-click or its
+context menu closes it. Use the toolbar context menu to switch between floating mode and a compact,
+centered single-row top dock. The top dock respects open
 left/right panel widths so it does not cover their icon rails; the top-dock choice persists locally.
 `/physicstoolbar` toggles it. The toolbar assigns roles and creates selected-object Axle/Weld pivots;
 detailed authoring remains in Physics and Properties.

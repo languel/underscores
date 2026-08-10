@@ -134,8 +134,10 @@ Rope-bound Axle/Weld live posing caches normalized attachment progress and autho
 clamps unattainable targets, and settles without the frame-to-frame jitter or length growth seen
 when both ends are attached. Unbound endpoints are safe no-ops in the debug overlay, while
 selected physics objects continue through Excalidraw's native group-transform path instead of
-being intercepted as runtime grabs. The checkpoint passes 574 automated tests, a production build,
-and a browser play/pause smoke check with no console errors.
+being intercepted as runtime grabs. One-sided Welds now retain a runtime body-local anchor, so
+canvas images and skins can follow dynamic bodies without a fake World pin; their live markers
+also remain visible in the debug overlay and survive reset/snapshot restore. The checkpoint passes
+588 automated tests, a production build, and a browser play/pause smoke check with no console errors.
 
 ## Next phase
 

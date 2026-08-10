@@ -16,6 +16,7 @@ import { getScoreData } from "./iannixEngine.js";
 import { getPhysicsColliderSelectionValue } from "./physicsGeometry.js";
 import { normalizePhysicsConstraint } from "./relationshipGraph.js";
 import { getInspectableCustomData } from "./propertyInspectorModel.js";
+import { getOutlinerElementLabel } from "./OutlinerPanel.jsx";
 import NumericInput from "./NumericInput.jsx";
 import { getSpringGeometricLength } from "./physicsConstraintAuthoring.js";
 import GeometryResetIcon from "./GeometryResetIcon.jsx";
@@ -33,6 +34,8 @@ const pathKey = path => path.map(String).join(".");
 const getElementName = element => {
   if (getScoreData(element)?.label) return getScoreData(element).label;
   if (element.customData?.draweratorLabel) return element.customData.draweratorLabel;
+  if (element.name) return element.name;
+  if (element.customData?.name) return element.customData.name;
   if (isMediaStreamElement(element)) return normalizeMediaStreamConfig(element.customData.draweratorMediaStream).name;
   if (isSvgObjectElement(element)) return normalizeSvgObject(element.customData.draweratorSvg).name;
   return "";
@@ -761,17 +764,20 @@ const constraintEndpointElementId = endpoint => endpoint?.kind === "object" ? en
 const constraintEndpointSelectionValue = endpoint => {
   if (endpoint?.kind === "none") return "none";
   if (endpoint?.kind === "world") return "world";
+  if (endpoint?.kind === "rope") return endpoint.constraintId ? `rope:${endpoint.constraintId}` : "";
   return constraintEndpointElementId(endpoint);
 };
 
 const PhysicsConstraintControls = ({
   constraint: constraintValue,
   physicsBodies = [],
+  physicsConstraints = [],
   availableElements = [],
   collisionLayers = [],
   query,
   onChange,
   onEndpointChange,
+  onEndpointPick,
   onRemove,
 }) => {
   const constraint = constraintValue ? normalizePhysicsConstraint(constraintValue) : null;
@@ -782,7 +788,7 @@ const PhysicsConstraintControls = ({
   const isRope = constraint.kind === "rope";
   const isHinge = ["axle", "pin", "revolute"].includes(constraint.kind);
   const elementById = new Map(availableElements.map(element => [element.id, element]));
-  const endpointOptions = physicsBodies
+  const bodyEndpointOptions = physicsBodies
     .filter(body => (
       body.systemId === constraint.systemId
       && body.objectRef?.kind === "element"
@@ -791,12 +797,26 @@ const PhysicsConstraintControls = ({
     .map(body => {
       const id = body.objectRef.elementId;
       const element = elementById.get(id);
-      const name = body.name || getElementName(element) || element?.type || "Object";
-      return { id, label: `${name} · ${id.slice(0, 8)}` };
+      const name = getOutlinerElementLabel(element) || id;
+      return { key: id, id, kind: "body", label: name };
     });
-  const endpointOptionMap = new Map(endpointOptions.map(option => [option.id, option]));
-  const endpointLabel = elementId => endpointOptionMap.get(elementId)?.label
-    || `${getElementName(elementById.get(elementId)) || elementById.get(elementId)?.type || "Object"} · ${elementId.slice(0, 8)}`;
+  const ropeEndpointOptions = physicsConstraints
+    .filter(candidate => (
+      candidate?.enabled !== false
+      && candidate?.kind === "rope"
+      && candidate.systemId === constraint.systemId
+      && candidate.objectRef?.kind === "element"
+      && candidate.objectRef.elementId !== constraint.objectRef?.elementId
+      && candidate.pathPoints?.length >= 2
+    ))
+    .map(candidate => {
+      const id = candidate.objectRef.elementId;
+      const element = elementById.get(id);
+      const name = getOutlinerElementLabel(element) || id;
+      return { key: `rope:${candidate.id}`, id, kind: "rope", constraintId: candidate.id, label: name };
+    });
+  const endpointOptions = [...bodyEndpointOptions, ...ropeEndpointOptions];
+  const endpointPicker = side => <button type="button" className="properties-object-picker" onClick={() => onEndpointPick?.(side)} title="Pick connection target from canvas" aria-label={`Pick connection target ${side.toUpperCase()} from canvas`}>⌖</button>;
   const setLimitsEnabled = enabled => onChange(enabled
     ? { limitsEnabled: true, lowerLimit: constraint.lowerLimit ?? -Math.PI, upperLimit: constraint.upperLimit ?? Math.PI }
     : { limitsEnabled: false, lowerLimit: null, upperLimit: null });
@@ -825,17 +845,18 @@ const PhysicsConstraintControls = ({
       <div className="properties-children">
         {matches("name") && <div className="properties-row editable"><span>name</span><input type="text" value={constraint.name} onChange={event => onChange({ name: event.target.value })} /></div>}
         {!isRope && matches("connect") && <>
-          <div className="properties-row editable"><span>connect A</span><select value={constraintEndpointSelectionValue(constraint.a)} onChange={event => onEndpointChange?.("a", event.target.value)}>
+          <div className="properties-row editable"><span>connect A</span><div className="properties-row-action"><select value={constraintEndpointSelectionValue(constraint.a)} onChange={event => onEndpointChange?.("a", event.target.value)}>
             <option value="none">None</option>
             <option value="world">World</option>
-            <option value="" disabled>Choose body</option>
-            {endpointOptions.map(option => <option key={option.id} value={option.id}>{endpointLabel(option.id)}</option>)}
-          </select></div>
-          <div className="properties-row editable"><span>connect B</span><select value={constraintEndpointSelectionValue(constraint.b)} onChange={event => onEndpointChange?.("b", event.target.value)}>
+            <option value="" disabled>Choose object</option>
+            {endpointOptions.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
+          </select>{endpointPicker("a")}</div></div>
+          <div className="properties-row editable"><span>connect B</span><div className="properties-row-action"><select value={constraintEndpointSelectionValue(constraint.b)} onChange={event => onEndpointChange?.("b", event.target.value)}>
             <option value="none">None</option>
             <option value="world">World</option>
-            {endpointOptions.filter(option => option.id !== constraintEndpointElementId(constraint.a)).map(option => <option key={option.id} value={option.id}>{endpointLabel(option.id)}</option>)}
-          </select></div>
+            <option value="" disabled>Choose object</option>
+            {endpointOptions.filter(option => option.key !== constraintEndpointSelectionValue(constraint.a)).map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
+          </select>{endpointPicker("b")}</div></div>
         </>}
         {matches("enabled") && <div className="properties-row editable"><span>enabled</span><input type="checkbox" checked={constraint.enabled} onChange={event => onChange({ enabled: event.target.checked })} /></div>}
         {isRope && matches("collision layers") && <CollisionLayerMembershipControl layers={collisionLayers} value={constraint.collisionLayers} onChange={layers => onChange({ collisionLayers: layers })} />}
@@ -1051,6 +1072,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
   onPhysicsConstraintChange,
   onPhysicsConstraintRemove,
   onPhysicsConstraintEndpointChange,
+  onPhysicsConstraintEndpointPick,
   onScoreChange,
   selectedSvgNode = null,
   onChange,
@@ -1284,6 +1306,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
               <PhysicsConstraintControls
                 constraint={physicsConstraints.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id)}
                 physicsBodies={physicsBodies}
+                physicsConstraints={physicsConstraints}
                 availableElements={availableElements}
                 collisionLayers={physicsCollisionLayers}
                 query={query}
@@ -1294,6 +1317,10 @@ const PropertiesPanel = memo(function PropertiesPanel({
                 onEndpointChange={(side, endpointElementId) => {
                   const constraint = physicsConstraints.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id);
                   if (constraint) onPhysicsConstraintEndpointChange?.(constraint.id, side, endpointElementId);
+                }}
+                onEndpointPick={(side) => {
+                  const constraint = physicsConstraints.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id);
+                  if (constraint) onPhysicsConstraintEndpointPick?.(constraint.id, side);
                 }}
                 onRemove={() => {
                   const constraint = physicsConstraints.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id);

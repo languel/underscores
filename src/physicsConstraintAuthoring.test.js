@@ -27,6 +27,22 @@ test("a partially overlapping pivot is accepted even when its centre sits outsid
   assert.equal(result.constraint.b.kind, "world");
 });
 
+test("an axle or weld can be authored detached for later endpoint assignment", () => {
+  for (const kind of ["axle", "fixate"]) {
+    const pivot = { ...body(`pivot-${kind}`, 400, 400, 20, 20), type: "ellipse" };
+    const result = resolveConstraintPivot({
+      pivot,
+      elements: [pivot],
+      bodies: [],
+      systemId: "world",
+      kind,
+    });
+    assert.equal(result.constraint.a.kind, "none");
+    assert.equal(result.constraint.b.kind, "none");
+    assert.equal(result.constraint.objectRef.elementId, `pivot-${kind}`);
+  }
+});
+
 test("an axle authored on a rope control point stores its stable path progress", () => {
   const ropeElement = body("rope-path", 0, 0, 100, 10);
   const pivot = { ...body("pivot", 95, -5, 10, 10), type: "ellipse" };
@@ -48,6 +64,29 @@ test("an axle authored on a rope control point stores its stable path progress",
   assert.equal(result.constraint.a.kind, "rope");
   assert.equal(result.constraint.a.ropeProgress, 1);
   assert.equal(result.constraint.b.kind, "world");
+});
+
+test("an axle can discover a rope segment between sparse control points", () => {
+  const ropeElement = body("rope-path", 0, 0, 200, 10);
+  const pivot = { ...body("pivot", 45, -5, 10, 10), type: "ellipse" };
+  const ropeConstraint = {
+    id: "rope",
+    systemId: "world",
+    kind: "rope",
+    enabled: true,
+    objectRef: { kind: "element", elementId: ropeElement.id },
+    pathPoints: [[0, 0], [100, 0], [200, 0]],
+  };
+  const result = resolveConstraintPivot({
+    pivot,
+    elements: [ropeElement, pivot],
+    constraints: [ropeConstraint],
+    systemId: "world",
+    kind: "axle",
+  });
+  assert.equal(result.constraint.a.kind, "rope");
+  assert.deepEqual(result.constraint.a.point, [50, 0]);
+  assert.equal(result.constraint.a.ropeProgress, 0.25);
 });
 
 test("an axle pivot discovers two bodies and uses rotated local anchors", () => {

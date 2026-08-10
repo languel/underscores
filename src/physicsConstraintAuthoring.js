@@ -291,6 +291,61 @@ export const physicsEndpointAtPoint = (element, point) => {
   };
 };
 
+const projectPointToSegment = (point, start, end) => {
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  const lengthSquared = dx * dx + dy * dy;
+  const t = lengthSquared > 1e-9
+    ? Math.max(0, Math.min(1, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / lengthSquared))
+    : 0;
+  const projected = [start[0] + dx * t, start[1] + dy * t];
+  return {
+    point: projected,
+    distance: Math.hypot(projected[0] - point[0], projected[1] - point[1]),
+    t,
+  };
+};
+
+// Rope endpoints are authored in world space so a pivot can bind to any point
+// along the visible chain, not only to the original start/end. Keep the
+// normalized progress alongside the point: generated link counts can change
+// when link length is edited, while progress remains stable.
+export const ropeEndpointAtPoint = (constraint, point) => {
+  const points = (constraint?.pathPoints || [])
+    .filter(candidate => Array.isArray(candidate) && Number.isFinite(Number(candidate[0])) && Number.isFinite(Number(candidate[1])))
+    .map(candidate => [Number(candidate[0]), Number(candidate[1])]);
+  if (!constraint?.id || constraint.objectRef?.kind !== "element" || points.length < 2) return null;
+  const target = [finite(point?.[0]), finite(point?.[1])];
+  let best = null;
+  let distanceBefore = 0;
+  let totalLength = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const start = points[index - 1];
+    const end = points[index];
+    const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+    const projection = projectPointToSegment(target, start, end);
+    if (!best || projection.distance < best.distance) {
+      best = {
+        point: projection.point,
+        distance: projection.distance,
+        pointIndex: index - 1,
+        progressDistance: distanceBefore + length * projection.t,
+      };
+    }
+    distanceBefore += length;
+    totalLength += length;
+  }
+  if (!best || totalLength <= 1e-6) return null;
+  return {
+    kind: "rope",
+    objectRef: { kind: "element", elementId: constraint.objectRef.elementId },
+    constraintId: constraint.id,
+    point: [...best.point],
+    ropeProgress: Math.max(0, Math.min(1, best.progressDistance / totalLength)),
+    distance: best.distance,
+  };
+};
+
 // The pivot is a separate authored object that deliberately overlaps a body.
 // Scene hit-testing is front-to-back, so the body can be reported before the
 // small pivot that the user actually clicked. Prefer any non-body object here;
@@ -303,8 +358,8 @@ export const chooseConstraintPivot = elements => (elements || []).find(element =
 
 // Constraint tools act on a small visual pivot object. The pivot's centre is
 // the anchor and it discovers the topmost one or two overlapping physics
-// bodies or exact rope control points. One target becomes a World constraint;
-// two targets become a joint.
+// bodies or nearby rope segments. One target becomes a World constraint; two
+// targets become a joint. Axle/Weld can also remain detached for later editing.
 export const resolveConstraintPivot = ({ pivot, elements = [], bodies = [], constraints = [], systemId, kind = "axle" }) => {
   if (!pivot?.id) return { error: "Choose a pivot object." };
   const bodyIds = new Set((bodies || [])
@@ -321,32 +376,50 @@ export const resolveConstraintPivot = ({ pivot, elements = [], bodies = [], cons
   ));
   const ropeCandidates = constraints
     .filter(constraint => constraint?.enabled !== false && constraint?.kind === "rope" && (!systemId || constraint.systemId === systemId))
-    .flatMap(constraint => (constraint.pathPoints || []).map((controlPoint, pointIndex) => ({ constraint, controlPoint, pointIndex })))
-    .filter(({ constraint, controlPoint }) => constraint.objectRef?.kind === "element"
-      && constraint.objectRef.elementId !== pivot.id
-      && Math.hypot(controlPoint[0] - point.x, controlPoint[1] - point.y) <= 10);
+    .map(constraint => {
+      const endpoint = ropeEndpointAtPoint(constraint, [point.x, point.y]);
+      return endpoint ? { constraint, endpoint } : null;
+    })
+    // A control point can be much farther than the visible rope segment when
+    // the path was sampled sparsely. Use the segment distance for discovery,
+    // then retain a stable progress-based endpoint for the generated links.
+    .filter(candidate => candidate
+      && candidate.constraint.objectRef?.kind === "element"
+      && candidate.constraint.objectRef.elementId !== pivot.id
+      && candidate.endpoint.distance <= 14);
   const candidates = [...ropeCandidates, ...bodyCandidates];
   const [first, second] = candidates;
-  if (!first) return { error: "Place the pivot over a physics body or rope control point." };
   const anchor = [point.x, point.y];
+  if (!first && ["axle", "fixate"].includes(kind)) {
+    // A pivot is still a useful authored object when it starts detached. The
+    // user can choose a body, World, or rope point later from the properties
+    // selectors/eyedroppers, so do not make overlap a prerequisite for Axle
+    // and Weld creation.
+    return {
+      pivotPoint: anchor,
+      primary: null,
+      secondary: null,
+      constraint: {
+        id: `physics-${kind}-${crypto.randomUUID()}`,
+        systemId: String(systemId || ""),
+        name: kind === "fixate" ? "Weld" : "Axle",
+        kind,
+        objectRef: { kind: "element", elementId: pivot.id },
+        a: { kind: "none" },
+        b: { kind: "none" },
+        collideConnected: false,
+        limitsEnabled: false,
+        lowerLimit: null,
+        upperLimit: null,
+      },
+    };
+  }
+  if (!first) return { error: "Place the pivot over a physics body or rope control point." };
   const endpointForCandidate = candidate => candidate.constraint
-    ? {
-      kind: "rope",
-      objectRef: { kind: "element", elementId: candidate.constraint.objectRef.elementId },
-      constraintId: candidate.constraint.id,
-      point: [...candidate.controlPoint],
-      ropeProgress: (() => {
-        const points = candidate.constraint.pathPoints || [];
-        const total = points.slice(1).reduce((length, point, index) => (
-          length + Math.hypot(point[0] - points[index][0], point[1] - points[index][1])
-        ), 0);
-        if (total <= 1e-6) return 0;
-        const preceding = points.slice(1, candidate.pointIndex + 1).reduce((length, point, index) => (
-          length + Math.hypot(point[0] - points[index][0], point[1] - points[index][1])
-        ), 0);
-        return Math.max(0, Math.min(1, preceding / total));
-      })(),
-    }
+    ? (() => {
+      const { distance: _distance, ...endpoint } = candidate.endpoint;
+      return endpoint;
+    })()
     : physicsEndpointAtPoint(candidate, anchor);
   return {
     pivotPoint: anchor,
@@ -360,7 +433,7 @@ export const resolveConstraintPivot = ({ pivot, elements = [], bodies = [], cons
       objectRef: { kind: "element", elementId: pivot.id },
       a: endpointForCandidate(first),
       b: second ? endpointForCandidate(second) : first.constraint
-        ? { kind: "world", point: [...first.controlPoint] }
+        ? { kind: "world", point: [...first.endpoint.point] }
         : { kind: "world", point: anchor },
       collideConnected: false,
       limitsEnabled: false,

@@ -135,6 +135,35 @@ test("an authored axle keeps rebased body-local anchors at its visual pivot", as
   runtime.dispose();
 });
 
+test("a one-sided weld follows a dynamic body and survives reset", async () => {
+  const weldGraph = normalizeRelationshipGraph({
+    systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
+    bodies: [{
+      id: "skeleton", systemId: "world", bodyType: "dynamic",
+      objectRef: { kind: "element", elementId: "skeleton" },
+      collider: { kind: "circle", radius: 12 },
+      initial: { x: 100, y: 100, velocityX: 60 },
+    }],
+    constraints: [{
+      id: "skin-weld", systemId: "world", kind: "fixate",
+      objectRef: { kind: "element", elementId: "skin" },
+      a: { kind: "object", objectRef: { kind: "element", elementId: "skeleton" }, anchor: "local", localAnchor: [12, -8] },
+      b: { kind: "none" },
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(weldGraph, "world");
+  const anchorForSkin = () => runtime.poses().constraintAnchors.find(value => value.constraintId === "skin-weld")?.point;
+  const initial = anchorForSkin();
+  assert.deepEqual(initial?.map(value => Math.round(value)), [112, 92]);
+  runtime.step();
+  const moved = anchorForSkin();
+  assert.ok(moved && moved[0] > initial[0] + 0.5, "the attached skin anchor should follow its moving body");
+  runtime.reset();
+  const reset = anchorForSkin();
+  assert.deepEqual(reset?.map(value => Math.round(value)), [112, 92]);
+  runtime.dispose();
+});
+
 test("a two-body axle keeps its original attachment point rigid while the assembly falls", async () => {
   // A body-to-body axle is free in world space: gravity moves the whole
   // assembly, but its two authored local anchors must remain coincident. This

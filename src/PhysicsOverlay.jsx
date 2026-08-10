@@ -294,23 +294,37 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
         if (!constraint.enabled) continue;
         const a = resolvePhysicsEndpointAtPose(constraint.a, { elements: currentElements, bodies: graph.bodies, poseByBodyId });
         const b = resolvePhysicsEndpointAtPose(constraint.b, { elements: currentElements, bodies: graph.bodies, poseByBodyId });
-        if (!a.ok || !b.ok) continue;
-        const start = toViewport(a.point);
-        const end = toViewport(b.point);
+        // A weld/axle may intentionally have one endpoint set to None when it
+        // is being used as a visual attachment (for example a skin on a
+        // dynamic skeleton). Draw the resolved endpoint as a marker instead
+        // of dropping the whole constraint from the diagnostic overlay.
+        const oneSided = !a.ok || !b.ok;
+        if (oneSided && ![constraint.a?.kind, constraint.b?.kind].includes("none")) continue;
+        if (!a.ok && !b.ok) continue;
+        const anchor = a.ok ? a.point : b.point;
+        const start = toViewport(a.ok ? a.point : anchor);
+        const end = toViewport(b.ok ? b.point : anchor);
         if (settings.constraints) {
           const endpointElement = a.endpoint?.kind === "object"
             ? elementById.get(a.endpoint.objectRef?.elementId)
             : b.endpoint?.kind === "object" ? elementById.get(b.endpoint.objectRef?.elementId) : null;
           context.strokeStyle = debugColor(settings, "constraints", "#ffbe50f2", 1, endpointElement?.strokeColor, theme, context);
-          context.setLineDash(constraint.kind === "spring" ? [2, 3] : [6, 3]);
-          context.beginPath();
-          context.moveTo(start[0], start[1]);
-          context.lineTo(end[0], end[1]);
-          context.stroke();
-          context.setLineDash([]);
+          if (oneSided) {
+            context.setLineDash([]);
+            context.beginPath();
+            context.arc(start[0], start[1], 5, 0, Math.PI * 2);
+            context.stroke();
+          } else {
+            context.setLineDash(constraint.kind === "spring" ? [2, 3] : [6, 3]);
+            context.beginPath();
+            context.moveTo(start[0], start[1]);
+            context.lineTo(end[0], end[1]);
+            context.stroke();
+            context.setLineDash([]);
+          }
           context.fillStyle = context.strokeStyle;
           context.fillRect(start[0] - 2, start[1] - 2, 4, 4);
-          context.fillRect(end[0] - 2, end[1] - 2, 4, 4);
+          if (!oneSided) context.fillRect(end[0] - 2, end[1] - 2, 4, 4);
         }
         if (settings.labels) {
           const pivot = constraint.objectRef?.kind === "element"

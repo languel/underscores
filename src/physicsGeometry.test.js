@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { applyBezierSculptOperator, getPhysicsColliderSelectionValue, getPhysicsElementCenter, getPhysicsElementLocalCenter, getPhysicsElementLocalPoints, getPhysicsElementWorldPoints, inferPhysicsBodyFromElement, inferPhysicsColliderForBody, inferPhysicsColliderFromElement, needsLegacyPhysicsColliderOriginRebase, resolvePhysicsEndpoint, resolvePhysicsEndpointAtPose } from "./physicsGeometry.js";
-import { normalizeBezierGeometry } from "./bezierGeometry.js";
+import { createBezierGeometryFromElement, getBezierWorldPath, normalizeBezierGeometry } from "./bezierGeometry.js";
 
 const curve = {
   id: "curve",
@@ -159,6 +159,34 @@ test("path-chain collider points remain local when their drawing is rotated", ()
   assert.equal(fixed.collider.thickness, 4);
   assert.deepEqual(fixed.collider.points, [[-40, -10], [40, 10]]);
   assert.equal(fixed.collider.localOriginVersion, 2);
+});
+
+test("rounded native curves use their smoothed path for convex and chain colliders", () => {
+  const roundedLine = {
+    id: "rounded-line",
+    type: "line",
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+    angle: 0,
+    roundness: { type: 2 },
+    strokeWidth: 4,
+    points: [[0, 0], [50, 100], [100, 0]],
+  };
+  const geometry = createBezierGeometryFromElement(roundedLine);
+  const renderedPath = getBezierWorldPath({
+    ...roundedLine,
+    customData: { draweratorGeometry: geometry },
+  }, 1.2);
+  const chain = inferPhysicsColliderFromElement(roundedLine, "chain", "fixed");
+  const convex = inferPhysicsColliderFromElement(roundedLine, "convex", "dynamic");
+  assert.equal(chain.points.length, renderedPath.length);
+  assert.equal(convex.points.length, renderedPath.length);
+  assert.notDeepEqual(chain.points, [[-50, -50], [0, 50], [50, -50]]);
+  assert.ok(chain.points.some(([x, y]) => Math.abs(x + 28.125) < 1e-8 && Math.abs(y - 6.25) < 1e-8));
+  assert.equal(roundedLine.customData, undefined);
+  assert.deepEqual(roundedLine.points, [[0, 0], [50, 100], [100, 0]]);
 });
 
 test("path collider refresh preserves an authored collision skin", () => {

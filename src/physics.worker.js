@@ -10,6 +10,8 @@ let graph = normalizeRelationshipGraph(null);
 let lastTick = performance.now();
 let lastPoseAt = 0;
 let lastTelemetryAt = 0;
+let sampledStepMs = 0;
+let sampledSteps = 0;
 const accumulators = new Map();
 const dirtySystems = new Set();
 let timer = 0;
@@ -70,6 +72,8 @@ const initialize = async (graphValue, requestedGraphRevision = graphRevision + 1
     if (system.playing || playAllRequested || requestedPlayingSystems.has(system.id)) playing.add(system.id);
   }
   accumulators.clear();
+  sampledStepMs = 0;
+  sampledSteps = 0;
   for (const systemId of systems.keys()) dirtySystems.add(systemId);
   lastTick = performance.now();
   const metadata = {};
@@ -114,9 +118,11 @@ const advanceTransportSystem = (systemId, runtime, targetTime, { emitEvents = tr
     else runtime.reset();
   }
   let steps = 0;
+  let stepMs = 0;
   const previewEvents = [];
   while (runtime.stepIndex < targetStep && steps < 600) {
     const result = runtime.step();
+    stepMs += Number(result.stepMs) || 0;
     if (emitEvents) {
       emitStepResult(systemId, result);
     } else {
@@ -133,7 +139,7 @@ const advanceTransportSystem = (systemId, runtime, targetTime, { emitEvents = tr
   // These are deliberately diagnostic only. They let the overlay and event
   // console explain what occurred at the scrubbed pose without replaying a
   // collision into mappings, audio, or commands.
-  return previewEvents.slice(-96);
+  return { events: previewEvents.slice(-96), stepMs, steps };
 };
 
 const publishPoses = timestamp => {
@@ -168,7 +174,9 @@ const tick = () => {
     const system = graph.systems.find(candidate => candidate.id === systemId);
     if (!system || !playing.has(systemId)) continue;
     if (system.clock.mode === "transport") {
-      advanceTransportSystem(systemId, runtime, transportTime, { emitEvents: !transportScrubbing });
+      const result = advanceTransportSystem(systemId, runtime, transportTime, { emitEvents: !transportScrubbing });
+      totalStepMs += result.stepMs;
+      totalSteps += result.steps;
       continue;
     }
     const simSpeed = Math.max(0, Number(graph.world.simSpeed) || 0);
@@ -186,6 +194,8 @@ const tick = () => {
     }
     accumulators.set(systemId, accumulator);
   }
+  sampledStepMs += totalStepMs;
+  sampledSteps += totalSteps;
   if (timestamp - lastPoseAt >= 20) publishPoses(timestamp);
   if (timestamp - lastTelemetryAt >= 200) {
     post("telemetry", {
@@ -196,9 +206,11 @@ const tick = () => {
         bodyCount: runtime.bodyById.size,
         droppedEvents: runtime.droppedEvents,
       })),
-      stepMs: totalSteps ? totalStepMs / totalSteps : 0,
+      stepMs: sampledSteps ? sampledStepMs / sampledSteps : 0,
       sampledAt: timestamp,
     });
+    sampledStepMs = 0;
+    sampledSteps = 0;
     lastTelemetryAt = timestamp;
   }
 };
@@ -256,7 +268,7 @@ self.onmessage = event => {
       for (const [systemId, candidate] of systems) {
         const system = graph.systems.find(item => item.id === systemId);
         if (system?.clock.mode === "transport") {
-          const previewEvents = advanceTransportSystem(systemId, candidate, transportTime, { emitEvents: false });
+          const previewEvents = advanceTransportSystem(systemId, candidate, transportTime, { emitEvents: false }).events;
           if (previewEvents.length) {
             // A rewind may replay from a checkpoint. Keep the diagnostic
             // window near the requested transport position instead of showing

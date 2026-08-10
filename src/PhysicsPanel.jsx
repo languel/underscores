@@ -444,12 +444,12 @@ export default function PhysicsPanel({
           <Button
             disabled={!selectedElementCount}
             onClick={() => onMakeConstraint?.({ kind: "fixate", systemId: system.id })}
-            {...infoProps("Weld", "Converts each selected canvas object into a Weld pivot. The pivot centre automatically welds one overlapping body to World, or two overlapping bodies together.")}
+            {...infoProps("Weld", "Converts each selected canvas object into a Weld pivot. Overlapping bodies weld automatically; if none overlap, the pivot stays detached for later endpoint assignment.")}
           >Weld</Button>
           <Button
             disabled={!selectedElementCount}
             onClick={() => onMakeConstraint?.({ kind: "axle", systemId: system.id })}
-            {...infoProps("Make axle object", "Converts each selected canvas object into a freely rotating Axle pivot. The pivot centre automatically connects one overlapping body to World, or two overlapping bodies together.")}
+            {...infoProps("Make axle object", "Converts each selected canvas object into a freely rotating Axle pivot. Overlapping bodies connect automatically; if none overlap, the pivot stays detached for later endpoint assignment.")}
           >Axle</Button>
           <Button
             disabled={!selectedElementCount}

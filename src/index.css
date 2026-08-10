@@ -1242,9 +1242,9 @@ body .excalidraw .sidebar {
   position: fixed;
   z-index: 31;
   top: 0;
-  right: 48px;
-  left: 48px;
-  height: 42px;
+  right: 0;
+  left: 0;
+  height: 40px;
   display: flex;
   align-items: stretch;
   justify-content: center;
@@ -1382,6 +1382,12 @@ body .excalidraw .sidebar {
 .physics-canvas-tool.active {
   border-color: var(--border-color, rgba(128, 128, 128, 0.34));
   background: color-mix(in srgb, var(--drawerator-highlight, currentColor) 17%, transparent);
+}
+
+.physics-canvas-tool.active {
+  border-color: transparent;
+  color: var(--color-primary, currentColor);
+  background: var(--button-hover-bg, rgba(128, 128, 128, 0.16));
 }
 
 .physics-canvas-tool:disabled {
@@ -5329,6 +5335,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .properties-row.properties-row-with-action { align-items: center; }
 .properties-row-action { display: flex; min-width: 0; gap: 4px; }
 .properties-row-action input { min-width: 0; flex: 1; }
+.properties-row-action select { min-width: 0; flex: 1; }
 .geometry-reset-button {
   display: inline-grid;
   flex: 0 0 28px;
@@ -6930,6 +6937,12 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .iannix-two-column {
   display: contents;
 }
+
+.iannix-inline-action { display: flex; min-width: 0; align-items: center; gap: 4px; }
+.iannix-inline-action > input,
+.iannix-inline-action > select,
+.iannix-inline-action > .numeric-input { min-width: 0; flex: 1; width: auto; }
+.iannix-inline-action > .properties-object-picker { flex: 0 0 16px; width: 16px; min-width: 16px; }
 
 .iannix-role-grid {
   gap: 0;
