@@ -1,6 +1,7 @@
 import {
   bezierLocalPointToWorld,
   bezierWorldPointToLocal,
+  createBezierGeometryFromElement,
   flattenBezierGeometry,
   getBezierWorldAnchors,
   getBezierWorldPath,
@@ -59,6 +60,23 @@ const localBoundsCenter = points => {
     : null;
 };
 
+// Rounded native lines/freehand strokes render through a transient cubic path,
+// just like ropes do when they are authored from a smooth curve. Keep that
+// representation ephemeral so the source Excalidraw element remains intact,
+// while every physics shape can follow the same visible path.
+const getPhysicsCurveSource = element => {
+  if (!element) return null;
+  if (hasCubicBezierGeometry(element)) return element;
+  if (!element.roundness || !["line", "freedraw"].includes(element.type)) return null;
+  const geometry = createBezierGeometryFromElement(element);
+  return geometry
+    ? {
+      ...element,
+      customData: { ...(element.customData || {}), draweratorGeometry: geometry },
+    }
+    : null;
+};
+
 // Linear and freehand elements are allowed to retain points outside their
 // width/height frame (notably after point edits, import, or a resize).  Their
 // rendered rotation origin is the bounds of those points, not necessarily the
@@ -67,8 +85,9 @@ const localBoundsCenter = points => {
 // away from its drawing.
 export const getPhysicsElementLocalCenter = element => {
   if (!element) return [0, 0];
-  if (hasCubicBezierGeometry(element)) {
-    const path = flattenBezierGeometry(element.customData.draweratorGeometry, 0.35);
+  const curveSource = getPhysicsCurveSource(element);
+  if (curveSource) {
+    const path = flattenBezierGeometry(curveSource.customData.draweratorGeometry, 0.35);
     const normalizedCenter = localBoundsCenter(path);
     if (normalizedCenter) {
       return [
@@ -92,7 +111,8 @@ export const getPhysicsElementCenter = element => {
 
 export const getPhysicsElementWorldPoints = element => {
   if (!element) return [];
-  if (hasCubicBezierGeometry(element)) return getBezierWorldPath(element, 1.2);
+  const curveSource = getPhysicsCurveSource(element);
+  if (curveSource) return getBezierWorldPath(curveSource, 1.2);
   if (!Array.isArray(element.points)) return [];
   const center = getPhysicsElementCenter(element);
   return element.points.map(point => rotatePoint([
@@ -109,11 +129,12 @@ export const getPhysicsElementWorldPoints = element => {
 export const getPhysicsElementLocalPoints = element => {
   if (!element) return [];
   const center = getPhysicsElementCenter(element);
-  if (hasCubicBezierGeometry(element)) {
+  const curveSource = getPhysicsCurveSource(element);
+  if (curveSource) {
     const angle = finite(element.angle);
     const cos = Math.cos(-angle);
     const sin = Math.sin(-angle);
-    return getBezierWorldPath(element, 1.2).map(point => {
+    return getBezierWorldPath(curveSource, 1.2).map(point => {
       const dx = point[0] - center[0];
       const dy = point[1] - center[1];
       return [dx * cos - dy * sin, dx * sin + dy * cos];

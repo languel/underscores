@@ -139,7 +139,7 @@ function CollisionLayerMembershipPicker({ layers, values, disabled = false, onCh
       const included = memberships.map(membership => membership.includes(layer.id));
       const active = included.length > 0 && included.every(Boolean);
       const mixed = included.some(Boolean) && !active;
-      return <label key={layer.id} title={`Collide as ${layer.name}`}>
+      return <label key={layer.id} title={`Belongs to ${layer.name}`}>
         <input
           type="checkbox"
           checked={active}
@@ -381,6 +381,7 @@ export default function PhysicsPanel({
             <Button disabled={layer.id === "default" || collisionLayerStack.layers.length <= 1} onClick={() => removeCollisionLayer(layer.id)}>Remove</Button>
           </div>)}
         </div>
+        <small className="physics-layer-help">Assign objects with <em>Belongs to layers</em>; use this table to choose which layer pairs can contact.</small>
         <div className="physics-layer-matrix" role="grid" aria-label="Collision layer matrix" style={{ "--physics-layer-count": collisionLayerStack.layers.length }}>
           <div className="physics-layer-matrix-head" aria-hidden="true"><span>Collides with</span>{collisionLayerStack.layers.map(layer => <span key={layer.id} title={layer.name}>{layer.name}</span>)}</div>
           {collisionLayerStack.layers.map(first => <div key={first.id} className="physics-layer-matrix-row" role="row">
@@ -400,6 +401,10 @@ export default function PhysicsPanel({
         <label className="physics-check">
           <input type="checkbox" checked={debug.enabled === true} onChange={event => patchDebug({ enabled: event.target.checked })} />
           <span>Show physics diagnostics</span>
+        </label>
+        <label className="physics-check" {...infoProps("Trajectory trails", "Show runtime-only trails enabled on physics bodies, Axle/Weld pivots, and Tracer objects. Trail color, time length, and opacity are configured on each object in Properties.")}>
+          <input type="checkbox" checked={debug.trails === true} disabled={!debug.enabled} onChange={event => patchDebug({ trails: event.target.checked })} />
+          <span>Show trajectory trails</span>
         </label>
         <div className="physics-debug-colors" aria-disabled={!debug.enabled}>
           {DEBUG_ENTRIES.map(([key, label, description]) => <DebugColorPicker
@@ -421,6 +426,7 @@ export default function PhysicsPanel({
           {systemConstraints.map((constraint, index) => <ConstraintCard
             key={constraint.id}
             constraint={constraint}
+            collisionLayers={collisionLayerStack.layers}
             springElement={sceneElementsById.get(constraint.objectRef?.elementId)}
             expanded={expandedConstraintId === null ? index === 0 : expandedConstraintId === constraint.id}
             onToggle={() => setExpandedConstraintId(current => current === constraint.id ? false : constraint.id)}
@@ -442,12 +448,12 @@ export default function PhysicsPanel({
           <Button
             disabled={!selectedElementCount}
             onClick={() => onMakeConstraint?.({ kind: "fixate", systemId: system.id })}
-            {...infoProps("Weld", "Converts each selected canvas object into a Weld pivot. The pivot centre automatically welds one overlapping body to World, or two overlapping bodies together.")}
+            {...infoProps("Weld", "Converts each selected canvas object into a Weld pivot. Overlapping bodies weld automatically; if none overlap, the pivot stays detached for later endpoint assignment.")}
           >Weld</Button>
           <Button
             disabled={!selectedElementCount}
             onClick={() => onMakeConstraint?.({ kind: "axle", systemId: system.id })}
-            {...infoProps("Make axle object", "Converts each selected canvas object into a freely rotating Axle pivot. The pivot centre automatically connects one overlapping body to World, or two overlapping bodies together.")}
+            {...infoProps("Make axle object", "Converts each selected canvas object into a freely rotating Axle pivot. Overlapping bodies connect automatically; if none overlap, the pivot stays detached for later endpoint assignment.")}
           >Axle</Button>
           <Button
             disabled={!selectedElementCount}
@@ -464,15 +470,26 @@ export default function PhysicsPanel({
             onClick={() => onMakeConstraint?.({ kind: "thruster", systemId: system.id })}
             {...infoProps("Make thruster object", "Converts each selected two-ended canvas path into a Thruster. Its start attaches to a dynamic body and its visible direction applies continuous force.")}
           >Thruster</Button>
+          <Button
+            disabled={!selectedElementCount}
+            onClick={() => onMakeConstraint?.({ kind: "tracer", systemId: system.id })}
+            {...infoProps("Make tracer object", "Converts each selected object into a solver-free diagnostic Tracer. It follows an overlapping body or rope point, or stays at its own fixed position.")}
+          >Tracer</Button>
         </div>
         {selectedBody && <div className="physics-selected-properties">
           {selectedBodies.length === 1 && <label className="physics-field"><span>Physics name</span><input value={selectedBody.name} onChange={event => patchSelectedBody({ name: event.target.value })} /></label>}
           <label className="physics-check"><input type="checkbox" checked={selectedBody.enabled} onChange={event => patchSelectedBody({ enabled: event.target.checked })} /><span>Enabled{selectedBodies.length > 1 ? ` · ${selectedBodies.length} bodies` : ""}</span></label>
           <label className="physics-field"><span>Tags</span><input value={selectedBody.collisionTags.join(", ")} onChange={event => patchSelectedBody({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} /></label>
-          <div className="physics-field physics-collision-layer-field"><span>Collision layers</span><CollisionLayerMembershipPicker layers={collisionLayerStack.layers} values={selectedBodies.map(body => body.collisionLayers)} onChange={updateSelectedCollisionLayers} /></div>
+          <div className="physics-field physics-collision-layer-field" {...infoProps("Collision-layer membership", "These checkboxes assign the selected body to one or more layers. The matrix above controls which layer pairs make contact.")}><span>Belongs to layers</span><CollisionLayerMembershipPicker layers={collisionLayerStack.layers} values={selectedBodies.map(body => body.collisionLayers)} onChange={updateSelectedCollisionLayers} /></div>
           <label className="physics-field" {...infoProps("Object note", "A per-body value available to collision mappings as aNote/noteA or bNote/noteB.")}><span>Object note</span><NumericInput min="0" max="127" step="1" value={selectedBody.mappingValues.note} defaultValue={60} onCommit={note => patchSelectedBody({ mappingValues: { note } })} /></label>
           {selectedBodyElements.length === selectedBodies.length && <label className="physics-field"><span>Collider</span><select value={getPhysicsColliderSelectionValue(selectedBody.collider, { allowPath: selectedBodyElements.every(element => ["freedraw", "line", "arrow"].includes(element.type) || element.customData?.draweratorGeometry?.kind === "cubicBezierPath") })} onChange={event => patchSelectedBody({ colliderKind: event.target.value })}><option value="box">Bounding box</option><option value="ellipse">Bounding ellipse</option><option value="convex">Convex hull</option>{selectedBodyElements.every(element => ["freedraw", "line", "arrow"].includes(element.type) || element.customData?.draweratorGeometry?.kind === "cubicBezierPath") && <option value="chain">Path chain</option>}</select></label>}
           <label className="physics-field" {...infoProps("Collision skin", "Invisible scene-pixel padding around this collider. It helps small or fast bodies make stable contact with fine paths.")}><span>Collision skin</span><NumericInput min="0" max="64" step="0.5" value={selectedBody.collider.contactSkin} defaultValue={0} onCommit={contactSkin => patchSelectedBody({ collider: { contactSkin } })} /></label>
+          <label className="physics-check" {...infoProps("Trajectory trail", "Draw a runtime-only centre-of-mass trail for this body.")}><input type="checkbox" checked={selectedBody.trail?.enabled === true} onChange={event => patchSelectedBody({ trail: { ...selectedBody.trail, enabled: event.target.checked } })} /><span>Trail</span></label>
+          <div className="physics-two-column">
+            <label className="physics-field"><span>Trail color</span><input type="color" value={/^#[0-9a-f]{6}$/i.test(selectedBody.trail?.color) ? selectedBody.trail.color : "#4f8cff"} onChange={event => patchSelectedBody({ trail: { ...selectedBody.trail, color: event.target.value } })} /></label>
+            <label className="physics-field"><span>Time length (s)</span><NumericInput min="0.1" max="120" step="0.25" value={selectedBody.trail?.duration} defaultValue={4} onCommit={duration => patchSelectedBody({ trail: { ...selectedBody.trail, duration } })} /></label>
+            <label className="physics-field"><span>Opacity</span><NumericInput min="0" max="1" step="0.05" value={selectedBody.trail?.opacity} defaultValue={0.75} onCommit={opacity => patchSelectedBody({ trail: { ...selectedBody.trail, opacity } })} /></label>
+          </div>
           <div className="physics-two-column">
             <label className="physics-field"><span>Friction</span><NumericInput min="0" max="10" step="0.05" value={selectedBody.material.friction} defaultValue={0.2} onCommit={friction => patchSelectedBody({ material: { ...selectedBody.material, friction } })} /></label>
             <label className="physics-field"><span>Bounce</span><NumericInput min="0" max="2" step="0.05" value={selectedBody.material.restitution} defaultValue={0.5} onCommit={restitution => patchSelectedBody({ material: { ...selectedBody.material, restitution } })} /></label>
@@ -559,6 +576,7 @@ const constraintLabel = kind => ({
   weld: "Weld",
   attractor: "Attractor",
   thruster: "Thruster",
+  tracer: "Tracer",
 }[kind] || "Constraint");
 
 const endpointLabel = endpoint => {
@@ -571,13 +589,15 @@ const endpointLabel = endpoint => {
   return `Object · ${endpoint.objectRef?.elementId?.slice(0, 10) || "missing"}`;
 };
 
-function ConstraintCard({ constraint: constraintValue, springElement, expanded, onToggle, onUpdate, onRemove }) {
+function ConstraintCard({ constraint: constraintValue, collisionLayers = [], springElement, expanded, onToggle, onUpdate, onRemove }) {
   const constraint = normalizePhysicsConstraint(constraintValue);
   const isSpring = ["spring", "distance"].includes(constraint.kind);
   const isRope = constraint.kind === "rope";
   const isAxle = ["axle", "pin", "revolute"].includes(constraint.kind);
   const isAttractor = constraint.kind === "attractor";
   const isThruster = constraint.kind === "thruster";
+  const isTracer = constraint.kind === "tracer";
+  const supportsTrail = isTracer || isAxle || ["weld", "fixate"].includes(constraint.kind);
   const limitDegrees = radians => Number((radians * 180 / Math.PI).toFixed(2));
   const setLimitsEnabled = enabled => onUpdate(enabled
     ? {
@@ -603,12 +623,12 @@ function ConstraintCard({ constraint: constraintValue, springElement, expanded, 
       <label className="physics-field"><span>Name</span><input value={constraint.name} onChange={event => onUpdate({ name: event.target.value })} /></label>
       <div className="physics-two-column">
         <label className="physics-field"><span>Kind</span><select value={constraint.kind} onChange={event => onUpdate({ kind: event.target.value })}>
-          <option value="fixate">Weld</option><option value="axle">Axle</option><option value="spring">Spring</option><option value="rope">Rope</option><option value="attractor">Attractor</option><option value="thruster">Thruster</option><option value="distance">Distance</option>
+          <option value="fixate">Weld</option><option value="axle">Axle</option><option value="spring">Spring</option><option value="rope">Rope</option><option value="attractor">Attractor</option><option value="thruster">Thruster</option><option value="tracer">Tracer</option><option value="distance">Distance</option>
           <option value="pin">Pin (legacy)</option><option value="revolute">Revolute (legacy)</option><option value="weld">Weld (legacy)</option>
         </select></label>
-        <label className="physics-check" {...infoProps("Collide while connected", "Off by default so connected parts do not immediately collide with one another. Enable when their colliders should still make contact.")}><input type="checkbox" checked={constraint.collideConnected} onChange={event => onUpdate({ collideConnected: event.target.checked })} /><span>Collide while connected</span></label>
+        {!isTracer && <label className="physics-check" {...infoProps("Collide while connected", "Controls only colliders joined directly by this pivot. It does not assign collision layers and it does not enable a rope to collide with every other link.")}><input type="checkbox" checked={constraint.collideConnected} onChange={event => onUpdate({ collideConnected: event.target.checked })} /><span>Collide while connected</span></label>}
       </div>
-      <div className="physics-constraint-endpoints"><span>A · {endpointLabel(constraint.a)}</span><span>B · {endpointLabel(constraint.b)}</span></div>
+      <div className="physics-constraint-endpoints"><span>A · {endpointLabel(constraint.a)}</span>{!isTracer && <span>B · {endpointLabel(constraint.b)}</span>}</div>
       {isSpring && <div className="physics-two-column">
         <label className="physics-field"><span>Rest length</span><div className="iannix-inline-action"><NumericInput min="0" step="any" value={constraint.restLength} defaultValue={100} onCommit={restLength => onUpdate({ restLength })} /><Button className="geometry-reset-button" onClick={resetSpringRestLength} disabled={getSpringGeometricLength(springElement) === null} title="Set to current geometry" aria-label="Set rest length to current geometry"><GeometryResetIcon /></Button></div></label>
         <label className="physics-field"><span>Stiffness</span><NumericInput min="0" step="any" value={constraint.stiffness} defaultValue={40} onCommit={stiffness => onUpdate({ stiffness })} /></label>
@@ -618,6 +638,10 @@ function ConstraintCard({ constraint: constraintValue, springElement, expanded, 
         <label className="physics-field"><span>Link length</span><NumericInput min="2" step="any" value={constraint.segmentLength} defaultValue={24} onCommit={segmentLength => onUpdate({ segmentLength })} /></label>
         <label className="physics-field"><span>Thickness</span><NumericInput min="0.5" step="any" value={constraint.thickness} defaultValue={4} onCommit={thickness => onUpdate({ thickness })} /></label>
       </div>}
+      {isRope && <>
+        <div className="physics-field physics-collision-layer-field" {...infoProps("Collision-layer membership", "These checkboxes assign the rope to one or more layers. The world matrix controls which layer pairs make contact with the rope.")}><span>Belongs to layers</span><CollisionLayerMembershipPicker layers={collisionLayers} values={[constraint.collisionLayers]} onChange={collisionLayersValue => onUpdate({ collisionLayers: collisionLayersValue })} /></div>
+        <label className="physics-check" {...infoProps("Self collisions", "Allow non-adjacent links in this rope to collide with one another. Leave this off for a lighter, more stable rope; layer-pair settings still control rope-to-body contact.")}><input type="checkbox" checked={constraint.selfCollisions === true} onChange={event => onUpdate({ selfCollisions: event.target.checked })} /><span>Self collisions</span></label>
+      </>}
       {isAxle && <>
         <label className="physics-check" {...infoProps("Motor", "Drives the axle at the chosen angular speed. Positive values rotate counter-clockwise; torque limits how strongly the motor corrects the speed.")}><input type="checkbox" checked={constraint.motorEnabled === true} onChange={event => onUpdate({ motorEnabled: event.target.checked })} /><span>Motor enabled</span></label>
         <div className="physics-two-column">
@@ -640,6 +664,14 @@ function ConstraintCard({ constraint: constraintValue, springElement, expanded, 
         <label className="physics-field" {...infoProps("Target tags", "Optional comma-separated collision tags. Leave blank to affect every dynamic body in this physics system.")}><span>Target tags</span><input value={constraint.targetTags.join(", ")} onChange={event => onUpdate({ targetTags: event.target.value.split(",").map(tag => tag.trim()).filter(Boolean) })} /></label>
       </>}
       {isThruster && <label className="physics-field" {...infoProps("Force", "Continuous force in the path's start-to-end direction. The thruster start must attach to a dynamic body.")}><span>Force</span><NumericInput step="any" value={constraint.thrusterForce} defaultValue={20} onCommit={thrusterForce => onUpdate({ thrusterForce })} /></label>}
+      {supportsTrail && <>
+        <label className="physics-check" {...infoProps(isTracer ? "Trajectory trail" : "Attachment trails", isTracer ? "Plot this diagnostic point's runtime trajectory." : "Plot the A and B attachment anchors independently. A stable joint produces one overlapping path; joint drift visibly forks the paths.")}><input type="checkbox" checked={constraint.trail?.enabled === true} onChange={event => onUpdate({ trail: { ...constraint.trail, enabled: event.target.checked } })} /><span>{isTracer ? "Trail" : "Attachment trails (A + B)"}</span></label>
+        <div className="physics-two-column">
+          <label className="physics-field"><span>Trail color</span><input type="color" value={/^#[0-9a-f]{6}$/i.test(constraint.trail?.color) ? constraint.trail.color : "#4f8cff"} onChange={event => onUpdate({ trail: { ...constraint.trail, color: event.target.value } })} /></label>
+          <label className="physics-field"><span>Time length (s)</span><NumericInput min="0.1" max="120" step="0.25" value={constraint.trail?.duration} defaultValue={4} onCommit={duration => onUpdate({ trail: { ...constraint.trail, duration } })} /></label>
+          <label className="physics-field"><span>Opacity</span><NumericInput min="0" max="1" step="0.05" value={constraint.trail?.opacity} defaultValue={0.75} onCommit={opacity => onUpdate({ trail: { ...constraint.trail, opacity } })} /></label>
+        </div>
+      </>}
     </div>}
   </article>;
 }

@@ -16,9 +16,11 @@ import { getScoreData } from "./iannixEngine.js";
 import { getPhysicsColliderSelectionValue } from "./physicsGeometry.js";
 import { normalizePhysicsConstraint } from "./relationshipGraph.js";
 import { getInspectableCustomData } from "./propertyInspectorModel.js";
+import { getOutlinerElementLabel } from "./OutlinerPanel.jsx";
 import NumericInput from "./NumericInput.jsx";
 import { getSpringGeometricLength } from "./physicsConstraintAuthoring.js";
 import GeometryResetIcon from "./GeometryResetIcon.jsx";
+import { infoProps } from "./uiInfo.js";
 
 const READ_ONLY_KEYS = new Set([
   "id", "type", "width", "height", "version", "versionNonce", "updated", "index", "seed",
@@ -32,6 +34,8 @@ const pathKey = path => path.map(String).join(".");
 const getElementName = element => {
   if (getScoreData(element)?.label) return getScoreData(element).label;
   if (element.customData?.draweratorLabel) return element.customData.draweratorLabel;
+  if (element.name) return element.name;
+  if (element.customData?.name) return element.customData.name;
   if (isMediaStreamElement(element)) return normalizeMediaStreamConfig(element.customData.draweratorMediaStream).name;
   if (isSvgObjectElement(element)) return normalizeSvgObject(element.customData.draweratorSvg).name;
   return "";
@@ -721,6 +725,7 @@ const physicsBodyMatchesQuery = (body, query) => {
   return [
     "physics", "body", "enabled", "type", "name", "tags", "sensor", "collider",
     "friction", "bounce", "restitution", "density", "damping", "angular damping", "collision skin", "collision layers", "layers", "object note", "note",
+    "trail", "trajectory", "color", "time length", "duration", "opacity",
     body.name, body.bodyType, body.collisionTags.join(" "), body.collider.kind,
   ].some(value => String(value || "").toLowerCase().includes(query.needle));
 };
@@ -747,28 +752,34 @@ const physicsConstraintMatchesQuery = (constraint, query) => {
   const label = physicsConstraintLabel(constraint.kind).toLowerCase();
   return [
     "physics", "constraint", "role", "name", "kind", "connect", "endpoint", "enabled",
-    "collide", "rest length", "stiffness", "damping", "motor", "speed", "torque", "limit", "lower", "upper", "break", label,
+    "collide", "self collisions", "rest length", "stiffness", "damping", "motor", "speed", "torque", "limit", "lower", "upper", "break",
+    "trail", "trajectory", "color", "time length", "duration", "opacity", label,
     constraint.name, constraint.kind,
   ].some(value => String(value || "").toLowerCase().includes(query.needle));
 };
 
-const physicsConstraintFieldCount = (constraint, query) => physicsConstraintMatchesQuery(constraint, query) ? 13 : 0;
+const physicsConstraintFieldCount = (constraint, query) => physicsConstraintMatchesQuery(constraint, query)
+  ? 13 + (constraint?.kind === "rope" ? 1 : 0)
+  : 0;
 
 const constraintEndpointElementId = endpoint => endpoint?.kind === "object" ? endpoint.objectRef?.elementId || "" : "";
 const constraintEndpointSelectionValue = endpoint => {
   if (endpoint?.kind === "none") return "none";
   if (endpoint?.kind === "world") return "world";
+  if (endpoint?.kind === "rope") return endpoint.constraintId ? `rope:${endpoint.constraintId}` : "";
   return constraintEndpointElementId(endpoint);
 };
 
 const PhysicsConstraintControls = ({
   constraint: constraintValue,
   physicsBodies = [],
+  physicsConstraints = [],
   availableElements = [],
   collisionLayers = [],
   query,
   onChange,
   onEndpointChange,
+  onEndpointPick,
   onRemove,
 }) => {
   const constraint = constraintValue ? normalizePhysicsConstraint(constraintValue) : null;
@@ -777,9 +788,11 @@ const PhysicsConstraintControls = ({
   const label = physicsConstraintLabel(constraint.kind);
   const isSpring = ["spring", "distance"].includes(constraint.kind);
   const isRope = constraint.kind === "rope";
+  const isTracer = constraint.kind === "tracer";
   const isHinge = ["axle", "pin", "revolute"].includes(constraint.kind);
+  const supportsTrail = isTracer || isHinge || ["weld", "fixate"].includes(constraint.kind);
   const elementById = new Map(availableElements.map(element => [element.id, element]));
-  const endpointOptions = physicsBodies
+  const bodyEndpointOptions = physicsBodies
     .filter(body => (
       body.systemId === constraint.systemId
       && body.objectRef?.kind === "element"
@@ -788,12 +801,26 @@ const PhysicsConstraintControls = ({
     .map(body => {
       const id = body.objectRef.elementId;
       const element = elementById.get(id);
-      const name = body.name || getElementName(element) || element?.type || "Object";
-      return { id, label: `${name} · ${id.slice(0, 8)}` };
+      const name = getOutlinerElementLabel(element) || id;
+      return { key: id, id, kind: "body", label: name };
     });
-  const endpointOptionMap = new Map(endpointOptions.map(option => [option.id, option]));
-  const endpointLabel = elementId => endpointOptionMap.get(elementId)?.label
-    || `${getElementName(elementById.get(elementId)) || elementById.get(elementId)?.type || "Object"} · ${elementId.slice(0, 8)}`;
+  const ropeEndpointOptions = physicsConstraints
+    .filter(candidate => (
+      candidate?.enabled !== false
+      && candidate?.kind === "rope"
+      && candidate.systemId === constraint.systemId
+      && candidate.objectRef?.kind === "element"
+      && candidate.objectRef.elementId !== constraint.objectRef?.elementId
+      && candidate.pathPoints?.length >= 2
+    ))
+    .map(candidate => {
+      const id = candidate.objectRef.elementId;
+      const element = elementById.get(id);
+      const name = getOutlinerElementLabel(element) || id;
+      return { key: `rope:${candidate.id}`, id, kind: "rope", constraintId: candidate.id, label: name };
+    });
+  const endpointOptions = [...bodyEndpointOptions, ...ropeEndpointOptions];
+  const endpointPicker = side => <button type="button" className="properties-object-picker" onClick={() => onEndpointPick?.(side)} title="Pick connection target from canvas" aria-label={`Pick connection target ${side.toUpperCase()} from canvas`}>⌖</button>;
   const setLimitsEnabled = enabled => onChange(enabled
     ? { limitsEnabled: true, lowerLimit: constraint.lowerLimit ?? -Math.PI, upperLimit: constraint.upperLimit ?? Math.PI }
     : { limitsEnabled: false, lowerLimit: null, upperLimit: null });
@@ -822,21 +849,24 @@ const PhysicsConstraintControls = ({
       <div className="properties-children">
         {matches("name") && <div className="properties-row editable"><span>name</span><input type="text" value={constraint.name} onChange={event => onChange({ name: event.target.value })} /></div>}
         {!isRope && matches("connect") && <>
-          <div className="properties-row editable"><span>connect A</span><select value={constraintEndpointSelectionValue(constraint.a)} onChange={event => onEndpointChange?.("a", event.target.value)}>
+          <div className="properties-row editable"><span>connect A</span><div className="properties-row-action"><select value={constraintEndpointSelectionValue(constraint.a)} onChange={event => onEndpointChange?.("a", event.target.value)}>
             <option value="none">None</option>
             <option value="world">World</option>
-            <option value="" disabled>Choose body</option>
-            {endpointOptions.map(option => <option key={option.id} value={option.id}>{endpointLabel(option.id)}</option>)}
-          </select></div>
-          <div className="properties-row editable"><span>connect B</span><select value={constraintEndpointSelectionValue(constraint.b)} onChange={event => onEndpointChange?.("b", event.target.value)}>
+            <option value="" disabled>Choose object</option>
+            {endpointOptions.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
+          </select>{endpointPicker("a")}</div></div>
+          {!isTracer && <div className="properties-row editable"><span>connect B</span><div className="properties-row-action"><select value={constraintEndpointSelectionValue(constraint.b)} onChange={event => onEndpointChange?.("b", event.target.value)}>
             <option value="none">None</option>
             <option value="world">World</option>
-            {endpointOptions.filter(option => option.id !== constraintEndpointElementId(constraint.a)).map(option => <option key={option.id} value={option.id}>{endpointLabel(option.id)}</option>)}
-          </select></div>
+            <option value="" disabled>Choose object</option>
+            {endpointOptions.filter(option => option.key !== constraintEndpointSelectionValue(constraint.a)).map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
+          </select>{endpointPicker("b")}</div></div>}
         </>}
         {matches("enabled") && <div className="properties-row editable"><span>enabled</span><input type="checkbox" checked={constraint.enabled} onChange={event => onChange({ enabled: event.target.checked })} /></div>}
         {isRope && matches("collision layers") && <CollisionLayerMembershipControl layers={collisionLayers} value={constraint.collisionLayers} onChange={layers => onChange({ collisionLayers: layers })} />}
-        {matches("collide") && <div className="properties-row editable"><span>collide while connected</span><input type="checkbox" checked={constraint.collideConnected} onChange={event => onChange({ collideConnected: event.target.checked })} /></div>}
+        {isRope && matches("self collisions") && <div className="properties-row editable" {...infoProps("Self collisions", "Allow non-adjacent links in this rope to collide with one another. Leave this off for a lighter, more stable rope; layer-pair settings still control rope-to-body contact.")}><span>self collisions</span><input type="checkbox" checked={constraint.selfCollisions === true} onChange={event => onChange({ selfCollisions: event.target.checked })} /></div>}
+        {!isTracer && matches("collide") && <div className="properties-row editable" {...infoProps("Collide while connected", "Controls only colliders joined directly by this pivot. It does not assign collision layers and it does not enable a rope to collide with every other link.")}><span>collide while connected</span><input type="checkbox" checked={constraint.collideConnected} onChange={event => onChange({ collideConnected: event.target.checked })} /></div>}
+        {supportsTrail && <PhysicsTrailControls trail={constraint.trail} joint={isHinge || ["weld", "fixate"].includes(constraint.kind)} query={query} onChange={trail => onChange({ trail })} />}
         {isSpring && <>
           {matches("rest length") && <div className="properties-row editable properties-row-with-action"><span>rest length</span><div className="properties-row-action"><NumericInput min="0" step="any" value={constraint.restLength} defaultValue={100} onCommit={restLength => onChange({ restLength })} /><button type="button" className="iannix-flat-button geometry-reset-button" onClick={resetSpringRestLength} title="Set to current geometry" aria-label="Set rest length to current geometry"><GeometryResetIcon /></button></div></div>}
           {matches("stiffness") && <div className="properties-row editable"><span>stiffness</span><NumericInput min="0" step="any" value={constraint.stiffness} defaultValue={40} onCommit={stiffness => onChange({ stiffness })} /></div>}
@@ -852,22 +882,22 @@ const PhysicsConstraintControls = ({
             {matches("upper") && <div className="properties-row editable"><span>upper limit (°)</span><NumericInput step="1" disabled={!constraint.limitsEnabled} value={constraint.upperLimit === null ? "" : limitDegrees(constraint.upperLimit)} emptyValue={null} onCommit={upperLimit => onChange({ limitsEnabled: true, upperLimit: upperLimit === null ? null : upperLimit * Math.PI / 180 })} /></div>}
           </>
         </>}
-        {matches("break") && <div className="properties-row editable"><span>break force</span><NumericInput min="0" step="1" value={constraint.breakForce ?? ""} emptyValue={null} placeholder="unlimited" onCommit={breakForce => onChange({ breakForce })} /></div>}
+        {!isTracer && matches("break") && <div className="properties-row editable"><span>break force</span><NumericInput min="0" step="1" value={constraint.breakForce ?? ""} emptyValue={null} placeholder="unlimited" onCommit={breakForce => onChange({ breakForce })} /></div>}
         <button type="button" className="iannix-flat-button" onClick={() => onRemove?.()}>Remove {label.toLowerCase()}</button>
       </div>
     </details>
   </>;
 };
 
-const CollisionLayerMembershipControl = ({ layers = [], value, onChange, label = "collision layers" }) => {
+const CollisionLayerMembershipControl = ({ layers = [], value, onChange, label = "belongs to layers" }) => {
   // `null` means an older body that still uses raw Rapier masks. Present it as
   // Default until the user edits it; an explicit empty array means no layers.
   const selected = new Set(Array.isArray(value) ? value : [layers[0]?.id].filter(Boolean));
   if (!layers.length) return null;
-  return <div className="properties-row editable properties-collision-layers">
+  return <div className="properties-row editable properties-collision-layers" {...infoProps("Collision-layer membership", "These checkboxes assign the object to one or more layers. The world matrix controls which layer pairs make contact.")}>
     <span>{label}</span>
     <div className="properties-collision-layer-list" role="group" aria-label={label}>
-      {layers.map(layer => <label key={layer.id} title={`Collide on ${layer.name}`}>
+      {layers.map(layer => <label key={layer.id} title={`Belongs to ${layer.name}`}>
         <input
           type="checkbox"
           checked={selected.has(layer.id)}
@@ -882,6 +912,19 @@ const CollisionLayerMembershipControl = ({ layers = [], value, onChange, label =
       </label>)}
     </div>
   </div>;
+};
+
+const PhysicsTrailControls = ({ trail, joint = false, query, onChange }) => {
+  const matches = name => !query?.needle || name.includes(query.needle);
+  const value = trail || { enabled: false, color: "#4f8cff", duration: 4, opacity: 0.75 };
+  const patch = next => onChange?.({ ...value, ...next });
+  const color = /^#[0-9a-f]{6}$/i.test(value.color) ? value.color : "#4f8cff";
+  return <>
+    {(matches("trail") || matches("trajectory")) && <div className="properties-row editable" {...infoProps(joint ? "Attachment trails" : "Trajectory trail", joint ? "Plot the A and B attachment anchors independently. A stable joint produces one overlapping path; joint drift visibly forks the paths." : "Draw a runtime-only centre-of-mass trajectory. Diagnostic trails are never exported as scene geometry.")}><span>{joint ? "attachment trails (A + B)" : "trail"}</span><input type="checkbox" checked={value.enabled === true} onChange={event => patch({ enabled: event.target.checked })} /></div>}
+    {matches("color") && <div className="properties-row editable"><span>trail color</span><input type="color" value={color} onChange={event => patch({ color: event.target.value })} /></div>}
+    {(matches("time length") || matches("duration")) && <div className="properties-row editable"><span>time length (s)</span><NumericInput min="0.1" max="120" step="0.25" value={value.duration} defaultValue={4} onCommit={duration => patch({ duration })} /></div>}
+    {matches("opacity") && <div className="properties-row editable"><span>trail opacity</span><NumericInput min="0" max="1" step="0.05" value={value.opacity} defaultValue={0.75} onCommit={opacity => patch({ opacity })} /></div>}
+  </>;
 };
 
 const PhysicsRoleControls = ({ body, element, query, onChange, onColliderKindChange, onRemove, collisionLayers = [] }) => {
@@ -911,6 +954,7 @@ const PhysicsRoleControls = ({ body, element, query, onChange, onColliderKindCha
           {matches("damping") && <div className="properties-row editable"><span>damping</span><NumericInput min="0" max="100" step="0.05" value={body.material.linearDamping} defaultValue={0.01} onCommit={linearDamping => updateMaterial({ linearDamping })} /></div>}
         </div>
         {matches("collision skin") && <div className="properties-row editable"><span>collision skin</span><NumericInput min="0" max="64" step="0.5" value={body.collider.contactSkin} defaultValue={0} onCommit={contactSkin => updateCollider({ contactSkin })} /></div>}
+        <PhysicsTrailControls trail={body.trail} query={query} onChange={trail => onChange({ trail })} />
         <button type="button" className="iannix-flat-button" onClick={() => onRemove?.()}>Remove physics role</button>
       </div>
     </details>
@@ -971,7 +1015,7 @@ const SharedPhysicsControls = ({ elements, physicsBodies, query, onChange, colli
           <span>tags</span>
           <input type="text" value={tags ?? ""} placeholder={tags === null ? "Mixed tags" : undefined} aria-label={`Tags for ${physicsBodies.length} selected objects`} onChange={event => onChange?.({ collisionTags: event.target.value.split(",").map(value => value.trim()).filter(Boolean) })} />
         </div>}
-        {matches("collision layers") && <CollisionLayerMembershipControl layers={collisionLayers} value={commonLayerIds} label="collision layers" onChange={layers => onChange?.({ collisionLayers: layers })} />}
+        {matches("collision layers") && <CollisionLayerMembershipControl layers={collisionLayers} value={commonLayerIds} onChange={layers => onChange?.({ collisionLayers: layers })} />}
         {matches("note") && <div className="properties-row editable">
           <span>object note</span>
           <NumericInput min="0" max="127" step="1" value={note ?? ""} defaultValue={60} placeholder={note === null ? "Mixed" : undefined} aria-label={`Object note for ${physicsBodies.length} selected objects`} onCommit={note => onChange?.({ mappingValues: { note } })} />
@@ -1047,6 +1091,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
   onPhysicsConstraintChange,
   onPhysicsConstraintRemove,
   onPhysicsConstraintEndpointChange,
+  onPhysicsConstraintEndpointPick,
   onScoreChange,
   selectedSvgNode = null,
   onChange,
@@ -1280,6 +1325,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
               <PhysicsConstraintControls
                 constraint={physicsConstraints.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id)}
                 physicsBodies={physicsBodies}
+                physicsConstraints={physicsConstraints}
                 availableElements={availableElements}
                 collisionLayers={physicsCollisionLayers}
                 query={query}
@@ -1290,6 +1336,10 @@ const PropertiesPanel = memo(function PropertiesPanel({
                 onEndpointChange={(side, endpointElementId) => {
                   const constraint = physicsConstraints.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id);
                   if (constraint) onPhysicsConstraintEndpointChange?.(constraint.id, side, endpointElementId);
+                }}
+                onEndpointPick={(side) => {
+                  const constraint = physicsConstraints.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id);
+                  if (constraint) onPhysicsConstraintEndpointPick?.(constraint.id, side);
                 }}
                 onRemove={() => {
                   const constraint = physicsConstraints.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id);

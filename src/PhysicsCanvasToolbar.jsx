@@ -1,26 +1,37 @@
 import { useEffect, useRef, useState } from "react";
 
+const TOP_DOCK_DROP_DISTANCE = 56;
+
+export const PhysicsWorldIcon = ({ type, width = 17, height = 17 }) => {
+  const shapes = {
+    play: <><circle cx="30" cy="110" r="20" /><path d="M70 10v200l100-100L70 10Z" /></>,
+    pause: <><path d="M10 10h40v200H10zM130 10h40v200h-40z" /><circle cx="90" cy="110" r="20" /></>,
+    reset: <><circle cx="30" cy="110" r="20" /><path d="M110 10v200L70 110l40-100ZM170 10v200l-40-100 40-100Z" /></>,
+    transport: <><circle cx="30" cy="110" r="20" /><path d="M70 10v200l80-100L70 10ZM110 10v200l60-100-60-100Z" /></>,
+  };
+  return <svg width={width} height={height} viewBox="0 0 180 220" fill="none" stroke="currentColor" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{shapes[type]}</svg>;
+};
+
 const Glyph = ({ kind }) => {
-  const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
+  const common = { width: 17, height: 17, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true };
   if (kind === "dynamic") return <svg {...common}><circle cx="12" cy="12" r="6" /><path d="M12 3v2m0 14v2M3 12h2m14 0h2" /></svg>;
   if (kind === "kinematic") return <svg {...common}><rect x="5" y="7" width="10" height="10" rx="1" /><path d="m15 12 4-3m-4 3 4 3" /></svg>;
   if (kind === "fixed") return <svg {...common}><path d="M4 15h16M6 15l2-5 2 5 2-5 2 5 2-5 2 5" /><path d="M5 19h14" /></svg>;
   if (kind === "sensor") return <svg {...common}><circle cx="12" cy="12" r="7" strokeDasharray="2.5 2.5" /><circle cx="12" cy="12" r="1" /></svg>;
-  if (kind === "spring") return <svg {...common}><path d="M3 12h3l2-5 3 10 3-10 3 5h3" /></svg>;
-  if (kind === "rope") return <svg {...common}><path d="M2.5 12h3l2-4 3 8 3-8 3 4h3" /><circle cx="3" cy="12" r="1" /><circle cx="21" cy="12" r="1" /></svg>;
+  if (kind === "spring") return <svg {...common}><path d="M1.5 12h2.5l2.5-8 2.5 16 2.5-16 2.5 16 2.5-16 2.5 8h2.5" /></svg>;
+  if (kind === "rope") return <svg {...common}><path d="M2 16c3 2 5 4 8 2s2-6-1-8-4 2-1 5 8 2 10-2 3-7 4-9" /></svg>;
   if (kind === "attractor") return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="m4 5 3 3m13-3-3 3m3 11-3-3M4 19l3-3" /><path d="m7 8 2 1m6-1-2 1m2 6-2-1m-6 1 2-1" /></svg>;
   if (kind === "thruster") return <svg {...common}><path d="M4 12h10m0 0-4-4m4 4-4 4" /><path d="M17 8c2 1 3 2.3 3 4s-1 3-3 4" /><path d="M17 10c1 .6 1.5 1.3 1.5 2S18 13.4 17 14" /></svg>;
+  if (kind === "tracer") return <svg {...common}><circle cx="12" cy="12" r="2.25" /><path d="M3 17c3-7 5 1 8-5s5-5 10-7" /></svg>;
+  if (kind === "trails") return <svg {...common}><path d="M2 17c3-8 6 2 9-5s5-6 11-7" /><circle cx="2" cy="17" r="1.5" /></svg>;
   if (kind === "fixate") return <svg {...common}><path d="M6 5v14m12-14v14M3 9h6m6 0h6M3 15h6m6 0h6" /><path d="M9 12h6" /></svg>;
-  if (kind === "play") return <svg {...common}><circle cx="6" cy="12" r="2" /><path d="m10 5 8 7-8 7z" /></svg>;
-  if (kind === "pause") return <svg {...common}><circle cx="6" cy="12" r="2" /><path d="M11 6v12m5-12v12" /></svg>;
-  if (kind === "reset") return <svg {...common}><circle cx="18" cy="12" r="2" /><path d="m14 5-6 7 6 7M8 12h8" /></svg>;
-  if (kind === "transport") return <svg {...common}><circle cx="5" cy="12" r="2" /><path d="m9 7 7 5-7 5M17 7v10" /></svg>;
+  if (["play", "pause", "reset", "transport"].includes(kind)) return <PhysicsWorldIcon type={kind} width={17} height={17} />;
   if (kind === "timeline") return <svg {...common}><path d="M4 18h16M12 4v14" /><circle cx="12" cy="5" r="2" /></svg>;
   if (kind === "livePose") return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M4 12h4m8 0h4M12 4v4m0 8v4" /><path d="m6.5 6.5 2.5 2.5m6-2.5L15 9m-8.5 8.5L9 15m6 2.5L15 15" /></svg>;
   return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="M12 3v6m0 6v6M3 12h6m6 0h6" /></svg>;
 };
 
-const PhysicsGlyph = () => <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+const PhysicsGlyph = () => <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
   <circle cx="12" cy="12" r="3.25" />
   <ellipse cx="12" cy="12" rx="9" ry="4" />
   <ellipse cx="12" cy="12" rx="9" ry="4" transform="rotate(60 12 12)" />
@@ -42,10 +53,12 @@ const Tool = ({ kind, label, active, disabled, onClick }) => <button
 export default function PhysicsCanvasToolbar({
   selectedCount = 0,
   open = true,
+  docked = false,
   worldPlaying = false,
   transportSynced = false,
   timeScrubEnabled = false,
   livePose = false,
+  trailsVisible = false,
   onOpenChange,
   onAssignBody,
   onAssignCollider,
@@ -55,6 +68,8 @@ export default function PhysicsCanvasToolbar({
   onToggleTransportSync,
   onToggleLiveTimelinePreview,
   onToggleLivePose,
+  onToggleTrails,
+  onDockChange,
 }) {
   const [minimized, setMinimized] = useState(false);
   const [closed, setClosed] = useState(!open);
@@ -80,6 +95,7 @@ export default function PhysicsCanvasToolbar({
       startY: event.clientY,
       top: position.top,
       left: position.left,
+      docked,
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);
   };
@@ -94,15 +110,34 @@ export default function PhysicsCanvasToolbar({
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
     if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 3) didDragRef.current = true;
+    if (drag.docked) {
+      setPosition({
+        top: Math.max(4, event.clientY - 16),
+        left: Math.max(4, event.clientX - 16),
+      });
+      return;
+    }
     setPosition({
       top: Math.max(4, drag.top + event.clientY - drag.startY),
       left: Math.max(4, drag.left + event.clientX - drag.startX),
     });
   };
   const handlePointerUp = event => {
-    if (dragRef.current?.pointerId !== event.pointerId) return;
+    const drag = dragRef.current;
+    if (drag?.pointerId !== event.pointerId) return;
     dragRef.current = null;
     event.currentTarget.releasePointerCapture?.(event.pointerId);
+    if (event.type === "pointerup" && didDragRef.current) {
+      if (drag.docked && event.clientY > TOP_DOCK_DROP_DISTANCE) {
+        setPosition({
+          top: Math.max(4, event.clientY - 16),
+          left: Math.max(4, event.clientX - 16),
+        });
+        onDockChange?.(false);
+      } else if (!drag.docked && event.clientY <= TOP_DOCK_DROP_DISTANCE) {
+        onDockChange?.(true);
+      }
+    }
   };
   const handleIconClick = () => {
     if (didDragRef.current) {
@@ -112,6 +147,7 @@ export default function PhysicsCanvasToolbar({
     if (closed) {
       setClosed(false);
       onOpenChange?.(true);
+      return;
     }
   };
   const handleIconDoubleClick = event => {
@@ -135,26 +171,11 @@ export default function PhysicsCanvasToolbar({
     setClosed(true);
     onOpenChange?.(false);
   };
-  const toolbarStyle = { top: `${position.top}px`, left: `${position.left}px` };
-  if (closed) return <button
-    type="button"
-    className="physics-canvas-toolbar-reopen"
-    aria-label="Open physics tools"
-    title="Physics toolbar: open tools"
-    style={toolbarStyle}
-    onPointerDown={event => { event.stopPropagation(); startDrag(event); }}
-    onPointerMove={handlePointerMove}
-    onPointerUp={handlePointerUp}
-    onPointerCancel={handlePointerUp}
-    onClick={handleIconClick}
-    onDoubleClick={handleIconDoubleClick}
-    onContextMenu={handleIconContextMenu}
-  >
-    <PhysicsGlyph />
-  </button>;
+  const toolbarStyle = docked ? undefined : { top: `${position.top}px`, left: `${position.left}px` };
+  if (closed || !open) return null;
   return <>
   <aside
-    className={`physics-canvas-toolbar${minimized ? " is-collapsed" : " is-open"}`}
+    className={`physics-canvas-toolbar${minimized ? " is-collapsed" : " is-open"}${docked ? " is-docked" : ""}`}
     aria-label="Physics tools"
     style={toolbarStyle}
     onPointerDown={event => event.stopPropagation()}
@@ -165,14 +186,16 @@ export default function PhysicsCanvasToolbar({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
-      title="Physics toolbar: drag to move"
+      title={docked ? "Physics toolbar docked to the top" : "Physics toolbar: drag to move"}
     >
       <button
         type="button"
         className="physics-canvas-toolbar-toggle"
-        aria-label={minimized ? "Open physics tools" : "Physics tools drag handle"}
+        aria-label={minimized ? "Open physics tools" : "Drag physics toolbar to dock or float"}
         aria-expanded={!minimized}
-        title="Physics toolbar: drag to move. Shift-double-click to minimize. Option-double-click to close."
+        title={docked
+          ? "Physics toolbar docked to the top. Drag the atom away to float. Shift-double-click to minimize. Option-double-click to close."
+          : "Physics toolbar: drag the atom near the top to dock. Shift-double-click to minimize. Option-double-click to close."}
         onPointerDown={event => { event.stopPropagation(); startDrag(event); }}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -199,6 +222,7 @@ export default function PhysicsCanvasToolbar({
         <Tool kind="rope" label="Make selected paths into Ropes" disabled={!selectedCount} onClick={() => onMakeConstraint?.("rope")} />
         <Tool kind="attractor" label="Make selected objects Attractors" disabled={!selectedCount} onClick={() => onMakeConstraint?.("attractor")} />
         <Tool kind="thruster" label="Make selected paths into Thrusters" disabled={!selectedCount} onClick={() => onMakeConstraint?.("thruster")} />
+        <Tool kind="tracer" label="Make selected objects into diagnostic Tracers" disabled={!selectedCount} onClick={() => onMakeConstraint?.("tracer")} />
       </div>
       <div className="physics-canvas-tool-separator" />
       <div className="physics-canvas-tool-group" aria-label="Physics world controls">
@@ -207,6 +231,7 @@ export default function PhysicsCanvasToolbar({
         <Tool kind="transport" label={transportSynced ? "Use an independent physics clock" : "Sync physics to music transport"} active={transportSynced} onClick={onToggleTransportSync} />
         <Tool kind="timeline" label={transportSynced ? `Live timeline preview ${timeScrubEnabled ? "on" : "off"}` : "Live timeline preview requires transport sync"} active={timeScrubEnabled} disabled={!transportSynced} onClick={onToggleLiveTimelinePreview} />
         <Tool kind="livePose" label={`Live pose ${livePose ? "on" : "off"} (\\)`} active={livePose} onClick={onToggleLivePose} />
+        <Tool kind="trails" label={`Physics trails ${trailsVisible ? "visible" : "hidden"}`} active={trailsVisible} onClick={onToggleTrails} />
       </div>
     </div>}
   </aside>
@@ -216,6 +241,26 @@ export default function PhysicsCanvasToolbar({
     style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
     onPointerDown={event => event.stopPropagation()}
   >
+    {onDockChange && <button
+      type="button"
+      role="menuitem"
+      onClick={() => {
+        setContextMenu(null);
+        onDockChange(!docked);
+      }}
+    >
+      {docked ? "Float physics tools" : "Dock to top"}
+    </button>}
+    <button
+      type="button"
+      role="menuitem"
+      onClick={() => {
+        setContextMenu(null);
+        setMinimized(value => !value);
+      }}
+    >
+      {minimized ? "Restore physics tools" : "Minimize physics tools"}
+    </button>
     <button type="button" role="menuitem" onClick={closeToolbar}>Close physics tools</button>
   </div>}
   </>;

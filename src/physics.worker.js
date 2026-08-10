@@ -1,5 +1,7 @@
 import { RapierPhysicsSystem } from "./rapierPhysicsCore.js";
 import { normalizeRelationshipGraph } from "./relationshipGraph.js";
+import { createPhysicsInteractionQueue } from "./physicsInteractionQueue.js";
+import { shouldPublishPhysicsPoses } from "./physicsWorkerCadence.js";
 
 const systems = new Map();
 const playing = new Set();
@@ -9,6 +11,8 @@ let graph = normalizeRelationshipGraph(null);
 let lastTick = performance.now();
 let lastPoseAt = 0;
 let lastTelemetryAt = 0;
+let sampledStepMs = 0;
+let sampledSteps = 0;
 const accumulators = new Map();
 const dirtySystems = new Set();
 let timer = 0;
@@ -27,6 +31,7 @@ const requestedPlayingSystems = new Set();
 // same authoring gesture that rebuilds the graph, so retain the request until
 // that graph's runtime exists instead of solving against the previous world.
 const pendingRelaxMessages = [];
+const pendingInteractionQueue = createPhysicsInteractionQueue();
 
 const post = (type, detail = {}, transfer = []) => self.postMessage({ type, graphRevision, ...detail }, transfer);
 
@@ -42,6 +47,7 @@ const disposeSystems = () => {
 
 const initialize = async (graphValue, requestedGraphRevision = graphRevision + 1) => {
   const revision = ++loadRevision;
+  pendingInteractionQueue.reset();
   disposeSystems();
   const nextGraph = normalizeRelationshipGraph(graphValue);
   const nextSystems = new Map();
@@ -67,6 +73,8 @@ const initialize = async (graphValue, requestedGraphRevision = graphRevision + 1
     if (system.playing || playAllRequested || requestedPlayingSystems.has(system.id)) playing.add(system.id);
   }
   accumulators.clear();
+  sampledStepMs = 0;
+  sampledSteps = 0;
   for (const systemId of systems.keys()) dirtySystems.add(systemId);
   lastTick = performance.now();
   const metadata = {};
@@ -81,6 +89,8 @@ const initialize = async (graphValue, requestedGraphRevision = graphRevision + 1
     dirtySystems.add(message.systemId);
     post("relaxed", { requestId: message.requestId, systemId: message.systemId, poses });
   }
+  const pendingInteractions = pendingInteractionQueue.drain();
+  for (const message of pendingInteractions) self.onmessage({ data: message });
   if (pending.length) publishPoses(performance.now());
 };
 
@@ -109,9 +119,11 @@ const advanceTransportSystem = (systemId, runtime, targetTime, { emitEvents = tr
     else runtime.reset();
   }
   let steps = 0;
+  let stepMs = 0;
   const previewEvents = [];
   while (runtime.stepIndex < targetStep && steps < 600) {
     const result = runtime.step();
+    stepMs += Number(result.stepMs) || 0;
     if (emitEvents) {
       emitStepResult(systemId, result);
     } else {
@@ -128,7 +140,7 @@ const advanceTransportSystem = (systemId, runtime, targetTime, { emitEvents = tr
   // These are deliberately diagnostic only. They let the overlay and event
   // console explain what occurred at the scrubbed pose without replaying a
   // collision into mappings, audio, or commands.
-  return previewEvents.slice(-96);
+  return { events: previewEvents.slice(-96), stepMs, steps };
 };
 
 const publishPoses = timestamp => {
@@ -163,7 +175,9 @@ const tick = () => {
     const system = graph.systems.find(candidate => candidate.id === systemId);
     if (!system || !playing.has(systemId)) continue;
     if (system.clock.mode === "transport") {
-      advanceTransportSystem(systemId, runtime, transportTime, { emitEvents: !transportScrubbing });
+      const result = advanceTransportSystem(systemId, runtime, transportTime, { emitEvents: !transportScrubbing });
+      totalStepMs += result.stepMs;
+      totalSteps += result.steps;
       continue;
     }
     const simSpeed = Math.max(0, Number(graph.world.simSpeed) || 0);
@@ -181,7 +195,13 @@ const tick = () => {
     }
     accumulators.set(systemId, accumulator);
   }
-  if (timestamp - lastPoseAt >= 20) publishPoses(timestamp);
+  sampledStepMs += totalStepMs;
+  sampledSteps += totalSteps;
+  // A 20 ms wall-clock throttle made a fixed 60 Hz world reach the canvas at
+  // only 42-50 distinct poses per second, even while requestAnimationFrame was
+  // steady at 60. Publish each solved step; retain the interval only as a
+  // bounded refresh for dirty state created outside the stepping loop.
+  if (shouldPublishPhysicsPoses({ totalSteps, timestamp, lastPoseAt })) publishPoses(timestamp);
   if (timestamp - lastTelemetryAt >= 200) {
     post("telemetry", {
       systems: [...systems].map(([systemId, runtime]) => ({
@@ -191,9 +211,11 @@ const tick = () => {
         bodyCount: runtime.bodyById.size,
         droppedEvents: runtime.droppedEvents,
       })),
-      stepMs: totalSteps ? totalStepMs / totalSteps : 0,
+      stepMs: sampledSteps ? sampledStepMs / sampledSteps : 0,
       sampledAt: timestamp,
     });
+    sampledStepMs = 0;
+    sampledSteps = 0;
     lastTelemetryAt = timestamp;
   }
 };
@@ -214,6 +236,7 @@ self.onmessage = event => {
     return;
   }
   const runtime = systems.get(message.systemId);
+  if (pendingInteractionQueue.defer(message, runtime)) return;
   if (message.type === "play") {
     if (message.systemId) {
       requestedPlayingSystems.add(message.systemId);
@@ -250,7 +273,7 @@ self.onmessage = event => {
       for (const [systemId, candidate] of systems) {
         const system = graph.systems.find(item => item.id === systemId);
         if (system?.clock.mode === "transport") {
-          const previewEvents = advanceTransportSystem(systemId, candidate, transportTime, { emitEvents: false });
+          const previewEvents = advanceTransportSystem(systemId, candidate, transportTime, { emitEvents: false }).events;
           if (previewEvents.length) {
             // A rewind may replay from a checkpoint. Keep the diagnostic
             // window near the requested transport position instead of showing

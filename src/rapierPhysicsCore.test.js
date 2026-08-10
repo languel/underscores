@@ -135,6 +135,80 @@ test("an authored axle keeps rebased body-local anchors at its visual pivot", as
   runtime.dispose();
 });
 
+test("a one-sided weld follows a dynamic body and survives reset", async () => {
+  const weldGraph = normalizeRelationshipGraph({
+    systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
+    bodies: [{
+      id: "skeleton", systemId: "world", bodyType: "dynamic",
+      objectRef: { kind: "element", elementId: "skeleton" },
+      collider: { kind: "circle", radius: 12 },
+      initial: { x: 100, y: 100, velocityX: 60 },
+    }],
+    constraints: [{
+      id: "skin-weld", systemId: "world", kind: "fixate",
+      objectRef: { kind: "element", elementId: "skin" },
+      a: { kind: "object", objectRef: { kind: "element", elementId: "skeleton" }, anchor: "local", localAnchor: [12, -8] },
+      b: { kind: "none" },
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(weldGraph, "world");
+  const anchorForSkin = () => runtime.poses().constraintAnchors.find(value => value.constraintId === "skin-weld")?.point;
+  const initial = anchorForSkin();
+  assert.deepEqual(initial?.map(value => Math.round(value)), [112, 92]);
+  runtime.step();
+  const moved = anchorForSkin();
+  assert.ok(moved && moved[0] > initial[0] + 0.5, "the attached skin anchor should follow its moving body");
+  runtime.reset();
+  const reset = anchorForSkin();
+  assert.deepEqual(reset?.map(value => Math.round(value)), [112, 92]);
+  runtime.dispose();
+});
+
+test("a two-body weld preserves the authored relative angle", async () => {
+  const angleA = 0.2840528190135956;
+  const angleB = 0;
+  const pivot = [245.33319979265795, 433.21882559874905];
+  const bodyA = { x: 318.9337158203125, y: 308.0868835449219, angle: angleA };
+  const bodyB = { x: 242.17095947265625, y: 481.2880554199219, angle: angleB };
+  const localAnchor = (body, point) => {
+    const dx = point[0] - body.x;
+    const dy = point[1] - body.y;
+    const cosine = Math.cos(body.angle);
+    const sine = Math.sin(body.angle);
+    return [cosine * dx + sine * dy, -sine * dx + cosine * dy];
+  };
+  const graph = normalizeRelationshipGraph({
+    world: { gravity: { x: 0, y: 0 }, pixelsPerMeter: 100 },
+    systems: [{ id: "world", gravityMode: "world", clock: { fixedHz: 60 } }],
+    bodies: [
+      {
+        id: "upper", systemId: "world", bodyType: "dynamic",
+        objectRef: { kind: "element", elementId: "upper" },
+        collider: { kind: "box", width: 71.18, height: 286.44 }, initial: bodyA,
+      },
+      {
+        id: "lower", systemId: "world", bodyType: "dynamic",
+        objectRef: { kind: "element", elementId: "lower" },
+        collider: { kind: "box", width: 5.59, height: 96.4 }, initial: bodyB,
+      },
+    ],
+    constraints: [{
+      id: "angled-weld", systemId: "world", kind: "fixate", collideConnected: false,
+      a: { kind: "object", objectRef: { kind: "element", elementId: "upper" }, anchor: "local", localAnchor: localAnchor(bodyA, pivot) },
+      b: { kind: "object", objectRef: { kind: "element", elementId: "lower" }, anchor: "local", localAnchor: localAnchor(bodyB, pivot) },
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(graph, "world");
+  runtime.step();
+  const values = runtime.poses().values;
+  const relativeAngle = values[6] - values[2];
+  assert.ok(
+    Math.abs(relativeAngle - (angleB - angleA)) < 1e-4,
+    `weld changed the authored relative angle from ${(angleB - angleA).toFixed(6)} to ${relativeAngle.toFixed(6)}`,
+  );
+  runtime.dispose();
+});
+
 test("a two-body axle keeps its original attachment point rigid while the assembly falls", async () => {
   // A body-to-body axle is free in world space: gravity moves the whole
   // assembly, but its two authored local anchors must remain coincident. This
@@ -529,6 +603,61 @@ test("rope constraints leave explicit None endpoints free", async () => {
   runtime.dispose();
 });
 
+test("ropes use their named layers to reach a spool without self-contact by default", async () => {
+  const graph = normalizeRelationshipGraph({
+    world: {
+      collisionLayers: {
+        layers: [
+          { id: "default", name: "Default" },
+          { id: "ropes", name: "Ropes" },
+          { id: "spool", name: "Spool" },
+        ],
+        matrix: {
+          "default|default": true,
+          "default|ropes": false,
+          "default|spool": false,
+          "ropes|ropes": false,
+          "ropes|spool": true,
+          "spool|spool": false,
+        },
+      },
+    },
+    systems: [{ id: "world", gravity: { x: 0, y: 0 } }],
+    bodies: [{
+      id: "spool", systemId: "world", bodyType: "fixed", collisionLayers: ["spool"],
+      collider: { kind: "circle", radius: 24 }, initial: { x: 0, y: 0 },
+    }],
+    constraints: [{
+      id: "rope", systemId: "world", kind: "rope", collisionLayers: ["ropes"],
+      pathPoints: [[-100, 0], [100, 0]], a: { kind: "none" }, b: { kind: "none" },
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(graph, "world");
+  const spool = runtime.world.getCollider(runtime.bodyById.get("spool").colliderHandle).collisionGroups();
+  const rope = runtime.world.getCollider(runtime.bodyById.get("rope:rope:0").colliderHandle).collisionGroups();
+  assert.equal(spool >>> 16, 1 << 2, "spool belongs to its named layer");
+  assert.equal(rope >>> 16, 1 << 15, "default rope links use the private no-self-contact group");
+  assert.equal(rope & 0xffff, 1 << 2, "rope listens to the spool layer");
+  assert.ok((spool & 0xffff) & (1 << 15), "spool listens to private rope links");
+  runtime.dispose();
+});
+
+test("rope self collisions opt in to the authored layer matrix", async () => {
+  const graph = normalizeRelationshipGraph({
+    world: { collisionLayers: { layers: [{ id: "default" }, { id: "ropes" }], matrix: { "default|default": true, "default|ropes": true, "ropes|ropes": true } } },
+    systems: [{ id: "world", gravity: { x: 0, y: 0 } }],
+    constraints: [{
+      id: "rope", systemId: "world", kind: "rope", selfCollisions: true, collisionLayers: ["ropes"],
+      pathPoints: [[0, 0], [100, 0]], a: { kind: "none" }, b: { kind: "none" },
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(graph, "world");
+  const rope = runtime.world.getCollider(runtime.bodyById.get("rope:rope:0").colliderHandle).collisionGroups();
+  assert.equal(rope >>> 16, 1 << 1, "self-colliding rope links use their authored membership");
+  assert.equal(rope & 0xffff, 0b11, "the authored layer matrix controls their targets");
+  runtime.dispose();
+});
+
 test("a free rope can be grabbed through its authored constraint", async () => {
   const ropeGraph = normalizeRelationshipGraph({
     systems: [{ id: "world", gravity: { x: 0, y: 0 }, clock: { fixedHz: 60 } }],
@@ -544,6 +673,39 @@ test("a free rope can be grabbed through its authored constraint", async () => {
   runtime.moveGrab([60, 40], { livePose: true, iterations: 36 });
   const posed = runtime.poses().ropePaths[0].points;
   assert.notDeepEqual(posed, initial, "grabbing a free rope should move its generated links");
+  runtime.releaseGrab();
+  runtime.dispose();
+});
+
+test("live posing one rope does not relax an unrelated self-colliding rope", async () => {
+  const graph = normalizeRelationshipGraph({
+    world: { gravity: { x: 0, y: 0 } },
+    systems: [{ id: "world", gravity: { x: 0, y: 0 } }],
+    constraints: [
+      {
+        id: "grabbed", systemId: "world", kind: "rope", selfCollisions: true,
+        pathPoints: [[0, 0], [60, 20], [120, 0]], segmentLength: 24,
+      },
+      {
+        id: "untouched", systemId: "world", kind: "rope", selfCollisions: true,
+        // Deliberately overlapping turns: a whole-world pose solve would
+        // continue resolving this rope even though it is far from the grab.
+        pathPoints: [[700, 0], [760, 80], [820, 0], [760, -80], [700, 0], [760, 80], [820, 0]],
+        segmentLength: 18,
+      },
+    ],
+  });
+  const runtime = await RapierPhysicsSystem.create(graph, "world");
+  const initial = runtime.poses().ropePaths.map(path => path.points.map(point => [...point]));
+  assert.equal(runtime.grabConstraint("grabbed", [60, 10], 280, 28, { livePose: true }), true);
+  runtime.moveGrab([70, 50], { livePose: true, iterations: 36 });
+  const posed = runtime.poses().ropePaths;
+  const maxDelta = (points, baseline) => points.reduce((maximum, point, index) => Math.max(
+    maximum,
+    Math.hypot(point[0] - baseline[index][0], point[1] - baseline[index][1]),
+  ), 0);
+  assert.ok(maxDelta(posed.find(path => path.constraintId === "grabbed").points, initial[0]) > 1);
+  assert.ok(maxDelta(posed.find(path => path.constraintId === "untouched").points, initial[1]) < 0.01);
   runtime.releaseGrab();
   runtime.dispose();
 });

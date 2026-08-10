@@ -14,7 +14,7 @@ import { loadLastScene, saveLastScene } from "./sceneSessionStorage.js";
 import { attachDraweratorSvgMetadata, cleanSvgMarkup, extractDraweratorSvgMetadata, extractSvgMarkup, getSvgDrawableBounds, offsetSvgDrawableSpecs, parseSvgToDrawableSpecs } from "./svgImport.js";
 import { DRAWERATOR_PANELS, getDraweratorPanel, getNaturalPanelPlacement } from "./panelRegistry.js";
 import { getDockTarget, getOpenPanelsForPlacement, normalizeDockSizes, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
-import { advanceMidiClockReceiver, createMidiClockReceiverState, formatTimelinePosition, MIDI_REALTIME, midiClockIntervalMs, normalizeTimeSignature, parseTimelinePosition, secondsToFrame, songPositionToSeconds } from "./transport.js";
+import { advanceMidiClockReceiver, advanceTransportPlaybackTime, createMidiClockReceiverState, formatTimelinePosition, MIDI_REALTIME, midiClockIntervalMs, normalizeTimeSignature, parseTimelinePosition, secondsToFrame, songPositionToSeconds } from "./transport.js";
 import DraweratorPanel from "./DraweratorPanel.jsx";
 import TransportTimeline from "./TransportTimeline.jsx";
 import HistoryPanel from "./HistoryPanel.jsx";
@@ -24,7 +24,7 @@ import PropertiesPanel from "./PropertiesPanel.jsx";
 import NumericInput from "./NumericInput.jsx";
 import GeometryResetIcon from "./GeometryResetIcon.jsx";
 import { embedPolicyForElement, isAllowedEmbedURL, sanitizeEmbedURL, shouldRenderEmbed } from "./embedPolicy.js";
-import OutlinerPanel from "./OutlinerPanel.jsx";
+import OutlinerPanel, { getOutlinerElementLabel } from "./OutlinerPanel.jsx";
 import { groupSceneElements, moveSceneElementsToGroup, moveSceneElementsToGroupParent, moveSceneGroupToParent, renameSceneGroup, reorderSceneElements, ungroupSceneElements } from "./sceneLayers.js";
 import IannixDataPanel from "./IannixDataPanel.jsx";
 import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, parseGenericCommandSlash } from "./commandSystem.js";
@@ -105,7 +105,7 @@ import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, se
 import { createUnifiedStreamsApi, DraweratorStreamRegistry } from "./streamRuntime.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
 import { addRelationshipItem, createDefaultPhysicsSystem, createEmptyRelationshipGraph, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, removeRelationshipBindingsForElements, removeRelationshipItem, updateRelationshipItem, withPhysicsCustomData } from "./relationshipGraph.js";
-import { chooseConstraintPivot, elementContainsPhysicsPoint, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, physicsEndpointAtPoint, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint } from "./physicsConstraintAuthoring.js";
+import { chooseConstraintPivot, elementContainsPhysicsPoint, getLivePoseRopeConstraintIds, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, physicsEndpointAtPoint, repairLegacyAxleEndpointAlignment, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint, resolveTracerConstraint, ropeEndpointAtPoint, selectRopePathsForLivePose } from "./physicsConstraintAuthoring.js";
 import { applyAnchorAttractorFrame, applyBezierSculptOperator, getPhysicsColliderSelectionValue, getPhysicsElementCenter as getPhysicsGeometryElementCenter, getPhysicsElementLocalCenter, inferPhysicsBodyFromElement, inferPhysicsColliderForBody, inferPhysicsColliderFromElement, needsLegacyPhysicsColliderOriginRebase } from "./physicsGeometry.js";
 import { createPhysicsApi, createRelationshipApi, PhysicsRuntimeController } from "./physicsRuntime.js";
 import { mappingTargetValue } from "./mappingRuntime.js";
@@ -114,7 +114,7 @@ import { createPhysicsExample } from "./physicsExamples.js";
 import { samplePortraitLandmarkFixture } from "./physicsFixtures.js";
 import PhysicsPanel from "./PhysicsPanel.jsx";
 import PhysicsOverlay from "./PhysicsOverlay.jsx";
-import PhysicsCanvasToolbar from "./PhysicsCanvasToolbar.jsx";
+import PhysicsCanvasToolbar, { PhysicsWorldIcon } from "./PhysicsCanvasToolbar.jsx";
 import { BrowserStreamAdapterRuntime, mapAdapterRecordToSample, parseMidiMessage } from "./streamAdapters.js";
 import { BrushChannelRuntime, DEFAULT_BRUSH_CHANNELS, normalizeBrushChannel, normalizeBrushChannels } from "./brushChannelRuntime.js";
 import SvgObjectOverlay from "./SvgObjectOverlay.jsx";
@@ -175,6 +175,7 @@ import {
   readAITextStream,
 } from "./aiProviders.js";
 import { convertShapeElementToPath, fitRectangularElementToViewport, getCanvasContextMenuCapabilities, setSelectedElementRoundness } from "./canvasContextMenu.js";
+import { normalizeRoughnessValue, normalizeRoundnessValue, parseDrawingStyleSlash } from "./drawingStyleCommands.js";
 import { DEFAULT_SELECTION_FILTER, filterSelectedElementIds, isInteriorObjectSelectionGesture, normalizeSelectionFilter, selectionFilterAllowsElement, selectionMapsEqual, SELECTION_FILTER_STORAGE_KEY, toggleSelectionFilter } from "./selectionFilter.js";
 import {
   DEFAULT_GLOBAL_GRID,
@@ -264,6 +265,18 @@ Guidelines:
 `;
 
 const INITIAL_GREETING = "Hello! I am your drawing assistant powered by local AI. You can write prompts like \"draw a flow chart\", \"sketch a house\", or \"clear the canvas\" and I will execute the drawing tools programmatically!";
+
+const DRAWING_ROUNDNESS_STORAGE_KEY = "drawerator_drawing_roundness";
+const CUSTOM_BRUSH_ROUNDNESS_STORAGE_KEY = "drawerator_custom_brush_roundness";
+const readDrawingRoundness = () => {
+  try {
+    const stored = localStorage.getItem(DRAWING_ROUNDNESS_STORAGE_KEY)
+      ?? localStorage.getItem(CUSTOM_BRUSH_ROUNDNESS_STORAGE_KEY);
+    return stored === "1" || stored === "true";
+  } catch {
+    return false;
+  }
+};
 
 const resolveMidiInputs = (access, portId) => {
   if (!access || portId === MIDI_PORT_NONE) return [];
@@ -676,6 +689,7 @@ const DEFAULT_PHYSICS_DEBUG = Object.freeze({
   contacts: true,
   collisions: true,
   forces: true,
+  trails: false,
 });
 const normalizePhysicsDebugColor = (value, fallback) => {
   const candidate = String(value || "").trim();
@@ -741,16 +755,6 @@ const ScriptActionIcon = ({ type }) => {
     import: <><path d="M4 19h16M12 4v10M8 10l4 4 4-4"/></>,
   };
   return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[type]}</svg>;
-};
-
-const PhysicsWorldIcon = ({ type }) => {
-  const shapes = {
-    play: <><circle cx="30" cy="110" r="20"/><path d="M70 10v200l100-100L70 10Z"/></>,
-    pause: <><path d="M10 10h40v200H10zM130 10h40v200h-40z"/><circle cx="90" cy="110" r="20"/></>,
-    reset: <><circle cx="30" cy="110" r="20"/><path d="M110 10v200L70 110l40-100ZM170 10v200l-40-100 40-100Z"/></>,
-    transport: <><circle cx="30" cy="110" r="20"/><path d="M70 10v200l80-100L70 10ZM110 10v200l60-100-60-100Z"/></>,
-  };
-  return <svg width="12" height="14" viewBox="0 0 180 220" fill="none" stroke="currentColor" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{shapes[type]}</svg>;
 };
 
 const ScoreRoleIcon = ({ type }) => {
@@ -2006,6 +2010,7 @@ const springVisualGeometryDiffers = (element, patch) => {
 // whose strokes were saved as massless polyline wall geometry.
 const hydratePhysicsGraphForElements = (graphValue, elements = [], {
   repairAuthoredPose = true,
+  preferGraphPhysics = false,
   // Recompute an existing constraint's anchors only when an author explicitly
   // stages the paused scene. Runtime pose application moves a body-body pivot
   // marker every frame; treating that visual follow motion as authoring would
@@ -2013,7 +2018,7 @@ const hydratePhysicsGraphForElements = (graphValue, elements = [], {
   refreshConstraintAnchors = false,
   refreshConstraintIds = null,
 } = {}) => {
-  const graph = hydrateRelationshipGraphFromElements(graphValue, elements);
+  const graph = hydrateRelationshipGraphFromElements(graphValue, elements, { preferGraphPhysics });
   const elementById = new Map((elements || [])
     .filter(element => element && !element.isDeleted)
     .map(element => [element.id, element]));
@@ -2119,6 +2124,65 @@ const hydratePhysicsGraphForElements = (graphValue, elements = [], {
   return changed || constraintsChanged
     ? normalizeRelationshipGraph({ ...graph, bodies, constraints })
     : graph;
+};
+
+const repairLegacyAxleEndpointsForScene = (graphValue, elements = []) => {
+  const graph = hydratePhysicsGraphForElements(graphValue, elements);
+  const elementById = new Map(elements
+    .filter(element => element && !element.isDeleted)
+    .map(element => [element.id, element]));
+  const repairByConstraintId = new Map();
+  const pivotPointByElementId = new Map();
+  for (const constraint of graph.constraints) {
+    if (constraint.objectRef?.kind !== "element") continue;
+    const pivot = elementById.get(constraint.objectRef.elementId);
+    const repair = repairLegacyAxleEndpointAlignment({ constraint, pivot, elements });
+    if (!repair) continue;
+    repairByConstraintId.set(constraint.id, repair.constraint);
+    pivotPointByElementId.set(pivot.id, repair.pivotPoint);
+  }
+  if (!repairByConstraintId.size) return { graph, elements, repairCount: 0 };
+
+  const provisionalGraph = normalizeRelationshipGraph({
+    ...graph,
+    constraints: graph.constraints.map(constraint => repairByConstraintId.get(constraint.id) || constraint),
+  });
+  const provisionalConstraintByPivotId = new Map(provisionalGraph.constraints
+    .filter(constraint => constraint.objectRef?.kind === "element")
+    .map(constraint => [constraint.objectRef.elementId, constraint]));
+  const provisionalElements = elements.map(element => {
+    const point = pivotPointByElementId.get(element.id);
+    const constraint = provisionalConstraintByPivotId.get(element.id);
+    if (!point || !constraint) return element;
+    const localCenter = getPhysicsElementLocalCenter(element);
+    return {
+      ...element,
+      x: point[0] - localCenter[0],
+      y: point[1] - localCenter[1],
+      customData: withPhysicsCustomData(element.customData, constraint),
+      version: (element.version || 0) + 1,
+      versionNonce: Math.floor(Math.random() * 0x7fffffff),
+      updated: Date.now(),
+    };
+  });
+  const repairedGraph = hydratePhysicsGraphForElements(provisionalGraph, provisionalElements, {
+    repairAuthoredPose: false,
+    refreshConstraintIds: new Set(repairByConstraintId.keys()),
+  });
+  const repairedConstraintByPivotId = new Map(repairedGraph.constraints
+    .filter(constraint => constraint.objectRef?.kind === "element")
+    .map(constraint => [constraint.objectRef.elementId, constraint]));
+  return {
+    graph: repairedGraph,
+    elements: provisionalElements.map(element => {
+      if (!pivotPointByElementId.has(element.id)) return element;
+      const constraint = repairedConstraintByPivotId.get(element.id);
+      return constraint
+        ? { ...element, customData: withPhysicsCustomData(element.customData, constraint) }
+        : element;
+    }),
+    repairCount: repairByConstraintId.size,
+  };
 };
 
 function App() {
@@ -2424,6 +2488,15 @@ function App() {
   const [physicsWorldPlaying, setPhysicsWorldPlaying] = useState(false);
   const [physicsTimeScrubEnabled, setPhysicsTimeScrubEnabled] = useState(() => localStorage.getItem(PHYSICS_TIME_SCRUB_STORAGE_KEY) === "true");
   const [physicsToolbarOpen, setPhysicsToolbarOpen] = useState(true);
+  const [physicsToolbarDockedTop, setPhysicsToolbarDockedTop] = useState(() => {
+    try {
+      if (localStorage.getItem("drawerator_physics_toolbar_docked") === "true") return true;
+      const savedPanelVisibility = JSON.parse(localStorage.getItem("drawerator_panel_visibility_v1") || "null");
+      return savedPanelVisibility?.["physics-toolbar"] === true;
+    } catch {
+      return false;
+    }
+  });
   const [physicsTool, setPhysicsTool] = useState(null);
   const physicsToolRef = useRef(null);
   physicsToolRef.current = physicsTool;
@@ -2441,6 +2514,11 @@ function App() {
   const physicsPreviewPoseSystemsRef = useRef(new Set());
   const physicsConstraintPoseSolveRef = useRef(0);
   const physicsApplyingRef = useRef(false);
+  // Pose messages can arrive faster than Excalidraw can repaint a scene. Keep
+  // only the newest snapshot for each system and apply them once per browser
+  // frame so a slow canvas never builds a backlog of stale scene updates.
+  const physicsPoseQueueRef = useRef(new Map());
+  const physicsPoseFrameRef = useRef(0);
   const physicsAudioRef = useRef(null);
   const physicsMappingTargetRouterRef = useRef(null);
   // Direct expressive voices are not owned by a Mixer output, so retain the
@@ -2641,7 +2719,8 @@ function App() {
     physicsRuntimeRef.current?.dispose();
     physicsAudioRef.current?.dispose();
   }, []);
-  useEffect(() => physicsRuntimeRef.current.subscribe("poses", snapshot => {
+  useEffect(() => {
+    const applySnapshot = snapshot => {
     const api = excalidrawAPIRef.current;
     if (!api) return;
     const graph = relationshipGraphRef.current;
@@ -2766,16 +2845,17 @@ function App() {
         });
         continue;
       }
-      // A free axle is mounted on its A body but deliberately has no second
-      // endpoint. Keep its authored marker on that local attachment while the
-      // body rolls through the world under the torque motor.
-      if (["axle", "revolute", "pin"].includes(constraint.kind)
-        && constraint.a?.kind === "object"
-        && constraint.b?.kind === "none"
-        && anchorA) {
+      // A free axle or one-sided weld is mounted on one authored body but
+      // deliberately has no second endpoint. Keep its visual marker on that
+      // local attachment while the body moves through the world.
+      const directAnchor = ["axle", "revolute", "pin", "weld", "fixate"].includes(constraint.kind)
+        && ((constraint.a?.kind === "object" && constraint.b?.kind === "none" && anchorA)
+          || (constraint.a?.kind === "none" && constraint.b?.kind === "object" && anchorB));
+      if (directAnchor) {
+        const point = anchorA || anchorB;
         const localCenter = getPhysicsElementLocalCenter(pivot);
-        const x = anchorA[0] - localCenter[0];
-        const y = anchorA[1] - localCenter[1];
+        const x = point[0] - localCenter[0];
+        const y = point[1] - localCenter[1];
         if (Math.abs(pivot.x - x) < 0.05 && Math.abs(pivot.y - y) < 0.05) continue;
         changed = true;
         replacements.set(pivot.id, {
@@ -2814,7 +2894,28 @@ function App() {
       historySuppressSceneRef.current = Math.max(0, historySuppressSceneRef.current - 1);
       physicsApplyingRef.current = false;
     }, 0);
-  }), []);
+    };
+    const flush = () => {
+      physicsPoseFrameRef.current = 0;
+      const pending = physicsPoseQueueRef.current;
+      physicsPoseQueueRef.current = new Map();
+      pending.forEach(applySnapshot);
+      if (physicsPoseQueueRef.current.size && !physicsPoseFrameRef.current) {
+        physicsPoseFrameRef.current = window.requestAnimationFrame(flush);
+      }
+    };
+    const stop = physicsRuntimeRef.current.subscribe("poses", snapshot => {
+      if (!snapshot?.systemId) return;
+      physicsPoseQueueRef.current.set(snapshot.systemId, snapshot);
+      if (!physicsPoseFrameRef.current) physicsPoseFrameRef.current = window.requestAnimationFrame(flush);
+    });
+    return () => {
+      stop();
+      physicsPoseQueueRef.current.clear();
+      if (physicsPoseFrameRef.current) window.cancelAnimationFrame(physicsPoseFrameRef.current);
+      physicsPoseFrameRef.current = 0;
+    };
+  }, []);
   const mediaStreamsApiRef = useRef(null);
   if (!mediaStreamsApiRef.current) mediaStreamsApiRef.current = createUnifiedStreamsApi({
     registry: streamRegistryRef.current,
@@ -3580,11 +3681,16 @@ function App() {
   const svgClipboardCacheRef = useRef(null);
   const scoreTimeRef = useRef(scoreTime);
   useEffect(() => {
+    // Internal playback streams transport time directly from its animation
+    // frame below. Do not overwrite that high-resolution clock with the
+    // timeline's deliberately lower display cadence.
+    if (scorePlaying && midiClockMode !== "receive"
+      && physicsFollowsTransport(relationshipGraphRef.current.systems)) return;
     const scrub = physicsTimeScrubEnabled
       && physicsTransportScrubbingRef.current
       && physicsFollowsTransport(relationshipGraphRef.current.systems);
     physicsRuntimeRef.current?.transport(scoreTime, { scrub });
-  }, [physicsTimeScrubEnabled, scoreTime]);
+  }, [midiClockMode, physicsTimeScrubEnabled, scorePlaying, scoreTime]);
   useEffect(() => {
     localStorage.setItem(PHYSICS_TIME_SCRUB_STORAGE_KEY, String(physicsTimeScrubEnabled));
   }, [physicsTimeScrubEnabled]);
@@ -3770,6 +3876,12 @@ function App() {
   useEffect(() => {
     excalidrawAPIRef.current = excalidrawAPI;
     if (excalidrawAPI) {
+      // Keep a newly opened board deterministic even when Excalidraw has a
+      // stale current-item style from a previous session.
+      excalidrawAPI.updateScene({
+        appState: { currentItemRoughness: 0, currentItemRoundness: readDrawingRoundness() ? "round" : "sharp" },
+        commitToHistory: false,
+      });
       lastSceneElementsRef.current = new Map(
         excalidrawAPI.getSceneElementsIncludingDeleted().map(element => [element.id, element])
       );
@@ -4320,7 +4432,7 @@ function App() {
   const [globalModifiers, setGlobalModifiers] = useState([]);
   const [globalMuteStack, setGlobalMuteStack] = useState(false);
   const [nextStrokeHideOriginal, setNextStrokeHideOriginal] = useState(false);
-  const [globalRoundness, setGlobalRoundness] = useState(false);
+  const [globalRoundness, setGlobalRoundness] = useState(readDrawingRoundness);
   const brushChannelModifierSnapshotRef = useRef(null);
   const brushChannelModifierRuntimeRef = useRef(null);
 
@@ -4635,6 +4747,10 @@ function App() {
   }, [openPanels]);
 
   useEffect(() => {
+    localStorage.setItem("drawerator_physics_toolbar_docked", String(physicsToolbarDockedTop));
+  }, [physicsToolbarDockedTop]);
+
+  useEffect(() => {
     localStorage.setItem("drawerator_panel_dock_tabs_v1", JSON.stringify(activeDockPanels));
   }, [activeDockPanels]);
 
@@ -4737,23 +4853,27 @@ function App() {
     let animationFrame = 0;
     let previousTimestamp = performance.now();
     let lastCommitTimestamp = previousTimestamp;
-    let pendingAdvanceSeconds = 0;
+    let playbackTime = Math.max(0, Number(scoreTimeRef.current) || 0);
     const commitIntervalMs = 1000 / Math.max(1, Math.min(60, transportFps));
     const tick = (timestamp) => {
       const deltaSeconds = Math.max(0, Math.min(0.1, (timestamp - previousTimestamp) / 1000));
       previousTimestamp = timestamp;
-      pendingAdvanceSeconds += deltaSeconds * scoreRate;
+      playbackTime = advanceTransportPlaybackTime(playbackTime, deltaSeconds, {
+        rate: scoreRate,
+        loopEnabled: transportLoopEnabled,
+        loopStart: transportLoopStart,
+        loopEnd: transportLoopEnd,
+      });
+      // Physics follows the real animation-frame clock. `transportFps` is a
+      // display/timecode preference and must not batch two 60 Hz solver steps
+      // into one 30 Hz canvas pose.
+      scoreTimeRef.current = playbackTime;
+      if (physicsFollowsTransport(relationshipGraphRef.current.systems)) {
+        physicsRuntimeRef.current?.transport(playbackTime, { scrub: false });
+      }
       if (timestamp - lastCommitTimestamp >= commitIntervalMs) {
-        const advanceSeconds = pendingAdvanceSeconds;
-        pendingAdvanceSeconds = 0;
         lastCommitTimestamp = timestamp;
-        setScoreTime(time => {
-          const next = time + advanceSeconds;
-          if (transportLoopEnabled && transportLoopEnd > transportLoopStart && next >= transportLoopEnd) {
-            return transportLoopStart + ((next - transportLoopStart) % (transportLoopEnd - transportLoopStart));
-          }
-          return next;
-        });
+        setScoreTime(playbackTime);
       }
       animationFrame = requestAnimationFrame(tick);
     };
@@ -5523,10 +5643,11 @@ function App() {
 
   const [customBrushActive, setCustomBrushActive] = useState(false);
   const modifierDrawingActive = customBrushActive && globalModifiers.length > 0;
-  const [customBrushRoundness, setCustomBrushRoundness] = useState(() => localStorage.getItem("drawerator_custom_brush_roundness") === "true");
+  const [customBrushRoundness, setCustomBrushRoundness] = useState(readDrawingRoundness);
   
   useEffect(() => {
-    localStorage.setItem("drawerator_custom_brush_roundness", customBrushRoundness);
+    localStorage.setItem(CUSTOM_BRUSH_ROUNDNESS_STORAGE_KEY, customBrushRoundness ? "true" : "false");
+    localStorage.setItem(DRAWING_ROUNDNESS_STORAGE_KEY, customBrushRoundness ? "1" : "0");
   }, [customBrushRoundness]);
   const [customContextMenu, setCustomContextMenu] = useState(null);
   const customContextMenuRef = useRef(null);
@@ -5680,7 +5801,7 @@ function App() {
       return true;
     }
     try {
-      const message = request.onPick(candidate);
+      const message = request.onPick(candidate, { point: [world.x, world.y] });
       const selection = { [candidate.id]: true };
       selectedElementIdsRef.current = selection;
       setSelectedElementIds(selection);
@@ -8970,6 +9091,21 @@ function App() {
     setOpenPanels(previous => ({ ...previous, [panelId]: true }));
   };
 
+  const closePhysicsToolbar = () => {
+    setPhysicsToolbarOpen(false);
+    setPhysicsToolbarDockedTop(false);
+  };
+
+  const dockPhysicsToolbar = () => {
+    setPhysicsToolbarOpen(true);
+    setPhysicsToolbarDockedTop(true);
+  };
+
+  const floatPhysicsToolbar = () => {
+    setPhysicsToolbarOpen(true);
+    setPhysicsToolbarDockedTop(false);
+  };
+
   const updatePerformanceVisibility = visible => {
     setShowPerformanceOverlay(visible);
     if (visible && performanceOverlayPlacement === "console") {
@@ -9270,7 +9406,7 @@ function App() {
     const hydratedGraph = hydratePhysicsGraphForElements(
       graph,
       [...elementsById.values()],
-      { repairAuthoredPose: false, refreshConstraintIds: constraintIdsToRefresh },
+      { repairAuthoredPose: false, preferGraphPhysics: true, refreshConstraintIds: constraintIdsToRefresh },
     );
     if (!candidateIds.size) {
       if (physicsRuntimeGraphSignature(hydratedGraph) !== physicsRuntimeGraphSignature(graph)) {
@@ -9335,7 +9471,7 @@ function App() {
     const nextGraph = hydratePhysicsGraphForElements(
       synchronizedGraph,
       [...elementsById.values()],
-      { repairAuthoredPose: false, refreshConstraintIds: constraintIdsToRefresh },
+      { repairAuthoredPose: false, preferGraphPhysics: true, refreshConstraintIds: constraintIdsToRefresh },
     );
     // Push the new authored state immediately. This avoids a Reset or Play
     // pressed immediately after a drag using an older worker snapshot.
@@ -9517,7 +9653,7 @@ function App() {
         // body's entire material into the selection.
         const mergedBodyPatch = {
           ...bodyPatch,
-          ...["collider", "material", "mappingValues", "initial", "render"].reduce((nested, key) => {
+          ...["collider", "material", "mappingValues", "initial", "render", "trail"].reduce((nested, key) => {
             if (bodyPatch[key] && typeof bodyPatch[key] === "object" && !Array.isArray(bodyPatch[key])) {
               nested[key] = { ...(current[key] || {}), ...bodyPatch[key] };
             }
@@ -9631,15 +9767,28 @@ function App() {
     const elements = excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || [];
     const pivot = elements.find(element => element.id === constraint.objectRef.elementId && !element.isDeleted);
     if (!pivot) return null;
-    const point = getPhysicsElementCenter(pivot);
-    const endpoint = elementId === "none"
+    const springEndpoints = ["spring", "distance", "thruster"].includes(constraint.kind)
+      ? getSpringEndpointWorldPoints(pivot)
+      : null;
+    const point = springEndpoints
+      ? (side === "a" ? springEndpoints.start : springEndpoints.end)
+      : (() => {
+        const center = getPhysicsElementCenter(pivot);
+        return [center.x, center.y];
+      })();
+    const rawEndpoint = elementId === "none"
       ? { kind: "none" }
       : elementId === "world"
-        ? { kind: "world", point: [point.x, point.y] }
+        ? { kind: "world", point: [...point] }
+        : elementId?.startsWith?.("rope:")
+          ? ropeEndpointAtPoint(graph.constraints.find(candidate => candidate.id === elementId.slice(5)), point)
       : (() => {
         const target = elements.find(element => element.id === elementId && !element.isDeleted);
-        return target ? physicsEndpointAtPoint(target, [point.x, point.y]) : null;
+        return target ? physicsEndpointAtPoint(target, point) : null;
       })();
+    const endpoint = rawEndpoint && rawEndpoint.kind === "rope"
+      ? (({ distance: _distance, ...value }) => value)(rawEndpoint)
+      : rawEndpoint;
     if (!endpoint) return null;
     return patchPhysicsConstraint(constraintId, { [side]: endpoint });
   };
@@ -9851,6 +10000,14 @@ function App() {
           attractor: pivot,
           systemId: targetSystemId,
         })
+        : kind === "tracer"
+          ? resolveTracerConstraint({
+            tracer: pivot,
+            elements,
+            bodies: targetBodies,
+            constraints: graph.constraints,
+            systemId: targetSystemId,
+          })
         : kind === "thruster"
           ? resolveThrusterConstraint({
             thruster: pivot,
@@ -9895,6 +10052,14 @@ function App() {
       return [];
     }
     const successfulIds = new Set(successes.map(item => item.pivot.id));
+    const snappedPivotPositionById = new Map(successes.flatMap(item => {
+      const point = item.result.pivotPoint;
+      if (!Array.isArray(point) || !point.every(Number.isFinite)) return [];
+      const center = getPhysicsElementCenter(item.pivot);
+      if (Math.hypot(point[0] - center.x, point[1] - center.y) < 0.001) return [];
+      const localCenter = getPhysicsElementLocalCenter(item.pivot);
+      return [[item.pivot.id, { x: point[0] - localCenter[0], y: point[1] - localCenter[1] }]];
+    }));
     const nextGraph = normalizeRelationshipGraph({
       ...graph,
       systems: createdSystem ? [...graph.systems, createdSystem] : graph.systems,
@@ -9910,7 +10075,11 @@ function App() {
     const provisionalElements = elements.map(element => {
       const constraint = provisionalConstraintByPivotId.get(element.id);
       return constraint && !element.isDeleted
-        ? { ...element, customData: withPhysicsCustomData(element.customData, constraint) }
+        ? {
+          ...element,
+          ...(snappedPivotPositionById.get(element.id) || {}),
+          customData: withPhysicsCustomData(element.customData, constraint),
+        }
         : element;
     });
     // Persist the exact solver-local anchors before the update reaches the
@@ -9930,6 +10099,7 @@ function App() {
       if (!constraint || element.isDeleted) return element;
       return {
         ...element,
+        ...(snappedPivotPositionById.get(element.id) || {}),
         customData: withPhysicsCustomData(element.customData, constraint),
         version: (element.version || 0) + 1,
         versionNonce: Math.floor(Math.random() * 0x7fffffff),
@@ -9942,7 +10112,7 @@ function App() {
     api.updateScene({ elements: nextElements, commitToHistory: true });
     if (createdSystem) setActivePhysicsSystemId(createdSystem.id);
     const name = kind === "fixate" ? "weld" : kind;
-    const noun = isAttractor ? "attractor" : isPathConstraint ? kind : `${name} pivot`;
+    const noun = isAttractor ? "attractor" : kind === "tracer" ? "tracer" : isPathConstraint ? kind : `${name} pivot`;
     const failureReason = isAttractor
       ? " could not be made into an attractor."
       : isPathConstraint
@@ -10037,9 +10207,9 @@ function App() {
     const hint = kind === "attract-brush"
       ? "Drag on a selected canonical curve to sculpt it."
       : kind === "fixate"
-        ? "Weld: click a pivot object. It welds the overlapping body to World, or two overlapping bodies together."
+        ? "Weld: click a pivot object. It welds overlapping bodies when present, or creates a detached Weld for later endpoint assignment."
         : kind === "axle"
-          ? "Axle: click a pivot object. Its centre hinges one overlapping body to World, or two bodies together."
+          ? "Axle: click a pivot object. Its centre connects overlapping bodies when present, or creates a detached Axle for later endpoint assignment."
           : `Physics ${kind}: click the first endpoint, then the second.`;
     setSceneExchangeStatus(hint);
   };
@@ -10160,7 +10330,13 @@ function App() {
       ));
       if (!body && !constraint) return false;
       const systemId = constraint?.systemId || body.systemId;
-      physicsGestureRef.current = { kind: "grab", pointerId: event.pointerId, systemId, livePose };
+      physicsGestureRef.current = {
+        kind: "grab",
+        pointerId: event.pointerId,
+        systemId,
+        livePose,
+        ropeConstraintIds: constraint ? getLivePoseRopeConstraintIds(constraint) : null,
+      };
       if (constraint) {
         physicsRuntimeRef.current.grabConstraint(systemId, constraint.id, point, { stiffness: 280, damping: 28, livePose });
       } else {
@@ -10274,12 +10450,13 @@ function App() {
       // new starting pose: preserve the solved snapshot before releasing the
       // temporary grab, then make that snapshot the new Reset baseline.
       const atTransportOrigin = Math.abs(Number(scoreTimeRef.current) || 0) < 1e-6;
-      if (gesture.livePose && atTransportOrigin && api) {
+      if (gesture.livePose && atTransportOrigin && api && event.type === "pointerup") {
         const scenePoint = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, api.getAppState());
         void physicsRuntimeRef.current.commitGrab(gesture.systemId, [scenePoint.x, scenePoint.y], { livePose: true, iterations: 96 })
           .then(snapshot => {
             const applied = snapshot && applyPhysicsPose(gesture.systemId, {
               snapshot,
+              ropeConstraintIds: gesture.ropeConstraintIds,
               statusMessage: "Set the live pose at timeline zero as the physics reset pose.",
             });
             if (!applied) setSceneExchangeStatus("Live pose could not be saved: no current physics pose was available.");
@@ -10416,7 +10593,7 @@ function App() {
     }
   }, [relationshipGraph.systems, scorePlaying]);
 
-  const applyPhysicsPose = (systemId, { snapshot: suppliedSnapshot = null, statusMessage = "Applied the current physics pose as the authored reset pose." } = {}) => {
+  const applyPhysicsPose = (systemId, { snapshot: suppliedSnapshot = null, ropeConstraintIds = null, statusMessage = "Applied the current physics pose as the authored reset pose." } = {}) => {
     const snapshots = suppliedSnapshot || physicsRuntimeRef.current.getLatestPoses(systemId);
     const snapshot = Array.isArray(snapshots) ? snapshots.find(candidate => candidate.systemId === systemId) : snapshots;
     const poseByEntityId = new Map((snapshot?.metadata || []).map((metadata, index) => [metadata.id, {
@@ -10427,7 +10604,7 @@ function App() {
     // promote that shape to the authored rope path as well as applying rigid
     // body transforms. Otherwise the next reset/rebuild recreates the old
     // straight (orange diagnostic) path and overwrites the rope host.
-    const ropePathByConstraintId = new Map((snapshot?.ropePaths || [])
+    const ropePathByConstraintId = new Map(selectRopePathsForLivePose(snapshot?.ropePaths, ropeConstraintIds)
       .filter(path => path?.constraintId && Array.isArray(path.points))
       .map(path => [path.constraintId, path.points
         .filter(point => Array.isArray(point) && Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1])))
@@ -10948,12 +11125,64 @@ function App() {
     },
     ...EXCALIDRAW_TOOL_COMMANDS,
   ];
+  const setDrawingRoughness = value => {
+    const roughness = normalizeRoughnessValue(value);
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    const selectedIds = api.getAppState().selectedElementIds || {};
+    const elements = api.getSceneElementsIncludingDeleted();
+    const drawableTypes = new Set(["freedraw", "line", "arrow", "ellipse", "rectangle", "diamond"]);
+    let changed = 0;
+    const nextElements = elements.map(element => {
+      if (!selectedIds[element.id] || element.isDeleted || !drawableTypes.has(element.type)) return element;
+      if (Number(element.roughness) === roughness) return element;
+      changed += 1;
+      return {
+        ...element,
+        roughness,
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+      };
+    });
+    const sceneUpdate = { appState: { currentItemRoughness: roughness }, commitToHistory: changed > 0 };
+    if (changed) sceneUpdate.elements = nextElements;
+    api.updateScene(sceneUpdate);
+    setSceneExchangeStatus(changed
+      ? `Set roughness ${roughness} on ${changed} selected shape${changed === 1 ? "" : "s"}; new shapes will use it too.`
+      : `New shapes will use roughness ${roughness}.`);
+    return { roughness, changed };
+  };
+
+  const setDrawingRoundness = value => {
+    const roundness = normalizeRoundnessValue(value);
+    const rounded = roundness === 1;
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    setGlobalRoundness(rounded);
+    setCustomBrushRoundness(rounded);
+    const selectedIds = api.getAppState().selectedElementIds || {};
+    const currentElements = api.getSceneElementsIncludingDeleted();
+    const selectedUpdate = setSelectedElementRoundness(currentElements, selectedIds, rounded ? "round" : "sharp");
+    const sceneUpdate = {
+      appState: { currentItemRoundness: rounded ? "round" : "sharp" },
+      commitToHistory: selectedUpdate.changed > 0,
+    };
+    if (selectedUpdate.changed) sceneUpdate.elements = selectedUpdate.elements;
+    api.updateScene(sceneUpdate);
+    setSceneExchangeStatus(selectedUpdate.changed
+      ? `Set ${rounded ? "round" : "sharp"} geometry on ${selectedUpdate.changed} selected shape${selectedUpdate.changed === 1 ? "" : "s"}; new shapes will match.`
+      : `New shapes will use ${rounded ? "round" : "sharp"} geometry.`);
+    return { roundness, changed: selectedUpdate.changed };
+  };
+
   const COMMANDS = [
     ...PANEL_COMMANDS,
     ...EXCALIDRAW_COMMANDS,
+    { id: "panel-properties.open", name: "Open Properties Panel", category: "Panels", action: () => toggleDraweratorPanel("properties", { open: true }) },
     { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "performance.toggle", name: "Toggle Performance Monitor /performance", aliases: ["/performance", "/perf", "FPS monitor"], category: "View", action: () => updatePerformanceVisibility(!showPerformanceOverlay) },
-    { id: "physics.toolbar.toggle", name: "Toggle Physics Toolbar /physicstoolbar", aliases: ["/physicstoolbar", "/physics toolbar", "physics toolbar"], category: "Physics", ai: { expose: true, description: "Toggle the floating physics authoring toolbar." }, action: () => setPhysicsToolbarOpen(previous => !previous) },
+    { id: "physics.toolbar.toggle", name: "Toggle Physics Toolbar /physicstoolbar", aliases: ["/physicstoolbar", "/physics toolbar", "physics toolbar"], category: "Physics", ai: { expose: true, description: "Toggle the floating or docked physics authoring toolbar." }, action: () => physicsToolbarOpen ? closePhysicsToolbar() : setPhysicsToolbarOpen(true) },
     { id: "physics.system.create", name: "Physics: Create System", aliases: ["/physics new"], category: "Physics", args: { name: "string?", gravity: "{x,y}?", clock: "realtime|transport?" }, ai: { expose: true, description: "Create an independent canvas physics system." }, action: (_api, args = {}) => {
       const system = createDefaultPhysicsSystem({ name: args.name, gravity: args.gravity, clock: { mode: args.clock === "transport" ? "transport" : "realtime", fixedHz: 60, timeScale: 1 } });
       setRelationshipGraph(previous => addRelationshipItem(previous, "systems", system));
@@ -10967,8 +11196,8 @@ function App() {
     } },
     { id: "physics.body.assign", name: "Physics: Assign Dynamic", aliases: ["/physics body"], category: "Physics", args: { systemId: "string?", bodyType: "dynamic|kinematic?" }, ai: { expose: true, description: "Turn selected canvas drawings into authored physics bodies." }, action: (_api, args) => assignPhysicsBodies(args) },
     { id: "physics.collider.assign", name: "Physics: Assign Static", aliases: ["/physics wall"], category: "Physics", args: { systemId: "string?", sensor: "boolean?" }, ai: { expose: true, description: "Turn selected drawings or curves into static colliders or sensors." }, action: (_api, args) => assignPhysicsBodies({ ...args, bodyType: "fixed" }) },
-    { id: "physics.axle.make", name: "Make Axle Object /make axle", aliases: ["/make axle", "/physics axle"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into Axle pivots. Each pivot automatically connects the body or bodies at its centre." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "axle" }) },
-    { id: "physics.fixate.make", name: "Make Weld Object /make weld", aliases: ["/make weld", "/physics weld", "/make fixate", "/physics fixate"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into Weld pivots. Each pivot welds the body or bodies at its centre." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "fixate" }) },
+    { id: "physics.axle.make", name: "Make Axle Object /make axle", aliases: ["/make axle", "/physics axle"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into Axle pivots. Overlapping bodies connect automatically; otherwise the pivot remains detached for later endpoint assignment." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "axle" }) },
+    { id: "physics.fixate.make", name: "Make Weld Object /make weld", aliases: ["/make weld", "/physics weld", "/make fixate", "/physics fixate"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into Weld pivots. Overlapping bodies weld automatically; otherwise the pivot remains detached for later endpoint assignment." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "fixate" }) },
     { id: "physics.spring.make", name: "Make Spring Object /make spring", aliases: ["/make spring", "/physics spring"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected lines, arrows, paths, or freehand strokes into Springs. Their rendered start and end attach to bodies beneath them, or World." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "spring" }) },
     { id: "physics.rope.make", name: "Make Rope Object /make rope", aliases: ["/make rope", "/physics rope"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected lines, arrows, paths, or freehand strokes into free articulated physics ropes. Every rendered path point becomes a sampled chain of generated links; use an axle or weld on any control point to bind it." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "rope" }) },
     { id: "physics.attractor.make", name: "Make Attractor Object /make attractor", aliases: ["/make attractor", "/physics attractor"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into radial physics attractors. They can attract or repel dynamic bodies within a configurable radius." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "attractor" }) },
@@ -11094,6 +11323,10 @@ function App() {
     { id: "convert-to-freedraw", name: "Convert Selected Lines to Freehand Pencil", category: "Brushes", action: () => handleConvertType("freedraw") },
     { id: "iannix.cursor.addToSelectedCurves", name: "Add Cursor to Selected Curves /add cursor to selected curves", aliases: ["/add cursor to selected curves", "Add Cursor to Selected Curves"], category: "Score", action: () => addCursorsToSelectedCurves() },
     { id: "expressiveSynth.demo.create", name: "Add and Play Expressive Synth Demo /synth demo", aliases: ["/synth demo", "Expressive Synth Demo"], category: "Score", action: () => addExpressiveSynthDemo() },
+    { id: "geometry.roughness.set", name: "Set Drawing Roughness /roughness n", aliases: ["/roughness"], category: "Geometry", args: { value: "0|1|2" }, ai: { expose: true, description: "Set the default Excalidraw sloppiness for newly drawn shapes to 0, 1, or 2." }, action: (_api, args = {}) => setDrawingRoughness(args.value) },
+    { id: "geometry.roundness.set", name: "Set Drawing Roundness /roundness 0|1", aliases: ["/roundness"], category: "Geometry", args: { value: "0|1" }, ai: { expose: true, description: "Set the default corner style for newly drawn shapes: 0 is sharp and 1 is round." }, action: (_api, args = {}) => setDrawingRoundness(args.value) },
+    { id: "geometry.roundness.sharp", name: "Use Sharp Drawing Geometry /sharp", aliases: ["/sharp"], category: "Geometry", action: () => setDrawingRoundness(0) },
+    { id: "geometry.roundness.round", name: "Use Round Drawing Geometry /round", aliases: ["/round"], category: "Geometry", action: () => setDrawingRoundness(1) },
     { id: "geometry.bezier.convert", name: "Convert Selection to Bézier /bezier convert", aliases: ["/bezier convert", "Convert to Bézier"], category: "Geometry", action: () => convertSelectedToBezier() },
     { id: "geometry.bezier.edit", name: "Edit Selected Bézier /bezier edit", aliases: ["/bezier edit", "Edit Bézier"], category: "Geometry", action: () => enterBezierEditMode() },
     { id: "geometry.bezier.close", name: "Close Selected Bézier Path /bezier close", aliases: ["/bezier close"], category: "Geometry", action: () => setSelectedBezierClosed(true) },
@@ -11336,15 +11569,8 @@ function App() {
           commandRegistry.execute("panel-script", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
           return;
         }
-        if (shortcutAction.id === "mods.float.toggle") {
-          setPanelLayouts(previous => ({
-            ...previous,
-            mods: {
-              ...previous.mods,
-              placement: previous.mods.placement === PANEL_PLACEMENTS.FLOATING ? PANEL_PLACEMENTS.RIGHT : PANEL_PLACEMENTS.FLOATING,
-            },
-          }));
-          setOpenPanels(previous => ({ ...previous, mods: true }));
+        if (shortcutAction.id === "panel-properties.open") {
+          commandRegistry.execute("panel-properties.open", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
           return;
         }
         if (shortcutAction.id === "history.record.toggle") {
@@ -11378,6 +11604,7 @@ function App() {
           if (count) excalidrawAPI.updateScene({ elements, commitToHistory: true });
           else {
             const nextRoundness = appState.currentItemRoundness === "round" ? "sharp" : "round";
+            setGlobalRoundness(nextRoundness === "round");
             setCustomBrushRoundness(nextRoundness === "round");
             excalidrawAPI.updateScene({ appState: { currentItemRoundness: nextRoundness } });
           }
@@ -11585,6 +11812,8 @@ function App() {
     if (!input.startsWith("/")) return null;
     const exact = COMMANDS.find(command => command.aliases?.some(alias => alias.toLowerCase() === input.toLowerCase()));
     if (exact) return { command: exact, args: {} };
+    const drawingStyle = parseDrawingStyleSlash(input);
+    if (drawingStyle) return { command: COMMANDS.find(command => command.id === drawingStyle.id), args: drawingStyle.args };
     let match = /^\/(?:ix|iannix|score)\s+(.+)$/i.exec(input);
     if (match) return {
       command: COMMANDS.find(command => command.id === "iannix.command.execute"),
@@ -13433,6 +13662,51 @@ function App() {
     setSceneExchangeStatus(`${label}: click a compatible canvas object, or press Escape to cancel.`);
   }, []);
 
+  const beginPhysicsConstraintEndpointEyedropper = (constraintId, side) => {
+    const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
+    const constraint = graph.constraints.find(candidate => candidate.id === constraintId);
+    if (!constraint?.objectRef?.elementId) return;
+    const eligibleBodies = new Map(graph.bodies
+      .filter(body => (
+        body.enabled
+        && body.systemId === constraint.systemId
+        && body.objectRef?.kind === "element"
+        && body.objectRef.elementId !== constraint.objectRef.elementId
+        && (constraint.kind !== "thruster" || body.bodyType === "dynamic")
+      ))
+      .map(body => [body.objectRef.elementId, body]));
+    const eligibleRopes = new Map(graph.constraints
+      .filter(candidate => (
+        candidate.enabled !== false
+        && candidate.kind === "rope"
+        && candidate.systemId === constraint.systemId
+        && candidate.objectRef?.kind === "element"
+        && candidate.objectRef.elementId !== constraint.objectRef.elementId
+        && candidate.pathPoints?.length >= 2
+      ))
+      .map(candidate => [candidate.objectRef.elementId, candidate]));
+    beginObjectEyedropper({
+      label: `Pick connection ${side.toUpperCase()}`,
+      accept: element => eligibleBodies.has(element.id) || eligibleRopes.has(element.id),
+      onPick: (element, details = {}) => {
+        const point = Array.isArray(details.point)
+          ? details.point
+          : (() => {
+            const center = getPhysicsElementCenter(element);
+            return [center.x, center.y];
+          })();
+        const rope = eligibleRopes.get(element.id);
+        const rawEndpoint = rope
+          ? ropeEndpointAtPoint(rope, point)
+          : physicsEndpointAtPoint(element, point);
+        if (!rawEndpoint) throw new Error("That object has no usable physics endpoint.");
+        const { distance: _distance, ...endpoint } = rawEndpoint;
+        patchPhysicsConstraint(constraintId, { [side]: endpoint });
+        return `${element.type === "line" || element.type === "freedraw" ? "Path" : "Object"} connected.`;
+      },
+    });
+  };
+
   const beginCanvasSourceEyedropper = sourceId => {
     let targetSourceId = sourceId;
     const current = mediaSources.find(source => source.id === targetSourceId);
@@ -15106,13 +15380,16 @@ function App() {
     delete restoredAppState.theme;
     const restoredRuntimeElements = reconcileRuntimeCursorHosts((restored.elements || []).map(normalizeScoreElementMetadata));
     const restoredP5 = reconcileP5ScriptsWithElements(importedP5Scripts, restoredRuntimeElements);
-    const restoredElements = restoredP5.elements;
+    const repairedPhysics = repairLegacyAxleEndpointsForScene(importedRelationshipGraph, restoredP5.elements);
+    const restoredElements = repairedPhysics.elements;
     if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
     excalidrawAPI.updateScene({
       elements: restoredElements,
       appState: {
         ...restoredAppState,
         theme,
+        currentItemRoughness: 0,
+        currentItemRoundness: globalRoundness ? "round" : "sharp",
         selectedElementIds: {},
         gridSize: null,
         gridModeEnabled: false,
@@ -15120,6 +15397,18 @@ function App() {
       },
       commitToHistory,
     });
+    // Session restore happens after Excalidraw has mounted with an empty
+    // scene. Replacing the visible elements without also resetting history
+    // leaves that empty mount state as the first undo target, so the first
+    // user edit followed by Undo clears the whole restored scene. Treat a
+    // non-history import as the new editor baseline instead.
+    if (!commitToHistory) {
+      excalidrawAPI.history?.clear?.();
+      // The first recorded update after a clear establishes History's current
+      // entry; without this seed, the user's first edit becomes that entry and
+      // cannot itself be undone.
+      excalidrawAPI.updateScene({ elements: restoredElements, commitToHistory: true });
+    }
     lastSceneElementPersistenceSignatureRef.current = scenePersistenceSignature(restoredElements);
     setGlobalGrid(grid);
     setExpressiveSynthConfig(expressiveSynth);
@@ -15128,7 +15417,7 @@ function App() {
     setP5Scripts(restoredP5.scripts);
     setStreamGraph(normalizeStreamGraphWithBuiltins(importedStreamGraph));
     setBrushChannels(normalizeBrushChannels(importedBrushChannels));
-    const hydratedRelationshipGraph = hydratePhysicsGraphForElements(importedRelationshipGraph, restoredElements);
+    const hydratedRelationshipGraph = repairedPhysics.graph;
     // Scene persistence can run immediately after import. Keep its reset-pose
     // serializer aligned with the imported elements before React commits the
     // graph state update.
@@ -16823,8 +17112,8 @@ function App() {
       ["kinematic", "Kinematic body", "Kinematic body — moved by authored animation or interaction"],
       ["fixed", "Static", "Static — a stationary physical wall"],
       ["sensor", "Sensor", "Sensor — reports overlaps without blocking bodies"],
-      ["axle", "Axle pivot", "Axle pivot — auto-connects one overlapping body to World, or two bodies together"],
-      ["fixate", "Weld pivot", "Weld pivot — welds one overlapping body to World, or two bodies together"],
+      ["axle", "Axle pivot", "Axle pivot — auto-connects overlapping bodies when present, or stays detached for later assignment"],
+      ["fixate", "Weld pivot", "Weld pivot — welds overlapping bodies when present, or stays detached for later assignment"],
       ["spring", "Spring", "Spring — attaches this object's rendered start and end to bodies beneath them, or World"],
       ["rope", "Rope", "Rope — turns this object's rendered path into articulated physics links, with endpoints attached to bodies or World"],
       ["attractor", "Attractor", "Attractor — applies a radial force to dynamic bodies within its radius"],
@@ -16854,6 +17143,29 @@ function App() {
     const roleLabel = roleOptions.find(([value]) => value === sharedRole)?.[1] || "Physics";
     const patchBody = patch => patchPhysicsBodies(bodies.map(candidate => candidate.id), patch);
     const patchMaterial = patch => patchBody({ material: patch });
+    const renderTrajectoryTrailControls = ({ trail, onChange, joint = false }) => {
+      const value = trail || { enabled: false, color: "#4f8cff", duration: 4, opacity: 0.75 };
+      const patchTrail = patch => onChange({ ...value, ...patch });
+      const color = /^#[0-9a-f]{6}$/i.test(value.color) ? value.color : "#4f8cff";
+      return <>
+        <label className="iannix-check-row" {...infoProps(
+          joint ? "Attachment trails" : "Centre-of-mass trail",
+          joint
+            ? "Plot both resolved attachment anchors independently. A stable joint produces one overlapping path; solver or render drift separates the two paths."
+            : "Plot this body's runtime centre of mass. Compare it with an Axle or Weld attachment trail to separate whole-body motion from joint drift.",
+        )}>
+          <span>{joint ? "Attachment trails (A + B)" : "Centre-of-mass trail"}</span>
+          <input type="checkbox" checked={value.enabled === true} onChange={event => patchTrail({ enabled: event.target.checked })} />
+        </label>
+        {value.enabled === true && <>
+          <label className="iannix-field"><span>Trail color</span><input type="color" value={color} onChange={event => patchTrail({ color: event.target.value })} /></label>
+          <div className="iannix-two-column">
+            <label className="iannix-field"><span>Time length (s)</span><NumericInput min="0.1" max="120" step="0.25" value={value.duration} defaultValue={4} onCommit={duration => patchTrail({ duration })} /></label>
+            <label className="iannix-field"><span>Opacity</span><NumericInput min="0" max="1" step="0.05" value={value.opacity} defaultValue={0.75} onCommit={opacity => patchTrail({ opacity })} /></label>
+          </div>
+        </>}
+      </>;
+    };
     const pivotSceneElements = pivotConstraint
       ? (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || [])
       : [];
@@ -16881,21 +17193,39 @@ function App() {
       ))
       : [];
     const dynamicConnectionBodies = connectionBodies.filter(candidate => candidate.bodyType === "dynamic");
+    const connectionRopes = pivotConstraint
+      ? relationshipGraph.constraints.filter(candidate => (
+        candidate?.enabled !== false
+        && candidate.kind === "rope"
+        && candidate.systemId === pivotConstraint.systemId
+        && candidate.objectRef?.kind === "element"
+        && candidate.objectRef.elementId !== pivotElement?.id
+        && candidate.pathPoints?.length >= 2
+      ))
+      : [];
     const connectionElementById = new Map(pivotSceneElements.map(element => [element.id, element]));
-    const connectionLabel = body => {
-      const element = connectionElementById.get(body.objectRef?.elementId);
-      return `${body.name || element?.type || "Body"} · ${body.objectRef?.elementId?.slice(0, 8) || "missing"}`;
-    };
+    const bodyConnectionOptions = connectionBodies.map(candidate => {
+      const elementId = candidate.objectRef.elementId;
+      const element = connectionElementById.get(elementId);
+      return { key: elementId, kind: "body", elementId, label: getOutlinerElementLabel(element) || elementId };
+    });
+    const ropeConnectionOptions = connectionRopes.map(candidate => {
+      const elementId = candidate.objectRef.elementId;
+      const element = connectionElementById.get(elementId);
+      return { key: `rope:${candidate.id}`, kind: "rope", elementId, constraintId: candidate.id, label: getOutlinerElementLabel(element) || elementId };
+    });
+    const connectionOptions = [...bodyConnectionOptions, ...ropeConnectionOptions];
     const endpointElementId = endpoint => endpoint?.kind === "object" ? endpoint.objectRef?.elementId || "" : "";
     const endpointSelectionValue = endpoint => {
       const normalized = normalizePhysicsEndpoint(endpoint);
       if (normalized?.kind === "none") return "none";
       if (normalized?.kind === "world") return "world";
+      if (normalized?.kind === "rope") return normalized.constraintId ? `rope:${normalized.constraintId}` : "";
       return endpointElementId(normalized);
     };
-    const patchPivotConnection = (side, elementId) => {
+    const patchPivotConnection = (side, selectionKey) => {
       if (!pivotConstraint) return;
-      if (elementId === "none") {
+      if (selectionKey === "none") {
         patchPhysicsConstraint(pivotConstraint.id, { [side]: { kind: "none" } });
         return;
       }
@@ -16903,10 +17233,12 @@ function App() {
         ? (side === "a" ? springEndpoints.start : springEndpoints.end)
         : pivotPoint ? [pivotPoint.x, pivotPoint.y] : null;
       if (!anchorPoint) return;
-      const endpoint = elementId === "world"
+      const endpoint = selectionKey === "world"
         ? { kind: "world", point: [...anchorPoint] }
+        : selectionKey?.startsWith?.("rope:")
+          ? ropeEndpointAtPoint(relationshipGraph.constraints.find(candidate => candidate.id === selectionKey.slice(5)), anchorPoint)
         : (() => {
-          const target = connectionElementById.get(elementId);
+          const target = connectionElementById.get(selectionKey);
           return target ? physicsEndpointAtPoint(target, anchorPoint) : null;
         })();
       if (!endpoint) return;
@@ -16979,6 +17311,7 @@ function App() {
               <span>Enabled</span>
               <input type="checkbox" checked={body.enabled} onChange={event => patchBody({ enabled: event.target.checked })} />
             </label>
+            {renderTrajectoryTrailControls({ trail: body.trail, onChange: trail => patchBody({ trail }) })}
             {sharedRole === "sensor" && <div className="iannix-hint">Sensors report overlaps but do not physically block other bodies.</div>}
           </InspectorSection>
         )}
@@ -16991,17 +17324,18 @@ function App() {
           <InspectorSection title={pivotConstraint.kind === "rope" ? "Rope" : pivotConstraint.kind === "spring" ? "Spring" : isThrusterConstraint ? "Thruster" : isAttractorConstraint ? "Attractor" : `${pivotConstraint.kind === "fixate" ? "Weld" : "Axle"} pivot`} className="iannix-section physics-role-details" {...infoProps(pivotConstraint.kind === "rope" ? "Rope" : pivotConstraint.kind === "spring" ? "Spring" : isThrusterConstraint ? "Thruster" : isAttractorConstraint ? "Attractor" : "Constraint pivot", pivotConstraint.kind === "rope" ? "This canvas path is an authored rope. Its rendered points are sampled into generated solver links, while its visible geometry follows the simulated chain. The record is stored in object.customData.physics." : pivotConstraint.kind === "spring" ? "This canvas object is an authored spring. Its rendered start and end independently attach to bodies beneath them, or World. The complete record is stored in object.customData.physics." : isThrusterConstraint ? "This canvas path is an authored thruster. Its start attaches to a dynamic body and its visible start-to-end direction applies force." : isAttractorConstraint ? "This canvas object is an authored radial force. It attracts or repels dynamic bodies within its radius." : "This canvas object is the authored constraint entity. Its centre resolves overlapping physics bodies: one body attaches to World; two bodies attach to each other. The complete record is stored in object.customData.physics.")}>
             <label className="iannix-field"><span>Physics name</span><input type="text" value={pivotConstraint.name} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { name: event.target.value })} /></label>
             {!isAttractorConstraint && pivotConstraint.kind !== "rope" && <div className="iannix-two-column">
-              <label className="iannix-field" {...infoProps(isThrusterConstraint ? "Thruster attachment" : isPathConstraint ? `${pivotConstraint.kind === "rope" ? "Rope" : "Spring"} start attachment` : "First connection", isThrusterConstraint ? "The thruster start attaches to a dynamic body. Its visible end determines the force direction. Choose None to disable this endpoint without deleting the thruster." : isPathConstraint ? "The rendered path start attaches to this body or World. Choose None to leave that end free." : "The first body attached at this pivot. Changing it recalculates the local anchor at the pivot centre. Choose None to disable this constraint until you reconnect it.")}><span>{isThrusterConstraint ? "Attach body" : isPathConstraint ? "Start attachment" : "Connect A"}</span><select value={endpointSelectionValue(pivotConstraint.a)} onChange={event => patchPivotConnection("a", event.target.value)}>
+              <label className="iannix-field" {...infoProps(isThrusterConstraint ? "Thruster attachment" : isPathConstraint ? `${pivotConstraint.kind === "rope" ? "Rope" : "Spring"} start attachment` : "First connection", isThrusterConstraint ? "The thruster start attaches to a dynamic body. Its visible end determines the force direction. Choose None to disable this endpoint without deleting the thruster." : isPathConstraint ? "The rendered path start attaches to this body or World. Choose None to leave that end free." : "The first body attached at this pivot. Changing it recalculates the local anchor at the pivot centre. Choose None to disable this constraint until you reconnect it.")}><span>{isThrusterConstraint ? "Attach body" : isPathConstraint ? "Start attachment" : "Connect A"}</span><div className="iannix-inline-action"><select value={endpointSelectionValue(pivotConstraint.a)} onChange={event => patchPivotConnection("a", event.target.value)}>
                 <option value="none">None</option>
                 {isPathConstraint && !isThrusterConstraint && <option value="world">World</option>}
-                <option value="" disabled>Choose body</option>
-                {(isThrusterConstraint ? dynamicConnectionBodies : connectionBodies).map(candidate => <option key={candidate.id} value={candidate.objectRef.elementId}>{connectionLabel(candidate)}</option>)}
-              </select></label>
-              {!isThrusterConstraint && <label className="iannix-field" {...infoProps(isPathConstraint ? `${pivotConstraint.kind === "rope" ? "Rope" : "Spring"} end attachment` : "Second connection", isPathConstraint ? "The rendered path end attaches to this body or World. Choose None to leave that end free." : "Choose World to pin the first body at this pivot, another body to connect both bodies together, or None to disable the constraint until it is reconnected.")}><span>{isPathConstraint ? "End attachment" : "Connect B"}</span><select value={endpointSelectionValue(pivotConstraint.b)} onChange={event => patchPivotConnection("b", event.target.value)}>
+                <option value="" disabled>Choose object</option>
+                {(isThrusterConstraint ? bodyConnectionOptions.filter(option => dynamicConnectionBodies.some(body => body.objectRef.elementId === option.elementId)) : connectionOptions).map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
+              </select><button type="button" className="properties-object-picker" onClick={() => beginPhysicsConstraintEndpointEyedropper?.(pivotConstraint.id, "a")} title="Pick connection target from canvas" aria-label="Pick connection target A from canvas">⌖</button></div></label>
+              {!isThrusterConstraint && <label className="iannix-field" {...infoProps(isPathConstraint ? `${pivotConstraint.kind === "rope" ? "Rope" : "Spring"} end attachment` : "Second connection", isPathConstraint ? "The rendered path end attaches to this body or World. Choose None to leave that end free." : "Choose World to pin the first body at this pivot, another body to connect both bodies together, or None to disable the constraint until it is reconnected.")}><span>{isPathConstraint ? "End attachment" : "Connect B"}</span><div className="iannix-inline-action"><select value={endpointSelectionValue(pivotConstraint.b)} onChange={event => patchPivotConnection("b", event.target.value)}>
                 <option value="none">None</option>
                 <option value="world">World</option>
-                {connectionBodies.filter(candidate => candidate.objectRef.elementId !== endpointElementId(pivotConstraint.a)).map(candidate => <option key={candidate.id} value={candidate.objectRef.elementId}>{connectionLabel(candidate)}</option>)}
-              </select></label>}
+                <option value="" disabled>Choose object</option>
+                {connectionOptions.filter(option => option.key !== endpointSelectionValue(pivotConstraint.a)).map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
+              </select><button type="button" className="properties-object-picker" onClick={() => beginPhysicsConstraintEndpointEyedropper?.(pivotConstraint.id, "b")} title="Pick connection target from canvas" aria-label="Pick connection target B from canvas">⌖</button></div></label>}
             </div>}
             <label className="iannix-check-row"><span>Enabled</span><input type="checkbox" checked={pivotConstraint.enabled} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { enabled: event.target.checked })} /></label>
             {isAttractorConstraint && <>
@@ -17021,7 +17355,8 @@ function App() {
             {pivotConstraint.kind === "rope" && <>
               <label className="iannix-field" {...infoProps("Link length", "Maximum scene-pixel length of each generated rope link. Smaller links follow curves more closely, at higher solver cost.")}><span>Link length</span><NumericInput min="2" step="any" value={pivotConstraint.segmentLength ?? 24} defaultValue={24} onCommit={segmentLength => patchPhysicsConstraint(pivotConstraint.id, { segmentLength })} /></label>
               <label className="iannix-field" {...infoProps("Thickness", "Physical diameter of the generated rope links in scene pixels. This does not change the original stroke appearance.")}><span>Thickness</span><NumericInput min="0.5" step="any" value={pivotConstraint.thickness ?? 4} defaultValue={4} onCommit={thickness => patchPhysicsConstraint(pivotConstraint.id, { thickness })} /></label>
-              <label className="iannix-check-row" {...infoProps("Collide while connected", "Allow adjacent generated rope links to collide. Keep this off for a stable default rope.")}><span>Collide while connected</span><input type="checkbox" checked={pivotConstraint.collideConnected === true} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { collideConnected: event.target.checked })} /></label>
+              <label className="iannix-check-row" {...infoProps("Self collisions", "Allow non-adjacent generated rope links to collide. This is off by default for a lighter, more stable rope; the collision-layer matrix still controls rope-to-body contact.")}><span>Self collisions</span><input type="checkbox" checked={pivotConstraint.selfCollisions === true} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { selfCollisions: event.target.checked })} /></label>
+              <label className="iannix-check-row" {...infoProps("Collide while connected", "Allow directly jointed rope neighbors to collide when Self collisions is enabled. This does not assign collision layers or turn on non-adjacent self-contact.")}><span>Collide while connected</span><input type="checkbox" checked={pivotConstraint.collideConnected === true} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { collideConnected: event.target.checked })} /></label>
             </>}
             {pivotConstraint.kind === "axle" && <>
               <label className="iannix-check-row" {...infoProps("Motor", "Drives the axle at the chosen angular speed. Positive speed rotates counter-clockwise; torque limits how strongly the motor corrects that speed.")}><span>Motor enabled</span><input type="checkbox" checked={pivotConstraint.motorEnabled === true} onChange={event => patchPhysicsConstraint(pivotConstraint.id, { motorEnabled: event.target.checked })} /></label>
@@ -17033,6 +17368,11 @@ function App() {
                 <label className="iannix-field"><span>Upper limit (°)</span><NumericInput step="1" value={Math.round((pivotConstraint.upperLimit || 0) * 180 / Math.PI)} defaultValue={180} onCommit={upperLimit => patchPhysicsConstraint(pivotConstraint.id, { upperLimit: upperLimit * Math.PI / 180 })} /></label>
               </div>}
             </>}
+            {["axle", "pin", "revolute", "fixate", "weld"].includes(pivotConstraint.kind) && renderTrajectoryTrailControls({
+              trail: pivotConstraint.trail,
+              joint: true,
+              onChange: trail => patchPhysicsConstraint(pivotConstraint.id, { trail }),
+            })}
             <button type="button" className="iannix-flat-button" onClick={() => removePhysicsConstraint(pivotConstraint.id)}>Remove {pivotConstraint.kind}</button>
           </InspectorSection>
         )}
@@ -19568,7 +19908,10 @@ function App() {
       excalidrawAPI.updateScene({ elements: nextElements });
       setModifierUpdateNonce(n => n + 1);
     } else {
-      setGlobalRoundness(sharpness === "round");
+      const rounded = sharpness === "round";
+      setGlobalRoundness(rounded);
+      setCustomBrushRoundness(rounded);
+      excalidrawAPI.updateScene({ appState: { currentItemRoundness: rounded ? "round" : "sharp" }, commitToHistory: false });
     }
   };
 
@@ -20344,6 +20687,8 @@ function App() {
     setActiveDockPanels({ left: "mods", right: "mods", bottom: "transport" });
     setCollapsedDocks({ left: true, right: true, bottom: true });
     setShowIannixTransport(true);
+    setPhysicsToolbarOpen(false);
+    setPhysicsToolbarDockedTop(false);
     setDraggingPanelId(null);
     setDockPreview(null);
     setShowCommandPalette(false);
@@ -20352,6 +20697,7 @@ function App() {
     setForceDesktopLayout(true);
     setShowToolbarHints(false);
     setShowBottomNotifications(false);
+    setShowPerformanceOverlay(false);
     setShowDebugLayer(false);
     setDefaultStabilizerDamping(0.12);
     setScriptEditorTheme("drawerator");
@@ -20363,10 +20709,12 @@ function App() {
     localStorage.setItem("drawerator_force_desktop_layout", "true");
     localStorage.setItem("drawerator_show_toolbar_hints", "false");
     localStorage.setItem("drawerator_show_bottom_notifications", "false");
+    localStorage.setItem("drawerator_performance_overlay", "false");
     localStorage.setItem("drawerator_show_debug_layer", "false");
     localStorage.setItem("drawerator_default_stabilizer_damping", "0.12");
     localStorage.setItem("drawerator_export_transparent", "false");
-    localStorage.setItem("drawerator_custom_brush_roundness", "false");
+    localStorage.setItem(CUSTOM_BRUSH_ROUNDNESS_STORAGE_KEY, "false");
+    localStorage.setItem(DRAWING_ROUNDNESS_STORAGE_KEY, "0");
     localStorage.setItem("drawerator_presentation_mode", "false");
     localStorage.setItem("drawerator_script_editor_theme", "drawerator");
     excalidrawAPI?.updateScene({
@@ -21165,6 +21513,30 @@ function App() {
     });
   };
 
+  const physicsToolbarProps = {
+    open: physicsToolbarOpen,
+    onOpenChange: nextOpen => nextOpen ? setPhysicsToolbarOpen(true) : closePhysicsToolbar(),
+    onDockChange: nextDocked => nextDocked ? dockPhysicsToolbar() : floatPhysicsToolbar(),
+    selectedCount: Object.values(selectedElementIds).filter(Boolean).length,
+    worldPlaying: physicsWorldPlaying,
+    transportSynced: physicsFollowsTransport(relationshipGraph.systems),
+    timeScrubEnabled: physicsTimeScrubEnabled,
+    livePose: relationshipGraph.world?.livePose === true,
+    trailsVisible: physicsDebug.enabled === true && physicsDebug.trails === true,
+    onPlayPause: physicsWorldPlaying ? pausePhysicsWorld : playPhysicsWorld,
+    onResetWorld: resetPhysicsWorld,
+    onToggleTransportSync: togglePhysicsTransportSync,
+    onToggleLiveTimelinePreview: toggleLiveTimelinePreview,
+    onToggleLivePose: toggleLivePose,
+    onToggleTrails: () => setPhysicsDebug(previous => ({
+      ...previous,
+      enabled: previous.trails === true ? previous.enabled : true,
+      trails: previous.trails !== true,
+    })),
+    onAssignBody: options => assignPhysicsBodies({ systemId: activePhysicsSystemId, ...options }),
+    onAssignCollider: options => assignPhysicsBodies({ systemId: activePhysicsSystemId, bodyType: "fixed", ...options }),
+    onMakeConstraint: kind => assignPhysicsConstraintPivots({ kind, systemId: activePhysicsSystemId }),
+  };
   const sidePanels = DRAWERATOR_PANELS.filter(panel => panel.placements.includes(PANEL_PLACEMENTS.LEFT) || panel.placements.includes(PANEL_PLACEMENTS.RIGHT));
   const horizontalPanels = DRAWERATOR_PANELS.filter(panel => panel.placements.includes(PANEL_PLACEMENTS.BOTTOM));
   const getDockTabs = placement => getOpenPanelsForPlacement(sidePanels, openPanels, panelLayouts, placement);
@@ -21194,12 +21566,9 @@ function App() {
   const closeHorizontalPanel = panelId => {
     closeDraweratorPanel(panelId);
   };
-  const anySidePanelOpen = sidePanels.some(panel => {
-    const placement = panelLayouts[panel.id]?.placement;
-    return openPanels[panel.id] &&
-      [PANEL_PLACEMENTS.LEFT, PANEL_PLACEMENTS.RIGHT].includes(placement) &&
-      !collapsedDocks[placement];
-  });
+  const leftDockOpen = leftDockTabs.length > 0 && !collapsedDocks.left;
+  const rightDockOpen = rightDockTabs.length > 0 && !collapsedDocks.right;
+  const anySidePanelOpen = leftDockOpen || rightDockOpen;
   const bottomDockOpen = bottomDockTabs.length > 0 && !collapsedDocks.bottom;
   const bottomDockExpandedHeight = Math.max(BOTTOM_DOCK_MIN_HEIGHT, dockSizes.bottom);
   const bottomDockHeight = collapsedDocks.bottom ? COLLAPSED_DOCK_EDGE_SIZE : bottomDockExpandedHeight;
@@ -21430,7 +21799,7 @@ function App() {
   return (
     <div 
       id="root" 
-      className={`drawerator-shell drawerator-theme-${theme} ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} ${bottomDockOpen ? "horizontal-dock-open" : ""} ${collapsedDocks.bottom ? "bottom-dock-collapsed" : ""} ${draggingPanelId || transportDragging ? "panel-is-dragging" : ""}`}
+      className={`drawerator-shell drawerator-theme-${theme} ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} ${leftDockOpen ? "left-sidebar-open" : ""} ${rightDockOpen ? "right-sidebar-open" : ""} ${bottomDockOpen ? "horizontal-dock-open" : ""} ${collapsedDocks.bottom ? "bottom-dock-collapsed" : ""} ${draggingPanelId || transportDragging ? "panel-is-dragging" : ""}`}
       style={{
         "--drawerator-accent": colorWithOpacity(accentColor, accentOpacity),
         "--drawerator-highlight": colorWithOpacity(highlightColor, highlightOpacity),
@@ -21463,7 +21832,9 @@ function App() {
         id="canvas-container" 
         onPointerDownCapture={handleCanvasPointerDown}
         onPointerMoveCapture={handleCanvasPointerMove}
-        onPointerUpCapture={handleCanvasPointerUp} 
+        onPointerUpCapture={handleCanvasPointerUp}
+        onPointerCancelCapture={handleCanvasPointerUp}
+        onLostPointerCaptureCapture={handleCanvasPointerUp}
         onDoubleClickCapture={handleCanvasDoubleClick}
         onContextMenuCapture={handleCanvasContextMenu}
         onDragOverCapture={handleCanvasMediaPreviewDragOver}
@@ -21486,7 +21857,7 @@ function App() {
           initialData={{
             appState: {
               currentItemRoughness: 0,
-              currentItemRoundness: "sharp",
+              currentItemRoundness: globalRoundness ? "round" : "sharp",
               viewBackgroundColor: canvasColorForExcalidraw(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme),
               gridSize: null,
               gridModeEnabled: false,
@@ -22765,6 +23136,7 @@ function App() {
               onPhysicsConstraintChange={patchPhysicsConstraint}
               onPhysicsConstraintRemove={removePhysicsConstraint}
               onPhysicsConstraintEndpointChange={patchPhysicsConstraintEndpoint}
+              onPhysicsConstraintEndpointPick={beginPhysicsConstraintEndpointEyedropper}
               onScoreChange={(elementId, patch) => updateIannixElement(elementId, current => ({ ...current, ...patch }))}
               selectedSvgNode={selectedSvgNode}
               onChange={updateSceneObjectProperty}
@@ -23636,25 +24008,12 @@ function App() {
               />
             </DraweratorPanel>
           )}
+
         </Excalidraw>
 
-        <PhysicsCanvasToolbar
-          open={physicsToolbarOpen}
-          onOpenChange={setPhysicsToolbarOpen}
-          selectedCount={Object.values(selectedElementIds).filter(Boolean).length}
-          worldPlaying={physicsWorldPlaying}
-          transportSynced={physicsFollowsTransport(relationshipGraph.systems)}
-          timeScrubEnabled={physicsTimeScrubEnabled}
-          livePose={relationshipGraph.world?.livePose === true}
-          onPlayPause={physicsWorldPlaying ? pausePhysicsWorld : playPhysicsWorld}
-          onResetWorld={resetPhysicsWorld}
-          onToggleTransportSync={togglePhysicsTransportSync}
-          onToggleLiveTimelinePreview={toggleLiveTimelinePreview}
-          onToggleLivePose={toggleLivePose}
-          onAssignBody={options => assignPhysicsBodies({ systemId: activePhysicsSystemId, ...options })}
-          onAssignCollider={options => assignPhysicsBodies({ systemId: activePhysicsSystemId, bodyType: "fixed", ...options })}
-          onMakeConstraint={kind => assignPhysicsConstraintPivots({ kind, systemId: activePhysicsSystemId })}
-        />
+        {physicsToolbarDockedTop ? <div className="physics-canvas-toolbar-dock-top">
+          <PhysicsCanvasToolbar {...physicsToolbarProps} docked />
+        </div> : <PhysicsCanvasToolbar {...physicsToolbarProps} />}
 
         {showPerformanceOverlay && performanceOverlayPlacement === "floating" ? <PerformanceOverlay
           placement="floating"

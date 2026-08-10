@@ -74,7 +74,21 @@ test("ropes persist named collision-layer membership", () => {
     }],
   });
   assert.deepEqual(graph.constraints[0].collisionLayers, ["soft"]);
+  assert.equal(graph.constraints[0].selfCollisions, false);
   assert.deepEqual(resolvePhysicsCollisionGroups(graph.world, graph.constraints[0]), { group: 2, mask: 2, legacy: false });
+});
+
+test("rope self-collision preference survives normalization", () => {
+  const graph = normalizeRelationshipGraph({
+    systems: [{ id: "world" }],
+    constraints: [{
+      id: "rope", systemId: "world", kind: "rope", selfCollisions: true,
+      pathPoints: [[0, 0], [10, 0]], a: { kind: "none" }, b: { kind: "none" },
+    }],
+  });
+  assert.equal(graph.constraints[0].selfCollisions, true);
+  const serialized = serializePhysicsConstraintCustomData(graph.constraints[0]);
+  assert.equal(serialized.selfCollisions, true);
 });
 
 test("rope endpoints preserve stable generated-link identity", () => {
@@ -352,6 +366,52 @@ test("legacy pivot customData does not discard a graph's resolved collider-local
   assert.deepEqual(hydrated.constraints[0].a.localAnchor, [-31.5, 18.25]);
 });
 
+test("authored subsystem synchronization can keep newer graph poses and anchors", () => {
+  const staleBody = normalizeRelationshipGraph({
+    systems: [{ id: "world" }],
+    bodies: [{
+      id: "arm-body",
+      systemId: "world",
+      objectRef: { kind: "element", elementId: "arm" },
+      initial: { x: 120, y: 80, angle: 0 },
+    }],
+    constraints: [{
+      id: "axle",
+      systemId: "world",
+      kind: "axle",
+      objectRef: { kind: "element", elementId: "pivot" },
+      a: {
+        kind: "object",
+        objectRef: { kind: "element", elementId: "arm" },
+        localAnchor: [0, -40],
+      },
+      b: { kind: "world", point: [120, 40] },
+    }],
+  });
+  const movedGraph = normalizeRelationshipGraph({
+    ...staleBody,
+    bodies: staleBody.bodies.map(body => ({
+      ...body,
+      initial: { ...body.initial, x: 320, y: 80 },
+    })),
+    constraints: staleBody.constraints.map(constraint => ({
+      ...constraint,
+      a: { ...constraint.a, localAnchor: [0, -40] },
+      b: { ...constraint.b, point: [320, 40] },
+    })),
+  });
+  const elements = [
+    { id: "arm", customData: withPhysicsCustomData({}, staleBody.bodies[0]) },
+    { id: "pivot", customData: withPhysicsCustomData({}, staleBody.constraints[0]) },
+  ];
+
+  const hydrated = hydrateRelationshipGraphFromElements(movedGraph, elements, { preferGraphPhysics: true });
+
+  assert.equal(hydrated.bodies[0].initial.x, 320);
+  assert.deepEqual(hydrated.constraints[0].a.localAnchor, [0, -40]);
+  assert.deepEqual(hydrated.constraints[0].b.point, [320, 40]);
+});
+
 test("relationship imports remap object and endpoint references", () => {
   const graph = normalizeRelationshipGraph({
     systems: [{ id: "system" }],
@@ -441,6 +501,18 @@ test("population exclusions and deformable reset geometry survive normalization"
   });
   assert.equal(graph.bodies[0].initialGeometry.anchors[0].id, "a");
   assert.deepEqual(graph.populations[0].excludedInstanceIds, ["gas:1"]);
+});
+
+test("body and tracer trail settings normalize", () => {
+  const graph = normalizeRelationshipGraph({
+    systems: [{ id: "world" }],
+    bodies: [{ id: "body", systemId: "world", trail: { enabled: true, color: "#ff00ff", duration: 7, opacity: 0.4 } }],
+    constraints: [{ id: "trace", systemId: "world", kind: "tracer", a: { kind: "world", point: [2, 3] }, b: { kind: "world", point: [9, 9] } }],
+  });
+  assert.deepEqual(graph.bodies[0].trail, { enabled: true, color: "#ff00ff", duration: 7, opacity: 0.4 });
+  assert.equal(graph.constraints[0].kind, "tracer");
+  assert.equal(graph.constraints[0].trail.enabled, true);
+  assert.deepEqual(graph.constraints[0].b, { kind: "none" });
 });
 
 test("route dispatch guards nested response recursion", () => {

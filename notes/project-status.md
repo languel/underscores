@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-08-09
+Last updated: 2026-08-10
 
 ## Release checkpoint
 
@@ -113,7 +113,10 @@ Dynamic/Kinematic/Static/Sensor bodies, named collision-layer stacks, body and p
 the native Properties panel, a color-configurable world-aligned debug overlay, and first-class
 Axle/Weld pivot objects. Axle pivots resolve one overlapping body against World or two overlapping
 bodies against each other, with free 360-degree rotation by default. The compact Physics toolbar
-is a draggable canvas utility, while the Physics panel remains the detailed inspector.
+is a draggable canvas utility, while the Physics panel remains the detailed inspector. The toolbar
+can also be docked as a centered compact single-row strip across the top of the canvas. It respects
+open left/right dock widths so it does not cover their icon rails; the dock preference is stored
+locally and can be changed from the toolbar context menu.
 
 Live pose now provides constraint-solving manipulation without advancing timeline time. It can be
 enabled persistently in Physics World or toggled with `\\`; a release at timeline zero becomes the
@@ -131,8 +134,50 @@ Rope-bound Axle/Weld live posing caches normalized attachment progress and autho
 clamps unattainable targets, and settles without the frame-to-frame jitter or length growth seen
 when both ends are attached. Unbound endpoints are safe no-ops in the debug overlay, while
 selected physics objects continue through Excalidraw's native group-transform path instead of
-being intercepted as runtime grabs. The checkpoint passes 574 automated tests, a production build,
-and a browser play/pause smoke check with no console errors.
+being intercepted as runtime grabs. One-sided Welds now retain a runtime body-local anchor, so
+canvas images and skins can follow dynamic bodies without a fake World pin; their live markers
+also remain visible in the debug overlay and survive reset/snapshot restore. The checkpoint passes
+588 automated tests, a production build, and a browser play/pause smoke check with no console errors.
+
+### Physics tracing checkpoint (2026-08-10)
+
+Physics diagnostics now include opt-in transient trails for body centres and constraint anchors, plus
+standalone tracer pivots for following a chosen object point without adding a body. They are
+runtime-only and make it possible to compare centre-of-mass, constraint-anchor, and endpoint
+motion in articulated scenes. The current worker/overlay separation keeps solver pose updates out
+of React's render path, while worker cadence and exact-width path-capsule work reduce incidental
+visual stutter and collision cost.
+
+Axle and Weld inspectors now expose explicit attachment trails for both body-A and body-B anchors,
+alongside the existing body centre-of-mass controls. The articulated freehand comparison showed a
+remaining presentation issue rather than a grossly unstable constraint: default solver error stayed
+subpixel (worst measured freehand axle sample about `0.99 px`, falling below `0.025 px` at sixteen
+iterations), while the debug overlay and Excalidraw body can be drawn from adjacent runtime snapshots.
+Irregular freehand hull/inertia and rerasterization appear to contribute a smaller real/compositional
+shimmer. A future pass can share one applied-pose snapshot between the overlay and Excalidraw and
+then evaluate configurable solver iterations; this checkpoint deliberately makes no further physics
+or presentation change.
+
+For the articulated-mobile investigation, measured A1 solver-anchor error stayed below 0.005 px;
+the visible B1 endpoint was authored 5.54 px away from that anchor, producing a visible orbit even
+with a stable constraint. New one-body Axle authoring detects a marker containing a line, arrow,
+or freehand endpoint and snaps the marker/local anchor to that endpoint. Older pivots are not
+silently migrated: reassigning the Axle applies the correction, while interior pivots keep their
+authored point. This is a checkpoint rather than a claim that every perceived articulated-motion
+issue is resolved; further scene testing will guide the next pass. The current worktree passed 597
+automated tests and a production build; lint completed without errors, with existing warnings.
+
+### Physics subsystem transforms checkpoint (2026-08-10)
+
+Fixed articulated group translation. The paused-authored synchronization path had been rebuilding
+the graph from stale object-level physics metadata after Excalidraw moved a selected subsystem. That
+reintroduced the old body reset poses and recomputed pivot offsets against the new visual positions,
+making Axles, Welds, and World anchors appear to jump or disconnect. Existing graph bindings now stay
+authoritative for that synchronization pass and are mirrored back to object metadata afterward; new
+object bindings are still discovered normally. The regression test covers a moved body plus axle with
+stale element metadata. Browser verification covered the B1-B2-B3 subsystem with Live Pose both off
+and on, followed by play and reset; the translated topology remained intact. The full suite passes
+601 tests and the production build succeeds.
 
 ## Next phase
 

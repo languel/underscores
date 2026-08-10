@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chooseConstraintPivot, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint } from "./physicsConstraintAuthoring.js";
+import { chooseConstraintPivot, getLivePoseRopeConstraintIds, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, repairLegacyAxleEndpointAlignment, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint, resolveTracerConstraint, selectRopePathsForLivePose } from "./physicsConstraintAuthoring.js";
 import { getPhysicsElementWorldPoints } from "./physicsGeometry.js";
 
 const body = (id, x, y, width, height, angle = 0) => ({ id, type: "rectangle", x, y, width, height, angle });
@@ -16,6 +16,110 @@ test("an axle pivot discovers one overlapping body and attaches it to World", ()
   assert.equal(result.constraint.limitsEnabled, false);
 });
 
+test("a one-body axle snaps to a visible freehand endpoint contained by its pivot marker", () => {
+  const arm = {
+    id: "arm",
+    type: "freedraw",
+    x: 100,
+    y: 100,
+    width: 20,
+    height: 100,
+    angle: 0,
+    points: [[0, 0], [5, 50], [20, 100]],
+  };
+  // The marker centre is close enough to contain the first endpoint, but is
+  // deliberately not centred on it. The resolved marker and World anchor must
+  // both land on the visible endpoint so it cannot orbit an invisible pin.
+  const pivot = { ...body("pivot", 94, 96, 16, 16), type: "ellipse" };
+  const result = resolveConstraintPivot({
+    pivot,
+    elements: [arm, pivot],
+    bodies: [binding("arm")],
+    systemId: "world",
+    kind: "axle",
+  });
+  assert.deepEqual(result.pivotPoint, [100, 100]);
+  assert.deepEqual(result.constraint.b.point, [100, 100]);
+  assert.deepEqual(result.constraint.a.localPoint, [0, 0]);
+});
+
+test("a legacy one-body axle repairs an offset endpoint pin without losing its settings", () => {
+  const arm = {
+    id: "arm",
+    type: "freedraw",
+    x: 100,
+    y: 100,
+    width: 20,
+    height: 100,
+    angle: 0,
+    points: [[0, 0], [5, 50], [20, 100]],
+  };
+  const pivot = { ...body("pivot", 94, 96, 16, 16), type: "ellipse" };
+  const legacy = {
+    id: "axle",
+    systemId: "world",
+    kind: "axle",
+    motorEnabled: true,
+    motorSpeed: 20,
+    a: {
+      kind: "object",
+      objectRef: { kind: "element", elementId: "arm" },
+      anchor: "local",
+      localPoint: [0.1, 0.1],
+      localAnchor: [-2, -48],
+    },
+    b: { kind: "world", point: [102, 104] },
+  };
+  const repair = repairLegacyAxleEndpointAlignment({ constraint: legacy, pivot, elements: [arm, pivot] });
+  assert.ok(repair);
+  assert.deepEqual(repair.pivotPoint, [100, 100]);
+  assert.deepEqual(repair.constraint.a.localPoint, [0, 0]);
+  assert.equal(repair.constraint.a.localAnchor, undefined, "hydration recomputes the exact body-local solver anchor");
+  assert.deepEqual(repair.constraint.b.point, [100, 100]);
+  assert.equal(repair.constraint.motorEnabled, true);
+  assert.equal(repair.constraint.motorSpeed, 20);
+});
+
+test("an interior axle remains exactly where it was authored", () => {
+  const arm = {
+    id: "arm",
+    type: "freedraw",
+    x: 100,
+    y: 100,
+    width: 20,
+    height: 100,
+    angle: 0,
+    points: [[0, 0], [5, 50], [20, 100]],
+  };
+  const pivot = { ...body("pivot", 99, 142, 16, 16), type: "ellipse" };
+  const result = resolveConstraintPivot({
+    pivot,
+    elements: [arm, pivot],
+    bodies: [binding("arm")],
+    systemId: "world",
+    kind: "axle",
+  });
+  assert.deepEqual(result.pivotPoint, [107, 150]);
+  assert.deepEqual(result.constraint.b.point, [107, 150]);
+});
+
+test("a tracer follows an overlapping body without creating a second endpoint", () => {
+  const arm = body("arm", 100, 100, 80, 20);
+  const tracer = body("tracer", 105, 105, 10, 10);
+  const result = resolveTracerConstraint({ tracer, elements: [arm, tracer], bodies: [binding("arm")], systemId: "world" });
+  assert.equal(result.constraint.kind, "tracer");
+  assert.equal(result.constraint.a.objectRef.elementId, "arm");
+  assert.equal(result.constraint.b.kind, "none");
+  assert.equal(result.constraint.trail.enabled, true);
+});
+
+test("a detached tracer records its own fixed scene point", () => {
+  const tracer = body("tracer", 40, 70, 10, 10);
+  const result = resolveTracerConstraint({ tracer, elements: [tracer], bodies: [], systemId: "world" });
+  assert.equal(result.constraint.a.kind, "world");
+  assert.deepEqual(result.constraint.a.point, [45, 75]);
+});
+
 test("a partially overlapping pivot is accepted even when its centre sits outside the body", () => {
   const arm = body("arm", 100, 100, 80, 40);
   // The visual pivot overlaps the top edge of the arm by three pixels, but its
@@ -25,6 +129,22 @@ test("a partially overlapping pivot is accepted even when its centre sits outsid
   const result = resolveConstraintPivot({ pivot, elements: [arm, pivot], bodies: [binding("arm")], systemId: "world", kind: "axle" });
   assert.equal(result.constraint.a.objectRef.elementId, "arm");
   assert.equal(result.constraint.b.kind, "world");
+});
+
+test("an axle or weld can be authored detached for later endpoint assignment", () => {
+  for (const kind of ["axle", "fixate"]) {
+    const pivot = { ...body(`pivot-${kind}`, 400, 400, 20, 20), type: "ellipse" };
+    const result = resolveConstraintPivot({
+      pivot,
+      elements: [pivot],
+      bodies: [],
+      systemId: "world",
+      kind,
+    });
+    assert.equal(result.constraint.a.kind, "none");
+    assert.equal(result.constraint.b.kind, "none");
+    assert.equal(result.constraint.objectRef.elementId, `pivot-${kind}`);
+  }
 });
 
 test("an axle authored on a rope control point stores its stable path progress", () => {
@@ -48,6 +168,29 @@ test("an axle authored on a rope control point stores its stable path progress",
   assert.equal(result.constraint.a.kind, "rope");
   assert.equal(result.constraint.a.ropeProgress, 1);
   assert.equal(result.constraint.b.kind, "world");
+});
+
+test("an axle can discover a rope segment between sparse control points", () => {
+  const ropeElement = body("rope-path", 0, 0, 200, 10);
+  const pivot = { ...body("pivot", 45, -5, 10, 10), type: "ellipse" };
+  const ropeConstraint = {
+    id: "rope",
+    systemId: "world",
+    kind: "rope",
+    enabled: true,
+    objectRef: { kind: "element", elementId: ropeElement.id },
+    pathPoints: [[0, 0], [100, 0], [200, 0]],
+  };
+  const result = resolveConstraintPivot({
+    pivot,
+    elements: [ropeElement, pivot],
+    constraints: [ropeConstraint],
+    systemId: "world",
+    kind: "axle",
+  });
+  assert.equal(result.constraint.a.kind, "rope");
+  assert.deepEqual(result.constraint.a.point, [50, 0]);
+  assert.equal(result.constraint.a.ropeProgress, 0.25);
 });
 
 test("an axle pivot discovers two bodies and uses rotated local anchors", () => {
@@ -233,6 +376,21 @@ test("a rope visual patch exactly follows simulated world points", () => {
   const patched = getPhysicsElementWorldPoints({ ...rope, ...patch });
   assert.deepEqual(patched.map(point => point.map(value => Math.round(value))), worldPoints);
   assert.equal(patch.angle, 0);
+});
+
+test("a Live pose release keeps an independent copied rope out of the authored snapshot", () => {
+  const posedRope = { id: "rope-posed", kind: "rope" };
+  const copiedRope = { id: "rope-copy", kind: "rope" };
+  const snapshotPaths = [
+    { constraintId: copiedRope.id, points: [[10, 10], [20, 20]] },
+    { constraintId: posedRope.id, points: [[100, 100], [140, 120]] },
+  ];
+
+  assert.deepEqual(getLivePoseRopeConstraintIds(posedRope), [posedRope.id]);
+  assert.deepEqual(
+    selectRopePathsForLivePose(snapshotPaths, getLivePoseRopeConstraintIds(posedRope)),
+    [snapshotPaths[1]],
+  );
 });
 
 test("a solved rope pivot persists its moved World endpoint", () => {

@@ -10,7 +10,7 @@ export const COLLIDER_KINDS = Object.freeze(["circle", "ellipse", "box", "convex
 // relationships. Keep the older Rapier-oriented names for compatibility and
 // expose the canvas-first vocabulary alongside them: Fixate is a weld and
 // Axle is a revolute joint.
-export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "rope", "revolute", "weld", "fixate", "axle", "attractor", "thruster"]);
+export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "rope", "revolute", "weld", "fixate", "axle", "attractor", "thruster", "tracer"]);
 export const ROUTE_ACTION_KINDS = Object.freeze(["event", "stream", "synth", "midi", "command"]);
 export const MAPPING_SOURCE_KINDS = Object.freeze(["physics-collision"]);
 export const MAPPING_TARGET_KINDS = Object.freeze(["midi-note", "midi-cc", "midi-bend", "expressive-voice", "legacy-action"]);
@@ -276,6 +276,13 @@ export const normalizeMaterial = value => ({
   angularDamping: clamp(value?.angularDamping ?? 0.01, 0, 100),
 });
 
+export const normalizePhysicsTrail = value => ({
+  enabled: value?.enabled === true,
+  color: String(value?.color || "#4f8cff"),
+  duration: clamp(value?.duration ?? 4, 0.1, 120),
+  opacity: clamp(value?.opacity ?? 0.75, 0, 1),
+});
+
 export const normalizePhysicsBody = value => {
   const objectRef = normalizeDraweratorObjectRef(value?.objectRef);
   const tracking = TRACKING_CLASSES.includes(value?.tracking)
@@ -309,6 +316,7 @@ export const normalizePhysicsBody = value => {
       angularVelocity: finite(value?.initial?.angularVelocity),
     },
     initialGeometry: value?.initialGeometry && typeof value.initialGeometry === "object" ? clone(value.initialGeometry) : null,
+    trail: normalizePhysicsTrail(value?.trail),
     render: {
       fill: String(value?.render?.fill || "#4f8cff"),
       stroke: String(value?.render?.stroke || "transparent"),
@@ -341,6 +349,7 @@ export const serializePhysicsBodyCustomData = value => {
     material: clone(body.material),
     initial: clone(body.initial),
     initialGeometry: clone(body.initialGeometry),
+    trail: clone(body.trail),
     render: clone(body.render),
   };
 };
@@ -390,6 +399,7 @@ export const serializePhysicsConstraintCustomData = value => {
     stiffness: constraint.stiffness,
     damping: constraint.damping,
     ...(Array.isArray(constraint.collisionLayers) ? { collisionLayers: [...constraint.collisionLayers] } : {}),
+    ...(constraint.kind === "rope" ? { selfCollisions: constraint.selfCollisions === true } : {}),
     motorEnabled: constraint.motorEnabled,
     motorSpeed: constraint.motorSpeed,
     motorTorque: constraint.motorTorque,
@@ -399,6 +409,7 @@ export const serializePhysicsConstraintCustomData = value => {
     attractionMode: constraint.attractionMode,
     targetTags: clone(constraint.targetTags),
     thrusterForce: constraint.thrusterForce,
+    trail: clone(constraint.trail),
     limitsEnabled: constraint.limitsEnabled,
     lowerLimit: constraint.lowerLimit,
     upperLimit: constraint.upperLimit,
@@ -425,7 +436,14 @@ export const withPhysicsCustomData = (customData, value) => {
   return next;
 };
 
-export const hydrateRelationshipGraphFromElements = (graphValue, elements = []) => {
+export const hydrateRelationshipGraphFromElements = (graphValue, elements = [], {
+  // During an authored canvas transform the live graph already contains the
+  // newly inferred body poses and anchors, while element customData still
+  // contains the pre-transform snapshot. Keep the graph authoritative for
+  // bindings it already owns, but continue discovering missing bindings from
+  // element metadata below.
+  preferGraphPhysics = false,
+} = {}) => {
   const graph = normalizeRelationshipGraph(graphValue);
   const liveElements = (elements || []).filter(element => element && !element.isDeleted);
   const elementById = new Map(liveElements.map(element => [element.id, element]));
@@ -441,6 +459,7 @@ export const hydrateRelationshipGraphFromElements = (graphValue, elements = []) 
   const bodies = [
     ...graph.bodies.map(body => {
       if (body.objectRef?.kind !== "element") return body;
+      if (preferGraphPhysics) return body;
       const physics = getPhysicsCustomData(elementById.get(body.objectRef.elementId));
       if (!physics || physics.role !== "body") return body;
       return {
@@ -485,6 +504,7 @@ export const hydrateRelationshipGraphFromElements = (graphValue, elements = []) 
   const constraints = [
     ...graph.constraints.map(constraint => {
       if (constraint.objectRef?.kind !== "element") return constraint;
+      if (preferGraphPhysics) return constraint;
       const physics = getPhysicsCustomData(elementById.get(constraint.objectRef.elementId));
       if (!physics || !isConstraintPhysicsRole(physics.role || physics.constraintKind)) return constraint;
       return normalizePhysicsConstraint({
@@ -606,7 +626,7 @@ export const normalizePhysicsConstraint = value => {
     // links through their own rope endpoints; a rope itself never owns two
     // hidden start/end connections.
     a: kind === "rope" ? { kind: "none" } : normalizePhysicsEndpoint(value?.a),
-    b: kind === "rope" ? { kind: "none" } : normalizePhysicsEndpoint(value?.b),
+    b: ["rope", "tracer"].includes(kind) ? { kind: "none" } : normalizePhysicsEndpoint(value?.b),
     restLength: Math.max(0, finite(value?.restLength, 100)),
     // Rope links are generated only at runtime. Persist the authored curve's
     // world-space points and lightweight generation settings, never Rapier
@@ -622,6 +642,10 @@ export const normalizePhysicsConstraint = value => {
         ? uniqueStrings(value.collisionLayers).slice(0, MAX_PHYSICS_COLLISION_LAYERS)
         : ["default"])
       : null,
+    // Rope links are deformable runtime bodies. Keep their expensive
+    // link-to-link contact path opt-in; authored bodies and walls still use
+    // the named collision-layer matrix independently of this switch.
+    selfCollisions: kind === "rope" ? value?.selfCollisions === true : null,
     stiffness: Math.max(0, finite(value?.stiffness, 40)),
     damping: Math.max(0, finite(value?.damping, 4)),
     // Axle motors are authored in the friendly canvas unit of degrees per
@@ -637,6 +661,10 @@ export const normalizePhysicsConstraint = value => {
     attractionMode: value?.attractionMode === "repel" ? "repel" : "attract",
     targetTags: uniqueStrings(value?.targetTags),
     thrusterForce: finite(value?.thrusterForce, 20),
+    trail: normalizePhysicsTrail({
+      ...(kind === "tracer" ? { enabled: true } : {}),
+      ...(value?.trail || {}),
+    }),
     limitsEnabled: hasLimits,
     lowerLimit: hasLimits ? lowerLimit : null,
     upperLimit: hasLimits ? upperLimit : null,

@@ -139,6 +139,24 @@ export const getRopeVisualGeometryPatch = (element, worldPoints) => {
   };
 };
 
+// A direct rope grab should author only that rope on release. A pivot that is
+// attached to a rope carries the rope ID in either endpoint, so it promotes
+// that rope together with its moved anchor. Other free ropes in the worker
+// snapshot are independent runtime state and must remain untouched.
+export const getLivePoseRopeConstraintIds = constraint => [...new Set([
+  constraint?.kind === "rope" ? constraint.id : null,
+  ...[constraint?.a, constraint?.b]
+    .filter(endpoint => endpoint?.kind === "rope" && endpoint.constraintId)
+    .map(endpoint => endpoint.constraintId),
+].filter(Boolean))];
+
+export const selectRopePathsForLivePose = (ropePaths, constraintIds = null) => {
+  const paths = Array.isArray(ropePaths) ? ropePaths : [];
+  if (constraintIds === null) return paths;
+  const ids = new Set(constraintIds || []);
+  return paths.filter(path => ids.has(path?.constraintId));
+};
+
 // A Live-pose drag solves World-bound pivot anchors inside Rapier. Persisting
 // that pose means moving the authored World endpoint to the solved point while
 // preserving whichever rope/body endpoint the pivot is bound to.
@@ -273,6 +291,61 @@ export const physicsEndpointAtPoint = (element, point) => {
   };
 };
 
+const projectPointToSegment = (point, start, end) => {
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  const lengthSquared = dx * dx + dy * dy;
+  const t = lengthSquared > 1e-9
+    ? Math.max(0, Math.min(1, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / lengthSquared))
+    : 0;
+  const projected = [start[0] + dx * t, start[1] + dy * t];
+  return {
+    point: projected,
+    distance: Math.hypot(projected[0] - point[0], projected[1] - point[1]),
+    t,
+  };
+};
+
+// Rope endpoints are authored in world space so a pivot can bind to any point
+// along the visible chain, not only to the original start/end. Keep the
+// normalized progress alongside the point: generated link counts can change
+// when link length is edited, while progress remains stable.
+export const ropeEndpointAtPoint = (constraint, point) => {
+  const points = (constraint?.pathPoints || [])
+    .filter(candidate => Array.isArray(candidate) && Number.isFinite(Number(candidate[0])) && Number.isFinite(Number(candidate[1])))
+    .map(candidate => [Number(candidate[0]), Number(candidate[1])]);
+  if (!constraint?.id || constraint.objectRef?.kind !== "element" || points.length < 2) return null;
+  const target = [finite(point?.[0]), finite(point?.[1])];
+  let best = null;
+  let distanceBefore = 0;
+  let totalLength = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const start = points[index - 1];
+    const end = points[index];
+    const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+    const projection = projectPointToSegment(target, start, end);
+    if (!best || projection.distance < best.distance) {
+      best = {
+        point: projection.point,
+        distance: projection.distance,
+        pointIndex: index - 1,
+        progressDistance: distanceBefore + length * projection.t,
+      };
+    }
+    distanceBefore += length;
+    totalLength += length;
+  }
+  if (!best || totalLength <= 1e-6) return null;
+  return {
+    kind: "rope",
+    objectRef: { kind: "element", elementId: constraint.objectRef.elementId },
+    constraintId: constraint.id,
+    point: [...best.point],
+    ropeProgress: Math.max(0, Math.min(1, best.progressDistance / totalLength)),
+    distance: best.distance,
+  };
+};
+
 // The pivot is a separate authored object that deliberately overlaps a body.
 // Scene hit-testing is front-to-back, so the body can be reported before the
 // small pivot that the user actually clicked. Prefer any non-body object here;
@@ -283,10 +356,62 @@ export const chooseConstraintPivot = elements => (elements || []).find(element =
   return physics?.role !== "body";
 }) || null;
 
+// A pivot marker is often drawn around the visible end of a narrow path rather
+// than pixel-perfectly centred on it. When a one-body axle contains that path
+// endpoint, use the endpoint itself as the authored pivot. Otherwise the
+// solver correctly pins an invisible point a few pixels beside the stroke and
+// the visible end appears to orbit or "wobble" around a stable axle.
+const snapAxlePointToContainedPathEndpoint = (pivot, bodyCandidates, point) => {
+  if (bodyCandidates.length !== 1) return point;
+  const body = bodyCandidates[0];
+  if (!["line", "arrow", "freedraw"].includes(body?.type)) return point;
+  const endpoints = getSpringEndpointWorldPoints(body);
+  if (!endpoints) return point;
+  const threshold = Math.max(4, Math.min(Math.abs(finite(pivot?.width)), Math.abs(finite(pivot?.height))) / 2);
+  const candidates = [endpoints.start, endpoints.end]
+    .map(endpoint => ({ endpoint, distance: Math.hypot(endpoint[0] - point[0], endpoint[1] - point[1]) }))
+    .sort((first, second) => first.distance - second.distance);
+  return candidates[0]?.distance <= threshold ? [...candidates[0].endpoint] : point;
+};
+
+// Scenes authored before endpoint snapping can contain a mathematically valid
+// one-body axle a few pixels beside the visible end of a thick path. Rapier
+// keeps that invisible point fixed, so the visible cap orbits it as the body
+// rotates and reads as joint wobble. Repair only the narrow legacy case that
+// current authoring already snaps: one path body, one World endpoint, and a
+// visible endpoint contained by the pivot marker.
+export const repairLegacyAxleEndpointAlignment = ({ constraint, pivot, elements = [] }) => {
+  if (constraint?.kind !== "axle" || !pivot) return null;
+  const objectSide = constraint.a?.kind === "object" && constraint.b?.kind === "world"
+    ? "a"
+    : constraint.b?.kind === "object" && constraint.a?.kind === "world"
+      ? "b"
+      : null;
+  if (!objectSide) return null;
+  const worldSide = objectSide === "a" ? "b" : "a";
+  const objectEndpoint = constraint[objectSide];
+  const bodyElement = elements.find(element => (
+    element?.id === objectEndpoint.objectRef?.elementId && !element.isDeleted
+  ));
+  if (!bodyElement || !["line", "arrow", "freedraw"].includes(bodyElement.type)) return null;
+  const center = getPhysicsElementCenter(pivot);
+  const pivotPoint = [center.x, center.y];
+  const snapped = snapAxlePointToContainedPathEndpoint(pivot, [bodyElement], pivotPoint);
+  if (Math.hypot(snapped[0] - pivotPoint[0], snapped[1] - pivotPoint[1]) < 0.001) return null;
+  return {
+    pivotPoint: snapped,
+    constraint: {
+      ...constraint,
+      [objectSide]: physicsEndpointAtPoint(bodyElement, snapped),
+      [worldSide]: { ...constraint[worldSide], point: [...snapped] },
+    },
+  };
+};
+
 // Constraint tools act on a small visual pivot object. The pivot's centre is
 // the anchor and it discovers the topmost one or two overlapping physics
-// bodies or exact rope control points. One target becomes a World constraint;
-// two targets become a joint.
+// bodies or nearby rope segments. One target becomes a World constraint; two
+// targets become a joint. Axle/Weld can also remain detached for later editing.
 export const resolveConstraintPivot = ({ pivot, elements = [], bodies = [], constraints = [], systemId, kind = "axle" }) => {
   if (!pivot?.id) return { error: "Choose a pivot object." };
   const bodyIds = new Set((bodies || [])
@@ -303,32 +428,52 @@ export const resolveConstraintPivot = ({ pivot, elements = [], bodies = [], cons
   ));
   const ropeCandidates = constraints
     .filter(constraint => constraint?.enabled !== false && constraint?.kind === "rope" && (!systemId || constraint.systemId === systemId))
-    .flatMap(constraint => (constraint.pathPoints || []).map((controlPoint, pointIndex) => ({ constraint, controlPoint, pointIndex })))
-    .filter(({ constraint, controlPoint }) => constraint.objectRef?.kind === "element"
-      && constraint.objectRef.elementId !== pivot.id
-      && Math.hypot(controlPoint[0] - point.x, controlPoint[1] - point.y) <= 10);
+    .map(constraint => {
+      const endpoint = ropeEndpointAtPoint(constraint, [point.x, point.y]);
+      return endpoint ? { constraint, endpoint } : null;
+    })
+    // A control point can be much farther than the visible rope segment when
+    // the path was sampled sparsely. Use the segment distance for discovery,
+    // then retain a stable progress-based endpoint for the generated links.
+    .filter(candidate => candidate
+      && candidate.constraint.objectRef?.kind === "element"
+      && candidate.constraint.objectRef.elementId !== pivot.id
+      && candidate.endpoint.distance <= 14);
   const candidates = [...ropeCandidates, ...bodyCandidates];
   const [first, second] = candidates;
+  const anchor = kind === "axle" && !ropeCandidates.length
+    ? snapAxlePointToContainedPathEndpoint(pivot, bodyCandidates, [point.x, point.y])
+    : [point.x, point.y];
+  if (!first && ["axle", "fixate"].includes(kind)) {
+    // A pivot is still a useful authored object when it starts detached. The
+    // user can choose a body, World, or rope point later from the properties
+    // selectors/eyedroppers, so do not make overlap a prerequisite for Axle
+    // and Weld creation.
+    return {
+      pivotPoint: anchor,
+      primary: null,
+      secondary: null,
+      constraint: {
+        id: `physics-${kind}-${crypto.randomUUID()}`,
+        systemId: String(systemId || ""),
+        name: kind === "fixate" ? "Weld" : "Axle",
+        kind,
+        objectRef: { kind: "element", elementId: pivot.id },
+        a: { kind: "none" },
+        b: { kind: "none" },
+        collideConnected: false,
+        limitsEnabled: false,
+        lowerLimit: null,
+        upperLimit: null,
+      },
+    };
+  }
   if (!first) return { error: "Place the pivot over a physics body or rope control point." };
-  const anchor = [point.x, point.y];
   const endpointForCandidate = candidate => candidate.constraint
-    ? {
-      kind: "rope",
-      objectRef: { kind: "element", elementId: candidate.constraint.objectRef.elementId },
-      constraintId: candidate.constraint.id,
-      point: [...candidate.controlPoint],
-      ropeProgress: (() => {
-        const points = candidate.constraint.pathPoints || [];
-        const total = points.slice(1).reduce((length, point, index) => (
-          length + Math.hypot(point[0] - points[index][0], point[1] - points[index][1])
-        ), 0);
-        if (total <= 1e-6) return 0;
-        const preceding = points.slice(1, candidate.pointIndex + 1).reduce((length, point, index) => (
-          length + Math.hypot(point[0] - points[index][0], point[1] - points[index][1])
-        ), 0);
-        return Math.max(0, Math.min(1, preceding / total));
-      })(),
-    }
+    ? (() => {
+      const { distance: _distance, ...endpoint } = candidate.endpoint;
+      return endpoint;
+    })()
     : physicsEndpointAtPoint(candidate, anchor);
   return {
     pivotPoint: anchor,
@@ -342,7 +487,7 @@ export const resolveConstraintPivot = ({ pivot, elements = [], bodies = [], cons
       objectRef: { kind: "element", elementId: pivot.id },
       a: endpointForCandidate(first),
       b: second ? endpointForCandidate(second) : first.constraint
-        ? { kind: "world", point: [...first.controlPoint] }
+        ? { kind: "world", point: [...first.endpoint.point] }
         : { kind: "world", point: anchor },
       collideConnected: false,
       limitsEnabled: false,
@@ -426,6 +571,7 @@ export const resolveRopeConstraint = ({ rope, elements = [], bodies = [], system
       segmentLength: 24,
       thickness: Math.max(2, finite(rope.strokeWidth, 2) + 2),
       collisionLayers: ["default"],
+      selfCollisions: false,
       restLength,
       stiffness: 40,
       damping: 4,
@@ -459,6 +605,39 @@ export const resolveAttractorConstraint = ({ attractor, systemId }) => {
       attractionFalloff: 1,
       attractionMode: "attract",
       targetTags: [],
+      collideConnected: false,
+    },
+  };
+};
+
+// A tracer is a solver-free diagnostic point. When its visual overlaps a body
+// or rope it follows that exact authored endpoint; otherwise it records its
+// own fixed scene position. It never creates a Rapier joint or rigid body.
+export const resolveTracerConstraint = ({ tracer, elements = [], bodies = [], constraints = [], systemId }) => {
+  if (!tracer?.id) return { error: "Choose a tracer object." };
+  const point = getPhysicsElementCenter(tracer);
+  const anchor = [point.x, point.y];
+  const resolved = resolveConstraintPivot({
+    pivot: tracer,
+    elements,
+    bodies,
+    constraints,
+    systemId,
+    kind: "tracer",
+  });
+  const attachedEndpoint = resolved?.primary ? resolved.constraint.a : null;
+  return {
+    pivotPoint: anchor,
+    primary: resolved?.primary || null,
+    constraint: {
+      id: `physics-tracer-${crypto.randomUUID()}`,
+      systemId: String(systemId || ""),
+      name: "Tracer",
+      kind: "tracer",
+      objectRef: { kind: "element", elementId: tracer.id },
+      a: attachedEndpoint || { kind: "world", point: anchor },
+      b: { kind: "none" },
+      trail: { enabled: true, color: "#4f8cff", duration: 4, opacity: 0.75 },
       collideConnected: false,
     },
   };
@@ -530,6 +709,7 @@ export const serializePhysicsConstraintCustomData = constraint => ({
   attractionMode: constraint.attractionMode,
   targetTags: constraint.targetTags,
   thrusterForce: constraint.thrusterForce,
+  trail: constraint.trail,
   limitsEnabled: constraint.limitsEnabled === true,
   lowerLimit: constraint.lowerLimit ?? null,
   upperLimit: constraint.upperLimit ?? null,

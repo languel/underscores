@@ -39,6 +39,19 @@ test("workspace reset uses Ctrl+Alt+Shift+D", () => {
   assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, event)?.id, "workspace.reset.defaults");
 });
 
+test("panel shortcuts open Properties on Command-Option-P and toggle the physics toolbar on Control-Option-P", () => {
+  assert.equal(DEFAULT_SHORTCUTS["panel-mods"], undefined);
+  assert.equal(DEFAULT_SHORTCUTS["mods.float.toggle"], undefined);
+
+  const propertiesEvent = { code: "KeyP", metaKey: true, ctrlKey: false, altKey: true, shiftKey: false };
+  assert.equal(shortcutFromEvent(propertiesEvent), "Mod+Alt+KeyP");
+  assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, propertiesEvent)?.id, "panel-properties.open");
+
+  const physicsToolbarEvent = { code: "KeyP", metaKey: false, ctrlKey: true, altKey: true, shiftKey: false };
+  assert.equal(shortcutFromEvent(physicsToolbarEvent), "Ctrl+Alt+KeyP");
+  assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, physicsToolbarEvent)?.id, "physics.toolbar.toggle");
+});
+
 test("ignores bare modifier presses", () => {
   assert.equal(shortcutFromEvent({ code: "ShiftLeft", shiftKey: true }), null);
 });
