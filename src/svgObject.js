@@ -162,6 +162,7 @@ export const shouldRenderSvgObject = element => Boolean(
   element
   && !element.isDeleted
   && !element.customData?.outlinerHidden
+  && !element.customData?.presentationMaskActive
   && isSvgObjectElement(element)
 );
 

@@ -25,6 +25,7 @@ import NumericInput from "./NumericInput.jsx";
 import GeometryResetIcon from "./GeometryResetIcon.jsx";
 import { embedPolicyForElement, isAllowedEmbedURL, sanitizeEmbedURL, shouldRenderEmbed } from "./embedPolicy.js";
 import OutlinerPanel, { getOutlinerElementLabel } from "./OutlinerPanel.jsx";
+import { applyPresentationVisibility, isElementVisibleInPresentation } from "./presentationVisibility.js";
 import { groupSceneElements, moveSceneElementsToGroup, moveSceneElementsToGroupParent, moveSceneGroupToParent, renameSceneGroup, reorderSceneElements, ungroupSceneElements } from "./sceneLayers.js";
 import IannixDataPanel from "./IannixDataPanel.jsx";
 import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, parseGenericCommandSlash } from "./commandSystem.js";
@@ -15876,6 +15877,26 @@ function App() {
   });
 
   useEffect(() => {
+    if (!excalidrawAPI) return undefined;
+    const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+    const nextElements = applyPresentationVisibility(elements, presentationMode);
+    if (nextElements === elements) return undefined;
+    historySuppressSceneRef.current += 1;
+    excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: false });
+    let released = false;
+    const releaseHistorySuppression = () => {
+      if (released) return;
+      released = true;
+      historySuppressSceneRef.current = Math.max(0, historySuppressSceneRef.current - 1);
+    };
+    const timer = window.setTimeout(releaseHistorySuppression, 0);
+    return () => {
+      window.clearTimeout(timer);
+      releaseHistorySuppression();
+    };
+  }, [presentationMode, excalidrawAPI]);
+
+  useEffect(() => {
     if (!presentationMode) {
       presentationDefaultsAppliedRef.current = false;
       const workspace = presentationWorkspaceRef.current;
@@ -15969,7 +15990,9 @@ function App() {
     // before measuring. All live scene elements, including SVG and p5 hosts,
     // participate in the same Excalidraw camera fit.
     presentationFitTimerRef.current = window.setTimeout(() => {
-      const elements = excalidrawAPI.getSceneElements().filter(element => !element.isDeleted);
+      const elements = excalidrawAPI.getSceneElements().filter(element => (
+        !element.isDeleted && isElementVisibleInPresentation(element)
+      ));
       if (elements.length) {
         excalidrawAPI.scrollToContent(elements, {
           fitToViewport: true,
@@ -23274,14 +23297,45 @@ function App() {
                   if (hide) {
                     customData.outlinerSavedOpacity = element.customData?.outlinerHidden
                       ? (element.customData.outlinerSavedOpacity ?? 100)
-                      : (element.opacity ?? 100);
+                      : (element.customData?.presentationMaskActive
+                        ? (element.customData.presentationSavedOpacity ?? 100)
+                        : (element.opacity ?? 100));
                     customData.outlinerHidden = true;
                     return { ...element, customData, opacity: 0, updated: Date.now() };
                   }
                   const savedOpacity = customData.outlinerSavedOpacity ?? 100;
                   delete customData.outlinerSavedOpacity;
-                  return { ...element, customData: { ...customData, outlinerHidden: false }, opacity: savedOpacity, updated: Date.now() };
+                  customData.outlinerHidden = false;
+                  if (customData.presentationMaskActive) {
+                    customData.presentationSavedOpacity = savedOpacity;
+                    return { ...element, customData, opacity: 0, updated: Date.now() };
+                  }
+                  return { ...element, customData, opacity: savedOpacity, updated: Date.now() };
                 });
+                excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
+              }}
+              onPresentationVisibilityChange={elementIds => {
+                if (!excalidrawAPI) return;
+                const ids = new Set(Array.isArray(elementIds) ? elementIds : [elementIds]);
+                const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+                const hide = elements.some(element => (
+                  ids.has(element.id) && !element.isDeleted && isElementVisibleInPresentation(element)
+                ));
+                const now = Date.now();
+                const toggledElements = elements.map(element => {
+                  if (!ids.has(element.id) || element.isDeleted) return element;
+                  const customData = { ...(element.customData || {}) };
+                  if (hide) customData.presentationVisible = false;
+                  else delete customData.presentationVisible;
+                  return {
+                    ...element,
+                    customData,
+                    version: (element.version || 0) + 1,
+                    versionNonce: Math.floor(Math.random() * 0x7fffffff),
+                    updated: now,
+                  };
+                });
+                const nextElements = applyPresentationVisibility(toggledElements, presentationMode, now);
                 excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
               }}
               onLockChange={elementIds => {

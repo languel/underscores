@@ -374,6 +374,7 @@ export const shouldProcessMediaStream = element =>
 export const shouldRenderMediaStream = element =>
   shouldProcessMediaStream(element)
   && !element.customData?.outlinerHidden
+  && !element.customData?.presentationMaskActive
   && Number(element.opacity ?? 100) > 0;
 
 export const patchMediaStreamConfig = (value, patch = {}) => {

@@ -182,7 +182,7 @@ export const normalizeLivecodeNode = createLivecodeNode;
 export const isLivecodeNodeElement = element => Boolean(element?.customData?.draweratorLivecode);
 
 export const shouldRenderLivecodeNode = element => Boolean(
-  element && !element.isDeleted && !element.customData?.outlinerHidden && isLivecodeNodeElement(element)
+  element && !element.isDeleted && !element.customData?.outlinerHidden && !element.customData?.presentationMaskActive && isLivecodeNodeElement(element)
 );
 
 export const getLivecodeEditorProfile = node => getLivecodeKindDefinition(node?.kind).editorProfile;

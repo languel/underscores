@@ -27,7 +27,7 @@ const snapshotObject = (element, runtime) => {
     width: Number(element.width) || 0,
     height: Number(element.height) || 0,
     angle: Number(element.angle) || 0,
-    visible: !element.isDeleted && element.customData?.outlinerHidden !== true,
+    visible: !element.isDeleted && element.customData?.outlinerHidden !== true && element.customData?.presentationMaskActive !== true,
     locked: Boolean(element.locked),
     time: Object.freeze({
       start: timing.start,
