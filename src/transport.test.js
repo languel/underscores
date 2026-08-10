@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  advanceTransportPlaybackTime,
   advanceMidiClockReceiver,
   createMidiClockReceiverState,
   createTimelineTicks,
@@ -18,6 +19,29 @@ import {
   songPositionToSeconds,
   snapTimelineTime,
 } from "./transport.js";
+
+test("playback advances continuously between lower-rate timeline commits", () => {
+  let time = 0;
+  const physicsTimes = [];
+  const timelineTimes = [];
+  for (let frame = 1; frame <= 60; frame += 1) {
+    time = advanceTransportPlaybackTime(time, 1 / 60, { rate: 1 });
+    physicsTimes.push(time);
+    if (frame % 2 === 0) timelineTimes.push(time);
+  }
+  assert.equal(new Set(physicsTimes).size, 60, "physics receives one distinct time per display frame");
+  assert.equal(timelineTimes.length, 30, "the timeline may still render at its configured 30 fps");
+  assert.ok(Math.abs(physicsTimes.at(-1) - 1) < 1e-9);
+});
+
+test("continuous playback preserves transport loop wrapping", () => {
+  assert.ok(Math.abs(advanceTransportPlaybackTime(3.99, 0.02, {
+    rate: 1,
+    loopEnabled: true,
+    loopStart: 1,
+    loopEnd: 4,
+  }) - 1.01) < 1e-9);
+});
 
 test("formats non-drop timecode at common frame rates", () => {
   assert.equal(formatTimecode(3661.5, 30), "01:01:01:15");

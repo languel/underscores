@@ -8,6 +8,21 @@ export const MIDI_REALTIME = Object.freeze({
 
 export const clampTempo = value => Math.min(400, Math.max(20, Number(value) || 120));
 
+export const advanceTransportPlaybackTime = (
+  currentTime,
+  deltaSeconds,
+  { rate = 1, loopEnabled = false, loopStart = 0, loopEnd = 0 } = {},
+) => {
+  const next = Math.max(0, Number(currentTime) || 0)
+    + Math.max(0, Number(deltaSeconds) || 0) * Math.max(0, Number(rate) || 0);
+  const start = Math.max(0, Number(loopStart) || 0);
+  const end = Math.max(start, Number(loopEnd) || 0);
+  if (loopEnabled && end > start && next >= end) {
+    return start + ((next - start) % (end - start));
+  }
+  return next;
+};
+
 export const normalizeTimeSignature = signature => ({
   numerator: Math.min(32, Math.max(1, Math.round(Number(signature?.numerator) || 4))),
   denominator: [1, 2, 4, 8, 16].includes(Number(signature?.denominator))

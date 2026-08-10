@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chooseConstraintPivot, getLivePoseRopeConstraintIds, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint, resolveTracerConstraint, selectRopePathsForLivePose } from "./physicsConstraintAuthoring.js";
+import { chooseConstraintPivot, getLivePoseRopeConstraintIds, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, repairLegacyAxleEndpointAlignment, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint, resolveTracerConstraint, selectRopePathsForLivePose } from "./physicsConstraintAuthoring.js";
 import { getPhysicsElementWorldPoints } from "./physicsGeometry.js";
 
 const body = (id, x, y, width, height, angle = 0) => ({ id, type: "rectangle", x, y, width, height, angle });
@@ -41,6 +41,43 @@ test("a one-body axle snaps to a visible freehand endpoint contained by its pivo
   assert.deepEqual(result.pivotPoint, [100, 100]);
   assert.deepEqual(result.constraint.b.point, [100, 100]);
   assert.deepEqual(result.constraint.a.localPoint, [0, 0]);
+});
+
+test("a legacy one-body axle repairs an offset endpoint pin without losing its settings", () => {
+  const arm = {
+    id: "arm",
+    type: "freedraw",
+    x: 100,
+    y: 100,
+    width: 20,
+    height: 100,
+    angle: 0,
+    points: [[0, 0], [5, 50], [20, 100]],
+  };
+  const pivot = { ...body("pivot", 94, 96, 16, 16), type: "ellipse" };
+  const legacy = {
+    id: "axle",
+    systemId: "world",
+    kind: "axle",
+    motorEnabled: true,
+    motorSpeed: 20,
+    a: {
+      kind: "object",
+      objectRef: { kind: "element", elementId: "arm" },
+      anchor: "local",
+      localPoint: [0.1, 0.1],
+      localAnchor: [-2, -48],
+    },
+    b: { kind: "world", point: [102, 104] },
+  };
+  const repair = repairLegacyAxleEndpointAlignment({ constraint: legacy, pivot, elements: [arm, pivot] });
+  assert.ok(repair);
+  assert.deepEqual(repair.pivotPoint, [100, 100]);
+  assert.deepEqual(repair.constraint.a.localPoint, [0, 0]);
+  assert.equal(repair.constraint.a.localAnchor, undefined, "hydration recomputes the exact body-local solver anchor");
+  assert.deepEqual(repair.constraint.b.point, [100, 100]);
+  assert.equal(repair.constraint.motorEnabled, true);
+  assert.equal(repair.constraint.motorSpeed, 20);
 });
 
 test("an interior axle remains exactly where it was authored", () => {

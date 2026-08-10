@@ -374,6 +374,40 @@ const snapAxlePointToContainedPathEndpoint = (pivot, bodyCandidates, point) => {
   return candidates[0]?.distance <= threshold ? [...candidates[0].endpoint] : point;
 };
 
+// Scenes authored before endpoint snapping can contain a mathematically valid
+// one-body axle a few pixels beside the visible end of a thick path. Rapier
+// keeps that invisible point fixed, so the visible cap orbits it as the body
+// rotates and reads as joint wobble. Repair only the narrow legacy case that
+// current authoring already snaps: one path body, one World endpoint, and a
+// visible endpoint contained by the pivot marker.
+export const repairLegacyAxleEndpointAlignment = ({ constraint, pivot, elements = [] }) => {
+  if (constraint?.kind !== "axle" || !pivot) return null;
+  const objectSide = constraint.a?.kind === "object" && constraint.b?.kind === "world"
+    ? "a"
+    : constraint.b?.kind === "object" && constraint.a?.kind === "world"
+      ? "b"
+      : null;
+  if (!objectSide) return null;
+  const worldSide = objectSide === "a" ? "b" : "a";
+  const objectEndpoint = constraint[objectSide];
+  const bodyElement = elements.find(element => (
+    element?.id === objectEndpoint.objectRef?.elementId && !element.isDeleted
+  ));
+  if (!bodyElement || !["line", "arrow", "freedraw"].includes(bodyElement.type)) return null;
+  const center = getPhysicsElementCenter(pivot);
+  const pivotPoint = [center.x, center.y];
+  const snapped = snapAxlePointToContainedPathEndpoint(pivot, [bodyElement], pivotPoint);
+  if (Math.hypot(snapped[0] - pivotPoint[0], snapped[1] - pivotPoint[1]) < 0.001) return null;
+  return {
+    pivotPoint: snapped,
+    constraint: {
+      ...constraint,
+      [objectSide]: physicsEndpointAtPoint(bodyElement, snapped),
+      [worldSide]: { ...constraint[worldSide], point: [...snapped] },
+    },
+  };
+};
+
 // Constraint tools act on a small visual pivot object. The pivot's centre is
 // the anchor and it discovers the topmost one or two overlapping physics
 // bodies or nearby rope segments. One target becomes a World constraint; two

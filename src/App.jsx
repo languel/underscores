@@ -14,7 +14,7 @@ import { loadLastScene, saveLastScene } from "./sceneSessionStorage.js";
 import { attachDraweratorSvgMetadata, cleanSvgMarkup, extractDraweratorSvgMetadata, extractSvgMarkup, getSvgDrawableBounds, offsetSvgDrawableSpecs, parseSvgToDrawableSpecs } from "./svgImport.js";
 import { DRAWERATOR_PANELS, getDraweratorPanel, getNaturalPanelPlacement } from "./panelRegistry.js";
 import { getDockTarget, getOpenPanelsForPlacement, normalizeDockSizes, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
-import { advanceMidiClockReceiver, createMidiClockReceiverState, formatTimelinePosition, MIDI_REALTIME, midiClockIntervalMs, normalizeTimeSignature, parseTimelinePosition, secondsToFrame, songPositionToSeconds } from "./transport.js";
+import { advanceMidiClockReceiver, advanceTransportPlaybackTime, createMidiClockReceiverState, formatTimelinePosition, MIDI_REALTIME, midiClockIntervalMs, normalizeTimeSignature, parseTimelinePosition, secondsToFrame, songPositionToSeconds } from "./transport.js";
 import DraweratorPanel from "./DraweratorPanel.jsx";
 import TransportTimeline from "./TransportTimeline.jsx";
 import HistoryPanel from "./HistoryPanel.jsx";
@@ -105,7 +105,7 @@ import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, se
 import { createUnifiedStreamsApi, DraweratorStreamRegistry } from "./streamRuntime.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
 import { addRelationshipItem, createDefaultPhysicsSystem, createEmptyRelationshipGraph, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, removeRelationshipBindingsForElements, removeRelationshipItem, updateRelationshipItem, withPhysicsCustomData } from "./relationshipGraph.js";
-import { chooseConstraintPivot, elementContainsPhysicsPoint, getLivePoseRopeConstraintIds, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, physicsEndpointAtPoint, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint, resolveTracerConstraint, ropeEndpointAtPoint, selectRopePathsForLivePose } from "./physicsConstraintAuthoring.js";
+import { chooseConstraintPivot, elementContainsPhysicsPoint, getLivePoseRopeConstraintIds, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, physicsEndpointAtPoint, repairLegacyAxleEndpointAlignment, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint, resolveTracerConstraint, ropeEndpointAtPoint, selectRopePathsForLivePose } from "./physicsConstraintAuthoring.js";
 import { applyAnchorAttractorFrame, applyBezierSculptOperator, getPhysicsColliderSelectionValue, getPhysicsElementCenter as getPhysicsGeometryElementCenter, getPhysicsElementLocalCenter, inferPhysicsBodyFromElement, inferPhysicsColliderForBody, inferPhysicsColliderFromElement, needsLegacyPhysicsColliderOriginRebase } from "./physicsGeometry.js";
 import { createPhysicsApi, createRelationshipApi, PhysicsRuntimeController } from "./physicsRuntime.js";
 import { mappingTargetValue } from "./mappingRuntime.js";
@@ -2125,6 +2125,65 @@ const hydratePhysicsGraphForElements = (graphValue, elements = [], {
     : graph;
 };
 
+const repairLegacyAxleEndpointsForScene = (graphValue, elements = []) => {
+  const graph = hydratePhysicsGraphForElements(graphValue, elements);
+  const elementById = new Map(elements
+    .filter(element => element && !element.isDeleted)
+    .map(element => [element.id, element]));
+  const repairByConstraintId = new Map();
+  const pivotPointByElementId = new Map();
+  for (const constraint of graph.constraints) {
+    if (constraint.objectRef?.kind !== "element") continue;
+    const pivot = elementById.get(constraint.objectRef.elementId);
+    const repair = repairLegacyAxleEndpointAlignment({ constraint, pivot, elements });
+    if (!repair) continue;
+    repairByConstraintId.set(constraint.id, repair.constraint);
+    pivotPointByElementId.set(pivot.id, repair.pivotPoint);
+  }
+  if (!repairByConstraintId.size) return { graph, elements, repairCount: 0 };
+
+  const provisionalGraph = normalizeRelationshipGraph({
+    ...graph,
+    constraints: graph.constraints.map(constraint => repairByConstraintId.get(constraint.id) || constraint),
+  });
+  const provisionalConstraintByPivotId = new Map(provisionalGraph.constraints
+    .filter(constraint => constraint.objectRef?.kind === "element")
+    .map(constraint => [constraint.objectRef.elementId, constraint]));
+  const provisionalElements = elements.map(element => {
+    const point = pivotPointByElementId.get(element.id);
+    const constraint = provisionalConstraintByPivotId.get(element.id);
+    if (!point || !constraint) return element;
+    const localCenter = getPhysicsElementLocalCenter(element);
+    return {
+      ...element,
+      x: point[0] - localCenter[0],
+      y: point[1] - localCenter[1],
+      customData: withPhysicsCustomData(element.customData, constraint),
+      version: (element.version || 0) + 1,
+      versionNonce: Math.floor(Math.random() * 0x7fffffff),
+      updated: Date.now(),
+    };
+  });
+  const repairedGraph = hydratePhysicsGraphForElements(provisionalGraph, provisionalElements, {
+    repairAuthoredPose: false,
+    refreshConstraintIds: new Set(repairByConstraintId.keys()),
+  });
+  const repairedConstraintByPivotId = new Map(repairedGraph.constraints
+    .filter(constraint => constraint.objectRef?.kind === "element")
+    .map(constraint => [constraint.objectRef.elementId, constraint]));
+  return {
+    graph: repairedGraph,
+    elements: provisionalElements.map(element => {
+      if (!pivotPointByElementId.has(element.id)) return element;
+      const constraint = repairedConstraintByPivotId.get(element.id);
+      return constraint
+        ? { ...element, customData: withPhysicsCustomData(element.customData, constraint) }
+        : element;
+    }),
+    repairCount: repairByConstraintId.size,
+  };
+};
+
 function App() {
   console.log("Drawerator version: 1.8.0 (rebuilt at 2026-07-08T22:25:00)");
   // App States
@@ -3621,11 +3680,16 @@ function App() {
   const svgClipboardCacheRef = useRef(null);
   const scoreTimeRef = useRef(scoreTime);
   useEffect(() => {
+    // Internal playback streams transport time directly from its animation
+    // frame below. Do not overwrite that high-resolution clock with the
+    // timeline's deliberately lower display cadence.
+    if (scorePlaying && midiClockMode !== "receive"
+      && physicsFollowsTransport(relationshipGraphRef.current.systems)) return;
     const scrub = physicsTimeScrubEnabled
       && physicsTransportScrubbingRef.current
       && physicsFollowsTransport(relationshipGraphRef.current.systems);
     physicsRuntimeRef.current?.transport(scoreTime, { scrub });
-  }, [physicsTimeScrubEnabled, scoreTime]);
+  }, [midiClockMode, physicsTimeScrubEnabled, scorePlaying, scoreTime]);
   useEffect(() => {
     localStorage.setItem(PHYSICS_TIME_SCRUB_STORAGE_KEY, String(physicsTimeScrubEnabled));
   }, [physicsTimeScrubEnabled]);
@@ -4788,23 +4852,27 @@ function App() {
     let animationFrame = 0;
     let previousTimestamp = performance.now();
     let lastCommitTimestamp = previousTimestamp;
-    let pendingAdvanceSeconds = 0;
+    let playbackTime = Math.max(0, Number(scoreTimeRef.current) || 0);
     const commitIntervalMs = 1000 / Math.max(1, Math.min(60, transportFps));
     const tick = (timestamp) => {
       const deltaSeconds = Math.max(0, Math.min(0.1, (timestamp - previousTimestamp) / 1000));
       previousTimestamp = timestamp;
-      pendingAdvanceSeconds += deltaSeconds * scoreRate;
+      playbackTime = advanceTransportPlaybackTime(playbackTime, deltaSeconds, {
+        rate: scoreRate,
+        loopEnabled: transportLoopEnabled,
+        loopStart: transportLoopStart,
+        loopEnd: transportLoopEnd,
+      });
+      // Physics follows the real animation-frame clock. `transportFps` is a
+      // display/timecode preference and must not batch two 60 Hz solver steps
+      // into one 30 Hz canvas pose.
+      scoreTimeRef.current = playbackTime;
+      if (physicsFollowsTransport(relationshipGraphRef.current.systems)) {
+        physicsRuntimeRef.current?.transport(playbackTime, { scrub: false });
+      }
       if (timestamp - lastCommitTimestamp >= commitIntervalMs) {
-        const advanceSeconds = pendingAdvanceSeconds;
-        pendingAdvanceSeconds = 0;
         lastCommitTimestamp = timestamp;
-        setScoreTime(time => {
-          const next = time + advanceSeconds;
-          if (transportLoopEnabled && transportLoopEnd > transportLoopStart && next >= transportLoopEnd) {
-            return transportLoopStart + ((next - transportLoopStart) % (transportLoopEnd - transportLoopStart));
-          }
-          return next;
-        });
+        setScoreTime(playbackTime);
       }
       animationFrame = requestAnimationFrame(tick);
     };
@@ -15311,7 +15379,8 @@ function App() {
     delete restoredAppState.theme;
     const restoredRuntimeElements = reconcileRuntimeCursorHosts((restored.elements || []).map(normalizeScoreElementMetadata));
     const restoredP5 = reconcileP5ScriptsWithElements(importedP5Scripts, restoredRuntimeElements);
-    const restoredElements = restoredP5.elements;
+    const repairedPhysics = repairLegacyAxleEndpointsForScene(importedRelationshipGraph, restoredP5.elements);
+    const restoredElements = repairedPhysics.elements;
     if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
     excalidrawAPI.updateScene({
       elements: restoredElements,
@@ -15327,6 +15396,18 @@ function App() {
       },
       commitToHistory,
     });
+    // Session restore happens after Excalidraw has mounted with an empty
+    // scene. Replacing the visible elements without also resetting history
+    // leaves that empty mount state as the first undo target, so the first
+    // user edit followed by Undo clears the whole restored scene. Treat a
+    // non-history import as the new editor baseline instead.
+    if (!commitToHistory) {
+      excalidrawAPI.history?.clear?.();
+      // The first recorded update after a clear establishes History's current
+      // entry; without this seed, the user's first edit becomes that entry and
+      // cannot itself be undone.
+      excalidrawAPI.updateScene({ elements: restoredElements, commitToHistory: true });
+    }
     lastSceneElementPersistenceSignatureRef.current = scenePersistenceSignature(restoredElements);
     setGlobalGrid(grid);
     setExpressiveSynthConfig(expressiveSynth);
@@ -15335,7 +15416,7 @@ function App() {
     setP5Scripts(restoredP5.scripts);
     setStreamGraph(normalizeStreamGraphWithBuiltins(importedStreamGraph));
     setBrushChannels(normalizeBrushChannels(importedBrushChannels));
-    const hydratedRelationshipGraph = hydratePhysicsGraphForElements(importedRelationshipGraph, restoredElements);
+    const hydratedRelationshipGraph = repairedPhysics.graph;
     // Scene persistence can run immediately after import. Keep its reset-pose
     // serializer aligned with the imported elements before React commits the
     // graph state update.
