@@ -18,6 +18,20 @@ const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(
 // 100 px/m default into individual features.
 const worldScaleFor = graph => 1 / Math.max(1, finite(graph?.world?.pixelsPerMeter, 100));
 
+export const pathColliderCapsuleGeometry = (a, b, thickness, worldScale = PHYSICS_WORLD_SCALE) => {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const length = Math.hypot(dx, dy);
+  const radius = Math.min(length / 2, Math.max(0.1, thickness) / 2) * worldScale;
+  return {
+    length,
+    radius,
+    halfHeight: Math.max(0, length * worldScale / 2 - radius),
+    translation: [(a[0] + b[0]) * worldScale / 2, (a[1] + b[1]) * worldScale / 2],
+    rotation: Math.atan2(dy, dx) - Math.PI / 2,
+  };
+};
+
 const bodyListensToPrivateRopes = (body, world, graph) => {
   // Preserve legacy raw group/mask scenes. Before named layers existed, rope
   // links collided with every active authored collider.
@@ -118,15 +132,16 @@ const colliderDescriptions = (body, world, worldScale = PHYSICS_WORLD_SCALE, gra
       const dy = by - ay;
       const length = Math.hypot(dx, dy);
       if (length < 0.01) continue;
-      const halfLength = length * worldScale / 2;
-      const halfThickness = collider.thickness * worldScale / 2;
-      // Capsules overlap at consecutive endpoints. That keeps collision
-      // geometry watertight around sharp turns instead of leaving tiny square
-      // gaps a small body can fall through.
+      const geometry = pathColliderCapsuleGeometry([ax, ay], [bx, by], collider.thickness, worldScale);
+      // A rounded cuboid's border radius expands beyond its half-extents. The
+      // former construction therefore made the collision tube about twice the
+      // requested visible width. A capsule expresses the intended geometry
+      // directly: the centreline spans the authored segment and its diameter
+      // exactly matches `thickness`.
       segments.push(RAPIER.ColliderDesc
-        .roundCuboid(halfLength, halfThickness, Math.min(halfLength, halfThickness))
-        .setTranslation((ax + bx) * worldScale / 2, (ay + by) * worldScale / 2)
-        .setRotation(Math.atan2(dy, dx)));
+        .capsule(geometry.halfHeight, geometry.radius)
+        .setTranslation(...geometry.translation)
+        .setRotation(geometry.rotation));
     }
     desc = segments.length ? null : RAPIER.ColliderDesc.cuboid(0.12, 0.12);
     const descriptions = segments.length ? segments : [desc];
@@ -387,6 +402,9 @@ export class RapierPhysicsSystem {
   }
 
   #addConstraint(constraint) {
+    // Tracers are consumed by the debug overlay. They deliberately have no
+    // Rapier state and cannot influence simulation results.
+    if (constraint.kind === "tracer") return;
     if (constraint.kind === "rope") {
       this.#addRope(constraint);
       return;
@@ -469,7 +487,14 @@ export class RapierPhysicsSystem {
     if (!bodyA || !bodyB) return;
     let data;
     if (["revolute", "pin", "axle"].includes(constraint.kind)) data = RAPIER.JointData.revolute(anchorA, anchorB);
-    else if (["weld", "fixate"].includes(constraint.kind)) data = RAPIER.JointData.fixed(anchorA, 0, anchorB, 0);
+    else if (["weld", "fixate"].includes(constraint.kind)) {
+      // Rapier's fixed-joint frame angles are local to each body. Supplying
+      // zero for both does not mean "keep the authored rotation"; it forces
+      // both bodies to the same world angle on the first solver step. Define
+      // matching world-space frames from their current authored rotations so
+      // the weld preserves the relative angle that existed when it was made.
+      data = RAPIER.JointData.fixed(anchorA, -bodyA.rotation(), anchorB, -bodyB.rotation());
+    }
     else data = RAPIER.JointData.spring(constraint.restLength * this.worldScale, constraint.stiffness, constraint.damping, anchorA, anchorB);
     const joint = this.world.createImpulseJoint(data, bodyA, bodyB, true);
     joint.setContactsEnabled(constraint.collideConnected);

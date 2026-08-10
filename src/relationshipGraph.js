@@ -10,7 +10,7 @@ export const COLLIDER_KINDS = Object.freeze(["circle", "ellipse", "box", "convex
 // relationships. Keep the older Rapier-oriented names for compatibility and
 // expose the canvas-first vocabulary alongside them: Fixate is a weld and
 // Axle is a revolute joint.
-export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "rope", "revolute", "weld", "fixate", "axle", "attractor", "thruster"]);
+export const CONSTRAINT_KINDS = Object.freeze(["pin", "distance", "spring", "rope", "revolute", "weld", "fixate", "axle", "attractor", "thruster", "tracer"]);
 export const ROUTE_ACTION_KINDS = Object.freeze(["event", "stream", "synth", "midi", "command"]);
 export const MAPPING_SOURCE_KINDS = Object.freeze(["physics-collision"]);
 export const MAPPING_TARGET_KINDS = Object.freeze(["midi-note", "midi-cc", "midi-bend", "expressive-voice", "legacy-action"]);
@@ -276,6 +276,13 @@ export const normalizeMaterial = value => ({
   angularDamping: clamp(value?.angularDamping ?? 0.01, 0, 100),
 });
 
+export const normalizePhysicsTrail = value => ({
+  enabled: value?.enabled === true,
+  color: String(value?.color || "#4f8cff"),
+  duration: clamp(value?.duration ?? 4, 0.1, 120),
+  opacity: clamp(value?.opacity ?? 0.75, 0, 1),
+});
+
 export const normalizePhysicsBody = value => {
   const objectRef = normalizeDraweratorObjectRef(value?.objectRef);
   const tracking = TRACKING_CLASSES.includes(value?.tracking)
@@ -309,6 +316,7 @@ export const normalizePhysicsBody = value => {
       angularVelocity: finite(value?.initial?.angularVelocity),
     },
     initialGeometry: value?.initialGeometry && typeof value.initialGeometry === "object" ? clone(value.initialGeometry) : null,
+    trail: normalizePhysicsTrail(value?.trail),
     render: {
       fill: String(value?.render?.fill || "#4f8cff"),
       stroke: String(value?.render?.stroke || "transparent"),
@@ -341,6 +349,7 @@ export const serializePhysicsBodyCustomData = value => {
     material: clone(body.material),
     initial: clone(body.initial),
     initialGeometry: clone(body.initialGeometry),
+    trail: clone(body.trail),
     render: clone(body.render),
   };
 };
@@ -400,6 +409,7 @@ export const serializePhysicsConstraintCustomData = value => {
     attractionMode: constraint.attractionMode,
     targetTags: clone(constraint.targetTags),
     thrusterForce: constraint.thrusterForce,
+    trail: clone(constraint.trail),
     limitsEnabled: constraint.limitsEnabled,
     lowerLimit: constraint.lowerLimit,
     upperLimit: constraint.upperLimit,
@@ -607,7 +617,7 @@ export const normalizePhysicsConstraint = value => {
     // links through their own rope endpoints; a rope itself never owns two
     // hidden start/end connections.
     a: kind === "rope" ? { kind: "none" } : normalizePhysicsEndpoint(value?.a),
-    b: kind === "rope" ? { kind: "none" } : normalizePhysicsEndpoint(value?.b),
+    b: ["rope", "tracer"].includes(kind) ? { kind: "none" } : normalizePhysicsEndpoint(value?.b),
     restLength: Math.max(0, finite(value?.restLength, 100)),
     // Rope links are generated only at runtime. Persist the authored curve's
     // world-space points and lightweight generation settings, never Rapier
@@ -642,6 +652,10 @@ export const normalizePhysicsConstraint = value => {
     attractionMode: value?.attractionMode === "repel" ? "repel" : "attract",
     targetTags: uniqueStrings(value?.targetTags),
     thrusterForce: finite(value?.thrusterForce, 20),
+    trail: normalizePhysicsTrail({
+      ...(kind === "tracer" ? { enabled: true } : {}),
+      ...(value?.trail || {}),
+    }),
     limitsEnabled: hasLimits,
     lowerLimit: hasLimits ? lowerLimit : null,
     upperLimit: hasLimits ? upperLimit : null,

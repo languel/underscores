@@ -457,6 +457,18 @@ test("population exclusions and deformable reset geometry survive normalization"
   assert.deepEqual(graph.populations[0].excludedInstanceIds, ["gas:1"]);
 });
 
+test("body and tracer trail settings normalize", () => {
+  const graph = normalizeRelationshipGraph({
+    systems: [{ id: "world" }],
+    bodies: [{ id: "body", systemId: "world", trail: { enabled: true, color: "#ff00ff", duration: 7, opacity: 0.4 } }],
+    constraints: [{ id: "trace", systemId: "world", kind: "tracer", a: { kind: "world", point: [2, 3] }, b: { kind: "world", point: [9, 9] } }],
+  });
+  assert.deepEqual(graph.bodies[0].trail, { enabled: true, color: "#ff00ff", duration: 7, opacity: 0.4 });
+  assert.equal(graph.constraints[0].kind, "tracer");
+  assert.equal(graph.constraints[0].trail.enabled, true);
+  assert.deepEqual(graph.constraints[0].b, { kind: "none" });
+});
+
 test("route dispatch guards nested response recursion", () => {
   const runtime = new PhysicsRouteRuntime({ maxDepth: 1 });
   assert.equal(runtime.dispatch({}, () => {

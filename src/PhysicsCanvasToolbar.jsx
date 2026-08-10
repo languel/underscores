@@ -22,6 +22,8 @@ const Glyph = ({ kind }) => {
   if (kind === "rope") return <svg {...common}><path d="M2 16c3 2 5 4 8 2s2-6-1-8-4 2-1 5 8 2 10-2 3-7 4-9" /></svg>;
   if (kind === "attractor") return <svg {...common}><circle cx="12" cy="12" r="3" /><path d="m4 5 3 3m13-3-3 3m3 11-3-3M4 19l3-3" /><path d="m7 8 2 1m6-1-2 1m2 6-2-1m-6 1 2-1" /></svg>;
   if (kind === "thruster") return <svg {...common}><path d="M4 12h10m0 0-4-4m4 4-4 4" /><path d="M17 8c2 1 3 2.3 3 4s-1 3-3 4" /><path d="M17 10c1 .6 1.5 1.3 1.5 2S18 13.4 17 14" /></svg>;
+  if (kind === "tracer") return <svg {...common}><circle cx="12" cy="12" r="2.25" /><path d="M3 17c3-7 5 1 8-5s5-5 10-7" /></svg>;
+  if (kind === "trails") return <svg {...common}><path d="M2 17c3-8 6 2 9-5s5-6 11-7" /><circle cx="2" cy="17" r="1.5" /></svg>;
   if (kind === "fixate") return <svg {...common}><path d="M6 5v14m12-14v14M3 9h6m6 0h6M3 15h6m6 0h6" /><path d="M9 12h6" /></svg>;
   if (["play", "pause", "reset", "transport"].includes(kind)) return <PhysicsWorldIcon type={kind} width={17} height={17} />;
   if (kind === "timeline") return <svg {...common}><path d="M4 18h16M12 4v14" /><circle cx="12" cy="5" r="2" /></svg>;
@@ -56,6 +58,7 @@ export default function PhysicsCanvasToolbar({
   transportSynced = false,
   timeScrubEnabled = false,
   livePose = false,
+  trailsVisible = false,
   onOpenChange,
   onAssignBody,
   onAssignCollider,
@@ -65,6 +68,7 @@ export default function PhysicsCanvasToolbar({
   onToggleTransportSync,
   onToggleLiveTimelinePreview,
   onToggleLivePose,
+  onToggleTrails,
   onDockChange,
 }) {
   const [minimized, setMinimized] = useState(false);
@@ -218,6 +222,7 @@ export default function PhysicsCanvasToolbar({
         <Tool kind="rope" label="Make selected paths into Ropes" disabled={!selectedCount} onClick={() => onMakeConstraint?.("rope")} />
         <Tool kind="attractor" label="Make selected objects Attractors" disabled={!selectedCount} onClick={() => onMakeConstraint?.("attractor")} />
         <Tool kind="thruster" label="Make selected paths into Thrusters" disabled={!selectedCount} onClick={() => onMakeConstraint?.("thruster")} />
+        <Tool kind="tracer" label="Make selected objects into diagnostic Tracers" disabled={!selectedCount} onClick={() => onMakeConstraint?.("tracer")} />
       </div>
       <div className="physics-canvas-tool-separator" />
       <div className="physics-canvas-tool-group" aria-label="Physics world controls">
@@ -226,6 +231,7 @@ export default function PhysicsCanvasToolbar({
         <Tool kind="transport" label={transportSynced ? "Use an independent physics clock" : "Sync physics to music transport"} active={transportSynced} onClick={onToggleTransportSync} />
         <Tool kind="timeline" label={transportSynced ? `Live timeline preview ${timeScrubEnabled ? "on" : "off"}` : "Live timeline preview requires transport sync"} active={timeScrubEnabled} disabled={!transportSynced} onClick={onToggleLiveTimelinePreview} />
         <Tool kind="livePose" label={`Live pose ${livePose ? "on" : "off"} (\\)`} active={livePose} onClick={onToggleLivePose} />
+        <Tool kind="trails" label={`Physics trails ${trailsVisible ? "visible" : "hidden"}`} active={trailsVisible} onClick={onToggleTrails} />
       </div>
     </div>}
   </aside>

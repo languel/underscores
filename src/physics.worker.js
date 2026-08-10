@@ -1,6 +1,7 @@
 import { RapierPhysicsSystem } from "./rapierPhysicsCore.js";
 import { normalizeRelationshipGraph } from "./relationshipGraph.js";
 import { createPhysicsInteractionQueue } from "./physicsInteractionQueue.js";
+import { shouldPublishPhysicsPoses } from "./physicsWorkerCadence.js";
 
 const systems = new Map();
 const playing = new Set();
@@ -196,7 +197,11 @@ const tick = () => {
   }
   sampledStepMs += totalStepMs;
   sampledSteps += totalSteps;
-  if (timestamp - lastPoseAt >= 20) publishPoses(timestamp);
+  // A 20 ms wall-clock throttle made a fixed 60 Hz world reach the canvas at
+  // only 42-50 distinct poses per second, even while requestAnimationFrame was
+  // steady at 60. Publish each solved step; retain the interval only as a
+  // bounded refresh for dirty state created outside the stepping loop.
+  if (shouldPublishPhysicsPoses({ totalSteps, timestamp, lastPoseAt })) publishPoses(timestamp);
   if (timestamp - lastTelemetryAt >= 200) {
     post("telemetry", {
       systems: [...systems].map(([systemId, runtime]) => ({

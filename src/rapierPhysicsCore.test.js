@@ -164,6 +164,51 @@ test("a one-sided weld follows a dynamic body and survives reset", async () => {
   runtime.dispose();
 });
 
+test("a two-body weld preserves the authored relative angle", async () => {
+  const angleA = 0.2840528190135956;
+  const angleB = 0;
+  const pivot = [245.33319979265795, 433.21882559874905];
+  const bodyA = { x: 318.9337158203125, y: 308.0868835449219, angle: angleA };
+  const bodyB = { x: 242.17095947265625, y: 481.2880554199219, angle: angleB };
+  const localAnchor = (body, point) => {
+    const dx = point[0] - body.x;
+    const dy = point[1] - body.y;
+    const cosine = Math.cos(body.angle);
+    const sine = Math.sin(body.angle);
+    return [cosine * dx + sine * dy, -sine * dx + cosine * dy];
+  };
+  const graph = normalizeRelationshipGraph({
+    world: { gravity: { x: 0, y: 0 }, pixelsPerMeter: 100 },
+    systems: [{ id: "world", gravityMode: "world", clock: { fixedHz: 60 } }],
+    bodies: [
+      {
+        id: "upper", systemId: "world", bodyType: "dynamic",
+        objectRef: { kind: "element", elementId: "upper" },
+        collider: { kind: "box", width: 71.18, height: 286.44 }, initial: bodyA,
+      },
+      {
+        id: "lower", systemId: "world", bodyType: "dynamic",
+        objectRef: { kind: "element", elementId: "lower" },
+        collider: { kind: "box", width: 5.59, height: 96.4 }, initial: bodyB,
+      },
+    ],
+    constraints: [{
+      id: "angled-weld", systemId: "world", kind: "fixate", collideConnected: false,
+      a: { kind: "object", objectRef: { kind: "element", elementId: "upper" }, anchor: "local", localAnchor: localAnchor(bodyA, pivot) },
+      b: { kind: "object", objectRef: { kind: "element", elementId: "lower" }, anchor: "local", localAnchor: localAnchor(bodyB, pivot) },
+    }],
+  });
+  const runtime = await RapierPhysicsSystem.create(graph, "world");
+  runtime.step();
+  const values = runtime.poses().values;
+  const relativeAngle = values[6] - values[2];
+  assert.ok(
+    Math.abs(relativeAngle - (angleB - angleA)) < 1e-4,
+    `weld changed the authored relative angle from ${(angleB - angleA).toFixed(6)} to ${relativeAngle.toFixed(6)}`,
+  );
+  runtime.dispose();
+});
+
 test("a two-body axle keeps its original attachment point rigid while the assembly falls", async () => {
   // A body-to-body axle is free in world space: gravity moves the whole
   // assembly, but its two authored local anchors must remain coincident. This

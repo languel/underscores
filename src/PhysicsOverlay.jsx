@@ -103,6 +103,7 @@ const selectedEndpoint = (endpointValue, selectedIds) => {
 const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue, appState, elements = [], getLiveScene = null, selectedElementIds = {}, showAllRelationships = false, debug = null, onRenderMetric = null }) {
   const canvasRef = useRef(null);
   const debugEventsRef = useRef([]);
+  const trailHistoryRef = useRef(new Map());
   const propsRef = useRef({ runtime, graphValue, appState, elements, getLiveScene, selectedElementIds, showAllRelationships, debug, onRenderMetric });
   propsRef.current = { runtime, graphValue, appState, elements, getLiveScene, selectedElementIds, showAllRelationships, debug, onRenderMetric };
 
@@ -384,6 +385,84 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
       context.restore();
     };
 
+    const drawTrails = (context, graph, snapshots, currentElements, poseByBodyId, toViewport) => {
+      const now = performance.now() / 1000;
+      const snapshotBySystemId = new Map(snapshots.map(snapshot => [snapshot.systemId, snapshot]));
+      const active = new Map();
+      for (const body of graph.bodies) {
+        if (!body.enabled || body.trail?.enabled !== true) continue;
+        const pose = poseByBodyId.get(body.id);
+        if (!pose) continue;
+        active.set(`body:${body.id}`, {
+          point: [pose.x, pose.y],
+          trail: body.trail,
+          step: snapshotBySystemId.get(body.systemId)?.step ?? 0,
+        });
+      }
+      for (const constraint of graph.constraints) {
+        const supportsTrail = constraint.kind === "tracer"
+          || ["axle", "pin", "revolute", "weld", "fixate"].includes(constraint.kind);
+        if (!constraint.enabled || !supportsTrail || constraint.trail?.enabled !== true) continue;
+        const endpoints = [["a", constraint.a], ["b", constraint.b]]
+          .map(([side, endpoint]) => ({ side, resolved: resolvePhysicsEndpointAtPose(endpoint, {
+            elements: currentElements,
+            bodies: graph.bodies,
+            poseByBodyId,
+          }) }))
+          .filter(endpoint => endpoint.resolved.ok);
+        if (!endpoints.length) continue;
+        for (const endpoint of endpoints) {
+          active.set(`constraint:${constraint.id}:${endpoint.side}`, {
+            point: endpoint.resolved.point,
+            trail: constraint.trail,
+            step: snapshotBySystemId.get(constraint.systemId)?.step ?? 0,
+          });
+        }
+      }
+
+      for (const [key, entry] of [...trailHistoryRef.current]) {
+        if (!active.has(key)) trailHistoryRef.current.delete(key);
+        else if (active.get(key).step < entry.lastStep) trailHistoryRef.current.delete(key);
+      }
+
+      for (const [key, source] of active) {
+        const duration = Math.max(0.1, Number(source.trail.duration) || 4);
+        const previous = trailHistoryRef.current.get(key) || { samples: [], lastStep: source.step };
+        const last = previous.samples.at(-1);
+        const moved = !last || Math.hypot(source.point[0] - last.x, source.point[1] - last.y) >= 0.15;
+        const elapsed = !last || now - last.time >= 1 / 60;
+        const samples = previous.samples.filter(sample => now - sample.time <= duration);
+        if (moved && elapsed) samples.push({ x: source.point[0], y: source.point[1], time: now });
+        trailHistoryRef.current.set(key, { samples: samples.slice(-7200), lastStep: source.step });
+      }
+
+      context.save();
+      context.lineWidth = 1.5;
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      for (const [key, source] of active) {
+        const samples = trailHistoryRef.current.get(key)?.samples || [];
+        const duration = Math.max(0.1, Number(source.trail.duration) || 4);
+        const opacity = Math.max(0, Math.min(1, Number(source.trail.opacity) || 0));
+        for (let index = 1; index < samples.length; index += 1) {
+          const start = toViewport([samples[index - 1].x, samples[index - 1].y]);
+          const end = toViewport([samples[index].x, samples[index].y]);
+          const alpha = opacity * Math.max(0, Math.min(1, 1 - (now - samples[index].time) / duration));
+          context.strokeStyle = debugColor({ colors: { trail: source.trail.color } }, "trail", "#4f8cff", alpha, null, "light", context);
+          context.beginPath();
+          context.moveTo(start[0], start[1]);
+          context.lineTo(end[0], end[1]);
+          context.stroke();
+        }
+        const head = toViewport(source.point);
+        context.fillStyle = debugColor({ colors: { trail: source.trail.color } }, "trail", "#4f8cff", opacity, null, "light", context);
+        context.beginPath();
+        context.arc(head[0], head[1], key.startsWith("constraint:") ? 2.75 : 2, 0, Math.PI * 2);
+        context.fill();
+      }
+      context.restore();
+    };
+
     const draw = () => {
       if (stopped) return;
       const started = performance.now();
@@ -408,6 +487,7 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
         };
         const snapshots = runtime.getLatestPoses();
         const poseByBodyId = new Map();
+        const graph = normalizeRelationshipGraph(currentGraph);
         for (const snapshot of snapshots) {
           for (let index = 0; index < snapshot.metadata.length; index += 1) {
             const metadata = snapshot.metadata[index];
@@ -419,6 +499,11 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
             });
           }
         }
+        if (debugSettings?.enabled && debugSettings.trails) {
+          drawTrails(context, graph, snapshots, diagnosticElements, poseByBodyId, toViewport);
+        } else if (!debugSettings?.trails) {
+          trailHistoryRef.current.clear();
+        }
         for (const snapshot of snapshots) {
           const values = snapshot.values;
           for (let index = 0; index < snapshot.metadata.length; index += 1) {
@@ -427,7 +512,6 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
         }
         drawRelationships(context, normalizeRelationshipGraph(currentGraph), diagnosticElements, selectedIds, showAll, toViewport, poseByBodyId);
         if (debugSettings?.enabled) {
-          const graph = normalizeRelationshipGraph(currentGraph);
           const theme = diagnosticAppState.theme || "light";
           drawDebugBodies(context, snapshots, diagnosticElements, graph, toViewport, zoom, debugSettings, theme);
           drawDebugConstraints(context, graph, diagnosticElements, toViewport, debugSettings, poseByBodyId, theme);

@@ -105,7 +105,7 @@ import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, se
 import { createUnifiedStreamsApi, DraweratorStreamRegistry } from "./streamRuntime.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
 import { addRelationshipItem, createDefaultPhysicsSystem, createEmptyRelationshipGraph, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, removeRelationshipBindingsForElements, removeRelationshipItem, updateRelationshipItem, withPhysicsCustomData } from "./relationshipGraph.js";
-import { chooseConstraintPivot, elementContainsPhysicsPoint, getLivePoseRopeConstraintIds, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, physicsEndpointAtPoint, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint, ropeEndpointAtPoint, selectRopePathsForLivePose } from "./physicsConstraintAuthoring.js";
+import { chooseConstraintPivot, elementContainsPhysicsPoint, getLivePoseRopeConstraintIds, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, physicsEndpointAtPoint, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint, resolveTracerConstraint, ropeEndpointAtPoint, selectRopePathsForLivePose } from "./physicsConstraintAuthoring.js";
 import { applyAnchorAttractorFrame, applyBezierSculptOperator, getPhysicsColliderSelectionValue, getPhysicsElementCenter as getPhysicsGeometryElementCenter, getPhysicsElementLocalCenter, inferPhysicsBodyFromElement, inferPhysicsColliderForBody, inferPhysicsColliderFromElement, needsLegacyPhysicsColliderOriginRebase } from "./physicsGeometry.js";
 import { createPhysicsApi, createRelationshipApi, PhysicsRuntimeController } from "./physicsRuntime.js";
 import { mappingTargetValue } from "./mappingRuntime.js";
@@ -689,6 +689,7 @@ const DEFAULT_PHYSICS_DEBUG = Object.freeze({
   contacts: true,
   collisions: true,
   forces: true,
+  trails: false,
 });
 const normalizePhysicsDebugColor = (value, fallback) => {
   const candidate = String(value || "").trim();
@@ -9583,7 +9584,7 @@ function App() {
         // body's entire material into the selection.
         const mergedBodyPatch = {
           ...bodyPatch,
-          ...["collider", "material", "mappingValues", "initial", "render"].reduce((nested, key) => {
+          ...["collider", "material", "mappingValues", "initial", "render", "trail"].reduce((nested, key) => {
             if (bodyPatch[key] && typeof bodyPatch[key] === "object" && !Array.isArray(bodyPatch[key])) {
               nested[key] = { ...(current[key] || {}), ...bodyPatch[key] };
             }
@@ -9930,6 +9931,14 @@ function App() {
           attractor: pivot,
           systemId: targetSystemId,
         })
+        : kind === "tracer"
+          ? resolveTracerConstraint({
+            tracer: pivot,
+            elements,
+            bodies: targetBodies,
+            constraints: graph.constraints,
+            systemId: targetSystemId,
+          })
         : kind === "thruster"
           ? resolveThrusterConstraint({
             thruster: pivot,
@@ -9974,6 +9983,14 @@ function App() {
       return [];
     }
     const successfulIds = new Set(successes.map(item => item.pivot.id));
+    const snappedPivotPositionById = new Map(successes.flatMap(item => {
+      const point = item.result.pivotPoint;
+      if (!Array.isArray(point) || !point.every(Number.isFinite)) return [];
+      const center = getPhysicsElementCenter(item.pivot);
+      if (Math.hypot(point[0] - center.x, point[1] - center.y) < 0.001) return [];
+      const localCenter = getPhysicsElementLocalCenter(item.pivot);
+      return [[item.pivot.id, { x: point[0] - localCenter[0], y: point[1] - localCenter[1] }]];
+    }));
     const nextGraph = normalizeRelationshipGraph({
       ...graph,
       systems: createdSystem ? [...graph.systems, createdSystem] : graph.systems,
@@ -9989,7 +10006,11 @@ function App() {
     const provisionalElements = elements.map(element => {
       const constraint = provisionalConstraintByPivotId.get(element.id);
       return constraint && !element.isDeleted
-        ? { ...element, customData: withPhysicsCustomData(element.customData, constraint) }
+        ? {
+          ...element,
+          ...(snappedPivotPositionById.get(element.id) || {}),
+          customData: withPhysicsCustomData(element.customData, constraint),
+        }
         : element;
     });
     // Persist the exact solver-local anchors before the update reaches the
@@ -10009,6 +10030,7 @@ function App() {
       if (!constraint || element.isDeleted) return element;
       return {
         ...element,
+        ...(snappedPivotPositionById.get(element.id) || {}),
         customData: withPhysicsCustomData(element.customData, constraint),
         version: (element.version || 0) + 1,
         versionNonce: Math.floor(Math.random() * 0x7fffffff),
@@ -10021,7 +10043,7 @@ function App() {
     api.updateScene({ elements: nextElements, commitToHistory: true });
     if (createdSystem) setActivePhysicsSystemId(createdSystem.id);
     const name = kind === "fixate" ? "weld" : kind;
-    const noun = isAttractor ? "attractor" : isPathConstraint ? kind : `${name} pivot`;
+    const noun = isAttractor ? "attractor" : kind === "tracer" ? "tracer" : isPathConstraint ? kind : `${name} pivot`;
     const failureReason = isAttractor
       ? " could not be made into an attractor."
       : isPathConstraint
@@ -21389,11 +21411,17 @@ function App() {
     transportSynced: physicsFollowsTransport(relationshipGraph.systems),
     timeScrubEnabled: physicsTimeScrubEnabled,
     livePose: relationshipGraph.world?.livePose === true,
+    trailsVisible: physicsDebug.enabled === true && physicsDebug.trails === true,
     onPlayPause: physicsWorldPlaying ? pausePhysicsWorld : playPhysicsWorld,
     onResetWorld: resetPhysicsWorld,
     onToggleTransportSync: togglePhysicsTransportSync,
     onToggleLiveTimelinePreview: toggleLiveTimelinePreview,
     onToggleLivePose: toggleLivePose,
+    onToggleTrails: () => setPhysicsDebug(previous => ({
+      ...previous,
+      enabled: previous.trails === true ? previous.enabled : true,
+      trails: previous.trails !== true,
+    })),
     onAssignBody: options => assignPhysicsBodies({ systemId: activePhysicsSystemId, ...options }),
     onAssignCollider: options => assignPhysicsBodies({ systemId: activePhysicsSystemId, bodyType: "fixed", ...options }),
     onMakeConstraint: kind => assignPhysicsConstraintPivots({ kind, systemId: activePhysicsSystemId }),

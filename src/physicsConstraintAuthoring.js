@@ -356,6 +356,24 @@ export const chooseConstraintPivot = elements => (elements || []).find(element =
   return physics?.role !== "body";
 }) || null;
 
+// A pivot marker is often drawn around the visible end of a narrow path rather
+// than pixel-perfectly centred on it. When a one-body axle contains that path
+// endpoint, use the endpoint itself as the authored pivot. Otherwise the
+// solver correctly pins an invisible point a few pixels beside the stroke and
+// the visible end appears to orbit or "wobble" around a stable axle.
+const snapAxlePointToContainedPathEndpoint = (pivot, bodyCandidates, point) => {
+  if (bodyCandidates.length !== 1) return point;
+  const body = bodyCandidates[0];
+  if (!["line", "arrow", "freedraw"].includes(body?.type)) return point;
+  const endpoints = getSpringEndpointWorldPoints(body);
+  if (!endpoints) return point;
+  const threshold = Math.max(4, Math.min(Math.abs(finite(pivot?.width)), Math.abs(finite(pivot?.height))) / 2);
+  const candidates = [endpoints.start, endpoints.end]
+    .map(endpoint => ({ endpoint, distance: Math.hypot(endpoint[0] - point[0], endpoint[1] - point[1]) }))
+    .sort((first, second) => first.distance - second.distance);
+  return candidates[0]?.distance <= threshold ? [...candidates[0].endpoint] : point;
+};
+
 // Constraint tools act on a small visual pivot object. The pivot's centre is
 // the anchor and it discovers the topmost one or two overlapping physics
 // bodies or nearby rope segments. One target becomes a World constraint; two
@@ -389,7 +407,9 @@ export const resolveConstraintPivot = ({ pivot, elements = [], bodies = [], cons
       && candidate.endpoint.distance <= 14);
   const candidates = [...ropeCandidates, ...bodyCandidates];
   const [first, second] = candidates;
-  const anchor = [point.x, point.y];
+  const anchor = kind === "axle" && !ropeCandidates.length
+    ? snapAxlePointToContainedPathEndpoint(pivot, bodyCandidates, [point.x, point.y])
+    : [point.x, point.y];
   if (!first && ["axle", "fixate"].includes(kind)) {
     // A pivot is still a useful authored object when it starts detached. The
     // user can choose a body, World, or rope point later from the properties
@@ -556,6 +576,39 @@ export const resolveAttractorConstraint = ({ attractor, systemId }) => {
   };
 };
 
+// A tracer is a solver-free diagnostic point. When its visual overlaps a body
+// or rope it follows that exact authored endpoint; otherwise it records its
+// own fixed scene position. It never creates a Rapier joint or rigid body.
+export const resolveTracerConstraint = ({ tracer, elements = [], bodies = [], constraints = [], systemId }) => {
+  if (!tracer?.id) return { error: "Choose a tracer object." };
+  const point = getPhysicsElementCenter(tracer);
+  const anchor = [point.x, point.y];
+  const resolved = resolveConstraintPivot({
+    pivot: tracer,
+    elements,
+    bodies,
+    constraints,
+    systemId,
+    kind: "tracer",
+  });
+  const attachedEndpoint = resolved?.primary ? resolved.constraint.a : null;
+  return {
+    pivotPoint: anchor,
+    primary: resolved?.primary || null,
+    constraint: {
+      id: `physics-tracer-${crypto.randomUUID()}`,
+      systemId: String(systemId || ""),
+      name: "Tracer",
+      kind: "tracer",
+      objectRef: { kind: "element", elementId: tracer.id },
+      a: attachedEndpoint || { kind: "world", point: anchor },
+      b: { kind: "none" },
+      trail: { enabled: true, color: "#4f8cff", duration: 4, opacity: 0.75 },
+      collideConnected: false,
+    },
+  };
+};
+
 // A thruster is a two-ended visual. Its start point must sit on a dynamic
 // body; its end gives the authored force direction and remains a live visual
 // guide as the body rotates.
@@ -622,6 +675,7 @@ export const serializePhysicsConstraintCustomData = constraint => ({
   attractionMode: constraint.attractionMode,
   targetTags: constraint.targetTags,
   thrusterForce: constraint.thrusterForce,
+  trail: constraint.trail,
   limitsEnabled: constraint.limitsEnabled === true,
   lowerLimit: constraint.lowerLimit ?? null,
   upperLimit: constraint.upperLimit ?? null,

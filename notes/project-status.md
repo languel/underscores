@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-08-09
+Last updated: 2026-08-10
 
 ## Release checkpoint
 
@@ -138,6 +138,24 @@ being intercepted as runtime grabs. One-sided Welds now retain a runtime body-lo
 canvas images and skins can follow dynamic bodies without a fake World pin; their live markers
 also remain visible in the debug overlay and survive reset/snapshot restore. The checkpoint passes
 588 automated tests, a production build, and a browser play/pause smoke check with no console errors.
+
+### Physics tracing checkpoint (2026-08-10)
+
+Physics diagnostics now include opt-in transient trails for body centres and constraint anchors, plus
+standalone tracer pivots for following a chosen object point without adding a body. They are
+runtime-only and make it possible to compare centre-of-mass, constraint-anchor, and endpoint
+motion in articulated scenes. The current worker/overlay separation keeps solver pose updates out
+of React's render path, while worker cadence and exact-width path-capsule work reduce incidental
+visual stutter and collision cost.
+
+For the articulated-mobile investigation, measured A1 solver-anchor error stayed below 0.005 px;
+the visible B1 endpoint was authored 5.54 px away from that anchor, producing a visible orbit even
+with a stable constraint. New one-body Axle authoring detects a marker containing a line, arrow,
+or freehand endpoint and snaps the marker/local anchor to that endpoint. Older pivots are not
+silently migrated: reassigning the Axle applies the correction, while interior pivots keep their
+authored point. This is a checkpoint rather than a claim that every perceived articulated-motion
+issue is resolved; further scene testing will guide the next pass. The current worktree passed 597
+automated tests and a production build; lint completed without errors, with existing warnings.
 
 ## Next phase
 
