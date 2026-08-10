@@ -436,7 +436,14 @@ export const withPhysicsCustomData = (customData, value) => {
   return next;
 };
 
-export const hydrateRelationshipGraphFromElements = (graphValue, elements = []) => {
+export const hydrateRelationshipGraphFromElements = (graphValue, elements = [], {
+  // During an authored canvas transform the live graph already contains the
+  // newly inferred body poses and anchors, while element customData still
+  // contains the pre-transform snapshot. Keep the graph authoritative for
+  // bindings it already owns, but continue discovering missing bindings from
+  // element metadata below.
+  preferGraphPhysics = false,
+} = {}) => {
   const graph = normalizeRelationshipGraph(graphValue);
   const liveElements = (elements || []).filter(element => element && !element.isDeleted);
   const elementById = new Map(liveElements.map(element => [element.id, element]));
@@ -452,6 +459,7 @@ export const hydrateRelationshipGraphFromElements = (graphValue, elements = []) 
   const bodies = [
     ...graph.bodies.map(body => {
       if (body.objectRef?.kind !== "element") return body;
+      if (preferGraphPhysics) return body;
       const physics = getPhysicsCustomData(elementById.get(body.objectRef.elementId));
       if (!physics || physics.role !== "body") return body;
       return {
@@ -496,6 +504,7 @@ export const hydrateRelationshipGraphFromElements = (graphValue, elements = []) 
   const constraints = [
     ...graph.constraints.map(constraint => {
       if (constraint.objectRef?.kind !== "element") return constraint;
+      if (preferGraphPhysics) return constraint;
       const physics = getPhysicsCustomData(elementById.get(constraint.objectRef.elementId));
       if (!physics || !isConstraintPhysicsRole(physics.role || physics.constraintKind)) return constraint;
       return normalizePhysicsConstraint({

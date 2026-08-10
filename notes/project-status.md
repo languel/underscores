@@ -167,6 +167,18 @@ authored point. This is a checkpoint rather than a claim that every perceived ar
 issue is resolved; further scene testing will guide the next pass. The current worktree passed 597
 automated tests and a production build; lint completed without errors, with existing warnings.
 
+### Physics subsystem transforms checkpoint (2026-08-10)
+
+Fixed articulated group translation. The paused-authored synchronization path had been rebuilding
+the graph from stale object-level physics metadata after Excalidraw moved a selected subsystem. That
+reintroduced the old body reset poses and recomputed pivot offsets against the new visual positions,
+making Axles, Welds, and World anchors appear to jump or disconnect. Existing graph bindings now stay
+authoritative for that synchronization pass and are mirrored back to object metadata afterward; new
+object bindings are still discovered normally. The regression test covers a moved body plus axle with
+stale element metadata. Browser verification covered the B1-B2-B3 subsystem with Live Pose both off
+and on, followed by play and reset; the translated topology remained intact. The full suite passes
+601 tests and the production build succeeds.
+
 ## Next phase
 
 The baseline now also includes authored Springs and Ropes: one selected path can become a solver

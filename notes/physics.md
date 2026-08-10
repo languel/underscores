@@ -48,6 +48,13 @@ While a world is paused, **Paused edits → Author reset pose** is the default: 
 
 **Live pose** is a separate solver-driven manipulation mode. Enable it in Physics World—or press `\\` outside text entry—then pause the simulation (or set its time scale near zero), and drag either an authored body or an axle/weld pivot. The grab is full-strength at pointer speed while the solver performs bounded zero-gravity constraint iterations, so attached bodies propagate like an IK rig without advancing the public physics/transport clock. At timeline zero, releasing the grab promotes the solved result to the authored physics reset pose, so rewind returns to it. A rope-pivot release commits one synchronized final solver snapshot: the free rope path, World anchor, and rope-link attachment move together, with a final 96-iteration settle. Rope-bound pivot grabs cache the other attachment references and clamp unreachable targets to the authored rest length, keeping the rope from stretching or jittering when both ends are posed. Selected bodies and pivots remain owned by the native Excalidraw transform path, so box-selected group drags do not get stolen by the runtime grab handler. At any other time the result remains a temporary runtime pose; use **Apply pose** when that is the intended new reset baseline.
 
+Box-selecting and translating a complete articulated subsystem is also an authored transform. The
+canvas move updates every selected body's reset pose and every selected pivot's visible position as
+one operation, then refreshes connected local anchors from the moved graph. During that handoff the
+already-updated relationship graph is authoritative; stale per-object `customData.physics` from the
+previous frame must not overwrite the new subsystem pose. This keeps World hinges, body-body Axles,
+Welds, and their offsets intact whether Live Pose is enabled or disabled.
+
 **Paused edits** concerns ordinary direct canvas transforms, not Live pose: **Author reset pose** saves a paused transform as the next Reset state, while **Keep reset pose** leaves the saved baseline unchanged for temporary staging.
 
 Every collider also has a **Collision skin** setting, in scene pixels. It is an invisible per-object contact margin: the two colliding skins add together, so it intentionally leaves a small visual gap while making fine, fast interactions more stable. Keep it small (often 0.5–2 px); it is separate from the visible Path chain thickness. Dynamic bodies run with Rapier CCD enabled by default, so fast objects are swept against their colliders rather than only tested at their endpoint. The debug overlay draws the effective path width and skin so diagnostic geometry matches the active solver shape.

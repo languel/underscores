@@ -366,6 +366,52 @@ test("legacy pivot customData does not discard a graph's resolved collider-local
   assert.deepEqual(hydrated.constraints[0].a.localAnchor, [-31.5, 18.25]);
 });
 
+test("authored subsystem synchronization can keep newer graph poses and anchors", () => {
+  const staleBody = normalizeRelationshipGraph({
+    systems: [{ id: "world" }],
+    bodies: [{
+      id: "arm-body",
+      systemId: "world",
+      objectRef: { kind: "element", elementId: "arm" },
+      initial: { x: 120, y: 80, angle: 0 },
+    }],
+    constraints: [{
+      id: "axle",
+      systemId: "world",
+      kind: "axle",
+      objectRef: { kind: "element", elementId: "pivot" },
+      a: {
+        kind: "object",
+        objectRef: { kind: "element", elementId: "arm" },
+        localAnchor: [0, -40],
+      },
+      b: { kind: "world", point: [120, 40] },
+    }],
+  });
+  const movedGraph = normalizeRelationshipGraph({
+    ...staleBody,
+    bodies: staleBody.bodies.map(body => ({
+      ...body,
+      initial: { ...body.initial, x: 320, y: 80 },
+    })),
+    constraints: staleBody.constraints.map(constraint => ({
+      ...constraint,
+      a: { ...constraint.a, localAnchor: [0, -40] },
+      b: { ...constraint.b, point: [320, 40] },
+    })),
+  });
+  const elements = [
+    { id: "arm", customData: withPhysicsCustomData({}, staleBody.bodies[0]) },
+    { id: "pivot", customData: withPhysicsCustomData({}, staleBody.constraints[0]) },
+  ];
+
+  const hydrated = hydrateRelationshipGraphFromElements(movedGraph, elements, { preferGraphPhysics: true });
+
+  assert.equal(hydrated.bodies[0].initial.x, 320);
+  assert.deepEqual(hydrated.constraints[0].a.localAnchor, [0, -40]);
+  assert.deepEqual(hydrated.constraints[0].b.point, [320, 40]);
+});
+
 test("relationship imports remap object and endpoint references", () => {
   const graph = normalizeRelationshipGraph({
     systems: [{ id: "system" }],

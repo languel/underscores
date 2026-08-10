@@ -2010,6 +2010,7 @@ const springVisualGeometryDiffers = (element, patch) => {
 // whose strokes were saved as massless polyline wall geometry.
 const hydratePhysicsGraphForElements = (graphValue, elements = [], {
   repairAuthoredPose = true,
+  preferGraphPhysics = false,
   // Recompute an existing constraint's anchors only when an author explicitly
   // stages the paused scene. Runtime pose application moves a body-body pivot
   // marker every frame; treating that visual follow motion as authoring would
@@ -2017,7 +2018,7 @@ const hydratePhysicsGraphForElements = (graphValue, elements = [], {
   refreshConstraintAnchors = false,
   refreshConstraintIds = null,
 } = {}) => {
-  const graph = hydrateRelationshipGraphFromElements(graphValue, elements);
+  const graph = hydrateRelationshipGraphFromElements(graphValue, elements, { preferGraphPhysics });
   const elementById = new Map((elements || [])
     .filter(element => element && !element.isDeleted)
     .map(element => [element.id, element]));
@@ -9405,7 +9406,7 @@ function App() {
     const hydratedGraph = hydratePhysicsGraphForElements(
       graph,
       [...elementsById.values()],
-      { repairAuthoredPose: false, refreshConstraintIds: constraintIdsToRefresh },
+      { repairAuthoredPose: false, preferGraphPhysics: true, refreshConstraintIds: constraintIdsToRefresh },
     );
     if (!candidateIds.size) {
       if (physicsRuntimeGraphSignature(hydratedGraph) !== physicsRuntimeGraphSignature(graph)) {
@@ -9470,7 +9471,7 @@ function App() {
     const nextGraph = hydratePhysicsGraphForElements(
       synchronizedGraph,
       [...elementsById.values()],
-      { repairAuthoredPose: false, refreshConstraintIds: constraintIdsToRefresh },
+      { repairAuthoredPose: false, preferGraphPhysics: true, refreshConstraintIds: constraintIdsToRefresh },
     );
     // Push the new authored state immediately. This avoids a Reset or Play
     // pressed immediately after a drag using an older worker snapshot.
