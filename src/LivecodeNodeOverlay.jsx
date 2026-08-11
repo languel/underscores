@@ -8,6 +8,8 @@ import { createScriptCanvasApi, resolveScriptParameterValues } from "./scriptRun
 import { parseScriptParameters } from "./scriptParameters.js";
 import LivecodePresentation from "./LivecodePresentation.jsx";
 import OrcaNode from "./OrcaNode.jsx";
+import ShaderLivecodeFrame from "./ShaderLivecodeFrame.jsx";
+import { normalizeShaderCompositionSettings } from "./shaderLivecode.js";
 import {
   getLivecodeEditorProfile,
   getLivecodeFont,
@@ -239,7 +241,7 @@ export function StrudelPanelStatus({ nodeId, node, transport, message = "" }) {
   return <p className="p5-script-status" role="status" aria-live="polite">{text}</p>;
 }
 
-function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef }) {
+function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef, transport }) {
   const config = useMemo(() => getLivecodeRuntimeConfig(node), [node]);
   const validation = validateLivecodeNode(node);
   const [lastWorkingConfig, setLastWorkingConfig] = useState(() => validation.valid ? config : null);
@@ -250,6 +252,7 @@ function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef }) {
   return <div className="livecode-node-runtime visible" aria-label={`${getLivecodeKindDefinition(node.kind).label} runtime`}>
     {node.kind === "p5" ? <P5Frame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} /> : null}
     {node.kind === "playcore" ? <PlayCoreFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} /> : null}
+    {node.kind === "shader" ? <ShaderLivecodeFrame element={element} node={node} transport={transport} scriptRuntimeRef={scriptRuntimeRef} /> : null}
   </div>;
 }
 
@@ -273,7 +276,7 @@ function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef, transport, on
     return <StrudelNodeRuntime element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} onStrudelTransport={onStrudelTransport} />;
   }
   return isLivecodeNodeRunnable(node)
-    ? <PersistedLivecodeRuntime key={node.kind} element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} />
+    ? <PersistedLivecodeRuntime key={node.kind} element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} transport={transport} />
     : null;
 }
 
@@ -339,6 +342,7 @@ export function LivecodeNodeOverlay({
   onStrudelTransport,
   scriptRuntimeRef,
   transport,
+  layer = "overlay",
 }) {
   const camera = useMemo(() => ({
     zoom: Number(appState?.zoom?.value) || 1,
@@ -353,8 +357,14 @@ export function LivecodeNodeOverlay({
       time: Math.max(0, Number(transport?.time) || 0),
     });
   }, [transport?.playing, transport?.bpm, transport?.time]);
-  return <div className="drawerator-livecode-overlay" aria-label="Livecode canvas nodes">{elements.filter(shouldRenderLivecodeNode).map(element => {
+  return <div className={`drawerator-livecode-overlay ${layer}`} aria-label={layer === "underlay" ? "Background Livecode canvas nodes" : "Livecode canvas nodes"}>{elements.filter(element => {
+    if (!shouldRenderLivecodeNode(element)) return false;
+    const candidate = normalizeLivecodeNode(element.customData.draweratorLivecode);
+    const underlay = candidate.kind === "shader" && normalizeShaderCompositionSettings(candidate.runtime.settings).compositeMode === "underlay";
+    return layer === "underlay" ? underlay : !underlay;
+  }).map(element => {
     const node = normalizeLivecodeNode(element.customData.draweratorLivecode);
+    const composition = normalizeShaderCompositionSettings(node.runtime.settings);
     const selected = Boolean(camera.selectedElementIds[element.id]);
     const editing = activeEditorId === element.id;
     const visible = selected || editing;
@@ -374,7 +384,8 @@ export function LivecodeNodeOverlay({
         width: Math.max(1, element.width * camera.zoom),
         height: Math.max(1, element.height * camera.zoom),
         transform: `rotate(${element.angle || 0}rad)`,
-        opacity: Math.max(0, Math.min(1, (Number(element.opacity) || 100) / 100)),
+        opacity: Math.max(0, Math.min(1, (Number(element.opacity) || 100) / 100)) * (node.kind === "shader" ? composition.compositeOpacity : 1),
+        mixBlendMode: node.kind === "shader" ? composition.blendMode : undefined,
         ...editorStyleFor(node.typography),
       }}
     >

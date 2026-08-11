@@ -25,7 +25,7 @@ import NumericInput from "./NumericInput.jsx";
 import GeometryResetIcon from "./GeometryResetIcon.jsx";
 import { embedPolicyForElement, isAllowedEmbedURL, sanitizeEmbedURL, shouldRenderEmbed } from "./embedPolicy.js";
 import OutlinerPanel, { getOutlinerElementLabel } from "./OutlinerPanel.jsx";
-import { applyPresentationVisibility, isElementVisibleInPresentation } from "./presentationVisibility.js";
+import { applyPresentationVisibility, canFitPresentationBounds, isElementVisibleInPresentation } from "./presentationVisibility.js";
 import { groupSceneElements, moveSceneElementsToGroup, moveSceneElementsToGroupParent, moveSceneGroupToParent, renameSceneGroup, reorderSceneElements, ungroupSceneElements } from "./sceneLayers.js";
 import IannixDataPanel from "./IannixDataPanel.jsx";
 import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, parseGenericCommandSlash } from "./commandSystem.js";
@@ -90,6 +90,7 @@ import { LivecodeNodeEditor, LivecodeNodeOverlay, StrudelPanelStatus } from "./L
 import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeKindDefinition, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, replaceLivecodeNodeProgram } from "./livecodeNode.js";
 import { describeLivecodeRuntime, hasNativeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
 import { getLivecodeHelp } from "./livecodeHelp.js";
+import { getShaderExample, normalizeShaderCompositionSettings, SHADER_EXAMPLES, shaderExampleForSource } from "./shaderLivecode.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
 import MediaStreamOverlay, { MediaSourceRuntimeLayer } from "./MediaStreamOverlay.jsx";
 import { HolisticPanel, MediaInputPanel } from "./MediaStreamPanels.jsx";
@@ -3332,6 +3333,12 @@ function App() {
   }, [brushChannels, foregroundColor]);
   const [svgOverlayScene, setSvgOverlayScene] = useState({ elements: [], appState: null });
   const [livecodeOverlayScene, setLivecodeOverlayScene] = useState({ elements: [], appState: null });
+  const shaderUnderlayActive = useMemo(() => livecodeOverlayScene.elements.some(element => {
+    const node = normalizeLivecodeNode(element.customData?.draweratorLivecode);
+    return node.kind === LIVECODE_KINDS.shader
+      && node.runtime.running
+      && normalizeShaderCompositionSettings(node.runtime.settings).compositeMode === "underlay";
+  }), [livecodeOverlayScene.elements]);
   const [livecodeEditorId, setLivecodeEditorId] = useState(null);
   const [livecodeCanvasEditorId, setLivecodeCanvasEditorId] = useState(null);
   const [livecodeCanvasFocusRequest, setLivecodeCanvasFocusRequest] = useState(0);
@@ -8438,7 +8445,9 @@ function App() {
   useEffect(() => {
     const api = excalidrawAPIRef.current;
     if (!api) return;
-    const viewBackgroundColor = canvasColorForExcalidraw(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme);
+    const viewBackgroundColor = shaderUnderlayActive
+      ? "transparent"
+      : canvasColorForExcalidraw(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme);
     if (api.getAppState()?.viewBackgroundColor !== viewBackgroundColor) {
       api.updateScene({
         elements: api.getSceneElementsIncludingDeleted(),
@@ -8447,7 +8456,7 @@ function App() {
       });
     }
     api.refresh?.();
-  }, [excalidrawAPI, interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme]);
+  }, [excalidrawAPI, interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, shaderUnderlayActive, theme]);
 
   // Scroll chat messages to bottom
   useEffect(() => {
@@ -11226,7 +11235,7 @@ function App() {
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
-    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|playcore|markdown|latex|html|orca?", name: "string?", width: "number?", height: "number?", source: "string?", running: "boolean?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. It is a transparent Excalidraw identity host with source, parameters, runtime state, and typography stored on the scene element. Do not attach it to another rectangle.", example: { kind: "markdown", name: "Title slide", width: 640, height: 360, source: "# Drawerator\n\nA live canvas score." } }, action: (_api, args) => createLivecodeCanvasNode(args) },
+    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|playcore|markdown|latex|html|orca|shader?", example: "hello|rainbow|shadow|fluid|stokes?", name: "string?", width: "number?", height: "number?", source: "string?", running: "boolean?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Shader nodes accept hello, rainbow, shadow, fluid, or stokes examples. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "shader", example: "fluid", name: "Fluid brush", width: 640, height: 360 } }, action: (_api, args) => createLivecodeCanvasNode(args) },
     { id: "livecode.node.create.strudel", name: "Create Strudel Livecode Node /live strudel", aliases: ["/live strudel"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel }) },
     { id: "livecode.node.create.p5", name: "Create p5 Livecode Node /live p5", aliases: ["/live p5"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.p5 }) },
     { id: "livecode.node.create.playcore", name: "Create Play Core Livecode Node /live playcore", aliases: ["/live playcore", "/live play"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.playcore }) },
@@ -11234,6 +11243,11 @@ function App() {
     { id: "livecode.node.create.latex", name: "Create LaTeX Livecode Node /live latex", aliases: ["/live latex", "/live tex"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.latex }) },
     { id: "livecode.node.create.html", name: "Create HTML Livecode Node /live html", aliases: ["/live html"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.html }) },
     { id: "livecode.node.create.orca", name: "Create Orca Livecode Node /live orca", aliases: ["/live orca"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.orca }) },
+    { id: "livecode.node.create.shader", name: "Create Hello GLSL Livecode Node /live shader", aliases: ["/live shader", "/live glsl", "/shader", "/shader hello"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "hello" }) },
+    { id: "livecode.node.create.shader.rainbow", name: "Create Rainbow Shader /shader rainbow", aliases: ["/shader rainbow", "/live shader rainbow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "rainbow" }) },
+    { id: "livecode.node.create.shader.shadow", name: "Create 2D Shadow Shader /shader shadow", aliases: ["/shader shadow", "/live shader shadow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "shadow" }) },
+    { id: "livecode.node.create.shader.fluid", name: "Create Fluid Brush Shader /shader fluid", aliases: ["/shader fluid", "/live shader fluid"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "fluid" }) },
+    { id: "livecode.node.create.shader.stokes", name: "Create Stokes Flow Shader /shader stokes", aliases: ["/shader stokes", "/live shader stokes"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "stokes" }) },
     { id: "livecode.node.edit", name: "Edit Selected Livecode Node", aliases: ["Edit livecode node"], category: "Livecode", action: () => {
       const node = getSelectedElements().find(isLivecodeNodeElement);
       if (!node) throw new Error("Select one Livecode Node first.");
@@ -14371,17 +14385,27 @@ function App() {
     const appState = api.getAppState();
     const center = viewportCoordsToSceneCoords({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 }, appState);
     const kind = args.kind;
+    const shaderDefaults = kind === LIVECODE_KINDS.shader;
+    const shaderExample = shaderDefaults ? getShaderExample(args.example || "hello") : null;
     const node = createLivecodeNode({
       kind,
-      name: args.name || defaultLivecodeName(kind),
-      source: typeof args.source === "string" ? args.source : undefined,
+      name: args.name || shaderExample?.name || defaultLivecodeName(kind),
+      source: typeof args.source === "string" ? args.source : shaderExample?.source || (shaderDefaults ? defaultLivecodeSource(kind) : undefined),
       parameters: args.parameters,
       runtime: {
-        running: Boolean(args.running),
+        running: typeof args.running === "boolean" ? args.running : shaderDefaults,
         enabled: args.enabled !== false,
-        transportMode: args.transportMode,
+        transportMode: args.transportMode || (shaderDefaults ? "free" : undefined),
+        settings: shaderExample ? {
+          shaderExample: shaderExample.id,
+          shaderMode: shaderExample.mode,
+          compositeMode: "overlay",
+          compositeOpacity: 1,
+          blendMode: "normal",
+          sceneInteraction: true,
+        } : undefined,
       },
-      view: args.view,
+      view: args.view || (shaderDefaults ? "preview" : undefined),
       typography: args.typography,
     });
     const width = Math.max(120, Math.min(4096, Number(args.width) || (node.kind === LIVECODE_KINDS.orca ? 480 : 520)));
@@ -15909,6 +15933,8 @@ function App() {
       setActiveDockPanels({ ...workspace.activeDockPanels });
       setCollapsedDocks({ ...workspace.collapsedDocks });
       setShowIannixTransport(workspace.showIannixTransport);
+      setPhysicsToolbarOpen(workspace.physicsToolbarOpen);
+      setPhysicsToolbarDockedTop(workspace.physicsToolbarDockedTop);
       setSatoriMode(workspace.satoriMode);
       setShowCommandPalette(workspace.showCommandPalette);
       const restoredGrid = normalizeGlobalGrid(workspace.globalGrid);
@@ -15940,6 +15966,8 @@ function App() {
       activeDockPanels: { ...activeDockPanels },
       collapsedDocks: { ...collapsedDocks },
       showIannixTransport,
+      physicsToolbarOpen,
+      physicsToolbarDockedTop,
       satoriMode,
       showCommandPalette,
       globalGrid: normalizeGlobalGrid(globalGridRef.current),
@@ -15957,6 +15985,7 @@ function App() {
     setActiveDockPanels({ left: "mods", right: "mods", bottom: "transport" });
     setCollapsedDocks({ left: true, right: true, bottom: true });
     setShowIannixTransport(true);
+    setPhysicsToolbarOpen(false);
     setSatoriMode(true);
     setShowCommandPalette(false);
     runtimeCallbacksRef.current.globalGridUpdate({ appearance: { visible: false } });
@@ -15994,6 +16023,13 @@ function App() {
         !element.isDeleted && isElementVisibleInPresentation(element)
       ));
       if (elements.length) {
+        const appState = excalidrawAPI.getAppState();
+        const viewport = {
+          width: Math.max(1, Number(appState.width) || window.innerWidth),
+          height: Math.max(1, Number(appState.height) || window.innerHeight),
+        };
+        const bounds = getCommonBounds(elements);
+        if (!canFitPresentationBounds(bounds, viewport)) return;
         excalidrawAPI.scrollToContent(elements, {
           fitToViewport: true,
           // 1 means use the limiting viewport dimension at 100%. The other
@@ -18744,6 +18780,10 @@ function App() {
     </div>;
     const node = normalizeLivecodeNode(nodeElement.customData?.draweratorLivecode);
     const definition = getLivecodeKindDefinition(node.kind);
+    const shaderExample = node.kind === LIVECODE_KINDS.shader
+      ? getShaderExample(node.runtime.settings?.shaderExample || shaderExampleForSource(node.source)?.id)
+      : null;
+    const shaderComposition = normalizeShaderCompositionSettings(node.runtime.settings);
     const help = getLivecodeHelp(node.kind);
     const parameters = parseScriptParameters(node.source, { values: node.parameters });
     const selectNode = elementId => {
@@ -18768,6 +18808,20 @@ function App() {
           : node.kind === LIVECODE_KINDS.strudel
             ? <label>View <span className="livecode-static-option">Code overlay</span></label>
             : <label>View <select value={node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="code">Code</option><option value="preview">Output</option><option value="split">Code/output</option></select></label>}
+        {node.kind === LIVECODE_KINDS.shader && <label>Example <select value={shaderExample?.id || "hello"} onChange={event => {
+          const next = getShaderExample(event.target.value);
+          patchLivecodeCanvasNode(nodeElement.id, {
+            name: next.name,
+            source: next.source,
+            runtime: { running: true, transportMode: "free", settings: { shaderExample: next.id, shaderMode: next.mode } },
+            view: "preview",
+          }, { commitToHistory: true });
+        }}>{SHADER_EXAMPLES.map(example => <option key={example.id} value={example.id}>{example.label}</option>)}</select></label>}
+        {node.kind === LIVECODE_KINDS.shader && <label>Layer <select value={shaderComposition.compositeMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeMode: event.target.value } } }, { commitToHistory: true })}><option value="overlay">Above objects</option><option value="underlay">Below objects</option></select></label>}
+        {node.kind === LIVECODE_KINDS.shader && <label>Opacity % <NumericInput min="0" max="100" step="5" value={Math.round(shaderComposition.compositeOpacity * 100)} defaultValue={100} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeOpacity: value / 100 } } }, { commitToHistory: true })} /></label>}
+        {node.kind === LIVECODE_KINDS.shader && <label>Blend <select value={shaderComposition.blendMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { blendMode: event.target.value } } }, { commitToHistory: true })}><option value="normal">Normal</option><option value="screen">Screen</option><option value="multiply">Multiply</option><option value="overlay">Overlay</option><option value="soft-light">Soft light</option></select></label>}
+        {node.kind === LIVECODE_KINDS.shader && <label>Background <select value={shaderComposition.backgroundMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { backgroundMode: event.target.value } } }, { commitToHistory: true })}><option value="solid">Solid</option><option value="transparent">Transparent</option></select></label>}
+        {node.kind === LIVECODE_KINDS.shader && shaderExample?.id === "fluid" && <label title="Use nearby Excalidraw paths as continuously emitting flow fields">Scene strokes <span className="livecode-checkbox"><input type="checkbox" checked={shaderComposition.sceneInteraction} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { sceneInteraction: event.target.checked } } }, { commitToHistory: true })} />Interact</span></label>}
         <label>Clock <select value={node.runtime.transportMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { transportMode: event.target.value } }, { commitToHistory: true })}><option value="linked">Linked</option><option value="free">Free</option></select></label>
         {node.kind === LIVECODE_KINDS.strudel && <label>Transport <span className="livecode-checkbox"><input type="checkbox" checked={Boolean(node.runtime.settings?.syncTransport)} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { syncTransport: event.target.checked } } }, { commitToHistory: true })} />Full sync</span></label>}
         {node.kind === LIVECODE_KINDS.strudel && <label title="Render public Strudel visualizers such as .pianoroll() across this node frame">Visuals <span className="livecode-checkbox"><input type="checkbox" aria-label="Strudel frame visuals" checked={node.runtime.settings?.frameVisuals !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { frameVisuals: event.target.checked } } }, { commitToHistory: true })} />Frame</span></label>}
@@ -21865,6 +21919,21 @@ function App() {
         style={{ width: "100%", height: "100%", position: "relative" }}
         className={`${modifierDrawingActive && drawingPoints.length > 0 ? "custom-brush-drawing" : ""} ${objectEyedropper ? "drawerator-object-eyedropper" : ""} ${physicsTool?.kind ? `physics-authoring-${physicsTool.kind}` : ""}`.trim()}
       >
+        <LivecodeNodeOverlay
+          layer="underlay"
+          elements={livecodeOverlayScene.elements}
+          appState={livecodeOverlayScene.appState}
+          activeEditorId={livecodeCanvasEditorId}
+          focusRequest={livecodeCanvasFocusRequest}
+          onEdit={editLivecodeCanvasNode}
+          onPatch={(elementId, patch) => patchLivecodeCanvasNode(elementId, patch)}
+          onCommit={commitLivecodeCanvasNode}
+          onToggleRun={toggleLivecodeNodeRun}
+          onMidiEvents={emitOrcaMidiEvents}
+          onStrudelTransport={handleStrudelTransportControl}
+          scriptRuntimeRef={scriptRuntimeRef}
+          transport={{ playing: scorePlaying, bpm: scoreTempo, time: scoreTime }}
+        />
         <Excalidraw 
           theme={theme} 
           gridModeEnabled={false}
@@ -21881,7 +21950,9 @@ function App() {
             appState: {
               currentItemRoughness: 0,
               currentItemRoundness: globalRoundness ? "round" : "sharp",
-              viewBackgroundColor: canvasColorForExcalidraw(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme),
+              viewBackgroundColor: shaderUnderlayActive
+                ? "transparent"
+                : canvasColorForExcalidraw(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme),
               gridSize: null,
               gridModeEnabled: false,
               objectsSnapModeEnabled: false,
@@ -23058,7 +23129,7 @@ function App() {
               commandRegistry={commandRegistry}
               transportTime={scoreTime}
               liveStatus={consoleLiveStatus}
-              showPerformanceMonitor={showPerformanceOverlay && performanceOverlayPlacement === "console"}
+              showPerformanceMonitor={!presentationMode && showPerformanceOverlay && performanceOverlayPlacement === "console"}
               onPerformancePlacementChange={updatePerformancePlacement}
               onPerformanceClose={() => updatePerformanceVisibility(false)}
               onSlashCommand={runConsoleSlashCommand}
@@ -24069,7 +24140,7 @@ function App() {
           <PhysicsCanvasToolbar {...physicsToolbarProps} docked />
         </div> : <PhysicsCanvasToolbar {...physicsToolbarProps} />}
 
-        {showPerformanceOverlay && performanceOverlayPlacement === "floating" ? <PerformanceOverlay
+        {!presentationMode && showPerformanceOverlay && performanceOverlayPlacement === "floating" ? <PerformanceOverlay
           placement="floating"
           onPlacementChange={updatePerformancePlacement}
           onClose={() => updatePerformanceVisibility(false)}
@@ -24136,6 +24207,7 @@ function App() {
           onSelectFeatures={selectMediaMapFeatures}
         />
         <LivecodeNodeOverlay
+          layer="overlay"
           elements={livecodeOverlayScene.elements}
           appState={livecodeOverlayScene.appState}
           activeEditorId={livecodeCanvasEditorId}

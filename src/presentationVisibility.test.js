@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   applyPresentationVisibility,
   applyPresentationVisibilityToElement,
+  canFitPresentationBounds,
   isElementPresentationMasked,
   isElementVisibleInPresentation,
 } from "./presentationVisibility.js";
@@ -13,6 +14,11 @@ const element = (customData = {}, opacity = 63) => ({
   opacity,
   version: 4,
   customData,
+});
+
+test("presentation auto-fit rejects bounds that exceed Excalidraw's minimum zoom", () => {
+  assert.equal(canFitPresentationBounds([0, 0, 1000, 600], { width: 1200, height: 800 }), true);
+  assert.equal(canFitPresentationBounds([0, 0, 1000, 13_700_000], { width: 1455, height: 1104 }), false);
 });
 
 test("presentation visibility defaults on and honors an explicit false flag", () => {

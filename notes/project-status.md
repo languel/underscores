@@ -77,6 +77,10 @@ samples, pixels, or device/socket state. See
   Markdown, LaTeX, HTML, and Orca adapters. p5 is the polished Livecode path. Markdown is
   presentation-ready with contained overflow scrolling, and LaTeX supports explicit inline/display
   delimiters. See [Livecode Nodes](livecode.md).
+- WebGL 2 GLSL Livecode Nodes with editable Hello, Rainbow Geometry, 2D Shadows, Fluid Brush, and
+  Stokes examples. Shader nodes can render above or below Excalidraw, blend and fade per node, use
+  scene paths as uniforms, and preserve real alpha; Fluid Brush can display dye alone over a
+  transparent background instead of painting a rectangular dark frame.
 - Native Strudel shared scheduling now includes linked score-phase synchronization, beat-quantized
   draft updates, XEN and General MIDI soundfont scope, code-only overlays with event-synchronized
   CSS, inline underscore visualizers, and default-on node-frame public visualizers using the shared
@@ -98,6 +102,10 @@ pattern continues, `Ctrl+Enter` reports a queued update before next-beat activat
 messages remain absent from the live canvas frame. `.pianoroll()` rendered across the 520 × 300 node
 without creating Strudel's page-level canvas; disabling and restoring **Frame** did not stop or
 recompile the Free-run pattern, and `._pianoroll()` remained an inline 500 × 72 widget.
+
+The 2026-08-10 shader and presentation checkpoint completed 614 automated tests and a production
+build. Browser checks covered shader underlay composition, fluid transparency, presentation camera
+fallback for impossible scene bounds, and reversible hiding of the physics toolbar and FPS overlay.
 
 ## Known boundary
 

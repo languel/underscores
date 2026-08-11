@@ -1,6 +1,6 @@
 # Livecode canvas nodes
 
-Last updated: 2026-07-30
+Last updated: 2026-08-10
 
 ## What a node is
 
@@ -8,7 +8,7 @@ A **Livecode Node** is one transparent Excalidraw rectangle plus a minimal live 
 
 This avoids attaching a program to a separate host object. A node has one source document and can run alongside any number of other nodes. Its source and its `code`, `output`, or `code/output` view persist with the scene.
 
-Create a node from **New Livecode Node**, `/live`, the command palette, or `livecode.node.create`. `/live p5`, `/live playcore`, `/live markdown`, `/live latex`, `/live html`, `/live strudel`, and `/live orca` select a kind immediately. Selecting a node always opens its source in the shared Script panel; clicking its code or pressing **Enter** enters the same source directly on the canvas. These are two views of one source document, never competing drafts, and neither interrupts a running runtime. The Script panel exposes Run/Stop, linked/free clock mode, typography, adapter settings such as Strudel's full-frame visualizer toggle, and any `@param` values declared in the source.
+Create a node from **New Livecode Node**, `/live`, the command palette, or `livecode.node.create`. `/live p5`, `/live playcore`, `/live markdown`, `/live latex`, `/live html`, `/live strudel`, `/live orca`, and `/live shader` select a kind immediately. Selecting a node always opens its source in the shared Script panel; clicking its code or pressing **Enter** enters the same source directly on the canvas. These are two views of one source document, never competing drafts, and neither interrupts a running runtime. The Script panel exposes Run/Stop, linked/free clock mode, typography, adapter settings such as Strudel's full-frame visualizer toggle, and any `@param` values declared in the source.
 
 ## Scene schema
 
@@ -52,6 +52,14 @@ selected Livecode Node. The node keeps its scene identity and geometry while its
 source, compatible runtime settings, name, and parameters are retargeted to the applied program.
 
 The p5 Livecode flow is the currently polished runtime path: concurrent nodes, canvas editing, source-panel editing, output, and overlay/split views are expected to work together.
+
+### GLSL shaders
+
+GLSL Shader nodes run editable GLSL ES 3.00 fragment programs in WebGL 2. `/shader hello`, `/shader rainbow`, `/shader shadow`, `/shader fluid`, and `/shader stokes` create the bundled examples. Hello is the minimal shader contract; Rainbow and 2D Shadows consume nearby Drawerator path segments; Fluid Brush is a stateful ping-pong feedback pass whose dye can be driven by the pointer and scene strokes; Stokes is an analytical flow field. Each node keeps its source, running state, clock, example identity, and composition settings in `runtime.settings`.
+
+Shader output can render **Above objects** or **Below objects**. The latter uses a dedicated underlay beneath Excalidraw while keeping the drawing canvas transparent, so authored strokes remain crisp over the shader. Per-node opacity and CSS blend modes (`normal`, `screen`, `multiply`, `overlay`, and `soft-light`) apply without changing the source. **Background → Transparent** gives the WebGL canvas a real alpha channel: the Fluid example derives alpha from dye density instead of painting its dark display background, while custom fragment shaders can author alpha directly in `outColor`. **Solid** remains the compatibility default.
+
+The shader renderer caps feedback buffers at 1024 px per axis, skips offscreen animation work, caches converted scene segments, and recompiles only when source changes. Shader nodes are live DOM/WebGL surfaces rather than deterministic Excalidraw raster data; export/capture support remains a later integration step.
 
 ### Strudel
 
@@ -121,4 +129,4 @@ Use `window.drawerator.commands.list()` to retrieve the public command contract 
 
 ## Presentation and export
 
-Livecode nodes remain visible in presentation mode. p5, Play Core, Markdown, LaTeX, Strudel's visual feedback, and Orca can be represented at deterministic state when their renderer is available. Sandboxed HTML is intentionally the exception: cross-origin security may prevent a reliable raster readback, and this limitation is reported rather than silently producing a broken export.
+Livecode nodes, including shader overlays and underlays, remain visible in presentation mode. Entering presentation hides authoring chrome, the physics toolbar, and the FPS overlay; exiting restores their prior states. Presentation auto-fit preserves the authored camera when scene bounds cannot fit even at Excalidraw's minimum zoom, preventing a distant stray object from moving the visible scene offscreen. p5, Play Core, Markdown, LaTeX, Strudel's visual feedback, and Orca can be represented at deterministic state when their renderer is available. Sandboxed HTML is intentionally the exception: cross-origin security may prevent a reliable raster readback, and this limitation is reported rather than silently producing a broken export. WebGL shader capture is not yet included in deterministic scene export.

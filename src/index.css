@@ -423,6 +423,14 @@ body, html {
   background-color: var(--bg-app);
 }
 
+/* Shader underlays mirror excalishader's transparent-canvas composition:
+ * Drawerator supplies the board background, the shader paints above it, and
+ * Excalidraw's transparent drawing canvas keeps authored strokes crisp. */
+#canvas-container > .excalidraw {
+  position: relative;
+  z-index: 1;
+}
+
 /* --- OVERLAY TOGGLE BUTTONS --- */
 @keyframes slideUp {
   from { transform: translateY(12px); opacity: 0; }
@@ -2926,6 +2934,14 @@ body .excalidraw .sidebar {
   pointer-events: none;
 }
 
+.drawerator-livecode-overlay.underlay {
+  z-index: 0;
+}
+
+.drawerator-livecode-overlay.underlay .drawerator-shader-frame {
+  border-color: transparent;
+}
+
 .drawerator-livecode-node {
   position: absolute;
   box-sizing: border-box;
@@ -3041,6 +3057,44 @@ body .excalidraw .sidebar {
 .livecode-node-runtime .drawerator-play-core-host {
   width: 100%;
   height: 100%;
+}
+
+.drawerator-shader-frame,
+.drawerator-shader-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.drawerator-shader-frame {
+  position: relative;
+  overflow: hidden;
+  background: #05070d;
+}
+
+.drawerator-shader-frame.transparent-background {
+  background: transparent;
+}
+
+.drawerator-shader-canvas {
+  pointer-events: none;
+}
+
+.drawerator-shader-error {
+  position: absolute;
+  inset: auto 8px 8px;
+  z-index: 2;
+  max-height: 42%;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  color: #ffb5b5;
+  font: 11px/1.35 "Fira Mono", monospace;
+  white-space: pre-wrap;
+  background: rgb(40 7 12 / 88%);
+  border: 1px solid rgb(255 95 112 / 58%);
+  border-radius: 4px;
+  pointer-events: none;
 }
 
 .drawerator-code-editor[data-script-type="strudel"] .cm-content {

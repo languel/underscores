@@ -6,6 +6,22 @@ export const isElementPresentationMasked = element => (
   element?.customData?.presentationMaskActive === true
 );
 
+// Excalidraw clamps camera zoom at 0.1. Asking scrollToContent() to fit bounds
+// that are still larger than the viewport at that zoom recenters the camera on
+// an impossible span and can move the authored scene completely offscreen.
+export const canFitPresentationBounds = (bounds, viewport, minimumZoom = 0.1) => {
+  if (!Array.isArray(bounds) || bounds.length < 4) return false;
+  const [minX, minY, maxX, maxY] = bounds.map(Number);
+  const width = Number(viewport?.width);
+  const height = Number(viewport?.height);
+  const zoom = Number(minimumZoom);
+  if (![minX, minY, maxX, maxY, width, height, zoom].every(Number.isFinite)) return false;
+  if (width <= 0 || height <= 0 || zoom <= 0) return false;
+  const boundsWidth = Math.max(1, maxX - minX);
+  const boundsHeight = Math.max(1, maxY - minY);
+  return Math.min(width / boundsWidth, height / boundsHeight) >= zoom;
+};
+
 const withRevision = (element, patch, now) => ({
   ...element,
   ...patch,
