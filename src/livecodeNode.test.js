@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   LIVECODE_KINDS,
   createLivecodeNode,
+  defaultLivecodeSource,
   getLivecodeFont,
   getLivecodeEditorProfile,
   isLivecodeNodeElement,
@@ -11,6 +12,7 @@ import {
   replaceLivecodeNodeProgram,
   shouldRenderLivecodeNode,
 } from "./livecodeNode.js";
+import { HELLO_GLSL_FRAGMENT_SOURCE } from "./shaderLivecode.js";
 
 test("creates a versioned, self-contained Livecode Node with a stable runtime contract", () => {
   const node = createLivecodeNode({
@@ -196,6 +198,12 @@ test("detects scene nodes and maps their source to established CodeMirror profil
   assert.equal(shouldRenderLivecodeNode({ ...element, customData: { ...element.customData, outlinerHidden: true } }), false);
   assert.equal(getLivecodeEditorProfile({ kind: "html" }), "html");
   assert.equal(getLivecodeEditorProfile({ kind: "orca" }), "orca");
+  assert.equal(getLivecodeEditorProfile({ kind: "shader" }), "shader");
   assert.match(getLivecodeFont("mono").family, /Fira Mono/);
   assert.match(getLivecodeFont("sans").family, /Inter/);
+});
+
+test("shader nodes expose the editable Hello GLSL starter without injecting it into blank generic nodes", () => {
+  assert.equal(defaultLivecodeSource(LIVECODE_KINDS.shader), HELLO_GLSL_FRAGMENT_SOURCE);
+  assert.equal(createLivecodeNode({ kind: LIVECODE_KINDS.shader }).source, "");
 });

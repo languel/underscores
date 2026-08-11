@@ -255,6 +255,7 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
         for (let index = 0; index < metadata.length; index += 1) {
           const metadataEntry = metadata[index];
           const element = metadataEntry.objectRef?.kind === "element" ? elementById.get(metadataEntry.objectRef.elementId) : null;
+          if (metadataEntry.objectRef?.kind === "element" && !element) continue;
           const pose = useAuthoredPose && element
             ? [...getPhysicsElementCenter(element), Number(element.angle) || 0]
             : [values[index * 4], values[index * 4 + 1], values[index * 4 + 2]];
@@ -293,6 +294,10 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
       context.lineWidth = 1;
       for (const constraint of graph.constraints) {
         if (!constraint.enabled) continue;
+        const pivot = constraint.objectRef?.kind === "element"
+          ? elementById.get(constraint.objectRef.elementId)
+          : null;
+        if (constraint.objectRef?.kind === "element" && !pivot) continue;
         const a = resolvePhysicsEndpointAtPose(constraint.a, { elements: currentElements, bodies: graph.bodies, poseByBodyId });
         const b = resolvePhysicsEndpointAtPose(constraint.b, { elements: currentElements, bodies: graph.bodies, poseByBodyId });
         // A weld/axle may intentionally have one endpoint set to None when it
@@ -328,9 +333,6 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
           if (!oneSided) context.fillRect(end[0] - 2, end[1] - 2, 4, 4);
         }
         if (settings.labels) {
-          const pivot = constraint.objectRef?.kind === "element"
-            ? elementById.get(constraint.objectRef.elementId)
-            : null;
           const label = debugObjectLabel(pivot, {
             label: constraint.name || `${constraint.kind || "constraint"} constraint`,
             id: constraint.id,
@@ -477,7 +479,8 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
       // Excalidraw scene directly for the authoritative transform/geometry.
       const liveScene = debugSettings?.enabled ? getLiveScene?.() : null;
       const diagnosticAppState = liveScene?.appState || currentAppState;
-      const diagnosticElements = Array.isArray(liveScene?.elements) ? liveScene.elements : currentElements;
+      const diagnosticElements = (Array.isArray(liveScene?.elements) ? liveScene.elements : currentElements)
+        .filter(element => !element?.customData?.presentationMaskActive);
       if (diagnosticAppState) {
         const rect = container.getBoundingClientRect();
         const zoom = Number(diagnosticAppState.zoom?.value) || 1;
@@ -504,9 +507,12 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
         } else if (!debugSettings?.trails) {
           trailHistoryRef.current.clear();
         }
+        const visibleElementIds = new Set(diagnosticElements.map(element => element.id));
         for (const snapshot of snapshots) {
           const values = snapshot.values;
           for (let index = 0; index < snapshot.metadata.length; index += 1) {
+            const objectRef = snapshot.metadata[index]?.objectRef;
+            if (objectRef?.kind === "element" && !visibleElementIds.has(objectRef.elementId)) continue;
             drawBody(context, snapshot.metadata[index], values[index * 4], values[index * 4 + 1], values[index * 4 + 2], toViewport, zoom);
           }
         }

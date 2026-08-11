@@ -134,6 +134,23 @@ const ORCA_COMPLETIONS = Object.freeze([
   completion("M", "Orca MIDI note operator", "keyword", 50),
 ]);
 
+const SHADER_COMPLETIONS = Object.freeze([
+  snippet("fragment shader", "#version 300 es\nprecision highp float;\n\nuniform vec2 u_resolution;\nuniform float u_time;\nin vec2 v_uv;\nout vec4 outColor;\n\nvoid main() {\n  ${outColor = vec4(v_uv, 0.5 + 0.5 * sin(u_time), 1.0)};\n}", "Drawerator WebGL 2 fragment shader"),
+  completion("u_resolution", "Canvas resolution in device pixels", "variable", 90),
+  completion("u_time", "Node time in seconds; linked or free according to the node clock", "variable", 90),
+  completion("u_transportTime", "Drawerator score time in seconds", "variable", 80),
+  completion("u_pointer", "Pointer position normalized from 0 to 1", "variable", 80),
+  completion("u_pointerDown", "1 while the pointer is pressed inside the node, otherwise 0", "variable", 80),
+  completion("u_currentColor", "Current Drawerator color as normalized RGBA", "variable", 80),
+  completion("u_segments", "Scene geometry as normalized vec4 line segments", "variable", 80),
+  completion("u_segmentCount", "Number of valid entries in u_segments", "variable", 80),
+  completion("u_previous", "Previous feedback frame for the Fluid brush", "variable", 80),
+  completion("u_delta", "Elapsed seconds since the previous feedback frame", "variable", 80),
+  completion("u_pointerDelta", "Normalized pointer motion since the previous event", "variable", 80),
+  completion("v_uv", "Full-frame UV coordinate from 0 to 1", "variable", 80),
+  completion("outColor", "Fragment output color", "variable", 80),
+]);
+
 export const SCRIPT_EDITOR_PROFILES = Object.freeze({
   brush: Object.freeze({
     id: "brush",
@@ -159,6 +176,7 @@ export const SCRIPT_EDITOR_PROFILES = Object.freeze({
   markdown: Object.freeze({ id: "markdown", language: "plain", label: "Markdown", completions: MARKDOWN_COMPLETIONS }),
   latex: Object.freeze({ id: "latex", language: "plain", label: "LaTeX", completions: [] }),
   orca: Object.freeze({ id: "orca", language: "plain", label: "Orca grid", completions: ORCA_COMPLETIONS }),
+  shader: Object.freeze({ id: "shader", language: "plain", label: "GLSL fragment shader", completions: SHADER_COMPLETIONS }),
   html: Object.freeze({ id: "html", language: "html", label: "HTML", completions: SVG_COMPLETIONS }),
   svg: Object.freeze({
     id: "svg",

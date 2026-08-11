@@ -1,3 +1,5 @@
+import { HELLO_GLSL_FRAGMENT_SOURCE } from "./shaderLivecode.js";
+
 // Canonical, scene-persisted representation for a Livecode Node.  The
 // Excalidraw rectangle that carries this data is intentionally transparent:
 // it supplies selection, transforms, history, and ordering while the live DOM
@@ -13,6 +15,7 @@ export const LIVECODE_KINDS = Object.freeze({
   latex: "latex",
   html: "html",
   orca: "orca",
+  shader: "shader",
 });
 
 export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
@@ -64,6 +67,13 @@ export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
     defaultName: "Untitled Orca",
     defaultSource: `................................\n................................\n................................\n................................`,
     summary: "Native frame-based Orca grid. Focus the grid to edit it; its MIDI, CC, and pitch-bend operators route through Drawerator’s Mixer.",
+  }),
+  [LIVECODE_KINDS.shader]: Object.freeze({
+    label: "GLSL Shader",
+    editorProfile: "shader",
+    defaultName: "Hello GLSL",
+    defaultSource: HELLO_GLSL_FRAGMENT_SOURCE,
+    summary: "Editable GLSL ES 3.00 fragment shader rendered into the node with WebGL 2.",
   }),
 });
 
@@ -182,7 +192,7 @@ export const normalizeLivecodeNode = createLivecodeNode;
 export const isLivecodeNodeElement = element => Boolean(element?.customData?.draweratorLivecode);
 
 export const shouldRenderLivecodeNode = element => Boolean(
-  element && !element.isDeleted && !element.customData?.outlinerHidden && isLivecodeNodeElement(element)
+  element && !element.isDeleted && !element.customData?.outlinerHidden && !element.customData?.presentationMaskActive && isLivecodeNodeElement(element)
 );
 
 export const getLivecodeEditorProfile = node => getLivecodeKindDefinition(node?.kind).editorProfile;

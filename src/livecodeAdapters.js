@@ -1,6 +1,7 @@
 import { normalizeP5Frame, resolveP5SourceMode } from "./p5Frame.js";
 import { normalizePlayCoreFrame, validatePlayCoreSource } from "./playCoreFrame.js";
 import { LIVECODE_KINDS, normalizeLivecodeNode } from "./livecodeNode.js";
+import { validateShaderSource } from "./shaderLivecode.js";
 
 // The registry is deliberately declarative.  A node's model never contains a
 // renderer instance: adapters receive its canonical source/configuration and
@@ -69,6 +70,12 @@ export const LIVECODE_ADAPTERS = Object.freeze({
       : { valid: true, error: "" },
     makeRuntimeConfig: rawNode => normalizeLivecodeNode(rawNode),
   }),
+  [LIVECODE_KINDS.shader]: Object.freeze({
+    id: LIVECODE_KINDS.shader,
+    runtime: "shader",
+    validate: validateShaderSource,
+    makeRuntimeConfig: rawNode => normalizeLivecodeNode(rawNode),
+  }),
 });
 
 export const getLivecodeAdapter = rawNode => (
@@ -87,7 +94,7 @@ export const getLivecodeRuntimeConfig = rawNode => {
 
 export const hasNativeLivecodeRuntime = rawNode => {
   const runtime = getLivecodeAdapter(rawNode).runtime;
-  return runtime === "p5" || runtime === "playcore" || runtime === "strudel" || runtime === "orca";
+  return runtime === "p5" || runtime === "playcore" || runtime === "strudel" || runtime === "orca" || runtime === "shader";
 };
 
 export const isLivecodeNodeRunnable = rawNode => {
@@ -101,6 +108,7 @@ export const describeLivecodeRuntime = rawNode => {
   if (adapter.runtime === "playcore") return "Bundled Play Core runtime";
   if (adapter.runtime === "strudel") return "Shared native Strudel scheduler";
   if (adapter.runtime === "orca") return "Native Orca grid and Drawerator MIDI routing";
+  if (adapter.runtime === "shader") return "GLSL ES 3.00 on WebGL 2";
   if (adapter.runtime === "presentation") return "Local presentation renderer";
   return "Native runtime arrives in a later phase.";
 };

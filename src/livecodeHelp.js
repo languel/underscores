@@ -76,6 +76,19 @@ export const LIVECODE_HELP = Object.freeze({
     ]),
     footer: "Linked nodes tick with Drawerator transport; Free nodes keep their own frame timer. Grid focus owns its keys and never triggers canvas shortcuts.",
   }),
+  [LIVECODE_KINDS.shader]: Object.freeze({
+    title: "GLSL shader quick reference",
+    summary: "A WebGL 2 fragment shader rendered directly into this Livecode Node.",
+    points: Object.freeze([
+      "Write a GLSL ES 3.00 fragment shader with void main(), in vec2 v_uv, and out vec4 outColor. The host supplies the full-screen vertex stage.",
+      "Choose Hello GLSL, Rainbow geometry, 2D shadows, Fluid brush, or Stokes flow from the Example menu, then edit the complete source.",
+      "Common uniforms are u_resolution, u_time, u_transportTime, u_pointer, u_pointerDown, and u_currentColor. Geometry examples also receive u_segments and u_segmentCount.",
+      "Layer places the shader above or below Excalidraw objects. Opacity and Blend provide non-destructive composition without changing the GLSL source.",
+      "The Fluid brush is a feedback shader: u_previous is the prior frame, u_delta is frame time, and u_pointerDelta carries brush motion. Scene strokes makes nearby Excalidraw paths emit and stir dye.",
+      "Linked time follows Drawerator's score; Free time advances independently. A compile error stays visible without discarding the previous working program.",
+    ]),
+    footer: "These ports preserve excalishader's four example ideas inside the editable Livecode model; the Fluid brush uses a compact ping-pong feedback pass.",
+  }),
 });
 
 export const getLivecodeHelp = kind => LIVECODE_HELP[normalizeLivecodeKind(kind)] || LIVECODE_HELP[LIVECODE_KINDS.strudel];

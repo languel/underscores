@@ -31,7 +31,7 @@ export const mapPlayCorePointerToLayout = ({ clientX, clientY, rect, layoutWidth
 });
 
 export const isPlayCoreFrameElement = element => Boolean(element?.customData?.draweratorPlayCore);
-export const shouldRenderPlayCoreFrame = element => Boolean(element && !element.isDeleted && !element.customData?.outlinerHidden && isPlayCoreFrameElement(element));
+export const shouldRenderPlayCoreFrame = element => Boolean(element && !element.isDeleted && !element.customData?.outlinerHidden && !element.customData?.presentationMaskActive && isPlayCoreFrameElement(element));
 export const canHostPlayCoreFrame = element => Boolean(element && !element.isDeleted && (isPlayCoreFrameElement(element) || ["rectangle", "frame"].includes(element.type)));
 
 export const normalizePlayCoreFrame = value => {

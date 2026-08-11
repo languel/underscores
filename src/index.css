@@ -423,6 +423,14 @@ body, html {
   background-color: var(--bg-app);
 }
 
+/* Shader underlays mirror excalishader's transparent-canvas composition:
+ * Drawerator supplies the board background, the shader paints above it, and
+ * Excalidraw's transparent drawing canvas keeps authored strokes crisp. */
+#canvas-container > .excalidraw {
+  position: relative;
+  z-index: 1;
+}
+
 /* --- OVERLAY TOGGLE BUTTONS --- */
 @keyframes slideUp {
   from { transform: translateY(12px); opacity: 0; }
@@ -2926,6 +2934,14 @@ body .excalidraw .sidebar {
   pointer-events: none;
 }
 
+.drawerator-livecode-overlay.underlay {
+  z-index: 0;
+}
+
+.drawerator-livecode-overlay.underlay .drawerator-shader-frame {
+  border-color: transparent;
+}
+
 .drawerator-livecode-node {
   position: absolute;
   box-sizing: border-box;
@@ -3041,6 +3057,44 @@ body .excalidraw .sidebar {
 .livecode-node-runtime .drawerator-play-core-host {
   width: 100%;
   height: 100%;
+}
+
+.drawerator-shader-frame,
+.drawerator-shader-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.drawerator-shader-frame {
+  position: relative;
+  overflow: hidden;
+  background: #05070d;
+}
+
+.drawerator-shader-frame.transparent-background {
+  background: transparent;
+}
+
+.drawerator-shader-canvas {
+  pointer-events: none;
+}
+
+.drawerator-shader-error {
+  position: absolute;
+  inset: auto 8px 8px;
+  z-index: 2;
+  max-height: 42%;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  color: #ffb5b5;
+  font: 11px/1.35 "Fira Mono", monospace;
+  white-space: pre-wrap;
+  background: rgb(40 7 12 / 88%);
+  border: 1px solid rgb(255 95 112 / 58%);
+  border-radius: 4px;
+  pointer-events: none;
 }
 
 .drawerator-code-editor[data-script-type="strudel"] .cm-content {
@@ -5654,7 +5708,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .outliner-name-mode:hover { color: var(--color-primary); background: var(--button-hover-bg, rgba(128,128,128,.12)); }
 .outliner-toolbar span { min-width: 24px; color: var(--color-secondary); text-align: right; }
 .outliner-list { min-height: 0; overflow: auto; }
-.outliner-row { display: grid; grid-template-columns: minmax(0, 1fr) 24px 24px 24px; align-items: center; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.13)); }
+.outliner-row { display: grid; grid-template-columns: minmax(0, 1fr) 24px 24px 24px 24px; align-items: center; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.13)); }
 .outliner-row:hover { background: var(--button-hover-bg, rgba(128,128,128,.12)); }
 .outliner-row.selected { background: var(--button-selected-bg, rgba(128,128,128,.2)); }
 .outliner-row[draggable="true"] .outliner-object { cursor: grab; }
@@ -5663,7 +5717,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .outliner-row.drop-back { box-shadow: inset 0 -2px 0 var(--color-primary, currentColor); }
 .outliner-row.drop-inside { background: color-mix(in srgb, var(--drawerator-highlight) 16%, transparent); box-shadow: inset 3px 0 0 var(--drawerator-accent); }
 .outliner-object { display: grid; grid-template-columns: 10px 22px minmax(0, 1fr); align-items: center; gap: 4px; min-width: 0; padding: 6px 8px 6px calc(8px + (var(--outliner-depth, 0) * 14px)); border: 0; background: transparent; color: var(--color-primary); text-align: left; cursor: pointer; }
-.outliner-group-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) 24px 24px 24px; align-items: center; gap: 2px; width: 100%; min-width: 0; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.13)); background: color-mix(in srgb, var(--button-hover-bg, transparent) 42%, transparent); color: var(--color-secondary); font: inherit; text-align: left; }
+.outliner-group-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) 24px 24px 24px 24px; align-items: center; gap: 2px; width: 100%; min-width: 0; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.13)); background: color-mix(in srgb, var(--button-hover-bg, transparent) 42%, transparent); color: var(--color-secondary); font: inherit; text-align: left; }
 .outliner-group-row:hover { color: var(--color-primary); background: var(--button-hover-bg, rgba(128,128,128,.12)); }
 .outliner-group-row.selected { background: var(--button-selected-bg, rgba(128,128,128,.2)); }
 .outliner-group-row[draggable="true"] .outliner-group-object { cursor: grab; }

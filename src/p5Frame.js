@@ -299,6 +299,7 @@ export const shouldRenderP5Frame = element => Boolean(
   element
   && !element.isDeleted
   && !element.customData?.outlinerHidden
+  && !element.customData?.presentationMaskActive
   && isP5FrameElement(element)
 );
 
