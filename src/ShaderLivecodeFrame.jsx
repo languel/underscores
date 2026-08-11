@@ -1,7 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import FluidShaderFrame from "./FluidShaderFrame.jsx";
 import { FLUID_BRUSH_FRAGMENT_SOURCE, SHADER_VERTEX_SOURCE } from "./shaderLivecode.js";
 import { collectShaderSceneSegments, flattenShaderSegments, MAX_SHADER_SEGMENTS } from "./shaderSceneGeometry.js";
+import { publishShaderStatus } from "./shaderStatus.js";
+
+const publishFrameStatus = (statusRef, kind, message = "") => publishShaderStatus({
+  ...statusRef.current,
+  kind,
+  message,
+});
 
 const compileShader = (gl, type, source) => {
   const shader = gl.createShader(type);
@@ -64,9 +71,16 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
   const runtimeRef = useRef(null);
   const transportRef = useRef(transport);
   const elementRef = useRef(element);
-  const [error, setError] = useState("");
+  const statusRef = useRef({});
   transportRef.current = transport;
   elementRef.current = element;
+  statusRef.current = {
+    elementId: element.id,
+    nodeId: node.nodeId,
+    label: node.name || "Shader",
+  };
+
+  useEffect(() => () => publishShaderStatus({ elementId: element.id, kind: "clear" }), [element.id]);
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
@@ -80,7 +94,7 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
       preserveDrawingBuffer: false,
     });
     if (!gl) {
-      setError("WebGL 2 is unavailable in this browser.");
+      publishFrameStatus(statusRef, "error", "WebGL 2 is unavailable in this browser.");
       return undefined;
     }
 
@@ -104,9 +118,9 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
       if (runtime.program) runtime.gl.deleteProgram(runtime.program);
       runtime.program = program;
       runtime.uniforms = uniformLocations(runtime.gl, program);
-      setError("");
+      publishFrameStatus(statusRef, "clear");
     } catch (compileError) {
-      setError(compileError instanceof Error ? compileError.message : String(compileError));
+      publishFrameStatus(statusRef, "error", compileError instanceof Error ? compileError.message : String(compileError));
     }
   }, [node.revision, node.source]);
 
@@ -220,14 +234,14 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
   }, [node.runtime.transportMode, scriptRuntimeRef]);
 
   return <div className={`drawerator-shader-frame${node.runtime.settings?.backgroundMode === "transparent" ? " transparent-background" : ""}`}>
-    <canvas ref={canvasRef} className="drawerator-shader-canvas" aria-label="GLSL shader output" />
-    {error ? <pre className="drawerator-shader-error" role="alert">{error}</pre> : null}
+    <canvas ref={canvasRef} className="drawerator-shader-canvas" aria-label="GLSL output" />
   </div>;
 }
 
 export default function ShaderLivecodeFrame(props) {
   const feedback = props.node.runtime.settings?.shaderMode === "feedback"
     || props.node.runtime.settings?.shaderExample === "fluid"
+    || props.node.runtime.settings?.shaderExample === "inkwash"
     || props.node.source === FLUID_BRUSH_FRAGMENT_SOURCE;
   return feedback ? <FluidShaderFrame {...props} /> : <FragmentShaderLivecodeFrame {...props} />;
 }

@@ -267,11 +267,112 @@ void main() {
   outColor = vec4(clamp(dye, 0.0, 1.0), 1.0);
 }`;
 
+// Compact single-pass adaptation of the Inkwash wet-pigment model. RGB stores
+// mobile absorption density and alpha stores paper wetness in the feedback
+// texture; the host display pass supplies paper grain and Beer-Lambert color.
+export const INKWASH_FRAGMENT_SOURCE = `#version 300 es
+precision highp float;
+
+#define MAX_SEGMENTS 128
+
+uniform sampler2D u_previous;
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform float u_delta;
+uniform vec2 u_pointer;
+uniform vec2 u_pointerDelta;
+uniform float u_pointerDown;
+uniform float u_brushMode;
+uniform vec4 u_currentColor;
+uniform vec4 u_segments[MAX_SEGMENTS];
+uniform float u_segmentCount;
+uniform float u_sceneInteraction;
+
+in vec2 v_uv;
+out vec4 outColor;
+
+vec2 closestPointOnSegment(vec2 point, vec2 start, vec2 end) {
+  vec2 segment = end - start;
+  return start + segment * clamp(dot(point - start, segment) / max(dot(segment, segment), 0.000001), 0.0, 1.0);
+}
+
+void main() {
+  vec2 texel = 1.0 / u_resolution;
+  vec2 aspect = vec2(u_resolution.x / max(u_resolution.y, 1.0), 1.0);
+  vec4 center = texture(u_previous, v_uv);
+  float wet = center.a;
+
+  float wetL = texture(u_previous, v_uv - vec2(texel.x, 0.0)).a;
+  float wetR = texture(u_previous, v_uv + vec2(texel.x, 0.0)).a;
+  float wetB = texture(u_previous, v_uv - vec2(0.0, texel.y)).a;
+  float wetT = texture(u_previous, v_uv + vec2(0.0, texel.y)).a;
+  vec2 wetFlow = vec2(wetR - wetL, wetT - wetB) * 0.45;
+
+  vec2 pointerDelta = (v_uv - u_pointer) * aspect;
+  float penBrush = exp(-dot(pointerDelta, pointerDelta) * 14500.0) * u_pointerDown * (1.0 - u_brushMode);
+  float waterBrush = exp(-dot(pointerDelta, pointerDelta) * 620.0) * u_pointerDown * u_brushMode;
+  vec2 pointerFlow = u_pointerDelta * waterBrush * 1.15;
+
+  float strokeInk = 0.0;
+  vec2 strokeFlow = vec2(0.0);
+  for (int index = 0; index < MAX_SEGMENTS; index++) {
+    if (float(index) >= u_segmentCount) break;
+    vec4 segment = u_segments[index];
+    vec2 nearest = closestPointOnSegment(v_uv, segment.xy, segment.zw);
+    vec2 offset = (v_uv - nearest) * aspect;
+    float influence = exp(-dot(offset, offset) * 8200.0);
+    vec2 tangent = normalize((segment.zw - segment.xy) * aspect + vec2(0.000001));
+    strokeInk = max(strokeInk, influence);
+    strokeFlow += vec2(-tangent.y, tangent.x) * influence * sin(u_time * 0.38 + float(index));
+  }
+  strokeInk *= u_sceneInteraction;
+  strokeFlow *= 0.00034 * u_sceneInteraction;
+
+  float mobility = smoothstep(0.015, 0.32, wet);
+  vec2 drift = vec2(0.00008 * sin(u_time * 0.2 + v_uv.y * 9.0), -0.000025);
+  vec2 sampleUv = clamp(v_uv - (wetFlow * texel * 3.0 + pointerFlow + strokeFlow + drift) * mobility, texel, 1.0 - texel);
+  vec3 pigment = texture(u_previous, sampleUv).rgb;
+
+  vec3 neighbors = (
+    texture(u_previous, sampleUv - vec2(texel.x, 0.0)).rgb +
+    texture(u_previous, sampleUv + vec2(texel.x, 0.0)).rgb +
+    texture(u_previous, sampleUv - vec2(0.0, texel.y)).rgb +
+    texture(u_previous, sampleUv + vec2(0.0, texel.y)).rgb
+  ) * 0.25;
+  vec3 chromatography = vec3(1.34, 1.05, 0.72);
+  pigment = mix(pigment, neighbors, clamp(mobility * u_delta * 3.2 * chromatography, 0.0, 0.32));
+
+  float freshWet = max(max(penBrush * 0.12, waterBrush * 0.72), strokeInk * 0.035);
+  wet = max(wet, freshWet);
+  wet = mix(wet, (wet + wetL + wetR + wetB + wetT) / 5.0, 0.055);
+  wet *= exp(-u_delta / 7.5);
+
+  vec3 houseInk = vec3(1.0, 0.97, 0.88);
+  vec3 selectedInk = -log(clamp(u_currentColor.rgb, vec3(0.025), vec3(0.98)));
+  selectedInk /= max(max(selectedInk.r, selectedInk.g), max(selectedInk.b, 0.25));
+  vec3 inkColor = mix(houseInk, selectedInk, 0.28);
+  float speed = length(u_pointerDelta) * 45.0;
+  float penDeposit = penBrush * u_delta * (0.42 + min(speed, 1.0) * 0.28);
+  // Scene paths continuously emit ink, but stop loading already-saturated
+  // paper. Flow and diffusion can carry pigment away and reopen capacity.
+  float pigmentLoad = max(pigment.r, max(pigment.g, pigment.b));
+  float sceneCapacity = 1.0 - smoothstep(0.16, 0.62, pigmentLoad);
+  float sceneDeposit = strokeInk * u_delta * 0.16 * sceneCapacity;
+  pigment += inkColor * (penDeposit + sceneDeposit);
+
+  // Pigment settles as the paper dries, retaining a soft dark rim.
+  float edge = length(vec2(wetR - wetL, wetT - wetB));
+  pigment *= 1.0 - u_delta * mix(0.002, 0.018, 1.0 - mobility);
+  pigment += inkColor * edge * (1.0 - mobility) * u_delta * 0.08;
+  outColor = vec4(clamp(pigment, 0.0, 3.0), clamp(wet, 0.0, 1.0));
+}`;
+
 export const SHADER_EXAMPLES = Object.freeze([
   Object.freeze({ id: "hello", label: "Hello GLSL", name: "Hello GLSL", source: HELLO_GLSL_FRAGMENT_SOURCE, mode: "fragment", summary: "Minimal animated fragment shader and uniform reference." }),
   Object.freeze({ id: "rainbow", label: "Rainbow geometry", name: "Rainbow geometry shader", source: RAINBOW_GEOMETRY_FRAGMENT_SOURCE, mode: "fragment", summary: "Distance-field rainbow bands around Drawerator scene geometry." }),
   Object.freeze({ id: "shadow", label: "2D shadows", name: "2D shadow simulation", source: SHADOW_CASTING_FRAGMENT_SOURCE, mode: "fragment", summary: "Pointer-driven 2D ray casting against Drawerator scene geometry." }),
   Object.freeze({ id: "fluid", label: "Fluid brush", name: "Fluid brush shader", source: FLUID_BRUSH_FRAGMENT_SOURCE, mode: "feedback", summary: "Interactive ping-pong GLSL dye brush with editable feedback source." }),
+  Object.freeze({ id: "inkwash", label: "Inkwash", name: "Inkwash shader", source: INKWASH_FRAGMENT_SOURCE, mode: "feedback", summary: "Wet-paper pigment feedback with drying, chromatography, grain, and edge pooling." }),
   Object.freeze({ id: "stokes", label: "Stokes flow", name: "Stokes fluid shader", source: STOKES_FLUID_FRAGMENT_SOURCE, mode: "fragment", summary: "Analytical Stokes-flow field from the first shader-node prototype." }),
 ]);
 
@@ -282,6 +383,7 @@ export const shaderExampleForSource = source => SHADER_EXAMPLES.find(example => 
 export const SHADER_COMPOSITE_MODES = Object.freeze(["overlay", "underlay"]);
 export const SHADER_BLEND_MODES = Object.freeze(["normal", "screen", "multiply", "overlay", "soft-light"]);
 export const SHADER_BACKGROUND_MODES = Object.freeze(["solid", "transparent"]);
+export const SHADER_EMITTER_SOURCES = Object.freeze(["scene", "debug"]);
 
 export const normalizeShaderCompositionSettings = value => {
   const raw = value && typeof value === "object" ? value : {};
@@ -291,6 +393,7 @@ export const normalizeShaderCompositionSettings = value => {
     blendMode: SHADER_BLEND_MODES.includes(raw.blendMode) ? raw.blendMode : "normal",
     backgroundMode: SHADER_BACKGROUND_MODES.includes(raw.backgroundMode) ? raw.backgroundMode : "solid",
     sceneInteraction: raw.sceneInteraction !== false,
+    emitterSource: SHADER_EMITTER_SOURCES.includes(raw.emitterSource) ? raw.emitterSource : "scene",
   };
 };
 

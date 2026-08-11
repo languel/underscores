@@ -1,6 +1,6 @@
 # Script Editor Architecture
 
-Last updated: 2026-07-31
+Last updated: 2026-08-11
 
 ## Scope
 
@@ -56,6 +56,13 @@ CodeMirror surface: it has a per-node grid editor whose focus captures all editi
 Canvas editors deliberately omit line numbers and fold gutters; those controls affect only the
 docked Script editor. Both surfaces inherit the same muted adaptive syntax palette and visible
 selection treatment, while the canvas relies on the Excalidraw host for its outer frame.
+
+Markdown is the intentional presentation exception. Its canvas Code view is raw source only,
+Output is a rendered document editor that reveals one source block at a time, and Code/output is
+the explicit split layout. The docked editor always remains the full canonical source editor. Its
+CodeMirror root and scroller must both fill the available panel width with `min-width: 0`; editor
+content must never retain a stale measured width that leaves an internal scrollbar in the middle
+of a resized or docked panel.
 
 Strudel additionally places public painters such as `.pianoroll()` on a node-sized canvas below the
 code overlay. The default-on **Frame** toggle registers or removes that target without recompiling

@@ -83,6 +83,21 @@ export const collectShaderSceneSegments = (elements, node, maximum = MAX_SHADER_
   return segments.length || !fallback ? segments : DEFAULT_SHADER_SEGMENTS.map(segment => [...segment]);
 };
 
+export const collectShaderWorldSegments = (worldSegments, node, maximum = MAX_SHADER_SEGMENTS) => {
+  const segments = [];
+  for (const value of worldSegments || []) {
+    if (!Array.isArray(value) || value.length < 4 || !value.slice(0, 4).every(item => Number.isFinite(Number(item)))) continue;
+    const segment = [
+      worldToNodeUv([Number(value[0]), Number(value[1])], node),
+      worldToNodeUv([Number(value[2]), Number(value[3])], node),
+    ];
+    if (!segmentNearNode(segment)) continue;
+    segments.push([segment[0][0], segment[0][1], segment[1][0], segment[1][1]]);
+    if (segments.length >= maximum) break;
+  }
+  return segments;
+};
+
 export const flattenShaderSegments = (segments, maximum = MAX_SHADER_SEGMENTS) => {
   const values = new Float32Array(maximum * 4);
   (segments || []).slice(0, maximum).forEach((segment, index) => {

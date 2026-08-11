@@ -91,6 +91,7 @@ import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLive
 import { describeLivecodeRuntime, hasNativeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
 import { getLivecodeHelp } from "./livecodeHelp.js";
 import { getShaderExample, normalizeShaderCompositionSettings, SHADER_EXAMPLES, shaderExampleForSource } from "./shaderLivecode.js";
+import { getShaderStatuses, SHADER_STATUS_EVENT } from "./shaderStatus.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
 import MediaStreamOverlay, { MediaSourceRuntimeLayer } from "./MediaStreamOverlay.jsx";
 import { HolisticPanel, MediaInputPanel } from "./MediaStreamPanels.jsx";
@@ -438,6 +439,42 @@ const colorWithOpacity = (color, opacity) => {
   return `rgba(${resolved.red}, ${resolved.green}, ${resolved.blue}, ${alpha})`;
 };
 
+// Excalidraw filters authored canvas marks in dark mode, while its laser
+// overlay and our custom cursor remain unfiltered. Convert canvas-derived
+// laser tokens to the color that is actually visible on the canvas.
+const canvasDisplayColor = (color, theme) => {
+  const resolved = resolveCssColor(color);
+  if (!resolved || theme !== "dark") return color;
+  const invertAmount = 0.93;
+  const inverted = [resolved.red, resolved.green, resolved.blue]
+    .map(channel => invertAmount + (1 - 2 * invertAmount) * channel / 255);
+  const hue180 = [
+    [-0.574, 1.43, 0.144],
+    [0.426, 0.43, 0.144],
+    [0.426, 1.43, -0.856],
+  ];
+  const transformed = hue180.map(row => row.reduce(
+    (sum, coefficient, index) => sum + coefficient * inverted[index],
+    0,
+  ));
+  const [red, green, blue] = transformed.map(channel => Math.round(
+    Math.min(1, Math.max(0, channel)) * 255,
+  ));
+  return `rgba(${red}, ${green}, ${blue}, ${resolved.alpha})`;
+};
+
+const resolveLaserColorToken = (value, palette) => {
+  const token = String(value || "").trim().toLowerCase();
+  return palette[token] || value || "#ff0000";
+};
+
+const laserCursorForColor = color => {
+  const resolved = resolveCssColor(color) || { red: 255, green: 0, blue: 0 };
+  const stroke = `rgba(${resolved.red}, ${resolved.green}, ${resolved.blue}, ${resolved.alpha ?? 1})`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="${stroke}" stroke-width="1.35"/><circle cx="12" cy="12" r="2.25" fill="${stroke}"/></svg>`;
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 12 12, crosshair`;
+};
+
 // Excalidraw filters its entire drawing canvas in dark mode. Pre-transform the
 // authored canvas color so the visible result still matches the theme swatch.
 const canvasColorForExcalidraw = (color, opacity, theme) => {
@@ -755,6 +792,7 @@ const ScriptActionIcon = ({ type }) => {
     add: <><path d="M12 5v14M5 12h14"/></>,
     remove: <><path d="M5 7h14M9 7V4h6v3M8 7l1 13h6l1-13"/></>,
     import: <><path d="M4 19h16M12 4v10M8 10l4 4 4-4"/></>,
+    frame: <><path d="M9 5H5v4M15 5h4v4M19 15v4h-4M9 19H5v-4"/><circle cx="12" cy="12" r="2"/></>,
   };
   return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[type]}</svg>;
 };
@@ -2239,6 +2277,8 @@ function App() {
   const [autoKeyEnabled, setAutoKeyEnabled] = useState(false);
   const [sessionPlaybackOverlay, setSessionPlaybackOverlay] = useState([]);
   const [theme, setTheme] = useState(() => localStorage.getItem("drawerator_theme") || "dark");
+  const [laserToolActive, setLaserToolActive] = useState(false);
+  const [laserCursorExitGuard, setLaserCursorExitGuard] = useState(false);
   const [transparentBoardExport, setTransparentBoardExport] = useState(() => localStorage.getItem("drawerator_export_transparent") === "true");
   const defaultInterfaceThemePreset = theme === "light" ? "monoLight" : DEFAULT_INTERFACE_THEME_PRESET;
   const [globalGrid, setGlobalGrid] = useState(() => {
@@ -2270,6 +2310,9 @@ function App() {
   const [foregroundOpacity, setForegroundOpacity] = useState(() => Number(localStorage.getItem("drawerator_foreground_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].foreground.opacity));
   const [mutedColor, setMutedColor] = useState(() => localStorage.getItem("drawerator_muted_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].muted.color);
   const [mutedOpacity, setMutedOpacity] = useState(() => Number(localStorage.getItem("drawerator_muted_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].muted.opacity));
+  const [laserColor, setLaserColor] = useState(() => localStorage.getItem("drawerator_laser_color") || "#ff0000");
+  const [laserOpacity, setLaserOpacity] = useState(() => Number(localStorage.getItem("drawerator_laser_opacity") || 100));
+  const [canvasDrawingStyle, setCanvasDrawingStyle] = useState({ stroke: "#1e1e1e", fill: "transparent", strokeWidth: 1 });
   const [interfaceThemePreset, setInterfaceThemePreset] = useState(() => localStorage.getItem("drawerator_interface_theme_preset") || defaultInterfaceThemePreset);
   const [interfaceTheme, setInterfaceTheme] = useState(() => {
     try {
@@ -2539,6 +2582,7 @@ function App() {
   };
   const [brushChannels, setBrushChannels] = useState(() => normalizeBrushChannels(DEFAULT_BRUSH_CHANNELS));
   const [inputStreamStatuses, setInputStreamStatuses] = useState({});
+  const [shaderDiagnostics, setShaderDiagnostics] = useState(getShaderStatuses);
   const [activeMediaSourceId, setActiveMediaSourceId] = useState("");
   const [mediaActorsArmed, setMediaActorsArmed] = useState(() => (
     localStorage.getItem(MEDIA_ACTORS_ARMED_STORAGE_KEY) === "true"
@@ -2559,6 +2603,17 @@ function App() {
     channelStatus: brushChannelStatus,
     inputStatuses: inputStreamStatuses,
   }), [brushChannels, brushChannelStatus, inputStreamStatuses]);
+  const consoleDisplayStatus = useMemo(() => [
+    ...consoleLiveStatus,
+    ...Object.values(shaderDiagnostics).map(diagnostic => ({
+      id: `shader:${diagnostic.elementId}`,
+      category: "shader",
+      label: diagnostic.label || "Shader",
+      state: "error",
+      tone: "error",
+      detail: diagnostic.message,
+    })),
+  ], [consoleLiveStatus, shaderDiagnostics]);
   useEffect(() => {
     const previous = consoleStatusSignaturesRef.current;
     const changed = changedConsoleStatusRows(previous, consoleLiveStatus);
@@ -2573,6 +2628,12 @@ function App() {
       detail: row.detail,
     }, { source: "status", transportTime: scoreTimeRef.current }));
   }, [consoleLiveStatus, eventBus]);
+  useEffect(() => {
+    const receiveShaderStatus = () => setShaderDiagnostics(getShaderStatuses());
+    window.addEventListener(SHADER_STATUS_EVENT, receiveShaderStatus);
+    receiveShaderStatus();
+    return () => window.removeEventListener(SHADER_STATUS_EVENT, receiveShaderStatus);
+  }, []);
   useEffect(() => {
     const relayMediaStatus = event => {
       const detail = event.detail || {};
@@ -3340,6 +3401,8 @@ function App() {
       && normalizeShaderCompositionSettings(node.runtime.settings).compositeMode === "underlay";
   }), [livecodeOverlayScene.elements]);
   const [livecodeEditorId, setLivecodeEditorId] = useState(null);
+  const [editingLivecodeNameId, setEditingLivecodeNameId] = useState(null);
+  const [livecodeNameDraft, setLivecodeNameDraft] = useState("");
   const [livecodeCanvasEditorId, setLivecodeCanvasEditorId] = useState(null);
   const [livecodeCanvasFocusRequest, setLivecodeCanvasFocusRequest] = useState(0);
   const [livecodeStatus, setLivecodeStatus] = useState("");
@@ -3753,6 +3816,7 @@ function App() {
     ));
     return matches.length === 1 ? matches[0] : null;
   }, [livecodeOverlayScene.elements, selectedElementIds]);
+  const physicsDebugSegmentsRef = useRef([]);
   const scriptRuntimeRef = useRef({});
   const scriptCanvasApiRef = useRef(null);
   scriptRuntimeRef.current = {
@@ -3760,6 +3824,9 @@ function App() {
     getStreams: ownerId => mediaStreamsApiRef.current.forOwner?.(ownerId) || mediaStreamsApiRef.current,
     disposeStreamsOwner: ownerId => mediaStreamsApiRef.current.removeOwner?.(ownerId),
     getElements: () => excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || [],
+    getPhysicsDebugSegments: () => physicsDebug.enabled === true && relationshipGraph.systems.length > 0
+      ? physicsDebugSegmentsRef.current
+      : [],
     getSelectedIds: () => Object.entries(selectedElementIdsRef.current || {})
       .filter(([, selected]) => selected)
       .map(([id]) => id),
@@ -5713,6 +5780,33 @@ function App() {
   const livePointsRef = useRef([]);
   const rawCursorRef = useRef(null);
   const lastCanvasPointerRef = useRef(null);
+  const laserWasActiveRef = useRef(false);
+
+  useLayoutEffect(() => {
+    const wasActive = laserWasActiveRef.current;
+    laserWasActiveRef.current = laserToolActive;
+    if (!wasActive || laserToolActive) return undefined;
+    // Excalidraw refreshes its inline cursor on the next pointer movement.
+    // Cover that handoff for two frames so its stock Laser cursor cannot flash
+    // between our override disappearing and the next tool cursor taking over.
+    setLaserCursorExitGuard(true);
+    const firstFrame = window.requestAnimationFrame(() => {
+      const point = lastCanvasPointerRef.current;
+      if (point) {
+        const target = document.elementFromPoint(point[0], point[1]);
+        target?.dispatchEvent(new PointerEvent("pointermove", {
+          bubbles: true,
+          clientX: point[0],
+          clientY: point[1],
+          pointerId: 1,
+          pointerType: "mouse",
+          isPrimary: true,
+        }));
+      }
+      window.requestAnimationFrame(() => setLaserCursorExitGuard(false));
+    });
+    return () => window.cancelAnimationFrame(firstFrame);
+  }, [laserToolActive]);
   const commandObjectHitCycleRef = useRef(null);
   const wasShiftHeldRef = useRef(false);
   const strokeStartTimeRef = useRef(0);
@@ -6011,6 +6105,7 @@ function App() {
 
   const handleCanvasDoubleClick = e => {
     if (e.target?.closest?.(".drawerator-code-editor")) return;
+    if (e.target?.closest?.(".livecode-markdown.editable")) return;
     if (enterLivecodeEditAtPointer(e)) return;
     if (insertSvgPathAnchorAtPointer(e)) return;
     enterBezierEditAtPointer(e);
@@ -8428,6 +8523,11 @@ function App() {
   useEffect(() => {
     localStorage.setItem("drawerator_export_transparent", String(transparentBoardExport));
   }, [transparentBoardExport]);
+
+  useEffect(() => {
+    localStorage.setItem("drawerator_laser_color", laserColor);
+    localStorage.setItem("drawerator_laser_opacity", String(laserOpacity));
+  }, [laserColor, laserOpacity]);
 
   useEffect(() => {
     localStorage.setItem("drawerator_interface_theme", JSON.stringify(interfaceTheme));
@@ -14403,6 +14503,7 @@ function App() {
           compositeOpacity: 1,
           blendMode: "normal",
           sceneInteraction: true,
+          emitterSource: "scene",
         } : undefined,
       },
       view: args.view || (shaderDefaults ? "preview" : undefined),
@@ -18786,6 +18887,14 @@ function App() {
     const shaderComposition = normalizeShaderCompositionSettings(node.runtime.settings);
     const help = getLivecodeHelp(node.kind);
     const parameters = parseScriptParameters(node.source, { values: node.parameters });
+    const beginLivecodeRename = () => {
+      setLivecodeNameDraft(node.name || definition.label);
+      setEditingLivecodeNameId(nodeElement.id);
+    };
+    const commitLivecodeRename = () => {
+      renameSceneElement(nodeElement.id, livecodeNameDraft);
+      setEditingLivecodeNameId(null);
+    };
     const selectNode = elementId => {
       const api = excalidrawAPIRef.current;
       if (!api) return;
@@ -18794,13 +18903,50 @@ function App() {
       setSelectedElementIds({ [elementId]: true });
       setLivecodeEditorId(elementId);
     };
+    const frameLivecodeNode = () => {
+      const api = excalidrawAPIRef.current;
+      if (!api) return;
+      const element = (api.getSceneElementsIncludingDeleted?.() || api.getSceneElements())
+        .find(candidate => candidate.id === nodeElement.id && !candidate.isDeleted);
+      if (!element) return;
+      selectNode(element.id);
+      api.scrollToContent([element], { fitToContent: true, animate: true });
+    };
     return <div className="iannix-properties iannix-script-pane p5-script-pane livecode-script-pane">
-      <select className="custom-brush-select" value={nodeElement.id} onChange={event => selectNode(event.target.value)} aria-label="Livecode node">
-        {livecodeOverlayScene.elements.map(element => {
-          const candidate = normalizeLivecodeNode(element.customData?.draweratorLivecode);
-          return <option key={element.id} value={element.id}>{getLivecodeKindDefinition(candidate.kind).label} · {candidate.name}</option>;
-        })}
-      </select>
+      <div className="livecode-node-selector-row">
+        {editingLivecodeNameId === nodeElement.id ? <input
+          type="text"
+          className="custom-brush-select"
+          value={livecodeNameDraft}
+          onChange={event => setLivecodeNameDraft(event.target.value)}
+          onBlur={commitLivecodeRename}
+          onKeyDown={event => {
+            if (event.key === "Enter") { event.preventDefault(); commitLivecodeRename(); }
+            if (event.key === "Escape") { event.preventDefault(); setEditingLivecodeNameId(null); }
+          }}
+          aria-label="Livecode node name"
+          autoFocus
+        /> : <select
+          className="custom-brush-select"
+          value={nodeElement.id}
+          onChange={event => selectNode(event.target.value)}
+          onKeyDown={event => { if (event.key === "F2") { event.preventDefault(); beginLivecodeRename(); } }}
+          onDoubleClick={event => { event.preventDefault(); beginLivecodeRename(); }}
+          aria-label="Livecode node"
+        >
+          {livecodeOverlayScene.elements.map(element => {
+            const candidate = normalizeLivecodeNode(element.customData?.draweratorLivecode);
+            return <option key={element.id} value={element.id}>{candidate.name} · {getLivecodeKindDefinition(candidate.kind).label}</option>;
+          })}
+        </select>}
+        <button
+          type="button"
+          className="palette-action-btn secondary livecode-frame-node-button"
+          onClick={frameLivecodeNode}
+          title="Frame this Livecode node"
+          aria-label="Frame selected Livecode node"
+        ><ScriptActionIcon type="frame" /></button>
+      </div>
       <div className="livecode-panel-controls">
         <label>Kind <select value={node.kind} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { kind: event.target.value, name: defaultLivecodeName(event.target.value) }, { commitToHistory: true })}>{Object.entries(LIVECODE_KINDS).map(([key, value]) => <option key={key} value={value}>{getLivecodeKindDefinition(value).label}</option>)}</select></label>
         {node.kind === LIVECODE_KINDS.orca
@@ -18821,7 +18967,8 @@ function App() {
         {node.kind === LIVECODE_KINDS.shader && <label>Opacity % <NumericInput min="0" max="100" step="5" value={Math.round(shaderComposition.compositeOpacity * 100)} defaultValue={100} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeOpacity: value / 100 } } }, { commitToHistory: true })} /></label>}
         {node.kind === LIVECODE_KINDS.shader && <label>Blend <select value={shaderComposition.blendMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { blendMode: event.target.value } } }, { commitToHistory: true })}><option value="normal">Normal</option><option value="screen">Screen</option><option value="multiply">Multiply</option><option value="overlay">Overlay</option><option value="soft-light">Soft light</option></select></label>}
         {node.kind === LIVECODE_KINDS.shader && <label>Background <select value={shaderComposition.backgroundMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { backgroundMode: event.target.value } } }, { commitToHistory: true })}><option value="solid">Solid</option><option value="transparent">Transparent</option></select></label>}
-        {node.kind === LIVECODE_KINDS.shader && shaderExample?.id === "fluid" && <label title="Use nearby Excalidraw paths as continuously emitting flow fields">Scene strokes <span className="livecode-checkbox"><input type="checkbox" checked={shaderComposition.sceneInteraction} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { sceneInteraction: event.target.checked } } }, { commitToHistory: true })} />Interact</span></label>}
+        {node.kind === LIVECODE_KINDS.shader && shaderExample?.id === "inkwash" && <label title="Choose whether ink is emitted by authored Excalidraw paths or only by currently visible physics diagnostics">Emitters <select value={shaderComposition.emitterSource} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { emitterSource: event.target.value } } }, { commitToHistory: true })}><option value="scene">Scene objects</option><option value="debug">Physics debug</option></select></label>}
+        {node.kind === LIVECODE_KINDS.shader && ["fluid", "inkwash"].includes(shaderExample?.id) && <label title="Enable the selected geometry source as a continuously emitting flow field">Emission <span className="livecode-checkbox"><input type="checkbox" checked={shaderComposition.sceneInteraction} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { sceneInteraction: event.target.checked } } }, { commitToHistory: true })} />Enabled</span></label>}
         <label>Clock <select value={node.runtime.transportMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { transportMode: event.target.value } }, { commitToHistory: true })}><option value="linked">Linked</option><option value="free">Free</option></select></label>
         {node.kind === LIVECODE_KINDS.strudel && <label>Transport <span className="livecode-checkbox"><input type="checkbox" checked={Boolean(node.runtime.settings?.syncTransport)} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { syncTransport: event.target.checked } } }, { commitToHistory: true })} />Full sync</span></label>}
         {node.kind === LIVECODE_KINDS.strudel && <label title="Render public Strudel visualizers such as .pianoroll() across this node frame">Visuals <span className="livecode-checkbox"><input type="checkbox" aria-label="Strudel frame visuals" checked={node.runtime.settings?.frameVisuals !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { frameVisuals: event.target.checked } } }, { commitToHistory: true })} />Frame</span></label>}
@@ -20752,6 +20899,18 @@ function App() {
   const applyInterfaceThemePreset = presetId => {
     applyDraweratorThemePreset(presetId);
   };
+  const resolvedLaserColor = resolveLaserColorToken(laserColor, {
+    stroke: canvasDisplayColor(canvasDrawingStyle.stroke, theme),
+    fill: canvasDisplayColor(canvasDrawingStyle.fill, theme),
+    accent: colorWithOpacity(accentColor, accentOpacity),
+    highlight: colorWithOpacity(highlightColor, highlightOpacity),
+    foreground: colorWithOpacity(foregroundColor, foregroundOpacity),
+    muted: colorWithOpacity(mutedColor, mutedOpacity),
+    canvas: colorWithOpacity(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity),
+    panel: colorWithOpacity(interfaceTheme.panel.color, interfaceTheme.panel.opacity),
+    grid: colorWithOpacity(interfaceTheme.grid.color, Math.round(globalGrid.appearance.opacity * 100)),
+  });
+  const renderedLaserColor = colorWithOpacity(resolvedLaserColor, laserOpacity);
   const resetBoardSettingsToDefaults = () => {
     applyingRecordedUiStateRef.current = true;
     presentationWorkspaceRef.current = null;
@@ -20779,6 +20938,8 @@ function App() {
     setDefaultStabilizerDamping(0.12);
     setScriptEditorTheme("drawerator");
     setTransparentBoardExport(false);
+    setLaserColor("#ff0000");
+    setLaserOpacity(100);
     setGlobalRoundness(false);
     setCustomBrushRoundness(false);
     setCustomBrushActive(false);
@@ -20790,6 +20951,8 @@ function App() {
     localStorage.setItem("drawerator_show_debug_layer", "false");
     localStorage.setItem("drawerator_default_stabilizer_damping", "0.12");
     localStorage.setItem("drawerator_export_transparent", "false");
+    localStorage.setItem("drawerator_laser_color", "#ff0000");
+    localStorage.setItem("drawerator_laser_opacity", "100");
     localStorage.setItem(CUSTOM_BRUSH_ROUNDNESS_STORAGE_KEY, "false");
     localStorage.setItem(DRAWING_ROUNDNESS_STORAGE_KEY, "0");
     localStorage.setItem("drawerator_presentation_mode", "false");
@@ -21015,6 +21178,24 @@ function App() {
                 </div>
               </label>
             ))}
+            <label className="settings-panel-field" {...infoProps("Laser color", `Color used by your non-destructive Excalidraw laser trail and its circled-dot tool icon. Enter stroke or fill to follow the active canvas style; accent, highlight, foreground, muted, canvas, panel, and grid follow the live theme. Collaborators keep their individual laser colors. ${CSS_COLOR_HELP}`)}>
+              <span>Laser color</span>
+              <div className="settings-color-control" {...infoProps("Laser color", "Use a CSS color or one of: stroke, fill, accent, highlight, foreground, muted, canvas, panel, grid.")}>
+                <input type="color" value={colorInputHex(resolvedLaserColor)} style={{ backgroundColor: renderedLaserColor }} onChange={event => setLaserColor(event.target.value)} aria-label="Laser color picker" {...infoProps("Laser color", CSS_COLOR_HELP)} />
+                <input key={laserColor} type="text" defaultValue={laserColor} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => {
+                  const value = event.currentTarget.value.trim();
+                  const validToken = ["stroke", "fill", "accent", "highlight", "foreground", "muted", "canvas", "panel", "grid"].includes(value.toLowerCase());
+                  if (validToken || isCssColor(value)) setLaserColor(value);
+                  else event.currentTarget.value = laserColor;
+                }} onKeyDown={event => {
+                  if (event.key !== "Enter") return;
+                  event.preventDefault();
+                  event.currentTarget.blur();
+                }} aria-label="Laser color value" {...infoProps("Laser color", "Use a CSS color or one of: stroke, fill, accent, highlight, foreground, muted, canvas, panel, grid.")} />
+                <NumericInput min="0" max="100" step="1" data-default="100" value={laserOpacity} defaultValue={100} onCommit={setLaserOpacity} aria-label="Laser opacity" />
+                <output>%</output>
+              </div>
+            </label>
             {[
               ["panel", "Panel background", "Background shared by docked and floating Drawerator panels."],
               ["input", "Input field", "Background used by number boxes, text fields, dropdowns, and other editable controls."],
@@ -21876,12 +22057,15 @@ function App() {
   return (
     <div 
       id="root" 
-      className={`drawerator-shell drawerator-theme-${theme} ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} ${leftDockOpen ? "left-sidebar-open" : ""} ${rightDockOpen ? "right-sidebar-open" : ""} ${bottomDockOpen ? "horizontal-dock-open" : ""} ${collapsedDocks.bottom ? "bottom-dock-collapsed" : ""} ${draggingPanelId || transportDragging ? "panel-is-dragging" : ""}`}
+      className={`drawerator-shell drawerator-theme-${theme} ${laserToolActive ? "laser-tool-active" : ""} ${laserCursorExitGuard ? "laser-cursor-exit-guard" : ""} ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} ${leftDockOpen ? "left-sidebar-open" : ""} ${rightDockOpen ? "right-sidebar-open" : ""} ${bottomDockOpen ? "horizontal-dock-open" : ""} ${collapsedDocks.bottom ? "bottom-dock-collapsed" : ""} ${draggingPanelId || transportDragging ? "panel-is-dragging" : ""}`}
       style={{
         "--drawerator-accent": colorWithOpacity(accentColor, accentOpacity),
         "--drawerator-highlight": colorWithOpacity(highlightColor, highlightOpacity),
         "--drawerator-foreground": colorWithOpacity(foregroundColor, foregroundOpacity),
         "--drawerator-muted": colorWithOpacity(mutedColor, mutedOpacity),
+        "--drawerator-laser-color": renderedLaserColor,
+        "--drawerator-laser-cursor": laserCursorForColor(renderedLaserColor),
+        "--drawerator-laser-width": String(Math.max(0.25, canvasDrawingStyle.strokeWidth * 4.25)),
         "--drawerator-panel-bg": colorWithOpacity(interfaceTheme.panel.color, interfaceTheme.panel.opacity),
         "--drawerator-input-bg": colorWithOpacity(interfaceTheme.input.color, interfaceTheme.input.opacity),
         "--drawerator-timeline-lane-bg": colorWithOpacity(interfaceTheme.timeline.color, interfaceTheme.timeline.opacity),
@@ -22526,6 +22710,25 @@ function App() {
             if (appState.currentItemStrokeColor && appState.currentItemStrokeColor !== "transparent") {
               lastStrokeColorRef.current = appState.currentItemStrokeColor;
             }
+            const nextLaserToolActive = appState.activeTool?.type === "laser";
+            setLaserToolActive(previous => previous === nextLaserToolActive ? previous : nextLaserToolActive);
+            // Laser has its own internal defaults. Preserve the last authored
+            // canvas style while Laser is active so its color and width track
+            // the pen the user is returning to, not those tool defaults.
+            if (!nextLaserToolActive) {
+              const nextCanvasDrawingStyle = {
+                stroke: appState.currentItemStrokeColor || "#1e1e1e",
+                fill: appState.currentItemBackgroundColor || "transparent",
+                strokeWidth: Number(appState.currentItemStrokeWidth) || 1,
+              };
+              setCanvasDrawingStyle(previous => (
+                previous.stroke === nextCanvasDrawingStyle.stroke
+                && previous.fill === nextCanvasDrawingStyle.fill
+                && previous.strokeWidth === nextCanvasDrawingStyle.strokeWidth
+                  ? previous
+                  : nextCanvasDrawingStyle
+              ));
+            }
             if (!applyingRecordedUiStateRef.current && appState.theme && appState.theme !== theme) {
               // Excalidraw's native theme shortcut only changes its color mode.
               // Keep Drawerator's surface palette paired with that mode instead.
@@ -23128,7 +23331,7 @@ function App() {
               eventBus={eventBus}
               commandRegistry={commandRegistry}
               transportTime={scoreTime}
-              liveStatus={consoleLiveStatus}
+              liveStatus={consoleDisplayStatus}
               showPerformanceMonitor={!presentationMode && showPerformanceOverlay && performanceOverlayPlacement === "console"}
               onPerformancePlacementChange={updatePerformancePlacement}
               onPerformanceClose={() => updatePerformanceVisibility(false)}
@@ -24163,6 +24366,7 @@ function App() {
           }}
           selectedElementIds={selectedElementIds}
           debug={physicsDebug}
+          onDebugGeometry={segments => { physicsDebugSegmentsRef.current = segments; }}
           onRenderMetric={renderMs => draweratorPerformanceMonitor.recordPhysics({ renderMs })}
         /> : null}
 

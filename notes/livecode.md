@@ -1,6 +1,6 @@
 # Livecode canvas nodes
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
 ## What a node is
 
@@ -20,7 +20,7 @@ Create a node from **New Livecode Node**, `/live`, the command palette, or `live
 | `kind`, `name`, `source` | Adapter id, readable name, and canonical source text. |
 | `parameters` | Persisted `@param` values. |
 | `runtime` | `enabled`, `running`, `transportMode` (`linked` or `free`), and adapter settings such as Strudel's default-on `frameVisuals`. |
-| `view` | Scene-persisted `code` (overlay), `preview` (output), or `split` (`code/output`) surface choice. |
+| `view` | Scene-persisted `code`, `preview` (output), or `split` (`code/output`) surface choice. Code is normally a live overlay; Markdown deliberately uses a raw-source-only Code view. |
 | `typography` | Font, size, line height, weight, tracking, line-number/fold-gutter toggles, overlay opacity, and glyph-only overlay preference. |
 
 Source is always owned by the node. The canvas editor and the Script panel use the same CodeMirror controller; a valid edit updates the runtime, while adapters that can compile preserve their last working output when a draft is invalid.
@@ -33,11 +33,12 @@ The global CodeMirror palette still controls editor syntax colors and surfaces. 
 
 ## Editing and views
 
-- **Code** is a live code overlay: the runtime stays visible while source is shown or edited above it. Press **Enter** on a selected node to enter this view and focus its canvas editor.
-- **Output** shows the runtime only. **Code/output** is the deliberate split view. Use **Cmd/Ctrl+Shift+Enter** while a node editor has focus to cycle these views; Orca is code/grid only because its code is its output.
+- **Code** is normally a live code overlay: the runtime stays visible while source is shown or edited above it. Press **Enter** on a selected node to enter this view and focus its canvas editor. Markdown is the deliberate exception: Code shows raw Markdown only, without a rendered layer underneath it.
+- **Output** shows the runtime only. Markdown Output is also its document editor: double-click a rendered block to edit that block's exact source, click another block to move the edit session, or click below the final block to append a paragraph. Blank lines and separators remain part of the canonical source. **Code/output** is the deliberate explicit split view. Use **Cmd/Ctrl+Shift+Enter** while a node editor has focus to cycle these views; Orca is code/grid only because its code is its output.
 - **Cmd/Ctrl+Enter** runs the current node. **Ctrl+M, then L** is CodeMirror's line-number toggle. The panel also exposes line numbers and the folding gutter; both default off for canvas Livecode Nodes.
 - **Glyphs only** is on by default for Code overlay. Its opacity is painted behind non-whitespace source runs only, leaving blank character areas transparent so the running output remains visible. Turn it off for one continuous code surface.
 - Markdown output scrolls vertically and horizontally inside its node whenever it exceeds the available node bounds; scrolling is contained within the node.
+- The Script panel selector lists the node name before its kind. Double-click the name or press **F2** to rename it, and use the adjacent frame button to select and frame that node on the canvas.
 
 ## Runtime kinds
 
@@ -55,11 +56,11 @@ The p5 Livecode flow is the currently polished runtime path: concurrent nodes, c
 
 ### GLSL shaders
 
-GLSL Shader nodes run editable GLSL ES 3.00 fragment programs in WebGL 2. `/shader hello`, `/shader rainbow`, `/shader shadow`, `/shader fluid`, and `/shader stokes` create the bundled examples. Hello is the minimal shader contract; Rainbow and 2D Shadows consume nearby Drawerator path segments; Fluid Brush is a stateful ping-pong feedback pass whose dye can be driven by the pointer and scene strokes; Stokes is an analytical flow field. Each node keeps its source, running state, clock, example identity, and composition settings in `runtime.settings`.
+GLSL nodes run editable GLSL ES 3.00 fragment programs in WebGL 2. `/shader hello`, `/shader rainbow`, `/shader shadow`, `/shader fluid`, and `/shader stokes` create the original bundled examples. The Example menu also includes Inkwash without adding another slash command. Hello is the minimal shader contract; Rainbow and 2D Shadows consume nearby Drawerator path segments; Fluid Brush is a stateful ping-pong feedback pass whose dye can be driven by the pointer and scene strokes; Stokes is an analytical flow field. Inkwash is a finer feedback brush whose ink can come from authored objects, the pointer, or the runtime-only physics debug drawings; **Cmd/Ctrl-drag** supplies its wash/smear interaction without conflicting with Excalidraw's right-button canvas gesture. Each node keeps its source, running state, clock, example identity, and composition settings in `runtime.settings`.
 
 Shader output can render **Above objects** or **Below objects**. The latter uses a dedicated underlay beneath Excalidraw while keeping the drawing canvas transparent, so authored strokes remain crisp over the shader. Per-node opacity and CSS blend modes (`normal`, `screen`, `multiply`, `overlay`, and `soft-light`) apply without changing the source. **Background → Transparent** gives the WebGL canvas a real alpha channel: the Fluid example derives alpha from dye density instead of painting its dark display background, while custom fragment shaders can author alpha directly in `outColor`. **Solid** remains the compatibility default.
 
-The shader renderer caps feedback buffers at 1024 px per axis, skips offscreen animation work, caches converted scene segments, and recompiles only when source changes. Shader nodes are live DOM/WebGL surfaces rather than deterministic Excalidraw raster data; export/capture support remains a later integration step.
+The shader renderer caps feedback buffers at 1024 px per axis, skips offscreen animation work, caches converted scene segments, and recompiles only when source changes. A failed shader edit is reported in the Console's Live status stream while the node keeps its last successfully compiled frame; compiler text never replaces the canvas output. Shader nodes are live DOM/WebGL surfaces rather than deterministic Excalidraw raster data; export/capture support remains a later integration step.
 
 ### Strudel
 
@@ -101,7 +102,7 @@ a lexical runtime binding, not a `window.__` global. Sandboxed HTML keeps its na
 
 ### Markdown and LaTeX
 
-Markdown renders locally with KaTeX inline (`$…$`) and display (`$$…$$`) mathematics. Active markup is removed from Markdown output. Markdown is scrollable within a constrained node. A LaTeX node accepts ordinary text plus inline `$…$` or `\\(…\\)` and display `$$…$$` or `\\[…\\]` delimiters; bare text is not implicitly treated as an equation. Both surfaces are deterministic DOM renderers suitable for live presentation and capture.
+Markdown renders locally with KaTeX inline (`$…$`) and display (`$$…$$`) mathematics. Active markup is removed from Markdown output. In Output view it behaves as a compact rendered document editor: only the active block reveals its source, and leaving edit mode restores the rendered block without normalizing blank lines. Code view is raw source only, while Code/output remains the explicit source-and-preview layout. Markdown is scrollable within a constrained node. A LaTeX node accepts ordinary text plus inline `$…$` or `\\(…\\)` and display `$$…$$` or `\\[…\\]` delimiters; bare text is not implicitly treated as an equation. Both surfaces are deterministic DOM renderers suitable for live presentation and capture.
 
 ### HTML
 

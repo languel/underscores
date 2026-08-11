@@ -428,7 +428,10 @@ body, html {
  * Excalidraw's transparent drawing canvas keeps authored strokes crisp. */
 #canvas-container > .excalidraw {
   position: relative;
-  z-index: 1;
+  /* Do not isolate Excalidraw in a low stacking context: its panels and tool
+     chrome need to rise above sibling canvas overlays. DOM order still keeps
+     the transparent drawing surface above shader underlays. */
+  z-index: auto;
 }
 
 /* --- OVERLAY TOGGLE BUTTONS --- */
@@ -2904,7 +2907,9 @@ body .excalidraw .sidebar {
 }
 
 .drawerator-code-editor .cm-editor {
+  width: 100%;
   height: 100%;
+  min-width: 0;
   min-height: 0;
   color: var(--color-primary);
   background: transparent;
@@ -2912,6 +2917,8 @@ body .excalidraw .sidebar {
 }
 
 .drawerator-code-editor .cm-scroller {
+  width: 100%;
+  min-width: 0;
   overflow: auto;
   font-family: var(--livecode-font-family, ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace);
   font-size: var(--script-editor-font-size, 12px);
@@ -2928,7 +2935,9 @@ body .excalidraw .sidebar {
 
 .drawerator-livecode-overlay {
   position: absolute;
-  z-index: 3;
+  /* Keep livecode above Excalidraw's drawing surface, but below Drawerator
+     panels and canvas toolbars (which use higher sibling layers). */
+  z-index: 2;
   inset: 0;
   overflow: hidden;
   pointer-events: none;
@@ -3080,23 +3089,6 @@ body .excalidraw .sidebar {
   pointer-events: none;
 }
 
-.drawerator-shader-error {
-  position: absolute;
-  inset: auto 8px 8px;
-  z-index: 2;
-  max-height: 42%;
-  margin: 0;
-  padding: 8px;
-  overflow: auto;
-  color: #ffb5b5;
-  font: 11px/1.35 "Fira Mono", monospace;
-  white-space: pre-wrap;
-  background: rgb(40 7 12 / 88%);
-  border: 1px solid rgb(255 95 112 / 58%);
-  border-radius: 4px;
-  pointer-events: none;
-}
-
 .drawerator-code-editor[data-script-type="strudel"] .cm-content {
   padding-bottom: 20px;
 }
@@ -3166,6 +3158,69 @@ body .excalidraw .sidebar {
 .livecode-markdown :is(h1, h2, h3, h4, h5, h6) { font-family: var(--font-sans); }
 .livecode-markdown code,
 .livecode-latex-error { font-family: var(--font-mono); }
+
+.livecode-markdown-block {
+  min-width: 0;
+  border-radius: 3px;
+}
+
+.livecode-markdown-block > :first-child { margin-top: 0; }
+.livecode-markdown-block > :last-child { margin-bottom: 0; }
+
+/* Each wrapper corresponds to a Markdown block separated in the source.
+   Preserve that document rhythm after moving the rendered elements into
+   individually editable wrappers. */
+.livecode-markdown-block + .livecode-markdown-block {
+  margin-top: 0.9em;
+}
+
+.livecode-markdown.editable .livecode-markdown-block:not(.editing) {
+  cursor: text;
+}
+
+.livecode-markdown.editable .livecode-markdown-block:not(.editing):hover {
+  outline: 1px solid color-mix(in srgb, var(--drawerator-accent, currentColor) 32%, transparent);
+  outline-offset: 3px;
+}
+
+.livecode-markdown.document-editing .livecode-markdown-block:not(.editing) {
+  cursor: text;
+}
+
+.livecode-markdown-block.editing textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 1.45em;
+  margin: 0;
+  padding: 0;
+  resize: none;
+  overflow: hidden;
+  color: var(--color-primary);
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+}
+
+.livecode-markdown-block.editing.type-heading textarea {
+  font-family: var(--font-sans);
+  font-weight: 700;
+}
+
+.livecode-markdown-block.editing.type-heading.depth-1 textarea { font-size: 2em; }
+.livecode-markdown-block.editing.type-heading.depth-2 textarea { font-size: 1.5em; }
+.livecode-markdown-block.editing.type-heading.depth-3 textarea { font-size: 1.17em; }
+
+.livecode-markdown-block-error {
+  display: block;
+  margin-top: 4px;
+  color: var(--drawerator-status-error, #c45b5b);
+  font: 10px/1.3 var(--font-sans);
+}
 
 .livecode-latex {
   display: grid;
@@ -3351,8 +3406,8 @@ body .excalidraw .sidebar {
 
 .livecode-node-chrome {
   position: absolute;
-  z-index: 2;
-  top: -25px;
+  z-index: 6;
+  top: -29px;
   left: -1px;
   display: flex;
   width: max-content;
@@ -3453,6 +3508,27 @@ body .excalidraw .sidebar {
   gap: 5px;
 }
 
+.livecode-node-selector-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.livecode-node-selector-row .custom-brush-select {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.livecode-frame-node-button {
+  display: inline-flex;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
 .livecode-panel-controls label {
   display: grid;
   min-width: 0;
@@ -3461,7 +3537,7 @@ body .excalidraw .sidebar {
   font: 10px/1.2 var(--font-sans);
 }
 
-.livecode-panel-controls :is(select, input) {
+.livecode-panel-controls :is(select, input:not([type="checkbox"])) {
   width: 100%;
   min-width: 0;
   height: 24px;
@@ -3482,8 +3558,9 @@ body .excalidraw .sidebar {
 }
 
 .livecode-checkbox input[type="checkbox"] {
-  width: auto;
-  height: auto;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
   margin: 0;
 }
 
@@ -5836,6 +5913,47 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   grid-template-columns: 36px 76px minmax(70px, 1fr) 36px;
   gap: 7px;
   align-items: center;
+}
+
+.settings-color-control--color-only {
+  grid-template-columns: 36px minmax(76px, 1fr);
+}
+
+/* Excalidraw hardcodes the local laser path with the literal `fill="red"`.
+   Collaborator paths use generated client colors, so this targets only the
+   local trail without flattening their individual colors. */
+.drawerator-shell .excalidraw .LaserToolOverlayCanvas > path[fill="red"] {
+  fill: var(--drawerator-laser-color) !important;
+}
+
+/* The stock novelty pointer is an inline data-URI cursor. Drawerator mirrors
+   Excalidraw's active-tool state onto the shell so the override cannot leak
+   into selection, drawing, or navigation tools. */
+.drawerator-shell.laser-tool-active .excalidraw .excalidraw__canvas.interactive {
+  cursor: var(--drawerator-laser-cursor) !important;
+}
+
+.drawerator-shell.laser-cursor-exit-guard .excalidraw .excalidraw__canvas.interactive {
+  cursor: auto !important;
+}
+
+/* Replace Excalidraw's decorative laser-pointer glyph with a quiet target dot.
+   The same preference colors both the fixed toolbar button and menu entry. */
+.drawerator-shell .excalidraw .ToolIcon__LaserPointer .ToolIcon__icon > svg,
+.drawerator-shell .excalidraw [data-testid="toolbar-laser"] .dropdown-menu-item__icon > svg {
+  display: none;
+}
+
+.drawerator-shell .excalidraw .ToolIcon__LaserPointer .ToolIcon__icon::before,
+.drawerator-shell .excalidraw [data-testid="toolbar-laser"] .dropdown-menu-item__icon::before {
+  width: 15px;
+  height: 15px;
+  box-sizing: border-box;
+  border: 1.25px solid var(--drawerator-laser-color);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--drawerator-laser-color) 0 2px, transparent 2.25px);
+  content: "";
+  display: block;
 }
 
 .settings-color-control input[type="color"] {

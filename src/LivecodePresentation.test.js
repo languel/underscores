@@ -1,12 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildHtmlSandboxDocument, renderMarkdownWithMath, sanitizeMarkdownHtml } from "./livecodePresentation.js";
+import { buildHtmlSandboxDocument, getMarkdownSourceBlocks, renderMarkdownWithMath, sanitizeMarkdownHtml, validateMarkdownSource } from "./livecodePresentation.js";
 
 test("Markdown renders inline math while discarding active markup", () => {
   const html = renderMarkdownWithMath("# score\n\n$E = mc^2$ <script>alert(1)</script>");
   assert.match(html, /katex/);
   assert.doesNotMatch(html, /script/i);
   assert.equal(sanitizeMarkdownHtml('<a href="javascript:alert(1)" onclick="x()">x</a>'), "<a>x</a>");
+});
+
+test("Markdown source blocks preserve the exact document for in-place editing", () => {
+  const source = "# Heading\n\nParagraph with **weight**.\n\n- one\n- two\n";
+  const blocks = getMarkdownSourceBlocks(source);
+  assert.equal(blocks.map(block => block.source).join(""), source);
+  assert.equal(blocks.length, 3);
+  assert.deepEqual({ type: blocks[0].type, depth: blocks[0].depth }, { type: "heading", depth: 1 });
+  assert.deepEqual(validateMarkdownSource(blocks[1].source), { valid: true, error: "" });
 });
 
 test("HTML node documents are opaque-origin sandbox documents with token bridge", () => {
