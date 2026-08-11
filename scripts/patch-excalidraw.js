@@ -23,6 +23,25 @@ for (const target of targets) {
       .replace(/rgba\(105,\s*101,\s*219,\s*([\d.]+)\)/gi, 'rgba(109, 115, 116, $1)')
       .replace(/rgba\(134,\s*131,\s*226,\s*([\d.]+)\)/gi, 'rgba(109, 115, 116, $1)')
       .replace(/rgba\(177,\s*151,\s*252,\s*([\d.]+)\)/gi, 'rgba(141, 145, 146, $1)')
+      // Excalidraw renders freedraw marks at 4.25 times their stored stroke
+      // width. Use half that rendered width as the laser outline radius so the
+      // full laser mark matches the active pen brush.
+      .replace(
+        /path\.getStrokeOutline\(path\.options\.size \/ this\.app\.state\.zoom\.value\)/g,
+        'path.getStrokeOutline((Number.parseFloat(getComputedStyle(this.container).getPropertyValue("--drawerator-laser-width")) || (Number(this.app.state.currentItemStrokeWidth) || 1) * 4.25) / 2 / this.app.state.zoom.value)'
+      )
+      .replace(
+        /path\.getStrokeOutline\(\(Number\(this\.app\.state\.currentItemStrokeWidth\) \|\| 1\)(?: \* 4\.25)? \/ 2 \/ this\.app\.state\.zoom\.value\)/g,
+        'path.getStrokeOutline((Number.parseFloat(getComputedStyle(this.container).getPropertyValue("--drawerator-laser-width")) || (Number(this.app.state.currentItemStrokeWidth) || 1) * 4.25) / 2 / this.app.state.zoom.value)'
+      )
+      .replace(
+        /e\.getStrokeOutline\(e\.options\.size\/this\.app\.state\.zoom\.value\)/g,
+        'e.getStrokeOutline((Number.parseFloat(getComputedStyle(this.container).getPropertyValue("--drawerator-laser-width"))||(Number(this.app.state.currentItemStrokeWidth)||1)*4.25)/2/this.app.state.zoom.value)'
+      )
+      .replace(
+        /e\.getStrokeOutline\(\(Number\(this\.app\.state\.currentItemStrokeWidth\)\|\|1\)(?:\*4\.25)?\/2\/this\.app\.state\.zoom\.value\)/g,
+        'e.getStrokeOutline((Number.parseFloat(getComputedStyle(this.container).getPropertyValue("--drawerator-laser-width"))||(Number(this.app.state.currentItemStrokeWidth)||1)*4.25)/2/this.app.state.zoom.value)'
+      )
       // Global case-insensitive color hex replacements
       .replace(/6965db/gi, '6d7374')
       .replace(/a8a5ff/gi, 'a5a5a5')

@@ -69,7 +69,7 @@ export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
     summary: "Native frame-based Orca grid. Focus the grid to edit it; its MIDI, CC, and pitch-bend operators route through Drawerator’s Mixer.",
   }),
   [LIVECODE_KINDS.shader]: Object.freeze({
-    label: "GLSL Shader",
+    label: "GLSL",
     editorProfile: "shader",
     defaultName: "Hello GLSL",
     defaultSource: HELLO_GLSL_FRAGMENT_SOURCE,

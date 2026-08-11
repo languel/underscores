@@ -100,12 +100,12 @@ const selectedEndpoint = (endpointValue, selectedIds) => {
   );
 };
 
-const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue, appState, elements = [], getLiveScene = null, selectedElementIds = {}, showAllRelationships = false, debug = null, onRenderMetric = null }) {
+const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue, appState, elements = [], getLiveScene = null, selectedElementIds = {}, showAllRelationships = false, debug = null, onRenderMetric = null, onDebugGeometry = null }) {
   const canvasRef = useRef(null);
   const debugEventsRef = useRef([]);
   const trailHistoryRef = useRef(new Map());
-  const propsRef = useRef({ runtime, graphValue, appState, elements, getLiveScene, selectedElementIds, showAllRelationships, debug, onRenderMetric });
-  propsRef.current = { runtime, graphValue, appState, elements, getLiveScene, selectedElementIds, showAllRelationships, debug, onRenderMetric };
+  const propsRef = useRef({ runtime, graphValue, appState, elements, getLiveScene, selectedElementIds, showAllRelationships, debug, onRenderMetric, onDebugGeometry });
+  propsRef.current = { runtime, graphValue, appState, elements, getLiveScene, selectedElementIds, showAllRelationships, debug, onRenderMetric, onDebugGeometry };
 
   useEffect(() => {
     if (!runtime || !debug?.enabled || (!debug.contacts && !debug.collisions && !debug.forces)) {
@@ -442,11 +442,13 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
       context.lineWidth = 1.5;
       context.lineCap = "round";
       context.lineJoin = "round";
+      const emitterSegments = [];
       for (const [key, source] of active) {
         const samples = trailHistoryRef.current.get(key)?.samples || [];
         const duration = Math.max(0.1, Number(source.trail.duration) || 4);
         const opacity = Math.max(0, Math.min(1, Number(source.trail.opacity) || 0));
         for (let index = 1; index < samples.length; index += 1) {
+          emitterSegments.push([samples[index - 1].x, samples[index - 1].y, samples[index].x, samples[index].y]);
           const start = toViewport([samples[index - 1].x, samples[index - 1].y]);
           const end = toViewport([samples[index].x, samples[index].y]);
           const alpha = opacity * Math.max(0, Math.min(1, 1 - (now - samples[index].time) / duration));
@@ -463,6 +465,89 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
         context.fill();
       }
       context.restore();
+      return emitterSegments;
+    };
+
+    const collectDebugEmitterSegments = ({ settings, snapshots, graph, currentElements, poseByBodyId, zoom }) => {
+      if (!settings?.enabled) return [];
+      const segments = [];
+      const appendLine = (start, end) => {
+        if (segments.length >= 2048 || !start?.every(Number.isFinite) || !end?.every(Number.isFinite)) return;
+        segments.push([start[0], start[1], end[0], end[1]]);
+      };
+      const appendPolyline = (points, closed = false) => {
+        for (let index = 1; index < points.length; index += 1) appendLine(points[index - 1], points[index]);
+        if (closed && points.length > 2) appendLine(points.at(-1), points[0]);
+      };
+      const appendCircle = (center, radius, count = 16) => {
+        const points = Array.from({ length: count }, (_, index) => {
+          const angle = index / count * Math.PI * 2;
+          return [center[0] + Math.cos(angle) * radius, center[1] + Math.sin(angle) * radius];
+        });
+        appendPolyline(points, true);
+      };
+      const transformLocal = (value, pose) => {
+        const cosine = Math.cos(pose[2] || 0);
+        const sine = Math.sin(pose[2] || 0);
+        return [pose[0] + value[0] * cosine - value[1] * sine, pose[1] + value[0] * sine + value[1] * cosine];
+      };
+
+      if (settings.bodies || settings.colliders) {
+        for (const snapshot of snapshots) {
+          for (let index = 0; index < snapshot.metadata.length; index += 1) {
+            const metadata = snapshot.metadata[index];
+            const pose = [snapshot.values[index * 4], snapshot.values[index * 4 + 1], snapshot.values[index * 4 + 2]];
+            if (settings.bodies) {
+              const size = 4 / Math.max(zoom, 0.001);
+              appendPolyline([[pose[0] - size, pose[1] - size], [pose[0] + size, pose[1] - size], [pose[0] + size, pose[1] + size], [pose[0] - size, pose[1] + size]], true);
+            }
+            if (!settings.colliders) continue;
+            const collider = metadata.collider || {};
+            const skin = Math.max(0, Number(collider.contactSkin) || 0);
+            if (collider.kind === "circle") {
+              appendCircle(pose, Math.max(0.5, (Number(collider.radius) || 0) + skin), 20);
+            } else if (collider.kind === "ellipse") {
+              const width = Math.max(1, Number(collider.width) || 1) / 2 + skin;
+              const height = Math.max(1, Number(collider.height) || 1) / 2 + skin;
+              appendPolyline(Array.from({ length: 20 }, (_, pointIndex) => {
+                const angle = pointIndex / 20 * Math.PI * 2;
+                return transformLocal([Math.cos(angle) * width, Math.sin(angle) * height], pose);
+              }), true);
+            } else if (["convex", "polyline", "chain"].includes(collider.kind) && collider.points?.length) {
+              appendPolyline(collider.points.map(value => transformLocal(value, pose)), collider.kind === "convex");
+            } else {
+              const width = (Number(collider.width) || 12) / 2 + skin;
+              const height = (Number(collider.height) || 12) / 2 + skin;
+              appendPolyline([[-width, -height], [width, -height], [width, height], [-width, height]].map(value => transformLocal(value, pose)), true);
+            }
+          }
+        }
+      }
+
+      if (settings.constraints) {
+        for (const constraint of graph.constraints) {
+          if (!constraint.enabled) continue;
+          const a = resolvePhysicsEndpointAtPose(constraint.a, { elements: currentElements, bodies: graph.bodies, poseByBodyId });
+          const b = resolvePhysicsEndpointAtPose(constraint.b, { elements: currentElements, bodies: graph.bodies, poseByBodyId });
+          if (a.ok && b.ok) appendLine(a.point, b.point);
+          else if (a.ok || b.ok) appendCircle((a.ok ? a : b).point, 5 / Math.max(zoom, 0.001), 12);
+        }
+      }
+
+      const now = performance.now();
+      for (const event of debugEventsRef.current) {
+        if (!event.point || now - event.receivedAt >= 900) continue;
+        const age = (now - event.receivedAt) / 900;
+        if (settings.contacts) appendCircle(event.point, 3 / Math.max(zoom, 0.001), 10);
+        if (settings.collisions && (event.phase === "hit" || event.phase === "begin")) {
+          appendCircle(event.point, (4 + age * 18) / Math.max(zoom, 0.001), 16);
+        }
+        if (settings.forces && event.normal) {
+          const length = Math.min(72, Math.max(10, Number(event.impulse || 0) * 10)) / Math.max(zoom, 0.001);
+          appendLine(event.point, [event.point[0] + event.normal[0] * length, event.point[1] + event.normal[1] * length]);
+        }
+      }
+      return segments;
     };
 
     const draw = () => {
@@ -502,8 +587,9 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
             });
           }
         }
+        let trailEmitterSegments = [];
         if (debugSettings?.enabled && debugSettings.trails) {
-          drawTrails(context, graph, snapshots, diagnosticElements, poseByBodyId, toViewport);
+          trailEmitterSegments = drawTrails(context, graph, snapshots, diagnosticElements, poseByBodyId, toViewport);
         } else if (!debugSettings?.trails) {
           trailHistoryRef.current.clear();
         }
@@ -523,6 +609,19 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
           drawDebugConstraints(context, graph, diagnosticElements, toViewport, debugSettings, poseByBodyId, theme);
           drawDebugEvents(context, toViewport, debugSettings, diagnosticElements, theme);
         }
+        propsRef.current.onDebugGeometry?.([
+          ...trailEmitterSegments,
+          ...collectDebugEmitterSegments({
+            settings: debugSettings,
+            snapshots,
+            graph,
+            currentElements: diagnosticElements,
+            poseByBodyId,
+            zoom,
+          }),
+        ].slice(0, 2048));
+      } else {
+        propsRef.current.onDebugGeometry?.([]);
       }
       if (started - lastMetricAt >= 200) {
         propsRef.current.onRenderMetric?.(performance.now() - started);
@@ -537,6 +636,7 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
       stopped = true;
       cancelAnimationFrame(frame);
       observer?.disconnect();
+      propsRef.current.onDebugGeometry?.([]);
     };
   }, [runtime]);
 

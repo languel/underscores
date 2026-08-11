@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
 ## Release checkpoint
 
@@ -106,6 +106,11 @@ recompile the Free-run pattern, and `._pianoroll()` remained an inline 500 × 72
 The 2026-08-10 shader and presentation checkpoint completed 614 automated tests and a production
 build. Browser checks covered shader underlay composition, fluid transparency, presentation camera
 fallback for impossible scene bounds, and reversible hiding of the physics toolbar and FPS overlay.
+
+The 2026-08-11 Livecode authoring checkpoint completed 617 automated tests and adds Inkwash and physics-debug shader emitters,
+last-successful shader compilation with Console-only errors, configurable laser presentation,
+stable panel/chrome stacking, node rename and frame-selection controls, and the rendered Markdown
+document editor with raw-only Code view.
 
 ## Known boundary
 

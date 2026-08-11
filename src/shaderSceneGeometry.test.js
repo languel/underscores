@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { collectShaderSceneSegments, DEFAULT_SHADER_SEGMENTS, flattenShaderSegments } from "./shaderSceneGeometry.js";
+import { collectShaderSceneSegments, collectShaderWorldSegments, DEFAULT_SHADER_SEGMENTS, flattenShaderSegments } from "./shaderSceneGeometry.js";
 
 test("shader geometry maps scene objects into the node's normalized coordinate system", () => {
   const node = { id: "shader", x: 100, y: 100, width: 200, height: 100, angle: 0 };
@@ -27,4 +27,13 @@ test("shader geometry supplies a visible fallback and fixed-size uniform buffer"
 test("shader geometry can disable demo fallback for physical scene interaction", () => {
   const node = { id: "shader", x: 0, y: 0, width: 100, height: 100 };
   assert.deepEqual(collectShaderSceneSegments([], node, 128, { fallback: false }), []);
+});
+
+test("runtime debug segments map from scene coordinates without adding a fallback", () => {
+  const node = { id: "shader", x: 100, y: 100, width: 200, height: 100 };
+  assert.deepEqual(collectShaderWorldSegments([
+    [120, 120, 160, 140],
+    [1000, 1000, 1100, 1100],
+    [Number.NaN, 0, 1, 1],
+  ], node), [[0.1, 0.8, 0.3, 0.6]]);
 });

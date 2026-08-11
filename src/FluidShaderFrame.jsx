@@ -1,16 +1,43 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { SHADER_VERTEX_SOURCE } from "./shaderLivecode.js";
-import { collectShaderSceneSegments, flattenShaderSegments, MAX_SHADER_SEGMENTS } from "./shaderSceneGeometry.js";
+import { collectShaderSceneSegments, collectShaderWorldSegments, flattenShaderSegments, MAX_SHADER_SEGMENTS } from "./shaderSceneGeometry.js";
+import { publishShaderStatus } from "./shaderStatus.js";
+
+const publishFrameStatus = (statusRef, kind, message = "") => publishShaderStatus({
+  ...statusRef.current,
+  kind,
+  message,
+});
 
 const DISPLAY_FRAGMENT_SOURCE = `#version 300 es
 precision highp float;
 uniform sampler2D u_texture;
 uniform float u_transparentBackground;
+uniform float u_inkwash;
 in vec2 v_uv;
 out vec4 outColor;
+float hash(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
 void main() {
-  vec3 dye = texture(u_texture, v_uv).rgb;
+  vec4 state = texture(u_texture, v_uv);
+  vec3 dye = state.rgb;
   float density = max(dye.r, max(dye.g, dye.b));
+  if (u_inkwash > 0.5) {
+    float grain = hash(v_uv * vec2(913.0, 677.0));
+    vec3 paper = vec3(0.962, 0.954, 0.930) - (grain - 0.5) * 0.035;
+    vec3 color = paper * exp(-dye * (1.82 + grain * 0.26));
+    color *= 1.0 - smoothstep(0.02, 0.7, state.a) * vec3(0.13, 0.12, 0.08);
+    if (u_transparentBackground > 0.5) {
+      float alpha = smoothstep(0.003, 0.34, density);
+      outColor = vec4(mix(vec3(0.10, 0.11, 0.16), color, 0.18), alpha);
+      return;
+    }
+    outColor = vec4(color, 1.0);
+    return;
+  }
   if (u_transparentBackground > 0.5) {
     outColor = vec4(dye, smoothstep(0.008, 0.22, density));
     return;
@@ -80,16 +107,23 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
   const runtimeRef = useRef(null);
   const transportRef = useRef(transport);
   const elementRef = useRef(element);
-  const [error, setError] = useState("");
+  const statusRef = useRef({});
   transportRef.current = transport;
   elementRef.current = element;
+  statusRef.current = {
+    elementId: element.id,
+    nodeId: node.nodeId,
+    label: node.name || "Shader",
+  };
+
+  useEffect(() => () => publishShaderStatus({ elementId: element.id, kind: "clear" }), [element.id]);
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
     const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: false, antialias: false, depth: false, stencil: false });
     if (!gl) {
-      setError("WebGL 2 is unavailable in this browser.");
+      publishFrameStatus(statusRef, "error", "WebGL 2 is unavailable in this browser.");
       return undefined;
     }
     try {
@@ -106,7 +140,7 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
         startedAt: performance.now(),
       };
     } catch (setupError) {
-      setError(setupError instanceof Error ? setupError.message : String(setupError));
+      publishFrameStatus(statusRef, "error", setupError instanceof Error ? setupError.message : String(setupError));
     }
     return () => {
       const runtime = runtimeRef.current;
@@ -126,9 +160,17 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
       const program = createProgram(runtime.gl, node.source);
       if (runtime.updateProgram) runtime.gl.deleteProgram(runtime.updateProgram);
       runtime.updateProgram = program;
-      setError("");
+      runtime.targets.forEach(target => {
+        runtime.gl.bindFramebuffer(runtime.gl.FRAMEBUFFER, target.framebuffer);
+        runtime.gl.viewport(0, 0, target.width, target.height);
+        runtime.gl.clearColor(0, 0, 0, 0);
+        runtime.gl.clear(runtime.gl.COLOR_BUFFER_BIT);
+      });
+      runtime.gl.bindFramebuffer(runtime.gl.FRAMEBUFFER, null);
+      runtime.startedAt = performance.now();
+      publishFrameStatus(statusRef, "clear");
     } catch (compileError) {
-      setError(compileError instanceof Error ? compileError.message : String(compileError));
+      publishFrameStatus(statusRef, "error", compileError instanceof Error ? compileError.message : String(compileError));
     }
   }, [node.revision, node.source]);
 
@@ -143,6 +185,7 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
     let previousPointer = [...pointer];
     let pointerDelta = [0, 0];
     let pointerDown = false;
+    let brushMode = false;
     let lastTime = performance.now();
     let geometryCache = { elements: null, nodeSignature: "", values: null, count: 0 };
 
@@ -167,7 +210,7 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
       runtime.targets.forEach(target => {
         gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
         gl.viewport(0, 0, width, height);
-        gl.clearColor(0, 0, 0, 1);
+        gl.clearColor(0, 0, 0, 0);
         gl.clear(gl.COLOR_BUFFER_BIT);
       });
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -186,8 +229,9 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
       updatePointer(event);
       const rect = canvas.getBoundingClientRect();
       pointerDown = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom;
+      brushMode = Boolean(event.metaKey);
     };
-    const handlePointerUp = () => { pointerDown = false; };
+    const handlePointerUp = () => { pointerDown = false; brushMode = false; };
     const setUniform1f = (program, name, value) => {
       const location = gl.getUniformLocation(program, name);
       if (location) gl.uniform1f(location, value);
@@ -214,6 +258,7 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
         setUniform1f(runtime.updateProgram, "u_time", time);
         setUniform1f(runtime.updateProgram, "u_delta", delta);
         setUniform1f(runtime.updateProgram, "u_pointerDown", pointerDown ? 1 : 0);
+        setUniform1f(runtime.updateProgram, "u_brushMode", brushMode ? 1 : 0);
         const pointerLocation = gl.getUniformLocation(runtime.updateProgram, "u_pointer");
         if (pointerLocation) gl.uniform2f(pointerLocation, pointer[0], pointer[1]);
         const pointerDeltaLocation = gl.getUniformLocation(runtime.updateProgram, "u_pointerDelta");
@@ -223,17 +268,32 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
         const segmentsLocation = gl.getUniformLocation(runtime.updateProgram, "u_segments[0]");
         const segmentCountLocation = gl.getUniformLocation(runtime.updateProgram, "u_segmentCount");
         if (segmentsLocation || segmentCountLocation) {
-          const sceneElements = scriptRuntimeRef.current?.getElements?.() || [];
           const shaderElement = elementRef.current;
-          const nodeSignature = [shaderElement?.id, shaderElement?.x, shaderElement?.y, shaderElement?.width, shaderElement?.height, shaderElement?.angle].join(":");
-          if (geometryCache.elements !== sceneElements || geometryCache.nodeSignature !== nodeSignature) {
-            const segments = collectShaderSceneSegments(sceneElements, shaderElement, MAX_SHADER_SEGMENTS, { fallback: false });
+          const useDebugEmitters = node.runtime.settings?.emitterSource === "debug";
+          if (useDebugEmitters) {
+            const segments = collectShaderWorldSegments(
+              scriptRuntimeRef.current?.getPhysicsDebugSegments?.() || [],
+              shaderElement,
+              MAX_SHADER_SEGMENTS,
+            );
             geometryCache = {
-              elements: sceneElements,
-              nodeSignature,
+              elements: null,
+              nodeSignature: "debug",
               values: flattenShaderSegments(segments),
               count: Math.min(segments.length, MAX_SHADER_SEGMENTS),
             };
+          } else {
+            const sceneElements = scriptRuntimeRef.current?.getElements?.() || [];
+            const nodeSignature = [shaderElement?.id, shaderElement?.x, shaderElement?.y, shaderElement?.width, shaderElement?.height, shaderElement?.angle].join(":");
+            if (geometryCache.elements !== sceneElements || geometryCache.nodeSignature !== nodeSignature) {
+              const segments = collectShaderSceneSegments(sceneElements, shaderElement, MAX_SHADER_SEGMENTS, { fallback: false });
+              geometryCache = {
+                elements: sceneElements,
+                nodeSignature,
+                values: flattenShaderSegments(segments),
+                count: Math.min(segments.length, MAX_SHADER_SEGMENTS),
+              };
+            }
           }
           if (segmentsLocation) gl.uniform4fv(segmentsLocation, geometryCache.values);
           if (segmentCountLocation) gl.uniform1f(segmentCountLocation, geometryCache.count);
@@ -250,6 +310,7 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
         const displayTexture = gl.getUniformLocation(runtime.displayProgram, "u_texture");
         if (displayTexture) gl.uniform1i(displayTexture, 0);
         setUniform1f(runtime.displayProgram, "u_transparentBackground", node.runtime.settings?.backgroundMode === "transparent" ? 1 : 0);
+        setUniform1f(runtime.displayProgram, "u_inkwash", node.runtime.settings?.shaderExample === "inkwash" ? 1 : 0);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
         runtime.targets = [write, read];
         pointerDelta[0] *= 0.72;
@@ -277,10 +338,9 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
     };
-  }, [node.runtime.settings?.backgroundMode, node.runtime.settings?.sceneInteraction, node.runtime.transportMode, scriptRuntimeRef]);
+  }, [node.runtime.settings?.backgroundMode, node.runtime.settings?.emitterSource, node.runtime.settings?.sceneInteraction, node.runtime.settings?.shaderExample, node.runtime.transportMode, scriptRuntimeRef]);
 
   return <div className={`drawerator-shader-frame drawerator-fluid-shader-frame${node.runtime.settings?.backgroundMode === "transparent" ? " transparent-background" : ""}`}>
-    <canvas ref={canvasRef} className="drawerator-shader-canvas" aria-label="GLSL fluid brush output" />
-    {error ? <pre className="drawerator-shader-error" role="alert">{error}</pre> : null}
+    <canvas ref={canvasRef} className="drawerator-shader-canvas" aria-label="GLSL output" />
   </div>;
 }

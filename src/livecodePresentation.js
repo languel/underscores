@@ -42,6 +42,52 @@ export const renderMarkdownWithMath = source => {
   return sanitizeMarkdownHtml(html);
 };
 
+// Marked retains the exact source text for each block token. Keep those raw
+// ranges so the rendered Markdown surface can edit one block without
+// rewriting or reformatting the rest of the document.
+export const getMarkdownSourceBlocks = source => {
+  const text = String(source || "");
+  if (!text) return [{ start: 0, end: 0, source: "" }];
+  let tokens;
+  try {
+    tokens = marked.lexer(text, { gfm: true });
+  } catch {
+    return [{ start: 0, end: text.length, source: text }];
+  }
+  const blocks = [];
+  let cursor = 0;
+  for (const token of tokens) {
+    const raw = typeof token.raw === "string" ? token.raw : "";
+    if (!raw) continue;
+    const start = cursor;
+    cursor += raw.length;
+    if (token.type === "space" && blocks.length) {
+      const previous = blocks[blocks.length - 1];
+      previous.end = cursor;
+      previous.source += raw;
+      continue;
+    }
+    blocks.push({
+      start,
+      end: cursor,
+      source: raw,
+      type: token.type || "paragraph",
+      depth: token.type === "heading" ? Number(token.depth) || 1 : null,
+    });
+  }
+  if (!blocks.length || cursor !== text.length) return [{ start: 0, end: text.length, source: text }];
+  return blocks;
+};
+
+export const validateMarkdownSource = source => {
+  try {
+    renderMarkdownWithMath(source);
+    return { valid: true, error: "" };
+  } catch (error) {
+    return { valid: false, error: error instanceof Error ? error.message : String(error) };
+  }
+};
+
 export const renderLatex = source => {
   const text = String(source || "");
   const delimiter = /\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|(?<!\\)\$([^$\n]+?)\$/g;
