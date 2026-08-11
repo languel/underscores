@@ -2595,6 +2595,10 @@ body .excalidraw .sidebar {
   height: 28px;
 }
 
+.livecode-panel-controls .script-font-size-control {
+  margin-left: 0;
+}
+
 .script-font-size-control input,
 .iannix-script-parameter input[type="number"],
 .iannix-script-parameter .numeric-input {
@@ -3506,6 +3510,14 @@ body .excalidraw .sidebar {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 5px;
+}
+
+.livecode-panel-controls .livecode-example-control {
+  grid-column: span 2;
+}
+
+.livecode-panel-controls .livecode-view-control {
+  grid-column: 1;
 }
 
 .livecode-node-selector-row {

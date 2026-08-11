@@ -177,9 +177,11 @@ export const createLivecodeNode = value => {
     runtime: normalizedRuntime,
     view: kind === LIVECODE_KINDS.orca || kind === LIVECODE_KINDS.strudel
       ? "code"
-      : ["code", "preview", "split"].includes(raw.view)
+      : ["code", "preview", "source", "split"].includes(raw.view)
         ? raw.view
-        : "code",
+        : raw.view === "overlay"
+          ? "code"
+          : "code",
     typography: normalizeLivecodeTypography(raw.typography),
     revision: Math.max(0, Math.floor(Number(raw.revision) || 0)),
     createdAt: Math.max(0, Number(raw.createdAt) || Date.now()),

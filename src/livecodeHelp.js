@@ -41,7 +41,7 @@ export const LIVECODE_HELP = Object.freeze({
     summary: "A local presentation surface rendered from the node's canonical Markdown source.",
     points: Object.freeze([
       "Use normal Markdown headings, lists, code, and emphasis. Inline $math$ and display $$math$$ render with KaTeX.",
-      "Select Preview to present the slide; select Code or double-click to edit the same source.",
+      "Output presents the document, Code shows only Markdown source, Code Overlay combines source and output, and Code/Output splits them. Double-clicking an Output document opens its in-place editor.",
       "Active markup is stripped from Markdown output so the presentation surface remains inert.",
     ]),
     footer: "Markdown and LaTeX previews are local deterministic DOM renderers suitable for the live canvas.",
@@ -51,7 +51,7 @@ export const LIVECODE_HELP = Object.freeze({
     summary: "A standalone locally typeset mathematical presentation node.",
     points: Object.freeze([
       "Use $...$ or \\( ... \\) for inline math, and $$...$$ or \\[ ... \\] for display math. Bare text stays text.",
-      "Use Preview to center the expression in the node; return to Code to change the canonical source.",
+      "Output centers the expression in the node; Code shows only the canonical source, Code Overlay combines source and output, and Code/Output splits them.",
       "Invalid math reports a local typesetting error without replacing your source.",
     ]),
     footer: "No remote typesetting service is used.",
@@ -62,7 +62,7 @@ export const LIVECODE_HELP = Object.freeze({
     points: Object.freeze([
       "Write complete HTML, CSS, and scripts. Scripts can use the token-scoped window.drawerator post/onMessage bridge.",
       "The iframe has allow-scripts only: no parent-origin DOM access, top navigation, or ambient application privileges.",
-      "Use Preview to run the document. Browser security can prevent deterministic raster export of this kind.",
+      "Output runs the document. Code shows only source, Code Overlay combines source and output, and Code/Output splits them. Browser security can prevent deterministic raster export of this kind.",
     ]),
     footer: "Treat HTML source as trusted board content even though it is isolated from Drawerator's parent page.",
   }),
@@ -87,7 +87,7 @@ export const LIVECODE_HELP = Object.freeze({
       "Fluid brush and Inkwash are feedback shaders: u_previous is the prior frame, u_delta is frame time, and u_pointerDelta carries brush motion. Emission makes the selected geometry source emit and stir dye or wet pigment.",
       "Inkwash can emit from nearby Excalidraw objects or only from visible physics diagnostics such as collider outlines, constraints, collision markers, force vectors, and trails. Ordinary drags use a fine ink pen; Command-drag activates the wider water brush without taking over Excalidraw's right-drag gesture.",
       "Linked time follows Drawerator's score; Free time advances independently. Compile errors appear in the Console's non-logged Live section while the previous working program keeps rendering.",
-      "While editing, Cmd/Ctrl+Shift+Enter cycles Code → Output → Split. Cmd/Ctrl+Enter runs, Ctrl+. or Alt+. stops, and Ctrl+M then L toggles line numbers. Clicking in the source only places the editor cursor.",
+      "While editing, Cmd/Ctrl+Shift+Enter cycles Output → Code → Code Overlay → Code/Output. Cmd/Ctrl+Enter runs, Ctrl+. or Alt+. stops, and Ctrl+M then L toggles line numbers. Clicking in the source only places the editor cursor.",
     ]),
     footer: "These ports preserve excalishader's four example ideas inside the editable Livecode model; the Fluid brush uses a compact ping-pong feedback pass.",
   }),

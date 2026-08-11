@@ -88,9 +88,9 @@ import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KE
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
 import { LivecodeNodeEditor, LivecodeNodeOverlay, StrudelPanelStatus } from "./LivecodeNodeOverlay.jsx";
 import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeKindDefinition, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, replaceLivecodeNodeProgram } from "./livecodeNode.js";
+import { getLivecodeExamples } from "./livecodeExamples.js";
 import { describeLivecodeRuntime, hasNativeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
-import { getLivecodeHelp } from "./livecodeHelp.js";
-import { getShaderExample, normalizeShaderCompositionSettings, SHADER_EXAMPLES, shaderExampleForSource } from "./shaderLivecode.js";
+import { getShaderExample, normalizeShaderCompositionSettings, shaderExampleForSource } from "./shaderLivecode.js";
 import { getShaderStatuses, SHADER_STATUS_EVENT } from "./shaderStatus.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
 import MediaStreamOverlay, { MediaSourceRuntimeLayer } from "./MediaStreamOverlay.jsx";
@@ -166,6 +166,7 @@ import { stepStrokeWidth } from "./strokeWidthShortcuts.js";
 import { infoProps } from "./uiInfo.js";
 import {
   AI_PROVIDER_OPTIONS,
+  aiProviderEnvironmentCredentialApplies,
   aiProviderNeedsCredential,
   buildAIChatRequest,
   buildAIModelsRequest,
@@ -173,9 +174,11 @@ import {
   getAIProvider,
   getAIProviderCredential,
   getAIProviderHelp,
+  getAIProviderManualModels,
   normalizeAISettings,
   parseAIModelList,
   readAITextStream,
+  selectAIModelFromList,
 } from "./aiProviders.js";
 import { convertShapeElementToPath, fitRectangularElementToViewport, getCanvasContextMenuCapabilities, setSelectedElementRoundness } from "./canvasContextMenu.js";
 import { normalizeRoughnessValue, normalizeRoundnessValue, parseDrawingStyleSlash } from "./drawingStyleCommands.js";
@@ -204,6 +207,13 @@ const COLLAPSED_DOCK_EDGE_SIZE = 5;
 const BOTTOM_DOCK_COLLAPSE_THRESHOLD = 72;
 const BOTTOM_DOCK_MIN_HEIGHT = 112;
 const AI_MODEL_FAVORITES_STORAGE_KEY = "drawerator_ai_model_favorites";
+const PRATT_ENV_CREDENTIAL_AVAILABLE = import.meta.env.VITE_PRATT_LLM_API_KEY_AVAILABLE === true
+  || import.meta.env.VITE_PRATT_LLM_API_KEY_AVAILABLE === "true";
+const hasAIEnvironmentCredential = settings => aiProviderEnvironmentCredentialApplies(
+  settings,
+  typeof window === "undefined" ? "" : window.location.origin,
+  PRATT_ENV_CREDENTIAL_AVAILABLE,
+);
 
 function ModelCatalogFilter({ modelCount, resetKey, onFilterChange }) {
   const [draft, setDraft] = useState("");
@@ -3816,6 +3826,13 @@ function App() {
     ));
     return matches.length === 1 ? matches[0] : null;
   }, [livecodeOverlayScene.elements, selectedElementIds]);
+  const livecodeInfoElement = (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || [])
+    .find(element => element.id === livecodeEditorId && isLivecodeNodeElement(element))
+    || selectedLivecodeNodeForEditor
+    || livecodeOverlayScene.elements.find(element => element.id === livecodeEditorId && isLivecodeNodeElement(element));
+  const selectedLivecodeKindForInfo = livecodeInfoElement
+    ? normalizeLivecodeNode(livecodeInfoElement.customData?.draweratorLivecode).kind
+    : null;
   const physicsDebugSegmentsRef = useRef([]);
   const scriptRuntimeRef = useRef({});
   const scriptCanvasApiRef = useRef(null);
@@ -8490,15 +8507,21 @@ function App() {
   const orderedModelsList = useMemo(() => filterAIModels(modelsList, {
     favorites: activeModelFavorites,
   }), [activeModelFavorites, modelsList]);
+  const activeProviderManualModels = useMemo(
+    () => getAIProviderManualModels(aiSettings.provider),
+    [aiSettings.provider],
+  );
   const filteredModelsList = useMemo(() => filterAIModels(modelsList, {
     query: modelFilter,
     favorites: activeModelFavorites,
     favoritesOnly: favoriteModelsOnly,
   }), [activeModelFavorites, favoriteModelsOnly, modelFilter, modelsList]);
   const visibleModelOptions = useMemo(() => {
-    if (!aiSettings.model || filteredModelsList.includes(aiSettings.model)) return filteredModelsList;
+    if (!aiSettings.model
+      || filteredModelsList.includes(aiSettings.model)
+      || activeProviderManualModels.includes(aiSettings.model)) return filteredModelsList;
     return [aiSettings.model, ...filteredModelsList];
-  }, [aiSettings.model, filteredModelsList]);
+  }, [activeProviderManualModels, aiSettings.model, filteredModelsList]);
   const toggleFavoriteModel = useCallback(model => {
     const normalizedModel = String(model || "").trim();
     if (!normalizedModel) return;
@@ -8567,7 +8590,7 @@ function App() {
   const testAIConnection = async (settings = aiSettings) => {
     setConnectionStatus("pending");
     const { provider } = settings;
-    if (aiProviderNeedsCredential(provider) && !getAIProviderCredential(settings)) {
+    if (aiProviderNeedsCredential(provider, hasAIEnvironmentCredential(settings)) && !getAIProviderCredential(settings)) {
       setModelsList([]);
       setConnectionStatus("auth");
       return;
@@ -8580,8 +8603,9 @@ function App() {
       const list = parseAIModelList(provider, data);
       setModelsList(list);
       setConnectionStatus("ok");
-      if (list.length > 0 && !settings.model) {
-        setAiSettings(prev => ({ ...prev, model: list[0] }));
+      const resolvedModel = selectAIModelFromList(settings, list);
+      if (resolvedModel && resolvedModel !== settings.model) {
+        setAiSettings(prev => prev.provider === provider ? { ...prev, model: resolvedModel } : prev);
       }
     } catch (e) {
       setConnectionStatus("error");
@@ -9051,7 +9075,7 @@ function App() {
     });
 
     try {
-      if (aiProviderNeedsCredential(provider) && !getAIProviderCredential(aiSettings)) {
+      if (aiProviderNeedsCredential(provider, hasAIEnvironmentCredential(aiSettings)) && !getAIProviderCredential(aiSettings)) {
         throw new Error(`${getAIProvider(provider).credentialLabel} is required.`);
       }
       const request = buildAIChatRequest(aiSettings, messagesPayload, window.location.origin);
@@ -11622,12 +11646,15 @@ function App() {
       // Space controls score transport from the canvas/UI. Text controls keep
       // their native spacebar behavior so users can still type normally.
       const activeElement = document.activeElement;
-      const isTextControlFocused = activeElement && (
-        activeElement.tagName === "INPUT" ||
-        activeElement.tagName === "TEXTAREA" ||
-        activeElement.tagName === "SELECT" ||
-        activeElement.isContentEditable ||
-        activeElement.closest?.(".cm-editor")
+      const textControlEventTarget = e.target?.closest?.("input, textarea, select, [contenteditable='true'], .cm-editor");
+      const isTextControlFocused = Boolean(
+        (activeElement && (
+          activeElement.tagName === "INPUT" ||
+          activeElement.tagName === "TEXTAREA" ||
+          activeElement.tagName === "SELECT" ||
+          activeElement.isContentEditable ||
+          activeElement.closest?.(".cm-editor")
+        )) || textControlEventTarget,
       );
       if (!isTextControlFocused && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "Backslash") {
         e.preventDefault();
@@ -11651,8 +11678,8 @@ function App() {
           e.preventDefault();
           e.stopPropagation();
           e.stopImmediatePropagation?.();
-          if (node.kind !== LIVECODE_KINDS.orca && node.view !== "code") {
-            patchLivecodeCanvasNode(selectedLivecodeNodes[0].id, { view: "code" }, { commitToHistory: true });
+          if (node.kind !== LIVECODE_KINDS.orca && node.view !== "source") {
+            patchLivecodeCanvasNode(selectedLivecodeNodes[0].id, { view: "source" }, { commitToHistory: true });
           }
           editLivecodeCanvasNode(selectedLivecodeNodes[0].id, { focusCanvas: true });
           return;
@@ -11750,11 +11777,13 @@ function App() {
 
       // Keyboard shortcuts check for non-input focus
       const activeEl = document.activeElement;
-      const isInputFocused = activeEl && (
-        activeEl.tagName === "INPUT" ||
-        activeEl.tagName === "TEXTAREA" ||
-        activeEl.contentEditable === "true" ||
-        activeEl.closest?.(".cm-editor")
+      const isInputFocused = Boolean(
+        (activeEl && (
+          activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.contentEditable === "true" ||
+          activeEl.closest?.(".cm-editor")
+        )) || textControlEventTarget,
       );
 
       if (!isInputFocused && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "NumpadDecimal") {
@@ -18885,7 +18914,10 @@ function App() {
       ? getShaderExample(node.runtime.settings?.shaderExample || shaderExampleForSource(node.source)?.id)
       : null;
     const shaderComposition = normalizeShaderCompositionSettings(node.runtime.settings);
-    const help = getLivecodeHelp(node.kind);
+    const livecodeExamples = getLivecodeExamples(node.kind);
+    const activeLivecodeExampleId = node.kind === LIVECODE_KINDS.shader
+      ? shaderExample?.id
+      : node.runtime.settings?.livecodeExample || livecodeExamples.find(example => example.source === node.source)?.id || "bare";
     const parameters = parseScriptParameters(node.source, { values: node.parameters });
     const beginLivecodeRename = () => {
       setLivecodeNameDraft(node.name || definition.label);
@@ -18949,20 +18981,31 @@ function App() {
       </div>
       <div className="livecode-panel-controls">
         <label>Kind <select value={node.kind} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { kind: event.target.value, name: defaultLivecodeName(event.target.value) }, { commitToHistory: true })}>{Object.entries(LIVECODE_KINDS).map(([key, value]) => <option key={key} value={value}>{getLivecodeKindDefinition(value).label}</option>)}</select></label>
-        {node.kind === LIVECODE_KINDS.orca
-          ? <label>View <span className="livecode-static-option">Grid</span></label>
-          : node.kind === LIVECODE_KINDS.strudel
-            ? <label>View <span className="livecode-static-option">Code overlay</span></label>
-            : <label>View <select value={node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="code">Code</option><option value="preview">Output</option><option value="split">Code/output</option></select></label>}
-        {node.kind === LIVECODE_KINDS.shader && <label>Example <select value={shaderExample?.id || "hello"} onChange={event => {
-          const next = getShaderExample(event.target.value);
+        <label className="livecode-example-control">Example <select value={activeLivecodeExampleId} onChange={event => {
+          const next = livecodeExamples.find(example => example.id === event.target.value) || livecodeExamples[0];
+          if (!next) return;
+          if (node.kind === LIVECODE_KINDS.shader) {
+            const shader = getShaderExample(next.id);
+            patchLivecodeCanvasNode(nodeElement.id, {
+              name: shader.name,
+              source: shader.source,
+              runtime: { running: true, transportMode: "free", settings: { shaderExample: shader.id, shaderMode: shader.mode } },
+              view: "preview",
+            }, { commitToHistory: true });
+            return;
+          }
           patchLivecodeCanvasNode(nodeElement.id, {
             name: next.name,
             source: next.source,
-            runtime: { running: true, transportMode: "free", settings: { shaderExample: next.id, shaderMode: next.mode } },
-            view: "preview",
+            runtime: { settings: { livecodeExample: next.id, ...(next.mode ? { p5Mode: next.mode } : {}) } },
           }, { commitToHistory: true });
-        }}>{SHADER_EXAMPLES.map(example => <option key={example.id} value={example.id}>{example.label}</option>)}</select></label>}
+        }}>{livecodeExamples.map(example => <option key={example.id} value={example.id}>{example.label}</option>)}</select></label>
+        {node.kind === LIVECODE_KINDS.orca
+          ? <label className="livecode-view-control">View <span className="livecode-static-option">Grid</span></label>
+          : node.kind === LIVECODE_KINDS.strudel
+            ? <label className="livecode-view-control">View <span className="livecode-static-option">Code overlay</span></label>
+            : <label className="livecode-view-control">View <select value={node.view === "overlay" ? "code" : node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="preview">Output</option><option value="source">Code</option><option value="code">Code Overlay</option><option value="split">Code/Output</option></select></label>}
+        <label title="Show the compact tab above this Livecode node on the canvas">Canvas tab <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.showChrome === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { showChrome: event.target.checked } } }, { commitToHistory: true })} />Show</span></label>
         {node.kind === LIVECODE_KINDS.shader && <label>Layer <select value={shaderComposition.compositeMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeMode: event.target.value } } }, { commitToHistory: true })}><option value="overlay">Above objects</option><option value="underlay">Below objects</option></select></label>}
         {node.kind === LIVECODE_KINDS.shader && <label>Opacity % <NumericInput min="0" max="100" step="5" value={Math.round(shaderComposition.compositeOpacity * 100)} defaultValue={100} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeOpacity: value / 100 } } }, { commitToHistory: true })} /></label>}
         {node.kind === LIVECODE_KINDS.shader && <label>Blend <select value={shaderComposition.blendMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { blendMode: event.target.value } } }, { commitToHistory: true })}><option value="normal">Normal</option><option value="screen">Screen</option><option value="multiply">Multiply</option><option value="overlay">Overlay</option><option value="soft-light">Soft light</option></select></label>}
@@ -18972,11 +19015,11 @@ function App() {
         <label>Clock <select value={node.runtime.transportMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { transportMode: event.target.value } }, { commitToHistory: true })}><option value="linked">Linked</option><option value="free">Free</option></select></label>
         {node.kind === LIVECODE_KINDS.strudel && <label>Transport <span className="livecode-checkbox"><input type="checkbox" checked={Boolean(node.runtime.settings?.syncTransport)} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { syncTransport: event.target.checked } } }, { commitToHistory: true })} />Full sync</span></label>}
         {node.kind === LIVECODE_KINDS.strudel && <label title="Render public Strudel visualizers such as .pianoroll() across this node frame">Visuals <span className="livecode-checkbox"><input type="checkbox" aria-label="Strudel frame visuals" checked={node.runtime.settings?.frameVisuals !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { frameVisuals: event.target.checked } } }, { commitToHistory: true })} />Frame</span></label>}
-        <label>Font <select value={node.typography.font} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { font: event.target.value } }, { commitToHistory: true })}>{LIVE_CODE_FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label>
         <label title="Ctrl-M, then L">Lines <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.showLineNumbers} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { showLineNumbers: event.target.checked } }, { commitToHistory: true })} />Numbers</span></label>
         <label>Fold <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.showFoldGutter} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { showFoldGutter: event.target.checked } }, { commitToHistory: true })} />Gutter</span></label>
         <label title="Keep blank overlay space transparent while code is shown over output">Overlay <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.glyphOnlyOverlay} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { glyphOnlyOverlay: event.target.checked } }, { commitToHistory: true })} />Glyphs only</span></label>
         <label title={node.typography.glyphOnlyOverlay ? "Applies behind non-space code when Glyphs only is enabled" : "Applies across the full code surface"}>Code opacity % <NumericInput min="0" max="100" step="5" value={Math.round(node.typography.codeOverlayOpacity * 100)} defaultValue={100} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { codeOverlayOpacity: value / 100 } }, { commitToHistory: true })} /></label>
+        <label>Font <select value={node.typography.font} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { font: event.target.value } }, { commitToHistory: true })}>{LIVE_CODE_FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label>
         <label>Size <NumericInput min="8" max="72" step="1" value={node.typography.fontSize} defaultValue={14} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontSize: value } }, { commitToHistory: true })} /></label>
         <label>Line <NumericInput min="0.8" max="3" step="0.05" value={node.typography.lineHeight} defaultValue={1.4} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { lineHeight: value } }, { commitToHistory: true })} /></label>
         <label>Weight <select value={node.typography.fontWeight} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontWeight: Number(event.target.value) } }, { commitToHistory: true })}>{[300, 400, 500, 600, 700].map(weight => <option key={weight} value={weight}>{weight}</option>)}</select></label>
@@ -19008,7 +19051,6 @@ function App() {
         <button type="button" className="palette-action-btn primary script-icon-button" onClick={() => toggleLivecodeNodeRun(nodeElement.id)} title={node.runtime.running ? "Stop this node" : "Run this node"} aria-label={node.runtime.running ? "Stop livecode node" : "Run livecode node"}><ScriptActionIcon type="run" /></button>
         <button type="button" className="palette-action-btn secondary script-icon-button" onClick={() => commitLivecodeCanvasNode(nodeElement.id)} title="Save source to the scene" aria-label="Save livecode source"><ScriptActionIcon type="save" /></button>
         <button type="button" className="palette-action-btn secondary script-icon-button" onClick={() => createLivecodeCanvasNode({ kind: node.kind })} title="New livecode node" aria-label="New livecode node"><ScriptActionIcon type="add" /></button>
-        <ScriptFontSizeControl value={node.typography.fontSize} onChange={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontSize: value } }, { commitToHistory: true })} />
       </div>
       <LivecodeNodeEditor
         node={node}
@@ -19021,7 +19063,7 @@ function App() {
           : undefined}
         onStop={node.kind === LIVECODE_KINDS.strudel && node.runtime.running ? () => toggleLivecodeNodeRun(nodeElement.id) : undefined}
         onBlur={() => commitLivecodeCanvasNode(nodeElement.id)}
-        onCycleView={node.kind === LIVECODE_KINDS.strudel ? undefined : () => patchLivecodeCanvasNode(nodeElement.id, { view: ({ code: "preview", preview: "split", split: "code" }[node.view] || "code") })}
+        onCycleView={node.kind === LIVECODE_KINDS.strudel ? undefined : () => patchLivecodeCanvasNode(nodeElement.id, { view: ({ preview: "source", source: "code", code: "split", split: "preview" }[node.view] || "source") })}
         transport={{ playing: scorePlaying, bpm: scoreTempo }}
         onMidiEvents={events => emitOrcaMidiEvents(nodeElement.id, events)}
         ariaLabel={`${definition.label} node source`}
@@ -19034,12 +19076,6 @@ function App() {
           message={livecodeStatus}
         />
         : <p className="p5-script-status" role="status" aria-live="polite">{livecodeStatus || definition.summary}</p>}
-      <details className="livecode-help">
-        <summary>{help.title}</summary>
-        <p>{help.summary}</p>
-        <ul>{help.points.map(point => <li key={point}>{point}</li>)}</ul>
-        <small>{help.footer}</small>
-      </details>
     </div>;
   };
 
@@ -20976,6 +21012,8 @@ function App() {
     const boardState = excalidrawAPI?.getAppState() || {};
     const activeAIProvider = getAIProvider(aiSettings.provider);
     const activeAIProviderHelp = getAIProviderHelp(aiSettings.provider);
+    const activeAIUsesEnvironmentCredential = hasAIEnvironmentCredential(aiSettings)
+      && !getAIProviderCredential(aiSettings);
     const settingTabs = [
       { id: "preferences", label: "Board" },
       { id: "score", label: "Score & MIDI" },
@@ -21040,7 +21078,11 @@ function App() {
                   autoCorrect="off"
                   spellCheck={false}
                   autoComplete="off"
-                  placeholder={aiSettings.provider === "openai-compatible" ? "Optional bearer token" : "Required"}
+                  placeholder={aiSettings.provider === "openai-compatible"
+                    ? "Optional bearer token"
+                    : activeAIUsesEnvironmentCredential
+                      ? "Using PRATT_LLM_API_KEY"
+                      : "Required"}
                 />
               </label>
             )}
@@ -21050,6 +21092,11 @@ function App() {
                 <div className="settings-model-control">
                   <select value={aiSettings.model} onChange={event => setAiSettings({ ...aiSettings, model: event.target.value })}>
                     {visibleModelOptions.map(model => <option key={model} value={model}>{activeModelFavorites.includes(model) ? "★ " : ""}{model}</option>)}
+                    {activeProviderManualModels.length > 0 && (
+                      <optgroup label="Documented Pratt aliases">
+                        {activeProviderManualModels.map(model => <option key={`manual:${model}`} value={model}>{model}</option>)}
+                      </optgroup>
+                    )}
                   </select>
                   <button
                     type="button"
@@ -22040,6 +22087,13 @@ function App() {
   const updateInfoViewFromEvent = event => {
     const target = event.target?.closest?.("[data-info]");
     if (!target) return;
+    // The Script type control is the entry point for the adapter-specific
+    // guide. Let InfoPanel render that guide from the active script context
+    // instead of replacing it with the generic control description.
+    if (target.dataset.infoTitle === "Script type") {
+      setInfoView(DEFAULT_INFO_VIEW);
+      return;
+    }
     let examples = [];
     try {
       const parsed = JSON.parse(target.dataset.infoExamples || "[]");
@@ -22857,7 +22911,9 @@ function App() {
                   >
                     {modelsList.length > 0 ? (
                       <>
-                        {aiSettings.model && !orderedModelsList.includes(aiSettings.model) && (
+                        {aiSettings.model
+                          && !orderedModelsList.includes(aiSettings.model)
+                          && !activeProviderManualModels.includes(aiSettings.model) && (
                           <option value={aiSettings.model}>{aiSettings.model}</option>
                         )}
                         {activeModelFavorites.length > 0 && (
@@ -22872,6 +22928,13 @@ function App() {
                             <option key={model} value={model}>{model}</option>
                           ))}
                         </optgroup>
+                        {activeProviderManualModels.length > 0 && (
+                          <optgroup label="Documented Pratt aliases">
+                            {activeProviderManualModels.map(model => (
+                              <option key={`manual:${model}`} value={model}>{model}</option>
+                            ))}
+                          </optgroup>
+                        )}
                       </>
                     ) : (
                       <option value="">{aiSettings.model || "Select Model"}</option>
@@ -24274,8 +24337,9 @@ function App() {
           >
             <InfoPanel
               info={infoView}
-              mode={openPanels.mapping ? "media" : openPanels.script ? scriptPanelType : "default"}
+              mode={shouldRenderPanel("script") ? scriptPanelType : shouldRenderPanel("mapping") ? "media" : "default"}
               iannixCommand={iannixCommandHelp}
+              livecodeKind={selectedLivecodeKindForInfo}
             />
           </DraweratorPanel>
           )}

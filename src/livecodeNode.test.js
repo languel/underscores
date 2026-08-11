@@ -77,6 +77,11 @@ test("normalization keeps unsupported values bounded and preserves authored sour
   });
 });
 
+test("supports raw Code mode while retaining legacy code-overlay values", () => {
+  assert.equal(createLivecodeNode({ kind: "shader", view: "source" }).view, "source");
+  assert.equal(createLivecodeNode({ kind: "shader", view: "overlay" }).view, "code");
+});
+
 test("Strudel nodes always use the in-code visualization surface", () => {
   const node = createLivecodeNode({ kind: "strudel", view: "split" });
   assert.equal(node.view, "code");

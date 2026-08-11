@@ -31,6 +31,28 @@ const PROVIDERS = Object.freeze({
     protocol: "openai",
     instructions: "Uses OpenRouter's model catalog and chat-completions routes. Create a restricted OpenRouter key, then filter the catalog or favorite frequently used model IDs. Availability and pricing vary by model and upstream provider.",
   },
+  pratt: {
+    id: "pratt",
+    label: "Pratt LLM",
+    defaultUrl: "https://llm.pratt.edu/v1",
+    defaultModel: "pratt-medium-fast",
+    manualModels: ["pratt-high", "pratt-medium-fast", "pratt-medium"],
+    modelPreference: [
+      "pratt-medium-fast",
+      "pratt-high",
+      "pratt-deepseek-flash",
+      "pratt-kimi",
+      "pratt-deepseek-pro",
+      "pratt-qwen",
+      "pratt-grok",
+      "pratt-nemo",
+      "pratt-tencent",
+      "pratt-muse-spark",
+    ],
+    credentialLabel: "Pratt LLM API key",
+    protocol: "openai",
+    instructions: "Uses Pratt Institute's OpenAI-compatible LLM service. Pratt students can request an sk-pratt-… key through a OnePratt support ticket. When Drawerator's local server has PRATT_LLM_API_KEY, it supplies that credential without exposing it to the browser; an API key entered here takes precedence. Pratt Medium Fast is the recommended interactive default, while Pratt High is the strongest coding/task route.",
+  },
   nvidia: {
     id: "nvidia",
     label: "NVIDIA NIM",
@@ -77,6 +99,8 @@ export const AI_PROVIDER_OPTIONS = Object.freeze(Object.values(PROVIDERS));
 
 export const getAIProvider = provider => PROVIDERS[provider] || PROVIDERS.ollama;
 
+export const getAIProviderManualModels = provider => [...(getAIProvider(provider).manualModels || [])];
+
 export const getAIProviderHelp = provider => {
   const definition = getAIProvider(provider);
   const storageWarning = definition.credentialLabel
@@ -85,8 +109,11 @@ export const getAIProviderHelp = provider => {
   return `${definition.instructions}${storageWarning}`;
 };
 
-export const aiProviderNeedsCredential = provider => Boolean(getAIProvider(provider).credentialLabel)
-  && provider !== "openai-compatible";
+export const aiProviderNeedsCredential = (provider, environmentCredentialAvailable = false) => (
+  Boolean(getAIProvider(provider).credentialLabel)
+  && provider !== "openai-compatible"
+  && !(provider === "pratt" && environmentCredentialAvailable)
+);
 
 export const normalizeAISettings = value => {
   const source = value && typeof value === "object" ? value : {};
@@ -102,7 +129,7 @@ export const normalizeAISettings = value => {
   return {
     provider,
     url: String(source.url || definition.defaultUrl),
-    model: String(source.model || ""),
+    model: String(source.model || definition.defaultModel || ""),
     apiKeys,
   };
 };
@@ -112,7 +139,7 @@ export const getAIProviderCredential = settings => String(settings?.apiKeys?.[se
 export const cleanAIBaseUrl = (url, provider) => {
   const definition = getAIProvider(provider);
   let clean = String(url || definition.defaultUrl).trim().replace(/\/+$/, "");
-  if (["openai", "openrouter", "nvidia", "anthropic", "lmstudio", "openai-compatible"].includes(provider)) {
+  if (["openai", "openrouter", "pratt", "nvidia", "anthropic", "lmstudio", "openai-compatible"].includes(provider)) {
     clean = clean.replace(/\/v1$/i, "");
   } else if (provider === "google") {
     clean = clean.replace(/\/v1beta$/i, "");
@@ -131,6 +158,11 @@ const isLocalBrowserOrigin = origin => {
 
 export const resolveAIRequestBase = (settings, runtimeOrigin = "") => {
   const base = cleanAIBaseUrl(settings.url, settings.provider);
+  const isHostedPratt = settings.provider === "pratt"
+    && base === cleanAIBaseUrl(PROVIDERS.pratt.defaultUrl, "pratt");
+  if (isHostedPratt && isLocalBrowserOrigin(runtimeOrigin)) {
+    return `${String(runtimeOrigin).replace(/\/+$/, "")}/api/pratt`;
+  }
   const isHostedNvidia = settings.provider === "nvidia"
     && base === cleanAIBaseUrl(PROVIDERS.nvidia.defaultUrl, "nvidia");
   if (isHostedNvidia && isLocalBrowserOrigin(runtimeOrigin)) {
@@ -139,13 +171,21 @@ export const resolveAIRequestBase = (settings, runtimeOrigin = "") => {
   return base;
 };
 
+export const aiProviderEnvironmentCredentialApplies = (
+  settings,
+  runtimeOrigin = "",
+  environmentCredentialAvailable = false,
+) => Boolean(environmentCredentialAvailable)
+  && settings?.provider === "pratt"
+  && resolveAIRequestBase(settings, runtimeOrigin) === `${String(runtimeOrigin).replace(/\/+$/, "")}/api/pratt`;
+
 const bearerHeaders = credential => credential ? { Authorization: `Bearer ${credential}` } : {};
 
 const providerHeaders = (settings, { stream = false } = {}) => {
   const provider = settings.provider;
   const credential = getAIProviderCredential(settings);
   const headers = { "Content-Type": "application/json" };
-  if (["openai", "openrouter", "nvidia", "github", "openai-compatible"].includes(provider)) {
+  if (["openai", "openrouter", "pratt", "nvidia", "github", "openai-compatible"].includes(provider)) {
     Object.assign(headers, bearerHeaders(credential));
   }
   if (provider === "openrouter") headers["X-Title"] = "Drawerator";
@@ -187,7 +227,10 @@ export const parseAIModelList = (provider, payload) => {
       .filter(Boolean);
   }
   const entries = Array.isArray(payload) ? payload : payload?.data || payload?.models || [];
-  return entries.map(model => model?.id || model?.name || model?.model).filter(Boolean);
+  return entries
+    .map(model => model?.id || model?.name || model?.model)
+    .filter(Boolean)
+    .filter(model => provider !== "pratt" || !/^pratt-(?:embedding|reranker)-/i.test(model));
 };
 
 export const filterAIModels = (models, { query = "", favorites = [], favoritesOnly = false } = {}) => {
@@ -196,6 +239,19 @@ export const filterAIModels = (models, { query = "", favorites = [], favoritesOn
   return [...new Set((Array.isArray(models) ? models : []).map(String).filter(Boolean))]
     .filter(model => (!favoritesOnly || favoriteSet.has(model)) && (!normalizedQuery || model.toLowerCase().includes(normalizedQuery)))
     .sort((left, right) => Number(favoriteSet.has(right)) - Number(favoriteSet.has(left)) || left.localeCompare(right));
+};
+
+export const selectAIModelFromList = (settings, models) => {
+  const available = [...new Set((Array.isArray(models) ? models : []).map(String).filter(Boolean))];
+  const current = String(settings?.model || "");
+  if (available.length === 0) return current;
+  const definition = getAIProvider(settings?.provider);
+  if (current && (
+    current !== definition.defaultModel
+    || available.includes(current)
+    || definition.manualModels?.includes(current)
+  )) return current;
+  return (definition.modelPreference || []).find(model => available.includes(model)) || available[0];
 };
 
 const dataUrlSource = value => {

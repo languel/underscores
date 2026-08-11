@@ -62,7 +62,6 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
   useEffect(() => {
     let disposed = false;
     let instance = null;
-    let observer = null;
     let serialBridge = null;
     let subscriptions = [];
     let confirmed = false;
@@ -184,17 +183,26 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
             reportError(reason);
             return;
           }
+          // Capture both authored callbacks before wrapping either one. p5
+          // normally invokes setup after this sketch factory returns, but
+          // keeping the references initialized first avoids a startup race
+          // for setup-only sketches.
+          const authoredDraw = p.draw;
           const authoredSetup = p.setup;
           p.setup = () => {
             try {
               if (typeof authoredSetup === "function") authoredSetup();
-              if (!p.canvas) p.createCanvas(Math.max(1, host.clientWidth), Math.max(1, host.clientHeight));
+              if (!p.canvas) {
+                p.createCanvas(
+                  Math.max(1, Number(element.width) || host.clientWidth || 1),
+                  Math.max(1, Number(element.height) || host.clientHeight || 1),
+                );
+              }
               p.frameRate(activeConfig.fps);
               if (!activeConfig.autoplay) p.noLoop();
               if (typeof authoredDraw !== "function") confirmRunnable();
             } catch (reason) { reportError(reason); }
           };
-          const authoredDraw = p.draw;
           if (typeof authoredDraw === "function") {
             p.draw = () => {
               try {
@@ -209,13 +217,12 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
           }
         };
         instance = new P5(sketch, host);
-        observer = new ResizeObserver(() => {
-          if (!instance?.resizeCanvas) return;
-          const width = Math.max(1, host.clientWidth);
-          const height = Math.max(1, host.clientHeight);
-          if (instance.width !== width || instance.height !== height) instance.resizeCanvas(width, height);
-        });
-        observer.observe(host);
+        // The host is CSS-scaled with the camera zoom. Resizing the internal
+        // p5 buffer to host.clientWidth/Height after setup therefore clears
+        // setup-only drawings (and can use the zoomed dimensions). The
+        // authored element dimensions are the logical canvas size; runnerKey
+        // remounts the frame when those dimensions change, while CSS handles
+        // viewport scaling.
       } catch (reason) {
         if (!disposed) {
           const message = reason instanceof Error ? reason.message : String(reason);
@@ -228,7 +235,6 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
     return () => {
       disposed = true;
       scriptRuntimeRef.current?.disposeStreamsOwner?.(element.id);
-      observer?.disconnect();
       subscriptions.forEach(unsubscribe => unsubscribe?.());
       serialBridge?.dispose?.();
       instance?.remove?.();
