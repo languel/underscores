@@ -71,13 +71,29 @@ export const getElementsExportBounds = elements => {
   });
 };
 
-export const getP5ExportableElements = elements => (elements || []).filter(shouldRenderP5Frame);
+// Livecode p5 nodes use the same P5Frame renderer but carry their authored
+// config under draweratorLivecode instead of draweratorP5. Treat them as
+// exportable p5 surfaces too, so PNG copy/export and baking share one capture
+// path.
+export const isLivecodeP5Element = element => element?.customData?.draweratorLivecode?.kind === "p5";
+
+export const shouldRenderLivecodeP5 = element => Boolean(
+  element
+  && !element.isDeleted
+  && !element.customData?.outlinerHidden
+  && !element.customData?.presentationMaskActive
+  && isLivecodeP5Element(element)
+);
+
+export const getP5ExportableElements = elements => (elements || []).filter(element => (
+  shouldRenderP5Frame(element) || shouldRenderLivecodeP5(element)
+));
 
 // The Excalidraw host is still needed for selection and transforms, but it is
 // not the live p5 drawing. Hide that host while exporting so the captured
 // canvas below replaces it exactly once.
 export const hideP5FrameHostsForExport = elements => (elements || []).map(element => (
-  isP5FrameElement(element) ? { ...element, opacity: 0 } : element
+  isP5FrameElement(element) || isLivecodeP5Element(element) ? { ...element, opacity: 0 } : element
 ));
 
 export const hideLiveCanvasHostsForExport = elements => hideP5FrameHostsForExport(elements).map(element => (

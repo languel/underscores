@@ -439,12 +439,25 @@ export default function DraweratorCodeEditor({
       }
       const isClipboardShortcut = (event.metaKey || event.ctrlKey)
         && ["c", "x", "v"].includes(normalizedKey);
+      // Leave the explicit canvas-livecode gesture for App's global handler.
+      // Plain Escape remains owned by CodeMirror for completion/search
+      // dismissal, and panel editors never take this path.
+      const isCanvasLivecodeShiftEscape = normalizedKey === "escape"
+        && event.shiftKey
+        && view.dom.closest?.(".drawerator-livecode-node");
+      if (isCanvasLivecodeShiftEscape) return;
+      const isPlainEscape = normalizedKey === "escape"
+        && !event.shiftKey
+        && !event.metaKey
+        && !event.ctrlKey
+        && !event.altKey;
       const isCodeMirrorCommand = (
         (event.metaKey || event.ctrlKey)
         && ["a", "z", "y", "f", "g", "h", "enter"].includes(normalizedKey)
       ) || (event.ctrlKey && normalizedKey === "m")
         || ((event.ctrlKey || event.altKey) && normalizedKey === ".")
-        || ["escape", "tab"].includes(normalizedKey);
+        || isPlainEscape
+        || normalizedKey === "tab";
 
       // Drawerator and Excalidraw both install capture-phase shortcuts. Give
       // CodeMirror's own keymap the first and only chance at its editor

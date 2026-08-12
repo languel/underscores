@@ -11670,9 +11670,41 @@ function App() {
       }
 
       // CodeMirror owns its complete keyboard session. This needs to precede
-      // global Escape and canvas shortcuts because both Excalidraw and
-      // Drawerator use capture-phase handlers.
-      if (document.activeElement?.closest?.(".drawerator-code-editor")) return;
+      // canvas shortcuts because both Excalidraw and Drawerator use
+      // capture-phase handlers. Shift+Escape is the explicit exception for a
+      // canvas livecode editor: it switches the selected node to output and
+      // defocuses it without changing plain Escape's editor behavior.
+      const activeElement = document.activeElement;
+      const activeCanvasLivecodeNode = activeElement?.closest?.(".drawerator-livecode-node");
+      const activeCanvasLivecodeId = activeCanvasLivecodeNode?.dataset?.livecodeNodeId || null;
+      const canvasLivecodeIsSelected = Boolean(
+        activeCanvasLivecodeId
+        && (
+          livecodeCanvasEditorId === activeCanvasLivecodeId
+          || excalidrawAPI?.getAppState?.()?.selectedElementIds?.[activeCanvasLivecodeId]
+        )
+      );
+      if (e.key === "Escape" && e.shiftKey && canvasLivecodeIsSelected) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation?.();
+        const activeCanvasLivecodeElement = excalidrawAPI?.getSceneElementsIncludingDeleted?.()
+          ?.find(element => element.id === activeCanvasLivecodeId && !element.isDeleted);
+        const activeCanvasLivecodeData = activeCanvasLivecodeElement?.customData?.draweratorLivecode;
+        const activeCanvasLivecodeView = activeCanvasLivecodeData
+          ? normalizeLivecodeNode(activeCanvasLivecodeData).view
+          : null;
+        if (activeCanvasLivecodeView === "code" || activeCanvasLivecodeView === "overlay") {
+          patchLivecodeCanvasNode(activeCanvasLivecodeId, { view: "preview" }, { commitToHistory: true });
+        }
+        selectedElementIdsRef.current = {};
+        setSelectedElementIds({});
+        runtimeCursorSelectionRef.current = {};
+        excalidrawAPI?.updateScene({ appState: { selectedElementIds: {} } });
+        activeElement?.blur?.();
+        return;
+      }
+      if (activeElement?.closest?.(".drawerator-code-editor")) return;
 
       // Escape is a global cancel/clear gesture: close transient UI, blur any
       // focused control, leave Bézier editing, and clear the canvas selection.
@@ -11694,7 +11726,6 @@ function App() {
           e.stopImmediatePropagation?.();
           return;
         }
-        const activeElement = document.activeElement;
         if (showContextDropdown) setShowContextDropdown(false);
         if (showAutocomplete) setShowAutocomplete(false);
         if (showCommandPalette) setShowCommandPalette(false);
@@ -11726,7 +11757,6 @@ function App() {
 
       // Space controls score transport from the canvas/UI. Text controls keep
       // their native spacebar behavior so users can still type normally.
-      const activeElement = document.activeElement;
       const textControlEventTarget = e.target?.closest?.("input, textarea, select, [contenteditable='true'], .cm-editor");
       const isTextControlFocused = Boolean(
         (activeElement && (
@@ -11887,7 +11917,7 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [theme, excalidrawAPI, customBrushActive, activeBrushId, shortcutBindings, commandRegistry, showContextDropdown, showAutocomplete, showCommandPalette, bezierEditElementId, svgPathEdit]);
+  }, [theme, excalidrawAPI, customBrushActive, activeBrushId, shortcutBindings, commandRegistry, showContextDropdown, showAutocomplete, showCommandPalette, bezierEditElementId, svgPathEdit, livecodeCanvasEditorId]);
 
   // Autofocus input when Command Palette opens
   useEffect(() => {
@@ -16730,6 +16760,65 @@ function App() {
     const appState = excalidrawAPI.getAppState();
     const selectedIds = { ...appState.selectedElementIds, ...runtimeCursorSelectionRef.current, ...selectedElementIdsRef.current };
     return excalidrawAPI.getSceneElementsIncludingDeleted().filter(element => !element.isDeleted && selectedIds[element.id]);
+  };
+
+  const renderSelectionPng = async () => {
+    if (!excalidrawAPI) throw new Error("The canvas is not ready.");
+    const appState = excalidrawAPI.getAppState();
+    const selected = getSelectionExchangeElements(
+      excalidrawAPI.getSceneElementsIncludingDeleted(),
+      { ...appState.selectedElementIds, ...runtimeCursorSelectionRef.current, ...selectedElementIdsRef.current },
+    );
+    if (!selected.length) throw new Error("Select one or more canvas objects first.");
+    const exportPadding = getBakeExportPadding(selected);
+    const contentBounds = getCanonicalExportBounds(selected);
+    const bounds = contentBounds && {
+      minX: contentBounds.minX - exportPadding,
+      minY: contentBounds.minY - exportPadding,
+      maxX: contentBounds.maxX + exportPadding,
+      maxY: contentBounds.maxY + exportPadding,
+    };
+    if (!bounds) throw new Error("The selection has no visible bounds.");
+    const result = await exportDraweratorPng({
+      exportToCanvas,
+      elements: selected,
+      appState: { ...getDraweratorExportAppState({ transparent: true }), exportScale: 1 },
+      files: excalidrawAPI.getFiles(),
+      bounds,
+      exportPadding,
+      exportBackground: false,
+      // Clipboard/imported PNGs are placed back into the scene using bitmap
+      // pixels as scene units. Keep selection captures at 1:1 scene
+      // resolution so a pasted copy preserves the original frame size;
+      // board exports can still use the device-pixel resolution by default.
+      pixelRatio: 1,
+    });
+    return { ...result, selected };
+  };
+
+  const copySelectionAsPng = async () => {
+    try {
+      const { canvas, selected } = await renderSelectionPng();
+      if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) {
+        throw new Error("Image clipboard is unavailable in this browser. Use Export Selection as PNG instead.");
+      }
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("Could not encode the selection as PNG.");
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      setSceneExchangeStatus(`Copied ${selected.length} selected ${selected.length === 1 ? "object" : "objects"} as PNG.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not copy selection as PNG.");
+    }
+  };
+
+  const exportSelectionAsPng = async () => {
+    try {
+      const { canvas, selected } = await renderSelectionPng();
+      downloadCanvasAsPng(canvas, { filename: `drawerator-selection-${new Date().toISOString().slice(0, 10)}.png` });
+      setSceneExchangeStatus(`Exported ${selected.length} selected ${selected.length === 1 ? "object" : "objects"} as PNG.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not export selection as PNG.");
+    }
   };
 
   const bakeSelectionToPng = async () => {
@@ -24937,6 +25026,37 @@ function App() {
                 Paste SVG as Editable Paths
               </button>
               {customContextMenu.hasSelection && <>
+                <button
+                  onPointerDown={event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setCustomContextMenu(null);
+                    void copySelectionAsPng();
+                  }}
+                  className="custom-floating-context-menu-btn"
+                  title="Copy the selected objects as a transparent PNG image"
+                >
+                  <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                    <rect x="7" y="7" width="13" height="13" rx="1" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16V5a1 1 0 011-1h11M10 11l2.2 2.2L16 9l3 4" />
+                  </svg>
+                  Copy Selection as PNG
+                </button>
+                <button
+                  onPointerDown={event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setCustomContextMenu(null);
+                    void exportSelectionAsPng();
+                  }}
+                  className="custom-floating-context-menu-btn"
+                  title="Export the selected objects as a transparent PNG image"
+                >
+                  <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" />
+                  </svg>
+                  Export Selection as PNG
+                </button>
                 <div className="custom-floating-context-menu-separator" />
                 <button
                   onPointerDown={event => {

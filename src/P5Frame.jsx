@@ -249,7 +249,10 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
     };
   }, [runnerKey]);
 
-  return <div className={`drawerator-p5-frame ${runningConfig.allowInteraction ? "drawerator-p5-interactive" : ""}`}>
+  return <div
+    className={`drawerator-p5-frame ${runningConfig.allowInteraction ? "drawerator-p5-interactive" : ""}`}
+    data-drawerator-p5-element-id={element.id}
+  >
     <div
       ref={hostRef}
       className="drawerator-p5-host"
