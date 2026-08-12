@@ -6,6 +6,7 @@ import {
   defaultLivecodeSource,
   getLivecodeFont,
   getLivecodeEditorProfile,
+  getLivecodeViewForDoubleClick,
   isLivecodeNodeElement,
   normalizeLivecodeNode,
   patchLivecodeNode,
@@ -13,6 +14,15 @@ import {
   shouldRenderLivecodeNode,
 } from "./livecodeNode.js";
 import { HELLO_GLSL_FRAGMENT_SOURCE } from "./shaderLivecode.js";
+
+test("maps Livecode double-click modifiers to explicit views", () => {
+  assert.equal(getLivecodeViewForDoubleClick({}), null);
+  assert.equal(getLivecodeViewForDoubleClick({ shiftKey: true }), "code");
+  assert.equal(getLivecodeViewForDoubleClick({ shiftKey: true, altKey: true }), "source");
+  assert.equal(getLivecodeViewForDoubleClick({ metaKey: true }), "preview");
+  assert.equal(getLivecodeViewForDoubleClick({ ctrlKey: true }), "preview");
+  assert.equal(getLivecodeViewForDoubleClick({ metaKey: true, shiftKey: true }), null);
+});
 
 test("creates a versioned, self-contained Livecode Node with a stable runtime contract", () => {
   const node = createLivecodeNode({
@@ -117,6 +127,12 @@ test("patches retain node identity, source ownership, and bump the document revi
   assert.equal(patched.revision, 5);
   assert.equal(patched.runtime.running, true);
   assert.equal(patched.typography.fontSize, 16);
+});
+
+test("runtime start and stop patches preserve the authored view", () => {
+  const node = createLivecodeNode({ kind: "p5", view: "split", runtime: { running: false } });
+  assert.equal(patchLivecodeNode(node, { runtime: { running: true } }).view, "split");
+  assert.equal(patchLivecodeNode({ ...node, runtime: { ...node.runtime, running: true } }, { runtime: { running: false } }).view, "split");
 });
 
 test("runtime setting patches preserve the last evaluated Strudel source", () => {

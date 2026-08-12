@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { evaluatePlayCoreSource, getPlayCoreGridSize, mapPlayCorePointerToLayout, normalizePlayCoreFrame, shouldRenderPlayCoreFrame } from "./playCoreFrame.js";
 import { createScriptCanvasApi, resolveScriptParameterValues } from "./scriptRuntime.js";
 import { parseScriptParameters } from "./scriptParameters.js";
+import { createScriptConsole } from "./scriptConsole.js";
 
 const escapeHtml = value => String(value ?? " ").replace(/[&<>]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[char]));
 const escapeCss = value => String(value ?? "").replace(/[&"'<>]/g, char => ({ "&": "&amp;", "\"": "&quot;", "'": "&#39;", "<": "&lt;", ">": "&gt;" }[char]));
@@ -59,6 +60,7 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) 
     try {
       const canvas = createScriptCanvasApi(scriptRuntimeRef, { onSubscription: unsubscribe => subscriptions.push(unsubscribe) });
       const params = resolveScriptParameterValues(parseScriptParameters(config.source, { values: config.parameters }), scriptRuntimeRef, canvas);
+      const scriptConsole = createScriptConsole(scriptRuntimeRef, element.id);
       drawerator = {
         element: { id: element.id, width: element.width, height: element.height }, frame: config,
         canvas, objects: canvas, events: canvas.events, transport: canvas.transport, params,
@@ -70,9 +72,14 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) 
         get theme() { return appearance().theme; },
         get appearance() { return appearance(); },
         get streams() { return scriptRuntimeRef?.current?.getStreams?.(element.id) || window.drawerator?.streams; },
+        console: scriptConsole,
+        log: scriptConsole.log,
+        info: scriptConsole.info,
+        warn: scriptConsole.warn,
+        error: scriptConsole.error,
         get api() { return window.drawerator; },
       };
-      program = evaluatePlayCoreSource(config.source, drawerator);
+      program = evaluatePlayCoreSource(config.source, drawerator, scriptConsole);
     } catch (error) { host.textContent = `Play Core error: ${error.message || error}`; return undefined; }
     const appearanceSnapshot = appearance();
     const settings = {

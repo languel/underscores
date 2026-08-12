@@ -13,6 +13,7 @@ import {
 import { createP5SerialBridge } from "./p5Serial.js";
 import { parseScriptParameters } from "./scriptParameters.js";
 import { createScriptCanvasApi, resolveScriptParameterValues } from "./scriptRuntime.js";
+import { createScriptConsole } from "./scriptConsole.js";
 
 const loadedCdnRuntimes = new Map();
 
@@ -99,6 +100,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
         });
         const params = resolveScriptParameterValues(parameters, scriptRuntimeRef, canvas);
         const appearance = () => scriptRuntimeRef.current?.getAppearance?.() || { theme: "dark", currentColor: "#e8e8e8", currentOpacity: 1, colors: {} };
+        const scriptConsole = createScriptConsole(scriptRuntimeRef, element.id);
         const drawerator = {
           element: { id: element.id, width: element.width, height: element.height },
           frame: activeConfig,
@@ -115,6 +117,11 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
           get theme() { return appearance().theme; },
           get appearance() { return appearance(); },
           get streams() { return scriptRuntimeRef?.current?.getStreams?.(element.id) || window.drawerator?.streams; },
+          console: scriptConsole,
+          log: scriptConsole.log,
+          info: scriptConsole.info,
+          warn: scriptConsole.warn,
+          error: scriptConsole.error,
           api: window.drawerator,
         };
         const sketch = p => {
@@ -155,8 +162,8 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
             // Deliberately trusted: this editor is for the local author and has
             // full page access, mirroring Drawerator's trusted IanniX scripts.
             callbacks = resolveP5SourceMode(activeConfig) === "global"
-              ? compileClassicP5Source(p, drawerator, activeConfig.source, interactionState)
-              : compileInstanceP5Source(p, drawerator, activeConfig.source);
+              ? compileClassicP5Source(p, drawerator, activeConfig.source, interactionState, scriptConsole)
+              : compileInstanceP5Source(p, drawerator, activeConfig.source, scriptConsole);
             P5_GLOBAL_CALLBACK_NAMES.forEach(name => {
               const callback = callbacks[name];
               const tracksDrag = name === "mousePressed"

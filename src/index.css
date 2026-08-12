@@ -3512,6 +3512,30 @@ body .excalidraw .sidebar {
   gap: 5px;
 }
 
+.livecode-settings-disclosure {
+  margin: 0 0 6px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 58%, transparent);
+  border-radius: 3px;
+}
+
+.livecode-settings-disclosure > summary {
+  padding: 5px 7px;
+  color: var(--color-secondary);
+  font: 600 10px/1.2 var(--font-sans);
+  cursor: pointer;
+  list-style: disclosure-closed inside;
+}
+
+.livecode-settings-disclosure[open] > summary {
+  margin-bottom: 5px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 58%, transparent);
+  list-style: disclosure-open inside;
+}
+
+.livecode-settings-disclosure > .livecode-panel-controls {
+  padding: 0 6px 6px;
+}
+
 .livecode-panel-controls .livecode-example-control {
   grid-column: span 2;
 }

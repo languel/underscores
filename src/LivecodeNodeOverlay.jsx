@@ -14,11 +14,13 @@ import {
   getLivecodeEditorProfile,
   getLivecodeFont,
   getLivecodeKindDefinition,
+  getLivecodeViewForDoubleClick,
   LIVECODE_KIND_DEFINITIONS,
   normalizeLivecodeNode,
   shouldRenderLivecodeNode,
 } from "./livecodeNode.js";
 import { infoProps } from "./uiInfo.js";
+import { createScriptConsole } from "./scriptConsole.js";
 
 const StopIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1" /></svg>;
 const RunIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 9 6-9 6V6Z" /></svg>;
@@ -112,6 +114,7 @@ function createLivecodeBridge(element, node, scriptRuntimeRef, onStrudelTranspor
   const appearance = () => scriptRuntimeRef.current?.getAppearance?.() || {
     theme: "dark", currentColor: "#e8e8e8", currentOpacity: 1, colors: {},
   };
+  const scriptConsole = createScriptConsole(scriptRuntimeRef, element.id);
   return Object.freeze({
     element: Object.freeze({ id: element.id, width: element.width, height: element.height }),
     frame: node,
@@ -128,6 +131,11 @@ function createLivecodeBridge(element, node, scriptRuntimeRef, onStrudelTranspor
     get theme() { return appearance().theme; },
     get appearance() { return appearance(); },
     get streams() { return scriptRuntimeRef?.current?.getStreams?.(element.id) || window.drawerator?.streams; },
+    console: scriptConsole,
+    log: scriptConsole.log,
+    info: scriptConsole.info,
+    warn: scriptConsole.warn,
+    error: scriptConsole.error,
     strudel: Object.freeze({
       setTempo: bpm => onStrudelTransport?.(element, node, { type: "tempo", value: bpm }),
       setPlaying: playing => onStrudelTransport?.(element, node, { type: "playing", value: Boolean(playing) }),
@@ -279,7 +287,6 @@ function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef, transport, ed
 }
 
 const nextLivecodeView = view => ({ preview: "source", source: "code", code: "split", split: "preview", overlay: "split" }[view] || "source");
-const nextLivecodeQuickView = view => (view === "preview" ? "source" : "preview");
 
 function NodeChrome({ node, onPatch, onToggleRun }) {
   const definition = getLivecodeKindDefinition(node.kind);
@@ -348,12 +355,6 @@ export function LivecodeNodeOverlay({
       key={element.id}
       className={`drawerator-livecode-node ${selected ? "selected" : ""} ${editing ? "editing" : ""} ${node.typography.glyphOnlyOverlay ? "glyph-only-overlay" : ""} ${node.view}`}
       data-livecode-node-id={element.id}
-      onPointerDown={event => {
-        if (event.button !== 0 || event.ctrlKey || event.metaKey || !event.altKey || !event.shiftKey) return;
-        event.preventDefault();
-        event.stopPropagation();
-        onPatch?.(element.id, { view: nextLivecodeQuickView(node.view) });
-      }}
       style={{
         left: (element.x + camera.scrollX) * camera.zoom,
         top: (element.y + camera.scrollY) * camera.zoom,
@@ -434,7 +435,7 @@ export function LivecodeNodeOverlay({
           readOnly
           glyphOnlyOverlay={false}
           onClick={visible ? () => onEdit?.(element.id) : undefined}
-          onDoubleClick={visible ? () => onEdit?.(element.id) : undefined}
+          onDoubleClick={visible ? event => onEdit?.(element.id, { view: getLivecodeViewForDoubleClick(event) }) : undefined}
           ariaLabel={`${getLivecodeKindDefinition(node.kind).label} canvas node source`}
         /><div className="livecode-node-output">{runtime}</div></div>;
         if (node.kind === "markdown" && node.view === "source") return <div className={`livecode-node-surface ${visible ? "interactive" : ""}`}><LivecodeNodeEditor
@@ -442,7 +443,7 @@ export function LivecodeNodeOverlay({
           element={element}
           readOnly
           onClick={visible ? () => onEdit?.(element.id) : undefined}
-          onDoubleClick={visible ? () => onEdit?.(element.id) : undefined}
+          onDoubleClick={visible ? event => onEdit?.(element.id, { view: getLivecodeViewForDoubleClick(event) }) : undefined}
           ariaLabel="Markdown canvas node source"
         /></div>;
         if (node.view === "code" || node.view === "overlay") return <div className={`livecode-node-surface ${visible ? "interactive" : ""}`}><div className="livecode-node-code-overlay">
@@ -454,7 +455,7 @@ export function LivecodeNodeOverlay({
             glyphOnlyOverlay={node.typography.glyphOnlyOverlay}
             enableStrudelWidgets={node.kind === "strudel"}
             onClick={visible ? () => onEdit?.(element.id) : undefined}
-            onDoubleClick={visible ? () => onEdit?.(element.id) : undefined}
+            onDoubleClick={visible ? event => onEdit?.(element.id, { view: getLivecodeViewForDoubleClick(event) }) : undefined}
             ariaLabel={`${getLivecodeKindDefinition(node.kind).label} canvas node source`}
           />
         </div></div>;
@@ -463,7 +464,7 @@ export function LivecodeNodeOverlay({
           element={element}
           readOnly
           onClick={visible ? () => onEdit?.(element.id) : undefined}
-          onDoubleClick={visible ? () => onEdit?.(element.id) : undefined}
+          onDoubleClick={visible ? event => onEdit?.(element.id, { view: getLivecodeViewForDoubleClick(event) }) : undefined}
           ariaLabel={`${getLivecodeKindDefinition(node.kind).label} canvas node source`}
         /></div>;
         return <div className={`livecode-node-surface ${visible ? "interactive" : ""}`}>

@@ -90,14 +90,15 @@ const requirePlayCoreModule = specifier => {
   throw new Error(`Unsupported Play Core module “${specifier}”. Bundled modules: ${PLAY_CORE_MODULE_SPECIFIERS.join(", ")}`);
 };
 
-export const evaluatePlayCoreSource = (source, drawerator = {}) => {
+export const evaluatePlayCoreSource = (source, drawerator = {}, scriptConsole = drawerator?.console || globalThis.console) => {
   const code = transformPlayCoreSource(source);
   const exports = {};
-  new Function("exports", "drawerator", "__", "__require", `"use strict";\n${code}\nreturn exports;`)(
+  new Function("exports", "drawerator", "__", "__require", "console", `"use strict";\n${code}\nreturn exports;`)(
     exports,
     drawerator,
     drawerator,
     requirePlayCoreModule,
+    scriptConsole,
   );
   return exports;
 };

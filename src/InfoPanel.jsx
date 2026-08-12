@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { getIannixCommandCategories } from "./iannixCommandReference.js";
-import { getLivecodeHelp } from "./livecodeHelp.js";
+import { getLivecodeBridgeHelp, getLivecodeHelp } from "./livecodeHelp.js";
 import { normalizeLivecodeKind } from "./livecodeNode.js";
 
 const DEFAULT_INFO_VIEW = Object.freeze({
@@ -401,10 +401,16 @@ const BrushInfoGuide = () => (
 
 const LivecodeInfoGuide = ({ kind }) => {
   const help = getLivecodeHelp(kind);
+  const bridge = getLivecodeBridgeHelp(kind);
   return (
     <div className="info-svg-guide livecode-info-guide">
       <p>{help.summary}</p>
       <ul>{help.points.map(point => <li key={point}>{point}</li>)}</ul>
+      <section className="livecode-bridge-guide">
+        <h3>{bridge.title.trim()}</h3>
+        <p>{bridge.summary}</p>
+        {bridge.points.length > 0 && <ul>{bridge.points.map(point => <li key={point}>{point}</li>)}</ul>}
+      </section>
       <small>{help.footer}</small>
     </div>
   );
@@ -413,11 +419,12 @@ const LivecodeInfoGuide = ({ kind }) => {
 const livecodeHelpTopic = kind => {
   const normalizedKind = normalizeLivecodeKind(kind);
   const help = getLivecodeHelp(normalizedKind);
+  const bridge = getLivecodeBridgeHelp(normalizedKind);
   return {
     id: `livecode-guide-${normalizedKind}`,
     title: help.title,
-    keywords: `livecode ${normalizedKind} script language guide ${help.title}`,
-    body: [help.summary, ...help.points, help.footer].join("\n\n"),
+    keywords: `livecode ${normalizedKind} script language guide ${help.title} __ drawerator bridge api`,
+    body: [help.summary, ...help.points, bridge.summary, ...bridge.points, help.footer].join("\n\n"),
     guide: <LivecodeInfoGuide kind={normalizedKind} />,
     examples: [],
   };

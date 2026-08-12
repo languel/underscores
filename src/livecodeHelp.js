@@ -1,5 +1,34 @@
 import { LIVECODE_KINDS, normalizeLivecodeKind } from "./livecodeNode.js";
 
+export const getLivecodeBridgeHelp = kind => {
+  const normalizedKind = normalizeLivecodeKind(kind);
+  const trusted = [LIVECODE_KINDS.p5, LIVECODE_KINDS.playcore, LIVECODE_KINDS.strudel].includes(normalizedKind);
+  const details = {
+    [LIVECODE_KINDS.p5]: "p5 receives __ (and the legacy drawerator alias) as a live frame bridge. Use __.element for the host size, __.params for @param values, and __.canvas / __.events / __.transport for scene queries, events, and score time.",
+    [LIVECODE_KINDS.playcore]: "Play Core receives __ as the final program argument and as the drawerator alias. Use __.element, __.params, __.canvas, __.events, __.transport, and __.api from lifecycle hooks and main().",
+    [LIVECODE_KINDS.strudel]: "Strudel evaluates with __ (and drawerator) in scope. The most useful live values are __.transport, __.canvas, __.events, __.params, and __.strudel for node-local transport controls.",
+    [LIVECODE_KINDS.html]: "HTML runs in an isolated iframe instead of the JavaScript bridge. Use window.drawerator.post(type, detail) to send a message and window.drawerator.onMessage(listener) to receive the host's read-only runtime snapshot.",
+    [LIVECODE_KINDS.markdown]: "Markdown is a deterministic document renderer; it does not execute JavaScript and has no __ bridge. Use Markdown, inline/display LaTeX, and the Output/Code view modes.",
+    [LIVECODE_KINDS.latex]: "LaTeX is a deterministic typesetting renderer; it does not execute JavaScript and has no __ bridge. Use TeX math delimiters and the Output/Code view modes.",
+    [LIVECODE_KINDS.orca]: "Orca is a focused grid language rather than JavaScript, so __ is not available. Use its operators and the native MIDI/CC/pitch-bend routing instead.",
+    [LIVECODE_KINDS.shader]: "GLSL runs on the GPU and has no JavaScript __ bridge. Use the documented uniforms such as u_resolution, u_time, u_pointer, u_currentColor, and u_segments.",
+  };
+  return {
+    title: "Drawerator bridge (__)",
+    available: trusted,
+    summary: details[normalizedKind] || "This script kind has no shared JavaScript bridge.",
+    points: trusted ? [
+      "__.element is the host snapshot ({ id, width, height }); __.object is the current scene-object snapshot.",
+      "__.params contains values declared with // @param. Object parameters resolve through the same canvas query API.",
+      "__.canvas (also __.objects) exposes read-only all(), get(id/label), find(query), and selected() scene queries.",
+      "__.events provides recent(limit), latest(pattern), and on(pattern, listener). __.transport exposes time and timing context.",
+      "Send messages to the Event Console with console.log/info/warn/error/debug (p5 captures these), __.console.log(...args), or the shorthand __.log/info/warn/error/debug(...args) from any JavaScript bridge runtime. Turn on Console → Log to collect script.log events.",
+      "__.colors, __.currentColor, __.currentOpacity, __.theme, and __.appearance follow the current Drawerator theme.",
+      "__.api is the deliberate application API for commands, scene/time/grid, physics, mixer, inputs, relations, and streams. Prefer documented calls over DOM access.",
+    ] : [],
+  };
+};
+
 // Short, adapter-owned guidance for the docked Livecode editor. Keep it close
 // to the adapter registry so the in-app reference and the persisted kind names
 // cannot drift apart.

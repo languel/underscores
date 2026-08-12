@@ -87,9 +87,9 @@ import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
 import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
 import { LivecodeNodeEditor, LivecodeNodeOverlay, StrudelPanelStatus } from "./LivecodeNodeOverlay.jsx";
-import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeKindDefinition, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, replaceLivecodeNodeProgram } from "./livecodeNode.js";
+import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeKindDefinition, getLivecodeViewForDoubleClick, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, replaceLivecodeNodeProgram } from "./livecodeNode.js";
 import { getLivecodeExamples } from "./livecodeExamples.js";
-import { describeLivecodeRuntime, hasNativeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
+import { describeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
 import { getShaderExample, normalizeShaderCompositionSettings, shaderExampleForSource } from "./shaderLivecode.js";
 import { getShaderStatuses, SHADER_STATUS_EVENT } from "./shaderStatus.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
@@ -3416,6 +3416,7 @@ function App() {
   const [livecodeCanvasEditorId, setLivecodeCanvasEditorId] = useState(null);
   const [livecodeCanvasFocusRequest, setLivecodeCanvasFocusRequest] = useState(0);
   const [livecodeStatus, setLivecodeStatus] = useState("");
+  const [livecodeSettingsOpen, setLivecodeSettingsOpen] = useState(true);
   const livecodeDirtyIdsRef = useRef(new Set());
   const selectedSvgForEditor = useMemo(() => {
     const selectedIds = svgOverlayScene.appState?.selectedElementIds || {};
@@ -3838,6 +3839,20 @@ function App() {
   const scriptCanvasApiRef = useRef(null);
   scriptRuntimeRef.current = {
     eventBus,
+    emitScriptLog: (elementId, level, args) => {
+      const element = (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || [])
+        .find(candidate => candidate.id === elementId && !candidate.isDeleted);
+      const label = element?.customData?.label
+        || element?.customData?.iannixImport?.label
+        || getScoreData(element)?.label
+        || elementId;
+      eventBus.emit("script.log", {
+        elementId,
+        label: String(label || elementId),
+        level: String(level || "log"),
+        args: Array.isArray(args) ? args : [args],
+      }, { source: "livecode", transportTime: scoreTimeRef.current });
+    },
     getStreams: ownerId => mediaStreamsApiRef.current.forOwner?.(ownerId) || mediaStreamsApiRef.current,
     disposeStreamsOwner: ownerId => mediaStreamsApiRef.current.removeOwner?.(ownerId),
     getElements: () => excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || [],
@@ -4825,6 +4840,7 @@ function App() {
       return;
     }
     setLivecodeEditorId(selectedLivecodeNodeForEditor.id);
+    setInfoView(DEFAULT_INFO_VIEW);
     toggleDraweratorPanel("script", { open: true, scriptType: "livecode" });
   }, [selectedLivecodeNodeForEditor?.id]);
 
@@ -6116,7 +6132,7 @@ function App() {
       commitToHistory: false,
     });
     setSelectedElementIds({ [hit.id]: true });
-    editLivecodeCanvasNode(hit.id);
+    editLivecodeCanvasNode(hit.id, { view: getLivecodeViewForDoubleClick(e) });
     return true;
   };
 
@@ -14478,7 +14494,6 @@ function App() {
         running,
         ...(evaluationSettings ? { settings: evaluationSettings } : {}),
       },
-      ...(running && node.kind !== LIVECODE_KINDS.strudel && (hasNativeLivecodeRuntime(node) || [LIVECODE_KINDS.markdown, LIVECODE_KINDS.latex, LIVECODE_KINDS.html].includes(node.kind)) ? { view: "preview" } : {}),
     }, { commitToHistory: true });
     if (!running && node.kind === LIVECODE_KINDS.strudel && node.runtime.settings?.syncTransport) setScorePlaying(false);
     if (node.kind === LIVECODE_KINDS.strudel && running) setLivecodeStatus("");
@@ -14498,8 +14513,10 @@ function App() {
     }
   }, []);
 
-  const editLivecodeCanvasNode = (elementId, { focusCanvas = true } = {}) => {
+  const editLivecodeCanvasNode = (elementId, { focusCanvas = true, view = null } = {}) => {
+    if (view) patchLivecodeCanvasNode(elementId, { view }, { commitToHistory: true });
     setLivecodeEditorId(elementId);
+    setInfoView(DEFAULT_INFO_VIEW);
     if (focusCanvas) {
       setLivecodeCanvasEditorId(elementId);
       setLivecodeCanvasFocusRequest(request => request + 1);
@@ -18934,6 +18951,7 @@ function App() {
       api.updateScene({ appState: { selectedElementIds: { [elementId]: true }, selectedGroupIds: {}, activeTool: { ...activeTool, type: "selection", locked: false } }, commitToHistory: false });
       setSelectedElementIds({ [elementId]: true });
       setLivecodeEditorId(elementId);
+      setInfoView(DEFAULT_INFO_VIEW);
     };
     const frameLivecodeNode = () => {
       const api = excalidrawAPIRef.current;
@@ -18979,13 +18997,22 @@ function App() {
           aria-label="Frame selected Livecode node"
         ><ScriptActionIcon type="frame" /></button>
       </div>
-      <div className="livecode-panel-controls">
+      <details
+        className="livecode-settings-disclosure"
+        open={livecodeSettingsOpen}
+        onToggle={event => setLivecodeSettingsOpen(event.currentTarget.open)}
+      >
+        <summary>Node settings</summary>
+        <div className="livecode-panel-controls">
         <label>Kind <select value={node.kind} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { kind: event.target.value, name: defaultLivecodeName(event.target.value) }, { commitToHistory: true })}>{Object.entries(LIVECODE_KINDS).map(([key, value]) => <option key={key} value={value}>{getLivecodeKindDefinition(value).label}</option>)}</select></label>
         <label className="livecode-example-control">Example <select value={activeLivecodeExampleId} onChange={event => {
           const next = livecodeExamples.find(example => example.id === event.target.value) || livecodeExamples[0];
           if (!next) return;
           if (node.kind === LIVECODE_KINDS.shader) {
-            const shader = getShaderExample(next.id);
+            const shader = next.id === "bare"
+              ? { id: "bare", name: next.name, source: next.source, mode: "custom" }
+              : getShaderExample(next.id);
+            if (!shader) return;
             patchLivecodeCanvasNode(nodeElement.id, {
               name: shader.name,
               source: shader.source,
@@ -19024,7 +19051,8 @@ function App() {
         <label>Line <NumericInput min="0.8" max="3" step="0.05" value={node.typography.lineHeight} defaultValue={1.4} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { lineHeight: value } }, { commitToHistory: true })} /></label>
         <label>Weight <select value={node.typography.fontWeight} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontWeight: Number(event.target.value) } }, { commitToHistory: true })}>{[300, 400, 500, 600, 700].map(weight => <option key={weight} value={weight}>{weight}</option>)}</select></label>
         <label>Track <NumericInput min="-2" max="8" step="0.1" value={node.typography.letterSpacing} defaultValue={0} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { letterSpacing: value } }, { commitToHistory: true })} /></label>
-      </div>
+        </div>
+      </details>
       {parameters.length > 0 && <div className="iannix-script-parameters p5-script-parameters" aria-label="Livecode node parameters">
         {parameters.map(parameter => <label className="iannix-script-parameter" key={parameter.name}>
           <span className="iannix-script-parameter-header"><strong>{parameter.label}</strong>{parameter.type === "object" && <em>Canvas object</em>}</span>
@@ -22085,6 +22113,14 @@ function App() {
     });
   };
   const updateInfoViewFromEvent = event => {
+    const editor = event.target?.closest?.(".drawerator-code-editor, .orca-node, .livecode-markdown-block textarea");
+    if (editor) {
+      // Code, grid, and in-place Markdown editing should always restore the
+      // language guide. This also clears a stale control tooltip in the Info
+      // panel without changing the editor's selection or source.
+      setInfoView(DEFAULT_INFO_VIEW);
+      return;
+    }
     const target = event.target?.closest?.("[data-info]");
     if (!target) return;
     // The Script type control is the entry point for the adapter-specific

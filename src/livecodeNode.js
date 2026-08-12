@@ -123,6 +123,19 @@ export const defaultLivecodeSource = kind => getLivecodeKindDefinition(kind).def
 
 export const defaultLivecodeName = kind => getLivecodeKindDefinition(kind).defaultName;
 
+// Modifier-specific double-click entry points for canvas Livecode nodes.
+// Return null for an ordinary double-click so the node keeps its authored
+// view. Ctrl is accepted alongside Cmd for cross-platform parity.
+export const getLivecodeViewForDoubleClick = event => {
+  const command = Boolean(event?.metaKey || event?.ctrlKey);
+  const option = Boolean(event?.altKey);
+  const shift = Boolean(event?.shiftKey);
+  if (command && !option && !shift) return "preview";
+  if (shift && option && !command) return "source";
+  if (shift && !option && !command) return "code";
+  return null;
+};
+
 export const normalizeLivecodeTypography = value => {
   const raw = value && typeof value === "object" ? value : {};
   return {
