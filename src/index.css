@@ -3163,6 +3163,33 @@ body .excalidraw .sidebar {
 .livecode-markdown code,
 .livecode-latex-error { font-family: var(--font-mono); }
 
+.livecode-markdown-code-block {
+  box-sizing: border-box;
+  margin: 1em 0;
+  padding: 0.85em 1em;
+  overflow-x: auto;
+  border: 1px solid color-mix(in srgb, var(--drawerator-border, currentColor) 28%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--drawerator-panel-bg, currentColor) 16%, transparent);
+}
+
+.livecode-markdown-code-block code {
+  display: block;
+  white-space: pre;
+  color: var(--color-primary);
+}
+
+.livecode-markdown-code-block .livecode-code-comment { color: color-mix(in srgb, var(--drawerator-muted, currentColor) 84%, transparent); font-style: italic; }
+.livecode-markdown-code-block .livecode-code-string { color: #668f61; }
+.livecode-markdown-code-block .livecode-code-number { color: #a36b36; }
+.livecode-markdown-code-block .livecode-code-keyword { color: var(--drawerator-accent, #6b7173); font-weight: 600; }
+.livecode-markdown-code-block .livecode-code-builtin { color: var(--drawerator-highlight, #7d8588); }
+
+@media (prefers-color-scheme: dark) {
+  .livecode-markdown-code-block .livecode-code-string { color: #9dcc92; }
+  .livecode-markdown-code-block .livecode-code-number { color: #e0a96d; }
+}
+
 .livecode-markdown-block {
   min-width: 0;
   border-radius: 3px;

@@ -150,7 +150,10 @@ function MarkdownPresentation({ node, editable = false, documentEditing = false,
       if (!block) return;
       event.preventDefault();
       event.stopPropagation();
-      onActivate?.();
+      // Preserve modifier-aware canvas gestures when Markdown owns the
+      // double-click event for its block editor. The overlay turns this event
+      // into the same authored view change used by code/output nodes.
+      onActivate?.(event);
       beginEdit(Number(target.dataset.markdownBlock));
     }}
   >{(editingBlock?.append ? [...blocks, {

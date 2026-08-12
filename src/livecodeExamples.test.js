@@ -18,3 +18,19 @@ test("kind-specific example catalogs retain their existing starters", () => {
   assert.ok(getLivecodeExamples(LIVECODE_KINDS.playcore).length > 1);
   assert.ok(getLivecodeExamples(LIVECODE_KINDS.shader).some(example => example.id === "hello"));
 });
+
+test("Strudel exposes basics, grooves, and a composed theme", () => {
+  const examples = getLivecodeExamples(LIVECODE_KINDS.strudel);
+  assert.deepEqual(
+    examples.map(example => example.id),
+    ["bare", "starter", "four-on-the-floor", "hi-hat-grid", "slow-arpeggio", "bass-and-drums", "neon-night"],
+  );
+  for (const example of examples) {
+    assert.ok(example.name, `${example.id} should have a name`);
+    assert.ok(example.source.includes("$:"), `${example.id} should contain a runnable Strudel voice`);
+  }
+  const theme = examples.find(example => example.id === "neon-night");
+  assert.match(theme.source, /_pianoroll/);
+  assert.match(theme.source, /color\(/);
+  assert.match(theme.source, /s\("bd/);
+});

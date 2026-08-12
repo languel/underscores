@@ -2506,6 +2506,8 @@ function App() {
   const [p5ScriptMode, setP5ScriptMode] = useState("auto");
   const [p5ScriptStatus, setP5ScriptStatus] = useState("");
   const [p5ScriptStatusKind, setP5ScriptStatusKind] = useState("info");
+  const [livecodeRuntimeStatuses, setLivecodeRuntimeStatuses] = useState({});
+  const p5RuntimeConsoleSignaturesRef = useRef(new Map());
   const [editingP5ScriptName, setEditingP5ScriptName] = useState(false);
   const [p5ScriptNameDraft, setP5ScriptNameDraft] = useState("");
   const p5ScriptsRef = useRef(p5Scripts);
@@ -3490,6 +3492,33 @@ function App() {
     if (typeof window === "undefined") return undefined;
     const receiveP5Status = event => {
       const detail = event.detail || {};
+      const reportRuntimeErrorToConsole = () => {
+        if (detail.kind !== "error" || !detail.elementId) return;
+        const message = String(detail.message || "p5 runtime error");
+        const signature = `error:${message}`;
+        if (p5RuntimeConsoleSignaturesRef.current.get(detail.elementId) === signature) return;
+        p5RuntimeConsoleSignaturesRef.current.set(detail.elementId, signature);
+        // Use the normal script bridge so Event Console gets the same element
+        // label and source metadata as console.error from code.
+        scriptRuntimeRef.current?.emitScriptLog?.(detail.elementId, "error", [message]);
+      };
+      if (detail.kind === "success" && detail.elementId) {
+        p5RuntimeConsoleSignaturesRef.current.delete(detail.elementId);
+      }
+      if (detail.livecode && detail.elementId) {
+        const status = {
+          message: String(detail.message || ""),
+          kind: detail.kind === "error" ? "error" : detail.kind === "success" ? "success" : "info",
+        };
+        setLivecodeRuntimeStatuses(previous => {
+          const current = previous[detail.elementId];
+          if (current?.message === status.message && current?.kind === status.kind) return previous;
+          return { ...previous, [detail.elementId]: status };
+        });
+        reportRuntimeErrorToConsole();
+        return;
+      }
+      reportRuntimeErrorToConsole();
       if (detail.scriptId && activeP5ScriptId && detail.scriptId !== activeP5ScriptId) return;
       setP5ScriptStatus(String(detail.message || ""));
       setP5ScriptStatusKind(detail.kind === "error" ? "error" : detail.kind === "success" ? "success" : "info");
@@ -4835,13 +4864,20 @@ function App() {
   // host by ID only: source edits replace the scene element object on every
   // keystroke, and must never re-open/re-target the Script panel mid-edit.
   useEffect(() => {
-    if (!selectedLivecodeNodeForEditor) {
-      setLivecodeEditorId(null);
-      return;
-    }
+    // Keep the last actively edited node when selection moves to an ordinary
+    // canvas object. Selecting another Livecode node still intentionally
+    // changes the editor target below.
+    if (!selectedLivecodeNodeForEditor) return;
     setLivecodeEditorId(selectedLivecodeNodeForEditor.id);
     setInfoView(DEFAULT_INFO_VIEW);
-    toggleDraweratorPanel("script", { open: true, scriptType: "livecode" });
+    // Do not let a canvas selection or a modifier double-click pull the
+    // Script panel into a presentation. A manually opened panel still follows
+    // the active node through the editor id and script type.
+    if (presentationMode) {
+      setScriptPanelType("livecode");
+    } else {
+      toggleDraweratorPanel("script", { open: true, scriptType: "livecode" });
+    }
   }, [selectedLivecodeNodeForEditor?.id]);
 
   useEffect(() => {
@@ -6101,6 +6137,31 @@ function App() {
     return true;
   };
 
+  const handleLivecodeCommandOutputPointerDown = e => {
+    if (!excalidrawAPI || e.button !== 0 || !(e.metaKey || e.ctrlKey)) return false;
+    const [x, y] = getCanvasCoords(e.clientX, e.clientY, "none");
+    const candidates = excalidrawAPI.getSceneElements().filter(element => (
+      !element.isDeleted && isLivecodeNodeElement(element) && !element.customData?.outlinerHidden
+    ));
+    const hit = [...candidates].reverse().find(element => {
+      const centerX = element.x + element.width / 2;
+      const centerY = element.y + element.height / 2;
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const angle = Number(element.angle) || 0;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const localX = cos * dx + sin * dy;
+      const localY = -sin * dx + cos * dy;
+      return Math.abs(localX) <= element.width / 2 && Math.abs(localY) <= element.height / 2;
+    });
+    if (!hit) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    patchLivecodeCanvasNode(hit.id, { view: "preview" }, { commitToHistory: true });
+    return true;
+  };
+
   const enterLivecodeEditAtPointer = e => {
     if (!excalidrawAPI || excalidrawAPI.getAppState().activeTool?.type !== "selection") return false;
     const [x, y] = getCanvasCoords(e.clientX, e.clientY, "none");
@@ -6764,6 +6825,10 @@ function App() {
     if (handlePhysicsPointerDown(e)) return;
 
     if (handleObjectEyedropperPointerDown(e)) return;
+
+    // Cmd/Ctrl-clicking an unselected Livecode node is an output shortcut,
+    // not an additive Excalidraw selection gesture.
+    if (handleLivecodeCommandOutputPointerDown(e)) return;
 
     if (handleCommandObjectSelectionPointerDown(e)) return;
 
@@ -14522,7 +14587,16 @@ function App() {
       setLivecodeCanvasFocusRequest(request => request + 1);
     }
     setLivecodeStatus("");
-    toggleDraweratorPanel("script", { scriptType: "livecode" });
+    // Presentation is a performance surface: editing gestures may still
+    // retarget the active Livecode node (and its authored view), but they must
+    // not uncollapse or open the Script panel. If the panel is already open,
+    // switching its content to this node remains useful and does not change
+    // the presentation layout.
+    if (presentationMode) {
+      setScriptPanelType("livecode");
+    } else {
+      toggleDraweratorPanel("script", { scriptType: "livecode" });
+    }
   };
 
   const createLivecodeCanvasNode = (args = {}) => {
@@ -18927,6 +19001,10 @@ function App() {
     </div>;
     const node = normalizeLivecodeNode(nodeElement.customData?.draweratorLivecode);
     const definition = getLivecodeKindDefinition(node.kind);
+    const p5Validation = node.kind === LIVECODE_KINDS.p5 ? validateLivecodeNode(node) : null;
+    const p5RuntimeStatus = p5Validation && !p5Validation.valid
+      ? { kind: "error", message: `p5 error: ${p5Validation.error || "source does not compile"}` }
+      : livecodeRuntimeStatuses[nodeElement.id] || null;
     const shaderExample = node.kind === LIVECODE_KINDS.shader
       ? getShaderExample(node.runtime.settings?.shaderExample || shaderExampleForSource(node.source)?.id)
       : null;
@@ -19103,7 +19181,7 @@ function App() {
           transport={{ playing: scorePlaying, bpm: scoreTempo }}
           message={livecodeStatus}
         />
-        : <p className="p5-script-status" role="status" aria-live="polite">{livecodeStatus || definition.summary}</p>}
+        : <p className={`p5-script-status ${p5RuntimeStatus?.kind || "info"}`} role="status" aria-live="polite">{p5RuntimeStatus?.message || livecodeStatus || definition.summary}</p>}
     </div>;
   };
 
@@ -22200,7 +22278,7 @@ function App() {
           activeEditorId={livecodeCanvasEditorId}
           focusRequest={livecodeCanvasFocusRequest}
           onEdit={editLivecodeCanvasNode}
-          onPatch={(elementId, patch) => patchLivecodeCanvasNode(elementId, patch)}
+          onPatch={(elementId, patch, options) => patchLivecodeCanvasNode(elementId, patch, options)}
           onCommit={commitLivecodeCanvasNode}
           onToggleRun={toggleLivecodeNodeRun}
           onMidiEvents={emitOrcaMidiEvents}
@@ -24517,7 +24595,7 @@ function App() {
           activeEditorId={livecodeCanvasEditorId}
           focusRequest={livecodeCanvasFocusRequest}
           onEdit={editLivecodeCanvasNode}
-          onPatch={(elementId, patch) => patchLivecodeCanvasNode(elementId, patch)}
+          onPatch={(elementId, patch, options) => patchLivecodeCanvasNode(elementId, patch, options)}
           onCommit={commitLivecodeCanvasNode}
           onToggleRun={toggleLivecodeNodeRun}
           onMidiEvents={emitOrcaMidiEvents}

@@ -71,6 +71,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
     const report = (kind, message) => publishP5Status({
       elementId: element.id,
       scriptId: activeConfig.scriptId,
+      livecode: Boolean(element.customData?.draweratorLivecode),
       kind,
       message,
     });

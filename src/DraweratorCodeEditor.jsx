@@ -19,6 +19,8 @@ import {
 } from "@codemirror/commands";
 import { html } from "@codemirror/lang-html";
 import { javascript } from "@codemirror/lang-javascript";
+import { markdown } from "@codemirror/lang-markdown";
+import { python } from "@codemirror/lang-python";
 import {
   bracketMatching,
   foldGutter,
@@ -100,12 +102,24 @@ const glyphBackdropField = StateField.define({
   provide: field => EditorView.decorations.from(field),
 });
 
+const markdownCodeLanguage = info => {
+  const language = String(info || "").trim().toLowerCase().split(/[\s,{]/, 1)[0];
+  if (["js", "jsx", "javascript", "mjs", "cjs", "ts", "tsx", "typescript"].includes(language)) {
+    return javascript({ jsx: ["jsx", "tsx"].includes(language), typescript: ["ts", "tsx", "typescript"].includes(language) });
+  }
+  if (["py", "python", "python3"].includes(language)) return python();
+  if (["html", "htm", "xml", "svg"].includes(language)) return html({ autoCloseTags: true, matchClosingTags: true });
+  return null;
+};
+
 const languageExtension = profile => (
-  profile.language === "html"
-    ? html({ autoCloseTags: true, matchClosingTags: true })
-    : profile.language === "javascript"
-      ? javascript({ jsx: false, typescript: false })
-      : []
+  profile.id === "markdown"
+    ? markdown({ codeLanguages: markdownCodeLanguage })
+    : profile.language === "html"
+      ? html({ autoCloseTags: true, matchClosingTags: true })
+      : profile.language === "javascript"
+        ? javascript({ jsx: false, typescript: false })
+        : []
 );
 
 const strudelExtensions = (profile, includeWidgets) => (

@@ -14,6 +14,85 @@ export const sanitizeMarkdownHtml = value => String(value || "")
 
 const mathToken = index => `DRAWERATOR_MATH_TOKEN_${index}_END`;
 
+const CODE_LANGUAGE_ALIASES = Object.freeze({
+  js: "javascript",
+  jsx: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
+  ts: "typescript",
+  tsx: "typescript",
+  py: "python",
+  python3: "python",
+  sh: "shell",
+  bash: "shell",
+  zsh: "shell",
+  yml: "yaml",
+  md: "markdown",
+  text: "text",
+  plaintext: "text",
+});
+
+const CODE_KEYWORDS = Object.freeze({
+  javascript: new Set("as async await break case catch class const continue debugger default delete do else export extends finally for from function get if implements import in instanceof let new of package private protected public return set static super switch this throw try typeof undefined var void while with yield true false null NaN".split(" ")),
+  typescript: new Set("as async await break case catch class const continue debugger default delete do else export extends finally for from function get if implements import in instanceof interface keyof let module namespace new of package private protected public readonly return set static super switch this throw try typeof type undefined var void while with yield true false null NaN".split(" ")),
+  python: new Set("and as assert async await break case class continue def del elif else except finally for from global if import in is lambda match nonlocal not or pass raise return try while with yield True False None self".split(" ")),
+  shell: new Set("alias bg bind break case cd command compgen continue declare do done elif else enable eval exec exit export false fi for function getopts hash if in jobs kill local readonly return select set shift source then time trap true type ulimit umask unset until while do done".split(" ")),
+  yaml: new Set("true false null yes no on off".split(" ")),
+  json: new Set("true false null".split(" ")),
+  glsl: new Set("attribute bool break bvec2 bvec3 bvec4 case catch ceil const continue discard do dvec2 dvec3 dvec4 else false flat float for if in int ivec2 ivec3 ivec4 layout mat2 mat3 mat4 mix normalize out patch precision return sampler2D smoothstep struct switch texture this true uint uniform unsigned varying vec2 vec3 vec4 void while".split(" ")),
+});
+
+const CODE_BUILTINS = Object.freeze({
+  javascript: new Set("Array Boolean Date Error JSON Math Number Object Promise RegExp Set String Symbol console document window".split(" ")),
+  typescript: new Set("Array Boolean Date Error JSON Math Number Object Promise RegExp Set String Symbol console document window".split(" ")),
+  python: new Set("abs all any bool dict enumerate float int len list map max min open print range set str sum tuple zip".split(" ")),
+  shell: new Set("echo printf read test pwd cd mkdir rm cp mv".split(" ")),
+  glsl: new Set("abs clamp cos cross dot length max min mix normalize pow sin smoothstep texture".split(" ")),
+});
+
+const normalizeCodeLanguage = value => {
+  const raw = String(value || "").trim().toLowerCase().replace(/^language-/, "").split(/[\s,{]/, 1)[0];
+  return CODE_LANGUAGE_ALIASES[raw] || raw || "text";
+};
+
+const codeTokenClass = (token, language) => {
+  if (/^\s+$/.test(token)) return "";
+  if (/^(?:\/\/|#(?![0-9a-f]{3,8}\b)|<!--)/i.test(token) || /^\/\*/.test(token)) return "comment";
+  if (/^(?:["'`])/.test(token)) return "string";
+  if (/^(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?n?$/i.test(token)) return "number";
+  if (/^[A-Za-z_$][\w$]*$/.test(token)) {
+    if (CODE_KEYWORDS[language]?.has(token)) return "keyword";
+    if (CODE_BUILTINS[language]?.has(token)) return "builtin";
+  }
+  return "";
+};
+
+// A small, dependency-free preview highlighter. CodeMirror handles the
+// editable source; this keeps rendered Markdown portable and avoids executing
+// or injecting arbitrary code from a fenced block.
+export const highlightMarkdownCode = (source, language) => {
+  const normalized = normalizeCodeLanguage(language);
+  if (normalized === "text" || normalized === "markdown") return escapeHtml(source);
+  const supportsHashComments = ["python", "shell", "yaml"].includes(normalized);
+  const tokenPattern = new RegExp([
+    `(?:\\/\\*[\\s\\S]*?\\*\\/)`,
+    `(?:\\/\\/[^\\n]*)`,
+    ...(supportsHashComments ? [`(?:#[^\\n]*)`] : []),
+    `(?:<!--[\\s\\S]*?-->)`,
+    `(?:"(?:\\\\[\\s\\S]|[^"\\\\])*"|'(?:\\\\[\\s\\S]|[^'\\\\])*'|\\x60(?:\\\\[\\s\\S]|[^\\x60\\\\])*\\x60)`,
+    `(?:\\b(?:\\d+(?:\\.\\d+)?|\\.\\d+)(?:e[+-]?\\d+)?n?\\b)`,
+    `(?:[A-Za-z_$][\\w$]*)`,
+    `(?:\\s+)`,
+    `(?:.)`,
+  ].join("|"), "g");
+  return Array.from(String(source || "").matchAll(tokenPattern), match => {
+    const token = match[0];
+    const className = codeTokenClass(token, normalized);
+    const escaped = escapeHtml(token);
+    return className ? `<span class="livecode-code-${className}">${escaped}</span>` : escaped;
+  }).join("");
+};
+
 export const renderMarkdownWithMath = source => {
   const formulas = [];
   const tokenized = String(source || "")
@@ -29,6 +108,11 @@ export const renderMarkdownWithMath = source => {
     });
   const renderer = new marked.Renderer();
   renderer.html = () => "";
+  renderer.code = ({ text, lang }) => {
+    const language = normalizeCodeLanguage(lang);
+    const languageClass = language === "text" ? "" : ` language-${escapeHtml(language)}`;
+    return `<pre class="livecode-markdown-code-block"><code class="${languageClass.trim()}">${highlightMarkdownCode(text, language)}</code></pre>`;
+  };
   let html = marked.parse(tokenized, { async: false, renderer, gfm: true, breaks: false });
   formulas.forEach(({ token, expression, displayMode }) => {
     let rendered;

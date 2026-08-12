@@ -34,9 +34,80 @@ const playCoreExamples = Object.freeze([
   ...PLAY_CORE_EXAMPLES.map(example => ({ id: example.id, label: `${example.category} · ${example.name}`, name: example.name, source: example.source })),
 ]);
 
+// A small, local Strudel library: the first entries teach one idea at a time,
+// while the final theme demonstrates several voices, effects, and a frame
+// visualizer in one editable node. Keep the source self-contained so examples
+// remain useful offline and can be freely modified after selection.
+const strudelExamples = Object.freeze([
+  bareExample(LIVECODE_KINDS.strudel),
+  {
+    id: "starter",
+    label: "Starter · Chord piano roll",
+    name: "Chord piano roll",
+    source: defaultLivecodeSource(LIVECODE_KINDS.strudel),
+  },
+  {
+    id: "four-on-the-floor",
+    label: "Basics · Four-on-the-floor",
+    name: "Four-on-the-floor",
+    source: `// A steady kick and backbeat.
+$: s("bd ~ bd ~, ~ sd ~ sd")`,
+  },
+  {
+    id: "hi-hat-grid",
+    label: "Basics · Hi-hat grid",
+    name: "Hi-hat grid",
+    source: `// Layer a bright eighth-note hat pattern.
+$: s("hh*8")
+  .gain(0.35)`,
+  },
+  {
+    id: "slow-arpeggio",
+    label: "Basics · Slow arpeggio",
+    name: "Slow arpeggio",
+    source: `// Mini notation turns the note list into a repeating pattern.
+$: note("c4 e4 g4 b4")
+  .s("sine")
+  .slow(2)`,
+  },
+  {
+    id: "bass-and-drums",
+    label: "Grooves · Bass and drums",
+    name: "Bass and drums",
+    source: `// Two voices: a low pulse and a compact drum groove.
+$: note("<c2 c2 g1 g1>")
+  .s("sawtooth")
+  .lpf(420)
+  .gain(0.45)
+$: s("bd ~ sd ~, ~ hh*2 ~ hh*2")
+  .gain(0.55)`,
+  },
+  {
+    id: "neon-night",
+    label: "Theme · Neon night",
+    name: "Neon night",
+    source: `// A small theme with chords, bass, drums, color, and a piano roll.
+$: note("<[c3,e3,g3] [a2,c3,e3] [f2,a2,c3] [g2,b2,d3]>")
+  .s("triangle")
+  .slow(2)
+  .room(0.35)
+  .gain(0.42)
+  .color("<#ff7aa2 #7ad7ff #ffe08a #b5ff9a>")
+  ._pianoroll({ height: 88, fold: 1 })
+$: note("<c2 c2 a1 g1>")
+  .s("sawtooth")
+  .slow(2)
+  .lpf(360)
+  .gain(0.28)
+$: s("bd ~ bd ~, ~ sd ~ sd, hh*8")
+  .gain(0.5)`,
+  },
+]);
+
 export const getLivecodeExamples = kind => {
   if (kind === LIVECODE_KINDS.p5) return p5Examples;
   if (kind === LIVECODE_KINDS.playcore) return playCoreExamples;
+  if (kind === LIVECODE_KINDS.strudel) return strudelExamples;
   if (kind === LIVECODE_KINDS.shader) return SHADER_EXAMPLES.map(example => ({ id: example.id, label: example.label, name: example.name, source: example.source, mode: example.mode }));
   return [bareExample(kind)];
 };
