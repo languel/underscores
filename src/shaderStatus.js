@@ -1,4 +1,4 @@
-export const SHADER_STATUS_EVENT = "drawerator:shader-status";
+export const SHADER_STATUS_EVENT = "underscore:shader-status";
 
 const activeShaderStatuses = new Map();
 

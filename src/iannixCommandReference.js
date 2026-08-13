@@ -1,5 +1,5 @@
 /**
- * The Drawerator-supported IanniX command vocabulary.  This is deliberately
+ * The Underscore-supported IanniX command vocabulary.  This is deliberately
  * separate from the command executor: it feeds completions and the in-app
  * reference, while the runtime remains the authority for execution.
  */
@@ -43,7 +43,7 @@ export const IANNIX_COMMAND_REFERENCE = Object.freeze([
     command: "setname",
     category: "Score objects",
     syntax: "setName <target> <label...>",
-    description: "Alias for setLabel in the Drawerator score runtime.",
+    description: "Alias for setLabel in the Underscore score runtime.",
     example: "setName current First orbit",
   },
   {

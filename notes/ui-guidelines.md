@@ -1,8 +1,8 @@
-# Drawerator UI Guidelines
+# Underscore UI Guidelines
 
 Last updated: 2026-07-31
 
-Drawerator's interface should feel dense, quiet, and predictable. Ableton Live is the reference for information density and Blender is the reference for managing many editable parameters. The application keeps its minimal color scheme and uses structure, alignment, and restrained state fills instead of decorative framing.
+Underscore's interface should feel dense, quiet, and predictable. Ableton Live is the reference for information density and Blender is the reference for managing many editable parameters. The application keeps its minimal color scheme and uses structure, alignment, and restrained state fills instead of decorative framing.
 
 ## Layout and hierarchy
 
@@ -16,7 +16,7 @@ Drawerator's interface should feel dense, quiet, and predictable. Ableton Live i
 
 ## Typography and dimensions
 
-- Use the shared Drawerator UI font tokens declared in `src/index.css`; do not invent component-local font scales.
+- Use the shared Underscore UI font tokens declared in `src/index.css`; do not invent component-local font scales.
 - Standard controls are 27px high unless a genuinely smaller icon-only transport control is required.
 - Labels, values, buttons, and select options should retain the same baseline and visual weight across panels.
 - Timecode and tempo use the regular control font size. Their meaning, not oversized typography, supplies emphasis.
@@ -30,7 +30,7 @@ Use semantic `<input type="number">` controls for ordinary numeric values and pr
 - Shift-drag uses one tenth of that step for fine adjustment;
 - Shift+Backspace resets to the declared default; ordinary Backspace remains available for editing;
 - right-click opens Reset to Default, Copy Data Path, and Add Route actions.
-- Context menus use the active Drawerator light/dark surface, text, separator, hover, and shortcut-hint colors.
+- Context menus use the active Underscore light/dark surface, text, separator, hover, and shortcut-hint colors.
 
 Do not use sliders for ordinary scalar parameters. Keep formatted values such as SMPTE timecode as text inputs when they cannot truthfully be represented by a native number field.
 
@@ -48,10 +48,10 @@ Do not use sliders for ordinary scalar parameters. Keep formatted values such as
 - Never leave stable tips or helper prose visible between controls. Attach that guidance to the relevant control as a hover title and Info-panel annotation; reserve inline text for live status, errors, and values that change while playing.
 - Use the shared `infoProps(title, body)` helper so a control supplies both `title` and the `data-info-title` / `data-info` pair consumed by Info on hover or keyboard focus.
 - Use a small `ⓘ` or `?` help anchor only where no existing control can naturally carry the explanation. Dynamic errors, live status, and values that change while playing remain inline.
-- Keep the editable Shortcuts panel dense: shortcut rows are compact label/binding pairs, not large button cards. Register every Drawerator action in the shared shortcut registry so its default is visible and rebindable there; do not add a hard-coded duplicate listener.
+- Keep the editable Shortcuts panel dense: shortcut rows are compact label/binding pairs, not large button cards. Register every Underscore action in the shared shortcut registry so its default is visible and rebindable there; do not add a hard-coded duplicate listener.
 - Canvas selection follows the familiar default: click selects one object, Cmd/Ctrl-click toggles,
   Shift-click ranges in list views, and Escape or an empty-canvas click clears selection. Command-click
-  selects a rectangular, framed, or Drawerator-hosted object by its interior; repeat Command-Shift-click
+  selects a rectangular, framed, or Underscore-hosted object by its interior; repeat Command-Shift-click
   at one point to cycle overlapping eligible objects by depth. Option-drag remains available for copying.
 
 ## Buttons and toggles
@@ -85,4 +85,4 @@ Before landing UI changes, verify:
 6. the timeline remains one compact row at supported desktop widths;
 7. light and dark themes preserve contrast without stronger borders or fills.
 8. stable control help appears in a hover title and Info, while dynamic status remains inline;
-9. newly introduced Drawerator actions are present in the editable Shortcuts panel.
+9. newly introduced Underscore actions are present in the editable Shortcuts panel.

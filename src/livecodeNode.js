@@ -67,7 +67,7 @@ export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
     editorProfile: "orca",
     defaultName: "Untitled Orca",
     defaultSource: createEmptyOrcaSource(),
-    summary: "Native frame-based Orca grid. Focus the grid to edit it; its MIDI, CC, and pitch-bend operators route through Drawerator’s Mixer.",
+    summary: "Native frame-based Orca grid. Focus the grid to edit it; its MIDI, CC, and pitch-bend operators route through Underscore’s Mixer.",
   }),
   [LIVECODE_KINDS.shader]: Object.freeze({
     label: "GLSL",
@@ -212,7 +212,7 @@ export const createLivecodeNode = value => {
 
 export const normalizeLivecodeNode = createLivecodeNode;
 
-export const isLivecodeNodeElement = element => Boolean(element?.customData?.draweratorLivecode);
+export const isLivecodeNodeElement = element => Boolean(element?.customData?.underscoreLivecode);
 
 export const shouldRenderLivecodeNode = element => Boolean(
   element && !element.isDeleted && !element.customData?.outlinerHidden && !element.customData?.presentationMaskActive && isLivecodeNodeElement(element)

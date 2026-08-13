@@ -4,7 +4,7 @@ Last updated: 2026-08-11
 
 ## What a node is
 
-A **Livecode Node** is one transparent Excalidraw rectangle plus a minimal live DOM surface. The rectangle remains the canonical scene identity: it owns position, rotation, dimensions, selection, history, grouping, ordering, and the persisted `customData.draweratorLivecode` record. The visible surface is supplied by a per-kind adapter instead of by Excalidraw itself.
+A **Livecode Node** is one transparent Excalidraw rectangle plus a minimal live DOM surface. The rectangle remains the canonical scene identity: it owns position, rotation, dimensions, selection, history, grouping, ordering, and the persisted `customData.underscoreLivecode` record. The visible surface is supplied by a per-kind adapter instead of by Excalidraw itself.
 
 This avoids attaching a program to a separate host object. A node has one source document and can run alongside any number of other nodes. Its source and its `code`, `output`, or `code/output` view persist with the scene.
 
@@ -12,7 +12,7 @@ Create a node from **New Livecode Node**, `/live`, the command palette, or `live
 
 ## Scene schema
 
-`customData.draweratorLivecode` is version 1:
+`customData.underscoreLivecode` is version 1:
 
 | Field | Meaning |
 | --- | --- |
@@ -44,9 +44,9 @@ The global CodeMirror palette still controls editor syntax colors and surfaces. 
 
 ### p5 and Play Core
 
-These use the same trusted local adapters as existing p5 and Play Core hosts. They receive the [shared Drawerator script bridge](drawerator-api.md), including `element`, `params`, `canvas`, `events`, `transport`, `currentColor`, theme colors, and `api`. They may use `@param` annotations. Every active node owns its renderer, so selecting, docking, or editing another node does not stop it.
+These use the same trusted local adapters as existing p5 and Play Core hosts. They receive the [shared Underscore script bridge](underscore-api.md), including `element`, `params`, `canvas`, `events`, `transport`, `currentColor`, theme colors, and `api`. They may use `@param` annotations. Every active node owns its renderer, so selecting, docking, or editing another node does not stop it.
 
-Existing p5/Play Core frame hosts remain valid. Choose **Migrate to Livecode Node** to explicitly snapshot a legacy host's source and configuration into `draweratorLivecode` while retaining its scene element id and geometry. Migration is undoable.
+Existing p5/Play Core frame hosts remain valid. Choose **Migrate to Livecode Node** to explicitly snapshot a legacy host's source and configuration into `underscoreLivecode` while retaining its scene element id and geometry. Migration is undoable.
 
 The ordinary p5 and Play Core Script panels can also apply their current program directly to a
 selected Livecode Node. The node keeps its scene identity and geometry while its kind, canonical
@@ -60,7 +60,7 @@ object without copying landmark or segmentation data into the scene.
 
 ### GLSL shaders
 
-GLSL nodes run editable GLSL ES 3.00 fragment programs in WebGL 2. `/shader hello`, `/shader rainbow`, `/shader shadow`, `/shader fluid`, and `/shader stokes` create the original bundled examples. The Example menu also includes Inkwash without adding another slash command. Hello is the minimal shader contract; Rainbow and 2D Shadows consume nearby Drawerator path segments; Fluid Brush is a stateful ping-pong feedback pass whose dye can be driven by the pointer and scene strokes; Stokes is an analytical flow field. Inkwash is a finer feedback brush whose ink can come from authored objects, the pointer, or the runtime-only physics debug drawings; **Cmd/Ctrl-drag** supplies its wash/smear interaction without conflicting with Excalidraw's right-button canvas gesture. Each node keeps its source, running state, clock, example identity, and composition settings in `runtime.settings`.
+GLSL nodes run editable GLSL ES 3.00 fragment programs in WebGL 2. `/shader hello`, `/shader rainbow`, `/shader shadow`, `/shader fluid`, and `/shader stokes` create the original bundled examples. The Example menu also includes Inkwash without adding another slash command. Hello is the minimal shader contract; Rainbow and 2D Shadows consume nearby Underscore path segments; Fluid Brush is a stateful ping-pong feedback pass whose dye can be driven by the pointer and scene strokes; Stokes is an analytical flow field. Inkwash is a finer feedback brush whose ink can come from authored objects, the pointer, or the runtime-only physics debug drawings; **Cmd/Ctrl-drag** supplies its wash/smear interaction without conflicting with Excalidraw's right-button canvas gesture. Each node keeps its source, running state, clock, example identity, and composition settings in `runtime.settings`.
 
 Shader output can render **Above objects** or **Below objects**. The latter uses a dedicated underlay beneath Excalidraw while keeping the drawing canvas transparent, so authored strokes remain crisp over the shader. Per-node opacity and CSS blend modes (`normal`, `screen`, `multiply`, `overlay`, and `soft-light`) apply without changing the source. **Background → Transparent** gives the WebGL canvas a real alpha channel: the Fluid example derives alpha from dye density instead of painting its dark display background, while custom fragment shaders can author alpha directly in `outColor`. **Solid** remains the compatibility default.
 
@@ -68,7 +68,7 @@ The shader renderer caps feedback buffers at 1024 px per axis, skips offscreen a
 
 ### Strudel
 
-Strudel nodes use a shared native scheduler rather than a singleton REPL. Each node compiles to its own pattern; recompiling, stopping, or hushing one never clears another. Node playback unlocks Web Audio in the direct user gesture. New nodes default to Linked and follow Drawerator transport tempo and phase: transport play, rewind/loop, seek while stopped, and BPM changes re-anchor Strudel cycles to score BBU time, while transport stop resets the private scheduler cycle. `setcps`, `setcpm`, and `setbpm` update the shared score tempo in this mode, and a source with no tempo command continues to follow later score-tempo changes. Free remains available for patterns that should run independently; its tempo commands create a node-local CPS override, while a Free source with no such command also follows the score tempo. The runtime registers Strudel's XEN scope and General MIDI soundfonts in addition to the default unbanked drums, drum-machine banks, Dirt, piano, VCSL, and auxiliary sample maps. Audio data is fetched lazily on first use.
+Strudel nodes use a shared native scheduler rather than a singleton REPL. Each node compiles to its own pattern; recompiling, stopping, or hushing one never clears another. Node playback unlocks Web Audio in the direct user gesture. New nodes default to Linked and follow Underscore transport tempo and phase: transport play, rewind/loop, seek while stopped, and BPM changes re-anchor Strudel cycles to score BBU time, while transport stop resets the private scheduler cycle. `setcps`, `setcpm`, and `setbpm` update the shared score tempo in this mode, and a source with no tempo command continues to follow later score-tempo changes. Free remains available for patterns that should run independently; its tempo commands create a node-local CPS override, while a Free source with no such command also follows the score tempo. The runtime registers Strudel's XEN scope and General MIDI soundfonts in addition to the default unbanked drums, drum-machine banks, Dirt, piano, VCSL, and auxiliary sample maps. Audio data is fetched lazily on first use.
 
 JavaScript REPL voices use separate `$:` statements and are stacked inside the node. Mini Notation is available in the normal double-quoted and template-string pattern arguments. Mondo's bare `$` pattern separator is available through its documented tagged-template form:
 
@@ -92,7 +92,7 @@ backing resolution is capped at 2× device density, resize work happens only whe
 change, and offscreen canvases skip painting. Runtime messages are panel-only and never appear
 inside the live canvas frame.
 
-Editing a running Strudel node changes its persisted draft without recompiling the active pattern. `Ctrl+Enter` compiles that draft and swaps it at the next beat boundary; the previous valid pattern remains scheduled until then, and also survives a failed evaluation. `Cmd+Enter` starts a stopped node from the current draft without serving as the update gesture. Since Drawerator maps a Strudel cycle to four score beats, beat-quantized updates use quarter-cycle boundaries. `Ctrl+.` or `Alt+.` stops the node. Native Strudel is available in local development, but public deployment is intentionally blocked by the [release gate](livecode-licensing.md#strudel-release-gate). Do not bypass that gate until the project has completed its AGPL obligations.
+Editing a running Strudel node changes its persisted draft without recompiling the active pattern. `Ctrl+Enter` compiles that draft and swaps it at the next beat boundary; the previous valid pattern remains scheduled until then, and also survives a failed evaluation. `Cmd+Enter` starts a stopped node from the current draft without serving as the update gesture. Since Underscore maps a Strudel cycle to four score beats, beat-quantized updates use quarter-cycle boundaries. `Ctrl+.` or `Alt+.` stops the node. Native Strudel is available in local development, but public deployment is intentionally blocked by the [release gate](livecode-licensing.md#strudel-release-gate). Do not bypass that gate until the project has completed its AGPL obligations.
 
 `Ctrl+Shift+Space` is the global rehearsal reset-toggle: from either state it sets score time to zero,
 then stops or starts the global transport from zero. The shortcut remains available while an editor
@@ -100,9 +100,9 @@ owns focus.
 
 Trusted p5, Play Core, and Strudel runtimes expose their node-local bridge through the reserved `__`
 binding. `__.transport`, `__.params`, `__.canvas`, and `__.api` are the preferred concise spellings;
-`drawerator` remains an identical compatibility alias for saved scenes and existing scripts. This is
-a lexical runtime binding, not a `window.__` global. Sandboxed HTML keeps its narrower
-`window.drawerator` message bridge and does not receive `__`.
+there is no spelled-out alias. The trusted-runtime binding is node-local; the application also exposes
+its public API as `window.__`. Sandboxed HTML keeps a narrower token-scoped `window.__` message
+bridge instead of receiving the trusted runtime bridge.
 
 ### Markdown and LaTeX
 
@@ -110,7 +110,7 @@ Markdown renders locally with KaTeX inline (`$…$`) and display (`$$…$$`) mat
 
 ### HTML
 
-HTML is trusted board content, but it runs immediately in an opaque-origin iframe with `sandbox="allow-scripts"`. It cannot read the parent application DOM, navigate the top window, or inherit parent-origin privileges. The child receives a token-scoped `window.drawerator` bridge with only `post` and `onMessage`; the parent verifies both token and source window before responding. It remains a supported sandboxed adapter, but needs a dedicated browser acceptance pass before being treated as polished.
+HTML is trusted board content, but it runs immediately in an opaque-origin iframe with `sandbox="allow-scripts"`. It cannot read the parent application DOM, navigate the top window, or inherit parent-origin privileges. The child receives a token-scoped `window.__` bridge with only `post` and `onMessage`; the parent verifies both token and source window before responding. It remains a supported sandboxed adapter, but needs a dedicated browser acceptance pass before being treated as polished.
 
 Browser security can block reliable parent-side rasterization of a sandboxed opaque-origin iframe. HTML presentation therefore reports an explicit export limitation instead of pretending that it has deterministic PNG capture.
 
@@ -118,7 +118,7 @@ Browser security can block reliable parent-side rasterization of a sandboxed opa
 
 An Orca node is a real per-node grid, not a CodeMirror document. Canvas and panel modes subscribe to the same grid runtime. Click a cell to focus it; type to write; Arrow keys move; Shift+Arrow extends a selection; Delete clears; Cmd/Ctrl+A selects all; Cmd/Ctrl+C/V copies and pastes a grid rectangle; Cmd/Ctrl/Option+Enter or Space steps one frame. Focus owns these keys completely, so they never reach Excalidraw.
 
-Linked Orca nodes tick from Drawerator transport; free nodes use a per-node timer. Their native operator core currently covers `A`, `B`, `C`, `D`, `E/N/S/W`, `I`, `L`, `M`, bang triggering, and MIDI `:`, mono MIDI `%`, CC `!`, and pitch bend `?`. MIDI is sent through the existing Drawerator Mixer routing. Other visible Orca glyphs are preserved in the authored grid and remain inert until their semantics are added; they are never rewritten or discarded. Orca needs a dedicated stabilization pass before its grid/runtime interaction is considered complete. The interaction and supported operator behavior are adapted from [Hundredrabbits Orca](https://github.com/hundredrabbits/Orca) under its MIT license.
+Linked Orca nodes tick from Underscore transport; free nodes use a per-node timer. Their native operator core currently covers `A`, `B`, `C`, `D`, `E/N/S/W`, `I`, `L`, `M`, bang triggering, and MIDI `:`, mono MIDI `%`, CC `!`, and pitch bend `?`. MIDI is sent through the existing Underscore Mixer routing. Other visible Orca glyphs are preserved in the authored grid and remain inert until their semantics are added; they are never rewritten or discarded. Orca needs a dedicated stabilization pass before its grid/runtime interaction is considered complete. The interaction and supported operator behavior are adapted from [Hundredrabbits Orca](https://github.com/hundredrabbits/Orca) under its MIT license.
 The node chrome is intentionally compact: the Orca title is omitted, run/stop and single-step use
 icon-only controls with tooltips and accessible labels, and the current clock state is represented
 by a semantic icon (chain for linked, diamond for free, clock for waiting, pause for paused, and
@@ -134,7 +134,7 @@ The docked Script editor exposes an adapter-specific quick reference with the ac
 - `livecode.node.dock`
 - `livecode.node.migrate`
 
-Use `window.drawerator.commands.list()` to retrieve the public command contract rather than calling internal UI handlers.
+Use `window.__.commands.list()` to retrieve the public command contract rather than calling internal UI handlers.
 
 ## Presentation and export
 

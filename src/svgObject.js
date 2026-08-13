@@ -14,7 +14,7 @@ const ATTRIBUTE = /([:\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
 export const DEFAULT_SVG_SOURCE = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180">
   <path id="wave" d="M20 90 C80 20 140 160 300 90" fill="none" stroke="#1769e0" stroke-width="5" stroke-linecap="round"/>
 </svg>`;
-export const SVG_SCRIPT_STORAGE_KEY = "drawerator_svg_scripts_v1";
+export const SVG_SCRIPT_STORAGE_KEY = "underscore_svg_scripts_v1";
 
 const finite = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const clampDimension = value => Math.max(1, Math.min(16384, finite(value, 1)));
@@ -104,7 +104,7 @@ export const analyzeSvgSource = source => {
     nodeCount: nodes.length,
     hasScript: /<script\b/i.test(authored),
     styles: document.styles,
-    duplicateDraweratorIds: document.duplicateDraweratorIds,
+    duplicateUnderscoreIds: document.duplicateUnderscoreIds,
   };
 };
 
@@ -156,7 +156,7 @@ export const normalizeSvgScripts = value => {
   });
 };
 
-export const isSvgObjectElement = element => Boolean(element?.customData?.draweratorSvg);
+export const isSvgObjectElement = element => Boolean(element?.customData?.underscoreSvg);
 
 export const shouldRenderSvgObject = element => Boolean(
   element
@@ -180,11 +180,11 @@ export const updateStructuredSvgNodeAttribute = (sourceValue, nodeReference, nam
     const original = parseSvgDocument(source);
     const originalNode = Number.isInteger(nodeReference)
       ? original.nodes[nodeReference]
-      : original.nodeByDraweratorId.get(typeof nodeReference === "string" ? nodeReference : nodeReference?.nodeId);
+      : original.nodeByUnderscoreId.get(typeof nodeReference === "string" ? nodeReference : nodeReference?.nodeId);
     if (!originalNode) return source;
     const prepared = prepareSvgForStructuredEditing(source);
     if (prepared.error) return source;
-    const nodeId = originalNode.draweratorId
+    const nodeId = originalNode.underscoreId
       || prepared.assigned.find(item => item.nodeIndex === originalNode.index)?.nodeId;
     return patchSvgNodeAttribute(prepared.source, nodeId || originalNode.index, name, value);
   } catch {

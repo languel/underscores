@@ -136,7 +136,7 @@ const HistoryPanel = memo(function HistoryPanel({
           <button type="button" onClick={onClear} disabled={!actions.length || isRecording || isPlaying}>Clear</button>
           <button type="button" onClick={onExport} disabled={!actions.length}>Export</button>
           <button type="button" onClick={() => fileRef.current?.click()}>Import</button>
-          <input ref={fileRef} hidden type="file" accept=".json,.drawerator-session" onChange={event => {
+          <input ref={fileRef} hidden type="file" accept=".json,.underscore-session" onChange={event => {
             const file = event.target.files?.[0];
             event.target.value = "";
             if (file) file.text().then(onImport);
@@ -163,7 +163,7 @@ const HistoryPanel = memo(function HistoryPanel({
       ) : null}
       <div className="history-action-list" role="listbox" aria-label="Recorded actions">
         {actions.length === 0 ? (
-          <div className="history-empty">Start recording, then draw or use Drawerator commands.</div>
+          <div className="history-empty">Start recording, then draw or use Underscore commands.</div>
         ) : actions.map(action => {
           const index = actions.findIndex(candidate => candidate.id === action.id);
           return (

@@ -7,13 +7,13 @@ export default function MediaMapOverlay({ elements, appState, inspected, onSelec
   const scrollY = Number(appState?.scrollY) || 0;
   const maps = (elements || []).filter(isMediaMapElement);
   if (!maps.length) return null;
-  return <div className="drawerator-media-map-overlay">
+  return <div className="underscore-media-map-overlay">
     {maps.map((element, index) => {
-      const config = normalizeMediaMapConfig(element.customData.draweratorMediaMap);
+      const config = normalizeMediaMapConfig(element.customData.underscoreMediaMap);
       const selectedIds = inspected?.streamId === config.streamId ? inspected.featureIds || [] : [];
       return <div
         key={element.id}
-        className="drawerator-media-map-node"
+        className="underscore-media-map-node"
         style={{
           left: ((Number(element.x) || 0) + scrollX) * zoom,
           top: ((Number(element.y) || 0) + scrollY) * zoom,
@@ -23,7 +23,7 @@ export default function MediaMapOverlay({ elements, appState, inspected, onSelec
           zIndex: index,
         }}
       >
-        <div className="drawerator-media-map-node-header">Media Map</div>
+        <div className="underscore-media-map-node-header">Media Map</div>
         <MediaVisualFeaturePicker
           selectedIds={selectedIds}
           onSelect={(featureId, event, definitions) => onSelectFeature?.(config.streamId, featureId, event, definitions)}

@@ -41,8 +41,8 @@ export default function NumericInput({
         currentTarget: { value: String(next), valueAsNumber: next },
       });
     };
-    input.addEventListener("drawerator:numeric-scrub", applyScrub);
-    return () => input.removeEventListener("drawerator:numeric-scrub", applyScrub);
+    input.addEventListener("underscore:numeric-scrub", applyScrub);
+    return () => input.removeEventListener("underscore:numeric-scrub", applyScrub);
   }, [onChange, onCommit]);
 
   const commit = () => {

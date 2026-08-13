@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-22
 
-Drawerator's **Expressive Synth** is a native Web Audio output for scores whose simultaneous voices need independent, continuously changing pitch. It complements the Internal GM Synth: GM remains useful for familiar instruments and discrete MIDI notes, while Expressive Synth avoids MIDI's channel-wide pitch-bend constraint by giving every active cursor or continuous trigger route its own audio graph.
+Underscore's **Expressive Synth** is a native Web Audio output for scores whose simultaneous voices need independent, continuously changing pitch. It complements the Internal GM Synth: GM remains useful for familiar instruments and discrete MIDI notes, while Expressive Synth avoids MIDI's channel-wide pitch-bend constraint by giving every active cursor or continuous trigger route its own audio graph.
 
 ## Authoring model
 
@@ -33,7 +33,7 @@ These remain global score-to-synth mappings in configuration version 2; voice an
 - `src/expressiveSynthDemo.js` is a pure scene generator for the six-voice glissando study. It returns ordinary Excalidraw elements with normalized IanniX metadata; it does not manipulate React or the canvas directly.
 - `src/mixerSystem.js` and `src/MixerPanel.jsx` own track identity, destination/instrument/program/channel assignment, and routing UI.
 - `src/App.jsx` owns the user-gesture boundary, mixer fan-out, playback synchronization, scene installation, transport setup, and persistence integration.
-- `src/sceneExchange.js` stores normalized synth and mixer configuration in Drawerator scene metadata version 4. Hardware MIDI port identity remains a local/browser capability unless explicitly assigned to a local mixer track.
+- `src/sceneExchange.js` stores normalized synth and mixer configuration in Underscore scene metadata version 4. Hardware MIDI port identity remains a local/browser capability unless explicitly assigned to a local mixer track.
 
 ## Pitch and expression mapping
 
@@ -90,7 +90,7 @@ The same pattern can be used for an authored score: draw one timeline Curve and 
 
 ## Persistence
 
-Normalized synth settings and user programs are written to `drawerator_expressive_synth_v1`; mixer tracks are written to `drawerator_mixer_v1`. Scene export stores both normalized configurations so programs, pitch mapping, and track routing travel with the score. Factory programs are code-owned defaults and are not duplicated into scene JSON. Importing a scene applies both; selection-only exchange does not replace scene-global settings. See [Mixer and score-output routing](mixer.md).
+Normalized synth settings and user programs are written to `underscore_expressive_synth_v1`; mixer tracks are written to `underscore_mixer_v1`. Scene export stores both normalized configurations so programs, pitch mapping, and track routing travel with the score. Factory programs are code-owned defaults and are not duplicated into scene JSON. Importing a scene applies both; selection-only exchange does not replace scene-global settings. See [Mixer and score-output routing](mixer.md).
 
 ## Verification
 

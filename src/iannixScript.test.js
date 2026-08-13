@@ -144,7 +144,7 @@ test("derives IanniX cursor duration from curve length and speed mode", () => {
   assert.equal(getIannixCursorDuration({ speed: 10, speedMode: "auto" }, firstGridCurve), 10);
 });
 
-test("maps IanniX cursor traversal patterns to Drawerator loop modes", () => {
+test("maps IanniX cursor traversal patterns to Underscore loop modes", () => {
   assert.equal(getIannixCursorLoopMode({ pattern: "0 0 1" }), "loop");
   assert.equal(getIannixCursorLoopMode({ pattern: "0 0 1 -1" }), "pingPong");
   assert.equal(getIannixCursorLoopMode({ pattern: "0 0 1 1" }), "loop");
@@ -174,7 +174,7 @@ test("exports canonical handles with IanniX endpoint control semantics", () => {
     { x: 0, y: 0, out: [3, -4], mode: "corner" },
     { x: 10, y: 5, in: [-2, -1], mode: "corner" },
   ]);
-  const element = { id: "curve", ...host.bounds, angle: 0, customData: { draweratorGeometry: host.geometry } };
+  const element = { id: "curve", ...host.bounds, angle: 0, customData: { underscoreGeometry: host.geometry } };
   const commands = serializeBezierElementToIannixCommands(element, { externalId: 7 });
   assert.equal(commands[0], "add curve 7");
   assert.match(commands[2], /setPointAt 7 1 10 -5 0 3 4 0 -2 1 0/);

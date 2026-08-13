@@ -369,8 +369,8 @@ void main() {
 
 export const SHADER_EXAMPLES = Object.freeze([
   Object.freeze({ id: "hello", label: "Hello GLSL", name: "Hello GLSL", source: HELLO_GLSL_FRAGMENT_SOURCE, mode: "fragment", summary: "Minimal animated fragment shader and uniform reference." }),
-  Object.freeze({ id: "rainbow", label: "Rainbow geometry", name: "Rainbow geometry shader", source: RAINBOW_GEOMETRY_FRAGMENT_SOURCE, mode: "fragment", summary: "Distance-field rainbow bands around Drawerator scene geometry." }),
-  Object.freeze({ id: "shadow", label: "2D shadows", name: "2D shadow simulation", source: SHADOW_CASTING_FRAGMENT_SOURCE, mode: "fragment", summary: "Pointer-driven 2D ray casting against Drawerator scene geometry." }),
+  Object.freeze({ id: "rainbow", label: "Rainbow geometry", name: "Rainbow geometry shader", source: RAINBOW_GEOMETRY_FRAGMENT_SOURCE, mode: "fragment", summary: "Distance-field rainbow bands around Underscore scene geometry." }),
+  Object.freeze({ id: "shadow", label: "2D shadows", name: "2D shadow simulation", source: SHADOW_CASTING_FRAGMENT_SOURCE, mode: "fragment", summary: "Pointer-driven 2D ray casting against Underscore scene geometry." }),
   Object.freeze({ id: "fluid", label: "Fluid brush", name: "Fluid brush shader", source: FLUID_BRUSH_FRAGMENT_SOURCE, mode: "feedback", summary: "Interactive ping-pong GLSL dye brush with editable feedback source." }),
   Object.freeze({ id: "inkwash", label: "Inkwash", name: "Inkwash shader", source: INKWASH_FRAGMENT_SOURCE, mode: "feedback", summary: "Wet-paper pigment feedback with drying, chromatography, grain, and edge pooling." }),
   Object.freeze({ id: "stokes", label: "Stokes flow", name: "Stokes fluid shader", source: STOKES_FLUID_FRAGMENT_SOURCE, mode: "fragment", summary: "Analytical Stokes-flow field from the first shader-node prototype." }),

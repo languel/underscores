@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import DraweratorCodeEditor from "./DraweratorCodeEditor.jsx";
+import UnderscoreCodeEditor from "./UnderscoreCodeEditor.jsx";
 import P5Frame from "./P5Frame.jsx";
 import { PlayCoreFrame } from "./PlayCoreFrame.jsx";
 import { getLivecodeRuntimeConfig, isLivecodeNodeRunnable, validateLivecodeNode } from "./livecodeAdapters.js";
@@ -87,7 +87,7 @@ export function LivecodeNodeEditor({
     ariaLabel={ariaLabel || "Orca grid editor"}
   /></div>;
   return (
-    <DraweratorCodeEditor
+    <UnderscoreCodeEditor
       value={node.source}
       onChange={source => onPatch?.({ source })}
       onBlur={onBlur}
@@ -147,18 +147,18 @@ function createLivecodeBridge(element, node, scriptRuntimeRef, onStrudelTranspor
     get colors() { return appearance().colors; },
     get theme() { return appearance().theme; },
     get appearance() { return appearance(); },
-    get streams() { return scriptRuntimeRef?.current?.getStreams?.(element.id) || window.drawerator?.streams; },
+    get streams() { return scriptRuntimeRef?.current?.getStreams?.(element.id) || window.__?.streams; },
     console: scriptConsole,
     log: scriptConsole.log,
     info: scriptConsole.info,
     warn: scriptConsole.warn,
     error: scriptConsole.error,
-    get art() { return window.drawerator?.art; },
+    get art() { return window.__?.art; },
     strudel: Object.freeze({
       setTempo: bpm => onStrudelTransport?.(element, node, { type: "tempo", value: bpm }),
       setPlaying: playing => onStrudelTransport?.(element, node, { type: "playing", value: Boolean(playing) }),
     }),
-    get api() { return window.drawerator; },
+    get api() { return window.__; },
   });
 }
 
@@ -363,13 +363,13 @@ export function LivecodeNodeOverlay({
       time: Math.max(0, Number(transport?.time) || 0),
     });
   }, [transport?.playing, transport?.bpm, transport?.time]);
-  return <div className={`drawerator-livecode-overlay ${layer}`} aria-label={layer === "underlay" ? "Background Livecode canvas nodes" : "Livecode canvas nodes"}>{elements.filter(element => {
+  return <div className={`underscore-livecode-overlay ${layer}`} aria-label={layer === "underlay" ? "Background Livecode canvas nodes" : "Livecode canvas nodes"}>{elements.filter(element => {
     if (!shouldRenderLivecodeNode(element)) return false;
-    const candidate = normalizeLivecodeNode(element.customData.draweratorLivecode);
+    const candidate = normalizeLivecodeNode(element.customData.underscoreLivecode);
     const underlay = candidate.kind === "shader" && normalizeShaderCompositionSettings(candidate.runtime.settings).compositeMode === "underlay";
     return layer === "underlay" ? underlay : !underlay;
   }).map(element => {
-    const node = normalizeLivecodeNode(element.customData.draweratorLivecode);
+    const node = normalizeLivecodeNode(element.customData.underscoreLivecode);
     const composition = normalizeShaderCompositionSettings(node.runtime.settings);
     const selected = Boolean(camera.selectedElementIds[element.id]);
     const editing = activeEditorId === element.id;
@@ -377,7 +377,7 @@ export function LivecodeNodeOverlay({
     const handleCommandOutputPointer = event => {
       if ((!event?.metaKey && !event?.ctrlKey) || event.button !== 0) return;
       if (event.target?.closest?.(".livecode-node-chrome")) return;
-      if (event.target?.closest?.("textarea, .drawerator-code-editor, .cm-editor")) return;
+      if (event.target?.closest?.("textarea, .underscore-code-editor, .cm-editor")) return;
       event.preventDefault();
       event.stopPropagation();
       if (node.view !== "preview") onPatch?.(element.id, { view: "preview" }, { commitToHistory: true });
@@ -385,13 +385,13 @@ export function LivecodeNodeOverlay({
     const handleCommandOutputClick = event => {
       if (!event?.metaKey && !event?.ctrlKey) return;
       if (event.target?.closest?.(".livecode-node-chrome")) return;
-      if (event.target?.closest?.("textarea, .drawerator-code-editor, .cm-editor")) return;
+      if (event.target?.closest?.("textarea, .underscore-code-editor, .cm-editor")) return;
       event.preventDefault();
       event.stopPropagation();
     };
     return <div
       key={element.id}
-      className={`drawerator-livecode-node ${selected ? "selected" : ""} ${editing ? "editing" : ""} ${node.typography.glyphOnlyOverlay ? "glyph-only-overlay" : ""} ${node.view}`}
+      className={`underscore-livecode-node ${selected ? "selected" : ""} ${editing ? "editing" : ""} ${node.typography.glyphOnlyOverlay ? "glyph-only-overlay" : ""} ${node.view}`}
       data-livecode-node-id={element.id}
       style={{
         left: (element.x + camera.scrollX) * camera.zoom,

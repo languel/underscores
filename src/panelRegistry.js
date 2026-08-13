@@ -1,4 +1,4 @@
-export const DRAWERATOR_PANELS = Object.freeze([
+export const UNDERSCORE_PANELS = Object.freeze([
   Object.freeze({ id: "grid", label: "Grid", slash: "/grid", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "outliner", label: "Outliner", slash: "/outliner", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "properties", label: "Properties", slash: "/properties", kind: "dockable", placements: ["left", "floating", "right"] }),
@@ -22,7 +22,7 @@ export const DRAWERATOR_PANELS = Object.freeze([
   Object.freeze({ id: "console", label: "Console", slash: "/console", kind: "dockable", placements: ["left", "floating", "right", "bottom"], naturalPlacement: "bottom", dockedHeight: 220 }),
 ]);
 
-export const getDraweratorPanel = id => DRAWERATOR_PANELS.find(panel => panel.id === id) || null;
+export const getUnderscorePanel = id => UNDERSCORE_PANELS.find(panel => panel.id === id) || null;
 
 export const getNaturalPanelPlacement = panel => {
   const placements = Array.isArray(panel?.placements) ? panel.placements : [];
@@ -32,7 +32,7 @@ export const getNaturalPanelPlacement = panel => {
   return placements[0] || "right";
 };
 
-export const matchesDraweratorPanel = (panel, query) => {
+export const matchesUnderscorePanel = (panel, query) => {
   const normalized = String(query || "").trim().toLowerCase();
   if (!normalized) return true;
   return panel.label.toLowerCase().includes(normalized) ||

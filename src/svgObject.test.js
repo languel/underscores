@@ -58,20 +58,20 @@ test("patches visual attributes back into the canonical SVG source", () => {
 test("structured edits assign stable node identities and embedded metadata once", () => {
   const source = `\n<svg xmlns="http://www.w3.org/2000/svg"><g><path d="M0 0L10 10"/></g></svg>\n`;
   const first = updateStructuredSvgNodeAttribute(source, 2, "stroke", "red");
-  assert.match(first, /<svg[^>]+data-drawerator-id=/);
-  assert.match(first, /<g[^>]+data-drawerator-id=/);
-  assert.match(first, /<path[^>]+data-drawerator-id=[^>]+stroke="red"/);
-  assert.match(first, /<metadata data-drawerator="v1">/);
+  assert.match(first, /<svg[^>]+data-underscore-id=/);
+  assert.match(first, /<g[^>]+data-underscore-id=/);
+  assert.match(first, /<path[^>]+data-underscore-id=[^>]+stroke="red"/);
+  assert.match(first, /<metadata data-underscore="v1">/);
   assert.equal(first.startsWith("\n"), true);
   assert.equal(first.endsWith("\n"), true);
   const second = updateStructuredSvgNodeAttribute(first, 2, "stroke", "blue");
-  assert.equal((second.match(/data-drawerator-id=/g) || []).length, 3);
-  assert.equal((second.match(/data-drawerator="v1"/g) || []).length, 1);
+  assert.equal((second.match(/data-underscore-id=/g) || []).length, 3);
+  assert.equal((second.match(/data-underscore="v1"/g) || []).length, 1);
   assert.match(second, /stroke="blue"/);
 });
 
 test("recognizes first-class SVG canvas hosts", () => {
-  assert.equal(isSvgObjectElement({ customData: { draweratorSvg: {} } }), true);
+  assert.equal(isSvgObjectElement({ customData: { underscoreSvg: {} } }), true);
   assert.equal(isSvgObjectElement({ type: "rectangle" }), false);
 });
 

@@ -120,7 +120,7 @@ const matchesFilter = (descriptor, filter = {}) => {
  * frames out of scene data: descriptors can be persisted, browser handles and
  * runtime frames cannot.
  */
-export class DraweratorStreamRegistry {
+export class UnderscoreStreamRegistry {
   constructor({ now = nowMs } = {}) {
     this.now = now;
     this.entries = new Map();
@@ -247,7 +247,7 @@ const createFacetedApi = (registry, mediaStreams, ownerId = "") => {
   return Object.freeze(api);
 };
 
-export const createUnifiedStreamsApi = ({ registry = new DraweratorStreamRegistry(), mediaStreams = null } = {}) => {
+export const createUnifiedStreamsApi = ({ registry = new UnderscoreStreamRegistry(), mediaStreams = null } = {}) => {
   const root = createFacetedApi(registry, mediaStreams);
   return Object.freeze({
     ...root,

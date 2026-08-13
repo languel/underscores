@@ -65,7 +65,7 @@ const snapConfigured = (grid, point, options) => snapPointToGrid(grid, point, {
 }).point;
 
 const quantizeBezier = (element, grid, options) => {
-  const geometry = normalizeBezierGeometry(element.customData?.draweratorGeometry);
+  const geometry = normalizeBezierGeometry(element.customData?.underscoreGeometry);
   const controls = getBezierWorldAnchors(element);
   const anchors = controls.map(control => {
     const anchor = snapConfigured(grid, control.anchor, options);
@@ -89,7 +89,7 @@ const quantizeBezier = (element, grid, options) => {
     points: host.points,
     customData: {
       ...(element.customData || {}),
-      draweratorGeometry: host.geometry,
+      underscoreGeometry: host.geometry,
     },
   };
   const path = getBezierWorldPath(nextShape);

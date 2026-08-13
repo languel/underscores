@@ -16,15 +16,15 @@ const SvgShadowDocument = ({ source, color, clock, time, interactive, onSelect, 
     const shadow = host.shadowRoot || host.attachShadow({ mode: "open" });
     shadowRef.current = shadow;
     const style = document.createElement("style");
-    style.textContent = `:host,.drawerator-svg-shadow-content{display:block;width:100%;height:100%}:host{color:${color || "currentColor"}}svg{display:block;width:100%;height:100%;overflow:visible}`;
+    style.textContent = `:host,.underscore-svg-shadow-content{display:block;width:100%;height:100%}:host{color:${color || "currentColor"}}svg{display:block;width:100%;height:100%;overflow:visible}`;
     const content = document.createElement("div");
-    content.className = "drawerator-svg-shadow-content";
+    content.className = "underscore-svg-shadow-content";
     content.innerHTML = sanitizeSvgForInertRender(source);
     shadow.replaceChildren(style, content);
 
     const nodeFromEvent = event => {
-      const target = event.composedPath?.().find(item => item instanceof Element && item.hasAttribute?.("data-drawerator-render-index"));
-      const nodeIndex = Number(target?.getAttribute?.("data-drawerator-render-index"));
+      const target = event.composedPath?.().find(item => item instanceof Element && item.hasAttribute?.("data-underscore-render-index"));
+      const nodeIndex = Number(target?.getAttribute?.("data-underscore-render-index"));
       return Number.isInteger(nodeIndex) ? nodeIndex : null;
     };
     const pointerDown = event => {
@@ -66,7 +66,7 @@ const SvgShadowDocument = ({ source, color, clock, time, interactive, onSelect, 
     else seekSvgDocument(shadowRef.current, time);
   }, [clock, source, time]);
 
-  return <div ref={hostRef} className="drawerator-svg-shadow-host" />;
+  return <div ref={hostRef} className="underscore-svg-shadow-host" />;
 };
 
 export default function SvgObjectOverlay({ elements, appState, time = 0, onSelect, onEditPath, onEditNode, onConstructPath }) {
@@ -78,10 +78,10 @@ export default function SvgObjectOverlay({ elements, appState, time = 0, onSelec
   if (!objects.length) return null;
 
   return (
-    <div className="drawerator-svg-object-overlay" aria-hidden="true">
+    <div className="underscore-svg-object-overlay" aria-hidden="true">
       {objects.map((element, layerIndex) => {
         if (!isSvgObjectElement(element)) return null;
-        const svg = normalizeSvgObject(element.customData.draweratorSvg);
+        const svg = normalizeSvgObject(element.customData.underscoreSvg);
         const elementOpacity = Number(element.opacity);
         const opacity = Number.isFinite(elementOpacity) ? elementOpacity : 100;
         const selected = Boolean(appState?.selectedElementIds?.[element.id]);
@@ -96,8 +96,8 @@ export default function SvgObjectOverlay({ elements, appState, time = 0, onSelec
         return (
           <div
             key={element.id}
-            data-drawerator-svg-element-id={element.id}
-            className={`drawerator-svg-object-frame ${interactive ? "drawerator-svg-object-frame-interactive" : ""}`}
+            data-underscore-svg-element-id={element.id}
+            className={`underscore-svg-object-frame ${interactive ? "underscore-svg-object-frame-interactive" : ""}`}
             style={{
               left: ((Number(element.x) || 0) + scrollX) * zoom,
               top: ((Number(element.y) || 0) + scrollY) * zoom,

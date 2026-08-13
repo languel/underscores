@@ -41,8 +41,8 @@ const useMediaStatus = selectedId => {
       if (!detail.elementId) return;
       setStatuses(previous => ({ ...previous, [detail.elementId]: detail }));
     };
-    window.addEventListener("drawerator:media-stream-status", handler);
-    return () => window.removeEventListener("drawerator:media-stream-status", handler);
+    window.addEventListener("underscore:media-stream-status", handler);
+    return () => window.removeEventListener("underscore:media-stream-status", handler);
   }, []);
   return statuses[selectedId] || null;
 };
@@ -97,7 +97,7 @@ const SourceList = ({ sources, selectedId, empty, onSelect, onDelete }) => {
         onClick={() => onSelect(source.id)}
         onDragStart={event => {
           event.dataTransfer.effectAllowed = "copy";
-          event.dataTransfer.setData("application/x-drawerator-media-source", source.id);
+          event.dataTransfer.setData("application/x-underscore-media-source", source.id);
           event.dataTransfer.setData("text/plain", source.name);
         }}
       ><SourceKindIcon kind={source.kind} /></button>
@@ -119,7 +119,7 @@ const ProcessorList = ({ elements, selectedElementIds, onSelect }) => {
   if (!elements.length) return <div className="media-stream-panel-empty">No Holistic or artistic drawing objects yet.</div>;
   return <div className="media-stream-panel-list" role="list">
     {elements.map(element => {
-      const config = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
+      const config = normalizeMediaStreamConfig(element.customData.underscoreMediaStream);
       return <button
         key={element.id}
         type="button"
@@ -147,7 +147,7 @@ const UnicursalDetail = ({ element, config, processors, onPatch, onSnapshot }) =
     <label className="media-stream-panel-field"><span>Holistic source</span>
       <select value={art.sourceId} onChange={event => onPatch(element.id, { unicursal: { sourceId: event.target.value } })}>
         <option value="">Choose Holistic</option>
-        {processors.map(source => <option key={source.id} value={source.id}>{normalizeMediaStreamConfig(source.customData.draweratorMediaStream).name}</option>)}
+        {processors.map(source => <option key={source.id} value={source.id}>{normalizeMediaStreamConfig(source.customData.underscoreMediaStream).name}</option>)}
       </select>
     </label>
     <label className="media-stream-panel-field"><span>Preset</span>
@@ -450,15 +450,15 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
 export function HolisticPanel({ elements, sources, selectedElementIds, onCreate, onPatch, onSelect, onSnapshot, onSnapshotPng, onSnapshotArt }) {
   const processors = useMemo(() => elements.filter(element => (
     isMediaStreamElement(element)
-    && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC
+    && normalizeMediaStreamConfig(element.customData.underscoreMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC
   )), [elements]);
   const artistic = useMemo(() => elements.filter(element => (
     isMediaStreamElement(element)
-    && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.UNICURSAL
+    && normalizeMediaStreamConfig(element.customData.underscoreMediaStream).kind === MEDIA_STREAM_KINDS.UNICURSAL
   )), [elements]);
   const objects = [...processors, ...artistic];
   const selected = objects.find(element => selectedElementIds?.[element.id]) || objects[0] || null;
-  const config = selected ? normalizeMediaStreamConfig(selected.customData.draweratorMediaStream) : null;
+  const config = selected ? normalizeMediaStreamConfig(selected.customData.underscoreMediaStream) : null;
   const status = useMediaStatus(selected?.id);
   const defaultSourceId = sources[0]?.id || "";
   const faceGroupEntries = Object.entries(FACE_DISPLAY_GROUPS);

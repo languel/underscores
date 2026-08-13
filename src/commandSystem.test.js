@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DraweratorCommandRegistry, DraweratorEventBus, DraweratorInputBus, normalizeInputSample, parseGenericCommandSlash } from "./commandSystem.js";
+import { UnderscoreCommandRegistry, UnderscoreEventBus, UnderscoreInputBus, normalizeInputSample, parseGenericCommandSlash } from "./commandSystem.js";
 
 test("command registry validates, executes, and publishes metadata", async () => {
-  const bus = new DraweratorEventBus({ now: () => 10 });
-  const registry = new DraweratorCommandRegistry({ eventBus: bus, contextProvider: () => ({ value: 2 }) });
+  const bus = new UnderscoreEventBus({ now: () => 10 });
+  const registry = new UnderscoreCommandRegistry({ eventBus: bus, contextProvider: () => ({ value: 2 }) });
   const completed = [];
   registry.subscribe(detail => completed.push(detail));
   registry.register({
@@ -27,8 +27,8 @@ test("command registry validates, executes, and publishes metadata", async () =>
 });
 
 test("input bus normalizes scene-space samples and adapter events", () => {
-  const bus = new DraweratorEventBus({ now: () => 50 });
-  const input = new DraweratorInputBus({ eventBus: bus, now: () => 50 });
+  const bus = new UnderscoreEventBus({ now: () => 50 });
+  const input = new UnderscoreInputBus({ eventBus: bus, now: () => 50 });
   let emit;
   const unregister = input.registerAdapter({ id: "mediamime", start: next => { emit = next; } });
   emit({ x: 12, y: 18, phase: "move", pressure: 0.75 });
@@ -44,7 +44,7 @@ test("normalizeInputSample rejects viewport-only or invalid coordinates", () => 
 });
 
 test("command events redact fields marked sensitive without changing execution args", async () => {
-  const registry = new DraweratorCommandRegistry();
+  const registry = new UnderscoreCommandRegistry();
   let executed;
   let recorded;
   registry.register({

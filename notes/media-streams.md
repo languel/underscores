@@ -1,6 +1,6 @@
 # Media streams
 
-Drawerator media inputs are persistent source objects that do not require an Excalidraw host.
+Underscore media inputs are persistent source objects that do not require an Excalidraw host.
 Camera and media sources live in a small local catalog and continue producing a processed output
 while their optional canvas view is absent or hidden. This keeps acquisition and processing
 separate from presentation: panels, canvas views, and downstream processors all consume the same
@@ -37,8 +37,8 @@ on the browser animation clock.
 ## Persisted and transient state
 
 Source configuration is normalized by `src/mediaStream.js` and stored in the local
-`drawerator_media_source_catalog_v1` catalog. Optional views and Holistic processors persist in
-`customData.draweratorMediaStream`; Excalidraw continues to own their selection, transforms,
+`underscore_media_source_catalog_v1` catalog. Optional views and Holistic processors persist in
+`customData.underscoreMediaStream`; Excalidraw continues to own their selection, transforms,
 opacity, grouping, history, and scene exchange.
 
 Creating a Holistic processor or changing its display/processing settings also writes the current
@@ -54,7 +54,7 @@ media kind persist, but the browser file handle does not, so choose it again aft
 The **Media Input** source stack uses source-kind icons instead of textual type badges. Drag a
 source icon to the canvas to create a named `preview` rectangle at the drop point. Its dimensions
 use the source's current processed output size when available, falling back to the configured
-resolution. The preview remains an ordinary selectable Drawerator object and appears in the
+resolution. The preview remains an ordinary selectable Underscore object and appears in the
 Outliner using the source name. Existing rectangles or frames can still become previews through
 the context menu or `/preview` command.
 
@@ -93,11 +93,11 @@ toggle remaps the overlay, snapshots, MediaPipe stream features, mappings, and B
 together; it does not alter the source image pixels.
 
 Every result updates the derived object's live canvas and emits `media.holistic.frame` on the
-Drawerator event bus with normalized pose, left-hand, right-hand, and face landmarks.
+Underscore event bus with normalized pose, left-hand, right-hand, and face landmarks.
 **Snapshot landmarks** converts the currently enabled pose, hand, and Face Mesh display into native
-Drawerator points, connection lines, and landmark IDs according to the active view toggles. Pose
+Underscore points, connection lines, and landmark IDs according to the active view toggles. Pose
 points below the live 0.2 visibility threshold are excluded. Each snapshot point is tagged with
-`customData.draweratorMediaLandmark` and a canonical `customData.draweratorLabel`, such as
+`customData.underscoreMediaLandmark` and a canonical `customData.underscoreLabel`, such as
 `pose.left_pinky`, `right_hand.thumb_tip`, or `face.33`. Every snapshot is one native
 Excalidraw group, so its points can be selected and moved as one output.
 
@@ -232,8 +232,8 @@ const unsubscribe = body.subscribe(frame => {
 });
 ```
 
-The service is also `__.api.streams` and `window.drawerator.streams`. `__` itself remains lexical
-to trusted livecode runtimes and is never installed as `window.__`. Raw observations remain
+The service is also `__.api.streams` and `window.__.streams`. Trusted livecode receives a node-local
+`__` bridge, while the application installs the public API at `window.__`. Raw observations remain
 transient and are evaluated once per Holistic result; a scene file persists the processor and its
 versioned binding definitions, not hundreds of landmark elements.
 
@@ -263,8 +263,7 @@ Use the bottom-docked **Console** when a MediaPipe or Brush interaction appears 
 Camera, URL/file media, canvas capture, and Preview outputs register as read-only image streams.
 Image pixels and `CanvasImageSource` handles are transient; a trusted script recreates virtual
 image output after reload. Existing `__.streams.get("Holistic").feature(...)` and `.features(...)`
-remain unchanged. The public equivalent is `window.drawerator.streams`; `window.__` is never
-installed.
+remain unchanged. The public equivalent is `window.__.streams`.
 
 The **Media** panel retains the image-source catalog, its source-specific editors, preview controls,
 and stored source ids. The dedicated **Inputs** panel uses the same source-stack/detail-editor model
@@ -322,7 +321,7 @@ Right pinch Active gate (value) → Gate ────────→ Brush gate
 Processor configuration persists with named stream references. Live values, browser/device state,
 and image frames remain transient. Trusted scripts can inspect outputs and mutate the persistent
 graph with `__.api.streams.processors.create(...)`, `.update(id, patch)`, and `.remove(id)`; the
-equivalent public read surface remains `window.drawerator.streams`, never `window.__`.
+equivalent public read surface is `window.__.streams`.
 
 IanniX curves publish sampled reusable map data, active cursors publish scene position, progress,
 and score time, and trigger contact emits enter/leave event frames. This does not alter the
@@ -362,7 +361,7 @@ Missing streams, landmarks, and target objects are reported in place.
 Actors run independently of score transport while armed. Disarming immediately releases gates and
 ends active strokes. Initial bindings are:
 
-- `drive-position`: maps a semantic point or region centroid to the actual selected Drawerator
+- `drive-position`: maps a semantic point or region centroid to the actual selected Underscore
   target, with target anchor/offset, confidence threshold, about 40 ms time-based smoothing, and a
   120 ms missing-signal grace period. Runtime updates move the real selectable host rather than
   leaving stale geometry behind; its acquired and final poses are therefore already baked.

@@ -217,7 +217,7 @@ export const validateAIBrushSource = source => {
   if (!text) errors.push("Brush source is required.");
   const forbiddenReference = text.match(FORBIDDEN_RUNTIME_REFERENCES)?.[0];
   if (forbiddenReference) {
-    errors.push(`AI brush scripts may not use ${forbiddenReference}, browser, storage, network, clock, or module globals. Use points and Drawerator globals only.`);
+    errors.push(`AI brush scripts may not use ${forbiddenReference}, browser, storage, network, clock, or module globals. Use points and Underscore globals only.`);
   }
   try {
     if (text) new Function(`return (${text})`);
@@ -232,12 +232,12 @@ export const validateAIBrushSource = source => {
 
 export const SCRIPT_AUTHORING_GUIDES = Object.freeze({
   iannix: [
-    "Drawerator IanniX-compatible script contract:",
+    "Underscore IanniX-compatible script contract:",
     "- Author JavaScript lifecycle functions, not a generic geometry-returning program. Put score creation in function makeWithScript() (or madeThroughGUI()).",
     "- Create and configure score objects only with run(\"IanniX command…\"). Every run call must begin with a literal supported command; dynamic numeric values are fine after that, e.g. run(\"setPointAt current \" + index + \" \" + x + \" \" + y) or run(`setPointAt current ${index} ${x} ${y}`).",
-    "- Write readable source: put each statement after a semicolon on its own line, indent blocks with two spaces, and never compress an entire script into one line. Drawerator will also format saved AI scripts.",
+    "- Write readable source: put each statement after a semicolon on its own line, indent blocks with two spaces, and never compress an entire script into one line. Underscore will also format saved AI scripts.",
     "- Coordinates are IanniX model units, not canvas pixels. For geometry requested near the default visible canvas center, ALWAYS first use run(\"setPos current 12 -8 0\") and keep local point coordinates or radii roughly within -12..12. Never use screen-sized values such as 480 or 960 unless the user explicitly asks for a large/off-screen score.",
-    "- Exact minimal working pattern (placed visibly near the canvas center at Drawerator's default import scale):\nfunction makeWithScript() {\n  run(\"clear\");\n  run(\"add curve orbit\");\n  run(\"setPos current 12 -8 0\");\n  run(\"setPointAt current 0 0 0\");\n  run(\"setPointAt current 1 8 0\");\n  run(\"setColor current 201 205 210 255\");\n  run(\"setWidth current 2\");\n  run(\"add cursor traveler\");\n  run(\"setCurve current lastCurve\");\n  run(\"setSpeed current 80\");\n}",
+    "- Exact minimal working pattern (placed visibly near the canvas center at Underscore's default import scale):\nfunction makeWithScript() {\n  run(\"clear\");\n  run(\"add curve orbit\");\n  run(\"setPos current 12 -8 0\");\n  run(\"setPointAt current 0 0 0\");\n  run(\"setPointAt current 1 8 0\");\n  run(\"setColor current 201 205 210 255\");\n  run(\"setWidth current 2\");\n  run(\"add cursor traveler\");\n  run(\"setCurve current lastCurve\");\n  run(\"setSpeed current 80\");\n}",
     "- Give every generated curve an explicit readable style unless the user asks for a hairline: run(\"setColor current 201 205 210 255\") and run(\"setWidth current 2\") after creating its points. Use brighter colors or widths 3–4 for primary visual material.",
     "- setPointsEllipse takes radii only: first run(\"setPos current centerX centerY\"), then run(\"setPointsEllipse current radiusX radiusY\"). It does not take center coordinates. setSize and setWidth each take one number.",
     "- Supported command families: add curve|cursor|trigger, clear, setPointAt, setPointsLines, setPointsEllipse, setEquation, setPos, setCurve, setSpeed, setPattern, setMessage, setColor, setLabel, setActive, setSize/setWidth, plus bare center, zoom, and rotate commands. Do not write presentation center/zoom/rotate.",
@@ -246,11 +246,11 @@ export const SCRIPT_AUTHORING_GUIDES = Object.freeze({
     "- Put only valid source in the source field of script.iannix.create or script.iannix.update. Do not run it unless the user asks to execute it.",
   ].join("\n"),
   brush: [
-    "Drawerator Brush / modifier script contract:",
+    "Underscore Brush / modifier script contract:",
     "- Source must be a JavaScript function with signature (points, globals) => tracks.",
     "- points is the source path. Return an array of drawable tracks, for example (points, globals) => [points]. Each track is an array of numeric [x, y] points.",
     "- Declare editable numeric parameters with // @param name = default (min..max, step: increment).",
-    "- Write readable source: put each statement after a semicolon on its own line and indent blocks with two spaces. Drawerator formats saved AI scripts too.",
+    "- Write readable source: put each statement after a semicolon on its own line and indent blocks with two spaces. Underscore formats saved AI scripts too.",
     "- Use points and supplied globals only. Never use Date, DOM APIs, network APIs, storage, or module imports.",
     "- Use script.brush.create/update to save, then script.brush.apply with selected or explicit line/freedraw element ids to attach the brush as a modifier.",
   ].join("\n"),

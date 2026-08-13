@@ -10,7 +10,7 @@ const segmentationConsumers = new Map();
 const publish = detail => {
   listeners.forEach(listener => listener(detail));
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("drawerator:media-stream-runtime", { detail }));
+    window.dispatchEvent(new CustomEvent("underscore:media-stream-runtime", { detail }));
   }
 };
 

@@ -1,8 +1,8 @@
 // Curated starter programs adapted from ertdfgcvb/play.core (Apache-2.0).
 // Source repository: https://github.com/ertdfgcvb/play.core
-// These are kept local so a saved Drawerator scene does not depend on a network
+// These are kept local so a saved Underscore scene does not depend on a network
 // request. Examples requiring camera/canvas modules are intentionally omitted
-// until those modules have a portable Drawerator implementation.
+// until those modules have a portable Underscore implementation.
 
 const example = (id, category, name, source) => Object.freeze({
   id, category, name, source: String(source).trim(),

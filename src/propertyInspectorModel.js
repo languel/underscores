@@ -4,8 +4,8 @@
 // never sees two competing representations of the same role.
 export const getInspectableCustomData = value => {
   const customData = { ...(value || {}) };
-  delete customData.draweratorSvg;
-  if (customData.physics) delete customData.draweratorPhysics;
+  delete customData.underscoreSvg;
+  if (customData.physics) delete customData.underscorePhysics;
   if (customData.score) delete customData.iannix;
   return customData;
 };

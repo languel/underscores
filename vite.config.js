@@ -33,7 +33,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    base: buildSingle ? '/drawerator/' : '/',
+    base: buildSingle ? '/underscore/' : '/',
     plugins: [
       react(),
       buildSingle && viteSingleFile({ removeViteModuleLoader: true })
@@ -48,7 +48,7 @@ export default defineConfig(({ mode }) => {
     },
     resolve: {
       alias: {
-        '@drawerator/physics-worker-factory': fileURLToPath(new URL(buildSingle ? './src/physicsWorkerFactory.inline.js' : './src/physicsWorkerFactory.js', import.meta.url)),
+        '@underscore/physics-worker-factory': fileURLToPath(new URL(buildSingle ? './src/physicsWorkerFactory.inline.js' : './src/physicsWorkerFactory.js', import.meta.url)),
       },
     },
     // The internal synth is lazy-loaded on first use. Pre-bundle both CommonJS

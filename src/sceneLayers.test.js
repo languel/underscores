@@ -82,8 +82,8 @@ test("moves a leaf element into the exact existing group path", () => {
 test("renames a group on every member and exposes the label in the outliner tree", () => {
   const source = [element("a", ["group-a"]), element("b", ["group-a"]), element("c")];
   const renamed = renameSceneGroup(source, "group-a", "Performers");
-  assert.equal(renamed[0].customData.draweratorGroupLabels["group-a"], "Performers");
-  assert.equal(renamed[1].customData.draweratorGroupLabels["group-a"], "Performers");
+  assert.equal(renamed[0].customData.underscoreGroupLabels["group-a"], "Performers");
+  assert.equal(renamed[1].customData.underscoreGroupLabels["group-a"], "Performers");
   assert.equal(renamed[2], source[2]);
   assert.equal(buildSceneGroupTree(renamed).children.find(node => node.id === "group-a").label, "Performers");
 });

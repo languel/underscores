@@ -10,7 +10,7 @@ export const svgNodeObjectRef = (elementId, nodeId, subpathId = null) => ({
   ...(subpathId === null || subpathId === undefined ? {} : { subpathId: String(subpathId) }),
 });
 
-export const normalizeDraweratorObjectRef = value => {
+export const normalizeUnderscoreObjectRef = value => {
   if (typeof value === "string") return value ? elementObjectRef(value) : null;
   if (!value || typeof value !== "object") return null;
   const elementId = String(value.elementId || "");
@@ -22,21 +22,21 @@ export const normalizeDraweratorObjectRef = value => {
   return elementObjectRef(elementId);
 };
 
-export const draweratorObjectRefKey = value => {
-  const ref = normalizeDraweratorObjectRef(value);
+export const underscoreObjectRefKey = value => {
+  const ref = normalizeUnderscoreObjectRef(value);
   if (!ref) return "";
   return ref.kind === "element"
     ? `element:${ref.elementId}`
     : `svg-node:${ref.elementId}:${ref.nodeId}:${ref.subpathId || ""}`;
 };
 
-export const sameDraweratorObjectRef = (left, right) => (
-  draweratorObjectRefKey(left) === draweratorObjectRefKey(right)
+export const sameUnderscoreObjectRef = (left, right) => (
+  underscoreObjectRefKey(left) === underscoreObjectRefKey(right)
 );
 
 export const migrateLegacyCurveReference = cursorValue => {
   const cursor = cursorValue && typeof cursorValue === "object" ? cursorValue : {};
-  const curveRef = normalizeDraweratorObjectRef(cursor.curveRef)
+  const curveRef = normalizeUnderscoreObjectRef(cursor.curveRef)
     || (cursor.curveId ? elementObjectRef(cursor.curveId) : null);
   return {
     ...cursor,

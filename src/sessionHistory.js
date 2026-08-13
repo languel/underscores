@@ -1,6 +1,6 @@
-export const DRAWERATOR_SESSION_VERSION = 2;
-export const DRAWERATOR_SESSION_TYPE = "drawerator-session";
-export const DRAWERATOR_MACRO_TYPE = "drawerator-macro";
+export const UNDERSCORE_SESSION_VERSION = 2;
+export const UNDERSCORE_SESSION_TYPE = "underscore-session";
+export const UNDERSCORE_MACRO_TYPE = "underscore-macro";
 
 const cloneValue = value => {
   if (value === undefined) return undefined;
@@ -37,9 +37,9 @@ export const normalizeSessionAction = (action, sequence = 0) => {
   };
 };
 
-export const createDraweratorSession = ({ baseline = null, clock = {}, includePresentation = true, name = "Untitled session", seed } = {}) => ({
-  type: DRAWERATOR_SESSION_TYPE,
-  version: DRAWERATOR_SESSION_VERSION,
+export const createUnderscoreSession = ({ baseline = null, clock = {}, includePresentation = true, name = "Untitled session", seed } = {}) => ({
+  type: UNDERSCORE_SESSION_TYPE,
+  version: UNDERSCORE_SESSION_VERSION,
   id: createId(),
   name,
   createdAt: new Date().toISOString(),
@@ -56,19 +56,19 @@ export const createDraweratorSession = ({ baseline = null, clock = {}, includePr
   actions: [],
 });
 
-export const parseDraweratorSession = payload => {
+export const parseUnderscoreSession = payload => {
   const value = typeof payload === "string" ? JSON.parse(payload) : cloneValue(payload);
-  if (!value || value.type !== DRAWERATOR_SESSION_TYPE || !Array.isArray(value.actions)) {
-    throw new Error("This is not a Drawerator session document.");
+  if (!value || value.type !== UNDERSCORE_SESSION_TYPE || !Array.isArray(value.actions)) {
+    throw new Error("This is not a Underscore session document.");
   }
-  if (value.version > DRAWERATOR_SESSION_VERSION) {
-    throw new Error(`Session version ${value.version} is newer than this Drawerator build.`);
+  if (value.version > UNDERSCORE_SESSION_VERSION) {
+    throw new Error(`Session version ${value.version} is newer than this Underscore build.`);
   }
-  const migrated = createDraweratorSession(value);
+  const migrated = createUnderscoreSession(value);
   return {
     ...migrated,
     ...value,
-    version: DRAWERATOR_SESSION_VERSION,
+    version: UNDERSCORE_SESSION_VERSION,
     clock: { ...migrated.clock, ...(value.clock || {}), sampleRate: migrated.clock.sampleRate },
     actions: value.actions.map(normalizeSessionAction).sort((a, b) => a.at - b.at || a.sequence - b.sequence),
   };
@@ -113,7 +113,7 @@ const getSessionDuration = session => (session?.actions || []).reduce(
   0,
 );
 
-export class DraweratorSessionController {
+export class UnderscoreSessionController {
   constructor({
     now = () => performance.now(),
     requestFrame = callback => requestAnimationFrame(callback),
@@ -126,7 +126,7 @@ export class DraweratorSessionController {
     this.cancelFrame = cancelFrame;
     this.restoreBaseline = restoreBaseline;
     this.applyAction = applyAction;
-    this.session = createDraweratorSession();
+    this.session = createUnderscoreSession();
     this.status = "idle";
     this.playhead = 0;
     this.playbackRate = 1;
@@ -174,7 +174,7 @@ export class DraweratorSessionController {
         clock: { ...this.session.clock, ...cloneValue(clock) },
       };
     } else {
-      this.session = createDraweratorSession({ baseline, clock, includePresentation, name });
+      this.session = createUnderscoreSession({ baseline, clock, includePresentation, name });
     }
     this.status = "recording";
     this.playhead = resumeCursor;
@@ -189,7 +189,7 @@ export class DraweratorSessionController {
 
   clear({ baseline = null, clock = {}, includePresentation = true, name } = {}) {
     this.stopPlayback({ reset: true });
-    this.session = createDraweratorSession({ baseline, clock, includePresentation, name });
+    this.session = createUnderscoreSession({ baseline, clock, includePresentation, name });
     this.status = "idle";
     this.playhead = 0;
     this.recordCursor = 0;
@@ -282,7 +282,7 @@ export class DraweratorSessionController {
 
   load(session) {
     this.stopPlayback({ reset: true });
-    this.session = parseDraweratorSession(session);
+    this.session = parseUnderscoreSession(session);
     this.status = "idle";
     this.playhead = 0;
     this.notify("session.loaded");
@@ -492,8 +492,8 @@ const translateAction = (action, dx, dy) => {
   return next;
 };
 
-export const createDraweratorMacro = (session, { actionIds = null, start = null, end = null, name = "Untitled macro" } = {}) => {
-  const source = parseDraweratorSession(session);
+export const createUnderscoreMacro = (session, { actionIds = null, start = null, end = null, name = "Untitled macro" } = {}) => {
+  const source = parseUnderscoreSession(session);
   const hasStart = start !== null && start !== undefined && start !== "" && Number.isFinite(Number(start));
   const hasEnd = end !== null && end !== undefined && end !== "" && Number.isFinite(Number(end));
   const rangeStart = hasStart ? Number(start) : -Infinity;
@@ -517,7 +517,7 @@ export const createDraweratorMacro = (session, { actionIds = null, start = null,
     y: Math.min(...points.map(point => point.y)),
   } : { x: 0, y: 0 };
   return {
-    type: DRAWERATOR_MACRO_TYPE,
+    type: UNDERSCORE_MACRO_TYPE,
     version: 1,
     id: createId(),
     name,
@@ -527,9 +527,9 @@ export const createDraweratorMacro = (session, { actionIds = null, start = null,
   };
 };
 
-export const instantiateDraweratorMacro = (macro, { mode = "relative", anchor = null } = {}) => {
-  if (!macro || macro.type !== DRAWERATOR_MACRO_TYPE || !Array.isArray(macro.actions)) {
-    throw new Error("This is not a Drawerator macro document.");
+export const instantiateUnderscoreMacro = (macro, { mode = "relative", anchor = null } = {}) => {
+  if (!macro || macro.type !== UNDERSCORE_MACRO_TYPE || !Array.isArray(macro.actions)) {
+    throw new Error("This is not a Underscore macro document.");
   }
   const idMap = new Map([...collectElementIds(macro.actions)].map(id => [id, createId()]));
   const remapped = macro.actions.map((action, index) => normalizeSessionAction(visit(cloneValue(action), value => {
@@ -542,8 +542,8 @@ export const instantiateDraweratorMacro = (macro, { mode = "relative", anchor = 
   return remapped.map(action => translateAction(action, dx, dy));
 };
 
-export class DraweratorLibraryStore {
-  constructor({ databaseName = "drawerator-history-v1" } = {}) {
+export class UnderscoreLibraryStore {
+  constructor({ databaseName = "underscore-history-v1" } = {}) {
     this.databaseName = databaseName;
     this.memory = new Map();
   }

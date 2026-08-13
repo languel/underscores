@@ -39,7 +39,7 @@ test("HTML node documents are opaque-origin sandbox documents with token bridge"
       colors: { foreground: { css: "#d4d4d4" }, canvas: { css: "#1e1e1e" } },
     },
   });
-  assert.match(document, /draweratorLivecode/);
+  assert.match(document, /underscoreLivecode/);
   assert.match(document, /node-token/);
   assert.match(document, /window\.ran = true/);
   assert.match(document, /<base target="_blank">/);

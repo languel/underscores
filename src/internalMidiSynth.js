@@ -18,7 +18,7 @@ export const createTinySynthBackend = async ({
   // TinySynth treats a supplied name as a process-wide synth key. Closing the
   // MIDI port does not remove that cached synth, so reopening a stuck named
   // port can reconnect the same graph and its stale voices. Use an unnamed
-  // TinySynth port instead: every Drawerator-owned backend is then a fresh
+  // TinySynth port instead: every Underscore-owned backend is then a fresh
   // graph, while the public wrapper below retains its stable output identity.
   const port = await JZZ.synth.Tiny();
   const audioContext = JZZ.lib.getAudioContext();

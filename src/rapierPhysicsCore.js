@@ -1,7 +1,7 @@
 import RAPIER from "@dimforge/rapier2d-deterministic-compat";
 import { collisionLayerPairKey, normalizeRelationshipGraph, normalizePhysicsEndpoint, resolvePhysicsCollisionGroups } from "./relationshipGraph.js";
 
-// Drawerator authors geometry in pixels while Rapier works in metres.  The
+// Underscore authors geometry in pixels while Rapier works in metres.  The
 // default of 100 px/m remains compatible with older scenes, but each system
 // now derives its conversion from the authored pixels-per-metre setting.
 export const PHYSICS_WORLD_SCALE = 0.01;
@@ -1178,7 +1178,7 @@ export class RapierPhysicsSystem {
     // Live pose is a constraint relaxation pass, not simulation time. Rapier
     // motors are evaluated by world.step(), so mute them just for this pass:
     // otherwise a live-pose drag at transport zero can spin an unrelated axle
-    // even though Drawerator's public clock never advances.
+    // even though Underscore's public clock never advances.
     const mutedMotors = [];
     for (const state of this.constraints.values()) {
       if (!state.joint

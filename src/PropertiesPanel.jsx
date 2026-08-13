@@ -28,16 +28,16 @@ const READ_ONLY_KEYS = new Set([
   "startBinding", "endBinding", "isDeleted", "excalidrawVersion", "lastWidth", "lastHeight",
 ]);
 
-const PROPERTIES_PINS_STORAGE_KEY = "drawerator_properties_pins_v1";
+const PROPERTIES_PINS_STORAGE_KEY = "underscore_properties_pins_v1";
 
 const pathKey = path => path.map(String).join(".");
 const getElementName = element => {
   if (getScoreData(element)?.label) return getScoreData(element).label;
-  if (element.customData?.draweratorLabel) return element.customData.draweratorLabel;
+  if (element.customData?.underscoreLabel) return element.customData.underscoreLabel;
   if (element.name) return element.name;
   if (element.customData?.name) return element.customData.name;
-  if (isMediaStreamElement(element)) return normalizeMediaStreamConfig(element.customData.draweratorMediaStream).name;
-  if (isSvgObjectElement(element)) return normalizeSvgObject(element.customData.draweratorSvg).name;
+  if (isMediaStreamElement(element)) return normalizeMediaStreamConfig(element.customData.underscoreMediaStream).name;
+  if (isSvgObjectElement(element)) return normalizeSvgObject(element.customData.underscoreSvg).name;
   return "";
 };
 // Frames are semantic Excalidraw containers. Although their element data has a
@@ -45,19 +45,19 @@ const getElementName = element => {
 // and does not apply that value. Keep the control to shapes that actually
 // respond to it.
 const supportsRoundness = element => ["line", "rectangle", "diamond"].includes(element?.type);
-const isObjectReferencePath = path => pathKey(path) === "customData.draweratorMediaStream.canvas.elementId";
+const isObjectReferencePath = path => pathKey(path) === "customData.underscoreMediaStream.canvas.elementId";
 
 const defaultPinnedPathsFor = element => {
   if (element?.type === "frame") return [
-    ["customData", "draweratorFrame", "label"],
-    ["customData", "draweratorFrame", "showLabel"],
+    ["customData", "underscoreFrame", "label"],
+    ["customData", "underscoreFrame", "showLabel"],
   ];
   if (isMediaStreamElement(element)) {
-    const stream = normalizeMediaStreamConfig(element.customData?.draweratorMediaStream);
+    const stream = normalizeMediaStreamConfig(element.customData?.underscoreMediaStream);
     if (stream.kind === MEDIA_STREAM_KINDS.PREVIEW) return [
-      ["customData", "draweratorMediaStream", "sourceId"],
-      ["customData", "draweratorMediaStream", "enabled"],
-      ["customData", "draweratorMediaStream", "mirror"],
+      ["customData", "underscoreMediaStream", "sourceId"],
+      ["customData", "underscoreMediaStream", "enabled"],
+      ["customData", "underscoreMediaStream", "mirror"],
     ];
   }
   if (getScoreData(element)?.role) return [["customData", "score", "role"]];
@@ -236,12 +236,12 @@ const EmbedControls = ({ element, query, onChange }) => {
       <summary><span>embed</span><small>{getEmbedProvider(element.link)}</small></summary>
       <div className="properties-children">
         {matches("link") && <div className="properties-row editable"><span>url</span><input className="properties-embed-url" type="url" value={element.link || ""} onKeyDown={preventCanvasDeletion} onKeyUp={preventCanvasDeletion} onChange={event => onChange(["link"], event.target.value)} /></div>}
-        {matches("reload") && <div className="properties-row properties-embed-reload"><span>content</span><button type="button" className="iannix-flat-button" onClick={() => onChange(["customData", "draweratorEmbed", "reloadNonce"], Date.now())}>Reload embed</button></div>}
-        {matches("enabled") && <div className="properties-row editable"><span>enabled</span><input type="checkbox" checked={policy.enabled} onChange={event => onChange(["customData", "draweratorEmbed", "enabled"], event.target.checked)} /></div>}
-        {matches("display") && <div className="properties-row editable"><span>display</span><select value={policy.display} onChange={event => onChange(["customData", "draweratorEmbed", "display"], event.target.value)}>{EMBED_DISPLAY_MODES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>}
-        {matches("interaction") && <div className="properties-row editable"><span>interact</span><input type="checkbox" checked={policy.allowInteraction} onChange={event => onChange(["customData", "draweratorEmbed", "allowInteraction"], event.target.checked)} /></div>}
-        {matches("crop") && [["cropTop", "crop top"], ["cropRight", "crop right"], ["cropBottom", "crop bottom"], ["cropLeft", "crop left"]].map(([key, label]) => <div className="properties-row editable" key={key}><span>{label} px</span><NumericInput min="0" step="1" value={policy[key]} defaultValue={0} onCommit={value => onChange(["customData", "draweratorEmbed", key], value)} /></div>)}
-        {matches("css") && <div className="properties-row properties-embed-css editable"><span>inject CSS</span><textarea value={policy.css} onChange={event => onChange(["customData", "draweratorEmbed", "css"], event.target.value)} placeholder="body { margin: 0; }" /></div>}
+        {matches("reload") && <div className="properties-row properties-embed-reload"><span>content</span><button type="button" className="iannix-flat-button" onClick={() => onChange(["customData", "underscoreEmbed", "reloadNonce"], Date.now())}>Reload embed</button></div>}
+        {matches("enabled") && <div className="properties-row editable"><span>enabled</span><input type="checkbox" checked={policy.enabled} onChange={event => onChange(["customData", "underscoreEmbed", "enabled"], event.target.checked)} /></div>}
+        {matches("display") && <div className="properties-row editable"><span>display</span><select value={policy.display} onChange={event => onChange(["customData", "underscoreEmbed", "display"], event.target.value)}>{EMBED_DISPLAY_MODES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>}
+        {matches("interaction") && <div className="properties-row editable"><span>interact</span><input type="checkbox" checked={policy.allowInteraction} onChange={event => onChange(["customData", "underscoreEmbed", "allowInteraction"], event.target.checked)} /></div>}
+        {matches("crop") && [["cropTop", "crop top"], ["cropRight", "crop right"], ["cropBottom", "crop bottom"], ["cropLeft", "crop left"]].map(([key, label]) => <div className="properties-row editable" key={key}><span>{label} px</span><NumericInput min="0" step="1" value={policy[key]} defaultValue={0} onCommit={value => onChange(["customData", "underscoreEmbed", key], value)} /></div>)}
+        {matches("css") && <div className="properties-row properties-embed-css editable"><span>inject CSS</span><textarea value={policy.css} onChange={event => onChange(["customData", "underscoreEmbed", "css"], event.target.value)} placeholder="body { margin: 0; }" /></div>}
         {!query?.needle && <p className="properties-embed-note">HTTP(S) only. “Presentation only” embeds appear when Live presentation mode is enabled. Interact passes mouse input to the page; turn it off to select or transform the embed. Crop hides fixed page chrome. CSS is injected only into same-origin embeds—browser security prevents it for external sites such as p5.js.</p>}
       </div>
     </details>
@@ -250,7 +250,7 @@ const EmbedControls = ({ element, query, onChange }) => {
 
 const P5FrameControls = ({ element, query, onChange }) => {
   if (!isP5FrameElement(element)) return null;
-  const frame = normalizeP5Frame(element.customData?.draweratorP5);
+  const frame = normalizeP5Frame(element.customData?.underscoreP5);
   const matches = name => !query?.needle || ["p5", "sketch", "mode", "classic", "global", "runtime", "cdn", "autoplay", "fps", "transparent", "interaction", "reload", "source", name]
     .some(value => value.includes(query.needle));
   if (query?.needle && !matches("p5")) return null;
@@ -258,7 +258,7 @@ const P5FrameControls = ({ element, query, onChange }) => {
     event.stopPropagation();
     if (["Delete", "Backspace", "Escape"].includes(event.key)) event.nativeEvent?.stopImmediatePropagation?.();
   };
-  const update = patch => onChange(["customData", "draweratorP5"], normalizeP5Frame({ ...frame, ...patch }));
+  const update = patch => onChange(["customData", "underscoreP5"], normalizeP5Frame({ ...frame, ...patch }));
   return (
     <details className="properties-group properties-p5-group" open>
       <summary><span>p5 sketch</span><small>{resolveP5SourceMode(frame)} · {frame.runtime}</small></summary>
@@ -272,7 +272,7 @@ const P5FrameControls = ({ element, query, onChange }) => {
         {matches("interaction") && <div className="properties-row editable"><span>interact</span><input type="checkbox" checked={frame.allowInteraction} onChange={event => update({ allowInteraction: event.target.checked })} /></div>}
         {matches("reload") && <div className="properties-row properties-embed-reload"><span>preview</span><button type="button" className="iannix-flat-button" onClick={() => update({ reloadNonce: Date.now() })}>Reload sketch</button></div>}
         {matches("source") && <div className="properties-row properties-p5-source editable"><span>source</span><textarea value={frame.source} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => update({ source: event.target.value })} spellCheck="false" /></div>}
-        {!query?.needle && <p className="properties-p5-note">Trusted local code: this sketch runs directly in Drawerator with full page access. Use only scripts you trust. Bundled p5 is included with Drawerator; CDN mode loads a compatible runtime from the URL above.</p>}
+        {!query?.needle && <p className="properties-p5-note">Trusted local code: this sketch runs directly in Underscore with full page access. Use only scripts you trust. Bundled p5 is included with Underscore; CDN mode loads a compatible runtime from the URL above.</p>}
       </div>
     </details>
   );
@@ -281,7 +281,7 @@ const P5FrameControls = ({ element, query, onChange }) => {
 const FRAME_HIDDEN_LABEL = "\u200B";
 
 const normalizeFramePresentation = element => {
-  const value = element?.customData?.draweratorFrame || {};
+  const value = element?.customData?.underscoreFrame || {};
   return {
     label: typeof value.label === "string"
       ? value.label
@@ -293,18 +293,18 @@ const normalizeFramePresentation = element => {
 const FrameControls = ({ element, query, onChange }) => {
   const isFrame = element?.type === "frame";
   const presentation = normalizeFramePresentation(element);
-  const hasFramePresentation = Boolean(element?.customData?.draweratorFrame);
-  // Native Excalidraw frames predate the Drawerator presentation data. Adopt
+  const hasFramePresentation = Boolean(element?.customData?.underscoreFrame);
+  // Native Excalidraw frames predate the Underscore presentation data. Adopt
   // a selected legacy frame once, with the new label-hidden default.
   useEffect(() => {
     if (!isFrame || hasFramePresentation) return;
-    onChange(["customData", "draweratorFrame"], presentation);
+    onChange(["customData", "underscoreFrame"], presentation);
   }, [isFrame, hasFramePresentation, onChange, presentation]);
   if (!isFrame) return null;
   const matches = name => !query?.needle || ["frame", "label", "name", "title", "show label", name]
     .some(value => value.includes(query.needle));
   if (query?.needle && !matches("frame")) return null;
-  const update = patch => onChange(["customData", "draweratorFrame"], { ...presentation, ...patch });
+  const update = patch => onChange(["customData", "underscoreFrame"], { ...presentation, ...patch });
   return (
     <details className="properties-group properties-frame-group" open>
       <summary><span>customData · frame</span><small>pinned</small></summary>
@@ -329,12 +329,12 @@ const FrameControls = ({ element, query, onChange }) => {
 
 const MediaPreviewControls = ({ element, query, onChange, mediaSources = [], onFocusMediaSource }) => {
   if (!isMediaStreamElement(element)) return null;
-  const stream = normalizeMediaStreamConfig(element.customData?.draweratorMediaStream);
+  const stream = normalizeMediaStreamConfig(element.customData?.underscoreMediaStream);
   if (stream.kind !== MEDIA_STREAM_KINDS.PREVIEW) return null;
   const matches = name => !query?.needle || ["preview", "media", "source", "input", "enabled", "mirror", name]
     .some(value => value.includes(query.needle));
   if (query?.needle && !matches("preview")) return null;
-  const update = patch => onChange(["customData", "draweratorMediaStream"], patchMediaStreamConfig(stream, patch));
+  const update = patch => onChange(["customData", "underscoreMediaStream"], patchMediaStreamConfig(stream, patch));
   return (
     <details className="properties-group properties-media-preview-group" open>
       <summary><span>customData · preview</span><small>pinned</small></summary>
@@ -362,11 +362,11 @@ const MediaPreviewControls = ({ element, query, onChange, mediaSources = [], onF
 const PinnedPropertyControls = ({ element, query, onChange, mediaSources, pinnedPaths, pinnedKeys, onTogglePin, onPickObjectReference }) => {
   const defaults = defaultPinnedPathsFor(element);
   const isPreview = isMediaStreamElement(element)
-    && normalizeMediaStreamConfig(element.customData?.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.PREVIEW;
+    && normalizeMediaStreamConfig(element.customData?.underscoreMediaStream).kind === MEDIA_STREAM_KINDS.PREVIEW;
   const isFrame = element?.type === "frame";
   const paths = [...defaults, ...pinnedPaths.map(key => key.split("."))]
-    .filter(path => !isPreview || !pathKey(path).startsWith("customData.draweratorMediaStream."))
-    .filter(path => !isFrame || !pathKey(path).startsWith("customData.draweratorFrame."))
+    .filter(path => !isPreview || !pathKey(path).startsWith("customData.underscoreMediaStream."))
+    .filter(path => !isFrame || !pathKey(path).startsWith("customData.underscoreFrame."))
     .filter((path, index, values) => values.findIndex(candidate => pathKey(candidate) === pathKey(path)) === index)
     .filter(path => readPath(propertyTreeValue(element), path) !== undefined)
     .filter(path => !query?.needle || pathMatches(path, query));
@@ -415,7 +415,7 @@ const SvgObjectControls = ({
   const [newAttributeName, setNewAttributeName] = useState("");
   const [newAttributeValue, setNewAttributeValue] = useState("");
   if (!isSvgObjectElement(element)) return null;
-  const svg = normalizeSvgObject(element.customData.draweratorSvg);
+  const svg = normalizeSvgObject(element.customData.underscoreSvg);
   const analysis = analyzeSvgSource(svg.source);
   const timingGraph = buildSvgTimingGraph(svg.source);
   const pathsByNodeIndex = new Map(getEditableSvgPathNodes(svg.source).map(path => [path.node.index, path]));
@@ -430,8 +430,8 @@ const SvgObjectControls = ({
   const selectedSubpath = Number.isInteger(selectedSubpathIndex)
     ? pathsByNodeIndex.get(selectedNodeIndex)?.subpaths?.find(subpath => subpath.index === selectedSubpathIndex)
     : null;
-  const selectedNodeData = selectedNode?.draweratorId
-    ? svg.metadataMirror?.nodes?.[selectedNode.draweratorId] || {}
+  const selectedNodeData = selectedNode?.underscoreId
+    ? svg.metadataMirror?.nodes?.[selectedNode.underscoreId] || {}
     : {};
   const matches = name => !query?.needle || [
     "svg", "document", "name", "width", "height", "viewbox", "geometry", "element", "attribute",
@@ -444,7 +444,7 @@ const SvgObjectControls = ({
     if (["Delete", "Backspace", "Escape"].includes(event.key)) event.nativeEvent?.stopImmediatePropagation?.();
   };
   const update = patch => onChange(
-    ["customData", "draweratorSvg"],
+    ["customData", "underscoreSvg"],
     normalizeSvgObject({ ...svg, ...patch, revision: svg.revision + 1 }),
   );
   const updateSource = source => update({ source });
@@ -487,7 +487,7 @@ const SvgObjectControls = ({
                 onKeyDown={stopCanvasKeys}
                 onChange={event => update({ runtime: { ...svg.runtime, clock: event.target.value } })}
               >
-                <option value="transport">Drawerator transport</option>
+                <option value="transport">Underscore transport</option>
                 <option value="free">Free run</option>
               </select>
             </div>
@@ -540,7 +540,7 @@ const SvgObjectControls = ({
                 />
               </label>}
               <p className="properties-p5-note">{svg.runtime.trustedScripts
-                ? "Scripts run in a sandboxed, cross-origin iframe. They cannot access Drawerator or mutate canonical source; only the limited cue/log/MIDI bridge is exposed."
+                ? "Scripts run in a sandboxed, cross-origin iframe. They cannot access Underscore or mutate canonical source; only the limited cue/log/MIDI bridge is exposed."
                 : "Embedded scripts are preserved but inert until explicitly trusted."}</p>
             </>}
           </div>
@@ -680,7 +680,7 @@ const SvgObjectControls = ({
             </div>)}
           </div>
         </details>}
-        {!query?.needle && <p className="properties-svg-note">Select a path or subpath for canvas editing. Score roles can live directly on SVG nodes; extraction creates a separate native Drawerator spline. Canonical source remains editable from the SVG type in Script.</p>}
+        {!query?.needle && <p className="properties-svg-note">Select a path or subpath for canvas editing. Score roles can live directly on SVG nodes; extraction creates a separate native Underscore spline. Canonical source remains editable from the SVG type in Script.</p>}
       </div>
     </details>
   );
@@ -703,7 +703,7 @@ const p5MatchesQuery = (element, query) => {
 const svgMatchesQuery = (element, query) => {
   if (!isSvgObjectElement(element)) return false;
   if (!query?.needle) return true;
-  const svg = normalizeSvgObject(element.customData.draweratorSvg);
+  const svg = normalizeSvgObject(element.customData.underscoreSvg);
   const analysis = analyzeSvgSource(svg.source);
   return ["svg", "document", "name", "width", "height", "viewbox", "geometry", "element", "attribute", "style", "animation", svg.name,
     ...analysis.nodes.flatMap(node => [node.tag, node.id, node.label, ...Object.keys(node.attributes), ...Object.values(node.attributes)]),
@@ -932,7 +932,7 @@ const PhysicsRoleControls = ({ body, element, query, onChange, onColliderKindCha
   const matches = name => !query?.needle || name.includes(query.needle);
   const supportsColliderChoices = Boolean(element);
   const supportsPathCollider = ["freedraw", "line", "arrow"].includes(element?.type)
-    || element?.customData?.draweratorGeometry?.kind === "cubicBezierPath";
+    || element?.customData?.underscoreGeometry?.kind === "cubicBezierPath";
   const updateMaterial = patch => onChange({ material: patch });
   const updateCollider = patch => onChange({ collider: patch });
   return (
@@ -971,7 +971,7 @@ const SharedPhysicsControls = ({ elements, physicsBodies, query, onChange, colli
   const matches = name => !query?.needle || name.includes(query.needle);
   const supportsPathCollider = elements.every(element => (
     ["freedraw", "line", "arrow"].includes(element?.type)
-    || element?.customData?.draweratorGeometry?.kind === "cubicBezierPath"
+    || element?.customData?.underscoreGeometry?.kind === "cubicBezierPath"
   ));
   const colliderValue = sharedValue(physicsBodies, body => getPhysicsColliderSelectionValue(body.collider, {
     allowPath: supportsPathCollider,
@@ -1074,7 +1074,7 @@ const ScoreRoleControls = ({ element, query, onChange }) => {
 
 const svgFieldCount = element => {
   if (!isSvgObjectElement(element)) return 0;
-  const svg = normalizeSvgObject(element.customData.draweratorSvg);
+  const svg = normalizeSvgObject(element.customData.underscoreSvg);
   const analysis = analyzeSvgSource(svg.source);
   return 4 + analysis.nodeCount + analysis.nodes.reduce((count, node) => count + Object.keys(node.attributes).length, 0);
 };
@@ -1171,12 +1171,12 @@ const PropertiesPanel = memo(function PropertiesPanel({
       }];
     }
     if (!isSvgObjectElement(element)) return [];
-    const svg = normalizeSvgObject(element.customData.draweratorSvg);
+    const svg = normalizeSvgObject(element.customData.underscoreSvg);
     const nodes = analyzeSvgSource(svg.source).nodes;
     return Object.entries(svg.metadataMirror?.nodes || {}).flatMap(([nodeId, data]) => {
       const scoreData = data?.score || data?.iannix;
       if (scoreData?.role !== "curve") return [];
-      const node = nodes.find(candidate => candidate.draweratorId === nodeId);
+      const node = nodes.find(candidate => candidate.underscoreId === nodeId);
       const ref = {
         kind: "svg-node",
         elementId: element.id,

@@ -1,6 +1,6 @@
 # Portable Media Map architecture
 
-> A language- and tracker-independent specification for reproducing Drawerator's Media Map philosophy, interaction model, stream processing, event authoring, and system mappings.
+> A language- and tracker-independent specification for reproducing Underscore's Media Map philosophy, interaction model, stream processing, event authoring, and system mappings.
 
 ![Portable Media Map reference architecture](media/media-map-reference-architecture.svg)
 
@@ -936,11 +936,11 @@ It deliberately leaves room for:
 
 For multiple subjects, add a stable `subjectId` dimension to frames and mapping keys. Do not encode person identity into canonical feature names.
 
-## 21. Drawerator implementation correspondence (non-normative)
+## 21. Underscore implementation correspondence (non-normative)
 
 These files are useful when comparing the reference architecture with the current implementation:
 
-| Responsibility | Drawerator implementation |
+| Responsibility | Underscore implementation |
 | --- | --- |
 | persisted source/tracker/binding normalization | `src/mediaStream.js` |
 | transient source/results/semantic-frame service | `src/mediaStreamRuntime.js` |

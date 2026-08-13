@@ -2,13 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { parseDraweratorExchange } from "./sceneExchange.js";
+import { parseUnderscoreExchange } from "./sceneExchange.js";
 import { evaluateScoreFrame, getElementCenter, normalizeIannixData, reconcileRuntimeCursorHosts } from "./iannixEngine.js";
 
 const readExample = name => readFileSync(fileURLToPath(new URL(`../notes/examples/${name}`, import.meta.url)), "utf8");
 
 test("glissandi example is a portable six-track continuous-trigger scene", () => {
-  const { payload, score, grid, expressiveSynth, mixer } = parseDraweratorExchange(readExample("glissandi.json"), "scene");
+  const { payload, score, grid, expressiveSynth, mixer } = parseUnderscoreExchange(readExample("glissandi.json"), "scene");
   const roles = payload.elements.map(element => normalizeIannixData(element.customData?.iannix));
   const curves = roles.filter(data => data.role === "curve");
   const cursors = roles.filter(data => data.role === "cursor");

@@ -340,7 +340,7 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
     };
   }, [node.runtime.settings?.backgroundMode, node.runtime.settings?.emitterSource, node.runtime.settings?.sceneInteraction, node.runtime.settings?.shaderExample, node.runtime.transportMode, scriptRuntimeRef]);
 
-  return <div className={`drawerator-shader-frame drawerator-fluid-shader-frame${node.runtime.settings?.backgroundMode === "transparent" ? " transparent-background" : ""}`}>
-    <canvas ref={canvasRef} className="drawerator-shader-canvas" aria-label="GLSL output" />
+  return <div className={`underscore-shader-frame underscore-fluid-shader-frame${node.runtime.settings?.backgroundMode === "transparent" ? " transparent-background" : ""}`}>
+    <canvas ref={canvasRef} className="underscore-shader-canvas" aria-label="GLSL output" />
   </div>;
 }

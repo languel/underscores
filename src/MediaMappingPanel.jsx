@@ -22,7 +22,7 @@ const stopKeyPropagation = event => event.stopPropagation();
 
 const processorElements = elements => (elements || []).filter(element => (
   isMediaStreamElement(element)
-  && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC
+  && normalizeMediaStreamConfig(element.customData.underscoreMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC
 ));
 
 const objectLabel = element => (
@@ -245,7 +245,7 @@ export default function MediaMappingPanel({
   const [, setRuntimeNonce] = useState(0);
   const activeId = selectedCanvasProcessor?.id || (processors.some(element => element.id === processorId) ? processorId : processors[0]?.id || "");
   const processor = processors.find(element => element.id === activeId) || null;
-  const config = processor ? normalizeMediaStreamConfig(processor.customData.draweratorMediaStream) : null;
+  const config = processor ? normalizeMediaStreamConfig(processor.customData.underscoreMediaStream) : null;
   const frame = processor ? getMediaSemanticFrame(processor.id) : null;
   const targetElement = elements.find(element => selectedElementIds?.[element.id] && !isMediaStreamElement(element) && !element.isDeleted)
     || elements.find(element => !element.isDeleted && !isMediaStreamElement(element));
@@ -310,7 +310,7 @@ export default function MediaMappingPanel({
       <select value={activeId} onChange={event => setProcessorId(event.target.value)}>
         {!processors.length && <option value="">No Holistic processors</option>}
         {processors.map(element => {
-          const item = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
+          const item = normalizeMediaStreamConfig(element.customData.underscoreMediaStream);
           return <option key={element.id} value={element.id}>{item.name}</option>;
         })}
       </select>

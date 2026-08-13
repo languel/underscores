@@ -27,13 +27,13 @@ const iannixCommandCompletion = command => ({
 });
 
 const BRUSH_COMPLETIONS = Object.freeze([
-  snippet("brush function", "(points, globals) => {\n  ${return [points]};\n}", "Drawerator modifier entry point"),
+  snippet("brush function", "(points, globals) => {\n  ${return [points]};\n}", "Underscore modifier entry point"),
   snippet("@param", "// @param ${name} = ${1} (${0}..${10}, step: ${1})", "Editable numeric parameter"),
   completion("points", "Source path points", "variable", 80),
   completion("globals", "Brush parameters and runtime globals", "variable", 80),
-  completion("canvas", "Drawerator canvas query API", "variable", 70),
-  completion("events", "Drawerator event API", "variable", 60),
-  completion("transport", "Drawerator transport state", "variable", 60),
+  completion("canvas", "Underscore canvas query API", "variable", 70),
+  completion("events", "Underscore event API", "variable", 60),
+  completion("transport", "Underscore transport state", "variable", 60),
   completion("return [points]", "Return the original path as one track", "keyword", 70),
 ]);
 
@@ -42,7 +42,7 @@ const P5_COMPLETIONS = Object.freeze([
   snippet("draw()", "function draw() {\n  ${background(18)};\n}", "Classic p5 draw lifecycle"),
   snippet("p.setup", "p.setup = () => {\n  ${p.createCanvas(__.element.width, __.element.height)};\n};", "Instance-mode setup lifecycle"),
   snippet("p.draw", "p.draw = () => {\n  ${p.background(18)};\n};", "Instance-mode draw lifecycle"),
-  snippet("@param", "// @param ${name} = ${1} (${0}..${10}, step: ${1})", "Editable Drawerator parameter"),
+  snippet("@param", "// @param ${name} = ${1} (${0}..${10}, step: ${1})", "Editable Underscore parameter"),
   ...[
     "background", "clear", "circle", "ellipse", "line", "rect", "triangle", "beginShape",
     "vertex", "endShape", "stroke", "strokeWeight", "noStroke", "fill", "noFill", "color",
@@ -56,14 +56,10 @@ const P5_COMPLETIONS = Object.freeze([
     "p.pop", "p.translate", "p.rotate", "p.scale", "p.random", "p.noise", "p.frameCount",
     "p.width", "p.height", "p.mouseX", "p.mouseY",
   ].map(label => completion(label, "p5 instance API", "function")),
-  completion("drawerator", "Current p5 frame and Drawerator bridge", "variable", 90),
   completion("__", "Preferred short alias for the current p5 frame bridge", "variable", 95),
   completion("__.canvas", "Live canvas object queries", "property", 85),
   completion("__.params", "Resolved @param values", "property", 85),
   completion("__.transport", "Live transport state", "property", 80),
-  completion("drawerator.canvas", "Live canvas object queries", "property", 80),
-  completion("drawerator.params", "Resolved @param values", "property", 80),
-  completion("drawerator.transport", "Live transport state", "property", 70),
 ]);
 
 const PLAY_CORE_COMPLETIONS = Object.freeze([
@@ -72,8 +68,8 @@ const PLAY_CORE_COMPLETIONS = Object.freeze([
   snippet("play.core math imports", "import { map, clamp, mix } from '/src/modules/num.js';\nimport { vec2, add, rot, length } from '/src/modules/vec2.js';", "Offline Play Core numeric and vector helpers"),
   snippet("play.core info panel", "import { drawInfo } from '/src/modules/drawbox.js';\n\nexport function post(context, cursor, buffer) {\n  drawInfo(context, cursor, buffer);\n}", "Add the Play Core diagnostics panel"),
   snippet("play.core module", "import { ${map} } from '/src/modules/num.js';", "Import an offline bundled Play Core module"),
-  snippet("@param", "// @param ${name} = ${1} (${0}..${10}, step: ${1})", "Editable Drawerator parameter"),
-  ...["settings", "boot", "pre", "main", "post", "context.time", "context.frame", "context.cols", "context.rows", "cursor", "buffer", "__", "__.element", "__.object", "__.params", "__.currentColor", "__.colors", "__.appearance", "__.canvas", "__.events", "__.transport", "__.api", "drawerator", "drawerator.element", "drawerator.object", "drawerator.params", "drawerator.currentColor", "drawerator.colors", "drawerator.appearance", "drawerator.canvas", "drawerator.events", "drawerator.transport", "drawerator.api"].map(label => completion(label, "Play Core program API", "function", label.startsWith("__") ? 80 : 70)),
+  snippet("@param", "// @param ${name} = ${1} (${0}..${10}, step: ${1})", "Editable Underscore parameter"),
+  ...["settings", "boot", "pre", "main", "post", "context.time", "context.frame", "context.cols", "context.rows", "cursor", "buffer", "__", "__.element", "__.object", "__.params", "__.currentColor", "__.colors", "__.appearance", "__.canvas", "__.events", "__.transport", "__.api"].map(label => completion(label, "Play Core program API", "function", label.startsWith("__") ? 80 : 70)),
 ]);
 
 const IANNIX_COMPLETIONS = Object.freeze([
@@ -116,8 +112,8 @@ const STRUDEL_COMPLETIONS = Object.freeze([
   completion("s", "Sound alias", "function", 70),
   completion("slow", "Slow a pattern by a factor", "method", 60),
   completion("fast", "Speed a pattern by a factor", "method", 60),
-  completion("drawerator", "Drawerator bridge snapshot", "variable", 90),
-  completion("__", "Preferred short alias for the Drawerator bridge snapshot", "variable", 95),
+  completion("underscore", "Underscore bridge snapshot", "variable", 90),
+  completion("__", "Preferred short alias for the Underscore bridge snapshot", "variable", 95),
   completion("__.transport", "Live transport bridge", "property", 85),
 ]);
 
@@ -135,13 +131,13 @@ const ORCA_COMPLETIONS = Object.freeze([
 ]);
 
 const SHADER_COMPLETIONS = Object.freeze([
-  snippet("fragment shader", "#version 300 es\nprecision highp float;\n\nuniform vec2 u_resolution;\nuniform float u_time;\nin vec2 v_uv;\nout vec4 outColor;\n\nvoid main() {\n  ${outColor = vec4(v_uv, 0.5 + 0.5 * sin(u_time), 1.0)};\n}", "Drawerator WebGL 2 fragment shader"),
+  snippet("fragment shader", "#version 300 es\nprecision highp float;\n\nuniform vec2 u_resolution;\nuniform float u_time;\nin vec2 v_uv;\nout vec4 outColor;\n\nvoid main() {\n  ${outColor = vec4(v_uv, 0.5 + 0.5 * sin(u_time), 1.0)};\n}", "Underscore WebGL 2 fragment shader"),
   completion("u_resolution", "Canvas resolution in device pixels", "variable", 90),
   completion("u_time", "Node time in seconds; linked or free according to the node clock", "variable", 90),
-  completion("u_transportTime", "Drawerator score time in seconds", "variable", 80),
+  completion("u_transportTime", "Underscore score time in seconds", "variable", 80),
   completion("u_pointer", "Pointer position normalized from 0 to 1", "variable", 80),
   completion("u_pointerDown", "1 while the pointer is pressed inside the node, otherwise 0", "variable", 80),
-  completion("u_currentColor", "Current Drawerator color as normalized RGBA", "variable", 80),
+  completion("u_currentColor", "Current Underscore color as normalized RGBA", "variable", 80),
   completion("u_segments", "Scene geometry as normalized vec4 line segments", "variable", 80),
   completion("u_segmentCount", "Number of valid entries in u_segments", "variable", 80),
   completion("u_previous", "Previous feedback frame for the Fluid brush", "variable", 80),

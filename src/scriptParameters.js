@@ -21,7 +21,7 @@ const finiteValue = (value, fallback) => {
 };
 
 /**
- * Parses Drawerator's shared script parameter schema. Brush scripts declare
+ * Parses Underscore's shared script parameter schema. Brush scripts declare
  * `// @param`, while trusted IanniX scripts may use the native `ask()` helper.
  * Both declarations resolve to the same slider-ready records.
  */

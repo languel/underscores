@@ -72,7 +72,7 @@ const externalHighlightField = StateField.define({
       const range = effect.value;
       next = range && range.to > range.from
         ? Decoration.set([
-          Decoration.mark({ class: "cm-drawerator-source-highlight" }).range(range.from, range.to),
+          Decoration.mark({ class: "cm-underscore-source-highlight" }).range(range.from, range.to),
         ])
         : Decoration.none;
     }
@@ -81,7 +81,7 @@ const externalHighlightField = StateField.define({
   provide: field => EditorView.decorations.from(field),
 });
 
-const glyphBackdropMark = Decoration.mark({ class: "cm-drawerator-glyph-backdrop" });
+const glyphBackdropMark = Decoration.mark({ class: "cm-underscore-glyph-backdrop" });
 const glyphBackdropDecorations = doc => {
   const ranges = [];
   for (let lineNumber = 1; lineNumber <= doc.lines; lineNumber += 1) {
@@ -155,12 +155,12 @@ const normalizeDiagnostics = (diagnostics, docLength) => (
         ? diagnostic.severity
         : "error",
       message: String(message),
-      source: diagnostic?.source ? String(diagnostic.source) : "Drawerator",
+      source: diagnostic?.source ? String(diagnostic.source) : "Underscore",
     }];
   })
 );
 
-export default function DraweratorCodeEditor({
+export default function UnderscoreCodeEditor({
   value,
   onChange,
   onBlur,
@@ -444,7 +444,7 @@ export default function DraweratorCodeEditor({
       // dismissal, and panel editors never take this path.
       const isCanvasLivecodeShiftEscape = normalizedKey === "escape"
         && event.shiftKey
-        && view.dom.closest?.(".drawerator-livecode-node");
+        && view.dom.closest?.(".underscore-livecode-node");
       if (isCanvasLivecodeShiftEscape) return;
       const isPlainEscape = normalizedKey === "escape"
         && !event.shiftKey
@@ -459,7 +459,7 @@ export default function DraweratorCodeEditor({
         || isPlainEscape
         || normalizedKey === "tab";
 
-      // Drawerator and Excalidraw both install capture-phase shortcuts. Give
+      // Underscore and Excalidraw both install capture-phase shortcuts. Give
       // CodeMirror's own keymap the first and only chance at its editor
       // commands, otherwise Cmd+A can select the canvas and Cmd+Z can undo a
       // scene operation. Clipboard commands intentionally keep their native
@@ -631,7 +631,7 @@ export default function DraweratorCodeEditor({
   return (
     <div
       ref={hostRef}
-      className={`drawerator-code-editor ${className}`.trim()}
+      className={`underscore-code-editor ${className}`.trim()}
       data-script-type={scriptType}
       style={style}
       onClick={onClick}

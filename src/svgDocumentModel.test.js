@@ -8,9 +8,9 @@ import {
   parseSvgDocument,
   patchSvgNodeAttribute,
   prepareSvgForStructuredEditing,
-  readSvgDraweratorMetadata,
+  readSvgUnderscoreMetadata,
   updateSvgNodeData,
-  writeSvgDraweratorMetadata,
+  writeSvgUnderscoreMetadata,
 } from "./svgDocumentModel.js";
 
 const SIMPLE = `<?xml version="1.0"?>
@@ -57,24 +57,24 @@ test("structured editing assigns stable private IDs without replacing authored I
   const result = ensureSvgNodeIdentities(SIMPLE, { createId: () => `node-${++nextId}` });
   assert.equal(result.changed, true);
   assert.equal(result.assigned.length, 3);
-  assert.match(result.source, /id="layer" data-drawerator-id="node-2"/);
+  assert.match(result.source, /id="layer" data-underscore-id="node-2"/);
   const repeated = ensureSvgNodeIdentities(result.source, { createId: () => "unused" });
   assert.equal(repeated.changed, false);
   assert.equal(repeated.source, result.source);
 });
 
-test("embedded Drawerator metadata round-trips independently of SVG markup", () => {
+test("embedded Underscore metadata round-trips independently of SVG markup", () => {
   const prepared = prepareSvgForStructuredEditing(SIMPLE, {
     createId: node => `node-${node.index}`,
   });
   assert.equal(prepared.document.valid, true);
-  assert.match(prepared.source, /<metadata data-drawerator="v1">/);
+  assert.match(prepared.source, /<metadata data-underscore="v1">/);
 
   const withData = updateSvgNodeData(prepared.source, "node-2", {
     label: "Score curve",
     iannix: { role: "curve", active: true },
   });
-  const metadata = readSvgDraweratorMetadata(withData);
+  const metadata = readSvgUnderscoreMetadata(withData);
   assert.equal(metadata.valid, true);
   assert.equal(metadata.nodes["node-2"].iannix.role, "curve");
   assert.match(withData, /<!-- preserve this -->/);
@@ -84,13 +84,13 @@ test("embedded Drawerator metadata round-trips independently of SVG markup", () 
   assert.equal(mirror.nodes["node-2"].label, "Score curve");
 });
 
-test("metadata writer repairs a self-closing Drawerator metadata node", () => {
-  const source = `<svg xmlns="http://www.w3.org/2000/svg"><metadata data-drawerator="v1"/></svg>`;
-  const repaired = writeSvgDraweratorMetadata(source, {
+test("metadata writer repairs a self-closing Underscore metadata node", () => {
+  const source = `<svg xmlns="http://www.w3.org/2000/svg"><metadata data-underscore="v1"/></svg>`;
+  const repaired = writeSvgUnderscoreMetadata(source, {
     nodes: { a: { label: "A & B" } },
   });
-  assert.match(repaired, /<metadata data-drawerator="v1">\{"version":1,"nodes":\{"a":\{"label":"A &amp; B"\}\}\}<\/metadata>/);
-  assert.equal(readSvgDraweratorMetadata(repaired).nodes.a.label, "A & B");
+  assert.match(repaired, /<metadata data-underscore="v1">\{"version":1,"nodes":\{"a":\{"label":"A &amp; B"\}\}\}<\/metadata>/);
+  assert.equal(readSvgUnderscoreMetadata(repaired).nodes.a.label, "A & B");
 });
 
 test("inserting a child expands a self-closing SVG element without reserializing it", () => {

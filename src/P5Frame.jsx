@@ -19,7 +19,7 @@ const loadedCdnRuntimes = new Map();
 
 const publishP5Status = detail => {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent("drawerator:p5-status", { detail }));
+  window.dispatchEvent(new CustomEvent("underscore:p5-status", { detail }));
 };
 
 const loadP5Runtime = async config => {
@@ -27,11 +27,11 @@ const loadP5Runtime = async config => {
   const url = config.cdnUrl;
   if (!loadedCdnRuntimes.has(url)) {
     loadedCdnRuntimes.set(url, new Promise((resolve, reject) => {
-      const existing = Array.from(document.querySelectorAll("script[data-drawerator-p5-cdn]"))
-        .find(candidate => candidate.dataset.draweratorP5Cdn === url);
+      const existing = Array.from(document.querySelectorAll("script[data-underscore-p5-cdn]"))
+        .find(candidate => candidate.dataset.underscoreP5Cdn === url);
       if (existing && window.p5) return resolve(window.p5);
       const script = existing || document.createElement("script");
-      script.dataset.draweratorP5Cdn = url;
+      script.dataset.underscoreP5Cdn = url;
       script.src = url;
       script.async = true;
       script.onload = () => window.p5 ? resolve(window.p5) : reject(new Error("The CDN did not expose window.p5."));
@@ -71,7 +71,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
     const report = (kind, message) => publishP5Status({
       elementId: element.id,
       scriptId: activeConfig.scriptId,
-      livecode: Boolean(element.customData?.draweratorLivecode),
+      livecode: Boolean(element.customData?.underscoreLivecode),
       kind,
       message,
     });
@@ -102,7 +102,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
         const params = resolveScriptParameterValues(parameters, scriptRuntimeRef, canvas);
         const appearance = () => scriptRuntimeRef.current?.getAppearance?.() || { theme: "dark", currentColor: "#e8e8e8", currentOpacity: 1, colors: {} };
         const scriptConsole = createScriptConsole(scriptRuntimeRef, element.id);
-        const drawerator = {
+        const bridge = {
           element: { id: element.id, width: element.width, height: element.height },
           frame: activeConfig,
           canvas,
@@ -117,14 +117,14 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
           get colors() { return appearance().colors; },
           get theme() { return appearance().theme; },
           get appearance() { return appearance(); },
-          get streams() { return scriptRuntimeRef?.current?.getStreams?.(element.id) || window.drawerator?.streams; },
+          get streams() { return scriptRuntimeRef?.current?.getStreams?.(element.id) || window.__?.streams; },
           console: scriptConsole,
           log: scriptConsole.log,
           info: scriptConsole.info,
           warn: scriptConsole.warn,
           error: scriptConsole.error,
-          get art() { return window.drawerator?.art; },
-          api: window.drawerator,
+          get art() { return window.__?.art; },
+          api: window.__,
         };
         const sketch = p => {
           const interactionState = { mouseIsDragged: false };
@@ -158,14 +158,14 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
               }
             },
           });
-          drawerator.input = interactionState;
-          drawerator.serial = serialBridge;
+          bridge.input = interactionState;
+          bridge.serial = serialBridge;
           try {
             // Deliberately trusted: this editor is for the local author and has
-            // full page access, mirroring Drawerator's trusted IanniX scripts.
+            // full page access, mirroring Underscore's trusted IanniX scripts.
             callbacks = resolveP5SourceMode(activeConfig) === "global"
-              ? compileClassicP5Source(p, drawerator, activeConfig.source, interactionState, scriptConsole)
-              : compileInstanceP5Source(p, drawerator, activeConfig.source, scriptConsole);
+              ? compileClassicP5Source(p, bridge, activeConfig.source, interactionState, scriptConsole)
+              : compileInstanceP5Source(p, bridge, activeConfig.source, scriptConsole);
             P5_GLOBAL_CALLBACK_NAMES.forEach(name => {
               const callback = callbacks[name];
               const tracksDrag = name === "mousePressed"
@@ -251,12 +251,12 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
   }, [runnerKey]);
 
   return <div
-    className={`drawerator-p5-frame ${runningConfig.allowInteraction ? "drawerator-p5-interactive" : ""}`}
-    data-drawerator-p5-element-id={element.id}
+    className={`underscore-p5-frame ${runningConfig.allowInteraction ? "underscore-p5-interactive" : ""}`}
+    data-underscore-p5-element-id={element.id}
   >
     <div
       ref={hostRef}
-      className="drawerator-p5-host"
+      className="underscore-p5-host"
       tabIndex={runningConfig.allowInteraction ? 0 : -1}
       onPointerDown={() => runningConfig.allowInteraction && hostRef.current?.focus?.({ preventScroll: true })}
       style={{ pointerEvents: runningConfig.allowInteraction ? "auto" : "none" }}
@@ -264,7 +264,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
   </div>;
 }
 
-// p5 is rendered by Drawerator rather than Excalidraw's embeddable renderer.
+// p5 is rendered by Underscore rather than Excalidraw's embeddable renderer.
 // That keeps the p5 surface first-class on the canvas without giving it a
 // synthetic URL, preview card, or external-link affordance.
 export function P5FrameOverlay({ elements, appState, scriptRuntimeRef }) {
@@ -276,9 +276,9 @@ export function P5FrameOverlay({ elements, appState, scriptRuntimeRef }) {
   if (!frames.length) return null;
 
   return (
-    <div className="drawerator-p5-overlay">
+    <div className="underscore-p5-overlay">
       {frames.map((element, layerIndex) => {
-        const config = normalizeP5Frame(element.customData?.draweratorP5);
+        const config = normalizeP5Frame(element.customData?.underscoreP5);
         const width = Math.max(1, (Number(element.width) || 1) * zoom);
         const height = Math.max(1, (Number(element.height) || 1) * zoom);
         const left = ((Number(element.x) || 0) + scrollX) * zoom;
@@ -286,8 +286,8 @@ export function P5FrameOverlay({ elements, appState, scriptRuntimeRef }) {
         return (
           <div
             key={element.id}
-            data-drawerator-p5-element-id={element.id}
-            className={`drawerator-p5-overlay-frame ${config.allowInteraction ? "drawerator-p5-overlay-interactive" : ""}`}
+            data-underscore-p5-element-id={element.id}
+            className={`underscore-p5-overlay-frame ${config.allowInteraction ? "underscore-p5-overlay-interactive" : ""}`}
             style={{
               left,
               top,

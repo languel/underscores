@@ -1,4 +1,4 @@
-// Excalidraw stores its scene in back-to-front paint order. Drawerator keeps
+// Excalidraw stores its scene in back-to-front paint order. Underscore keeps
 // that array as the single source of truth for native canvas, Outliner, and
 // overlay layer ordering.
 export const getSceneLayerElements = (elements = []) => (
@@ -148,13 +148,13 @@ export const renameSceneGroup = (elements = [], groupId, label = "") => {
   let changed = false;
   const next = elements.map(element => {
     if (element?.isDeleted || !element?.groupIds?.includes(groupId)) return element;
-    const labels = { ...(element.customData?.draweratorGroupLabels || {}) };
+    const labels = { ...(element.customData?.underscoreGroupLabels || {}) };
     if (normalizedLabel) labels[groupId] = normalizedLabel;
     else delete labels[groupId];
     changed = true;
     const customData = { ...(element.customData || {}) };
-    if (Object.keys(labels).length) customData.draweratorGroupLabels = labels;
-    else delete customData.draweratorGroupLabels;
+    if (Object.keys(labels).length) customData.underscoreGroupLabels = labels;
+    else delete customData.underscoreGroupLabels;
     return {
       ...element,
       customData,
@@ -182,7 +182,7 @@ export const buildSceneGroupTree = (elements = [], { outlinerOrder = false } = {
       { kind: "group", id: groupId, label: "", children: [] },
       parent,
     );
-    if (!node.label) node.label = String(element?.customData?.draweratorGroupLabels?.[groupId] || "").trim();
+    if (!node.label) node.label = String(element?.customData?.underscoreGroupLabels?.[groupId] || "").trim();
     return node;
   };
   const getScore = element => {

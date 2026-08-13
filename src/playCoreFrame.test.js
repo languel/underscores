@@ -28,13 +28,13 @@ test("normalizes Play Core frame data and recognizes supported hosts", () => {
   assert.equal(canHostPlayCoreFrame({ type: "rectangle" }), true);
   assert.equal(canHostPlayCoreFrame({ type: "frame" }), true);
   assert.equal(canHostPlayCoreFrame({ type: "line" }), false);
-  assert.equal(isPlayCoreFrameElement({ customData: { draweratorPlayCore: {} } }), true);
+  assert.equal(isPlayCoreFrameElement({ customData: { underscorePlayCore: {} } }), true);
 });
 
-test("compiles the Play Core ES-module lifecycle and injects the Drawerator bridge", () => {
+test("compiles the Play Core ES-module lifecycle and injects the Underscore bridge", () => {
   const source = `export const settings = { fps: 12 };
-export function main({ x }, context, cursor, buffer, drawerator) {
-  return (__ === drawerator && __.streams.get("Holistic").name === "Holistic" ? __.params.glyph : "!") + x;
+export function main({ x }, context, cursor, buffer, __) {
+  return (__.streams.get("Holistic").name === "Holistic" ? __.params.glyph : "!") + x;
 }`;
   const bridge = { params: { glyph: "#" }, streams: { get: name => ({ name }) } };
   const program = evaluatePlayCoreSource(source, bridge);
@@ -84,7 +84,7 @@ test("reports a useful error for imports outside the bundled Play Core module se
 
 test("reports invalid source, preserves hidden state, and creates portable catalog entries", () => {
   assert.equal(validatePlayCoreSource("export function main( {").valid, false);
-  const frame = { id: "play", type: "rectangle", customData: { draweratorPlayCore: {} } };
+  const frame = { id: "play", type: "rectangle", customData: { underscorePlayCore: {} } };
   assert.equal(shouldRenderPlayCoreFrame(frame), true);
   assert.equal(shouldRenderPlayCoreFrame({ ...frame, customData: { ...frame.customData, outlinerHidden: true } }), false);
   const script = createPlayCoreScript({ id: "saved", name: "  Score  ", source: "export function main() {}", createdAt: 1, updatedAt: 2 });
@@ -104,7 +104,7 @@ test("normalizes a persisted Play Core working-file catalog", () => {
 test("all bundled original play.core examples compile against the portable module registry", () => {
   assert.ok(PLAY_CORE_EXAMPLES.length >= 10);
   PLAY_CORE_EXAMPLES.forEach(example => {
-    assert.doesNotMatch(example.source, /\bdrawerator\b/);
+    assert.doesNotMatch(example.source, /\bunderscore\b/);
     assert.doesNotThrow(() => compilePlayCoreSource(example.source), example.name);
   });
 });

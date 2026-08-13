@@ -45,14 +45,14 @@ export const createBakedImageElement = ({ fileId, bounds, sourceElements = [], n
     scale: [1, 1],
     crop: null,
     customData: {
-      draweratorBake: {
+      underscoreBake: {
         version: 1,
         format: "png",
         sourceCount: sourceElements.length,
         sourceElementIds: sourceElements.map(element => element.id),
         createdAt: now,
       },
-      draweratorLabel: `Baked PNG · ${sourceElements.length} objects`,
+      underscoreLabel: `Baked PNG · ${sourceElements.length} objects`,
     },
   };
 };
@@ -83,8 +83,8 @@ export const createCanvasSnapshotImageElement = ({
     frameId: sourceElement?.frameId || null,
     customData: {
       ...image.customData,
-      draweratorLabel: label,
-      draweratorSnapshot: {
+      underscoreLabel: label,
+      underscoreSnapshot: {
         version: 1,
         format: "png",
         sourceElementId: sourceElement?.id || null,

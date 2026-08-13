@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-31
 
-This note records the contracts behind Drawerator's non-destructive **Brush → Stack** implementation. The old **Mods & FX** panel id and `/mods` alias remain for compatibility. Preserve these invariants when adding brushes, filters, transforms, or history behavior.
+This note records the contracts behind Underscore's non-destructive **Brush → Stack** implementation. The old **Mods & FX** panel id and `/mods` alias remain for compatibility. Preserve these invariants when adding brushes, filters, transforms, or history behavior.
 
 ## Element data model
 
@@ -71,7 +71,7 @@ The header is the single home for contextual stack actions. Keep these behaviors
 - **Hide Original** controls only the selected stroke, or the next-stroke preference when no stroke is selected in Mod Pen mode.
 - Bypass and Hide Original are mutually exclusive. The UI disables the conflicting action and the handlers also enforce the invariant.
 - Line/freehand conversion and source restoration are contextual and must remain unavailable when the selected element cannot support the action.
-- Mods & FX uses Drawerator's shared panel shell. Its width, floating size, placement, visibility, and dock-tab state persist independently from other panels. The panel icon handles activation, thresholded drag-to-float/dock, and a right-click placement menu; a plain click never detaches the panel.
+- Mods & FX uses Underscore's shared panel shell. Its width, floating size, placement, visibility, and dock-tab state persist independently from other panels. The panel icon handles activation, thresholded drag-to-float/dock, and a right-click placement menu; a plain click never detaches the panel.
 
 ## Bake semantics
 

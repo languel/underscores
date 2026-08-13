@@ -12,7 +12,7 @@ test("creates one image host that records its baked source set", () => {
   assert.equal(element.type, "image");
   assert.deepEqual([element.x, element.y, element.width, element.height], [10, 20, 200, 100]);
   assert.equal(element.frameId, "frame");
-  assert.deepEqual(element.customData.draweratorBake.sourceElementIds, ["a", "b"]);
+  assert.deepEqual(element.customData.underscoreBake.sourceElementIds, ["a", "b"]);
   assert.equal(createBakedImageFile({ fileId: "file-1", dataURL: "data:image/png;base64,x", now: 42 }).mimeType, "image/png");
 });
 
@@ -48,8 +48,8 @@ test("canvas snapshots preserve the live host transform without deleting its sou
   assert.deepEqual([image.x, image.y, image.width, image.height], [30, 40, 320, 240]);
   assert.equal(image.angle, Math.PI / 6);
   assert.equal(image.frameId, "frame");
-  assert.equal(image.customData.draweratorLabel, "Holistic PNG snapshot");
-  assert.deepEqual(image.customData.draweratorSnapshot, {
+  assert.equal(image.customData.underscoreLabel, "Holistic PNG snapshot");
+  assert.deepEqual(image.customData.underscoreSnapshot, {
     version: 1,
     format: "png",
     sourceElementId: "holistic",

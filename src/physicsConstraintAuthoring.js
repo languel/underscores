@@ -51,7 +51,7 @@ export const getRopeWorldPoints = element => {
   const source = smoothGeometry
     ? {
       ...element,
-      customData: { ...(element.customData || {}), draweratorGeometry: smoothGeometry },
+      customData: { ...(element.customData || {}), underscoreGeometry: smoothGeometry },
     }
     : element;
   const points = smoothGeometry ? getBezierWorldPath(source, 1.2) : getPhysicsElementWorldPoints(source);
@@ -352,7 +352,7 @@ export const ropeEndpointAtPoint = (constraint, point) => {
 // a prior pivot remains eligible so clicking it updates its relationship.
 export const chooseConstraintPivot = elements => (elements || []).find(element => {
   if (!element || element.isDeleted) return false;
-  const physics = element.customData?.physics || element.customData?.draweratorPhysics;
+  const physics = element.customData?.physics || element.customData?.underscorePhysics;
   return physics?.role !== "body";
 }) || null;
 

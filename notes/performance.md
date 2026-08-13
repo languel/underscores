@@ -1,6 +1,6 @@
 # Performance monitor and scene baking
 
-Drawerator now has a lightweight performance monitor that can float over the canvas or attach to the
+Underscore now has a lightweight performance monitor that can float over the canvas or attach to the
 Console panel. The attached monitor follows Console visibility and does not create an independent
 bottom panel. Enable it from **Settings → Board → Interface**, `/performance`, or `/perf`. The compact
 view shows browser animation FPS; click it to expand average frame time, frames longer than 34 ms,
@@ -21,17 +21,17 @@ Select an object or a complete group, then Shift-right-click and choose **Bake S
   content, and media-stream canvases at the selection's world bounds with a transparent background,
   inserts one image element in the same position, and marks the editable sources deleted in the
   same Excalidraw history transaction. Undo restores them.
-- SVG bake uses Drawerator's source-preserving native-to-SVG conversion. It remains editable as one
+- SVG bake uses Underscore's source-preserving native-to-SVG conversion. It remains editable as one
   first-class SVG document and is usually the better bake when vector editing, theming, or SVG-node
   roles will still be needed.
-- The PNG output captures the current Drawerator theme. Keep the vector sources, or use Undo, when
+- The PNG output captures the current Underscore theme. Keep the vector sources, or use Undo, when
   the result must later adapt automatically to a different light/dark palette.
 - SVG, Play Core, and Livecode DOM overlays are rejected by PNG bake for now; the current compositor
   cannot capture those live layers without risking a blank or incomplete replacement. Holistic also
   offers **Snapshot PNG**, which captures its current live view in place while leaving the processor
   editable underneath. Native landmark snapshots are ordinary grouped elements and are supported.
 
-The baked PNG records its source element IDs and count in `customData.draweratorBake`. This is
+The baked PNG records its source element IDs and count in `customData.underscoreBake`. This is
 provenance for inspection and exchange, not a second hidden copy of the source geometry; recovery is
 through normal scene undo or a previously saved complete scene.
 
@@ -89,7 +89,7 @@ artifact is not versioned; the repeatable measurements and attributed call path 
 3. **The p5/media overlay signature currently scans every active canvas element.** This is necessary
    for canvas-capture dependencies, but it also means a large static landmark snapshot expands the
    signature work on every scene callback.
-4. **Scene persistence serializes the complete Drawerator exchange document.** Autosave is debounced
+4. **Scene persistence serializes the complete Underscore exchange document.** Autosave is debounced
    by 500 ms, so it does not run once per frame, but a large snapshot makes each settled save and each
    full scene export proportionally larger.
 5. **MediaPipe publishes a rich holistic event every result.** Pose, both hands, and face landmark

@@ -13,7 +13,7 @@ const PROVIDERS = Object.freeze({
     defaultUrl: "http://localhost:1234",
     credentialLabel: null,
     protocol: "openai",
-    instructions: "Runs locally through LM Studio's OpenAI-compatible server. Start the local server in LM Studio and enable network or CORS access if Drawerator is opened from another origin. No API key is normally required.",
+    instructions: "Runs locally through LM Studio's OpenAI-compatible server. Start the local server in LM Studio and enable network or CORS access if Underscore is opened from another origin. No API key is normally required.",
   },
   "openai-compatible": {
     id: "openai-compatible",
@@ -21,7 +21,7 @@ const PROVIDERS = Object.freeze({
     defaultUrl: "http://localhost:1234",
     credentialLabel: "API key (optional)",
     protocol: "openai",
-    instructions: "Uses an OpenAI-compatible REST server. Enter the server base URL without /v1; Drawerator adds the model and chat routes. Add a bearer token only when the server requires one.",
+    instructions: "Uses an OpenAI-compatible REST server. Enter the server base URL without /v1; Underscore adds the model and chat routes. Add a bearer token only when the server requires one.",
   },
   openrouter: {
     id: "openrouter",
@@ -51,7 +51,7 @@ const PROVIDERS = Object.freeze({
     ],
     credentialLabel: "Pratt LLM API key",
     protocol: "openai",
-    instructions: "Uses Pratt Institute's OpenAI-compatible LLM service. Pratt students can request an sk-pratt-… key through a OnePratt support ticket. When Drawerator's local server has PRATT_LLM_API_KEY, it supplies that credential without exposing it to the browser; an API key entered here takes precedence. Pratt Medium Fast is the recommended interactive default, while Pratt High is the strongest coding/task route.",
+    instructions: "Uses Pratt Institute's OpenAI-compatible LLM service. Pratt students can request an sk-pratt-… key through a OnePratt support ticket. When Underscore's local server has PRATT_LLM_API_KEY, it supplies that credential without exposing it to the browser; an API key entered here takes precedence. Pratt Medium Fast is the recommended interactive default, while Pratt High is the strongest coding/task route.",
   },
   nvidia: {
     id: "nvidia",
@@ -59,7 +59,7 @@ const PROVIDERS = Object.freeze({
     defaultUrl: "https://integrate.api.nvidia.com",
     credentialLabel: "NVIDIA API key",
     protocol: "openai",
-    instructions: "Uses NVIDIA's hosted NIM inference API. Create an NVIDIA API key (nvapi-…) and select a model enabled for serverless inference. NVIDIA does not allow direct cross-origin browser requests, so Drawerator uses its same-origin relay when running on localhost. Static deployments need a CORS-capable proxy, a self-hosted NIM endpoint, or OpenRouter for NVIDIA-hosted models.",
+    instructions: "Uses NVIDIA's hosted NIM inference API. Create an NVIDIA API key (nvapi-…) and select a model enabled for serverless inference. NVIDIA does not allow direct cross-origin browser requests, so Underscore uses its same-origin relay when running on localhost. Static deployments need a CORS-capable proxy, a self-hosted NIM endpoint, or OpenRouter for NVIDIA-hosted models.",
   },
   openai: {
     id: "openai",
@@ -104,7 +104,7 @@ export const getAIProviderManualModels = provider => [...(getAIProvider(provider
 export const getAIProviderHelp = provider => {
   const definition = getAIProvider(provider);
   const storageWarning = definition.credentialLabel
-    ? " Drawerator stores this credential unencrypted in this browser's localStorage. Use a restricted key and remove it on shared computers. Browser CORS policy may still block direct requests."
+    ? " Underscore stores this credential unencrypted in this browser's localStorage. Use a restricted key and remove it on shared computers. Browser CORS policy may still block direct requests."
     : "";
   return `${definition.instructions}${storageWarning}`;
 };
@@ -188,7 +188,7 @@ const providerHeaders = (settings, { stream = false } = {}) => {
   if (["openai", "openrouter", "pratt", "nvidia", "github", "openai-compatible"].includes(provider)) {
     Object.assign(headers, bearerHeaders(credential));
   }
-  if (provider === "openrouter") headers["X-Title"] = "Drawerator";
+  if (provider === "openrouter") headers["X-Title"] = "Underscore";
   if (provider === "nvidia" && stream) headers.Accept = "text/event-stream";
   if (provider === "github") {
     headers.Accept = stream ? "text/event-stream" : "application/vnd.github+json";
