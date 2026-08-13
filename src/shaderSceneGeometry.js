@@ -65,7 +65,7 @@ export const DEFAULT_SHADER_SEGMENTS = Object.freeze([
 export const collectShaderSceneSegments = (elements, node, maximum = MAX_SHADER_SEGMENTS, { fallback = true } = {}) => {
   const segments = [];
   for (const element of elements || []) {
-    if (!element || element.id === node?.id || element.isDeleted || element.customData?.outlinerHidden || element.customData?.underscoreLivecode) continue;
+    if (!element || element.id === node?.id || element.isDeleted || element.customData?.outlinerHidden || element.customData?.underscoresLivecode) continue;
     const points = worldPointsForElement(element).map(point => worldToNodeUv(point, node));
     if (points.length < 2) continue;
     const closed = !["line", "arrow", "freedraw"].includes(element.type)

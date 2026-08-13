@@ -42,7 +42,7 @@ export default function GridPanel({
     <div className="grid-panel" role="form" aria-label="Global grid controls">
       <InspectorSection title="Geometry" className="grid-panel-group grid-panel-geometry" aria-label="Grid geometry">
         <div className="grid-panel-row">
-          <Check label="Visible" help="Show or hide the Underscore grid without changing its snapping behavior." checked={grid.appearance.visible} onChange={event => onUpdate({ appearance: { visible: event.target.checked } })} />
+          <Check label="Visible" help="Show or hide the Underscores grid without changing its snapping behavior." checked={grid.appearance.visible} onChange={event => onUpdate({ appearance: { visible: event.target.checked } })} />
           <NumberField label="Spacing X" help="World-space width of one major grid cell." aria-label="Global grid spacing X" min="1" step="1" defaultValue="100" value={grid.spacing.x} onChange={event => onUpdate({ spacing: { x: event.target.value } })} />
           <NumberField label="Spacing Y" help="World-space height of one major grid cell." aria-label="Global grid spacing Y" min="1" step="1" defaultValue="100" value={grid.spacing.y} onChange={event => onUpdate({ spacing: { y: event.target.value } })} />
           <NumberField label="Rotation" help="Rotate the entire grid around its origin, in degrees." aria-label="Global grid rotation" step="1" defaultValue="0" value={Math.round(grid.transform.rotation * 180 / Math.PI * 100) / 100} onChange={event => onUpdate({ transform: { rotation: Number(event.target.value) * Math.PI / 180 } })} />

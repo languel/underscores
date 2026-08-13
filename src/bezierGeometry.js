@@ -1,4 +1,4 @@
-export const UNDERSCORE_GEOMETRY_VERSION = 2;
+export const UNDERSCORES_GEOMETRY_VERSION = 2;
 export const CUBIC_BEZIER_KIND = "cubicBezierPath";
 
 const EPSILON = 1e-7;
@@ -14,10 +14,10 @@ const lerp = (a, b, amount) => [a[0] + (b[0] - a[0]) * amount, a[1] + (b[1] - a[
 const distance = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
 
 export const isCubicBezierGeometry = value => value?.kind === CUBIC_BEZIER_KIND && Array.isArray(value.anchors) && value.anchors.length >= 2;
-export const hasCubicBezierGeometry = element => isCubicBezierGeometry(element?.customData?.underscoreGeometry);
+export const hasCubicBezierGeometry = element => isCubicBezierGeometry(element?.customData?.underscoresGeometry);
 
 export const normalizeBezierGeometry = value => ({
-  version: Math.max(UNDERSCORE_GEOMETRY_VERSION, Math.round(finite(value?.version, UNDERSCORE_GEOMETRY_VERSION))),
+  version: Math.max(UNDERSCORES_GEOMETRY_VERSION, Math.round(finite(value?.version, UNDERSCORES_GEOMETRY_VERSION))),
   revision: Math.max(0, Math.round(finite(value?.revision, 0))),
   kind: CUBIC_BEZIER_KIND,
   closed: value?.closed === true,
@@ -129,7 +129,7 @@ const getBezierLocalBounds = geometryValue => {
 };
 
 const getBezierElementCenter = element => {
-  const bounds = getBezierLocalBounds(element.customData.underscoreGeometry);
+  const bounds = getBezierLocalBounds(element.customData.underscoresGeometry);
   return [
     element.x + (bounds.minX + bounds.maxX) / 2 * element.width,
     element.y + (bounds.minY + bounds.maxY) / 2 * element.height,
@@ -151,7 +151,7 @@ export const bezierWorldPointToLocal = (element, value) => {
 };
 
 export const getBezierWorldAnchors = element => {
-  const geometry = normalizeBezierGeometry(element?.customData?.underscoreGeometry);
+  const geometry = normalizeBezierGeometry(element?.customData?.underscoresGeometry);
   return geometry.anchors.map(anchor => {
     const anchorWorld = bezierLocalPointToWorld(element, [anchor.x, anchor.y]);
     return {
@@ -166,12 +166,12 @@ export const getBezierWorldAnchors = element => {
 
 export const getBezierWorldPath = (element, tolerance = DEFAULT_TOLERANCE) => {
   if (!hasCubicBezierGeometry(element)) return [];
-  return flattenBezierGeometry(element.customData.underscoreGeometry, tolerance / Math.max(1, Math.abs(element.width), Math.abs(element.height)))
+  return flattenBezierGeometry(element.customData.underscoresGeometry, tolerance / Math.max(1, Math.abs(element.width), Math.abs(element.height)))
     .map(value => bezierLocalPointToWorld(element, value));
 };
 
 const geometryFromLocalAnchors = (anchors, closed = false) => normalizeBezierGeometry({
-  version: UNDERSCORE_GEOMETRY_VERSION,
+  version: UNDERSCORES_GEOMETRY_VERSION,
   revision: 1,
   kind: CUBIC_BEZIER_KIND,
   closed,
@@ -236,13 +236,13 @@ export const setElementBezierGeometry = (element, geometryValue) => {
     lastCommittedPoint: null,
     roundness: null,
     roughness: 0,
-    customData: { ...(element.customData || {}), underscoreGeometry: geometry },
+    customData: { ...(element.customData || {}), underscoresGeometry: geometry },
   };
 };
 
 export const reframeBezierElement = element => {
   if (!hasCubicBezierGeometry(element)) return element;
-  const geometry = normalizeBezierGeometry(element.customData.underscoreGeometry);
+  const geometry = normalizeBezierGeometry(element.customData.underscoresGeometry);
   const path = flattenBezierGeometry(geometry, DEFAULT_TOLERANCE / Math.max(1, element.width, element.height));
   const minX = Math.min(...path.map(value => value[0]));
   const maxX = Math.max(...path.map(value => value[0]));
@@ -369,7 +369,7 @@ export const splitBezierSegment = (geometryValue, segmentIndex, amount = 0.5) =>
 export const findNearestBezierLocation = (element, worldPoint) => {
   if (!hasCubicBezierGeometry(element)) return null;
   const local = bezierWorldPointToLocal(element, worldPoint);
-  const detailed = flattenBezierGeometryDetailed(element.customData.underscoreGeometry, 0.002);
+  const detailed = flattenBezierGeometryDetailed(element.customData.underscoresGeometry, 0.002);
   let nearest = null;
   for (let index = 1; index < detailed.length; index += 1) {
     const start = detailed[index - 1];
@@ -391,7 +391,7 @@ export const findNearestBezierLocation = (element, worldPoint) => {
 };
 
 const cacheSignature = element => {
-  const geometry = element.customData.underscoreGeometry;
+  const geometry = element.customData.underscoresGeometry;
   return `${element.id}:${element.version || 0}:${element.versionNonce || 0}:${element.x}:${element.y}:${element.width}:${element.height}:${element.angle}:${geometry.revision || 0}:${geometry.closed}`;
 };
 
@@ -400,7 +400,7 @@ export const getBezierWorldMetrics = element => {
   const signature = cacheSignature(element);
   const cached = metricsCache.get(signature);
   if (cached) return cached;
-  const geometry = normalizeBezierGeometry(element.customData.underscoreGeometry);
+  const geometry = normalizeBezierGeometry(element.customData.underscoresGeometry);
   const detailed = flattenBezierGeometryDetailed(
     geometry,
     DEFAULT_TOLERANCE / Math.max(1, Math.abs(element.width), Math.abs(element.height)),
@@ -501,6 +501,6 @@ export const sampleBezierElement = (element, progress) => {
 
 export const getBezierPathLengthFromAnchors = (worldAnchors, closed = false) => {
   const { geometry, bounds } = createBezierGeometryFromWorldAnchors(worldAnchors, closed);
-  const element = { id: "length", x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height, angle: 0, customData: { underscoreGeometry: geometry } };
+  const element = { id: "length", x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height, angle: 0, customData: { underscoresGeometry: geometry } };
   return getBezierWorldMetrics(element)?.length || 0;
 };

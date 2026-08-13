@@ -89,7 +89,7 @@ test("accepts literal-command template strings while rejecting a dynamic command
   assert.match(invalid.errors.join(" "), /literal supported IanniX command/);
 });
 
-test("preflights common native-IanniX command shapes Underscore does not implement", () => {
+test("preflights common native-IanniX command shapes Underscores does not implement", () => {
   const validation = validateAIIannixSource(`
     function makeWithScript() {
       run("setPointsEllipse current 400 300 120 80");

@@ -12,7 +12,7 @@ export const sanitizeMarkdownHtml = value => String(value || "")
   .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
   .replace(/\s(?:href|src)\s*=\s*(["'])\s*(?:javascript|data):[^"']*\1/gi, "");
 
-const mathToken = index => `UNDERSCORE_MATH_TOKEN_${index}_END`;
+const mathToken = index => `UNDERSCORES_MATH_TOKEN_${index}_END`;
 
 const CODE_LANGUAGE_ALIASES = Object.freeze({
   js: "javascript",
@@ -209,12 +209,12 @@ export const buildHtmlSandboxDocument = ({ source, token, appearance = {} }) => 
 <script>
   (() => {
     const token = ${JSON.stringify(token)};
-    const send = (type, detail = {}) => parent.postMessage({ underscoreLivecode: true, token, type, detail }, "*");
+    const send = (type, detail = {}) => parent.postMessage({ underscoresLivecode: true, token, type, detail }, "*");
     window.__ = Object.freeze({
       post: (type, detail) => send(type, detail),
       onMessage: listener => window.addEventListener("message", event => {
         const data = event.data;
-        if (data && data.underscoreLivecode && data.token === token && data.type === "bridge") listener(data.snapshot);
+        if (data && data.underscoresLivecode && data.token === token && data.type === "bridge") listener(data.snapshot);
       }),
     });
     send("ready");

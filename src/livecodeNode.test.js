@@ -216,7 +216,7 @@ test("replacing a same-kind program preserves its host settings and parameters",
 });
 
 test("detects scene nodes and maps their source to established CodeMirror profiles", () => {
-  const element = { id: "node", customData: { underscoreLivecode: { kind: "html" } } };
+  const element = { id: "node", customData: { underscoresLivecode: { kind: "html" } } };
   assert.equal(isLivecodeNodeElement(element), true);
   assert.equal(shouldRenderLivecodeNode(element), true);
   assert.equal(shouldRenderLivecodeNode({ ...element, customData: { ...element.customData, outlinerHidden: true } }), false);

@@ -7,7 +7,7 @@ import { normalizeBrushChannels } from "./brushChannelRuntime.js";
 import { normalizeMediaSources } from "./mediaStream.js";
 import { normalizeRelationshipGraph, serializeRelationshipGraphForScene } from "./relationshipGraph.js";
 
-const UNDERSCORE_EXCHANGE_VERSION = 10;
+const UNDERSCORES_EXCHANGE_VERSION = 10;
 
 const scoreData = customData => customData?.score || customData?.iannix || null;
 const withScoreAliases = element => {
@@ -24,7 +24,7 @@ const withScoreAliases = element => {
   };
 };
 
-export const attachUnderscoreExchangeMetadata = (serializedScene, kind, score = {}, grid = null, expressiveSynth = null, mixer = null, p5Scripts = [], streamGraph = null, brushChannels = null, authoredState = {}, relationshipGraph = null) => {
+export const attachUnderscoresExchangeMetadata = (serializedScene, kind, score = {}, grid = null, expressiveSynth = null, mixer = null, p5Scripts = [], streamGraph = null, brushChannels = null, authoredState = {}, relationshipGraph = null) => {
   const normalizedAuthoredState = authoredState && typeof authoredState === "object" ? authoredState : {};
   const payload = typeof serializedScene === "string"
     ? JSON.parse(serializedScene)
@@ -32,8 +32,8 @@ export const attachUnderscoreExchangeMetadata = (serializedScene, kind, score = 
   payload.elements = (payload.elements || []).map(withScoreAliases);
   return {
     ...payload,
-    underscore: {
-      version: UNDERSCORE_EXCHANGE_VERSION,
+    underscores: {
+      version: UNDERSCORES_EXCHANGE_VERSION,
       kind,
       score: {
         time: Number.isFinite(score.time) ? score.time : 0,
@@ -74,32 +74,32 @@ export const attachUnderscoreExchangeMetadata = (serializedScene, kind, score = 
   };
 };
 
-export const parseUnderscoreExchange = (text, expectedKind = null) => {
+export const parseUnderscoresExchange = (text, expectedKind = null) => {
   const payload = typeof text === "string" ? JSON.parse(text) : text;
   if (!payload || payload.type !== "excalidraw" || !Array.isArray(payload.elements)) {
-    throw new Error("This is not an Excalidraw or Underscore scene JSON document.");
+    throw new Error("This is not an Excalidraw or Underscores scene JSON document.");
   }
-  const kind = payload.underscore?.kind || "scene";
+  const kind = payload.underscores?.kind || "scene";
   if (expectedKind && kind !== expectedKind) {
-    throw new Error(`Expected Underscore ${expectedKind} JSON, received ${kind} JSON.`);
+    throw new Error(`Expected Underscores ${expectedKind} JSON, received ${kind} JSON.`);
   }
   return {
     payload,
     kind,
-    score: payload.underscore?.score || null,
-    grid: kind === "scene" ? normalizeGlobalGrid(payload.underscore?.grid) : null,
-    expressiveSynth: kind === "scene" ? normalizeExpressiveSynthConfig(payload.underscore?.expressiveSynth) : null,
-    mixer: kind === "scene" ? normalizeMixer(payload.underscore?.mixer) : null,
-    p5Scripts: kind === "scene" ? normalizeP5Scripts(payload.underscore?.p5Scripts) : [],
-    streamGraph: kind === "scene" ? normalizeStreamGraph(payload.underscore?.streamGraph) : null,
-    brushChannels: kind === "scene" ? normalizeBrushChannels(payload.underscore?.brushChannels) : [],
-    relationshipGraph: normalizeRelationshipGraph(payload.underscore?.relationshipGraph),
-    authoredState: kind === "scene" && payload.underscore?.authoredState ? {
-      mediaSources: normalizeMediaSources(payload.underscore?.authoredState?.mediaSources),
-      brushPalette: Array.isArray(payload.underscore?.authoredState?.brushPalette) ? structuredClone(payload.underscore.authoredState.brushPalette) : [],
-      iannixScripts: Array.isArray(payload.underscore?.authoredState?.iannixScripts) ? structuredClone(payload.underscore.authoredState.iannixScripts) : [],
-      playCoreScripts: Array.isArray(payload.underscore?.authoredState?.playCoreScripts) ? structuredClone(payload.underscore.authoredState.playCoreScripts) : [],
-      svgScripts: Array.isArray(payload.underscore?.authoredState?.svgScripts) ? structuredClone(payload.underscore.authoredState.svgScripts) : [],
+    score: payload.underscores?.score || null,
+    grid: kind === "scene" ? normalizeGlobalGrid(payload.underscores?.grid) : null,
+    expressiveSynth: kind === "scene" ? normalizeExpressiveSynthConfig(payload.underscores?.expressiveSynth) : null,
+    mixer: kind === "scene" ? normalizeMixer(payload.underscores?.mixer) : null,
+    p5Scripts: kind === "scene" ? normalizeP5Scripts(payload.underscores?.p5Scripts) : [],
+    streamGraph: kind === "scene" ? normalizeStreamGraph(payload.underscores?.streamGraph) : null,
+    brushChannels: kind === "scene" ? normalizeBrushChannels(payload.underscores?.brushChannels) : [],
+    relationshipGraph: normalizeRelationshipGraph(payload.underscores?.relationshipGraph),
+    authoredState: kind === "scene" && payload.underscores?.authoredState ? {
+      mediaSources: normalizeMediaSources(payload.underscores?.authoredState?.mediaSources),
+      brushPalette: Array.isArray(payload.underscores?.authoredState?.brushPalette) ? structuredClone(payload.underscores.authoredState.brushPalette) : [],
+      iannixScripts: Array.isArray(payload.underscores?.authoredState?.iannixScripts) ? structuredClone(payload.underscores.authoredState.iannixScripts) : [],
+      playCoreScripts: Array.isArray(payload.underscores?.authoredState?.playCoreScripts) ? structuredClone(payload.underscores.authoredState.playCoreScripts) : [],
+      svgScripts: Array.isArray(payload.underscores?.authoredState?.svgScripts) ? structuredClone(payload.underscores.authoredState.svgScripts) : [],
     } : null,
   };
 };

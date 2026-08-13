@@ -14,7 +14,7 @@ export const getLivecodeBridgeHelp = kind => {
     [LIVECODE_KINDS.shader]: "GLSL runs on the GPU and has no JavaScript __ bridge. Use the documented uniforms such as u_resolution, u_time, u_pointer, u_currentColor, and u_segments.",
   };
   return {
-    title: "Underscore bridge (__)",
+    title: "Underscores bridge (__)",
     available: trusted,
     summary: details[normalizedKind] || "This script kind has no shared JavaScript bridge.",
     points: trusted ? [
@@ -23,7 +23,7 @@ export const getLivecodeBridgeHelp = kind => {
       "__.canvas (also __.objects) exposes read-only all(), get(id/label), find(query), and selected() scene queries.",
       "__.events provides recent(limit), latest(pattern), and on(pattern, listener). __.transport exposes time and timing context.",
       "Send messages to the Event Console with console.log/info/warn/error/debug (p5 captures these), __.console.log(...args), or the shorthand __.log/info/warn/error/debug(...args) from any JavaScript bridge runtime. Turn on Console → Log to collect script.log events.",
-      "__.colors, __.currentColor, __.currentOpacity, __.theme, and __.appearance follow the current Underscore theme.",
+      "__.colors, __.currentColor, __.currentOpacity, __.theme, and __.appearance follow the current Underscores theme.",
       "__.api is the deliberate application API for commands, scene/time/grid, physics, mixer, inputs, relations, and streams. Prefer documented calls over DOM access.",
     ] : [],
   };
@@ -35,15 +35,15 @@ export const getLivecodeBridgeHelp = kind => {
 export const LIVECODE_HELP = Object.freeze({
   [LIVECODE_KINDS.strudel]: Object.freeze({
     title: "Strudel quick reference",
-    summary: "A node-owned pattern feeds Underscore's shared Strudel scheduler.",
+    summary: "A node-owned pattern feeds Underscores's shared Strudel scheduler.",
     points: Object.freeze([
       "Cmd+Enter runs the current draft. While it plays, editing does not replace it; Ctrl+Enter queues the draft for the next beat. Ctrl+. or Alt+. stops it.",
       "Layer JavaScript voices with one `$:` statement per pattern. Mini Notation works inside double quotes; use a mondo`...` template for Mondo's bare `$` separator.",
-      "Event locations animate in the source. Public painters such as .pianoroll() fill the node frame when Frame visuals is enabled; underscore painters such as ._pianoroll() stay inline with the code.",
-      "Linked is the default, so Underscore play/pause and tempo control the pattern. Choose Free for a node-local clock. Runs and updates join the four-beat Strudel cycle on a beat boundary.",
+      "Event locations animate in the source. Public painters such as .pianoroll() fill the node frame when Frame visuals is enabled; underscores painters such as ._pianoroll() stay inline with the code.",
+      "Linked is the default, so Underscores play/pause and tempo control the pattern. Choose Free for a node-local clock. Runs and updates join the four-beat Strudel cycle on a beat boundary.",
       "Stopping, replacing, or hushing a node affects only that node's pattern; other active Strudel nodes remain scheduled.",
     ]),
-    footer: "Native Strudel is available locally, but public deployment remains blocked until Underscore completes its AGPL compliance gate.",
+    footer: "Native Strudel is available locally, but public deployment remains blocked until Underscores completes its AGPL compliance gate.",
   }),
   [LIVECODE_KINDS.p5]: Object.freeze({
     title: "p5 quick reference",
@@ -63,7 +63,7 @@ export const LIVECODE_HELP = Object.freeze({
       "Optional settings, boot, pre, post, pointerMove, pointerDown, and pointerUp hooks match existing Play Core frames.",
       "Use // @param name = value annotations and read their persisted values through __.params.",
     ]),
-    footer: "The node supports Underscore's offline Play Core module set and the same shared bridge as p5.",
+    footer: "The node supports Underscores's offline Play Core module set and the same shared bridge as p5.",
   }),
   [LIVECODE_KINDS.markdown]: Object.freeze({
     title: "Markdown quick reference",
@@ -93,17 +93,17 @@ export const LIVECODE_HELP = Object.freeze({
       "The iframe has allow-scripts only: no parent-origin DOM access, top navigation, or ambient application privileges.",
       "Output runs the document. Code shows only source, Code Overlay combines source and output, and Code/Output splits them. Browser security can prevent deterministic raster export of this kind.",
     ]),
-    footer: "Treat HTML source as trusted board content even though it is isolated from Underscore's parent page.",
+    footer: "Treat HTML source as trusted board content even though it is isolated from Underscores's parent page.",
   }),
   [LIVECODE_KINDS.orca]: Object.freeze({
     title: "Orca quick reference",
-    summary: "A focused per-node grid with native frame timing and Underscore MIDI routing.",
+    summary: "A focused per-node grid with native frame timing and Underscores MIDI routing.",
     points: Object.freeze([
       "Click a cell to focus the grid; type to write, Arrow keys to move, Shift+Arrow to extend a selection, and Delete to clear.",
       "Cmd/Ctrl+A selects the grid; Cmd/Ctrl+C and V copy/paste a rectangular cell region. Cmd/Ctrl/Option+Enter or Space steps one frame.",
-      "A, B, C, D, E/N/S/W, I, L, and M are native operators. :, %, !, and ? emit MIDI note, mono note, CC, and pitch bend through Underscore's Mixer.",
+      "A, B, C, D, E/N/S/W, I, L, and M are native operators. :, %, !, and ? emit MIDI note, mono note, CC, and pitch bend through Underscores's Mixer.",
     ]),
-    footer: "Linked nodes tick with Underscore transport; Free nodes keep their own frame timer. Grid focus owns its keys and never triggers canvas shortcuts.",
+    footer: "Linked nodes tick with Underscores transport; Free nodes keep their own frame timer. Grid focus owns its keys and never triggers canvas shortcuts.",
   }),
   [LIVECODE_KINDS.shader]: Object.freeze({
     title: "GLSL quick reference",
@@ -115,7 +115,7 @@ export const LIVECODE_HELP = Object.freeze({
       "Layer places the shader above or below Excalidraw objects. Opacity and Blend provide non-destructive composition without changing the GLSL source.",
       "Fluid brush and Inkwash are feedback shaders: u_previous is the prior frame, u_delta is frame time, and u_pointerDelta carries brush motion. Emission makes the selected geometry source emit and stir dye or wet pigment.",
       "Inkwash can emit from nearby Excalidraw objects or only from visible physics diagnostics such as collider outlines, constraints, collision markers, force vectors, and trails. Ordinary drags use a fine ink pen; Command-drag activates the wider water brush without taking over Excalidraw's right-drag gesture.",
-      "Linked time follows Underscore's score; Free time advances independently. Compile errors appear in the Console's non-logged Live section while the previous working program keeps rendering.",
+      "Linked time follows Underscores's score; Free time advances independently. Compile errors appear in the Console's non-logged Live section while the previous working program keeps rendering.",
       "While editing, Cmd/Ctrl+Shift+Enter cycles Output → Code → Code Overlay → Code/Output. Cmd/Ctrl+Enter runs, Ctrl+. or Alt+. stops, and Ctrl+M then L toggles line numbers. Clicking in the source only places the editor cursor.",
     ]),
     footer: "These ports preserve excalishader's four example ideas inside the editable Livecode model; the Fluid brush uses a compact ping-pong feedback pass.",

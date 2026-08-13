@@ -3,9 +3,9 @@ import PerformanceOverlay from "./PerformanceOverlay.jsx";
 import { infoProps } from "./uiInfo.js";
 
 const MAX_VISIBLE_EVENTS = 500;
-const LOGGING_STORAGE_KEY = "underscore_console_logging";
-const POLL_STORAGE_KEY = "underscore_console_poll_frequency";
-const FILTERS_STORAGE_KEY = "underscore_console_event_filters";
+const LOGGING_STORAGE_KEY = "underscores_console_logging";
+const POLL_STORAGE_KEY = "underscores_console_poll_frequency";
+const FILTERS_STORAGE_KEY = "underscores_console_event_filters";
 const POLL_FREQUENCIES = [50, 100, 250, 500, 1000];
 const EVENT_CATEGORIES = ["command", "history", "input", "media", "brush", "status", "error", "script", "iannix", "physics", "midi", "macro", "transport", "automation", "presentation", "settings", "ai"];
 let consoleEventCutoff = -Infinity;
@@ -173,7 +173,7 @@ export default function EventConsole({
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `underscore-event-log-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    anchor.download = `underscores-event-log-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -263,7 +263,7 @@ export default function EventConsole({
               </label>)}
             </div>
           </details>
-          <label {...infoProps("Event logging", "Start or stop collecting Underscore event-bus messages in this console.")}>
+          <label {...infoProps("Event logging", "Start or stop collecting Underscores event-bus messages in this console.")}>
             <input type="checkbox" checked={loggingEnabled} onChange={event => updateLogging(event.target.checked)} />
             <span>Log</span>
           </label>

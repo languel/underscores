@@ -1,10 +1,10 @@
-# Taking a Line for a Walk: A DIY Guide to Custom Brushes in Underscore
+# Taking a Line for a Walk: A DIY Guide to Custom Brushes in Underscores
 
 > *"A drawing is simply a line going for a walk."* — Paul Klee
 
 Welcome, creative coders! This guide will teach you how to write custom JavaScript brushes to transform simple mouse or stylus strokes into dynamic, algorithmic drawings inside Excalidraw. Brush code now lives in the **Script** tab of the **Mods & FX** panel.
 
-Inspired by creative coding principles, this tutorial explains the math, geometry, and coordinates behind Underscore's modifier scripting system.
+Inspired by creative coding principles, this tutorial explains the math, geometry, and coordinates behind Underscores's modifier scripting system.
 
 ## Editor workflow
 
@@ -22,7 +22,7 @@ With an empty stack, Mod Pen produces an ordinary Excalidraw stroke. This is int
 
 ## 1. The Core Data Concept
 
-At its heart, any drawing gesture is a series of captures in time. When you drag your cursor or pen across the canvas, Underscore collects a sequence of coordinates.
+At its heart, any drawing gesture is a series of captures in time. When you drag your cursor or pen across the canvas, Underscores collects a sequence of coordinates.
 
 ### The Input: `points`
 Your brush function receives `points` as its first parameter. This is an array of absolute coordinates captured during drawing:
@@ -37,7 +37,7 @@ Your brush function receives `points` as its first parameter. This is an array o
 ```
 
 ### The Output: `lines`
-Your function must return an **array of lines**. Each line is itself an array of coordinates. Underscore previews these tracks without replacing the source path. They become native Excalidraw elements when the modifier or stack is baked.
+Your function must return an **array of lines**. Each line is itself an array of coordinates. Underscores previews these tracks without replacing the source path. They become native Excalidraw elements when the modifier or stack is baked.
 
 *   To draw a single path, return: `[points]`
 *   To draw three parallel tracks, return: `[track1, track2, track3]`
@@ -111,7 +111,7 @@ for (let i = 0; i < points.length; i++) {
 
 ## 4. Real-time Coordinate Metadata & Global Context
 
-To support advanced algorithmic effects (like stylus pressure rendering, speed dampening, and grid matching), Underscore enriches the points and passes a global context configuration object to your brush function.
+To support advanced algorithmic effects (like stylus pressure rendering, speed dampening, and grid matching), Underscores enriches the points and passes a global context configuration object to your brush function.
 
 ### Point-Specific Properties
 Each point element in the `points` array is a standard `[x, y]` array, but is decorated with several properties:
@@ -145,7 +145,7 @@ Completed strokes use a **local clock** by default: `elapsedMs` is frozen at poi
 
 ### Stable distance sampling
 
-Pointer-event density varies with device, speed, and browser. Brushes should not use raw point indices when visual spacing must remain stable. Underscore exposes:
+Pointer-event density varies with device, speed, and browser. Brushes should not use raw point indices when visual spacing must remain stable. Underscores exposes:
 
 ```javascript
 const samples = globals.resampleStrokeByDistance(points, 3);
@@ -189,7 +189,7 @@ const snapValue = (val, gridSize) => {
 ---
 
 ## 4.5. Gesture Shortcuts: Alt/Option Auto-Close
-To streamline drawing closed loops (like triangles or polygons), Underscore includes a built-in gesture shortcut:
+To streamline drawing closed loops (like triangles or polygons), Underscores includes a built-in gesture shortcut:
 * **Option / Alt Key (on release)**: If you hold the **`Option`** (Alt) key when releasing your mouse or stylus, the drawing pipeline automatically appends a final point that is identical to the first coordinate point.
 * This automatically closes the path. When **Smooth** mode is active, the loop is welded and smoothed cleanly at the joint; when **Sharp** mode is active, the loop closes with sharp vertices.
 

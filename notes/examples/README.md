@@ -1,11 +1,11 @@
 # Development score examples
 
 This directory is for small, version-controlled scores used while developing
-Underscore.  It is intentionally separate from user libraries and release
+Underscores.  It is intentionally separate from user libraries and release
 assets: the files here are fixtures, regression references, and useful starting
 points rather than a promised distribution format.
 
-- `glissandi.json` is a complete Underscore/Excalidraw scene. Import it from
+- `glissandi.json` is a complete Underscores/Excalidraw scene. Import it from
   **Data → Import scene** to load one orange timeline curve, one black runtime
   cursor, six blue continuous-glissando triggers, the transport loop, and six
   internal Expressive Synth tracks addressed on MIDI channels 1–6. Each track

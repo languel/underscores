@@ -16,9 +16,9 @@ const iannixGroupLabel = groupId => `Score · ${groupId}`;
 // authored label wins; the full element id is the final fallback.
 export const getOutlinerElementLabel = element => {
   if (getScoreData(element)?.label) return getScoreData(element).label;
-  if (element?.customData?.underscoreLabel) return element.customData.underscoreLabel;
-  if (isLivecodeNodeElement(element)) return normalizeLivecodeNode(element.customData.underscoreLivecode).name;
-  if (isMediaStreamElement(element)) return normalizeMediaStreamConfig(element.customData.underscoreMediaStream).name;
+  if (element?.customData?.underscoresLabel) return element.customData.underscoresLabel;
+  if (isLivecodeNodeElement(element)) return normalizeLivecodeNode(element.customData.underscoresLivecode).name;
+  if (isMediaStreamElement(element)) return normalizeMediaStreamConfig(element.customData.underscoresMediaStream).name;
   return element?.id || "";
 };
 
@@ -42,7 +42,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
   onSelectSvgNode,
 }) {
   const [query, setQuery] = useState("");
-  const [nameMode, setNameMode] = useState(() => localStorage.getItem("underscore_outliner_name_mode") === "ids" ? "ids" : "labels");
+  const [nameMode, setNameMode] = useState(() => localStorage.getItem("underscores_outliner_name_mode") === "ids" ? "ids" : "labels");
   const [editingId, setEditingId] = useState(null);
   const [editingValue, setEditingValue] = useState("");
   const [draggingIds, setDraggingIds] = useState([]);
@@ -56,12 +56,12 @@ const OutlinerPanel = memo(function OutlinerPanel({
     const needle = query.trim().toLowerCase();
     return getOutlinerLayerElements(elements).filter(element => !needle || `${
       element.type
-      } ${element.id} ${getScoreData(element)?.label || ""} ${element.customData?.iannixImport?.externalId || ""} ${element.customData?.iannixImport?.group || ""} ${isLivecodeNodeElement(element) ? `${normalizeLivecodeNode(element.customData.underscoreLivecode).name} ${normalizeLivecodeNode(element.customData.underscoreLivecode).kind}` : ""} ${isMediaStreamElement(element) ? `${normalizeMediaStreamConfig(element.customData.underscoreMediaStream).name} ${normalizeMediaStreamConfig(element.customData.underscoreMediaStream).kind}` : ""}`.toLowerCase().includes(needle));
+      } ${element.id} ${getScoreData(element)?.label || ""} ${element.customData?.iannixImport?.externalId || ""} ${element.customData?.iannixImport?.group || ""} ${isLivecodeNodeElement(element) ? `${normalizeLivecodeNode(element.customData.underscoresLivecode).name} ${normalizeLivecodeNode(element.customData.underscoresLivecode).kind}` : ""} ${isMediaStreamElement(element) ? `${normalizeMediaStreamConfig(element.customData.underscoresMediaStream).name} ${normalizeMediaStreamConfig(element.customData.underscoresMediaStream).kind}` : ""}`.toLowerCase().includes(needle));
   }, [elements, query]);
   const groupTree = useMemo(() => buildSceneGroupTree(visibleElements, { outlinerOrder: true }), [visibleElements]);
   const getElementTypeLabel = element => {
-    if (element.customData?.underscoreSvg) return "SVG";
-    if (isLivecodeNodeElement(element)) return getLivecodeKindDefinition(normalizeLivecodeNode(element.customData.underscoreLivecode).kind).label;
+    if (element.customData?.underscoresSvg) return "SVG";
+    if (isLivecodeNodeElement(element)) return getLivecodeKindDefinition(normalizeLivecodeNode(element.customData.underscoresLivecode).kind).label;
     return element.type;
   };
   const getElementLabel = getOutlinerElementLabel;
@@ -126,13 +126,13 @@ const OutlinerPanel = memo(function OutlinerPanel({
     setEditingId(element.id);
     setEditingValue(
       getScoreData(element)?.label ||
-        element.customData?.underscoreLabel ||
+        element.customData?.underscoresLabel ||
         (isLivecodeNodeElement(element)
-          ? normalizeLivecodeNode(element.customData.underscoreLivecode).name
+          ? normalizeLivecodeNode(element.customData.underscoresLivecode).name
           : isMediaStreamElement(element)
-            ? normalizeMediaStreamConfig(element.customData.underscoreMediaStream).name
-            : element.customData?.underscoreSvg
-              ? normalizeSvgObject(element.customData.underscoreSvg).name
+            ? normalizeMediaStreamConfig(element.customData.underscoresMediaStream).name
+            : element.customData?.underscoresSvg
+              ? normalizeSvgObject(element.customData.underscoresSvg).name
               : ""),
     );
     requestAnimationFrame(() => editingRef.current?.focus());
@@ -155,18 +155,18 @@ const OutlinerPanel = memo(function OutlinerPanel({
     const ids = Array.isArray(elementOrIds) ? elementOrIds : selectedIdsFor(elementOrIds);
     if (!ids.length || (typeof elementOrIds === "string" && editingId === elementOrIds)) { event.preventDefault(); return; }
     event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("application/x-underscore-elements", JSON.stringify(ids));
+    event.dataTransfer.setData("application/x-underscores-elements", JSON.stringify(ids));
     event.dataTransfer.setData("text/plain", ids.join(","));
     setDraggingIds(ids);
   };
   const startGroupDrag = (event, node) => {
     const ids = elementIdsForNode(node);
     startDrag(event, ids);
-    event.dataTransfer.setData("application/x-underscore-group", node.id);
+    event.dataTransfer.setData("application/x-underscores-group", node.id);
   };
   const draggedIds = event => {
     try {
-      const parsed = JSON.parse(event.dataTransfer.getData("application/x-underscore-elements"));
+      const parsed = JSON.parse(event.dataTransfer.getData("application/x-underscores-elements"));
       if (Array.isArray(parsed) && parsed.length) return parsed;
     } catch { /* fall through */ }
     return draggingIds.length ? draggingIds : event.dataTransfer.getData("text/plain").split(",").filter(Boolean);
@@ -201,7 +201,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
 
   const renderSvgTree = element => {
     if (!expandedSvgIds.has(element.id)) return null;
-    const source = normalizeSvgObject(element.customData.underscoreSvg).source;
+    const source = normalizeSvgObject(element.customData.underscoresSvg).source;
     const svgNodes = analyzeSvgSource(source).nodes;
     const svgPaths = new Map(getEditableSvgPathNodes(source).map(path => [path.node.index, path]));
     return <div className="outliner-svg-tree" role="group" aria-label={`${getElementTypeLabel(element)} document nodes`}>
@@ -234,7 +234,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
   };
 
   const renderElement = (element, depth) => {
-    const isSvg = Boolean(element.customData?.underscoreSvg);
+    const isSvg = Boolean(element.customData?.underscoresSvg);
     const isLivecode = isLivecodeNodeElement(element);
     const dropPlacement = dropTarget?.id === element.id ? dropTarget.placement : null;
     return <div className="outliner-entry" key={element.id}>
@@ -292,13 +292,13 @@ const OutlinerPanel = memo(function OutlinerPanel({
       const isLocked = memberIds.length > 0 && memberIds.every(id => visibleElements.find(element => element.id === id)?.locked);
       return <div className={`outliner-group outliner-${type}`} key={`${node.kind}-${key}`}>
         <div role="treeitem" aria-level={depth + 1} aria-expanded={expanded} aria-selected={isSelected} className={`outliner-group-row ${isSelected ? "selected" : ""} ${draggingIds.some(id => memberIds.includes(id)) ? "dragging" : ""} ${dropTarget?.groupKey === key ? "drop-inside" : ""}`} style={{ "--outliner-depth": depth }} draggable={node.kind === "group"} onDragStart={event => node.kind === "group" && startGroupDrag(event, node)} onDragEnd={clearDrag} onDragOver={event => {
-          const draggedGroupId = event.dataTransfer.getData("application/x-underscore-group");
+          const draggedGroupId = event.dataTransfer.getData("application/x-underscores-group");
           const ids = draggedIds(event);
           if (node.kind !== "group" || (draggedGroupId === node.id) || (!draggedGroupId && !ids.length)) return;
           event.preventDefault(); event.dataTransfer.dropEffect = "move";
           setDropTarget({ groupKey: key, placement: "inside" });
         }} onDrop={event => {
-          const draggedGroupId = event.dataTransfer.getData("application/x-underscore-group");
+          const draggedGroupId = event.dataTransfer.getData("application/x-underscores-group");
           if (node.kind === "group" && draggedGroupId && draggedGroupId !== node.id) {
             event.preventDefault(); onReparentGroup?.(draggedGroupId, node.id);
           } else if (node.kind === "group") {
@@ -337,7 +337,7 @@ const OutlinerPanel = memo(function OutlinerPanel({
   return <div className="outliner-panel">
     <div className="outliner-toolbar">
       <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter scene" aria-label="Filter scene objects" {...infoProps("Filter scene", "Filter Outliner rows by object type, ID, score label, external ID, or score group.")} />
-      <button type="button" className="outliner-name-mode" onClick={() => setNameMode(current => { const next = current === "labels" ? "ids" : "labels"; localStorage.setItem("underscore_outliner_name_mode", next); return next; })} title={`Showing ${nameMode}. Click to show ${nameMode === "labels" ? "IDs" : "labels"}.`}>{nameMode === "labels" ? "Labels" : "IDs"}</button>
+      <button type="button" className="outliner-name-mode" onClick={() => setNameMode(current => { const next = current === "labels" ? "ids" : "labels"; localStorage.setItem("underscores_outliner_name_mode", next); return next; })} title={`Showing ${nameMode}. Click to show ${nameMode === "labels" ? "IDs" : "labels"}.`}>{nameMode === "labels" ? "Labels" : "IDs"}</button>
       <span>{visibleElements.length}</span>
     </div>
     <div className="outliner-list" role="tree" tabIndex={0} aria-label="Scene objects" onKeyDown={handleKeyDown}>

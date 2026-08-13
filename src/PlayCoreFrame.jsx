@@ -149,10 +149,10 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) 
     program.boot?.(bridge); raf = requestAnimationFrame(loop);
     return () => { cancelled = true; scriptRuntimeRef.current?.disposeStreamsOwner?.(element.id); cancelAnimationFrame(raf); subscriptions.forEach(unsubscribe => unsubscribe?.()); host.removeEventListener("pointerdown", down); host.removeEventListener("pointermove", move); host.removeEventListener("pointerup", up); };
   }, [element.id, element.width, element.height, config.source, config.fps, config.reloadNonce, config.parameters, scriptRuntimeRef]);
-  return <pre ref={hostRef} className="underscore-play-core-host" tabIndex={config.allowInteraction ? 0 : -1} style={{ pointerEvents: config.allowInteraction ? "auto" : "none" }} />;
+  return <pre ref={hostRef} className="underscores-play-core-host" tabIndex={config.allowInteraction ? 0 : -1} style={{ pointerEvents: config.allowInteraction ? "auto" : "none" }} />;
 }
 
 export function PlayCoreFrameOverlay({ elements, appState, scriptRuntimeRef }) {
   const zoom = Number(appState?.zoom?.value) || 1, scrollX = Number(appState?.scrollX) || 0, scrollY = Number(appState?.scrollY) || 0;
-  return <div className="underscore-play-core-overlay">{(elements || []).filter(shouldRenderPlayCoreFrame).map(element => <div key={element.id} className="underscore-play-core-overlay-frame" style={{ left: (element.x + scrollX) * zoom, top: (element.y + scrollY) * zoom, width: element.width * zoom, height: element.height * zoom, transform: `rotate(${element.angle || 0}rad)` }}><PlayCoreFrame element={element} config={element.customData.underscorePlayCore} scriptRuntimeRef={scriptRuntimeRef} /></div>)}</div>;
+  return <div className="underscores-play-core-overlay">{(elements || []).filter(shouldRenderPlayCoreFrame).map(element => <div key={element.id} className="underscores-play-core-overlay-frame" style={{ left: (element.x + scrollX) * zoom, top: (element.y + scrollY) * zoom, width: element.width * zoom, height: element.height * zoom, transform: `rotate(${element.angle || 0}rad)` }}><PlayCoreFrame element={element} config={element.customData.underscoresPlayCore} scriptRuntimeRef={scriptRuntimeRef} /></div>)}</div>;
 }

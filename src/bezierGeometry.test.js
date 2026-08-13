@@ -48,7 +48,7 @@ test("Excalidraw host geometry starts at the element origin even when handles ex
   assert.equal(host.bounds.x, 10);
   assert.equal(host.bounds.y, 20);
 
-  const element = { id: "host", ...host.bounds, angle: 0, points: host.points, customData: { underscoreGeometry: host.geometry } };
+  const element = { id: "host", ...host.bounds, angle: 0, points: host.points, customData: { underscoresGeometry: host.geometry } };
   const start = sampleBezierElement(element, 0);
   const end = sampleBezierElement(element, 1);
   assert.ok(Math.hypot(start.point[0] - 10, start.point[1] - 20) < 0.01);
@@ -65,7 +65,7 @@ test("legacy bounding-box-based hosts migrate without moving their canonical cur
     point[1] * legacy.bounds.height,
   ]);
   assert.ok(Math.abs(legacyPoints[0][1]) > 0.000001);
-  const element = { id: "legacy", ...legacy.bounds, angle: Math.PI / 8, points: legacyPoints, customData: { underscoreGeometry: legacy.geometry } };
+  const element = { id: "legacy", ...legacy.bounds, angle: Math.PI / 8, points: legacyPoints, customData: { underscoresGeometry: legacy.geometry } };
   const before = getBezierWorldPath(element, 0.05);
   const migrated = normalizeBezierHostElement(element);
   const after = getBezierWorldPath(migrated, 0.05);
@@ -118,7 +118,7 @@ test("arc-length sampling reaches both ends", () => {
     { x: 10, y: 20, out: [50, -20] },
     { x: 110, y: 80, in: [-20, 40] },
   ]);
-  const element = { id: "curve", ...host.bounds, angle: 0, customData: { underscoreGeometry: host.geometry } };
+  const element = { id: "curve", ...host.bounds, angle: 0, customData: { underscoresGeometry: host.geometry } };
   const start = sampleBezierElement(element, 0);
   const end = sampleBezierElement(element, 1);
   assert.ok(Math.hypot(start.point[0] - 10, start.point[1] - 20) < 0.01);
@@ -138,9 +138,9 @@ test("reframing preserves a rotated curve in world space", () => {
     { x: 0, y: 0, out: [30, -20] },
     { x: 100, y: 80, in: [-20, 30] },
   ]);
-  const element = { id: "rotated", ...host.bounds, angle: Math.PI / 5, points: host.points, customData: { underscoreGeometry: host.geometry } };
+  const element = { id: "rotated", ...host.bounds, angle: Math.PI / 5, points: host.points, customData: { underscoresGeometry: host.geometry } };
   const geometry = { ...host.geometry, anchors: host.geometry.anchors.map((anchor, index) => index === 0 ? { ...anchor, x: anchor.x - 0.25 } : anchor) };
-  const edited = { ...element, customData: { underscoreGeometry: geometry } };
+  const edited = { ...element, customData: { underscoresGeometry: geometry } };
   const before = getBezierWorldPath(edited, 0.05);
   const reframed = reframeBezierElement(edited);
   const after = getBezierWorldPath(reframed, 0.05);

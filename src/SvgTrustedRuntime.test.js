@@ -10,7 +10,7 @@ test("trusted SVG runtime remains sandbox-oriented and network-blocked by defaul
   );
   assert.match(document, /default-src 'none'/);
   assert.match(document, /connect-src 'none'/);
-  assert.match(document, /underscoreSvgRuntime/);
+  assert.match(document, /underscoresSvgRuntime/);
   assert.match(document, /<script>__\.emit/);
   assert.doesNotMatch(document, /allow-same-origin/);
 });

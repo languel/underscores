@@ -11,5 +11,5 @@ export const normalizeMediaMapConfig = value => {
 export const isMediaMapElement = element => Boolean(
   element
   && !element.isDeleted
-  && element.customData?.underscoreMediaMap,
+  && element.customData?.underscoresMediaMap,
 );

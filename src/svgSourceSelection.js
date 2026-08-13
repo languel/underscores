@@ -8,7 +8,7 @@ const clampPosition = (value, length) => Math.max(0, Math.min(
 
 const nodeForReference = (document, selection) => {
   if (selection?.nodeId) {
-    const byStableId = document.nodes.find(node => node.underscoreId === selection.nodeId);
+    const byStableId = document.nodes.find(node => node.underscoresId === selection.nodeId);
     if (byStableId) return byStableId;
   }
   return Number.isInteger(selection?.nodeIndex)
@@ -59,7 +59,7 @@ export const getSvgSelectionAtSourcePosition = (sourceValue, positionValue) => {
 
   const selection = {
     nodeIndex: node.index,
-    ...(node.underscoreId ? { nodeId: node.underscoreId } : {}),
+    ...(node.underscoresId ? { nodeId: node.underscoresId } : {}),
   };
   const dRange = node.attributeRanges?.d
     || Object.values(node.attributeRanges || {}).find(range => range.name?.toLowerCase() === "d");

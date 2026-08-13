@@ -21,5 +21,5 @@ test("patches a matched CSS declaration instead of adding inline style", () => {
   const patched = updateStructuredSvgStyleDeclaration(source, style.index, "#dot", "fill", "blue");
   assert.match(patched, /#dot \{ fill: blue; \}/);
   assert.doesNotMatch(patched, /<circle[^>]+style=/);
-  assert.match(patched, /data-underscore-id=/);
+  assert.match(patched, /data-underscores-id=/);
 });

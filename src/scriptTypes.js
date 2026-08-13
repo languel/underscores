@@ -2,7 +2,7 @@ export const SCRIPT_TYPES = Object.freeze({
   brush: Object.freeze({
     id: "brush",
     label: "Brush / modifier",
-    description: "JavaScript geometry modifier or multi-track brush. Receives points and Underscore globals.",
+    description: "JavaScript geometry modifier or multi-track brush. Receives points and Underscores globals.",
   }),
   iannix: Object.freeze({
     id: "iannix",
@@ -12,9 +12,9 @@ export const SCRIPT_TYPES = Object.freeze({
   p5: Object.freeze({
     id: "p5",
     label: "p5 sketch",
-    description: "Trusted p5.js sketch for interactive canvas frames. Supports classic global setup()/draw() and instance-mode p.setup/p.draw code, with local access to Underscore and the page.",
+    description: "Trusted p5.js sketch for interactive canvas frames. Supports classic global setup()/draw() and instance-mode p.setup/p.draw code, with local access to Underscores and the page.",
   }),
-  play: Object.freeze({ id: "play", label: "Play Core", description: "Trusted play.core-style ASCII program with Underscore parameters, canvas queries, events, and transport access." }),
+  play: Object.freeze({ id: "play", label: "Play Core", description: "Trusted play.core-style ASCII program with Underscores parameters, canvas queries, events, and transport access." }),
   livecode: Object.freeze({
     id: "livecode",
     label: "Livecode Node",

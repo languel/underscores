@@ -1,6 +1,6 @@
 # Media streams
 
-Underscore media inputs are persistent source objects that do not require an Excalidraw host.
+Underscores media inputs are persistent source objects that do not require an Excalidraw host.
 Camera and media sources live in a small local catalog and continue producing a processed output
 while their optional canvas view is absent or hidden. This keeps acquisition and processing
 separate from presentation: panels, canvas views, and downstream processors all consume the same
@@ -37,8 +37,8 @@ on the browser animation clock.
 ## Persisted and transient state
 
 Source configuration is normalized by `src/mediaStream.js` and stored in the local
-`underscore_media_source_catalog_v1` catalog. Optional views and Holistic processors persist in
-`customData.underscoreMediaStream`; Excalidraw continues to own their selection, transforms,
+`underscores_media_source_catalog_v1` catalog. Optional views and Holistic processors persist in
+`customData.underscoresMediaStream`; Excalidraw continues to own their selection, transforms,
 opacity, grouping, history, and scene exchange.
 
 Creating a Holistic processor or changing its display/processing settings also writes the current
@@ -54,7 +54,7 @@ media kind persist, but the browser file handle does not, so choose it again aft
 The **Media Input** source stack uses source-kind icons instead of textual type badges. Drag a
 source icon to the canvas to create a named `preview` rectangle at the drop point. Its dimensions
 use the source's current processed output size when available, falling back to the configured
-resolution. The preview remains an ordinary selectable Underscore object and appears in the
+resolution. The preview remains an ordinary selectable Underscores object and appears in the
 Outliner using the source name. Existing rectangles or frames can still become previews through
 the context menu or `/preview` command.
 
@@ -93,11 +93,11 @@ toggle remaps the overlay, snapshots, MediaPipe stream features, mappings, and B
 together; it does not alter the source image pixels.
 
 Every result updates the derived object's live canvas and emits `media.holistic.frame` on the
-Underscore event bus with normalized pose, left-hand, right-hand, and face landmarks.
+Underscores event bus with normalized pose, left-hand, right-hand, and face landmarks.
 **Snapshot landmarks** converts the currently enabled pose, hand, and Face Mesh display into native
-Underscore points, connection lines, and landmark IDs according to the active view toggles. Pose
+Underscores points, connection lines, and landmark IDs according to the active view toggles. Pose
 points below the live 0.2 visibility threshold are excluded. Each snapshot point is tagged with
-`customData.underscoreMediaLandmark` and a canonical `customData.underscoreLabel`, such as
+`customData.underscoresMediaLandmark` and a canonical `customData.underscoresLabel`, such as
 `pose.left_pinky`, `right_hand.thumb_tip`, or `face.33`. Every snapshot is one native
 Excalidraw group, so its points can be selected and moved as one output.
 
@@ -361,7 +361,7 @@ Missing streams, landmarks, and target objects are reported in place.
 Actors run independently of score transport while armed. Disarming immediately releases gates and
 ends active strokes. Initial bindings are:
 
-- `drive-position`: maps a semantic point or region centroid to the actual selected Underscore
+- `drive-position`: maps a semantic point or region centroid to the actual selected Underscores
   target, with target anchor/offset, confidence threshold, about 40 ms time-based smoothing, and a
   120 ms missing-signal grace period. Runtime updates move the real selectable host rather than
   leaving stale geometry behind; its acquired and final poses are therefore already baked.

@@ -41,7 +41,7 @@ const loadHolistic = () => {
     const script = existing || document.createElement("script");
     script.src = HOLISTIC_SCRIPT_URL;
     script.async = true;
-    script.dataset.underscoreMediapipe = "holistic";
+    script.dataset.underscoresMediapipe = "holistic";
     script.onload = () => typeof window.Holistic === "function"
       ? resolve(window.Holistic)
       : reject(new Error("MediaPipe Holistic did not expose its browser runtime."));
@@ -57,7 +57,7 @@ const loadHolistic = () => {
 
 const publishStatus = detail => {
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("underscore:media-stream-status", { detail }));
+    window.dispatchEvent(new CustomEvent("underscores:media-stream-status", { detail }));
   }
 };
 
@@ -320,7 +320,7 @@ function ProcessedMediaSource({ source }) {
     void media.play().catch(() => {});
   }, [source.media.playbackRate, source.media.playing, url]);
 
-  return <div className="underscore-media-runtime-source" data-media-runtime-source-id={source.id}>
+  return <div className="underscores-media-runtime-source" data-media-runtime-source-id={source.id}>
     <canvas ref={outputRef} />
     {isGif && <canvas ref={gifCanvasRef} data-media-gif-decoder={source.id} />}
     {isCamera
@@ -396,11 +396,11 @@ function CanvasMediaSource({ source, captureCanvasSource, captureRevision }) {
     };
   }, [captureCanvasSource, captureRevision, source.canvas.elementId, source.canvas.live, source.enabled, source.id, source.output.fps, source.output.maxDimension]);
 
-  return <div className="underscore-media-runtime-source" data-media-runtime-source-id={source.id}><canvas ref={outputRef} /></div>;
+  return <div className="underscores-media-runtime-source" data-media-runtime-source-id={source.id}><canvas ref={outputRef} /></div>;
 }
 
 export function MediaSourceRuntimeLayer({ sources, captureCanvasSource, captureRevision = 0 }) {
-  return <div className="underscore-media-runtime-layer" aria-hidden="true">
+  return <div className="underscores-media-runtime-layer" aria-hidden="true">
     {(sources || []).filter(source => source.enabled).map(source => source.kind === MEDIA_STREAM_KINDS.CANVAS
       ? <CanvasMediaSource key={source.id} source={source} captureCanvasSource={captureCanvasSource} captureRevision={captureRevision} />
       : <ProcessedMediaSource key={source.id} source={source} />)}
@@ -436,7 +436,7 @@ export function MediaRuntimePreview({ sourceId, className = "" }) {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [sourceId]);
-  return <canvas ref={canvasRef} className={`underscore-media-surface ${className}`.trim()} data-media-preview-source-id={sourceId} />;
+  return <canvas ref={canvasRef} className={`underscores-media-surface ${className}`.trim()} data-media-preview-source-id={sourceId} />;
 }
 
 const drawLandmarks = (context, landmarks, connections, width, height, color, pointRadius = 2, options = {}) => {
@@ -722,12 +722,12 @@ function HolisticSource({ element, config, sourceAvailable, segmentationRequeste
   }, [displaySignature]);
 
   if (!config.holistic.sourceId) {
-    return <div className="underscore-media-empty">Choose an input stream</div>;
+    return <div className="underscores-media-empty">Choose an input stream</div>;
   }
   if (!sourceAvailable) {
-    return <div className="underscore-media-empty">Input stream is missing</div>;
+    return <div className="underscores-media-empty">Input stream is missing</div>;
   }
-  return <canvas ref={canvasRef} className="underscore-media-surface" />;
+  return <canvas ref={canvasRef} className="underscores-media-surface" />;
 }
 
 function UnicursalSource({ element, config, sourceAvailable, onPathFrame }) {
@@ -877,13 +877,13 @@ function UnicursalSource({ element, config, sourceAvailable, onPathFrame }) {
     };
   }, [element.id]);
 
-  if (!config.unicursal.sourceId) return <div className="underscore-media-empty">Choose a Holistic source</div>;
-  if (!sourceAvailable) return <div className="underscore-media-empty">Holistic source is missing</div>;
-  return <canvas ref={canvasRef} className="underscore-media-surface" />;
+  if (!config.unicursal.sourceId) return <div className="underscores-media-empty">Choose a Holistic source</div>;
+  if (!sourceAvailable) return <div className="underscores-media-empty">Holistic source is missing</div>;
+  return <canvas ref={canvasRef} className="underscores-media-surface" />;
 }
 
 function PreviewChrome({ config, sources, onPatch, onFocusSource }) {
-  return <div className="underscore-media-preview-chrome" onPointerDown={event => event.stopPropagation()}>
+  return <div className="underscores-media-preview-chrome" onPointerDown={event => event.stopPropagation()}>
     <select
       value={config.sourceId || ""}
       aria-label="Preview input source"
@@ -917,7 +917,7 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
   const selectedElementIds = appState?.selectedElementIds || {};
   const objects = (elements || []).filter(element => {
     if (!isMediaStreamElement(element)) return false;
-    const config = normalizeMediaStreamConfig(element.customData.underscoreMediaStream);
+    const config = normalizeMediaStreamConfig(element.customData.underscoresMediaStream);
     if (config.kind === MEDIA_STREAM_KINDS.PREVIEW) return shouldRenderMediaStream(element);
     return [MEDIA_STREAM_KINDS.HOLISTIC, MEDIA_STREAM_KINDS.UNICURSAL].includes(config.kind)
       && (shouldRenderMediaStream(element) || shouldProcessMediaStream(element));
@@ -925,13 +925,13 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
   const sourceIds = useMemo(() => new Set(sources.map(source => source.id)), [sources]);
   const holisticIds = useMemo(() => new Set((elements || []).filter(element => {
     if (!isMediaStreamElement(element)) return false;
-    return normalizeMediaStreamConfig(element.customData.underscoreMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC;
+    return normalizeMediaStreamConfig(element.customData.underscoresMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC;
   }).map(element => element.id)), [elements]);
   const segmentationSourceIds = useMemo(() => new Set([
     ...getMediaSegmentationConsumerIds(),
     ...(elements || []).flatMap(element => {
     if (!isMediaStreamElement(element)) return [];
-    const candidate = normalizeMediaStreamConfig(element.customData.underscoreMediaStream);
+    const candidate = normalizeMediaStreamConfig(element.customData.underscoresMediaStream);
     return candidate.kind === MEDIA_STREAM_KINDS.UNICURSAL && candidate.enabled && candidate.unicursal.silhouette.mode !== "envelope"
       ? [candidate.unicursal.sourceId]
       : [];
@@ -939,9 +939,9 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
   ].filter(Boolean)), [elements, segmentationDemandRevision]);
 
   if (!objects.length) return null;
-  return <div className="underscore-media-stream-overlay" aria-hidden="true">
+  return <div className="underscores-media-stream-overlay" aria-hidden="true">
     {objects.map((element, layerIndex) => {
-      const config = normalizeMediaStreamConfig(element.customData.underscoreMediaStream);
+      const config = normalizeMediaStreamConfig(element.customData.underscoresMediaStream);
       const visible = shouldRenderMediaStream(element);
       const selected = Boolean(selectedElementIds[element.id]);
       const elementOpacity = Number(element.opacity);
@@ -957,18 +957,18 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
         transform: `rotate(${Number(element.angle) || 0}rad)`,
         transformOrigin: "center",
       };
-      return <div key={element.id} className={`underscore-media-stream-frame is-${config.kind} ${selected && config.kind === MEDIA_STREAM_KINDS.PREVIEW ? "selected" : ""}`} data-underscore-media-stream-id={element.id} style={style}>
+      return <div key={element.id} className={`underscores-media-stream-frame is-${config.kind} ${selected && config.kind === MEDIA_STREAM_KINDS.PREVIEW ? "selected" : ""}`} data-underscores-media-stream-id={element.id} style={style}>
         {selected && config.kind === MEDIA_STREAM_KINDS.PREVIEW && <PreviewChrome
           config={config}
           sources={sources}
           onPatch={patch => onPatch?.(element.id, patch)}
           onFocusSource={onFocusSource}
         />}
-        <div className="underscore-media-stream-content">
+        <div className="underscores-media-stream-content">
           {config.kind === MEDIA_STREAM_KINDS.PREVIEW
             ? config.sourceId && sourceIds.has(config.sourceId)
               ? <MediaRuntimePreview sourceId={config.sourceId} />
-              : <div className="underscore-media-empty">Input stream is missing</div>
+              : <div className="underscores-media-empty">Input stream is missing</div>
             : config.kind === MEDIA_STREAM_KINDS.UNICURSAL
               ? <UnicursalSource
                   element={element}

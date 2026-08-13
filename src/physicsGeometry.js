@@ -72,7 +72,7 @@ const getPhysicsCurveSource = element => {
   return geometry
     ? {
       ...element,
-      customData: { ...(element.customData || {}), underscoreGeometry: geometry },
+      customData: { ...(element.customData || {}), underscoresGeometry: geometry },
     }
     : null;
 };
@@ -87,7 +87,7 @@ export const getPhysicsElementLocalCenter = element => {
   if (!element) return [0, 0];
   const curveSource = getPhysicsCurveSource(element);
   if (curveSource) {
-    const path = flattenBezierGeometry(curveSource.customData.underscoreGeometry, 0.35);
+    const path = flattenBezierGeometry(curveSource.customData.underscoresGeometry, 0.35);
     const normalizedCenter = localBoundsCenter(path);
     if (normalizedCenter) {
       return [
@@ -437,7 +437,7 @@ const smoothAnchors = (anchors, amount, iterations, closed) => {
 
 export const applyBezierSculptOperator = (element, operator, options = {}) => {
   if (!hasCubicBezierGeometry(element)) return element;
-  const geometry = normalizeBezierGeometry(element.customData.underscoreGeometry);
+  const geometry = normalizeBezierGeometry(element.customData.underscoresGeometry);
   let anchors = geometry.anchors.map(anchor => ({ ...anchor, in: anchor.in && [...anchor.in], out: anchor.out && [...anchor.out] }));
   if (operator === "smooth") {
     anchors = smoothAnchors(anchors, finite(options.amount, 0.35), finite(options.iterations, 1), geometry.closed);
@@ -475,7 +475,7 @@ export const applyBezierSculptOperator = (element, operator, options = {}) => {
 
 export const applyAnchorAttractorFrame = (element, targets = [], deltaSeconds = 1 / 60) => {
   if (!hasCubicBezierGeometry(element) || !targets.length) return element;
-  const geometry = normalizeBezierGeometry(element.customData.underscoreGeometry);
+  const geometry = normalizeBezierGeometry(element.customData.underscoresGeometry);
   const targetById = new Map(targets.map(target => [target.anchorId, target]));
   const anchors = geometry.anchors.map(anchor => {
     const target = targetById.get(anchor.id);

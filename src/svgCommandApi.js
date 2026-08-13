@@ -56,7 +56,7 @@ export const executeSvgStructuredCommand = (stateValue, command, args = {}) => {
   }
   const prepared = prepareSvgForStructuredEditing(state.source);
   if (prepared.error) throw new Error(prepared.error);
-  const node = args.nodeId ? prepared.document.nodeByUnderscoreId.get(args.nodeId) : null;
+  const node = args.nodeId ? prepared.document.nodeByUnderscoresId.get(args.nodeId) : null;
 
   if (command === "svg.node.patch") {
     if (!node) throw new Error("SVG node was not found.");
@@ -71,7 +71,7 @@ export const executeSvgStructuredCommand = (stateValue, command, args = {}) => {
     return result(state, patchSvgNodeAttribute(prepared.source, args.nodeId, "d", args.d), [args.nodeId]);
   }
   if (command === "svg.node.create") {
-    const source = insertSvgNode(prepared.source, args.parentId || prepared.document.root.underscoreId, args.markup, args.beforeId);
+    const source = insertSvgNode(prepared.source, args.parentId || prepared.document.root.underscoresId, args.markup, args.beforeId);
     return result(state, source);
   }
   if (command === "svg.node.delete") {
@@ -110,7 +110,7 @@ export const executeSvgStructuredCommand = (stateValue, command, args = {}) => {
   }
   if (command === "svg.animation.upsert") {
     if (args.animationNodeId) {
-      const animationNode = prepared.document.nodeByUnderscoreId.get(args.animationNodeId);
+      const animationNode = prepared.document.nodeByUnderscoresId.get(args.animationNodeId);
       if (!animationNode || !["animate", "set", "animatetransform", "animatemotion"].includes(animationNode.localName.toLowerCase())) {
         throw new Error("SVG animation node was not found.");
       }
@@ -120,7 +120,7 @@ export const executeSvgStructuredCommand = (stateValue, command, args = {}) => {
       });
       return result(state, source, [args.animationNodeId]);
     }
-    const parentId = args.parentId || prepared.document.root.underscoreId;
+    const parentId = args.parentId || prepared.document.root.underscoresId;
     const tag = ["animate", "set", "animateTransform", "animateMotion"].includes(args.tag)
       ? args.tag
       : "animate";
@@ -130,7 +130,7 @@ export const executeSvgStructuredCommand = (stateValue, command, args = {}) => {
     return result(state, insertSvgNode(prepared.source, parentId, `<${tag}${attributes}/>`));
   }
   if (command === "svg.animation.delete") {
-    const animationNode = prepared.document.nodeByUnderscoreId.get(args.animationNodeId);
+    const animationNode = prepared.document.nodeByUnderscoresId.get(args.animationNodeId);
     if (!animationNode || !["animate", "set", "animatetransform", "animatemotion"].includes(animationNode.localName.toLowerCase())) {
       throw new Error("SVG animation node was not found.");
     }

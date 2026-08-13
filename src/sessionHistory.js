@@ -1,6 +1,6 @@
-export const UNDERSCORE_SESSION_VERSION = 2;
-export const UNDERSCORE_SESSION_TYPE = "underscore-session";
-export const UNDERSCORE_MACRO_TYPE = "underscore-macro";
+export const UNDERSCORES_SESSION_VERSION = 2;
+export const UNDERSCORES_SESSION_TYPE = "underscores-session";
+export const UNDERSCORES_MACRO_TYPE = "underscores-macro";
 
 const cloneValue = value => {
   if (value === undefined) return undefined;
@@ -37,9 +37,9 @@ export const normalizeSessionAction = (action, sequence = 0) => {
   };
 };
 
-export const createUnderscoreSession = ({ baseline = null, clock = {}, includePresentation = true, name = "Untitled session", seed } = {}) => ({
-  type: UNDERSCORE_SESSION_TYPE,
-  version: UNDERSCORE_SESSION_VERSION,
+export const createUnderscoresSession = ({ baseline = null, clock = {}, includePresentation = true, name = "Untitled session", seed } = {}) => ({
+  type: UNDERSCORES_SESSION_TYPE,
+  version: UNDERSCORES_SESSION_VERSION,
   id: createId(),
   name,
   createdAt: new Date().toISOString(),
@@ -56,19 +56,19 @@ export const createUnderscoreSession = ({ baseline = null, clock = {}, includePr
   actions: [],
 });
 
-export const parseUnderscoreSession = payload => {
+export const parseUnderscoresSession = payload => {
   const value = typeof payload === "string" ? JSON.parse(payload) : cloneValue(payload);
-  if (!value || value.type !== UNDERSCORE_SESSION_TYPE || !Array.isArray(value.actions)) {
-    throw new Error("This is not a Underscore session document.");
+  if (!value || value.type !== UNDERSCORES_SESSION_TYPE || !Array.isArray(value.actions)) {
+    throw new Error("This is not a Underscores session document.");
   }
-  if (value.version > UNDERSCORE_SESSION_VERSION) {
-    throw new Error(`Session version ${value.version} is newer than this Underscore build.`);
+  if (value.version > UNDERSCORES_SESSION_VERSION) {
+    throw new Error(`Session version ${value.version} is newer than this Underscores build.`);
   }
-  const migrated = createUnderscoreSession(value);
+  const migrated = createUnderscoresSession(value);
   return {
     ...migrated,
     ...value,
-    version: UNDERSCORE_SESSION_VERSION,
+    version: UNDERSCORES_SESSION_VERSION,
     clock: { ...migrated.clock, ...(value.clock || {}), sampleRate: migrated.clock.sampleRate },
     actions: value.actions.map(normalizeSessionAction).sort((a, b) => a.at - b.at || a.sequence - b.sequence),
   };
@@ -113,7 +113,7 @@ const getSessionDuration = session => (session?.actions || []).reduce(
   0,
 );
 
-export class UnderscoreSessionController {
+export class UnderscoresSessionController {
   constructor({
     now = () => performance.now(),
     requestFrame = callback => requestAnimationFrame(callback),
@@ -126,7 +126,7 @@ export class UnderscoreSessionController {
     this.cancelFrame = cancelFrame;
     this.restoreBaseline = restoreBaseline;
     this.applyAction = applyAction;
-    this.session = createUnderscoreSession();
+    this.session = createUnderscoresSession();
     this.status = "idle";
     this.playhead = 0;
     this.playbackRate = 1;
@@ -174,7 +174,7 @@ export class UnderscoreSessionController {
         clock: { ...this.session.clock, ...cloneValue(clock) },
       };
     } else {
-      this.session = createUnderscoreSession({ baseline, clock, includePresentation, name });
+      this.session = createUnderscoresSession({ baseline, clock, includePresentation, name });
     }
     this.status = "recording";
     this.playhead = resumeCursor;
@@ -189,7 +189,7 @@ export class UnderscoreSessionController {
 
   clear({ baseline = null, clock = {}, includePresentation = true, name } = {}) {
     this.stopPlayback({ reset: true });
-    this.session = createUnderscoreSession({ baseline, clock, includePresentation, name });
+    this.session = createUnderscoresSession({ baseline, clock, includePresentation, name });
     this.status = "idle";
     this.playhead = 0;
     this.recordCursor = 0;
@@ -282,7 +282,7 @@ export class UnderscoreSessionController {
 
   load(session) {
     this.stopPlayback({ reset: true });
-    this.session = parseUnderscoreSession(session);
+    this.session = parseUnderscoresSession(session);
     this.status = "idle";
     this.playhead = 0;
     this.notify("session.loaded");
@@ -492,8 +492,8 @@ const translateAction = (action, dx, dy) => {
   return next;
 };
 
-export const createUnderscoreMacro = (session, { actionIds = null, start = null, end = null, name = "Untitled macro" } = {}) => {
-  const source = parseUnderscoreSession(session);
+export const createUnderscoresMacro = (session, { actionIds = null, start = null, end = null, name = "Untitled macro" } = {}) => {
+  const source = parseUnderscoresSession(session);
   const hasStart = start !== null && start !== undefined && start !== "" && Number.isFinite(Number(start));
   const hasEnd = end !== null && end !== undefined && end !== "" && Number.isFinite(Number(end));
   const rangeStart = hasStart ? Number(start) : -Infinity;
@@ -517,7 +517,7 @@ export const createUnderscoreMacro = (session, { actionIds = null, start = null,
     y: Math.min(...points.map(point => point.y)),
   } : { x: 0, y: 0 };
   return {
-    type: UNDERSCORE_MACRO_TYPE,
+    type: UNDERSCORES_MACRO_TYPE,
     version: 1,
     id: createId(),
     name,
@@ -527,9 +527,9 @@ export const createUnderscoreMacro = (session, { actionIds = null, start = null,
   };
 };
 
-export const instantiateUnderscoreMacro = (macro, { mode = "relative", anchor = null } = {}) => {
-  if (!macro || macro.type !== UNDERSCORE_MACRO_TYPE || !Array.isArray(macro.actions)) {
-    throw new Error("This is not a Underscore macro document.");
+export const instantiateUnderscoresMacro = (macro, { mode = "relative", anchor = null } = {}) => {
+  if (!macro || macro.type !== UNDERSCORES_MACRO_TYPE || !Array.isArray(macro.actions)) {
+    throw new Error("This is not a Underscores macro document.");
   }
   const idMap = new Map([...collectElementIds(macro.actions)].map(id => [id, createId()]));
   const remapped = macro.actions.map((action, index) => normalizeSessionAction(visit(cloneValue(action), value => {
@@ -542,8 +542,8 @@ export const instantiateUnderscoreMacro = (macro, { mode = "relative", anchor = 
   return remapped.map(action => translateAction(action, dx, dy));
 };
 
-export class UnderscoreLibraryStore {
-  constructor({ databaseName = "underscore-history-v1" } = {}) {
+export class UnderscoresLibraryStore {
+  constructor({ databaseName = "underscores-history-v1" } = {}) {
     this.databaseName = databaseName;
     this.memory = new Map();
   }

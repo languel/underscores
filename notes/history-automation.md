@@ -2,12 +2,12 @@
 
 Last updated: 2026-07-15
 
-Underscore records semantic intent and world-coordinate input rather than screen pixels. The first implementation is deliberately separate from Excalidraw undo, but both observe the same scene and command transactions so they can converge later.
+Underscores records semantic intent and world-coordinate input rather than screen pixels. The first implementation is deliberately separate from Excalidraw undo, but both observe the same scene and command transactions so they can converge later.
 
 ## Runtime layers
 
 - `src/commandSystem.js` owns the stable, versioned command registry, event bus, and normalized input bus. Menus, shortcuts, slash commands, the public API, AI prompts, panels, History, and transport controls share these command IDs.
-- `src/sessionHistory.js` owns `underscore-session` documents, playback, editable steps, IndexedDB persistence, and `underscore-macro` sequences.
+- `src/sessionHistory.js` owns `underscores-session` documents, playback, editable steps, IndexedDB persistence, and `underscores-macro` sequences.
 - `src/automation.js` owns auto-key extraction and playback interpolation.
 - `src/HistoryPanel.jsx` is the dockable editor for recording, playback, action timing/state/JSON, time-range macro creation, and MIDI/presentation/pointer playback policies.
 - `src/TransportTimeline.jsx` renders session-action and object-automation lanes under the existing score transport.
@@ -20,7 +20,7 @@ The JSON envelope is versioned and begins with:
 
 ```js
 {
-  type: "underscore-session",
+  type: "underscores-session",
   version: 1,
   seed,
   clock: { fps, tempo, signature },
@@ -66,7 +66,7 @@ Useful slash commands include:
 - `/autokey`
 - `/command transport.seek {"seconds":2.5}` for any stable registry ID
 
-The browser API is exposed after `underscore:ready`:
+The browser API is exposed after `underscores:ready`:
 
 ```js
 window.__.commands.list()
@@ -78,7 +78,7 @@ window.__.inputs.registerAdapter(adapter)
 window.__.events.subscribe("input.*", listener)
 ```
 
-The complete namespaces are `commands`, `history`, `macros`, `inputs`, and `events`, all under `apiVersion: 1`. Every registry entry is reachable through the generic `/command` form as well as the API. The AI system prompt receives its command catalog from that same live registry and can emit `<underscore-command>` tags, avoiding a parallel hand-maintained tool list. For drawing and animation, models should prefer `scene.create.objects`, `scene.patch.objects`, `script.brush.apply`, and `automation.keyframes.set` over raw Excalidraw internals. Credentials and command fields marked `record: never` are excluded. AI prompts can be recorded, but unrelated clipboard contents and API secrets are not captured.
+The complete namespaces are `commands`, `history`, `macros`, `inputs`, and `events`, all under `apiVersion: 1`. Every registry entry is reachable through the generic `/command` form as well as the API. The AI system prompt receives its command catalog from that same live registry and can emit `<underscores-command>` tags, avoiding a parallel hand-maintained tool list. For drawing and animation, models should prefer `scene.create.objects`, `scene.patch.objects`, `script.brush.apply`, and `automation.keyframes.set` over raw Excalidraw internals. Credentials and command fields marked `record: never` are excluded. AI prompts can be recorded, but unrelated clipboard contents and API secrets are not captured.
 
 ## IanniX trusted-script compatibility
 

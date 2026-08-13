@@ -12,10 +12,10 @@ export default function MediaActorOverlay({ appState, traces = [], strokes = [],
     return `${index ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`;
   }).join(" ");
   if (!traces.length && !strokes.length && !markers.length && !channelDebug.length) return null;
-  return <svg className="underscore-media-actor-overlay" width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+  return <svg className="underscores-media-actor-overlay" width={width} height={height} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
     {traces.map(trace => trace.points.length > 1 && <path
       key={trace.id}
-      className="underscore-media-actor-trace"
+      className="underscores-media-actor-trace"
       d={pathFor(trace.points)}
       style={{ stroke: trace.color || "#52d5ff" }}
     />)}
@@ -23,7 +23,7 @@ export default function MediaActorOverlay({ appState, traces = [], strokes = [],
       const paths = Array.isArray(stroke.paths) && stroke.paths.length ? stroke.paths : [stroke.points];
       return paths.filter(points => points?.length > 1).map((points, index) => <path
         key={`${stroke.id}-${index}`}
-        className="underscore-media-actor-stroke"
+        className="underscores-media-actor-stroke"
         d={pathFor(points)}
         style={{
           stroke: stroke.color || "#52d5ff",
@@ -34,20 +34,20 @@ export default function MediaActorOverlay({ appState, traces = [], strokes = [],
     })}
     {markers.map(marker => <circle
       key={marker.id}
-      className="underscore-media-actor-marker"
+      className="underscores-media-actor-marker"
       cx={(marker.point.x + scrollX) * zoom}
       cy={(marker.point.y + scrollY) * zoom}
       r={6}
       style={{ stroke: marker.color || "#52d5ff" }}
     />)}
     {channelDebug.map(debug => {
-      const color = debug.gate?.open ? "var(--underscore-accent-color, #52d5ff)" : "var(--color-secondary, #8b929e)";
+      const color = debug.gate?.open ? "var(--underscores-accent-color, #52d5ff)" : "var(--color-secondary, #8b929e)";
       const label = [debug.name, debug.showGate ? (debug.gate?.open ? "gate open" : "gate closed") : "", debug.showValues && debug.point ? `${debug.point.x.toFixed(2)}, ${debug.point.y.toFixed(2)}` : ""].filter(Boolean).join(" · ");
       if (!debug.point) return null;
-      return <g key={debug.id} className={`underscore-brush-channel-debug ${debug.gate?.open ? "is-open" : "is-closed"}`} style={{ color }}>
-        {debug.showTrail && debug.trail?.length > 1 && <path className="underscore-brush-channel-debug-trail" d={pathFor(debug.trail)} />}
-        <circle className="underscore-brush-channel-debug-ring" cx={(debug.point.x + scrollX) * zoom} cy={(debug.point.y + scrollY) * zoom} r={8} />
-        {label && <text className="underscore-brush-channel-debug-label" x={(debug.point.x + scrollX) * zoom + 12} y={(debug.point.y + scrollY) * zoom - 10}>{label}</text>}
+      return <g key={debug.id} className={`underscores-brush-channel-debug ${debug.gate?.open ? "is-open" : "is-closed"}`} style={{ color }}>
+        {debug.showTrail && debug.trail?.length > 1 && <path className="underscores-brush-channel-debug-trail" d={pathFor(debug.trail)} />}
+        <circle className="underscores-brush-channel-debug-ring" cx={(debug.point.x + scrollX) * zoom} cy={(debug.point.y + scrollY) * zoom} r={8} />
+        {label && <text className="underscores-brush-channel-debug-label" x={(debug.point.x + scrollX) * zoom + 12} y={(debug.point.y + scrollY) * zoom - 10}>{label}</text>}
       </g>;
     })}
   </svg>;

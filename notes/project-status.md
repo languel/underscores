@@ -4,7 +4,7 @@ Last updated: 2026-08-12
 
 ## Release checkpoint
 
-Underscore is currently a local, browser-based score and canvas environment built around
+Underscores is currently a local, browser-based score and canvas environment built around
 Excalidraw-native objects, first-class SVG documents, IanniX score behavior, Livecode Nodes, and a
 shared scene hierarchy. This checkpoint is ready for the release/compliance review that precedes
 any public Strudel deployment.
@@ -32,7 +32,7 @@ The MediaMime integration is also active: camera and URL/file media inputs can r
 panel-only or gain optional canvas views, and MediaPipe Holistic processors are transformable scene
 objects. Crop and mirror are applied once to the shared processed output used by every view and
 processor; animated GIF frames now advance through that output. Browser-owned handles and landmark
-frames stay transient; Holistic can hide its source feed, emits normalized Underscore events, and
+frames stay transient; Holistic can hide its source feed, emits normalized Underscores events, and
 snapshots live pose/hand landmarks as native scene geometry. A shared semantic ontology now powers
 the `/mapping` feature browser, `__.streams`, persistent drive/freedraw bindings, selected-feature
 highlights, and capped traces without serializing raw observations. See
@@ -63,15 +63,15 @@ samples, pixels, or device/socket state. See
   shared CodeMirror editor.
 - Keyboard ownership for focused code: selection, editing, navigation, completion, clipboard,
   undo/redo, and Run do not leak into canvas shortcuts.
-- Code palettes: Underscore adaptive, Transparent adaptive, Mono adaptive, VS Code adaptive, and
+- Code palettes: Underscores adaptive, Transparent adaptive, Mono adaptive, VS Code adaptive, and
   Teaching. Board presets include paired VS Code Light and VS Code Dark workspace skins.
 - SVG source-as-canonical editing, source/canvas selection parity, editable path anchors and
-  handles, subpath extraction, Underscore metadata, SVG node roles, and declarative CSS/SMIL/Looom
+  handles, subpath extraction, Underscores metadata, SVG node roles, and declarative CSS/SMIL/Looom
   timing support.
 - Native scene groups and score groups in the Outliner: selectable group rows, group visibility,
   locking, deletion, drag/reparenting, and batch actions with Option-click.
 - Play Core ASCII frames with offline module imports, original examples, `@param` controls, and the
-  shared `__` script bridge; `underscore` remains a compatibility alias.
+  shared `__` script bridge; `underscores` remains a compatibility alias.
 - First-class Livecode Nodes: self-contained transparent scene hosts with one canonical source,
   shared Script-panel/canvas editing, node typography, and concurrent p5, Play Core, Strudel,
   Markdown, LaTeX, HTML, and Orca adapters. p5 is the polished Livecode path. Markdown is
@@ -83,8 +83,8 @@ samples, pixels, or device/socket state. See
   transparent background instead of painting a rectangular dark frame.
 - Native Strudel shared scheduling now includes linked score-phase synchronization, beat-quantized
   draft updates, XEN and General MIDI soundfont scope, code-only overlays with event-synchronized
-  CSS, inline underscore visualizers, and default-on node-frame public visualizers using the shared
-  draw loop. Native Orca grids with Underscore transport/Mixer integration still need a dedicated
+  CSS, inline underscores visualizers, and default-on node-frame public visualizers using the shared
+  draw loop. Native Orca grids with Underscores transport/Mixer integration still need a dedicated
   follow-up stabilization pass. HTML remains sandboxed and needs its own browser acceptance pass.
   Strudel public deployment remains intentionally blocked pending AGPL compliance; see
   [Livecode licensing](livecode-licensing.md).

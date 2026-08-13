@@ -11,7 +11,7 @@ import {
   updateRelationshipItem,
 } from "./relationshipGraph.js";
 import { PhysicsMappingRuntime } from "./mappingRuntime.js";
-import { createPhysicsWorker } from "@underscore/physics-worker-factory";
+import { createPhysicsWorker } from "@underscores/physics-worker-factory";
 
 const clone = value => value === undefined ? undefined : structuredClone(value);
 

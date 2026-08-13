@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createUnderscoreGeometryRegistry } from "./geometryProviderRegistry.js";
+import { createUnderscoresGeometryRegistry } from "./geometryProviderRegistry.js";
 import { prepareSvgForStructuredEditing, parseSvgDocument } from "./svgDocumentModel.js";
-import { svgNodeObjectRef } from "./underscoreObjectRef.js";
+import { svgNodeObjectRef } from "./underscoresObjectRef.js";
 import { normalizeSvgObject } from "./svgObject.js";
 
 test("resolves SVG subpaths through the same object-reference registry as native elements", () => {
@@ -18,10 +18,10 @@ test("resolves SVG subpaths through the same object-reference registry as native
     width: 200,
     height: 100,
     angle: 0,
-    customData: { underscoreSvg: normalizeSvgObject({ source: prepared.source, revision: 1 }) },
+    customData: { underscoresSvg: normalizeSvgObject({ source: prepared.source, revision: 1 }) },
   };
-  const registry = createUnderscoreGeometryRegistry();
-  const geometry = registry.resolve(svgNodeObjectRef(element.id, path.underscoreId, 0), { elements: [element] });
+  const registry = createUnderscoresGeometryRegistry();
+  const geometry = registry.resolve(svgNodeObjectRef(element.id, path.underscoresId, 0), { elements: [element] });
   assert.equal(geometry.paths.length, 1);
   // Default xMidYMid meet centers the square viewBox horizontally in the
   // 2:1 host before applying the nested SVG transform.

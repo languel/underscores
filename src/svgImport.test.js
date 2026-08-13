@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { attachUnderscoreSvgMetadata, cleanSvgMarkup, extractUnderscoreSvgMetadata, extractSvgMarkup, getSvgDrawableBounds, offsetSvgDrawableSpecs, parseSvgPath, parseSvgToDrawableSpecs } from "./svgImport.js";
+import { attachUnderscoresSvgMetadata, cleanSvgMarkup, extractUnderscoresSvgMetadata, extractSvgMarkup, getSvgDrawableBounds, offsetSvgDrawableSpecs, parseSvgPath, parseSvgToDrawableSpecs } from "./svgImport.js";
 
 test("imports native SVG primitives with inherited styles", () => {
   const specs = parseSvgToDrawableSpecs(`
@@ -30,7 +30,7 @@ test("imports SVG path curves as editable sampled paths", () => {
   assert.equal(specs[0].strokeColor, "red");
 });
 
-test("uses the Underscore foreground for unstyled SVG and preserves solid fills", () => {
+test("uses the Underscores foreground for unstyled SVG and preserves solid fills", () => {
   const specs = parseSvgToDrawableSpecs("<svg><rect x=\"0\" y=\"0\" width=\"20\" height=\"10\" fill=\"tomato\" /></svg>");
   assert.equal(specs.length, 1);
   assert.equal(specs[0].strokeColor, null);
@@ -90,12 +90,12 @@ test("removes exported font baggage only when copied SVG contains no text", () =
   assert.match(withText, /<text\b/i);
 });
 
-test("preserves Underscore elements in SVG metadata for exact editable round trips", () => {
+test("preserves Underscores elements in SVG metadata for exact editable round trips", () => {
   const elements = [{ id: "freehand-1", type: "freedraw", x: 10, y: 20, points: [[0, 0], [8, 3]], pressures: [0.1, 0.9], simulatePressure: true }];
-  const svg = attachUnderscoreSvgMetadata("<svg><path d=\"M0 0 L8 3\" /></svg>", elements);
-  assert.match(svg, /<metadata\b[^>]*underscore-editable-elements/i);
-  assert.deepEqual(extractUnderscoreSvgMetadata(svg), { version: 1, elements });
-  assert.equal(extractUnderscoreSvgMetadata("<svg><path d=\"M0 0 L8 3\" /></svg>"), null);
+  const svg = attachUnderscoresSvgMetadata("<svg><path d=\"M0 0 L8 3\" /></svg>", elements);
+  assert.match(svg, /<metadata\b[^>]*underscores-editable-elements/i);
+  assert.deepEqual(extractUnderscoresSvgMetadata(svg), { version: 1, elements });
+  assert.equal(extractUnderscoresSvgMetadata("<svg><path d=\"M0 0 L8 3\" /></svg>"), null);
 });
 
 test("accepts real tldraw, Excalidraw, and Boxy SVG path exports", () => {

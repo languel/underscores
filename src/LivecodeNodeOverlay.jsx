@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import UnderscoreCodeEditor from "./UnderscoreCodeEditor.jsx";
+import UnderscoresCodeEditor from "./UnderscoresCodeEditor.jsx";
 import P5Frame from "./P5Frame.jsx";
 import { PlayCoreFrame } from "./PlayCoreFrame.jsx";
 import { getLivecodeRuntimeConfig, isLivecodeNodeRunnable, validateLivecodeNode } from "./livecodeAdapters.js";
@@ -87,7 +87,7 @@ export function LivecodeNodeEditor({
     ariaLabel={ariaLabel || "Orca grid editor"}
   /></div>;
   return (
-    <UnderscoreCodeEditor
+    <UnderscoresCodeEditor
       value={node.source}
       onChange={source => onPatch?.({ source })}
       onBlur={onBlur}
@@ -363,13 +363,13 @@ export function LivecodeNodeOverlay({
       time: Math.max(0, Number(transport?.time) || 0),
     });
   }, [transport?.playing, transport?.bpm, transport?.time]);
-  return <div className={`underscore-livecode-overlay ${layer}`} aria-label={layer === "underlay" ? "Background Livecode canvas nodes" : "Livecode canvas nodes"}>{elements.filter(element => {
+  return <div className={`underscores-livecode-overlay ${layer}`} aria-label={layer === "underlay" ? "Background Livecode canvas nodes" : "Livecode canvas nodes"}>{elements.filter(element => {
     if (!shouldRenderLivecodeNode(element)) return false;
-    const candidate = normalizeLivecodeNode(element.customData.underscoreLivecode);
+    const candidate = normalizeLivecodeNode(element.customData.underscoresLivecode);
     const underlay = candidate.kind === "shader" && normalizeShaderCompositionSettings(candidate.runtime.settings).compositeMode === "underlay";
     return layer === "underlay" ? underlay : !underlay;
   }).map(element => {
-    const node = normalizeLivecodeNode(element.customData.underscoreLivecode);
+    const node = normalizeLivecodeNode(element.customData.underscoresLivecode);
     const composition = normalizeShaderCompositionSettings(node.runtime.settings);
     const selected = Boolean(camera.selectedElementIds[element.id]);
     const editing = activeEditorId === element.id;
@@ -377,7 +377,7 @@ export function LivecodeNodeOverlay({
     const handleCommandOutputPointer = event => {
       if ((!event?.metaKey && !event?.ctrlKey) || event.button !== 0) return;
       if (event.target?.closest?.(".livecode-node-chrome")) return;
-      if (event.target?.closest?.("textarea, .underscore-code-editor, .cm-editor")) return;
+      if (event.target?.closest?.("textarea, .underscores-code-editor, .cm-editor")) return;
       event.preventDefault();
       event.stopPropagation();
       if (node.view !== "preview") onPatch?.(element.id, { view: "preview" }, { commitToHistory: true });
@@ -385,13 +385,13 @@ export function LivecodeNodeOverlay({
     const handleCommandOutputClick = event => {
       if (!event?.metaKey && !event?.ctrlKey) return;
       if (event.target?.closest?.(".livecode-node-chrome")) return;
-      if (event.target?.closest?.("textarea, .underscore-code-editor, .cm-editor")) return;
+      if (event.target?.closest?.("textarea, .underscores-code-editor, .cm-editor")) return;
       event.preventDefault();
       event.stopPropagation();
     };
     return <div
       key={element.id}
-      className={`underscore-livecode-node ${selected ? "selected" : ""} ${editing ? "editing" : ""} ${node.typography.glyphOnlyOverlay ? "glyph-only-overlay" : ""} ${node.view}`}
+      className={`underscores-livecode-node ${selected ? "selected" : ""} ${editing ? "editing" : ""} ${node.typography.glyphOnlyOverlay ? "glyph-only-overlay" : ""} ${node.view}`}
       data-livecode-node-id={element.id}
       style={{
         left: (element.x + camera.scrollX) * camera.zoom,

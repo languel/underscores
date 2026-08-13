@@ -2,8 +2,8 @@ import * as cssTree from "css-tree";
 import { SaxesParser } from "saxes";
 
 export const SVG_DOCUMENT_SCHEMA_VERSION = 2;
-export const SVG_NODE_ID_ATTRIBUTE = "data-underscore-id";
-export const SVG_METADATA_ATTRIBUTE = "data-underscore";
+export const SVG_NODE_ID_ATTRIBUTE = "data-underscores-id";
+export const SVG_METADATA_ATTRIBUTE = "data-underscores";
 export const SVG_METADATA_VERSION = "v1";
 
 const ADDRESSABLE_SVG_ELEMENTS = new Set([
@@ -183,7 +183,7 @@ export const parseSvgDocument = sourceValue => {
         attributeNamespaces,
         attributeRanges: scanOpenTagAttributes(source, pendingOpenStart, parser.position),
         id: attributes.id || "",
-        underscoreId: attributes[SVG_NODE_ID_ATTRIBUTE] || "",
+        underscoresId: attributes[SVG_NODE_ID_ATTRIBUTE] || "",
         label: `${tag.name}${attributes.id ? `#${attributes.id}` : ""}`,
         start: pendingOpenStart,
         openEnd: parser.position,
@@ -227,13 +227,13 @@ export const parseSvgDocument = sourceValue => {
   const valid = !parserError
     && root?.localName?.toLowerCase() === "svg"
     && Number.isInteger(root.end);
-  const nodeByUnderscoreId = new Map(nodes
-    .filter(node => node.underscoreId)
-    .map(node => [node.underscoreId, node]));
-  const duplicateUnderscoreIds = nodes
-    .filter(node => node.underscoreId)
-    .filter((node, index, values) => values.findIndex(candidate => candidate.underscoreId === node.underscoreId) !== index)
-    .map(node => node.underscoreId);
+  const nodeByUnderscoresId = new Map(nodes
+    .filter(node => node.underscoresId)
+    .map(node => [node.underscoresId, node]));
+  const duplicateUnderscoresIds = nodes
+    .filter(node => node.underscoresId)
+    .filter((node, index, values) => values.findIndex(candidate => candidate.underscoresId === node.underscoresId) !== index)
+    .map(node => node.underscoresId);
   const styles = nodes
     .filter(node => node.localName.toLowerCase() === "style" && !node.selfClosing)
     .map(node => cssModelForNode(node, source));
@@ -247,8 +247,8 @@ export const parseSvgDocument = sourceValue => {
     rootIndex: root?.index ?? null,
     root,
     styles,
-    nodeByUnderscoreId,
-    duplicateUnderscoreIds: [...new Set(duplicateUnderscoreIds)],
+    nodeByUnderscoresId,
+    duplicateUnderscoresIds: [...new Set(duplicateUnderscoresIds)],
   };
 };
 
@@ -283,8 +283,8 @@ const resolveNode = (document, nodeReference) => {
   if (Number.isInteger(nodeReference)) return document.nodes[nodeReference] || null;
   const nodeId = typeof nodeReference === "string"
     ? nodeReference
-    : nodeReference?.nodeId || nodeReference?.underscoreId;
-  return nodeId ? document.nodeByUnderscoreId.get(nodeId) || null : null;
+    : nodeReference?.nodeId || nodeReference?.underscoresId;
+  return nodeId ? document.nodeByUnderscoresId.get(nodeId) || null : null;
 };
 
 export const patchSvgNodeAttribute = (sourceValue, nodeReference, nameValue, value) => {
@@ -391,15 +391,15 @@ export const reparentSvgNode = (sourceValue, nodeReference, parentReference, bef
     ancestor = Number.isInteger(ancestor.parentIndex) ? document.nodes[ancestor.parentIndex] : null;
   }
   const markup = source.slice(node.start, node.end);
-  const withoutNode = deleteSvgNode(source, node.underscoreId || node.index);
+  const withoutNode = deleteSvgNode(source, node.underscoresId || node.index);
   const nextDocument = parseSvgDocument(withoutNode);
-  const nextParent = parent.underscoreId
-    ? nextDocument.nodeByUnderscoreId.get(parent.underscoreId)
+  const nextParent = parent.underscoresId
+    ? nextDocument.nodeByUnderscoresId.get(parent.underscoresId)
     : nextDocument.nodes.find(candidate => candidate.tag === parent.tag && candidate.start <= parent.start);
   const beforeId = beforeReference === null
     ? null
-    : (resolveNode(document, beforeReference)?.underscoreId || null);
-  return insertSvgNode(withoutNode, nextParent?.underscoreId || nextParent?.index, markup, beforeId);
+    : (resolveNode(document, beforeReference)?.underscoresId || null);
+  return insertSvgNode(withoutNode, nextParent?.underscoresId || nextParent?.index, markup, beforeId);
 };
 
 const metadataNodeFromDocument = document => document.nodes.find(node => (
@@ -409,7 +409,7 @@ const metadataNodeFromDocument = document => document.nodes.find(node => (
 
 const emptySvgMetadata = () => ({ version: 1, nodes: {} });
 
-export const readSvgUnderscoreMetadata = sourceValue => {
+export const readSvgUnderscoresMetadata = sourceValue => {
   const document = parseSvgDocument(sourceValue);
   if (!document.valid) return { ...emptySvgMetadata(), valid: false, error: document.error };
   const node = metadataNodeFromDocument(document);
@@ -427,13 +427,13 @@ export const readSvgUnderscoreMetadata = sourceValue => {
     return {
       ...emptySvgMetadata(),
       valid: false,
-      error: error?.message || "Underscore SVG metadata is invalid JSON.",
+      error: error?.message || "Underscores SVG metadata is invalid JSON.",
       nodeIndex: node.index,
     };
   }
 };
 
-export const writeSvgUnderscoreMetadata = (sourceValue, metadataValue) => {
+export const writeSvgUnderscoresMetadata = (sourceValue, metadataValue) => {
   const source = String(sourceValue || "");
   const document = parseSvgDocument(source);
   if (!document.valid) throw new Error(document.error || "Cannot edit an invalid SVG document.");
@@ -478,12 +478,12 @@ export const ensureSvgNodeIdentities = (
   const source = String(sourceValue || "");
   const document = parseSvgDocument(source);
   if (!document.valid) return { source, changed: false, assigned: [], error: document.error };
-  const used = new Set(document.nodes.map(node => node.underscoreId).filter(Boolean));
+  const used = new Set(document.nodes.map(node => node.underscoresId).filter(Boolean));
   const assigned = [];
   const patches = [];
 
   document.nodes.forEach(node => {
-    if (!node.addressable || (!includeRoot && node.index === document.rootIndex) || node.underscoreId) return;
+    if (!node.addressable || (!includeRoot && node.index === document.rootIndex) || node.underscoresId) return;
     let nodeId = String(createId(node) || "").trim();
     while (!nodeId || used.has(nodeId)) nodeId = String(createId(node) || "").trim();
     used.add(nodeId);
@@ -514,15 +514,15 @@ export const prepareSvgForStructuredEditing = (
 ) => {
   const identified = ensureSvgNodeIdentities(sourceValue, { createId });
   if (identified.error) return identified;
-  const metadata = readSvgUnderscoreMetadata(identified.source);
+  const metadata = readSvgUnderscoresMetadata(identified.source);
   const source = metadata.nodeIndex === null
-    ? writeSvgUnderscoreMetadata(identified.source, metadata)
+    ? writeSvgUnderscoresMetadata(identified.source, metadata)
     : identified.source;
   return {
     source,
     changed: source !== String(sourceValue || ""),
     assigned: identified.assigned,
-    metadata: readSvgUnderscoreMetadata(source),
+    metadata: readSvgUnderscoresMetadata(source),
     document: parseSvgDocument(source),
     error: "",
   };
@@ -531,18 +531,18 @@ export const prepareSvgForStructuredEditing = (
 export const updateSvgNodeData = (sourceValue, nodeId, updater) => {
   const prepared = prepareSvgForStructuredEditing(sourceValue);
   if (prepared.error) throw new Error(prepared.error);
-  if (!prepared.document.nodeByUnderscoreId.has(nodeId)) throw new Error("SVG node was not found.");
+  if (!prepared.document.nodeByUnderscoresId.has(nodeId)) throw new Error("SVG node was not found.");
   const metadata = prepared.metadata;
   const current = structuredClone(metadata.nodes[nodeId] || {});
   const nextValue = typeof updater === "function" ? updater(current) : updater;
   const nodes = { ...metadata.nodes };
   if (nextValue === null || nextValue === undefined) delete nodes[nodeId];
   else nodes[nodeId] = structuredClone(nextValue);
-  return writeSvgUnderscoreMetadata(prepared.source, { version: 1, nodes });
+  return writeSvgUnderscoresMetadata(prepared.source, { version: 1, nodes });
 };
 
 export const buildSvgMetadataMirror = (sourceValue, sourceRevision = 0) => {
-  const metadata = readSvgUnderscoreMetadata(sourceValue);
+  const metadata = readSvgUnderscoresMetadata(sourceValue);
   return {
     version: 1,
     sourceRevision: Math.max(0, Number(sourceRevision) || 0),

@@ -1,4 +1,4 @@
-export const SHORTCUT_STORAGE_KEY = "underscore_shortcuts_v1";
+export const SHORTCUT_STORAGE_KEY = "underscores_shortcuts_v1";
 
 export const SHORTCUT_ACTIONS = Object.freeze([
   { id: "tool-select", label: "Selection tool", defaultBinding: "KeyV" },

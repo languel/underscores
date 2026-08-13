@@ -75,7 +75,7 @@ export const getIannixCurveStartAngle = curveObject => {
     const outgoing = controls?.c1 || [0, 0, 0];
     const hasOutgoing = Math.hypot(number(outgoing[0]), number(outgoing[1])) > 0.000001;
     const dx = hasOutgoing ? number(outgoing[0]) : number(points[index]?.[0]) - number(points[index - 1]?.[0]);
-    // IanniX is Y-up while the Underscore canvas is Y-down.
+    // IanniX is Y-up while the Underscores canvas is Y-down.
     const dy = -(hasOutgoing ? number(outgoing[1]) : number(points[index]?.[1]) - number(points[index - 1]?.[1]));
     if (Math.hypot(dx, dy) > 0.000001) return Math.atan2(dy, dx) || 0;
   }
@@ -423,7 +423,7 @@ export const buildIannixObjectModel = operations => {
   const colorOperations = [];
   const ensure = externalId => {
     // IanniX's native default is effectively a hairline. That disappears too
-    // easily against Underscore's dark canvas, especially for AI-authored
+    // easily against Underscores's dark canvas, especially for AI-authored
     // scores that do not explicitly style every curve. Keep explicit
     // `setWidth` values untouched, but give unstyled model objects a readable
     // two-pixel default.
@@ -556,7 +556,7 @@ export const serializeBezierElementToIannixCommands = (element, options = {}) =>
   const id = String(options.externalId ?? element.customData?.iannixImport?.externalId ?? element.id).replace(/\s+/g, "_");
   const scale = Math.max(0.000001, Math.abs(number(options.scale, 1)));
   const anchor = options.anchor || [0, 0];
-  const geometry = element.customData.underscoreGeometry;
+  const geometry = element.customData.underscoresGeometry;
   const controls = getBezierWorldAnchors(element);
   const entries = geometry.closed ? [...controls, controls[0]] : controls;
   const format = value => Number(value.toFixed(8)).toString();

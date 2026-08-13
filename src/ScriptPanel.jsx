@@ -16,7 +16,7 @@ export default function ScriptPanel({ type, onTypeChange, editorFontSize, childr
         className="script-panel-type"
         {...infoProps(
           "Script type",
-          `${definition.description} Selects the script language, catalog, execution environment, and available actions. The Info panel switches to this type’s quick reference; p5 and Play Core include the complete shared Underscore API reference.`,
+          `${definition.description} Selects the script language, catalog, execution environment, and available actions. The Info panel switches to this type’s quick reference; p5 and Play Core include the complete shared Underscores API reference.`,
         )}
       >
         <span>Script type</span>

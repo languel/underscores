@@ -1,22 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  underscoreObjectRefKey,
+  underscoresObjectRefKey,
   elementObjectRef,
   migrateLegacyCurveReference,
-  normalizeUnderscoreObjectRef,
-  sameUnderscoreObjectRef,
+  normalizeUnderscoresObjectRef,
+  sameUnderscoresObjectRef,
   svgNodeObjectRef,
-} from "./underscoreObjectRef.js";
+} from "./underscoresObjectRef.js";
 
 test("normalizes native and SVG node references", () => {
-  assert.deepEqual(normalizeUnderscoreObjectRef("curve-a"), elementObjectRef("curve-a"));
+  assert.deepEqual(normalizeUnderscoresObjectRef("curve-a"), elementObjectRef("curve-a"));
   assert.deepEqual(
-    normalizeUnderscoreObjectRef({ kind: "svg-node", elementId: "svg-a", nodeId: "path-a", subpathId: 2 }),
+    normalizeUnderscoresObjectRef({ kind: "svg-node", elementId: "svg-a", nodeId: "path-a", subpathId: 2 }),
     svgNodeObjectRef("svg-a", "path-a", "2"),
   );
-  assert.equal(underscoreObjectRefKey(svgNodeObjectRef("svg-a", "path-a", "2")), "svg-node:svg-a:path-a:2");
-  assert.equal(sameUnderscoreObjectRef("curve-a", elementObjectRef("curve-a")), true);
+  assert.equal(underscoresObjectRefKey(svgNodeObjectRef("svg-a", "path-a", "2")), "svg-node:svg-a:path-a:2");
+  assert.equal(sameUnderscoresObjectRef("curve-a", elementObjectRef("curve-a")), true);
 });
 
 test("migrates curveId while retaining backward-compatible serialization", () => {

@@ -1,6 +1,6 @@
 // Built-in, offline helpers compatible with the public utility modules from
 // https://github.com/ertdfgcvb/play.core (Apache-2.0). They are deliberately
-// plain values rather than network imports so a saved Underscore scene and the
+// plain values rather than network imports so a saved Underscores scene and the
 // single-file build carry the same program dependencies everywhere.
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);

@@ -1,4 +1,4 @@
-import { normalizeUnderscoreObjectRef } from "./underscoreObjectRef.js";
+import { normalizeUnderscoresObjectRef } from "./underscoresObjectRef.js";
 import { getEditableSvgPathNodes, getSvgPathWorldPoints } from "./svgPathGeometry.js";
 import { isSvgObjectElement, normalizeSvgObject } from "./svgObject.js";
 
@@ -25,14 +25,14 @@ export class GeometryProviderRegistry {
   }
 
   resolve(reference, context = {}) {
-    const ref = normalizeUnderscoreObjectRef(reference);
+    const ref = normalizeUnderscoresObjectRef(reference);
     if (!ref) return null;
     const provider = this.providers.get(ref.kind);
     return provider ? provider(ref, context) : null;
   }
 }
 
-export const createUnderscoreGeometryRegistry = ({ getElementPaths } = {}) => {
+export const createUnderscoresGeometryRegistry = ({ getElementPaths } = {}) => {
   const registry = new GeometryProviderRegistry();
   registry.register("element", (ref, context) => {
     const element = (context.elements || []).find(candidate => candidate.id === ref.elementId && !candidate.isDeleted);
@@ -43,9 +43,9 @@ export const createUnderscoreGeometryRegistry = ({ getElementPaths } = {}) => {
   registry.register("svg-node", (ref, context) => {
     const element = (context.elements || []).find(candidate => candidate.id === ref.elementId && !candidate.isDeleted);
     if (!isSvgObjectElement(element)) return null;
-    const svg = normalizeSvgObject(element.customData.underscoreSvg);
+    const svg = normalizeSvgObject(element.customData.underscoresSvg);
     const path = getEditableSvgPathNodes(svg.source).find(candidate => (
-      candidate.node.underscoreId === ref.nodeId || candidate.node.id === ref.nodeId
+      candidate.node.underscoresId === ref.nodeId || candidate.node.id === ref.nodeId
     ));
     if (!path) return null;
     const subpaths = ref.subpathId === undefined

@@ -9,13 +9,13 @@ import { expandIndexedLabelTemplate } from "./iannixBulkEdit.js";
 import NumberInputController from "./NumberInputController.jsx";
 import TimeValueInput from "./TimeValueInput.jsx";
 import InspectorSection from "./InspectorSection.jsx";
-import { attachUnderscoreExchangeMetadata, getSelectionExchangeElements, parseUnderscoreExchange, remapSelectionForImport } from "./sceneExchange.js";
+import { attachUnderscoresExchangeMetadata, getSelectionExchangeElements, parseUnderscoresExchange, remapSelectionForImport } from "./sceneExchange.js";
 import { loadLastScene, saveLastScene } from "./sceneSessionStorage.js";
-import { attachUnderscoreSvgMetadata, cleanSvgMarkup, extractUnderscoreSvgMetadata, extractSvgMarkup, getSvgDrawableBounds, offsetSvgDrawableSpecs, parseSvgToDrawableSpecs } from "./svgImport.js";
-import { UNDERSCORE_PANELS, getUnderscorePanel, getNaturalPanelPlacement } from "./panelRegistry.js";
+import { attachUnderscoresSvgMetadata, cleanSvgMarkup, extractUnderscoresSvgMetadata, extractSvgMarkup, getSvgDrawableBounds, offsetSvgDrawableSpecs, parseSvgToDrawableSpecs } from "./svgImport.js";
+import { UNDERSCORES_PANELS, getUnderscoresPanel, getNaturalPanelPlacement } from "./panelRegistry.js";
 import { getDockTarget, getOpenPanelsForPlacement, normalizeDockSizes, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
 import { advanceMidiClockReceiver, advanceTransportPlaybackTime, createMidiClockReceiverState, formatTimelinePosition, MIDI_REALTIME, midiClockIntervalMs, normalizeTimeSignature, parseTimelinePosition, secondsToFrame, songPositionToSeconds } from "./transport.js";
-import UnderscorePanel from "./UnderscorePanel.jsx";
+import UnderscoresPanel from "./UnderscoresPanel.jsx";
 import TransportTimeline from "./TransportTimeline.jsx";
 import HistoryPanel from "./HistoryPanel.jsx";
 import EventConsole from "./EventConsole.jsx";
@@ -28,12 +28,12 @@ import OutlinerPanel, { getOutlinerElementLabel } from "./OutlinerPanel.jsx";
 import { applyPresentationVisibility, canFitPresentationBounds, isElementVisibleInPresentation } from "./presentationVisibility.js";
 import { groupSceneElements, moveSceneElementsToGroup, moveSceneElementsToGroupParent, moveSceneGroupToParent, renameSceneGroup, reorderSceneElements, ungroupSceneElements } from "./sceneLayers.js";
 import IannixDataPanel from "./IannixDataPanel.jsx";
-import { UnderscoreCommandRegistry, UnderscoreEventBus, UnderscoreInputBus, parseGenericCommandSlash } from "./commandSystem.js";
-import { buildAIAutomationGuide, isAICommandAllowed, parseUnderscoreCommandTags } from "./aiTooling.js";
+import { UnderscoresCommandRegistry, UnderscoresEventBus, UnderscoresInputBus, parseGenericCommandSlash } from "./commandSystem.js";
+import { buildAIAutomationGuide, isAICommandAllowed, parseUnderscoresCommandTags } from "./aiTooling.js";
 import { autoKeyElement, AUTO_KEY_PATHS, collectAutomationKeys, evaluateElementAutomation, interpolationForPath, upsertAutomationKey } from "./automation.js";
 import { formatAIScriptSource, validateAIBrushSource, validateAIIannixSource } from "./scriptAuthoring.js";
 import { getIannixCommandAtSourcePosition } from "./iannixCommandReference.js";
-import { createUnderscoreMacro, UNDERSCORE_MACRO_TYPE, UnderscoreLibraryStore, UnderscoreSessionController, instantiateUnderscoreMacro, mergeSceneMutation, parseUnderscoreSession } from "./sessionHistory.js";
+import { createUnderscoresMacro, UNDERSCORES_MACRO_TYPE, UnderscoresLibraryStore, UnderscoresSessionController, instantiateUnderscoresMacro, mergeSceneMutation, parseUnderscoresSession } from "./sessionHistory.js";
 import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCursorLoopMode, getIannixCurveStartAngle, serializeBezierElementToIannixCommands, tokenizeIannixCommand } from "./iannixScript.js";
 import { bezierWorldPointToLocal, createBezierGeometryFromElement, createBezierHostGeometry, findNearestBezierLocation, getBezierWorldAnchors, getBezierWorldPath, hasCubicBezierGeometry, normalizeBezierGeometry, normalizeBezierHostElement, reframeBezierElement, removeBezierAnchor, setBezierAnchorMode, setElementBezierGeometry, splitBezierSegment, updateBezierAnchor } from "./bezierGeometry.js";
 import { getScriptParameterValues, parseScriptParameters } from "./scriptParameters.js";
@@ -78,7 +78,7 @@ import {
 import { createExpressiveSynthDemoScore } from "./expressiveSynthDemo.js";
 import ShortcutsPanel from "./ShortcutsPanel.jsx";
 import ScriptPanel from "./ScriptPanel.jsx";
-import UnderscoreCodeEditor from "./UnderscoreCodeEditor.jsx";
+import UnderscoresCodeEditor from "./UnderscoresCodeEditor.jsx";
 import { sourceDiagnostic, validateJavascriptEditorSource } from "./scriptEditorDiagnostics.js";
 import { normalizeScriptType } from "./scriptTypes.js";
 import { P5FrameOverlay } from "./P5Frame.jsx";
@@ -105,7 +105,7 @@ import { createMediaSemanticFrame, FACE_DISPLAY_GROUPS, getHolisticDisplayLayers
 import { createMediaBindingRuntimeState, mediaBindingRuntimeHasExpired, mediaDrivenElementPosition, resolveMediaBindingGate, resolveMediaBindingSignal, shouldAppendMediaStrokePoint } from "./mediaActorRuntime.js";
 import { canUseAsObjectBoundsTarget, createMediaBinding, createMediaSource, createMediaStreamConfig, isMediaStreamElement, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig, readHolisticSettingsPreset, writeHolisticSettingsPreset } from "./mediaStream.js";
 import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, requestMediaSegmentation, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
-import { createUnifiedStreamsApi, UnderscoreStreamRegistry } from "./streamRuntime.js";
+import { createUnifiedStreamsApi, UnderscoresStreamRegistry } from "./streamRuntime.js";
 import { generateUnicursalPath, transformUnicursalFrame, UNICURSAL_PRESETS } from "./unicursalPath.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
 import { addRelationshipItem, createDefaultPhysicsSystem, createEmptyRelationshipGraph, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, removeRelationshipBindingsForElements, removeRelationshipItem, updateRelationshipItem, withPhysicsCustomData } from "./relationshipGraph.js";
@@ -157,9 +157,9 @@ import {
   getSvgSourceRangeForSelection,
 } from "./svgSourceSelection.js";
 import { getSvgNodeTransform, invertSvgTransform } from "./svgTransform.js";
-import { createModifierTrackExportElements, downloadCanvasAsPng, exportUnderscorePng, findMediaStreamCanvasForElement } from "./p5Export.js";
+import { createModifierTrackExportElements, downloadCanvasAsPng, exportUnderscoresPng, findMediaStreamCanvasForElement } from "./p5Export.js";
 import PerformanceOverlay from "./PerformanceOverlay.jsx";
-import { underscorePerformanceMonitor } from "./performanceMonitor.js";
+import { underscoresPerformanceMonitor } from "./performanceMonitor.js";
 import { createBakedImageElement, createBakedImageFile, createCanvasSnapshotImageElement, replaceSceneElementsWithBake } from "./sceneBake.js";
 import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
@@ -207,7 +207,7 @@ const DEFAULT_INFO_VIEW = Object.freeze({
 const COLLAPSED_DOCK_EDGE_SIZE = 5;
 const BOTTOM_DOCK_COLLAPSE_THRESHOLD = 72;
 const BOTTOM_DOCK_MIN_HEIGHT = 112;
-const AI_MODEL_FAVORITES_STORAGE_KEY = "underscore_ai_model_favorites";
+const AI_MODEL_FAVORITES_STORAGE_KEY = "underscores_ai_model_favorites";
 const PRATT_ENV_CREDENTIAL_AVAILABLE = import.meta.env.VITE_PRATT_LLM_API_KEY_AVAILABLE === true
   || import.meta.env.VITE_PRATT_LLM_API_KEY_AVAILABLE === "true";
 const hasAIEnvironmentCredential = settings => aiProviderEnvironmentCredentialApplies(
@@ -249,12 +249,12 @@ function ModelCatalogFilter({ modelCount, resetKey, onFilterChange }) {
 }
 
 // System Prompt guiding the local LLM on drawing tools
-const SYSTEM_PROMPT = `You are "Underscore", an autonomous, high-performance drawing assistant.
-You drive a collaborative sketchboard (Excalidraw) programmatically through registered Underscore commands. The current action catalog is appended to your context.
+const SYSTEM_PROMPT = `You are "Underscores", an autonomous, high-performance drawing assistant.
+You drive a collaborative sketchboard (Excalidraw) programmatically through registered Underscores commands. The current action catalog is appended to your context.
 
 CRITICAL: You MUST write your text explanation FIRST, then output any tool XML tags.
 
-Use high-level <underscore-command> tags for all new work. Legacy drawing XML tags remain available only for compatibility:
+Use high-level <underscores-command> tags for all new work. Legacy drawing XML tags remain available only for compatibility:
 1. Draw Rectangle:
    <rect x="[coord]" y="[coord]" w="[width]" h="[height]" color="[hex_color]" fill="[hex_color/transparent]"/>
 2. Draw Circle/Ellipse:
@@ -267,8 +267,8 @@ Use high-level <underscore-command> tags for all new work. Legacy drawing XML ta
    <erase id="[element_id]"/>
 6. Clear Entire Canvas:
    <clear/>
-7. Execute a registered Underscore command:
-   <underscore-command id="[stable_command_id]">{"argument":"value"}</underscore-command>
+7. Execute a registered Underscores command:
+   <underscores-command id="[stable_command_id]">{"argument":"value"}</underscores-command>
 
 Guidelines:
 - All shapes should be sized logically (typical screen coords range from 0 to 1000).
@@ -280,8 +280,8 @@ Guidelines:
 
 const INITIAL_GREETING = "Hello! I am your drawing assistant powered by local AI. You can write prompts like \"draw a flow chart\", \"sketch a house\", or \"clear the canvas\" and I will execute the drawing tools programmatically!";
 
-const DRAWING_ROUNDNESS_STORAGE_KEY = "underscore_drawing_roundness";
-const CUSTOM_BRUSH_ROUNDNESS_STORAGE_KEY = "underscore_custom_brush_roundness";
+const DRAWING_ROUNDNESS_STORAGE_KEY = "underscores_drawing_roundness";
+const CUSTOM_BRUSH_ROUNDNESS_STORAGE_KEY = "underscores_custom_brush_roundness";
 const readDrawingRoundness = () => {
   try {
     const stored = localStorage.getItem(DRAWING_ROUNDNESS_STORAGE_KEY)
@@ -609,8 +609,8 @@ const INTERFACE_THEME_PRESETS = {
       grid: { color: "#c9cdd2", opacity: 25 },
     },
   },
-  underscoreLight: {
-    label: "Underscore Light",
+  underscoresLight: {
+    label: "Underscores Light",
     theme: "light",
     accent: { color: "#6b7173", opacity: 100 },
     highlight: { color: "#8f9698", opacity: 10 },
@@ -624,8 +624,8 @@ const INTERFACE_THEME_PRESETS = {
       grid: { color: "#2a2e34", opacity: 32 },
     },
   },
-  underscoreDark: {
-    label: "Underscore Dark",
+  underscoresDark: {
+    label: "Underscores Dark",
     theme: "dark",
     accent: { color: "#6b7173", opacity: 100 },
     highlight: { color: "#8f8f8f", opacity: 10 },
@@ -717,10 +717,10 @@ const INTERFACE_THEME_PRESETS = {
 };
 
 const DEFAULT_INTERFACE_THEME_PRESET = "monoDark";
-const CUSTOM_THEME_STORAGE_KEY = "underscore_custom_themes_v1";
-const PHYSICS_DEBUG_STORAGE_KEY = "underscore_physics_debug_v1";
-const PHYSICS_TIME_SCRUB_STORAGE_KEY = "underscore_physics_time_scrub_v1";
-const INTERNAL_SYNTH_RESTORE_STORAGE_KEY = "underscore_internal_synth_restore";
+const CUSTOM_THEME_STORAGE_KEY = "underscores_custom_themes_v1";
+const PHYSICS_DEBUG_STORAGE_KEY = "underscores_physics_debug_v1";
+const PHYSICS_TIME_SCRUB_STORAGE_KEY = "underscores_physics_time_scrub_v1";
+const INTERNAL_SYNTH_RESTORE_STORAGE_KEY = "underscores_internal_synth_restore";
 const DEFAULT_PHYSICS_DEBUG_COLORS = Object.freeze({
   bodies: "#518effe6",
   colliders: "#61d5b1f2",
@@ -775,8 +775,8 @@ const normalizeCustomThemes = value => {
         color: isCssColor(preset.highlight?.color) ? String(preset.highlight.color).trim() : "#8f9698",
         opacity: Math.min(100, Math.max(0, Number(preset.highlight?.opacity) || 0)),
       },
-      foreground: normalizeThemeColorToken(preset.foreground, INTERFACE_THEME_PRESETS[preset.theme === "light" ? "underscoreLight" : "underscoreDark"].foreground),
-      muted: normalizeThemeColorToken(preset.muted, INTERFACE_THEME_PRESETS[preset.theme === "light" ? "underscoreLight" : "underscoreDark"].muted),
+      foreground: normalizeThemeColorToken(preset.foreground, INTERFACE_THEME_PRESETS[preset.theme === "light" ? "underscoresLight" : "underscoresDark"].foreground),
+      muted: normalizeThemeColorToken(preset.muted, INTERFACE_THEME_PRESETS[preset.theme === "light" ? "underscoresLight" : "underscoresDark"].muted),
       surfaces: normalizeInterfaceTheme(preset.surfaces, preset.theme),
       roleTheme: normalizeRoleTheme(preset.roleTheme),
     }]];
@@ -784,7 +784,7 @@ const normalizeCustomThemes = value => {
 };
 
 const normalizeInterfaceTheme = (value, theme = "dark") => {
-  const fallback = INTERFACE_THEME_PRESETS[theme === "light" ? "underscoreLight" : "underscoreDark"].surfaces;
+  const fallback = INTERFACE_THEME_PRESETS[theme === "light" ? "underscoresLight" : "underscoresDark"].surfaces;
   const source = value && typeof value === "object" ? value : {};
   return Object.fromEntries(["panel", "input", "timeline", "canvas", "grid"].map(key => {
     const entry = source[key] && typeof source[key] === "object" ? source[key] : {};
@@ -2238,7 +2238,7 @@ const repairLegacyAxleEndpointsForScene = (graphValue, elements = []) => {
 };
 
 function App() {
-  console.log("Underscore version: 1.8.0 (rebuilt at 2026-07-08T22:25:00)");
+  console.log("Underscores version: 1.8.0 (rebuilt at 2026-07-08T22:25:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const runtimeCallbacksRef = useRef({
@@ -2261,37 +2261,37 @@ function App() {
     globalGridReset: () => {},
     gridQuantizeSelection: () => {},
   });
-  const underscoreRuntimeRef = useRef(null);
-  if (!underscoreRuntimeRef.current) {
-    const eventBus = new UnderscoreEventBus();
-    const inputBus = new UnderscoreInputBus({ eventBus });
-    const commandRegistry = new UnderscoreCommandRegistry({ eventBus });
-    const historyController = new UnderscoreSessionController({
+  const underscoresRuntimeRef = useRef(null);
+  if (!underscoresRuntimeRef.current) {
+    const eventBus = new UnderscoresEventBus();
+    const inputBus = new UnderscoresInputBus({ eventBus });
+    const commandRegistry = new UnderscoresCommandRegistry({ eventBus });
+    const historyController = new UnderscoresSessionController({
       restoreBaseline: baseline => runtimeCallbacksRef.current.restoreBaseline(baseline),
       applyAction: (action, options) => runtimeCallbacksRef.current.applyAction(action, options),
     });
-    underscoreRuntimeRef.current = {
+    underscoresRuntimeRef.current = {
       eventBus,
       inputBus,
       commandRegistry,
       historyController,
-      library: new UnderscoreLibraryStore(),
+      library: new UnderscoresLibraryStore(),
     };
   }
-  const { eventBus, inputBus, commandRegistry, historyController, library: historyLibrary } = underscoreRuntimeRef.current;
+  const { eventBus, inputBus, commandRegistry, historyController, library: historyLibrary } = underscoresRuntimeRef.current;
   const [historySnapshot, setHistorySnapshot] = useState(() => historyController.snapshot());
   const [historyMacros, setHistoryMacros] = useState([]);
   const [historyIncludePresentation, setHistoryIncludePresentation] = useState(true);
-  const [historyMidiArmed, setHistoryMidiArmed] = useState(() => localStorage.getItem("underscore_history_midi_armed") === "true");
+  const [historyMidiArmed, setHistoryMidiArmed] = useState(() => localStorage.getItem("underscores_history_midi_armed") === "true");
   const [historyShowPointer, setHistoryShowPointer] = useState(true);
-  const [historyClockMode, setHistoryClockMode] = useState(() => localStorage.getItem("underscore_history_clock_mode") || "realtime");
-  const [historyRecordFilter, setHistoryRecordFilter] = useState(() => localStorage.getItem("underscore_history_record_filter") || "all");
+  const [historyClockMode, setHistoryClockMode] = useState(() => localStorage.getItem("underscores_history_clock_mode") || "realtime");
+  const [historyRecordFilter, setHistoryRecordFilter] = useState(() => localStorage.getItem("underscores_history_record_filter") || "all");
   const [autoKeyEnabled, setAutoKeyEnabled] = useState(false);
   const [sessionPlaybackOverlay, setSessionPlaybackOverlay] = useState([]);
-  const [theme, setTheme] = useState(() => localStorage.getItem("underscore_theme") || "dark");
+  const [theme, setTheme] = useState(() => localStorage.getItem("underscores_theme") || "dark");
   const [laserToolActive, setLaserToolActive] = useState(false);
   const [laserCursorExitGuard, setLaserCursorExitGuard] = useState(false);
-  const [transparentBoardExport, setTransparentBoardExport] = useState(() => localStorage.getItem("underscore_export_transparent") === "true");
+  const [transparentBoardExport, setTransparentBoardExport] = useState(() => localStorage.getItem("underscores_export_transparent") === "true");
   const defaultInterfaceThemePreset = theme === "light" ? "monoLight" : DEFAULT_INTERFACE_THEME_PRESET;
   const [globalGrid, setGlobalGrid] = useState(() => {
     try {
@@ -2314,21 +2314,21 @@ function App() {
       return normalizeShortcutBindings(null);
     }
   });
-  const [accentColor, setAccentColor] = useState(() => localStorage.getItem("underscore_accent_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].accent.color);
-  const [accentOpacity, setAccentOpacity] = useState(() => Number(localStorage.getItem("underscore_accent_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].accent.opacity));
-  const [highlightColor, setHighlightColor] = useState(() => localStorage.getItem("underscore_highlight_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].highlight.color);
-  const [highlightOpacity, setHighlightOpacity] = useState(() => Number(localStorage.getItem("underscore_highlight_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].highlight.opacity));
-  const [foregroundColor, setForegroundColor] = useState(() => localStorage.getItem("underscore_foreground_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].foreground.color);
-  const [foregroundOpacity, setForegroundOpacity] = useState(() => Number(localStorage.getItem("underscore_foreground_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].foreground.opacity));
-  const [mutedColor, setMutedColor] = useState(() => localStorage.getItem("underscore_muted_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].muted.color);
-  const [mutedOpacity, setMutedOpacity] = useState(() => Number(localStorage.getItem("underscore_muted_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].muted.opacity));
-  const [laserColor, setLaserColor] = useState(() => localStorage.getItem("underscore_laser_color") || "#ff0000");
-  const [laserOpacity, setLaserOpacity] = useState(() => Number(localStorage.getItem("underscore_laser_opacity") || 100));
+  const [accentColor, setAccentColor] = useState(() => localStorage.getItem("underscores_accent_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].accent.color);
+  const [accentOpacity, setAccentOpacity] = useState(() => Number(localStorage.getItem("underscores_accent_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].accent.opacity));
+  const [highlightColor, setHighlightColor] = useState(() => localStorage.getItem("underscores_highlight_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].highlight.color);
+  const [highlightOpacity, setHighlightOpacity] = useState(() => Number(localStorage.getItem("underscores_highlight_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].highlight.opacity));
+  const [foregroundColor, setForegroundColor] = useState(() => localStorage.getItem("underscores_foreground_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].foreground.color);
+  const [foregroundOpacity, setForegroundOpacity] = useState(() => Number(localStorage.getItem("underscores_foreground_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].foreground.opacity));
+  const [mutedColor, setMutedColor] = useState(() => localStorage.getItem("underscores_muted_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].muted.color);
+  const [mutedOpacity, setMutedOpacity] = useState(() => Number(localStorage.getItem("underscores_muted_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].muted.opacity));
+  const [laserColor, setLaserColor] = useState(() => localStorage.getItem("underscores_laser_color") || "#ff0000");
+  const [laserOpacity, setLaserOpacity] = useState(() => Number(localStorage.getItem("underscores_laser_opacity") || 100));
   const [canvasDrawingStyle, setCanvasDrawingStyle] = useState({ stroke: "#1e1e1e", fill: "transparent", strokeWidth: 1 });
-  const [interfaceThemePreset, setInterfaceThemePreset] = useState(() => localStorage.getItem("underscore_interface_theme_preset") || defaultInterfaceThemePreset);
+  const [interfaceThemePreset, setInterfaceThemePreset] = useState(() => localStorage.getItem("underscores_interface_theme_preset") || defaultInterfaceThemePreset);
   const [interfaceTheme, setInterfaceTheme] = useState(() => {
     try {
-      const stored = JSON.parse(localStorage.getItem("underscore_interface_theme") || "null");
+      const stored = JSON.parse(localStorage.getItem("underscores_interface_theme") || "null");
       return normalizeInterfaceTheme(stored || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].surfaces, theme);
     } catch {
       return normalizeInterfaceTheme(null, theme);
@@ -2344,7 +2344,7 @@ function App() {
   const [customThemeName, setCustomThemeName] = useState("");
   const [roleTheme, setRoleTheme] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("underscore_role_theme") || "null");
+      const saved = JSON.parse(localStorage.getItem("underscores_role_theme") || "null");
       return normalizeRoleTheme(saved);
     } catch {
       return { ...DEFAULT_ROLE_THEME };
@@ -2355,16 +2355,16 @@ function App() {
   // cannot be immediately overwritten by that restoration.
   const consoleBottomMigrationRef = useRef((() => {
     try {
-      return localStorage.getItem("underscore_console_bottom_layout_v3") !== "true";
+      return localStorage.getItem("underscores_console_bottom_layout_v3") !== "true";
     } catch {
       return false;
     }
   })());
   const [panelLayouts, setPanelLayouts] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("underscore_panel_layout_v1") || "null");
+      const saved = JSON.parse(localStorage.getItem("underscores_panel_layout_v1") || "null");
       const layouts = normalizePanelLayouts(saved);
-      const legacyTransport = JSON.parse(localStorage.getItem("underscore_transport_position") || "null");
+      const legacyTransport = JSON.parse(localStorage.getItem("underscores_transport_position") || "null");
       if (!saved && Number.isFinite(legacyTransport?.x) && Number.isFinite(legacyTransport?.y)) {
         layouts.transport = { placement: PANEL_PLACEMENTS.FLOATING, x: legacyTransport.x, y: legacyTransport.y };
       }
@@ -2375,9 +2375,9 @@ function App() {
   });
   const [dockSizes, setDockSizes] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("underscore_dock_sizes_v1") || "null");
+      const saved = JSON.parse(localStorage.getItem("underscores_dock_sizes_v1") || "null");
       if (saved) return normalizeDockSizes(saved);
-      const activeTabs = { left: "mods", right: "mods", bottom: "transport", ...JSON.parse(localStorage.getItem("underscore_panel_dock_tabs_v1") || "null") };
+      const activeTabs = { left: "mods", right: "mods", bottom: "transport", ...JSON.parse(localStorage.getItem("underscores_panel_dock_tabs_v1") || "null") };
       return normalizeDockSizes({
         left: panelLayouts[activeTabs.left]?.width,
         right: panelLayouts[activeTabs.right]?.width,
@@ -2389,7 +2389,7 @@ function App() {
   });
   const [openPanels, setOpenPanels] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("underscore_panel_visibility_v1") || "null") || {};
+      const saved = JSON.parse(localStorage.getItem("underscores_panel_visibility_v1") || "null") || {};
       return {
         chat: true, settings: true, mods: true, script: true, iannix: true, physics: saved.physics ?? true, mixer: true, synth: true, inputs: saved.inputs ?? true,
         holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true,
@@ -2402,7 +2402,7 @@ function App() {
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("underscore_panel_dock_tabs_v1") || "null") || {};
+      const saved = JSON.parse(localStorage.getItem("underscores_panel_dock_tabs_v1") || "null") || {};
       return {
         left: saved.left === "video-input" ? "media-input" : (saved.left || "mods"),
         right: saved.right === "video-input" ? "media-input" : (saved.right || "mods"),
@@ -2414,7 +2414,7 @@ function App() {
   });
   const [collapsedDocks, setCollapsedDocks] = useState(() => {
     try {
-      return { left: true, right: true, bottom: true, ...JSON.parse(localStorage.getItem("underscore_collapsed_docks_v1") || "null") };
+      return { left: true, right: true, bottom: true, ...JSON.parse(localStorage.getItem("underscores_collapsed_docks_v1") || "null") };
     } catch {
       return { left: true, right: true, bottom: true };
     }
@@ -2426,19 +2426,19 @@ function App() {
   const [commandSearch, setCommandSearch] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [satoriMode, setSatoriMode] = useState(true);
-  const [presentationMode, setPresentationMode] = useState(() => localStorage.getItem("underscore_presentation_mode") === "true");
+  const [presentationMode, setPresentationMode] = useState(() => localStorage.getItem("underscores_presentation_mode") === "true");
   const [zenMode, setZenMode] = useState(false);
   const [showToolbarHints, setShowToolbarHints] = useState(() => {
-    const saved = localStorage.getItem("underscore_show_toolbar_hints");
+    const saved = localStorage.getItem("underscores_show_toolbar_hints");
     return saved === "true";
   });
   const [showBottomNotifications, setShowBottomNotifications] = useState(() => {
-    const saved = localStorage.getItem("underscore_show_bottom_notifications");
+    const saved = localStorage.getItem("underscores_show_bottom_notifications");
     return saved === "true";
   });
-  const [showPerformanceOverlay, setShowPerformanceOverlay] = useState(() => localStorage.getItem("underscore_performance_overlay") === "true");
+  const [showPerformanceOverlay, setShowPerformanceOverlay] = useState(() => localStorage.getItem("underscores_performance_overlay") === "true");
   const showPerformanceOverlayRef = useRef(showPerformanceOverlay);
-  const [performanceOverlayPlacement, setPerformanceOverlayPlacement] = useState(() => localStorage.getItem("underscore_performance_overlay_placement") === "floating" ? "floating" : "console");
+  const [performanceOverlayPlacement, setPerformanceOverlayPlacement] = useState(() => localStorage.getItem("underscores_performance_overlay_placement") === "floating" ? "floating" : "console");
   const [physicsDebug, setPhysicsDebug] = useState(() => {
     try {
       return normalizePhysicsDebug(JSON.parse(localStorage.getItem(PHYSICS_DEBUG_STORAGE_KEY) || "null"));
@@ -2447,49 +2447,49 @@ function App() {
     }
   });
   const [forceDesktopLayout, setForceDesktopLayout] = useState(() => {
-    const saved = localStorage.getItem("underscore_force_desktop_layout");
+    const saved = localStorage.getItem("underscores_force_desktop_layout");
     return saved !== "false";
   });
   const [defaultStabilizerDamping, setDefaultStabilizerDamping] = useState(() => {
-    const saved = localStorage.getItem("underscore_default_stabilizer_damping");
+    const saved = localStorage.getItem("underscores_default_stabilizer_damping");
     return saved ? parseFloat(saved) : 0.12;
   });
   useEffect(() => {
-    localStorage.setItem("underscore_presentation_mode", String(presentationMode));
+    localStorage.setItem("underscores_presentation_mode", String(presentationMode));
   }, [presentationMode]);
   useEffect(() => {
     showPerformanceOverlayRef.current = showPerformanceOverlay;
-    localStorage.setItem("underscore_performance_overlay", String(showPerformanceOverlay));
-    localStorage.setItem("underscore_performance_overlay_placement", performanceOverlayPlacement);
+    localStorage.setItem("underscores_performance_overlay", String(showPerformanceOverlay));
+    localStorage.setItem("underscores_performance_overlay_placement", performanceOverlayPlacement);
   }, [performanceOverlayPlacement, showPerformanceOverlay]);
   useEffect(() => {
     localStorage.setItem(PHYSICS_DEBUG_STORAGE_KEY, JSON.stringify(physicsDebug));
   }, [physicsDebug]);
   const [activeSettingsTab, setActiveSettingsTab] = useState("ai");
   const [modsPanelTab, setModsPanelTab] = useState("stack");
-  const [scriptPanelType, setScriptPanelType] = useState(() => normalizeScriptType(localStorage.getItem("underscore_script_panel_type")));
+  const [scriptPanelType, setScriptPanelType] = useState(() => normalizeScriptType(localStorage.getItem("underscores_script_panel_type")));
   const [scriptEditorFontSize, setScriptEditorFontSize] = useState(() => {
-    const saved = Number(localStorage.getItem("underscore_script_editor_font_size"));
+    const saved = Number(localStorage.getItem("underscores_script_editor_font_size"));
     return Number.isFinite(saved) && saved >= 8 && saved <= 32 ? saved : 12;
   });
   const [scriptEditorTheme, setScriptEditorTheme] = useState(() => {
-    const saved = localStorage.getItem("underscore_script_editor_theme");
+    const saved = localStorage.getItem("underscores_script_editor_theme");
     // Keep the two short-lived palette ids as friendly migrations for existing boards.
     if (saved === "quiet") return "mono";
     if (saved === "contrast") return "teaching";
     if (saved === "vscode-dark" || saved === "vscode-light") return "vscode";
-    return ["underscore", "transparent", "mono", "vscode", "teaching"].includes(saved) ? saved : "underscore";
+    return ["underscores", "transparent", "mono", "vscode", "teaching"].includes(saved) ? saved : "underscores";
   });
   useEffect(() => {
-    document.documentElement.dataset.underscoreCodeTheme = scriptEditorTheme;
-    localStorage.setItem("underscore_script_editor_theme", scriptEditorTheme);
+    document.documentElement.dataset.underscoresCodeTheme = scriptEditorTheme;
+    localStorage.setItem("underscores_script_editor_theme", scriptEditorTheme);
   }, [scriptEditorTheme]);
   const [iannixScriptSource, setIannixScriptSource] = useState("");
   const [iannixCommandHelp, setIannixCommandHelp] = useState(null);
   const [iannixCommandSource, setIannixCommandSource] = useState("");
   const [iannixScripts, setIannixScripts] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem("underscore_iannix_scripts") || "[]");
+      return JSON.parse(localStorage.getItem("underscores_iannix_scripts") || "[]");
     } catch {
       return [];
     }
@@ -2551,8 +2551,8 @@ function App() {
   const [physicsToolbarOpen, setPhysicsToolbarOpen] = useState(true);
   const [physicsToolbarDockedTop, setPhysicsToolbarDockedTop] = useState(() => {
     try {
-      if (localStorage.getItem("underscore_physics_toolbar_docked") === "true") return true;
-      const savedPanelVisibility = JSON.parse(localStorage.getItem("underscore_panel_visibility_v1") || "null");
+      if (localStorage.getItem("underscores_physics_toolbar_docked") === "true") return true;
+      const savedPanelVisibility = JSON.parse(localStorage.getItem("underscores_panel_visibility_v1") || "null");
       return savedPanelVisibility?.["physics-toolbar"] === true;
     } catch {
       return false;
@@ -2655,15 +2655,15 @@ function App() {
       const detail = event.detail || {};
       eventBus.emit("status.media", detail, { source: "media-stream", transportTime: scoreTimeRef.current });
     };
-    window.addEventListener("underscore:media-stream-status", relayMediaStatus);
-    return () => window.removeEventListener("underscore:media-stream-status", relayMediaStatus);
+    window.addEventListener("underscores:media-stream-status", relayMediaStatus);
+    return () => window.removeEventListener("underscores:media-stream-status", relayMediaStatus);
   }, [eventBus]);
   const mediaBindingRuntimeRef = useRef(new Map());
   const mediaGestureStatesRef = useRef(new Map());
   const semanticMediaStreamsApiRef = useRef(null);
   if (!semanticMediaStreamsApiRef.current) semanticMediaStreamsApiRef.current = createMediaStreamsApi();
   const streamRegistryRef = useRef(null);
-  if (!streamRegistryRef.current) streamRegistryRef.current = new UnderscoreStreamRegistry();
+  if (!streamRegistryRef.current) streamRegistryRef.current = new UnderscoresStreamRegistry();
   const physicsRuntimeRef = useRef(null);
   if (!physicsRuntimeRef.current) physicsRuntimeRef.current = new PhysicsRuntimeController({
     eventBus,
@@ -2782,7 +2782,7 @@ function App() {
   }, [activePhysicsSystemId, relationshipGraph]);
   useEffect(() => physicsRuntimeRef.current.subscribe("telemetry", telemetry => {
     setPhysicsTelemetry(telemetry);
-    underscorePerformanceMonitor.recordPhysics({
+    underscoresPerformanceMonitor.recordPhysics({
       bodies: telemetry.systems.reduce((sum, system) => sum + (system.bodyCount || 0), 0),
       stepMs: telemetry.stepMs,
       transferMs: telemetry.transferMs,
@@ -3091,15 +3091,15 @@ function App() {
   useEffect(() => {
     const legacyHosts = p5OverlayScene.elements.filter(element => {
       if (!isMediaStreamElement(element)) return false;
-      const config = normalizeMediaStreamConfig(element.customData.underscoreMediaStream);
+      const config = normalizeMediaStreamConfig(element.customData.underscoresMediaStream);
       return (config.kind === MEDIA_STREAM_KINDS.CAMERA || config.kind === MEDIA_STREAM_KINDS.MEDIA) && !config.sourceId;
     });
     if (!legacyHosts.length) return;
     setMediaSources(previous => normalizeMediaSources([
       ...previous,
       ...legacyHosts.map(element => createMediaSource(
-        normalizeMediaStreamConfig(element.customData.underscoreMediaStream).kind,
-        { ...normalizeMediaStreamConfig(element.customData.underscoreMediaStream), id: element.id },
+        normalizeMediaStreamConfig(element.customData.underscoresMediaStream).kind,
+        { ...normalizeMediaStreamConfig(element.customData.underscoresMediaStream), id: element.id },
       )),
     ]));
     const api = excalidrawAPIRef.current;
@@ -3109,13 +3109,13 @@ function App() {
       elements: elements.map(element => {
         const legacy = legacyHosts.find(candidate => candidate.id === element.id);
         if (!legacy) return element;
-        const config = patchMediaStreamConfig(element.customData.underscoreMediaStream, { kind: MEDIA_STREAM_KINDS.PREVIEW, sourceId: element.id });
+        const config = patchMediaStreamConfig(element.customData.underscoresMediaStream, { kind: MEDIA_STREAM_KINDS.PREVIEW, sourceId: element.id });
         return {
           ...element,
           version: (element.version || 0) + 1,
           versionNonce: Math.floor(Math.random() * 0x7fffffff),
           updated: Date.now(),
-          customData: { ...(element.customData || {}), underscoreMediaStream: config },
+          customData: { ...(element.customData || {}), underscoresMediaStream: config },
         };
       }),
       commitToHistory: false,
@@ -3125,7 +3125,7 @@ function App() {
     const registry = streamRegistryRef.current;
     const ids = p5OverlayScene.elements.flatMap(element => {
       if (!isMediaStreamElement(element)) return [];
-      const config = normalizeMediaStreamConfig(element.customData.underscoreMediaStream);
+      const config = normalizeMediaStreamConfig(element.customData.underscoresMediaStream);
       if (config.kind !== MEDIA_STREAM_KINDS.UNICURSAL) return [];
       const id = `unicursal:${element.id}`;
       registry.register({
@@ -3146,7 +3146,7 @@ function App() {
   useEffect(() => {
     setMediaStreamDescriptors(p5OverlayScene.elements
       .filter(element => isMediaStreamElement(element))
-      .map(element => ({ element, config: normalizeMediaStreamConfig(element.customData.underscoreMediaStream) }))
+      .map(element => ({ element, config: normalizeMediaStreamConfig(element.customData.underscoresMediaStream) }))
       .filter(entry => entry.config.kind === MEDIA_STREAM_KINDS.HOLISTIC)
       .map(entry => ({
         id: entry.element.id,
@@ -3279,7 +3279,7 @@ function App() {
         simulatePressure: false,
         strokeWidth: strokeStyle.strokeWidth || session.channel.style.strokeWidth,
         opacity: strokeStyle.opacity ?? session.channel.style.opacity,
-        customData: { underscoreBrushChannel: { channelId: session.channel.id, spatialStreamId: session.channel.spatialStreamId, gateStreamId: session.channel.gateStreamId || null, completedAt: Date.now() } },
+        customData: { underscoresBrushChannel: { channelId: session.channel.id, spatialStreamId: session.channel.spatialStreamId, gateStreamId: session.channel.gateStreamId || null, completedAt: Date.now() } },
       };
       const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
       api.updateScene({ elements: [...elements, element], commitToHistory: true });
@@ -3433,7 +3433,7 @@ function App() {
   const [svgOverlayScene, setSvgOverlayScene] = useState({ elements: [], appState: null });
   const [livecodeOverlayScene, setLivecodeOverlayScene] = useState({ elements: [], appState: null });
   const shaderUnderlayActive = useMemo(() => livecodeOverlayScene.elements.some(element => {
-    const node = normalizeLivecodeNode(element.customData?.underscoreLivecode);
+    const node = normalizeLivecodeNode(element.customData?.underscoresLivecode);
     return node.kind === LIVECODE_KINDS.shader
       && node.runtime.running
       && normalizeShaderCompositionSettings(node.runtime.settings).compositeMode === "underlay";
@@ -3453,7 +3453,7 @@ function App() {
 
   useEffect(() => {
     if (!selectedSvgForEditor) return;
-    const svg = normalizeSvgObject(selectedSvgForEditor.customData.underscoreSvg);
+    const svg = normalizeSvgObject(selectedSvgForEditor.customData.underscoresSvg);
     // The overlay scene arrives one animation frame after an editor-driven
     // canvas update. Never let that older snapshot replace a newer source
     // draft while the live renderer catches up.
@@ -3483,7 +3483,7 @@ function App() {
     const target = excalidrawAPIRef.current?.getSceneElements().find(element =>
       element.id === svgEditorTargetId && !element.isDeleted && isSvgObjectElement(element)
     );
-    if (!target || normalizeSvgObject(target.customData.underscoreSvg).source === analysis.source) return undefined;
+    if (!target || normalizeSvgObject(target.customData.underscoresSvg).source === analysis.source) return undefined;
 
     svgAutoCompileTimerRef.current = window.setTimeout(() => {
       svgAutoCompileTimerRef.current = null;
@@ -3549,8 +3549,8 @@ function App() {
       setP5ScriptStatus(String(detail.message || ""));
       setP5ScriptStatusKind(detail.kind === "error" ? "error" : detail.kind === "success" ? "success" : "info");
     };
-    window.addEventListener("underscore:p5-status", receiveP5Status);
-    return () => window.removeEventListener("underscore:p5-status", receiveP5Status);
+    window.addEventListener("underscores:p5-status", receiveP5Status);
+    return () => window.removeEventListener("underscores:p5-status", receiveP5Status);
   }, [activeP5ScriptId]);
 
   // The trust warning is introductory copy, not a second persistent status.
@@ -3564,31 +3564,31 @@ function App() {
   const [scoreTime, setScoreTime] = useState(0);
   const [scorePlaying, setScorePlaying] = useState(false);
   const [scoreRate, setScoreRate] = useState(() => {
-    const saved = Number(localStorage.getItem("underscore_iannix_rate"));
+    const saved = Number(localStorage.getItem("underscores_iannix_rate"));
     return Number.isFinite(saved) && saved > 0 ? saved : 1;
   });
   const [scoreTempo, setScoreTempo] = useState(() => {
-    const saved = Number(localStorage.getItem("underscore_iannix_tempo"));
+    const saved = Number(localStorage.getItem("underscores_iannix_tempo"));
     return Number.isFinite(saved) && saved >= 20 && saved <= 400 ? saved : 120;
   });
   const [scoreTempoDraft, setScoreTempoDraft] = useState(() => String(scoreTempo));
   const [scoreTimeSignature, setScoreTimeSignature] = useState(() => {
     try {
-      return normalizeTimeSignature(JSON.parse(localStorage.getItem("underscore_time_signature") || "null"));
+      return normalizeTimeSignature(JSON.parse(localStorage.getItem("underscores_time_signature") || "null"));
     } catch {
       return { numerator: 4, denominator: 4 };
     }
   });
   const [transportDisplayMode, setTransportDisplayMode] = useState(() => {
-    const saved = localStorage.getItem("underscore_transport_display");
+    const saved = localStorage.getItem("underscores_transport_display");
     return ["frame", "timecode", "beats"].includes(saved) ? saved : "timecode";
   });
   const [transportFps, setTransportFps] = useState(() => {
-    const saved = Number(localStorage.getItem("underscore_transport_fps"));
+    const saved = Number(localStorage.getItem("underscores_transport_fps"));
     return [24, 25, 30, 50, 60].includes(saved) ? saved : 30;
   });
   const [scoreSampleRate, setScoreSampleRate] = useState(() => {
-    const saved = Number(localStorage.getItem("underscore_score_sample_rate"));
+    const saved = Number(localStorage.getItem("underscores_score_sample_rate"));
     return Number.isFinite(saved) && saved >= 8000 && saved <= 768000 ? saved : 48000;
   });
   const timeContext = useMemo(() => ({
@@ -3664,16 +3664,16 @@ function App() {
     iannixStreamCollisionRef.current = new Set();
   }, []);
   const [transportLoopEnabled, setTransportLoopEnabled] = useState(() =>
-    localStorage.getItem("underscore_transport_loop") === "true"
+    localStorage.getItem("underscores_transport_loop") === "true"
   );
-  const [transportLoopStart, setTransportLoopStart] = useState(() => Math.max(0, Number(localStorage.getItem("underscore_transport_loop_start")) || 0));
-  const [transportLoopEnd, setTransportLoopEnd] = useState(() => Math.max(1, Number(localStorage.getItem("underscore_transport_loop_end")) || 10));
+  const [transportLoopStart, setTransportLoopStart] = useState(() => Math.max(0, Number(localStorage.getItem("underscores_transport_loop_start")) || 0));
+  const [transportLoopEnd, setTransportLoopEnd] = useState(() => Math.max(1, Number(localStorage.getItem("underscores_transport_loop_end")) || 10));
   const [transportLoopStartValue, setTransportLoopStartValue] = useState(() => {
-    try { return createTimeValue(JSON.parse(localStorage.getItem("underscore_transport_loop_start_value") || "null") || `${Math.max(0, Number(localStorage.getItem("underscore_transport_loop_start")) || 0)} s`); }
+    try { return createTimeValue(JSON.parse(localStorage.getItem("underscores_transport_loop_start_value") || "null") || `${Math.max(0, Number(localStorage.getItem("underscores_transport_loop_start")) || 0)} s`); }
     catch { return createTimeValue("0 s"); }
   });
   const [transportLoopEndValue, setTransportLoopEndValue] = useState(() => {
-    try { return createTimeValue(JSON.parse(localStorage.getItem("underscore_transport_loop_end_value") || "null") || `${Math.max(1, Number(localStorage.getItem("underscore_transport_loop_end")) || 10)} s`); }
+    try { return createTimeValue(JSON.parse(localStorage.getItem("underscores_transport_loop_end_value") || "null") || `${Math.max(1, Number(localStorage.getItem("underscores_transport_loop_end")) || 10)} s`); }
     catch { return createTimeValue("10 s"); }
   });
   const updateTransportLoop = useCallback((start, end) => {
@@ -3683,38 +3683,38 @@ function App() {
     setTransportLoopEndValue(createTimeValue(`${Math.max(start + 0.001, end)} s`, Math.max(start + 0.001, end)));
   }, []);
   const [midiClockMode, setMidiClockMode] = useState(() => {
-    const saved = localStorage.getItem("underscore_midi_clock_mode");
+    const saved = localStorage.getItem("underscores_midi_clock_mode");
     return ["send", "receive"].includes(saved) ? saved : "internal";
   });
   const [followMidiClockTempo, setFollowMidiClockTempo] = useState(() =>
-    localStorage.getItem("underscore_follow_midi_clock_tempo") === "true"
+    localStorage.getItem("underscores_follow_midi_clock_tempo") === "true"
   );
   const [followMidiTransport, setFollowMidiTransport] = useState(() =>
-    localStorage.getItem("underscore_follow_midi_transport") !== "false"
+    localStorage.getItem("underscores_follow_midi_transport") !== "false"
   );
   const [latchTriggersAcrossCursors, setLatchTriggersAcrossCursors] = useState(() =>
-    localStorage.getItem("underscore_latch_triggers_across_cursors") !== "false"
+    localStorage.getItem("underscores_latch_triggers_across_cursors") !== "false"
   );
   const [midiInputs, setMidiInputs] = useState([]);
-  const [midiInputId, setMidiInputId] = useState(() => localStorage.getItem("underscore_iannix_midi_input") || "");
+  const [midiInputId, setMidiInputId] = useState(() => localStorage.getItem("underscores_iannix_midi_input") || "");
   const [midiClockStatus, setMidiClockStatus] = useState("Internal clock");
   const [transportDragging, setTransportDragging] = useState(false);
   const [showIannixLabels, setShowIannixLabels] = useState(() => {
-    return localStorage.getItem("underscore_iannix_show_labels") === "true";
+    return localStorage.getItem("underscores_iannix_show_labels") === "true";
   });
   const [showIannixTransport, setShowIannixTransport] = useState(() => {
-    return localStorage.getItem("underscore_iannix_transport_visible") !== "false";
+    return localStorage.getItem("underscores_iannix_transport_visible") !== "false";
   });
   const [scoreEvents, setScoreEvents] = useState([]);
   const [midiAccess, setMidiAccess] = useState(null);
   const [midiOutputs, setMidiOutputs] = useState([]);
   const [midiOutputId, setMidiOutputId] = useState(() => {
-    const saved = localStorage.getItem("underscore_iannix_midi_output") || "";
-    return saved === INTERNAL_MIDI_SYNTH_ID || saved === "__underscore_expressive_synth__" ? MIDI_PORT_NONE : saved;
+    const saved = localStorage.getItem("underscores_iannix_midi_output") || "";
+    return saved === INTERNAL_MIDI_SYNTH_ID || saved === "__underscores_expressive_synth__" ? MIDI_PORT_NONE : saved;
   });
   const [internalGmPrograms, setInternalGmPrograms] = useState(() => {
     try {
-      return normalizeGmPrograms(JSON.parse(localStorage.getItem("underscore_internal_gm_programs") || "null"));
+      return normalizeGmPrograms(JSON.parse(localStorage.getItem("underscores_internal_gm_programs") || "null"));
     } catch {
       return normalizeGmPrograms(null);
     }
@@ -3722,12 +3722,12 @@ function App() {
   const [mixer, setMixer] = useState(() => {
     try {
       return normalizeMixer(JSON.parse(localStorage.getItem(MIXER_STORAGE_KEY) || "null"), {
-        legacyOutputId: localStorage.getItem("underscore_iannix_midi_output") || "",
+        legacyOutputId: localStorage.getItem("underscores_iannix_midi_output") || "",
         gmPrograms: internalGmPrograms,
       });
     } catch {
       return normalizeMixer(null, {
-        legacyOutputId: localStorage.getItem("underscore_iannix_midi_output") || "",
+        legacyOutputId: localStorage.getItem("underscores_iannix_midi_output") || "",
         gmPrograms: internalGmPrograms,
       });
     }
@@ -3887,7 +3887,7 @@ function App() {
     || selectedLivecodeNodeForEditor
     || livecodeOverlayScene.elements.find(element => element.id === livecodeEditorId && isLivecodeNodeElement(element));
   const selectedLivecodeKindForInfo = livecodeInfoElement
-    ? normalizeLivecodeNode(livecodeInfoElement.customData?.underscoreLivecode).kind
+    ? normalizeLivecodeNode(livecodeInfoElement.customData?.underscoresLivecode).kind
     : null;
   const physicsDebugSegmentsRef = useRef([]);
   const scriptRuntimeRef = useRef({});
@@ -3958,7 +3958,7 @@ function App() {
     return getSvgSourceRangeForSelection(svgScriptSource, selectedSvgNode);
   }, [selectedSvgNode, svgEditorTargetId, svgScriptSource]);
   useEffect(() => {
-    localStorage.setItem("underscore_role_theme", JSON.stringify(roleTheme));
+    localStorage.setItem("underscores_role_theme", JSON.stringify(roleTheme));
     if (!excalidrawAPI) return;
     let changed = false;
     const elements = excalidrawAPI.getSceneElementsIncludingDeleted().map(element => {
@@ -4032,7 +4032,7 @@ function App() {
   const [autocompleteSearch, setAutocompleteSearch] = useState("");
   const [autocompleteIndex, setAutocompleteIndex] = useState(0);
   const [showDebugLayer, setShowDebugLayer] = useState(() => {
-    return localStorage.getItem("underscore_show_debug_layer") === "true";
+    return localStorage.getItem("underscores_show_debug_layer") === "true";
   });
 
   useEffect(() => {
@@ -4258,7 +4258,7 @@ function App() {
 
   useEffect(() => {
     // A browser may suspend Web Audio while the app is backgrounded even when
-    // Underscore's transport keeps advancing. Reconcile the active Mixer
+    // Underscores's transport keeps advancing. Reconcile the active Mixer
     // outputs when the page returns so a linked Orca node does not keep
     // generating MIDI into a suspended synth.
     const resumeActiveAudio = () => {
@@ -4548,7 +4548,7 @@ function App() {
   }), [commandRegistry, historyController]);
 
   const refreshHistoryMacros = useCallback(async () => {
-    setHistoryMacros(await historyLibrary.list(UNDERSCORE_MACRO_TYPE));
+    setHistoryMacros(await historyLibrary.list(UNDERSCORES_MACRO_TYPE));
   }, [historyLibrary]);
 
   useEffect(() => {
@@ -4563,7 +4563,7 @@ function App() {
     window.clearTimeout(boardSettingsRecordingRef.current?.timer);
   }, []);
   const [brushPalette, setBrushPalette] = useState(() => {
-    const saved = localStorage.getItem("underscore_brush_palette");
+    const saved = localStorage.getItem("underscores_brush_palette");
     let palette = [];
     if (saved) {
       try {
@@ -4612,7 +4612,7 @@ function App() {
   });
 
   const [activeBrushId, setActiveBrushId] = useState(() => {
-    const saved = localStorage.getItem("underscore_active_brush_id");
+    const saved = localStorage.getItem("underscores_active_brush_id");
     return saved && saved !== "normal" ? saved : "simple";
   });
 
@@ -4644,7 +4644,7 @@ function App() {
 
   const startSidebarPanelDrag = useCallback((panelId, event) => {
     if (event.button !== 0) return;
-    const panel = event.currentTarget.closest(".underscore-panel-shell");
+    const panel = event.currentTarget.closest(".underscores-panel-shell");
     const rect = panel?.getBoundingClientRect();
     if (!rect) return;
     event.preventDefault();
@@ -4671,7 +4671,7 @@ function App() {
 
   const startHorizontalPanelDrag = useCallback((panelId, event) => {
     if (event.button !== 0) return;
-    const panel = event.currentTarget.closest(".underscore-panel-shell");
+    const panel = event.currentTarget.closest(".underscores-panel-shell");
     const rect = panel?.getBoundingClientRect();
     if (!rect) return;
     event.preventDefault();
@@ -4694,11 +4694,11 @@ function App() {
   }, [panelLayouts]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_iannix_rate", String(scoreRate));
+    localStorage.setItem("underscores_iannix_rate", String(scoreRate));
   }, [scoreRate]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_iannix_tempo", String(scoreTempo));
+    localStorage.setItem("underscores_iannix_tempo", String(scoreTempo));
     midiClockTempoRef.current = scoreTempo;
     setScoreTempoDraft(String(scoreTempo));
   }, [scoreTempo]);
@@ -4756,19 +4756,19 @@ function App() {
   }, [shortcutBindings]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_time_signature", JSON.stringify(scoreTimeSignature));
-    localStorage.setItem("underscore_transport_display", transportDisplayMode);
-    localStorage.setItem("underscore_transport_fps", String(transportFps));
-    localStorage.setItem("underscore_score_sample_rate", String(scoreSampleRate));
-    localStorage.setItem("underscore_transport_loop", String(transportLoopEnabled));
-    localStorage.setItem("underscore_transport_loop_start", String(transportLoopStart));
-    localStorage.setItem("underscore_transport_loop_end", String(transportLoopEnd));
-    localStorage.setItem("underscore_transport_loop_start_value", JSON.stringify(transportLoopStartValue));
-    localStorage.setItem("underscore_transport_loop_end_value", JSON.stringify(transportLoopEndValue));
-    localStorage.setItem("underscore_midi_clock_mode", midiClockMode);
-    localStorage.setItem("underscore_follow_midi_clock_tempo", String(followMidiClockTempo));
-    localStorage.setItem("underscore_follow_midi_transport", String(followMidiTransport));
-    localStorage.setItem("underscore_latch_triggers_across_cursors", String(latchTriggersAcrossCursors));
+    localStorage.setItem("underscores_time_signature", JSON.stringify(scoreTimeSignature));
+    localStorage.setItem("underscores_transport_display", transportDisplayMode);
+    localStorage.setItem("underscores_transport_fps", String(transportFps));
+    localStorage.setItem("underscores_score_sample_rate", String(scoreSampleRate));
+    localStorage.setItem("underscores_transport_loop", String(transportLoopEnabled));
+    localStorage.setItem("underscores_transport_loop_start", String(transportLoopStart));
+    localStorage.setItem("underscores_transport_loop_end", String(transportLoopEnd));
+    localStorage.setItem("underscores_transport_loop_start_value", JSON.stringify(transportLoopStartValue));
+    localStorage.setItem("underscores_transport_loop_end_value", JSON.stringify(transportLoopEndValue));
+    localStorage.setItem("underscores_midi_clock_mode", midiClockMode);
+    localStorage.setItem("underscores_follow_midi_clock_tempo", String(followMidiClockTempo));
+    localStorage.setItem("underscores_follow_midi_transport", String(followMidiTransport));
+    localStorage.setItem("underscores_latch_triggers_across_cursors", String(latchTriggersAcrossCursors));
   }, [followMidiClockTempo, followMidiTransport, latchTriggersAcrossCursors, midiClockMode, scoreSampleRate, scoreTimeSignature, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopEndValue, transportLoopStart, transportLoopStartValue]);
 
   useEffect(() => {
@@ -4791,20 +4791,20 @@ function App() {
   }, [historyClockMode, timeContext]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_panel_layout_v1", JSON.stringify(panelLayouts));
-    localStorage.removeItem("underscore_transport_position");
+    localStorage.setItem("underscores_panel_layout_v1", JSON.stringify(panelLayouts));
+    localStorage.removeItem("underscores_transport_position");
   }, [panelLayouts]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_dock_sizes_v1", JSON.stringify(dockSizes));
+    localStorage.setItem("underscores_dock_sizes_v1", JSON.stringify(dockSizes));
   }, [dockSizes]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_script_panel_type", scriptPanelType);
+    localStorage.setItem("underscores_script_panel_type", scriptPanelType);
   }, [scriptPanelType]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_iannix_scripts", JSON.stringify(iannixScripts));
+    localStorage.setItem("underscores_iannix_scripts", JSON.stringify(iannixScripts));
   }, [iannixScripts]);
 
   useEffect(() => {
@@ -4828,7 +4828,7 @@ function App() {
   }, [svgScripts]);
 
   // Earlier builds represented p5 runners as Excalidraw embeddables backed by
-  // synthetic underscore.local URLs. Convert any still-live legacy runner as
+  // synthetic underscores.local URLs. Convert any still-live legacy runner as
   // soon as the canvas is available so its URL card and link affordances never
   // reappear after a refresh.
   useEffect(() => {
@@ -4846,7 +4846,7 @@ function App() {
   }, [excalidrawAPI, p5Scripts]);
 
   // Excalidraw normally emits an initial onChange, but explicitly seed the
-  // Underscore p5 overlay as well. This keeps imported/opened p5 hosts live
+  // Underscores p5 overlay as well. This keeps imported/opened p5 hosts live
   // even when a host environment delays that first scene notification.
   useEffect(() => {
     if (!excalidrawAPI) return;
@@ -4887,7 +4887,7 @@ function App() {
   // restore the old host source and steal the just-entered character.
   useEffect(() => {
     if (scriptPanelType !== "p5" || !selectedP5FrameForEditor) return;
-    const frame = normalizeP5Frame(selectedP5FrameForEditor.customData?.underscoreP5);
+    const frame = normalizeP5Frame(selectedP5FrameForEditor.customData?.underscoresP5);
     const script = p5ScriptsRef.current.find(candidate => candidate.id === frame.scriptId);
     setActiveP5ScriptId(script?.id || "");
     setP5ScriptSource(previous => previous === frame.source ? previous : frame.source);
@@ -4904,7 +4904,7 @@ function App() {
 
   useEffect(() => {
     if (scriptPanelType !== "play" || !selectedPlayCoreFrameForEditor) return;
-    const frame = normalizePlayCoreFrame(selectedPlayCoreFrameForEditor.customData?.underscorePlayCore);
+    const frame = normalizePlayCoreFrame(selectedPlayCoreFrameForEditor.customData?.underscoresPlayCore);
     const script = playCoreScriptsRef.current.find(candidate => candidate.id === frame.scriptId);
     setActivePlayCoreScriptId(script?.id || "");
     setPlayCoreSource(previous => previous === frame.source ? previous : frame.source);
@@ -4927,7 +4927,7 @@ function App() {
     if (presentationMode) {
       setScriptPanelType("livecode");
     } else {
-      toggleUnderscorePanel("script", { open: true, scriptType: "livecode" });
+      toggleUnderscoresPanel("script", { open: true, scriptType: "livecode" });
     }
   }, [selectedLivecodeNodeForEditor?.id]);
 
@@ -4938,38 +4938,38 @@ function App() {
   }, [livecodeCanvasEditorId, selectedElementIds]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_panel_visibility_v1", JSON.stringify(openPanels));
+    localStorage.setItem("underscores_panel_visibility_v1", JSON.stringify(openPanels));
   }, [openPanels]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_physics_toolbar_docked", String(physicsToolbarDockedTop));
+    localStorage.setItem("underscores_physics_toolbar_docked", String(physicsToolbarDockedTop));
   }, [physicsToolbarDockedTop]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_panel_dock_tabs_v1", JSON.stringify(activeDockPanels));
+    localStorage.setItem("underscores_panel_dock_tabs_v1", JSON.stringify(activeDockPanels));
   }, [activeDockPanels]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_collapsed_docks_v1", JSON.stringify(collapsedDocks));
+    localStorage.setItem("underscores_collapsed_docks_v1", JSON.stringify(collapsedDocks));
   }, [collapsedDocks]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_iannix_show_labels", String(showIannixLabels));
+    localStorage.setItem("underscores_iannix_show_labels", String(showIannixLabels));
   }, [showIannixLabels]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_iannix_transport_visible", String(showIannixTransport));
+    localStorage.setItem("underscores_iannix_transport_visible", String(showIannixTransport));
   }, [showIannixTransport]);
 
   useEffect(() => {
     midiOutputIdRef.current = midiOutputId;
-    localStorage.setItem("underscore_iannix_midi_output", midiOutputId);
+    localStorage.setItem("underscores_iannix_midi_output", midiOutputId);
     panicMidi();
   }, [midiOutputId, panicMidi]);
 
   useEffect(() => {
     internalGmProgramsRef.current = internalGmPrograms;
-    localStorage.setItem("underscore_internal_gm_programs", JSON.stringify(internalGmPrograms));
+    localStorage.setItem("underscores_internal_gm_programs", JSON.stringify(internalGmPrograms));
   }, [internalGmPrograms]);
 
   useEffect(() => {
@@ -5006,12 +5006,12 @@ function App() {
   }, [expressiveSynthConfig, timeContext]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_history_midi_armed", String(historyMidiArmed));
+    localStorage.setItem("underscores_history_midi_armed", String(historyMidiArmed));
   }, [historyMidiArmed]);
 
   useEffect(() => {
     midiInputIdRef.current = midiInputId;
-    localStorage.setItem("underscore_iannix_midi_input", midiInputId);
+    localStorage.setItem("underscores_iannix_midi_input", midiInputId);
   }, [midiInputId]);
 
   useEffect(() => {
@@ -5399,14 +5399,14 @@ function App() {
     if (!excalidrawAPI || autoKeyApplyingRef.current || isMouseDownRef.current) return;
     const elements = excalidrawAPI.getSceneElements();
     const hasAutomation = elements.some(element => {
-      const tracks = element.customData?.underscoreAutomation?.tracks;
+      const tracks = element.customData?.underscoresAutomation?.tracks;
       return tracks && typeof tracks === "object" && Object.keys(tracks).length > 0;
     });
     if (!hasAutomation) return;
     let changed = false;
     const evaluated = elements.map(element => {
       let next = evaluateElementAutomation(element, scoreTime);
-      if (next !== element && hasCubicBezierGeometry(next)) next = setElementBezierGeometry(next, next.customData.underscoreGeometry);
+      if (next !== element && hasCubicBezierGeometry(next)) next = setElementBezierGeometry(next, next.customData.underscoresGeometry);
       if (next !== element && JSON.stringify(next) !== JSON.stringify(element)) changed = true;
       return next;
     });
@@ -5448,7 +5448,7 @@ function App() {
   }, [excalidrawAPI, modifierUpdateNonce]);
 
   // Excalidraw renders selection feedback even for a zero-opacity line. Keep
-  // linked runtime cursors selected in Underscore state, but migrate them out
+  // linked runtime cursors selected in Underscores state, but migrate them out
   // of Excalidraw's native selection so their hidden authoring hosts never
   // appear at their stored coordinates.
   useEffect(() => {
@@ -5479,10 +5479,10 @@ function App() {
   }, [excalidrawAPI, selectedElementIds]);
 
   const [activeBrushCode, setActiveBrushCode] = useState(() => {
-    const savedId = localStorage.getItem("underscore_active_brush_id");
+    const savedId = localStorage.getItem("underscores_active_brush_id");
     const id = savedId && savedId !== "normal" ? savedId : "simple";
     
-    const savedPalette = localStorage.getItem("underscore_brush_palette");
+    const savedPalette = localStorage.getItem("underscores_brush_palette");
     let currentPalette = [];
     if (savedPalette) {
       try { currentPalette = JSON.parse(savedPalette); } catch (e) {}
@@ -5544,7 +5544,7 @@ function App() {
   const lastOverlayVersionRef = useRef({});
 
   useEffect(() => {
-    localStorage.setItem("underscore_brush_palette", JSON.stringify(brushPalette));
+    localStorage.setItem("underscores_brush_palette", JSON.stringify(brushPalette));
 
     const pending = pendingModifierRetargetRef.current;
     if (!pending || !brushPalette.some(brush => brush.id === pending.brush.id)) return;
@@ -5568,11 +5568,11 @@ function App() {
   }, [brushPalette]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_show_debug_layer", showDebugLayer);
+    localStorage.setItem("underscores_show_debug_layer", showDebugLayer);
   }, [showDebugLayer]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_active_brush_id", activeBrushId);
+    localStorage.setItem("underscores_active_brush_id", activeBrushId);
     if (activeBrushId === "normal") {
       setActiveBrushCode("");
     } else {
@@ -6050,7 +6050,7 @@ function App() {
       if (element.isDeleted || element.locked || element.customData?.outlinerHidden) return false;
       if (!selectionFilterAllowsElement(selectionFilterRef.current, element)) return false;
       return element.type === "rectangle" || element.type === "frame"
-        || Object.keys(element.customData || {}).some(key => key.startsWith("underscore") || key === "iannix" || key === "score");
+        || Object.keys(element.customData || {}).some(key => key.startsWith("underscores") || key === "iannix" || key === "score");
     };
     const hits = excalidrawAPI.getSceneElements()
       .filter(eligible)
@@ -6176,7 +6176,7 @@ function App() {
     e.preventDefault();
     e.stopPropagation();
     setBezierEditElementId(hit.element.id);
-    setBezierSelectedAnchor(Math.min(hit.location.segmentIndex + 1, hit.element.customData.underscoreGeometry.anchors.length - 1));
+    setBezierSelectedAnchor(Math.min(hit.location.segmentIndex + 1, hit.element.customData.underscoresGeometry.anchors.length - 1));
     excalidrawAPI.updateScene({
       appState: {
         selectedElementIds: { [hit.element.id]: true },
@@ -6249,7 +6249,7 @@ function App() {
   };
 
   const handleCanvasDoubleClick = e => {
-    if (e.target?.closest?.(".underscore-code-editor")) return;
+    if (e.target?.closest?.(".underscores-code-editor")) return;
     if (e.target?.closest?.(".livecode-markdown.editable")) return;
     if (enterLivecodeEditAtPointer(e)) return;
     if (insertSvgPathAnchorAtPointer(e)) return;
@@ -6273,7 +6273,7 @@ function App() {
     if (e.detail >= 2 && nearest && nearest.distance <= 14 / Math.max(0.1, excalidrawAPI.getAppState().zoom.value || 1)) {
       e.preventDefault();
       e.stopPropagation();
-      const geometry = splitBezierSegment(element.customData.underscoreGeometry, nearest.segmentIndex, nearest.t);
+      const geometry = splitBezierSegment(element.customData.underscoresGeometry, nearest.segmentIndex, nearest.t);
       commitBezierElement(element.id, geometry);
       setBezierSelectedAnchor(nearest.segmentIndex + 1);
       return true;
@@ -6320,9 +6320,9 @@ function App() {
     e.stopPropagation();
     const world = getCanvasCoords(e.clientX, e.clientY, "points");
     const local = bezierWorldPointToLocal(element, world);
-    const anchor = element.customData.underscoreGeometry.anchors[drag.anchorIndex];
+    const anchor = element.customData.underscoresGeometry.anchors[drag.anchorIndex];
     const value = drag.part === "anchor" ? local : [local[0] - anchor.x, local[1] - anchor.y];
-    const geometry = updateBezierAnchor(element.customData.underscoreGeometry, drag.anchorIndex, drag.part, value, { breakHandles: e.altKey });
+    const geometry = updateBezierAnchor(element.customData.underscoresGeometry, drag.anchorIndex, drag.part, value, { breakHandles: e.altKey });
     commitBezierElement(element.id, geometry, { commitToHistory: false });
     return true;
   };
@@ -6363,7 +6363,7 @@ function App() {
       candidate.id === edit.elementId && !candidate.isDeleted && isSvgObjectElement(candidate)
     );
     if (!element) return null;
-    const svg = normalizeSvgObject(element.customData.underscoreSvg);
+    const svg = normalizeSvgObject(element.customData.underscoresSvg);
     const path = getEditableSvgPathNodes(svg.source).find(candidate => candidate.node.index === edit.nodeIndex);
     const requestedSubpath = Number.isInteger(edit.subpathIndex) ? edit.subpathIndex : 0;
     const subpath = path?.subpaths?.find(candidate => candidate.index === requestedSubpath);
@@ -6390,7 +6390,7 @@ function App() {
     let nearest = null;
     for (const element of elements) {
       if (!selectionFilterAllowsElement(selectionFilterRef.current, element)) continue;
-      const svg = normalizeSvgObject(element.customData.underscoreSvg);
+      const svg = normalizeSvgObject(element.customData.underscoresSvg);
       for (const path of getEditableSvgPathNodes(svg.source)) {
         for (const subpath of path.subpaths || []) {
           if (!subpath.valid) continue;
@@ -6518,7 +6518,7 @@ function App() {
     if (!excalidrawAPI || excalidrawAPI.getAppState().activeTool?.type !== "selection") return false;
     const host = findSvgHostAtPointer(event.clientX, event.clientY, candidates);
     if (!host) return false;
-    const svg = normalizeSvgObject(host.element.customData.underscoreSvg);
+    const svg = normalizeSvgObject(host.element.customData.underscoresSvg);
     const local = worldPointToSvg(host.element, svg, host.world);
     const x = formatSvgPathCoordinate(local[0]);
     const y = formatSvgPathCoordinate(local[1]);
@@ -6768,7 +6768,7 @@ function App() {
       candidate.id === selectedSvgNode.elementId && !candidate.isDeleted && isSvgObjectElement(candidate)
     ));
     if (!element) return false;
-    const svg = normalizeSvgObject(element.customData.underscoreSvg);
+    const svg = normalizeSvgObject(element.customData.underscoresSvg);
     const prepared = prepareSvgForStructuredEditing(svg.source);
     const node = prepared.document?.nodes?.[selectedSvgNode.nodeIndex];
     if (prepared.error || !node || node.index === prepared.document.rootIndex) return false;
@@ -6784,7 +6784,7 @@ function App() {
     svgNodeDragRef.current = {
       elementId: element.id,
       nodeIndex: node.index,
-      nodeId: node.underscoreId,
+      nodeId: node.underscoresId,
       pointerId: event.pointerId,
       source: prepared.source,
       start: worldPointToSvg(element, svg, world, inverseParentTransform),
@@ -6803,7 +6803,7 @@ function App() {
       candidate.id === drag.elementId && !candidate.isDeleted && isSvgObjectElement(candidate)
     ));
     if (!element) return false;
-    const svg = normalizeSvgObject(element.customData.underscoreSvg);
+    const svg = normalizeSvgObject(element.customData.underscoresSvg);
     const world = getCanvasCoords(event.clientX, event.clientY, "points");
     const local = worldPointToSvg(element, svg, world, drag.inverseParentTransform);
     const dx = Number((local[0] - drag.start[0]).toFixed(4));
@@ -6832,7 +6832,7 @@ function App() {
       candidate.id === drag.elementId && !candidate.isDeleted && isSvgObjectElement(candidate)
     ));
     if (element) {
-      const svg = normalizeSvgObject(element.customData.underscoreSvg);
+      const svg = normalizeSvgObject(element.customData.underscoresSvg);
       runSvgObjectSource({
         source: drag.latestSource,
         targetId: element.id,
@@ -6858,12 +6858,12 @@ function App() {
     // canvas capture handler can still begin a selection/drawing operation as
     // the iframe receives focus, which makes interactive presentation embeds
     // feel unreliable.
-    if (e.target?.closest?.(".underscore-embed-interactive")) return;
+    if (e.target?.closest?.(".underscores-embed-interactive")) return;
 
     // Livecode Nodes reuse CodeMirror. Once their local editor or compact
     // chrome has focus, the canvas must not start a selection/drawing gesture
     // underneath it.
-    if (e.target?.closest?.(".underscore-livecode-node")) return;
+    if (e.target?.closest?.(".underscores-livecode-node")) return;
 
     // SVG control circles own their pointer session directly. This prevents a
     // drag from also reaching Excalidraw's drawing tools.
@@ -6901,12 +6901,12 @@ function App() {
       targetElement.closest("select") ||
       targetElement.closest(".sidebar") ||
       targetElement.closest(".excalidraw-sidebar") ||
-      targetElement.closest(".underscore-panel-shell") ||
+      targetElement.closest(".underscores-panel-shell") ||
       targetElement.closest("#settings-overlay") ||
       targetElement.closest(".settings-modal") ||
       targetElement.closest(".context-menu") ||
       targetElement.closest(".dropdown-menu") ||
-      targetElement.closest(".underscore-top-right-wrapper") ||
+      targetElement.closest(".underscores-top-right-wrapper") ||
       targetElement.closest(".theme-btn-top-left") ||
       targetElement.closest(".sidebar-trigger")
     ) {
@@ -6947,7 +6947,7 @@ function App() {
       if ((e.metaKey || e.ctrlKey) && selectedBezier) {
         // Canonical Bézier paths must never enter Excalidraw's sampled-point
         // editor. Its white points edit the derived host polyline rather than
-        // Underscore's anchors and handles, so those edits cannot be snapped or
+        // Underscores's anchors and handles, so those edits cannot be snapped or
         // persisted coherently.
         if (enterBezierEditAtPointer(e, [selectedBezier])) return;
       }
@@ -7288,7 +7288,7 @@ function App() {
   const handlePanelResizeMouseDown = (panelId, e, placement = PANEL_PLACEMENTS.RIGHT) => {
     e.preventDefault();
     e.stopPropagation();
-    const panel = e.currentTarget.closest(".underscore-panel-shell");
+    const panel = e.currentTarget.closest(".underscores-panel-shell");
     const startRect = panel?.getBoundingClientRect();
     const startX = e.clientX;
     const startY = e.clientY;
@@ -7342,7 +7342,7 @@ function App() {
         if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return;
         drag.started = true;
       }
-      const allowBottom = UNDERSCORE_PANELS.find(panel => panel.id === drag.panelId)?.placements.includes(PANEL_PLACEMENTS.BOTTOM);
+      const allowBottom = UNDERSCORES_PANELS.find(panel => panel.id === drag.panelId)?.placements.includes(PANEL_PLACEMENTS.BOTTOM);
       const target = getDockTarget(event.clientX, event.clientY, window.innerWidth, window.innerHeight, { allowBottom });
       setDockPreview(target === PANEL_PLACEMENTS.FLOATING ? null : target);
       updatePanelLayout(drag.panelId, {
@@ -7355,7 +7355,7 @@ function App() {
     const handleUp = () => {
       const drag = panelDragRef.current;
       if (drag?.started) {
-        const allowBottom = UNDERSCORE_PANELS.find(panel => panel.id === drag.panelId)?.placements.includes(PANEL_PLACEMENTS.BOTTOM);
+        const allowBottom = UNDERSCORES_PANELS.find(panel => panel.id === drag.panelId)?.placements.includes(PANEL_PLACEMENTS.BOTTOM);
         const target = getDockTarget(drag.clientX, drag.clientY, window.innerWidth, window.innerHeight, { allowBottom });
         if (target !== PANEL_PLACEMENTS.FLOATING) setPanelPlacement(drag.panelId, target);
       }
@@ -7526,7 +7526,7 @@ function App() {
         if (isConvertibleStroke) {
           count++;
           const nextColor = (el.strokeColor === "transparent" || !el.strokeColor) ? lastStrokeColorRef.current : el.strokeColor;
-          const { underscoreGeometry: _geometry, ...nativeCustomData } = el.customData || {};
+          const { underscoresGeometry: _geometry, ...nativeCustomData } = el.customData || {};
           return {
             ...el,
             type: targetType,
@@ -7732,7 +7732,7 @@ function App() {
           // Direct path operations are destructive edits of the visible
           // samples. Do not leave the old canonical spline active, otherwise
           // it will render from stale host coordinates after reframing.
-          const { underscoreGeometry: _geometry, ...customData } = simplifiedElement.customData || {};
+          const { underscoresGeometry: _geometry, ...customData } = simplifiedElement.customData || {};
           return { ...simplifiedElement, customData };
         }
       }
@@ -7766,7 +7766,7 @@ function App() {
     );
     const selectedStrokeElements = capabilities.paths;
 
-    // Shift+right-click is Underscore's own canvas menu. Keep SVG clipboard
+    // Shift+right-click is Underscores's own canvas menu. Keep SVG clipboard
     // actions here even with no selected element: this direct click pathway
     // retains user activation and does not rely on browser paste event routing.
     e.preventDefault();
@@ -8293,7 +8293,7 @@ function App() {
   const scheduleNativeGridQuantization = () => {
     const grid = globalGridRef.current;
     // Excalidraw reserves Shift while drawing (for example, to constrain a
-    // line). Underscore treats the same gesture as an explicit request to
+    // line). Underscores treats the same gesture as an explicit request to
     // force-snap the completed authored geometry. This must bypass the normal
     // `snap.mode === "off"` gate, otherwise an invisible native constraint is
     // the only effect of holding Shift.
@@ -8612,7 +8612,7 @@ function App() {
   
   // Settings States
   const [aiSettings, setAiSettings] = useState(() => {
-    const saved = localStorage.getItem("underscore_ai_settings");
+    const saved = localStorage.getItem("underscores_ai_settings");
     if (saved) {
       try { return normalizeAISettings(JSON.parse(saved)); } catch (e) {}
     }
@@ -8672,21 +8672,21 @@ function App() {
     } else {
       document.body.classList.remove("light-mode");
     }
-    localStorage.setItem("underscore_theme", theme);
+    localStorage.setItem("underscores_theme", theme);
   }, [theme]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_export_transparent", String(transparentBoardExport));
+    localStorage.setItem("underscores_export_transparent", String(transparentBoardExport));
   }, [transparentBoardExport]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_laser_color", laserColor);
-    localStorage.setItem("underscore_laser_opacity", String(laserOpacity));
+    localStorage.setItem("underscores_laser_color", laserColor);
+    localStorage.setItem("underscores_laser_opacity", String(laserOpacity));
   }, [laserColor, laserOpacity]);
 
   useEffect(() => {
-    localStorage.setItem("underscore_interface_theme", JSON.stringify(interfaceTheme));
-    localStorage.setItem("underscore_interface_theme_preset", interfaceThemePreset);
+    localStorage.setItem("underscores_interface_theme", JSON.stringify(interfaceTheme));
+    localStorage.setItem("underscores_interface_theme_preset", interfaceThemePreset);
   }, [interfaceTheme, interfaceThemePreset]);
 
   useEffect(() => {
@@ -8804,7 +8804,7 @@ function App() {
 
     if (type === "selection-as-png" || type === "canvas-as-png") {
       try {
-        const { canvas } = await exportUnderscorePng({
+        const { canvas } = await exportUnderscoresPng({
           exportToCanvas,
           elements: targetElements,
           appState: activeState,
@@ -8884,7 +8884,7 @@ function App() {
   const saveSettings = () => {
     const normalized = normalizeAISettings(aiSettings);
     setAiSettings(normalized);
-    localStorage.setItem("underscore_ai_settings", JSON.stringify(normalized));
+    localStorage.setItem("underscores_ai_settings", JSON.stringify(normalized));
     testAIConnection(normalized);
   };
 
@@ -8892,7 +8892,7 @@ function App() {
     setToolLogs(prev => [...prev, { msg, status, id: Date.now() + Math.random() }]);
   };
 
-  // XML Parser that executes AI Tool tags in Excalidraw. Stable Underscore
+  // XML Parser that executes AI Tool tags in Excalidraw. Stable Underscores
   // commands are awaited in order so a model can create a script/object and
   // act on it later in the same response.
   const executeAIToolCalls = async (text, api) => {
@@ -8917,7 +8917,7 @@ function App() {
       return attrs;
     };
 
-    for (const call of parseUnderscoreCommandTags(text)) {
+    for (const call of parseUnderscoresCommandTags(text)) {
       if (call.error) {
         logToolAction(`command(${call.id}): ${call.error}`, "error");
         errors.push(`command(${call.id}): ${call.error}`);
@@ -9240,7 +9240,7 @@ function App() {
           if (last?.role === "assistant") {
             updated[updated.length - 1] = {
               ...last,
-              content: `${last.content}\n\n> Underscore rejected an action; nothing unsafe was saved or run.\n> - ${report}\n> Ask me to repair the script using the IanniX or Brush contract.`,
+              content: `${last.content}\n\n> Underscores rejected an action; nothing unsafe was saved or run.\n> - ${report}\n> Ask me to repair the script using the IanniX or Brush contract.`,
             };
           }
           return updated;
@@ -9305,8 +9305,8 @@ function App() {
     });
   };
 
-  const toggleUnderscorePanel = (panelId, options = {}) => {
-    const panel = UNDERSCORE_PANELS.find(candidate => candidate.id === panelId);
+  const toggleUnderscoresPanel = (panelId, options = {}) => {
+    const panel = UNDERSCORES_PANELS.find(candidate => candidate.id === panelId);
     if (!panel) return;
     if (panel.id === "transport") {
       const forceOpen = Boolean(options.open);
@@ -9376,18 +9376,18 @@ function App() {
     showPerformanceOverlayRef.current = visible;
     setShowPerformanceOverlay(visible);
     if (visible && performanceOverlayPlacement === "console") {
-      toggleUnderscorePanel("console", { open: true });
+      toggleUnderscoresPanel("console", { open: true });
     }
   };
 
   const updatePerformancePlacement = placement => {
     const nextPlacement = placement === "floating" ? "floating" : "console";
     setPerformanceOverlayPlacement(nextPlacement);
-    if (nextPlacement === "console") toggleUnderscorePanel("console", { open: true });
+    if (nextPlacement === "console") toggleUnderscoresPanel("console", { open: true });
   };
 
-  const closeUnderscorePanel = panelId => {
-    const panel = getUnderscorePanel(panelId);
+  const closeUnderscoresPanel = panelId => {
+    const panel = getUnderscoresPanel(panelId);
     if (!panel) return;
     setOpenPanels(previous => ({ ...previous, [panelId]: true }));
     if (panelId === "transport") setShowIannixTransport(true);
@@ -9398,7 +9398,7 @@ function App() {
     excalidrawAPI?.toggleSidebar({ name: "library" });
   };
 
-  const applyUnderscoreThemePreset = (presetId, api = excalidrawAPI) => {
+  const applyUnderscoresThemePreset = (presetId, api = excalidrawAPI) => {
     const customThemeId = presetId.startsWith("user:") ? presetId.slice(5) : null;
     const preset = customThemeId ? customThemes[customThemeId] : INTERFACE_THEME_PRESETS[presetId];
     if (!preset) return;
@@ -9425,14 +9425,14 @@ function App() {
     runtimeCallbacksRef.current.globalGridUpdate({
       appearance: { opacity: preset.surfaces.grid.opacity / 100 },
     });
-    localStorage.setItem("underscore_accent_color", preset.accent.color);
-    localStorage.setItem("underscore_accent_opacity", String(preset.accent.opacity));
-    localStorage.setItem("underscore_highlight_color", preset.highlight.color);
-    localStorage.setItem("underscore_highlight_opacity", String(preset.highlight.opacity));
-    localStorage.setItem("underscore_foreground_color", preset.foreground.color);
-    localStorage.setItem("underscore_foreground_opacity", String(preset.foreground.opacity));
-    localStorage.setItem("underscore_muted_color", preset.muted.color);
-    localStorage.setItem("underscore_muted_opacity", String(preset.muted.opacity));
+    localStorage.setItem("underscores_accent_color", preset.accent.color);
+    localStorage.setItem("underscores_accent_opacity", String(preset.accent.opacity));
+    localStorage.setItem("underscores_highlight_color", preset.highlight.color);
+    localStorage.setItem("underscores_highlight_opacity", String(preset.highlight.opacity));
+    localStorage.setItem("underscores_foreground_color", preset.foreground.color);
+    localStorage.setItem("underscores_foreground_opacity", String(preset.foreground.opacity));
+    localStorage.setItem("underscores_muted_color", preset.muted.color);
+    localStorage.setItem("underscores_muted_opacity", String(preset.muted.opacity));
     finishApplyingRecordedUiState();
   };
 
@@ -9450,8 +9450,8 @@ function App() {
     return paired?.[0] || (targetTheme === 'light' ? 'monoLight' : DEFAULT_INTERFACE_THEME_PRESET);
   };
 
-  const toggleUnderscoreTheme = (api = excalidrawAPI, targetTheme = theme === 'dark' ? 'light' : 'dark') => {
-    applyUnderscoreThemePreset(pairedInterfaceThemePreset(targetTheme), api);
+  const toggleUnderscoresTheme = (api = excalidrawAPI, targetTheme = theme === 'dark' ? 'light' : 'dark') => {
+    applyUnderscoresThemePreset(pairedInterfaceThemePreset(targetTheme), api);
   };
 
   const saveCurrentCustomTheme = () => {
@@ -9541,19 +9541,19 @@ function App() {
       if (element.id !== elementId || element.isDeleted) return element;
       let customData = { ...(element.customData || {}) };
       if (isLivecodeNodeElement(element)) {
-        const node = normalizeLivecodeNode(customData.underscoreLivecode);
-        customData.underscoreLivecode = { ...node, name: normalizedLabel || getLivecodeKindDefinition(node.kind).defaultName };
+        const node = normalizeLivecodeNode(customData.underscoresLivecode);
+        customData.underscoresLivecode = { ...node, name: normalizedLabel || getLivecodeKindDefinition(node.kind).defaultName };
       } else if (isMediaStreamElement(element)) {
-        customData.underscoreMediaStream = patchMediaStreamConfig(customData.underscoreMediaStream, { name: normalizedLabel || "Media" });
-      } else if (customData.underscoreSvg) {
-        const svg = normalizeSvgObject(customData.underscoreSvg);
-        customData.underscoreSvg = normalizeSvgObject({ ...svg, name: normalizedLabel || "Untitled SVG", revision: svg.revision + 1 });
+        customData.underscoresMediaStream = patchMediaStreamConfig(customData.underscoresMediaStream, { name: normalizedLabel || "Media" });
+      } else if (customData.underscoresSvg) {
+        const svg = normalizeSvgObject(customData.underscoresSvg);
+        customData.underscoresSvg = normalizeSvgObject({ ...svg, name: normalizedLabel || "Untitled SVG", revision: svg.revision + 1 });
       } else if (getScoreData({ customData })) {
         customData = withScoreData(customData, { ...getScoreData({ customData }), label: normalizedLabel || undefined });
       } else if (normalizedLabel) {
-        customData.underscoreLabel = normalizedLabel;
+        customData.underscoresLabel = normalizedLabel;
       } else {
-        delete customData.underscoreLabel;
+        delete customData.underscoresLabel;
       }
       changed = true;
       return {
@@ -10092,7 +10092,7 @@ function App() {
         };
         const customData = { ...(element.customData || {}) };
         delete customData.physics;
-        delete customData.underscorePhysics;
+        delete customData.underscoresPhysics;
         return { ...element, customData, version: (element.version || 0) + 1, versionNonce: Math.floor(Math.random() * 0x7fffffff), updated: Date.now() };
       });
       api?.updateScene?.({ elements: nextElements, commitToHistory: true });
@@ -10118,7 +10118,7 @@ function App() {
         if (!removedElementIds.has(element.id) || element.isDeleted) return element;
         const customData = { ...(element.customData || {}) };
         delete customData.physics;
-        delete customData.underscorePhysics;
+        delete customData.underscoresPhysics;
         return {
           ...element,
           customData,
@@ -10156,7 +10156,7 @@ function App() {
         if (!removedElementIds.has(element.id) || element.isDeleted) return element;
         const customData = { ...(element.customData || {}) };
         delete customData.physics;
-        delete customData.underscorePhysics;
+        delete customData.underscoresPhysics;
         return {
           ...element,
           customData,
@@ -10913,7 +10913,7 @@ function App() {
         const element = body.objectRef?.kind === "element" ? elementById.get(body.objectRef.elementId) : null;
         if (body.systemId === systemId && body.tracking === "authored-deformable" && element && hasCubicBezierGeometry(element)) {
           applied = true;
-          const next = { ...body, initialGeometry: normalizeBezierGeometry(element.customData.underscoreGeometry) };
+          const next = { ...body, initialGeometry: normalizeBezierGeometry(element.customData.underscoresGeometry) };
           appliedBodies.push(next);
           return next;
         }
@@ -11098,7 +11098,7 @@ function App() {
       bodies: remappedGraph.bodies.map(body => {
         const element = body.objectRef?.kind === "element" ? createdById.get(body.objectRef.elementId) : null;
         return body.tracking === "authored-deformable" && element && hasCubicBezierGeometry(element)
-          ? { ...body, initialGeometry: normalizeBezierGeometry(element.customData.underscoreGeometry) }
+          ? { ...body, initialGeometry: normalizeBezierGeometry(element.customData.underscoresGeometry) }
           : body;
       }),
     });
@@ -11117,7 +11117,7 @@ function App() {
   };
 
   // --- COMMAND PALETTE LOGIC ---
-  const PANEL_COMMANDS = UNDERSCORE_PANELS.map(panel => ({
+  const PANEL_COMMANDS = UNDERSCORES_PANELS.map(panel => ({
     id: `panel-${panel.id}`,
     name: `Toggle ${panel.label} ${panel.slash}`,
     aliases: [panel.slash, ...(panel.aliases || []), panel.label, `panel ${panel.label}`],
@@ -11126,11 +11126,11 @@ function App() {
     panel,
     action: () => {
       applyingRecordedUiStateRef.current = true;
-      toggleUnderscorePanel(panel.id);
+      toggleUnderscoresPanel(panel.id);
       finishApplyingRecordedUiState();
     },
   }));
-  // Keep this catalog on the public Excalidraw API surface. Underscore's
+  // Keep this catalog on the public Excalidraw API surface. Underscores's
   // Excalidraw build deliberately does not reach into Excalidraw's internal
   // action manager, which makes these commands stable for both people and AI
   // clients across dependency upgrades.
@@ -11180,7 +11180,7 @@ function App() {
       name: "Excalidraw: Open / Import Scene /ex open",
       aliases: ["/open", "/open scene", "/scene open", "/ex open", "/ex import", "/ex load"],
       category: "Excalidraw",
-      ai: { expose: true, description: "Open a local Underscore or Excalidraw scene picker. The user must select the file." },
+      ai: { expose: true, description: "Open a local Underscores or Excalidraw scene picker. The user must select the file." },
       action: () => sceneImportInputRef.current?.click(),
     },
     {
@@ -11188,16 +11188,16 @@ function App() {
       name: "Excalidraw: Save Scene /ex save",
       aliases: ["/save", "/save scene", "/scene save", "/ex save", "/ex export scene"],
       category: "Excalidraw",
-      ai: { expose: true, description: "Download the current Underscore scene with its metadata." },
-      action: () => exportUnderscoreScene(),
+      ai: { expose: true, description: "Download the current Underscores scene with its metadata." },
+      action: () => exportUnderscoresScene(),
     },
     {
       id: "excalidraw.file.saveAs",
       name: "Excalidraw: Save Scene As /ex save as",
       aliases: ["/ex save as"],
       category: "Excalidraw",
-      ai: { expose: true, description: "Download the current Underscore scene as a new file." },
-      action: () => exportUnderscoreScene(),
+      ai: { expose: true, description: "Download the current Underscores scene as a new file." },
+      action: () => exportUnderscoresScene(),
     },
     {
       id: "excalidraw.file.exportPng",
@@ -11205,7 +11205,7 @@ function App() {
       aliases: ["/ex export png", "/ex png", "/export png"],
       category: "Excalidraw",
       ai: { expose: true, description: "Export the current board as PNG using the saved transparent-export preference, including live p5 frames when available." },
-      action: () => void exportUnderscoreBoardPng(),
+      action: () => void exportUnderscoresBoardPng(),
     },
     {
       id: "excalidraw.file.exportSvg",
@@ -11213,7 +11213,7 @@ function App() {
       aliases: ["/ex export svg", "/ex svg", "/export svg"],
       category: "Excalidraw",
       ai: { expose: true, description: "Export the current static board geometry as SVG using the saved transparent-export preference." },
-      action: () => void exportUnderscoreBoardSvg(),
+      action: () => void exportUnderscoresBoardSvg(),
     },
     {
       id: "excalidraw.file.exportPngTheme",
@@ -11221,7 +11221,7 @@ function App() {
       aliases: ["/ex export png theme", "/ex png theme", "/export png theme"],
       category: "Excalidraw",
       ai: { expose: true, description: "Export the board as PNG with the current canvas/theme background, including live p5 frames." },
-      action: () => void exportUnderscoreBoardPng({ transparent: false }),
+      action: () => void exportUnderscoresBoardPng({ transparent: false }),
     },
     {
       id: "excalidraw.file.exportPngTransparent",
@@ -11229,7 +11229,7 @@ function App() {
       aliases: ["/ex export png transparent", "/ex png transparent", "/export png transparent"],
       category: "Excalidraw",
       ai: { expose: true, description: "Export the board as a transparent PNG, including live p5 frames." },
-      action: () => void exportUnderscoreBoardPng({ transparent: true }),
+      action: () => void exportUnderscoresBoardPng({ transparent: true }),
     },
     {
       id: "excalidraw.file.exportSvgTheme",
@@ -11237,7 +11237,7 @@ function App() {
       aliases: ["/ex export svg theme", "/ex svg theme", "/export svg theme"],
       category: "Excalidraw",
       ai: { expose: true, description: "Export board geometry as SVG with the current canvas/theme background." },
-      action: () => void exportUnderscoreBoardSvg({ transparent: false }),
+      action: () => void exportUnderscoresBoardSvg({ transparent: false }),
     },
     {
       id: "excalidraw.file.exportSvgTransparent",
@@ -11245,7 +11245,7 @@ function App() {
       aliases: ["/ex export svg transparent", "/ex svg transparent", "/export svg transparent"],
       category: "Excalidraw",
       ai: { expose: true, description: "Export board geometry as SVG with no canvas background." },
-      action: () => void exportUnderscoreBoardSvg({ transparent: true }),
+      action: () => void exportUnderscoresBoardSvg({ transparent: true }),
     },
     {
       id: "excalidraw.file.transparentExport",
@@ -11371,8 +11371,8 @@ function App() {
       name: "Excalidraw: Toggle Light / Dark Theme /ex theme",
       aliases: ["/ex theme", "/ex toggle theme"],
       category: "Excalidraw",
-      ai: { expose: true, description: "Toggle Underscore's paired light or dark theme." },
-      action: api => toggleUnderscoreTheme(api),
+      ai: { expose: true, description: "Toggle Underscores's paired light or dark theme." },
+      action: api => toggleUnderscoresTheme(api),
     },
     {
       id: "excalidraw.canvas.transparent",
@@ -11446,7 +11446,7 @@ function App() {
   const COMMANDS = [
     ...PANEL_COMMANDS,
     ...EXCALIDRAW_COMMANDS,
-    { id: "panel-properties.open", name: "Open Properties Panel", category: "Panels", action: () => toggleUnderscorePanel("properties", { open: true }) },
+    { id: "panel-properties.open", name: "Open Properties Panel", category: "Panels", action: () => toggleUnderscoresPanel("properties", { open: true }) },
     { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "performance.toggle", version: 2, name: "Toggle Performance Monitor /performance", aliases: ["/performance", "/perf", "FPS monitor"], category: "View", action: () => updatePerformanceVisibility(!showPerformanceOverlayRef.current) },
     { id: "physics.toolbar.toggle", name: "Toggle Physics Toolbar /physicstoolbar", aliases: ["/physicstoolbar", "/physics toolbar", "physics toolbar"], category: "Physics", ai: { expose: true, description: "Toggle the floating or docked physics authoring toolbar." }, action: () => physicsToolbarOpen ? closePhysicsToolbar() : setPhysicsToolbarOpen(true) },
@@ -11458,7 +11458,7 @@ function App() {
     } },
     { id: "physics.body.make", name: "Make Physics Body /make body", aliases: ["/make body", "make body"], category: "Physics", args: { systemId: "string?", bodyType: "dynamic|kinematic?" }, ai: { expose: true, description: "Attach physics properties to the current canvas selection. Creates a default World system when none exists and opens the Physics inspector." }, action: (_api, args = {}) => {
       const result = assignPhysicsBodies({ ...args, bodyType: args.bodyType || "dynamic" });
-      toggleUnderscorePanel("physics", { open: true });
+      toggleUnderscoresPanel("physics", { open: true });
       return result;
     } },
     { id: "physics.body.assign", name: "Physics: Assign Dynamic", aliases: ["/physics body"], category: "Physics", args: { systemId: "string?", bodyType: "dynamic|kinematic?" }, ai: { expose: true, description: "Turn selected canvas drawings into authored physics bodies." }, action: (_api, args) => assignPhysicsBodies(args) },
@@ -11486,9 +11486,9 @@ function App() {
     { id: "toggle-satori", name: "Toggle Satori Mode (Zen) /satori", category: "View", action: () => { applyingRecordedUiStateRef.current = true; setSatoriMode(prev => !prev); finishApplyingRecordedUiState(); } },
     { id: "presentation.toggle", name: "Toggle Presentation Mode /presentation", aliases: ["/presentation", "/present", "Presentation mode"], category: "View", record: "presentation", action: () => setPresentationMode(previous => !previous) },
     { id: "toggle-theme", name: "Toggle Dark/Light Theme", category: "View", action: (api) => {
-      toggleUnderscoreTheme(api);
+      toggleUnderscoresTheme(api);
     } },
-    { id: "toggle-chat", name: "Toggle AI Assistant Chat", category: "AI Chat", action: () => toggleUnderscorePanel("chat") },
+    { id: "toggle-chat", name: "Toggle AI Assistant Chat", category: "AI Chat", action: () => toggleUnderscoresPanel("chat") },
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
@@ -11511,7 +11511,7 @@ function App() {
       editLivecodeCanvasNode(node.id);
       return { elementIds: [node.id] };
     } },
-    { id: "script.svg.open", name: "Open SVG Script Editor /svg", aliases: ["/svg", "SVG editor", "SVG script"], category: "SVG", record: "presentation", action: () => toggleUnderscorePanel("script", { scriptType: "svg" }) },
+    { id: "script.svg.open", name: "Open SVG Script Editor /svg", aliases: ["/svg", "SVG editor", "SVG script"], category: "SVG", record: "presentation", action: () => toggleUnderscoresPanel("script", { scriptType: "svg" }) },
     { id: "svg.object.run", name: "Run SVG Source /svg run", aliases: ["/svg run", "Create SVG object", "Run SVG source"], category: "SVG", args: { source: "SVG markup", name: "string?", elementId: "string?", scriptId: "string?" }, ai: { expose: true, description: "Create a first-class SVG canvas object from complete raw <svg> markup, or update elementId when it already identifies an SVG object. The source remains editable and is not flattened into native paths.", example: { name: "Wave mark", source: "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 320 180\"><path d=\"M20 90 C80 20 140 160 300 90\" fill=\"none\" stroke=\"#1769e0\" stroke-width=\"5\"/></svg>" } }, action: (_api, args) => runSvgObjectSource(args) },
     { id: "svg.document.get", name: "Get SVG Document", category: "SVG", args: { elementId: "string?" }, ai: { expose: true, description: "Read the canonical source and current revision of a first-class SVG document.", example: { elementId: "svg-host" } }, action: (_api, args) => executeCanvasSvgCommand("svg.document.get", args) },
     { id: "svg.document.validate", name: "Validate SVG Document", category: "SVG", args: { elementId: "string?" }, ai: { expose: true, description: "Validate the canonical SVG document without changing it.", example: { elementId: "svg-host" } }, action: (_api, args) => executeCanvasSvgCommand("svg.document.validate", args) },
@@ -11526,8 +11526,8 @@ function App() {
     { id: "svg.animation.list", name: "List SVG Animations", category: "SVG", args: { elementId: "string?" }, ai: { expose: true, description: "Read the common SMIL, CSS, and Looom timing graph for an SVG object.", example: { elementId: "svg-host" } }, action: (_api, args) => executeCanvasSvgCommand("svg.animation.list", args) },
     { id: "svg.animation.upsert", name: "Create or Patch SVG Animation", category: "SVG", args: { elementId: "string?", revision: "number", parentId: "string?", animationNodeId: "string?", tag: "animate|set|animateTransform|animateMotion?", attributes: "object" }, ai: { expose: true, description: "Create a SMIL animation child or minimally patch an existing animation node.", example: { elementId: "svg-host", revision: 2, parentId: "svg-node-id", attributes: { attributeName: "opacity", values: "0;1", dur: "2s" } } }, action: (_api, args) => executeCanvasSvgCommand("svg.animation.upsert", args) },
     { id: "svg.animation.delete", name: "Delete SVG Animation", category: "SVG", args: { elementId: "string?", revision: "number", animationNodeId: "string" }, ai: { expose: true, description: "Delete one SMIL animation node without reserializing its SVG document.", example: { elementId: "svg-host", revision: 2, animationNodeId: "svg-animation-id" } }, action: (_api, args) => executeCanvasSvgCommand("svg.animation.delete", args) },
-    { id: "svg.binding.attach", name: "Attach SVG Node Binding", category: "SVG", args: { elementId: "string?", revision: "number", nodeId: "string", binding: "object" }, ai: { expose: true, description: "Attach a stable Underscore binding to an SVG node's embedded metadata.", example: { elementId: "svg-host", revision: 2, nodeId: "svg-node-id", binding: { id: "follow", target: { kind: "element", elementId: "curve-id" } } } }, action: (_api, args) => executeCanvasSvgCommand("svg.binding.attach", args) },
-    { id: "svg.binding.detach", name: "Detach SVG Node Binding", category: "SVG", args: { elementId: "string?", revision: "number", nodeId: "string", bindingId: "string" }, ai: { expose: true, description: "Remove a Underscore binding from embedded SVG metadata.", example: { elementId: "svg-host", revision: 2, nodeId: "svg-node-id", bindingId: "follow" } }, action: (_api, args) => executeCanvasSvgCommand("svg.binding.detach", args) },
+    { id: "svg.binding.attach", name: "Attach SVG Node Binding", category: "SVG", args: { elementId: "string?", revision: "number", nodeId: "string", binding: "object" }, ai: { expose: true, description: "Attach a stable Underscores binding to an SVG node's embedded metadata.", example: { elementId: "svg-host", revision: 2, nodeId: "svg-node-id", binding: { id: "follow", target: { kind: "element", elementId: "curve-id" } } } }, action: (_api, args) => executeCanvasSvgCommand("svg.binding.attach", args) },
+    { id: "svg.binding.detach", name: "Detach SVG Node Binding", category: "SVG", args: { elementId: "string?", revision: "number", nodeId: "string", bindingId: "string" }, ai: { expose: true, description: "Remove a Underscores binding from embedded SVG metadata.", example: { elementId: "svg-host", revision: 2, nodeId: "svg-node-id", bindingId: "follow" } }, action: (_api, args) => executeCanvasSvgCommand("svg.binding.detach", args) },
     { id: "svg.node.role.assign", name: "Assign SVG Node Score Role", category: "SVG", args: { elementId: "string", nodeIndex: "number", subpathIndex: "number?", role: "curve|cursor|trigger|none" }, ai: { expose: true, description: "Attach a Curve, Cursor, or Trigger role directly to an SVG node or subpath.", example: { elementId: "svg-host", nodeIndex: 3, subpathIndex: 0, role: "curve" } }, action: (_api, args) => assignSvgNodeRole(args.elementId, Number(args.nodeIndex), Number.isInteger(args.subpathIndex) ? args.subpathIndex : null, args.role === "none" ? null : args.role) },
     { id: "svg.object.fromSelection", name: "Convert / Bake Selection to SVG /svg from selection", aliases: ["/svg from selection", "/bake svg", "Convert selection to SVG object", "Bake selection to SVG"], category: "SVG", action: () => convertSelectionToSvgObject() },
     { id: "scene.bake.png", name: "Bake Selection to PNG /bake png", aliases: ["/bake png", "Bake selection to PNG"], category: "Canvas", action: () => bakeSelectionToPng() },
@@ -11541,23 +11541,23 @@ function App() {
     { id: "scene.ungroup", name: "Ungroup Selected Scene Objects /ungroup", aliases: ["/ungroup", "Ungroup selection"], category: "Scene", action: () => ungroupSceneSelection() },
     { id: "svg.copy.selection", name: "Copy Selection as Editable SVG /copy svg", aliases: ["/copy svg", "Copy selection SVG"], category: "Canvas", action: () => copySelectionAsSvg() },
     { id: "svg.paste.editable", name: "Paste SVG as Editable Paths /paste svg", aliases: ["/paste svg", "Paste SVG as paths"], category: "Canvas", action: () => pasteSvgAsEditable() },
-    { id: "export.board.png", name: "Export Board as PNG /export board", aliases: ["/export board", "/export png", "Export Underscore board"], category: "Canvas", action: () => void exportUnderscoreBoardPng() },
+    { id: "export.board.png", name: "Export Board as PNG /export board", aliases: ["/export board", "/export png", "Export Underscores board"], category: "Canvas", action: () => void exportUnderscoresBoardPng() },
     { id: "export.p5.frame.png", name: "Export Selected p5 Frame as PNG /export p5", aliases: ["/export p5", "/export p5 frame", "Export selected p5 frame"], category: "Canvas", action: () => void exportSelectedP5FramesPng() },
     { id: "webembed.create", name: "Create Web Embed /webembed", aliases: ["/webembed", "Create web embed", "Web embed"], category: "Canvas", args: { url: "URL?" }, action: (_api, args) => createWebEmbed(args) },
     { id: "p5.frame.create", name: "Create p5 Frame /p5", aliases: ["/p5", "Create p5 frame", "p5 frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", source: "p5 source?", mode: "auto|instance|global?", runtime: "bundled|cdn?", cdnUrl: "string?" }, ai: { expose: true, description: "Create a trusted, interactive p5.js frame. Use mode: instance for p.setup/p.draw code, or mode: global for classic function setup()/draw() code. Omit mode for auto-detection. The bundled runtime is the default; only use runtime: cdn when the user specifically requests a remote p5 build. Keep the sketch self-contained and do not use HTML or script tags.", example: { name: "Pulsing circle", width: 640, height: 360, mode: "global", source: "function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(230);\n  strokeWeight(3);\n  const radius = 60 + 24 * Math.sin(millis() / 500);\n  circle(width / 2, height / 2, radius * 2);\n}" } }, action: (_api, args) => createP5Frame(args) },
     { id: "p5.frame.attach", name: "Attach p5 Sketch to Selection /attach p5", aliases: ["/attach p5", "Attach p5 sketch", "p5 attach"], category: "Canvas", args: { source: "p5 source?", mode: "auto|instance|global?", name: "string?" }, ai: { expose: true, description: "Attach a p5 sketch to each selected rectangle, frame, or existing p5 canvas. The selected objects become live p5 hosts; use a self-contained p5 source and choose global mode for classic setup()/draw() code.", example: { mode: "global", source: "function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  background(18);\n  circle(width / 2, height / 2, 80);\n}" } }, action: (_api, args) => attachP5ScriptToSelection(args) },
     { id: "play.core.frame.create", name: "Create Play Core Frame /play", aliases: ["/play", "Play Core frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", fps: "number?", source: "play.core source?" }, action: (_api, args) => createPlayCoreFrame(args) },
-    { id: "livecode.node.run", name: "Run Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.underscoreLivecode); if (!node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
-    { id: "livecode.node.stop", name: "Stop Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.underscoreLivecode); if (node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
+    { id: "livecode.node.run", name: "Run Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.underscoresLivecode); if (!node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
+    { id: "livecode.node.stop", name: "Stop Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.underscoresLivecode); if (node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
     { id: "livecode.node.migrate", name: "Migrate p5 or Play Core Host to Livecode Node", aliases: ["Migrate to Livecode Node"], category: "Canvas", action: () => { const target = getSelectedElements().find(element => isP5FrameElement(element) || isPlayCoreFrameElement(element)); if (!target) throw new Error("Select a p5 or Play Core host first."); return migrateLegacyHostToLivecodeNode(target.id); } },
     { id: "media.camera.create", name: "Create Camera Input", aliases: ["/camera", "webcam stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.CAMERA, args) },
     { id: "media.input.create", name: "Create Media Input", aliases: ["/media", "image stream", "video stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.MEDIA, { ...args, media: { url: args?.url || args?.media?.url || "", ...(args?.media || {}) } }) },
     { id: "media.preview.make", name: "Make Selected Frame or Rectangle a Preview /preview", aliases: ["/preview", "/preview make", "Make Preview"], category: "Media Streams", args: { sourceId: "string?" }, action: (_api, args) => makeSelectedMediaPreview(args) },
     { id: "media.holistic.create", name: "Create MediaPipe Holistic Object", aliases: ["/holistic-object", "landmark stream"], category: "Media Streams", action: (_api, args) => createMediaStreamObject(MEDIA_STREAM_KINDS.HOLISTIC, { ...args, holistic: { sourceId: args?.sourceId || args?.sourceElementId || args?.holistic?.sourceId || args?.holistic?.sourceElementId || "", ...(args?.holistic || {}) } }) },
-    { id: "media.holistic.snapshot", name: "Snapshot Selected Holistic Landmarks", category: "Media Streams", action: () => { const target = getSelectedElements().find(element => isMediaStreamElement(element) && normalizeMediaStreamConfig(element.customData.underscoreMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC); if (!target) throw new Error("Select a MediaPipe Holistic object first."); snapshotHolisticLandmarks(target.id); return { elementIds: [target.id] }; } },
-    { id: "media.holistic.snapshot.png", name: "Snapshot Selected Holistic View as PNG", aliases: ["/holistic png", "Snapshot Holistic PNG"], category: "Media Streams", action: () => { const target = getSelectedElements().find(element => isMediaStreamElement(element) && normalizeMediaStreamConfig(element.customData.underscoreMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC); if (!target) throw new Error("Select a MediaPipe Holistic object first."); return snapshotHolisticPng(target.id); } },
+    { id: "media.holistic.snapshot", name: "Snapshot Selected Holistic Landmarks", category: "Media Streams", action: () => { const target = getSelectedElements().find(element => isMediaStreamElement(element) && normalizeMediaStreamConfig(element.customData.underscoresMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC); if (!target) throw new Error("Select a MediaPipe Holistic object first."); snapshotHolisticLandmarks(target.id); return { elementIds: [target.id] }; } },
+    { id: "media.holistic.snapshot.png", name: "Snapshot Selected Holistic View as PNG", aliases: ["/holistic png", "Snapshot Holistic PNG"], category: "Media Streams", action: () => { const target = getSelectedElements().find(element => isMediaStreamElement(element) && normalizeMediaStreamConfig(element.customData.underscoresMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC); if (!target) throw new Error("Select a MediaPipe Holistic object first."); return snapshotHolisticPng(target.id); } },
     { id: "media.unicursal.create", name: "Create Unicursal Portrait /unicursal", aliases: ["/unicursal", "Unicursal portrait"], category: "Media Streams", action: (_api, args) => createMediaStreamObject(MEDIA_STREAM_KINDS.UNICURSAL, { ...args, unicursal: { sourceId: args?.sourceId || args?.sourceElementId || args?.unicursal?.sourceId || "", ...(args?.unicursal || {}) } }) },
-    { id: "media.unicursal.snapshot", name: "Snapshot Selected Unicursal Portrait", category: "Media Streams", action: () => { const target = getSelectedElements().find(element => isMediaStreamElement(element) && normalizeMediaStreamConfig(element.customData.underscoreMediaStream).kind === MEDIA_STREAM_KINDS.UNICURSAL); if (!target) throw new Error("Select a Unicursal portrait first."); return snapshotUnicursalPath(target.id); } },
+    { id: "media.unicursal.snapshot", name: "Snapshot Selected Unicursal Portrait", category: "Media Streams", action: () => { const target = getSelectedElements().find(element => isMediaStreamElement(element) && normalizeMediaStreamConfig(element.customData.underscoresMediaStream).kind === MEDIA_STREAM_KINDS.UNICURSAL); if (!target) throw new Error("Select a Unicursal portrait first."); return snapshotUnicursalPath(target.id); } },
     { id: "media.binding.create", name: "Create Media Actor Binding", category: "Media Streams", args: { elementId: "string", binding: "mediaBinding" }, action: (_api, args) => createMediaBindingForProcessor(args.elementId, args.binding || args) },
     { id: "media.binding.update", name: "Update Media Actor Binding", category: "Media Streams", args: { elementId: "string", bindingId: "string", patch: "mediaBindingPatch" }, action: (_api, args) => updateMediaBindingForProcessor(args.elementId, args.bindingId, args.patch || {}) },
     { id: "media.binding.remove", name: "Remove Media Actor Binding", category: "Media Streams", args: { elementId: "string", bindingId: "string" }, action: (_api, args) => deleteMediaBindingForProcessor(args.elementId, args.bindingId) },
@@ -11572,7 +11572,7 @@ function App() {
     { id: "brush.channel.update", name: "Update Brush Channel", category: "Brush", args: { channelId: "string", patch: "brushChannelPatch" }, action: (_api, args) => { updateBrushChannel(args.channelId, args.patch || {}); return { channelId: args.channelId }; } },
     { id: "brush.channel.remove", name: "Remove Brush Channel", category: "Brush", args: { channelId: "string" }, action: (_api, args) => { deleteBrushChannel(args.channelId); return { channelId: args.channelId }; } },
     { id: "brush.channel.reorder", name: "Reorder Brush Channel", category: "Brush", args: { channelId: "string", delta: "number" }, action: (_api, args) => { reorderBrushChannel(args.channelId, Number(args.delta) || 0); return { channelId: args.channelId }; } },
-    { id: "settings-ai", name: "Open AI Configuration /settings-ai", aliases: ["/settings-ai"], category: "Panels", action: () => toggleUnderscorePanel("settings", { settingsTab: "ai" }) },
+    { id: "settings-ai", name: "Open AI Configuration /settings-ai", aliases: ["/settings-ai"], category: "Panels", action: () => toggleUnderscoresPanel("settings", { settingsTab: "ai" }) },
     { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
     { id: "toggle-transparency", name: "Toggle Canvas Background Transparency", category: "Canvas", action: (api) => toggleBackgroundTransparency(api) },
     { id: "reset-view", name: "Reset Zoom & Pan View", category: "Canvas", action: (api) => api.updateScene({ appState: { zoom: { value: 1 }, scrollX: 0, scrollY: 0 } }) },
@@ -11614,7 +11614,7 @@ function App() {
     { id: "scene.update", name: "Update Scene Objects", category: "Scene", args: { elements: "element[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.update", args) },
     { id: "scene.create.objects", name: "AI: Create Scene Objects", category: "AI Actions", args: { objects: "{id?,type,x,y,width?,height?,x2?,y2?,points?,strokeColor?,backgroundColor?,role?,label?}[]", select: "boolean?" }, ai: { expose: true, description: "Create rectangles, ellipses, diamonds, lines, or freedraw paths. Freedraw points are absolute [x,y] pairs. Give objects explicit ids when later commands need them.", example: { objects: [{ id: "curve-a", type: "line", x: 100, y: 120, x2: 420, y2: 220, strokeColor: "#00b8e8", role: "curve", label: "AI curve" }] } }, action: (_api, args) => createAIObjects(args) },
     { id: "scene.patch.objects", name: "AI: Patch Scene Objects", category: "AI Actions", args: { patches: "{id,patch:{x?,y?,width?,height?,angle?,strokeColor?,backgroundColor?,fillStyle?,strokeWidth?,strokeStyle?,roughness?,opacity?,locked?}}[]" }, ai: { expose: true, description: "Move or restyle existing objects using only the supplied shallow patch fields. Use ids from scene context or objects created earlier in this response.", example: { patches: [{ id: "curve-a", patch: { strokeColor: "#ff8a3d", strokeWidth: 4 } }] } }, action: (_api, args) => patchAIObjects(args) },
-    { id: "automation.keyframes.set", name: "AI: Set Object Keyframes", category: "AI Actions", args: { keyframes: "{elementId,path,time|seconds,value,interpolation?}[]" }, ai: { expose: true, description: "Animate supported Excalidraw object properties by adding or replacing keyframes. Supported paths are x, y, angle, width, height, opacity, strokeWidth, strokeColor, backgroundColor, points, customData.modifiers, customData.score, customData.physics, and customData.underscoreGeometry. Time accepts time expressions.", example: { keyframes: [{ elementId: "curve-a", path: "x", time: "0 s", value: 100 }, { elementId: "curve-a", path: "x", time: "2 bars", value: 600 }] } }, action: (_api, args) => setAIAutomationKeyframes(args) },
+    { id: "automation.keyframes.set", name: "AI: Set Object Keyframes", category: "AI Actions", args: { keyframes: "{elementId,path,time|seconds,value,interpolation?}[]" }, ai: { expose: true, description: "Animate supported Excalidraw object properties by adding or replacing keyframes. Supported paths are x, y, angle, width, height, opacity, strokeWidth, strokeColor, backgroundColor, points, customData.modifiers, customData.score, customData.physics, and customData.underscoresGeometry. Time accepts time expressions.", example: { keyframes: [{ elementId: "curve-a", path: "x", time: "0 s", value: 100 }, { elementId: "curve-a", path: "x", time: "2 bars", value: 600 }] } }, action: (_api, args) => setAIAutomationKeyframes(args) },
     { id: "scene.delete", name: "Delete Scene Objects", category: "Scene", args: { elementIds: "string[]" }, ai: { expose: true, description: "Delete objects by id.", example: { elementIds: ["curve-a"] } }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.delete", args) },
     { id: "score.roles.assign", name: "AI: Assign Score Roles", category: "AI Actions", args: { elementIds: "string[]?", role: "none|curve|cursor|trigger", label: "string?", active: "boolean?" }, ai: { expose: true, description: "Assign or clear Score roles. Without elementIds, applies to the current selection.", example: { elementIds: ["curve-a"], role: "curve", label: "Main curve" } }, action: (_api, args) => assignAIObjectRoles(args) },
     { id: "transport.update", name: "Update Transport State", category: "Transport", args: { state: "transportState" }, ai: { expose: true, description: "Update transport tempo, meter, play state, display mode, fps, or loop range. Do not change MIDI credentials or providers.", example: { state: { tempo: 96, timeSignature: "4/4", displayMode: "beats" } } }, action: (_api, args) => runtimeCallbacksRef.current.transportUpdate(args?.state || args) },
@@ -11645,8 +11645,8 @@ function App() {
     { id: "script.brush.create", name: "AI: Create Brush Script", category: "AI Actions", args: { name: "string", code: "JavaScript source", type: "brush|filter?", activate: "boolean?" }, ai: { expose: true, description: "Create an editable Brush / modifier JavaScript script in the local script catalog.", example: { name: "Offset lines", code: "(points, globals) => [points]" } }, action: (_api, args) => createAIBrushScript(args) },
     { id: "script.brush.update", name: "AI: Update Brush Script", category: "AI Actions", args: { id: "string?", name: "string?", code: "JavaScript source?" }, ai: { expose: true, description: "Rename or replace an editable brush script. Built-in presets are read-only.", example: { id: "user-example", name: "Soft offset", code: "(points, globals) => [points]" } }, action: (_api, args) => updateAIBrushScript(args) },
     { id: "script.brush.apply", name: "AI: Apply Brush Script", category: "AI Actions", args: { id: "string?", elementIds: "string[]?", params: "object?" }, ai: { expose: true, description: "Apply a brush script as a modifier to selected or listed line/freedraw paths.", example: { id: "user-example", elementIds: ["curve-a"] } }, action: (_api, args) => applyAIBrushScript(args) },
-    { id: "script.iannix.create", name: "AI: Create IanniX Script", category: "AI Actions", args: { name: "string", source: "IanniX source", parameters: "object?", activate: "boolean?" }, ai: { expose: true, description: "Create an editable trusted IanniX source script in the local script catalog. Source must define makeWithScript() or madeThroughGUI(), use Underscore-supported run() commands, and put one statement per line. Creation does not run it. IanniX coordinates are model units, not canvas pixels: for visible default-scale geometry use setPos current 12 -8 0 and local points/radii near 0..8; do not use 480-style screen coordinates.", example: { name: "Two-point orbit", source: "function makeWithScript() {\n  run(\\\"clear\\\");\n  run(\\\"add curve orbit\\\");\n  run(\\\"setPos current 12 -8 0\\\");\n  run(\\\"setPointAt current 0 0 0\\\");\n  run(\\\"setPointAt current 1 8 0\\\");\n  run(\\\"add cursor traveler\\\");\n  run(\\\"setCurve current lastCurve\\\");\n}" } }, action: (_api, args) => createAIIannixScript(args) },
-    { id: "script.iannix.update", name: "AI: Update IanniX Script", category: "AI Actions", args: { id: "string?", name: "string?", source: "IanniX source?", parameters: "object?" }, ai: { expose: true, description: "Rename or replace a local IanniX script without running it. Replacement source must follow the Underscore IanniX lifecycle/run-command contract and use one statement per line.", example: { id: "iannix-script-example", source: "function makeWithScript() {\n  run(\\\"add curve orbit\\\");\n  run(\\\"setPos current 12 -8 0\\\");\n  run(\\\"setPointAt current 0 0 0\\\");\n  run(\\\"setPointAt current 1 8 0\\\");\n}" } }, action: (_api, args) => updateAIIannixScript(args) },
+    { id: "script.iannix.create", name: "AI: Create IanniX Script", category: "AI Actions", args: { name: "string", source: "IanniX source", parameters: "object?", activate: "boolean?" }, ai: { expose: true, description: "Create an editable trusted IanniX source script in the local script catalog. Source must define makeWithScript() or madeThroughGUI(), use Underscores-supported run() commands, and put one statement per line. Creation does not run it. IanniX coordinates are model units, not canvas pixels: for visible default-scale geometry use setPos current 12 -8 0 and local points/radii near 0..8; do not use 480-style screen coordinates.", example: { name: "Two-point orbit", source: "function makeWithScript() {\n  run(\\\"clear\\\");\n  run(\\\"add curve orbit\\\");\n  run(\\\"setPos current 12 -8 0\\\");\n  run(\\\"setPointAt current 0 0 0\\\");\n  run(\\\"setPointAt current 1 8 0\\\");\n  run(\\\"add cursor traveler\\\");\n  run(\\\"setCurve current lastCurve\\\");\n}" } }, action: (_api, args) => createAIIannixScript(args) },
+    { id: "script.iannix.update", name: "AI: Update IanniX Script", category: "AI Actions", args: { id: "string?", name: "string?", source: "IanniX source?", parameters: "object?" }, ai: { expose: true, description: "Rename or replace a local IanniX script without running it. Replacement source must follow the Underscores IanniX lifecycle/run-command contract and use one statement per line.", example: { id: "iannix-script-example", source: "function makeWithScript() {\n  run(\\\"add curve orbit\\\");\n  run(\\\"setPos current 12 -8 0\\\");\n  run(\\\"setPointAt current 0 0 0\\\");\n  run(\\\"setPointAt current 1 8 0\\\");\n}" } }, action: (_api, args) => updateAIIannixScript(args) },
     { id: "script.iannix.run", name: "AI: Run IanniX Script", category: "AI Actions", args: { id: "string?", source: "IanniX source?", filename: "string?", parameters: "object?" }, ai: { expose: true, description: "Run a trusted IanniX script. Only use when the user explicitly asks to execute the generated script.", example: { id: "iannix-script-example" } }, action: (_api, args) => runAIIannixScript(args) },
     { id: "iannix.import.trusted", name: "Import Trusted Score Script /score import", aliases: ["/score import", "/iannix import"], category: "Score", args: { source: "string", filename: "string?", seed: "number?", anchor: "point?", scale: "number?", importId: "string?", scoreId: "string?", scoreLabel: "string?", parameters: "object?" }, validate: args => ({ ...args, importId: args?.importId || args?.scoreId || crypto.randomUUID() }), action: (_api, args) => runtimeCallbacksRef.current.iannixImport(args) },
     {
@@ -11724,12 +11724,12 @@ function App() {
       }
 
       // CodeMirror and Orca own their complete keyboard sessions. This needs to precede
-      // canvas shortcuts because both Excalidraw and Underscore use
+      // canvas shortcuts because both Excalidraw and Underscores use
       // capture-phase handlers. Shift+Escape is the explicit exception for a
       // canvas livecode editor: it switches the selected node to output and
       // defocuses it without changing plain Escape's editor behavior.
       const activeElement = document.activeElement;
-      const activeCanvasLivecodeNode = activeElement?.closest?.(".underscore-livecode-node");
+      const activeCanvasLivecodeNode = activeElement?.closest?.(".underscores-livecode-node");
       const activeCanvasLivecodeId = activeCanvasLivecodeNode?.dataset?.livecodeNodeId || null;
       const canvasLivecodeIsSelected = Boolean(
         activeCanvasLivecodeId
@@ -11744,7 +11744,7 @@ function App() {
         e.stopImmediatePropagation?.();
         const activeCanvasLivecodeElement = excalidrawAPI?.getSceneElementsIncludingDeleted?.()
           ?.find(element => element.id === activeCanvasLivecodeId && !element.isDeleted);
-        const activeCanvasLivecodeData = activeCanvasLivecodeElement?.customData?.underscoreLivecode;
+        const activeCanvasLivecodeData = activeCanvasLivecodeElement?.customData?.underscoresLivecode;
         const activeCanvasLivecodeView = activeCanvasLivecodeData
           ? normalizeLivecodeNode(activeCanvasLivecodeData).view
           : null;
@@ -11758,7 +11758,7 @@ function App() {
         activeElement?.blur?.();
         return;
       }
-      if (activeElement?.closest?.(".underscore-code-editor, .orca-node")) return;
+      if (activeElement?.closest?.(".underscores-code-editor, .orca-node")) return;
 
       // Escape is a global cancel/clear gesture: close transient UI, blur any
       // focused control, leave Bézier editing, and clear the canvas selection.
@@ -11805,9 +11805,9 @@ function App() {
 
       // An interactive p5 runner owns keyboard input after it has been
       // clicked. Its p5 instance listens at document level, so consuming a
-      // Underscore shortcut here would otherwise prevent keyPressed(),
+      // Underscores shortcut here would otherwise prevent keyPressed(),
       // keyReleased(), and keyTyped() from seeing the event.
-      if (document.activeElement?.closest?.(".underscore-p5-host")) return;
+      if (document.activeElement?.closest?.(".underscores-p5-host")) return;
 
       // Space controls score transport from the canvas/UI. Text controls keep
       // their native spacebar behavior so users can still type normally.
@@ -11839,7 +11839,7 @@ function App() {
           && isLivecodeNodeElement(element)
         ));
         if (selectedLivecodeNodes.length === 1) {
-          const node = normalizeLivecodeNode(selectedLivecodeNodes[0].customData?.underscoreLivecode);
+          const node = normalizeLivecodeNode(selectedLivecodeNodes[0].customData?.underscoresLivecode);
           e.preventDefault();
           e.stopPropagation();
           e.stopImmediatePropagation?.();
@@ -12189,7 +12189,7 @@ function App() {
       }
       return await commandRegistry.execute(cmd.id, args, { source, transportTime: scoreTimeRef.current });
     } catch (error) {
-      console.error("Underscore command failed", error);
+      console.error("Underscores command failed", error);
       setSceneExchangeStatus(error.message || "Command failed.");
     }
   };
@@ -12203,7 +12203,7 @@ function App() {
   useEffect(() => {
     const selectedP5Frames = getSelectedElements().filter(isP5FrameElement);
     if (selectedP5Frames.length !== 1) return;
-    const frame = normalizeP5Frame(selectedP5Frames[0].customData?.underscoreP5);
+    const frame = normalizeP5Frame(selectedP5Frames[0].customData?.underscoresP5);
     const script = frame.scriptId ? p5Scripts.find(candidate => candidate.id === frame.scriptId) : null;
     setActiveP5ScriptId(script?.id || "");
     setP5ScriptSource(script?.source || frame.source);
@@ -12250,7 +12250,7 @@ function App() {
     const pathSource = serializeSvgPathGeometry(geometry);
     const nextElements = excalidrawAPI.getSceneElementsIncludingDeleted().map(element => {
       if (element.id !== elementId || element.isDeleted || !isSvgObjectElement(element)) return element;
-      const svg = normalizeSvgObject(element.customData.underscoreSvg);
+      const svg = normalizeSvgObject(element.customData.underscoresSvg);
       const node = analyzeSvgSource(svg.source).nodes.find(candidate => candidate.index === nodeIndex);
       if (!node?.attributes?.d) return element;
       const nextPathSource = Number.isInteger(connectedAnchorIndex)
@@ -12269,7 +12269,7 @@ function App() {
         updated: Date.now(),
         customData: {
           ...(element.customData || {}),
-          underscoreSvg: nextSvg,
+          underscoresSvg: nextSvg,
         },
       };
       return updated;
@@ -12277,7 +12277,7 @@ function App() {
     if (!updated) return null;
     excalidrawAPI.updateScene({ elements: nextElements, commitToHistory });
     if (svgEditorTargetId === elementId) {
-      const nextSvg = normalizeSvgObject(updated.customData.underscoreSvg);
+      const nextSvg = normalizeSvgObject(updated.customData.underscoresSvg);
       setSvgScriptSource(nextSvg.source);
       setSvgLoadedRevision(nextSvg.revision);
     }
@@ -12293,7 +12293,7 @@ function App() {
     for (const element of selected) {
       const host = ["rectangle", "ellipse", "diamond"].includes(element.type) ? convertShapeElementToPath(element, "line") : element;
       const geometry = hasCubicBezierGeometry(host)
-        ? normalizeBezierGeometry(host.customData.underscoreGeometry)
+        ? normalizeBezierGeometry(host.customData.underscoresGeometry)
         : createBezierGeometryFromElement(host);
       if (geometry) targets.set(element.id, { geometry, host });
     }
@@ -12323,7 +12323,7 @@ function App() {
     return [...targets.keys()];
   };
 
-  // Remove Underscore's canonical spline metadata while retaining the sampled
+  // Remove Underscores's canonical spline metadata while retaining the sampled
   // host path. This makes the conversion reversible without changing the
   // element's Excalidraw identity, selection, or transforms.
   const convertSelectedFromBezier = () => {
@@ -12334,7 +12334,7 @@ function App() {
     const convertedIds = [];
     const nextElements = excalidrawAPI.getSceneElementsIncludingDeleted().map(element => {
       if (!selectedIds.has(element.id) || element.isDeleted) return element;
-      const { underscoreGeometry: _geometry, ...remainingCustomData } = element.customData || {};
+      const { underscoresGeometry: _geometry, ...remainingCustomData } = element.customData || {};
       convertedIds.push(element.id);
       return {
         ...element,
@@ -12365,7 +12365,7 @@ function App() {
       ? excalidrawAPI?.getSceneElements().find(element => element.id === requestedElementId && !element.isDeleted && isSvgObjectElement(element))
       : getSelectedElements().find(isSvgObjectElement);
     if (!selected) throw new Error("Select an SVG object first.");
-    const svg = normalizeSvgObject(selected.customData.underscoreSvg);
+    const svg = normalizeSvgObject(selected.customData.underscoresSvg);
     const paths = getEditableSvgPathNodes(svg.source);
     const path = Number.isInteger(requestedNodeIndex)
       ? paths.find(candidate => candidate.node.index === requestedNodeIndex)
@@ -12413,7 +12413,7 @@ function App() {
     );
     if (!element || !selectionFilterAllowsElement(selectionFilterRef.current, element)) return null;
     setSvgDetachedEndpoint(null);
-    const svg = normalizeSvgObject(element.customData.underscoreSvg);
+    const svg = normalizeSvgObject(element.customData.underscoresSvg);
     const node = analyzeSvgSource(svg.source).nodes.find(candidate => candidate.index === nodeIndex);
     if (!node) return null;
     const selectedIds = { [element.id]: true };
@@ -12500,7 +12500,7 @@ function App() {
     );
   };
 
-  const extractSvgSubpathToUnderscore = (elementId, nodeIndex, subpathIndex, role = null) => {
+  const extractSvgSubpathToUnderscores = (elementId, nodeIndex, subpathIndex, role = null) => {
     if (!excalidrawAPI) throw new Error("The canvas is not ready.");
     if (role && !["curve", "cursor", "trigger"].includes(role)) throw new Error(`Unsupported score role: ${role}.`);
     const context = getSvgPathEditContext({ elementId, nodeIndex, subpathIndex });
@@ -12542,8 +12542,8 @@ function App() {
       strokeWidth,
       opacity,
       customData: {
-        underscoreGeometry: host.geometry,
-        underscoreSvgSource: {
+        underscoresGeometry: host.geometry,
+        underscoresSvgSource: {
           elementId: context.element.id,
           nodeIndex: context.path.node.index,
           subpathIndex: context.subpath.index,
@@ -12592,7 +12592,7 @@ function App() {
     setModifierUpdateNonce(nonce => nonce + 1);
     setSceneExchangeStatus(
       role
-        ? `Extracted SVG subpath ${subpathIndex + 1} as a Underscore ${role}.`
+        ? `Extracted SVG subpath ${subpathIndex + 1} as a Underscores ${role}.`
         : `Extracted SVG subpath ${subpathIndex + 1} as a native spline.`,
     );
     return element;
@@ -12604,12 +12604,12 @@ function App() {
     const scene = excalidrawAPI.getSceneElementsIncludingDeleted();
     const element = scene.find(candidate => candidate.id === elementId && !candidate.isDeleted && isSvgObjectElement(candidate));
     if (!element) throw new Error("The SVG object was not found.");
-    const svg = normalizeSvgObject(element.customData.underscoreSvg);
+    const svg = normalizeSvgObject(element.customData.underscoresSvg);
     const prepared = prepareSvgForStructuredEditing(svg.source);
     if (prepared.error) throw new Error(prepared.error);
     const node = prepared.document.nodes[nodeIndex];
-    if (!node?.underscoreId) throw new Error("The selected SVG node cannot receive Underscore data.");
-    const source = updateSvgNodeData(prepared.source, node.underscoreId, current => ({
+    if (!node?.underscoresId) throw new Error("The selected SVG node cannot receive Underscores data.");
+    const source = updateSvgNodeData(prepared.source, node.underscoresId, current => ({
       ...current,
       ...(Number.isInteger(subpathIndex) ? { subpathId: String(subpathIndex) } : {}),
       score: normalizeIannixData({
@@ -12639,7 +12639,7 @@ function App() {
       version: (element.version || 0) + 1,
       versionNonce: Math.floor(Math.random() * 0x7fffffff),
       updated: Date.now(),
-      customData: { ...(element.customData || {}), underscoreSvg: nextSvg },
+      customData: { ...(element.customData || {}), underscoresSvg: nextSvg },
     };
     excalidrawAPI.updateScene({
       elements: scene.map(candidate => candidate.id === elementId ? updated : candidate),
@@ -12649,12 +12649,12 @@ function App() {
       setSvgScriptSource(nextSvg.source);
       setSvgLoadedRevision(nextSvg.revision);
     }
-    setSelectedSvgNode({ elementId, nodeIndex, nodeId: node.underscoreId, ...(Number.isInteger(subpathIndex) ? { subpathIndex } : {}) });
+    setSelectedSvgNode({ elementId, nodeIndex, nodeId: node.underscoresId, ...(Number.isInteger(subpathIndex) ? { subpathIndex } : {}) });
     setModifierUpdateNonce(nonce => nonce + 1);
     setSceneExchangeStatus(role
       ? `Assigned ${role} directly to ${node.label}${Number.isInteger(subpathIndex) ? ` subpath ${subpathIndex + 1}` : ""}.`
       : `Cleared the direct SVG score role from ${node.label}.`);
-    return { elementId, nodeId: node.underscoreId, subpathId: subpathIndex, role };
+    return { elementId, nodeId: node.underscoresId, subpathId: subpathIndex, role };
   };
 
   const convertSelectedSvgPathToCubic = () => {
@@ -12795,21 +12795,21 @@ function App() {
   const setSelectedBezierClosed = closed => {
     const element = getSelectedElements().find(hasCubicBezierGeometry);
     if (!element) throw new Error("Select a Bézier path first.");
-    return commitBezierElement(element.id, { ...element.customData.underscoreGeometry, closed: closed === undefined ? !element.customData.underscoreGeometry.closed : Boolean(closed) });
+    return commitBezierElement(element.id, { ...element.customData.underscoresGeometry, closed: closed === undefined ? !element.customData.underscoresGeometry.closed : Boolean(closed) });
   };
 
   const setSelectedBezierHandleMode = mode => {
     const element = getSelectedElements().find(hasCubicBezierGeometry);
     if (!element) throw new Error("Select a Bézier path first.");
     const index = Number.isInteger(bezierSelectedAnchor) ? bezierSelectedAnchor : 0;
-    return commitBezierElement(element.id, setBezierAnchorMode(element.customData.underscoreGeometry, index, mode));
+    return commitBezierElement(element.id, setBezierAnchorMode(element.customData.underscoresGeometry, index, mode));
   };
 
   const insertSelectedBezierAnchor = args => {
     const element = getSelectedElements().find(hasCubicBezierGeometry);
     if (!element) throw new Error("Select a Bézier path first.");
-    const segmentIndex = Math.max(0, Math.min(element.customData.underscoreGeometry.anchors.length - 1, Math.round(Number(args?.segmentIndex) || 0)));
-    const geometry = splitBezierSegment(element.customData.underscoreGeometry, segmentIndex, Number.isFinite(Number(args?.t)) ? Number(args.t) : 0.5);
+    const segmentIndex = Math.max(0, Math.min(element.customData.underscoresGeometry.anchors.length - 1, Math.round(Number(args?.segmentIndex) || 0)));
+    const geometry = splitBezierSegment(element.customData.underscoresGeometry, segmentIndex, Number.isFinite(Number(args?.t)) ? Number(args.t) : 0.5);
     commitBezierElement(element.id, geometry);
     setBezierSelectedAnchor(segmentIndex + 1);
     return geometry;
@@ -12818,8 +12818,8 @@ function App() {
   const deleteSelectedBezierAnchor = () => {
     const element = getSelectedElements().find(hasCubicBezierGeometry);
     if (!element) throw new Error("Select a Bézier path first.");
-    const index = Number.isInteger(bezierSelectedAnchor) ? bezierSelectedAnchor : element.customData.underscoreGeometry.anchors.length - 1;
-    const geometry = removeBezierAnchor(element.customData.underscoreGeometry, index);
+    const index = Number.isInteger(bezierSelectedAnchor) ? bezierSelectedAnchor : element.customData.underscoresGeometry.anchors.length - 1;
+    const geometry = removeBezierAnchor(element.customData.underscoresGeometry, index);
     commitBezierElement(element.id, geometry);
     setBezierSelectedAnchor(Math.min(index, geometry.anchors.length - 1));
     return geometry;
@@ -12828,7 +12828,7 @@ function App() {
   const exportSelectedBezierIannix = () => {
     const selected = getSelectedElements().filter(hasCubicBezierGeometry);
     if (!selected.length) throw new Error("Select at least one Bézier curve to export.");
-    const commands = ["/* Exported by Underscore */", "run(\"clear\");"];
+    const commands = ["/* Exported by Underscores */", "run(\"clear\");"];
     selected.forEach((element, index) => {
       const importData = element.customData?.iannixImport || {};
       const elementCommands = serializeBezierElementToIannixCommands(element, {
@@ -12839,7 +12839,7 @@ function App() {
       elementCommands.forEach(command => commands.push(`run(${JSON.stringify(command)});`));
     });
     const source = `${commands.join("\n")}\n`;
-    downloadTextFile(source, `underscore-curves-${new Date().toISOString().slice(0, 10)}.iannix`, "text/javascript");
+    downloadTextFile(source, `underscores-curves-${new Date().toISOString().slice(0, 10)}.iannix`, "text/javascript");
     return source;
   };
 
@@ -12858,7 +12858,7 @@ function App() {
         if (!element) return;
         event.preventDefault();
         event.stopPropagation();
-        const geometry = removeBezierAnchor(element.customData.underscoreGeometry, bezierSelectedAnchor);
+        const geometry = removeBezierAnchor(element.customData.underscoresGeometry, bezierSelectedAnchor);
         commitBezierElement(element.id, geometry);
         setBezierSelectedAnchor(Math.min(bezierSelectedAnchor, geometry.anchors.length - 1));
       }
@@ -13140,7 +13140,7 @@ function App() {
       strokeWidth: 0,
       fillStyle: "solid",
       customData: {
-        underscoreEmbed: embedPolicyForElement(null),
+        underscoresEmbed: embedPolicyForElement(null),
       },
     };
     const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
@@ -13199,8 +13199,8 @@ function App() {
         if (!selectedIds.has(element.id)) return element;
         if (isLivecodeNodeElement(element)) {
           const customData = { ...(element.customData || {}) };
-          delete customData.underscoreP5;
-          delete customData.underscorePlayCore;
+          delete customData.underscoresP5;
+          delete customData.underscoresPlayCore;
           return {
             ...element,
             version: (element.version || 0) + 1,
@@ -13208,7 +13208,7 @@ function App() {
             updated: nonce,
             customData: {
               ...customData,
-              underscoreLivecode: replaceLivecodeNodeProgram(customData.underscoreLivecode, {
+              underscoresLivecode: replaceLivecodeNodeProgram(customData.underscoresLivecode, {
                 kind: LIVECODE_KINDS.p5,
                 source: resolvedSource,
                 name: script.name,
@@ -13217,7 +13217,7 @@ function App() {
             },
           };
         }
-        const prior = normalizeP5Frame(element.customData?.underscoreP5);
+        const prior = normalizeP5Frame(element.customData?.underscoresP5);
         const hostType = isP5FrameElement(element)
           ? getP5HostElementType(prior)
           : (element.type === "frame" ? "frame" : "rectangle");
@@ -13232,7 +13232,7 @@ function App() {
           backgroundColor: "transparent",
           customData: {
             ...(element.customData || {}),
-            underscoreP5: normalizeP5Frame({
+            underscoresP5: normalizeP5Frame({
               ...prior,
               source: resolvedSource,
               mode: resolvedMode,
@@ -13262,7 +13262,7 @@ function App() {
     const height = Math.max(1, Number(target.height) || 1);
     const name = `${getScoreData(target)?.label || "Rectangle"} SVG`;
     const source = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n</svg>`;
-    const underscoreSvg = normalizeSvgObject({ source, name, revision: 1 });
+    const underscoresSvg = normalizeSvgObject({ source, name, revision: 1 });
     const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
     const selection = { [target.id]: true };
     api.updateScene({
@@ -13275,7 +13275,7 @@ function App() {
         version: (element.version || 0) + 1,
         versionNonce: Math.floor(Math.random() * 0x7fffffff),
         updated: Date.now(),
-        customData: withScoreData({ ...(element.customData || {}), underscoreSvg }, { ...(getScoreData(element) || {}), label: name }),
+        customData: withScoreData({ ...(element.customData || {}), underscoresSvg }, { ...(getScoreData(element) || {}), label: name }),
       }),
       appState: {
         selectedElementIds: selection,
@@ -13289,10 +13289,10 @@ function App() {
     selectedElementIdsRef.current = selection;
     setSelectedElementIds(selection);
     setActiveSvgScriptId("");
-    setSvgScriptSource(underscoreSvg.source);
+    setSvgScriptSource(underscoresSvg.source);
     setSvgScriptNameDraft(name);
     setSvgEditorTargetId(target.id);
-    setSvgLoadedRevision(underscoreSvg.revision);
+    setSvgLoadedRevision(underscoresSvg.revision);
     setEditingSvgScriptName(false);
     setSvgScriptStatus(`Attached a blank SVG matching this rectangle (${width} × ${height}).`);
     setSvgScriptStatusKind("success");
@@ -13306,7 +13306,7 @@ function App() {
     if (!api || !scriptId) return;
     const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
     const matched = elements.filter(element => !element.isDeleted && isP5FrameElement(element)
-      && normalizeP5Frame(element.customData?.underscoreP5).scriptId === scriptId);
+      && normalizeP5Frame(element.customData?.underscoresP5).scriptId === scriptId);
     if (!matched.length) return;
     const nonce = Date.now();
     api.updateScene({
@@ -13319,8 +13319,8 @@ function App() {
           validated: false,
           customData: {
             ...(element.customData || {}),
-            underscoreP5: normalizeP5Frame({
-              ...element.customData?.underscoreP5,
+            underscoresP5: normalizeP5Frame({
+              ...element.customData?.underscoresP5,
               ...patch,
               reloadNonce: nonce,
             }),
@@ -13367,7 +13367,7 @@ function App() {
       strokeWidth: 0,
       fillStyle: "solid",
       backgroundColor: "transparent",
-      customData: { underscoreP5: frame },
+      customData: { underscoresP5: frame },
     };
     const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
     api.updateScene({
@@ -13417,8 +13417,8 @@ function App() {
         if (!selectedIds.has(element.id)) return element;
         if (isLivecodeNodeElement(element)) {
           const customData = { ...(element.customData || {}) };
-          delete customData.underscoreP5;
-          delete customData.underscorePlayCore;
+          delete customData.underscoresP5;
+          delete customData.underscoresPlayCore;
           return {
             ...element,
             version: (element.version || 0) + 1,
@@ -13426,7 +13426,7 @@ function App() {
             updated: nonce,
             customData: {
               ...customData,
-              underscoreLivecode: replaceLivecodeNodeProgram(customData.underscoreLivecode, {
+              underscoresLivecode: replaceLivecodeNodeProgram(customData.underscoresLivecode, {
                 kind: LIVECODE_KINDS.playcore,
                 source: resolvedSource,
                 name: script.name,
@@ -13434,7 +13434,7 @@ function App() {
             },
           };
         }
-        const prior = normalizePlayCoreFrame(element.customData?.underscorePlayCore);
+        const prior = normalizePlayCoreFrame(element.customData?.underscoresPlayCore);
         return {
           ...element,
           strokeColor: "transparent",
@@ -13443,7 +13443,7 @@ function App() {
           backgroundColor: "transparent",
           customData: {
             ...(element.customData || {}),
-            underscorePlayCore: normalizePlayCoreFrame({
+            underscoresPlayCore: normalizePlayCoreFrame({
               ...prior,
               source: resolvedSource,
               scriptId: script.id,
@@ -13464,7 +13464,7 @@ function App() {
     if (!api || !scriptId) return;
     const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
     const matched = elements.filter(element => !element.isDeleted && isPlayCoreFrameElement(element)
-      && normalizePlayCoreFrame(element.customData?.underscorePlayCore).scriptId === scriptId);
+      && normalizePlayCoreFrame(element.customData?.underscoresPlayCore).scriptId === scriptId);
     if (!matched.length) return;
     const nonce = Date.now();
     api.updateScene({
@@ -13472,8 +13472,8 @@ function App() {
         ...element,
         customData: {
           ...(element.customData || {}),
-          underscorePlayCore: normalizePlayCoreFrame({
-            ...element.customData?.underscorePlayCore,
+          underscoresPlayCore: normalizePlayCoreFrame({
+            ...element.customData?.underscoresPlayCore,
             ...patch,
             reloadNonce: nonce,
           }),
@@ -13496,7 +13496,7 @@ function App() {
     const script = createPlayCoreCatalogScript({ name: args.name, source });
     const frame = normalizePlayCoreFrame({ ...DEFAULT_PLAY_CORE_FRAME, source, scriptId: script.id, fps: args.fps, reloadNonce: Date.now() });
     const base = createBaseElement("rectangle", center.x - width / 2, center.y - height / 2, width, height, "transparent");
-    const element = { ...base, strokeColor: "transparent", strokeWidth: 0, backgroundColor: "transparent", fillStyle: "solid", customData: { underscorePlayCore: frame } };
+    const element = { ...base, strokeColor: "transparent", strokeWidth: 0, backgroundColor: "transparent", fillStyle: "solid", customData: { underscoresPlayCore: frame } };
     const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
     api.updateScene({ elements: [...elements, element], appState: { selectedElementIds: { [element.id]: true }, selectedGroupIds: {}, activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false } }, commitToHistory: true });
     setSelectedElementIds({ [element.id]: true });
@@ -13694,10 +13694,10 @@ function App() {
   const persistMediaStreamSceneSoon = elements => {
     window.setTimeout(() => {
       try {
-        const saved = saveLastScene(createUnderscoreExchangeJson("scene", elements));
+        const saved = saveLastScene(createUnderscoresExchangeJson("scene", elements));
         if (!saved) eventBus.emit("status.scene", { kind: "error", message: "Holistic settings could not be saved. The browser storage quota may be full." }, { source: "scene-session" });
       } catch (error) {
-        console.error("Underscore could not persist media-stream scene state.", error);
+        console.error("Underscores could not persist media-stream scene state.", error);
       }
     }, 0);
   };
@@ -13741,7 +13741,7 @@ function App() {
       strokeWidth: 0,
       backgroundColor: "transparent",
       fillStyle: "solid",
-      customData: { underscoreMediaStream: config },
+      customData: { underscoresMediaStream: config },
     };
     const nextElements = [...elements, element];
     api.updateScene({
@@ -13778,7 +13778,7 @@ function App() {
       strokeWidth: 0,
       backgroundColor: "transparent",
       fillStyle: "solid",
-      customData: { underscoreMediaMap: normalizeMediaMapConfig({ streamId }) },
+      customData: { underscoresMediaMap: normalizeMediaMapConfig({ streamId }) },
     };
     api.updateScene({
       elements: [...elements, element],
@@ -13838,7 +13838,7 @@ function App() {
         version: (element.version || 0) + 1,
         versionNonce: Math.floor(Math.random() * 0x7fffffff),
         updated: Date.now(),
-        customData: { ...(element.customData || {}), underscoreMediaStream: config },
+        customData: { ...(element.customData || {}), underscoresMediaStream: config },
       } : element),
       appState: { selectedElementIds: { [target.id]: true }, selectedGroupIds: {}, activeTool: { ...(api.getAppState().activeTool || {}), type: "selection", locked: false } },
       commitToHistory: true,
@@ -13870,7 +13870,7 @@ function App() {
       strokeWidth: 0,
       backgroundColor: "transparent",
       fillStyle: "solid",
-      customData: { underscoreMediaStream: config },
+      customData: { underscoresMediaStream: config },
     };
     const selection = { [element.id]: true };
     api.updateScene({
@@ -13884,13 +13884,13 @@ function App() {
   };
 
   const handleCanvasMediaPreviewDragOver = event => {
-    if (!Array.from(event.dataTransfer?.types || []).includes("application/x-underscore-media-source")) return;
+    if (!Array.from(event.dataTransfer?.types || []).includes("application/x-underscores-media-source")) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
   };
 
   const handleCanvasMediaPreviewDrop = event => {
-    const sourceId = event.dataTransfer?.getData("application/x-underscore-media-source");
+    const sourceId = event.dataTransfer?.getData("application/x-underscores-media-source");
     if (!sourceId) return;
     event.preventDefault();
     createMediaPreviewAt(sourceId, event.clientX, event.clientY);
@@ -13916,7 +13916,7 @@ function App() {
     const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
     const previewIds = new Set(elements.filter(element => {
       if (element.isDeleted || !isMediaStreamElement(element)) return false;
-      const config = normalizeMediaStreamConfig(element.customData.underscoreMediaStream);
+      const config = normalizeMediaStreamConfig(element.customData.underscoresMediaStream);
       return config.kind === MEDIA_STREAM_KINDS.PREVIEW && config.sourceId === sourceId;
     }).map(element => element.id));
     if (!previewIds.size) return;
@@ -14049,7 +14049,7 @@ function App() {
     const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
     const existing = elements.find(element => element.id === elementId && isMediaStreamElement(element));
     if (!existing) return null;
-    const config = patchMediaStreamConfig(existing.customData.underscoreMediaStream, patch);
+    const config = patchMediaStreamConfig(existing.customData.underscoresMediaStream, patch);
     if (config.kind === MEDIA_STREAM_KINDS.HOLISTIC) writeHolisticSettingsPreset(config.holistic);
     const now = Date.now();
     const nextElements = elements.map(element => element.id !== elementId ? element : {
@@ -14057,7 +14057,7 @@ function App() {
       version: (element.version || 0) + 1,
       versionNonce: Math.floor(Math.random() * 0x7fffffff),
       updated: now,
-      customData: { ...(element.customData || {}), underscoreMediaStream: config },
+      customData: { ...(element.customData || {}), underscoresMediaStream: config },
     });
     api.updateScene({
       elements: nextElements,
@@ -14071,14 +14071,14 @@ function App() {
   const focusMediaInputSource = sourceId => {
     if (!sourceId) return;
     setActiveMediaSourceId(sourceId);
-    toggleUnderscorePanel("media-input", { open: true });
+    toggleUnderscoresPanel("media-input", { open: true });
   };
 
   const createMediaBindingForProcessor = (elementId, bindingValue = {}) => {
     const api = excalidrawAPIRef.current;
     const existing = api?.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
     if (!existing) throw new Error("MediaPipe processor not found.");
-    const config = normalizeMediaStreamConfig(existing.customData.underscoreMediaStream);
+    const config = normalizeMediaStreamConfig(existing.customData.underscoresMediaStream);
     if (config.kind !== MEDIA_STREAM_KINDS.HOLISTIC) throw new Error("Bindings require a Holistic processor.");
     const binding = normalizeMediaBinding(bindingValue?.type ? bindingValue : createMediaBinding(MEDIA_BINDING_TYPES.DRIVE_POSITION, bindingValue));
     patchMediaStreamObject(elementId, { bindings: [...config.bindings, binding] });
@@ -14089,7 +14089,7 @@ function App() {
     const api = excalidrawAPIRef.current;
     const existing = api?.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
     if (!existing) throw new Error("MediaPipe processor not found.");
-    const config = normalizeMediaStreamConfig(existing.customData.underscoreMediaStream);
+    const config = normalizeMediaStreamConfig(existing.customData.underscoresMediaStream);
     const index = config.bindings.findIndex(binding => binding.id === bindingId);
     if (index < 0) throw new Error("Media binding not found.");
     const bindings = config.bindings.map(binding => binding.id === bindingId ? normalizeMediaBinding({
@@ -14108,7 +14108,7 @@ function App() {
     const api = excalidrawAPIRef.current;
     const existing = api?.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
     if (!existing) throw new Error("MediaPipe processor not found.");
-    const config = normalizeMediaStreamConfig(existing.customData.underscoreMediaStream);
+    const config = normalizeMediaStreamConfig(existing.customData.underscoresMediaStream);
     const bindings = config.bindings.filter(binding => binding.id !== bindingId);
     if (bindings.length === config.bindings.length) throw new Error("Media binding not found.");
     const runtimeId = `${elementId}:${bindingId}`;
@@ -14121,7 +14121,7 @@ function App() {
   const duplicateMediaBindingForProcessor = (elementId, bindingId) => {
     const api = excalidrawAPIRef.current;
     const existing = api?.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
-    const config = existing ? normalizeMediaStreamConfig(existing.customData.underscoreMediaStream) : null;
+    const config = existing ? normalizeMediaStreamConfig(existing.customData.underscoresMediaStream) : null;
     const source = config?.bindings.find(binding => binding.id === bindingId);
     if (!source) throw new Error("Media binding not found.");
     return createMediaBindingForProcessor(elementId, createMediaBinding(source.type, {
@@ -14157,12 +14157,12 @@ function App() {
     const host = api.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
     const result = getMediaRuntimeResult(elementId);
     if (!host || !result) {
-      window.dispatchEvent(new CustomEvent("underscore:media-stream-status", {
+      window.dispatchEvent(new CustomEvent("underscores:media-stream-status", {
         detail: { elementId, kind: "error", message: "No landmark frame is available yet." },
       }));
       return;
     }
-    const config = normalizeMediaStreamConfig(host.customData.underscoreMediaStream);
+    const config = normalizeMediaStreamConfig(host.customData.underscoresMediaStream);
     const now = Date.now();
     const toWorld = point => [
       host.x + Math.max(0, Math.min(1, Number(point?.x) || 0)) * host.width,
@@ -14200,8 +14200,8 @@ function App() {
           strokeWidth: 0,
           groupIds: featureGroupIds(family, index),
           customData: {
-            underscoreLabel: featureId,
-            underscoreMediaLandmark: { sourceElementId: elementId, kind: "landmark", family, index, featureId, capturedAt: now },
+            underscoresLabel: featureId,
+            underscoresMediaLandmark: { sourceElementId: elementId, kind: "landmark", family, index, featureId, capturedAt: now },
           },
         });
       }
@@ -14221,8 +14221,8 @@ function App() {
           baseline: 12,
           groupIds: featureGroupIds(family, index),
           customData: {
-            underscoreLabel: featureId,
-            underscoreMediaLandmark: { sourceElementId: elementId, kind: "landmark-id", family, index, featureId, capturedAt: now },
+            underscoresLabel: featureId,
+            underscoresMediaLandmark: { sourceElementId: elementId, kind: "landmark-id", family, index, featureId, capturedAt: now },
           },
         });
       }
@@ -14242,8 +14242,8 @@ function App() {
         strokeWidth: config.holistic.lineThickness,
         groupIds: [snapshotGroupId],
         customData: {
-          underscoreLabel: `${family}.${from}–${to}`,
-          underscoreMediaLandmark: { sourceElementId: elementId, kind: "connection", family, from, to, capturedAt: now },
+          underscoresLabel: `${family}.${from}–${to}`,
+          underscoresMediaLandmark: { sourceElementId: elementId, kind: "connection", family, from, to, capturedAt: now },
         },
       });
     };
@@ -14279,11 +14279,11 @@ function App() {
     const api = excalidrawAPIRef.current;
     if (!api) throw new Error("The canvas is not ready.");
     const host = api.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
-    const config = host ? normalizeMediaStreamConfig(host.customData.underscoreMediaStream) : null;
+    const config = host ? normalizeMediaStreamConfig(host.customData.underscoresMediaStream) : null;
     const canvas = findMediaStreamCanvasForElement(elementId);
     if (!host || config?.kind !== MEDIA_STREAM_KINDS.HOLISTIC || !getMediaRuntimeResult(elementId) || !canvas?.width || !canvas?.height) {
       const message = "No Holistic frame is available to snapshot yet.";
-      window.dispatchEvent(new CustomEvent("underscore:media-stream-status", {
+      window.dispatchEvent(new CustomEvent("underscores:media-stream-status", {
         detail: { elementId, kind: "error", message },
       }));
       return null;
@@ -14293,7 +14293,7 @@ function App() {
       dataURL = canvas.toDataURL("image/png");
     } catch {
       const message = "The Holistic canvas could not be captured. A cross-origin source image may be blocking PNG access.";
-      window.dispatchEvent(new CustomEvent("underscore:media-stream-status", {
+      window.dispatchEvent(new CustomEvent("underscores:media-stream-status", {
         detail: { elementId, kind: "error", message },
       }));
       return null;
@@ -14329,7 +14329,7 @@ function App() {
     setSelectedElementIds(selection);
     const message = `Captured ${config.name || "Holistic"} as a PNG snapshot. The live processor remains editable underneath.`;
     setSceneExchangeStatus(message);
-    window.dispatchEvent(new CustomEvent("underscore:media-stream-status", {
+    window.dispatchEvent(new CustomEvent("underscores:media-stream-status", {
       detail: { elementId, kind: "success", message },
     }));
     return { elementId: image.id, elementIds: [image.id], sourceElementId: host.id };
@@ -14339,10 +14339,10 @@ function App() {
     const api = excalidrawAPIRef.current;
     if (!api) return null;
     const host = api.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
-    const config = host ? normalizeMediaStreamConfig(host.customData.underscoreMediaStream) : null;
+    const config = host ? normalizeMediaStreamConfig(host.customData.underscoresMediaStream) : null;
     const normalized = getMediaRuntimeResult(elementId);
     if (!host || config?.kind !== MEDIA_STREAM_KINDS.UNICURSAL || !normalized?.available) {
-      window.dispatchEvent(new CustomEvent("underscore:media-stream-status", { detail: { elementId, kind: "error", message: "No Unicursal portrait frame is available yet." } }));
+      window.dispatchEvent(new CustomEvent("underscores:media-stream-status", { detail: { elementId, kind: "error", message: "No Unicursal portrait frame is available yet." } }));
       return null;
     }
     const echoFrames = config.unicursal.includeEchoesInSnapshot && Array.isArray(normalized.echoes) ? normalized.echoes : [];
@@ -14366,8 +14366,8 @@ function App() {
         opacity: Math.round(config.unicursal.ink.opacity * (echoIndex ? config.unicursal.motion.echoOpacity * Math.pow(config.unicursal.motion.echoDecay, echoIndex - 1) : 1)),
         groupIds: groupId ? [groupId] : [],
         customData: {
-          underscoreLabel: `${config.name} snapshot${echoIndex ? ` echo ${echoIndex}` : ""}${frame.segments?.length > 1 ? ` segment ${segmentIndex + 1}` : ""}`,
-          underscoreUnicursalSnapshot: { version: 2, sourceElementId: elementId, sourceHolisticId: config.unicursal.sourceId, preset: config.unicursal.preset, echoIndex, segmentIndex, capturedAt: Date.now() },
+          underscoresLabel: `${config.name} snapshot${echoIndex ? ` echo ${echoIndex}` : ""}${frame.segments?.length > 1 ? ` segment ${segmentIndex + 1}` : ""}`,
+          underscoresUnicursalSnapshot: { version: 2, sourceElementId: elementId, sourceHolisticId: config.unicursal.sourceId, preset: config.unicursal.preset, echoIndex, segmentIndex, capturedAt: Date.now() },
         },
         };
       });
@@ -14459,7 +14459,7 @@ function App() {
       strokeWidth: stroke.strokeWidth,
       opacity: stroke.opacity,
       customData: {
-        underscoreMediaActor: {
+        underscoresMediaActor: {
           processorId: stroke.processorId,
           bindingId: stroke.bindingId,
           featureId: stroke.featureId,
@@ -14478,7 +14478,7 @@ function App() {
     const api = excalidrawAPIRef.current;
     const sceneElements = api?.getSceneElements() || [];
     const host = sceneElements.find(element => element.id === elementId && isMediaStreamElement(element));
-    const config = host ? normalizeMediaStreamConfig(host.customData.underscoreMediaStream) : null;
+    const config = host ? normalizeMediaStreamConfig(host.customData.underscoresMediaStream) : null;
     const previousGestures = mediaGestureStatesRef.current.get(elementId) || {};
     const semanticFrame = host && config ? createMediaSemanticFrame({
       streamId: elementId,
@@ -14628,7 +14628,7 @@ function App() {
     const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
     const existing = elements.find(element => element.id === elementId && !element.isDeleted && isLivecodeNodeElement(element));
     if (!existing) return null;
-    const previous = normalizeLivecodeNode(existing.customData?.underscoreLivecode);
+    const previous = normalizeLivecodeNode(existing.customData?.underscoresLivecode);
     const nextPatch = { ...patch };
     if (Object.hasOwn(nextPatch, "kind") && !Object.hasOwn(nextPatch, "source") && nextPatch.kind !== previous.kind && previous.source === defaultLivecodeSource(previous.kind)) {
       // Switching a legacy template-backed node should not inject a new
@@ -14645,7 +14645,7 @@ function App() {
         updated: now,
         customData: {
           ...(element.customData || {}),
-          underscoreLivecode: node,
+          underscoresLivecode: node,
         },
       }),
       commitToHistory,
@@ -14666,7 +14666,7 @@ function App() {
       candidate.id === elementId && !candidate.isDeleted && isLivecodeNodeElement(candidate)
     ));
     if (!element) return;
-    const node = normalizeLivecodeNode(element.customData?.underscoreLivecode);
+    const node = normalizeLivecodeNode(element.customData?.underscoresLivecode);
     if (command === "run" && node.runtime.running) {
       setLivecodeStatus("Strudel is already running · Ctrl+Enter updates the pattern.");
       return;
@@ -14680,7 +14680,7 @@ function App() {
     }
     if (running && node.kind === LIVECODE_KINDS.strudel) {
       // Begin Web Audio initialization in the direct button gesture. A linked
-      // node may remain silent until Underscore transport starts, but its audio
+      // node may remain silent until Underscores transport starts, but its audio
       // capability is unlocked here rather than by a later effect.
       void getStrudelRuntimeManager().unlock().catch(error => {
         setLivecodeStatus(`Could not unlock Strudel audio: ${error instanceof Error ? error.message : String(error)}`);
@@ -14740,7 +14740,7 @@ function App() {
     if (presentationMode) {
       setScriptPanelType("livecode");
     } else {
-      toggleUnderscorePanel("script", { scriptType: "livecode" });
+      toggleUnderscoresPanel("script", { scriptType: "livecode" });
     }
   };
 
@@ -14783,7 +14783,7 @@ function App() {
       strokeWidth: 0,
       backgroundColor: "transparent",
       fillStyle: "solid",
-      customData: { underscoreLivecode: node },
+      customData: { underscoresLivecode: node },
     };
     const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
     api.updateScene({
@@ -14810,8 +14810,8 @@ function App() {
     }
     const isP5 = isP5FrameElement(host);
     const legacy = isP5
-      ? normalizeP5Frame(host.customData?.underscoreP5)
-      : normalizePlayCoreFrame(host.customData?.underscorePlayCore);
+      ? normalizeP5Frame(host.customData?.underscoresP5)
+      : normalizePlayCoreFrame(host.customData?.underscoresPlayCore);
     const kind = isP5 ? LIVECODE_KINDS.p5 : LIVECODE_KINDS.playcore;
     const node = createLivecodeNode({
       kind,
@@ -14841,9 +14841,9 @@ function App() {
       fillStyle: "solid",
       customData: (() => {
         const customData = { ...(host.customData || {}) };
-        delete customData.underscoreP5;
-        delete customData.underscorePlayCore;
-        customData.underscoreLivecode = node;
+        delete customData.underscoresP5;
+        delete customData.underscoresPlayCore;
+        customData.underscoresLivecode = node;
         return customData;
       })(),
     };
@@ -14880,9 +14880,9 @@ function App() {
       && isSvgObjectElement(element)
       && element.id === (requestedId || selectedSvg?.id)
     ));
-    const priorSvg = existing ? normalizeSvgObject(existing.customData.underscoreSvg) : null;
+    const priorSvg = existing ? normalizeSvgObject(existing.customData.underscoresSvg) : null;
     const resolvedName = String(name || priorSvg?.name || "Untitled SVG").trim() || "Untitled SVG";
-    const underscoreSvg = normalizeSvgObject({
+    const underscoresSvg = normalizeSvgObject({
       ...(priorSvg || {}),
       source: analysis.source,
       name: resolvedName,
@@ -14900,7 +14900,7 @@ function App() {
         version: (existing.version || 0) + 1,
         versionNonce: Math.floor(Math.random() * 0x7fffffff),
         updated: Date.now(),
-        customData: withScoreData({ ...(existing.customData || {}), underscoreSvg }, {
+        customData: withScoreData({ ...(existing.customData || {}), underscoresSvg }, {
           ...(getScoreData(existing) || {}),
           ...(!priorLabel || priorLabel === priorSvg?.name ? { label: resolvedName } : {}),
         }),
@@ -14918,7 +14918,7 @@ function App() {
         strokeWidth: 0,
         fillStyle: "solid",
         backgroundColor: "transparent",
-        customData: withScoreData({ underscoreSvg }, { label: resolvedName }),
+        customData: withScoreData({ underscoresSvg }, { label: resolvedName }),
       };
       nextElements = [...elements, element];
     }
@@ -14953,9 +14953,9 @@ function App() {
     return {
       elementId: element.id,
       elementIds: [element.id],
-      source: underscoreSvg.source,
+      source: underscoresSvg.source,
       name: resolvedName,
-      revision: underscoreSvg.revision,
+      revision: underscoresSvg.revision,
       message: existing ? `Updated “${resolvedName}”.` : `Created “${resolvedName}” from SVG source.`,
     };
   };
@@ -14971,7 +14971,7 @@ function App() {
       && candidate.id === (args.elementId || selectedSvg?.id)
     ));
     if (!element) throw new Error("Select an SVG object or provide elementId.");
-    const svg = normalizeSvgObject(element.customData.underscoreSvg);
+    const svg = normalizeSvgObject(element.customData.underscoresSvg);
     const commandResult = executeSvgStructuredCommand(
       { source: svg.source, revision: svg.revision },
       command,
@@ -14995,7 +14995,7 @@ function App() {
       error: commandResult.error || "",
       changedNodeIds: commandResult.changedNodeIds || [],
       nodes: commandResult.nodes?.map(node => ({
-        nodeId: node.underscoreId || null,
+        nodeId: node.underscoresId || null,
         index: node.index,
         parentIndex: node.parentIndex,
         tag: node.tag,
@@ -15049,7 +15049,7 @@ function App() {
     const name = selected.length === 1
       ? `${getScoreData(selected[0])?.label || selected[0].type} SVG`
       : `Selection SVG`;
-    const underscoreSvg = normalizeSvgObject({ source, name, revision: 1 });
+    const underscoresSvg = normalizeSvgObject({ source, name, revision: 1 });
     const host = {
       ...createBaseElement(
         "rectangle",
@@ -15062,7 +15062,7 @@ function App() {
       strokeWidth: 0,
       fillStyle: "solid",
       backgroundColor: "transparent",
-      customData: withScoreData({ underscoreSvg }, { label: name }),
+      customData: withScoreData({ underscoresSvg }, { label: name }),
     };
     const convertedIds = new Set(selected.map(element => element.id));
     const nextElements = scene.map(element => convertedIds.has(element.id)
@@ -15183,7 +15183,7 @@ function App() {
     const next = excalidrawAPI.getSceneElements().map(element => {
       const entries = keysByElement.get(element.id);
       if (!entries || element.isDeleted) return element;
-      let tracks = element.customData?.underscoreAutomation?.tracks || {};
+      let tracks = element.customData?.underscoresAutomation?.tracks || {};
       for (const entry of entries) {
         tracks = upsertAutomationKey(tracks, entry.path, entry.time, entry.value, entry.interpolation);
       }
@@ -15192,7 +15192,7 @@ function App() {
         ...element,
         customData: {
           ...(element.customData || {}),
-          underscoreAutomation: { version: 1, tracks },
+          underscoresAutomation: { version: 1, tracks },
         },
         version: (element.version || 0) + 1,
         versionNonce: Math.floor(Math.random() * 1000000),
@@ -15710,7 +15710,7 @@ function App() {
     });
   };
 
-  const createUnderscoreExchangeJson = (kind, elements) => {
+  const createUnderscoresExchangeJson = (kind, elements) => {
     if (!excalidrawAPI) throw new Error("The scene is not ready.");
     const serializedElements = kind === "scene" ? getPhysicsAuthoredSerializationElements(elements) : elements;
     const serialized = serializeAsJSON(
@@ -15719,7 +15719,7 @@ function App() {
       excalidrawAPI.getFiles(),
       "local",
     );
-    return JSON.stringify(attachUnderscoreExchangeMetadata(serialized, kind, {
+    return JSON.stringify(attachUnderscoresExchangeMetadata(serialized, kind, {
       time: scoreTime,
       rate: scoreRate,
       tempo: scoreTempo,
@@ -15789,41 +15789,41 @@ function App() {
     setScoreRuntimeNonce(nonce => nonce + 1);
   };
 
-  const exportUnderscoreScene = () => {
+  const exportUnderscoresScene = () => {
     try {
       const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
-      downloadTextFile(createUnderscoreExchangeJson("scene", elements), `underscore-scene-${new Date().toISOString().slice(0, 10)}.excalidraw`);
-      setSceneExchangeStatus(`Exported ${elements.filter(element => !element.isDeleted).length} scene objects with Underscore metadata.`);
+      downloadTextFile(createUnderscoresExchangeJson("scene", elements), `underscores-scene-${new Date().toISOString().slice(0, 10)}.excalidraw`);
+      setSceneExchangeStatus(`Exported ${elements.filter(element => !element.isDeleted).length} scene objects with Underscores metadata.`);
     } catch (error) {
       setSceneExchangeStatus(error.message || "Scene export failed.");
     }
   };
 
-  const prepareUnderscoreSceneDownload = event => {
+  const prepareUnderscoresSceneDownload = event => {
     try {
       const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
-      const text = createUnderscoreExchangeJson("scene", elements);
+      const text = createUnderscoresExchangeJson("scene", elements);
       const useDataUrl = text.length <= 2_000_000;
       const url = useDataUrl
         ? `data:application/json;charset=utf-8,${encodeURIComponent(text)}`
         : URL.createObjectURL(new Blob([text], { type: "application/json" }));
       event.currentTarget.href = url;
-      event.currentTarget.download = `underscore-scene-${new Date().toISOString().slice(0, 10)}.excalidraw`;
+      event.currentTarget.download = `underscores-scene-${new Date().toISOString().slice(0, 10)}.excalidraw`;
       if (!useDataUrl) window.setTimeout(() => URL.revokeObjectURL(url), 5000);
-      setSceneExchangeStatus(`Exported ${elements.filter(element => !element.isDeleted).length} scene objects with Underscore metadata.`);
+      setSceneExchangeStatus(`Exported ${elements.filter(element => !element.isDeleted).length} scene objects with Underscores metadata.`);
     } catch (error) {
       event.preventDefault();
       setSceneExchangeStatus(error.message || "Scene export failed.");
     }
   };
 
-  const importUnderscoreSceneText = async (text, { commitToHistory = true } = {}) => {
+  const importUnderscoresSceneText = async (text, { commitToHistory = true } = {}) => {
     if (!excalidrawAPI) return;
-    const { score, grid, expressiveSynth, mixer: importedMixer, p5Scripts: importedP5Scripts, streamGraph: importedStreamGraph, brushChannels: importedBrushChannels, relationshipGraph: importedRelationshipGraph, authoredState } = parseUnderscoreExchange(text, "scene");
+    const { score, grid, expressiveSynth, mixer: importedMixer, p5Scripts: importedP5Scripts, streamGraph: importedStreamGraph, brushChannels: importedBrushChannels, relationshipGraph: importedRelationshipGraph, authoredState } = parseUnderscoresExchange(text, "scene");
     const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
     // Scene content may be shared, but the interface theme is a local user
     // preference. A restored Excalidraw app state must not overwrite the
-    // saved Underscore light/dark choice on page reload.
+    // saved Underscores light/dark choice on page reload.
     const restoredAppState = { ...(restored.appState || {}) };
     delete restoredAppState.theme;
     const restoredRuntimeElements = reconcileRuntimeCursorHosts((restored.elements || []).map(normalizeScoreElementMetadata));
@@ -15911,12 +15911,12 @@ function App() {
     // being imported. Never let that transient state overwrite the session.
     if (!api || !lastSceneRestoreAttemptedRef.current || lastSceneRestoreInProgressRef.current) return;
     try {
-      const text = createUnderscoreExchangeJson("scene", api.getSceneElementsIncludingDeleted());
+      const text = createUnderscoresExchangeJson("scene", api.getSceneElementsIncludingDeleted());
       if (!saveLastScene(text)) {
         eventBus.emit("status.scene", { kind: "error", message: "Last-scene autosave failed. The browser storage quota may be full." }, { source: "scene-session" });
       }
     } catch (error) {
-      console.error("Underscore last-scene autosave failed.", error);
+      console.error("Underscores last-scene autosave failed.", error);
     }
   }, [eventBus, excalidrawAPI, scoreTime, scoreRate, scoreTempo, scoreTimeSignature, transportDisplayMode, transportFps, scoreSampleRate, transportLoopEnabled, transportLoopStart, transportLoopEnd, transportLoopStartValue, transportLoopEndValue, p5Scripts, streamGraph, brushChannels, mediaSources, brushPalette, iannixScripts, playCoreScripts, svgScripts]);
 
@@ -15932,9 +15932,9 @@ function App() {
     const saved = loadLastScene();
     if (!saved) return;
     lastSceneRestoreInProgressRef.current = true;
-    void importUnderscoreSceneText(saved, { commitToHistory: false })
+    void importUnderscoresSceneText(saved, { commitToHistory: false })
       .catch(error => {
-        console.error("Underscore could not restore the last scene.", error);
+        console.error("Underscores could not restore the last scene.", error);
         eventBus.emit("status.scene", { kind: "error", message: `Last scene could not be restored: ${error?.message || error}` }, { source: "scene-session" });
       })
       .finally(() => {
@@ -15944,20 +15944,20 @@ function App() {
 
   useEffect(() => () => window.clearTimeout(lastSceneSaveTimerRef.current), []);
 
-  const copyUnderscoreScene = async () => {
+  const copyUnderscoresScene = async () => {
     try {
       const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
-      await navigator.clipboard.writeText(createUnderscoreExchangeJson("scene", elements));
-      setSceneExchangeStatus(`Copied ${elements.filter(element => !element.isDeleted).length} scene objects as Underscore JSON.`);
+      await navigator.clipboard.writeText(createUnderscoresExchangeJson("scene", elements));
+      setSceneExchangeStatus(`Copied ${elements.filter(element => !element.isDeleted).length} scene objects as Underscores JSON.`);
     } catch (error) {
       setSceneExchangeStatus(error.message || "Could not copy scene JSON.");
     }
   };
 
-  const pasteUnderscoreScene = async () => {
+  const pasteUnderscoresScene = async () => {
     try {
-      await importUnderscoreSceneText(await navigator.clipboard.readText());
-      setSceneExchangeStatus("Pasted the complete Underscore scene from the clipboard.");
+      await importUnderscoresSceneText(await navigator.clipboard.readText());
+      setSceneExchangeStatus("Pasted the complete Underscores scene from the clipboard.");
     } catch (error) {
       setSceneExchangeStatus(error.message || "Could not paste scene JSON.");
     }
@@ -15968,7 +15968,7 @@ function App() {
     const appState = excalidrawAPI.getAppState();
     return {
       version: 1,
-      sceneJson: createUnderscoreExchangeJson("scene", excalidrawAPI.getSceneElementsIncludingDeleted()),
+      sceneJson: createUnderscoresExchangeJson("scene", excalidrawAPI.getSceneElementsIncludingDeleted()),
       presentation: {
         theme,
         selectedElementIds: appState.selectedElementIds || {},
@@ -15993,7 +15993,7 @@ function App() {
   const restoreSessionBaseline = async baseline => {
     if (!baseline?.sceneJson || !excalidrawAPIRef.current) return;
     await runWithoutSessionSceneRecording(async () => {
-      await importUnderscoreSceneText(baseline.sceneJson, { commitToHistory: false });
+      await importUnderscoresSceneText(baseline.sceneJson, { commitToHistory: false });
       const presentation = baseline.presentation;
       if (presentation) {
         if (presentation.theme) setTheme(presentation.theme);
@@ -16111,11 +16111,11 @@ function App() {
   });
 
   const exportHistorySession = () => {
-    downloadTextFile(historyController.export(), `underscore-session-${new Date().toISOString().slice(0, 10)}.json`);
+    downloadTextFile(historyController.export(), `underscores-session-${new Date().toISOString().slice(0, 10)}.json`);
   };
 
   const importHistorySession = text => {
-    historyController.load(parseUnderscoreSession(text));
+    historyController.load(parseUnderscoresSession(text));
   };
 
   const clearHistorySession = () => {
@@ -16132,7 +16132,7 @@ function App() {
     const name = requestedName || window.prompt("Sequence name", "New sequence");
     if (!name) return;
     const options = Array.isArray(selection) ? { actionIds: selection } : (selection || {});
-    const macro = createUnderscoreMacro(historyController.get(), { ...options, name });
+    const macro = createUnderscoresMacro(historyController.get(), { ...options, name });
     await historyLibrary.put(macro);
     await refreshHistoryMacros();
   };
@@ -16142,7 +16142,7 @@ function App() {
     const center = appState
       ? viewportCoordsToSceneCoords({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 }, appState)
       : { x: 0, y: 0 };
-    const actions = instantiateUnderscoreMacro(macro, { mode, anchor: { x: center.x, y: center.y } });
+    const actions = instantiateUnderscoresMacro(macro, { mode, anchor: { x: center.x, y: center.y } });
     for (const action of actions) {
       window.setTimeout(() => applySessionAction(action, { emitMidi: historyMidiArmed }), Math.max(0, action.at * 1000));
     }
@@ -16257,35 +16257,35 @@ function App() {
     }
     if (typeof state.accentColor === "string") {
       setAccentColor(state.accentColor);
-      localStorage.setItem("underscore_accent_color", state.accentColor);
+      localStorage.setItem("underscores_accent_color", state.accentColor);
     }
     if (Number.isFinite(Number(state.accentOpacity))) {
       setAccentOpacity(Number(state.accentOpacity));
-      localStorage.setItem("underscore_accent_opacity", String(state.accentOpacity));
+      localStorage.setItem("underscores_accent_opacity", String(state.accentOpacity));
     }
     if (typeof state.highlightColor === "string") {
       setHighlightColor(state.highlightColor);
-      localStorage.setItem("underscore_highlight_color", state.highlightColor);
+      localStorage.setItem("underscores_highlight_color", state.highlightColor);
     }
     if (Number.isFinite(Number(state.highlightOpacity))) {
       setHighlightOpacity(Number(state.highlightOpacity));
-      localStorage.setItem("underscore_highlight_opacity", String(state.highlightOpacity));
+      localStorage.setItem("underscores_highlight_opacity", String(state.highlightOpacity));
     }
     if (typeof state.foregroundColor === "string" && isCssColor(state.foregroundColor)) {
       setForegroundColor(state.foregroundColor);
-      localStorage.setItem("underscore_foreground_color", state.foregroundColor);
+      localStorage.setItem("underscores_foreground_color", state.foregroundColor);
     }
     if (Number.isFinite(Number(state.foregroundOpacity))) {
       setForegroundOpacity(Number(state.foregroundOpacity));
-      localStorage.setItem("underscore_foreground_opacity", String(state.foregroundOpacity));
+      localStorage.setItem("underscores_foreground_opacity", String(state.foregroundOpacity));
     }
     if (typeof state.mutedColor === "string" && isCssColor(state.mutedColor)) {
       setMutedColor(state.mutedColor);
-      localStorage.setItem("underscore_muted_color", state.mutedColor);
+      localStorage.setItem("underscores_muted_color", state.mutedColor);
     }
     if (Number.isFinite(Number(state.mutedOpacity))) {
       setMutedOpacity(Number(state.mutedOpacity));
-      localStorage.setItem("underscore_muted_opacity", String(state.mutedOpacity));
+      localStorage.setItem("underscores_muted_opacity", String(state.mutedOpacity));
     }
     if (state.interfaceTheme && typeof state.interfaceTheme === "object") {
       setInterfaceTheme(normalizeInterfaceTheme(state.interfaceTheme, state.theme || theme));
@@ -16424,7 +16424,7 @@ function App() {
       console: { ...previous.console, placement: PANEL_PLACEMENTS.BOTTOM },
     }));
     try {
-      localStorage.setItem("underscore_console_bottom_layout_v3", "true");
+      localStorage.setItem("underscores_console_bottom_layout_v3", "true");
     } catch {
       // The default layout still applies when storage is unavailable.
     }
@@ -16587,12 +16587,12 @@ function App() {
         stopPlayback: () => historyController.stopPlayback(),
         seek: seconds => runtimeCallbacksRef.current.historySeek(seconds),
         export: () => historyController.export(),
-        import: payload => historyController.load(parseUnderscoreSession(payload)),
+        import: payload => historyController.load(parseUnderscoresSession(payload)),
       },
       macros: {
-        list: () => historyLibrary.list(UNDERSCORE_MACRO_TYPE),
+        list: () => historyLibrary.list(UNDERSCORES_MACRO_TYPE),
         saveRange: options => {
-          const macro = createUnderscoreMacro(historyController.get(), options);
+          const macro = createUnderscoresMacro(historyController.get(), options);
           return historyLibrary.put(macro).then(() => refreshHistoryMacros()).then(() => macro);
         },
         insert: (id, options = {}) => runtimeCallbacksRef.current.macroInsert({ id, ...options }),
@@ -16614,9 +16614,9 @@ function App() {
           generate: (sourceRef, options = {}) => {
             const elements = excalidrawAPIRef.current?.getSceneElements() || [];
             const query = typeof sourceRef === "object" && sourceRef ? String(sourceRef.id || sourceRef.elementId || "") : String(sourceRef || "");
-            const source = elements.find(element => element.id === query || (isMediaStreamElement(element) && normalizeMediaStreamConfig(element.customData.underscoreMediaStream).name === query));
+            const source = elements.find(element => element.id === query || (isMediaStreamElement(element) && normalizeMediaStreamConfig(element.customData.underscoresMediaStream).name === query));
             if (!source) return null;
-            const sourceConfig = isMediaStreamElement(source) ? normalizeMediaStreamConfig(source.customData.underscoreMediaStream) : null;
+            const sourceConfig = isMediaStreamElement(source) ? normalizeMediaStreamConfig(source.customData.underscoresMediaStream) : null;
             const holisticId = sourceConfig?.kind === MEDIA_STREAM_KINDS.UNICURSAL ? sourceConfig.unicursal.sourceId : source.id;
             const baseOptions = sourceConfig?.kind === MEDIA_STREAM_KINDS.UNICURSAL ? sourceConfig.unicursal : {};
             const resolvedOptions = {
@@ -16699,48 +16699,48 @@ function App() {
     // __.api surface and the public window.__ surface share one contract.
     api.api = api;
     window.__ = api;
-    window.dispatchEvent(new CustomEvent("underscore:ready", { detail: { apiVersion: api.apiVersion } }));
+    window.dispatchEvent(new CustomEvent("underscores:ready", { detail: { apiVersion: api.apiVersion } }));
     return () => {
       if (window.__ === api) delete window.__;
     };
   }, [commandRegistry, eventBus, historyController, historyIncludePresentation, historyLibrary, historyMidiArmed, inputBus, refreshHistoryMacros, timeContext]);
 
-  const handleUnderscoreSceneFile = async (event) => {
+  const handleUnderscoresSceneFile = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
     try {
-      await importUnderscoreSceneText(await file.text());
+      await importUnderscoresSceneText(await file.text());
     } catch (error) {
       setSceneExchangeStatus(error.message || "Scene import failed.");
     }
   };
 
-  const copyUnderscoreSelection = async () => {
+  const copyUnderscoresSelection = async () => {
     try {
       const appState = excalidrawAPI.getAppState();
-      const underscoreSelection = {
+      const underscoresSelection = {
         ...(appState.selectedElementIds || {}),
         ...runtimeCursorSelectionRef.current,
         ...selectedElementIdsRef.current,
       };
       const elements = getSelectionExchangeElements(
         excalidrawAPI.getSceneElementsIncludingDeleted(),
-        underscoreSelection,
+        underscoresSelection,
       );
       if (elements.length === 0) throw new Error("Select one or more objects to copy as JSON.");
-      await navigator.clipboard.writeText(createUnderscoreExchangeJson("selection", elements));
-      setSceneExchangeStatus(`Copied ${elements.length} selected object${elements.length === 1 ? "" : "s"} as Underscore JSON.`);
+      await navigator.clipboard.writeText(createUnderscoresExchangeJson("selection", elements));
+      setSceneExchangeStatus(`Copied ${elements.length} selected object${elements.length === 1 ? "" : "s"} as Underscores JSON.`);
     } catch (error) {
       setSceneExchangeStatus(error.message || "Could not copy selection JSON.");
     }
   };
 
-  const pasteUnderscoreSelection = async () => {
+  const pasteUnderscoresSelection = async () => {
     if (!excalidrawAPI) return;
     try {
       const text = await navigator.clipboard.readText();
-      const parsedSelection = parseUnderscoreExchange(text, "selection");
+      const parsedSelection = parseUnderscoresExchange(text, "selection");
       const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
       const existing = excalidrawAPI.getSceneElementsIncludingDeleted();
       const imported = remapSelectionForImport(restored.elements || [], existing);
@@ -16799,7 +16799,7 @@ function App() {
         commitToHistory: true,
       });
       setModifierUpdateNonce(nonce => nonce + 1);
-      setSceneExchangeStatus(`Pasted ${importedElements.length} objects with new IDs and preserved Underscore metadata.`);
+      setSceneExchangeStatus(`Pasted ${importedElements.length} objects with new IDs and preserved Underscores metadata.`);
     } catch (error) {
       setSceneExchangeStatus(error.message || "Could not paste selection JSON.");
     }
@@ -16829,11 +16829,11 @@ function App() {
     return created;
   };
 
-  const pasteUnderscoreSvgElements = (elements, { select = true, anchor = null } = {}) => {
+  const pasteUnderscoresSvgElements = (elements, { select = true, anchor = null } = {}) => {
     if (!excalidrawAPI) throw new Error("The canvas is not ready.");
     const scene = excalidrawAPI.getSceneElementsIncludingDeleted();
     const source = (elements || []).filter(element => element && !element.isDeleted);
-    if (!source.length) throw new Error("This Underscore SVG contains no editable objects.");
+    if (!source.length) throw new Error("This Underscores SVG contains no editable objects.");
     const minX = Math.min(...source.map(element => Math.min(element.x || 0, (element.x || 0) + (element.width || 0))));
     const maxX = Math.max(...source.map(element => Math.max(element.x || 0, (element.x || 0) + (element.width || 0))));
     const minY = Math.min(...source.map(element => Math.min(element.y || 0, (element.y || 0) + (element.height || 0))));
@@ -16860,10 +16860,10 @@ function App() {
   const importSvgMarkup = async (markup, options = {}) => {
     const svg = cleanSvgMarkup(markup);
     if (!svg) throw new Error("Clipboard content is not SVG.");
-    const underscoreMetadata = extractUnderscoreSvgMetadata(svg);
-    if (underscoreMetadata) {
-      const restored = pasteUnderscoreSvgElements(underscoreMetadata.elements, options);
-      setSceneExchangeStatus(`Pasted ${restored.length} original Underscore SVG ${restored.length === 1 ? "object" : "objects"} with editable stroke data intact.`);
+    const underscoresMetadata = extractUnderscoresSvgMetadata(svg);
+    if (underscoresMetadata) {
+      const restored = pasteUnderscoresSvgElements(underscoresMetadata.elements, options);
+      setSceneExchangeStatus(`Pasted ${restored.length} original Underscores SVG ${restored.length === 1 ? "object" : "objects"} with editable stroke data intact.`);
       return restored;
     }
     const specs = parseSvgToDrawableSpecs(svg);
@@ -16883,11 +16883,11 @@ function App() {
       );
       if (!selected.length) throw new Error("Select one or more objects to copy as SVG.");
       const selectedSvgObject = selected.length === 1 && isSvgObjectElement(selected[0])
-        ? normalizeSvgObject(selected[0].customData.underscoreSvg)
+        ? normalizeSvgObject(selected[0].customData.underscoresSvg)
         : null;
       const svg = selectedSvgObject
-        ? attachUnderscoreSvgMetadata(selectedSvgObject.source, selected)
-        : attachUnderscoreSvgMetadata((await exportToSvg({
+        ? attachUnderscoresSvgMetadata(selectedSvgObject.source, selected)
+        : attachUnderscoresSvgMetadata((await exportToSvg({
           elements: selected,
           appState: { ...appState, exportBackground: false },
           files: excalidrawAPI.getFiles(),
@@ -16955,7 +16955,7 @@ function App() {
 
   // Keep Excalidraw's raw scene state here. The PNG exporter applies the same
   // dark-theme display filter as the live canvas before compositing p5 frames.
-  const getUnderscoreExportAppState = ({ transparent = transparentBoardExport } = {}) => ({
+  const getUnderscoresExportAppState = ({ transparent = transparentBoardExport } = {}) => ({
     ...excalidrawAPI.getAppState(),
     exportBackground: !transparent,
   });
@@ -16984,10 +16984,10 @@ function App() {
       maxY: contentBounds.maxY + exportPadding,
     };
     if (!bounds) throw new Error("The selection has no visible bounds.");
-    const result = await exportUnderscorePng({
+    const result = await exportUnderscoresPng({
       exportToCanvas,
       elements: selected,
-      appState: { ...getUnderscoreExportAppState({ transparent: true }), exportScale: 1 },
+      appState: { ...getUnderscoresExportAppState({ transparent: true }), exportScale: 1 },
       files: excalidrawAPI.getFiles(),
       bounds,
       exportPadding,
@@ -17019,7 +17019,7 @@ function App() {
   const exportSelectionAsPng = async () => {
     try {
       const { canvas, selected } = await renderSelectionPng();
-      downloadCanvasAsPng(canvas, { filename: `underscore-selection-${new Date().toISOString().slice(0, 10)}.png` });
+      downloadCanvasAsPng(canvas, { filename: `underscores-selection-${new Date().toISOString().slice(0, 10)}.png` });
       setSceneExchangeStatus(`Exported ${selected.length} selected ${selected.length === 1 ? "object" : "objects"} as PNG.`);
     } catch (error) {
       setSceneExchangeStatus(error.message || "Could not export selection as PNG.");
@@ -17059,10 +17059,10 @@ function App() {
     };
     if (!bounds) throw new Error("The selection has no visible bounds.");
     const appState = excalidrawAPI.getAppState();
-    const { canvas } = await exportUnderscorePng({
+    const { canvas } = await exportUnderscoresPng({
       exportToCanvas,
       elements: exportElements,
-      appState: { ...getUnderscoreExportAppState({ transparent: true }), exportScale: 1 },
+      appState: { ...getUnderscoresExportAppState({ transparent: true }), exportScale: 1 },
       files: excalidrawAPI.getFiles(),
       bounds,
       exportPadding,
@@ -17097,38 +17097,38 @@ function App() {
     return { elementId: image.id, elementIds: [image.id], sourceCount: selected.length };
   };
 
-  const exportUnderscoreBoardPng = async ({ transparent = transparentBoardExport } = {}) => {
+  const exportUnderscoresBoardPng = async ({ transparent = transparentBoardExport } = {}) => {
     if (!excalidrawAPI) return;
     try {
       const exportElements = excalidrawAPI.getSceneElementsIncludingDeleted();
-      const { canvas, capturedP5Frames } = await exportUnderscorePng({
+      const { canvas, capturedP5Frames } = await exportUnderscoresPng({
         exportToCanvas,
         elements: exportElements,
-        appState: getUnderscoreExportAppState({ transparent }),
+        appState: getUnderscoresExportAppState({ transparent }),
         files: excalidrawAPI.getFiles(),
         bounds: getCanonicalExportBounds(exportElements),
         exportBackground: !transparent,
       });
-      downloadCanvasAsPng(canvas, { filename: `underscore-board${transparent ? "-transparent" : "-theme"}.png` });
+      downloadCanvasAsPng(canvas, { filename: `underscores-board${transparent ? "-transparent" : "-theme"}.png` });
       setSceneExchangeStatus(`Exported board PNG${transparent ? " with a transparent background" : " with the current canvas theme"}${capturedP5Frames ? ` and ${capturedP5Frames} live p5 ${capturedP5Frames === 1 ? "frame" : "frames"}` : ""}.`);
     } catch (error) {
       setSceneExchangeStatus(error.message || "Could not export the board PNG.");
     }
   };
 
-  const exportUnderscoreBoardSvg = async ({ transparent = transparentBoardExport } = {}) => {
+  const exportUnderscoresBoardSvg = async ({ transparent = transparentBoardExport } = {}) => {
     if (!excalidrawAPI) return;
     try {
       const elements = excalidrawAPI.getSceneElements().filter(element => !element.isDeleted);
       const svg = await exportToSvg({
         elements,
-        appState: getUnderscoreExportAppState({ transparent }),
+        appState: getUnderscoresExportAppState({ transparent }),
         files: excalidrawAPI.getFiles(),
         exportPadding: 10,
       });
       downloadTextFile(
         svg.outerHTML,
-        `underscore-board${transparent ? "-transparent" : "-theme"}-${new Date().toISOString().slice(0, 10)}.svg`,
+        `underscores-board${transparent ? "-transparent" : "-theme"}-${new Date().toISOString().slice(0, 10)}.svg`,
         "image/svg+xml",
       );
       setSceneExchangeStatus(`Exported ${elements.length} board objects as SVG${transparent ? " with a transparent background" : " with the current canvas theme"}.`);
@@ -17144,15 +17144,15 @@ function App() {
       if (!selectedFrames.length) throw new Error("Select one or more p5 frames to export.");
       let exported = 0;
       for (const [index, frame] of selectedFrames.entries()) {
-        const { canvas, capturedP5Frames } = await exportUnderscorePng({
+        const { canvas, capturedP5Frames } = await exportUnderscoresPng({
           exportToCanvas,
           elements: [frame],
-          appState: getUnderscoreExportAppState(),
+          appState: getUnderscoresExportAppState(),
           files: excalidrawAPI.getFiles(),
           exportBackground: !transparentBoardExport,
         });
         if (!capturedP5Frames) continue;
-        downloadCanvasAsPng(canvas, { filename: `underscore-p5-frame-${index + 1}${transparentBoardExport ? "-transparent" : ""}.png` });
+        downloadCanvasAsPng(canvas, { filename: `underscores-p5-frame-${index + 1}${transparentBoardExport ? "-transparent" : ""}.png` });
         exported += 1;
       }
       if (!exported) throw new Error("The selected p5 frame is not currently running.");
@@ -17173,7 +17173,7 @@ function App() {
       const svgFile = [...(clipboard?.files || [])].find(file => file.type === "image/svg+xml");
       if (!svg && !svgFile) return;
       event.preventDefault();
-      // Also prevent listeners registered on window after Underscore. This is
+      // Also prevent listeners registered on window after Underscores. This is
       // important in host shells that install clipboard bridges alongside
       // Excalidraw and otherwise consume an SVG paste as an image.
       event.stopImmediatePropagation();
@@ -17345,7 +17345,7 @@ function App() {
           strokeWidth: Math.max(0.5, Number(object.width) || 1),
           roughness: 0,
           opacity,
-          customData: bezierHost ? { ...customData, underscoreGeometry: bezierHost.geometry } : customData,
+          customData: bezierHost ? { ...customData, underscoresGeometry: bezierHost.geometry } : customData,
         };
       } else if (object.role === "cursor") {
         const center = positioned([0, 0]);
@@ -17553,7 +17553,7 @@ function App() {
       );
       setActiveIannixScriptId(scriptId);
       setIannixScriptSource(source);
-      toggleUnderscorePanel("script", { open: true, scriptType: "iannix" });
+      toggleUnderscoresPanel("script", { open: true, scriptType: "iannix" });
       await commandRegistry.execute("iannix.import.trusted", {
         source,
         filename: file.name,
@@ -17651,14 +17651,14 @@ function App() {
     const selectedCount = getSelectedElements().length;
     return (
       <>
-        <InspectorSection title="Scene data" className="iannix-section compact iannix-data-section" {...infoProps("Scene data", "Scene exchange preserves Underscore metadata. Trusted .iannix compatibility executes familiar run()/load() scripts, reports unsupported commands, and is not a security sandbox.")}>
+        <InspectorSection title="Scene data" className="iannix-section compact iannix-data-section" {...infoProps("Scene data", "Scene exchange preserves Underscores metadata. Trusted .iannix compatibility executes familiar run()/load() scripts, reports unsupported commands, and is not a security sandbox.")}>
           <div className="iannix-data-actions">
-            <a className="iannix-flat-button" href="#" download onClick={prepareUnderscoreSceneDownload}>Export scene</a>
+            <a className="iannix-flat-button" href="#" download onClick={prepareUnderscoresSceneDownload}>Export scene</a>
             <button type="button" className="iannix-flat-button" onClick={() => sceneImportInputRef.current?.click()}>Import scene</button>
-            <button type="button" className="iannix-flat-button" onClick={() => void copyUnderscoreScene()}>Copy scene JSON</button>
-            <button type="button" className="iannix-flat-button" onClick={() => void pasteUnderscoreScene()}>Paste scene JSON</button>
-            <button type="button" className="iannix-flat-button" onClick={copyUnderscoreSelection} disabled={selectedCount === 0}>Copy selection JSON</button>
-            <button type="button" className="iannix-flat-button" onClick={pasteUnderscoreSelection}>Paste selection JSON</button>
+            <button type="button" className="iannix-flat-button" onClick={() => void copyUnderscoresScene()}>Copy scene JSON</button>
+            <button type="button" className="iannix-flat-button" onClick={() => void pasteUnderscoresScene()}>Paste scene JSON</button>
+            <button type="button" className="iannix-flat-button" onClick={copyUnderscoresSelection} disabled={selectedCount === 0}>Copy selection JSON</button>
+            <button type="button" className="iannix-flat-button" onClick={pasteUnderscoresSelection}>Paste selection JSON</button>
             <button type="button" className="iannix-flat-button" onClick={() => void copySelectionAsSvg()} disabled={selectedCount === 0}>Copy selection SVG</button>
             <button type="button" className="iannix-flat-button" onClick={() => void pasteSvgAsEditable()}>Paste SVG as paths</button>
           </div>
@@ -17710,7 +17710,7 @@ function App() {
     const supportsColliderChoices = allSelectedHavePhysicsBodies;
     const supportsPathCollider = allSelectedHavePhysicsBodies && selectedElements.every(element => (
       ["freedraw", "line", "arrow"].includes(element.type)
-      || element.customData?.underscoreGeometry?.kind === "cubicBezierPath"
+      || element.customData?.underscoresGeometry?.kind === "cubicBezierPath"
     ));
     const colliderChoices = new Set(bodies.map(candidate => getPhysicsColliderSelectionValue(candidate.collider, { allowPath: Boolean(supportsPathCollider) })));
     const selectedColliderChoice = colliderChoices.size === 1 ? [...colliderChoices][0] : "mixed";
@@ -18315,7 +18315,7 @@ function App() {
                   <button
                     type="button"
                     className="iannix-flat-button"
-                    onClick={() => toggleUnderscorePanel("mixer")}
+                    onClick={() => toggleUnderscoresPanel("mixer")}
                   >
                     Open Mixer
                   </button>
@@ -18362,7 +18362,7 @@ function App() {
                       <dt>trigger_duration</dt><dd>Minimum/fallback duration; geometric exit determines longer MIDI notes.</dd>
                       <dt>midi_out</dt><dd>Alias for the MIDI output selected above.</dd>
                     </dl>
-                    <p>IanniX XY preserves the original template. Cursor-relative pitch is a Underscore extension built on IanniX's configurable cursor bounds idea. Test Message uses the same selected-trigger and nearest-cursor context as playback.</p>
+                    <p>IanniX XY preserves the original template. Cursor-relative pitch is a Underscores extension built on IanniX's configurable cursor bounds idea. Test Message uses the same selected-trigger and nearest-cursor context as playback.</p>
                   </div>
                 </details>}
               </>
@@ -18635,7 +18635,7 @@ function App() {
             <option value="">— Choose script —</option>
             {iannixScripts.map(script => <option key={script.id} value={script.id}>{script.name}</option>)}
           </select>}
-          <UnderscoreCodeEditor
+          <UnderscoresCodeEditor
             value={iannixScriptSource}
             onChange={setIannixScriptSource}
             onRun={runScript}
@@ -18683,7 +18683,7 @@ function App() {
             <ScriptFontSizeControl value={scriptEditorFontSize} onChange={value => {
               if (!Number.isFinite(value) || value < 8 || value > 32) return;
               setScriptEditorFontSize(value);
-              localStorage.setItem("underscore_script_editor_font_size", String(value));
+              localStorage.setItem("underscores_script_editor_font_size", String(value));
             }} />
           </div>
           <form className="iannix-command-line" onSubmit={event => { event.preventDefault(); runCommand(); }} {...infoProps("IanniX command line", "Cmd/Ctrl+Enter runs the editor. Scripts are saved in this browser's localStorage. The command line executes its value as run(\"...\").")}>
@@ -18716,7 +18716,7 @@ function App() {
     };
     const selectedP5Frames = getSelectedElements().filter(isP5FrameElement);
     const selectedP5Host = selectedP5Frames.length === 1 ? selectedP5Frames[0] : null;
-    const selectedP5Config = selectedP5Host ? normalizeP5Frame(selectedP5Host.customData?.underscoreP5) : null;
+    const selectedP5Config = selectedP5Host ? normalizeP5Frame(selectedP5Host.customData?.underscoresP5) : null;
     const activeScript = p5Scripts.find(script => script.id === (selectedP5Config?.scriptId || activeP5ScriptId));
     const p5Parameters = parseScriptParameters(p5ScriptSource, {
       values: selectedP5Config?.parameters || {},
@@ -18732,8 +18732,8 @@ function App() {
           ...element,
           customData: {
             ...(element.customData || {}),
-            underscoreP5: normalizeP5Frame({
-              ...element.customData?.underscoreP5,
+            underscoresP5: normalizeP5Frame({
+              ...element.customData?.underscoresP5,
               ...patch,
               reloadNonce: Date.now(),
             }),
@@ -19002,10 +19002,10 @@ function App() {
           <ScriptFontSizeControl value={scriptEditorFontSize} onChange={value => {
             if (!Number.isFinite(value) || value < 8 || value > 32) return;
             setScriptEditorFontSize(value);
-            localStorage.setItem("underscore_script_editor_font_size", String(value));
+            localStorage.setItem("underscores_script_editor_font_size", String(value));
           }} />
         </div>
-        <UnderscoreCodeEditor
+        <UnderscoresCodeEditor
           value={p5ScriptSource}
           onChange={source => {
             setP5ScriptSource(source);
@@ -19023,7 +19023,7 @@ function App() {
           placeholder={p5ScriptMode === "global" ? "function setup() { … }\nfunction draw() { … }" : "p.setup = () => { … };\np.draw = () => { … };"}
         />
         <p className={`p5-script-status ${p5ScriptStatusKind}`} role="status" aria-live="polite">
-          {p5ScriptStatus || <>Trusted local code: p5 sketches run directly in Underscore with access to the page and <code>__</code>. Use only code you trust.</>}
+          {p5ScriptStatus || <>Trusted local code: p5 sketches run directly in Underscores with access to the page and <code>__</code>. Use only code you trust.</>}
         </p>
       </div>
     );
@@ -19032,7 +19032,7 @@ function App() {
   const renderPlayCoreScriptTab = () => {
     const selectedPlayFrames = getSelectedElements().filter(isPlayCoreFrameElement);
     const selectedHost = selectedPlayFrames.length === 1 ? selectedPlayFrames[0] : null;
-    const selectedConfig = selectedHost ? normalizePlayCoreFrame(selectedHost.customData?.underscorePlayCore) : null;
+    const selectedConfig = selectedHost ? normalizePlayCoreFrame(selectedHost.customData?.underscoresPlayCore) : null;
     const activeScript = playCoreScripts.find(script => script.id === (selectedConfig?.scriptId || activePlayCoreScriptId));
     const compatibleHosts = getSelectedElements().filter(canHostPlayCoreFrame);
     const setPlayCoreLiveStatus = (message, kind = "info") => {
@@ -19058,8 +19058,8 @@ function App() {
           fillStyle: "solid",
           customData: {
             ...(element.customData || {}),
-            underscorePlayCore: normalizePlayCoreFrame({
-              ...element.customData?.underscorePlayCore,
+            underscoresPlayCore: normalizePlayCoreFrame({
+              ...element.customData?.underscoresPlayCore,
               ...patch,
               reloadNonce: nonce,
             }),
@@ -19196,7 +19196,7 @@ function App() {
       setPlayCoreLiveStatus(`Loaded original play.core example “${example.name}”. Select a frame and press Run to attach it.`, "success");
     };
     return <div className="iannix-properties iannix-script-pane p5-script-pane">
-      <p className="p5-script-status">Play Core programs render ASCII cells in a Underscore frame. Use <code>@param</code> with <code>__.params</code>; <code>__.canvas</code>, events, and transport are the same bridge exposed to p5.</p>
+      <p className="p5-script-status">Play Core programs render ASCII cells in a Underscores frame. Use <code>@param</code> with <code>__.params</code>; <code>__.canvas</code>, events, and transport are the same bridge exposed to p5.</p>
       {editingPlayCoreScriptName ? <input
         type="text"
         className="custom-brush-select"
@@ -19274,13 +19274,13 @@ function App() {
         <button type="button" className="palette-action-btn secondary script-icon-button" title="New Play Core program" aria-label="New Play Core program" onClick={createScript}><ScriptActionIcon type="add" /></button>
         <button type="button" className="palette-action-btn secondary script-icon-button" title="Import Play Core JavaScript" aria-label="Import Play Core JavaScript" onClick={() => playCoreImportInputRef.current?.click()}><ScriptActionIcon type="import" /></button>
         <button type="button" className="palette-action-btn danger script-icon-button" title="Delete Play Core program" aria-label="Delete Play Core program" onClick={deleteScript} disabled={!activeScript}><ScriptActionIcon type="remove" /></button>
-        <ScriptFontSizeControl value={scriptEditorFontSize} onChange={value => { if (!Number.isFinite(value) || value < 8 || value > 32) return; setScriptEditorFontSize(value); localStorage.setItem("underscore_script_editor_font_size", String(value)); }} />
+        <ScriptFontSizeControl value={scriptEditorFontSize} onChange={value => { if (!Number.isFinite(value) || value < 8 || value > 32) return; setScriptEditorFontSize(value); localStorage.setItem("underscores_script_editor_font_size", String(value)); }} />
       </div>
-      <UnderscoreCodeEditor value={playCoreSource} onChange={source => {
+      <UnderscoresCodeEditor value={playCoreSource} onChange={source => {
         setPlayCoreSource(source);
         if (updateScriptLive({ source })) setPlayCoreLiveStatus("Compiled successfully.", "success");
       }} onRun={applyToSelection} scriptType="play" ariaLabel="Play Core source" getDiagnostics={source => { const validation = validatePlayCoreSource(source); return validation.valid ? [] : [sourceDiagnostic(source, validation.error)]; }} />
-      <p className={`p5-script-status ${playCoreStatusKind}`} role="status" aria-live="polite">{playCoreStatus || <>Trusted local code: Play Core frames run directly in Underscore with access to <code>__</code>. Use only code you trust.</>}</p>
+      <p className={`p5-script-status ${playCoreStatusKind}`} role="status" aria-live="polite">{playCoreStatus || <>Trusted local code: Play Core frames run directly in Underscores with access to <code>__</code>. Use only code you trust.</>}</p>
     </div>;
   };
 
@@ -19293,7 +19293,7 @@ function App() {
       <p>Create a self-contained Livecode Node to edit it here or directly on the canvas.</p>
       <button type="button" className="palette-action-btn primary" onClick={() => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel })}>Create Livecode Node</button>
     </div>;
-    const node = normalizeLivecodeNode(nodeElement.customData?.underscoreLivecode);
+    const node = normalizeLivecodeNode(nodeElement.customData?.underscoresLivecode);
     const definition = getLivecodeKindDefinition(node.kind);
     const p5Validation = node.kind === LIVECODE_KINDS.p5 ? validateLivecodeNode(node) : null;
     const p5RuntimeStatus = p5Validation && !p5Validation.valid
@@ -19357,7 +19357,7 @@ function App() {
           aria-label="Livecode node"
         >
           {livecodeOverlayScene.elements.map(element => {
-            const candidate = normalizeLivecodeNode(element.customData?.underscoreLivecode);
+            const candidate = normalizeLivecodeNode(element.customData?.underscoresLivecode);
             return <option key={element.id} value={element.id}>{candidate.name} · {getLivecodeKindDefinition(candidate.kind).label}</option>;
           })}
         </select>}
@@ -19646,8 +19646,8 @@ function App() {
           onChange={event => {
             const script = svgScripts.find(candidate => candidate.id === event.target.value);
             setActiveSvgScriptId(event.target.value);
-            setSvgScriptSource(script?.source || target && normalizeSvgObject(target.customData.underscoreSvg).source || DEFAULT_SVG_SOURCE);
-            setSvgScriptNameDraft(script?.name || target && normalizeSvgObject(target.customData.underscoreSvg).name || "Untitled SVG");
+            setSvgScriptSource(script?.source || target && normalizeSvgObject(target.customData.underscoresSvg).source || DEFAULT_SVG_SOURCE);
+            setSvgScriptNameDraft(script?.name || target && normalizeSvgObject(target.customData.underscoresSvg).name || "Untitled SVG");
             setEditingSvgScriptName(false);
             setLiveStatus(script ? `Loaded “${script.name}”.` : target ? "Editing the selected canvas SVG." : "New SVG draft.");
           }}
@@ -19655,11 +19655,11 @@ function App() {
           onDoubleClick={event => { event.preventDefault(); beginRename(); }}
           aria-label="SVG script"
         >
-          <option value="">{target ? `Canvas · ${normalizeSvgObject(target.customData.underscoreSvg).name}` : "— SVG draft —"}</option>
+          <option value="">{target ? `Canvas · ${normalizeSvgObject(target.customData.underscoresSvg).name}` : "— SVG draft —"}</option>
           {svgScripts.map(script => <option key={script.id} value={script.id}>{script.name}</option>)}
         </select>}
         <div className="svg-script-canvas-row">
-          <span>{target ? `Canvas: ${normalizeSvgObject(target.customData.underscoreSvg).name}` : "Canvas: new object"}</span>
+          <span>{target ? `Canvas: ${normalizeSvgObject(target.customData.underscoresSvg).name}` : "Canvas: new object"}</span>
           <button type="button" className="iannix-flat-button" onClick={() => void fromSelection()}>From selection</button>
         </div>
         <div className="script-icon-toolbar">
@@ -19672,10 +19672,10 @@ function App() {
           <ScriptFontSizeControl value={scriptEditorFontSize} onChange={value => {
             if (!Number.isFinite(value) || value < 8 || value > 32) return;
             setScriptEditorFontSize(value);
-            localStorage.setItem("underscore_script_editor_font_size", String(value));
+            localStorage.setItem("underscores_script_editor_font_size", String(value));
           }} />
         </div>
-        <UnderscoreCodeEditor
+        <UnderscoresCodeEditor
           value={svgScriptSource}
           onChange={source => {
             svgSourceSelectionMutedUntilRef.current = Date.now() + 750;
@@ -20412,7 +20412,7 @@ function App() {
                             setActiveBrushId(brushId);
                             setActiveBrushCode(editorCode);
                             setBrushParams(editorParams);
-                            toggleUnderscorePanel("script", { open: true, scriptType: "brush" });
+                            toggleUnderscoresPanel("script", { open: true, scriptType: "brush" });
                           }}
                           style={{
                             background: "none",
@@ -20928,7 +20928,7 @@ function App() {
       out: control.out ? mapCanvasToScreen(control.out[0], control.out[1]) : null,
     }));
     return (
-      <svg className="underscore-bezier-editor-overlay" aria-label="Bézier path editor">
+      <svg className="underscores-bezier-editor-overlay" aria-label="Bézier path editor">
         {controls.map((control, index) => (
           <g key={`${element.id}-bezier-control-${index}`} className={bezierSelectedAnchor === index ? "selected" : ""}>
             {control.in && <line x1={control.anchor[0]} y1={control.anchor[1]} x2={control.in[0]} y2={control.in[1]} className="bezier-handle-line" />}
@@ -20955,7 +20955,7 @@ function App() {
       .map(point => mapCanvasToScreen(point[0], point[1]));
     const PathOutline = context.subpath.geometry.closed ? "polygon" : "polyline";
     return (
-      <svg className="underscore-svg-path-editor-overlay" aria-label="SVG path editor">
+      <svg className="underscores-svg-path-editor-overlay" aria-label="SVG path editor">
         <PathOutline
           points={pathPoints.map(point => `${point[0]},${point[1]}`).join(" ")}
           className="svg-edit-path-highlight"
@@ -20984,13 +20984,13 @@ function App() {
       candidate.id === selectedSvgNode.elementId && !candidate.isDeleted && isSvgObjectElement(candidate)
     );
     if (!element) return null;
-    const svg = normalizeSvgObject(element.customData.underscoreSvg);
+    const svg = normalizeSvgObject(element.customData.underscoresSvg);
     const node = analyzeSvgSource(svg.source).nodes.find(candidate => candidate.index === selectedSvgNode.nodeIndex);
     const outline = getSvgNodeWorldOutline(element, svg, svg.source, selectedSvgNode.nodeIndex)
       ?.map(point => mapCanvasToScreen(point[0], point[1]));
     if (!node || !outline) return null;
     return (
-      <svg className="underscore-svg-node-selection-overlay" aria-label={`Selected SVG ${node.label}`}>
+      <svg className="underscores-svg-node-selection-overlay" aria-label={`Selected SVG ${node.label}`}>
         <polygon
           points={outline.map(point => `${point[0]},${point[1]}`).join(" ")}
           className="svg-node-selection-outline"
@@ -21057,7 +21057,7 @@ function App() {
           const Geometry = geometry.element;
           return (
             <g key={`${cursor.element.id}-${pathIndex}`}>
-              {selected && <Geometry {...geometry.props} {...sharedProps} stroke="var(--underscore-accent)" strokeWidth={sharedProps.strokeWidth + 6} opacity="0.55" style={undefined} />}
+              {selected && <Geometry {...geometry.props} {...sharedProps} stroke="var(--underscores-accent)" strokeWidth={sharedProps.strokeWidth + 6} opacity="0.55" style={undefined} />}
               <Geometry {...geometry.props} {...sharedProps} />
             </g>
           );
@@ -21351,7 +21351,7 @@ function App() {
     commitCssColor(event, currentValue, commit);
   };
   const applyInterfaceThemePreset = presetId => {
-    applyUnderscoreThemePreset(presetId);
+    applyUnderscoresThemePreset(presetId);
   };
   const resolvedLaserColor = resolveLaserColorToken(laserColor, {
     stroke: canvasDisplayColor(canvasDrawingStyle.stroke, theme),
@@ -21369,11 +21369,11 @@ function App() {
     applyingRecordedUiStateRef.current = true;
     presentationWorkspaceRef.current = null;
     presentationDefaultsAppliedRef.current = false;
-    applyUnderscoreThemePreset(DEFAULT_INTERFACE_THEME_PRESET);
+    applyUnderscoresThemePreset(DEFAULT_INTERFACE_THEME_PRESET);
     setRoleTheme({ ...DEFAULT_ROLE_THEME });
     setPanelLayouts(normalizePanelLayouts(null));
     setDockSizes(normalizeDockSizes(null));
-    setOpenPanels(Object.fromEntries(UNDERSCORE_PANELS.map(panel => [panel.id, true])));
+    setOpenPanels(Object.fromEntries(UNDERSCORES_PANELS.map(panel => [panel.id, true])));
     setActiveDockPanels({ left: "mods", right: "mods", bottom: "transport" });
     setCollapsedDocks({ left: true, right: true, bottom: true });
     setShowIannixTransport(true);
@@ -21390,7 +21390,7 @@ function App() {
     setShowPerformanceOverlay(false);
     setShowDebugLayer(false);
     setDefaultStabilizerDamping(0.12);
-    setScriptEditorTheme("underscore");
+    setScriptEditorTheme("underscores");
     setTransparentBoardExport(false);
     setLaserColor("#ff0000");
     setLaserOpacity(100);
@@ -21398,19 +21398,19 @@ function App() {
     setCustomBrushRoundness(false);
     setCustomBrushActive(false);
     runtimeCallbacksRef.current.globalGridReset();
-    localStorage.setItem("underscore_force_desktop_layout", "true");
-    localStorage.setItem("underscore_show_toolbar_hints", "false");
-    localStorage.setItem("underscore_show_bottom_notifications", "false");
-    localStorage.setItem("underscore_performance_overlay", "false");
-    localStorage.setItem("underscore_show_debug_layer", "false");
-    localStorage.setItem("underscore_default_stabilizer_damping", "0.12");
-    localStorage.setItem("underscore_export_transparent", "false");
-    localStorage.setItem("underscore_laser_color", "#ff0000");
-    localStorage.setItem("underscore_laser_opacity", "100");
+    localStorage.setItem("underscores_force_desktop_layout", "true");
+    localStorage.setItem("underscores_show_toolbar_hints", "false");
+    localStorage.setItem("underscores_show_bottom_notifications", "false");
+    localStorage.setItem("underscores_performance_overlay", "false");
+    localStorage.setItem("underscores_show_debug_layer", "false");
+    localStorage.setItem("underscores_default_stabilizer_damping", "0.12");
+    localStorage.setItem("underscores_export_transparent", "false");
+    localStorage.setItem("underscores_laser_color", "#ff0000");
+    localStorage.setItem("underscores_laser_opacity", "100");
     localStorage.setItem(CUSTOM_BRUSH_ROUNDNESS_STORAGE_KEY, "false");
     localStorage.setItem(DRAWING_ROUNDNESS_STORAGE_KEY, "0");
-    localStorage.setItem("underscore_presentation_mode", "false");
-    localStorage.setItem("underscore_script_editor_theme", "underscore");
+    localStorage.setItem("underscores_presentation_mode", "false");
+    localStorage.setItem("underscores_script_editor_theme", "underscores");
     excalidrawAPI?.updateScene({
       appState: {
         currentItemRoughness: 0,
@@ -21601,37 +21601,37 @@ function App() {
                 <button type="button" className="iannix-flat-button" onClick={deleteSelectedCustomTheme}>Delete</button>
               )}
             </div>
-            <label className="settings-panel-field" {...infoProps("Code editor palette", "Choose an explicit code skin independently of the board. Underscore Adaptive follows the active board surface and colors; Transparent Adaptive keeps only the adaptive syntax colors; Mono Live Coding follows the current light or dark mode while keeping syntax grayscale; VS Code Adaptive follows the current light or dark mode with familiar syntax colors; Teaching uses especially distinct, high-contrast syntax colors.")}>
+            <label className="settings-panel-field" {...infoProps("Code editor palette", "Choose an explicit code skin independently of the board. Underscores Adaptive follows the active board surface and colors; Transparent Adaptive keeps only the adaptive syntax colors; Mono Live Coding follows the current light or dark mode while keeping syntax grayscale; VS Code Adaptive follows the current light or dark mode with familiar syntax colors; Teaching uses especially distinct, high-contrast syntax colors.")}>
               <span>Code editor palette</span>
               <select value={scriptEditorTheme} onChange={event => setScriptEditorTheme(event.target.value)}>
-                <option value="underscore">Underscore adaptive</option>
+                <option value="underscores">Underscores adaptive</option>
                 <option value="transparent">Transparent adaptive</option>
                 <option value="mono">Mono adaptive</option>
                 <option value="vscode">VS Code adaptive</option>
                 <option value="teaching">Teaching</option>
               </select>
             </label>
-            <label className="settings-panel-field" {...infoProps("Accent color", `Color and opacity used for active controls and Underscore accents. ${CSS_COLOR_HELP}`)}>
+            <label className="settings-panel-field" {...infoProps("Accent color", `Color and opacity used for active controls and Underscores accents. ${CSS_COLOR_HELP}`)}>
               <span>Accent color</span>
               <div className="settings-color-control" {...infoProps("Accent color", CSS_COLOR_HELP)}>
-                <input type="color" value={colorInputHex(accentColor)} style={{ backgroundColor: accentColor }} onChange={event => { setInterfaceThemePreset("custom"); setAccentColor(event.target.value); localStorage.setItem("underscore_accent_color", event.target.value); }} aria-label="Accent color picker" {...infoProps("Accent color", CSS_COLOR_HELP)} />
-                <input key={accentColor} type="text" defaultValue={accentColor} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, accentColor, value => { setInterfaceThemePreset("custom"); setAccentColor(value); localStorage.setItem("underscore_accent_color", value); })} onKeyDown={event => commitCssColorOnEnter(event, accentColor, value => { setInterfaceThemePreset("custom"); setAccentColor(value); localStorage.setItem("underscore_accent_color", value); })} aria-label="Accent color value" {...infoProps("Accent color", CSS_COLOR_HELP)} />
-                <NumericInput min="0" max="100" step="1" data-default="100" value={accentOpacity} defaultValue={100} onCommit={value => { setInterfaceThemePreset("custom"); setAccentOpacity(value); localStorage.setItem("underscore_accent_opacity", String(value)); }} aria-label="Accent opacity" />
+                <input type="color" value={colorInputHex(accentColor)} style={{ backgroundColor: accentColor }} onChange={event => { setInterfaceThemePreset("custom"); setAccentColor(event.target.value); localStorage.setItem("underscores_accent_color", event.target.value); }} aria-label="Accent color picker" {...infoProps("Accent color", CSS_COLOR_HELP)} />
+                <input key={accentColor} type="text" defaultValue={accentColor} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, accentColor, value => { setInterfaceThemePreset("custom"); setAccentColor(value); localStorage.setItem("underscores_accent_color", value); })} onKeyDown={event => commitCssColorOnEnter(event, accentColor, value => { setInterfaceThemePreset("custom"); setAccentColor(value); localStorage.setItem("underscores_accent_color", value); })} aria-label="Accent color value" {...infoProps("Accent color", CSS_COLOR_HELP)} />
+                <NumericInput min="0" max="100" step="1" data-default="100" value={accentOpacity} defaultValue={100} onCommit={value => { setInterfaceThemePreset("custom"); setAccentOpacity(value); localStorage.setItem("underscores_accent_opacity", String(value)); }} aria-label="Accent opacity" />
                 <output>%</output>
               </div>
             </label>
             <label className="settings-panel-field" {...infoProps("Hover highlight", `Color and opacity used for passive hover and toggle highlights. ${CSS_COLOR_HELP}`)}>
               <span>Hover highlight</span>
               <div className="settings-color-control" {...infoProps("Hover highlight", CSS_COLOR_HELP)}>
-                <input type="color" value={colorInputHex(highlightColor)} style={{ backgroundColor: highlightColor }} onChange={event => { setInterfaceThemePreset("custom"); setHighlightColor(event.target.value); localStorage.setItem("underscore_highlight_color", event.target.value); }} aria-label="Hover highlight color picker" {...infoProps("Hover highlight", CSS_COLOR_HELP)} />
-                <input key={highlightColor} type="text" defaultValue={highlightColor} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, highlightColor, value => { setInterfaceThemePreset("custom"); setHighlightColor(value); localStorage.setItem("underscore_highlight_color", value); })} onKeyDown={event => commitCssColorOnEnter(event, highlightColor, value => { setInterfaceThemePreset("custom"); setHighlightColor(value); localStorage.setItem("underscore_highlight_color", value); })} aria-label="Hover highlight color value" {...infoProps("Hover highlight", CSS_COLOR_HELP)} />
-                <NumericInput min="0" max="100" step="1" data-default="100" value={highlightOpacity} defaultValue={100} onCommit={value => { setInterfaceThemePreset("custom"); setHighlightOpacity(value); localStorage.setItem("underscore_highlight_opacity", String(value)); }} aria-label="Hover highlight opacity" />
+                <input type="color" value={colorInputHex(highlightColor)} style={{ backgroundColor: highlightColor }} onChange={event => { setInterfaceThemePreset("custom"); setHighlightColor(event.target.value); localStorage.setItem("underscores_highlight_color", event.target.value); }} aria-label="Hover highlight color picker" {...infoProps("Hover highlight", CSS_COLOR_HELP)} />
+                <input key={highlightColor} type="text" defaultValue={highlightColor} autoCapitalize="none" autoCorrect="off" spellCheck={false} onBlur={event => commitCssColor(event, highlightColor, value => { setInterfaceThemePreset("custom"); setHighlightColor(value); localStorage.setItem("underscores_highlight_color", value); })} onKeyDown={event => commitCssColorOnEnter(event, highlightColor, value => { setInterfaceThemePreset("custom"); setHighlightColor(value); localStorage.setItem("underscores_highlight_color", value); })} aria-label="Hover highlight color value" {...infoProps("Hover highlight", CSS_COLOR_HELP)} />
+                <NumericInput min="0" max="100" step="1" data-default="100" value={highlightOpacity} defaultValue={100} onCommit={value => { setInterfaceThemePreset("custom"); setHighlightOpacity(value); localStorage.setItem("underscores_highlight_opacity", String(value)); }} aria-label="Hover highlight opacity" />
                 <output>%</output>
               </div>
             </label>
             {[
-              ["Foreground", "Primary text and default canvas-line color used throughout Underscore and Excalidraw. Score roles can still override it in Score object theme.", foregroundColor, foregroundOpacity, setForegroundColor, setForegroundOpacity, "underscore_foreground"],
-              ["Muted foreground", "Secondary color for dimmed labels, metadata, and less prominent interface detail.", mutedColor, mutedOpacity, setMutedColor, setMutedOpacity, "underscore_muted"],
+              ["Foreground", "Primary text and default canvas-line color used throughout Underscores and Excalidraw. Score roles can still override it in Score object theme.", foregroundColor, foregroundOpacity, setForegroundColor, setForegroundOpacity, "underscores_foreground"],
+              ["Muted foreground", "Secondary color for dimmed labels, metadata, and less prominent interface detail.", mutedColor, mutedOpacity, setMutedColor, setMutedOpacity, "underscores_muted"],
             ].map(([label, help, color, opacity, setColor, setOpacity, storageKey]) => (
               <label className="settings-panel-field" key={storageKey} {...infoProps(label, `${help} ${CSS_COLOR_HELP}`)}>
                 <span>{label}</span>
@@ -21662,7 +21662,7 @@ function App() {
               </div>
             </label>
             {[
-              ["panel", "Panel background", "Background shared by docked and floating Underscore panels."],
+              ["panel", "Panel background", "Background shared by docked and floating Underscores panels."],
               ["input", "Input field", "Background used by number boxes, text fields, dropdowns, and other editable controls."],
               ["timeline", "Subpanel background", "Background shared by nested work areas, including timeline lanes, mixer tracks, and script editors. The active loop remains a subtle accent overlay."],
               ["canvas", "Canvas", "Background of the Excalidraw drawing surface."],
@@ -21715,9 +21715,9 @@ function App() {
             </InspectorSection>
             <InspectorSection title="Interface" className="settings-inspector-section">
             {[
-              ["Force desktop layout", forceDesktopLayout, value => { setForceDesktopLayout(value); localStorage.setItem("underscore_force_desktop_layout", value); }],
-              ["Show toolbar hints", showToolbarHints, value => { setShowToolbarHints(value); localStorage.setItem("underscore_show_toolbar_hints", value); }],
-              ["Show bottom alerts", showBottomNotifications, value => { setShowBottomNotifications(value); localStorage.setItem("underscore_show_bottom_notifications", value); }],
+              ["Force desktop layout", forceDesktopLayout, value => { setForceDesktopLayout(value); localStorage.setItem("underscores_force_desktop_layout", value); }],
+              ["Show toolbar hints", showToolbarHints, value => { setShowToolbarHints(value); localStorage.setItem("underscores_show_toolbar_hints", value); }],
+              ["Show bottom alerts", showBottomNotifications, value => { setShowBottomNotifications(value); localStorage.setItem("underscores_show_bottom_notifications", value); }],
               ["Show performance monitor", showPerformanceOverlay, updatePerformanceVisibility],
               ["Show modifier debug coordinates", showDebugLayer, setShowDebugLayer],
             ].map(([label, checked, update]) => (
@@ -21730,7 +21730,7 @@ function App() {
               <span>Default stabilizer damping</span>
               <NumericInput min="0.01" max="0.5" step="0.01" data-default="0.12" value={defaultStabilizerDamping} defaultValue={0.12} onCommit={value => {
                 setDefaultStabilizerDamping(value);
-                localStorage.setItem("underscore_default_stabilizer_damping", value);
+                localStorage.setItem("underscores_default_stabilizer_damping", value);
               }} />
             </label>
             <div className="settings-panel-divider" />
@@ -21826,7 +21826,7 @@ function App() {
             </label>
             </InspectorSection>
             <InspectorSection title="MIDI & clock" className="settings-inspector-section">
-            <label className="settings-panel-field" {...infoProps("Clock synchronization", "Use Underscore's internal clock, send MIDI Clock, or follow incoming MIDI Clock.")}>
+            <label className="settings-panel-field" {...infoProps("Clock synchronization", "Use Underscores's internal clock, send MIDI Clock, or follow incoming MIDI Clock.")}>
               <span>Clock synchronization</span>
               <select value={midiClockMode} onChange={event => setMidiClockMode(event.target.value)}>
                 <option value="internal">Internal</option>
@@ -21871,7 +21871,7 @@ function App() {
               <button type="button" className="settings-panel-midi-refresh" title={midiAccess ? "Refresh MIDI access" : "Connect MIDI"} aria-label={midiAccess ? "Refresh MIDI access" : "Connect MIDI"} onClick={connectIannixMidi}>↻</button>
             </div>
             <div className="settings-panel-actions">
-              <button type="button" className="iannix-flat-button" onClick={() => toggleUnderscorePanel("mixer")} {...infoProps("Open Mixer", "Score destinations, instruments, programs, and MIDI channels are assigned per mixer track.")}>Open Mixer</button>
+              <button type="button" className="iannix-flat-button" onClick={() => toggleUnderscoresPanel("mixer")} {...infoProps("Open Mixer", "Score destinations, instruments, programs, and MIDI channels are assigned per mixer track.")}>Open Mixer</button>
             </div>
             <div className="settings-panel-synth-status" role="status">
               <span>Internal synth: <strong>{internalSynthStatus}</strong></span>
@@ -21988,7 +21988,7 @@ function App() {
         {activeBrushId !== "normal" && (
           <div style={{ display: "flex", flexDirection: "column", gap: "8px", flexGrow: 1, minHeight: 0 }}>
             {/* Shared CodeMirror script editor */}
-            <UnderscoreCodeEditor
+            <UnderscoresCodeEditor
               value={activeBrushCode}
               onChange={source => {
                 setActiveBrushCode(source);
@@ -22071,7 +22071,7 @@ function App() {
               <ScriptFontSizeControl value={scriptEditorFontSize} onChange={value => {
                 if (!Number.isFinite(value) || value < 8 || value > 32) return;
                 setScriptEditorFontSize(value);
-                localStorage.setItem("underscore_script_editor_font_size", String(value));
+                localStorage.setItem("underscores_script_editor_font_size", String(value));
               }} />
             </div>
 
@@ -22184,11 +22184,11 @@ function App() {
       }
       target[lastKey] = value;
       // Excalidraw renders a frame title from its native `name` field, while
-      // Underscore keeps the user-facing presentation contract in customData.
+      // Underscores keeps the user-facing presentation contract in customData.
       // Keep the native field as a renderer detail so frame grouping remains
       // entirely native but label visibility is persistent and controllable.
-      if (next.type === "frame" && path[0] === "customData" && path[1] === "underscoreFrame") {
-        const framePresentation = next.customData.underscoreFrame || {};
+      if (next.type === "frame" && path[0] === "customData" && path[1] === "underscoresFrame") {
+        const framePresentation = next.customData.underscoresFrame || {};
         next.name = framePresentation.showLabel
           ? (framePresentation.label || null)
           : "\u200B";
@@ -22196,8 +22196,8 @@ function App() {
       if (path[0] === "customData" && path.includes("modifiers")) {
         next.customData.version = (next.customData.version || 0) + 1;
       }
-      if (path[0] === "customData" && path[1] === "underscoreGeometry") {
-        Object.assign(next, setElementBezierGeometry(next, next.customData.underscoreGeometry));
+      if (path[0] === "customData" && path[1] === "underscoresGeometry") {
+        Object.assign(next, setElementBezierGeometry(next, next.customData.underscoresGeometry));
       }
       next.version = (element.version || 0) + 1;
       next.versionNonce = Math.floor(Math.random() * 0x7fffffff);
@@ -22225,7 +22225,7 @@ function App() {
   };
 
   const pickObjectReferenceForProperty = (ownerElementId, path) => {
-    if (path.join(".") !== "customData.underscoreMediaStream.canvas.elementId") return;
+    if (path.join(".") !== "customData.underscoresMediaStream.canvas.elementId") return;
     beginObjectEyedropper({
       label: "Pick canvas input",
       accept: canUseAsObjectBoundsTarget,
@@ -22260,8 +22260,8 @@ function App() {
     onAssignCollider: options => assignPhysicsBodies({ systemId: activePhysicsSystemId, bodyType: "fixed", ...options }),
     onMakeConstraint: kind => assignPhysicsConstraintPivots({ kind, systemId: activePhysicsSystemId }),
   };
-  const sidePanels = UNDERSCORE_PANELS.filter(panel => panel.placements.includes(PANEL_PLACEMENTS.LEFT) || panel.placements.includes(PANEL_PLACEMENTS.RIGHT));
-  const horizontalPanels = UNDERSCORE_PANELS.filter(panel => panel.placements.includes(PANEL_PLACEMENTS.BOTTOM));
+  const sidePanels = UNDERSCORES_PANELS.filter(panel => panel.placements.includes(PANEL_PLACEMENTS.LEFT) || panel.placements.includes(PANEL_PLACEMENTS.RIGHT));
+  const horizontalPanels = UNDERSCORES_PANELS.filter(panel => panel.placements.includes(PANEL_PLACEMENTS.BOTTOM));
   const getDockTabs = placement => getOpenPanelsForPlacement(sidePanels, openPanels, panelLayouts, placement);
   const leftDockTabs = getDockTabs(PANEL_PLACEMENTS.LEFT);
   const rightDockTabs = getDockTabs(PANEL_PLACEMENTS.RIGHT);
@@ -22287,7 +22287,7 @@ function App() {
     return panelLayouts[panelId]?.placement === PANEL_PLACEMENTS.FLOATING || activeBottomPanelId === panelId;
   };
   const closeHorizontalPanel = panelId => {
-    closeUnderscorePanel(panelId);
+    closeUnderscoresPanel(panelId);
   };
   const leftDockOpen = leftDockTabs.length > 0 && !collapsedDocks.left;
   const rightDockOpen = rightDockTabs.length > 0 && !collapsedDocks.right;
@@ -22301,7 +22301,7 @@ function App() {
     const url = sanitizeEmbedURL(element?.link);
     const visible = shouldRenderEmbed(policy, presentationMode);
     const label = visible ? "Embedded web content" : (policy.display === "presentation" ? "Embed hidden outside presentation mode" : "Embed disabled");
-    if (!url || !visible) return <div className="underscore-embed-placeholder" aria-label={label}>{label}</div>;
+    if (!url || !visible) return <div className="underscores-embed-placeholder" aria-label={label}>{label}</div>;
     const crop = {
       top: policy.cropTop,
       right: policy.cropRight,
@@ -22313,10 +22313,10 @@ function App() {
       try {
         const document = iframe.contentDocument;
         if (!document || document.location.origin !== window.location.origin) return;
-        let style = document.querySelector("style[data-underscore-embed-css]");
+        let style = document.querySelector("style[data-underscores-embed-css]");
         if (!style) {
           style = document.createElement("style");
-          style.dataset.underscoreEmbedCss = "";
+          style.dataset.underscoresEmbedCss = "";
           document.head?.appendChild(style);
         }
         style.textContent = policy.css;
@@ -22324,10 +22324,10 @@ function App() {
         // Cross-origin documents are intentionally inaccessible to the host.
       }
     };
-    return <div className={`underscore-embed-viewport ${policy.allowInteraction ? "underscore-embed-interactive" : ""}`}>
+    return <div className={`underscores-embed-viewport ${policy.allowInteraction ? "underscores-embed-interactive" : ""}`}>
       <iframe
         key={`${element.id}:${url}:${policy.reloadNonce}`}
-        className="underscore-embed-frame"
+        className="underscores-embed-frame"
         title={label}
         src={url}
         style={{
@@ -22363,7 +22363,7 @@ function App() {
       ...canvasElements.map(element => `${element.id}:${element.version || 0}:${element.versionNonce || 0}`),
       ...frames.map(element => {
         if (isMediaStreamElement(element)) {
-          const stream = normalizeMediaStreamConfig(element.customData?.underscoreMediaStream);
+          const stream = normalizeMediaStreamConfig(element.customData?.underscoresMediaStream);
           return [
             "media",
             element.id,
@@ -22380,8 +22380,8 @@ function App() {
         }
         const isP5 = isP5FrameElement(element);
         const frame = isP5
-          ? normalizeP5Frame(element.customData?.underscoreP5)
-          : normalizePlayCoreFrame(element.customData?.underscorePlayCore);
+          ? normalizeP5Frame(element.customData?.underscoresP5)
+          : normalizePlayCoreFrame(element.customData?.underscoresPlayCore);
         return [
           isP5 ? "p5" : "play",
           element.id,
@@ -22429,7 +22429,7 @@ function App() {
       camera.svgForegroundColor,
       selectedSignature,
       ...objects.map(element => {
-        const svg = normalizeSvgObject(element.customData?.underscoreSvg);
+        const svg = normalizeSvgObject(element.customData?.underscoresSvg);
         return [
           element.id,
           element.x,
@@ -22470,7 +22470,7 @@ function App() {
       camera.zoom.value,
       selectedSignature,
       ...nodes.map(element => {
-        const node = normalizeLivecodeNode(element.customData?.underscoreLivecode);
+        const node = normalizeLivecodeNode(element.customData?.underscoresLivecode);
         return [
           element.id,
           element.x,
@@ -22503,7 +22503,7 @@ function App() {
     });
   };
   const updateInfoViewFromEvent = event => {
-    const editor = event.target?.closest?.(".underscore-code-editor, .orca-node, .livecode-markdown-block textarea");
+    const editor = event.target?.closest?.(".underscores-code-editor, .orca-node, .livecode-markdown-block textarea");
     if (editor) {
       // Code, grid, and in-place Markdown editing should always restore the
       // language guide. This also clears a stale control tooltip in the Info
@@ -22537,22 +22537,22 @@ function App() {
   return (
     <div 
       id="root" 
-      className={`underscore-shell underscore-theme-${theme} ${laserToolActive ? "laser-tool-active" : ""} ${laserCursorExitGuard ? "laser-cursor-exit-guard" : ""} ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} ${leftDockOpen ? "left-sidebar-open" : ""} ${rightDockOpen ? "right-sidebar-open" : ""} ${bottomDockOpen ? "horizontal-dock-open" : ""} ${collapsedDocks.bottom ? "bottom-dock-collapsed" : ""} ${draggingPanelId || transportDragging ? "panel-is-dragging" : ""}`}
+      className={`underscores-shell underscores-theme-${theme} ${laserToolActive ? "laser-tool-active" : ""} ${laserCursorExitGuard ? "laser-cursor-exit-guard" : ""} ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} ${leftDockOpen ? "left-sidebar-open" : ""} ${rightDockOpen ? "right-sidebar-open" : ""} ${bottomDockOpen ? "horizontal-dock-open" : ""} ${collapsedDocks.bottom ? "bottom-dock-collapsed" : ""} ${draggingPanelId || transportDragging ? "panel-is-dragging" : ""}`}
       style={{
-        "--underscore-accent": colorWithOpacity(accentColor, accentOpacity),
-        "--underscore-highlight": colorWithOpacity(highlightColor, highlightOpacity),
-        "--underscore-foreground": colorWithOpacity(foregroundColor, foregroundOpacity),
-        "--underscore-muted": colorWithOpacity(mutedColor, mutedOpacity),
-        "--underscore-laser-color": renderedLaserColor,
-        "--underscore-laser-cursor": laserCursorForColor(renderedLaserColor),
-        "--underscore-laser-width": String(Math.max(0.25, canvasDrawingStyle.strokeWidth * 4.25)),
-        "--underscore-panel-bg": colorWithOpacity(interfaceTheme.panel.color, interfaceTheme.panel.opacity),
-        "--underscore-input-bg": colorWithOpacity(interfaceTheme.input.color, interfaceTheme.input.opacity),
-        "--underscore-timeline-lane-bg": colorWithOpacity(interfaceTheme.timeline.color, interfaceTheme.timeline.opacity),
-        "--underscore-canvas-bg": colorWithOpacity(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity),
-        "--underscore-grid-color": interfaceTheme.grid.color,
-        "--underscore-left-dock-width": `${dockSizes.left}px`,
-        "--underscore-right-dock-width": `${dockSizes.right}px`,
+        "--underscores-accent": colorWithOpacity(accentColor, accentOpacity),
+        "--underscores-highlight": colorWithOpacity(highlightColor, highlightOpacity),
+        "--underscores-foreground": colorWithOpacity(foregroundColor, foregroundOpacity),
+        "--underscores-muted": colorWithOpacity(mutedColor, mutedOpacity),
+        "--underscores-laser-color": renderedLaserColor,
+        "--underscores-laser-cursor": laserCursorForColor(renderedLaserColor),
+        "--underscores-laser-width": String(Math.max(0.25, canvasDrawingStyle.strokeWidth * 4.25)),
+        "--underscores-panel-bg": colorWithOpacity(interfaceTheme.panel.color, interfaceTheme.panel.opacity),
+        "--underscores-input-bg": colorWithOpacity(interfaceTheme.input.color, interfaceTheme.input.opacity),
+        "--underscores-timeline-lane-bg": colorWithOpacity(interfaceTheme.timeline.color, interfaceTheme.timeline.opacity),
+        "--underscores-canvas-bg": colorWithOpacity(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity),
+        "--underscores-grid-color": interfaceTheme.grid.color,
+        "--underscores-left-dock-width": `${dockSizes.left}px`,
+        "--underscores-right-dock-width": `${dockSizes.right}px`,
         "--horizontal-dock-height": `${bottomDockHeight}px`,
       }}
       onPointerOverCapture={updateInfoViewFromEvent}
@@ -22567,7 +22567,7 @@ function App() {
         type="file"
         accept=".excalidraw,.json,application/json"
         hidden
-        onChange={handleUnderscoreSceneFile}
+        onChange={handleUnderscoresSceneFile}
       />
       <div 
         id="canvas-container" 
@@ -22581,7 +22581,7 @@ function App() {
         onDragOverCapture={handleCanvasMediaPreviewDragOver}
         onDropCapture={handleCanvasMediaPreviewDrop}
         style={{ width: "100%", height: "100%", position: "relative" }}
-        className={`${modifierDrawingActive && drawingPoints.length > 0 ? "custom-brush-drawing" : ""} ${objectEyedropper ? "underscore-object-eyedropper" : ""} ${physicsTool?.kind ? `physics-authoring-${physicsTool.kind}` : ""}`.trim()}
+        className={`${modifierDrawingActive && drawingPoints.length > 0 ? "custom-brush-drawing" : ""} ${objectEyedropper ? "underscores-object-eyedropper" : ""} ${physicsTool?.kind ? `physics-authoring-${physicsTool.kind}` : ""}`.trim()}
       >
         <LivecodeNodeOverlay
           layer="underlay"
@@ -22623,21 +22623,21 @@ function App() {
             }
           }}
           onChange={(elements, appState) => {
-            underscorePerformanceMonitor.recordScene(elements, appState);
+            underscoresPerformanceMonitor.recordScene(elements, appState);
             applyForceDesktopOverride(false);
             syncP5Overlay(elements, appState);
             syncSvgOverlay(elements, appState);
             syncLivecodeOverlay(elements, appState);
 
             // Frames are native grouping containers, but their visual title is
-            // Underscore presentation state. Once native creation finishes,
+            // Underscores presentation state. Once native creation finishes,
             // give every new or imported frame the compact hidden-label
             // default. Deferring while the frame is being dragged keeps the
             // native creation gesture intact.
             if (!appState.draggingElement && !appState.resizingElement) {
               let addedFramePresentation = false;
               const frameDefaultedElements = elements.map(element => {
-                if (element.type !== "frame" || element.isDeleted || element.customData?.underscoreFrame) return element;
+                if (element.type !== "frame" || element.isDeleted || element.customData?.underscoresFrame) return element;
                 addedFramePresentation = true;
                 const label = typeof element.name === "string" && element.name !== "\u200B" ? element.name : "";
                 return {
@@ -22645,7 +22645,7 @@ function App() {
                   name: "\u200B",
                   customData: {
                     ...(element.customData || {}),
-                    underscoreFrame: { label, showLabel: false },
+                    underscoresFrame: { label, showLabel: false },
                   },
                   version: (element.version || 0) + 1,
                   versionNonce: Math.floor(Math.random() * 0x7fffffff),
@@ -22675,7 +22675,7 @@ function App() {
                 });
                 return;
               }
-              // Canonical curves are owned by Underscore's anchor/handle
+              // Canonical curves are owned by Underscores's anchor/handle
               // editor. Transfer both edit and selection state together so the
               // selection-sync effect cannot immediately exit the editor.
               const nextSelection = { [nativeBezierEditElement.id]: true };
@@ -23211,8 +23211,8 @@ function App() {
             }
             if (!applyingRecordedUiStateRef.current && appState.theme && appState.theme !== theme) {
               // Excalidraw's native theme shortcut only changes its color mode.
-              // Keep Underscore's surface palette paired with that mode instead.
-              toggleUnderscoreTheme(excalidrawAPI, appState.theme);
+              // Keep Underscores's surface palette paired with that mode instead.
+              toggleUnderscoresTheme(excalidrawAPI, appState.theme);
             }
              if (
               appState.viewBackgroundColor &&
@@ -23237,7 +23237,7 @@ function App() {
             <MainMenu.DefaultItems.LoadScene />
             <MainMenu.DefaultItems.SaveAsImage />
             <MainMenu.DefaultItems.Export />
-            <MainMenu.Item onSelect={exportUnderscoreScene}>Export Underscore .excalidraw</MainMenu.Item>
+            <MainMenu.Item onSelect={exportUnderscoresScene}>Export Underscores .excalidraw</MainMenu.Item>
             <MainMenu.Separator />
             <MainMenu.DefaultItems.ToggleTheme />
             <MainMenu.Separator />
@@ -23300,9 +23300,9 @@ function App() {
             <MainMenu.DefaultItems.ChangeCanvasBackground />
           </MainMenu>
 
-          {/* Underscore-owned panels can coexist when floating and share icon tabs when docked. */}
+          {/* Underscores-owned panels can coexist when floating and share icon tabs when docked. */}
           {shouldRenderPanel("chat") && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="chat"
             title="AI Assistant"
             placement={panelLayouts.chat.placement}
@@ -23311,15 +23311,15 @@ function App() {
             onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.chat.placement]: panelId }))}
             onDockTabPlacementChange={setPanelPlacement}
             onDockTabDragStart={startSidebarPanelDrag}
-            onCloseDockTab={closeUnderscorePanel}
+            onCloseDockTab={closeUnderscoresPanel}
             onPlacementChange={placement => setPanelPlacement("chat", placement)}
             onDragStart={event => startSidebarPanelDrag("chat", event)}
-            onClose={() => closeUnderscorePanel("chat")}
+            onClose={() => closeUnderscoresPanel("chat")}
             onResizeStart={handlePanelResizeMouseDown}
             collapsed={panelLayouts.chat.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.chat.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.chat.placement]: false }))}
           >
-            <div className="underscore-panel-secondary-header">
+            <div className="underscores-panel-secondary-header">
               <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px", gap: "10px" }}>
                 {/* Model Selector Pill */}
                 <div className="ai-model-picker">
@@ -23332,7 +23332,7 @@ function App() {
                     onChange={(e) => {
                       const updated = { ...aiSettings, model: e.target.value };
                       setAiSettings(updated);
-                      localStorage.setItem("underscore_ai_settings", JSON.stringify(updated));
+                      localStorage.setItem("underscores_ai_settings", JSON.stringify(updated));
                     }}
                   >
                     {modelsList.length > 0 ? (
@@ -23380,7 +23380,7 @@ function App() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                     </svg>
                   </button>
-                  <button className="header-btn" onClick={() => toggleUnderscorePanel("settings", { settingsTab: "ai" })} title="AI settings">
+                  <button className="header-btn" onClick={() => toggleUnderscoresPanel("settings", { settingsTab: "ai" })} title="AI settings">
                     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -23390,7 +23390,7 @@ function App() {
               </div>
             </div>
             
-            <div style={{ display: "flex", flexDirection: "column", height: "calc(100% - 50px)", overflow: "hidden", background: "var(--underscore-panel-bg, transparent)" }}>
+            <div style={{ display: "flex", flexDirection: "column", height: "calc(100% - 50px)", overflow: "hidden", background: "var(--underscores-panel-bg, transparent)" }}>
               {/* Messages Stream */}
               <div id="chat-messages" style={{ flex: 1, overflowY: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
                 {chatHistory
@@ -23771,11 +23771,11 @@ function App() {
                 </div>
               </div>
             </div>
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {shouldRenderPanel("settings") && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="settings"
             title="Settings"
             placement={panelLayouts.settings.placement}
@@ -23784,20 +23784,20 @@ function App() {
             onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.settings.placement]: panelId }))}
             onDockTabPlacementChange={setPanelPlacement}
             onDockTabDragStart={startSidebarPanelDrag}
-            onCloseDockTab={closeUnderscorePanel}
+            onCloseDockTab={closeUnderscoresPanel}
             onPlacementChange={placement => setPanelPlacement("settings", placement)}
             onDragStart={event => startSidebarPanelDrag("settings", event)}
-            onClose={() => closeUnderscorePanel("settings")}
+            onClose={() => closeUnderscoresPanel("settings")}
             onResizeStart={handlePanelResizeMouseDown}
             collapsed={panelLayouts.settings.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.settings.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.settings.placement]: false }))}
           >
             {renderSettingsContent()}
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {(panelLayouts.console.placement === PANEL_PLACEMENTS.BOTTOM ? shouldRenderHorizontalPanel("console") : shouldRenderPanel("console")) && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="console"
             title="Console"
             placement={panelLayouts.console.placement}
@@ -23806,10 +23806,10 @@ function App() {
             onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.console.placement]: panelId }))}
             onDockTabPlacementChange={setPanelPlacement}
             onDockTabDragStart={panelLayouts.console.placement === PANEL_PLACEMENTS.BOTTOM ? startHorizontalPanelDrag : startSidebarPanelDrag}
-            onCloseDockTab={panelLayouts.console.placement === PANEL_PLACEMENTS.BOTTOM ? closeHorizontalPanel : closeUnderscorePanel}
+            onCloseDockTab={panelLayouts.console.placement === PANEL_PLACEMENTS.BOTTOM ? closeHorizontalPanel : closeUnderscoresPanel}
             onPlacementChange={placement => setPanelPlacement("console", placement)}
             onDragStart={event => panelLayouts.console.placement === PANEL_PLACEMENTS.BOTTOM ? startHorizontalPanelDrag("console", event) : startSidebarPanelDrag("console", event)}
-            onClose={() => panelLayouts.console.placement === PANEL_PLACEMENTS.BOTTOM ? closeHorizontalPanel("console") : closeUnderscorePanel("console")}
+            onClose={() => panelLayouts.console.placement === PANEL_PLACEMENTS.BOTTOM ? closeHorizontalPanel("console") : closeUnderscoresPanel("console")}
             onResizeStart={handlePanelResizeMouseDown}
             allowBottom
             bottomHeight={220}
@@ -23827,11 +23827,11 @@ function App() {
               onSlashCommand={runConsoleSlashCommand}
               globalStatus={sceneExchangeStatus}
             />
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {shouldRenderPanel("history") && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="history"
             title="History"
             placement={panelLayouts.history.placement}
@@ -23840,10 +23840,10 @@ function App() {
             onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.history.placement]: panelId }))}
             onDockTabPlacementChange={setPanelPlacement}
             onDockTabDragStart={startSidebarPanelDrag}
-            onCloseDockTab={closeUnderscorePanel}
+            onCloseDockTab={closeUnderscoresPanel}
             onPlacementChange={placement => setPanelPlacement("history", placement)}
             onDragStart={event => startSidebarPanelDrag("history", event)}
-            onClose={() => closeUnderscorePanel("history")}
+            onClose={() => closeUnderscoresPanel("history")}
             onResizeStart={handlePanelResizeMouseDown}
             collapsed={panelLayouts.history.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.history.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.history.placement]: false }))}
@@ -23865,11 +23865,11 @@ function App() {
               onShowPointerChange={setHistoryShowPointer}
               onClockModeChange={mode => {
                 setHistoryClockMode(mode);
-                localStorage.setItem("underscore_history_clock_mode", mode);
+                localStorage.setItem("underscores_history_clock_mode", mode);
               }}
               onRecordFilterChange={filter => {
                 setHistoryRecordFilter(filter);
-                localStorage.setItem("underscore_history_record_filter", filter);
+                localStorage.setItem("underscores_history_record_filter", filter);
               }}
               onStart={() => startHistoryRecording()}
               onPause={() => historyController.pause()}
@@ -23889,11 +23889,11 @@ function App() {
               onImport={importHistorySession}
               onClear={clearHistorySession}
             />
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {shouldRenderPanel("properties") && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="properties"
             title="Properties"
             placement={panelLayouts.properties.placement}
@@ -23902,10 +23902,10 @@ function App() {
             onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.properties.placement]: panelId }))}
             onDockTabPlacementChange={setPanelPlacement}
             onDockTabDragStart={startSidebarPanelDrag}
-            onCloseDockTab={closeUnderscorePanel}
+            onCloseDockTab={closeUnderscoresPanel}
             onPlacementChange={placement => setPanelPlacement("properties", placement)}
             onDragStart={event => startSidebarPanelDrag("properties", event)}
-            onClose={() => closeUnderscorePanel("properties")}
+            onClose={() => closeUnderscoresPanel("properties")}
             onResizeStart={handlePanelResizeMouseDown}
             collapsed={panelLayouts.properties.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.properties.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.properties.placement]: false }))}
@@ -23930,7 +23930,7 @@ function App() {
               onFocusMediaSource={focusMediaInputSource}
               onPickObjectReference={pickObjectReferenceForProperty}
               onSelectSvgNode={selectSvgNode}
-              onExtractSvgSubpath={extractSvgSubpathToUnderscore}
+              onExtractSvgSubpath={extractSvgSubpathToUnderscores}
               onAssignSvgNodeRole={assignSvgNodeRole}
               onBindSvgNodeCurve={(elementId, nodeIndex, subpathIndex, curveRef) => assignSvgNodeRole(
                 elementId,
@@ -23955,11 +23955,11 @@ function App() {
               onDetachSvgJoint={detachSelectedSvgJoint}
               onRename={renameSceneElement}
             />
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {shouldRenderPanel("outliner") && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="outliner"
             title="Outliner"
             placement={panelLayouts.outliner.placement}
@@ -23968,10 +23968,10 @@ function App() {
             onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.outliner.placement]: panelId }))}
             onDockTabPlacementChange={setPanelPlacement}
             onDockTabDragStart={startSidebarPanelDrag}
-            onCloseDockTab={closeUnderscorePanel}
+            onCloseDockTab={closeUnderscoresPanel}
             onPlacementChange={placement => setPanelPlacement("outliner", placement)}
             onDragStart={event => startSidebarPanelDrag("outliner", event)}
-            onClose={() => closeUnderscorePanel("outliner")}
+            onClose={() => closeUnderscoresPanel("outliner")}
             onResizeStart={handlePanelResizeMouseDown}
             collapsed={panelLayouts.outliner.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.outliner.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.outliner.placement]: false }))}
@@ -24145,11 +24145,11 @@ function App() {
               }}
               onRename={renameSceneElement}
             />
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {shouldRenderPanel("mods") && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="mods"
             title="Brush"
             placement={panelLayouts.mods.placement}
@@ -24158,15 +24158,15 @@ function App() {
             onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.mods.placement]: panelId }))}
             onDockTabPlacementChange={setPanelPlacement}
             onDockTabDragStart={startSidebarPanelDrag}
-            onCloseDockTab={closeUnderscorePanel}
+            onCloseDockTab={closeUnderscoresPanel}
             onPlacementChange={placement => setPanelPlacement("mods", placement)}
             onDragStart={event => startSidebarPanelDrag("mods", event)}
-            onClose={() => closeUnderscorePanel("mods")}
+            onClose={() => closeUnderscoresPanel("mods")}
             onResizeStart={handlePanelResizeMouseDown}
             collapsed={panelLayouts.mods.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.mods.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.mods.placement]: false }))}
           >
-            <div className="underscore-panel-secondary-header underscore-mods-tabs" role="tablist" aria-label="Brush sections">
+            <div className="underscores-panel-secondary-header underscores-mods-tabs" role="tablist" aria-label="Brush sections">
               {[['channels', 'Channels'], ['stack', 'Stack'], ['script', 'Script']].map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={modsPanelTab === id} className={modsPanelTab === id ? "active" : ""} onClick={() => setModsPanelTab(id)}>{label}</button>)}
             </div>
             {modsPanelTab === "channels" ? <BrushChannelsPanel
@@ -24179,7 +24179,7 @@ function App() {
               onRemove={deleteBrushChannel}
               onReorder={reorderBrushChannel}
             /> : modsPanelTab === "script" ? <div style={{ height: "calc(100% - 34px)", overflow: "auto" }}>{renderBrushConfigForm()}</div> : <>
-            <div className="underscore-panel-secondary-header underscore-mods-actions-header">
+            <div className="underscores-panel-secondary-header underscores-mods-actions-header">
               <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px", gap: "10px" }}>
                 {(() => {
                   const controlState = getModifierPanelControlState();
@@ -24205,7 +24205,7 @@ function App() {
                           <path d="M4 18 8 8M20 6l-5 10" opacity=".7" />
                         </svg>
                       </button>
-                      <button className="header-btn" onClick={() => toggleUnderscorePanel("script", { scriptType: "svg" })} title="Open this SVG in the Script panel" aria-label="Edit selected SVG">
+                      <button className="header-btn" onClick={() => toggleUnderscoresPanel("script", { scriptType: "svg" })} title="Open this SVG in the Script panel" aria-label="Edit selected SVG">
                         <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8"><path d="M4 4h16v16H4z"/><path d="M7 15c2-7 4-7 6-1s3 5 4-5"/></svg>
                       </button>
                     </div>;
@@ -24406,11 +24406,11 @@ function App() {
               })()}
             </div>
             </>}
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {shouldRenderPanel("script") && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="script"
             title="Script"
             placement={panelLayouts.script.placement}
@@ -24419,10 +24419,10 @@ function App() {
             onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.script.placement]: panelId }))}
             onDockTabPlacementChange={setPanelPlacement}
             onDockTabDragStart={startSidebarPanelDrag}
-            onCloseDockTab={closeUnderscorePanel}
+            onCloseDockTab={closeUnderscoresPanel}
             onPlacementChange={placement => setPanelPlacement("script", placement)}
             onDragStart={event => startSidebarPanelDrag("script", event)}
-            onClose={() => closeUnderscorePanel("script")}
+            onClose={() => closeUnderscoresPanel("script")}
             onResizeStart={handlePanelResizeMouseDown}
             collapsed={panelLayouts.script.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.script.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.script.placement]: false }))}
@@ -24449,11 +24449,11 @@ function App() {
                     ? renderSvgScriptTab()
                     : renderBrushConfigForm()}
             </ScriptPanel>
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {shouldRenderPanel("iannix") && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="iannix"
             title="Scene"
             placement={panelLayouts.iannix.placement}
@@ -24462,10 +24462,10 @@ function App() {
             onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.iannix.placement]: panelId }))}
             onDockTabPlacementChange={setPanelPlacement}
             onDockTabDragStart={startSidebarPanelDrag}
-            onCloseDockTab={closeUnderscorePanel}
+            onCloseDockTab={closeUnderscoresPanel}
             onPlacementChange={placement => setPanelPlacement("iannix", placement)}
             onDragStart={event => startSidebarPanelDrag("iannix", event)}
-            onClose={() => closeUnderscorePanel("iannix")}
+            onClose={() => closeUnderscoresPanel("iannix")}
             onResizeStart={handlePanelResizeMouseDown}
             collapsed={panelLayouts.iannix.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.iannix.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.iannix.placement]: false }))}
@@ -24473,11 +24473,11 @@ function App() {
             <div style={{ padding: "16px", height: "100%", overflowY: "auto" }}>
               {renderIannixTab()}
             </div>
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {shouldRenderPanel("physics") && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="physics"
             title="Physics"
             placement={panelLayouts.physics.placement}
@@ -24486,10 +24486,10 @@ function App() {
             onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.physics.placement]: panelId }))}
             onDockTabPlacementChange={setPanelPlacement}
             onDockTabDragStart={startSidebarPanelDrag}
-            onCloseDockTab={closeUnderscorePanel}
+            onCloseDockTab={closeUnderscoresPanel}
             onPlacementChange={placement => setPanelPlacement("physics", placement)}
             onDragStart={event => startSidebarPanelDrag("physics", event)}
-            onClose={() => closeUnderscorePanel("physics")}
+            onClose={() => closeUnderscoresPanel("physics")}
             onResizeStart={handlePanelResizeMouseDown}
             collapsed={panelLayouts.physics.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.physics.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.physics.placement]: false }))}
@@ -24528,11 +24528,11 @@ function App() {
               selectedElements={getSelectedElements()}
               sceneElements={(excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || []).filter(element => !element.isDeleted)}
             />
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {(panelLayouts.mixer.placement === PANEL_PLACEMENTS.BOTTOM ? shouldRenderHorizontalPanel("mixer") : shouldRenderPanel("mixer")) && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="mixer"
             title="Mixer"
             placement={panelLayouts.mixer.placement}
@@ -24564,11 +24564,11 @@ function App() {
               onConnectMidi={connectIannixMidi}
               onPanic={panicMidi}
             />
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {shouldRenderPanel("synth") && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="synth"
             title="Expressive Synth"
             placement={panelLayouts.synth.placement}
@@ -24577,10 +24577,10 @@ function App() {
             onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.synth.placement]: panelId }))}
             onDockTabPlacementChange={setPanelPlacement}
             onDockTabDragStart={startSidebarPanelDrag}
-            onCloseDockTab={closeUnderscorePanel}
+            onCloseDockTab={closeUnderscoresPanel}
             onPlacementChange={placement => setPanelPlacement("synth", placement)}
             onDragStart={event => startSidebarPanelDrag("synth", event)}
-            onClose={() => closeUnderscorePanel("synth")}
+            onClose={() => closeUnderscoresPanel("synth")}
             onResizeStart={handlePanelResizeMouseDown}
             collapsed={panelLayouts.synth.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.synth.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.synth.placement]: false }))}
@@ -24591,7 +24591,7 @@ function App() {
               error={expressiveSynthError}
               voiceCount={expressiveVoiceCount}
               timeContext={timeContext}
-              onOpenMixer={() => toggleUnderscorePanel("mixer")}
+              onOpenMixer={() => toggleUnderscoresPanel("mixer")}
               onEnable={() => void ensureExpressiveSynth()}
               onTest={program => void testExpressiveSynthAudio(program)}
               onResetAudio={() => void resetExpressiveSynth()}
@@ -24601,11 +24601,11 @@ function App() {
               onDeleteProgram={deleteExpressiveSynthProgram}
               onResetConfig={() => setExpressiveSynthConfig({ ...DEFAULT_EXPRESSIVE_SYNTH_CONFIG })}
             />
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {shouldRenderPanel("media-input") && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="media-input"
             title="Media"
             placement={panelLayouts["media-input"].placement}
@@ -24614,10 +24614,10 @@ function App() {
             onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts["media-input"].placement]: panelId }))}
             onDockTabPlacementChange={setPanelPlacement}
             onDockTabDragStart={startSidebarPanelDrag}
-            onCloseDockTab={closeUnderscorePanel}
+            onCloseDockTab={closeUnderscoresPanel}
             onPlacementChange={placement => setPanelPlacement("media-input", placement)}
             onDragStart={event => startSidebarPanelDrag("media-input", event)}
-            onClose={() => closeUnderscorePanel("media-input")}
+            onClose={() => closeUnderscoresPanel("media-input")}
             onResizeStart={handlePanelResizeMouseDown}
             collapsed={panelLayouts["media-input"].placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts["media-input"].placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts["media-input"].placement]: false }))}
@@ -24636,11 +24636,11 @@ function App() {
               onChooseFile={chooseMediaStreamFile}
               onDelete={deleteMediaInputSource}
             />
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {shouldRenderPanel("inputs") && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="inputs"
             title="Inputs"
             placement={panelLayouts.inputs.placement}
@@ -24649,10 +24649,10 @@ function App() {
             onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.inputs.placement]: panelId }))}
             onDockTabPlacementChange={setPanelPlacement}
             onDockTabDragStart={startSidebarPanelDrag}
-            onCloseDockTab={closeUnderscorePanel}
+            onCloseDockTab={closeUnderscoresPanel}
             onPlacementChange={placement => setPanelPlacement("inputs", placement)}
             onDragStart={event => startSidebarPanelDrag("inputs", event)}
-            onClose={() => closeUnderscorePanel("inputs")}
+            onClose={() => closeUnderscoresPanel("inputs")}
             onResizeStart={handlePanelResizeMouseDown}
             collapsed={panelLayouts.inputs.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.inputs.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.inputs.placement]: false }))}
@@ -24673,11 +24673,11 @@ function App() {
               onConnectMidi={() => void connectInputMidi()}
               onAddPinchRecipe={createPinchBrushRecipe}
             />
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {shouldRenderPanel("holistic") && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="holistic"
             title="MediaPipe Holistic"
             placement={panelLayouts.holistic.placement}
@@ -24686,10 +24686,10 @@ function App() {
             onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.holistic.placement]: panelId }))}
             onDockTabPlacementChange={setPanelPlacement}
             onDockTabDragStart={startSidebarPanelDrag}
-            onCloseDockTab={closeUnderscorePanel}
+            onCloseDockTab={closeUnderscoresPanel}
             onPlacementChange={placement => setPanelPlacement("holistic", placement)}
             onDragStart={event => startSidebarPanelDrag("holistic", event)}
-            onClose={() => closeUnderscorePanel("holistic")}
+            onClose={() => closeUnderscoresPanel("holistic")}
             onResizeStart={handlePanelResizeMouseDown}
             collapsed={panelLayouts.holistic.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.holistic.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.holistic.placement]: false }))}
@@ -24705,11 +24705,11 @@ function App() {
               onSnapshotPng={snapshotHolisticPng}
               onSnapshotArt={snapshotUnicursalPath}
             />
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {shouldRenderPanel("mapping") && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="mapping"
             title="Media Mapping"
             placement={panelLayouts.mapping.placement}
@@ -24718,10 +24718,10 @@ function App() {
             onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.mapping.placement]: panelId }))}
             onDockTabPlacementChange={setPanelPlacement}
             onDockTabDragStart={startSidebarPanelDrag}
-            onCloseDockTab={closeUnderscorePanel}
+            onCloseDockTab={closeUnderscoresPanel}
             onPlacementChange={placement => setPanelPlacement("mapping", placement)}
             onDragStart={event => startSidebarPanelDrag("mapping", event)}
-            onClose={() => closeUnderscorePanel("mapping")}
+            onClose={() => closeUnderscoresPanel("mapping")}
             onResizeStart={handlePanelResizeMouseDown}
             collapsed={panelLayouts.mapping.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.mapping.placement]}
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.mapping.placement]: false }))}
@@ -24739,11 +24739,11 @@ function App() {
               inspected={mediaInspectedFeature}
               onInspect={setMediaInspectedFeature}
             />
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {(panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? shouldRenderHorizontalPanel("info") : shouldRenderPanel("info")) && (
-          <UnderscorePanel
+          <UnderscoresPanel
             id="info"
             title="Info"
             placement={panelLayouts.info.placement}
@@ -24752,10 +24752,10 @@ function App() {
             onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.info.placement]: panelId }))}
             onDockTabPlacementChange={setPanelPlacement}
             onDockTabDragStart={panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? startHorizontalPanelDrag : startSidebarPanelDrag}
-            onCloseDockTab={panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? closeHorizontalPanel : closeUnderscorePanel}
+            onCloseDockTab={panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? closeHorizontalPanel : closeUnderscoresPanel}
             onPlacementChange={placement => setPanelPlacement("info", placement)}
             onDragStart={event => panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? startHorizontalPanelDrag("info", event) : startSidebarPanelDrag("info", event)}
-            onClose={() => panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? closeHorizontalPanel("info") : closeUnderscorePanel("info")}
+            onClose={() => panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? closeHorizontalPanel("info") : closeUnderscoresPanel("info")}
             onResizeStart={handlePanelResizeMouseDown}
             allowBottom
             bottomHeight={240}
@@ -24768,11 +24768,11 @@ function App() {
               iannixCommand={iannixCommandHelp}
               livecodeKind={selectedLivecodeKindForInfo}
             />
-          </UnderscorePanel>
+          </UnderscoresPanel>
           )}
 
           {shouldRenderHorizontalPanel("transport") && (
-            <UnderscorePanel
+            <UnderscoresPanel
               id="transport"
               title="Timeline"
               placement={panelLayouts.transport.placement}
@@ -24792,11 +24792,11 @@ function App() {
               onExpand={() => setCollapsedDocks(previous => ({ ...previous, bottom: false }))}
             >
               {renderIannixTransport()}
-            </UnderscorePanel>
+            </UnderscoresPanel>
           )}
 
           {shouldRenderPanel("grid") && (
-            <UnderscorePanel
+            <UnderscoresPanel
               id="grid"
               title="Grid"
               placement={panelLayouts.grid.placement}
@@ -24805,10 +24805,10 @@ function App() {
               onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.grid.placement]: panelId }))}
               onDockTabPlacementChange={setPanelPlacement}
               onDockTabDragStart={startSidebarPanelDrag}
-              onCloseDockTab={closeUnderscorePanel}
+              onCloseDockTab={closeUnderscoresPanel}
               onPlacementChange={placement => setPanelPlacement("grid", placement)}
               onDragStart={event => startSidebarPanelDrag("grid", event)}
-              onClose={() => closeUnderscorePanel("grid")}
+              onClose={() => closeUnderscoresPanel("grid")}
               onResizeStart={handlePanelResizeMouseDown}
               collapsed={panelLayouts.grid.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.grid.placement]}
               onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.grid.placement]: false }))}
@@ -24825,7 +24825,7 @@ function App() {
                 onQuantizeSelection={() => commandRegistry.execute("grid.quantize.selection", {}, { source: "grid-panel", transportTime: scoreTimeRef.current }).catch(error => setSceneExchangeStatus(error.message || "Could not quantize the selection."))}
                 onToggleSelectionFilter={target => setSelectionFilter(previous => toggleSelectionFilter(previous, target))}
               />
-            </UnderscorePanel>
+            </UnderscoresPanel>
           )}
 
         </Excalidraw>
@@ -24858,7 +24858,7 @@ function App() {
           selectedElementIds={selectedElementIds}
           debug={physicsDebug}
           onDebugGeometry={segments => { physicsDebugSegmentsRef.current = segments; }}
-          onRenderMetric={renderMs => underscorePerformanceMonitor.recordPhysics({ renderMs })}
+          onRenderMetric={renderMs => underscoresPerformanceMonitor.recordPhysics({ renderMs })}
         /> : null}
 
         <P5FrameOverlay
@@ -24941,7 +24941,7 @@ function App() {
           (!modifierDrawingActive && (nativeLineGridPointsRef.current || passiveGridFreedrawRef.current) && drawingPoints.length >= 2)
         ) && (
           <svg
-            className="underscore-live-stroke-preview"
+            className="underscores-live-stroke-preview"
             style={{
               position: "absolute",
               left: 0,
@@ -25017,7 +25017,7 @@ function App() {
         )}
 
         {sessionPlaybackOverlay.length > 0 && (
-          <svg className="underscore-session-playback-overlay" aria-hidden="true">
+          <svg className="underscores-session-playback-overlay" aria-hidden="true">
             {sessionPlaybackOverlay.flatMap(stroke => (stroke.paths.length ? stroke.paths : [stroke.samples.map(sample => [sample.scene.x, sample.scene.y])]).map((path, index) => {
               const screenPath = path.map(point => mapCanvasToScreen(point[0], point[1]));
               return screenPath.length >= 2 ? (
@@ -25035,7 +25035,7 @@ function App() {
             {historyShowPointer && sessionPlaybackOverlay.map(stroke => {
               if (!stroke.pointer?.scene) return null;
               const [x, y] = mapCanvasToScreen(stroke.pointer.scene.x, stroke.pointer.scene.y);
-              return <g key={`${stroke.id}-pointer`} transform={`translate(${x} ${y})`}><circle r="7" className="underscore-session-pointer-ring"/><circle r="2.5" className="underscore-session-pointer-core"/></g>;
+              return <g key={`${stroke.id}-pointer`} transform={`translate(${x} ${y})`}><circle r="7" className="underscores-session-pointer-ring"/><circle r="2.5" className="underscores-session-pointer-core"/></g>;
             })}
           </svg>
         )}
@@ -25146,7 +25146,7 @@ function App() {
                   setCustomContextMenu(null);
                 }}
                 className="custom-floating-context-menu-btn"
-                title="Open a complete Underscore or Excalidraw scene"
+                title="Open a complete Underscores or Excalidraw scene"
               >
                 <span aria-hidden="true" style={{ width: 14, marginRight: 8 }}>↗</span>
                 Open Scene…
@@ -25155,11 +25155,11 @@ function App() {
                 onPointerDown={event => {
                   event.preventDefault();
                   event.stopPropagation();
-                  exportUnderscoreScene();
+                  exportUnderscoresScene();
                   setCustomContextMenu(null);
                 }}
                 className="custom-floating-context-menu-btn"
-                title="Save the complete scene and its Underscore definitions"
+                title="Save the complete scene and its Underscores definitions"
               >
                 <span aria-hidden="true" style={{ width: 14, marginRight: 8 }}>↓</span>
                 Save Scene
@@ -25168,11 +25168,11 @@ function App() {
                 onPointerDown={event => {
                   event.preventDefault();
                   event.stopPropagation();
-                  void copyUnderscoreScene();
+                  void copyUnderscoresScene();
                   setCustomContextMenu(null);
                 }}
                 className="custom-floating-context-menu-btn"
-                title="Copy the complete Underscore scene as JSON"
+                title="Copy the complete Underscores scene as JSON"
               >
                 <span aria-hidden="true" style={{ width: 14, marginRight: 8 }}>⧉</span>
                 Copy Scene JSON
@@ -25181,11 +25181,11 @@ function App() {
                 onPointerDown={event => {
                   event.preventDefault();
                   event.stopPropagation();
-                  void pasteUnderscoreScene();
+                  void pasteUnderscoresScene();
                   setCustomContextMenu(null);
                 }}
                 className="custom-floating-context-menu-btn"
-                title="Replace the board with complete Underscore scene JSON from the clipboard"
+                title="Replace the board with complete Underscores scene JSON from the clipboard"
               >
                 <span aria-hidden="true" style={{ width: 14, marginRight: 8 }}>↧</span>
                 Paste Scene JSON
@@ -25195,12 +25195,12 @@ function App() {
                 onPointerDown={event => {
                   event.preventDefault();
                   event.stopPropagation();
-                  void copyUnderscoreSelection();
+                  void copyUnderscoresSelection();
                   setCustomContextMenu(null);
                 }}
                 className="custom-floating-context-menu-btn"
                 disabled={!customContextMenu.hasSelection}
-                title="Copy selected objects with their Underscore metadata"
+                title="Copy selected objects with their Underscores metadata"
               >
                 <span aria-hidden="true" style={{ width: 14, marginRight: 8 }}>⧉</span>
                 Copy Selection JSON
@@ -25209,11 +25209,11 @@ function App() {
                 onPointerDown={event => {
                   event.preventDefault();
                   event.stopPropagation();
-                  void pasteUnderscoreSelection();
+                  void pasteUnderscoresSelection();
                   setCustomContextMenu(null);
                 }}
                 className="custom-floating-context-menu-btn"
-                title="Paste Underscore objects with new scene IDs"
+                title="Paste Underscores objects with new scene IDs"
               >
                 <span aria-hidden="true" style={{ width: 14, marginRight: 8 }}>↧</span>
                 Paste Selection JSON
@@ -25227,7 +25227,7 @@ function App() {
                 }}
                 className="custom-floating-context-menu-btn"
                 disabled={!customContextMenu.hasSelection}
-                title="Copy the selected Underscore objects as editable SVG paths"
+                title="Copy the selected Underscores objects as editable SVG paths"
               >
                 <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
                   <rect x="9" y="9" width="11" height="11" rx="1" />
@@ -25243,7 +25243,7 @@ function App() {
                   setCustomContextMenu(null);
                 }}
                 className="custom-floating-context-menu-btn"
-                title="Read SVG from the system clipboard and add it as editable Underscore paths"
+                title="Read SVG from the system clipboard and add it as editable Underscores paths"
               >
                 <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v10m0 0l-4-4m4 4l4-4M5 20h14" />
@@ -25303,11 +25303,11 @@ function App() {
                   onPointerDown={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    void exportUnderscoreBoardPng();
+                    void exportUnderscoresBoardPng();
                     setCustomContextMenu(null);
                   }}
                   className="custom-floating-context-menu-btn"
-                  title="Export the complete Underscore board, including live p5 frames, as a PNG"
+                  title="Export the complete Underscores board, including live p5 frames, as a PNG"
                 >
                   <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" />
@@ -25318,7 +25318,7 @@ function App() {
                   onPointerDown={event => {
                     event.preventDefault();
                     event.stopPropagation();
-                    void exportUnderscoreBoardSvg();
+                    void exportUnderscoresBoardSvg();
                     setCustomContextMenu(null);
                   }}
                   className="custom-floating-context-menu-btn"
@@ -25435,7 +25435,7 @@ function App() {
                 event.stopPropagation();
                 try {
                   assignPhysicsBodies({ bodyType: "dynamic" });
-                  toggleUnderscorePanel("physics", { open: true });
+                  toggleUnderscoresPanel("physics", { open: true });
                 } catch (error) {
                   setSceneExchangeStatus(error?.message || "Could not make a physics body.");
                 }

@@ -38,7 +38,7 @@ test("normalizes p5 frame settings to the bundled trusted runtime", () => {
   });
 });
 
-test("rehydrates p5 catalogs and migrates legacy p5 embeds to Underscore-owned hosts", () => {
+test("rehydrates p5 catalogs and migrates legacy p5 embeds to Underscores-owned hosts", () => {
   let next = 0;
   const createId = () => `created-${++next}`;
   const { scripts, elements } = reconcileP5ScriptsWithElements([], [{
@@ -46,14 +46,14 @@ test("rehydrates p5 catalogs and migrates legacy p5 embeds to Underscore-owned h
     type: "embeddable",
     link: "https://example.test/old-embed",
     version: 3,
-    customData: { underscoreP5: { source: "function setup() {}", mode: "global" } },
+    customData: { underscoresP5: { source: "function setup() {}", mode: "global" } },
   }], { createId, now: 42 });
   assert.equal(scripts.length, 1);
   assert.equal(elements[0].type, "rectangle");
   assert.equal(elements[0].link, null);
   assert.equal(elements[0].validated, false);
-  assert.equal(elements[0].customData.underscoreP5.scriptId, scripts[0].id);
-  assert.equal(elements[0].customData.underscoreP5.source, "function setup() {}");
+  assert.equal(elements[0].customData.underscoresP5.scriptId, scripts[0].id);
+  assert.equal(elements[0].customData.underscoresP5.source, "function setup() {}");
 });
 
 test("detects and runs classic global-mode setup and draw callbacks in a local p5 scope", () => {
@@ -114,28 +114,28 @@ test("validates p5 source syntax without running a sketch", () => {
   assert.match(invalid.error, /Unexpected|expected/i);
 });
 
-test("ships editable starter examples for both p5 styles and the Underscore bridge", () => {
+test("ships editable starter examples for both p5 styles and the Underscores bridge", () => {
   assert.equal(P5_EXAMPLES.length, 7);
   assert.equal(new Set(P5_EXAMPLES.map(example => example.id)).size, P5_EXAMPLES.length);
   assert.equal(getP5Example("bare-instance")?.mode, "instance");
   assert.equal(getP5Example("bare-global")?.mode, "global");
   assert.equal(getP5Example("missing"), null);
 
-  const bridge = getP5Example("underscore-bridge");
+  const bridge = getP5Example("underscores-bridge");
   assert.match(bridge.source, /__\.canvas\.all\(\)/);
   assert.match(bridge.source, /__\.canvas\.selected\(\)/);
   assert.match(bridge.source, /__\.events\.on/);
   assert.match(bridge.source, /__\.transport\.time/);
   assert.match(bridge.source, /@param driver/);
-  assert.doesNotMatch(DEFAULT_P5_SOURCE, /\bunderscore\b/);
-  assert.doesNotMatch(DEFAULT_P5_CLASSIC_SOURCE, /\bunderscore\b/);
+  assert.doesNotMatch(DEFAULT_P5_SOURCE, /\bunderscores\b/);
+  assert.doesNotMatch(DEFAULT_P5_CLASSIC_SOURCE, /\bunderscores\b/);
   P5_EXAMPLES.forEach(example => {
-    assert.doesNotMatch(example.source, /\bunderscore\b/);
+    assert.doesNotMatch(example.source, /\bunderscores\b/);
     assert.deepEqual(validateP5Source(example.source), { valid: true, error: "" });
   });
 });
 
-test("classic mode exposes pointer callbacks and the Underscore drag compatibility flag", () => {
+test("classic mode exposes pointer callbacks and the Underscores drag compatibility flag", () => {
   const interaction = { mouseIsDragged: false };
   const p = { line: (...args) => { p.lineArgs = args; } };
   const source = `
@@ -213,7 +213,7 @@ test("normalizes p5 runtime bounds and recognizes p5 frames", () => {
   assert.equal(frame.fps, 120);
   assert.equal(frame.reloadNonce, 0);
   assert.equal(frame.allowInteraction, false);
-  assert.equal(isP5FrameElement({ customData: { underscoreP5: frame } }), true);
+  assert.equal(isP5FrameElement({ customData: { underscoresP5: frame } }), true);
   assert.equal(isP5FrameElement({ type: "embeddable", customData: {} }), false);
   assert.equal(canHostP5Frame({ type: "rectangle" }), true);
   assert.equal(canHostP5Frame({ type: "frame" }), true);
@@ -226,7 +226,7 @@ test("does not render p5 overlays for outliner-hidden frames", () => {
   const frame = {
     id: "p5-frame",
     type: "rectangle",
-    customData: { underscoreP5: normalizeP5Frame({}) },
+    customData: { underscoresP5: normalizeP5Frame({}) },
   };
 
   assert.equal(shouldRenderP5Frame(frame), true);

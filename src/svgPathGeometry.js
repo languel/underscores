@@ -1,6 +1,6 @@
 import {
   CUBIC_BEZIER_KIND,
-  UNDERSCORE_GEOMETRY_VERSION,
+  UNDERSCORES_GEOMETRY_VERSION,
   flattenBezierGeometry,
   flattenBezierGeometryDetailed,
   normalizeBezierGeometry,
@@ -87,7 +87,7 @@ export const parseSvgPathGeometry = source => {
     valid: true,
     error: "",
     geometry: normalizeBezierGeometry({
-      version: UNDERSCORE_GEOMETRY_VERSION,
+      version: UNDERSCORES_GEOMETRY_VERSION,
       revision: 1,
       kind: CUBIC_BEZIER_KIND,
       closed,

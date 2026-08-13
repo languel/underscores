@@ -27,7 +27,7 @@ const setPath = (object, path, value) => {
 
 export const AUTO_KEY_PATHS = Object.freeze([
   "x", "y", "angle", "width", "height", "opacity", "strokeWidth", "strokeColor", "backgroundColor",
-  "customData.modifiers", "customData.score", "customData.iannix", "customData.underscoreGeometry", "points",
+  "customData.modifiers", "customData.score", "customData.iannix", "customData.underscoresGeometry", "points",
 ]);
 
 export const interpolationForPath = path => {
@@ -45,7 +45,7 @@ export const upsertAutomationKey = (tracks, path, time, value, interpolation = i
 
 export const autoKeyElement = (previous, next, time, paths = AUTO_KEY_PATHS) => {
   if (!previous || !next || previous.id !== next.id || next.isDeleted) return next;
-  let tracks = cloneValue(next.customData?.underscoreAutomation?.tracks || previous.customData?.underscoreAutomation?.tracks || {});
+  let tracks = cloneValue(next.customData?.underscoresAutomation?.tracks || previous.customData?.underscoresAutomation?.tracks || {});
   let changed = false;
   for (const path of paths) {
     const before = getPath(previous, path);
@@ -59,7 +59,7 @@ export const autoKeyElement = (previous, next, time, paths = AUTO_KEY_PATHS) => 
     ...next,
     customData: {
       ...(next.customData || {}),
-      underscoreAutomation: {
+      underscoresAutomation: {
         version: 1,
         tracks,
       },
@@ -91,7 +91,7 @@ export const evaluateTrack = (keys, time) => {
 };
 
 export const evaluateElementAutomation = (element, time) => {
-  const tracks = element.customData?.underscoreAutomation?.tracks;
+  const tracks = element.customData?.underscoresAutomation?.tracks;
   if (!tracks) return element;
   let next = element;
   for (const [path, keys] of Object.entries(tracks)) {
@@ -102,7 +102,7 @@ export const evaluateElementAutomation = (element, time) => {
 };
 
 export const collectAutomationKeys = elements => (elements || []).flatMap(element => {
-  const tracks = element.customData?.underscoreAutomation?.tracks || {};
+  const tracks = element.customData?.underscoresAutomation?.tracks || {};
   return Object.entries(tracks).flatMap(([path, keys]) => keys.map(key => ({
     ...key,
     elementId: element.id,

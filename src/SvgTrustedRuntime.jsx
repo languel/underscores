@@ -17,7 +17,7 @@ export default function SvgTrustedRuntime({ source, policy, time = 0, color = "c
     const listener = event => {
       if (event.source !== iframeRef.current?.contentWindow) return;
       const message = event.data;
-      if (!message || message.underscoreSvgRuntime !== token) return;
+      if (!message || message.underscoresSvgRuntime !== token) return;
       if (["log", "cue", "midi", "ready"].includes(message.type)) onRuntimeEvent?.(message);
     };
     window.addEventListener("message", listener);
@@ -27,7 +27,7 @@ export default function SvgTrustedRuntime({ source, policy, time = 0, color = "c
   useEffect(() => {
     if (policy?.clock === "free") return;
     iframeRef.current?.contentWindow?.postMessage({
-      underscoreSvgRuntime: token,
+      underscoresSvgRuntime: token,
       type: "seek",
       seconds: Math.max(0, Number(time) || 0),
     }, "*");
@@ -36,7 +36,7 @@ export default function SvgTrustedRuntime({ source, policy, time = 0, color = "c
   return (
     <iframe
       ref={iframeRef}
-      className="underscore-svg-trusted-frame"
+      className="underscores-svg-trusted-frame"
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
       srcDoc={srcDoc}

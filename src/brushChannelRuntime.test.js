@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { BrushChannelRuntime, mapBrushPoint, normalizeBrushChannel } from "./brushChannelRuntime.js";
-import { UnderscoreStreamRegistry } from "./streamRuntime.js";
+import { UnderscoresStreamRegistry } from "./streamRuntime.js";
 
 test("brush mapping supports target-local rotated coordinate spaces", () => {
   const channel = normalizeBrushChannel({ range: { x: { min: 0, max: 1 }, y: { min: 0, max: 1 } }, destination: { kind: "target" } });
@@ -18,7 +18,7 @@ test("normalized spatial streams map across the visible scene while scene stream
 });
 
 test("parallel brush channels own independent source-agnostic sessions", () => {
-  const registry = new UnderscoreStreamRegistry({ now: () => 1 });
+  const registry = new UnderscoresStreamRegistry({ now: () => 1 });
   ["a", "b", "gate"].forEach(id => registry.register({ id, kind: id === "gate" ? "value" : "space", roles: ["output"] }));
   const started = [];
   const finished = [];
@@ -42,7 +42,7 @@ test("parallel brush channels own independent source-agnostic sessions", () => {
 });
 
 test("channel status reports the same mapped point and held gate used by a session", () => {
-  const registry = new UnderscoreStreamRegistry({ now: () => 1 });
+  const registry = new UnderscoresStreamRegistry({ now: () => 1 });
   registry.register({ id: "hand", kind: "space", roles: ["output"] });
   registry.register({ id: "pinch", kind: "value", roles: ["output"] });
   const statuses = [];
@@ -61,7 +61,7 @@ test("channel status reports the same mapped point and held gate used by a sessi
 });
 
 test("a disarmed channel continues reporting debug status without starting a stroke", () => {
-  const registry = new UnderscoreStreamRegistry({ now: () => 1 });
+  const registry = new UnderscoresStreamRegistry({ now: () => 1 });
   registry.register({ id: "hand", kind: "space", roles: ["output"] });
   registry.register({ id: "pinch", kind: "value", roles: ["output"] });
   const statuses = [];

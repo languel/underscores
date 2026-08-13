@@ -1,6 +1,6 @@
-# Underscore Script API
+# Underscores Script API
 
-Underscore exposes a versioned browser API as `window.__`. p5 and Play Core frames, and
+Underscores exposes a versioned browser API as `window.__`. p5 and Play Core frames, and
 Livecode p5/Play Core/Strudel nodes, receive the same application API as `__.api`, plus a smaller
 live frame bridge directly as `__`. There is no spelled-out bridge alias. Scripts are trusted local
 code, not third-party plugins or a security sandbox.
@@ -14,10 +14,10 @@ code, not third-party plugins or a security sandbox.
 | Value | Meaning |
 | --- | --- |
 | `element` | Script host `{ id, width, height }`. |
-| `object` | Read-only current snapshot of that host in the Underscore scene. |
+| `object` | Read-only current snapshot of that host in the Underscores scene. |
 | `frame` | p5/Play Core host configuration or a Livecode Node record. |
 | `params` | Values declared with `@param`; object params are live object snapshots. |
-| `currentColor`, `currentOpacity` | Active Underscore foreground appearance. |
+| `currentColor`, `currentOpacity` | Active Underscores foreground appearance. |
 | `colors` | `foreground`, `accent`, `highlight`, and `muted`, each `{ color, opacity, css }`. |
 | `theme`, `appearance` | Theme id and full live appearance snapshot. |
 | `canvas`, `objects` | Scene-query bridge (`objects` is an alias). |
@@ -52,7 +52,7 @@ return { char: "●", color: __.colors.foreground.css };
 | `events` | `subscribe(pattern, listener)` |
 | `art.unicursal` | `presets()`, `generate(sourceRef, options)` |
 | `relations` | Graph `get()`, `set(graph)`, `add(collection, item)`, `update(collection, id, patch)`, `remove(collection, id)`; `mappings.list(systemId)`, `mappings.create(item)`, `mappings.update(id, patch)`, and `mappings.remove(id)`; endpoint, adapter, collision-stream, and relationship-event helpers |
-| `physics` | `world.get()` / `world.update(patch)`; system/body/population/constraint/mapping helpers; a legacy `routes` compatibility collection; `play`, `pause`, `reset`, `apply`, `materialize`, `impulse`, `grab`, `moveGrab`, `releaseGrab`, `poses`, `telemetry`, and `snapshot`. `world.pausedEditMode` defaults to `author` (paused canvas edits update the reset pose); set it to `preview` to preserve the reset pose. `world.livePose` enables constraint-solving authoring grabs; press `\\` outside a text field to toggle it. Plain Cmd remains available to Excalidraw alignment. `world.collisionLayers` owns the named layer stack and symmetric contact matrix. Authored body settings live at `object.customData.physics`, including `collider.kind` (`circle`, `ellipse`, `box`, `convex`, `polyline`, or compound `chain`) and optional `collisionLayers` membership. Constraint objects additionally persist `axle`, legacy-compatible `fixate`/Weld, `spring`, or `rope` configuration there. A rope is one authored path plus a `rope` constraint; its sampled Rapier links are runtime-only and exposed only through the rope's rendered geometry. The relationship graph supplies only stable relationship bindings. `customData.underscorePhysics` remains a read-only legacy alias. |
+| `physics` | `world.get()` / `world.update(patch)`; system/body/population/constraint/mapping helpers; a legacy `routes` compatibility collection; `play`, `pause`, `reset`, `apply`, `materialize`, `impulse`, `grab`, `moveGrab`, `releaseGrab`, `poses`, `telemetry`, and `snapshot`. `world.pausedEditMode` defaults to `author` (paused canvas edits update the reset pose); set it to `preview` to preserve the reset pose. `world.livePose` enables constraint-solving authoring grabs; press `\\` outside a text field to toggle it. Plain Cmd remains available to Excalidraw alignment. `world.collisionLayers` owns the named layer stack and symmetric contact matrix. Authored body settings live at `object.customData.physics`, including `collider.kind` (`circle`, `ellipse`, `box`, `convex`, `polyline`, or compound `chain`) and optional `collisionLayers` membership. Constraint objects additionally persist `axle`, legacy-compatible `fixate`/Weld, `spring`, or `rope` configuration there. A rope is one authored path plus a `rope` constraint; its sampled Rapier links are runtime-only and exposed only through the rope's rendered geometry. The relationship graph supplies only stable relationship bindings. `customData.underscoresPhysics` remains a read-only legacy alias. |
 | `mixer` | `get()`, `updateTrack(trackId, patch)`, `addTrack(overrides)`, `removeTrack(trackId)` |
 | `streams` | `list()`, `get(idOrName)`, `subscribe(listener)`; returned streams expose `feature(id, { space })`, `features(query)`, and `subscribe(listener)` |
 
@@ -111,7 +111,7 @@ bodies and walls through normal named layers. Bodies with no named membership re
 raw Rapier collision masks until edited; an explicitly empty membership opts a body out of
 named-layer collision.
 Trusted script hosts also expose the same public surface at `__.api` for compatibility.
-Scene exchange version 10 persists `underscore.relationshipGraph`; runtime handles, live poses,
+Scene exchange version 10 persists `underscores.relationshipGraph`; runtime handles, live poses,
 samples, queues, and checkpoints never enter scene JSON. See [Canvas-first relationships and physics](physics.md)
 and [Generic mappings](mappings.md).
 

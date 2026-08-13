@@ -76,7 +76,7 @@ const GlobalGridCanvas = memo(function GlobalGridCanvas({ grid: gridValue, appSt
     };
   }, [appState, color, gridValue, renderNonce, theme]);
 
-  return <canvas ref={canvasRef} className="underscore-global-grid-canvas" aria-hidden="true" />;
+  return <canvas ref={canvasRef} className="underscores-global-grid-canvas" aria-hidden="true" />;
 });
 
 export default GlobalGridCanvas;

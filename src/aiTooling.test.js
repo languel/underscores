@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildAICommandCatalog, buildAIAutomationGuide, isAICommandAllowed, parseUnderscoreCommandTags } from "./aiTooling.js";
+import { buildAICommandCatalog, buildAIAutomationGuide, isAICommandAllowed, parseUnderscoresCommandTags } from "./aiTooling.js";
 
 test("AI command tags preserve ordered calls and isolate malformed JSON", () => {
-  const calls = parseUnderscoreCommandTags(`before
-    <underscore-command id="scene.create.objects">{"objects":[]}</underscore-command>
-    <underscore-command id="bad">not json</underscore-command>
-    <underscore-command id="grid.global.update">{"patch":{"appearance":{"visible":true}}}</underscore-command>`);
+  const calls = parseUnderscoresCommandTags(`before
+    <underscores-command id="scene.create.objects">{"objects":[]}</underscores-command>
+    <underscores-command id="bad">not json</underscores-command>
+    <underscores-command id="grid.global.update">{"patch":{"appearance":{"visible":true}}}</underscores-command>`);
   assert.deepEqual(calls[0], { id: "scene.create.objects", args: { objects: [] }, error: null });
   assert.equal(calls[1].id, "bad");
   assert.match(calls[1].error, /Invalid command JSON/);

@@ -1,5 +1,5 @@
 export const MIXER_SCHEMA_VERSION = 1;
-export const MIXER_STORAGE_KEY = "underscore_mixer_v1";
+export const MIXER_STORAGE_KEY = "underscores_mixer_v1";
 export const MIXER_DESTINATION_NONE = "none";
 export const MIXER_DESTINATION_INTERNAL = "internal";
 export const MIXER_EXTERNAL_PREFIX = "external:";
@@ -48,7 +48,7 @@ export const createMixerTrack = (index = 0, overrides = {}) => {
 
 const destinationFromLegacyOutput = legacyOutputId => {
   if (legacyOutputId === "__internal_gm_synth__") return { destination: MIXER_DESTINATION_INTERNAL, instrument: MIXER_INSTRUMENT_GM };
-  if (legacyOutputId === "__underscore_expressive_synth__") return { destination: MIXER_DESTINATION_INTERNAL, instrument: MIXER_INSTRUMENT_EXPRESSIVE };
+  if (legacyOutputId === "__underscores_expressive_synth__") return { destination: MIXER_DESTINATION_INTERNAL, instrument: MIXER_INSTRUMENT_EXPRESSIVE };
   if (legacyOutputId && legacyOutputId !== "__all__") return { destination: externalMixerDestination(legacyOutputId), instrument: MIXER_INSTRUMENT_MIDI };
   return { destination: MIXER_DESTINATION_NONE, instrument: MIXER_INSTRUMENT_GM };
 };

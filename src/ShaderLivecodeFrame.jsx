@@ -233,8 +233,8 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
     };
   }, [node.runtime.transportMode, scriptRuntimeRef]);
 
-  return <div className={`underscore-shader-frame${node.runtime.settings?.backgroundMode === "transparent" ? " transparent-background" : ""}`}>
-    <canvas ref={canvasRef} className="underscore-shader-canvas" aria-label="GLSL output" />
+  return <div className={`underscores-shader-frame${node.runtime.settings?.backgroundMode === "transparent" ? " transparent-background" : ""}`}>
+    <canvas ref={canvasRef} className="underscores-shader-canvas" aria-label="GLSL output" />
   </div>;
 }
 

@@ -2,8 +2,8 @@ const NUMBER = "[-+]?(?:\\d*\\.\\d+|\\d+\\.?)(?:[eE][-+]?\\d+)?";
 const PATH_TOKEN = new RegExp(`([a-zA-Z])|(${NUMBER})`, "g");
 const TAG_TOKEN = /<\/?([a-zA-Z][\w:-]*)([^>]*)>/g;
 const ATTRIBUTE = /([:\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
-const UNDERSCORE_SVG_METADATA_ID = "underscore-editable-elements";
-const UNDERSCORE_SVG_METADATA_VERSION = 1;
+const UNDERSCORES_SVG_METADATA_ID = "underscores-editable-elements";
+const UNDERSCORES_SVG_METADATA_VERSION = 1;
 
 const emptyStyle = { strokeColor: null, backgroundColor: "transparent", strokeWidth: 2, opacity: 100 };
 
@@ -35,7 +35,7 @@ const resolveStyle = (inherited, attributes) => {
   const strokeColor = stroke === "none" ? "transparent" : (stroke || inherited.strokeColor || null);
   const backgroundColor = fill === "none" ? "transparent" : (fill || inherited.backgroundColor || "transparent");
   return {
-    // Leave absent strokes unresolved so Underscore can use the active theme's
+    // Leave absent strokes unresolved so Underscores can use the active theme's
     // foreground color instead of importing a nearly invisible light-mode default.
     strokeColor,
     backgroundColor,
@@ -271,31 +271,31 @@ export const extractSvgMarkup = input => inspectSvg(input);
 
 // SVG only describes the rendered outline of a pressure-sensitive Excalidraw
 // freehand stroke. Preserve the original elements in standards-compliant SVG
-// metadata when Underscore copies a selection, so a later Underscore paste can
+// metadata when Underscores copies a selection, so a later Underscores paste can
 // restore the actual editable points, pressures, and score metadata exactly.
 // Other SVG consumers simply ignore <metadata> and render the regular export.
-export const attachUnderscoreSvgMetadata = (input, elements) => {
+export const attachUnderscoresSvgMetadata = (input, elements) => {
   const svg = cleanSvgMarkup(input);
   const source = Array.isArray(elements) ? elements : [];
   if (!svg || source.length === 0) return svg;
   const payload = encodeURIComponent(JSON.stringify({
-    version: UNDERSCORE_SVG_METADATA_VERSION,
+    version: UNDERSCORES_SVG_METADATA_VERSION,
     elements: source,
   }));
-  return svg.replace(/<\/svg\s*>\s*$/i, `<metadata id="${UNDERSCORE_SVG_METADATA_ID}" data-encoding="uri">${payload}</metadata></svg>`);
+  return svg.replace(/<\/svg\s*>\s*$/i, `<metadata id="${UNDERSCORES_SVG_METADATA_ID}" data-encoding="uri">${payload}</metadata></svg>`);
 };
 
-export const extractUnderscoreSvgMetadata = input => {
+export const extractUnderscoresSvgMetadata = input => {
   const svg = extractSvgMarkup(input);
   if (!svg) return null;
   const metadata = /<metadata\b([^>]*)>([\s\S]*?)<\/metadata\s*>/gi;
   let match;
   while ((match = metadata.exec(svg))) {
     const attributes = parseAttributes(match[1]);
-    if (attributes.id !== UNDERSCORE_SVG_METADATA_ID || attributes["data-encoding"] !== "uri") continue;
+    if (attributes.id !== UNDERSCORES_SVG_METADATA_ID || attributes["data-encoding"] !== "uri") continue;
     try {
       const payload = JSON.parse(decodeURIComponent(match[2].trim()));
-      if (payload?.version !== UNDERSCORE_SVG_METADATA_VERSION || !Array.isArray(payload.elements)) return null;
+      if (payload?.version !== UNDERSCORES_SVG_METADATA_VERSION || !Array.isArray(payload.elements)) return null;
       const elements = payload.elements.filter(element => element && typeof element === "object" && typeof element.id === "string" && typeof element.type === "string");
       return elements.length > 0 ? { version: payload.version, elements } : null;
     } catch {

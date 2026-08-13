@@ -26,7 +26,7 @@ import {
 import { createBezierHostGeometry } from "./bezierGeometry.js";
 import { prepareSvgForStructuredEditing, updateSvgNodeData } from "./svgDocumentModel.js";
 import { normalizeSvgObject } from "./svgObject.js";
-import { svgNodeObjectRef } from "./underscoreObjectRef.js";
+import { svgNodeObjectRef } from "./underscoresObjectRef.js";
 
 const line = (id, points, iannix = null) => {
   const xs = points.map(point => point[0]);
@@ -253,7 +253,7 @@ test("cursor transform follows canonical Bezier arc length instead of the host c
     { x: 100, y: 0, in: [0, 80], out: null, mode: "smooth" },
   ]);
   Object.assign(curve, canonical.bounds, { points: canonical.points });
-  curve.customData.underscoreGeometry = canonical.geometry;
+  curve.customData.underscoresGeometry = canonical.geometry;
   const transform = getCursorTransform(cursor, curve, 0.5, true);
   assert.ok(Math.abs(transform.position[0] - 50) < 0.5);
   assert.ok(transform.position[1] > 40);
@@ -510,7 +510,7 @@ test("a native cursor can use an SVG subpath directly as its support curve", () 
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 20"><path d="M0 10L100 10"/></svg>`,
   );
   const path = prepared.document.nodes.find(node => node.localName === "path");
-  const source = updateSvgNodeData(prepared.source, path.underscoreId, current => ({
+  const source = updateSvgNodeData(prepared.source, path.underscoresId, current => ({
     ...current,
     subpathId: "0",
     iannix: createDefaultIannixData({ role: "curve", label: "SVG curve" }),
@@ -524,15 +524,15 @@ test("a native cursor can use an SVG subpath directly as its support curve", () 
     height: 20,
     angle: 0,
     isDeleted: false,
-    customData: { underscoreSvg: normalizeSvgObject({ source, revision: 1 }) },
+    customData: { underscoresSvg: normalizeSvgObject({ source, revision: 1 }) },
   };
   const cursor = line("cursor", [[0, 0], [4, 0]], createDefaultIannixData({
     role: "cursor",
-    cursor: { curveRef: svgNodeObjectRef(host.id, path.underscoreId, 0) },
+    cursor: { curveRef: svgNodeObjectRef(host.id, path.underscoresId, 0) },
   }));
   const frame = evaluateScoreFrame([host, cursor], 2.5);
   assert.equal(frame.cursors.length, 1);
-  assert.equal(frame.cursors[0].curveElement.customData.underscoreSvgHostId, host.id);
+  assert.equal(frame.cursors[0].curveElement.customData.underscoresSvgHostId, host.id);
   assert.ok(Math.abs(frame.cursors[0].transform.position[0] - 50) < 0.1);
   assert.ok(Math.abs(frame.cursors[0].transform.position[1] - 10) < 0.1);
 });

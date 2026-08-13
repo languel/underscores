@@ -1,17 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  attachUnderscoreExchangeMetadata,
+  attachUnderscoresExchangeMetadata,
   getSelectionExchangeElements,
-  parseUnderscoreExchange,
+  parseUnderscoresExchange,
   remapSelectionForImport,
 } from "./sceneExchange.js";
 import { mergeGridPatch, DEFAULT_GLOBAL_GRID } from "./gridSystem.js";
 import { DEFAULT_EXPRESSIVE_SYNTH_CONFIG, mergeExpressiveSynthConfig, normalizeExpressiveSynthConfig, upsertExpressiveSynthProgram } from "./expressiveSynth.js";
 import { MIXER_DESTINATION_INTERNAL, MIXER_INSTRUMENT_EXPRESSIVE, normalizeMixer } from "./mixerSystem.js";
 
-test("scene exchange metadata preserves Underscore score state", () => {
-  const payload = attachUnderscoreExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {
+test("scene exchange metadata preserves Underscores score state", () => {
+  const payload = attachUnderscoresExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {
     time: 4.5,
     rate: 2,
     tempo: 96,
@@ -20,7 +20,7 @@ test("scene exchange metadata preserves Underscore score state", () => {
     fps: 25,
     loop: { enabled: true, start: 2, end: 12 },
   });
-  const parsed = parseUnderscoreExchange(JSON.stringify(payload), "scene");
+  const parsed = parseUnderscoresExchange(JSON.stringify(payload), "scene");
   assert.deepEqual(parsed.score, {
     time: 4.5,
     rate: 2,
@@ -34,9 +34,9 @@ test("scene exchange metadata preserves Underscore score state", () => {
 });
 
 test("scene exchange preserves frame timeline display mode", () => {
-  const payload = attachUnderscoreExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", { displayMode: "frame", fps: 24 });
-  assert.equal(payload.underscore.score.displayMode, "frame");
-  assert.equal(payload.underscore.score.fps, 24);
+  const payload = attachUnderscoresExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", { displayMode: "frame", fps: 24 });
+  assert.equal(payload.underscores.score.displayMode, "frame");
+  assert.equal(payload.underscores.score.fps, 24);
 });
 
 test("scene exchange version 10 preserves streams, brush channels, global configuration, p5 scripts, relationships, and migrates legacy scenes", () => {
@@ -66,26 +66,26 @@ test("scene exchange version 10 preserves streams, brush channels, global config
       target: { kind: "midi-note", channel: 2, note: 67, velocityExpression: "value" },
     }],
   };
-  const payload = attachUnderscoreExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, grid, synth, mixer, p5Scripts, streamGraph, brushChannels, null, relationshipGraph);
-  assert.equal(payload.underscore.version, 10);
-  assert.deepEqual(parseUnderscoreExchange(payload, "scene").grid, grid);
-  assert.deepEqual(parseUnderscoreExchange(payload, "scene").expressiveSynth, normalizeExpressiveSynthConfig(synth));
-  assert.deepEqual(parseUnderscoreExchange(payload, "scene").mixer, mixer);
-  assert.equal(parseUnderscoreExchange(payload, "scene").p5Scripts[0].id, "orbit");
-  assert.equal(parseUnderscoreExchange(payload, "scene").streamGraph.sources[0].streamId, "serial-space");
-  assert.equal(parseUnderscoreExchange(payload, "scene").streamGraph.processors[0].outputId, "gate-events");
-  assert.equal(parseUnderscoreExchange(payload, "scene").brushChannels[0].gateStreamId, "gate-events");
-  assert.equal(parseUnderscoreExchange(payload, "scene").relationshipGraph.systems[0].id, "gas");
-  assert.equal(parseUnderscoreExchange(payload, "scene").relationshipGraph.mappings[0].target.note, 67);
-  assert.equal(Object.hasOwn(payload.underscore.relationshipGraph, "routes"), false);
+  const payload = attachUnderscoresExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, grid, synth, mixer, p5Scripts, streamGraph, brushChannels, null, relationshipGraph);
+  assert.equal(payload.underscores.version, 10);
+  assert.deepEqual(parseUnderscoresExchange(payload, "scene").grid, grid);
+  assert.deepEqual(parseUnderscoresExchange(payload, "scene").expressiveSynth, normalizeExpressiveSynthConfig(synth));
+  assert.deepEqual(parseUnderscoresExchange(payload, "scene").mixer, mixer);
+  assert.equal(parseUnderscoresExchange(payload, "scene").p5Scripts[0].id, "orbit");
+  assert.equal(parseUnderscoresExchange(payload, "scene").streamGraph.sources[0].streamId, "serial-space");
+  assert.equal(parseUnderscoresExchange(payload, "scene").streamGraph.processors[0].outputId, "gate-events");
+  assert.equal(parseUnderscoresExchange(payload, "scene").brushChannels[0].gateStreamId, "gate-events");
+  assert.equal(parseUnderscoresExchange(payload, "scene").relationshipGraph.systems[0].id, "gas");
+  assert.equal(parseUnderscoresExchange(payload, "scene").relationshipGraph.mappings[0].target.note, 67);
+  assert.equal(Object.hasOwn(payload.underscores.relationshipGraph, "routes"), false);
 
-  const legacy = { type: "excalidraw", elements: [], underscore: { version: 1, kind: "scene", score: {} } };
-  const migrated = parseUnderscoreExchange(legacy, "scene").grid;
+  const legacy = { type: "excalidraw", elements: [], underscores: { version: 1, kind: "scene", score: {} } };
+  const migrated = parseUnderscoresExchange(legacy, "scene").grid;
   assert.equal(migrated.appearance.visible, false);
   assert.equal(migrated.snap.mode, "off");
-  assert.deepEqual(parseUnderscoreExchange(legacy, "scene").expressiveSynth, normalizeExpressiveSynthConfig(DEFAULT_EXPRESSIVE_SYNTH_CONFIG));
-  assert.equal(parseUnderscoreExchange(legacy, "scene").mixer.tracks.length, 16);
-  assert.deepEqual(parseUnderscoreExchange(legacy, "scene").relationshipGraph.systems, []);
+  assert.deepEqual(parseUnderscoresExchange(legacy, "scene").expressiveSynth, normalizeExpressiveSynthConfig(DEFAULT_EXPRESSIVE_SYNTH_CONFIG));
+  assert.equal(parseUnderscoresExchange(legacy, "scene").mixer.tracks.length, 16);
+  assert.deepEqual(parseUnderscoresExchange(legacy, "scene").relationshipGraph.systems, []);
 });
 
 test("scene exchange preserves authored media sources and reusable code definitions", () => {
@@ -96,10 +96,10 @@ test("scene exchange preserves authored media sources and reusable code definiti
     playCoreScripts: [{ id: "ascii-a", name: "ASCII A", source: "export function main() {}" }],
     svgScripts: [{ id: "svg-a", name: "SVG A", source: '<svg xmlns="http://www.w3.org/2000/svg" />' }],
   };
-  const payload = attachUnderscoreExchangeMetadata(
+  const payload = attachUnderscoresExchangeMetadata(
     { type: "excalidraw", elements: [] }, "scene", {}, null, null, null, [], null, null, authoredState,
   );
-  const restored = parseUnderscoreExchange(payload, "scene").authoredState;
+  const restored = parseUnderscoresExchange(payload, "scene").authoredState;
   assert.equal(restored.mediaSources[0].id, "camera-main");
   assert.equal(restored.brushPalette[0].id, "my-pen");
   assert.equal(restored.iannixScripts[0].id, "score-a");
@@ -108,11 +108,11 @@ test("scene exchange preserves authored media sources and reusable code definiti
 });
 
 test("selection exchange does not carry the scene-global grid", () => {
-  const payload = attachUnderscoreExchangeMetadata({ type: "excalidraw", elements: [] }, "selection", {}, DEFAULT_GLOBAL_GRID);
-  assert.equal(payload.underscore.grid, undefined);
-  assert.equal(parseUnderscoreExchange(payload, "selection").grid, null);
-  assert.equal(parseUnderscoreExchange(payload, "selection").expressiveSynth, null);
-  assert.equal(parseUnderscoreExchange(payload, "selection").mixer, null);
+  const payload = attachUnderscoresExchangeMetadata({ type: "excalidraw", elements: [] }, "selection", {}, DEFAULT_GLOBAL_GRID);
+  assert.equal(payload.underscores.grid, undefined);
+  assert.equal(parseUnderscoresExchange(payload, "selection").grid, null);
+  assert.equal(parseUnderscoresExchange(payload, "selection").expressiveSynth, null);
+  assert.equal(parseUnderscoresExchange(payload, "selection").mixer, null);
 });
 
 test("selection exchange includes generated children and all custom metadata", () => {

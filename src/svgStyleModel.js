@@ -53,7 +53,7 @@ export const getSvgNodeStyleCascade = (sourceValue, nodeReference) => {
   const document = parseSvgDocument(source);
   const node = Number.isInteger(nodeReference)
     ? document.nodes[nodeReference]
-    : document.nodeByUnderscoreId.get(String(nodeReference || ""));
+    : document.nodeByUnderscoresId.get(String(nodeReference || ""));
   if (!document.valid || !node) return { valid: false, error: document.error || "SVG node was not found.", presentation: {}, inline: {}, matchedRules: [] };
   const presentation = Object.fromEntries(Object.entries(node.attributes).filter(([name]) => presentationProperties.has(name.toLowerCase())));
   const inline = parseInlineStyle(node.attributes.style);
@@ -93,7 +93,7 @@ export const patchSvgStyleDeclaration = (sourceValue, styleNodeReference, select
   if (!document.valid) throw new Error(document.error || "Cannot edit an invalid SVG document.");
   const styleNode = Number.isInteger(styleNodeReference)
     ? document.nodes[styleNodeReference]
-    : document.nodeByUnderscoreId.get(String(styleNodeReference || ""));
+    : document.nodeByUnderscoresId.get(String(styleNodeReference || ""));
   if (!styleNode || styleNode.localName.toLowerCase() !== "style") throw new Error("SVG style node was not found.");
   const style = document.styles.find(candidate => candidate.nodeIndex === styleNode.index);
   if (!style?.valid) throw new Error(style?.error || "SVG stylesheet is invalid.");
@@ -135,7 +135,7 @@ export const updateStructuredSvgStyleDeclaration = (sourceValue, styleNodeIndex,
   if (prepared.error) return String(sourceValue || "");
   const styleNode = prepared.document.nodes[styleNodeIndex];
   try {
-    return patchSvgStyleDeclaration(prepared.source, styleNode?.underscoreId || styleNodeIndex, selector, property, value);
+    return patchSvgStyleDeclaration(prepared.source, styleNode?.underscoresId || styleNodeIndex, selector, property, value);
   } catch {
     return String(sourceValue || "");
   }

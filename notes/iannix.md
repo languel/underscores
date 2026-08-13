@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-23
 
-This note records Underscore's first IanniX-inspired score slice. It adapts the concepts from the local IanniX project without coupling score semantics to its original renderer or OSC layer.
+This note records Underscores's first IanniX-inspired score slice. It adapts the concepts from the local IanniX project without coupling score semantics to its original renderer or OSC layer.
 
 ## Phase-one contract
 
@@ -44,7 +44,7 @@ The independent dockable **Score** panel edits these properties. Its Object and 
 
 ## Global and local time
 
-The flat, theme-aware transport owns global score time `T`, tempo, meter, playback rate, loop range, play/pause, rewind, and seeking. Its ruler projects the same seconds clock as frames, non-drop timecode (24/25/30/50/60 FPS), or bars·beats·16ths; a separate frame counter remains visible in every mode. Major and minor grid lines adapt to the current display unit, visible time window, meter, FPS, and pixel width. Command-drag snaps the playhead or loop handles to major units; Command-Shift-drag snaps to subunits. The lower timeline lane reserves space for upcoming keyframes. Drag anywhere in the lane to scrub, drag either loop handle to set an endpoint, drag the shaded band to move the complete loop, or Shift-drag to mark a new loop. The bottom overview bar pans and resizes the visible time window; Command-click fits the complete score and Option-click fits the active loop. Loop text fields use the selected ruler unit and convert back to seconds internally. `Ctrl+Opt+T`, legacy `Cmd+Ctrl+T`, or `/transport` toggles visibility. Transport shares Underscore's persistent panel placement model: drag its stopwatch icon to float it or return it to the bottom dock, or right-click the icon for explicit placement. A plain click does not detach it. Global transport and MIDI settings live in dockable **Settings → Score & MIDI** and do not belong to an individual trigger. Every active score object derives its local time rather than owning a second animation loop:
+The flat, theme-aware transport owns global score time `T`, tempo, meter, playback rate, loop range, play/pause, rewind, and seeking. Its ruler projects the same seconds clock as frames, non-drop timecode (24/25/30/50/60 FPS), or bars·beats·16ths; a separate frame counter remains visible in every mode. Major and minor grid lines adapt to the current display unit, visible time window, meter, FPS, and pixel width. Command-drag snaps the playhead or loop handles to major units; Command-Shift-drag snaps to subunits. The lower timeline lane reserves space for upcoming keyframes. Drag anywhere in the lane to scrub, drag either loop handle to set an endpoint, drag the shaded band to move the complete loop, or Shift-drag to mark a new loop. The bottom overview bar pans and resizes the visible time window; Command-click fits the complete score and Option-click fits the active loop. Loop text fields use the selected ruler unit and convert back to seconds internally. `Ctrl+Opt+T`, legacy `Cmd+Ctrl+T`, or `/transport` toggles visibility. Transport shares Underscores's persistent panel placement model: drag its stopwatch icon to float it or return it to the bottom dock, or right-click the icon for explicit placement. A plain click does not detach it. Global transport and MIDI settings live in dockable **Settings → Score & MIDI** and do not belong to an individual trigger. Every active score object derives its local time rather than owning a second animation loop:
 
 ```text
 unbounded = (T - start) * rate
@@ -58,13 +58,13 @@ Evolving-brush time remains separate. `brushElapsedMs` describes how a brush was
 
 ### MIDI clock synchronization
 
-The transport supports **Internal**, **MIDI OUT**, and **MIDI IN** clock modes. MIDI clock uses the standard 24 pulses per quarter note and Web MIDI realtime bytes: Clock `F8`, Start `FA`, Continue `FB`, Stop `FC`, plus Song Position Pointer `F2` in sixteenth-note units. Incoming pulses advance score phase without assuming that they contain a numeric BPM value; the user-visible tempo therefore remains stable by default and can be matched manually. The optional receiver estimator uses a median-gated interval window and damping rather than individual browser event intervals. In send mode, Underscore emits Start/Stop and a tempo-derived pulse stream. MIDI input and output each support a concrete device, **All**, or **None**, and the global settings can independently enable clock receive and send.
+The transport supports **Internal**, **MIDI OUT**, and **MIDI IN** clock modes. MIDI clock uses the standard 24 pulses per quarter note and Web MIDI realtime bytes: Clock `F8`, Start `FA`, Continue `FB`, Stop `FC`, plus Song Position Pointer `F2` in sixteenth-note units. Incoming pulses advance score phase without assuming that they contain a numeric BPM value; the user-visible tempo therefore remains stable by default and can be matched manually. The optional receiver estimator uses a median-gated interval window and damping rather than individual browser event intervals. In send mode, Underscores emits Start/Stop and a tempo-derived pulse stream. MIDI input and output each support a concrete device, **All**, or **None**, and the global settings can independently enable clock receive and send.
 
 Cursor `visualSmoothing` is a display-only low-pass factor for runtime position and tangent angle. It defaults to `0.65`. Trigger collision and event timing always use the raw score transform, never the damped overlay transform.
 
 ## MIDI trigger compatibility
 
-Underscore's first MIDI slice follows IanniX's message URL convention and its default trigger template:
+Underscores's first MIDI slice follows IanniX's message URL convention and its default trigger template:
 
 `midi://midi_out/notef 1 trigger_value_y trigger_value_x trigger_duration`
 
@@ -74,7 +74,7 @@ Underscore's first MIDI slice follows IanniX's message URL convention and its de
 - Note-on uses status `0x90 + channel - 1`. During score playback, note-off uses `0x80 + channel - 1` when the cursor exits the trigger geometry. `trigger_duration` is the minimum/fallback: a shorter or swept contact is held until that duration, while a longer geometric contact remains sounding until exit. Test messages and non-geometric callers retain scheduled-duration behavior.
 - Overlapping notes are tracked per output, channel, and pitch. One cursor/trigger gate cannot end another overlapping occurrence; the final note-off is emitted only when the last active gate exits or reaches its minimum duration.
 - `midi_out` resolves through every audible Mixer track whose MIDI channel matches the message. Browser permission is requested only when **Connect MIDI** is pressed; internal tracks need no hardware permission.
-- Matching IanniX `NxCursor::getCursorValue(triggerPos)`, `trigger_value_x` and `trigger_value_y` are the trigger's position mapped through the colliding cursor's curve bounds. Underscore also mirrors IanniX's default bounds-source mode by expanding those bounds by half the cursor dimensions; this avoids collapsing ordinary edge intersections immediately to `0` or `1`. Y is inverted so upward is higher.
+- Matching IanniX `NxCursor::getCursorValue(triggerPos)`, `trigger_value_x` and `trigger_value_y` are the trigger's position mapped through the colliding cursor's curve bounds. Underscores also mirrors IanniX's default bounds-source mode by expanding those bounds by half the cursor dimensions; this avoids collapsing ordinary edge intersections immediately to `0` or `1`. Y is inverted so upward is higher.
 - Collision entry remains the note-on source and collision exit is the note-off source. The activity highlight follows the same gate and uses the same minimum fallback. Visual cursor damping never changes MIDI, highlight, or trigger timing.
 - **Test Message** resolves the current collision cursor when possible, otherwise the cursor whose support curve is nearest the selected trigger. Its preview and emitted bytes are therefore the same message that trigger would emit during playback rather than a fixed middle-C test.
 
@@ -92,7 +92,7 @@ Trigger entry policy is configurable in **Settings → Score & MIDI**. The defau
 
 ### Trusted `.iannix` import
 
-The Scene data section can execute an explicitly trusted `.iannix`/JavaScript score. The compatibility runner provides IanniX's `run()`, `load()`, `loadJSON()`, `makeWithScript()`, common math helpers, deterministic session time, and seeded randomness. Supported object/geometry/link/property commands are collected into the recordable `iannix.import.trusted` command and translated to native Underscore elements with stable import IDs. Each emitted element also stores `customData.iannixImport.scoreId` and `scoreLabel`, while `setGroup` stores the authored value in `customData.iannixImport.group`.
+The Scene data section can execute an explicitly trusted `.iannix`/JavaScript score. The compatibility runner provides IanniX's `run()`, `load()`, `loadJSON()`, `makeWithScript()`, common math helpers, deterministic session time, and seeded randomness. Supported object/geometry/link/property commands are collected into the recordable `iannix.import.trusted` command and translated to native Underscores elements with stable import IDs. Each emitted element also stores `customData.iannixImport.scoreId` and `scoreLabel`, while `setGroup` stores the authored value in `customData.iannixImport.group`.
 
 The Outliner renders those fields as a virtual semantic tree:
 
@@ -107,15 +107,15 @@ This is intentionally not encoded into Excalidraw `groupIds`: IanniX groups expr
 
 Missing or unsupported commands are reported through UI status and events instead of being silently discarded.
 
-This is trusted executable compatibility mode, not a sandbox or security boundary. Underscore always presents a warning before file execution.
+This is trusted executable compatibility mode, not a sandbox or security boundary. Underscores always presents a warning before file execution.
 
 ### AI-authored scripts
 
-The AI Assistant receives a compact IanniX-specific authoring contract only for IanniX or score-script requests. AI source must define `makeWithScript()` or `madeThroughGUI()` and create the score through supported `run("command …")` families; it must not use browser APIs, `Date`, storage, network access, or generic JavaScript return values as a substitute for IanniX commands. Underscore compiles and statically checks AI source before saving or running it, reports unsupported commands to the chat, and leaves existing scripts untouched on failure. Brush/modifier source is checked similarly: it must be a `(points, globals) => tracks` function that returns drawable tracks.
+The AI Assistant receives a compact IanniX-specific authoring contract only for IanniX or score-script requests. AI source must define `makeWithScript()` or `madeThroughGUI()` and create the score through supported `run("command …")` families; it must not use browser APIs, `Date`, storage, network access, or generic JavaScript return values as a substitute for IanniX commands. Underscores compiles and statically checks AI source before saving or running it, reports unsupported commands to the chat, and leaves existing scripts untouched on failure. Brush/modifier source is checked similarly: it must be a `(points, globals) => tracks` function that returns drawable tracks.
 
 ### One-line commands from the command palette
 
-The command palette accepts `/ix <command>` (and the longer `/iannix <command>`) and passes the remaining text to the same trusted interactive compatibility executor used by the IanniX panel. For example, `/ix clear` is also listed as **IanniX: Clear Scene** and clears objects, score runtime state, and selection without the browser confirmation used by Excalidraw's native clear action. It preserves the active Underscore canvas/theme background. Commands that target the current object, `@selection`, or `#id` / `#label` use the same selection expansion rules as the IanniX command line.
+The command palette accepts `/ix <command>` (and the longer `/iannix <command>`) and passes the remaining text to the same trusted interactive compatibility executor used by the IanniX panel. For example, `/ix clear` is also listed as **IanniX: Clear Scene** and clears objects, score runtime state, and selection without the browser confirmation used by Excalidraw's native clear action. It preserves the active Underscores canvas/theme background. Commands that target the current object, `@selection`, or `#id` / `#label` use the same selection expansion rules as the IanniX command line.
 
 ### Shared script parameters
 
@@ -125,7 +125,7 @@ Brush and IanniX editors use the same typed script-parameter parser. A native Ia
 ask("Lines", "Quantity", "indexMax", 30);
 ```
 
-automatically creates a themed numeric field for the IanniX adapter in the standalone Script panel, persists its value with that saved script, and supplies the selected value to `ask()` during execution. Underscore infers a useful range when the IanniX source provides only a default. Authors can refine the field with the same annotation used by brush scripts:
+automatically creates a themed numeric field for the IanniX adapter in the standalone Script panel, persists its value with that saved script, and supplies the selected value to `ask()` during execution. Underscores infers a useful range when the IanniX source provides only a default. Authors can refine the field with the same annotation used by brush scripts:
 
 ```js
 // @param indexMax = 30 (1..100, step: 1)
@@ -140,7 +140,7 @@ Score evaluation uses the underlying editable object, not live modifier output:
 
 - Lines, arrows, and freehand strokes use `customData.originalPoints` when a modifier stack has preserved them; otherwise their native Excalidraw points are used.
 - Rectangles, diamonds, and ellipses expose deterministic outline paths.
-- Elements with `customData.underscoreGeometry.kind === "cubicBezierPath"` use their canonical cubic anchors and handles for sampling, length, tangent, collision, modifiers, automation, and history. Their native Excalidraw `points` are adaptive derived data only.
+- Elements with `customData.underscoresGeometry.kind === "cubicBezierPath"` use their canonical cubic anchors and handles for sampling, length, tangent, collision, modifiers, automation, and history. Their native Excalidraw `points` are adaptive derived data only.
 - Mods & FX continues to render or bake appearance above that core geometry.
 
 This boundary prevents a Hairy Brush, Rake, bake operation, or hidden original path from silently changing cursor routing or trigger topology.
@@ -150,7 +150,7 @@ This boundary prevents a Hairy Brush, Rake, bake operation, or hidden original p
 Canonical geometry is normalized in the host element's local coordinate system, so Excalidraw remains authoritative for movement, rotation, grouping, undo, and non-uniform scaling:
 
 ```js
-customData.underscoreGeometry = {
+customData.underscoresGeometry = {
   version: 1,
   revision: 1,
   kind: "cubicBezierPath",
@@ -163,13 +163,13 @@ customData.underscoreGeometry = {
 
 `src/bezierGeometry.js` owns conversion, adaptive subdivision, cached cumulative arc length, coordinate transforms, de Casteljau insertion, anchor editing, and host-polyline regeneration. Native line and freehand elements remain unchanged until explicitly converted. Imported ellipses remain analytic.
 
-IanniX controls use destination-point semantics. For segment `p1 → p2`, Underscore maps the first control to `p1 + p2.c1` and the second to `p2 + p2.c2`; zero controls remain straight. `setSmoothPointAt` receives the compatible automatic tangent construction. Export performs the inverse mapping back to `setPointAt` commands.
+IanniX controls use destination-point semantics. For segment `p1 → p2`, Underscores maps the first control to `p1 + p2.c1` and the second to `p2 + p2.c2`; zero controls remain straight. `setSmoothPointAt` receives the compatible automatic tangent construction. Export performs the inverse mapping back to `setPointAt` commands.
 
 Canonical paths are hosted by native Excalidraw linear elements whose first derived point must remain local `[0, 0]`. Imported controls may extend beyond the first anchor, so using the control-point bounding-box origin as the host origin is invalid: Excalidraw rebases that host when it is selected and the curve appears displaced. Import now anchors the host at the first canonical point, preserves world geometry through rotation and scaling, and migrates legacy malformed hosts on scene change without committing the derived repair to undo history.
 
 ### Editing and grid interaction
 
-The native Excalidraw polyline is derived data, not a second source of truth. Converting a selected line or freehand path clears any active native linear-point editor before the canonical Bézier editor is used. Command-click editing exposes anchors and handles; ordinary selection-mode drags on a canonical anchor are routed through the same canonical geometry update and therefore honor the Underscore Global Grid's point snapping. Native non-canonical line point edits preserve the selected point index so release quantization can update the authored point without transforming the whole element.
+The native Excalidraw polyline is derived data, not a second source of truth. Converting a selected line or freehand path clears any active native linear-point editor before the canonical Bézier editor is used. Command-click editing exposes anchors and handles; ordinary selection-mode drags on a canonical anchor are routed through the same canonical geometry update and therefore honor the Underscores Global Grid's point snapping. Native non-canonical line point edits preserve the selected point index so release quantization can update the authored point without transforming the whole element.
 
 The Grid panel keeps snapping targets intentionally distinct: **Input** snaps a newly authored pointer sample, **Transforms** applies one shared snap delta to a moved or resized selection, **Points** quantizes native and canonical path point edits, and **Generated** is opt-in for modifier or generated geometry. The visual grid is dotted while snapping is off and solid while hard or magnetic snapping is active, so the canvas state is legible without relying only on the panel.
 
@@ -188,7 +188,7 @@ Shift-right-click offers the same geometry conversion workflow for lines, freeha
 
 Swept testing prevents a fast cursor from tunneling through a narrow trigger between animation frames. Loop discontinuities do not create a false sweep across the canvas. Collision state supports both shared-trigger latching and independent cursor-trigger entry. Geometry supplies the normal activity and note duration; the configured minimum handles contacts too brief to remain active for a complete frame and prevents accidental rapid retriggers.
 
-Freedraw triggers are an additive Underscore geometry extension. Excalidraw may persist a click as one sample or several coincident samples; Underscore recognizes either representation. A point-like trigger's authored point remains the score position and grid-snapping anchor, while collision evaluation creates a circular footprint matching Excalidraw's rendered freedraw diameter (`strokeWidth × 4.25`). Non-degenerate freedraw triggers retain their authored centerline and add a rendered stroke envelope with segment bodies and rounded end caps. Collision therefore respects stroke thickness even for zero-width vertical paths or a cursor traveling inside a parallel stroke. Imported IanniX geometry and non-trigger paths keep their existing semantics.
+Freedraw triggers are an additive Underscores geometry extension. Excalidraw may persist a click as one sample or several coincident samples; Underscores recognizes either representation. A point-like trigger's authored point remains the score position and grid-snapping anchor, while collision evaluation creates a circular footprint matching Excalidraw's rendered freedraw diameter (`strokeWidth × 4.25`). Non-degenerate freedraw triggers retain their authored centerline and add a rendered stroke envelope with segment bodies and rounded end caps. Collision therefore respects stroke thickness even for zero-width vertical paths or a cursor traveling inside a parallel stroke. Imported IanniX geometry and non-trigger paths keep their existing semantics.
 
 ### Performance checkpoint
 
@@ -208,10 +208,10 @@ Role and property edits update only the selected elements' `customData` and comm
 
 The IanniX panel's **Data** tab adds an explicit exchange layer:
 
-- **Export scene** writes standard Excalidraw JSON with a small top-level `underscore` envelope for score time/rate. All element `customData`—including modifier stacks, IanniX roles, curve links, timing, and MIDI patterns—remains embedded on its objects.
-- **Import scene** restores the complete scene, files, and Underscore transport metadata.
+- **Export scene** writes standard Excalidraw JSON with a small top-level `underscores` envelope for score time/rate. All element `customData`—including modifier stacks, IanniX roles, curve links, timing, and MIDI patterns—remains embedded on its objects.
+- **Import scene** restores the complete scene, files, and Underscores transport metadata.
 - **Copy/Paste scene JSON** provides the same whole-scene exchange through the clipboard for browser shells that suppress file downloads.
-- **Copy selection JSON** serializes Underscore's combined native/runtime selection, modifier-generated children, and the linked cursor–curve component to the clipboard. A hidden runtime cursor therefore cannot silently disappear from a copied score.
+- **Copy selection JSON** serializes Underscores's combined native/runtime selection, modifier-generated children, and the linked cursor–curve component to the clipboard. A hidden runtime cursor therefore cannot silently disappear from a copied score.
 - **Paste selection JSON** assigns collision-safe element/group IDs, remaps parent and cursor-to-curve links, offsets the pasted copy, and selects it.
 
 The scene's normalized track routing is serialized. Concrete hardware availability remains browser/device-local, so an imported external route may appear as unavailable until that port exists on the current machine.
@@ -224,7 +224,7 @@ The scene's normalized track routing is serialized. Concrete hardware availabili
 
 The Score & MIDI panel exposes a direct **Test audio** C4 independent of score links and a **Reset audio** action that panics, closes, and recreates TinySynth and its AudioContext. **Test Web Audio** plays a short raw oscillator tone through a separate temporary context, making it possible to distinguish synth/MIDI routing problems from an embedded browser's audio-output problem. It reports the running sample rate and destination channel count after rendering. A closed context is reported as an error rather than as Ready.
 
-Web MIDI remains a browser-owned capability. Underscore requests standard non-SysEx access only and reports the browser's rejection without weakening its permission model. The current Codex/ChatGPT browser profile can persist an allow entry for the Underscore origin while still rejecting `requestMIDIAccess()` before port enumeration; external Chromium browsers enumerate the same hardware correctly. Use the internal GM synth for embedded-harness audio testing and an external browser for physical MIDI until the host permission/service integration is corrected.
+Web MIDI remains a browser-owned capability. Underscores requests standard non-SysEx access only and reports the browser's rejection without weakening its permission model. The current Codex/ChatGPT browser profile can persist an allow entry for the Underscores origin while still rejecting `requestMIDIAccess()` before port enumeration; external Chromium browsers enumerate the same hardware correctly. Use the internal GM synth for embedded-harness audio testing and an external browser for physical MIDI until the host permission/service integration is corrected.
 
 The complete GM Level 1 program table and one-based UI-channel helpers live in `src/generalMidi.js`. Stored programs remain zero-based MIDI values and channel 10 is fixed as percussion. Mixer programs are reapplied on initialization and audio resume. Mixer state and History's MIDI-armed toggle use local browser storage and are normalized for older or invalid saved values.
 
@@ -234,7 +234,7 @@ History actions continue to store the IanniX pattern and resolved context, not a
 
 `src/expressiveSynth.js` provides an internal Mixer instrument for scores that require independently continuous pitch, such as dense string glissandi. Every active cursor owns a Web Audio voice keyed by mixer-track and cursor identity; world-space Y maps to continuous MIDI pitch and frequency, while cursor speed and host stroke width can independently drive brightness and pressure. Because voices are not multiplexed through MIDI pitch bend, simultaneous curves can glide independently.
 
-The separate `/synth` inspector exposes shared synthesis and mapping defaults; `/mixer` chooses an Expressive Synth preset per track. Trigger patterns can target the same engine through its route-scoped raw-MIDI adapter. Normalized synth and mixer configuration are remembered locally and serialized in Underscore scene metadata.
+The separate `/synth` inspector exposes shared synthesis and mapping defaults; `/mixer` chooses an Expressive Synth preset per track. Trigger patterns can target the same engine through its route-scoped raw-MIDI adapter. Normalized synth and mixer configuration are remembered locally and serialized in Underscores scene metadata.
 
 Routing is channel-based. A linked Cursor may sound continuously through matching expressive tracks, while a Trigger set to **Continuous glissando** acts as a geometric gate: cursor entry starts the voice, the exact intersection Y drives fractional pitch, and exit releases it. Trigger length is therefore note duration, and each trigger's MIDI channel selects one or more Mixer tracks. Ordinary Pulse triggers retain their existing MIDI event behavior. The development command `/synth demo` creates a compact Metastaseis-inspired score using one timeline curve, one moving cursor, six geometric trigger contours, and six expressive tracks on channels 1–6. The generator and complete construction, synthesis, persistence, and QA details are documented in [Expressive Synth architecture and glissando study](expressive-synth.md); the track model is documented in [Mixer and score-output routing](mixer.md).
 

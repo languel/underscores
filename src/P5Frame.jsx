@@ -19,7 +19,7 @@ const loadedCdnRuntimes = new Map();
 
 const publishP5Status = detail => {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent("underscore:p5-status", { detail }));
+  window.dispatchEvent(new CustomEvent("underscores:p5-status", { detail }));
 };
 
 const loadP5Runtime = async config => {
@@ -27,11 +27,11 @@ const loadP5Runtime = async config => {
   const url = config.cdnUrl;
   if (!loadedCdnRuntimes.has(url)) {
     loadedCdnRuntimes.set(url, new Promise((resolve, reject) => {
-      const existing = Array.from(document.querySelectorAll("script[data-underscore-p5-cdn]"))
-        .find(candidate => candidate.dataset.underscoreP5Cdn === url);
+      const existing = Array.from(document.querySelectorAll("script[data-underscores-p5-cdn]"))
+        .find(candidate => candidate.dataset.underscoresP5Cdn === url);
       if (existing && window.p5) return resolve(window.p5);
       const script = existing || document.createElement("script");
-      script.dataset.underscoreP5Cdn = url;
+      script.dataset.underscoresP5Cdn = url;
       script.src = url;
       script.async = true;
       script.onload = () => window.p5 ? resolve(window.p5) : reject(new Error("The CDN did not expose window.p5."));
@@ -71,7 +71,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
     const report = (kind, message) => publishP5Status({
       elementId: element.id,
       scriptId: activeConfig.scriptId,
-      livecode: Boolean(element.customData?.underscoreLivecode),
+      livecode: Boolean(element.customData?.underscoresLivecode),
       kind,
       message,
     });
@@ -162,7 +162,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
           bridge.serial = serialBridge;
           try {
             // Deliberately trusted: this editor is for the local author and has
-            // full page access, mirroring Underscore's trusted IanniX scripts.
+            // full page access, mirroring Underscores's trusted IanniX scripts.
             callbacks = resolveP5SourceMode(activeConfig) === "global"
               ? compileClassicP5Source(p, bridge, activeConfig.source, interactionState, scriptConsole)
               : compileInstanceP5Source(p, bridge, activeConfig.source, scriptConsole);
@@ -251,12 +251,12 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
   }, [runnerKey]);
 
   return <div
-    className={`underscore-p5-frame ${runningConfig.allowInteraction ? "underscore-p5-interactive" : ""}`}
-    data-underscore-p5-element-id={element.id}
+    className={`underscores-p5-frame ${runningConfig.allowInteraction ? "underscores-p5-interactive" : ""}`}
+    data-underscores-p5-element-id={element.id}
   >
     <div
       ref={hostRef}
-      className="underscore-p5-host"
+      className="underscores-p5-host"
       tabIndex={runningConfig.allowInteraction ? 0 : -1}
       onPointerDown={() => runningConfig.allowInteraction && hostRef.current?.focus?.({ preventScroll: true })}
       style={{ pointerEvents: runningConfig.allowInteraction ? "auto" : "none" }}
@@ -264,7 +264,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
   </div>;
 }
 
-// p5 is rendered by Underscore rather than Excalidraw's embeddable renderer.
+// p5 is rendered by Underscores rather than Excalidraw's embeddable renderer.
 // That keeps the p5 surface first-class on the canvas without giving it a
 // synthetic URL, preview card, or external-link affordance.
 export function P5FrameOverlay({ elements, appState, scriptRuntimeRef }) {
@@ -276,9 +276,9 @@ export function P5FrameOverlay({ elements, appState, scriptRuntimeRef }) {
   if (!frames.length) return null;
 
   return (
-    <div className="underscore-p5-overlay">
+    <div className="underscores-p5-overlay">
       {frames.map((element, layerIndex) => {
-        const config = normalizeP5Frame(element.customData?.underscoreP5);
+        const config = normalizeP5Frame(element.customData?.underscoresP5);
         const width = Math.max(1, (Number(element.width) || 1) * zoom);
         const height = Math.max(1, (Number(element.height) || 1) * zoom);
         const left = ((Number(element.x) || 0) + scrollX) * zoom;
@@ -286,8 +286,8 @@ export function P5FrameOverlay({ elements, appState, scriptRuntimeRef }) {
         return (
           <div
             key={element.id}
-            data-underscore-p5-element-id={element.id}
-            className={`underscore-p5-overlay-frame ${config.allowInteraction ? "underscore-p5-overlay-interactive" : ""}`}
+            data-underscores-p5-element-id={element.id}
+            className={`underscores-p5-overlay-frame ${config.allowInteraction ? "underscores-p5-overlay-interactive" : ""}`}
             style={{
               left,
               top,

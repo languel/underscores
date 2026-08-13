@@ -25,12 +25,12 @@ export const buildTrustedSvgRuntimeDocument = (source, policy, token) => {
     window.__ = Object.freeze({
       emit(type, payload) {
         if (!allowedEvents.has(type)) return;
-        parent.postMessage({ underscoreSvgRuntime: token, type, payload }, "*");
+        parent.postMessage({ underscoresSvgRuntime: token, type, payload }, "*");
       }
     });
     addEventListener("message", event => {
       const message = event.data;
-      if (!message || message.underscoreSvgRuntime !== token) return;
+      if (!message || message.underscoresSvgRuntime !== token) return;
       const svg = document.querySelector("svg");
       if (message.type === "seek" && svg) {
         const seconds = Math.max(0, Number(message.seconds) || 0);
@@ -41,7 +41,7 @@ export const buildTrustedSvgRuntimeDocument = (source, policy, token) => {
         });
       }
     });
-    parent.postMessage({ underscoreSvgRuntime: token, type: "ready" }, "*");
+    parent.postMessage({ underscoresSvgRuntime: token, type: "ready" }, "*");
   })();
   </script>`;
   return `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${escapeHtmlAttribute(csp)}"><style>html,body,svg{width:100%;height:100%;margin:0;overflow:hidden}body{color:inherit}</style>${bridge}</head><body>${String(source || "")}</body></html>`;

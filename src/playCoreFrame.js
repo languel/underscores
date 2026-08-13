@@ -1,12 +1,12 @@
-// Underscore's small, bundled Play Core-compatible runner. Its public program
+// Underscores's small, bundled Play Core-compatible runner. Its public program
 // contract follows https://github.com/ertdfgcvb/play.core (Apache-2.0):
 // settings plus boot/pre/main/post and pointer callbacks. This is deliberately
-// a local runtime, so a score remains portable with its Underscore scene.
+// a local runtime, so a score remains portable with its Underscores scene.
 import { PLAY_CORE_MODULE_SPECIFIERS, resolvePlayCoreModule } from "./playCoreModules.js";
 
-export const PLAY_CORE_STORAGE_KEY = "underscore_play_core_scripts";
+export const PLAY_CORE_STORAGE_KEY = "underscores_play_core_scripts";
 
-export const DEFAULT_PLAY_CORE_SOURCE = `// Play Core program. The __ alias is the node-local Underscore bridge.
+export const DEFAULT_PLAY_CORE_SOURCE = `// Play Core program. The __ alias is the node-local Underscores bridge.
 // @param threshold = 0.55 (0..1, step: 0.01)
 export const settings = { cols: 0, rows: 0, fps: 30, backgroundColor: "#101010", color: "#e8e8e8" };
 
@@ -30,7 +30,7 @@ export const mapPlayCorePointerToLayout = ({ clientX, clientY, rect, layoutWidth
   y: (clientY - rect.top) * Math.max(1, layoutHeight) / Math.max(1, rect.height),
 });
 
-export const isPlayCoreFrameElement = element => Boolean(element?.customData?.underscorePlayCore);
+export const isPlayCoreFrameElement = element => Boolean(element?.customData?.underscoresPlayCore);
 export const shouldRenderPlayCoreFrame = element => Boolean(element && !element.isDeleted && !element.customData?.outlinerHidden && !element.customData?.presentationMaskActive && isPlayCoreFrameElement(element));
 export const canHostPlayCoreFrame = element => Boolean(element && !element.isDeleted && (isPlayCoreFrameElement(element) || ["rectangle", "frame"].includes(element.type)));
 
@@ -102,7 +102,7 @@ export const evaluatePlayCoreSource = (source, bridge = {}, scriptConsole = brid
   return exports;
 };
 
-// Validation evaluates a module with an inert Underscore value. Runtime
+// Validation evaluates a module with an inert Underscores value. Runtime
 // evaluation happens once the live bridge has been constructed.
 export const compilePlayCoreSource = source => evaluatePlayCoreSource(source);
 
