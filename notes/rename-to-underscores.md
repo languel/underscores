@@ -36,7 +36,7 @@ scoped name such as `@languel/underscores` or a distinct package name.
 - [x] Verify `window.__` and the `__` script bridge, with no spelled-out brand alias.
 - [x] Run the full unit suite, production build, single-file build, lint, and a residual-name audit.
 - [x] Push the migration branch for review.
-- [ ] Merge it into the active development line after review.
+- [x] Merge it into `main` after review (PR #3, merge commit `be67de7`).
 - [ ] Rename the local checkout directory after this Codex workspace is closed and reopen it at `/Users/liuboto/dev/underscores`.
 - [ ] Verify the GitHub Pages URL and any bookmarks/integrations after the migration branch is deployed.
 
