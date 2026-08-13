@@ -1,10 +1,11 @@
 # Media streams
 
 Underscores media inputs are persistent source objects that do not require an Excalidraw host.
-Camera and media sources live in a small local catalog and continue producing a processed output
-while their optional canvas view is absent or hidden. This keeps acquisition and processing
-separate from presentation: panels, canvas views, and downstream processors all consume the same
-source output.
+Camera and media sources live in a small local catalog, but catalog membership alone does not
+start decoding, capture, or playback. A source runtime is demanded only while its source is
+selected in the Media panel or while an enabled scene object references it. This keeps the
+catalog cheap while preserving one shared processed output for the panel preview, canvas views,
+and downstream processors that actually consume it.
 
 The media graph has four principal kinds:
 
@@ -17,11 +18,13 @@ The media graph has four principal kinds:
 
 Open the source catalog with `/media` (the `/media-input` alias remains available), signal streams with
 `/inputs`, and processors with `/holistic`. Creating an input adds it to the panel catalog only.
-**Show as canvas object** adds or removes an ordinary transformable view
-without stopping the source. Canvas opacity and Outliner visibility affect that view only, so a
-hidden source view remains available to Holistic and future processors. Hiding a Holistic processor
-also hides its canvas output without stopping inference or its semantic stream, so mappings and
-livecode can continue consuming it.
+Selecting a source starts its preview and playback; its transport controls still determine whether
+it is playing, and its mute control determines whether audio is audible. Press **Escape** to clear
+the panel selection. **Show as canvas object** adds or removes an ordinary transformable view;
+an enabled preview, Holistic processor, or derived Unicursal object keeps the source runtime alive
+even when the panel selection is cleared. Canvas opacity and Outliner visibility affect that view
+only, so a hidden source view remains available to active downstream processors. A disabled scene
+object no longer demands its input source.
 
 ## One processed output
 
@@ -32,7 +35,9 @@ analysis continues to see the raw input.
 
 Animated GIFs are decoded frame-by-frame into that output. This avoids the browser behavior that can
 freeze an offscreen `<img>` on its first GIF frame. Video and camera sources update the same output
-on the browser animation clock.
+on the browser animation clock. When no panel selection or enabled scene connection demands a
+source, its runtime component is unmounted so it does not consume media decode, animation-frame,
+GPU, or MediaPipe work.
 
 ## Persisted and transient state
 

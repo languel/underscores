@@ -423,7 +423,8 @@ const MediaClipRecorder = ({ source, onCreate }) => {
 
 const useSelectedSource = (sources, controlledId, onControlledChange) => {
   const [localSelectedId, setLocalSelectedId] = useState("");
-  const selectedId = controlledId ?? localSelectedId;
+  const isControlled = controlledId !== undefined;
+  const selectedId = isControlled ? (controlledId || "") : localSelectedId;
   const setSelectedId = id => {
     setLocalSelectedId(id);
     onControlledChange?.(id);
@@ -433,9 +434,10 @@ const useSelectedSource = (sources, controlledId, onControlledChange) => {
       if (selectedId) setSelectedId("");
       return;
     }
-    if (!sources.some(source => source.id === selectedId)) setSelectedId(sources[0].id);
-  }, [selectedId, sources]);
-  return [sources.find(source => source.id === selectedId) || sources[0] || null, setSelectedId];
+    if (selectedId && !sources.some(source => source.id === selectedId)) setSelectedId("");
+    else if (!isControlled && !selectedId) setSelectedId(sources[0].id);
+  }, [isControlled, selectedId, sources]);
+  return [sources.find(source => source.id === selectedId) || null, setSelectedId];
 };
 
 export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTarget, activeSourceId, onActiveSourceChange, onCreate, onPatch, onCreatePreview, onAssignPreview, onPickCanvasTarget, onChooseFile, onDelete }) {
@@ -477,6 +479,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
       event.target.value = "";
     }} />
     <SourceList sources={sources} selectedId={selected?.id} empty="No image inputs yet." onSelect={setSelectedId} onDelete={onDelete} />
+    {!selected && <div className="media-stream-panel-note">Catalog sources stay dormant until selected or connected to an enabled scene object. Press Escape to clear selection.</div>}
     {selected && <SourceDetail
       source={selected}
       onPatch={patch => onPatch(selected.id, patch)}

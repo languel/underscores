@@ -103,7 +103,7 @@ import MediaMapOverlay from "./MediaMapOverlay.jsx";
 import { isMediaMapElement, normalizeMediaMapConfig } from "./mediaMap.js";
 import { createMediaSemanticFrame, FACE_DISPLAY_GROUPS, getHolisticDisplayLayers, mediaLandmarkFeatureId, POSE_DISPLAY_GROUPS } from "./mediaLandmarkOntology.js";
 import { createMediaBindingRuntimeState, mediaBindingRuntimeHasExpired, mediaDrivenElementPosition, resolveMediaBindingGate, resolveMediaBindingSignal, shouldAppendMediaStrokePoint } from "./mediaActorRuntime.js";
-import { canUseAsObjectBoundsTarget, createMediaBinding, createMediaSource, createMediaStreamConfig, inferMediaType, isMediaStreamElement, isSupportedMediaFile, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig, readHolisticSettingsPreset, writeHolisticSettingsPreset } from "./mediaStream.js";
+import { canUseAsObjectBoundsTarget, createMediaBinding, createMediaSource, createMediaStreamConfig, getConnectedMediaSourceIds, inferMediaType, isMediaStreamElement, isSupportedMediaFile, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig, readHolisticSettingsPreset, writeHolisticSettingsPreset } from "./mediaStream.js";
 import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, requestMediaSegmentation, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
 import { createUnifiedStreamsApi, UnderscoresStreamRegistry } from "./streamRuntime.js";
 import { generateUnicursalPath, getUnicursalSnapshotStrokeWidth, transformUnicursalFrame, transformUnicursalPoint, UNICURSAL_PRESETS } from "./unicursalPath.js";
@@ -3088,6 +3088,7 @@ function App() {
   const svgAutoCompileTimerRef = useRef(null);
   const svgSourceSelectionMutedUntilRef = useRef(0);
   const [p5OverlayScene, setP5OverlayScene] = useState({ elements: [], canvasElements: [], appState: null, captureRevision: 0 });
+  const connectedMediaSourceIds = useMemo(() => getConnectedMediaSourceIds(p5OverlayScene.elements, mediaSources), [p5OverlayScene.elements, mediaSources]);
   useEffect(() => {
     const legacyHosts = p5OverlayScene.elements.filter(element => {
       if (!isMediaStreamElement(element)) return false;
@@ -11793,6 +11794,7 @@ function App() {
         }
         selectedElementIdsRef.current = {};
         setSelectedElementIds({});
+        setActiveMediaSourceId("");
         runtimeCursorSelectionRef.current = {};
         if (excalidrawAPI) {
           excalidrawAPI.updateScene({ appState: { selectedElementIds: {} } });
@@ -25003,6 +25005,8 @@ function App() {
         <PlayCoreFrameOverlay elements={p5OverlayScene.elements} appState={p5OverlayScene.appState} scriptRuntimeRef={scriptRuntimeRef} />
         <MediaSourceRuntimeLayer
           sources={mediaSources}
+          activeSourceId={activeMediaSourceId}
+          connectedSourceIds={connectedMediaSourceIds}
           captureCanvasSource={captureCanvasInput}
           captureRevision={p5OverlayScene.captureRevision}
         />

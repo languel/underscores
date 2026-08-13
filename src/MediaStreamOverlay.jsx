@@ -478,9 +478,13 @@ function CanvasMediaSource({ source, captureCanvasSource, captureRevision }) {
   return <div className="underscores-media-runtime-source" data-media-runtime-source-id={source.id}><canvas ref={outputRef} /></div>;
 }
 
-export function MediaSourceRuntimeLayer({ sources, captureCanvasSource, captureRevision = 0 }) {
+export function MediaSourceRuntimeLayer({ sources, activeSourceId = "", connectedSourceIds = [], captureCanvasSource, captureRevision = 0 }) {
+  const demandedSourceIds = useMemo(() => new Set([
+    activeSourceId,
+    ...(connectedSourceIds || []),
+  ].filter(Boolean)), [activeSourceId, connectedSourceIds]);
   return <div className="underscores-media-runtime-layer" aria-hidden="true">
-    {(sources || []).filter(source => source.enabled).map(source => source.kind === MEDIA_STREAM_KINDS.CANVAS
+    {(sources || []).filter(source => source.enabled && demandedSourceIds.has(source.id)).map(source => source.kind === MEDIA_STREAM_KINDS.CANVAS
       ? <CanvasMediaSource key={source.id} source={source} captureCanvasSource={captureCanvasSource} captureRevision={captureRevision} />
       : <ProcessedMediaSource key={source.id} source={source} />)}
   </div>;

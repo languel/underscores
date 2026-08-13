@@ -420,6 +420,45 @@ export const shouldRenderMediaStream = element =>
   && !element.customData?.presentationMaskActive
   && Number(element.opacity ?? 100) > 0;
 
+// Input sources are catalog entries until a panel selection or an enabled
+// scene object asks for them. Follow derived processor references so a
+// Unicursal object keeps the camera/media source used by its Holistic input
+// alive without waking unrelated catalog entries.
+export const getConnectedMediaSourceIds = (elements = [], sources = []) => {
+  const sourceIds = new Set((sources || []).map(source => String(source?.id || "")).filter(Boolean));
+  const configs = new Map();
+  (elements || []).forEach(element => {
+    if (!isMediaStreamElement(element)) return;
+    const config = normalizeMediaStreamConfig(element.customData.underscoresMediaStream);
+    if (config.enabled) configs.set(element.id, config);
+  });
+  const connected = new Set();
+  const addReference = reference => {
+    let candidate = String(reference || "");
+    const visited = new Set();
+    while (candidate && !visited.has(candidate)) {
+      visited.add(candidate);
+      if (sourceIds.has(candidate)) {
+        connected.add(candidate);
+        return;
+      }
+      const config = configs.get(candidate);
+      if (!config) return;
+      candidate = config.kind === MEDIA_STREAM_KINDS.HOLISTIC
+        ? config.holistic.sourceId
+        : config.kind === MEDIA_STREAM_KINDS.UNICURSAL
+          ? config.unicursal.sourceId
+          : "";
+    }
+  };
+  configs.forEach(config => {
+    if (config.kind === MEDIA_STREAM_KINDS.PREVIEW) addReference(config.sourceId);
+    if (config.kind === MEDIA_STREAM_KINDS.HOLISTIC) addReference(config.holistic.sourceId);
+    if (config.kind === MEDIA_STREAM_KINDS.UNICURSAL) addReference(config.unicursal.sourceId);
+  });
+  return connected;
+};
+
 export const patchMediaStreamConfig = (value, patch = {}) => {
   const current = normalizeMediaStreamConfig(value);
   const media = { ...current.media, ...(patch.media || {}) };

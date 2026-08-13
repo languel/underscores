@@ -6,6 +6,7 @@ import {
   createMediaBinding,
   createMediaSource,
   canUseAsObjectBoundsTarget,
+  getConnectedMediaSourceIds,
   inferMediaType,
   isGifMediaSource,
   isSupportedMediaFile,
@@ -255,6 +256,31 @@ test("holistic output can hide its source feed while retaining a source link", (
   });
   assert.equal(output.holistic.sourceId, "camera-a");
   assert.equal(output.holistic.showSource, false);
+});
+
+test("connected media source demand follows enabled preview and processor chains", () => {
+  const sources = [
+    createMediaSource("camera", { id: "camera-a" }),
+    createMediaSource("media", { id: "clip-a" }),
+    createMediaSource("media", { id: "unused" }),
+  ];
+  const holistic = {
+    id: "holistic-a",
+    customData: { underscoresMediaStream: createMediaStreamConfig("holistic", { holistic: { sourceId: "camera-a" } }) },
+  };
+  const unicursal = {
+    id: "portrait-a",
+    customData: { underscoresMediaStream: createMediaStreamConfig("unicursal", { unicursal: { sourceId: "holistic-a" } }) },
+  };
+  const preview = {
+    id: "preview-a",
+    customData: { underscoresMediaStream: createMediaStreamConfig("preview", { sourceId: "clip-a" }) },
+  };
+  const disabledPreview = {
+    id: "preview-disabled",
+    customData: { underscoresMediaStream: createMediaStreamConfig("preview", { enabled: false, sourceId: "unused" }) },
+  };
+  assert.deepEqual([...getConnectedMediaSourceIds([holistic, unicursal, preview, disabledPreview], sources)].sort(), ["camera-a", "clip-a"]);
 });
 
 test("canvas visibility hides only the optional stream view", () => {
