@@ -1,7 +1,7 @@
 import { createTimeValue, resolveTimeValue } from "./timeValue.js";
 
-export const EXPRESSIVE_SYNTH_ID = "__drawerator_expressive_synth__";
-export const EXPRESSIVE_SYNTH_STORAGE_KEY = "drawerator_expressive_synth_v1";
+export const EXPRESSIVE_SYNTH_ID = "__underscores_expressive_synth__";
+export const EXPRESSIVE_SYNTH_STORAGE_KEY = "underscores_expressive_synth_v1";
 
 const DEFAULT_PROGRAM_PARAMETERS = Object.freeze({
   voiceGain: 0.5,

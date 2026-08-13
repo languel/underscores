@@ -3,13 +3,13 @@ import { buildRelevantScriptAuthoringGuide } from "./scriptAuthoring.js";
 const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 
 /**
- * Parse Drawerator command tags without interpreting any other model output.
+ * Parse Underscores command tags without interpreting any other model output.
  * Keeping this pure makes malformed model responses visible to the chat log
  * instead of failing the rest of an assistant turn.
  */
-export const parseDraweratorCommandTags = text => {
+export const parseUnderscoresCommandTags = text => {
   const tags = [];
-  const expression = /<drawerator-command\s+id="([^"]+)"\s*>([\s\S]*?)<\/drawerator-command>/gi;
+  const expression = /<underscores-command\s+id="([^"]+)"\s*>([\s\S]*?)<\/underscores-command>/gi;
   let match;
   while ((match = expression.exec(String(text || ""))) !== null) {
     const id = match[1];
@@ -46,8 +46,8 @@ export const buildAIAutomationGuide = (commands, options = {}) => {
   const catalog = buildAICommandCatalog(commands);
   const scriptGuide = buildRelevantScriptAuthoringGuide(options.prompt);
   return [
-    "Drawerator automation",
-    "Use only <drawerator-command id=\"stable.id\">JSON</drawerator-command> tags for actions.",
+    "Underscores automation",
+    "Use only <underscores-command id=\"stable.id\">JSON</underscores-command> tags for actions.",
     "Commands run in the order written. Use high-level scene.create.objects and scene.patch.objects; do not construct raw Excalidraw snapshots.",
     "For visual drawing, use scene.create.objects (rectangle, ellipse, diamond, line, or freedraw), then scene.patch.objects, score.roles.assign, script.brush.apply, or automation.keyframes.set as needed.",
     "Never request, expose, or alter credentials, API keys, tokens, provider endpoints, local storage, or browser permissions.",

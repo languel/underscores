@@ -35,10 +35,10 @@ describe("grid element quantization", () => {
       { x: 13, y: 17, out: [30, 0], mode: "smooth" },
       { x: 187, y: 221, in: [-30, 0], mode: "smooth" },
     ]);
-    const element = { id: "curve", type: "line", x: host.bounds.x, y: host.bounds.y, width: host.bounds.width, height: host.bounds.height, angle: 0, version: 1, points: host.points, customData: { draweratorGeometry: host.geometry, originalPoints: [[13, 17], [187, 221]] } };
+    const element = { id: "curve", type: "line", x: host.bounds.x, y: host.bounds.y, width: host.bounds.width, height: host.bounds.height, angle: 0, version: 1, points: host.points, customData: { underscoresGeometry: host.geometry, originalPoints: [[13, 17], [187, 221]] } };
     const result = quantizeGridElement(element, grid);
     assert.deepEqual([result.x, result.y], [0, 0]);
-    assert.notDeepEqual(result.customData.draweratorGeometry, element.customData.draweratorGeometry);
+    assert.notDeepEqual(result.customData.underscoresGeometry, element.customData.underscoresGeometry);
     assert.deepEqual(result.customData.originalPoints[0], [0, 0]);
   });
 

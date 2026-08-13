@@ -13,14 +13,14 @@ const curve = {
   angle: 0,
   points: [[0, 0], [100, 100]],
   customData: {
-    draweratorGeometry: normalizeBezierGeometry({
+    underscoresGeometry: normalizeBezierGeometry({
       anchors: [{ x: 0, y: 0 }, { x: 0.5, y: 0.25 }, { x: 1, y: 1 }],
     }),
   },
 };
 
 test("canonical Bezier anchors receive stable ids and resolve as endpoints", () => {
-  const anchors = curve.customData.draweratorGeometry.anchors;
+  const anchors = curve.customData.underscoresGeometry.anchors;
   assert.deepEqual(anchors.map(anchor => anchor.id), ["anchor-0", "anchor-1", "anchor-2"]);
   const resolved = resolvePhysicsEndpoint({ kind: "bezier-anchor", objectRef: "curve", anchorId: "anchor-1" }, { elements: [curve] });
   assert.equal(resolved.ok, true);
@@ -177,7 +177,7 @@ test("rounded native curves use their smoothed path for convex and chain collide
   const geometry = createBezierGeometryFromElement(roundedLine);
   const renderedPath = getBezierWorldPath({
     ...roundedLine,
-    customData: { draweratorGeometry: geometry },
+    customData: { underscoresGeometry: geometry },
   }, 1.2);
   const chain = inferPhysicsColliderFromElement(roundedLine, "chain", "fixed");
   const convex = inferPhysicsColliderFromElement(roundedLine, "convex", "dynamic");
@@ -266,9 +266,9 @@ test("a rotated convex freehand stays coincident with its Rapier-local collider"
 test("Bezier sculpt operators preserve anchor identity and are deterministic", () => {
   const first = applyBezierSculptOperator(curve, "randomize", { seed: 9, amount: 0.01 });
   const second = applyBezierSculptOperator(curve, "randomize", { seed: 9, amount: 0.01 });
-  assert.deepEqual(first.customData.draweratorGeometry.anchors, second.customData.draweratorGeometry.anchors);
-  assert.deepEqual(first.customData.draweratorGeometry.anchors.map(anchor => anchor.id), ["anchor-0", "anchor-1", "anchor-2"]);
+  assert.deepEqual(first.customData.underscoresGeometry.anchors, second.customData.underscoresGeometry.anchors);
+  assert.deepEqual(first.customData.underscoresGeometry.anchors.map(anchor => anchor.id), ["anchor-0", "anchor-1", "anchor-2"]);
   const smoothed = applyBezierSculptOperator(curve, "smooth", { amount: 1 });
-  assert.equal(smoothed.customData.draweratorGeometry.anchors[1].x, 0.5);
-  assert.equal(smoothed.customData.draweratorGeometry.anchors[1].y, 0.5);
+  assert.equal(smoothed.customData.underscoresGeometry.anchors[1].x, 0.5);
+  assert.equal(smoothed.customData.underscoresGeometry.anchors[1].y, 0.5);
 });

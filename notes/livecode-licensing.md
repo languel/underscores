@@ -4,11 +4,11 @@ Last updated: 2026-07-29
 
 ## Strudel release gate
 
-Drawerator directly bundles `@strudel/core`, `@strudel/mini`, `@strudel/tonal`, `@strudel/transpiler`, and `@strudel/webaudio`. Strudel is AGPL-3.0-or-later. Direct integration is therefore a release obligation, not just an attribution item. The exact package versions are pinned in `package.json` and `package-lock.json`.
+Underscores directly bundles `@strudel/core`, `@strudel/mini`, `@strudel/tonal`, `@strudel/transpiler`, and `@strudel/webaudio`. Strudel is AGPL-3.0-or-later. Direct integration is therefore a release obligation, not just an attribution item. The exact package versions are pinned in `package.json` and `package-lock.json`.
 
-Local `npm run dev`, test, and build workflows remain available for development. Public deployment is blocked by `scripts/assert-strudel-release-gate.js`, which runs before the `deploy` script. It requires `DRAWERATOR_AGPL_COMPLIANCE=acknowledged` only after all of these conditions have been completed:
+Local `npm run dev`, test, and build workflows remain available for development. Public deployment is blocked by `scripts/assert-strudel-release-gate.js`, which runs before the `deploy` script. It requires `UNDERSCORES_AGPL_COMPLIANCE=acknowledged` only after all of these conditions have been completed:
 
-1. Drawerator adopts an AGPL-compatible project license.
+1. Underscores adopts an AGPL-compatible project license.
 2. The public release includes complete corresponding source and reproducible build instructions.
 3. Strudel's notices, version information, and any modification records are preserved.
 4. Every bundled font, audio/sample pack, and other asset is separately audited and recorded.

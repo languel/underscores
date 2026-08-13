@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-22
 
-Drawerator routes score sound through **tracks**. A track is an authored mixer route; a MIDI **channel** remains the protocol address `1..16`. This distinction lets several tracks listen to the same score channel and fan the same event out to different destinations without redefining MIDI terminology.
+Underscores routes score sound through **tracks**. A track is an authored mixer route; a MIDI **channel** remains the protocol address `1..16`. This distinction lets several tracks listen to the same score channel and fan the same event out to different destinations without redefining MIDI terminology.
 
 Open the dockable Mixer with `/mixer`, the main menu, or **Settings → Score & MIDI → Open Mixer**. It shares the bottom dock with Timeline and Info by default and can also be moved to the left, right, or a floating panel. The compact strip shows the track number, name, MIDI channel, destination, instrument, Solo, and Mute state. Click a strip to edit its route.
 
@@ -19,7 +19,7 @@ Channel 10 keeps General MIDI percussion semantics. For General MIDI and externa
 
 ## Runtime routing
 
-Trigger patterns still emit ordinary MIDI-compatible messages. The message channel selects every enabled, audible mixer track with the same channel. Drawerator then fans the raw message out to those tracks:
+Trigger patterns still emit ordinary MIDI-compatible messages. The message channel selects every enabled, audible mixer track with the same channel. Underscores then fans the raw message out to those tracks:
 
 - **Internal audio + General MIDI** sends it to TinySynth.
 - **Internal audio + Expressive Synth** sends it to a route-scoped Web Audio voice graph using that track's program.
@@ -38,15 +38,15 @@ MIDI clock remains separate because it is transport synchronization, not a score
 
 ## Persistence and migration
 
-The normalized mixer is stored locally as `drawerator_mixer_v1` and becomes the next-session default. Expressive user programs live in the synth configuration under `drawerator_expressive_synth_v1`. Complete scene export writes both into Drawerator scene metadata version 4; complete scene import replaces the current mixer and program library together, while selection-only exchange does not. Older scenes receive a normalized mixer migrated from the previous global score-output preference and stored GM programs.
+The normalized mixer is stored locally as `underscores_mixer_v1` and becomes the next-session default. Expressive user programs live in the synth configuration under `underscores_expressive_synth_v1`. Complete scene export writes both into Underscores scene metadata version 4; complete scene import replaces the current mixer and program library together, while selection-only exchange does not. Older scenes receive a normalized mixer migrated from the previous global score-output preference and stored GM programs.
 
-The current public API is Drawerator API version 3:
+The current public API is Underscores API version 3:
 
 ```js
-window.drawerator.mixer.get()
-window.drawerator.mixer.updateTrack(trackId, patch)
-window.drawerator.mixer.addTrack(overrides)
-window.drawerator.mixer.removeTrack(trackId)
+window.__.mixer.get()
+window.__.mixer.updateTrack(trackId, patch)
+window.__.mixer.addTrack(overrides)
+window.__.mixer.removeTrack(trackId)
 ```
 
 Mixers normalize to at least one and at most 128 tracks. The engine does not create 128 AudioContexts: Internal GM shares TinySynth, Expressive Synth shares one Web Audio context and master bus while keeping route-scoped voices, and external tracks share browser-owned MIDI ports. Practical polyphony is governed by the synth voice limit and the host computer rather than track count alone.

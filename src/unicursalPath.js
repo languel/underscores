@@ -18,13 +18,26 @@ const clamp = (value, min, max, fallback) => {
 const expressive = (value, fallback, min = 0, max = 1000) => clamp(value, min, max, fallback);
 
 const finitePoint = point => point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y));
-const point = value => finitePoint(value) ? { x: Number(value.x), y: Number(value.y), z: Number(value.z) || 0 } : null;
+const pointConfidence = value => {
+  if (!value || Number.isFinite(Number(value.confidence))) return Number.isFinite(Number(value?.confidence)) ? clamp(value.confidence, 0, 1, 1) : null;
+  const visibility = Number(value.visibility);
+  const presence = Number(value.presence);
+  if (!Number.isFinite(visibility) && !Number.isFinite(presence)) return null;
+  if (Number.isFinite(visibility) && Number.isFinite(presence)) return clamp(Math.min(visibility, presence), 0, 1, 1);
+  return clamp(Number.isFinite(visibility) ? visibility : presence, 0, 1, 1);
+};
+const point = value => {
+  if (!finitePoint(value)) return null;
+  const confidence = pointConfidence(value);
+  return { x: Number(value.x), y: Number(value.y), z: Number(value.z) || 0, ...(confidence === null ? {} : { confidence }) };
+};
 const mix = (a, b, t) => ({
   x: a.x + (b.x - a.x) * t,
   y: a.y + (b.y - a.y) * t,
   z: (a.z || 0) + ((b.z || 0) - (a.z || 0)) * t,
   ...(Number.isFinite(a.width) && Number.isFinite(b.width) ? { width: a.width + (b.width - a.width) * t } : {}),
   ...(Number.isFinite(a.pressure) && Number.isFinite(b.pressure) ? { pressure: a.pressure + (b.pressure - a.pressure) * t } : {}),
+  ...(Number.isFinite(a.confidence) && Number.isFinite(b.confidence) ? { confidence: a.confidence + (b.confidence - a.confidence) * t } : {}),
 });
 const distance = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
 const UNICURSAL_FEATURE_FIELDS = Object.freeze([
@@ -126,6 +139,12 @@ export const normalizeUnicursalOptions = value => {
     motion: Object.freeze({
       responseMs: clamp(motion.responseMs, 0, 2000, 140),
       missingGraceMs: clamp(motion.missingGraceMs, 0, 5000, 260),
+      // These are deliberately independent from response time: response is
+      // temporal interpolation, inertia retains authored motion, confidence
+      // discounts uncertain landmarks, and stickiness protects joins.
+      inertia: expressive(motion.inertia, 0.28, 0, 1),
+      confidenceWeight: expressive(motion.confidenceWeight, 0.72, 0, 1),
+      stickiness: expressive(motion.stickiness, 0.35, 0, 1),
       // Echoes remain available, but are opt-in because every echo is another
       // complete portrait paint. This is the largest rendering-cost lever.
       echoes: motion.echoes === true,
@@ -525,12 +544,18 @@ export const generateUnicursalPath = ({ result, segmentation = null, options: va
     const detailCount = Math.max(2, budgets[name] - bridgeCount);
     const bridge = curvedBridge(cursor, desired[0], options.geometry.bridgeCurvature * (0.45 + options.geometry.tension * 0.9), bridgeCount);
     let detail = resamplePath(desired, detailCount);
+    const featureConfidence = source.length >= 2 ? 1 : 0;
+    const bridgeWithConfidence = bridge.map(item => ({ ...item, confidence: featureConfidence }));
+    // A collapsed/missing module gets an explicit low confidence so the
+    // temporal solver can hold its last route instead of treating the
+    // cursor-filled bridge as freshly observed geometry.
+    detail = detail.map(item => ({ ...item, confidence: source.length >= 2 && Number.isFinite(item.confidence) ? item.confidence : featureConfidence }));
     if (options.geometry.abstraction > 0) {
       const abstraction = options.geometry.abstraction * (options.preset === "cubist" ? 1 : 0.35);
       detail = simplifyAngular(detail, abstraction);
     }
-    route.push(...bridge, ...detail);
-    roles.push(...Array(bridge.length).fill(`${name}:bridge`), ...Array(detail.length).fill(name));
+    route.push(...bridgeWithConfidence, ...detail);
+    roles.push(...Array(bridgeWithConfidence.length).fill(`${name}:bridge`), ...Array(detail.length).fill(name));
     cursor = detail.at(-1) || cursor;
   });
   let shaped = route.slice(0, options.geometry.pointBudget);
@@ -612,16 +637,30 @@ export const transformUnicursalFrame = (frame, element, space = "scene") => {
   return Object.freeze({ ...frame, space, points: Object.freeze(points), segments: Object.freeze(transformedSegments), bounds: Object.freeze(boundsOf(points)) });
 };
 
-export const smoothUnicursalFrame = (previous, next, elapsedMs = 16, responseMs = 140) => {
+export const smoothUnicursalFrame = (previous, next, elapsedMs = 16, responseMs = 140, dynamics = {}) => {
   if (!previous?.points || previous.points.length !== next?.points?.length || responseMs <= 0) return next;
-  const amount = 1 - Math.exp(-Math.max(0, elapsedMs) / Math.max(1, responseMs));
-  const points = next.points.map((item, index) => Object.freeze({
-    ...item,
-    x: previous.points[index].x + (item.x - previous.points[index].x) * amount,
-    y: previous.points[index].y + (item.y - previous.points[index].y) * amount,
-    pressure: previous.points[index].pressure + (item.pressure - previous.points[index].pressure) * amount,
-    width: previous.points[index].width + (item.width - previous.points[index].width) * amount,
-  }));
+  const inertia = expressive(dynamics.inertia, 0.28, 0, 1);
+  const confidenceWeight = expressive(dynamics.confidenceWeight, 0.72, 0, 1);
+  const stickiness = expressive(dynamics.stickiness, 0.35, 0, 1);
+  const amount = 1 - Math.exp(-Math.max(0, elapsedMs) / Math.max(1, responseMs * (1 + inertia * 3)));
+  const points = new Array(next.points.length);
+  for (let index = 0; index < next.points.length; index += 1) {
+    const item = next.points[index];
+    const prior = previous.points[index];
+    const confidence = clamp(item.confidence, 0, 1, 1);
+    const family = roleFamily(item.role);
+    const familyBias = family === "face" ? 1.08 : family === "hand" ? 1.0 : family === "silhouette" ? 0.92 : 0.98;
+    const joinFactor = 1 - stickiness * 0.55 * familyBias;
+    const confidenceFactor = 1 - confidenceWeight * (1 - confidence);
+    const alpha = amount * Math.max(0.01, joinFactor) * Math.max(0.01, confidenceFactor);
+    points[index] = Object.freeze({
+      ...item,
+      x: prior.x + (item.x - prior.x) * alpha,
+      y: prior.y + (item.y - prior.y) * alpha,
+      pressure: prior.pressure + (item.pressure - prior.pressure) * alpha,
+      width: prior.width + (item.width - prior.width) * alpha,
+    });
+  }
   const segments = (next.segments || [{ points: next.points }]).map((segment, index) => {
     const start = Number.isInteger(segment.start) ? segment.start : next.points.indexOf(segment.points[0]);
     const segmentPoints = points.slice(Math.max(0, start), Math.max(0, start) + segment.points.length);
@@ -675,7 +714,10 @@ export const drawUnicursalFrame = (context, frame, width, height, { opacity = 1 
   const segments = frame.segments?.length ? frame.segments : [{ points: frame.points }];
   segments.forEach(segment => {
     let values = segment.points.map(project);
-    if (frame.options.geometry.smoothCurves && values.length >= 4) values = chaikin(values);
+    // Catmull-Rom already interpolates a smooth curve. Densifying those
+    // points with Chaikin first doubles the per-frame ribbon work for no
+    // visual benefit; retain Chaikin only for quadratic smoothing.
+    if (frame.options.geometry.smoothCurves && frame.options.geometry.curveMode === "quadratic" && values.length >= 4) values = chaikin(values);
     if (!frame.options.ink.variableWidth || frame.options.ink.widthVariation <= 0.001) {
       context.lineWidth = Math.max(0.5, frame.options.ink.width * scale);
       context.beginPath();

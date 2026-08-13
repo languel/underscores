@@ -2,8 +2,8 @@ import { createTimeValue, formatTimeValue, resolveTimeValue } from "./timeValue.
 
 export const GRID_SCHEMA_VERSION = 2;
 export const GLOBAL_GRID_ID = "global";
-export const GRID_STORAGE_KEY = "drawerator_global_grid_v2";
-export const LEGACY_GRID_STORAGE_KEY = "drawerator_global_grid_v1";
+export const GRID_STORAGE_KEY = "underscores_global_grid_v2";
+export const LEGACY_GRID_STORAGE_KEY = "underscores_global_grid_v1";
 
 const SNAP_MODES = new Set(["off", "hard", "magnetic"]);
 const SNAP_RESOLUTIONS = new Set(["minor", "major"]);

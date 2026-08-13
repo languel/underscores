@@ -98,14 +98,14 @@ const collectSmilAnimations = (document, lanes) => {
   document.nodes.filter(node => SMIL_ELEMENTS.has(node.localName.toLowerCase())).forEach(node => {
     const parent = byIndex.get(node.parentIndex);
     const href = node.attributes.href || node.attributes["xlink:href"] || "";
-    const targetId = href.startsWith("#") ? href.slice(1) : parent?.draweratorId || parent?.id || null;
+    const targetId = href.startsWith("#") ? href.slice(1) : parent?.underscoresId || parent?.id || null;
     const values = String(node.attributes.values || "").split(";").map(value => value.trim()).filter(Boolean);
     const keyTimes = String(node.attributes.keyTimes || "").split(";").map(Number).filter(Number.isFinite);
     lanes.push({
-      id: `smil:${node.draweratorId || node.index}`,
+      id: `smil:${node.underscoresId || node.index}`,
       kind: "smil",
       nodeId: targetId,
-      animationNodeId: node.draweratorId || null,
+      animationNodeId: node.underscoresId || null,
       animationNodeIndex: node.index,
       property: node.attributes.attributeName || (node.localName.toLowerCase() === "animatemotion" ? "motion" : ""),
       begin: parseSvgClockValue(node.attributes.begin, 0),
@@ -143,9 +143,9 @@ const collectLooomAnimations = (document, lanes) => {
     }).filter(([name]) => name.startsWith("--")));
     const speed = Math.max(0.001, Number(variables["--speed"]) || 12);
     lanes.push({
-      id: `looom:${thread.draweratorId || thread.id || thread.index}`,
+      id: `looom:${thread.underscoresId || thread.id || thread.index}`,
       kind: "looom",
-      nodeId: thread.draweratorId || thread.id || null,
+      nodeId: thread.underscoresId || thread.id || null,
       nodeIndex: thread.index,
       property: "frame",
       begin: (Number(variables["--timeOffset"]) || 0) / speed,
@@ -159,7 +159,7 @@ const collectLooomAnimations = (document, lanes) => {
       pressureEnabled: Number(variables["--pressureEnabled"]) || 0,
       keyframes: frames.map((frame, index) => ({
         offset: frames.length > 1 ? index / frames.length : 0,
-        nodeId: frame.draweratorId || frame.id || null,
+        nodeId: frame.underscoresId || frame.id || null,
         nodeIndex: frame.index,
       })),
       sourceRange: [thread.start, thread.end],

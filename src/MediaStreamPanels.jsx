@@ -41,8 +41,8 @@ const useMediaStatus = selectedId => {
       if (!detail.elementId) return;
       setStatuses(previous => ({ ...previous, [detail.elementId]: detail }));
     };
-    window.addEventListener("drawerator:media-stream-status", handler);
-    return () => window.removeEventListener("drawerator:media-stream-status", handler);
+    window.addEventListener("underscores:media-stream-status", handler);
+    return () => window.removeEventListener("underscores:media-stream-status", handler);
   }, []);
   return statuses[selectedId] || null;
 };
@@ -97,7 +97,7 @@ const SourceList = ({ sources, selectedId, empty, onSelect, onDelete }) => {
         onClick={() => onSelect(source.id)}
         onDragStart={event => {
           event.dataTransfer.effectAllowed = "copy";
-          event.dataTransfer.setData("application/x-drawerator-media-source", source.id);
+          event.dataTransfer.setData("application/x-underscores-media-source", source.id);
           event.dataTransfer.setData("text/plain", source.name);
         }}
       ><SourceKindIcon kind={source.kind} /></button>
@@ -119,7 +119,7 @@ const ProcessorList = ({ elements, selectedElementIds, onSelect }) => {
   if (!elements.length) return <div className="media-stream-panel-empty">No Holistic or artistic drawing objects yet.</div>;
   return <div className="media-stream-panel-list" role="list">
     {elements.map(element => {
-      const config = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
+      const config = normalizeMediaStreamConfig(element.customData.underscoresMediaStream);
       return <button
         key={element.id}
         type="button"
@@ -147,7 +147,7 @@ const UnicursalDetail = ({ element, config, processors, onPatch, onSnapshot }) =
     <label className="media-stream-panel-field"><span>Holistic source</span>
       <select value={art.sourceId} onChange={event => onPatch(element.id, { unicursal: { sourceId: event.target.value } })}>
         <option value="">Choose Holistic</option>
-        {processors.map(source => <option key={source.id} value={source.id}>{normalizeMediaStreamConfig(source.customData.draweratorMediaStream).name}</option>)}
+        {processors.map(source => <option key={source.id} value={source.id}>{normalizeMediaStreamConfig(source.customData.underscoresMediaStream).name}</option>)}
       </select>
     </label>
     <label className="media-stream-panel-field"><span>Preset</span>
@@ -212,6 +212,9 @@ const UnicursalDetail = ({ element, config, processors, onPatch, onSnapshot }) =
     <details><summary>Motion</summary><div className="unicursal-control-grid">
       <UnicursalNumber label="Response ms" value={art.motion.responseMs} min="0" max="2000" step="10" defaultValue={140} onCommit={value => patchGroup("motion", { responseMs: value })} />
       <UnicursalNumber label="Missing grace ms" value={art.motion.missingGraceMs} min="0" max="5000" step="20" defaultValue={260} onCommit={value => patchGroup("motion", { missingGraceMs: value })} />
+      <UnicursalNumber label="Inertia" value={art.motion.inertia} min="0" max="1" step="0.01" defaultValue={0.28} onCommit={value => patchGroup("motion", { inertia: value })} />
+      <UnicursalNumber label="Confidence weight" value={art.motion.confidenceWeight} min="0" max="1" step="0.01" defaultValue={0.72} onCommit={value => patchGroup("motion", { confidenceWeight: value })} />
+      <UnicursalNumber label="Feature stickiness" value={art.motion.stickiness} min="0" max="1" step="0.01" defaultValue={0.35} onCommit={value => patchGroup("motion", { stickiness: value })} />
       <label className="media-stream-panel-check"><input type="checkbox" checked={art.motion.echoes} onChange={event => patchGroup("motion", { echoes: event.target.checked })} /><span>Echoes</span></label>
       <UnicursalNumber label="Echo count" value={art.motion.echoCount} min="0" max="8" step="1" defaultValue={2} onCommit={value => patchGroup("motion", { echoCount: value })} />
       <UnicursalNumber label="Echo delay ms" value={art.motion.echoDelayMs} min="16" max="2000" step="10" defaultValue={180} onCommit={value => patchGroup("motion", { echoDelayMs: value })} />
@@ -447,15 +450,15 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
 export function HolisticPanel({ elements, sources, selectedElementIds, onCreate, onPatch, onSelect, onSnapshot, onSnapshotPng, onSnapshotArt }) {
   const processors = useMemo(() => elements.filter(element => (
     isMediaStreamElement(element)
-    && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC
+    && normalizeMediaStreamConfig(element.customData.underscoresMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC
   )), [elements]);
   const artistic = useMemo(() => elements.filter(element => (
     isMediaStreamElement(element)
-    && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.UNICURSAL
+    && normalizeMediaStreamConfig(element.customData.underscoresMediaStream).kind === MEDIA_STREAM_KINDS.UNICURSAL
   )), [elements]);
   const objects = [...processors, ...artistic];
   const selected = objects.find(element => selectedElementIds?.[element.id]) || objects[0] || null;
-  const config = selected ? normalizeMediaStreamConfig(selected.customData.draweratorMediaStream) : null;
+  const config = selected ? normalizeMediaStreamConfig(selected.customData.underscoresMediaStream) : null;
   const status = useMediaStatus(selected?.id);
   const defaultSourceId = sources[0]?.id || "";
   const faceGroupEntries = Object.entries(FACE_DISPLAY_GROUPS);

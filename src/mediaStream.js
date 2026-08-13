@@ -10,9 +10,9 @@ export const MEDIA_STREAM_KINDS = Object.freeze({
 });
 
 export const MEDIA_STREAM_VERSION = 8;
-export const MEDIA_SOURCE_STORAGE_KEY = "drawerator_media_source_catalog_v1";
-export const MEDIA_ACTORS_ARMED_STORAGE_KEY = "drawerator_media_actors_armed_v1";
-export const HOLISTIC_SETTINGS_STORAGE_KEY = "drawerator_holistic_settings_v1";
+export const MEDIA_SOURCE_STORAGE_KEY = "underscores_media_source_catalog_v1";
+export const MEDIA_ACTORS_ARMED_STORAGE_KEY = "underscores_media_actors_armed_v1";
+export const HOLISTIC_SETTINGS_STORAGE_KEY = "underscores_holistic_settings_v1";
 export const HOLISTIC_PROCESSING_FPS_OPTIONS = Object.freeze([30, 24, 15, 12, 8, 4, 1]);
 export const HOLISTIC_PERFORMANCE_PROCESSING_FPS = 8;
 export const HOLISTIC_PERFORMANCE_DISPLAY_FPS = 30;
@@ -357,7 +357,7 @@ export const writeHolisticSettingsPreset = (value, storage = globalThis.localSto
 };
 
 export const isMediaStreamElement = element =>
-  Boolean(element && !element.isDeleted && element.customData?.draweratorMediaStream);
+  Boolean(element && !element.isDeleted && element.customData?.underscoresMediaStream);
 
 // Holistic processors are ordinary rectangle hosts whose visual content is rendered
 // in an overlay. They remain useful geometric inputs (brush destinations, mapped
@@ -367,28 +367,28 @@ export const canUseAsObjectBoundsTarget = element => {
   if (!element || element.isDeleted || !["rectangle", "frame"].includes(element.type)) return false;
   if (!isMediaStreamElement(element)) return true;
   return [MEDIA_STREAM_KINDS.HOLISTIC, MEDIA_STREAM_KINDS.UNICURSAL].includes(
-    normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind,
+    normalizeMediaStreamConfig(element.customData.underscoresMediaStream).kind,
   );
 };
 
 export const objectBoundsTargetLabel = element => {
   if (isMediaStreamElement(element)) {
-    const config = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
+    const config = normalizeMediaStreamConfig(element.customData.underscoresMediaStream);
     if (config.kind === MEDIA_STREAM_KINDS.HOLISTIC) return config.name || "Holistic";
     if (config.kind === MEDIA_STREAM_KINDS.UNICURSAL) return config.name || "Unicursal portrait";
   }
-  return element?.customData?.draweratorLabel || element?.name || element?.type || "Object";
+  return element?.customData?.underscoresLabel || element?.name || element?.type || "Object";
 };
 
 export const isMediaSourceElement = element => {
   if (!isMediaStreamElement(element)) return false;
-  const kind = normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind;
+  const kind = normalizeMediaStreamConfig(element.customData.underscoresMediaStream).kind;
   return kind === MEDIA_STREAM_KINDS.CAMERA || kind === MEDIA_STREAM_KINDS.MEDIA || kind === MEDIA_STREAM_KINDS.CANVAS;
 };
 
 export const shouldProcessMediaStream = element =>
   isMediaStreamElement(element)
-  && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).enabled;
+  && normalizeMediaStreamConfig(element.customData.underscoresMediaStream).enabled;
 
 export const shouldRenderMediaStream = element =>
   shouldProcessMediaStream(element)

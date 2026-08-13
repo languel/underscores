@@ -78,4 +78,4 @@ export const shouldRenderEmbed = (policy, presentationMode) => {
   return normalized.display === "always" || Boolean(presentationMode);
 };
 
-export const embedPolicyForElement = element => normalizeEmbedPolicy(element?.customData?.draweratorEmbed);
+export const embedPolicyForElement = element => normalizeEmbedPolicy(element?.customData?.underscoresEmbed);

@@ -15,7 +15,7 @@ const runtimeSnapshot = (element, node, scriptRuntimeRef) => {
 
 function HtmlPresentation({ element, node, scriptRuntimeRef }) {
   const iframeRef = useRef(null);
-  const token = useMemo(() => `drawerator-livecode-${node.nodeId}`, [node.nodeId]);
+  const token = useMemo(() => `underscores-livecode-${node.nodeId}`, [node.nodeId]);
   const appearance = scriptRuntimeRef.current?.getAppearance?.() || {};
   const appearanceTheme = appearance.theme;
   const appearanceForeground = appearance.colors?.foreground?.css || appearance.currentColor;
@@ -36,9 +36,9 @@ function HtmlPresentation({ element, node, scriptRuntimeRef }) {
     const receive = event => {
       if (event.source !== iframeRef.current?.contentWindow) return;
       const data = event.data;
-      if (!data?.draweratorLivecode || data.token !== token || data.type !== "ready") return;
+      if (!data?.underscoresLivecode || data.token !== token || data.type !== "ready") return;
       event.source?.postMessage({
-        draweratorLivecode: true,
+        underscoresLivecode: true,
         token,
         type: "bridge",
         snapshot: runtimeSnapshot(element, node, scriptRuntimeRef),

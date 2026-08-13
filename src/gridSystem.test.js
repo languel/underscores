@@ -56,7 +56,7 @@ test("hard snapping is idempotent and preserves point metadata", () => {
   assert.equal(second.snapped, false);
 });
 
-test("a force-hard snap uses Drawerator grid coordinates even when normal snapping is off", () => {
+test("a force-hard snap uses Underscores grid coordinates even when normal snapping is off", () => {
   const grid = mergeGridPatch(DEFAULT_GLOBAL_GRID, {
     transform: { origin: [13, -7], rotation: Math.PI / 4 },
     spacing: { x: 80, y: 40, subdivisionsX: 4, subdivisionsY: 2 },

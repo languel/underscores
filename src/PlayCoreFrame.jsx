@@ -53,7 +53,7 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) 
     let raf = 0;
     let last = 0;
     let program;
-    let drawerator;
+    let bridge;
     let subscriptions = [];
     const pointer = { x: 0, y: 0, pressed: false, px: 0, py: 0, ppressed: false };
     const appearance = () => scriptRuntimeRef.current?.getAppearance?.() || { theme: "dark", currentColor: "#e8e8e8", currentOpacity: 1, colors: {} };
@@ -61,7 +61,7 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) 
       const canvas = createScriptCanvasApi(scriptRuntimeRef, { onSubscription: unsubscribe => subscriptions.push(unsubscribe) });
       const params = resolveScriptParameterValues(parseScriptParameters(config.source, { values: config.parameters }), scriptRuntimeRef, canvas);
       const scriptConsole = createScriptConsole(scriptRuntimeRef, element.id);
-      drawerator = {
+      bridge = {
         element: { id: element.id, width: element.width, height: element.height }, frame: config,
         canvas, objects: canvas, events: canvas.events, transport: canvas.transport, params,
         get object() { return canvas.get(element.id); },
@@ -71,15 +71,15 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) 
         get colors() { return appearance().colors; },
         get theme() { return appearance().theme; },
         get appearance() { return appearance(); },
-        get streams() { return scriptRuntimeRef?.current?.getStreams?.(element.id) || window.drawerator?.streams; },
+        get streams() { return scriptRuntimeRef?.current?.getStreams?.(element.id) || window.__?.streams; },
         console: scriptConsole,
         log: scriptConsole.log,
         info: scriptConsole.info,
         warn: scriptConsole.warn,
         error: scriptConsole.error,
-        get api() { return window.drawerator; },
+        get api() { return window.__; },
       };
-      program = evaluatePlayCoreSource(config.source, drawerator, scriptConsole);
+      program = evaluatePlayCoreSource(config.source, bridge, scriptConsole);
     } catch (error) { host.textContent = `Play Core error: ${error.message || error}`; return undefined; }
     const appearanceSnapshot = appearance();
     const settings = {
@@ -130,29 +130,29 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) 
         };
         const buffer = Array.from({ length: cols * rows }, () => ({ char: " " }));
         try {
-          program.pre?.(context, cursor, buffer, drawerator);
+          program.pre?.(context, cursor, buffer, bridge);
           const pointerCallback = pointer.pressed && !pointer.ppressed ? program.pointerDown
             : !pointer.pressed && pointer.ppressed ? program.pointerUp
               : (pointer.x !== pointer.px || pointer.y !== pointer.py) ? program.pointerMove : null;
-          pointerCallback?.(context, cursor, buffer, drawerator);
+          pointerCallback?.(context, cursor, buffer, bridge);
           for (let y = 0; y < rows; y += 1) for (let x = 0; x < cols; x += 1) {
-            const value = program.main?.({ x, y, index: x + y * cols }, context, cursor, buffer, drawerator);
+            const value = program.main?.({ x, y, index: x + y * cols }, context, cursor, buffer, bridge);
             buffer[x + y * cols] = typeof value === "object" ? { ...buffer[x + y * cols], ...value } : { ...buffer[x + y * cols], char: value };
           }
-          program.post?.(context, cursor, buffer, drawerator);
+          program.post?.(context, cursor, buffer, bridge);
           host.innerHTML = Array.from({ length: rows }, (_, y) => buffer.slice(y * cols, (y + 1) * cols).map(renderCell).join("")).join("\n");
         } catch (error) { host.textContent = `Play Core error: ${error.message || error}`; }
         pointer.px = pointer.x; pointer.py = pointer.y; pointer.ppressed = pointer.pressed;
       }
       raf = requestAnimationFrame(loop);
     };
-    program.boot?.(drawerator); raf = requestAnimationFrame(loop);
+    program.boot?.(bridge); raf = requestAnimationFrame(loop);
     return () => { cancelled = true; scriptRuntimeRef.current?.disposeStreamsOwner?.(element.id); cancelAnimationFrame(raf); subscriptions.forEach(unsubscribe => unsubscribe?.()); host.removeEventListener("pointerdown", down); host.removeEventListener("pointermove", move); host.removeEventListener("pointerup", up); };
   }, [element.id, element.width, element.height, config.source, config.fps, config.reloadNonce, config.parameters, scriptRuntimeRef]);
-  return <pre ref={hostRef} className="drawerator-play-core-host" tabIndex={config.allowInteraction ? 0 : -1} style={{ pointerEvents: config.allowInteraction ? "auto" : "none" }} />;
+  return <pre ref={hostRef} className="underscores-play-core-host" tabIndex={config.allowInteraction ? 0 : -1} style={{ pointerEvents: config.allowInteraction ? "auto" : "none" }} />;
 }
 
 export function PlayCoreFrameOverlay({ elements, appState, scriptRuntimeRef }) {
   const zoom = Number(appState?.zoom?.value) || 1, scrollX = Number(appState?.scrollX) || 0, scrollY = Number(appState?.scrollY) || 0;
-  return <div className="drawerator-play-core-overlay">{(elements || []).filter(shouldRenderPlayCoreFrame).map(element => <div key={element.id} className="drawerator-play-core-overlay-frame" style={{ left: (element.x + scrollX) * zoom, top: (element.y + scrollY) * zoom, width: element.width * zoom, height: element.height * zoom, transform: `rotate(${element.angle || 0}rad)` }}><PlayCoreFrame element={element} config={element.customData.draweratorPlayCore} scriptRuntimeRef={scriptRuntimeRef} /></div>)}</div>;
+  return <div className="underscores-play-core-overlay">{(elements || []).filter(shouldRenderPlayCoreFrame).map(element => <div key={element.id} className="underscores-play-core-overlay-frame" style={{ left: (element.x + scrollX) * zoom, top: (element.y + scrollY) * zoom, width: element.width * zoom, height: element.height * zoom, transform: `rotate(${element.angle || 0}rad)` }}><PlayCoreFrame element={element} config={element.customData.underscoresPlayCore} scriptRuntimeRef={scriptRuntimeRef} /></div>)}</div>;
 }

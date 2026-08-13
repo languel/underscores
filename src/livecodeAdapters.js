@@ -107,7 +107,7 @@ export const describeLivecodeRuntime = rawNode => {
   if (adapter.runtime === "p5") return "Bundled p5 runtime";
   if (adapter.runtime === "playcore") return "Bundled Play Core runtime";
   if (adapter.runtime === "strudel") return "Shared native Strudel scheduler";
-  if (adapter.runtime === "orca") return "Native Orca grid and Drawerator MIDI routing";
+  if (adapter.runtime === "orca") return "Native Orca grid and Underscores MIDI routing";
   if (adapter.runtime === "shader") return "GLSL ES 3.00 on WebGL 2";
   if (adapter.runtime === "presentation") return "Local presentation renderer";
   return "Native runtime arrives in a later phase.";

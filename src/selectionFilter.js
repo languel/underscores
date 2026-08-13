@@ -1,6 +1,6 @@
 import { getScoreData } from "./iannixEngine.js";
 
-export const SELECTION_FILTER_STORAGE_KEY = "drawerator_selection_filter_v1";
+export const SELECTION_FILTER_STORAGE_KEY = "underscores_selection_filter_v1";
 
 export const SELECTION_FILTER_ROLES = ["curve", "cursor", "trigger"];
 

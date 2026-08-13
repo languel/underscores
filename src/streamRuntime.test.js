@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DraweratorStreamRegistry, createUnifiedStreamsApi, normalizeStreamSample } from "./streamRuntime.js";
+import { UnderscoresStreamRegistry, createUnifiedStreamsApi, normalizeStreamSample } from "./streamRuntime.js";
 import { StreamGraphRuntime, normalizeStreamGraph } from "./streamGraph.js";
 
 test("stream registry keeps capability and input/output roles independent", () => {
-  const registry = new DraweratorStreamRegistry({ now: () => 12 });
+  const registry = new UnderscoresStreamRegistry({ now: () => 12 });
   registry.register({ id: "pointer", name: "Pointer", kind: "space", capabilities: ["space", "event"], roles: ["input", "output"] });
   assert.equal(registry.list({ kind: "space" }).length, 1);
   assert.equal(registry.list({ kind: "event" }).length, 1);
@@ -13,7 +13,7 @@ test("stream registry keeps capability and input/output roles independent", () =
 });
 
 test("virtual streams are writable and owner cleanup is scoped", () => {
-  const registry = new DraweratorStreamRegistry({ now: () => 25 });
+  const registry = new UnderscoresStreamRegistry({ now: () => 25 });
   const api = createUnifiedStreamsApi({ registry });
   const owned = api.forOwner("livecode-a").create({ id: "gesture", kind: "event", name: "Gesture" });
   assert.equal(owned.virtual, true);
@@ -26,7 +26,7 @@ test("virtual streams are writable and owner cleanup is scoped", () => {
 });
 
 test("read-only streams reject external writes and image frames stay transient", () => {
-  const registry = new DraweratorStreamRegistry();
+  const registry = new UnderscoresStreamRegistry();
   registry.register({ id: "camera", kind: "image", roles: ["output"], writable: false });
   assert.throws(() => registry.publish("camera", { kind: "image", image: { width: 2, height: 2 } }), /read-only/);
   const image = { width: 3, height: 2 };
@@ -49,7 +49,7 @@ test("stream sample normalizes path data", () => {
 });
 
 test("graph threshold, region and curve-crossing publish ordinary event frames", () => {
-  const registry = new DraweratorStreamRegistry({ now: () => 3 });
+  const registry = new UnderscoresStreamRegistry({ now: () => 3 });
   registry.register({ id: "point", kind: "space", roles: ["output"] });
   registry.register({ id: "scalar", kind: "value", roles: ["output"] });
   const graph = normalizeStreamGraph({ processors: [
@@ -69,7 +69,7 @@ test("graph threshold, region and curve-crossing publish ordinary event frames",
 });
 
 test("typed graph processors publish geometry, held gates, edges, and latched resets", () => {
-  const registry = new DraweratorStreamRegistry({ now: () => 0 });
+  const registry = new UnderscoresStreamRegistry({ now: () => 0 });
   ["index", "thumb"].forEach(id => registry.register({ id, kind: "space", roles: ["output"] }));
   registry.register({ id: "pinch", kind: "value", roles: ["output"] });
   registry.register({ id: "reset", kind: "event", roles: ["output"] });

@@ -10,7 +10,7 @@ const matchesPattern = (pattern, eventName) => {
   return false;
 };
 
-export class DraweratorEventBus {
+export class UnderscoresEventBus {
   constructor({ maxEvents = 1000, now = () => performance.now() } = {}) {
     this.maxEvents = maxEvents;
     this.now = now;
@@ -76,7 +76,7 @@ const redactSensitiveArgs = (args, sensitiveArgs = []) => {
 export const parseGenericCommandSlash = (value, commandIds = []) => {
   const match = /^\/command\s+([^\s]+)(?:\s+([\s\S]+))?$/i.exec(String(value || "").trim());
   if (!match) return null;
-  if (!commandIds.includes(match[1])) return { error: `Unknown Drawerator command: ${match[1]}` };
+  if (!commandIds.includes(match[1])) return { error: `Unknown Underscores command: ${match[1]}` };
   try {
     return { id: match[1], args: match[2] ? JSON.parse(match[2]) : {} };
   } catch (error) {
@@ -84,8 +84,8 @@ export const parseGenericCommandSlash = (value, commandIds = []) => {
   }
 };
 
-export class DraweratorCommandRegistry {
-  constructor({ eventBus = new DraweratorEventBus(), contextProvider = () => ({}) } = {}) {
+export class UnderscoresCommandRegistry {
+  constructor({ eventBus = new UnderscoresEventBus(), contextProvider = () => ({}) } = {}) {
     this.eventBus = eventBus;
     this.contextProvider = contextProvider;
     this.commands = new Map();
@@ -165,7 +165,7 @@ export class DraweratorCommandRegistry {
 
   async execute(id, args = {}, options = {}) {
     const command = this.commands.get(id);
-    if (!command) throw new Error(`Unknown Drawerator command: ${id}`);
+    if (!command) throw new Error(`Unknown Underscores command: ${id}`);
     const validatedArgs = command.validate ? command.validate(cloneValue(args)) : cloneValue(args);
     const metadata = {
       invocationId: options.invocationId || crypto.randomUUID(),
@@ -236,8 +236,8 @@ export const normalizeInputSample = (sample, defaults = {}) => {
   });
 };
 
-export class DraweratorInputBus {
-  constructor({ eventBus = new DraweratorEventBus(), now = () => performance.now() } = {}) {
+export class UnderscoresInputBus {
+  constructor({ eventBus = new UnderscoresEventBus(), now = () => performance.now() } = {}) {
     this.eventBus = eventBus;
     this.now = now;
     this.adapters = new Map();

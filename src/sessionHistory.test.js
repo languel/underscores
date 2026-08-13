@@ -1,18 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  createDraweratorMacro,
-  createDraweratorSession,
-  DraweratorSessionController,
-  instantiateDraweratorMacro,
+  createUnderscoresMacro,
+  createUnderscoresSession,
+  UnderscoresSessionController,
+  instantiateUnderscoresMacro,
   mergeSceneMutation,
   normalizeSessionAction,
-  parseDraweratorSession,
+  parseUnderscoresSession,
 } from "./sessionHistory.js";
 
 test("session controller records monotonic command and stroke actions", () => {
   let now = 1000;
-  const controller = new DraweratorSessionController({ now: () => now });
+  const controller = new UnderscoresSessionController({ now: () => now });
   controller.start({ baseline: { elements: [] } });
   now = 1250;
   controller.recordCommand({
@@ -32,11 +32,11 @@ test("session controller records monotonic command and stroke actions", () => {
 });
 
 test("session clocks persist score sample rate and migrate legacy sessions", () => {
-  const session = createDraweratorSession({ clock: { fps: 25, tempo: 90, sampleRate: 96000 } });
+  const session = createUnderscoresSession({ clock: { fps: 25, tempo: 90, sampleRate: 96000 } });
   assert.equal(session.version, 2);
   assert.equal(session.clock.sampleRate, 96000);
   const legacy = { ...session, version: 1, clock: { fps: 30, tempo: 120, signature: { numerator: 4, denominator: 4 } } };
-  assert.equal(parseDraweratorSession(legacy).clock.sampleRate, 48000);
+  assert.equal(parseUnderscoresSession(legacy).clock.sampleRate, 48000);
 });
 
 test("history actions retain authored time expressions while keeping numeric compatibility", () => {
@@ -50,14 +50,14 @@ test("playback restores baseline and suppresses disabled and presentation action
   const restored = [];
   const applied = [];
   let frameCallback = null;
-  const controller = new DraweratorSessionController({
+  const controller = new UnderscoresSessionController({
     now: () => 0,
     restoreBaseline: baseline => restored.push(baseline),
     applyAction: (action, options) => applied.push([action, options]),
     requestFrame: callback => { frameCallback = callback; return 1; },
     cancelFrame: () => {},
   });
-  const session = createDraweratorSession({ baseline: { marker: true } });
+  const session = createUnderscoresSession({ baseline: { marker: true } });
   session.actions = [
     { id: "a", kind: "command", at: 0.1, enabled: true, presentation: false },
     { id: "b", kind: "command", at: 0.2, enabled: true, presentation: true },
@@ -72,7 +72,7 @@ test("playback restores baseline and suppresses disabled and presentation action
 });
 
 test("macros remap element IDs and insert relative to their origin", () => {
-  const session = createDraweratorSession();
+  const session = createUnderscoresSession();
   session.actions = [{
     id: "stroke-action",
     kind: "stroke",
@@ -83,8 +83,8 @@ test("macros remap element IDs and insert relative to their origin", () => {
       finalElements: [{ id: "element-1", x: 10, y: 20, width: 5, height: 5 }],
     },
   }];
-  const macro = createDraweratorMacro(session, { name: "Line" });
-  const actions = instantiateDraweratorMacro(macro, { mode: "relative", anchor: { x: 100, y: 200 } });
+  const macro = createUnderscoresMacro(session, { name: "Line" });
+  const actions = instantiateUnderscoresMacro(macro, { mode: "relative", anchor: { x: 100, y: 200 } });
   assert.equal(actions[0].at, 0);
   assert.equal(actions[0].args.samples[0].scene.x, 100);
   assert.equal(actions[0].args.finalElements[0].x, 100);
@@ -92,12 +92,12 @@ test("macros remap element IDs and insert relative to their origin", () => {
 });
 
 test("macros can select a session time range", () => {
-  const controller = new DraweratorSessionController({ now: () => 0 });
+  const controller = new UnderscoresSessionController({ now: () => 0 });
   controller.start();
   controller.record({ id: "early", at: 0, kind: "scene", args: {} });
   controller.record({ id: "middle", at: 2, kind: "scene", args: {} });
   controller.record({ id: "late", at: 5, kind: "scene", args: {} });
-  const macro = createDraweratorMacro(controller.get(), { start: 1, end: 3, name: "Middle" });
+  const macro = createUnderscoresMacro(controller.get(), { start: 1, end: 3, name: "Middle" });
   assert.equal(macro.actions.length, 1);
   assert.equal(macro.actions[0].at, 0);
 });
@@ -128,8 +128,8 @@ test("scene mutations coalesce create, update, and delete intent", () => {
 });
 
 test("older session actions migrate to normalized v1 fields", () => {
-  const migrated = parseDraweratorSession({
-    type: "drawerator-session",
+  const migrated = parseUnderscoresSession({
+    type: "underscores-session",
     version: 0,
     actions: [{ commandId: "legacy.command", time: 9, args: null }],
   });
@@ -139,5 +139,5 @@ test("older session actions migrate to normalized v1 fields", () => {
 });
 
 test("session parser rejects unrelated JSON", () => {
-  assert.throws(() => parseDraweratorSession({ type: "excalidraw", actions: [] }), /not a Drawerator session/);
+  assert.throws(() => parseUnderscoresSession({ type: "excalidraw", actions: [] }), /not a Underscores session/);
 });

@@ -12,7 +12,7 @@ import {
   hideLiveCanvasHostsForExport,
   drawP5FramesOnCanvas,
   EXCALIDRAW_DARK_THEME_FILTER,
-  exportDraweratorPng,
+  exportUnderscoresPng,
 } from "./p5Export.js";
 
 const p5Frame = {
@@ -22,7 +22,7 @@ const p5Frame = {
   width: 100,
   height: 50,
   angle: 0,
-  customData: { draweratorP5: {} },
+  customData: { underscoresP5: {} },
 };
 
 test("p5 export bounds account for rotated frame geometry", () => {
@@ -66,7 +66,7 @@ test("p5 host elements are hidden while their live canvases are composited", () 
 test("Livecode p5 nodes use the same PNG capture path as legacy p5 frames", () => {
   const livecodeP5 = {
     id: "live-p5",
-    customData: { draweratorLivecode: { kind: "p5" } },
+    customData: { underscoresLivecode: { kind: "p5" } },
   };
   assert.equal(isLivecodeP5Element(livecodeP5), true);
   assert.equal(shouldRenderLivecodeP5(livecodeP5), true);
@@ -114,12 +114,12 @@ test("Holistic canvas pixels are composited at the media host transform", () => 
     height: 50,
     angle: 0,
     opacity: 80,
-    customData: { draweratorMediaStream: { kind: "holistic", enabled: true } },
+    customData: { underscoresMediaStream: { kind: "holistic", enabled: true } },
   };
   const root = {
     querySelectorAll: () => [{
       getAttribute: () => "holistic",
-      querySelector: selector => selector === "canvas.drawerator-media-surface" ? sourceCanvas : null,
+      querySelector: selector => selector === "canvas.underscores-media-surface" ? sourceCanvas : null,
     }],
   };
   const captured = drawMediaStreamsOnCanvas({
@@ -177,7 +177,7 @@ test("p5 PNG export forwards the requested background mode", async () => {
   let exportOptions = null;
   const canvas = { width: 100, height: 50, getContext: () => null };
 
-  await exportDraweratorPng({
+  await exportUnderscoresPng({
     exportToCanvas: async options => {
       exportOptions = options;
       return canvas;
@@ -211,7 +211,7 @@ test("dark PNG exports use Excalidraw's visible-canvas filter at device resoluti
     querySelectorAll: () => [],
   };
 
-  const { canvas } = await exportDraweratorPng({
+  const { canvas } = await exportUnderscoresPng({
     exportToCanvas: async options => {
       exportOptions = options;
       return sourceCanvas;

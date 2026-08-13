@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import PanelPlacementControls from "./PanelPlacementControls.jsx";
 import { PANEL_PLACEMENTS } from "./panelLayout.js";
-import { getDraweratorPanel, getNaturalPanelPlacement } from "./panelRegistry.js";
+import { getUnderscoresPanel, getNaturalPanelPlacement } from "./panelRegistry.js";
 
 export const PanelIcon = ({ id }) => {
   if (id === "chat") {
@@ -65,7 +65,7 @@ export const PanelIcon = ({ id }) => {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.5 5 4.5 4.5M13 6.5l4.5 4.5M4 20l7.5-7.5M14 3l7 7-9.5 9.5-7-7L14 3Z"/></svg>;
 };
 
-export default function DraweratorPanel({
+export default function UnderscoresPanel({
   id,
   title,
   placement,
@@ -86,9 +86,9 @@ export default function DraweratorPanel({
   children,
 }) {
   const floating = placement === PANEL_PLACEMENTS.FLOATING;
-  const panelDefinition = getDraweratorPanel(id);
+  const panelDefinition = getUnderscoresPanel(id);
   const [floatingMinimized, setFloatingMinimized] = useState(() => (
-    typeof localStorage !== "undefined" && localStorage.getItem(`drawerator_panel_minimized_${id}`) === "true"
+    typeof localStorage !== "undefined" && localStorage.getItem(`underscores_panel_minimized_${id}`) === "true"
   ));
   const grouped = !floating && dockTabs.length > 1;
   const bottom = placement === PANEL_PLACEMENTS.BOTTOM;
@@ -101,7 +101,7 @@ export default function DraweratorPanel({
 
   useEffect(() => {
     if (typeof localStorage === "undefined") return;
-    localStorage.setItem(`drawerator_panel_minimized_${id}`, String(floatingMinimized));
+    localStorage.setItem(`underscores_panel_minimized_${id}`, String(floatingMinimized));
   }, [floatingMinimized, id]);
 
   const toggleFloatingMinimized = () => {
@@ -114,8 +114,8 @@ export default function DraweratorPanel({
   };
 
   const dockWidthVariable = placement === PANEL_PLACEMENTS.LEFT
-    ? "--drawerator-left-dock-width"
-    : "--drawerator-right-dock-width";
+    ? "--underscores-left-dock-width"
+    : "--underscores-right-dock-width";
   const style = {
     ...(floating ? {
       width: `${layout?.width ?? 380}px`,
@@ -130,7 +130,7 @@ export default function DraweratorPanel({
 
   return (
     <section
-      className={`drawerator-panel-shell drawerator-panel-${placement} ${collapsed ? "drawerator-panel-collapsed" : ""} ${minimized ? "drawerator-panel-floating-minimized" : ""}`}
+      className={`underscores-panel-shell underscores-panel-${placement} ${collapsed ? "underscores-panel-collapsed" : ""} ${minimized ? "underscores-panel-floating-minimized" : ""}`}
       data-panel-id={id}
       style={style}
       aria-label={`${title} panel`}
@@ -138,7 +138,7 @@ export default function DraweratorPanel({
     >
       {!floating && (
         <div
-          className={`drawerator-panel-resize-handle drawerator-panel-resize-${placement}`}
+          className={`underscores-panel-resize-handle underscores-panel-resize-${placement}`}
           onMouseDown={event => onResizeStart(id, event, placement)}
           onDoubleClick={collapsed ? onExpand : undefined}
           title={collapsed ? `Drag or double-click to expand ${title}` : `Drag to resize or collapse ${title}`}
@@ -147,14 +147,14 @@ export default function DraweratorPanel({
       )}
       {floating && (
         <div
-          className="drawerator-floating-resize-handle"
+          className="underscores-floating-resize-handle"
           onMouseDown={event => onResizeStart(id, event, placement)}
           title={`Resize ${title} panel`}
           aria-label={`Resize ${title} panel horizontally and vertically`}
         />
       )}
       {grouped && (
-        <div className="drawerator-dock-tabs" role="tablist" aria-label={`${placement} dock panels`}>
+        <div className="underscores-dock-tabs" role="tablist" aria-label={`${placement} dock panels`}>
           {dockTabs.map(panel => {
             const active = panel.id === id;
             return (
@@ -164,7 +164,7 @@ export default function DraweratorPanel({
               aria-selected={active}
               aria-label={panel.label}
               title={panel.label}
-              className={`drawerator-dock-tab ${active ? "active" : ""}`}
+              className={`underscores-dock-tab ${active ? "active" : ""}`}
             >
               <PanelPlacementControls
                 label={panel.label}
@@ -183,8 +183,8 @@ export default function DraweratorPanel({
           })}
         </div>
       )}
-      {!grouped && <header className="drawerator-panel-header">
-        <div className="drawerator-panel-heading">
+      {!grouped && <header className="underscores-panel-header">
+        <div className="underscores-panel-heading">
           <PanelPlacementControls
             label={title}
             placement={placement}
@@ -201,7 +201,7 @@ export default function DraweratorPanel({
           {floating && <span>{title}</span>}
         </div>
       </header>}
-      <div className="drawerator-panel-body">{children}</div>
+      <div className="underscores-panel-body">{children}</div>
     </section>
   );
 }

@@ -12,7 +12,7 @@ import {
   strudelSwitchAtCycle,
 } from "./strudelRuntime.js";
 
-test("Strudel transport maps Drawerator BPM to four-beat cycles", () => {
+test("Strudel transport maps Underscores BPM to four-beat cycles", () => {
   assert.equal(strudelBpmToCps(120), 0.5);
   assert.equal(strudelBpmToCps(240), 1);
   assert.equal(strudelBpmToCps(0), 0.5);
@@ -48,7 +48,7 @@ test("Strudel runtime keeps node ownership and free-run decisions separate", () 
   runtime.dispose();
 });
 
-test("Strudel Linked patterns use the Drawerator score phase", () => {
+test("Strudel Linked patterns use the Underscores score phase", () => {
   const runtime = new StrudelRuntimeManager();
   runtime.transport = { playing: true, bpm: 120, time: 0.5 };
   runtime.linkedPhaseOffset = 0.25;
@@ -111,7 +111,7 @@ test("Strudel stops rather than pauses its scheduler when Linked transport stops
   runtime.dispose();
 });
 
-test("Strudel linked clock CPS commands update the shared Drawerator tempo", () => {
+test("Strudel linked clock CPS commands update the shared Underscores tempo", () => {
   const runtime = new StrudelRuntimeManager();
   const tempos = [];
   const scope = runtime._nodeScope(
@@ -152,7 +152,7 @@ test("Strudel runtime compiles REPL-style anonymous pattern directives", async (
     assert.equal(typeof pattern.queryArc, "function");
     assert.equal("p" in pattern, false);
     assert.deepEqual(meta, { miniLocations: [], widgets: [], frameVisualizers: 0 });
-    assert.ok(pattern.queryArc(0, 1)[0].context.tags.includes("drawerator:node-a"));
+    assert.ok(pattern.queryArc(0, 1)[0].context.tags.includes("underscores:node-a"));
   } finally {
     if (previousPure === undefined) delete globalThis.pure;
     else globalThis.pure = previousPure;
@@ -212,7 +212,7 @@ test("Strudel exposes __ as the same node-local bridge", async () => {
   try {
     const { pattern } = await runtime._compile(
       "node-alias",
-      "$: pure(__ === drawerator && __.transport.playing && __.streams.get('Holistic').name === 'Holistic' ? 1 : 0)",
+      "$: pure(__.transport.playing && __.streams.get('Holistic').name === 'Holistic' ? 1 : 0)",
       bridge,
     );
     assert.deepEqual(pattern.queryArc(0, 1).map(hap => hap.value), [1]);

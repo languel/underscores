@@ -142,7 +142,7 @@ export default function TimeValueInput({
       value: resolveTimeValue(value, context),
       timeValue: createTimeValue(value, undefined, context),
     };
-    window.dispatchEvent(new CustomEvent("drawerator:parameter-route-request", { detail }));
+    window.dispatchEvent(new CustomEvent("underscores:parameter-route-request", { detail }));
     setMenu(null);
   };
 

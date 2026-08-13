@@ -5,7 +5,7 @@ const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(
 
 // Excalidraw draws the dark theme by filtering its light source canvas.  The
 // public export API deliberately returns that source canvas unfiltered, so a
-// Drawerator export must apply the same filter before it composites live p5
+// Underscores export must apply the same filter before it composites live p5
 // canvases (which are already drawn in their final colours).
 export const EXCALIDRAW_DARK_THEME_FILTER = "invert(93%) hue-rotate(180deg)";
 
@@ -72,10 +72,10 @@ export const getElementsExportBounds = elements => {
 };
 
 // Livecode p5 nodes use the same P5Frame renderer but carry their authored
-// config under draweratorLivecode instead of draweratorP5. Treat them as
+// config under underscoresLivecode instead of underscoresP5. Treat them as
 // exportable p5 surfaces too, so PNG copy/export and baking share one capture
 // path.
-export const isLivecodeP5Element = element => element?.customData?.draweratorLivecode?.kind === "p5";
+export const isLivecodeP5Element = element => element?.customData?.underscoresLivecode?.kind === "p5";
 
 export const shouldRenderLivecodeP5 = element => Boolean(
   element
@@ -103,8 +103,8 @@ export const hideLiveCanvasHostsForExport = elements => hideP5FrameHostsForExpor
 export const findP5CanvasForElement = (elementId, root = globalThis.document) => {
   if (!root?.querySelectorAll) return null;
   const id = String(elementId);
-  for (const container of root.querySelectorAll("[data-drawerator-p5-element-id]")) {
-    if (container.getAttribute("data-drawerator-p5-element-id") === id) {
+  for (const container of root.querySelectorAll("[data-underscores-p5-element-id]")) {
+    if (container.getAttribute("data-underscores-p5-element-id") === id) {
       return container.querySelector("canvas");
     }
   }
@@ -114,9 +114,9 @@ export const findP5CanvasForElement = (elementId, root = globalThis.document) =>
 export const findMediaStreamCanvasForElement = (elementId, root = globalThis.document) => {
   if (!root?.querySelectorAll) return null;
   const id = String(elementId);
-  for (const container of root.querySelectorAll("[data-drawerator-media-stream-id]")) {
-    if (container.getAttribute("data-drawerator-media-stream-id") === id) {
-      return container.querySelector("canvas.drawerator-media-surface");
+  for (const container of root.querySelectorAll("[data-underscores-media-stream-id]")) {
+    if (container.getAttribute("data-underscores-media-stream-id") === id) {
+      return container.querySelector("canvas.underscores-media-surface");
     }
   }
   return null;
@@ -231,7 +231,7 @@ export const applyExcalidrawThemeFilter = ({
   return filteredCanvas;
 };
 
-export const exportDraweratorPng = async ({
+export const exportUnderscoresPng = async ({
   exportToCanvas,
   elements,
   appState,
@@ -269,7 +269,7 @@ export const exportDraweratorPng = async ({
   return { canvas, capturedP5Frames, capturedMediaStreams };
 };
 
-export const downloadCanvasAsPng = (canvas, { filename = "drawerator-export.png", documentRef = globalThis.document } = {}) => {
+export const downloadCanvasAsPng = (canvas, { filename = "underscores-export.png", documentRef = globalThis.document } = {}) => {
   if (!canvas?.toDataURL || !documentRef?.createElement) return false;
   const link = documentRef.createElement("a");
   link.download = filename;

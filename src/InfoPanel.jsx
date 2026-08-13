@@ -122,20 +122,20 @@ const EditorKeys = () => (
       <li><strong>⌘/Ctrl A</strong> selects source only. <strong>⌘/Ctrl Z</strong> and <strong>⌘/Ctrl Shift Z</strong> undo and redo source edits only.</li>
       <li><strong>⌘/Ctrl F</strong> opens Find. <strong>Escape</strong> closes completion or Find. <strong>⌘/Ctrl Enter</strong> runs the active script.</li>
       <li>When this editor has focus, its selection, navigation, clipboard, and shortcut keys do not reach the canvas.</li>
-      <li><strong>Settings → Board → Code editor palette</strong> can follow Drawerator, use a fully transparent adaptive skin, stay monochrome for live coding, use adaptive VS Code colors, or switch to Teaching.</li>
+      <li><strong>Settings → Board → Code editor palette</strong> can follow Underscores, use a fully transparent adaptive skin, stay monochrome for live coding, use adaptive VS Code colors, or switch to Teaching.</li>
     </ul>
   </section>
 );
 
-const DraweratorApiGuide = () => (
+const UnderscoresApiGuide = () => (
   <section>
-    <h3>Drawerator API</h3>
-    <p>The shared <code>__</code> bridge is available in trusted p5, Play Core, Strudel, Brush, and Livecode runtimes. It is live: scene queries, selection, transport, theme, parameters, and streams reflect the current app state. Use <code>__.api</code> for deliberate application-level operations. The legacy <code>drawerator</code> name remains available for compatibility.</p>
+    <h3>Underscores API</h3>
+    <p>The shared <code>__</code> bridge is available in trusted p5, Play Core, Strudel, Brush, and Livecode runtimes. It is live: scene queries, selection, transport, theme, parameters, and streams reflect the current app state. Use <code>__.api</code> for deliberate application-level operations. The legacy <code>underscores</code> name remains available for compatibility.</p>
     <details className="info-api-group" open>
       <summary>Frame bridge</summary>
       <dl className="info-svg-command-list">
         <div><dt><code>element</code></dt><dd>The script host: <code>&#123; id, width, height &#125;</code>.</dd></div>
-        <div><dt><code>object</code></dt><dd>Live read-only snapshot of the host’s Drawerator scene object.</dd></div>
+        <div><dt><code>object</code></dt><dd>Live read-only snapshot of the host’s Underscores scene object.</dd></div>
         <div><dt><code>frame</code></dt><dd>The p5 or Play Core frame configuration.</dd></div>
         <div><dt><code>params</code></dt><dd>Values declared with <code>@param</code>; object parameters resolve to live object snapshots.</dd></div>
         <div><dt><code>currentColor</code></dt><dd>Current foreground CSS color. Use <code>colors.foreground.css</code> when opacity must be included.</dd></div>
@@ -153,7 +153,7 @@ const DraweratorApiGuide = () => (
         <div><dt><code>canvas.find(query)</code></dt><dd>Search by text, or filter snapshots with a predicate. <code>objects</code> is an alias of <code>canvas</code>.</dd></div>
         <div><dt><code>canvas.selected()</code></dt><dd>Read-only snapshots of the current canvas selection.</dd></div>
         <div><dt><code>events.on(pattern, listener)</code></dt><dd>Subscribe to the event bus; supports a trailing <code>.*</code> wildcard and returns an unsubscribe function.</dd></div>
-        <div><dt><code>events.recent(limit)</code> / <code>latest(pattern)</code></dt><dd>Inspect captured Drawerator events.</dd></div>
+        <div><dt><code>events.recent(limit)</code> / <code>latest(pattern)</code></dt><dd>Inspect captured Underscores events.</dd></div>
         <div><dt><code>transport.time</code> / <code>transport.context</code></dt><dd>Current score time and its timing context.</dd></div>
       </dl>
     </details>
@@ -174,7 +174,7 @@ const DraweratorApiGuide = () => (
         <div><dt><code>api.streams</code></dt><dd>List or resolve typed space, time, value, event, and image streams. Semantic MediaPipe <code>feature()</code>/<code>features()</code> remain available. <code>inputs</code> and <code>outputs</code> are filtered views, not separate systems.</dd></div>
       </dl>
     </details>
-    <pre><code>{`// Follow the current Drawerator foreground
+    <pre><code>{`// Follow the current Underscores foreground
 return { char: "●", color: __.colors.foreground.css };
 
 // Read a selected score object
@@ -202,7 +202,7 @@ function draw() {
 }`}</code></pre>
       <p>Use global p5 functions such as <code>stroke</code>, <code>fill</code>, <code>circle</code>, <code>line</code>, <code>translate</code>, and <code>noise</code>. <code>__.element</code> is the host object; <code>__.params</code> contains declared parameters.</p>
     </section>
-    <DraweratorApiGuide />
+    <UnderscoresApiGuide />
     <EditorKeys />
   </div>
 );
@@ -259,7 +259,7 @@ edges.subscribe(event => console.log(event.transition));`}</code></pre>
         <li>Disarming immediately releases gates and closes active strokes. Raw stream reads remain available to scripts while actors are disarmed.</li>
       </ul>
     </section>
-    <DraweratorApiGuide />
+    <UnderscoresApiGuide />
   </div>
 );
 
@@ -280,7 +280,7 @@ export function main({ x, y }, context) {
       <h3>Programs and frames</h3>
       <ul>
         <li>The program selector is a local working-file catalog. <strong>Save</strong> creates or updates a file; <strong>Duplicate</strong>, <strong>New</strong>, <strong>Import</strong>, and <strong>Delete</strong> mirror the p5 workflow.</li>
-        <li>The separate <strong>Original play.core examples</strong> group loads a local, editable upstream starter as a saved Drawerator program. It never needs a network request after this app loads.</li>
+        <li>The separate <strong>Original play.core examples</strong> group loads a local, editable upstream starter as a saved Underscores program. It never needs a network request after this app loads.</li>
         <li>A saved file can be attached to several frames. Saving it recompiles every linked frame; each host retains its own size, interaction setting, and <code>@param</code> values.</li>
         <li>Choose another saved program while one host is selected to attach it immediately. Press <strong>F2</strong> or double-click the selector to rename the selected saved program.</li>
       </ul>
@@ -291,7 +291,7 @@ export function main({ x, y }, context) {
         <li><code>settings</code> controls <code>fps</code>, <code>cols</code>, <code>rows</code>, foreground <code>color</code>, and <code>backgroundColor</code>. Zero columns or rows adapt to the frame size.</li>
         <li><code>boot()</code> runs once; <code>pre</code> and <code>post</code> surround each cell pass. The bridge is always available as <code>__</code>.</li>
         <li><code>main(coord, context, cursor, buffer)</code> returns a character or a cell object.</li>
-        <li><code>pointerMove</code>, <code>pointerDown</code>, and <code>pointerUp</code> receive the current context, cursor, buffer, and Drawerator bridge.</li>
+        <li><code>pointerMove</code>, <code>pointerDown</code>, and <code>pointerUp</code> receive the current context, cursor, buffer, and Underscores bridge.</li>
       </ul>
     </section>
     <section>
@@ -305,13 +305,13 @@ export function main({ x, y }, context) {
     </section>
     <section>
       <h3>Bundled modules</h3>
-      <p>Use normal static ES imports. Drawerator carries these helpers in every scene and single-file build, so imports never fetch from the network:</p>
+      <p>Use normal static ES imports. Underscores carries these helpers in every scene and single-file build, so imports never fetch from the network:</p>
       <pre><code>{`import { map, clamp, mix } from '/src/modules/num.js'
 import { vec2, rot, add, mulN, length } from '/src/modules/vec2.js'
 import { sort } from '/src/modules/sort.js'`}</code></pre>
       <p>Available paths are <code>num.js</code>, <code>sort.js</code>, <code>vec2.js</code>, <code>vec3.js</code>, <code>sdf.js</code>, <code>string.js</code>, <code>buffer.js</code>, <code>drawbox.js</code>, and <code>color.js</code> under <code>/src/modules/</code>. Named, default, and namespace imports are supported. Dynamic imports and non-bundled paths are rejected with a diagnostic.</p>
     </section>
-    <DraweratorApiGuide />
+    <UnderscoresApiGuide />
     <section><p>Programs run locally as trusted code. Valid source updates a selected Play Core frame immediately; invalid drafts remain editable without replacing the last working program.</p></section>
     <EditorKeys />
   </div>
@@ -325,7 +325,7 @@ const OrcaInfoGuide = () => (
       <pre><code>{`..:03C..
 ..*....
 ..R....`}</code></pre>
-      <p>Uppercase operators run on each frame. A note operator uses <code>:</code> (or <code>%</code> for mono), followed by channel, octave, note, velocity, and optional duration cells. Drawerator routes the resulting events through the Mixer.</p>
+      <p>Uppercase operators run on each frame. A note operator uses <code>:</code> (or <code>%</code> for mono), followed by channel, octave, note, velocity, and optional duration cells. Underscores routes the resulting events through the Mixer.</p>
     </section>
     <section>
       <h3>Operators</h3>
@@ -344,7 +344,7 @@ const OrcaInfoGuide = () => (
         <li>The Info panel keeps this guide available without taking space from the editable grid.</li>
       </ul>
     </section>
-    <DraweratorApiGuide />
+    <UnderscoresApiGuide />
     <EditorKeys />
   </div>
 );
@@ -466,7 +466,7 @@ const livecodeHelpTopic = kind => {
   return {
     id: `livecode-guide-${normalizedKind}`,
     title: help.title,
-    keywords: `livecode ${normalizedKind} script language guide ${help.title} __ drawerator bridge api`,
+    keywords: `livecode ${normalizedKind} script language guide ${help.title} __ underscores bridge api`,
     body: [help.summary, ...help.points, bridge.summary, ...bridge.points, help.footer].join("\n\n"),
     guide: <LivecodeInfoGuide kind={normalizedKind} />,
     examples: [],
@@ -489,7 +489,7 @@ const SCRIPT_GUIDE_SEARCH = Object.freeze({
   brush: Object.freeze({
     title: "Brush quick reference",
     keywords: "brush modifier geometry points tracks globals parameters javascript",
-    body: "Brush modifiers receive points and Drawerator globals, then return transformed or replacement tracks. Use @param declarations to expose editable values.",
+    body: "Brush modifiers receive points and Underscores globals, then return transformed or replacement tracks. Use @param declarations to expose editable values.",
   }),
   iannix: Object.freeze({
     title: "Score quick reference",
@@ -499,7 +499,7 @@ const SCRIPT_GUIDE_SEARCH = Object.freeze({
   p5: Object.freeze({
     title: "p5 quick reference",
     keywords: "p5 sketch javascript setup draw canvas brush frame api params",
-    body: "p5 sketches use setup() and draw() with the local canvas. The shared __ bridge exposes the host element, parameters, scene queries, events, transport, and Drawerator API.",
+    body: "p5 sketches use setup() and draw() with the local canvas. The shared __ bridge exposes the host element, parameters, scene queries, events, transport, and Underscores API.",
   }),
   play: Object.freeze({
     title: "Play Core quick reference",

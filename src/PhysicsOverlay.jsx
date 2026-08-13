@@ -11,11 +11,11 @@ const debugObjectLabel = (element, metadata = {}) => {
   if (element) {
     const scoreLabel = getScoreData(element)?.label;
     if (scoreLabel) return scoreLabel;
-    const customLabel = element.customData?.draweratorLabel;
+    const customLabel = element.customData?.underscoresLabel;
     if (customLabel) return customLabel;
-    const livecodeName = element.customData?.draweratorLivecode?.name;
+    const livecodeName = element.customData?.underscoresLivecode?.name;
     if (livecodeName) return livecodeName;
-    const mediaName = element.customData?.draweratorMediaStream?.name;
+    const mediaName = element.customData?.underscoresMediaStream?.name;
     if (mediaName) return mediaName;
     return element.id;
   }
@@ -640,7 +640,7 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
     };
   }, [runtime]);
 
-  return <canvas ref={canvasRef} className="drawerator-physics-overlay" aria-hidden="true" />;
+  return <canvas ref={canvasRef} className="underscores-physics-overlay" aria-hidden="true" />;
 });
 
 export default PhysicsOverlay;

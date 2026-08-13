@@ -30,9 +30,9 @@ export const countPerformanceScene = (elements = [], selectedElementIds = {}) =>
     stats.elements += 1;
     if (selectedElementIds[element.id]) stats.selected += 1;
     if (element.type === "image") stats.images += 1;
-    if (element.customData?.draweratorSvg) stats.svg += 1;
-    if (element.customData?.draweratorLivecode) stats.livecode += 1;
-    if (element.customData?.draweratorMediaStream) stats.media += 1;
+    if (element.customData?.underscoresSvg) stats.svg += 1;
+    if (element.customData?.underscoresLivecode) stats.livecode += 1;
+    if (element.customData?.underscoresMediaStream) stats.media += 1;
     return stats;
   }, { elements: 0, selected: 0, images: 0, svg: 0, livecode: 0, media: 0 });
 };
@@ -135,4 +135,4 @@ export const createPerformanceMonitor = ({ now = () => performance.now(), memory
   };
 };
 
-export const draweratorPerformanceMonitor = createPerformanceMonitor();
+export const underscoresPerformanceMonitor = createPerformanceMonitor();

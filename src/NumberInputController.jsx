@@ -25,7 +25,7 @@ const setInputValue = (input, value) => {
   // input event until a commit. Scrubs, steppers, and resets are already a
   // committed gesture, so notify the shared component explicitly.
   if (isDraftNumericInput(input)) {
-    input.dispatchEvent(new CustomEvent("drawerator:numeric-scrub", {
+    input.dispatchEvent(new CustomEvent("underscores:numeric-scrub", {
       bubbles: true,
       detail: { value },
     }));
@@ -259,7 +259,7 @@ export default function NumberInputController({ onRouteRequest }) {
   const addRoute = () => {
     if (!menu) return;
     const detail = { path: menu.path, label: menu.label, value: Number(menu.input.value) };
-    window.dispatchEvent(new CustomEvent("drawerator:parameter-route-request", { detail }));
+    window.dispatchEvent(new CustomEvent("underscores:parameter-route-request", { detail }));
     onRouteRequest?.(detail);
     setMenu(null);
   };

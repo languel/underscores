@@ -6,8 +6,8 @@ import {
 } from "./bezierGeometry.js";
 import { createTimeValue, migrateNumericTimeValue, resolveTimeValue } from "./timeValue.js";
 import { createDefaultGridBinding, normalizeCursorTiming, normalizeGridBinding, resolveScoreTiming, SCORE_TIMING_SCHEMA_VERSION } from "./scoreTiming.js";
-import { migrateLegacyCurveReference } from "./draweratorObjectRef.js";
-import { draweratorObjectRefKey, svgNodeObjectRef } from "./draweratorObjectRef.js";
+import { migrateLegacyCurveReference } from "./underscoresObjectRef.js";
+import { underscoresObjectRefKey, svgNodeObjectRef } from "./underscoresObjectRef.js";
 import { getEditableSvgPathNodes, getSvgPathWorldPoints } from "./svgPathGeometry.js";
 import { isSvgObjectElement, normalizeSvgObject } from "./svgObject.js";
 
@@ -492,7 +492,7 @@ const getSemanticBezierElement = element => {
     ...element,
     customData: {
       ...(element.customData || {}),
-      draweratorGeometry: {
+      underscoresGeometry: {
         ...geometry,
         // Keep the shared Bezier metrics cache coherent when a native path is
         // edited without changing its outer bounds.
@@ -516,7 +516,7 @@ const getSemanticBezierElement = element => {
 export const getElementCorePaths = (element) => {
   if (!element || element.isDeleted) return [];
   const cached = corePathCache.get(element);
-  const geometry = element.customData?.draweratorGeometry;
+  const geometry = element.customData?.underscoresGeometry;
   const originalPoints = element.customData?.originalPoints;
   if (
     cached &&
@@ -874,7 +874,7 @@ const svgScoreObjectsCache = new WeakMap();
 
 const getSvgHostScoreObjects = host => {
   if (host.isDeleted || !isSvgObjectElement(host)) return [];
-  const rawSvg = host.customData.draweratorSvg;
+  const rawSvg = host.customData.underscoresSvg;
   const cached = svgScoreObjectsCache.get(host);
   if (
     cached?.source === rawSvg?.source
@@ -885,8 +885,8 @@ const getSvgHostScoreObjects = host => {
   }
   const svg = normalizeSvgObject(rawSvg);
   const pathsByNodeId = new Map(getEditableSvgPathNodes(svg.source)
-    .filter(path => path.node.draweratorId)
-    .map(path => [path.node.draweratorId, path]));
+    .filter(path => path.node.underscoresId)
+    .map(path => [path.node.underscoresId, path]));
   const objects = Object.entries(svg.metadataMirror?.nodes || {}).flatMap(([nodeId, nodeData]) => {
     if (!IANNIX_ROLES.includes(nodeData?.score?.role || nodeData?.iannix?.role)) return [];
     const path = pathsByNodeId.get(nodeId);
@@ -898,7 +898,7 @@ const getSvgHostScoreObjects = host => {
     if (worldPath.length < 2) return [];
     const ref = svgNodeObjectRef(host.id, nodeId, subpath.index);
     return [{
-      id: draweratorObjectRefKey(ref),
+      id: underscoresObjectRefKey(ref),
       type: "line",
       x: 0,
       y: 0,
@@ -910,8 +910,8 @@ const getSvgHostScoreObjects = host => {
       isDeleted: false,
       customData: {
         ...withScoreData({}, normalizeIannixData(nodeData.score || nodeData.iannix)),
-        draweratorObjectRef: ref,
-        draweratorSvgHostId: host.id,
+        underscoresObjectRef: ref,
+        underscoresSvgHostId: host.id,
       },
     }];
   });
@@ -991,7 +991,7 @@ export const evaluateScoreFrame = (
   ]);
   const resolveCurveElement = data => {
     const ref = data?.cursor?.curveRef;
-    if (ref?.kind === "svg-node") return byId.get(draweratorObjectRefKey(ref)) || null;
+    if (ref?.kind === "svg-node") return byId.get(underscoresObjectRefKey(ref)) || null;
     return byId.get(ref?.elementId || data?.cursor?.curveId) || null;
   };
   const resolvedTimings = new Map();

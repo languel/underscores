@@ -1,8 +1,8 @@
-export const P5_FRAME_STORAGE_KEY = "drawerator_p5_scripts";
+export const P5_FRAME_STORAGE_KEY = "underscores_p5_scripts";
 
 export const DEFAULT_P5_CDN_URL = "https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js";
 
-export const DEFAULT_P5_SOURCE = `// p5 instance-mode sketch. __ is the node-local Drawerator bridge.
+export const DEFAULT_P5_SOURCE = `// p5 instance-mode sketch. __ is the node-local Underscores bridge.
 p.setup = () => {
   p.createCanvas(__.element.width, __.element.height);
 };
@@ -18,7 +18,7 @@ p.draw = () => {
   p.line(p.width / 2 - radius, p.height / 2, p.width / 2 + radius, p.height / 2);
 };`;
 
-export const DEFAULT_P5_CLASSIC_SOURCE = `// Classic p5 global-mode sketch. __ is the node-local Drawerator bridge.
+export const DEFAULT_P5_CLASSIC_SOURCE = `// Classic p5 global-mode sketch. __ is the node-local Underscores bridge.
 function setup() {
   createCanvas(__.element.width, __.element.height);
 }
@@ -179,10 +179,10 @@ p.draw = () => {
 };`,
   }),
   Object.freeze({
-    id: "drawerator-bridge",
-    name: "Drawerator canvas and time",
+    id: "underscores-bridge",
+    name: "Underscores canvas and time",
     mode: "instance",
-    source: `// Drawerator-aware p5 example.
+    source: `// Underscores-aware p5 example.
 // Pick a curve, cursor, trigger, label, or group in the optional Driver field.
 // @param driver = "" (object)
 
@@ -239,7 +239,7 @@ export const P5_SOURCE_MODES = Object.freeze({
   global: "global",
 });
 
-// In classic/global mode p5 discovers these names on the window. Drawerator
+// In classic/global mode p5 discovers these names on the window. Underscores
 // evaluates each sketch in an isolated proxy instead, so we explicitly carry
 // the complete callback surface back to the p5 instance. Keeping this list in
 // one place also makes the two authoring styles behave the same way.
@@ -329,9 +329,9 @@ export const DEFAULT_P5_FRAME = Object.freeze({
   reloadNonce: 0,
 });
 
-export const isP5FrameElement = element => Boolean(element?.customData?.draweratorP5);
+export const isP5FrameElement = element => Boolean(element?.customData?.underscoresP5);
 
-// p5 frames have a Drawerator-owned overlay in addition to their Excalidraw
+// p5 frames have a Underscores-owned overlay in addition to their Excalidraw
 // host. Keep the overlay aligned with the outliner's visibility state so
 // hiding a p5 frame hides the rendered sketch as well.
 export const shouldRenderP5Frame = element => Boolean(
@@ -342,11 +342,11 @@ export const shouldRenderP5Frame = element => Boolean(
   && isP5FrameElement(element)
 );
 
-// p5 runners are Drawerator-owned overlays. Keep a regular Excalidraw host
+// p5 runners are Underscores-owned overlays. Keep a regular Excalidraw host
 // beneath them so they remain selectable and resizable without surfacing
 // Excalidraw's link/embed decorators.
 export const getP5HostElementType = value => {
-  const frame = value?.customData?.draweratorP5 || value;
+  const frame = value?.customData?.underscoresP5 || value;
   return frame?.hostType === "frame" ? "frame" : "rectangle";
 };
 
@@ -356,11 +356,11 @@ export const canHostP5Frame = element => Boolean(
   && (isP5FrameElement(element) || ["rectangle", "frame", "embeddable"].includes(element.type))
 );
 
-// Classic p5 global mode is normally installed on window. Drawerator instead
+// Classic p5 global mode is normally installed on window. Underscores instead
 // evaluates it in a frame-local proxy over a p5 instance, which preserves the
 // familiar setup()/draw() syntax without letting two frames overwrite each
 // other's callbacks or globals.
-export const compileClassicP5Source = (p, drawerator, source, interactionState = {}, scriptConsole = drawerator?.console || globalThis.console) => {
+export const compileClassicP5Source = (p, bridge, source, interactionState = {}, scriptConsole = bridge?.console || globalThis.console) => {
   const localValues = Object.create(null);
   const scope = new Proxy(localValues, {
     // Keep this evaluator-owned name visible from inside `with`; every other
@@ -369,8 +369,7 @@ export const compileClassicP5Source = (p, drawerator, source, interactionState =
     get(target, key) {
       if (key === Symbol.unscopables) return undefined;
       if (key === "p") return p;
-      if (key === "drawerator") return drawerator;
-      if (key === "__") return drawerator;
+      if (key === "__") return bridge;
       if (key === "console") return scriptConsole;
       // p5 itself exposes mouseIsPressed but not mouseIsDragged. Supporting
       // the latter here is a small compatibility affordance for classroom
@@ -399,14 +398,13 @@ export const compileClassicP5Source = (p, drawerator, source, interactionState =
   return callbacks || {};
 };
 
-export const compileInstanceP5Source = (p, drawerator, source, scriptConsole = drawerator?.console || globalThis.console) => (
+export const compileInstanceP5Source = (p, bridge, source, scriptConsole = bridge?.console || globalThis.console) => (
   new Function(
     "p",
-    "drawerator",
     "__",
     "console",
     `${typeof source === "string" ? source : ""}\nreturn { ${P5_GLOBAL_CALLBACK_NAMES.map(name => `${name}: p.${name}`).join(", ")} };`,
-  )(p, drawerator, drawerator, scriptConsole) || {}
+  )(p, bridge, scriptConsole) || {}
 );
 
 export const normalizeP5Frame = value => {
@@ -496,7 +494,7 @@ export const reconcileP5ScriptsWithElements = (scripts, elements, { createId = c
   const byId = new Map(catalog.map(script => [script.id, script]));
   const repairedElements = (elements || []).map(element => {
     if (!isP5FrameElement(element)) return element;
-    const frame = normalizeP5Frame(element.customData?.draweratorP5);
+    const frame = normalizeP5Frame(element.customData?.underscoresP5);
     let script = frame.scriptId ? byId.get(frame.scriptId) : null;
     if (!script) {
       script = normalizeP5Script({
@@ -522,7 +520,7 @@ export const reconcileP5ScriptsWithElements = (scripts, elements, { createId = c
       type: getP5HostElementType(repairedFrame),
       link: null,
       validated: false,
-      customData: { ...(element.customData || {}), draweratorP5: repairedFrame },
+      customData: { ...(element.customData || {}), underscoresP5: repairedFrame },
       version: Math.max(1, (element.version || 0) + 1),
       versionNonce: Math.floor(Math.random() * 0x7fffffff),
       updated: now,

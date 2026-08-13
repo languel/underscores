@@ -1,7 +1,7 @@
 # Generic mappings
 
-Mappings are the canonical event-routing model for Drawerator. They are persisted in
-`drawerator.relationshipGraph.mappings` and have one linear shape:
+Mappings are the canonical event-routing model for Underscores. They are persisted in
+`underscores.relationshipGraph.mappings` and have one linear shape:
 
 ```text
 Source -> Filter -> Transform -> Target

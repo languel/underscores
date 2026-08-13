@@ -1,4 +1,4 @@
-import { normalizeDraweratorObjectRef, draweratorObjectRefKey } from "./draweratorObjectRef.js";
+import { normalizeUnderscoresObjectRef, underscoresObjectRefKey } from "./underscoresObjectRef.js";
 
 export const RELATIONSHIP_GRAPH_VERSION = 4;
 export const PHYSICS_FIXED_HZ = 60;
@@ -186,7 +186,7 @@ export const normalizePhysicsEndpoint = value => {
       featureId: value.featureId ? String(value.featureId) : null,
     };
   }
-  const objectRef = normalizeDraweratorObjectRef(value.objectRef || value.elementId);
+  const objectRef = normalizeUnderscoresObjectRef(value.objectRef || value.elementId);
   if (!objectRef) return null;
   if (value.kind === "bezier-anchor") {
     const anchorId = String(value.anchorId || "");
@@ -241,7 +241,7 @@ export const physicsEndpointKey = value => {
   if (endpoint.kind === "none") return "none";
   if (endpoint.kind === "world") return `world:${endpoint.point.join(":")}`;
   if (endpoint.kind === "stream") return `stream:${endpoint.streamId}:${endpoint.featureId || ""}:${endpoint.path}`;
-  const objectKey = draweratorObjectRefKey(endpoint.objectRef);
+  const objectKey = underscoresObjectRefKey(endpoint.objectRef);
   if (endpoint.kind === "bezier-anchor") return `${objectKey}:anchor:${endpoint.anchorId}`;
   if (endpoint.kind === "curve-progress") return `${objectKey}:progress:${endpoint.progress}`;
   if (endpoint.kind === "rope") return `${objectKey}:rope:${endpoint.constraintId}:${endpoint.ropeProgress ?? endpoint.linkIndex ?? endpoint.point.join(":")}`;
@@ -284,7 +284,7 @@ export const normalizePhysicsTrail = value => ({
 });
 
 export const normalizePhysicsBody = value => {
-  const objectRef = normalizeDraweratorObjectRef(value?.objectRef);
+  const objectRef = normalizeUnderscoresObjectRef(value?.objectRef);
   const tracking = TRACKING_CLASSES.includes(value?.tracking)
     ? value.tracking
     : (objectRef ? "authored-rigid" : "runtime-lite");
@@ -419,20 +419,20 @@ export const serializePhysicsConstraintCustomData = value => {
 };
 
 // Physics metadata lives on the authored object as `customData.physics`.
-// `draweratorPhysics` was the name used by the first canvas-first slice; read
+// `underscoresPhysics` was the name used by the first canvas-first slice; read
 // it as a compatibility alias, but never make it the canonical write path.
 export const getPhysicsCustomData = value => {
   const customData = value?.customData && typeof value.customData === "object"
     ? value.customData
     : value;
-  return customData?.physics || customData?.draweratorPhysics || null;
+  return customData?.physics || customData?.underscoresPhysics || null;
 };
 
 export const withPhysicsCustomData = (customData, value) => {
   const next = { ...(customData || {}), physics: value?.kind && isConstraintPhysicsRole(value.kind)
     ? serializePhysicsConstraintCustomData(value)
     : serializePhysicsBodyCustomData(value) };
-  delete next.draweratorPhysics;
+  delete next.underscoresPhysics;
   return next;
 };
 
@@ -621,7 +621,7 @@ export const normalizePhysicsConstraint = value => {
     name: String(value?.name || "Constraint"),
     enabled: value?.enabled !== false,
     kind,
-    objectRef: normalizeDraweratorObjectRef(value?.objectRef),
+    objectRef: normalizeUnderscoresObjectRef(value?.objectRef),
     // Ropes are freestanding chains. Axles and welds attach individual runtime
     // links through their own rope endpoints; a rope itself never owns two
     // hidden start/end connections.
@@ -915,7 +915,7 @@ export const removeRelationshipBindingsForElements = (graphValue, elementIds) =>
   const ids = new Set(list(elementIds).map(String).filter(Boolean));
   if (!ids.size) return graph;
   const referencesDeletedElement = objectRef => {
-    const reference = normalizeDraweratorObjectRef(objectRef);
+    const reference = normalizeUnderscoresObjectRef(objectRef);
     return reference?.kind === "element" && ids.has(reference.elementId);
   };
   const endpointReferencesDeletedElement = endpointValue => {
@@ -937,7 +937,7 @@ export const removeRelationshipBindingsForElements = (graphValue, elementIds) =>
 export const remapRelationshipGraph = (graphValue, idMap, existingIds = new Set()) => {
   const graph = normalizeRelationshipGraph(graphValue);
   const remapRef = objectRef => {
-    const ref = normalizeDraweratorObjectRef(objectRef);
+    const ref = normalizeUnderscoresObjectRef(objectRef);
     if (!ref) return null;
     const elementId = idMap.get(ref.elementId) || (existingIds.has(ref.elementId) ? ref.elementId : null);
     return elementId ? { ...ref, elementId } : null;
@@ -1049,7 +1049,7 @@ export const findRelationshipOrphans = (graphValue, elements = []) => {
     const element = liveElements.get(endpoint.objectRef.elementId);
     if (!element) return true;
     if (endpoint.kind !== "bezier-anchor") return false;
-    const anchors = element.customData?.draweratorGeometry?.anchors;
+    const anchors = element.customData?.underscoresGeometry?.anchors;
     return !Array.isArray(anchors) || !anchors.some(anchor => anchor?.id === endpoint.anchorId);
   };
   const orphans = [];
@@ -1072,7 +1072,7 @@ export const findRelationshipOrphans = (graphValue, elements = []) => {
 export class RelationshipWriterRegistry {
   constructor() { this.claims = new Map(); }
   claim(ownerId, objectRef, channel) {
-    const key = `${draweratorObjectRefKey(objectRef)}:${channel}`;
+    const key = `${underscoresObjectRefKey(objectRef)}:${channel}`;
     const current = this.claims.get(key);
     if (current && current !== ownerId) return { ok: false, ownerId: current, key };
     this.claims.set(key, ownerId);

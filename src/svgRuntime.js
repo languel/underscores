@@ -36,7 +36,7 @@ export const sanitizeSvgForInertRender = sourceValue => {
 
   let renderIndex = 0;
   [...document.querySelectorAll("*")].forEach(element => {
-    element.setAttribute("data-drawerator-render-index", String(renderIndex));
+    element.setAttribute("data-underscores-render-index", String(renderIndex));
     renderIndex += 1;
   });
 

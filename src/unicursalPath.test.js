@@ -134,3 +134,15 @@ test("transforms to scene coordinates and smooths by point index", () => {
   const smoothed = smoothUnicursalFrame(frame, shifted, 16, 140);
   assert.ok(smoothed.points[0].x > frame.points[0].x && smoothed.points[0].x < shifted.points[0].x);
 });
+
+test("motion dynamics retain uncertain features and slow sticky semantic joins", () => {
+  const frame = generateUnicursalPath({ result: fixture(), options: { geometry: { pointBudget: 96 } } });
+  const shifted = { ...frame, points: frame.points.map(item => ({ ...item, x: item.x + 0.2, confidence: 0.05 })) };
+  const responsive = smoothUnicursalFrame(frame, shifted, 16, 140, { inertia: 0, confidenceWeight: 0 });
+  const retained = smoothUnicursalFrame(frame, shifted, 16, 140, { inertia: 0.8, confidenceWeight: 1, stickiness: 0.8 });
+  assert.ok(retained.points[0].x < responsive.points[0].x);
+  assert.ok(retained.points[0].x > frame.points[0].x);
+  assert.equal(normalizeUnicursalOptions().motion.inertia, 0.28);
+  assert.equal(normalizeUnicursalOptions().motion.confidenceWeight, 0.72);
+  assert.equal(normalizeUnicursalOptions().motion.stickiness, 0.35);
+});

@@ -4,16 +4,16 @@ Last updated: 2026-08-11
 
 ## Scope
 
-The Script panel uses one CodeMirror 6 editing surface for Brush / modifier JavaScript, IanniX JavaScript, p5 JavaScript, Play Core JavaScript, SVG documents, and every non-grid Livecode Node. It is deliberately a compact live-coding editor inside Drawerator's existing panel system, not a second application shell. Catalogs, parameter controls, adapter actions, status, and the current panel placement model remain outside the editor.
+The Script panel uses one CodeMirror 6 editing surface for Brush / modifier JavaScript, IanniX JavaScript, p5 JavaScript, Play Core JavaScript, SVG documents, and every non-grid Livecode Node. It is deliberately a compact live-coding editor inside Underscores's existing panel system, not a second application shell. Catalogs, parameter controls, adapter actions, status, and the current panel placement model remain outside the editor.
 
 The shared surface provides:
 
 - language-aware syntax trees for JavaScript and SVG/HTML;
 - line numbers, active-line treatment, folding, indentation, bracket matching, and automatic closing;
 - search and replace, selection-match highlighting, multiple selections, and rectangular selection;
-- adapter-specific snippets and completions for Brush globals, IanniX commands/runtime helpers, p5 and Play Core plus the preferred `__` bridge (`drawerator` remains a compatibility alias), and SVG elements/attributes;
+- adapter-specific snippets and completions for Brush globals, IanniX commands/runtime helpers, p5 and Play Core plus the preferred `__` bridge (`underscores` remains a compatibility alias), and SVG elements/attributes;
 - debounced adapter diagnostics and lint-gutter markers;
-- persistent font sizing plus Drawerator, Transparent, Mono, VS Code, and Teaching code palettes;
+- persistent font sizing plus Underscores, Transparent, Mono, VS Code, and Teaching code palettes;
 - `Mod+Enter` as a common Run/Play gesture.
 
 When CodeMirror is focused it owns the complete editing session. Keyboard and clipboard events do
@@ -24,7 +24,7 @@ its source changes.
 
 ## Boundaries
 
-`src/DraweratorCodeEditor.jsx` owns CodeMirror state, controlled-source synchronization, configuration compartments, editor commands, and accessibility attributes. It does not save or execute scripts.
+`src/UnderscoresCodeEditor.jsx` owns CodeMirror state, controlled-source synchronization, configuration compartments, editor commands, and accessibility attributes. It does not save or execute scripts.
 
 `src/scriptEditorProfiles.js` is the language-intelligence registry. A profile selects the CodeMirror language package and supplies the runtime-aware completion list. New script adapters should add one profile and one `src/scriptTypes.js` entry rather than forking the editor.
 
@@ -67,7 +67,7 @@ of a resized or docked panel.
 Strudel additionally places public painters such as `.pianoroll()` on a node-sized canvas below the
 code overlay. The default-on **Frame** toggle registers or removes that target without recompiling
 the pattern. Painter work uses the existing shared Strudel draw loop and pauses for offscreen
-canvases; underscore methods continue to create inline CodeMirror widgets.
+canvases; underscores methods continue to create inline CodeMirror widgets.
 See [Livecode Nodes](livecode.md) for adapter behavior and the in-app quick-reference contract.
 
 ## Play Core adapter
@@ -75,16 +75,16 @@ See [Livecode Nodes](livecode.md) for adapter behavior and the in-app quick-refe
 `src/playCoreFrame.js` defines the portable host contract and a compact local implementation of the
 public program lifecycle popularized by [ertdfgcvb/play.core](https://github.com/ertdfgcvb/play.core):
 `settings`, `boot`, `pre`, `main`, `post`, and pointer callbacks. A Play Core host is an ordinary
-transparent rectangle or frame with `customData.draweratorPlayCore`; it stays selectable and
+transparent rectangle or frame with `customData.underscoresPlayCore`; it stays selectable and
 transformable like a p5 host.
 
 Play Core also uses the same local working-file model as p5. The selector exposes saved programs
-from `drawerator_play_core_scripts`; Save, Duplicate, New, Import, and Delete act on that catalog.
+from `underscores_play_core_scripts`; Save, Duplicate, New, Import, and Delete act on that catalog.
 Its separate **Original play.core examples** group provides a curated local collection adapted from
 the upstream Apache-2.0 repository. Choosing an example creates an ordinary editable saved
-Drawerator program, so it can be modified, renamed, duplicated, and attached without a network
+Underscores program, so it can be modified, renamed, duplicated, and attached without a network
 dependency. Camera and canvas examples are intentionally held back until those upstream modules
-have equivalent portable Drawerator implementations.
+have equivalent portable Underscores implementations.
 Hosts retain a `scriptId`, so saving the selected program recompiles every linked host while an
 unsaved draft remains local until it is saved or attached.
 
@@ -105,8 +105,8 @@ The live shared `__` bridge is the same in Play Core and p5. It exposes `element
 `frame`, `params`, `canvas`/`objects`, `events`, `transport`, and `time`. Appearance is also live:
 `currentColor`, `currentOpacity`, `theme`, and `colors` (`foreground`, `accent`, `highlight`, and
 `muted`, each with `color`, `opacity`, and composited `css`). `__.api` exposes the public
-Drawerator API for deliberate higher-level scene, grid, command, history, and macro operations.
-The legacy `drawerator` name remains available for compatibility.
+Underscores API for deliberate higher-level scene, grid, command, history, and macro operations.
+The legacy `underscores` name remains available for compatibility.
 
 ## Typed stream bridge
 
@@ -117,16 +117,16 @@ semantic methods remain compatible: `__.streams.get("Holistic").feature(...)` an
 
 Trusted scripts may create a runtime-owned stream with `__.streams.create(descriptor)` and write to
 that stream only. Created virtual streams are removed when their owning runtime stops; image frames
-and browser handles are never serialized. `__.api.streams` and `window.drawerator.streams` expose
-the same public service for deliberate app integration, while `window.__` is intentionally absent.
-The maintained full reference is [Drawerator Script API](./drawerator-api.md); the p5 and Play Core
+and browser handles are never serialized. `__.api.streams` and `window.__.streams` expose
+the same public service for deliberate app integration.
+The maintained full reference is [Underscores Script API](./underscores-api.md); the p5 and Play Core
 Info panel guides present the same reference while scripting.
 
 `main({ x, y, index }, context, cursor, buffer)` runs for each ASCII cell. `context`
 contains the time, frame number, grid dimensions, host dimensions, and resolved settings; `cursor`
 uses cell coordinates and retains its previous state at `cursor.p`. A program may return a character
 or a cell object such as `{ char: "·" }`. `pre`, `post`, and pointer callbacks operate on the same
-cell buffer and Drawerator bridge.
+cell buffer and Underscores bridge.
 
 Static ES imports resolve from a bundled, offline Play Core registry. The supported absolute paths
 are `/src/modules/num.js`, `sort.js`, `vec2.js`, `vec3.js`, `sdf.js`, `string.js`, `buffer.js`,
@@ -142,4 +142,4 @@ AI integration should operate on the canonical adapter source and explicit edito
 
 ## Styling contract
 
-CodeMirror emits structural and `tok-*` classes; `src/index.css` maps them through Drawerator/Excalidraw theme variables and the explicit palette skin. **Drawerator adaptive** follows the active board; **Transparent adaptive** has no editor or gutter fill; **Mono adaptive** tracks the active light/dark mode in grayscale; and **VS Code adaptive** switches between its familiar light and dark syntax skins with the board. **Teaching** retains high-contrast syntax on a transparent surface and supplies readable light-mode token colors rather than forcing a dark editor onto a light board. Editor, gutter, search panel, completion tooltip, diagnostics, selection, and focus borders must remain legible in all built-in board themes. Avoid extra status bars, minimaps, breadcrumbs, or nested cards.
+CodeMirror emits structural and `tok-*` classes; `src/index.css` maps them through Underscores/Excalidraw theme variables and the explicit palette skin. **Underscores adaptive** follows the active board; **Transparent adaptive** has no editor or gutter fill; **Mono adaptive** tracks the active light/dark mode in grayscale; and **VS Code adaptive** switches between its familiar light and dark syntax skins with the board. **Teaching** retains high-contrast syntax on a transparent surface and supplies readable light-mode token colors rather than forcing a dark editor onto a light board. Editor, gutter, search panel, completion tooltip, diagnostics, selection, and focus borders must remain legible in all built-in board themes. Avoid extra status bars, minimaps, breadcrumbs, or nested cards.

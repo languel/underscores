@@ -30,7 +30,7 @@ const DEFAULT_SAMPLE_MAPS = Object.freeze([
   "mridangam.json",
 ]);
 const DEFAULT_BANK_ALIASES = "https://raw.githubusercontent.com/todepond/samples/main/tidal-drum-machines-alias.json";
-const nodeVisualTag = nodeId => `drawerator:${nodeId}`;
+const nodeVisualTag = nodeId => `underscores:${nodeId}`;
 const bpmToCps = bpm => Math.max(0.01, Math.min(16, (Number(bpm) || 120) / 240));
 const ownsNodeHap = (nodeId, hap) => hap.context?.tags?.includes(nodeVisualTag(nodeId));
 
@@ -187,7 +187,7 @@ const captureFrameVisualizers = (runtime, nodeId) => {
       configurable: true,
       writable: true,
       value(options = {}) {
-        // Underscore widgets supply their own inline CodeMirror canvas and
+        // Underscores widgets supply their own inline CodeMirror canvas and
         // should retain Strudel's native widget behavior.
         if (options?.ctx) return previousPianoroll.value.call(this, options);
         return this.onPaint((ctx, time, haps, drawTime) => {
@@ -390,7 +390,6 @@ export class StrudelRuntimeManager {
         bridge?.strudel?.setPlaying?.(false);
         return core.silence;
       },
-      drawerator: bridge,
       __: bridge,
     };
   }
@@ -570,7 +569,7 @@ export class StrudelRuntimeManager {
     if (this.scheduler) {
       schedulerCycle = this.scheduler.now?.() || 0;
       if (shouldAnchorPhase) {
-        // Cyclist's clock is monotonic and independent from Drawerator's
+        // Cyclist's clock is monotonic and independent from Underscores's
         // seekable/looping score time. Shift only Linked patterns so their
         // cycle phase equals the score's BBU phase at every transport anchor.
         this.linkedPhaseOffset = (this.transport.time * this.cps) - schedulerCycle;
@@ -656,7 +655,7 @@ export class StrudelRuntimeManager {
       }
     } else {
       // Linked transport stop is a phase reset, not a pause. Cyclist.pause()
-      // preserves its private cycle counter, which made the next Drawerator
+      // preserves its private cycle counter, which made the next Underscores
       // downbeat resume at an arbitrary Strudel step.
       if (scheduler.started) scheduler.stop();
       if (this.drawerRunning) this.drawer?.stop();

@@ -7,10 +7,10 @@ Last updated: 2026-07-28
 An SVG object remains an ordinary transparent Excalidraw host so it participates in scene
 selection, transforms, opacity, ordering, history, copy/paste, and persistence. The authored SVG
 source is canonical. Visual editing, Properties, scripts, animation inspection, AI commands, and
-Drawerator bindings all patch that same source; the editor does not maintain a competing flattened
+Underscores bindings all patch that same source; the editor does not maintain a competing flattened
 scene graph.
 
-Version 2 of `customData.draweratorSvg` is:
+Version 2 of `customData.underscoresSvg` is:
 
 ```js
 {
@@ -36,15 +36,15 @@ Version 2 of `customData.draweratorSvg` is:
 
 Version-1 hosts migrate when read. A raw source edit remains byte-for-byte authored source. The
 first structured edit performs one undoable normalization transaction that adds stable
-`data-drawerator-id` attributes to addressable nodes and, when needed, an embedded registry:
+`data-underscores-id` attributes to addressable nodes and, when needed, an embedded registry:
 
 ```xml
-<metadata data-drawerator="v1">
+<metadata data-underscores="v1">
   {"version":1,"nodes":{"svg-node-…":{"iannix":{"role":"curve"}}}}
 </metadata>
 ```
 
-Authored `id` attributes are never replaced. The embedded registry is canonical for Drawerator
+Authored `id` attributes are never replaced. The embedded registry is canonical for Underscores
 node data; the host mirror is an indexed cache keyed to the SVG revision and can always be rebuilt.
 Comments, processing instructions, whitespace, namespaces, unsupported elements, and unknown
 metadata outside a changed range survive normal edits.
@@ -103,7 +103,7 @@ the spline editor:
 
 Properties and Outliner share the selected SVG node. They expose the authored tree, virtual compound
 subpaths, document attributes, geometry actions, matched CSS declarations, animation lanes, runtime
-policy, and embedded Drawerator data. Matched stylesheet declarations are patched in their existing
+policy, and embedded Underscores data. Matched stylesheet declarations are patched in their existing
 rule instead of silently becoming inline styles.
 
 Canvas and source selection are bidirectional. Selecting a node or virtual subpath highlights its
@@ -128,7 +128,7 @@ event attributes, interactive `foreignObject` content, CSS imports, and remote r
 inert without modifying canonical source. The live SVG DOM provides rendered-node hit testing,
 computed styling, SVG CTMs, SMIL seeking, and Web Animations inspection.
 
-Drawerator transport is the default master clock. SMIL is sought with
+Underscores transport is the default master clock. SMIL is sought with
 `SVGSVGElement.setCurrentTime()` and CSS animations are sought through the Web Animations API.
 Selecting **Free run** lets that SVG use its own clock.
 
@@ -136,7 +136,7 @@ The timing graph recognizes:
 
 - SMIL `animate`, `set`, `animateTransform`, `animateMotion`, and `mpath`
 - CSS `@keyframes`, longhand animation properties, and animation shorthand
-- Drawerator metadata automation lanes
+- Underscores metadata automation lanes
 - Looom thread/frame groups and their speed, offset, play-mode, latch, mask, blend, and pressure
   custom properties
 
@@ -162,7 +162,7 @@ returns immediately to the inert renderer.
 
 ## Structured command API
 
-The command registry exposes revision-checked operations to UI, scripts, `window.drawerator`, slash
+The command registry exposes revision-checked operations to UI, scripts, `window.__`, slash
 commands, and approved AI actions:
 
 ```text
@@ -191,7 +191,7 @@ changed-node IDs, and the parsed document.
 ## Exchange and compatibility
 
 **From selection** converts native geometry to a source-preserving SVG at the same world position in
-one history change. Neutral foreground marks become `currentColor`, so they follow Drawerator's
+one history change. Neutral foreground marks become `currentColor`, so they follow Underscores's
 theme; deliberate colors stay literal. Copying an SVG host returns its authored SVG. Pasting an SVG
 can still use the existing native editable-path import route.
 
@@ -225,7 +225,7 @@ role assignment, and scene reload.
 
 The Script panel source view uses the same CodeMirror palette system as every other script adapter.
 Source highlighting is independent from SVG rendering and is therefore safe to switch between
-Drawerator, Transparent, Mono, VS Code, and Teaching skins while retaining immediate valid-source
+Underscores, Transparent, Mono, VS Code, and Teaching skins while retaining immediate valid-source
 updates on the canvas.
 
 ## Remaining compositor boundary

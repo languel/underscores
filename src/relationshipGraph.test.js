@@ -237,7 +237,7 @@ test("physics metadata uses the short canonical key and reads the legacy alias",
   const body = { bodyType: "fixed", collider: { kind: "box" }, material: { restitution: 0.2 } };
   const customData = { physics: serializePhysicsBodyCustomData(body) };
   assert.equal(getPhysicsCustomData({ customData }).bodyType, "fixed");
-  assert.equal(getPhysicsCustomData({ customData: { draweratorPhysics: customData.physics } }).bodyType, "fixed");
+  assert.equal(getPhysicsCustomData({ customData: { underscoresPhysics: customData.physics } }).bodyType, "fixed");
 });
 
 test("constraint custom-data mirrors motor settings and detached endpoints", () => {
@@ -455,10 +455,10 @@ test("deleted stable Bezier anchors orphan only their participating endpoint", (
   });
   const element = {
     id: "curve",
-    customData: { draweratorGeometry: { anchors: [{ id: "anchor-a" }, { id: "anchor-b" }] } },
+    customData: { underscoresGeometry: { anchors: [{ id: "anchor-a" }, { id: "anchor-b" }] } },
   };
   assert.deepEqual(findRelationshipOrphans(graph, [element]), []);
-  element.customData.draweratorGeometry.anchors.splice(0, 1);
+  element.customData.underscoresGeometry.anchors.splice(0, 1);
   assert.deepEqual(findRelationshipOrphans(graph, [element]), [
     { kind: "constraint", id: "anchor-spring", endpoint: "a" },
   ]);

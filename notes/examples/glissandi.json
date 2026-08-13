@@ -1,7 +1,7 @@
 {
   "type": "excalidraw",
   "version": 2,
-  "source": "drawerator-example:glissandi",
+  "source": "underscores-example:glissandi",
   "elements": [
     {
       "id": "glissandi_timeline",
@@ -699,7 +699,7 @@
     "gridSize": null
   },
   "files": {},
-  "drawerator": {
+  "underscores": {
     "version": 4,
     "kind": "scene",
     "score": {

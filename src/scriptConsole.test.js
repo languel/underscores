@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DraweratorEventBus } from "./commandSystem.js";
+import { UnderscoresEventBus } from "./commandSystem.js";
 import {
   createScriptConsole,
   serializeScriptConsoleArgs,
@@ -15,7 +15,7 @@ test("serializes script console values without throwing on complex input", () =>
 });
 
 test("routes node-local console methods through the script event bus", () => {
-  const eventBus = new DraweratorEventBus({ now: () => 42 });
+  const eventBus = new UnderscoresEventBus({ now: () => 42 });
   const events = [];
   eventBus.subscribe("script.log", event => events.push(event));
   const runtimeRef = { current: { emitScriptLog: (elementId, level, args) => eventBus.emit("script.log", { elementId, level, args }, { source: "livecode" }) } };

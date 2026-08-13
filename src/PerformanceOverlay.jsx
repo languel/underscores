@@ -1,25 +1,25 @@
 import React, { useEffect, useState, useSyncExternalStore } from "react";
-import { draweratorPerformanceMonitor } from "./performanceMonitor.js";
+import { underscoresPerformanceMonitor } from "./performanceMonitor.js";
 
 const rating = fps => fps >= 55 ? "good" : fps >= 40 ? "warn" : "poor";
 
 export default function PerformanceOverlay({ placement = "floating", onPlacementChange, onClose }) {
   const [expanded, setExpanded] = useState(() => placement === "console");
   const snapshot = useSyncExternalStore(
-    draweratorPerformanceMonitor.subscribe,
-    draweratorPerformanceMonitor.getSnapshot,
-    draweratorPerformanceMonitor.getSnapshot,
+    underscoresPerformanceMonitor.subscribe,
+    underscoresPerformanceMonitor.getSnapshot,
+    underscoresPerformanceMonitor.getSnapshot,
   );
   useEffect(() => {
-    draweratorPerformanceMonitor.setEnabled(true);
-    return () => draweratorPerformanceMonitor.setEnabled(false);
+    underscoresPerformanceMonitor.setEnabled(true);
+    return () => underscoresPerformanceMonitor.setEnabled(false);
   }, []);
   useEffect(() => {
     if (placement === "console") setExpanded(true);
   }, [placement]);
   const attached = placement === "console";
   return (
-    <aside className={`drawerator-performance-overlay ${attached ? "console" : "floating"} ${expanded ? "expanded" : ""}`} aria-label="Performance monitor">
+    <aside className={`underscores-performance-overlay ${attached ? "console" : "floating"} ${expanded ? "expanded" : ""}`} aria-label="Performance monitor">
       <button type="button" className={`performance-fps ${rating(snapshot.fps)}`} onClick={() => setExpanded(value => !value)} title="Browser animation-frame rate. Click for workload details.">
         <strong>{snapshot.fps || "–"}</strong><span>FPS</span>
       </button>

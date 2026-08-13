@@ -191,10 +191,10 @@ test("media sources preserve an independent processed-output play state and rate
 });
 
 test("source element predicate excludes derived streams", () => {
-  const camera = { customData: { draweratorMediaStream: createMediaStreamConfig("camera") } };
-  const canvas = { customData: { draweratorMediaStream: createMediaStreamConfig("canvas") } };
-  const holistic = { customData: { draweratorMediaStream: createMediaStreamConfig("holistic") } };
-  const preview = { customData: { draweratorMediaStream: createMediaStreamConfig("preview") } };
+  const camera = { customData: { underscoresMediaStream: createMediaStreamConfig("camera") } };
+  const canvas = { customData: { underscoresMediaStream: createMediaStreamConfig("canvas") } };
+  const holistic = { customData: { underscoresMediaStream: createMediaStreamConfig("holistic") } };
+  const preview = { customData: { underscoresMediaStream: createMediaStreamConfig("preview") } };
   assert.equal(isMediaSourceElement(camera), true);
   assert.equal(isMediaSourceElement(canvas), true);
   assert.equal(isMediaSourceElement(holistic), false);
@@ -204,9 +204,9 @@ test("source element predicate excludes derived streams", () => {
 test("holistic rectangle hosts remain valid object-bounds targets", () => {
   const rectangle = { id: "rect", type: "rectangle" };
   const frame = { id: "frame", type: "frame" };
-  const holistic = { id: "holistic", type: "rectangle", customData: { draweratorMediaStream: createMediaStreamConfig("holistic") } };
-  const preview = { id: "preview", type: "rectangle", customData: { draweratorMediaStream: createMediaStreamConfig("preview") } };
-  const camera = { id: "camera", type: "rectangle", customData: { draweratorMediaStream: createMediaStreamConfig("camera") } };
+  const holistic = { id: "holistic", type: "rectangle", customData: { underscoresMediaStream: createMediaStreamConfig("holistic") } };
+  const preview = { id: "preview", type: "rectangle", customData: { underscoresMediaStream: createMediaStreamConfig("preview") } };
+  const camera = { id: "camera", type: "rectangle", customData: { underscoresMediaStream: createMediaStreamConfig("camera") } };
   assert.equal(canUseAsObjectBoundsTarget(rectangle), true);
   assert.equal(canUseAsObjectBoundsTarget(frame), true);
   assert.equal(canUseAsObjectBoundsTarget(holistic), true);
@@ -236,7 +236,7 @@ test("holistic output can hide its source feed while retaining a source link", (
 
 test("canvas visibility hides only the optional stream view", () => {
   const config = createMediaStreamConfig("media", { sourceId: "media-a" });
-  const visible = { opacity: 100, customData: { draweratorMediaStream: config } };
+  const visible = { opacity: 100, customData: { underscoresMediaStream: config } };
   assert.equal(shouldRenderMediaStream(visible), true);
   assert.equal(shouldRenderMediaStream({ ...visible, opacity: 0 }), false);
   assert.equal(shouldRenderMediaStream({
