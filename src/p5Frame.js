@@ -39,6 +39,45 @@ function draw() {
 // it never overwrites an existing sketch.
 export const P5_EXAMPLES = Object.freeze([
   Object.freeze({
+    id: "mediapipe-unicursal",
+    name: "MediaPipe · Unicursal portrait",
+    mode: "instance",
+    source: `// Artistic single-line portrait from the first live Holistic stream.
+// Add a Media Input and Holistic object before running this sketch.
+let source = null;
+
+p.setup = () => {
+  p.createCanvas(__.element.width, __.element.height);
+  p.pixelDensity(1);
+};
+
+p.draw = () => {
+  p.clear();
+  source ||= __.streams.list().find(stream => stream.kind === "holistic");
+  const frame = source && __.art?.unicursal.generate(source.id, {
+    preset: "smooth",
+    outputSpace: "normalized",
+    geometry: { pointBudget: 384 },
+    ink: { color: __.currentColor, width: 3 },
+  });
+  if (!frame?.available) {
+    p.fill(__.currentColor);
+    p.noStroke();
+    p.text("Waiting for a Holistic frame…", 18, 28);
+    return;
+  }
+  p.noFill();
+  p.stroke(__.currentColor);
+  p.strokeCap(p.ROUND);
+  for (let index = 1; index < frame.points.length; index += 1) {
+    const a = frame.points[index - 1];
+    const b = frame.points[index];
+    p.strokeWeight(Math.max(0.5, (a.width + b.width) / 2));
+    p.line(a.x * p.width, a.y * p.height, b.x * p.width, b.y * p.height);
+  }
+};`,
+  }),
+  Object.freeze({
     id: "bare-instance",
     name: "Bare instance mode",
     mode: "instance",

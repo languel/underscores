@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   createMediaStreamsApi,
   disposeMediaStreamRuntime,
+  getMediaSegmentationConsumerIds,
+  requestMediaSegmentation,
   setMediaSemanticFrame,
   setMediaStreamDescriptors,
 } from "./mediaStreamRuntime.js";
@@ -25,4 +27,11 @@ test("semantic stream API resolves processors by id or name and stays live", () 
   assert.equal(frames.length, 1);
   unsubscribe();
   disposeMediaStreamRuntime();
+});
+
+test("segmentation demand is transient and cleared with the runtime", () => {
+  assert.equal(requestMediaSegmentation("holistic-a", 100), true);
+  assert.equal(getMediaSegmentationConsumerIds().has("holistic-a"), true);
+  disposeMediaStreamRuntime();
+  assert.equal(getMediaSegmentationConsumerIds().size, 0);
 });

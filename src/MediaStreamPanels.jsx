@@ -11,6 +11,7 @@ import { MediaRuntimePreview } from "./MediaStreamOverlay.jsx";
 import { getMediaRuntimeSource } from "./mediaStreamRuntime.js";
 import { infoProps } from "./uiInfo.js";
 import NumericInput from "./NumericInput.jsx";
+import { normalizeUnicursalOptions, UNICURSAL_PRESETS } from "./unicursalPath.js";
 
 const stopKeyPropagation = event => event.stopPropagation();
 
@@ -115,7 +116,7 @@ const SourceList = ({ sources, selectedId, empty, onSelect, onDelete }) => {
 };
 
 const ProcessorList = ({ elements, selectedElementIds, onSelect }) => {
-  if (!elements.length) return <div className="media-stream-panel-empty">No Holistic processor objects yet.</div>;
+  if (!elements.length) return <div className="media-stream-panel-empty">No Holistic or artistic drawing objects yet.</div>;
   return <div className="media-stream-panel-list" role="list">
     {elements.map(element => {
       const config = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
@@ -130,6 +131,94 @@ const ProcessorList = ({ elements, selectedElementIds, onSelect }) => {
         <span className="media-stream-panel-row-kind">{config.kind}</span>
       </button>;
     })}
+  </div>;
+};
+
+const UnicursalNumber = ({ label, value, min, max, step = 0.01, defaultValue, onCommit }) => <label className="media-stream-panel-field">
+  <span>{label}</span>
+  <NumericInput allowOverflow min={min} max={max} step={step} value={value} defaultValue={defaultValue} onKeyDown={stopKeyPropagation} onCommit={onCommit} />
+</label>;
+
+const UnicursalDetail = ({ element, config, processors, onPatch, onSnapshot }) => {
+  const art = config.unicursal;
+  const patchGroup = (group, patch) => onPatch(element.id, { unicursal: { [group]: patch } });
+  return <div className="media-stream-panel-detail unicursal-panel-detail">
+    <label className="media-stream-panel-field"><span>Name</span><input value={config.name} onKeyDown={stopKeyPropagation} onChange={event => onPatch(element.id, { name: event.target.value })} /></label>
+    <label className="media-stream-panel-field"><span>Holistic source</span>
+      <select value={art.sourceId} onChange={event => onPatch(element.id, { unicursal: { sourceId: event.target.value } })}>
+        <option value="">Choose Holistic</option>
+        {processors.map(source => <option key={source.id} value={source.id}>{normalizeMediaStreamConfig(source.customData.draweratorMediaStream).name}</option>)}
+      </select>
+    </label>
+    <label className="media-stream-panel-field"><span>Preset</span>
+      <select value={art.preset} onChange={event => onPatch(element.id, { unicursal: { sourceId: art.sourceId, ...normalizeUnicursalOptions({ preset: event.target.value }) } })}>
+        {Object.entries(UNICURSAL_PRESETS).map(([id, preset]) => <option key={id} value={id}>{preset.label}</option>)}
+      </select>
+    </label>
+    <button type="button" className="iannix-flat-button" onClick={() => onSnapshot(element.id)}>Snapshot path</button>
+    <details open><summary>Anatomy</summary><div className="unicursal-control-grid">
+      {[['silhouette', 'Silhouette'], ['face', 'Face'], ['leftHand', 'Left hand'], ['rightHand', 'Right hand'], ['body', 'Body accents']].map(([field, label]) => <label key={field} className="media-stream-panel-check"><input type="checkbox" checked={art.anatomy[field]} onChange={event => patchGroup("anatomy", { [field]: event.target.checked })} /><span>{label}</span></label>)}
+      <UnicursalNumber label="Silhouette detail weight" value={art.anatomy.silhouetteWeight} min="0" max="2" step="0.05" defaultValue={1} onCommit={value => patchGroup("anatomy", { silhouetteWeight: value })} />
+      <UnicursalNumber label="Face detail weight" value={art.anatomy.faceWeight} min="0" max="2" step="0.05" defaultValue={1} onCommit={value => patchGroup("anatomy", { faceWeight: value })} />
+      <UnicursalNumber label="Hand detail weight" value={art.anatomy.handWeight} min="0" max="2" step="0.05" defaultValue={1} onCommit={value => patchGroup("anatomy", { handWeight: value })} />
+      <UnicursalNumber label="Body detail weight" value={art.anatomy.bodyWeight} min="0" max="2" step="0.05" defaultValue={0.65} onCommit={value => patchGroup("anatomy", { bodyWeight: value })} />
+      <UnicursalNumber label="Silhouette exaggeration" value={art.anatomy.silhouetteExaggeration} min="0" max="3" step="0.05" defaultValue={1} onCommit={value => patchGroup("anatomy", { silhouetteExaggeration: value })} />
+      <UnicursalNumber label="Face exaggeration" value={art.anatomy.faceExaggeration} min="0" max="3" step="0.05" defaultValue={1} onCommit={value => patchGroup("anatomy", { faceExaggeration: value })} />
+      <UnicursalNumber label="Hand exaggeration" value={art.anatomy.handExaggeration} min="0" max="3" step="0.05" defaultValue={1} onCommit={value => patchGroup("anatomy", { handExaggeration: value })} />
+      <UnicursalNumber label="Body exaggeration" value={art.anatomy.bodyExaggeration} min="0" max="3" step="0.05" defaultValue={1} onCommit={value => patchGroup("anatomy", { bodyExaggeration: value })} />
+    </div></details>
+    <details><summary>Silhouette</summary><div className="unicursal-control-grid">
+      <label className="media-stream-panel-field"><span>Mode</span><select value={art.silhouette.mode} onChange={event => patchGroup("silhouette", { mode: event.target.value })}><option value="hybrid">Hybrid</option><option value="segmentation">Segmentation</option><option value="envelope">Landmark envelope</option></select></label>
+      <UnicursalNumber label="Threshold" value={art.silhouette.threshold} min="0.05" max="0.95" defaultValue={0.5} onCommit={value => patchGroup("silhouette", { threshold: value })} />
+      <UnicursalNumber label="Simplification" value={art.silhouette.simplify} min="0" max="1" defaultValue={0.16} onCommit={value => patchGroup("silhouette", { simplify: value })} />
+      <UnicursalNumber label="Detail" value={art.silhouette.detail} min="0" max="1" defaultValue={0.55} onCommit={value => patchGroup("silhouette", { detail: value })} />
+    </div></details>
+    <details><summary>Geometry</summary><div className="unicursal-control-grid">
+      <UnicursalNumber label="Point budget" value={art.geometry.pointBudget} min="96" max="1024" step="16" defaultValue={384} onCommit={value => patchGroup("geometry", { pointBudget: value })} />
+      <UnicursalNumber label="Max curve segments" value={art.geometry.maxSegments} min="1" max="12" step="1" defaultValue={1} onCommit={value => patchGroup("geometry", { maxSegments: value })} />
+      <label className="media-stream-panel-check"><input type="checkbox" checked={art.geometry.smoothCurves} onChange={event => patchGroup("geometry", { smoothCurves: event.target.checked })} /><span>Smooth curves</span></label>
+      <label className="media-stream-panel-field"><span>Curve interpolation</span><select value={art.geometry.curveMode} onChange={event => patchGroup("geometry", { curveMode: event.target.value })}><option value="catmull-rom">Catmull–Rom</option><option value="quadratic">Quadratic</option><option value="polyline">Polyline</option></select></label>
+      {[["abstraction", "Abstraction", 0.18], ["smoothing", "Smoothing", 0.72], ["tension", "Tension", 0.62], ["exaggeration", "Exaggeration", 0.12], ["bridgeCurvature", "Bridge curve", 0.45]].map(([field, label, fallback]) => <UnicursalNumber key={field} label={label} value={art.geometry[field]} min="0" max="1" defaultValue={fallback} onCommit={value => patchGroup("geometry", { [field]: value })} />)}
+      <UnicursalNumber label="Return offset" value={art.geometry.returnOffset} min="0" max="0.1" step="0.002" defaultValue={0.012} onCommit={value => patchGroup("geometry", { returnOffset: value })} />
+    </div></details>
+    <details><summary>Ornament</summary><div className="unicursal-control-grid">
+      <UnicursalNumber label="Seed" value={art.ornament.seed} min="0" max="2147483647" step="1" defaultValue={1701} onCommit={value => patchGroup("ornament", { seed: value })} />
+      <UnicursalNumber label="Jitter" value={art.ornament.jitter} min="0" max="0.2" step="0.005" defaultValue={0} onCommit={value => patchGroup("ornament", { jitter: value })} />
+      <UnicursalNumber label="Flourish" value={art.ornament.flourish} min="0" max="1" defaultValue={0.08} onCommit={value => patchGroup("ornament", { flourish: value })} />
+      <UnicursalNumber label="Retracing" value={art.ornament.retrace} min="0" max="1" defaultValue={0.02} onCommit={value => patchGroup("ornament", { retrace: value })} />
+    </div></details>
+    <details open><summary>Ink</summary><div className="unicursal-control-grid">
+      <label className="media-stream-panel-field"><span>Background</span><select value={art.background.mode} onChange={event => patchGroup("background", { mode: event.target.value })}><option value="transparent">Transparent</option><option value="solid">Solid</option></select></label>
+      {art.background.mode === "solid" && <label className="media-stream-panel-field"><span>Background color</span><input type="color" value={art.background.color} onChange={event => patchGroup("background", { color: event.target.value })} /></label>}
+      <label className="media-stream-panel-field"><span>Color</span><input type="color" value={art.ink.color} onChange={event => patchGroup("ink", { color: event.target.value })} /></label>
+      <UnicursalNumber label="Opacity %" value={art.ink.opacity} min="0" max="100" step="1" defaultValue={100} onCommit={value => patchGroup("ink", { opacity: value })} />
+      <UnicursalNumber label="Base width" value={art.ink.width} min="0.5" max="40" step="0.5" defaultValue={3} onCommit={value => patchGroup("ink", { width: value })} />
+      <label className="media-stream-panel-check"><input type="checkbox" checked={art.ink.variableWidth} onChange={event => patchGroup("ink", { variableWidth: event.target.checked })} /><span>Variable stroke weight</span></label>
+      <UnicursalNumber label="Width variation" value={art.ink.widthVariation} min="0" max="1" defaultValue={0.42} onCommit={value => patchGroup("ink", { widthVariation: value })} />
+      <UnicursalNumber label="Feature weight influence" value={art.ink.featureWidthInfluence} min="0" max="1" defaultValue={0.35} onCommit={value => patchGroup("ink", { featureWidthInfluence: value })} />
+      <UnicursalNumber label="Taper" value={art.ink.taper} min="0" max="1" defaultValue={0.58} onCommit={value => patchGroup("ink", { taper: value })} />
+      <UnicursalNumber label="Feather" value={art.ink.feather} min="0" max="1" defaultValue={0.08} onCommit={value => patchGroup("ink", { feather: value })} />
+    </div></details>
+    <details><summary>Landmark overlay</summary><div className="unicursal-control-grid">
+      <label className="media-stream-panel-check"><input type="checkbox" checked={art.landmarks.visible} onChange={event => patchGroup("landmarks", { visible: event.target.checked })} /><span>Show raw landmarks</span></label>
+      <label className="media-stream-panel-check"><input type="checkbox" checked={art.landmarks.points} onChange={event => patchGroup("landmarks", { points: event.target.checked })} /><span>Points</span></label>
+      <label className="media-stream-panel-check"><input type="checkbox" checked={art.landmarks.connections} onChange={event => patchGroup("landmarks", { connections: event.target.checked })} /><span>Semantic curves</span></label>
+      <label className="media-stream-panel-check"><input type="checkbox" checked={art.landmarks.rawOutline} onChange={event => patchGroup("landmarks", { rawOutline: event.target.checked })} /><span>Raw silhouette outline</span></label>
+      <label className="media-stream-panel-check"><input type="checkbox" checked={art.landmarks.matchInkColor} onChange={event => patchGroup("landmarks", { matchInkColor: event.target.checked })} /><span>Match ink color</span></label>
+      <UnicursalNumber label="Opacity" value={art.landmarks.opacity} min="0" max="1" defaultValue={0.72} onCommit={value => patchGroup("landmarks", { opacity: value })} />
+      <UnicursalNumber label="Point size" value={art.landmarks.pointSize} min="0.5" max="12" step="0.5" defaultValue={1.8} onCommit={value => patchGroup("landmarks", { pointSize: value })} />
+      <UnicursalNumber label="Line width" value={art.landmarks.lineWidth} min="0.5" max="8" step="0.5" defaultValue={1} onCommit={value => patchGroup("landmarks", { lineWidth: value })} />
+    </div></details>
+    <details><summary>Motion</summary><div className="unicursal-control-grid">
+      <UnicursalNumber label="Response ms" value={art.motion.responseMs} min="0" max="2000" step="10" defaultValue={140} onCommit={value => patchGroup("motion", { responseMs: value })} />
+      <UnicursalNumber label="Missing grace ms" value={art.motion.missingGraceMs} min="0" max="5000" step="20" defaultValue={260} onCommit={value => patchGroup("motion", { missingGraceMs: value })} />
+      <label className="media-stream-panel-check"><input type="checkbox" checked={art.motion.echoes} onChange={event => patchGroup("motion", { echoes: event.target.checked })} /><span>Echoes</span></label>
+      <UnicursalNumber label="Echo count" value={art.motion.echoCount} min="0" max="8" step="1" defaultValue={2} onCommit={value => patchGroup("motion", { echoCount: value })} />
+      <UnicursalNumber label="Echo delay ms" value={art.motion.echoDelayMs} min="16" max="2000" step="10" defaultValue={180} onCommit={value => patchGroup("motion", { echoDelayMs: value })} />
+      <UnicursalNumber label="Echo opacity" value={art.motion.echoOpacity} min="0" max="1" defaultValue={0.22} onCommit={value => patchGroup("motion", { echoOpacity: value })} />
+      <UnicursalNumber label="Echo decay" value={art.motion.echoDecay} min="0" max="1" defaultValue={0.55} onCommit={value => patchGroup("motion", { echoDecay: value })} />
+      <label className="media-stream-panel-check"><input type="checkbox" checked={art.includeEchoesInSnapshot} onChange={event => onPatch(element.id, { unicursal: { includeEchoesInSnapshot: event.target.checked } })} /><span>Snapshot echoes</span></label>
+    </div></details>
   </div>;
 };
 
@@ -355,27 +444,35 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
   </div>;
 }
 
-export function HolisticPanel({ elements, sources, selectedElementIds, onCreate, onPatch, onSelect, onSnapshot, onSnapshotPng }) {
+export function HolisticPanel({ elements, sources, selectedElementIds, onCreate, onPatch, onSelect, onSnapshot, onSnapshotPng, onSnapshotArt }) {
   const processors = useMemo(() => elements.filter(element => (
     isMediaStreamElement(element)
     && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC
   )), [elements]);
-  const selected = processors.find(element => selectedElementIds?.[element.id]) || processors[0] || null;
+  const artistic = useMemo(() => elements.filter(element => (
+    isMediaStreamElement(element)
+    && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.UNICURSAL
+  )), [elements]);
+  const objects = [...processors, ...artistic];
+  const selected = objects.find(element => selectedElementIds?.[element.id]) || objects[0] || null;
   const config = selected ? normalizeMediaStreamConfig(selected.customData.draweratorMediaStream) : null;
   const status = useMediaStatus(selected?.id);
   const defaultSourceId = sources[0]?.id || "";
   const faceGroupEntries = Object.entries(FACE_DISPLAY_GROUPS);
   const allFaceGroupsEnabled = config && config.holistic.showFace && faceGroupEntries.every(([id]) => config.holistic.faceGroups[id]);
+  const selectedHolistic = config?.kind === MEDIA_STREAM_KINDS.HOLISTIC;
+  const defaultProcessorId = processors[0]?.id || "";
 
   return <div className="media-stream-panel">
     <div className="media-stream-panel-toolbar">
       <button type="button" className="iannix-flat-button" disabled={!defaultSourceId} onClick={() => onCreate(MEDIA_STREAM_KINDS.HOLISTIC, { holistic: { sourceId: defaultSourceId } })}>Add Holistic object</button>
-      <button type="button" className="iannix-flat-button" disabled={!selected} onClick={() => onSnapshot(selected.id)}>Snapshot landmarks</button>
-      <button type="button" className="iannix-flat-button" disabled={!selected} onClick={() => onSnapshotPng(selected.id)} title="Capture the current Holistic view as a static PNG at the same canvas transform">Snapshot PNG</button>
+      <button type="button" className="iannix-flat-button" disabled={!defaultProcessorId} onClick={() => onCreate(MEDIA_STREAM_KINDS.UNICURSAL, { unicursal: { sourceId: defaultProcessorId } })}>Add Unicursal</button>
+      {selectedHolistic && <><button type="button" className="iannix-flat-button" onClick={() => onSnapshot(selected.id)}>Snapshot landmarks</button><button type="button" className="iannix-flat-button" onClick={() => onSnapshotPng(selected.id)} title="Capture the current Holistic view as a static PNG at the same canvas transform">Snapshot PNG</button></>}
     </div>
     {!sources.length && <div className="media-stream-panel-note">Create a camera or media input first.</div>}
-    <ProcessorList elements={processors} selectedElementIds={selectedElementIds} onSelect={onSelect} />
-    {config && <div className="media-stream-panel-detail">
+    <ProcessorList elements={objects} selectedElementIds={selectedElementIds} onSelect={onSelect} />
+    {config?.kind === MEDIA_STREAM_KINDS.UNICURSAL && <UnicursalDetail element={selected} config={config} processors={processors} onPatch={onPatch} onSnapshot={onSnapshotArt} />}
+    {selectedHolistic && <div className="media-stream-panel-detail">
       <label className="media-stream-panel-field">
         <span>Name</span>
         <input value={config.name} onKeyDown={stopKeyPropagation} onChange={event => onPatch(selected.id, { name: event.target.value })} />

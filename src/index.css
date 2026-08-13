@@ -5775,8 +5775,11 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .drawerator-media-preview-chrome button:disabled { opacity: .45; cursor: default; }
 
 .drawerator-media-stream-frame.is-holistic,
+.drawerator-media-stream-frame.is-unicursal,
 .drawerator-media-stream-frame.is-holistic .drawerator-media-stream-content,
-.drawerator-media-stream-frame.is-holistic .drawerator-media-surface {
+.drawerator-media-stream-frame.is-unicursal .drawerator-media-stream-content,
+.drawerator-media-stream-frame.is-holistic .drawerator-media-surface,
+.drawerator-media-stream-frame.is-unicursal .drawerator-media-surface {
   background: transparent;
 }
 
@@ -8321,6 +8324,33 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   display: grid;
   gap: 8px;
   padding-top: 2px;
+}
+
+.unicursal-panel-detail > details {
+  border: 1px solid var(--drawerator-panel-border, var(--border-color));
+  background: var(--drawerator-panel-subtle-bg, rgba(128, 128, 128, 0.04));
+}
+
+.unicursal-panel-detail > details > summary {
+  padding: 6px 8px;
+  cursor: pointer;
+  color: var(--color-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.unicursal-control-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+  padding: 3px 8px 8px;
+}
+
+.unicursal-control-grid .media-stream-panel-field {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
 }
 
 .media-stream-panel-transport {

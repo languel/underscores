@@ -1,4 +1,4 @@
-const STREAM_KINDS = Object.freeze(["space", "time", "value", "event", "image"]);
+const STREAM_KINDS = Object.freeze(["space", "time", "value", "event", "image", "path"]);
 const STREAM_ROLES = Object.freeze(["input", "output"]);
 
 const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
@@ -80,6 +80,30 @@ export const normalizeStreamSample = (sample, descriptor = {}, time = nowMs()) =
     normalized.image = image;
     normalized.width = Math.max(0, Number(source.width ?? image.width ?? image.videoWidth) || 0);
     normalized.height = Math.max(0, Number(source.height ?? image.height ?? image.videoHeight) || 0);
+  }
+  if (kind === "path") {
+    const points = Array.isArray(source.points) ? source.points : Array.isArray(source.value) ? source.value : [];
+    if (points.length < 2) throw new Error("Path stream samples require at least two points.");
+    normalized.points = points.map((item, index) => {
+      const x = Number(item?.x ?? item?.[0]);
+      const y = Number(item?.y ?? item?.[1]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`Path stream point ${index} requires finite x and y coordinates.`);
+      return {
+        x,
+        y,
+        ...(Number.isFinite(Number(item?.z)) ? { z: Number(item.z) } : {}),
+        ...(Number.isFinite(Number(item?.pressure)) ? { pressure: Number(item.pressure) } : {}),
+        ...(Number.isFinite(Number(item?.width)) ? { width: Number(item.width) } : {}),
+        ...(item?.role ? { role: String(item.role) } : {}),
+      };
+    });
+    normalized.space = cleanString(source.space, "scene");
+    normalized.closed = source.closed === true;
+    normalized.bounds = cloneData(source.bounds || null);
+    normalized.style = cleanString(source.style);
+    normalized.sourceId = cleanString(source.sourceId);
+    const sourceTimestamp = Number(source.sourceTimestamp);
+    normalized.sourceTimestamp = Number.isFinite(sourceTimestamp) ? sourceTimestamp : normalized.time;
   }
   return Object.freeze(normalized);
 };

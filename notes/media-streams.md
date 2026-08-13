@@ -6,12 +6,14 @@ while their optional canvas view is absent or hidden. This keeps acquisition and
 separate from presentation: panels, canvas views, and downstream processors all consume the same
 source output.
 
-The initial stream graph has three kinds:
+The media graph has four principal kinds:
 
 - `camera` acquires a selected `videoinput` with `getUserMedia`;
 - `media` decodes an image, animated GIF, or video from a URL or session-local file;
 - `holistic` is a transformable canvas processor that consumes a source by stable source id and
-  renders MediaPipe pose, hand, and sampled face landmarks.
+  renders MediaPipe pose, hand, and sampled face landmarks;
+- `unicursal` is a transformable artistic drawing that consumes a Holistic frame, generates one
+  stable person-shaped route, and publishes it as a typed path stream.
 
 Open the source catalog with `/media` (the `/media-input` alias remains available), signal streams with
 `/inputs`, and processors with `/holistic`. Creating an input adds it to the panel catalog only.
@@ -106,6 +108,67 @@ rotation, and frame membership. The live processor remains editable underneath t
 Holistic display and processing choices are remembered locally as the preset for the next processor;
 each existing processor also retains its own settings in the saved scene.
 
+## Unicursal artistic portraits
+
+The **Artistic drawings** section in the Holistic panel creates a first-class Unicursal object from
+the selected Holistic processor. This is an interpretation rather than another landmark overlay:
+one stable route passes through a silhouette, selected facial features, hands, and restrained body
+accents, joined by curved anatomical bridges. It never paints the pose skeleton. A fixed point
+budget (384 by default) keeps point identity stable across frames, missing regions collapse into
+their bridge after a grace interval, and seeded ornaments are functions of arc length rather than
+new frame randomness.
+
+The four presets change the same topology: **Smooth** favors flowing splines and taper, **Cubist**
+retains simplified corners, **Ornate** adds controlled curls and transitions, and **Messy** adds
+correlated overshoot and offset retracing. Advanced groups expose Anatomy, Silhouette, Geometry,
+Ornament, Ink, and Motion settings. The persisted ink begins with the active foreground at creation
+and is independently editable afterward.
+
+Hybrid silhouette mode requests MediaPipe segmentation only while an enabled Unicursal consumer
+needs it. The mask is downsampled, and its largest connected component is traced once per completed
+inference frame. Segmentation mode still falls back to a landmark-derived anatomical envelope when
+the model or current frame has no usable mask. The main line renders on Canvas2D without changing
+Excalidraw elements on animation frames. Echoes are opt-in runtime visuals (two when enabled);
+enable **Snapshot echoes** to deliberately capture them with the main line as one selected native
+group. Otherwise **Snapshot path** creates native pressure-profiled freedraw geometry.
+
+The renderer is demand-driven: it sleeps after response interpolation converges, keeps only the
+bounded history needed by enabled echoes, and paints each semantic curve as one pressure ribbon
+instead of issuing a stroke for every point pair. The object background is transparent by default,
+with an optional solid color. **Max curve segments** defaults to one and can recover separate
+silhouette, face, hand, and body curves without unstable frame-to-frame regrouping. Point weights
+allocate detail toward important features, per-feature exaggeration changes face, hands, and body
+independently, and feature importance can influence variable stroke width. **Smooth curves** keeps
+small point budgets fluid. A diagnostic landmark overlay can show the same semantic face, hand, and
+pose subsets used by the Holistic view while tuning the interpretation.
+
+Curve interpolation is explicit: **Catmull–Rom** is the default for both the centerline and the
+edges of variable-width pressure ribbons, with **Quadratic** and **Polyline** alternatives for
+comparison or deliberately angular work. Numeric field ranges are editing suggestions; typed
+finite values may exceed them, subject only to broad safety limits in the generator. The landmark
+diagnostic can additionally draw the exact silhouette source used by the route (segmentation
+contour or envelope fallback) and can inherit the portrait's ink color when it is intended as part
+of the output.
+
+Each object publishes `unicursal:<object-id>` as a read-only, scene-space `path` stream. A path
+sample contains finite points with pressure/width metadata, coordinate space, bounds, source time,
+style, and availability. Removing the object removes its stream registration. Trusted code can use
+the stream directly or call the shared generator:
+
+```js
+const pathStream = __.streams.get("Unicursal portrait");
+const current = pathStream?.snapshot();
+
+const path = __.art.unicursal.generate("Holistic", {
+  preset: "ornate",
+  outputSpace: "normalized",
+});
+```
+
+The p5 example catalog includes **MediaPipe · Unicursal portrait**. It calls this exact shared
+engine, so the livecode prototype and first-class object produce identical target geometry for the
+same completed frame and options; only their renderer and host transform differ.
+
 ## Verification checkpoint
 
 Automated coverage checks schema defaults, nested patches, type inference, clamping, panel-only
@@ -170,7 +233,7 @@ versioned binding definitions, not hundreds of landmark elements.
 ## Unified streams and Inputs
 
 `src/streamRuntime.js` generalizes semantic MediaPipe observations into one typed registry. A stream
-declares one primary frame kind—`space`, `time`, `value`, `event`, or `image`—plus any additional
+declares one primary frame kind—`space`, `time`, `value`, `event`, `image`, or `path`—plus any additional
 capabilities and its overlapping `input`/`output` roles. `inputs` and `outputs` are views over the
 same registry rather than disconnected buses.
 
@@ -320,3 +383,19 @@ selectable; a later map phase can generate annotated ids from the canonical onto
 Gaze remains a future calibrated derived signal rather than a direct interpretation of iris
 position. Palm openness, string-plucking, zones, MIDI actions, constraints, and the broader mapping
 graph build on the same registry in later slices.
+
+## Unicursal checkpoint — 2026-08-13
+
+The first usable portrait pass is now recorded as a checkpoint. The first-class object and the p5
+prototype share the same deterministic path generator, with transparent backgrounds by default,
+optional runtime echoes, typed scene-space `path` output, and no per-frame Excalidraw scene writes.
+Smooth rendering uses Catmull–Rom-derived cubic Bézier curves for both the centerline and
+variable-width ribbon edges; quadratic and polyline modes are available for comparison. The
+landmark diagnostic can preview the exact segmentation contour or envelope fallback and inherit the
+portrait ink color. Numeric control ranges are intentionally advisory so experimental values can be
+typed beyond the suggested UI range.
+
+Verification at this checkpoint: the full test suite passes (652 tests), the production build
+passes, and the working tree is clean of whitespace errors. Known follow-ups are silhouette
+quality/contour heuristics, further performance work for high point budgets or echoes, and richer
+feature-specific route allocation while preserving fixed topology.

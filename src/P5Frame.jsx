@@ -123,6 +123,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
           info: scriptConsole.info,
           warn: scriptConsole.warn,
           error: scriptConsole.error,
+          get art() { return window.drawerator?.art; },
           api: window.drawerator,
         };
         const sketch = p => {

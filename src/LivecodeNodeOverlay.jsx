@@ -153,6 +153,7 @@ function createLivecodeBridge(element, node, scriptRuntimeRef, onStrudelTranspor
     info: scriptConsole.info,
     warn: scriptConsole.warn,
     error: scriptConsole.error,
+    get art() { return window.drawerator?.art; },
     strudel: Object.freeze({
       setTempo: bpm => onStrudelTransport?.(element, node, { type: "tempo", value: bpm }),
       setPlaying: playing => onStrudelTransport?.(element, node, { type: "playing", value: Boolean(playing) }),
