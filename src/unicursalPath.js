@@ -637,6 +637,42 @@ export const transformUnicursalFrame = (frame, element, space = "scene") => {
   return Object.freeze({ ...frame, space, points: Object.freeze(points), segments: Object.freeze(transformedSegments), bounds: Object.freeze(boundsOf(points)) });
 };
 
+// Project one normalized Unicursal point into the host element's coordinate
+// space. Snapshot overlays use the same center-rotation transform as the live
+// canvas so landmark geometry stays registered when the host is rotated.
+export const transformUnicursalPoint = (value, element, space = "scene") => {
+  if (!finitePoint(value)) return null;
+  const width = Math.max(1, Math.abs(Number(element?.width) || 1));
+  const height = Math.max(1, Math.abs(Number(element?.height) || 1));
+  const local = { ...value, x: Number(value.x) * width, y: Number(value.y) * height };
+  if (space === "local") return Object.freeze(local);
+  if (space === "normalized") return Object.freeze({ ...value });
+  const angle = Number(element?.angle) || 0;
+  const cx = (Number(element?.x) || 0) + width / 2;
+  const cy = (Number(element?.y) || 0) + height / 2;
+  const dx = local.x - width / 2;
+  const dy = local.y - height / 2;
+  return Object.freeze({
+    ...local,
+    x: cx + dx * Math.cos(angle) - dy * Math.sin(angle),
+    y: cy + dx * Math.sin(angle) + dy * Math.cos(angle),
+  });
+};
+
+// drawUnicursalFrame renders normalized paths with a scene-unit scale based on
+// the host's short edge. Native snapshots need that same scale or they appear
+// noticeably thinner than the live canvas (especially on portrait hosts).
+export const getUnicursalSnapshotStrokeWidth = (frame, element) => {
+  const widths = (frame?.points || [])
+    .map(item => Number(item?.width))
+    .filter(Number.isFinite)
+    .filter(width => width > 0);
+  const fallback = Number(frame?.options?.ink?.width) || 3;
+  const average = widths.length ? widths.reduce((sum, width) => sum + width, 0) / widths.length : fallback;
+  const scale = Math.min(Math.abs(Number(element?.width) || 1), Math.abs(Number(element?.height) || 1)) / 300;
+  return Math.max(0.5, average * scale);
+};
+
 export const smoothUnicursalFrame = (previous, next, elapsedMs = 16, responseMs = 140, dynamics = {}) => {
   if (!previous?.points || previous.points.length !== next?.points?.length || responseMs <= 0) return next;
   const inertia = expressive(dynamics.inertia, 0.28, 0, 1);

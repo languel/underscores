@@ -137,7 +137,7 @@ const drawElementCanvas = ({ context, source, element, bounds, scaleX, scaleY })
   return true;
 };
 
-export const drawP5FramesOnCanvas = ({ canvas, elements, bounds, root = globalThis.document }) => {
+export const drawP5FramesOnCanvas = ({ canvas, elements, bounds, root = globalThis.document, transformSource = null }) => {
   if (!canvas || !bounds) return 0;
   const context = canvas.getContext?.("2d");
   if (!context) return 0;
@@ -148,13 +148,14 @@ export const drawP5FramesOnCanvas = ({ canvas, elements, bounds, root = globalTh
   let captured = 0;
 
   getP5ExportableElements(elements).forEach(element => {
-    const source = findP5CanvasForElement(element.id, root);
+    const rawSource = findP5CanvasForElement(element.id, root);
+    const source = transformSource ? transformSource(rawSource) : rawSource;
     if (drawElementCanvas({ context, source, element, bounds, scaleX, scaleY })) captured += 1;
   });
   return captured;
 };
 
-export const drawMediaStreamsOnCanvas = ({ canvas, elements, bounds, root = globalThis.document }) => {
+export const drawMediaStreamsOnCanvas = ({ canvas, elements, bounds, root = globalThis.document, transformSource = null }) => {
   if (!canvas || !bounds) return 0;
   const context = canvas.getContext?.("2d");
   if (!context) return 0;
@@ -164,7 +165,8 @@ export const drawMediaStreamsOnCanvas = ({ canvas, elements, bounds, root = glob
   const scaleY = canvas.height / sceneHeight;
   let captured = 0;
   (elements || []).filter(element => isMediaStreamElement(element) && shouldRenderMediaStream(element)).forEach(element => {
-    const source = findMediaStreamCanvasForElement(element.id, root);
+    const rawSource = findMediaStreamCanvasForElement(element.id, root);
+    const source = transformSource ? transformSource(rawSource) : rawSource;
     if (drawElementCanvas({ context, source, element, bounds, scaleX, scaleY })) captured += 1;
   });
   return captured;
@@ -231,6 +233,51 @@ export const applyExcalidrawThemeFilter = ({
   return filteredCanvas;
 };
 
+// Clipboard images are pasted back into Excalidraw's filtered dark canvas.
+// Live p5/media surfaces are already in display colours, so convert those
+// pixels back to the authored colour space before putting them on the
+// clipboard. Native scene elements are left untouched; their source canvas
+// already contains authored pixels.
+export const applyInverseExcalidrawThemeFilter = ({
+  canvas,
+  theme,
+  documentRef = canvas?.ownerDocument || globalThis.document,
+}) => {
+  if (!canvas || theme !== "dark" || !documentRef?.createElement) return canvas;
+  const authoredCanvas = documentRef.createElement("canvas");
+  authoredCanvas.width = canvas.width;
+  authoredCanvas.height = canvas.height;
+  const context = authoredCanvas.getContext?.("2d");
+  if (!context) return canvas;
+  context.drawImage(canvas, 0, 0);
+  let pixels;
+  try {
+    pixels = context.getImageData(0, 0, authoredCanvas.width, authoredCanvas.height);
+  } catch {
+    // A cross-origin source cannot be read back. Keep the display-colour
+    // canvas rather than failing the whole export.
+    return canvas;
+  }
+  const data = pixels.data;
+  const invertAmount = 0.93;
+  const invertScale = 1 - 2 * invertAmount;
+  // The 180-degree hue matrix used by the CSS filter is self-inverse.
+  const hue180 = [
+    [-0.574, 1.43, 0.144],
+    [0.426, 0.43, 0.144],
+    [0.426, 1.43, -0.856],
+  ];
+  for (let offset = 0; offset < data.length; offset += 4) {
+    const visible = [data[offset] / 255, data[offset + 1] / 255, data[offset + 2] / 255];
+    const inverted = hue180.map(row => row.reduce((sum, coefficient, index) => sum + coefficient * visible[index], 0));
+    data[offset] = Math.round(Math.min(1, Math.max(0, (inverted[0] - invertAmount) / invertScale)) * 255);
+    data[offset + 1] = Math.round(Math.min(1, Math.max(0, (inverted[1] - invertAmount) / invertScale)) * 255);
+    data[offset + 2] = Math.round(Math.min(1, Math.max(0, (inverted[2] - invertAmount) / invertScale)) * 255);
+  }
+  context.putImageData(pixels, 0, 0);
+  return authoredCanvas;
+};
+
 export const exportUnderscoresPng = async ({
   exportToCanvas,
   elements,
@@ -241,6 +288,7 @@ export const exportUnderscoresPng = async ({
   exportBackground = true,
   root = globalThis.document,
   pixelRatio = finite(globalThis.devicePixelRatio, 1),
+  outputMode = "visible",
 }) => {
   const activeElements = (elements || []).filter(element => element && !element.isDeleted);
   if (!activeElements.length) throw new Error("There is nothing to export.");
@@ -259,13 +307,18 @@ export const exportUnderscoresPng = async ({
       scale: resolution,
     }),
   });
-  const canvas = applyExcalidrawThemeFilter({
-    canvas: sourceCanvas,
-    theme: appState?.theme,
-    documentRef: root,
-  });
-  const capturedP5Frames = drawP5FramesOnCanvas({ canvas, elements: activeElements, bounds, root });
-  const capturedMediaStreams = drawMediaStreamsOnCanvas({ canvas, elements: activeElements, bounds, root });
+  const canvas = outputMode === "authored"
+    ? sourceCanvas
+    : applyExcalidrawThemeFilter({
+      canvas: sourceCanvas,
+      theme: appState?.theme,
+      documentRef: root,
+    });
+  const transformLiveSource = outputMode === "authored"
+    ? source => applyInverseExcalidrawThemeFilter({ canvas: source, theme: appState?.theme, documentRef: root })
+    : null;
+  const capturedP5Frames = drawP5FramesOnCanvas({ canvas, elements: activeElements, bounds, root, transformSource: transformLiveSource });
+  const capturedMediaStreams = drawMediaStreamsOnCanvas({ canvas, elements: activeElements, bounds, root, transformSource: transformLiveSource });
   return { canvas, capturedP5Frames, capturedMediaStreams };
 };
 

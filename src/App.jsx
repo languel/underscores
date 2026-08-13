@@ -103,10 +103,10 @@ import MediaMapOverlay from "./MediaMapOverlay.jsx";
 import { isMediaMapElement, normalizeMediaMapConfig } from "./mediaMap.js";
 import { createMediaSemanticFrame, FACE_DISPLAY_GROUPS, getHolisticDisplayLayers, mediaLandmarkFeatureId, POSE_DISPLAY_GROUPS } from "./mediaLandmarkOntology.js";
 import { createMediaBindingRuntimeState, mediaBindingRuntimeHasExpired, mediaDrivenElementPosition, resolveMediaBindingGate, resolveMediaBindingSignal, shouldAppendMediaStrokePoint } from "./mediaActorRuntime.js";
-import { canUseAsObjectBoundsTarget, createMediaBinding, createMediaSource, createMediaStreamConfig, isMediaStreamElement, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig, readHolisticSettingsPreset, writeHolisticSettingsPreset } from "./mediaStream.js";
+import { canUseAsObjectBoundsTarget, createMediaBinding, createMediaSource, createMediaStreamConfig, isMediaStreamElement, isSupportedMediaFile, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig, readHolisticSettingsPreset, writeHolisticSettingsPreset } from "./mediaStream.js";
 import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, requestMediaSegmentation, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
 import { createUnifiedStreamsApi, UnderscoresStreamRegistry } from "./streamRuntime.js";
-import { generateUnicursalPath, transformUnicursalFrame, UNICURSAL_PRESETS } from "./unicursalPath.js";
+import { generateUnicursalPath, getUnicursalSnapshotStrokeWidth, transformUnicursalFrame, transformUnicursalPoint, UNICURSAL_PRESETS } from "./unicursalPath.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
 import { addRelationshipItem, createDefaultPhysicsSystem, createEmptyRelationshipGraph, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, removeRelationshipBindingsForElements, removeRelationshipItem, updateRelationshipItem, withPhysicsCustomData } from "./relationshipGraph.js";
 import { chooseConstraintPivot, elementContainsPhysicsPoint, getLivePoseRopeConstraintIds, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, physicsEndpointAtPoint, repairLegacyAxleEndpointAlignment, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint, resolveTracerConstraint, ropeEndpointAtPoint, selectRopePathsForLivePose } from "./physicsConstraintAuthoring.js";
@@ -13532,6 +13532,12 @@ function App() {
   };
 
   const patchMediaInputSource = (sourceId, patch = {}) => {
+    // A typed URL supersedes a previously chosen local file. Without clearing
+    // the session blob, the runtime would keep preferring the old file URL and
+    // make the URL field appear to have no effect.
+    if (patch.media && Object.hasOwn(patch.media, "url") && String(patch.media.url || "").trim()) {
+      setMediaSessionFile(sourceId, null);
+    }
     let updated = null;
     setMediaSources(previous => {
       const next = previous.map(source => {
@@ -13848,10 +13854,10 @@ function App() {
     return { elementIds: [target.id] };
   };
 
-  const createMediaPreviewAt = (sourceId, clientX, clientY) => {
+  const createMediaPreviewAt = (sourceId, clientX, clientY, sourceOverride = null) => {
     const api = excalidrawAPIRef.current;
     if (!api) return null;
-    const source = mediaSources.find(candidate => candidate.id === sourceId);
+    const source = sourceOverride || mediaSources.find(candidate => candidate.id === sourceId);
     if (!source) return null;
     const appState = api.getAppState();
     const point = viewportCoordsToSceneCoords({ clientX, clientY }, appState);
@@ -13884,16 +13890,32 @@ function App() {
   };
 
   const handleCanvasMediaPreviewDragOver = event => {
-    if (!Array.from(event.dataTransfer?.types || []).includes("application/x-underscores-media-source")) return;
+    const types = Array.from(event.dataTransfer?.types || []);
+    const hasMediaFile = types.includes("Files");
+    if (!types.includes("application/x-underscores-media-source") && !hasMediaFile) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
   };
 
   const handleCanvasMediaPreviewDrop = event => {
     const sourceId = event.dataTransfer?.getData("application/x-underscores-media-source");
-    if (!sourceId) return;
+    if (sourceId) {
+      event.preventDefault();
+      event.stopPropagation();
+      createMediaPreviewAt(sourceId, event.clientX, event.clientY);
+      return;
+    }
+    const file = event.dataTransfer?.files?.[0];
+    if (!isSupportedMediaFile(file)) return;
     event.preventDefault();
-    createMediaPreviewAt(sourceId, event.clientX, event.clientY);
+    event.stopPropagation();
+    const source = chooseMediaStreamFile(file);
+    if (!source?.id) return;
+    setActiveMediaSourceId(source.id);
+    createMediaPreviewAt(source.id, event.clientX, event.clientY, source);
+    toggleUnderscoresPanel("media-input", { open: true });
+    setActiveDockPanels(previous => ({ ...previous, [panelLayouts["media-input"].placement]: "media-input" }));
+    setSceneExchangeStatus(`Added ${file.name} as a media source.`);
   };
 
   const makeSelectedMediaPreview = ({ sourceId = "" } = {}) => {
@@ -14345,10 +14367,11 @@ function App() {
       window.dispatchEvent(new CustomEvent("underscores:media-stream-status", { detail: { elementId, kind: "error", message: "No Unicursal portrait frame is available yet." } }));
       return null;
     }
+    const sourceResult = getMediaRuntimeResult(config.unicursal.sourceId);
     const echoFrames = config.unicursal.includeEchoesInSnapshot && Array.isArray(normalized.echoes) ? normalized.echoes : [];
     const frames = [...echoFrames.slice().reverse(), normalized];
-    const segmentCount = frames.reduce((sum, candidate) => sum + Math.max(1, candidate.segments?.length || 0), 0);
-    const groupId = segmentCount > 1 ? crypto.randomUUID() : null;
+    const groupId = crypto.randomUUID();
+    const authoredInkColor = canvasColorForExcalidraw(config.unicursal.ink.color, 100, theme);
     const created = frames.flatMap((candidate, index) => {
       const frame = transformUnicursalFrame(candidate, host, "scene");
       const echoIndex = frames.length - index - 1;
@@ -14358,13 +14381,13 @@ function App() {
         const maxX = Math.max(...segment.points.map(item => item.x));
         const maxY = Math.max(...segment.points.map(item => item.y));
         return {
-        ...createBaseElement("freedraw", minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY), config.unicursal.ink.color),
+        ...createBaseElement("freedraw", minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY), authoredInkColor),
         points: segment.points.map(item => [item.x - minX, item.y - minY]),
         pressures: segment.points.map(item => item.pressure),
         simulatePressure: false,
-        strokeWidth: config.unicursal.ink.width,
+        strokeWidth: getUnicursalSnapshotStrokeWidth(frame, host),
         opacity: Math.round(config.unicursal.ink.opacity * (echoIndex ? config.unicursal.motion.echoOpacity * Math.pow(config.unicursal.motion.echoDecay, echoIndex - 1) : 1)),
-        groupIds: groupId ? [groupId] : [],
+        groupIds: [groupId],
         customData: {
           underscoresLabel: `${config.name} snapshot${echoIndex ? ` echo ${echoIndex}` : ""}${frame.segments?.length > 1 ? ` segment ${segmentIndex + 1}` : ""}`,
           underscoresUnicursalSnapshot: { version: 2, sourceElementId: elementId, sourceHolisticId: config.unicursal.sourceId, preset: config.unicursal.preset, echoIndex, segmentIndex, capturedAt: Date.now() },
@@ -14372,6 +14395,109 @@ function App() {
         };
       });
     });
+    const landmarks = config.unicursal.landmarks;
+    if (landmarks.visible && sourceResult) {
+      const holistic = {
+        showPose: true,
+        showHands: true,
+        showLeftHand: true,
+        showRightHand: true,
+        showFace: true,
+        poseGroups: { body: true, head: false, leftHand: false, rightHand: false },
+        faceGroups: { outline: true, eyes: true, iris: true, nose: true, mouth: true, brows: true, remaining: false },
+        colors: {
+          pose: "#6fa5ff", poseBody: "#6fa5ff", leftHand: "#6ee795",
+          rightHand: "#ed7ab8", face: "#f2df55",
+        },
+      };
+      if (landmarks.matchInkColor) Object.keys(holistic.colors).forEach(key => { holistic.colors[key] = config.unicursal.ink.color; });
+      const pointKeys = new Set();
+      const connectionKeys = new Set();
+      const overlayOpacity = Math.round(landmarks.opacity * 100);
+      const overlayWidth = Math.max(0.5, Number(landmarks.lineWidth) || 1);
+      const addOverlayPoint = (point, family, index, color) => {
+        if (!point || (Number.isFinite(Number(point.visibility)) && Number(point.visibility) < 0.2)) return;
+        const pointKey = `${family}:${index}`;
+        if (pointKeys.has(pointKey)) return;
+        const scenePoint = transformUnicursalPoint(point, host, "scene");
+        if (!scenePoint) return;
+        pointKeys.add(pointKey);
+        const diameter = Math.max(1, Number(landmarks.pointSize) || 1.8) * 2;
+        const displayColor = landmarks.matchInkColor ? config.unicursal.ink.color : color;
+        created.push({
+          ...createBaseElement("ellipse", scenePoint.x - diameter / 2, scenePoint.y - diameter / 2, diameter, diameter, canvasColorForExcalidraw(displayColor, 100, theme)),
+          strokeColor: "transparent",
+          backgroundColor: canvasColorForExcalidraw(displayColor, 100, theme),
+          fillStyle: "solid",
+          strokeWidth: 0,
+          opacity: overlayOpacity,
+          groupIds: [groupId],
+          customData: {
+            underscoresLabel: `Unicursal landmark ${family}.${index}`,
+            underscoresUnicursalSnapshot: { version: 2, sourceElementId: elementId, sourceHolisticId: config.unicursal.sourceId, landmark: true, kind: "point", family, index, capturedAt: Date.now() },
+          },
+        });
+      };
+      const addOverlayConnection = (fromPoint, toPoint, family, from, to, color) => {
+        if (!fromPoint || !toPoint) return;
+        if ((Number.isFinite(Number(fromPoint.visibility)) && Number(fromPoint.visibility) < 0.2)
+          || (Number.isFinite(Number(toPoint.visibility)) && Number(toPoint.visibility) < 0.2)) return;
+        const connectionKey = `${family}:${Math.min(from, to)}:${Math.max(from, to)}`;
+        if (connectionKeys.has(connectionKey)) return;
+        const fromScene = transformUnicursalPoint(fromPoint, host, "scene");
+        const toScene = transformUnicursalPoint(toPoint, host, "scene");
+        if (!fromScene || !toScene) return;
+        connectionKeys.add(connectionKey);
+        const displayColor = landmarks.matchInkColor ? config.unicursal.ink.color : color;
+        const lineX = Math.min(fromScene.x, toScene.x);
+        const lineY = Math.min(fromScene.y, toScene.y);
+        created.push({
+          ...createBaseElement("line", lineX, lineY, Math.max(1, Math.abs(toScene.x - fromScene.x)), Math.max(1, Math.abs(toScene.y - fromScene.y)), canvasColorForExcalidraw(displayColor, 100, theme)),
+          points: [[fromScene.x - lineX, fromScene.y - lineY], [toScene.x - lineX, toScene.y - lineY]],
+          strokeWidth: overlayWidth,
+          opacity: overlayOpacity,
+          groupIds: [groupId],
+          customData: {
+            underscoresLabel: `Unicursal landmark ${family}.${from}–${to}`,
+            underscoresUnicursalSnapshot: { version: 2, sourceElementId: elementId, sourceHolisticId: config.unicursal.sourceId, landmark: true, kind: "connection", family, from, to, capturedAt: Date.now() },
+          },
+        });
+      };
+      getHolisticDisplayLayers(sourceResult, holistic).forEach(layer => {
+        const visible = layer.indices ? new Set(layer.indices) : null;
+        if (landmarks.connections !== false) layer.connections.forEach(([from, to]) => {
+          if (visible && (!visible.has(from) || !visible.has(to))) return;
+          addOverlayConnection(layer.landmarks[from], layer.landmarks[to], layer.family, from, to, layer.color);
+        });
+        if (landmarks.points !== false) {
+          (visible ? [...visible] : layer.landmarks.map((_, index) => index)).forEach(index => addOverlayPoint(layer.landmarks[index], layer.family, index, layer.color));
+        }
+      });
+      if (landmarks.rawOutline && normalized.silhouette?.points?.length > 1) {
+        const outline = normalized.silhouette.points.map(point => transformUnicursalPoint(point, host, "scene")).filter(Boolean);
+        if (outline.length > 1) {
+          const minX = Math.min(...outline.map(point => point.x));
+          const minY = Math.min(...outline.map(point => point.y));
+          const maxX = Math.max(...outline.map(point => point.x));
+          const maxY = Math.max(...outline.map(point => point.y));
+          const displayColor = landmarks.matchInkColor ? config.unicursal.ink.color : "#ff9f43";
+          created.push({
+            ...createBaseElement("freedraw", minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY), canvasColorForExcalidraw(displayColor, 100, theme)),
+            points: outline.map(point => [point.x - minX, point.y - minY]),
+            pressures: outline.map(() => 0.5),
+            simulatePressure: false,
+            strokeWidth: overlayWidth,
+            strokeStyle: "dashed",
+            opacity: overlayOpacity,
+            groupIds: [groupId],
+            customData: {
+              underscoresLabel: "Unicursal silhouette overlay",
+              underscoresUnicursalSnapshot: { version: 2, sourceElementId: elementId, sourceHolisticId: config.unicursal.sourceId, landmark: true, kind: "raw-outline", capturedAt: Date.now() },
+            },
+          });
+        }
+      }
+    }
     const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
     const selection = Object.fromEntries(created.map(element => [element.id, true]));
     api.updateScene({ elements: [...elements, ...created], appState: { selectedElementIds: selection, selectedGroupIds: groupId ? { [groupId]: true } : {} }, commitToHistory: true });
@@ -16967,7 +17093,7 @@ function App() {
     return excalidrawAPI.getSceneElementsIncludingDeleted().filter(element => !element.isDeleted && selectedIds[element.id]);
   };
 
-  const renderSelectionPng = async () => {
+  const renderSelectionPng = async ({ outputMode = "visible" } = {}) => {
     if (!excalidrawAPI) throw new Error("The canvas is not ready.");
     const appState = excalidrawAPI.getAppState();
     const selected = getSelectionExchangeElements(
@@ -16997,13 +17123,17 @@ function App() {
       // resolution so a pasted copy preserves the original frame size;
       // board exports can still use the device-pixel resolution by default.
       pixelRatio: 1,
+      outputMode,
     });
     return { ...result, selected };
   };
 
   const copySelectionAsPng = async () => {
     try {
-      const { canvas, selected } = await renderSelectionPng();
+      // A pasted image is rendered through Excalidraw's dark-theme filter a
+      // second time. Export authored pixels for the clipboard so the pasted
+      // result keeps the same visible colour as the selected object.
+      const { canvas, selected } = await renderSelectionPng({ outputMode: "authored" });
       if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) {
         throw new Error("Image clipboard is unavailable in this browser. Use Export Selection as PNG instead.");
       }

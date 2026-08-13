@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   HOLISTIC_PROCESSING_FPS_OPTIONS,
+  isGifMediaSource,
   isMediaStreamElement,
   MEDIA_STREAM_KINDS,
   normalizeMediaStreamConfig,
@@ -249,7 +250,7 @@ const CropControls = ({ crop, onPatch }) => <div className="media-stream-panel-c
 const isAnimatedSource = source => source.kind === MEDIA_STREAM_KINDS.CAMERA
   || (source.kind === MEDIA_STREAM_KINDS.MEDIA && (
     source.media.mediaType === "video"
-    || /\.gif(?:$|[?#])/i.test(source.media.url || source.media.fileName || "")
+    || isGifMediaSource(source)
   ));
 
 const SourceTransportControls = ({ source, onPatch }) => {
@@ -277,7 +278,7 @@ const SourceTransportControls = ({ source, onPatch }) => {
     </button>
     {canSetRate && <label className="media-stream-panel-field">
       <span>Speed</span>
-      <NumericInput min="0.1" max="8" step="0.1" value={source.media.playbackRate} defaultValue={1} onKeyDown={stopKeyPropagation} onCommit={playbackRate => onPatch({ media: { playbackRate } })} />
+      <NumericInput min="-8" max="8" step="0.1" value={source.media.playbackRate} defaultValue={1} onKeyDown={stopKeyPropagation} onCommit={playbackRate => onPatch({ media: { playbackRate } })} />
     </label>}
   </div>;
 };

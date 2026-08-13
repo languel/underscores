@@ -7,6 +7,8 @@ import {
   createMediaSource,
   canUseAsObjectBoundsTarget,
   inferMediaType,
+  isGifMediaSource,
+  isSupportedMediaFile,
   isMediaSourceElement,
   MEDIA_STREAM_KINDS,
   MEDIA_BINDING_TYPES,
@@ -166,6 +168,18 @@ test("media patches preserve nested settings and infer image URLs", () => {
   assert.equal(inferMediaType("photo.webp?size=2"), "image");
 });
 
+test("GIF detection survives session blob URLs by checking the authored file name", () => {
+  assert.equal(isGifMediaSource({ media: { url: "blob:http://localhost/source", fileName: "dog.gif" } }), true);
+  assert.equal(isGifMediaSource({ media: { url: "https://example.test/dog.gif", fileName: "" } }), true);
+  assert.equal(isGifMediaSource({ media: { url: "blob:http://localhost/source", fileName: "dog.png" } }), false);
+});
+
+test("media drops accept MIME-typed files and extension-only files", () => {
+  assert.equal(isSupportedMediaFile({ type: "image/gif", name: "dog.gif" }), true);
+  assert.equal(isSupportedMediaFile({ type: "", name: "clip.webm" }), true);
+  assert.equal(isSupportedMediaFile({ type: "text/plain", name: "notes.txt" }), false);
+});
+
 test("canvas inputs and processed-output limits normalize independently", () => {
   const source = createMediaSource("canvas", {
     canvas: { elementId: "frame-a", live: true },
@@ -188,6 +202,8 @@ test("media sources preserve an independent processed-output play state and rate
   assert.equal(source.media.playing, false);
   assert.equal(next.media.playing, true);
   assert.equal(next.media.playbackRate, 8);
+  assert.equal(patchMediaSource(source, { media: { playbackRate: -3 } }).media.playbackRate, -3);
+  assert.equal(patchMediaSource(source, { media: { playbackRate: 0 } }).media.playbackRate, 0);
 });
 
 test("source element predicate excludes derived streams", () => {

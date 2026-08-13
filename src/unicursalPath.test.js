@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyUnicursalFeatureGrace, contourFromSegmentation, drawUnicursalFrame, generateUnicursalPath, normalizeUnicursalOptions, resamplePath, smoothUnicursalFrame, transformUnicursalFrame } from "./unicursalPath.js";
+import { applyUnicursalFeatureGrace, contourFromSegmentation, drawUnicursalFrame, generateUnicursalPath, getUnicursalSnapshotStrokeWidth, normalizeUnicursalOptions, resamplePath, smoothUnicursalFrame, transformUnicursalFrame, transformUnicursalPoint } from "./unicursalPath.js";
 
 const landmark = (x, y) => ({ x, y, z: 0, visibility: 1, presence: 1 });
 const fixture = () => ({
@@ -133,6 +133,21 @@ test("transforms to scene coordinates and smooths by point index", () => {
   const shifted = { ...frame, points: frame.points.map(item => ({ ...item, x: item.x + 0.1 })) };
   const smoothed = smoothUnicursalFrame(frame, shifted, 16, 140);
   assert.ok(smoothed.points[0].x > frame.points[0].x && smoothed.points[0].x < shifted.points[0].x);
+});
+
+test("snapshot point projection follows the host rotation", () => {
+  const projected = transformUnicursalPoint(
+    { x: 0, y: 0.5 },
+    { x: 100, y: 50, width: 400, height: 200, angle: Math.PI / 2 },
+    "scene",
+  );
+  assert.ok(Math.abs(projected.x - 300) < 1e-9);
+  assert.ok(Math.abs(projected.y + 50) < 1e-9);
+});
+
+test("snapshot stroke width matches the live short-edge scale", () => {
+  const frame = { options: { ink: { width: 3 } }, points: [{ width: 2 }, { width: 4 }] };
+  assert.equal(getUnicursalSnapshotStrokeWidth(frame, { width: 300, height: 600 }), 3);
 });
 
 test("motion dynamics retain uncertain features and slow sticky semantic joins", () => {

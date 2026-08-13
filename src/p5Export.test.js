@@ -12,6 +12,7 @@ import {
   hideLiveCanvasHostsForExport,
   drawP5FramesOnCanvas,
   EXCALIDRAW_DARK_THEME_FILTER,
+  applyInverseExcalidrawThemeFilter,
   exportUnderscoresPng,
 } from "./p5Export.js";
 
@@ -229,4 +230,25 @@ test("dark PNG exports use Excalidraw's visible-canvas filter at device resoluti
   assert.equal(context.filter, EXCALIDRAW_DARK_THEME_FILTER);
   assert.deepEqual(operations, [[sourceCanvas, 0, 0]]);
   assert.deepEqual(exportOptions.getDimensions(100, 50), { width: 200, height: 100, scale: 2 });
+});
+
+test("inverse dark-theme conversion restores authored clipboard pixels", () => {
+  const authored = [0.12, 0.34, 0.56];
+  const invertAmount = 0.93;
+  const hue180 = [
+    [-0.574, 1.43, 0.144],
+    [0.426, 0.43, 0.144],
+    [0.426, 1.43, -0.856],
+  ];
+  const inverted = authored.map(channel => invertAmount + (1 - 2 * invertAmount) * channel);
+  const visible = hue180.map(row => row.reduce((sum, coefficient, index) => sum + coefficient * inverted[index], 0));
+  let restored = null;
+  const context = {
+    drawImage() {},
+    getImageData: () => ({ data: new Uint8ClampedArray([...visible.map(channel => Math.round(channel * 255)), 255]) }),
+    putImageData: imageData => { restored = Array.from(imageData.data.slice(0, 3)); },
+  };
+  const root = { createElement: () => ({ width: 1, height: 1, getContext: () => context }) };
+  applyInverseExcalidrawThemeFilter({ canvas: { width: 1, height: 1 }, theme: "dark", documentRef: root });
+  authored.forEach((channel, index) => assert.ok(Math.abs(restored[index] / 255 - channel) < 0.02));
 });

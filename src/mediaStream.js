@@ -145,6 +145,25 @@ export const inferMediaType = (url = "", explicit = "") => {
   return /\.(gif|png|jpe?g|webp|avif|svg)$/.test(source) ? "image" : "video";
 };
 
+// Local files are represented by session-scoped blob URLs at runtime. Those
+// URLs intentionally do not retain the original extension, so GIF detection
+// must consider the authored file name as well as the current URL.
+export const isGifMediaSource = value => {
+  const media = value?.media && typeof value.media === "object" ? value.media : value;
+  return [media?.url, media?.fileName]
+    .some(candidate => /\.gif(?:$|[?#])/i.test(String(candidate || "")));
+};
+
+export const isSupportedMediaFile = file => {
+  const type = String(file?.type || "").toLowerCase();
+  const name = String(file?.name || "");
+  return Boolean(file) && (
+    type.startsWith("image/")
+    || type.startsWith("video/")
+    || /\.(gif|png|jpe?g|webp|avif|svg|mp4|webm|mov|m4v|ogg)$/i.test(name)
+  );
+};
+
 export const createMediaStreamConfig = (kind = MEDIA_STREAM_KINDS.MEDIA, overrides = {}) =>
   normalizeMediaStreamConfig({
     version: MEDIA_STREAM_VERSION,
@@ -260,7 +279,9 @@ export const normalizeMediaStreamConfig = value => {
       // paused source keeps its most recently processed frame available to
       // MediaPipe and canvas hosts, rather than tearing down its runtime.
       playing: media.playing !== false,
-      playbackRate: clamp(media.playbackRate, 0.1, 8, 1),
+      // Signed rates are intentional: positive plays forward, negative plays
+      // backward, and zero holds the current decoded frame.
+      playbackRate: clamp(media.playbackRate, -8, 8, 1),
     },
     canvas: {
       elementId: cleanString(canvas.elementId),

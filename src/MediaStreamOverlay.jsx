@@ -14,6 +14,7 @@ import {
   MEDIA_STREAM_KINDS,
   HOLISTIC_PERFORMANCE_DISPLAY_FPS,
   HOLISTIC_PERFORMANCE_PROCESSING_FPS,
+  isGifMediaSource,
   isMediaStreamElement,
   normalizeMediaStreamConfig,
   resolveHolisticProcessingIntervalMs,
@@ -158,6 +159,7 @@ function ProcessedMediaSource({ source }) {
   const gifCanvasRef = useRef(null);
   const outputRef = useRef(null);
   const lastOutputAtRef = useRef(0);
+  const lastVideoTickAtRef = useRef(0);
   const staticDrawnRef = useRef(false);
   const sourceRef = useRef(source);
   sourceRef.current = source;
@@ -165,7 +167,7 @@ function ProcessedMediaSource({ source }) {
   const url = sessionUrl || source.media.url;
   const isCamera = source.kind === MEDIA_STREAM_KINDS.CAMERA;
   const isImage = !isCamera && source.media.mediaType === "image";
-  const isGif = isImage && /\.gif(?:$|[?#])/i.test(url || source.media.fileName);
+  const isGif = isImage && isGifMediaSource(source);
 
   const publishFrame = input => {
     const output = outputRef.current;
@@ -231,37 +233,63 @@ function ProcessedMediaSource({ source }) {
       if (!canvas || !context || !frames.length) throw new Error("The GIF has no decodable frames.");
       canvas.width = gif.lsd.width;
       canvas.height = gif.lsd.height;
-      let index = 0;
+      const renderedFrames = [];
       let previous = null;
       let restore = null;
       const patchCanvas = document.createElement("canvas");
       const patchContext = patchCanvas.getContext("2d");
-      const advance = () => {
-        if (disposed) return;
-        const current = sourceRef.current;
-        if (current.media.playing === false) {
-          timer = window.setTimeout(advance, 50);
-          return;
-        }
+      for (const frame of frames) {
         if (previous?.disposalType === 2) {
           context.clearRect(previous.dims.left, previous.dims.top, previous.dims.width, previous.dims.height);
         } else if (previous?.disposalType === 3 && restore) {
           context.putImageData(restore, 0, 0);
         }
-        const frame = frames[index];
         restore = frame.disposalType === 3 ? context.getImageData(0, 0, canvas.width, canvas.height) : null;
         patchCanvas.width = frame.dims.width;
         patchCanvas.height = frame.dims.height;
         patchContext.clearRect(0, 0, patchCanvas.width, patchCanvas.height);
         patchContext.putImageData(new ImageData(frame.patch, frame.dims.width, frame.dims.height), 0, 0);
         context.drawImage(patchCanvas, frame.dims.left, frame.dims.top);
+        const snapshot = document.createElement("canvas");
+        snapshot.width = canvas.width;
+        snapshot.height = canvas.height;
+        snapshot.getContext("2d")?.drawImage(canvas, 0, 0);
+        renderedFrames.push({ canvas: snapshot, delay: frame.delay || 100 });
+        previous = frame;
+      }
+      let index = Number(sourceRef.current.media.playbackRate) < 0 ? renderedFrames.length - 1 : 0;
+      let direction = Number(sourceRef.current.media.playbackRate) < 0 ? -1 : 1;
+      const drawFrame = () => {
+        const rendered = renderedFrames[index];
+        if (!rendered) return;
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(rendered.canvas, 0, 0);
         canvas.dataset.gifFrame = String(index);
         if (publishFrame(canvas)) outputRef.current.dataset.sourceFrame = String(index);
-        previous = frame;
-        const isFinalFrame = index === frames.length - 1;
-        if (isFinalFrame && !current.media.loop) return;
-        index = (index + 1) % frames.length;
-        timer = window.setTimeout(advance, Math.max(20, (frame.delay || 100) / current.media.playbackRate));
+      };
+      const advance = () => {
+        if (disposed) return;
+        const current = sourceRef.current;
+        const rate = Number(current.media.playbackRate) || 0;
+        const nextDirection = rate < 0 ? -1 : 1;
+        if (nextDirection !== direction) {
+          direction = nextDirection;
+          index = direction < 0 ? renderedFrames.length - 1 : 0;
+        }
+        drawFrame();
+        if (current.media.playing === false || rate === 0) {
+          timer = window.setTimeout(advance, 50);
+          return;
+        }
+        const rendered = renderedFrames[index];
+        const nextIndex = index + direction;
+        const isFinalFrame = nextIndex < 0 || nextIndex >= renderedFrames.length;
+        if (isFinalFrame && !current.media.loop) {
+          timer = window.setTimeout(advance, 50);
+          return;
+        }
+        index = isFinalFrame ? (direction < 0 ? renderedFrames.length - 1 : 0) : nextIndex;
+        timer = window.setTimeout(advance, Math.max(20, rendered.delay / Math.abs(rate)));
       };
       advance();
       publishStatus({ elementId: source.id, kind: "success", message: `Animated GIF ready (${frames.length} frames).` });
@@ -284,14 +312,34 @@ function ProcessedMediaSource({ source }) {
       element: output,
       kind: "canvas",
       isPlaying: () => sourceRef.current.media.playing !== false,
-      stream: () => typeof output.captureStream === "function" ? output.captureStream(30) : null,
+      stream: () => typeof output.captureStream === "function" ? output.captureStream(sourceRef.current.output.fps) : null,
     };
     const unregister = registerMediaRuntimeSource(source.id, registered);
     const tick = () => {
       const decodedGif = gifCanvasRef.current;
       const input = isGif && decodedGif?.dataset.gifFrame !== undefined ? decodedGif : inputRef.current;
       const staticImage = isImage && !isGif;
-      if (sourceRef.current.media.playing !== false && input && (!staticImage || !staticDrawnRef.current) && publishFrame(input)) {
+      const current = sourceRef.current;
+      const video = !isCamera && !isImage && inputRef.current instanceof HTMLVideoElement ? inputRef.current : null;
+      const rate = Number(current.media.playbackRate) || 0;
+      if (video && rate < 0 && current.media.playing !== false && video.readyState >= 2) {
+        const now = performance.now();
+        const previous = lastVideoTickAtRef.current || now;
+        const elapsed = Math.min(0.1, Math.max(0, (now - previous) / 1000));
+        lastVideoTickAtRef.current = now;
+        if (elapsed > 0) {
+          const duration = Number(video.duration);
+          const nextTime = video.currentTime - elapsed * Math.abs(rate);
+          if (nextTime <= 0 && current.media.loop && Number.isFinite(duration) && duration > 0) {
+            video.currentTime = Math.max(0, duration - 0.001);
+          } else {
+            video.currentTime = Math.max(0, nextTime);
+          }
+        }
+      } else if (video) {
+        lastVideoTickAtRef.current = performance.now();
+      }
+      if (current.media.playing !== false && input && (!staticImage || !staticDrawnRef.current) && publishFrame(input)) {
         if (staticImage) staticDrawnRef.current = true;
         if (input.dataset?.gifFrame !== undefined) output.dataset.sourceFrame = input.dataset.gifFrame;
       }
@@ -302,7 +350,7 @@ function ProcessedMediaSource({ source }) {
       cancelAnimationFrame(raf);
       unregister();
     };
-  }, [isGif, isImage, source.enabled, source.id]);
+  }, [isCamera, isGif, isImage, source.enabled, source.id]);
 
   useEffect(() => {
     staticDrawnRef.current = false;
@@ -312,11 +360,13 @@ function ProcessedMediaSource({ source }) {
   useEffect(() => {
     const media = inputRef.current;
     if (!(media instanceof HTMLVideoElement)) return;
-    media.playbackRate = source.media.playbackRate;
-    if (source.media.playing === false) {
+    const rate = Number(source.media.playbackRate) || 0;
+    lastVideoTickAtRef.current = 0;
+    if (source.media.playing === false || rate <= 0) {
       media.pause();
       return;
     }
+    media.playbackRate = rate;
     void media.play().catch(() => {});
   }, [source.media.playbackRate, source.media.playing, url]);
 
@@ -345,8 +395,10 @@ function ProcessedMediaSource({ source }) {
               loop={source.media.loop}
               muted={source.media.muted}
               onCanPlay={event => {
-                event.currentTarget.playbackRate = source.media.playbackRate;
-                if (sourceRef.current.media.playing !== false) void event.currentTarget.play().catch(() => {});
+                const rate = Number(sourceRef.current.media.playbackRate) || 0;
+                if (rate > 0) event.currentTarget.playbackRate = rate;
+                if (sourceRef.current.media.playing !== false && rate > 0) void event.currentTarget.play().catch(() => {});
+                else event.currentTarget.pause();
                 publishStatus({ elementId: source.id, kind: "success", message: "Media ready." });
               }}
               onError={() => publishStatus({ elementId: source.id, kind: "error", message: "Media could not be loaded. Check the URL, format, and CORS policy." })}
