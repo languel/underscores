@@ -4,6 +4,8 @@ import {
   getElementExportBounds,
   getElementsExportBounds,
   getP5ExportableElements,
+  isLivecodeP5Element,
+  shouldRenderLivecodeP5,
   createModifierTrackExportElements,
   drawMediaStreamsOnCanvas,
   hideP5FrameHostsForExport,
@@ -59,6 +61,17 @@ test("p5 host elements are hidden while their live canvases are composited", () 
   assert.equal(hidden[0].opacity, 0);
   assert.equal(hidden[1].opacity, 80);
   assert.equal(getP5ExportableElements([...hidden]).length, 1);
+});
+
+test("Livecode p5 nodes use the same PNG capture path as legacy p5 frames", () => {
+  const livecodeP5 = {
+    id: "live-p5",
+    customData: { draweratorLivecode: { kind: "p5" } },
+  };
+  assert.equal(isLivecodeP5Element(livecodeP5), true);
+  assert.equal(shouldRenderLivecodeP5(livecodeP5), true);
+  assert.equal(getP5ExportableElements([livecodeP5]).length, 1);
+  assert.equal(hideP5FrameHostsForExport([livecodeP5])[0].opacity, 0);
 });
 
 test("modifier overlay tracks become export-only native lines", () => {

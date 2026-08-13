@@ -1,5 +1,34 @@
 import { LIVECODE_KINDS, normalizeLivecodeKind } from "./livecodeNode.js";
 
+export const getLivecodeBridgeHelp = kind => {
+  const normalizedKind = normalizeLivecodeKind(kind);
+  const trusted = [LIVECODE_KINDS.p5, LIVECODE_KINDS.playcore, LIVECODE_KINDS.strudel].includes(normalizedKind);
+  const details = {
+    [LIVECODE_KINDS.p5]: "p5 receives __ (and the legacy drawerator alias) as a live frame bridge. Use __.element for the host size, __.params for @param values, and __.canvas / __.events / __.transport for scene queries, events, and score time.",
+    [LIVECODE_KINDS.playcore]: "Play Core receives __ as the final program argument and as the drawerator alias. Use __.element, __.params, __.canvas, __.events, __.transport, and __.api from lifecycle hooks and main().",
+    [LIVECODE_KINDS.strudel]: "Strudel evaluates with __ (and drawerator) in scope. The most useful live values are __.transport, __.canvas, __.events, __.params, and __.strudel for node-local transport controls.",
+    [LIVECODE_KINDS.html]: "HTML runs in an isolated iframe instead of the JavaScript bridge. Use window.drawerator.post(type, detail) to send a message and window.drawerator.onMessage(listener) to receive the host's read-only runtime snapshot.",
+    [LIVECODE_KINDS.markdown]: "Markdown is a deterministic document renderer; it does not execute JavaScript and has no __ bridge. Use Markdown, inline/display LaTeX, and the Output/Code view modes.",
+    [LIVECODE_KINDS.latex]: "LaTeX is a deterministic typesetting renderer; it does not execute JavaScript and has no __ bridge. Use TeX math delimiters and the Output/Code view modes.",
+    [LIVECODE_KINDS.orca]: "Orca is a focused grid language rather than JavaScript, so __ is not available. Use its operators and the native MIDI/CC/pitch-bend routing instead.",
+    [LIVECODE_KINDS.shader]: "GLSL runs on the GPU and has no JavaScript __ bridge. Use the documented uniforms such as u_resolution, u_time, u_pointer, u_currentColor, and u_segments.",
+  };
+  return {
+    title: "Drawerator bridge (__)",
+    available: trusted,
+    summary: details[normalizedKind] || "This script kind has no shared JavaScript bridge.",
+    points: trusted ? [
+      "__.element is the host snapshot ({ id, width, height }); __.object is the current scene-object snapshot.",
+      "__.params contains values declared with // @param. Object parameters resolve through the same canvas query API.",
+      "__.canvas (also __.objects) exposes read-only all(), get(id/label), find(query), and selected() scene queries.",
+      "__.events provides recent(limit), latest(pattern), and on(pattern, listener). __.transport exposes time and timing context.",
+      "Send messages to the Event Console with console.log/info/warn/error/debug (p5 captures these), __.console.log(...args), or the shorthand __.log/info/warn/error/debug(...args) from any JavaScript bridge runtime. Turn on Console → Log to collect script.log events.",
+      "__.colors, __.currentColor, __.currentOpacity, __.theme, and __.appearance follow the current Drawerator theme.",
+      "__.api is the deliberate application API for commands, scene/time/grid, physics, mixer, inputs, relations, and streams. Prefer documented calls over DOM access.",
+    ] : [],
+  };
+};
+
 // Short, adapter-owned guidance for the docked Livecode editor. Keep it close
 // to the adapter registry so the in-app reference and the persisted kind names
 // cannot drift apart.
@@ -41,7 +70,7 @@ export const LIVECODE_HELP = Object.freeze({
     summary: "A local presentation surface rendered from the node's canonical Markdown source.",
     points: Object.freeze([
       "Use normal Markdown headings, lists, code, and emphasis. Inline $math$ and display $$math$$ render with KaTeX.",
-      "Select Preview to present the slide; select Code or double-click to edit the same source.",
+      "Output presents the document, Code shows only Markdown source, Code Overlay combines source and output, and Code/Output splits them. Double-clicking an Output document opens its in-place editor.",
       "Active markup is stripped from Markdown output so the presentation surface remains inert.",
     ]),
     footer: "Markdown and LaTeX previews are local deterministic DOM renderers suitable for the live canvas.",
@@ -51,7 +80,7 @@ export const LIVECODE_HELP = Object.freeze({
     summary: "A standalone locally typeset mathematical presentation node.",
     points: Object.freeze([
       "Use $...$ or \\( ... \\) for inline math, and $$...$$ or \\[ ... \\] for display math. Bare text stays text.",
-      "Use Preview to center the expression in the node; return to Code to change the canonical source.",
+      "Output centers the expression in the node; Code shows only the canonical source, Code Overlay combines source and output, and Code/Output splits them.",
       "Invalid math reports a local typesetting error without replacing your source.",
     ]),
     footer: "No remote typesetting service is used.",
@@ -62,7 +91,7 @@ export const LIVECODE_HELP = Object.freeze({
     points: Object.freeze([
       "Write complete HTML, CSS, and scripts. Scripts can use the token-scoped window.drawerator post/onMessage bridge.",
       "The iframe has allow-scripts only: no parent-origin DOM access, top navigation, or ambient application privileges.",
-      "Use Preview to run the document. Browser security can prevent deterministic raster export of this kind.",
+      "Output runs the document. Code shows only source, Code Overlay combines source and output, and Code/Output splits them. Browser security can prevent deterministic raster export of this kind.",
     ]),
     footer: "Treat HTML source as trusted board content even though it is isolated from Drawerator's parent page.",
   }),
@@ -87,7 +116,7 @@ export const LIVECODE_HELP = Object.freeze({
       "Fluid brush and Inkwash are feedback shaders: u_previous is the prior frame, u_delta is frame time, and u_pointerDelta carries brush motion. Emission makes the selected geometry source emit and stir dye or wet pigment.",
       "Inkwash can emit from nearby Excalidraw objects or only from visible physics diagnostics such as collider outlines, constraints, collision markers, force vectors, and trails. Ordinary drags use a fine ink pen; Command-drag activates the wider water brush without taking over Excalidraw's right-drag gesture.",
       "Linked time follows Drawerator's score; Free time advances independently. Compile errors appear in the Console's non-logged Live section while the previous working program keeps rendering.",
-      "While editing, Cmd/Ctrl+Shift+Enter cycles Code → Output → Split. Cmd/Ctrl+Enter runs, Ctrl+. or Alt+. stops, and Ctrl+M then L toggles line numbers. Clicking in the source only places the editor cursor.",
+      "While editing, Cmd/Ctrl+Shift+Enter cycles Output → Code → Code Overlay → Code/Output. Cmd/Ctrl+Enter runs, Ctrl+. or Alt+. stops, and Ctrl+M then L toggles line numbers. Clicking in the source only places the editor cursor.",
     ]),
     footer: "These ports preserve excalishader's four example ideas inside the editable Livecode model; the Fluid brush uses a compact ping-pong feedback pass.",
   }),

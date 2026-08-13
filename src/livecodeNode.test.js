@@ -6,13 +6,24 @@ import {
   defaultLivecodeSource,
   getLivecodeFont,
   getLivecodeEditorProfile,
+  getLivecodeViewForDoubleClick,
   isLivecodeNodeElement,
+  normalizeLivecodeTypography,
   normalizeLivecodeNode,
   patchLivecodeNode,
   replaceLivecodeNodeProgram,
   shouldRenderLivecodeNode,
 } from "./livecodeNode.js";
 import { HELLO_GLSL_FRAGMENT_SOURCE } from "./shaderLivecode.js";
+
+test("maps Livecode double-click modifiers to explicit views", () => {
+  assert.equal(getLivecodeViewForDoubleClick({}), null);
+  assert.equal(getLivecodeViewForDoubleClick({ shiftKey: true }), "code");
+  assert.equal(getLivecodeViewForDoubleClick({ shiftKey: true, altKey: true }), "source");
+  assert.equal(getLivecodeViewForDoubleClick({ metaKey: true }), "preview");
+  assert.equal(getLivecodeViewForDoubleClick({ ctrlKey: true }), "preview");
+  assert.equal(getLivecodeViewForDoubleClick({ metaKey: true, shiftKey: true }), null);
+});
 
 test("creates a versioned, self-contained Livecode Node with a stable runtime contract", () => {
   const node = createLivecodeNode({
@@ -41,6 +52,7 @@ test("creates a versioned, self-contained Livecode Node with a stable runtime co
       lineHeight: 1.7,
       fontWeight: 400,
       letterSpacing: 0,
+      ligatures: true,
       showLineNumbers: false,
       showFoldGutter: false,
       codeOverlayOpacity: 0,
@@ -70,11 +82,17 @@ test("normalization keeps unsupported values bounded and preserves authored sour
     lineHeight: 0.8,
     fontWeight: 400,
     letterSpacing: -2,
+    ligatures: true,
     showLineNumbers: false,
     showFoldGutter: false,
     codeOverlayOpacity: 0,
     glyphOnlyOverlay: true,
   });
+});
+
+test("supports raw Code mode while retaining legacy code-overlay values", () => {
+  assert.equal(createLivecodeNode({ kind: "shader", view: "source" }).view, "source");
+  assert.equal(createLivecodeNode({ kind: "shader", view: "overlay" }).view, "code");
 });
 
 test("Strudel nodes always use the in-code visualization surface", () => {
@@ -112,6 +130,12 @@ test("patches retain node identity, source ownership, and bump the document revi
   assert.equal(patched.revision, 5);
   assert.equal(patched.runtime.running, true);
   assert.equal(patched.typography.fontSize, 16);
+});
+
+test("runtime start and stop patches preserve the authored view", () => {
+  const node = createLivecodeNode({ kind: "p5", view: "split", runtime: { running: false } });
+  assert.equal(patchLivecodeNode(node, { runtime: { running: true } }).view, "split");
+  assert.equal(patchLivecodeNode({ ...node, runtime: { ...node.runtime, running: true } }, { runtime: { running: false } }).view, "split");
 });
 
 test("runtime setting patches preserve the last evaluated Strudel source", () => {
@@ -201,6 +225,10 @@ test("detects scene nodes and maps their source to established CodeMirror profil
   assert.equal(getLivecodeEditorProfile({ kind: "shader" }), "shader");
   assert.match(getLivecodeFont("mono").family, /Fira Mono/);
   assert.match(getLivecodeFont("sans").family, /Inter/);
+  assert.match(getLivecodeFont("monaspace-neon").family, /Monaspace Neon/);
+  assert.equal(getLivecodeFont("monaspace-neon").supportsLigatures, true);
+  assert.match(getLivecodeFont("monaspace-neon").featureSettings, /"ss01" 1/);
+  assert.equal(normalizeLivecodeTypography({ font: "monaspace-neon", ligatures: false }).ligatures, false);
 });
 
 test("shader nodes expose the editable Hello GLSL starter without injecting it into blank generic nodes", () => {

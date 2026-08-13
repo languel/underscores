@@ -1,12 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildHtmlSandboxDocument, getMarkdownSourceBlocks, renderMarkdownWithMath, sanitizeMarkdownHtml, validateMarkdownSource } from "./livecodePresentation.js";
+import { buildHtmlSandboxDocument, getMarkdownSourceBlocks, highlightMarkdownCode, renderMarkdownWithMath, sanitizeMarkdownHtml, validateMarkdownSource } from "./livecodePresentation.js";
 
 test("Markdown renders inline math while discarding active markup", () => {
   const html = renderMarkdownWithMath("# score\n\n$E = mc^2$ <script>alert(1)</script>");
   assert.match(html, /katex/);
   assert.doesNotMatch(html, /script/i);
   assert.equal(sanitizeMarkdownHtml('<a href="javascript:alert(1)" onclick="x()">x</a>'), "<a>x</a>");
+});
+
+test("Markdown fenced code blocks use language-aware preview highlighting", () => {
+  const html = renderMarkdownWithMath("```js\nconst answer = console.log(42);\n```\n\n```python\n# note\nprint(42)\n```");
+  assert.match(html, /livecode-markdown-code-block/);
+  assert.match(html, /livecode-code-keyword[^>]*>const/);
+  assert.match(html, /livecode-code-builtin[^>]*>console/);
+  assert.match(html, /language-python/);
+  assert.match(html, /livecode-code-comment[^>]*># note/);
+  assert.match(html, /livecode-code-builtin[^>]*>print/);
+  assert.match(highlightMarkdownCode("const value = '<safe>';", "js"), /&lt;safe&gt;/);
 });
 
 test("Markdown source blocks preserve the exact document for in-place editing", () => {

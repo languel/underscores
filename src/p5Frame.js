@@ -321,7 +321,7 @@ export const canHostP5Frame = element => Boolean(
 // evaluates it in a frame-local proxy over a p5 instance, which preserves the
 // familiar setup()/draw() syntax without letting two frames overwrite each
 // other's callbacks or globals.
-export const compileClassicP5Source = (p, drawerator, source, interactionState = {}) => {
+export const compileClassicP5Source = (p, drawerator, source, interactionState = {}, scriptConsole = drawerator?.console || globalThis.console) => {
   const localValues = Object.create(null);
   const scope = new Proxy(localValues, {
     // Keep this evaluator-owned name visible from inside `with`; every other
@@ -332,6 +332,7 @@ export const compileClassicP5Source = (p, drawerator, source, interactionState =
       if (key === "p") return p;
       if (key === "drawerator") return drawerator;
       if (key === "__") return drawerator;
+      if (key === "console") return scriptConsole;
       // p5 itself exposes mouseIsPressed but not mouseIsDragged. Supporting
       // the latter here is a small compatibility affordance for classroom
       // sketches while still using p5's real mouse events underneath.
@@ -359,13 +360,14 @@ export const compileClassicP5Source = (p, drawerator, source, interactionState =
   return callbacks || {};
 };
 
-export const compileInstanceP5Source = (p, drawerator, source) => (
+export const compileInstanceP5Source = (p, drawerator, source, scriptConsole = drawerator?.console || globalThis.console) => (
   new Function(
     "p",
     "drawerator",
     "__",
+    "console",
     `${typeof source === "string" ? source : ""}\nreturn { ${P5_GLOBAL_CALLBACK_NAMES.map(name => `${name}: p.${name}`).join(", ")} };`,
-  )(p, drawerator, drawerator) || {}
+  )(p, drawerator, drawerator, scriptConsole) || {}
 );
 
 export const normalizeP5Frame = value => {

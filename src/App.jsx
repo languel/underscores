@@ -87,10 +87,10 @@ import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
 import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
 import { LivecodeNodeEditor, LivecodeNodeOverlay, StrudelPanelStatus } from "./LivecodeNodeOverlay.jsx";
-import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeKindDefinition, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, replaceLivecodeNodeProgram } from "./livecodeNode.js";
-import { describeLivecodeRuntime, hasNativeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
-import { getLivecodeHelp } from "./livecodeHelp.js";
-import { getShaderExample, normalizeShaderCompositionSettings, SHADER_EXAMPLES, shaderExampleForSource } from "./shaderLivecode.js";
+import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeFont, getLivecodeKindDefinition, getLivecodeViewForDoubleClick, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, replaceLivecodeNodeProgram } from "./livecodeNode.js";
+import { getLivecodeExamples } from "./livecodeExamples.js";
+import { describeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
+import { getShaderExample, normalizeShaderCompositionSettings, shaderExampleForSource } from "./shaderLivecode.js";
 import { getShaderStatuses, SHADER_STATUS_EVENT } from "./shaderStatus.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
 import MediaStreamOverlay, { MediaSourceRuntimeLayer } from "./MediaStreamOverlay.jsx";
@@ -166,6 +166,7 @@ import { stepStrokeWidth } from "./strokeWidthShortcuts.js";
 import { infoProps } from "./uiInfo.js";
 import {
   AI_PROVIDER_OPTIONS,
+  aiProviderEnvironmentCredentialApplies,
   aiProviderNeedsCredential,
   buildAIChatRequest,
   buildAIModelsRequest,
@@ -173,9 +174,11 @@ import {
   getAIProvider,
   getAIProviderCredential,
   getAIProviderHelp,
+  getAIProviderManualModels,
   normalizeAISettings,
   parseAIModelList,
   readAITextStream,
+  selectAIModelFromList,
 } from "./aiProviders.js";
 import { convertShapeElementToPath, fitRectangularElementToViewport, getCanvasContextMenuCapabilities, setSelectedElementRoundness } from "./canvasContextMenu.js";
 import { normalizeRoughnessValue, normalizeRoundnessValue, parseDrawingStyleSlash } from "./drawingStyleCommands.js";
@@ -204,6 +207,13 @@ const COLLAPSED_DOCK_EDGE_SIZE = 5;
 const BOTTOM_DOCK_COLLAPSE_THRESHOLD = 72;
 const BOTTOM_DOCK_MIN_HEIGHT = 112;
 const AI_MODEL_FAVORITES_STORAGE_KEY = "drawerator_ai_model_favorites";
+const PRATT_ENV_CREDENTIAL_AVAILABLE = import.meta.env.VITE_PRATT_LLM_API_KEY_AVAILABLE === true
+  || import.meta.env.VITE_PRATT_LLM_API_KEY_AVAILABLE === "true";
+const hasAIEnvironmentCredential = settings => aiProviderEnvironmentCredentialApplies(
+  settings,
+  typeof window === "undefined" ? "" : window.location.origin,
+  PRATT_ENV_CREDENTIAL_AVAILABLE,
+);
 
 function ModelCatalogFilter({ modelCount, resetKey, onFilterChange }) {
   const [draft, setDraft] = useState("");
@@ -787,6 +797,7 @@ const normalizeInterfaceTheme = (value, theme = "dark") => {
 const ScriptActionIcon = ({ type }) => {
   const paths = {
     run: <><path d="m9 6 9 6-9 6V6Z"/></>,
+    pause: <><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></>,
     save: <><path d="M5 4h12l2 2v14H5V4Z"/><path d="M8 4v6h8V4M8 20v-6h8v6"/></>,
     copy: <><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5H5v11h3"/></>,
     add: <><path d="M12 5v14M5 12h14"/></>,
@@ -2496,6 +2507,8 @@ function App() {
   const [p5ScriptMode, setP5ScriptMode] = useState("auto");
   const [p5ScriptStatus, setP5ScriptStatus] = useState("");
   const [p5ScriptStatusKind, setP5ScriptStatusKind] = useState("info");
+  const [livecodeRuntimeStatuses, setLivecodeRuntimeStatuses] = useState({});
+  const p5RuntimeConsoleSignaturesRef = useRef(new Map());
   const [editingP5ScriptName, setEditingP5ScriptName] = useState(false);
   const [p5ScriptNameDraft, setP5ScriptNameDraft] = useState("");
   const p5ScriptsRef = useRef(p5Scripts);
@@ -3406,6 +3419,7 @@ function App() {
   const [livecodeCanvasEditorId, setLivecodeCanvasEditorId] = useState(null);
   const [livecodeCanvasFocusRequest, setLivecodeCanvasFocusRequest] = useState(0);
   const [livecodeStatus, setLivecodeStatus] = useState("");
+  const [livecodeSettingsOpen, setLivecodeSettingsOpen] = useState(true);
   const livecodeDirtyIdsRef = useRef(new Set());
   const selectedSvgForEditor = useMemo(() => {
     const selectedIds = svgOverlayScene.appState?.selectedElementIds || {};
@@ -3479,6 +3493,33 @@ function App() {
     if (typeof window === "undefined") return undefined;
     const receiveP5Status = event => {
       const detail = event.detail || {};
+      const reportRuntimeErrorToConsole = () => {
+        if (detail.kind !== "error" || !detail.elementId) return;
+        const message = String(detail.message || "p5 runtime error");
+        const signature = `error:${message}`;
+        if (p5RuntimeConsoleSignaturesRef.current.get(detail.elementId) === signature) return;
+        p5RuntimeConsoleSignaturesRef.current.set(detail.elementId, signature);
+        // Use the normal script bridge so Event Console gets the same element
+        // label and source metadata as console.error from code.
+        scriptRuntimeRef.current?.emitScriptLog?.(detail.elementId, "error", [message]);
+      };
+      if (detail.kind === "success" && detail.elementId) {
+        p5RuntimeConsoleSignaturesRef.current.delete(detail.elementId);
+      }
+      if (detail.livecode && detail.elementId) {
+        const status = {
+          message: String(detail.message || ""),
+          kind: detail.kind === "error" ? "error" : detail.kind === "success" ? "success" : "info",
+        };
+        setLivecodeRuntimeStatuses(previous => {
+          const current = previous[detail.elementId];
+          if (current?.message === status.message && current?.kind === status.kind) return previous;
+          return { ...previous, [detail.elementId]: status };
+        });
+        reportRuntimeErrorToConsole();
+        return;
+      }
+      reportRuntimeErrorToConsole();
       if (detail.scriptId && activeP5ScriptId && detail.scriptId !== activeP5ScriptId) return;
       setP5ScriptStatus(String(detail.message || ""));
       setP5ScriptStatusKind(detail.kind === "error" ? "error" : detail.kind === "success" ? "success" : "info");
@@ -3816,11 +3857,32 @@ function App() {
     ));
     return matches.length === 1 ? matches[0] : null;
   }, [livecodeOverlayScene.elements, selectedElementIds]);
+  const livecodeInfoElement = (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || [])
+    .find(element => element.id === livecodeEditorId && isLivecodeNodeElement(element))
+    || selectedLivecodeNodeForEditor
+    || livecodeOverlayScene.elements.find(element => element.id === livecodeEditorId && isLivecodeNodeElement(element));
+  const selectedLivecodeKindForInfo = livecodeInfoElement
+    ? normalizeLivecodeNode(livecodeInfoElement.customData?.draweratorLivecode).kind
+    : null;
   const physicsDebugSegmentsRef = useRef([]);
   const scriptRuntimeRef = useRef({});
   const scriptCanvasApiRef = useRef(null);
   scriptRuntimeRef.current = {
     eventBus,
+    emitScriptLog: (elementId, level, args) => {
+      const element = (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || [])
+        .find(candidate => candidate.id === elementId && !candidate.isDeleted);
+      const label = element?.customData?.label
+        || element?.customData?.iannixImport?.label
+        || getScoreData(element)?.label
+        || elementId;
+      eventBus.emit("script.log", {
+        elementId,
+        label: String(label || elementId),
+        level: String(level || "log"),
+        args: Array.isArray(args) ? args : [args],
+      }, { source: "livecode", transportTime: scoreTimeRef.current });
+    },
     getStreams: ownerId => mediaStreamsApiRef.current.forOwner?.(ownerId) || mediaStreamsApiRef.current,
     disposeStreamsOwner: ownerId => mediaStreamsApiRef.current.removeOwner?.(ownerId),
     getElements: () => excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || [],
@@ -4168,6 +4230,31 @@ function App() {
     }
     return getMixerOutputsForChannel(midiChannel);
   }, [ensureExpressiveSynth, ensureInternalSynth, getMixerOutputsForChannel]);
+
+  useEffect(() => {
+    // A browser may suspend Web Audio while the app is backgrounded even when
+    // Drawerator's transport keeps advancing. Reconcile the active Mixer
+    // outputs when the page returns so a linked Orca node does not keep
+    // generating MIDI into a suspended synth.
+    const resumeActiveAudio = () => {
+      if (!scorePlayingRef.current || document.visibilityState === "hidden") return;
+      const activeTracks = mixerRef.current.tracks.filter(track => track.enabled && !track.muted);
+      if (activeTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_GM)
+        && internalSynthRef.current?.getState?.() !== "running") {
+        void ensureInternalSynth({ reason: "visibility-resume" });
+      }
+      if (activeTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_EXPRESSIVE)
+        && expressiveSynthRef.current?.getState?.() !== "running") {
+        void ensureExpressiveSynth();
+      }
+    };
+    window.addEventListener("focus", resumeActiveAudio);
+    document.addEventListener("visibilitychange", resumeActiveAudio);
+    return () => {
+      window.removeEventListener("focus", resumeActiveAudio);
+      document.removeEventListener("visibilitychange", resumeActiveAudio);
+    };
+  }, [ensureExpressiveSynth, ensureInternalSynth]);
 
   const executePhysicsMappingTarget = useCallback(descriptor => {
     const { operation, target, values = {}, gateKey, mapping, systemId } = descriptor || {};
@@ -4803,12 +4890,20 @@ function App() {
   // host by ID only: source edits replace the scene element object on every
   // keystroke, and must never re-open/re-target the Script panel mid-edit.
   useEffect(() => {
-    if (!selectedLivecodeNodeForEditor) {
-      setLivecodeEditorId(null);
-      return;
-    }
+    // Keep the last actively edited node when selection moves to an ordinary
+    // canvas object. Selecting another Livecode node still intentionally
+    // changes the editor target below.
+    if (!selectedLivecodeNodeForEditor) return;
     setLivecodeEditorId(selectedLivecodeNodeForEditor.id);
-    toggleDraweratorPanel("script", { open: true, scriptType: "livecode" });
+    setInfoView(DEFAULT_INFO_VIEW);
+    // Do not let a canvas selection or a modifier double-click pull the
+    // Script panel into a presentation. A manually opened panel still follows
+    // the active node through the editor id and script type.
+    if (presentationMode) {
+      setScriptPanelType("livecode");
+    } else {
+      toggleDraweratorPanel("script", { open: true, scriptType: "livecode" });
+    }
   }, [selectedLivecodeNodeForEditor?.id]);
 
   useEffect(() => {
@@ -6068,6 +6163,31 @@ function App() {
     return true;
   };
 
+  const handleLivecodeCommandOutputPointerDown = e => {
+    if (!excalidrawAPI || e.button !== 0 || !(e.metaKey || e.ctrlKey)) return false;
+    const [x, y] = getCanvasCoords(e.clientX, e.clientY, "none");
+    const candidates = excalidrawAPI.getSceneElements().filter(element => (
+      !element.isDeleted && isLivecodeNodeElement(element) && !element.customData?.outlinerHidden
+    ));
+    const hit = [...candidates].reverse().find(element => {
+      const centerX = element.x + element.width / 2;
+      const centerY = element.y + element.height / 2;
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const angle = Number(element.angle) || 0;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const localX = cos * dx + sin * dy;
+      const localY = -sin * dx + cos * dy;
+      return Math.abs(localX) <= element.width / 2 && Math.abs(localY) <= element.height / 2;
+    });
+    if (!hit) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    patchLivecodeCanvasNode(hit.id, { view: "preview" }, { commitToHistory: true });
+    return true;
+  };
+
   const enterLivecodeEditAtPointer = e => {
     if (!excalidrawAPI || excalidrawAPI.getAppState().activeTool?.type !== "selection") return false;
     const [x, y] = getCanvasCoords(e.clientX, e.clientY, "none");
@@ -6099,7 +6219,7 @@ function App() {
       commitToHistory: false,
     });
     setSelectedElementIds({ [hit.id]: true });
-    editLivecodeCanvasNode(hit.id);
+    editLivecodeCanvasNode(hit.id, { view: getLivecodeViewForDoubleClick(e) });
     return true;
   };
 
@@ -6731,6 +6851,10 @@ function App() {
     if (handlePhysicsPointerDown(e)) return;
 
     if (handleObjectEyedropperPointerDown(e)) return;
+
+    // Cmd/Ctrl-clicking an unselected Livecode node is an output shortcut,
+    // not an additive Excalidraw selection gesture.
+    if (handleLivecodeCommandOutputPointerDown(e)) return;
 
     if (handleCommandObjectSelectionPointerDown(e)) return;
 
@@ -8490,15 +8614,21 @@ function App() {
   const orderedModelsList = useMemo(() => filterAIModels(modelsList, {
     favorites: activeModelFavorites,
   }), [activeModelFavorites, modelsList]);
+  const activeProviderManualModels = useMemo(
+    () => getAIProviderManualModels(aiSettings.provider),
+    [aiSettings.provider],
+  );
   const filteredModelsList = useMemo(() => filterAIModels(modelsList, {
     query: modelFilter,
     favorites: activeModelFavorites,
     favoritesOnly: favoriteModelsOnly,
   }), [activeModelFavorites, favoriteModelsOnly, modelFilter, modelsList]);
   const visibleModelOptions = useMemo(() => {
-    if (!aiSettings.model || filteredModelsList.includes(aiSettings.model)) return filteredModelsList;
+    if (!aiSettings.model
+      || filteredModelsList.includes(aiSettings.model)
+      || activeProviderManualModels.includes(aiSettings.model)) return filteredModelsList;
     return [aiSettings.model, ...filteredModelsList];
-  }, [aiSettings.model, filteredModelsList]);
+  }, [activeProviderManualModels, aiSettings.model, filteredModelsList]);
   const toggleFavoriteModel = useCallback(model => {
     const normalizedModel = String(model || "").trim();
     if (!normalizedModel) return;
@@ -8567,7 +8697,7 @@ function App() {
   const testAIConnection = async (settings = aiSettings) => {
     setConnectionStatus("pending");
     const { provider } = settings;
-    if (aiProviderNeedsCredential(provider) && !getAIProviderCredential(settings)) {
+    if (aiProviderNeedsCredential(provider, hasAIEnvironmentCredential(settings)) && !getAIProviderCredential(settings)) {
       setModelsList([]);
       setConnectionStatus("auth");
       return;
@@ -8580,8 +8710,9 @@ function App() {
       const list = parseAIModelList(provider, data);
       setModelsList(list);
       setConnectionStatus("ok");
-      if (list.length > 0 && !settings.model) {
-        setAiSettings(prev => ({ ...prev, model: list[0] }));
+      const resolvedModel = selectAIModelFromList(settings, list);
+      if (resolvedModel && resolvedModel !== settings.model) {
+        setAiSettings(prev => prev.provider === provider ? { ...prev, model: resolvedModel } : prev);
       }
     } catch (e) {
       setConnectionStatus("error");
@@ -9051,7 +9182,7 @@ function App() {
     });
 
     try {
-      if (aiProviderNeedsCredential(provider) && !getAIProviderCredential(aiSettings)) {
+      if (aiProviderNeedsCredential(provider, hasAIEnvironmentCredential(aiSettings)) && !getAIProviderCredential(aiSettings)) {
         throw new Error(`${getAIProvider(provider).credentialLabel} is required.`);
       }
       const request = buildAIChatRequest(aiSettings, messagesPayload, window.location.origin);
@@ -11564,10 +11695,42 @@ function App() {
         return;
       }
 
-      // CodeMirror owns its complete keyboard session. This needs to precede
-      // global Escape and canvas shortcuts because both Excalidraw and
-      // Drawerator use capture-phase handlers.
-      if (document.activeElement?.closest?.(".drawerator-code-editor")) return;
+      // CodeMirror and Orca own their complete keyboard sessions. This needs to precede
+      // canvas shortcuts because both Excalidraw and Drawerator use
+      // capture-phase handlers. Shift+Escape is the explicit exception for a
+      // canvas livecode editor: it switches the selected node to output and
+      // defocuses it without changing plain Escape's editor behavior.
+      const activeElement = document.activeElement;
+      const activeCanvasLivecodeNode = activeElement?.closest?.(".drawerator-livecode-node");
+      const activeCanvasLivecodeId = activeCanvasLivecodeNode?.dataset?.livecodeNodeId || null;
+      const canvasLivecodeIsSelected = Boolean(
+        activeCanvasLivecodeId
+        && (
+          livecodeCanvasEditorId === activeCanvasLivecodeId
+          || excalidrawAPI?.getAppState?.()?.selectedElementIds?.[activeCanvasLivecodeId]
+        )
+      );
+      if (e.key === "Escape" && e.shiftKey && canvasLivecodeIsSelected) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation?.();
+        const activeCanvasLivecodeElement = excalidrawAPI?.getSceneElementsIncludingDeleted?.()
+          ?.find(element => element.id === activeCanvasLivecodeId && !element.isDeleted);
+        const activeCanvasLivecodeData = activeCanvasLivecodeElement?.customData?.draweratorLivecode;
+        const activeCanvasLivecodeView = activeCanvasLivecodeData
+          ? normalizeLivecodeNode(activeCanvasLivecodeData).view
+          : null;
+        if (activeCanvasLivecodeView === "code" || activeCanvasLivecodeView === "overlay") {
+          patchLivecodeCanvasNode(activeCanvasLivecodeId, { view: "preview" }, { commitToHistory: true });
+        }
+        selectedElementIdsRef.current = {};
+        setSelectedElementIds({});
+        runtimeCursorSelectionRef.current = {};
+        excalidrawAPI?.updateScene({ appState: { selectedElementIds: {} } });
+        activeElement?.blur?.();
+        return;
+      }
+      if (activeElement?.closest?.(".drawerator-code-editor, .orca-node")) return;
 
       // Escape is a global cancel/clear gesture: close transient UI, blur any
       // focused control, leave Bézier editing, and clear the canvas selection.
@@ -11589,7 +11752,6 @@ function App() {
           e.stopImmediatePropagation?.();
           return;
         }
-        const activeElement = document.activeElement;
         if (showContextDropdown) setShowContextDropdown(false);
         if (showAutocomplete) setShowAutocomplete(false);
         if (showCommandPalette) setShowCommandPalette(false);
@@ -11621,13 +11783,15 @@ function App() {
 
       // Space controls score transport from the canvas/UI. Text controls keep
       // their native spacebar behavior so users can still type normally.
-      const activeElement = document.activeElement;
-      const isTextControlFocused = activeElement && (
-        activeElement.tagName === "INPUT" ||
-        activeElement.tagName === "TEXTAREA" ||
-        activeElement.tagName === "SELECT" ||
-        activeElement.isContentEditable ||
-        activeElement.closest?.(".cm-editor")
+      const textControlEventTarget = e.target?.closest?.("input, textarea, select, [contenteditable='true'], .cm-editor");
+      const isTextControlFocused = Boolean(
+        (activeElement && (
+          activeElement.tagName === "INPUT" ||
+          activeElement.tagName === "TEXTAREA" ||
+          activeElement.tagName === "SELECT" ||
+          activeElement.isContentEditable ||
+          activeElement.closest?.(".cm-editor")
+        )) || textControlEventTarget,
       );
       if (!isTextControlFocused && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "Backslash") {
         e.preventDefault();
@@ -11651,8 +11815,8 @@ function App() {
           e.preventDefault();
           e.stopPropagation();
           e.stopImmediatePropagation?.();
-          if (node.kind !== LIVECODE_KINDS.orca && node.view !== "code") {
-            patchLivecodeCanvasNode(selectedLivecodeNodes[0].id, { view: "code" }, { commitToHistory: true });
+          if (node.kind !== LIVECODE_KINDS.orca && node.view !== "source") {
+            patchLivecodeCanvasNode(selectedLivecodeNodes[0].id, { view: "source" }, { commitToHistory: true });
           }
           editLivecodeCanvasNode(selectedLivecodeNodes[0].id, { focusCanvas: true });
           return;
@@ -11750,11 +11914,13 @@ function App() {
 
       // Keyboard shortcuts check for non-input focus
       const activeEl = document.activeElement;
-      const isInputFocused = activeEl && (
-        activeEl.tagName === "INPUT" ||
-        activeEl.tagName === "TEXTAREA" ||
-        activeEl.contentEditable === "true" ||
-        activeEl.closest?.(".cm-editor")
+      const isInputFocused = Boolean(
+        (activeEl && (
+          activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.contentEditable === "true" ||
+          activeEl.closest?.(".cm-editor")
+        )) || textControlEventTarget,
       );
 
       if (!isInputFocused && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "NumpadDecimal") {
@@ -11777,7 +11943,7 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [theme, excalidrawAPI, customBrushActive, activeBrushId, shortcutBindings, commandRegistry, showContextDropdown, showAutocomplete, showCommandPalette, bezierEditElementId, svgPathEdit]);
+  }, [theme, excalidrawAPI, customBrushActive, activeBrushId, shortcutBindings, commandRegistry, showContextDropdown, showAutocomplete, showCommandPalette, bezierEditElementId, svgPathEdit, livecodeCanvasEditorId]);
 
   // Autofocus input when Command Palette opens
   useEffect(() => {
@@ -14449,7 +14615,6 @@ function App() {
         running,
         ...(evaluationSettings ? { settings: evaluationSettings } : {}),
       },
-      ...(running && node.kind !== LIVECODE_KINDS.strudel && (hasNativeLivecodeRuntime(node) || [LIVECODE_KINDS.markdown, LIVECODE_KINDS.latex, LIVECODE_KINDS.html].includes(node.kind)) ? { view: "preview" } : {}),
     }, { commitToHistory: true });
     if (!running && node.kind === LIVECODE_KINDS.strudel && node.runtime.settings?.syncTransport) setScorePlaying(false);
     if (node.kind === LIVECODE_KINDS.strudel && running) setLivecodeStatus("");
@@ -14469,14 +14634,25 @@ function App() {
     }
   }, []);
 
-  const editLivecodeCanvasNode = (elementId, { focusCanvas = true } = {}) => {
+  const editLivecodeCanvasNode = (elementId, { focusCanvas = true, view = null } = {}) => {
+    if (view) patchLivecodeCanvasNode(elementId, { view }, { commitToHistory: true });
     setLivecodeEditorId(elementId);
+    setInfoView(DEFAULT_INFO_VIEW);
     if (focusCanvas) {
       setLivecodeCanvasEditorId(elementId);
       setLivecodeCanvasFocusRequest(request => request + 1);
     }
     setLivecodeStatus("");
-    toggleDraweratorPanel("script", { scriptType: "livecode" });
+    // Presentation is a performance surface: editing gestures may still
+    // retarget the active Livecode node (and its authored view), but they must
+    // not uncollapse or open the Script panel. If the panel is already open,
+    // switching its content to this node remains useful and does not change
+    // the presentation layout.
+    if (presentationMode) {
+      setScriptPanelType("livecode");
+    } else {
+      toggleDraweratorPanel("script", { scriptType: "livecode" });
+    }
   };
 
   const createLivecodeCanvasNode = (args = {}) => {
@@ -15314,15 +15490,56 @@ function App() {
     }
   };
 
-  const emitOrcaMidiEvents = useCallback((elementId, events) => {
+  const emitOrcaMidiEvents = useCallback((elementId, events, metadata = {}) => {
     const items = Array.isArray(events) ? events : [];
     if (!items.length) return;
     const tempo = Math.max(20, Number(scoreTempo) || 120);
     let delivered = 0;
+    let unrouted = 0;
+    const unroutedChannels = new Set();
+    const routeDetails = [];
+    const eventDetails = items.map(event => ({
+      type: event?.type || "unknown",
+      channel: Math.max(1, Math.min(16, Math.round(Number(event?.channel) || 1))),
+      ...(event?.type === "note" ? {
+        note: Math.max(0, Math.min(127, Math.round(Number(event?.note) || 0))),
+        velocity: Math.max(0, Math.min(127, Math.round(Number(event?.velocity) || 0))),
+        durationFrames: Math.max(0, Number(event?.durationFrames) || 0),
+      } : {}),
+      ...(event?.type === "cc" ? {
+        controller: Math.max(0, Math.min(127, Math.round(Number(event?.controller) || 0))),
+        value: Math.max(0, Math.min(127, Math.round(Number(event?.value) || 0))),
+      } : {}),
+    }));
     for (const event of items) {
       const channel = Math.max(1, Math.min(16, Math.round(Number(event?.channel) || 1)));
+      const configuredTracks = getMixerTracksForChannel(mixerRef.current, channel);
       const routes = getMixerOutputsForChannel(channel);
-      if (!routes.length) continue;
+      if (!routes.length) {
+        unrouted += 1;
+        unroutedChannels.add(channel);
+        routeDetails.push({
+          channel,
+          configuredTracks: configuredTracks.map(track => ({
+            id: track.id,
+            destination: track.destination,
+            instrument: track.instrument,
+            enabled: track.enabled,
+            muted: track.muted,
+          })),
+          outputs: [],
+        });
+        continue;
+      }
+      routeDetails.push({
+        channel,
+        configuredTracks: configuredTracks.map(track => ({ id: track.id, destination: track.destination, instrument: track.instrument })),
+        outputs: routes.map(({ track, output }) => ({
+          trackId: track.id,
+          outputId: output.id || output.name || null,
+          state: output.getState?.() || output.state || "ready",
+        })),
+      });
       const now = performance.now();
       if (event.type === "note") {
         const message = {
@@ -15352,8 +15569,24 @@ function App() {
         delivered += routes.length;
       }
     }
-    if (delivered) setMidiStatus(`Orca ${String(elementId).slice(0, 6)} · ${delivered} routed MIDI event${delivered === 1 ? "" : "s"}`);
-  }, [getMixerOutputsForChannel, scoreTempo]);
+    eventBus.emit("midi.orca", {
+      elementId,
+      frame: Number.isFinite(Number(metadata?.frame)) ? Number(metadata.frame) : null,
+      transportPlaying: scorePlayingRef.current,
+      generated: items.length,
+      delivered,
+      unrouted,
+      events: eventDetails,
+      routes: routeDetails,
+      internalSynthState: internalSynthRef.current?.getState?.() || "off",
+    }, { source: "orca", transportTime: scoreTimeRef.current });
+    if (delivered) {
+      setMidiStatus(`Orca ${String(elementId).slice(0, 6)} · ${delivered} routed MIDI event${delivered === 1 ? "" : "s"}`);
+    } else {
+      const channels = [...unroutedChannels].sort((a, b) => a - b).join(", ");
+      setMidiStatus(`Orca ${String(elementId).slice(0, 6)} · ${items.length} event${items.length === 1 ? "" : "s"} generated · no audible Mixer route${channels ? ` (MIDI channel${unroutedChannels.size === 1 ? "" : "s"} ${channels})` : ""}`);
+    }
+  }, [eventBus, getMixerOutputsForChannel, scoreTempo]);
 
   const toggleScorePlayback = async () => {
     if (scorePlaying) {
@@ -16610,6 +16843,65 @@ function App() {
     const appState = excalidrawAPI.getAppState();
     const selectedIds = { ...appState.selectedElementIds, ...runtimeCursorSelectionRef.current, ...selectedElementIdsRef.current };
     return excalidrawAPI.getSceneElementsIncludingDeleted().filter(element => !element.isDeleted && selectedIds[element.id]);
+  };
+
+  const renderSelectionPng = async () => {
+    if (!excalidrawAPI) throw new Error("The canvas is not ready.");
+    const appState = excalidrawAPI.getAppState();
+    const selected = getSelectionExchangeElements(
+      excalidrawAPI.getSceneElementsIncludingDeleted(),
+      { ...appState.selectedElementIds, ...runtimeCursorSelectionRef.current, ...selectedElementIdsRef.current },
+    );
+    if (!selected.length) throw new Error("Select one or more canvas objects first.");
+    const exportPadding = getBakeExportPadding(selected);
+    const contentBounds = getCanonicalExportBounds(selected);
+    const bounds = contentBounds && {
+      minX: contentBounds.minX - exportPadding,
+      minY: contentBounds.minY - exportPadding,
+      maxX: contentBounds.maxX + exportPadding,
+      maxY: contentBounds.maxY + exportPadding,
+    };
+    if (!bounds) throw new Error("The selection has no visible bounds.");
+    const result = await exportDraweratorPng({
+      exportToCanvas,
+      elements: selected,
+      appState: { ...getDraweratorExportAppState({ transparent: true }), exportScale: 1 },
+      files: excalidrawAPI.getFiles(),
+      bounds,
+      exportPadding,
+      exportBackground: false,
+      // Clipboard/imported PNGs are placed back into the scene using bitmap
+      // pixels as scene units. Keep selection captures at 1:1 scene
+      // resolution so a pasted copy preserves the original frame size;
+      // board exports can still use the device-pixel resolution by default.
+      pixelRatio: 1,
+    });
+    return { ...result, selected };
+  };
+
+  const copySelectionAsPng = async () => {
+    try {
+      const { canvas, selected } = await renderSelectionPng();
+      if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) {
+        throw new Error("Image clipboard is unavailable in this browser. Use Export Selection as PNG instead.");
+      }
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+      if (!blob) throw new Error("Could not encode the selection as PNG.");
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      setSceneExchangeStatus(`Copied ${selected.length} selected ${selected.length === 1 ? "object" : "objects"} as PNG.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not copy selection as PNG.");
+    }
+  };
+
+  const exportSelectionAsPng = async () => {
+    try {
+      const { canvas, selected } = await renderSelectionPng();
+      downloadCanvasAsPng(canvas, { filename: `drawerator-selection-${new Date().toISOString().slice(0, 10)}.png` });
+      setSceneExchangeStatus(`Exported ${selected.length} selected ${selected.length === 1 ? "object" : "objects"} as PNG.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not export selection as PNG.");
+    }
   };
 
   const bakeSelectionToPng = async () => {
@@ -18881,11 +19173,18 @@ function App() {
     </div>;
     const node = normalizeLivecodeNode(nodeElement.customData?.draweratorLivecode);
     const definition = getLivecodeKindDefinition(node.kind);
+    const p5Validation = node.kind === LIVECODE_KINDS.p5 ? validateLivecodeNode(node) : null;
+    const p5RuntimeStatus = p5Validation && !p5Validation.valid
+      ? { kind: "error", message: `p5 error: ${p5Validation.error || "source does not compile"}` }
+      : livecodeRuntimeStatuses[nodeElement.id] || null;
     const shaderExample = node.kind === LIVECODE_KINDS.shader
       ? getShaderExample(node.runtime.settings?.shaderExample || shaderExampleForSource(node.source)?.id)
       : null;
     const shaderComposition = normalizeShaderCompositionSettings(node.runtime.settings);
-    const help = getLivecodeHelp(node.kind);
+    const livecodeExamples = getLivecodeExamples(node.kind);
+    const activeLivecodeExampleId = node.kind === LIVECODE_KINDS.shader
+      ? shaderExample?.id
+      : node.runtime.settings?.livecodeExample || livecodeExamples.find(example => example.source === node.source)?.id || "bare";
     const parameters = parseScriptParameters(node.source, { values: node.parameters });
     const beginLivecodeRename = () => {
       setLivecodeNameDraft(node.name || definition.label);
@@ -18902,6 +19201,7 @@ function App() {
       api.updateScene({ appState: { selectedElementIds: { [elementId]: true }, selectedGroupIds: {}, activeTool: { ...activeTool, type: "selection", locked: false } }, commitToHistory: false });
       setSelectedElementIds({ [elementId]: true });
       setLivecodeEditorId(elementId);
+      setInfoView(DEFAULT_INFO_VIEW);
     };
     const frameLivecodeNode = () => {
       const api = excalidrawAPIRef.current;
@@ -18947,22 +19247,52 @@ function App() {
           aria-label="Frame selected Livecode node"
         ><ScriptActionIcon type="frame" /></button>
       </div>
-      <div className="livecode-panel-controls">
+      <details
+        className="livecode-settings-disclosure"
+        open={livecodeSettingsOpen}
+        onToggle={event => setLivecodeSettingsOpen(event.currentTarget.open)}
+      >
+        <summary>Node settings</summary>
+        <div className="livecode-panel-controls">
         <label>Kind <select value={node.kind} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { kind: event.target.value, name: defaultLivecodeName(event.target.value) }, { commitToHistory: true })}>{Object.entries(LIVECODE_KINDS).map(([key, value]) => <option key={key} value={value}>{getLivecodeKindDefinition(value).label}</option>)}</select></label>
-        {node.kind === LIVECODE_KINDS.orca
-          ? <label>View <span className="livecode-static-option">Grid</span></label>
-          : node.kind === LIVECODE_KINDS.strudel
-            ? <label>View <span className="livecode-static-option">Code overlay</span></label>
-            : <label>View <select value={node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="code">Code</option><option value="preview">Output</option><option value="split">Code/output</option></select></label>}
-        {node.kind === LIVECODE_KINDS.shader && <label>Example <select value={shaderExample?.id || "hello"} onChange={event => {
-          const next = getShaderExample(event.target.value);
+        <label className="livecode-example-control">Example <select value={activeLivecodeExampleId} onChange={event => {
+          const next = livecodeExamples.find(example => example.id === event.target.value) || livecodeExamples[0];
+          if (!next) return;
+          if (node.kind === LIVECODE_KINDS.shader) {
+            const shader = next.id === "bare"
+              ? { id: "bare", name: next.name, source: next.source, mode: "custom" }
+              : getShaderExample(next.id);
+            if (!shader) return;
+            patchLivecodeCanvasNode(nodeElement.id, {
+              name: shader.name,
+              source: shader.source,
+              runtime: { running: true, transportMode: "free", settings: { shaderExample: shader.id, shaderMode: shader.mode } },
+              view: "preview",
+            }, { commitToHistory: true });
+            return;
+          }
           patchLivecodeCanvasNode(nodeElement.id, {
             name: next.name,
             source: next.source,
-            runtime: { running: true, transportMode: "free", settings: { shaderExample: next.id, shaderMode: next.mode } },
-            view: "preview",
+            runtime: { settings: {
+              livecodeExample: next.id,
+              ...(next.mode ? { p5Mode: next.mode } : {}),
+              ...(node.kind === LIVECODE_KINDS.orca ? { orcaLoopFrames: next.settings?.orcaLoopFrames || 0 } : {}),
+              ...(next.settings || {}),
+            } },
           }, { commitToHistory: true });
-        }}>{SHADER_EXAMPLES.map(example => <option key={example.id} value={example.id}>{example.label}</option>)}</select></label>}
+        }}>{livecodeExamples.map(example => <option key={example.id} value={example.id}>{example.label}</option>)}</select></label>
+        {node.kind === LIVECODE_KINDS.orca
+          ? <label className="livecode-view-control">View <span className="livecode-static-option">Grid</span></label>
+          : node.kind === LIVECODE_KINDS.strudel
+            ? <label className="livecode-view-control">View <span className="livecode-static-option">Code overlay</span></label>
+            : <label className="livecode-view-control">View <select value={node.view === "overlay" ? "code" : node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="preview">Output</option><option value="source">Code</option><option value="code">Code Overlay</option><option value="split">Code/Output</option></select></label>}
+        {node.kind === LIVECODE_KINDS.orca && <label title="Choose the native compact Orca cell spacing or fill the host frame">Spacing <select value={node.runtime.settings?.orcaDensity === "spacious" ? "spacious" : "compact"} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaDensity: event.target.value } } }, { commitToHistory: true })}><option value="compact">Compact</option><option value="spacious">Spacious</option></select></label>}
+        {node.kind === LIVECODE_KINDS.orca && <label title="Number of editable Orca columns">Grid width <NumericInput min="4" max="128" step="1" value={node.runtime.settings?.orcaGridWidth || 32} defaultValue={32} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridWidth: value } } }, { commitToHistory: true })} /></label>}
+        {node.kind === LIVECODE_KINDS.orca && <label title="Number of editable Orca rows">Grid height <NumericInput min="2" max="128" step="1" value={node.runtime.settings?.orcaGridHeight || 16} defaultValue={16} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridHeight: value } } }, { commitToHistory: true })} /></label>}
+        {node.kind === LIVECODE_KINDS.orca && <label title="Automatically size Orca cells to fit the host frame"><span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.orcaGridFit !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridFit: event.target.checked } } }, { commitToHistory: true })} />Fit frame</span></label>}
+        {node.kind === LIVECODE_KINDS.orca && <label title="Show a faint guide lattice behind the Orca cells">Guide <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.orcaGridGuide === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridGuide: event.target.checked } } }, { commitToHistory: true })} />Grid</span></label>}
+        <label title="Show the compact tab above this Livecode node on the canvas">Canvas tab <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.showChrome === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { showChrome: event.target.checked } } }, { commitToHistory: true })} />Show</span></label>
         {node.kind === LIVECODE_KINDS.shader && <label>Layer <select value={shaderComposition.compositeMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeMode: event.target.value } } }, { commitToHistory: true })}><option value="overlay">Above objects</option><option value="underlay">Below objects</option></select></label>}
         {node.kind === LIVECODE_KINDS.shader && <label>Opacity % <NumericInput min="0" max="100" step="5" value={Math.round(shaderComposition.compositeOpacity * 100)} defaultValue={100} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeOpacity: value / 100 } } }, { commitToHistory: true })} /></label>}
         {node.kind === LIVECODE_KINDS.shader && <label>Blend <select value={shaderComposition.blendMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { blendMode: event.target.value } } }, { commitToHistory: true })}><option value="normal">Normal</option><option value="screen">Screen</option><option value="multiply">Multiply</option><option value="overlay">Overlay</option><option value="soft-light">Soft light</option></select></label>}
@@ -18972,16 +19302,18 @@ function App() {
         <label>Clock <select value={node.runtime.transportMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { transportMode: event.target.value } }, { commitToHistory: true })}><option value="linked">Linked</option><option value="free">Free</option></select></label>
         {node.kind === LIVECODE_KINDS.strudel && <label>Transport <span className="livecode-checkbox"><input type="checkbox" checked={Boolean(node.runtime.settings?.syncTransport)} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { syncTransport: event.target.checked } } }, { commitToHistory: true })} />Full sync</span></label>}
         {node.kind === LIVECODE_KINDS.strudel && <label title="Render public Strudel visualizers such as .pianoroll() across this node frame">Visuals <span className="livecode-checkbox"><input type="checkbox" aria-label="Strudel frame visuals" checked={node.runtime.settings?.frameVisuals !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { frameVisuals: event.target.checked } } }, { commitToHistory: true })} />Frame</span></label>}
-        <label>Font <select value={node.typography.font} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { font: event.target.value } }, { commitToHistory: true })}>{LIVE_CODE_FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label>
         <label title="Ctrl-M, then L">Lines <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.showLineNumbers} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { showLineNumbers: event.target.checked } }, { commitToHistory: true })} />Numbers</span></label>
         <label>Fold <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.showFoldGutter} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { showFoldGutter: event.target.checked } }, { commitToHistory: true })} />Gutter</span></label>
         <label title="Keep blank overlay space transparent while code is shown over output">Overlay <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.glyphOnlyOverlay} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { glyphOnlyOverlay: event.target.checked } }, { commitToHistory: true })} />Glyphs only</span></label>
         <label title={node.typography.glyphOnlyOverlay ? "Applies behind non-space code when Glyphs only is enabled" : "Applies across the full code surface"}>Code opacity % <NumericInput min="0" max="100" step="5" value={Math.round(node.typography.codeOverlayOpacity * 100)} defaultValue={100} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { codeOverlayOpacity: value / 100 } }, { commitToHistory: true })} /></label>
+        <label>Font <select value={node.typography.font} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { font: event.target.value } }, { commitToHistory: true })}>{LIVE_CODE_FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label>
+        {getLivecodeFont(node.typography.font).supportsLigatures && <label title="Enable Monaspace contextual alternates, standard ligatures, and stylistic sets ss01–ss10">Ligatures <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.ligatures !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { ligatures: event.target.checked } }, { commitToHistory: true })} />On</span></label>}
         <label>Size <NumericInput min="8" max="72" step="1" value={node.typography.fontSize} defaultValue={14} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontSize: value } }, { commitToHistory: true })} /></label>
         <label>Line <NumericInput min="0.8" max="3" step="0.05" value={node.typography.lineHeight} defaultValue={1.4} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { lineHeight: value } }, { commitToHistory: true })} /></label>
         <label>Weight <select value={node.typography.fontWeight} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontWeight: Number(event.target.value) } }, { commitToHistory: true })}>{[300, 400, 500, 600, 700].map(weight => <option key={weight} value={weight}>{weight}</option>)}</select></label>
         <label>Track <NumericInput min="-2" max="8" step="0.1" value={node.typography.letterSpacing} defaultValue={0} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { letterSpacing: value } }, { commitToHistory: true })} /></label>
-      </div>
+        </div>
+      </details>
       {parameters.length > 0 && <div className="iannix-script-parameters p5-script-parameters" aria-label="Livecode node parameters">
         {parameters.map(parameter => <label className="iannix-script-parameter" key={parameter.name}>
           <span className="iannix-script-parameter-header"><strong>{parameter.label}</strong>{parameter.type === "object" && <em>Canvas object</em>}</span>
@@ -19005,10 +19337,15 @@ function App() {
         </label>)}
       </div>}
       <div className="script-icon-toolbar">
-        <button type="button" className="palette-action-btn primary script-icon-button" onClick={() => toggleLivecodeNodeRun(nodeElement.id)} title={node.runtime.running ? "Stop this node" : "Run this node"} aria-label={node.runtime.running ? "Stop livecode node" : "Run livecode node"}><ScriptActionIcon type="run" /></button>
+        <button
+          type="button"
+          className="palette-action-btn primary script-icon-button"
+          onClick={() => toggleLivecodeNodeRun(nodeElement.id)}
+          title={`${node.runtime.running ? "Stop" : "Start"} this node · Cmd/Ctrl+Enter starts${node.kind === LIVECODE_KINDS.strudel ? " or updates" : ""} · Ctrl+. or Alt+. stops`}
+          aria-label={node.runtime.running ? "Stop livecode node" : "Start livecode node"}
+        ><ScriptActionIcon type={node.runtime.running ? "pause" : "run"} /></button>
         <button type="button" className="palette-action-btn secondary script-icon-button" onClick={() => commitLivecodeCanvasNode(nodeElement.id)} title="Save source to the scene" aria-label="Save livecode source"><ScriptActionIcon type="save" /></button>
         <button type="button" className="palette-action-btn secondary script-icon-button" onClick={() => createLivecodeCanvasNode({ kind: node.kind })} title="New livecode node" aria-label="New livecode node"><ScriptActionIcon type="add" /></button>
-        <ScriptFontSizeControl value={node.typography.fontSize} onChange={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontSize: value } }, { commitToHistory: true })} />
       </div>
       <LivecodeNodeEditor
         node={node}
@@ -19016,14 +19353,15 @@ function App() {
         showGutters
         onPatch={patch => patchLivecodeCanvasNode(nodeElement.id, patch)}
         onRun={() => toggleLivecodeNodeRun(nodeElement.id, { command: "run" })}
+        onToggleRun={() => toggleLivecodeNodeRun(nodeElement.id)}
         onUpdate={node.kind === LIVECODE_KINDS.strudel
           ? () => toggleLivecodeNodeRun(nodeElement.id, { command: "update" })
           : undefined}
         onStop={node.kind === LIVECODE_KINDS.strudel && node.runtime.running ? () => toggleLivecodeNodeRun(nodeElement.id) : undefined}
         onBlur={() => commitLivecodeCanvasNode(nodeElement.id)}
-        onCycleView={node.kind === LIVECODE_KINDS.strudel ? undefined : () => patchLivecodeCanvasNode(nodeElement.id, { view: ({ code: "preview", preview: "split", split: "code" }[node.view] || "code") })}
+        onCycleView={node.kind === LIVECODE_KINDS.strudel ? undefined : () => patchLivecodeCanvasNode(nodeElement.id, { view: ({ preview: "source", source: "code", code: "split", split: "preview" }[node.view] || "source") })}
         transport={{ playing: scorePlaying, bpm: scoreTempo }}
-        onMidiEvents={events => emitOrcaMidiEvents(nodeElement.id, events)}
+        onMidiEvents={(events, metadata) => emitOrcaMidiEvents(nodeElement.id, events, metadata)}
         ariaLabel={`${definition.label} node source`}
       />
       {node.kind === LIVECODE_KINDS.strudel
@@ -19033,13 +19371,7 @@ function App() {
           transport={{ playing: scorePlaying, bpm: scoreTempo }}
           message={livecodeStatus}
         />
-        : <p className="p5-script-status" role="status" aria-live="polite">{livecodeStatus || definition.summary}</p>}
-      <details className="livecode-help">
-        <summary>{help.title}</summary>
-        <p>{help.summary}</p>
-        <ul>{help.points.map(point => <li key={point}>{point}</li>)}</ul>
-        <small>{help.footer}</small>
-      </details>
+        : <p className={`p5-script-status ${p5RuntimeStatus?.kind || "info"}`} role="status" aria-live="polite">{p5RuntimeStatus?.message || livecodeStatus || definition.summary}</p>}
     </div>;
   };
 
@@ -20976,6 +21308,8 @@ function App() {
     const boardState = excalidrawAPI?.getAppState() || {};
     const activeAIProvider = getAIProvider(aiSettings.provider);
     const activeAIProviderHelp = getAIProviderHelp(aiSettings.provider);
+    const activeAIUsesEnvironmentCredential = hasAIEnvironmentCredential(aiSettings)
+      && !getAIProviderCredential(aiSettings);
     const settingTabs = [
       { id: "preferences", label: "Board" },
       { id: "score", label: "Score & MIDI" },
@@ -21040,7 +21374,11 @@ function App() {
                   autoCorrect="off"
                   spellCheck={false}
                   autoComplete="off"
-                  placeholder={aiSettings.provider === "openai-compatible" ? "Optional bearer token" : "Required"}
+                  placeholder={aiSettings.provider === "openai-compatible"
+                    ? "Optional bearer token"
+                    : activeAIUsesEnvironmentCredential
+                      ? "Using PRATT_LLM_API_KEY"
+                      : "Required"}
                 />
               </label>
             )}
@@ -21050,6 +21388,11 @@ function App() {
                 <div className="settings-model-control">
                   <select value={aiSettings.model} onChange={event => setAiSettings({ ...aiSettings, model: event.target.value })}>
                     {visibleModelOptions.map(model => <option key={model} value={model}>{activeModelFavorites.includes(model) ? "★ " : ""}{model}</option>)}
+                    {activeProviderManualModels.length > 0 && (
+                      <optgroup label="Documented Pratt aliases">
+                        {activeProviderManualModels.map(model => <option key={`manual:${model}`} value={model}>{model}</option>)}
+                      </optgroup>
+                    )}
                   </select>
                   <button
                     type="button"
@@ -22038,8 +22381,23 @@ function App() {
     });
   };
   const updateInfoViewFromEvent = event => {
+    const editor = event.target?.closest?.(".drawerator-code-editor, .orca-node, .livecode-markdown-block textarea");
+    if (editor) {
+      // Code, grid, and in-place Markdown editing should always restore the
+      // language guide. This also clears a stale control tooltip in the Info
+      // panel without changing the editor's selection or source.
+      setInfoView(DEFAULT_INFO_VIEW);
+      return;
+    }
     const target = event.target?.closest?.("[data-info]");
     if (!target) return;
+    // The Script type control is the entry point for the adapter-specific
+    // guide. Let InfoPanel render that guide from the active script context
+    // instead of replacing it with the generic control description.
+    if (target.dataset.infoTitle === "Script type") {
+      setInfoView(DEFAULT_INFO_VIEW);
+      return;
+    }
     let examples = [];
     try {
       const parsed = JSON.parse(target.dataset.infoExamples || "[]");
@@ -22110,7 +22468,7 @@ function App() {
           activeEditorId={livecodeCanvasEditorId}
           focusRequest={livecodeCanvasFocusRequest}
           onEdit={editLivecodeCanvasNode}
-          onPatch={(elementId, patch) => patchLivecodeCanvasNode(elementId, patch)}
+          onPatch={(elementId, patch, options) => patchLivecodeCanvasNode(elementId, patch, options)}
           onCommit={commitLivecodeCanvasNode}
           onToggleRun={toggleLivecodeNodeRun}
           onMidiEvents={emitOrcaMidiEvents}
@@ -22857,7 +23215,9 @@ function App() {
                   >
                     {modelsList.length > 0 ? (
                       <>
-                        {aiSettings.model && !orderedModelsList.includes(aiSettings.model) && (
+                        {aiSettings.model
+                          && !orderedModelsList.includes(aiSettings.model)
+                          && !activeProviderManualModels.includes(aiSettings.model) && (
                           <option value={aiSettings.model}>{aiSettings.model}</option>
                         )}
                         {activeModelFavorites.length > 0 && (
@@ -22872,6 +23232,13 @@ function App() {
                             <option key={model} value={model}>{model}</option>
                           ))}
                         </optgroup>
+                        {activeProviderManualModels.length > 0 && (
+                          <optgroup label="Documented Pratt aliases">
+                            {activeProviderManualModels.map(model => (
+                              <option key={`manual:${model}`} value={model}>{model}</option>
+                            ))}
+                          </optgroup>
+                        )}
                       </>
                     ) : (
                       <option value="">{aiSettings.model || "Select Model"}</option>
@@ -24274,8 +24641,9 @@ function App() {
           >
             <InfoPanel
               info={infoView}
-              mode={openPanels.mapping ? "media" : openPanels.script ? scriptPanelType : "default"}
+              mode={shouldRenderPanel("script") ? scriptPanelType : shouldRenderPanel("mapping") ? "media" : "default"}
               iannixCommand={iannixCommandHelp}
+              livecodeKind={selectedLivecodeKindForInfo}
             />
           </DraweratorPanel>
           )}
@@ -24417,7 +24785,7 @@ function App() {
           activeEditorId={livecodeCanvasEditorId}
           focusRequest={livecodeCanvasFocusRequest}
           onEdit={editLivecodeCanvasNode}
-          onPatch={(elementId, patch) => patchLivecodeCanvasNode(elementId, patch)}
+          onPatch={(elementId, patch, options) => patchLivecodeCanvasNode(elementId, patch, options)}
           onCommit={commitLivecodeCanvasNode}
           onToggleRun={toggleLivecodeNodeRun}
           onMidiEvents={emitOrcaMidiEvents}
@@ -24759,6 +25127,37 @@ function App() {
                 Paste SVG as Editable Paths
               </button>
               {customContextMenu.hasSelection && <>
+                <button
+                  onPointerDown={event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setCustomContextMenu(null);
+                    void copySelectionAsPng();
+                  }}
+                  className="custom-floating-context-menu-btn"
+                  title="Copy the selected objects as a transparent PNG image"
+                >
+                  <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                    <rect x="7" y="7" width="13" height="13" rx="1" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16V5a1 1 0 011-1h11M10 11l2.2 2.2L16 9l3 4" />
+                  </svg>
+                  Copy Selection as PNG
+                </button>
+                <button
+                  onPointerDown={event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setCustomContextMenu(null);
+                    void exportSelectionAsPng();
+                  }}
+                  className="custom-floating-context-menu-btn"
+                  title="Export the selected objects as a transparent PNG image"
+                >
+                  <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" />
+                  </svg>
+                  Export Selection as PNG
+                </button>
                 <div className="custom-floating-context-menu-separator" />
                 <button
                   onPointerDown={event => {

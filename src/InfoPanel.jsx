@@ -1,5 +1,8 @@
 import { useState } from "react";
 import { getIannixCommandCategories } from "./iannixCommandReference.js";
+import { getLivecodeBridgeHelp, getLivecodeHelp } from "./livecodeHelp.js";
+import { normalizeLivecodeKind } from "./livecodeNode.js";
+import { ORCA_OPERATOR_REFERENCE } from "./orcaEngine.js";
 
 const DEFAULT_INFO_VIEW = Object.freeze({
   title: "Info",
@@ -49,11 +52,11 @@ const isDefaultInfo = info => (
   || (info.title === DEFAULT_INFO_VIEW.title && info.body === DEFAULT_INFO_VIEW.body)
 );
 
-const findHelpTopics = query => {
+const findHelpTopics = (query, extraTopics = []) => {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return [];
   const terms = normalized.split(/\s+/).filter(Boolean);
-  return HELP_TOPICS.filter(topic => {
+  return [...extraTopics, ...HELP_TOPICS].filter(topic => {
     const haystack = `${topic.title} ${topic.keywords} ${topic.body}`.toLowerCase();
     return terms.every(term => haystack.includes(term));
   });
@@ -314,6 +317,38 @@ import { sort } from '/src/modules/sort.js'`}</code></pre>
   </div>
 );
 
+const OrcaInfoGuide = () => (
+  <div className="info-svg-guide info-orca-guide">
+    <section>
+      <h3>Orca grid</h3>
+      <p>Orca is a compact, frame-based livecoding grid. Focus the grid and type directly into a cell; click-drag selects a rectangular region. The node’s Grid width and Grid height controls set the working dimensions, while Fit frame adapts the cell size to the host rectangle.</p>
+      <pre><code>{`..:03C..
+..*....
+..R....`}</code></pre>
+      <p>Uppercase operators run on each frame. A note operator uses <code>:</code> (or <code>%</code> for mono), followed by channel, octave, note, velocity, and optional duration cells. Drawerator routes the resulting events through the Mixer.</p>
+    </section>
+    <section>
+      <h3>Operators</h3>
+      <dl className="info-orca-operator-list">
+        {ORCA_OPERATOR_REFERENCE.map(([glyph, name]) => (
+          <div key={glyph}><dt><code>{glyph}</code></dt><dd>{name}</dd></div>
+        ))}
+      </dl>
+    </section>
+    <section>
+      <h3>Clock and editing</h3>
+      <ul>
+        <li><strong>Linked</strong> advances with the main transport. <strong>Free</strong> runs the Orca clock while the node is running.</li>
+        <li><strong>Run</strong>/<strong>Stop</strong> controls the node. <strong>Step</strong>, or <strong>⌘/Ctrl+Enter</strong> while the grid is focused, advances one frame.</li>
+        <li><strong>⌘/Ctrl+A</strong> selects the grid; arrows move the cell selection; Shift extends it. Delete writes an empty cell.</li>
+        <li>The Info panel keeps this guide available without taking space from the editable grid.</li>
+      </ul>
+    </section>
+    <DraweratorApiGuide />
+    <EditorKeys />
+  </div>
+);
+
 const IannixInfoGuide = ({ activeCommand = null }) => (
   <div className="info-svg-guide">
     {activeCommand && (
@@ -397,39 +432,133 @@ const BrushInfoGuide = () => (
   </div>
 );
 
-const scriptGuide = (mode, iannixCommand) => {
+const LivecodeInfoGuide = ({ kind }) => {
+  const help = getLivecodeHelp(kind);
+  const bridge = getLivecodeBridgeHelp(kind);
+  return (
+    <div className="info-svg-guide livecode-info-guide">
+      <p>{help.summary}</p>
+      <ul>{help.points.map(point => <li key={point}>{point}</li>)}</ul>
+      <section className="livecode-bridge-guide">
+        <h3>{bridge.title.trim()}</h3>
+        <p>{bridge.summary}</p>
+        {bridge.points.length > 0 && <ul>{bridge.points.map(point => <li key={point}>{point}</li>)}</ul>}
+      </section>
+      <small>{help.footer}</small>
+    </div>
+  );
+};
+
+const livecodeHelpTopic = kind => {
+  const normalizedKind = normalizeLivecodeKind(kind);
+  if (normalizedKind === "orca") {
+    return {
+      id: "livecode-guide-orca",
+      title: "Orca quick reference",
+      keywords: "orca grid operator clock frame MIDI note CC pitch bend compact fit width height",
+      body: "Orca is a compact frame-based livecoding grid. Edit cells directly, choose the working width and height, and use Fit frame to adapt the grid to its host. Linked clocks follow the transport; Free clocks run while the node is running.",
+      guide: <OrcaInfoGuide />,
+      examples: [],
+    };
+  }
+  const help = getLivecodeHelp(normalizedKind);
+  const bridge = getLivecodeBridgeHelp(normalizedKind);
+  return {
+    id: `livecode-guide-${normalizedKind}`,
+    title: help.title,
+    keywords: `livecode ${normalizedKind} script language guide ${help.title} __ drawerator bridge api`,
+    body: [help.summary, ...help.points, bridge.summary, ...bridge.points, help.footer].join("\n\n"),
+    guide: <LivecodeInfoGuide kind={normalizedKind} />,
+    examples: [],
+  };
+};
+
+const scriptGuide = (mode, iannixCommand, livecodeKind) => {
   if (mode === "svg") return <SvgInfoGuide />;
   if (mode === "p5") return <P5InfoGuide />;
   if (mode === "play") return <PlayCoreInfoGuide />;
   if (mode === "iannix") return <IannixInfoGuide activeCommand={iannixCommand} />;
   if (mode === "brush") return <BrushInfoGuide />;
   if (mode === "media") return <MediaStreamsInfoGuide />;
+  if (mode === "livecode" && normalizeLivecodeKind(livecodeKind) === "orca") return <OrcaInfoGuide />;
+  if (mode === "livecode") return <LivecodeInfoGuide kind={livecodeKind} />;
   return null;
 };
 
-const guideTitle = mode => ({
+const SCRIPT_GUIDE_SEARCH = Object.freeze({
+  brush: Object.freeze({
+    title: "Brush quick reference",
+    keywords: "brush modifier geometry points tracks globals parameters javascript",
+    body: "Brush modifiers receive points and Drawerator globals, then return transformed or replacement tracks. Use @param declarations to expose editable values.",
+  }),
+  iannix: Object.freeze({
+    title: "Score quick reference",
+    keywords: "score iannix curve cursor trigger transport midi run load command",
+    body: "Scores contain curves, cursors, and triggers. Use run() commands to create and configure them, then use score time and transport to drive playback.",
+  }),
+  p5: Object.freeze({
+    title: "p5 quick reference",
+    keywords: "p5 sketch javascript setup draw canvas brush frame api params",
+    body: "p5 sketches use setup() and draw() with the local canvas. The shared __ bridge exposes the host element, parameters, scene queries, events, transport, and Drawerator API.",
+  }),
+  play: Object.freeze({
+    title: "Play Core quick reference",
+    keywords: "play core ascii cells main settings pointer buffer transport modules",
+    body: "Play Core programs return one glyph or cell object from main() for each ASCII cell. Use settings, lifecycle hooks, pointer callbacks, @param values, and bundled local modules.",
+  }),
+  svg: Object.freeze({
+    title: "SVG quick reference",
+    keywords: "svg path source editor anchors handles fill stroke geometry document",
+    body: "SVG source remains canonical. Use paths, shapes, groups, transforms, fill, and stroke; edit source or canvas geometry while preserving the document structure.",
+  }),
+  media: Object.freeze({
+    title: "Media streams and actors",
+    keywords: "media stream mediapipe holistic camera inputs actors landmarks brush",
+    body: "Media observations remain transient typed streams. Use the Media, Inputs, Mapping, and Brush panels to consume landmarks, values, events, and images.",
+  }),
+});
+
+const scriptGuideTopic = (mode, iannixCommand, livecodeKind) => {
+  if (mode === "livecode") return livecodeHelpTopic(livecodeKind);
+  const definition = SCRIPT_GUIDE_SEARCH[mode];
+  if (!definition) return null;
+  return {
+    id: `script-guide-${mode}`,
+    ...definition,
+    guide: scriptGuide(mode, iannixCommand, livecodeKind),
+    examples: [],
+  };
+};
+
+const guideTitle = (mode, livecodeKind) => ({
   svg: "SVG quick reference",
   p5: "p5 quick reference",
   play: "Play Core quick reference",
   iannix: "Score quick reference",
   brush: "Brush quick reference",
   media: "Media streams and actors",
-}[mode] || null);
+}[mode] || (mode === "livecode"
+  ? normalizeLivecodeKind(livecodeKind) === "orca" ? "Orca quick reference" : getLivecodeHelp(livecodeKind).title
+  : null));
 
-export default function InfoPanel({ info = DEFAULT_INFO_VIEW, mode = "default", iannixCommand = null }) {
+export default function InfoPanel({ info = DEFAULT_INFO_VIEW, mode = "default", iannixCommand = null, livecodeKind = null }) {
   const [search, setSearch] = useState("");
   const [selectedTopicId, setSelectedTopicId] = useState(null);
   const [copiedExample, setCopiedExample] = useState("");
-  const guide = scriptGuide(mode, iannixCommand);
-  const matchingTopics = findHelpTopics(search);
+  const guide = scriptGuide(mode, iannixCommand, livecodeKind);
+  const activeGuideTopic = scriptGuideTopic(mode, iannixCommand, livecodeKind);
+  const matchingTopics = findHelpTopics(search, activeGuideTopic ? [activeGuideTopic] : []);
   const selectedTopic = matchingTopics.find(topic => topic.id === selectedTopicId) || matchingTopics[0] || null;
   const searchIsActive = search.trim().length > 0;
-  const focusedInfo = !isDefaultInfo(info) ? info : null;
+  const focusedInfo = !isDefaultInfo(info)
+    && !(guide && info?.title === "Script type")
+    ? info
+    : null;
   const title = searchIsActive
     ? selectedTopic?.title || "No help found"
-    : focusedInfo?.title || guideTitle(mode) || DEFAULT_INFO_VIEW.title;
+    : focusedInfo?.title || guideTitle(mode, livecodeKind) || DEFAULT_INFO_VIEW.title;
   const body = searchIsActive
-    ? selectedTopic?.body || "Try a different term, such as physics, formula, MIDI, score, or media."
+    ? selectedTopic?.guide || selectedTopic?.body || "Try a different term, such as physics, formula, MIDI, score, or media."
     : focusedInfo?.body || guide || DEFAULT_INFO_VIEW.body;
   const examples = searchIsActive ? selectedTopic?.examples || [] : focusedInfo?.examples || [];
   const copyExample = async example => {
@@ -451,6 +580,7 @@ export default function InfoPanel({ info = DEFAULT_INFO_VIEW, mode = "default", 
           value={search}
           placeholder="Search help"
           aria-label="Search help"
+          onKeyDown={event => event.stopPropagation()}
           onChange={event => {
             setSearch(event.target.value);
             setSelectedTopicId(null);

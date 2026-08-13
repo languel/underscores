@@ -19,6 +19,8 @@ import {
 } from "@codemirror/commands";
 import { html } from "@codemirror/lang-html";
 import { javascript } from "@codemirror/lang-javascript";
+import { markdown } from "@codemirror/lang-markdown";
+import { python } from "@codemirror/lang-python";
 import {
   bracketMatching,
   foldGutter,
@@ -100,12 +102,24 @@ const glyphBackdropField = StateField.define({
   provide: field => EditorView.decorations.from(field),
 });
 
+const markdownCodeLanguage = info => {
+  const language = String(info || "").trim().toLowerCase().split(/[\s,{]/, 1)[0];
+  if (["js", "jsx", "javascript", "mjs", "cjs", "ts", "tsx", "typescript"].includes(language)) {
+    return javascript({ jsx: ["jsx", "tsx"].includes(language), typescript: ["ts", "tsx", "typescript"].includes(language) });
+  }
+  if (["py", "python", "python3"].includes(language)) return python();
+  if (["html", "htm", "xml", "svg"].includes(language)) return html({ autoCloseTags: true, matchClosingTags: true });
+  return null;
+};
+
 const languageExtension = profile => (
-  profile.language === "html"
-    ? html({ autoCloseTags: true, matchClosingTags: true })
-    : profile.language === "javascript"
-      ? javascript({ jsx: false, typescript: false })
-      : []
+  profile.id === "markdown"
+    ? markdown({ codeLanguages: markdownCodeLanguage })
+    : profile.language === "html"
+      ? html({ autoCloseTags: true, matchClosingTags: true })
+      : profile.language === "javascript"
+        ? javascript({ jsx: false, typescript: false })
+        : []
 );
 
 const strudelExtensions = (profile, includeWidgets) => (
@@ -425,12 +439,25 @@ export default function DraweratorCodeEditor({
       }
       const isClipboardShortcut = (event.metaKey || event.ctrlKey)
         && ["c", "x", "v"].includes(normalizedKey);
+      // Leave the explicit canvas-livecode gesture for App's global handler.
+      // Plain Escape remains owned by CodeMirror for completion/search
+      // dismissal, and panel editors never take this path.
+      const isCanvasLivecodeShiftEscape = normalizedKey === "escape"
+        && event.shiftKey
+        && view.dom.closest?.(".drawerator-livecode-node");
+      if (isCanvasLivecodeShiftEscape) return;
+      const isPlainEscape = normalizedKey === "escape"
+        && !event.shiftKey
+        && !event.metaKey
+        && !event.ctrlKey
+        && !event.altKey;
       const isCodeMirrorCommand = (
         (event.metaKey || event.ctrlKey)
         && ["a", "z", "y", "f", "g", "h", "enter"].includes(normalizedKey)
       ) || (event.ctrlKey && normalizedKey === "m")
         || ((event.ctrlKey || event.altKey) && normalizedKey === ".")
-        || ["escape", "tab"].includes(normalizedKey);
+        || isPlainEscape
+        || normalizedKey === "tab";
 
       // Drawerator and Excalidraw both install capture-phase shortcuts. Give
       // CodeMirror's own keymap the first and only chance at its editor

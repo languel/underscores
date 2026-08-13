@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 760" role="img" aria-labelledby="title desc">
+  <title id="title">Portable Media Map reference architecture</title>
+  <desc id="desc">Sources flow through tracker adapters into semantic frames, ontology features, typed stream processors, mappings, and target systems. Persistent definitions are separate from transient samples and runtime state.</desc>
+  <defs>
+    <style>
+      .bg{fill:#151519}.lane{fill:#1d1d23;stroke:#454550;stroke-width:2}.box{fill:#282831;stroke:#77778a;stroke-width:2}.core{fill:#203246;stroke:#6fa5ff;stroke-width:2.5}.event{fill:#263d31;stroke:#6ee795;stroke-width:2.5}.target{fill:#442d41;stroke:#ed7ab8;stroke-width:2.5}.persist{fill:#3e3821;stroke:#f2df55;stroke-width:2.5}.title{fill:#f5f5f7;font:700 23px system-ui,sans-serif}.label{fill:#f5f5f7;font:600 18px system-ui,sans-serif}.small{fill:#c4c4cf;font:15px system-ui,sans-serif}.tiny{fill:#a9a9b5;font:13px system-ui,sans-serif}.arrow{stroke:#a7a7b7;stroke-width:3;fill:none;marker-end:url(#head)}.dashed{stroke:#f2df55;stroke-width:2.5;fill:none;stroke-dasharray:9 7;marker-end:url(#head-yellow)}
+    </style>
+    <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#a7a7b7"/></marker>
+    <marker id="head-yellow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="#f2df55"/></marker>
+  </defs>
+  <rect class="bg" width="1500" height="760"/>
+  <text class="title" x="44" y="52">Portable Media Map</text>
+  <text class="small" x="44" y="80">Tracker-neutral observations become stable semantic features, typed streams, events, and mappings.</text>
+
+  <rect class="lane" x="34" y="112" width="1432" height="424" rx="18"/>
+  <text class="label" x="54" y="145">Transient runtime</text>
+
+  <rect class="box" x="58" y="184" width="205" height="130" rx="14"/>
+  <text class="label" x="82" y="220">Acquisition</text>
+  <text class="small" x="82" y="250">camera · file · canvas</text>
+  <text class="small" x="82" y="276">remote frames · sensors</text>
+
+  <rect class="box" x="310" y="184" width="220" height="130" rx="14"/>
+  <text class="label" x="334" y="220">Tracker adapter</text>
+  <text class="small" x="334" y="250">MediaPipe · native</text>
+  <text class="small" x="334" y="276">Python service · custom ML</text>
+
+  <rect class="core" x="577" y="172" width="238" height="154" rx="14"/>
+  <text class="label" x="601" y="208">Semantic frame</text>
+  <text class="small" x="601" y="238">timestamp · sequence</text>
+  <text class="small" x="601" y="264">availability · confidence</text>
+  <text class="small" x="601" y="290">normalized/local/scene</text>
+
+  <rect class="core" x="862" y="184" width="216" height="130" rx="14"/>
+  <text class="label" x="886" y="220">Feature streams</text>
+  <text class="small" x="886" y="250">point · value · gesture</text>
+  <text class="small" x="886" y="276">region · image · event</text>
+
+  <rect class="event" x="1125" y="172" width="280" height="154" rx="14"/>
+  <text class="label" x="1149" y="208">Processors</text>
+  <text class="small" x="1149" y="238">filter · map · combine</text>
+  <text class="small" x="1149" y="264">velocity · dwell · region</text>
+  <text class="small" x="1149" y="290">gate · hysteresis · edges</text>
+
+  <path class="arrow" d="M263 249H300"/><path class="arrow" d="M530 249H567"/><path class="arrow" d="M815 249H852"/><path class="arrow" d="M1078 249H1115"/>
+
+  <rect class="target" x="204" y="376" width="1096" height="112" rx="14"/>
+  <text class="label" x="228" y="412">Target adapters</text>
+  <text class="small" x="228" y="445">canvas objects · brushes · physics · animation · MIDI/audio · commands · network · application state</text>
+  <text class="tiny" x="228" y="470">Targets consume ordinary samples/events and own begin/update/end/cancel cleanup.</text>
+  <path class="arrow" d="M1265 326V364H752V366"/>
+
+  <rect class="persist" x="34" y="572" width="1432" height="146" rx="18"/>
+  <text class="label" x="58" y="608">Persistent definitions (scene/project data)</text>
+  <text class="small" x="58" y="640">source descriptors · tracker settings · ontology/version · processor graph · mappings · target references · UI display preferences</text>
+  <text class="tiny" x="58" y="674">Do not persist camera handles, decoded frames, landmark samples, subscriptions, smoothing buffers, active gestures, or device credentials.</text>
+  <path class="dashed" d="M395 572V336"/><path class="dashed" d="M705 572V336"/><path class="dashed" d="M1218 572V336"/>
+</svg>

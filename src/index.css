@@ -6,6 +6,37 @@
 @import "@fontsource/inter/600.css";
 @import "@fontsource/inter/700.css";
 
+/* Monaspace is an optional code-font pack. Keep the imports Latin-only and
+ * weight-specific so selecting a variant never pulls the full Unicode build
+ * into the initial bundle. The families carry contextual/common ligatures;
+ * LivecodeNodeOverlay enables those features only for these options. A local
+ * Symbols Nerd Font fallback supplies extra icon glyphs when installed. */
+@import "@fontsource/monaspace-argon/latin-300.css";
+@import "@fontsource/monaspace-argon/latin-400.css";
+@import "@fontsource/monaspace-argon/latin-500.css";
+@import "@fontsource/monaspace-argon/latin-600.css";
+@import "@fontsource/monaspace-argon/latin-700.css";
+@import "@fontsource/monaspace-krypton/latin-300.css";
+@import "@fontsource/monaspace-krypton/latin-400.css";
+@import "@fontsource/monaspace-krypton/latin-500.css";
+@import "@fontsource/monaspace-krypton/latin-600.css";
+@import "@fontsource/monaspace-krypton/latin-700.css";
+@import "@fontsource/monaspace-neon/latin-300.css";
+@import "@fontsource/monaspace-neon/latin-400.css";
+@import "@fontsource/monaspace-neon/latin-500.css";
+@import "@fontsource/monaspace-neon/latin-600.css";
+@import "@fontsource/monaspace-neon/latin-700.css";
+@import "@fontsource/monaspace-radon/latin-300.css";
+@import "@fontsource/monaspace-radon/latin-400.css";
+@import "@fontsource/monaspace-radon/latin-500.css";
+@import "@fontsource/monaspace-radon/latin-600.css";
+@import "@fontsource/monaspace-radon/latin-700.css";
+@import "@fontsource/monaspace-xenon/latin-300.css";
+@import "@fontsource/monaspace-xenon/latin-400.css";
+@import "@fontsource/monaspace-xenon/latin-500.css";
+@import "@fontsource/monaspace-xenon/latin-600.css";
+@import "@fontsource/monaspace-xenon/latin-700.css";
+
 :root {
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-title: 'Outfit', var(--font-sans);
@@ -2595,6 +2626,10 @@ body .excalidraw .sidebar {
   height: 28px;
 }
 
+.livecode-panel-controls .script-font-size-control {
+  margin-left: 0;
+}
+
 .script-font-size-control input,
 .iannix-script-parameter input[type="number"],
 .iannix-script-parameter .numeric-input {
@@ -2925,6 +2960,8 @@ body .excalidraw .sidebar {
   font-weight: var(--livecode-font-weight, 400);
   line-height: var(--livecode-line-height, 1.5);
   letter-spacing: var(--livecode-letter-spacing, normal);
+  font-feature-settings: var(--livecode-font-feature-settings, normal);
+  font-variant-ligatures: var(--livecode-font-variant-ligatures, normal);
 }
 
 .drawerator-code-editor .cm-content {
@@ -2973,6 +3010,8 @@ body .excalidraw .sidebar {
   font-weight: var(--livecode-font-weight, 400);
   line-height: var(--livecode-line-height, 1.45);
   letter-spacing: var(--livecode-letter-spacing, normal);
+  font-feature-settings: var(--livecode-font-feature-settings, normal);
+  font-variant-ligatures: var(--livecode-font-variant-ligatures, normal);
   background: transparent;
   border: 0;
   transition: background var(--transition-fast);
@@ -2981,6 +3020,12 @@ body .excalidraw .sidebar {
 .livecode-node-surface > .livecode-node-editor {
   width: 100%;
   height: 100%;
+}
+
+/* Orca is its own spatial editor rather than a passive preview. It must be
+ * reachable before its transparent Excalidraw host has been selected. */
+.livecode-node-surface.orca-livecode-surface {
+  pointer-events: auto;
 }
 
 .livecode-node-source-preview {
@@ -3151,6 +3196,8 @@ body .excalidraw .sidebar {
   font-weight: var(--livecode-font-weight, 400);
   line-height: var(--livecode-line-height, 1.45);
   letter-spacing: var(--livecode-letter-spacing, 0);
+  font-feature-settings: var(--livecode-font-feature-settings, normal);
+  font-variant-ligatures: var(--livecode-font-variant-ligatures, normal);
 }
 
 .livecode-markdown > :first-child { margin-top: 0; }
@@ -3158,6 +3205,33 @@ body .excalidraw .sidebar {
 .livecode-markdown :is(h1, h2, h3, h4, h5, h6) { font-family: var(--font-sans); }
 .livecode-markdown code,
 .livecode-latex-error { font-family: var(--font-mono); }
+
+.livecode-markdown-code-block {
+  box-sizing: border-box;
+  margin: 1em 0;
+  padding: 0.85em 1em;
+  overflow-x: auto;
+  border: 1px solid color-mix(in srgb, var(--drawerator-border, currentColor) 28%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--drawerator-panel-bg, currentColor) 16%, transparent);
+}
+
+.livecode-markdown-code-block code {
+  display: block;
+  white-space: pre;
+  color: var(--color-primary);
+}
+
+.livecode-markdown-code-block .livecode-code-comment { color: color-mix(in srgb, var(--drawerator-muted, currentColor) 84%, transparent); font-style: italic; }
+.livecode-markdown-code-block .livecode-code-string { color: #668f61; }
+.livecode-markdown-code-block .livecode-code-number { color: #a36b36; }
+.livecode-markdown-code-block .livecode-code-keyword { color: var(--drawerator-accent, #6b7173); font-weight: 600; }
+.livecode-markdown-code-block .livecode-code-builtin { color: var(--drawerator-highlight, #7d8588); }
+
+@media (prefers-color-scheme: dark) {
+  .livecode-markdown-code-block .livecode-code-string { color: #9dcc92; }
+  .livecode-markdown-code-block .livecode-code-number { color: #e0a96d; }
+}
 
 .livecode-markdown-block {
   min-width: 0;
@@ -3234,6 +3308,7 @@ body .excalidraw .sidebar {
 }
 
 .orca-node {
+  --orca-cell-size: 1.1em;
   box-sizing: border-box;
   display: flex;
   width: 100%;
@@ -3253,17 +3328,17 @@ body .excalidraw .sidebar {
   outline: none;
 }
 
+.orca-node:focus,
 .orca-node:focus-visible {
   border-color: var(--drawerator-highlight, var(--drawerator-accent));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--drawerator-highlight, var(--drawerator-accent)) 42%, transparent);
 }
 
-.orca-node-header,
-.orca-node-footer {
+.orca-node-header {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 4px 7px;
   color: var(--color-secondary);
   font: 10px/1 var(--font-mono);
@@ -3271,14 +3346,38 @@ body .excalidraw .sidebar {
   text-transform: uppercase;
 }
 
-.orca-node-header span:first-child {
+.orca-node-header .orca-node-frame {
   color: var(--color-primary);
   font-weight: 700;
 }
 
-.orca-node-header button {
+.orca-node-status {
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  color: var(--color-secondary);
+}
+
+.orca-status-linked { color: var(--drawerator-accent, var(--color-secondary)); }
+.orca-status-free { color: var(--color-primary); }
+.orca-status-waiting { color: var(--color-secondary); }
+.orca-status-paused { color: var(--drawerator-highlight, var(--color-secondary)); }
+.orca-status-stopped { opacity: .7; }
+
+.orca-node-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
   margin-left: auto;
-  padding: 1px 4px;
+}
+
+.orca-node-header button {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  padding: 2px;
+  place-items: center;
   color: inherit;
   font: inherit;
   background: transparent;
@@ -3292,11 +3391,30 @@ body .excalidraw .sidebar {
   min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
-  align-content: start;
   overflow: auto;
   padding: 4px;
+  align-content: start;
+  justify-content: start;
+}
+
+.orca-node.orca-density-spacious .orca-node-grid {
+  align-content: stretch;
+  justify-content: stretch;
+}
+
+.orca-node.orca-grid-fit .orca-node-grid {
+  align-content: center;
+  justify-content: center;
+}
+
+.orca-node.orca-grid-fit .orca-node-cell {
+  min-width: 0;
+  min-height: 0;
+}
+
+.orca-node-grid.orca-grid-guide {
   background-image: linear-gradient(color-mix(in srgb, var(--border-color) 20%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--border-color) 20%, transparent) 1px, transparent 1px);
-  background-size: 1.1em 1.1em;
+  background-size: var(--orca-cell-size) var(--orca-cell-size);
 }
 
 .orca-node-cell {
@@ -3326,16 +3444,30 @@ body .excalidraw .sidebar {
 
 .orca-node-cell.bang:not(.selected) { color: var(--drawerator-highlight, var(--drawerator-accent)); }
 
-.orca-node-footer {
-  flex-wrap: wrap;
-  max-height: 42px;
-  overflow: auto;
-  border-top: 1px solid color-mix(in srgb, var(--border-color) 48%, transparent);
-  text-transform: none;
+.orca-node-cell.playhead:not(.selected) {
+  background: color-mix(in srgb, var(--drawerator-highlight, var(--drawerator-accent)) 18%, transparent);
 }
 
-.orca-node-footer span { white-space: nowrap; }
-.orca-node-footer b { color: var(--color-primary); }
+.info-orca-operator-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.info-orca-operator-list > div {
+  display: grid;
+  grid-template-columns: minmax(44px, auto) 1fr;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 28%, transparent);
+}
+
+.info-orca-operator-list dt,
+.info-orca-operator-list dd { margin: 0; }
+.info-orca-operator-list dt code { color: var(--color-primary); font-weight: 700; }
+.info-orca-operator-list dd { color: var(--color-secondary); }
 
 .livecode-node-runtime .drawerator-play-core-host {
   box-sizing: border-box;
@@ -3506,6 +3638,38 @@ body .excalidraw .sidebar {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 5px;
+}
+
+.livecode-settings-disclosure {
+  margin: 0 0 6px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 58%, transparent);
+  border-radius: 3px;
+}
+
+.livecode-settings-disclosure > summary {
+  padding: 5px 7px;
+  color: var(--color-secondary);
+  font: 600 10px/1.2 var(--font-sans);
+  cursor: pointer;
+  list-style: disclosure-closed inside;
+}
+
+.livecode-settings-disclosure[open] > summary {
+  margin-bottom: 5px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 58%, transparent);
+  list-style: disclosure-open inside;
+}
+
+.livecode-settings-disclosure > .livecode-panel-controls {
+  padding: 0 6px 6px;
+}
+
+.livecode-panel-controls .livecode-example-control {
+  grid-column: span 2;
+}
+
+.livecode-panel-controls .livecode-view-control {
+  grid-column: 1;
 }
 
 .livecode-node-selector-row {

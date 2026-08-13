@@ -4,6 +4,7 @@ import { SCRIPT_TYPES } from "./scriptTypes.js";
 
 export default function ScriptPanel({ type, onTypeChange, editorFontSize, children }) {
   const definition = SCRIPT_TYPES[type] || SCRIPT_TYPES.brush;
+  const displayLabel = definition.id === "livecode" ? "Livecode" : definition.label;
   const selectScriptType = (event, nextType) => {
     onTypeChange(nextType);
     event.currentTarget.closest("details")?.removeAttribute("open");
@@ -20,8 +21,8 @@ export default function ScriptPanel({ type, onTypeChange, editorFontSize, childr
       >
         <span>Script type</span>
         <details className="script-panel-type-picker">
-          <summary aria-label={`Script type: ${definition.label}`}>
-            <span>{definition.label}</span>
+          <summary aria-label={`Script type: ${displayLabel}`}>
+            <span>{displayLabel}</span>
             <span className="script-panel-type-caret" aria-hidden="true">▼</span>
           </summary>
           <div className="script-panel-type-options" role="listbox" aria-label="Script type">
@@ -33,7 +34,7 @@ export default function ScriptPanel({ type, onTypeChange, editorFontSize, childr
                 aria-selected={candidate.id === definition.id}
                 onClick={event => selectScriptType(event, candidate.id)}
               >
-                {candidate.label}
+                {candidate.id === "livecode" ? "Livecode" : candidate.label}
               </button>
             ))}
           </div>

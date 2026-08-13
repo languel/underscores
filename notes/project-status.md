@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-08-11
+Last updated: 2026-08-12
 
 ## Release checkpoint
 
@@ -88,6 +88,10 @@ samples, pixels, or device/socket state. See
   follow-up stabilization pass. HTML remains sandboxed and needs its own browser acceptance pass.
   Strudel public deployment remains intentionally blocked pending AGPL compliance; see
   [Livecode licensing](livecode-licensing.md).
+- Livecode typography now includes the five Monaspace families (Argon, Krypton, Neon, Radon, and
+  Xenon) with Latin weight faces, contextual/common ligatures, and a persisted per-node Ligatures
+  toggle that enables Monaspace's `ss01`–`ss10` operator sets. A local `Symbols Nerd Font Mono`
+  fallback is supported when installed without forcing the large Nerd Font archive into the app.
 
 ## Validation baseline
 
@@ -111,6 +115,12 @@ The 2026-08-11 Livecode authoring checkpoint completed 617 automated tests and a
 last-successful shader compilation with Console-only errors, configurable laser presentation,
 stable panel/chrome stacking, node rename and frame-selection controls, and the rendered Markdown
 document editor with raw-only Code view.
+
+The 2026-08-12 Livecode/Orca checkpoint completed 637 automated tests and a production build. Orca
+nodes now use compact icon-only run/step controls and a semantic clock-status icon (linked, free,
+waiting, paused, or stopped) with accessible labels/tooltips. The Orca title/status text no longer
+competes with the grid's compact editing surface; the dedicated Orca stabilization pass remains
+open for runtime behavior beyond this chrome refinement.
 
 ## Known boundary
 

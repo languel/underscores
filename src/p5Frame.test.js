@@ -91,6 +91,16 @@ test("instance mode exposes __ as the same node-local bridge", () => {
   assert.equal(callbacks.setup(), true);
 });
 
+test("classic and instance p5 sources route console.log through the node bridge", () => {
+  const calls = [];
+  const scriptConsole = { log: (...args) => calls.push(args) };
+  const classic = compileClassicP5Source({}, {}, "function setup() { console.log('classic', { ok: true }); }", {}, scriptConsole);
+  classic.setup();
+  const instance = compileInstanceP5Source({}, {}, "p.setup = () => console.log('instance');", scriptConsole);
+  instance.setup();
+  assert.deepEqual(calls, [["classic", { ok: true }], ["instance"]]);
+});
+
 test("classic mode also supports callback assignment syntax", () => {
   const p = { clear: () => { p.cleared = true; } };
   const callbacks = compileClassicP5Source(p, {}, "setup = () => clear();");

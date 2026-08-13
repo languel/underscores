@@ -14,13 +14,34 @@ const NOTE_TABLE = Object.freeze({
 });
 const PITCHES = ["C", "c", "D", "d", "E", "F", "f", "G", "g", "A", "a", "B"];
 
+export const ORCA_GRID_WIDTH = 32;
+export const ORCA_GRID_HEIGHT = 16;
+export const ORCA_GRID_MIN_WIDTH = 4;
+export const ORCA_GRID_MIN_HEIGHT = 2;
+export const ORCA_GRID_MAX_SIZE = 128;
+
+export const normalizeOrcaGridSize = ({ width, height } = {}) => ({
+  width: Math.max(ORCA_GRID_MIN_WIDTH, Math.min(ORCA_GRID_MAX_SIZE, Math.round(Number(width) || ORCA_GRID_WIDTH))),
+  height: Math.max(ORCA_GRID_MIN_HEIGHT, Math.min(ORCA_GRID_MAX_SIZE, Math.round(Number(height) || ORCA_GRID_HEIGHT))),
+});
+
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const allowedGlyph = value => String(value || ".").slice(0, 1).replace(/[\r\n\t]/g, "") || ".";
 
-export const parseOrcaGrid = (source, { width = 32, height = 4 } = {}) => {
+export const createEmptyOrcaSource = ({ width = ORCA_GRID_WIDTH, height = ORCA_GRID_HEIGHT } = {}) => (
+  Array.from({ length: height }, () => ".".repeat(width)).join("\n")
+);
+
+export const parseOrcaGrid = (source, { width = ORCA_GRID_WIDTH, height = ORCA_GRID_HEIGHT } = {}) => {
   const lines = String(source || "").replace(/\r/g, "").split("\n");
-  const gridWidth = Math.max(1, Math.min(128, Math.max(Number(width) || 0, ...lines.map(line => Array.from(line).length))));
-  const gridHeight = Math.max(1, Math.min(128, Math.max(Number(height) || 0, lines.length)));
+  const requestedWidth = Number(width);
+  const requestedHeight = Number(height);
+  const gridWidth = Number.isFinite(requestedWidth) && requestedWidth > 0
+    ? Math.max(1, Math.min(ORCA_GRID_MAX_SIZE, Math.round(requestedWidth)))
+    : Math.max(1, Math.min(ORCA_GRID_MAX_SIZE, ...lines.map(line => Array.from(line).length)));
+  const gridHeight = Number.isFinite(requestedHeight) && requestedHeight > 0
+    ? Math.max(1, Math.min(ORCA_GRID_MAX_SIZE, Math.round(requestedHeight)))
+    : Math.max(1, Math.min(ORCA_GRID_MAX_SIZE, lines.length));
   const cells = Array.from({ length: gridHeight }, (_, y) => Array.from({ length: gridWidth }, (_, x) => allowedGlyph(Array.from(lines[y] || "")[x])));
   return { width: gridWidth, height: gridHeight, cells };
 };
@@ -63,6 +84,17 @@ const valueOf = glyph => {
 };
 
 const keyOf = value => BASE_36[((Math.floor(value) % 36) + 36) % 36];
+
+const randomBetween = (frame, x, y, min, max) => {
+  const lower = Math.min(min, max);
+  const upper = Math.max(min, max);
+  const range = upper - lower + 1;
+  let seed = Math.imul((Math.floor(frame) + 1) ^ 0x9e3779b9, 0x85ebca6b);
+  seed ^= Math.imul(x + 1, 0xc2b2ae35);
+  seed ^= Math.imul(y + 1, 0x27d4eb2f);
+  seed ^= seed >>> 16;
+  return lower + ((seed >>> 0) % range);
+};
 
 export const orcaNoteToMidi = (glyph, octave = 3) => {
   const entry = NOTE_TABLE[glyph];
@@ -117,6 +149,10 @@ export const runOrcaFrame = (source, { frame = 0, width, height } = {}) => {
         const modulo = valueOf(read(x + 1, y));
         const current = valueOf(read(x, y + 1));
         output(x, y + 1, modulo ? keyOf((current + step) % modulo) : "0", true);
+      } else if (op === "r") {
+        const min = valueOf(read(x - 1, y));
+        const max = valueOf(read(x + 1, y));
+        output(x, y + 1, keyOf(randomBetween(frame, x, y, min, max)), true);
       } else if (["e", "n", "s", "w"].includes(op)) {
         const directions = { e: [1, 0], n: [0, -1], s: [0, 1], w: [-1, 0] };
         const [dx, dy] = directions[op];
@@ -153,6 +189,6 @@ export const runOrcaFrame = (source, { frame = 0, width, height } = {}) => {
 };
 
 export const ORCA_OPERATOR_REFERENCE = Object.freeze([
-  ["A", "add"], ["B", "subtract"], ["C", "clock"], ["D", "delay"], ["E/N/S/W", "move"], ["I", "increment"], ["L", "lesser"], ["M", "multiply"],
+  ["A", "add"], ["B", "subtract"], ["C", "clock"], ["D", "delay"], ["E/N/S/W", "move"], ["I", "increment"], ["L", "lesser"], ["M", "multiply"], ["R", "random"],
   [":", "MIDI note"], ["%", "mono MIDI note"], ["!", "MIDI CC"], ["?", "pitch bend"], ["*", "bang"], ["#", "comment"],
 ]);

@@ -7,7 +7,7 @@ Drawerator is a sleek, AI-assisted infinite canvas sketchboard built on top of R
 - **Infinite Canvas & Advanced Tools:** Standard straight line, rectangles, freehand drawing, and shapes.
 - **Satori Mode:** Auto-locking properties (e.g. 0 sloppiness for straight lines/architect-mode).
 - **AI Side Panel:** Chat with an integrated assistant that can help with design, concepts, or canvas queries.
-- **AI Provider Routes:** Use local Ollama/LM Studio, OpenAI-compatible servers, OpenRouter, NVIDIA NIM, OpenAI, Anthropic, GitHub Copilot, or Google API-key connections. Provider-specific credentials remain in browser local storage for this development-oriented release; the Info panel explains the security trade-off and each provider's setup. NVIDIA's hosted NIM endpoint is relayed automatically when Drawerator runs through its local Vite server because that endpoint does not permit direct browser CORS requests; static deployments require a CORS-capable proxy or self-hosted endpoint.
+- **AI Provider Routes:** Use local Ollama/LM Studio, OpenAI-compatible servers, Pratt LLM, OpenRouter, NVIDIA NIM, OpenAI, Anthropic, GitHub Copilot, or Google API-key connections. Provider-specific credentials entered in the UI remain in browser local storage for this development-oriented release; the Info panel explains the security trade-off and each provider's setup. Pratt uses `https://llm.pratt.edu/v1`, prefers the documented `pratt-medium-fast` default, falls back to an available interactive model when that alias is absent from the live catalog, and accepts either a student's `sk-pratt-…` key or a server-side `PRATT_LLM_API_KEY` fallback. The local Vite server relays Pratt and hosted NVIDIA requests; static deployments require a user key and browser-accessible endpoint or their own credential-injecting proxy.
 - **Context Tagging System (@):** Reference specific canvas elements inside the chat input block:
   - `@selection` / `@canvas` (as JSON context)
   - `@selection-as-svg` / `@canvas-as-svg` (as inline SVG vectors)
@@ -166,6 +166,8 @@ The AI Assistant receives a curated, execution-enforced subset of Drawerator's s
 This surface supports creating, patching, and deleting scene objects; assigning score roles; updating timing, transport, grid, and safe board appearance settings; applying Brush scripts; and adding keyframes to supported Excalidraw properties. IanniX and Brush requests receive a compact language-specific authoring contract in addition to this catalog. Generated IanniX source must use an IanniX lifecycle (`makeWithScript()` or `madeThroughGUI()`) and documented `run("…")` commands; generated Brushes must be `(points, globals) => tracks` functions. Drawerator preflights both forms before saving or running them, so generic browser JavaScript is rejected with an actionable chat error instead of becoming a broken script. Commands share the same application routes as the UI, API, history, and slash-command paths. Credentials, provider endpoints, browser permissions, and all commands not explicitly marked for AI remain unavailable to models.
 
 ## Development
+
+To make Pratt LLM available without asking each browser for a key, export `PRATT_LLM_API_KEY` before starting Vite or copy `.env.example` to `.env` and set it there. The local proxy injects that key only when the browser did not supply its own Authorization header; the app bundle receives only a boolean availability flag, never the credential.
 
 ```bash
 npm run dev -- --port 8089

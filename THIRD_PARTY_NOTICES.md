@@ -27,7 +27,7 @@ Licensed under the MIT License:
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
 
-## Fira Mono and Inter fonts
+## Fira Mono, Inter, and Monaspace fonts
 
 The Livecode Node typography bundles Fira Mono via `@fontsource/fira-mono` (copyright Google Inc.)
 and Inter via `@fontsource/inter` (copyright 2016 The Inter Project Authors). Both font packages
@@ -35,6 +35,12 @@ are included at the pinned versions in `package.json` and licensed under the SIL
 Version 1.1. Their complete upstream license texts are retained in the corresponding installed
 packages at `node_modules/@fontsource/fira-mono/LICENSE` and `node_modules/@fontsource/inter/LICENSE`;
 source distributions and public release artifacts must preserve that notice and license.
+
+The Monaspace families Argon, Krypton, Neon, Radon, and Xenon are bundled through the corresponding
+`@fontsource/monaspace-*` packages. Monaspace is Copyright (c) 2023 GitHub, Inc. and is licensed
+under the SIL Open Font License, Version 1.1. The complete upstream license texts are retained in
+each installed package's `LICENSE` file; source distributions and public release artifacts must
+preserve the relevant notices and license.
 
 SIL Open Font License, Version 1.1 — 26 February 2007
 

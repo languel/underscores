@@ -2,20 +2,24 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   AI_PROVIDER_OPTIONS,
+  aiProviderEnvironmentCredentialApplies,
+  aiProviderNeedsCredential,
   buildAIChatRequest,
   buildAIModelsRequest,
   cleanAIBaseUrl,
   extractAIStreamText,
   filterAIModels,
   getAIProviderHelp,
+  getAIProviderManualModels,
   normalizeAISettings,
   parseAIModelList,
   resolveAIRequestBase,
+  selectAIModelFromList,
 } from "./aiProviders.js";
 
 test("provider catalog contains local and requested remote routes", () => {
   const ids = AI_PROVIDER_OPTIONS.map(provider => provider.id);
-  for (const id of ["ollama", "lmstudio", "openrouter", "nvidia", "openai", "anthropic", "github", "google"]) {
+  for (const id of ["ollama", "lmstudio", "openrouter", "pratt", "nvidia", "openai", "anthropic", "github", "google"]) {
     assert.ok(ids.includes(id), id);
   }
 });
@@ -52,6 +56,28 @@ test("model requests use provider authentication and routes", () => {
   const github = buildAIModelsRequest(normalizeAISettings({ provider: "github", apiKey: "github-token" }));
   assert.equal(github.url, "https://models.github.ai/catalog/models");
   assert.equal(github.options.headers.Authorization, "Bearer github-token");
+
+  const pratt = buildAIModelsRequest(normalizeAISettings({ provider: "pratt", apiKey: "sk-pratt-test" }), "http://localhost:8089");
+  assert.equal(pratt.url, "http://localhost:8089/api/pratt/v1/models");
+  assert.equal(pratt.options.headers.Authorization, "Bearer sk-pratt-test");
+});
+
+test("Pratt defaults to its interactive model and accepts a server environment credential", () => {
+  const settings = normalizeAISettings({ provider: "pratt" });
+  assert.equal(settings.url, "https://llm.pratt.edu/v1");
+  assert.equal(settings.model, "pratt-medium-fast");
+  assert.deepEqual(getAIProviderManualModels("pratt"), ["pratt-high", "pratt-medium-fast", "pratt-medium"]);
+  assert.equal(aiProviderNeedsCredential("pratt"), true);
+  assert.equal(aiProviderNeedsCredential("pratt", true), false);
+  assert.equal(resolveAIRequestBase(settings, "http://localhost:8089"), "http://localhost:8089/api/pratt");
+  assert.equal(aiProviderEnvironmentCredentialApplies(settings, "http://localhost:8089", true), true);
+  assert.equal(aiProviderEnvironmentCredentialApplies(settings, "https://languel.github.io", true), false);
+  assert.equal(aiProviderEnvironmentCredentialApplies({ ...settings, url: "http://localhost:9000" }, "http://localhost:8089", true), false);
+  assert.equal(resolveAIRequestBase(settings, "https://languel.github.io"), "https://llm.pratt.edu");
+  assert.equal(buildAIChatRequest(settings, [], "http://localhost:8089").url, "http://localhost:8089/api/pratt/v1/chat/completions");
+  assert.equal(selectAIModelFromList(settings, ["pratt-kimi", "pratt-deepseek-flash"]), "pratt-medium-fast");
+  assert.equal(selectAIModelFromList(settings, ["pratt-medium-fast", "pratt-deepseek-flash"]), "pratt-medium-fast");
+  assert.equal(selectAIModelFromList({ ...settings, model: "pratt-kimi" }, ["pratt-deepseek-flash"]), "pratt-kimi");
 });
 
 test("hosted NVIDIA requests use the local same-origin relay without changing custom endpoints", () => {
@@ -70,6 +96,12 @@ test("model list parsing handles OpenAI, Ollama, Google, and GitHub shapes", () 
   assert.deepEqual(parseAIModelList("ollama", { models: [{ name: "llama" }] }), ["llama"]);
   assert.deepEqual(parseAIModelList("google", { models: [{ name: "models/gemini", supportedGenerationMethods: ["generateContent"] }] }), ["gemini"]);
   assert.deepEqual(parseAIModelList("github", [{ id: "openai/gpt" }]), ["openai/gpt"]);
+  assert.deepEqual(parseAIModelList("pratt", { data: [
+    { id: "pratt-high" },
+    { id: "pratt-medium-fast" },
+    { id: "pratt-embedding-qwen3-8b" },
+    { id: "pratt-reranker-gte" },
+  ] }), ["pratt-high", "pratt-medium-fast"]);
 });
 
 test("native Claude request separates system text and converts embedded images", () => {

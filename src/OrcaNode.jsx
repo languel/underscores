@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   normalizeOrcaSelection,
-  ORCA_OPERATOR_REFERENCE,
+  normalizeOrcaGridSize,
   parseOrcaGrid,
   patchOrcaCell,
   patchOrcaSelection,
@@ -28,6 +28,26 @@ const moveSelection = (selection, grid, dx, dy, extend) => {
 
 const cleanGlyph = value => String(value || ".").slice(0, 1).replace(/[\r\n\t]/g, "") || ".";
 
+const OrcaActionIcon = ({ type }) => {
+  const paths = {
+    play: <path d="m9 6 9 6-9 6V6Z" />,
+    pause: <><rect x="7" y="6" width="3" height="12" rx="1" /><rect x="14" y="6" width="3" height="12" rx="1" /></>,
+    step: <><path d="m7 6 8 6-8 6V6Z" /><path d="M18 6v12" /></>,
+  };
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[type]}</svg>;
+};
+
+const OrcaStatusIcon = ({ type }) => {
+  const paths = {
+    linked: <><path d="M9 7h6a4 4 0 0 1 0 8h-2" /><path d="M15 17H9a4 4 0 0 1 0-8h2" /><path d="m8 12 8 0" /></>,
+    free: <><circle cx="12" cy="12" r="8" /><path d="m12 8 2.5 4-2.5 4-2.5-4L12 8Z" /></>,
+    waiting: <><circle cx="12" cy="12" r="8" /><path d="M12 7v5l3 2" /></>,
+    paused: <><rect x="7" y="6" width="3" height="12" rx="1" /><rect x="14" y="6" width="3" height="12" rx="1" /></>,
+    stopped: <rect x="7" y="7" width="10" height="10" rx="1" />,
+  };
+  return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[type]}</svg>;
+};
+
 export default function OrcaNode({
   nodeId,
   source,
@@ -35,33 +55,88 @@ export default function OrcaNode({
   running = false,
   transportMode = "linked",
   transport,
+  settings = {},
   onPatch,
   onMidiEvents,
+  onToggleRun,
   onBlur,
   focusRequest = 0,
   ariaLabel = "Orca grid",
 }) {
   const manager = useMemo(() => getOrcaRuntimeManager(), []);
-  const [runtime, setRuntime] = useState(() => ({ source: serializeOrcaGrid(parseOrcaGrid(source)), frame: 0, width: 32, height: 4 }));
+  const gridSize = useMemo(() => normalizeOrcaGridSize({ width: settings.orcaGridWidth, height: settings.orcaGridHeight }), [settings.orcaGridHeight, settings.orcaGridWidth]);
+  const [runtime, setRuntime] = useState(() => ({
+    source: serializeOrcaGrid(parseOrcaGrid(source, gridSize)),
+    frame: 0,
+    width: gridSize.width,
+    height: gridSize.height,
+  }));
   const [selection, setSelection] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const [dragFrom, setDragFrom] = useState(null);
   const rootRef = useRef(null);
+  const gridRef = useRef(null);
+  const [gridBounds, setGridBounds] = useState({ width: 0, height: 0 });
+  const onMidiEventsRef = useRef(onMidiEvents);
+  useEffect(() => {
+    onMidiEventsRef.current = onMidiEvents;
+  }, [onMidiEvents]);
+  // The canvas overlay creates a small callback wrapper for each node. Keep
+  // that changing wrapper out of the runtime effect dependencies: score-time
+  // renders must not tear down and restart the Orca interval before it can
+  // produce its next linked frame.
+  const onMidiEventsProxy = useCallback((events, metadata) => {
+    onMidiEventsRef.current?.(events, metadata);
+  }, []);
+  const transportSnapshot = useMemo(() => ({
+    playing: Boolean(transport?.playing),
+    bpm: Number(transport?.bpm) || 120,
+  }), [transport?.bpm, transport?.playing]);
 
   useEffect(() => {
-    manager.upsert({ nodeId, source, revision, running, transportMode, transport, onMidiEvents });
-  }, [manager, nodeId, onMidiEvents, revision, running, source, transport?.bpm, transport?.playing, transportMode]);
+    manager.upsert({ nodeId, source, revision, running, transportMode, transport: transportSnapshot, loopFrames: settings.orcaLoopFrames, gridWidth: gridSize.width, gridHeight: gridSize.height, onMidiEvents: onMidiEventsProxy });
+  }, [gridSize.height, gridSize.width, manager, nodeId, onMidiEventsProxy, revision, running, settings.orcaLoopFrames, source, transportMode, transportSnapshot]);
   useEffect(() => manager.subscribe(nodeId, next => {
     setRuntime(next);
-    setSelection(current => normalizeOrcaSelection(current, parseOrcaGrid(next.source)));
+    setSelection(current => normalizeOrcaSelection(current, parseOrcaGrid(next.source, { width: next.width, height: next.height })));
   }), [manager, nodeId]);
   useEffect(() => {
     if (!focusRequest) return;
     const frame = window.requestAnimationFrame(() => rootRef.current?.focus());
     return () => window.cancelAnimationFrame(frame);
   }, [focusRequest]);
+  useEffect(() => {
+    const gridElement = gridRef.current;
+    if (!gridElement) return undefined;
+    const measure = () => setGridBounds({ width: gridElement.clientWidth, height: gridElement.clientHeight });
+    measure();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(gridElement);
+    return () => observer.disconnect();
+  }, []);
 
-  const grid = useMemo(() => parseOrcaGrid(runtime.source), [runtime.source]);
+  const grid = useMemo(() => parseOrcaGrid(runtime.source, { width: runtime.width, height: runtime.height }), [runtime.height, runtime.source, runtime.width]);
   const normalizedSelection = useMemo(() => normalizeOrcaSelection(selection, grid), [selection, grid]);
+  const shouldTick = running && (transportMode === "free" || transport?.playing);
+  const density = settings.orcaDensity === "spacious" ? "spacious" : "compact";
+  const fitFrame = settings.orcaGridFit !== false;
+  const showGridGuide = settings.orcaGridGuide === true;
+  const fittedCellSize = fitFrame && gridBounds.width > 0 && gridBounds.height > 0
+    ? Math.max(8, Math.min((gridBounds.width - 8) / Math.max(1, grid.width), (gridBounds.height - 8) / Math.max(1, grid.height)))
+    : null;
+  const playColumn = shouldTick ? runtime.frame % Math.max(1, grid.width) : -1;
+  const clockStatus = shouldTick
+    ? (transportMode === "linked" ? "linked" : "free")
+    : running
+      ? (transportMode === "linked" ? "waiting" : "paused")
+      : "stopped";
+  const clockStatusLabel = {
+    linked: "Linked clock",
+    free: "Free clock",
+    waiting: "Waiting for transport",
+    paused: "Paused",
+    stopped: "Stopped",
+  }[clockStatus];
 
   const commitSource = nextSource => {
     const normalized = serializeOrcaGrid(parseOrcaGrid(nextSource, { width: grid.width, height: grid.height }));
@@ -70,8 +145,6 @@ export default function OrcaNode({
   };
 
   const tick = () => manager.tick(nodeId);
-
-  const shouldTick = running && (transportMode === "free" || transport?.playing);
 
   const writeGlyph = glyph => {
     const value = cleanGlyph(glyph);
@@ -147,7 +220,7 @@ export default function OrcaNode({
   };
 
   return <div
-    className="orca-node"
+    className={`orca-node orca-density-${density}${fitFrame ? " orca-grid-fit" : ""}`}
     ref={rootRef}
     tabIndex={0}
     role="application"
@@ -159,21 +232,40 @@ export default function OrcaNode({
     onPointerDown={event => event.stopPropagation()}
   >
     <header className="orca-node-header" onPointerDown={event => event.stopPropagation()}>
-      <span>ORCΛ</span>
-      <span>{runtime.frame}f</span>
-      <span>{shouldTick ? "running" : running ? "paused" : "stopped"}</span>
-      <button type="button" onClick={event => { event.stopPropagation(); tick(); }} title="Run one Orca frame">Step</button>
+      <span className="orca-node-frame" title="Current Orca frame">{runtime.frame}f</span>
+      <span className={`orca-node-status orca-status-${clockStatus}`} role="status" aria-live="polite" aria-label={clockStatusLabel} title={clockStatusLabel}><OrcaStatusIcon type={clockStatus} /></span>
+      <div className="orca-node-actions">
+        <button type="button" onClick={event => { event.stopPropagation(); onToggleRun?.(); }} title={running ? "Stop Orca" : "Run Orca"} aria-label={running ? "Stop Orca" : "Run Orca"}><OrcaActionIcon type={running ? "pause" : "play"} /></button>
+        <button type="button" onClick={event => { event.stopPropagation(); tick(); }} title="Run one Orca frame" aria-label="Run one Orca frame"><OrcaActionIcon type="step" /></button>
+      </div>
     </header>
-    <div className="orca-node-grid" style={{ gridTemplateColumns: `repeat(${grid.width}, minmax(0, 1fr))` }} onPointerUp={() => setDragFrom(null)} onPointerLeave={() => setDragFrom(null)}>
+    <div
+      className={`orca-node-grid${showGridGuide ? " orca-grid-guide" : ""}`}
+      ref={gridRef}
+      style={{
+        "--orca-cell-size": fittedCellSize ? `${fittedCellSize}px` : undefined,
+        gridTemplateColumns: fitFrame || density === "compact" ? `repeat(${grid.width}, var(--orca-cell-size))` : `repeat(${grid.width}, minmax(1.1em, 1fr))`,
+        gridTemplateRows: fitFrame || density === "compact" ? `repeat(${grid.height}, var(--orca-cell-size))` : `repeat(${grid.height}, minmax(1.1em, 1fr))`,
+      }}
+      onPointerUp={() => setDragFrom(null)}
+      onPointerLeave={() => setDragFrom(null)}
+    >
       {grid.cells.flatMap((row, y) => row.map((glyph, x) => <button
         type="button"
         key={`${x}:${y}`}
-        className={`orca-node-cell${containsCell(normalizedSelection, x, y) ? " selected" : ""}${glyph === "*" ? " bang" : ""}`}
+        className={`orca-node-cell${containsCell(normalizedSelection, x, y) ? " selected" : ""}${glyph === "*" ? " bang" : ""}${x === playColumn ? " playhead" : ""}`}
+        tabIndex={-1}
         onPointerDown={event => {
           event.preventDefault();
           event.stopPropagation();
           rootRef.current?.focus();
           setDragFrom({ x, y });
+          selectCell(x, y, event.shiftKey);
+        }}
+        onClick={event => {
+          event.preventDefault();
+          event.stopPropagation();
+          rootRef.current?.focus();
           selectCell(x, y, event.shiftKey);
         }}
         onPointerEnter={event => {
@@ -184,6 +276,5 @@ export default function OrcaNode({
         aria-label={`Orca cell ${x + 1}, ${y + 1}: ${glyph === "." ? "empty" : glyph}`}
       >{glyph === "." ? "·" : glyph}</button>))}
     </div>
-    <footer className="orca-node-footer">{ORCA_OPERATOR_REFERENCE.map(([glyph, name]) => <span key={glyph}><b>{glyph}</b> {name}</span>)}</footer>
   </div>;
 }
