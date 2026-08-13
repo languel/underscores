@@ -177,7 +177,14 @@ test("GIF detection survives session blob URLs by checking the authored file nam
 test("media drops accept MIME-typed files and extension-only files", () => {
   assert.equal(isSupportedMediaFile({ type: "image/gif", name: "dog.gif" }), true);
   assert.equal(isSupportedMediaFile({ type: "", name: "clip.webm" }), true);
+  assert.equal(isSupportedMediaFile({ type: "audio/mpeg", name: "voice.mp3" }), true);
   assert.equal(isSupportedMediaFile({ type: "text/plain", name: "notes.txt" }), false);
+});
+
+test("media type inference recognizes audio clips", () => {
+  assert.equal(inferMediaType("voice.mp3"), "audio");
+  assert.equal(inferMediaType("voice.m4a"), "audio");
+  assert.equal(inferMediaType("voice.mp3", "video"), "video");
 });
 
 test("canvas inputs and processed-output limits normalize independently", () => {

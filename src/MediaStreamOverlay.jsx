@@ -167,6 +167,7 @@ function ProcessedMediaSource({ source }) {
   const url = sessionUrl || source.media.url;
   const isCamera = source.kind === MEDIA_STREAM_KINDS.CAMERA;
   const isImage = !isCamera && source.media.mediaType === "image";
+  const isAudio = !isCamera && source.media.mediaType === "audio";
   const isGif = isImage && isGifMediaSource(source);
 
   const publishFrame = input => {
@@ -306,15 +307,24 @@ function ProcessedMediaSource({ source }) {
     if (!source.enabled) return undefined;
     const output = outputRef.current;
     const context = output?.getContext("2d", { alpha: true });
-    if (!output || !context) return undefined;
+    const media = inputRef.current;
+    const runtimeElement = isAudio ? media : output;
+    if (!runtimeElement || (!isAudio && (!output || !context))) return undefined;
     let raf = 0;
     const registered = {
-      element: output,
-      kind: "canvas",
+      element: runtimeElement,
+      kind: isAudio ? "audio" : "canvas",
       isPlaying: () => sourceRef.current.media.playing !== false,
-      stream: () => typeof output.captureStream === "function" ? output.captureStream(sourceRef.current.output.fps) : null,
+      stream: () => {
+        const tracks = [];
+        if (!isAudio && typeof output.captureStream === "function") tracks.push(...output.captureStream(sourceRef.current.output.fps).getVideoTracks());
+        const mediaStream = media?.captureStream?.();
+        if (mediaStream) tracks.push(...mediaStream.getAudioTracks());
+        return typeof MediaStream === "function" && tracks.length ? new MediaStream(tracks) : null;
+      },
     };
     const unregister = registerMediaRuntimeSource(source.id, registered);
+    if (isAudio) return () => unregister();
     const tick = () => {
       const decodedGif = gifCanvasRef.current;
       const input = isGif && decodedGif?.dataset.gifFrame !== undefined ? decodedGif : inputRef.current;
@@ -350,7 +360,7 @@ function ProcessedMediaSource({ source }) {
       cancelAnimationFrame(raf);
       unregister();
     };
-  }, [isCamera, isGif, isImage, source.enabled, source.id]);
+  }, [isAudio, isCamera, isGif, isImage, source.enabled, source.id]);
 
   useEffect(() => {
     staticDrawnRef.current = false;
@@ -359,7 +369,7 @@ function ProcessedMediaSource({ source }) {
 
   useEffect(() => {
     const media = inputRef.current;
-    if (!(media instanceof HTMLVideoElement)) return;
+    if (!(media instanceof HTMLVideoElement) && !(media instanceof HTMLAudioElement)) return;
     const rate = Number(source.media.playbackRate) || 0;
     lastVideoTickAtRef.current = 0;
     if (source.media.playing === false || rate <= 0) {
@@ -386,23 +396,40 @@ function ProcessedMediaSource({ source }) {
               onLoad={() => publishStatus({ elementId: source.id, kind: "success", message: "Image loaded." })}
               onError={() => publishStatus({ elementId: source.id, kind: "error", message: "Image could not be loaded. Check the URL and CORS policy." })}
             />
-          : <video
-              ref={inputRef}
-              src={url}
-              crossOrigin={sessionUrl ? undefined : "anonymous"}
-              autoPlay
-              playsInline
-              loop={source.media.loop}
-              muted={source.media.muted}
-              onCanPlay={event => {
-                const rate = Number(sourceRef.current.media.playbackRate) || 0;
-                if (rate > 0) event.currentTarget.playbackRate = rate;
-                if (sourceRef.current.media.playing !== false && rate > 0) void event.currentTarget.play().catch(() => {});
-                else event.currentTarget.pause();
-                publishStatus({ elementId: source.id, kind: "success", message: "Media ready." });
-              }}
-              onError={() => publishStatus({ elementId: source.id, kind: "error", message: "Media could not be loaded. Check the URL, format, and CORS policy." })}
-            />}
+          : isAudio
+            ? <audio
+                ref={inputRef}
+                src={url}
+                crossOrigin={sessionUrl ? undefined : "anonymous"}
+                autoPlay
+                loop={source.media.loop}
+                muted={source.media.muted}
+                onCanPlay={event => {
+                  const rate = Number(sourceRef.current.media.playbackRate) || 0;
+                  if (rate > 0) event.currentTarget.playbackRate = rate;
+                  if (sourceRef.current.media.playing !== false && rate > 0) void event.currentTarget.play().catch(() => {});
+                  else event.currentTarget.pause();
+                  publishStatus({ elementId: source.id, kind: "success", message: "Audio ready." });
+                }}
+                onError={() => publishStatus({ elementId: source.id, kind: "error", message: "Audio could not be loaded. Check the URL and format." })}
+              />
+            : <video
+                ref={inputRef}
+                src={url}
+                crossOrigin={sessionUrl ? undefined : "anonymous"}
+                autoPlay
+                playsInline
+                loop={source.media.loop}
+                muted={source.media.muted}
+                onCanPlay={event => {
+                  const rate = Number(sourceRef.current.media.playbackRate) || 0;
+                  if (rate > 0) event.currentTarget.playbackRate = rate;
+                  if (sourceRef.current.media.playing !== false && rate > 0) void event.currentTarget.play().catch(() => {});
+                  else event.currentTarget.pause();
+                  publishStatus({ elementId: source.id, kind: "success", message: "Media ready." });
+                }}
+                onError={() => publishStatus({ elementId: source.id, kind: "error", message: "Media could not be loaded. Check the URL, format, and CORS policy." })}
+              />}
   </div>;
 }
 
@@ -465,6 +492,12 @@ export function MediaRuntimePreview({ sourceId, className = "" }) {
   useEffect(() => {
     let raf = 0;
     lastFrameTimeRef.current = "";
+    const output = canvasRef.current;
+    if (output) {
+      output.width = 1;
+      output.height = 1;
+      output.getContext("2d")?.clearRect(0, 0, 1, 1);
+    }
     const tick = () => {
       const input = getMediaRuntimeSource(sourceId)?.element;
       const output = canvasRef.current;

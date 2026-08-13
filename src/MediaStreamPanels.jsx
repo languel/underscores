@@ -10,6 +10,7 @@ import {
 import { FACE_DISPLAY_GROUPS } from "./mediaLandmarkOntology.js";
 import { MediaRuntimePreview } from "./MediaStreamOverlay.jsx";
 import { getMediaRuntimeSource } from "./mediaStreamRuntime.js";
+import { createGifClipRecorder, createMediaRecorderClip, MEDIA_CLIP_FORMATS } from "./mediaClipRecorder.js";
 import { infoProps } from "./uiInfo.js";
 import NumericInput from "./NumericInput.jsx";
 import { normalizeUnicursalOptions, UNICURSAL_PRESETS } from "./unicursalPath.js";
@@ -250,12 +251,13 @@ const CropControls = ({ crop, onPatch }) => <div className="media-stream-panel-c
 const isAnimatedSource = source => source.kind === MEDIA_STREAM_KINDS.CAMERA
   || (source.kind === MEDIA_STREAM_KINDS.MEDIA && (
     source.media.mediaType === "video"
+    || source.media.mediaType === "audio"
     || isGifMediaSource(source)
   ));
 
 const SourceTransportControls = ({ source, onPatch }) => {
   const isCamera = source.kind === MEDIA_STREAM_KINDS.CAMERA;
-  const canSetRate = !isCamera && isAnimatedSource(source);
+  const canSetRate = !isCamera && source.media.mediaType !== "audio" && isAnimatedSource(source);
   const isPlaying = source.media.playing;
   const transportTitle = isPlaying ? "Freeze input" : "Resume input";
   const transportHelp = isCamera
@@ -332,6 +334,93 @@ const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAs
 </div>;
 };
 
+const MediaClipRecorder = ({ source, onCreate }) => {
+  const [format, setFormat] = useState(MEDIA_CLIP_FORMATS.GIF);
+  const [durationSeconds, setDurationSeconds] = useState(5);
+  const [recording, setRecording] = useState(false);
+  const [statuses, setStatuses] = useState({});
+  const recorderRef = useRef(null);
+  const isAudio = source?.media?.mediaType === "audio";
+  const canRecordAudio = isAudio || source?.media?.mediaType === "video";
+  const status = statuses[source?.id] || null;
+  const options = isAudio
+    ? [{ value: MEDIA_CLIP_FORMATS.AUDIO, label: "Audio" }]
+    : [
+        { value: MEDIA_CLIP_FORMATS.GIF, label: "GIF" },
+        { value: MEDIA_CLIP_FORMATS.MP4, label: "MP4" },
+        ...(canRecordAudio ? [{ value: MEDIA_CLIP_FORMATS.AUDIO, label: "Audio" }] : []),
+      ];
+
+  useEffect(() => {
+    setFormat(isAudio ? MEDIA_CLIP_FORMATS.AUDIO : MEDIA_CLIP_FORMATS.GIF);
+  }, [isAudio, source?.id]);
+
+  useEffect(() => () => recorderRef.current?.stop(), []);
+
+  const stop = () => recorderRef.current?.stop();
+
+  const record = async () => {
+    if (recording) return;
+    const runtime = getMediaRuntimeSource(source.id);
+    const durationMs = Math.max(1000, Math.min(30000, (Number(durationSeconds) || 5) * 1000));
+    const session = format === MEDIA_CLIP_FORMATS.GIF
+      ? createGifClipRecorder({ canvas: runtime?.element, durationMs, fps: source.output?.fps || 15 })
+      : createMediaRecorderClip({ stream: runtime?.stream?.(), format, durationMs });
+    recorderRef.current = session;
+    setRecording(true);
+    setStatuses(previous => ({ ...previous, [source.id]: { kind: "info", message: `Recording ${format.toUpperCase()}…` } }));
+    try {
+      const result = await session.promise;
+      const stem = String(source.name || "clip").replace(/\.[^./]+$/, "") || "clip";
+      const filename = `${stem}-clip-${Date.now()}.${result.extension}`;
+      const file = typeof File === "function"
+        ? new File([result.blob], filename, { type: result.mimeType })
+        : result.blob;
+      const mediaType = result.format === MEDIA_CLIP_FORMATS.AUDIO
+        ? "audio"
+        : result.extension === "gif" ? "image" : "video";
+      const created = onCreate(MEDIA_STREAM_KINDS.MEDIA, {
+        name: filename,
+        media: { fileName: filename, mediaType, muted: mediaType !== "audio" },
+      }, file);
+      const resultStatus = {
+        kind: "success",
+        message: result.fallback
+          ? `Saved ${filename} as a new source (MP4 is unavailable here; browser fallback is WebM).`
+          : `Saved ${filename} as a new source.`,
+      };
+      setStatuses(previous => ({ ...previous, [created?.id || source.id]: resultStatus }));
+    } catch (error) {
+      setStatuses(previous => ({ ...previous, [source.id]: { kind: "error", message: error?.message || "Media recording failed." } }));
+    } finally {
+      recorderRef.current = null;
+      setRecording(false);
+    }
+  };
+
+  if (!source) return null;
+  return <div className="media-stream-recorder" role="group" aria-label="Media clip recorder">
+    <div className="media-stream-recorder-title">Record clip</div>
+    <div className="media-stream-recorder-controls">
+      <label className="media-stream-panel-field">
+        <span>Format</span>
+        <select aria-label="Record format" value={format} disabled={recording} onChange={event => setFormat(event.target.value)}>
+          {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      </label>
+      <label className="media-stream-panel-field">
+        <span>Seconds</span>
+        <NumericInput aria-label="Record seconds" min="1" max="30" step="0.5" value={durationSeconds} defaultValue={5} disabled={recording} onKeyDown={stopKeyPropagation} onCommit={setDurationSeconds} />
+      </label>
+    </div>
+    <button type="button" className="iannix-flat-button" disabled={recording ? false : !source.enabled} onClick={recording ? stop : record}>
+      {recording ? "Stop recording" : "Record clip"}
+    </button>
+    {status && <StatusLine status={status} />}
+    <div className="media-stream-panel-note">The finished clip is added to Sources.</div>
+  </div>;
+};
+
 const useSelectedSource = (sources, controlledId, onControlledChange) => {
   const [localSelectedId, setLocalSelectedId] = useState("");
   const selectedId = controlledId ?? localSelectedId;
@@ -382,7 +471,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
       <span>Sources</span>
       <button type="button" className="iannix-flat-button media-stream-panel-add-source" onClick={addSource} aria-label="Add image source" title="Add image source">+</button>
     </div>
-    <input ref={fileRef} type="file" hidden accept="image/*,video/*,.gif" onChange={event => {
+    <input ref={fileRef} type="file" hidden accept="image/*,video/*,audio/*,.gif" onChange={event => {
       const file = event.target.files?.[0];
       if (file) onChooseFile(file, selected?.id);
       event.target.value = "";
@@ -424,7 +513,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
                 <span>Live</span>
               </label>
             </>
-        : <>
+      : <>
             <label className="media-stream-panel-field">
               <span>URL</span>
               <div className="media-stream-panel-inline-control">
@@ -437,14 +526,15 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
                 <input type="checkbox" checked={selected.media.loop} onChange={event => onPatch(selected.id, { media: { loop: event.target.checked } })} />
                 <span>Loop</span>
               </label>
-              {selected.media.mediaType === "video" && <label className="media-stream-panel-check">
+              {(selected.media.mediaType === "video" || selected.media.mediaType === "audio") ? <label className="media-stream-panel-check">
                 <input type="checkbox" checked={selected.media.muted} onChange={event => onPatch(selected.id, { media: { muted: event.target.checked } })} />
                 <span>Muted</span>
-              </label>}
+              </label> : null}
             </>}
             {selected.media.fileName && <div className="media-stream-panel-note">Local file: {selected.media.fileName}. Choose it again after reloading the page.</div>}
           </>}
     </SourceDetail>}
+    <MediaClipRecorder source={selected} onCreate={onCreate} />
   </div>;
 }
 

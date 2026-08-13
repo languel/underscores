@@ -103,7 +103,7 @@ import MediaMapOverlay from "./MediaMapOverlay.jsx";
 import { isMediaMapElement, normalizeMediaMapConfig } from "./mediaMap.js";
 import { createMediaSemanticFrame, FACE_DISPLAY_GROUPS, getHolisticDisplayLayers, mediaLandmarkFeatureId, POSE_DISPLAY_GROUPS } from "./mediaLandmarkOntology.js";
 import { createMediaBindingRuntimeState, mediaBindingRuntimeHasExpired, mediaDrivenElementPosition, resolveMediaBindingGate, resolveMediaBindingSignal, shouldAppendMediaStrokePoint } from "./mediaActorRuntime.js";
-import { canUseAsObjectBoundsTarget, createMediaBinding, createMediaSource, createMediaStreamConfig, isMediaStreamElement, isSupportedMediaFile, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig, readHolisticSettingsPreset, writeHolisticSettingsPreset } from "./mediaStream.js";
+import { canUseAsObjectBoundsTarget, createMediaBinding, createMediaSource, createMediaStreamConfig, inferMediaType, isMediaStreamElement, isSupportedMediaFile, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig, readHolisticSettingsPreset, writeHolisticSettingsPreset } from "./mediaStream.js";
 import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, requestMediaSegmentation, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
 import { createUnifiedStreamsApi, UnderscoresStreamRegistry } from "./streamRuntime.js";
 import { generateUnicursalPath, getUnicursalSnapshotStrokeWidth, transformUnicursalFrame, transformUnicursalPoint, UNICURSAL_PRESETS } from "./unicursalPath.js";
@@ -14154,22 +14154,26 @@ function App() {
   };
 
   const chooseMediaStreamFile = (file, sourceId = "") => {
-    const mediaType = file.type.startsWith("image/") ? "image" : "video";
+    const mediaType = file.type.startsWith("image/")
+      ? "image"
+      : file.type.startsWith("audio/")
+        ? "audio"
+        : inferMediaType(file.name);
     const selected = mediaSources.find(source => source.id === sourceId && source.kind === MEDIA_STREAM_KINDS.MEDIA);
     if (selected) {
       setMediaSessionFile(selected.id, file);
       patchMediaInputSource(selected.id, {
         name: file.name,
-        media: { url: "", fileName: file.name, mediaType },
+        media: { url: "", fileName: file.name, mediaType, muted: mediaType !== "audio" },
       });
       return patchMediaSource(selected, {
         name: file.name,
-        media: { url: "", fileName: file.name, mediaType },
+        media: { url: "", fileName: file.name, mediaType, muted: mediaType !== "audio" },
       });
     }
     return createMediaInputSource(MEDIA_STREAM_KINDS.MEDIA, {
       name: file.name,
-      media: { fileName: file.name, mediaType },
+      media: { fileName: file.name, mediaType, muted: mediaType !== "audio" },
     }, file);
   };
 

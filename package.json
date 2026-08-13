@@ -47,6 +47,7 @@
     "@strudel/webaudio": "1.2.6",
     "@strudel/xen": "1.2.5",
     "css-tree": "^3.2.1",
+    "gifenc": "^1.0.3",
     "gifuct-js": "^2.1.2",
     "jzz": "^1.9.6",
     "jzz-synth-tiny": "^1.4.4",

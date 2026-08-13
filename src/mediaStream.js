@@ -140,9 +140,11 @@ export const normalizeMediaBindings = value => {
 };
 
 export const inferMediaType = (url = "", explicit = "") => {
-  if (explicit === "image" || explicit === "video") return explicit;
+  if (["image", "video", "audio"].includes(explicit)) return explicit;
   const source = String(url).split(/[?#]/)[0].toLowerCase();
-  return /\.(gif|png|jpe?g|webp|avif|svg)$/.test(source) ? "image" : "video";
+  if (/\.(gif|png|jpe?g|webp|avif|svg)$/.test(source)) return "image";
+  if (/\.(mp3|wav|m4a|aac|flac|oga|ogg|opus)$/.test(source)) return "audio";
+  return "video";
 };
 
 // Local files are represented by session-scoped blob URLs at runtime. Those
@@ -160,7 +162,8 @@ export const isSupportedMediaFile = file => {
   return Boolean(file) && (
     type.startsWith("image/")
     || type.startsWith("video/")
-    || /\.(gif|png|jpe?g|webp|avif|svg|mp4|webm|mov|m4v|ogg)$/i.test(name)
+    || type.startsWith("audio/")
+    || /\.(gif|png|jpe?g|webp|avif|svg|mp4|webm|mov|m4v|ogg|mp3|wav|m4a|aac|flac|oga|opus)$/i.test(name)
   );
 };
 

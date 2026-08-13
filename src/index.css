@@ -8424,6 +8424,33 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   gap: 6px;
 }
 
+.media-stream-recorder {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--underscores-panel-border, var(--border-color));
+  background: var(--underscores-panel-subtle-bg, rgba(128, 128, 128, 0.04));
+}
+
+.media-stream-recorder-title {
+  color: var(--color-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.media-stream-recorder-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px 8px;
+}
+
+.media-stream-recorder-controls .media-stream-panel-field {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
+}
+
 .media-stream-panel-crop {
   display: grid;
   grid-template-columns: 84px repeat(4, minmax(0, 1fr));
