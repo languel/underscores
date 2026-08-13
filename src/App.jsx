@@ -87,7 +87,7 @@ import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
 import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
 import { LivecodeNodeEditor, LivecodeNodeOverlay, StrudelPanelStatus } from "./LivecodeNodeOverlay.jsx";
-import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeKindDefinition, getLivecodeViewForDoubleClick, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, replaceLivecodeNodeProgram } from "./livecodeNode.js";
+import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeFont, getLivecodeKindDefinition, getLivecodeViewForDoubleClick, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, replaceLivecodeNodeProgram } from "./livecodeNode.js";
 import { getLivecodeExamples } from "./livecodeExamples.js";
 import { describeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
 import { getShaderExample, normalizeShaderCompositionSettings, shaderExampleForSource } from "./shaderLivecode.js";
@@ -797,6 +797,7 @@ const normalizeInterfaceTheme = (value, theme = "dark") => {
 const ScriptActionIcon = ({ type }) => {
   const paths = {
     run: <><path d="m9 6 9 6-9 6V6Z"/></>,
+    pause: <><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></>,
     save: <><path d="M5 4h12l2 2v14H5V4Z"/><path d="M8 4v6h8V4M8 20v-6h8v6"/></>,
     copy: <><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5H5v11h3"/></>,
     add: <><path d="M12 5v14M5 12h14"/></>,
@@ -4229,6 +4230,31 @@ function App() {
     }
     return getMixerOutputsForChannel(midiChannel);
   }, [ensureExpressiveSynth, ensureInternalSynth, getMixerOutputsForChannel]);
+
+  useEffect(() => {
+    // A browser may suspend Web Audio while the app is backgrounded even when
+    // Drawerator's transport keeps advancing. Reconcile the active Mixer
+    // outputs when the page returns so a linked Orca node does not keep
+    // generating MIDI into a suspended synth.
+    const resumeActiveAudio = () => {
+      if (!scorePlayingRef.current || document.visibilityState === "hidden") return;
+      const activeTracks = mixerRef.current.tracks.filter(track => track.enabled && !track.muted);
+      if (activeTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_GM)
+        && internalSynthRef.current?.getState?.() !== "running") {
+        void ensureInternalSynth({ reason: "visibility-resume" });
+      }
+      if (activeTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_EXPRESSIVE)
+        && expressiveSynthRef.current?.getState?.() !== "running") {
+        void ensureExpressiveSynth();
+      }
+    };
+    window.addEventListener("focus", resumeActiveAudio);
+    document.addEventListener("visibilitychange", resumeActiveAudio);
+    return () => {
+      window.removeEventListener("focus", resumeActiveAudio);
+      document.removeEventListener("visibilitychange", resumeActiveAudio);
+    };
+  }, [ensureExpressiveSynth, ensureInternalSynth]);
 
   const executePhysicsMappingTarget = useCallback(descriptor => {
     const { operation, target, values = {}, gateKey, mapping, systemId } = descriptor || {};
@@ -11669,7 +11695,7 @@ function App() {
         return;
       }
 
-      // CodeMirror owns its complete keyboard session. This needs to precede
+      // CodeMirror and Orca own their complete keyboard sessions. This needs to precede
       // canvas shortcuts because both Excalidraw and Drawerator use
       // capture-phase handlers. Shift+Escape is the explicit exception for a
       // canvas livecode editor: it switches the selected node to output and
@@ -11704,7 +11730,7 @@ function App() {
         activeElement?.blur?.();
         return;
       }
-      if (activeElement?.closest?.(".drawerator-code-editor")) return;
+      if (activeElement?.closest?.(".drawerator-code-editor, .orca-node")) return;
 
       // Escape is a global cancel/clear gesture: close transient UI, blur any
       // focused control, leave Bézier editing, and clear the canvas selection.
@@ -15464,15 +15490,56 @@ function App() {
     }
   };
 
-  const emitOrcaMidiEvents = useCallback((elementId, events) => {
+  const emitOrcaMidiEvents = useCallback((elementId, events, metadata = {}) => {
     const items = Array.isArray(events) ? events : [];
     if (!items.length) return;
     const tempo = Math.max(20, Number(scoreTempo) || 120);
     let delivered = 0;
+    let unrouted = 0;
+    const unroutedChannels = new Set();
+    const routeDetails = [];
+    const eventDetails = items.map(event => ({
+      type: event?.type || "unknown",
+      channel: Math.max(1, Math.min(16, Math.round(Number(event?.channel) || 1))),
+      ...(event?.type === "note" ? {
+        note: Math.max(0, Math.min(127, Math.round(Number(event?.note) || 0))),
+        velocity: Math.max(0, Math.min(127, Math.round(Number(event?.velocity) || 0))),
+        durationFrames: Math.max(0, Number(event?.durationFrames) || 0),
+      } : {}),
+      ...(event?.type === "cc" ? {
+        controller: Math.max(0, Math.min(127, Math.round(Number(event?.controller) || 0))),
+        value: Math.max(0, Math.min(127, Math.round(Number(event?.value) || 0))),
+      } : {}),
+    }));
     for (const event of items) {
       const channel = Math.max(1, Math.min(16, Math.round(Number(event?.channel) || 1)));
+      const configuredTracks = getMixerTracksForChannel(mixerRef.current, channel);
       const routes = getMixerOutputsForChannel(channel);
-      if (!routes.length) continue;
+      if (!routes.length) {
+        unrouted += 1;
+        unroutedChannels.add(channel);
+        routeDetails.push({
+          channel,
+          configuredTracks: configuredTracks.map(track => ({
+            id: track.id,
+            destination: track.destination,
+            instrument: track.instrument,
+            enabled: track.enabled,
+            muted: track.muted,
+          })),
+          outputs: [],
+        });
+        continue;
+      }
+      routeDetails.push({
+        channel,
+        configuredTracks: configuredTracks.map(track => ({ id: track.id, destination: track.destination, instrument: track.instrument })),
+        outputs: routes.map(({ track, output }) => ({
+          trackId: track.id,
+          outputId: output.id || output.name || null,
+          state: output.getState?.() || output.state || "ready",
+        })),
+      });
       const now = performance.now();
       if (event.type === "note") {
         const message = {
@@ -15502,8 +15569,24 @@ function App() {
         delivered += routes.length;
       }
     }
-    if (delivered) setMidiStatus(`Orca ${String(elementId).slice(0, 6)} · ${delivered} routed MIDI event${delivered === 1 ? "" : "s"}`);
-  }, [getMixerOutputsForChannel, scoreTempo]);
+    eventBus.emit("midi.orca", {
+      elementId,
+      frame: Number.isFinite(Number(metadata?.frame)) ? Number(metadata.frame) : null,
+      transportPlaying: scorePlayingRef.current,
+      generated: items.length,
+      delivered,
+      unrouted,
+      events: eventDetails,
+      routes: routeDetails,
+      internalSynthState: internalSynthRef.current?.getState?.() || "off",
+    }, { source: "orca", transportTime: scoreTimeRef.current });
+    if (delivered) {
+      setMidiStatus(`Orca ${String(elementId).slice(0, 6)} · ${delivered} routed MIDI event${delivered === 1 ? "" : "s"}`);
+    } else {
+      const channels = [...unroutedChannels].sort((a, b) => a - b).join(", ");
+      setMidiStatus(`Orca ${String(elementId).slice(0, 6)} · ${items.length} event${items.length === 1 ? "" : "s"} generated · no audible Mixer route${channels ? ` (MIDI channel${unroutedChannels.size === 1 ? "" : "s"} ${channels})` : ""}`);
+    }
+  }, [eventBus, getMixerOutputsForChannel, scoreTempo]);
 
   const toggleScorePlayback = async () => {
     if (scorePlaying) {
@@ -19191,7 +19274,12 @@ function App() {
           patchLivecodeCanvasNode(nodeElement.id, {
             name: next.name,
             source: next.source,
-            runtime: { settings: { livecodeExample: next.id, ...(next.mode ? { p5Mode: next.mode } : {}) } },
+            runtime: { settings: {
+              livecodeExample: next.id,
+              ...(next.mode ? { p5Mode: next.mode } : {}),
+              ...(node.kind === LIVECODE_KINDS.orca ? { orcaLoopFrames: next.settings?.orcaLoopFrames || 0 } : {}),
+              ...(next.settings || {}),
+            } },
           }, { commitToHistory: true });
         }}>{livecodeExamples.map(example => <option key={example.id} value={example.id}>{example.label}</option>)}</select></label>
         {node.kind === LIVECODE_KINDS.orca
@@ -19199,6 +19287,11 @@ function App() {
           : node.kind === LIVECODE_KINDS.strudel
             ? <label className="livecode-view-control">View <span className="livecode-static-option">Code overlay</span></label>
             : <label className="livecode-view-control">View <select value={node.view === "overlay" ? "code" : node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="preview">Output</option><option value="source">Code</option><option value="code">Code Overlay</option><option value="split">Code/Output</option></select></label>}
+        {node.kind === LIVECODE_KINDS.orca && <label title="Choose the native compact Orca cell spacing or fill the host frame">Spacing <select value={node.runtime.settings?.orcaDensity === "spacious" ? "spacious" : "compact"} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaDensity: event.target.value } } }, { commitToHistory: true })}><option value="compact">Compact</option><option value="spacious">Spacious</option></select></label>}
+        {node.kind === LIVECODE_KINDS.orca && <label title="Number of editable Orca columns">Grid width <NumericInput min="4" max="128" step="1" value={node.runtime.settings?.orcaGridWidth || 32} defaultValue={32} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridWidth: value } } }, { commitToHistory: true })} /></label>}
+        {node.kind === LIVECODE_KINDS.orca && <label title="Number of editable Orca rows">Grid height <NumericInput min="2" max="128" step="1" value={node.runtime.settings?.orcaGridHeight || 16} defaultValue={16} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridHeight: value } } }, { commitToHistory: true })} /></label>}
+        {node.kind === LIVECODE_KINDS.orca && <label title="Automatically size Orca cells to fit the host frame"><span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.orcaGridFit !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridFit: event.target.checked } } }, { commitToHistory: true })} />Fit frame</span></label>}
+        {node.kind === LIVECODE_KINDS.orca && <label title="Show a faint guide lattice behind the Orca cells">Guide <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.orcaGridGuide === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridGuide: event.target.checked } } }, { commitToHistory: true })} />Grid</span></label>}
         <label title="Show the compact tab above this Livecode node on the canvas">Canvas tab <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.showChrome === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { showChrome: event.target.checked } } }, { commitToHistory: true })} />Show</span></label>
         {node.kind === LIVECODE_KINDS.shader && <label>Layer <select value={shaderComposition.compositeMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeMode: event.target.value } } }, { commitToHistory: true })}><option value="overlay">Above objects</option><option value="underlay">Below objects</option></select></label>}
         {node.kind === LIVECODE_KINDS.shader && <label>Opacity % <NumericInput min="0" max="100" step="5" value={Math.round(shaderComposition.compositeOpacity * 100)} defaultValue={100} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeOpacity: value / 100 } } }, { commitToHistory: true })} /></label>}
@@ -19214,6 +19307,7 @@ function App() {
         <label title="Keep blank overlay space transparent while code is shown over output">Overlay <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.glyphOnlyOverlay} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { glyphOnlyOverlay: event.target.checked } }, { commitToHistory: true })} />Glyphs only</span></label>
         <label title={node.typography.glyphOnlyOverlay ? "Applies behind non-space code when Glyphs only is enabled" : "Applies across the full code surface"}>Code opacity % <NumericInput min="0" max="100" step="5" value={Math.round(node.typography.codeOverlayOpacity * 100)} defaultValue={100} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { codeOverlayOpacity: value / 100 } }, { commitToHistory: true })} /></label>
         <label>Font <select value={node.typography.font} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { font: event.target.value } }, { commitToHistory: true })}>{LIVE_CODE_FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label>
+        {getLivecodeFont(node.typography.font).supportsLigatures && <label title="Enable Monaspace contextual alternates, standard ligatures, and stylistic sets ss01–ss10">Ligatures <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.ligatures !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { ligatures: event.target.checked } }, { commitToHistory: true })} />On</span></label>}
         <label>Size <NumericInput min="8" max="72" step="1" value={node.typography.fontSize} defaultValue={14} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontSize: value } }, { commitToHistory: true })} /></label>
         <label>Line <NumericInput min="0.8" max="3" step="0.05" value={node.typography.lineHeight} defaultValue={1.4} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { lineHeight: value } }, { commitToHistory: true })} /></label>
         <label>Weight <select value={node.typography.fontWeight} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontWeight: Number(event.target.value) } }, { commitToHistory: true })}>{[300, 400, 500, 600, 700].map(weight => <option key={weight} value={weight}>{weight}</option>)}</select></label>
@@ -19243,7 +19337,13 @@ function App() {
         </label>)}
       </div>}
       <div className="script-icon-toolbar">
-        <button type="button" className="palette-action-btn primary script-icon-button" onClick={() => toggleLivecodeNodeRun(nodeElement.id)} title={node.runtime.running ? "Stop this node" : "Run this node"} aria-label={node.runtime.running ? "Stop livecode node" : "Run livecode node"}><ScriptActionIcon type="run" /></button>
+        <button
+          type="button"
+          className="palette-action-btn primary script-icon-button"
+          onClick={() => toggleLivecodeNodeRun(nodeElement.id)}
+          title={`${node.runtime.running ? "Stop" : "Start"} this node · Cmd/Ctrl+Enter starts${node.kind === LIVECODE_KINDS.strudel ? " or updates" : ""} · Ctrl+. or Alt+. stops`}
+          aria-label={node.runtime.running ? "Stop livecode node" : "Start livecode node"}
+        ><ScriptActionIcon type={node.runtime.running ? "pause" : "run"} /></button>
         <button type="button" className="palette-action-btn secondary script-icon-button" onClick={() => commitLivecodeCanvasNode(nodeElement.id)} title="Save source to the scene" aria-label="Save livecode source"><ScriptActionIcon type="save" /></button>
         <button type="button" className="palette-action-btn secondary script-icon-button" onClick={() => createLivecodeCanvasNode({ kind: node.kind })} title="New livecode node" aria-label="New livecode node"><ScriptActionIcon type="add" /></button>
       </div>
@@ -19253,6 +19353,7 @@ function App() {
         showGutters
         onPatch={patch => patchLivecodeCanvasNode(nodeElement.id, patch)}
         onRun={() => toggleLivecodeNodeRun(nodeElement.id, { command: "run" })}
+        onToggleRun={() => toggleLivecodeNodeRun(nodeElement.id)}
         onUpdate={node.kind === LIVECODE_KINDS.strudel
           ? () => toggleLivecodeNodeRun(nodeElement.id, { command: "update" })
           : undefined}
@@ -19260,7 +19361,7 @@ function App() {
         onBlur={() => commitLivecodeCanvasNode(nodeElement.id)}
         onCycleView={node.kind === LIVECODE_KINDS.strudel ? undefined : () => patchLivecodeCanvasNode(nodeElement.id, { view: ({ preview: "source", source: "code", code: "split", split: "preview" }[node.view] || "source") })}
         transport={{ playing: scorePlaying, bpm: scoreTempo }}
-        onMidiEvents={events => emitOrcaMidiEvents(nodeElement.id, events)}
+        onMidiEvents={(events, metadata) => emitOrcaMidiEvents(nodeElement.id, events, metadata)}
         ariaLabel={`${definition.label} node source`}
       />
       {node.kind === LIVECODE_KINDS.strudel

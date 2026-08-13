@@ -8,6 +8,7 @@ import {
   getLivecodeEditorProfile,
   getLivecodeViewForDoubleClick,
   isLivecodeNodeElement,
+  normalizeLivecodeTypography,
   normalizeLivecodeNode,
   patchLivecodeNode,
   replaceLivecodeNodeProgram,
@@ -51,6 +52,7 @@ test("creates a versioned, self-contained Livecode Node with a stable runtime co
       lineHeight: 1.7,
       fontWeight: 400,
       letterSpacing: 0,
+      ligatures: true,
       showLineNumbers: false,
       showFoldGutter: false,
       codeOverlayOpacity: 0,
@@ -80,6 +82,7 @@ test("normalization keeps unsupported values bounded and preserves authored sour
     lineHeight: 0.8,
     fontWeight: 400,
     letterSpacing: -2,
+    ligatures: true,
     showLineNumbers: false,
     showFoldGutter: false,
     codeOverlayOpacity: 0,
@@ -222,6 +225,10 @@ test("detects scene nodes and maps their source to established CodeMirror profil
   assert.equal(getLivecodeEditorProfile({ kind: "shader" }), "shader");
   assert.match(getLivecodeFont("mono").family, /Fira Mono/);
   assert.match(getLivecodeFont("sans").family, /Inter/);
+  assert.match(getLivecodeFont("monaspace-neon").family, /Monaspace Neon/);
+  assert.equal(getLivecodeFont("monaspace-neon").supportsLigatures, true);
+  assert.match(getLivecodeFont("monaspace-neon").featureSettings, /"ss01" 1/);
+  assert.equal(normalizeLivecodeTypography({ font: "monaspace-neon", ligatures: false }).ligatures, false);
 });
 
 test("shader nodes expose the editable Hello GLSL starter without injecting it into blank generic nodes", () => {

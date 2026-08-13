@@ -2,6 +2,22 @@ import { P5_EXAMPLES } from "./p5Frame.js";
 import { PLAY_CORE_EXAMPLES } from "./playCoreExamples.js";
 import { SHADER_EXAMPLES } from "./shaderLivecode.js";
 import { LIVECODE_KINDS, defaultLivecodeSource } from "./livecodeNode.js";
+import { ORCA_GRID_HEIGHT, ORCA_GRID_WIDTH } from "./orcaEngine.js";
+
+const orcaGrid = (...rows) => Array.from(
+  { length: ORCA_GRID_HEIGHT },
+  (_, index) => String(rows[index] || "").padEnd(ORCA_GRID_WIDTH, ".").slice(0, ORCA_GRID_WIDTH),
+).join("\n");
+
+// Build a row from coordinates so musical examples stay readable and do not
+// depend on counting a long run of placeholder cells by hand.
+const orcaRow = entries => {
+  const row = Array(ORCA_GRID_WIDTH).fill(".");
+  entries.forEach(([x, glyph]) => {
+    if (Number.isInteger(x) && x >= 0 && x < ORCA_GRID_WIDTH) row[x] = String(glyph || ".").slice(0, 1);
+  });
+  return row.join("");
+};
 
 // Keep one deliberately small starter for every persisted Livecode kind. These
 // are editor templates, not hidden runtime defaults: selecting one replaces
@@ -13,7 +29,7 @@ export const LIVECODE_TEMPLATES = Object.freeze({
   [LIVECODE_KINDS.markdown]: `# Markdown starter\n\nWrite **rich text** here. Inline math: $E = mc^2$.\n\n- one\n- two`,
   [LIVECODE_KINDS.latex]: `\\frac{\\partial}{\\partial t} \\Psi = i \\nabla^2 \\Psi`,
   [LIVECODE_KINDS.html]: `<!doctype html>\n<main>\n  <h1>HTML starter</h1>\n  <p>Edit this isolated document.</p>\n</main>`,
-  [LIVECODE_KINDS.orca]: `................................\n................................\n................................\n................................`,
+  [LIVECODE_KINDS.orca]: defaultLivecodeSource(LIVECODE_KINDS.orca),
   [LIVECODE_KINDS.shader]: defaultLivecodeSource(LIVECODE_KINDS.shader),
 });
 
@@ -32,6 +48,61 @@ const p5Examples = Object.freeze([
 const playCoreExamples = Object.freeze([
   bareExample(LIVECODE_KINDS.playcore),
   ...PLAY_CORE_EXAMPLES.map(example => ({ id: example.id, label: `${example.category} · ${example.name}`, name: example.name, source: example.source })),
+]);
+
+const orcaExamples = Object.freeze([
+  bareExample(LIVECODE_KINDS.orca),
+  {
+    id: "single-note",
+    label: "Basics · Single MIDI note",
+    name: "Single MIDI note",
+    source: orcaGrid(
+      "................................",
+      "...........*:04Cf1..............",
+    ),
+  },
+  {
+    id: "clocked-note",
+    label: "Loops · Clocked MIDI note",
+    name: "Clocked MIDI note",
+    source: orcaGrid(
+      "................................",
+      "..........1D4...................",
+      "...........*....................",
+      "...........:04Cf1...............",
+    ),
+  },
+  {
+    id: "counter",
+    label: "Basics · Counter",
+    name: "Counter",
+    source: orcaGrid(
+      "................................",
+      "..........1I8...................",
+      "................................",
+    ),
+  },
+  {
+    id: "random-pattern",
+    label: "Patterns · Random value",
+    name: "Random value",
+    source: orcaGrid(
+      "................................",
+      "..........0Rf...................",
+      "................................",
+    ),
+  },
+  {
+    id: "random-melody-2bar",
+    label: "Melody · Random 2-bar quarter notes",
+    name: "Random 2-bar quarter-note melody",
+    settings: { orcaLoopFrames: 32 },
+    source: orcaGrid(
+      orcaRow([[10, "1"], [11, "D"], [12, "4"]]),
+      orcaRow([[11, "*"], [13, "a"], [14, "R"], [15, "f"]]),
+      orcaRow([[11, ":"], [12, "0"], [13, "4"], [15, "f"], [16, "1"]]),
+    ),
+  },
 ]);
 
 // A small, local Strudel library: the first entries teach one idea at a time,
@@ -108,6 +179,7 @@ export const getLivecodeExamples = kind => {
   if (kind === LIVECODE_KINDS.p5) return p5Examples;
   if (kind === LIVECODE_KINDS.playcore) return playCoreExamples;
   if (kind === LIVECODE_KINDS.strudel) return strudelExamples;
+  if (kind === LIVECODE_KINDS.orca) return orcaExamples;
   if (kind === LIVECODE_KINDS.shader) return SHADER_EXAMPLES.map(example => ({ id: example.id, label: example.label, name: example.name, source: example.source, mode: example.mode }));
   return [bareExample(kind)];
 };

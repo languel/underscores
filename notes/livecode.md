@@ -27,7 +27,7 @@ Source is always owned by the node. The canvas editor and the Script panel use t
 
 ## Typography
 
-Node typography is independently persisted and exposed in the Script panel: **Fira Mono** for code-oriented nodes, **Inter** for readable presentation, and a system serif fallback. Size, line-height, weight, and tracking are stored per node. Fira Mono and Inter are bundled offline in the production build at weights 400/500/700 and 400/500/600/700 respectively; both are SIL Open Font License 1.1. Their notice is recorded in [third-party notices](../THIRD_PARTY_NOTICES.md).
+Node typography is independently persisted and exposed in the Script panel: **Fira Mono** for code-oriented nodes, **Inter** for readable presentation, a system serif fallback, and the five **Monaspace** families (**Argon**, **Krypton**, **Neon**, **Radon**, and **Xenon**). Size, line-height, weight, tracking, and the Ligatures toggle are stored per node. Fira Mono, Inter, and the Latin Monaspace faces are bundled offline through Fontsource at the supported editor weights; their notices are recorded in [third-party notices](../THIRD_PARTY_NOTICES.md). Monaspace enables contextual alternates (`calt`), standard ligatures (`liga`), and stylistic operator sets (`ss01`–`ss10`) when Ligatures is on. The full Nerd Font glyph archive is intentionally not part of the default bundle; a local `Symbols Nerd Font Mono` installation is used as a fallback for extra symbols.
 
 The global CodeMirror palette still controls editor syntax colors and surfaces. Node typography only changes the node's own source/preview content.
 
@@ -115,6 +115,10 @@ Browser security can block reliable parent-side rasterization of a sandboxed opa
 An Orca node is a real per-node grid, not a CodeMirror document. Canvas and panel modes subscribe to the same grid runtime. Click a cell to focus it; type to write; Arrow keys move; Shift+Arrow extends a selection; Delete clears; Cmd/Ctrl+A selects all; Cmd/Ctrl+C/V copies and pastes a grid rectangle; Cmd/Ctrl/Option+Enter or Space steps one frame. Focus owns these keys completely, so they never reach Excalidraw.
 
 Linked Orca nodes tick from Drawerator transport; free nodes use a per-node timer. Their native operator core currently covers `A`, `B`, `C`, `D`, `E/N/S/W`, `I`, `L`, `M`, bang triggering, and MIDI `:`, mono MIDI `%`, CC `!`, and pitch bend `?`. MIDI is sent through the existing Drawerator Mixer routing. Other visible Orca glyphs are preserved in the authored grid and remain inert until their semantics are added; they are never rewritten or discarded. Orca needs a dedicated stabilization pass before its grid/runtime interaction is considered complete. The interaction and supported operator behavior are adapted from [Hundredrabbits Orca](https://github.com/hundredrabbits/Orca) under its MIT license.
+The node chrome is intentionally compact: the Orca title is omitted, run/stop and single-step use
+icon-only controls with tooltips and accessible labels, and the current clock state is represented
+by a semantic icon (chain for linked, diamond for free, clock for waiting, pause for paused, and
+square for stopped). The frame counter remains text so it can be read at a glance.
 
 ## In-app reference and commands
 

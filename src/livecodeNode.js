@@ -1,4 +1,5 @@
 import { HELLO_GLSL_FRAGMENT_SOURCE } from "./shaderLivecode.js";
+import { createEmptyOrcaSource } from "./orcaEngine.js";
 
 // Canonical, scene-persisted representation for a Livecode Node.  The
 // Excalidraw rectangle that carries this data is intentionally transparent:
@@ -65,7 +66,7 @@ export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
     label: "Orca",
     editorProfile: "orca",
     defaultName: "Untitled Orca",
-    defaultSource: `................................\n................................\n................................\n................................`,
+    defaultSource: createEmptyOrcaSource(),
     summary: "Native frame-based Orca grid. Focus the grid to edit it; its MIDI, CC, and pitch-bend operators route through Drawerator’s Mixer.",
   }),
   [LIVECODE_KINDS.shader]: Object.freeze({
@@ -81,6 +82,11 @@ export const LIVE_CODE_FONT_OPTIONS = Object.freeze([
   Object.freeze({ id: "mono", label: "Fira Mono", family: '"Fira Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace' }),
   Object.freeze({ id: "sans", label: "Inter", family: '"Inter", ui-sans-serif, system-ui, sans-serif' }),
   Object.freeze({ id: "serif", label: "Serif", family: "ui-serif, Georgia, serif" }),
+  Object.freeze({ id: "monaspace-argon", label: "Monaspace · Argon", family: '"Monaspace Argon", "Symbols Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', supportsLigatures: true, featureSettings: '"calt" 1, "liga" 1, "ss01" 1, "ss02" 1, "ss03" 1, "ss04" 1, "ss05" 1, "ss06" 1, "ss07" 1, "ss08" 1, "ss09" 1, "ss10" 1' }),
+  Object.freeze({ id: "monaspace-krypton", label: "Monaspace · Krypton", family: '"Monaspace Krypton", "Symbols Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', supportsLigatures: true, featureSettings: '"calt" 1, "liga" 1, "ss01" 1, "ss02" 1, "ss03" 1, "ss04" 1, "ss05" 1, "ss06" 1, "ss07" 1, "ss08" 1, "ss09" 1, "ss10" 1' }),
+  Object.freeze({ id: "monaspace-neon", label: "Monaspace · Neon", family: '"Monaspace Neon", "Symbols Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', supportsLigatures: true, featureSettings: '"calt" 1, "liga" 1, "ss01" 1, "ss02" 1, "ss03" 1, "ss04" 1, "ss05" 1, "ss06" 1, "ss07" 1, "ss08" 1, "ss09" 1, "ss10" 1' }),
+  Object.freeze({ id: "monaspace-radon", label: "Monaspace · Radon", family: '"Monaspace Radon", "Symbols Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', supportsLigatures: true, featureSettings: '"calt" 1, "liga" 1, "ss01" 1, "ss02" 1, "ss03" 1, "ss04" 1, "ss05" 1, "ss06" 1, "ss07" 1, "ss08" 1, "ss09" 1, "ss10" 1' }),
+  Object.freeze({ id: "monaspace-xenon", label: "Monaspace · Xenon", family: '"Monaspace Xenon", "Symbols Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', supportsLigatures: true, featureSettings: '"calt" 1, "liga" 1, "ss01" 1, "ss02" 1, "ss03" 1, "ss04" 1, "ss05" 1, "ss06" 1, "ss07" 1, "ss08" 1, "ss09" 1, "ss10" 1' }),
 ]);
 
 export const DEFAULT_LIVECODE_TYPOGRAPHY = Object.freeze({
@@ -89,6 +95,7 @@ export const DEFAULT_LIVECODE_TYPOGRAPHY = Object.freeze({
   lineHeight: 1.45,
   fontWeight: 400,
   letterSpacing: 0,
+  ligatures: true,
   showLineNumbers: false,
   showFoldGutter: false,
   codeOverlayOpacity: 0,
@@ -144,6 +151,7 @@ export const normalizeLivecodeTypography = value => {
     lineHeight: Math.max(0.8, Math.min(3, Number(raw.lineHeight) || DEFAULT_LIVECODE_TYPOGRAPHY.lineHeight)),
     fontWeight: [300, 400, 500, 600, 700].includes(Number(raw.fontWeight)) ? Number(raw.fontWeight) : DEFAULT_LIVECODE_TYPOGRAPHY.fontWeight,
     letterSpacing: Math.max(-2, Math.min(8, Number(raw.letterSpacing) || DEFAULT_LIVECODE_TYPOGRAPHY.letterSpacing)),
+    ligatures: raw.ligatures !== false,
     showLineNumbers: raw.showLineNumbers === true,
     showFoldGutter: raw.showFoldGutter === true,
     codeOverlayOpacity: Math.max(0, Math.min(1, Number(raw.codeOverlayOpacity) || DEFAULT_LIVECODE_TYPOGRAPHY.codeOverlayOpacity)),
