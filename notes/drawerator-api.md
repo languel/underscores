@@ -24,6 +24,7 @@ Sandboxed HTML retains only its token-scoped `window.drawerator` message bridge.
 | `canvas`, `objects` | Scene-query bridge (`objects` is an alias). |
 | `events` | Event subscription and inspection. |
 | `streams` | Live semantic MediaPipe stream queries and subscriptions. |
+| `art` | Shared artistic generators. `art.unicursal` exposes the same engine as first-class Unicursal objects. |
 | `transport`, `time` | Score clock and timing context; `time` is `transport.time`. |
 | `api` | Full public application API listed below. |
 
@@ -50,6 +51,7 @@ return { char: "●", color: __.colors.foreground.css };
 | `macros` | `list()`, `saveRange(options)`, `insert(id, options)`, `remove(id)` |
 | `inputs` | `registerAdapter(adapter)`, `unregisterAdapter(id)`, `emit(sample)` |
 | `events` | `subscribe(pattern, listener)` |
+| `art.unicursal` | `presets()`, `generate(sourceRef, options)` |
 | `relations` | Graph `get()`, `set(graph)`, `add(collection, item)`, `update(collection, id, patch)`, `remove(collection, id)`; `mappings.list(systemId)`, `mappings.create(item)`, `mappings.update(id, patch)`, and `mappings.remove(id)`; endpoint, adapter, collision-stream, and relationship-event helpers |
 | `physics` | `world.get()` / `world.update(patch)`; system/body/population/constraint/mapping helpers; a legacy `routes` compatibility collection; `play`, `pause`, `reset`, `apply`, `materialize`, `impulse`, `grab`, `moveGrab`, `releaseGrab`, `poses`, `telemetry`, and `snapshot`. `world.pausedEditMode` defaults to `author` (paused canvas edits update the reset pose); set it to `preview` to preserve the reset pose. `world.livePose` enables constraint-solving authoring grabs; press `\\` outside a text field to toggle it. Plain Cmd remains available to Excalidraw alignment. `world.collisionLayers` owns the named layer stack and symmetric contact matrix. Authored body settings live at `object.customData.physics`, including `collider.kind` (`circle`, `ellipse`, `box`, `convex`, `polyline`, or compound `chain`) and optional `collisionLayers` membership. Constraint objects additionally persist `axle`, legacy-compatible `fixate`/Weld, `spring`, or `rope` configuration there. A rope is one authored path plus a `rope` constraint; its sampled Rapier links are runtime-only and exposed only through the rope's rendered geometry. The relationship graph supplies only stable relationship bindings. `customData.draweratorPhysics` remains a read-only legacy alias. |
 | `mixer` | `get()`, `updateTrack(trackId, patch)`, `addTrack(overrides)`, `removeTrack(trackId)` |
@@ -72,6 +74,27 @@ const tip = body?.feature("left_hand.index_finger_tip", { space: "scene" });
 const pinch = body?.feature("right_hand.pinch");
 ```
 
+API version 9 adds the reusable Unicursal portrait generator. `sourceRef` may be a Holistic object
+id/name or a Unicursal object id/name. Geometry is deterministic for a completed semantic frame and
+defaults to normalized coordinates; request `outputSpace: "local"` or `"scene"` when a host-space
+result is needed. The returned path contains finite `{ x, y, z, pressure, width, role, t }` points,
+bounds, style, source time, and availability. Segmentation stays internal to the engine.
+Calls that use hybrid or segmentation silhouettes keep segmentation inference requested only while
+the caller continues generating frames; the demand expires automatically when the script stops.
+
+```js
+const portrait = __.art.unicursal.generate("Holistic", {
+  preset: "smooth",
+  outputSpace: "normalized",
+  geometry: { pointBudget: 384, maxSegments: 1, smoothCurves: true },
+});
+if (portrait?.available) portrait.points.forEach(({ x, y, pressure }) => {
+  // Draw or transform the stable continuous route.
+});
+
+const presetCatalog = __.api.art.unicursal.presets();
+```
+
 Persistent actor changes go through `media.binding.create`, `media.binding.update`,
 `media.binding.remove`, and `media.actors.arm`. API version 6 introduces the semantic stream service
 and actor commands.
@@ -79,6 +102,7 @@ and actor commands.
 API version 7 adds the solver-independent `relations` and worker-backed `physics` namespaces. API
 version 8 adds canonical Source -> Filter -> Transform -> Target mappings at
 `__.relations.mappings`; the narrow `__.physics.routes` API remains a compatibility wrapper.
+API version 9 adds `art.unicursal` and first-class typed `path` stream samples.
 Relationship graph version 3 adds named Physics collision layers. Fifteen named layers are
 available; the final Rapier bit is reserved for generated rope links. Version 4 adds authored Rope
 constraints: a selected rendered path provides bounded, arc-length-sampled link geometry and two

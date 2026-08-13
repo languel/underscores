@@ -1,12 +1,15 @@
+import { normalizeUnicursalOptions } from "./unicursalPath.js";
+
 export const MEDIA_STREAM_KINDS = Object.freeze({
   CAMERA: "camera",
   MEDIA: "media",
   CANVAS: "canvas",
   PREVIEW: "preview",
   HOLISTIC: "holistic",
+  UNICURSAL: "unicursal",
 });
 
-export const MEDIA_STREAM_VERSION = 6;
+export const MEDIA_STREAM_VERSION = 8;
 export const MEDIA_SOURCE_STORAGE_KEY = "drawerator_media_source_catalog_v1";
 export const MEDIA_ACTORS_ARMED_STORAGE_KEY = "drawerator_media_actors_armed_v1";
 export const HOLISTIC_SETTINGS_STORAGE_KEY = "drawerator_holistic_settings_v1";
@@ -155,6 +158,8 @@ export const createMediaStreamConfig = (kind = MEDIA_STREAM_KINDS.MEDIA, overrid
           ? "Preview"
       : kind === MEDIA_STREAM_KINDS.HOLISTIC
         ? "Holistic"
+      : kind === MEDIA_STREAM_KINDS.UNICURSAL
+        ? "Unicursal portrait"
         : "Media",
     enabled: true,
     mirror: kind === MEDIA_STREAM_KINDS.CAMERA,
@@ -191,6 +196,11 @@ export const createMediaStreamConfig = (kind = MEDIA_STREAM_KINDS.MEDIA, overrid
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5,
     },
+    unicursal: {
+      sourceId: "",
+      ...normalizeUnicursalOptions(),
+      includeEchoesInSnapshot: false,
+    },
     bindings: [],
     ...overrides,
   });
@@ -206,6 +216,7 @@ export const normalizeMediaStreamConfig = value => {
   const canvas = source.canvas && typeof source.canvas === "object" ? source.canvas : {};
   const output = source.output && typeof source.output === "object" ? source.output : {};
   const holistic = source.holistic && typeof source.holistic === "object" ? source.holistic : {};
+  const unicursal = source.unicursal && typeof source.unicursal === "object" ? source.unicursal : {};
   const holisticColors = holistic.colors && typeof holistic.colors === "object" ? holistic.colors : {};
   const poseGroups = holistic.poseGroups && typeof holistic.poseGroups === "object" ? holistic.poseGroups : {};
   const faceGroups = holistic.faceGroups && typeof holistic.faceGroups === "object" ? holistic.faceGroups : {};
@@ -226,7 +237,7 @@ export const normalizeMediaStreamConfig = value => {
     version: MEDIA_STREAM_VERSION,
     kind,
     sourceId: cleanString(source.sourceId),
-    name: cleanString(source.name, kind === MEDIA_STREAM_KINDS.CAMERA ? "Camera" : kind === MEDIA_STREAM_KINDS.CANVAS ? "Canvas" : kind === MEDIA_STREAM_KINDS.PREVIEW ? "Preview" : kind === MEDIA_STREAM_KINDS.HOLISTIC ? "Holistic" : "Media"),
+    name: cleanString(source.name, kind === MEDIA_STREAM_KINDS.CAMERA ? "Camera" : kind === MEDIA_STREAM_KINDS.CANVAS ? "Canvas" : kind === MEDIA_STREAM_KINDS.PREVIEW ? "Preview" : kind === MEDIA_STREAM_KINDS.HOLISTIC ? "Holistic" : kind === MEDIA_STREAM_KINDS.UNICURSAL ? "Unicursal portrait" : "Media"),
     enabled: source.enabled !== false,
     mirror: source.mirror === undefined ? kind === MEDIA_STREAM_KINDS.CAMERA : Boolean(source.mirror),
     crop: {
@@ -311,6 +322,11 @@ export const normalizeMediaStreamConfig = value => {
       minDetectionConfidence: clamp(holistic.minDetectionConfidence, 0, 1, 0.5),
       minTrackingConfidence: clamp(holistic.minTrackingConfidence, 0, 1, 0.5),
     },
+    unicursal: {
+      ...normalizeUnicursalOptions(unicursal),
+      sourceId: cleanString(unicursal.sourceId),
+      includeEchoesInSnapshot: unicursal.includeEchoesInSnapshot === true,
+    },
     bindings: kind === MEDIA_STREAM_KINDS.HOLISTIC ? normalizeMediaBindings(source.bindings) : [],
   };
 };
@@ -350,13 +366,16 @@ export const isMediaStreamElement = element =>
 export const canUseAsObjectBoundsTarget = element => {
   if (!element || element.isDeleted || !["rectangle", "frame"].includes(element.type)) return false;
   if (!isMediaStreamElement(element)) return true;
-  return normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC;
+  return [MEDIA_STREAM_KINDS.HOLISTIC, MEDIA_STREAM_KINDS.UNICURSAL].includes(
+    normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind,
+  );
 };
 
 export const objectBoundsTargetLabel = element => {
   if (isMediaStreamElement(element)) {
     const config = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
     if (config.kind === MEDIA_STREAM_KINDS.HOLISTIC) return config.name || "Holistic";
+    if (config.kind === MEDIA_STREAM_KINDS.UNICURSAL) return config.name || "Unicursal portrait";
   }
   return element?.customData?.draweratorLabel || element?.name || element?.type || "Object";
 };
@@ -399,6 +418,18 @@ export const patchMediaStreamConfig = (value, patch = {}) => {
       poseGroups: { ...current.holistic.poseGroups, ...(holisticPatch.poseGroups || {}) },
       faceGroups: { ...current.holistic.faceGroups, ...(holisticPatch.faceGroups || {}) },
     },
+    unicursal: {
+      ...current.unicursal,
+      ...(patch.unicursal || {}),
+      anatomy: { ...current.unicursal.anatomy, ...(patch.unicursal?.anatomy || {}) },
+      silhouette: { ...current.unicursal.silhouette, ...(patch.unicursal?.silhouette || {}) },
+      geometry: { ...current.unicursal.geometry, ...(patch.unicursal?.geometry || {}) },
+      ornament: { ...current.unicursal.ornament, ...(patch.unicursal?.ornament || {}) },
+      ink: { ...current.unicursal.ink, ...(patch.unicursal?.ink || {}) },
+      motion: { ...current.unicursal.motion, ...(patch.unicursal?.motion || {}) },
+      background: { ...current.unicursal.background, ...(patch.unicursal?.background || {}) },
+      landmarks: { ...current.unicursal.landmarks, ...(patch.unicursal?.landmarks || {}) },
+    },
     bindings: Object.hasOwn(patch, "bindings") ? patch.bindings : current.bindings,
   });
 };
@@ -407,7 +438,7 @@ const createSourceId = () => `media_source_${Date.now()}_${Math.random().toStrin
 
 export const createMediaSource = (kind = MEDIA_STREAM_KINDS.MEDIA, overrides = {}) => {
   const config = createMediaStreamConfig(kind, overrides);
-  if ([MEDIA_STREAM_KINDS.HOLISTIC, MEDIA_STREAM_KINDS.PREVIEW].includes(config.kind)) throw new Error("Derived streams are not input sources.");
+  if ([MEDIA_STREAM_KINDS.HOLISTIC, MEDIA_STREAM_KINDS.PREVIEW, MEDIA_STREAM_KINDS.UNICURSAL].includes(config.kind)) throw new Error("Derived streams are not input sources.");
   return {
     id: cleanString(overrides.id, createSourceId()),
     ...config,
@@ -418,7 +449,7 @@ export const createMediaSource = (kind = MEDIA_STREAM_KINDS.MEDIA, overrides = {
 export const normalizeMediaSource = value => {
   const source = value && typeof value === "object" ? value : {};
   const config = normalizeMediaStreamConfig(source);
-  if ([MEDIA_STREAM_KINDS.HOLISTIC, MEDIA_STREAM_KINDS.PREVIEW].includes(config.kind)) return null;
+  if ([MEDIA_STREAM_KINDS.HOLISTIC, MEDIA_STREAM_KINDS.PREVIEW, MEDIA_STREAM_KINDS.UNICURSAL].includes(config.kind)) return null;
   return {
     id: cleanString(source.id, createSourceId()),
     ...config,

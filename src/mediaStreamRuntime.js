@@ -5,6 +5,7 @@ let semanticDescriptors = [];
 const sessionFiles = new Map();
 const listeners = new Set();
 const semanticListeners = new Map();
+const segmentationConsumers = new Map();
 
 const publish = detail => {
   listeners.forEach(listener => listener(detail));
@@ -17,6 +18,36 @@ export const subscribeMediaStreamRuntime = listener => {
   listeners.add(listener);
   return () => listeners.delete(listener);
 };
+
+const expireSegmentationConsumer = elementId => {
+  const entry = segmentationConsumers.get(elementId);
+  if (!entry) return;
+  const remaining = entry.expiresAt - Date.now();
+  if (remaining > 0) {
+    entry.timer = setTimeout(() => expireSegmentationConsumer(elementId), remaining + 8);
+    return;
+  }
+  segmentationConsumers.delete(elementId);
+  publish({ type: "segmentation-demand", elementId, requested: false });
+};
+
+export const requestMediaSegmentation = (elementId, ttlMs = 750) => {
+  const id = String(elementId || "");
+  if (!id) return false;
+  const ttl = Math.max(100, Number(ttlMs) || 750);
+  const existing = segmentationConsumers.get(id);
+  if (existing) {
+    existing.expiresAt = Date.now() + ttl;
+    return true;
+  }
+  const entry = { expiresAt: Date.now() + ttl, timer: 0 };
+  segmentationConsumers.set(id, entry);
+  entry.timer = setTimeout(() => expireSegmentationConsumer(id), ttl + 8);
+  publish({ type: "segmentation-demand", elementId: id, requested: true });
+  return true;
+};
+
+export const getMediaSegmentationConsumerIds = () => new Set(segmentationConsumers.keys());
 
 export const registerMediaRuntimeSource = (elementId, source) => {
   runtimeSources.set(elementId, source);
@@ -142,5 +173,7 @@ export const disposeMediaStreamRuntime = () => {
   semanticFrames.clear();
   semanticDescriptors = [];
   semanticListeners.clear();
+  segmentationConsumers.forEach(entry => clearTimeout(entry.timer));
+  segmentationConsumers.clear();
   publish({ type: "dispose" });
 };

@@ -50,6 +50,10 @@ test("media stream defaults distinguish acquisition and derived stream kinds", (
     outline: true, eyes: true, iris: true, nose: true, mouth: true, brows: true, remaining: false,
   });
   assert.deepEqual(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).bindings, []);
+  const unicursal = createMediaStreamConfig(MEDIA_STREAM_KINDS.UNICURSAL);
+  assert.equal(unicursal.unicursal.preset, "smooth");
+  assert.equal(unicursal.unicursal.geometry.pointBudget, 384);
+  assert.equal(unicursal.unicursal.motion.echoCount, 2);
 });
 
 test("media bindings normalize actor, gate, filtering, and style contracts", () => {
@@ -71,7 +75,7 @@ test("holistic binding patches remain versioned and nested", () => {
   const current = createMediaStreamConfig("holistic");
   const binding = createMediaBinding("drive-position", { id: "driver-a", targetElementId: "cursor-a" });
   const next = patchMediaStreamConfig(current, { bindings: [binding] });
-  assert.equal(next.version, 6);
+  assert.equal(next.version, 8);
   assert.equal(next.bindings[0].id, "driver-a");
   assert.equal(next.bindings[0].targetElementId, "cursor-a");
 });

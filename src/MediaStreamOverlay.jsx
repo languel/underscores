@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { decompressFrames, parseGIF } from "gifuct-js";
 import {
   getMediaRuntimeSource,
+  getMediaRuntimeResult,
+  getMediaSegmentationConsumerIds,
   getMediaSessionFileUrl,
   registerMediaRuntimeSource,
   setMediaRuntimeResult,
@@ -19,6 +21,13 @@ import {
   shouldRenderMediaStream,
 } from "./mediaStream.js";
 import { getHolisticDisplayLayers, interpolateHolisticResult } from "./mediaLandmarkOntology.js";
+import {
+  applyUnicursalFeatureGrace,
+  drawUnicursalFrame,
+  generateUnicursalPath,
+  smoothUnicursalFrame,
+  transformUnicursalFrame,
+} from "./unicursalPath.js";
 
 const HOLISTIC_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js";
 const HOLISTIC_ASSET_ROOT = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic/";
@@ -63,6 +72,28 @@ const withConfiguredHandedness = (result, swapHandedness) => {
     leftHandLandmarks: result?.rightHandLandmarks || [],
     rightHandLandmarks: result?.leftHandLandmarks || [],
   };
+};
+
+const captureSegmentationMask = mask => {
+  if (!mask) return null;
+  const sourceWidth = Number(mask.width || mask.videoWidth) || 0;
+  const sourceHeight = Number(mask.height || mask.videoHeight) || 0;
+  if (!sourceWidth || !sourceHeight) return null;
+  const scale = Math.min(1, 192 / Math.max(sourceWidth, sourceHeight));
+  const width = Math.max(8, Math.round(sourceWidth * scale));
+  const height = Math.max(8, Math.round(sourceHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return null;
+  try {
+    context.drawImage(mask, 0, 0, width, height);
+    const image = context.getImageData(0, 0, width, height);
+    return { width, height, data: image.data };
+  } catch {
+    return null;
+  }
 };
 
 const useSessionFileUrl = sourceId => {
@@ -443,7 +474,54 @@ const drawLandmarks = (context, landmarks, connections, width, height, color, po
   });
 };
 
-function HolisticSource({ element, config, sourceAvailable, onResults }) {
+const drawUnicursalLandmarkOverlay = (context, result, frame, width, height, options) => {
+  if (!result || !options?.visible) return;
+  context.save();
+  context.globalAlpha *= options.opacity;
+  const holistic = {
+    showPose: true,
+    showHands: true,
+    showLeftHand: true,
+    showRightHand: true,
+    showFace: true,
+    poseGroups: { body: true, head: false, leftHand: false, rightHand: false },
+    faceGroups: { outline: true, eyes: true, iris: true, nose: true, mouth: true, brows: true, remaining: false },
+    colors: {
+      pose: "#6fa5ff", poseBody: "#6fa5ff", leftHand: "#6ee795",
+      rightHand: "#ed7ab8", face: "#f2df55",
+    },
+  };
+  if (options.matchInkColor && frame?.options?.ink?.color) {
+    Object.keys(holistic.colors).forEach(key => { holistic.colors[key] = frame.options.ink.color; });
+  }
+  getHolisticDisplayLayers(result, holistic).forEach(layer => drawLandmarks(
+    context,
+    layer.landmarks,
+    layer.connections,
+    width,
+    height,
+    layer.color,
+    options.pointSize,
+    { points: options.points, connections: options.connections, indices: layer.indices, lineWidth: options.lineWidth },
+  ));
+  if (options.rawOutline && frame?.silhouette?.points?.length > 1) {
+    const color = options.matchInkColor ? frame.options.ink.color : "#ff9f43";
+    context.strokeStyle = color;
+    context.lineWidth = Math.max(0.5, Number(options.lineWidth) || 1);
+    context.setLineDash?.([6, 4]);
+    context.beginPath();
+    frame.silhouette.points.forEach((item, index) => {
+      const x = item.x * width;
+      const y = item.y * height;
+      if (index) context.lineTo(x, y); else context.moveTo(x, y);
+    });
+    context.stroke();
+    context.setLineDash?.([]);
+  }
+  context.restore();
+};
+
+function HolisticSource({ element, config, sourceAvailable, segmentationRequested = false, onResults }) {
   const canvasRef = useRef(null);
   const configRef = useRef(config);
   const elementRef = useRef(element);
@@ -561,7 +639,8 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
       holistic.setOptions({
         modelComplexity: configRef.current.holistic.modelComplexity,
         smoothLandmarks: true,
-        enableSegmentation: false,
+        enableSegmentation: segmentationRequested,
+        smoothSegmentation: true,
         refineFaceLandmarks: configRef.current.holistic.refineFaceLandmarks,
         minDetectionConfidence: configRef.current.holistic.minDetectionConfidence,
         minTrackingConfidence: configRef.current.holistic.minTrackingConfidence,
@@ -573,6 +652,7 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
           leftHandLandmarks: results.leftHandLandmarks || [],
           rightHandLandmarks: results.rightHandLandmarks || [],
           faceLandmarks: results.faceLandmarks || [],
+          segmentation: segmentationRequested ? captureSegmentationMask(results.segmentationMask) : null,
           updatedAt: performance.now(),
           sourceId: configRef.current.holistic.sourceId,
         };
@@ -609,6 +689,7 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
     config.holistic.modelComplexity,
     config.holistic.refineFaceLandmarks,
     config.holistic.sourceId,
+    segmentationRequested,
     element.id,
   ]);
 
@@ -649,6 +730,150 @@ function HolisticSource({ element, config, sourceAvailable, onResults }) {
   return <canvas ref={canvasRef} className="drawerator-media-surface" />;
 }
 
+function UnicursalSource({ element, config, sourceAvailable, onPathFrame }) {
+  const canvasRef = useRef(null);
+  const currentRef = useRef(null);
+  const targetRef = useRef(null);
+  const historyRef = useRef([]);
+  const featureStateRef = useRef({});
+  const lastSourceAtRef = useRef(0);
+  const latestResultRef = useRef(null);
+  const invalidatePaintRef = useRef(() => {});
+  const configRef = useRef(config);
+  const elementRef = useRef(element);
+  const onPathFrameRef = useRef(onPathFrame);
+  configRef.current = config;
+  elementRef.current = element;
+  onPathFrameRef.current = onPathFrame;
+
+  useEffect(() => {
+    const sourceId = config.unicursal.sourceId;
+    if (!sourceId) return undefined;
+    featureStateRef.current = {};
+    historyRef.current = [];
+    const update = result => {
+      if (!result) return;
+      latestResultRef.current = result;
+      const now = performance.now();
+      const retained = applyUnicursalFeatureGrace(
+        result,
+        featureStateRef.current,
+        now,
+        configRef.current.unicursal.motion.missingGraceMs,
+      );
+      featureStateRef.current = retained.state;
+      const next = generateUnicursalPath({
+        result: retained.result,
+        segmentation: retained.result.segmentation,
+        options: configRef.current.unicursal,
+        sourceId,
+      });
+      if (next.available) lastSourceAtRef.current = now;
+      if (!next.available && targetRef.current?.available && now - lastSourceAtRef.current < configRef.current.unicursal.motion.missingGraceMs) return;
+      targetRef.current = next;
+      const motion = configRef.current.unicursal.motion;
+      const history = historyRef.current;
+      if (motion.echoes && motion.echoCount > 0) {
+        history.push({ frame: next, at: now });
+        const cutoff = now - motion.echoDelayMs * (motion.echoCount + 1) - 250;
+        while (history.length > motion.echoCount + 4 || history[0]?.at < cutoff) history.shift();
+      } else history.length = 0;
+      const echoFrames = motion.echoes ? history.slice(0, -1).slice(-motion.echoCount).reverse().map(entry => entry.frame) : [];
+      setMediaRuntimeResult(element.id, Object.freeze({ ...next, echoes: Object.freeze(echoFrames) }));
+      onPathFrameRef.current?.(element.id, transformUnicursalFrame(next, elementRef.current, "scene"));
+      invalidatePaintRef.current();
+    };
+    update(getMediaRuntimeResult(sourceId));
+    return subscribeMediaStreamRuntime(detail => {
+      if (detail.type === "result" && detail.elementId === sourceId) update(detail.result);
+    });
+  }, [config.unicursal.sourceId, element.id]);
+
+  const geometrySignature = JSON.stringify(config.unicursal);
+  useEffect(() => {
+    const result = getMediaRuntimeResult(config.unicursal.sourceId);
+    if (!result) return;
+    const retained = applyUnicursalFeatureGrace(
+      result,
+      featureStateRef.current,
+      performance.now(),
+      config.unicursal.motion.missingGraceMs,
+    );
+    featureStateRef.current = retained.state;
+    const next = generateUnicursalPath({ result: retained.result, segmentation: retained.result.segmentation, options: config.unicursal, sourceId: config.unicursal.sourceId });
+    latestResultRef.current = result;
+    targetRef.current = next;
+    currentRef.current = next;
+    const echoes = getMediaRuntimeResult(element.id)?.echoes || [];
+    setMediaRuntimeResult(element.id, Object.freeze({ ...next, echoes }));
+    onPathFrameRef.current?.(element.id, transformUnicursalFrame(next, element, "scene"));
+    invalidatePaintRef.current();
+  }, [geometrySignature, element.id, element.x, element.y, element.width, element.height, element.angle]);
+
+  useEffect(() => {
+    let raf = 0;
+    let previousAt = performance.now();
+    const differs = (a, b) => {
+      if (!a?.points || a.points.length !== b?.points?.length) return true;
+      for (let index = 0; index < a.points.length; index += 8) {
+        if (Math.abs(a.points[index].x - b.points[index].x) > 0.00025 || Math.abs(a.points[index].y - b.points[index].y) > 0.00025) return true;
+      }
+      return false;
+    };
+    const schedule = () => { if (!raf) raf = requestAnimationFrame(paint); };
+    const paint = now => {
+      raf = 0;
+      const canvas = canvasRef.current;
+      const context = canvas?.getContext("2d", { alpha: true });
+      if (!canvas || !context) return;
+      const renderScale = Math.min(1.5, window.devicePixelRatio || 1);
+      const width = Math.max(1, Math.round(Math.abs(Number(elementRef.current.width) || 1) * renderScale));
+      const height = Math.max(1, Math.round(Math.abs(Number(elementRef.current.height) || 1) * renderScale));
+      if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+      context.clearRect(0, 0, width, height);
+      const background = configRef.current.unicursal.background;
+      if (background.mode === "solid") {
+        context.save();
+        context.globalAlpha = background.opacity / 100;
+        context.fillStyle = background.color;
+        context.fillRect(0, 0, width, height);
+        context.restore();
+      }
+      const target = targetRef.current;
+      if (target) currentRef.current = smoothUnicursalFrame(currentRef.current, target, now - previousAt, configRef.current.unicursal.motion.responseMs);
+      previousAt = now;
+      const motion = configRef.current.unicursal.motion;
+      if (motion.echoes && motion.echoCount > 0) {
+        for (let echo = motion.echoCount; echo >= 1; echo -= 1) {
+          const desired = now - motion.echoDelayMs * echo;
+          let entry = null;
+          let delta = Infinity;
+          for (let index = historyRef.current.length - 1; index >= 0; index -= 1) {
+            const candidateDelta = Math.abs(historyRef.current[index].at - desired);
+            if (candidateDelta <= delta) { entry = historyRef.current[index]; delta = candidateDelta; }
+            else break;
+          }
+          if (entry) drawUnicursalFrame(context, entry.frame, width, height, { opacity: motion.echoOpacity * Math.pow(motion.echoDecay, echo - 1) });
+        }
+      }
+      drawUnicursalFrame(context, currentRef.current, width, height);
+      drawUnicursalLandmarkOverlay(context, latestResultRef.current, currentRef.current, width, height, configRef.current.unicursal.landmarks);
+      if (target && differs(currentRef.current, target)) schedule();
+    };
+    invalidatePaintRef.current = schedule;
+    schedule();
+    return () => {
+      cancelAnimationFrame(raf);
+      invalidatePaintRef.current = () => {};
+      clearMediaRuntimeResult(element.id);
+    };
+  }, [element.id]);
+
+  if (!config.unicursal.sourceId) return <div className="drawerator-media-empty">Choose a Holistic source</div>;
+  if (!sourceAvailable) return <div className="drawerator-media-empty">Holistic source is missing</div>;
+  return <canvas ref={canvasRef} className="drawerator-media-surface" />;
+}
+
 function PreviewChrome({ config, sources, onPatch, onFocusSource }) {
   return <div className="drawerator-media-preview-chrome" onPointerDown={event => event.stopPropagation()}>
     <select
@@ -673,7 +898,11 @@ function PreviewChrome({ config, sources, onPatch, onFocusSource }) {
   </div>;
 }
 
-export default function MediaStreamOverlay({ elements, appState, sources = [], onResults, onPatch, onFocusSource }) {
+export default function MediaStreamOverlay({ elements, appState, sources = [], onResults, onPathFrame, onPatch, onFocusSource }) {
+  const [segmentationDemandRevision, setSegmentationDemandRevision] = useState(0);
+  useEffect(() => subscribeMediaStreamRuntime(detail => {
+    if (detail.type === "segmentation-demand") setSegmentationDemandRevision(value => value + 1);
+  }), []);
   const zoom = Number(appState?.zoom?.value) || 1;
   const scrollX = Number(appState?.scrollX) || 0;
   const scrollY = Number(appState?.scrollY) || 0;
@@ -682,10 +911,24 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
     if (!isMediaStreamElement(element)) return false;
     const config = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
     if (config.kind === MEDIA_STREAM_KINDS.PREVIEW) return shouldRenderMediaStream(element);
-    return config.kind === MEDIA_STREAM_KINDS.HOLISTIC
+    return [MEDIA_STREAM_KINDS.HOLISTIC, MEDIA_STREAM_KINDS.UNICURSAL].includes(config.kind)
       && (shouldRenderMediaStream(element) || shouldProcessMediaStream(element));
   });
   const sourceIds = useMemo(() => new Set(sources.map(source => source.id)), [sources]);
+  const holisticIds = useMemo(() => new Set((elements || []).filter(element => {
+    if (!isMediaStreamElement(element)) return false;
+    return normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC;
+  }).map(element => element.id)), [elements]);
+  const segmentationSourceIds = useMemo(() => new Set([
+    ...getMediaSegmentationConsumerIds(),
+    ...(elements || []).flatMap(element => {
+    if (!isMediaStreamElement(element)) return [];
+    const candidate = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
+    return candidate.kind === MEDIA_STREAM_KINDS.UNICURSAL && candidate.enabled && candidate.unicursal.silhouette.mode !== "envelope"
+      ? [candidate.unicursal.sourceId]
+      : [];
+    }),
+  ].filter(Boolean)), [elements, segmentationDemandRevision]);
 
   if (!objects.length) return null;
   return <div className="drawerator-media-stream-overlay" aria-hidden="true">
@@ -718,10 +961,18 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
             ? config.sourceId && sourceIds.has(config.sourceId)
               ? <MediaRuntimePreview sourceId={config.sourceId} />
               : <div className="drawerator-media-empty">Input stream is missing</div>
+            : config.kind === MEDIA_STREAM_KINDS.UNICURSAL
+              ? <UnicursalSource
+                  element={element}
+                  config={config}
+                  sourceAvailable={holisticIds.has(config.unicursal.sourceId)}
+                  onPathFrame={onPathFrame}
+                />
               : <HolisticSource
                   element={element}
                   config={config}
                   sourceAvailable={sourceIds.has(config.holistic.sourceId)}
+                  segmentationRequested={segmentationSourceIds.has(element.id)}
                   onResults={onResults}
                 />}
         </div>

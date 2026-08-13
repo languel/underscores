@@ -39,6 +39,15 @@ test("stream sample normalizes typed coordinate data", () => {
   assert.throws(() => normalizeStreamSample({ kind: "space", x: 1 }, { id: "p", kind: "space" }), /finite x and y/);
 });
 
+test("stream sample normalizes path data", () => {
+  const sample = normalizeStreamSample({ kind: "path", points: [{ x: 1, y: 2, pressure: 0.5 }, { x: 3, y: 4 }], space: "scene", sourceTimestamp: 1234 }, { id: "ink", kind: "path" }, 12);
+  assert.equal(sample.kind, "path");
+  assert.equal(sample.points.length, 2);
+  assert.equal(sample.points[0].pressure, 0.5);
+  assert.equal(sample.sourceTimestamp, 1234);
+  assert.throws(() => normalizeStreamSample({ kind: "path", points: [{ x: 1, y: 2 }] }, { id: "bad", kind: "path" }), /at least two points/);
+});
+
 test("graph threshold, region and curve-crossing publish ordinary event frames", () => {
   const registry = new DraweratorStreamRegistry({ now: () => 3 });
   registry.register({ id: "point", kind: "space", roles: ["output"] });

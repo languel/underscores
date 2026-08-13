@@ -13,6 +13,7 @@ export default function NumericInput({
   onBlur,
   onFocus,
   onKeyDown,
+  allowOverflow = false,
   className,
   ...inputProps
 }) {
@@ -62,8 +63,8 @@ export default function NumericInput({
     const next = resolveNumericDraft(draft, {
       value,
       defaultValue,
-      min: inputProps.min,
-      max: inputProps.max,
+      min: allowOverflow ? undefined : inputProps.min,
+      max: allowOverflow ? undefined : inputProps.max,
     });
     setDraft(formatNumericDraft(next));
     if (next !== null && !Object.is(next, current)) {

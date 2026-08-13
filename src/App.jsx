@@ -104,8 +104,9 @@ import { isMediaMapElement, normalizeMediaMapConfig } from "./mediaMap.js";
 import { createMediaSemanticFrame, FACE_DISPLAY_GROUPS, getHolisticDisplayLayers, mediaLandmarkFeatureId, POSE_DISPLAY_GROUPS } from "./mediaLandmarkOntology.js";
 import { createMediaBindingRuntimeState, mediaBindingRuntimeHasExpired, mediaDrivenElementPosition, resolveMediaBindingGate, resolveMediaBindingSignal, shouldAppendMediaStrokePoint } from "./mediaActorRuntime.js";
 import { canUseAsObjectBoundsTarget, createMediaBinding, createMediaSource, createMediaStreamConfig, isMediaStreamElement, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig, readHolisticSettingsPreset, writeHolisticSettingsPreset } from "./mediaStream.js";
-import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
+import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, requestMediaSegmentation, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
 import { createUnifiedStreamsApi, DraweratorStreamRegistry } from "./streamRuntime.js";
+import { generateUnicursalPath, transformUnicursalFrame, UNICURSAL_PRESETS } from "./unicursalPath.js";
 import { normalizeInputSource, normalizeStreamGraph, normalizeStreamProcessor, StreamGraphRuntime } from "./streamGraph.js";
 import { addRelationshipItem, createDefaultPhysicsSystem, createEmptyRelationshipGraph, findRelationshipOrphans, getPhysicsCustomData, hydrateRelationshipGraphFromElements, normalizePhysicsBody, normalizeRelationshipGraph, normalizePhysicsEndpoint, relationshipGraphForSelection, remapRelationshipGraph, removeRelationshipBindingsForElements, removeRelationshipItem, updateRelationshipItem, withPhysicsCustomData } from "./relationshipGraph.js";
 import { chooseConstraintPivot, elementContainsPhysicsPoint, getLivePoseRopeConstraintIds, getPhysicsElementCenter, getRopeVisualGeometryPatch, getRopeWorldPoints, getSpringEndpointWorldPoints, getSpringGeometricLength, getSpringVisualGeometryPatch, persistConstraintRopeAttachments, persistConstraintWorldAnchor, physicsEndpointAtPoint, repairLegacyAxleEndpointAlignment, resolveAttractorConstraint, resolveConstraintPivot, resolveRopeConstraint, resolveSpringConstraint, resolveThrusterConstraint, resolveTracerConstraint, ropeEndpointAtPoint, selectRopePathsForLivePose } from "./physicsConstraintAuthoring.js";
@@ -3117,6 +3118,28 @@ function App() {
       }),
       commitToHistory: false,
     });
+  }, [p5OverlayScene.elements]);
+  useEffect(() => {
+    const registry = streamRegistryRef.current;
+    const ids = p5OverlayScene.elements.flatMap(element => {
+      if (!isMediaStreamElement(element)) return [];
+      const config = normalizeMediaStreamConfig(element.customData.draweratorMediaStream);
+      if (config.kind !== MEDIA_STREAM_KINDS.UNICURSAL) return [];
+      const id = `unicursal:${element.id}`;
+      registry.register({
+        id,
+        name: config.name,
+        kind: "path",
+        capabilities: ["path"],
+        roles: ["input", "output"],
+        writable: false,
+        ownerId: element.id,
+        available: config.enabled,
+        metadata: { mediaObjectId: element.id, sourceId: config.unicursal.sourceId, style: config.unicursal.preset },
+      });
+      return [id];
+    });
+    return () => ids.forEach(id => registry.remove(id));
   }, [p5OverlayScene.elements]);
   useEffect(() => {
     setMediaStreamDescriptors(p5OverlayScene.elements
@@ -11530,6 +11553,8 @@ function App() {
     { id: "media.holistic.create", name: "Create MediaPipe Holistic Object", aliases: ["/holistic-object", "landmark stream"], category: "Media Streams", action: (_api, args) => createMediaStreamObject(MEDIA_STREAM_KINDS.HOLISTIC, { ...args, holistic: { sourceId: args?.sourceId || args?.sourceElementId || args?.holistic?.sourceId || args?.holistic?.sourceElementId || "", ...(args?.holistic || {}) } }) },
     { id: "media.holistic.snapshot", name: "Snapshot Selected Holistic Landmarks", category: "Media Streams", action: () => { const target = getSelectedElements().find(element => isMediaStreamElement(element) && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC); if (!target) throw new Error("Select a MediaPipe Holistic object first."); snapshotHolisticLandmarks(target.id); return { elementIds: [target.id] }; } },
     { id: "media.holistic.snapshot.png", name: "Snapshot Selected Holistic View as PNG", aliases: ["/holistic png", "Snapshot Holistic PNG"], category: "Media Streams", action: () => { const target = getSelectedElements().find(element => isMediaStreamElement(element) && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC); if (!target) throw new Error("Select a MediaPipe Holistic object first."); return snapshotHolisticPng(target.id); } },
+    { id: "media.unicursal.create", name: "Create Unicursal Portrait /unicursal", aliases: ["/unicursal", "Unicursal portrait"], category: "Media Streams", action: (_api, args) => createMediaStreamObject(MEDIA_STREAM_KINDS.UNICURSAL, { ...args, unicursal: { sourceId: args?.sourceId || args?.sourceElementId || args?.unicursal?.sourceId || "", ...(args?.unicursal || {}) } }) },
+    { id: "media.unicursal.snapshot", name: "Snapshot Selected Unicursal Portrait", category: "Media Streams", action: () => { const target = getSelectedElements().find(element => isMediaStreamElement(element) && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).kind === MEDIA_STREAM_KINDS.UNICURSAL); if (!target) throw new Error("Select a Unicursal portrait first."); return snapshotUnicursalPath(target.id); } },
     { id: "media.binding.create", name: "Create Media Actor Binding", category: "Media Streams", args: { elementId: "string", binding: "mediaBinding" }, action: (_api, args) => createMediaBindingForProcessor(args.elementId, args.binding || args) },
     { id: "media.binding.update", name: "Update Media Actor Binding", category: "Media Streams", args: { elementId: "string", bindingId: "string", patch: "mediaBindingPatch" }, action: (_api, args) => updateMediaBindingForProcessor(args.elementId, args.bindingId, args.patch || {}) },
     { id: "media.binding.remove", name: "Remove Media Actor Binding", category: "Media Streams", args: { elementId: "string", bindingId: "string" }, action: (_api, args) => deleteMediaBindingForProcessor(args.elementId, args.bindingId) },
@@ -13684,6 +13709,13 @@ function App() {
     }, appState);
     const holisticOverrides = overrides.holistic && typeof overrides.holistic === "object" ? overrides.holistic : {};
     const rememberedHolistic = kind === MEDIA_STREAM_KINDS.HOLISTIC ? readHolisticSettingsPreset() : null;
+    const configOverrides = kind === MEDIA_STREAM_KINDS.UNICURSAL ? {
+      ...overrides,
+      unicursal: {
+        ...(overrides.unicursal || {}),
+        ink: { color: foregroundColor, ...(overrides.unicursal?.ink || {}) },
+      },
+    } : overrides;
     const config = createMediaStreamConfig(kind, kind === MEDIA_STREAM_KINDS.HOLISTIC ? {
       ...overrides,
       holistic: {
@@ -13693,9 +13725,9 @@ function App() {
         poseGroups: { ...(rememberedHolistic?.poseGroups || {}), ...(holisticOverrides.poseGroups || {}) },
         faceGroups: { ...(rememberedHolistic?.faceGroups || {}), ...(holisticOverrides.faceGroups || {}) },
       },
-    } : overrides);
-    const width = kind === MEDIA_STREAM_KINDS.HOLISTIC ? 520 : 480;
-    const height = kind === MEDIA_STREAM_KINDS.HOLISTIC ? 390 : 320;
+    } : configOverrides);
+    const width = [MEDIA_STREAM_KINDS.HOLISTIC, MEDIA_STREAM_KINDS.UNICURSAL].includes(kind) ? 520 : 480;
+    const height = [MEDIA_STREAM_KINDS.HOLISTIC, MEDIA_STREAM_KINDS.UNICURSAL].includes(kind) ? 390 : 320;
     const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
     const streamCount = elements.filter(isMediaStreamElement).length;
     const stagger = (streamCount % 6) * 28;
@@ -14299,6 +14331,60 @@ function App() {
     }));
     return { elementId: image.id, elementIds: [image.id], sourceElementId: host.id };
   };
+
+  const snapshotUnicursalPath = elementId => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return null;
+    const host = api.getSceneElements().find(element => element.id === elementId && isMediaStreamElement(element));
+    const config = host ? normalizeMediaStreamConfig(host.customData.draweratorMediaStream) : null;
+    const normalized = getMediaRuntimeResult(elementId);
+    if (!host || config?.kind !== MEDIA_STREAM_KINDS.UNICURSAL || !normalized?.available) {
+      window.dispatchEvent(new CustomEvent("drawerator:media-stream-status", { detail: { elementId, kind: "error", message: "No Unicursal portrait frame is available yet." } }));
+      return null;
+    }
+    const echoFrames = config.unicursal.includeEchoesInSnapshot && Array.isArray(normalized.echoes) ? normalized.echoes : [];
+    const frames = [...echoFrames.slice().reverse(), normalized];
+    const segmentCount = frames.reduce((sum, candidate) => sum + Math.max(1, candidate.segments?.length || 0), 0);
+    const groupId = segmentCount > 1 ? crypto.randomUUID() : null;
+    const created = frames.flatMap((candidate, index) => {
+      const frame = transformUnicursalFrame(candidate, host, "scene");
+      const echoIndex = frames.length - index - 1;
+      return (frame.segments?.length ? frame.segments : [{ points: frame.points }]).map((segment, segmentIndex) => {
+        const minX = Math.min(...segment.points.map(item => item.x));
+        const minY = Math.min(...segment.points.map(item => item.y));
+        const maxX = Math.max(...segment.points.map(item => item.x));
+        const maxY = Math.max(...segment.points.map(item => item.y));
+        return {
+        ...createBaseElement("freedraw", minX, minY, Math.max(1, maxX - minX), Math.max(1, maxY - minY), config.unicursal.ink.color),
+        points: segment.points.map(item => [item.x - minX, item.y - minY]),
+        pressures: segment.points.map(item => item.pressure),
+        simulatePressure: false,
+        strokeWidth: config.unicursal.ink.width,
+        opacity: Math.round(config.unicursal.ink.opacity * (echoIndex ? config.unicursal.motion.echoOpacity * Math.pow(config.unicursal.motion.echoDecay, echoIndex - 1) : 1)),
+        groupIds: groupId ? [groupId] : [],
+        customData: {
+          draweratorLabel: `${config.name} snapshot${echoIndex ? ` echo ${echoIndex}` : ""}${frame.segments?.length > 1 ? ` segment ${segmentIndex + 1}` : ""}`,
+          draweratorUnicursalSnapshot: { version: 2, sourceElementId: elementId, sourceHolisticId: config.unicursal.sourceId, preset: config.unicursal.preset, echoIndex, segmentIndex, capturedAt: Date.now() },
+        },
+        };
+      });
+    });
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const selection = Object.fromEntries(created.map(element => [element.id, true]));
+    api.updateScene({ elements: [...elements, ...created], appState: { selectedElementIds: selection, selectedGroupIds: groupId ? { [groupId]: true } : {} }, commitToHistory: true });
+    selectedElementIdsRef.current = selection;
+    setSelectedElementIds(selection);
+    return { elementId: created.at(-1).id, elementIds: created.map(element => element.id), sourceElementId: host.id };
+  };
+
+  const handleUnicursalPathFrame = useCallback((elementId, frame) => {
+    if (!frame?.points?.length) return;
+    const registry = streamRegistryRef.current;
+    const id = `unicursal:${elementId}`;
+    if (!registry.get(id)) registry.register({ id, name: `Unicursal ${elementId.slice(0, 6)}`, kind: "path", capabilities: ["path"], roles: ["input", "output"], ownerId: elementId });
+    registry.publish(id, { ...frame, kind: "path", time: frame.updatedAt || performance.now() }, { internal: true });
+    eventBus.emit("media.unicursal.path", { elementId, streamId: id, frame }, { source: "media-stream", transportTime: scoreTimeRef.current });
+  }, [eventBus]);
 
   const refreshMediaActorOverlay = useCallback((extraMarkers = []) => {
     const traces = [];
@@ -16478,7 +16564,7 @@ function App() {
       materialize: materializePhysicsPopulation,
     });
     const api = {
-      apiVersion: 8,
+      apiVersion: 9,
       commands: {
         list: () => commandRegistry.list(),
         describe: id => commandRegistry.describe(id),
@@ -16519,6 +16605,40 @@ function App() {
       },
       relations,
       physics,
+      art: Object.freeze({
+        unicursal: Object.freeze({
+          presets: () => Object.entries(UNICURSAL_PRESETS).map(([id, preset]) => ({ id, ...preset })),
+          generate: (sourceRef, options = {}) => {
+            const elements = excalidrawAPIRef.current?.getSceneElements() || [];
+            const query = typeof sourceRef === "object" && sourceRef ? String(sourceRef.id || sourceRef.elementId || "") : String(sourceRef || "");
+            const source = elements.find(element => element.id === query || (isMediaStreamElement(element) && normalizeMediaStreamConfig(element.customData.draweratorMediaStream).name === query));
+            if (!source) return null;
+            const sourceConfig = isMediaStreamElement(source) ? normalizeMediaStreamConfig(source.customData.draweratorMediaStream) : null;
+            const holisticId = sourceConfig?.kind === MEDIA_STREAM_KINDS.UNICURSAL ? sourceConfig.unicursal.sourceId : source.id;
+            const baseOptions = sourceConfig?.kind === MEDIA_STREAM_KINDS.UNICURSAL ? sourceConfig.unicursal : {};
+            const resolvedOptions = {
+              ...baseOptions,
+              ...options,
+              anatomy: { ...(baseOptions.anatomy || {}), ...(options.anatomy || {}) },
+              silhouette: { ...(baseOptions.silhouette || {}), ...(options.silhouette || {}) },
+              geometry: { ...(baseOptions.geometry || {}), ...(options.geometry || {}) },
+              ornament: { ...(baseOptions.ornament || {}), ...(options.ornament || {}) },
+              ink: { ...(baseOptions.ink || {}), ...(options.ink || {}) },
+              motion: { ...(baseOptions.motion || {}), ...(options.motion || {}) },
+              background: { ...(baseOptions.background || {}), ...(options.background || {}) },
+              landmarks: { ...(baseOptions.landmarks || {}), ...(options.landmarks || {}) },
+            };
+            if (resolvedOptions.silhouette?.mode !== "envelope") requestMediaSegmentation(holisticId);
+            const result = getMediaRuntimeResult(holisticId);
+            if (!result) return null;
+            const frame = generateUnicursalPath({ result, segmentation: result.segmentation, options: resolvedOptions, sourceId: holisticId });
+            const outputSpace = resolvedOptions.outputSpace || frame.options.outputSpace;
+            const hostQuery = String(resolvedOptions.elementId || resolvedOptions.hostRef || "");
+            const host = elements.find(element => element.id === hostQuery) || source;
+            return transformUnicursalFrame(frame, host, outputSpace);
+          },
+        }),
+      }),
       streams: Object.freeze({
         ...mediaStreamsApiRef.current,
         processors: Object.freeze({
@@ -24581,6 +24701,7 @@ function App() {
               onSelect={selectMediaStreamObject}
               onSnapshot={snapshotHolisticLandmarks}
               onSnapshotPng={snapshotHolisticPng}
+              onSnapshotArt={snapshotUnicursalPath}
             />
           </DraweratorPanel>
           )}
@@ -24756,6 +24877,7 @@ function App() {
           onPatch={patchMediaStreamObject}
           onFocusSource={focusMediaInputSource}
           onResults={handleMediaStreamResults}
+          onPathFrame={handleUnicursalPathFrame}
         />
         <MediaActorOverlay
           appState={p5OverlayScene.appState}

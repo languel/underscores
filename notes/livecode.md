@@ -53,6 +53,10 @@ selected Livecode Node. The node keeps its scene identity and geometry while its
 source, compatible runtime settings, name, and parameters are retargeted to the applied program.
 
 The p5 Livecode flow is the currently polished runtime path: concurrent nodes, canvas editing, source-panel editing, output, and overlay/split views are expected to work together.
+The p5 example catalog also includes **MediaPipe · Unicursal portrait**, a supported live prototype
+for the shared `__.art.unicursal` engine. Add a Holistic processor first; the example reads its
+latest completed frame and draws the same stable path topology used by a first-class Unicursal
+object without copying landmark or segmentation data into the scene.
 
 ### GLSL shaders
 
