@@ -2437,6 +2437,7 @@ function App() {
     return saved === "true";
   });
   const [showPerformanceOverlay, setShowPerformanceOverlay] = useState(() => localStorage.getItem("drawerator_performance_overlay") === "true");
+  const showPerformanceOverlayRef = useRef(showPerformanceOverlay);
   const [performanceOverlayPlacement, setPerformanceOverlayPlacement] = useState(() => localStorage.getItem("drawerator_performance_overlay_placement") === "floating" ? "floating" : "console");
   const [physicsDebug, setPhysicsDebug] = useState(() => {
     try {
@@ -2457,6 +2458,7 @@ function App() {
     localStorage.setItem("drawerator_presentation_mode", String(presentationMode));
   }, [presentationMode]);
   useEffect(() => {
+    showPerformanceOverlayRef.current = showPerformanceOverlay;
     localStorage.setItem("drawerator_performance_overlay", String(showPerformanceOverlay));
     localStorage.setItem("drawerator_performance_overlay_placement", performanceOverlayPlacement);
   }, [performanceOverlayPlacement, showPerformanceOverlay]);
@@ -9371,6 +9373,7 @@ function App() {
   };
 
   const updatePerformanceVisibility = visible => {
+    showPerformanceOverlayRef.current = visible;
     setShowPerformanceOverlay(visible);
     if (visible && performanceOverlayPlacement === "console") {
       toggleDraweratorPanel("console", { open: true });
@@ -11445,7 +11448,7 @@ function App() {
     ...EXCALIDRAW_COMMANDS,
     { id: "panel-properties.open", name: "Open Properties Panel", category: "Panels", action: () => toggleDraweratorPanel("properties", { open: true }) },
     { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
-    { id: "performance.toggle", name: "Toggle Performance Monitor /performance", aliases: ["/performance", "/perf", "FPS monitor"], category: "View", action: () => updatePerformanceVisibility(!showPerformanceOverlay) },
+    { id: "performance.toggle", version: 2, name: "Toggle Performance Monitor /performance", aliases: ["/performance", "/perf", "FPS monitor"], category: "View", action: () => updatePerformanceVisibility(!showPerformanceOverlayRef.current) },
     { id: "physics.toolbar.toggle", name: "Toggle Physics Toolbar /physicstoolbar", aliases: ["/physicstoolbar", "/physics toolbar", "physics toolbar"], category: "Physics", ai: { expose: true, description: "Toggle the floating or docked physics authoring toolbar." }, action: () => physicsToolbarOpen ? closePhysicsToolbar() : setPhysicsToolbarOpen(true) },
     { id: "physics.system.create", name: "Physics: Create System", aliases: ["/physics new"], category: "Physics", args: { name: "string?", gravity: "{x,y}?", clock: "realtime|transport?" }, ai: { expose: true, description: "Create an independent canvas physics system." }, action: (_api, args = {}) => {
       const system = createDefaultPhysicsSystem({ name: args.name, gravity: args.gravity, clock: { mode: args.clock === "transport" ? "transport" : "realtime", fixedHz: 60, timeScale: 1 } });

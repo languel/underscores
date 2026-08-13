@@ -150,6 +150,13 @@ diagnostic can additionally draw the exact silhouette source used by the route (
 contour or envelope fallback) and can inherit the portrait's ink color when it is intended as part
 of the output.
 
+Motion stabilization has three independent controls. **Inertia** retains more of the previous
+route while the new frame arrives; **Confidence weight** discounts updates from landmarks with low
+visibility/presence (and from features that have collapsed after their grace period); and
+**Feature stickiness** slows semantic regions as a group so bridges do not visibly detach from the
+face, hands, silhouette, or body accents. They are intentionally separate from response time, so a
+portrait can remain responsive while still resisting short tracking glitches.
+
 Each object publishes `unicursal:<object-id>` as a read-only, scene-space `path` stream. A path
 sample contains finite points with pressure/width metadata, coordinate space, bounds, source time,
 style, and availability. Removing the object removes its stream registration. Trusted code can use

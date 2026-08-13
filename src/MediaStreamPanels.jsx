@@ -212,6 +212,9 @@ const UnicursalDetail = ({ element, config, processors, onPatch, onSnapshot }) =
     <details><summary>Motion</summary><div className="unicursal-control-grid">
       <UnicursalNumber label="Response ms" value={art.motion.responseMs} min="0" max="2000" step="10" defaultValue={140} onCommit={value => patchGroup("motion", { responseMs: value })} />
       <UnicursalNumber label="Missing grace ms" value={art.motion.missingGraceMs} min="0" max="5000" step="20" defaultValue={260} onCommit={value => patchGroup("motion", { missingGraceMs: value })} />
+      <UnicursalNumber label="Inertia" value={art.motion.inertia} min="0" max="1" step="0.01" defaultValue={0.28} onCommit={value => patchGroup("motion", { inertia: value })} />
+      <UnicursalNumber label="Confidence weight" value={art.motion.confidenceWeight} min="0" max="1" step="0.01" defaultValue={0.72} onCommit={value => patchGroup("motion", { confidenceWeight: value })} />
+      <UnicursalNumber label="Feature stickiness" value={art.motion.stickiness} min="0" max="1" step="0.01" defaultValue={0.35} onCommit={value => patchGroup("motion", { stickiness: value })} />
       <label className="media-stream-panel-check"><input type="checkbox" checked={art.motion.echoes} onChange={event => patchGroup("motion", { echoes: event.target.checked })} /><span>Echoes</span></label>
       <UnicursalNumber label="Echo count" value={art.motion.echoCount} min="0" max="8" step="1" defaultValue={2} onCommit={value => patchGroup("motion", { echoCount: value })} />
       <UnicursalNumber label="Echo delay ms" value={art.motion.echoDelayMs} min="16" max="2000" step="10" defaultValue={180} onCommit={value => patchGroup("motion", { echoDelayMs: value })} />

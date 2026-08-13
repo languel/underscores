@@ -732,6 +732,7 @@ function HolisticSource({ element, config, sourceAvailable, segmentationRequeste
 
 function UnicursalSource({ element, config, sourceAvailable, onPathFrame }) {
   const canvasRef = useRef(null);
+  const contextRef = useRef(null);
   const currentRef = useRef(null);
   const targetRef = useRef(null);
   const historyRef = useRef([]);
@@ -824,8 +825,9 @@ function UnicursalSource({ element, config, sourceAvailable, onPathFrame }) {
     const paint = now => {
       raf = 0;
       const canvas = canvasRef.current;
-      const context = canvas?.getContext("2d", { alpha: true });
+      const context = contextRef.current || canvas?.getContext("2d", { alpha: true });
       if (!canvas || !context) return;
+      contextRef.current = context;
       const renderScale = Math.min(1.5, window.devicePixelRatio || 1);
       const width = Math.max(1, Math.round(Math.abs(Number(elementRef.current.width) || 1) * renderScale));
       const height = Math.max(1, Math.round(Math.abs(Number(elementRef.current.height) || 1) * renderScale));
@@ -840,7 +842,13 @@ function UnicursalSource({ element, config, sourceAvailable, onPathFrame }) {
         context.restore();
       }
       const target = targetRef.current;
-      if (target) currentRef.current = smoothUnicursalFrame(currentRef.current, target, now - previousAt, configRef.current.unicursal.motion.responseMs);
+      if (target) currentRef.current = smoothUnicursalFrame(
+        currentRef.current,
+        target,
+        now - previousAt,
+        configRef.current.unicursal.motion.responseMs,
+        configRef.current.unicursal.motion,
+      );
       previousAt = now;
       const motion = configRef.current.unicursal.motion;
       if (motion.echoes && motion.echoCount > 0) {
