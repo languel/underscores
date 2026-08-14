@@ -1,6 +1,6 @@
 # Livecode canvas nodes
 
-Last updated: 2026-08-11
+Last updated: 2026-08-14
 
 ## What a node is
 
@@ -44,7 +44,7 @@ The global CodeMirror palette still controls editor syntax colors and surfaces. 
 
 ### p5 and Play Core
 
-These use the same trusted local adapters as existing p5 and Play Core hosts. They receive the [shared Underscores script bridge](underscores-api.md), including `element`, `params`, `canvas`, `events`, `transport`, `currentColor`, theme colors, and `api`. They may use `@param` annotations. Every active node owns its renderer, so selecting, docking, or editing another node does not stop it.
+These use the same trusted local adapters as existing p5 and Play Core hosts. They receive the [shared Underscores script bridge](underscores-api.md), including `element`, `params`, `canvas`, `events`, `transport`, live Excalidraw color aliases, theme colors, and `api`. They may use typed `@param` annotations for numbers, strings, booleans, JSON, canvas objects, and CSS colors. Color references are resolved on access, so a running node can follow a changed Excalidraw palette without recompilation. Every active node owns its renderer, so selecting, docking, or editing another node does not stop it.
 
 Existing p5/Play Core frame hosts remain valid. Choose **Migrate to Livecode Node** to explicitly snapshot a legacy host's source and configuration into `underscoresLivecode` while retaining its scene element id and geometry. Migration is undoable.
 

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   LIVECODE_KINDS,
+  copyLivecodeExampleName,
   createLivecodeNode,
   defaultLivecodeSource,
   getLivecodeFont,
@@ -12,9 +13,25 @@ import {
   normalizeLivecodeNode,
   patchLivecodeNode,
   replaceLivecodeNodeProgram,
+  randomLivecodeName,
   shouldRenderLivecodeNode,
 } from "./livecodeNode.js";
 import { HELLO_GLSL_FRAGMENT_SOURCE } from "./shaderLivecode.js";
+
+test("blank nodes get stable human-readable names without adapter suffixes", () => {
+  const first = createLivecodeNode({ nodeId: "node-blank", kind: LIVECODE_KINDS.p5 });
+  const second = createLivecodeNode({ nodeId: "node-blank", kind: LIVECODE_KINDS.p5 });
+  assert.equal(first.name, second.name);
+  assert.notEqual(first.name, "Untitled p5 node");
+  assert.doesNotMatch(first.name, /p5|node/i);
+  assert.equal(randomLivecodeName(LIVECODE_KINDS.p5, "node-blank"), first.name);
+});
+
+test("example copies append copy once", () => {
+  assert.equal(copyLivecodeExampleName("random lines"), "random lines copy");
+  assert.equal(copyLivecodeExampleName("random lines copy"), "random lines copy");
+  assert.equal(copyLivecodeExampleName("  Random Lines  "), "Random Lines copy");
+});
 
 test("maps Livecode double-click modifiers to explicit views", () => {
   assert.equal(getLivecodeViewForDoubleClick({}), null);

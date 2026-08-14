@@ -74,7 +74,7 @@
  * overlays inherit them from Underscores. Keep those values quiet at their
  * common boundary so adaptive editors render the same syntax palette in both
  * places. Explicit code skins may still replace token colors intentionally. */
-.underscores-shell .excalidraw {
+.underscores-shell.underscores-force-ui-theme .excalidraw {
   --color-danger: var(--underscores-status-error);
   --color-success: var(--underscores-status-success);
 }
@@ -681,7 +681,7 @@ body, html {
 }
 
 /* --- BRAND ACCENT OVERRIDES (5% SATURATED CYAN) --- */
-body .excalidraw {
+body .underscores-shell.underscores-force-ui-theme .excalidraw {
   accent-color: var(--underscores-accent, #6b7173) !important;
   --button-hover-bg: var(--underscores-highlight, hsl(244, 100%, 97%)) !important;
   --bg-hover-btn: var(--underscores-highlight, hsl(244, 100%, 97%)) !important;
@@ -714,7 +714,7 @@ body .excalidraw {
   --color-accent: var(--underscores-accent, #6b7173) !important;
 }
 
-body .excalidraw.theme--dark {
+body .underscores-shell.underscores-force-ui-theme .excalidraw.theme--dark {
   --color-primary: var(--underscores-foreground, hsl(190, 5%, 65%)) !important;
   --color-primary-darker: var(--underscores-muted, hsl(190, 5%, 75%)) !important;
   --color-primary-darkest: var(--underscores-muted, hsl(190, 5%, 85%)) !important;
@@ -742,6 +742,31 @@ body .excalidraw.theme--dark {
   --input-label-color: var(--underscores-muted, hsl(190, 5%, 64%)) !important;
   --popup-text-color: var(--underscores-foreground, hsl(190, 5%, 65%)) !important;
   --color-accent: var(--underscores-accent, #6b7173) !important;
+}
+
+/* Excalidraw's own islands and popovers should be another view of the active
+ * Underscores theme, not a second dark/light palette. These semantic tokens
+ * cover the color picker, tool islands, settings dialogs, sidebars, inputs,
+ * and dropdown menus while leaving the authored drawing colors untouched. */
+body .underscores-shell.underscores-force-ui-theme .excalidraw {
+  --default-bg-color: var(--underscores-canvas-bg, #ffffff) !important;
+  --input-bg-color: var(--underscores-input-bg, #ffffff) !important;
+  --input-border-color: var(--underscores-input-border, var(--border-color, rgba(128, 128, 128, 0.3))) !important;
+  --input-hover-bg-color: var(--underscores-highlight, rgba(128, 128, 128, 0.12)) !important;
+  --island-bg-color: var(--underscores-panel-bg, #ffffff) !important;
+  --popup-bg-color: var(--underscores-panel-bg, #ffffff) !important;
+  --popup-secondary-bg-color: var(--underscores-input-bg, #f1f3f5) !important;
+  --sidebar-bg-color: var(--underscores-panel-bg, #ffffff) !important;
+  --sidebar-border-color: var(--underscores-input-border, var(--border-color, rgba(128, 128, 128, 0.3))) !important;
+  --default-border-color: var(--underscores-input-border, rgba(128, 128, 128, 0.3)) !important;
+  --color-surface-high: var(--underscores-highlight, rgba(128, 128, 128, 0.12)) !important;
+  --color-surface-mid: var(--underscores-panel-bg, #ffffff) !important;
+  --color-surface-low: var(--underscores-input-bg, #f1f3f5) !important;
+  --color-surface-lowest: var(--underscores-panel-bg, #ffffff) !important;
+  --color-on-surface: var(--underscores-foreground, #1b1b1f) !important;
+  --color-border-outline: var(--underscores-input-border, rgba(128, 128, 128, 0.48)) !important;
+  --color-border-outline-variant: var(--underscores-input-border, rgba(128, 128, 128, 0.3)) !important;
+  --overlay-bg-color: color-mix(in srgb, var(--underscores-panel-bg, #ffffff) 88%, transparent) !important;
 }
 
 /* Restore crisp, high-contrast readable text variables inside our own panels */
@@ -4249,7 +4274,7 @@ html[data-underscores-code-theme="teaching"] .underscores-shell.underscores-them
 .iannix-script-parameters {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 5px;
   padding: 10px;
   border: 1px solid var(--border-color);
   border-radius: 5px;
@@ -4257,27 +4282,362 @@ html[data-underscores-code-theme="teaching"] .underscores-shell.underscores-them
 }
 
 .iannix-script-parameter {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  display: grid;
+  grid-template-columns: minmax(74px, .7fr) minmax(0, 1.3fr);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   color: var(--color-secondary);
   font-size: 11px;
 }
 
 .iannix-script-parameter-header {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
 }
 
 .iannix-script-parameter-header strong {
+  overflow: hidden;
+  max-width: 100%;
   color: var(--color-primary);
   font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iannix-script-parameter-header em {
+  color: var(--color-secondary);
+  font-size: 9px;
+  font-style: normal;
+  line-height: 1.1;
+}
+
+.iannix-script-parameter > .iannix-inline-action,
+.iannix-script-parameter > .numeric-input,
+.iannix-script-parameter > input[type="range"] {
+  grid-column: 2;
+  min-width: 0;
+  width: 100%;
+}
+
+.iannix-script-parameter > input[type="text"],
+.iannix-script-parameter > textarea,
+.iannix-script-parameter > input[type="checkbox"] {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.iannix-script-parameter > input[type="text"],
+.iannix-script-parameter > textarea,
+.iannix-inline-action > input[type="text"] {
+  color: var(--color-primary);
+  background: var(--underscores-input-bg, var(--input-bg-color, transparent));
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.iannix-color-parameter {
+  position: relative;
+}
+
+.iannix-color-picker {
+  position: relative;
+  flex: 0 0 28px;
+  width: 28px;
+  height: var(--underscores-ui-control-height, 27px);
+}
+
+.iannix-color-swatch {
+  display: block;
+  width: 28px;
+  height: var(--underscores-ui-control-height, 27px);
+  flex: 0 0 28px;
+  box-sizing: border-box;
+  appearance: none;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: var(--underscores-ui-control-radius, 3px);
+  background-image: linear-gradient(var(--iannix-color-value), var(--iannix-color-value)), conic-gradient(#b6b6b6 25%, #fff 0 50%, #b6b6b6 0 75%, #fff 0);
+  background-position: center, center;
+  background-size: 100% 100%, 8px 8px;
+  cursor: pointer;
+}
+
+.iannix-color-swatch:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.iannix-color-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 5px);
+  left: 0;
+  width: 238px;
+  box-sizing: border-box;
+  padding: 8px;
+  color: var(--color-primary);
+  background: var(--underscores-panel-bg, var(--island-bg-color, var(--bg-app)));
+  border: 1px solid var(--border-color);
+  border-radius: var(--underscores-ui-control-radius, 3px);
+  box-shadow: 0 5px 16px rgb(0 0 0 / 24%);
+}
+
+.iannix-color-sv-field,
+.iannix-color-hue-field {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: var(--underscores-ui-control-radius, 3px);
+  touch-action: none;
+  user-select: none;
+}
+
+.iannix-color-sv-field {
+  height: 116px;
+  cursor: crosshair;
+  background-image: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(calc(var(--iannix-picker-hue) * 1deg) 100% 50%));
+}
+
+.iannix-color-sv-thumb,
+.iannix-color-hue-thumb {
+  position: absolute;
+  display: block;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.iannix-color-sv-thumb {
+  width: 12px;
+  height: 12px;
+  transform: translate(-50%, -50%);
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 70%);
+}
+
+.iannix-color-hue-field {
+  height: 10px;
+  margin-top: 6px;
+  cursor: ew-resize;
+  background: linear-gradient(90deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+
+.iannix-color-hue-thumb {
+  top: -1px;
+  bottom: -1px;
+  width: 5px;
+  transform: translateX(-50%);
+  border: 1px solid #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 70%);
+}
+
+.iannix-color-popover-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin-top: 7px;
+}
+
+.iannix-color-readout,
+.iannix-color-reference-swatch {
+  display: block;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  border: 1px solid var(--border-color);
+  background-image: linear-gradient(var(--iannix-color-value), var(--iannix-color-value)), conic-gradient(#b6b6b6 25%, #fff 0 50%, #b6b6b6 0 75%, #fff 0);
+  background-position: center, center;
+  background-size: 100% 100%, 6px 6px;
+}
+
+.iannix-color-readout {
+  width: 23px;
+  height: 23px;
+  border-radius: var(--underscores-ui-control-radius, 3px);
+}
+
+.iannix-color-eyedropper,
+.iannix-color-transparent,
+.iannix-color-reference {
+  min-width: 0;
+  padding: 3px 5px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--underscores-ui-control-radius, 3px);
+  color: var(--color-primary);
+  background: transparent;
+  font: 9px/1.1 var(--font-sans);
+  cursor: pointer;
+}
+
+.iannix-color-eyedropper {
+  width: 24px;
+  height: 23px;
+  padding: 0;
+  font-size: 14px;
+}
+
+.iannix-color-eyedropper svg {
+  display: block;
+  margin: auto;
+}
+
+.iannix-color-eyedropper:hover,
+.iannix-color-transparent:hover,
+.iannix-color-reference:hover {
+  color: var(--color-primary);
+  background: var(--underscores-hover-bg, color-mix(in srgb, var(--color-primary) 10%, transparent));
+}
+
+.iannix-color-eyedropper[aria-pressed="true"] {
+  color: var(--color-primary);
+  border-color: var(--color-accent);
+  background: var(--underscores-hover-bg, color-mix(in srgb, var(--color-primary) 12%, transparent));
+}
+
+body[data-iannix-eyedropper="true"],
+body[data-iannix-eyedropper="true"] * {
+  cursor: crosshair !important;
+}
+
+.iannix-eyedropper-preview {
+  position: fixed;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 94px;
+  height: 28px;
+  padding: 3px 6px 3px 3px;
+  box-sizing: border-box;
+  color: var(--color-primary);
+  background: var(--color-panel, var(--underscores-panel-bg, var(--island-bg-color, #181818)));
+  box-shadow: 0 3px 12px rgb(0 0 0 / 35%);
+  pointer-events: none;
+  transform: translateZ(0);
+  white-space: nowrap;
+}
+
+.iannix-eyedropper-preview-swatch {
+  display: block;
+  flex: 0 0 auto;
+  width: 21px;
+  height: 21px;
+  border: 1px solid var(--border-color);
+  border-radius: 2px;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 55%);
+  background-image: linear-gradient(var(--iannix-color-value), var(--iannix-color-value)), conic-gradient(#b6b6b6 25%, #fff 0 50%, #b6b6b6 0 75%, #fff 0);
+  background-position: center, center;
+  background-size: 100% 100%, 6px 6px;
+}
+
+.iannix-eyedropper-preview code {
+  color: var(--color-primary);
+  font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  text-shadow: 0 1px 2px var(--underscores-panel-bg, #000);
+  white-space: nowrap;
+}
+
+.iannix-color-transparent[aria-pressed="true"],
+.iannix-color-reference[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  background: var(--underscores-hover-bg, color-mix(in srgb, var(--color-primary) 12%, transparent));
+}
+
+.iannix-color-eyedropper:disabled,
+.iannix-color-transparent:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.iannix-color-popover-toolbar output {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--color-secondary, var(--color-primary));
+  font: 9px ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iannix-color-reference-section {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border-color);
+}
+
+.iannix-color-reference-title {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--color-secondary, var(--color-primary));
+  font-size: 9px;
+}
+
+.iannix-color-reference-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.iannix-color-reference {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  overflow: hidden;
+  padding: 3px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iannix-color-reference-swatch {
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
+}
+
+.iannix-color-alpha-field {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  color: var(--color-secondary, var(--color-primary));
+  font-size: 10px;
+}
+
+.iannix-color-alpha-field input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+.iannix-color-alpha-field output {
+  min-width: 27px;
+  color: var(--color-secondary, var(--color-primary));
+  text-align: right;
+}
+
+.iannix-json-param-input {
+  min-height: 58px;
+  padding: 5px 6px;
+  resize: vertical;
+  font: 10px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.iannix-script-parameter > input[type="checkbox"] {
+  justify-self: start;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent);
 }
 
 .iannix-script-parameter input[type="range"] {
-  width: 100%;
   margin: 0;
   accent-color: var(--color-accent);
 }
@@ -5620,6 +5980,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .properties-pin.pinned { color: var(--underscores-accent, var(--color-primary)); background: var(--underscores-hover-bg, rgba(128,128,128,.12)); }
 .properties-object-picker { flex: 0 0 16px; width: 16px; height: 16px; min-width: 16px; min-height: 16px; padding: 0; border: 1px solid var(--border-color); border-radius: 3px; background: transparent; color: var(--color-secondary); font: 10px/14px system-ui, sans-serif; cursor: pointer; }
 .properties-object-picker:hover { color: var(--underscores-accent, var(--color-primary)); background: var(--underscores-hover-bg, rgba(128,128,128,.12)); }
+.properties-object-picker:disabled { cursor: not-allowed; opacity: .45; }
 .properties-row input[type="text"],
 .properties-row input[type="number"],
 .properties-row .numeric-input,

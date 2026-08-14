@@ -114,6 +114,25 @@ const createLivecodeId = () => (
   || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 );
 
+const LIVE_CODE_NAME_ADJECTIVES = Object.freeze([
+  "random", "quiet", "neon", "soft", "lucid", "velvet", "tiny", "electric",
+  "hidden", "slow", "paper", "golden", "cosmic", "gentle", "pixel", "midnight",
+]);
+
+const LIVE_CODE_NAME_NOUNS = Object.freeze([
+  "lines", "orbit", "garden", "weather", "machine", "signal", "bloom", "circuit",
+  "comet", "static", "rhythm", "loops", "window", "field", "drift", "echo",
+]);
+
+const hashLivecodeNameSeed = value => {
+  let hash = 2166136261;
+  for (const character of String(value || "")) {
+    hash ^= character.codePointAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+};
+
 export const isLivecodeKind = value => Object.hasOwn(LIVECODE_KIND_DEFINITIONS, value);
 
 export const normalizeLivecodeKind = value => (
@@ -129,6 +148,23 @@ export const getLivecodeFont = value => (
 export const defaultLivecodeSource = kind => getLivecodeKindDefinition(kind).defaultSource;
 
 export const defaultLivecodeName = kind => getLivecodeKindDefinition(kind).defaultName;
+
+// Blank nodes get a short, human-readable name instead of exposing the
+// adapter's implementation name (for example, "p5 node") in the UI. A seed
+// keeps names stable when an older scene is normalized repeatedly; omitting it
+// gives newly-created nodes a fresh name.
+export const randomLivecodeName = (kind, seed = "") => {
+  const normalizedKind = normalizeLivecodeKind(kind);
+  const value = seed ? hashLivecodeNameSeed(`${normalizedKind}:${seed}`) : hashLivecodeNameSeed(`${normalizedKind}:${createLivecodeId()}`);
+  const adjective = LIVE_CODE_NAME_ADJECTIVES[value % LIVE_CODE_NAME_ADJECTIVES.length];
+  const noun = LIVE_CODE_NAME_NOUNS[Math.floor(value / LIVE_CODE_NAME_ADJECTIVES.length) % LIVE_CODE_NAME_NOUNS.length];
+  return `${adjective} ${noun}`;
+};
+
+export const copyLivecodeExampleName = name => {
+  const base = String(name || "example").trim() || "example";
+  return /\s+copy$/i.test(base) ? base : `${base} copy`;
+};
 
 // Modifier-specific double-click entry points for canvas Livecode nodes.
 // Return null for an ordinary double-click so the node keeps its authored
@@ -172,7 +208,8 @@ export const normalizeLivecodeRuntime = value => {
 export const createLivecodeNode = value => {
   const raw = value && typeof value === "object" ? value : {};
   const kind = normalizeLivecodeKind(raw.kind);
-  const definition = getLivecodeKindDefinition(kind);
+  const nodeId = typeof raw.nodeId === "string" && raw.nodeId.trim() ? raw.nodeId : `livecode-${createLivecodeId()}`;
+  const blankName = randomLivecodeName(kind, nodeId);
   const source = typeof raw.source === "string" ? raw.source : "";
   const normalizedRuntime = normalizeLivecodeRuntime(raw.runtime);
   if (
@@ -188,9 +225,9 @@ export const createLivecodeNode = value => {
   }
   return {
     version: LIVECODE_NODE_VERSION,
-    nodeId: typeof raw.nodeId === "string" && raw.nodeId.trim() ? raw.nodeId : `livecode-${createLivecodeId()}`,
+    nodeId,
     kind,
-    name: String(raw.name || definition.defaultName).trim() || definition.defaultName,
+    name: String(raw.name || blankName).trim() || blankName,
     // Livecode nodes start as a blank surface rather than injecting an adapter
     // template into a node the user is about to improvise in.
     source,
@@ -254,7 +291,7 @@ export const replaceLivecodeNodeProgram = (value, {
   const nextName = typeof name === "string" && name.trim()
     ? name.trim()
     : kindChanged
-      ? defaultLivecodeName(nextKind)
+      ? randomLivecodeName(nextKind, `${previous.nodeId}:${nextKind}`)
       : previous.name;
   return normalizeLivecodeNode({
     ...previous,

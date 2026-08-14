@@ -63,6 +63,13 @@ test("Score API names alias the legacy IanniX helpers", () => {
   assert.equal(normalizeScoreData(data).role, "curve");
 });
 
+test("new cursors default to looping while explicit loop modes remain stable", () => {
+  assert.equal(createDefaultIannixData({ role: "cursor" }).time.loopMode, "loop");
+  assert.equal(normalizeIannixData({ role: "cursor" }).time.loopMode, "loop");
+  assert.equal(normalizeIannixData({ role: "cursor", time: { loopMode: "once" } }).time.loopMode, "once");
+  assert.equal(createDefaultIannixData({ role: "curve" }).time.loopMode, "once");
+});
+
 test("only an active linked cursor transfers visual ownership to the runtime", () => {
   const cursor = line("cursor", [[0, 0], [0, 20]], createDefaultIannixData({
     role: "cursor",

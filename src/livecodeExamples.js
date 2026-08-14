@@ -19,9 +19,9 @@ const orcaRow = entries => {
   return row.join("");
 };
 
-// Keep one deliberately small starter for every persisted Livecode kind. These
-// are editor templates, not hidden runtime defaults: selecting one replaces
-// only the selected node's source and records the change in scene history.
+// Keep one deliberately small source template for every persisted Livecode
+// kind. These are available to callers that want to seed a node, but they do
+// not need a synthetic "Barebones" entry in the user-facing example list.
 export const LIVECODE_TEMPLATES = Object.freeze({
   [LIVECODE_KINDS.strudel]: `// Ctrl/Cmd+Enter evaluates this node.\n$: note("c3 e3 g3 b3")\n  .s("sine")\n  .slow(2)`,
   [LIVECODE_KINDS.p5]: defaultLivecodeSource(LIVECODE_KINDS.p5),
@@ -33,25 +33,15 @@ export const LIVECODE_TEMPLATES = Object.freeze({
   [LIVECODE_KINDS.shader]: defaultLivecodeSource(LIVECODE_KINDS.shader),
 });
 
-const bareExample = kind => ({
-  id: "bare",
-  label: "Barebones",
-  name: "Barebones",
-  source: LIVECODE_TEMPLATES[kind] || defaultLivecodeSource(kind),
-});
-
 const p5Examples = Object.freeze([
-  bareExample(LIVECODE_KINDS.p5),
   ...P5_EXAMPLES.map(example => ({ id: example.id, label: example.name, name: example.name, source: example.source, mode: example.mode })),
 ]);
 
 const playCoreExamples = Object.freeze([
-  bareExample(LIVECODE_KINDS.playcore),
   ...PLAY_CORE_EXAMPLES.map(example => ({ id: example.id, label: `${example.category} · ${example.name}`, name: example.name, source: example.source })),
 ]);
 
 const orcaExamples = Object.freeze([
-  bareExample(LIVECODE_KINDS.orca),
   {
     id: "single-note",
     label: "Basics · Single MIDI note",
@@ -110,7 +100,6 @@ const orcaExamples = Object.freeze([
 // visualizer in one editable node. Keep the source self-contained so examples
 // remain useful offline and can be freely modified after selection.
 const strudelExamples = Object.freeze([
-  bareExample(LIVECODE_KINDS.strudel),
   {
     id: "starter",
     label: "Starter · Chord piano roll",
@@ -181,5 +170,5 @@ export const getLivecodeExamples = kind => {
   if (kind === LIVECODE_KINDS.strudel) return strudelExamples;
   if (kind === LIVECODE_KINDS.orca) return orcaExamples;
   if (kind === LIVECODE_KINDS.shader) return SHADER_EXAMPLES.map(example => ({ id: example.id, label: example.label, name: example.name, source: example.source, mode: example.mode }));
-  return [bareExample(kind)];
+  return [];
 };

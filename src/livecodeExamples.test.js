@@ -4,13 +4,12 @@ import { getLivecodeExamples, LIVECODE_TEMPLATES } from "./livecodeExamples.js";
 import { LIVECODE_KINDS } from "./livecodeNode.js";
 import { ORCA_GRID_HEIGHT, ORCA_GRID_WIDTH, parseOrcaGrid, runOrcaFrame } from "./orcaEngine.js";
 
-test("every Livecode kind exposes a selectable barebones template", () => {
+test("blank source templates remain available without a synthetic Barebones example", () => {
+  for (const kind of Object.values(LIVECODE_KINDS)) {
+    assert.ok(LIVECODE_TEMPLATES[kind], `${kind} should retain a source template`);
+  }
   for (const kind of Object.values(LIVECODE_KINDS).filter(kind => kind !== LIVECODE_KINDS.shader)) {
-    const examples = getLivecodeExamples(kind);
-    const bare = examples.find(example => example.id === "bare");
-    assert.ok(bare, `${kind} should expose a barebones example`);
-    assert.equal(bare.source, LIVECODE_TEMPLATES[kind]);
-    assert.ok(bare.source.length > 0, `${kind} template should not be empty`);
+    assert.ok(!getLivecodeExamples(kind).some(example => example.label === "Barebones"));
   }
 });
 
@@ -24,7 +23,7 @@ test("Strudel exposes basics, grooves, and a composed theme", () => {
   const examples = getLivecodeExamples(LIVECODE_KINDS.strudel);
   assert.deepEqual(
     examples.map(example => example.id),
-    ["bare", "starter", "four-on-the-floor", "hi-hat-grid", "slow-arpeggio", "bass-and-drums", "neon-night"],
+    ["starter", "four-on-the-floor", "hi-hat-grid", "slow-arpeggio", "bass-and-drums", "neon-night"],
   );
   for (const example of examples) {
     assert.ok(example.name, `${example.id} should have a name`);
@@ -40,7 +39,7 @@ test("Orca exposes full-grid note, loop, counter, and random starters", () => {
   const examples = getLivecodeExamples(LIVECODE_KINDS.orca);
   assert.deepEqual(
     examples.map(example => example.id),
-    ["bare", "single-note", "clocked-note", "counter", "random-pattern", "random-melody-2bar"],
+    ["single-note", "clocked-note", "counter", "random-pattern", "random-melody-2bar"],
   );
   for (const example of examples) {
     const grid = parseOrcaGrid(example.source);

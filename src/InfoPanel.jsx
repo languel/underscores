@@ -45,6 +45,12 @@ const HELP_TOPICS = Object.freeze([
     keywords: "media stream mediapipe holistic camera actor brush input landmark source catalog clip recorder gif mp4 audio",
     body: "Media sources stay dormant in the catalog until selected or connected to an enabled scene object. Select one to preview and play it, use Record clip to create a GIF, MP4, or audio source, and press Escape to clear selection. A Holistic processor stores its source, transform, and display settings without creating one object per landmark. Use the Media and Inputs panels to create streams, then use actors, Brush channels, or scripts to consume them.",
   },
+  {
+    id: "script-parameters",
+    title: "Script parameters",
+    keywords: "parameter params param number string text color picker boolean bool json object canvas element p5 play core livecode brush iannix",
+    body: "Shared @param declarations accept numbers, strings, CSS colors, booleans, parsed JSON values, and canvas object references. Numbers keep their range and step controls; colors use the compact in-app picker, live app/canvas eyedropper preview, and dynamic __ color references; JSON is edited as a JavaScript value and object references resolve through the canvas query API.",
+  },
 ]);
 
 const isDefaultInfo = info => (
@@ -127,20 +133,50 @@ const EditorKeys = () => (
   </section>
 );
 
+const ScriptParametersInfoGuide = () => (
+  <section>
+    <h3>Script parameters</h3>
+    <p>Declare editable values with a line comment. The same schema is used by p5, Play Core, Livecode, Brush, and IanniX editors; values are persisted with the host and exposed to JavaScript as <code>__.params</code> (or as the declared parameter in a Brush modifier).</p>
+    <pre><code>{`// @param threshold = 0.55 (0..1, step: 0.01)
+// @param title = "Hello" (string)
+// @param tint = "#ff4d6d" (color)
+// @param enabled = true (boolean)
+// @param options = {"mode":"soft","amount":0.5} (json)
+// @param driver = "Main curve" (object)`}</code></pre>
+    <ul>
+      <li><strong>Number</strong> — a numeric default, optionally followed by <code>(min..max, step: increment)</code>. It renders as a bounded numeric control.</li>
+      <li><strong>String / text</strong> — a quoted or unquoted string rendered as a text field.</li>
+      <li><strong>Color</strong> — a CSS color/name or live <code>__</code> reference such as <code>__.currentColor</code>, <code>__.currentBackgroundColor</code>, or <code>__.colors.foreground.css</code>. The compact picker includes saturation/value, hue, alpha, theme swatches, transparency, and an app/canvas eyedropper with a live cursor preview. Alt-click the eyedropper to use the native screen picker when the browser provides it.</li>
+      <li><strong>Boolean / bool</strong> — <code>true</code> or <code>false</code>, rendered as a checkbox.</li>
+      <li><strong>JSON</strong> — any valid JSON object, array, string, number, or <code>null</code>; the editor parses it on blur and keeps the last valid value while JSON is being corrected.</li>
+      <li><strong>Object / canvas / element</strong> — in canvas-backed p5, Play Core, Livecode, and Brush runtimes, a reference resolves by element id, label, or group to a live read-only object view; call <code>toJSON()</code> for a snapshot. IanniX resolves color references when the trusted script runs and keeps other references as strings.</li>
+    </ul>
+  </section>
+);
+
 const UnderscoresApiGuide = () => (
   <section>
     <h3>Underscores API</h3>
     <p>The shared <code>__</code> bridge is available in trusted p5, Play Core, Strudel, Brush, and Livecode runtimes. It is live: scene queries, selection, transport, theme, parameters, and streams reflect the current app state. Use <code>__.api</code> for deliberate application-level operations. The legacy <code>underscores</code> name remains available for compatibility.</p>
+    <ScriptParametersInfoGuide />
     <details className="info-api-group" open>
       <summary>Frame bridge</summary>
       <dl className="info-svg-command-list">
         <div><dt><code>element</code></dt><dd>The script host: <code>&#123; id, width, height &#125;</code>.</dd></div>
         <div><dt><code>object</code></dt><dd>Live read-only snapshot of the host’s Underscores scene object.</dd></div>
         <div><dt><code>frame</code></dt><dd>The p5 or Play Core frame configuration.</dd></div>
-        <div><dt><code>params</code></dt><dd>Values declared with <code>@param</code>; object parameters resolve to live object snapshots.</dd></div>
-        <div><dt><code>currentColor</code></dt><dd>Current foreground CSS color. Use <code>colors.foreground.css</code> when opacity must be included.</dd></div>
-        <div><dt><code>currentOpacity</code></dt><dd>Foreground opacity from 0 to 1.</dd></div>
-        <div><dt><code>colors</code></dt><dd><code>foreground</code>, <code>accent</code>, <code>highlight</code>, and <code>muted</code>, each with <code>color</code>, <code>opacity</code>, and composited <code>css</code>.</dd></div>
+        <div><dt><code>params</code></dt><dd>Values declared with <code>@param</code>; object parameters resolve to live object snapshots and color references re-resolve on access when the Excalidraw palette changes.</dd></div>
+        <div><dt><code>currentColor</code></dt><dd>Live theme-matched Excalidraw stroke color for drawing into an unfiltered p5/Livecode surface. Use <code>appState.currentItemStrokeColor</code> or <code>currentRawColor</code> for the authored Excalidraw value.</dd></div>
+        <div><dt><code>currentRawColor</code></dt><dd>The exact authored Excalidraw stroke value from <code>appState.currentItemStrokeColor</code>; in dark mode it can differ from the visible canvas color because Excalidraw filters its canvas layer.</dd></div>
+        <div><dt><code>currentBackgroundColor</code></dt><dd>Live theme-matched Excalidraw fill/background color. Its authored counterpart is <code>currentRawBackgroundColor</code> or <code>appState.currentItemBackgroundColor</code>.</dd></div>
+        <div><dt><code>currentStroke</code> / <code>currentFill</code></dt><dd>Short aliases for the live theme-matched Excalidraw stroke and fill colors.</dd></div>
+        <div><dt><code>currentStrokeWidth</code></dt><dd>Live Excalidraw stroke width.</dd></div>
+        <div><dt><code>currentFillStyle</code> / <code>currentStrokeStyle</code></dt><dd>Live fill and stroke style values, such as <code>solid</code>, <code>hachure</code>, or <code>dashed</code>.</dd></div>
+        <div><dt><code>currentRoughness</code> / <code>currentRoundness</code></dt><dd>Live hand-drawn roughness and corner-rounding settings.</dd></div>
+        <div><dt><code>currentOpacity</code></dt><dd>Live Excalidraw item opacity, in Excalidraw's 0–100 scale.</dd></div>
+        <div><dt><code>activeTool</code> / <code>zoom</code> / <code>scrollX</code> / <code>scrollY</code></dt><dd>Useful live viewport state aliases.</dd></div>
+        <div><dt><code>appState</code></dt><dd>Read-only curated snapshot of these current-item, tool, viewport, background, and selection values.</dd></div>
+        <div><dt><code>colors</code></dt><dd><code>foreground</code>, <code>accent</code>, <code>highlight</code>, and <code>muted</code> are Underscores theme colors. <code>colors.excalidraw.foreground</code> and <code>colors.excalidraw.background</code> are live canvas colors; entries expose raw <code>color</code>/<code>raw</code> and theme-matched <code>display</code>/<code>css</code> plus <code>rawCss</code>. The palette arrays are authored values; use <code>displayPalette</code>, <code>displayStrokePalette</code>, or <code>displayBackgroundPalette</code> for unfiltered live surfaces.</dd></div>
         <div><dt><code>theme</code> / <code>appearance</code></dt><dd>Current theme id, or the complete live appearance snapshot.</dd></div>
         <div><dt><code>time</code></dt><dd>Shortcut for <code>transport.time</code>, in score seconds.</dd></div>
       </dl>
@@ -174,8 +210,12 @@ const UnderscoresApiGuide = () => (
         <div><dt><code>api.streams</code></dt><dd>List or resolve typed space, time, value, event, and image streams. Semantic MediaPipe <code>feature()</code>/<code>features()</code> remain available. <code>inputs</code> and <code>outputs</code> are filtered views, not separate systems.</dd></div>
       </dl>
     </details>
-    <pre><code>{`// Follow the current Underscores foreground
-return { char: "●", color: __.colors.foreground.css };
+    <pre><code>{`// Follow the current Excalidraw stroke
+return { char: "●", color: __.currentColor };
+
+// Use the current fill or a standard Excalidraw palette swatch
+const fill = __.currentBackgroundColor;
+const blue = __.colors.excalidraw.displayPalette.blue[2];
 
 // Read a selected score object
 const cursor = __.canvas.selected()[0];
@@ -424,6 +464,7 @@ function makeWithScript() {
       <h3>JavaScript helpers</h3>
       <p>Use deterministic score helpers such as <code>sessionTime</code>, <code>random</code>, <code>range</code>, <code>rangeMid</code>, <code>norm</code>, <code>map</code>, <code>linexp</code>, <code>constrain</code>, <code>sin</code>, <code>cos</code>, <code>PI</code>, and <code>TWO_PI</code>. Keep creation inside lifecycle functions; do not use browser, network, storage, or wall-clock APIs.</p>
     </section>
+    <ScriptParametersInfoGuide />
     <EditorKeys />
   </div>
 );
@@ -438,6 +479,7 @@ const BrushInfoGuide = () => (
 }`}</code></pre>
       <p><code>points</code> is the source path. <code>globals</code> exposes brush parameters; use <code>// @param amount = 1 (0..10, step: 0.1)</code> to make a value editable in the UI.</p>
     </section>
+    <ScriptParametersInfoGuide />
     <EditorKeys />
   </div>
 );
@@ -454,6 +496,7 @@ const LivecodeInfoGuide = ({ kind }) => {
         <p>{bridge.summary}</p>
         {bridge.points.length > 0 && <ul>{bridge.points.map(point => <li key={point}>{point}</li>)}</ul>}
       </section>
+      <ScriptParametersInfoGuide />
       <small>{help.footer}</small>
     </div>
   );

@@ -86,3 +86,54 @@ test("object parameters remain live views of the assigned canvas object", () => 
   time = 5;
   assert.equal(params.driver.time.progress, 1);
 });
+
+test("resolves typed parameters without numeric coercion", () => {
+  const params = resolveScriptParameterValues([
+    { name: "title", type: "string", default: "Hello", value: "World" },
+    { name: "tint", type: "color", default: "#000000", value: "#ff3366" },
+    { name: "enabled", type: "boolean", default: true, value: false },
+    { name: "options", type: "json", default: {}, value: { mode: "soft" } },
+  ], { current: {} });
+  assert.deepEqual(params, {
+    title: "World",
+    tint: "#ff3366",
+    enabled: false,
+    options: { mode: "soft" },
+  });
+});
+
+test("resolves color parameters against the live appearance", () => {
+  const runtimeRef = {
+    current: {
+      getAppearance: () => ({
+        currentColor: "#f0f0f0",
+        colors: { accent: { color: "#ff3366", css: "rgba(255, 51, 102, 1)" } },
+      }),
+    },
+  };
+  const params = resolveScriptParameterValues([{
+    name: "tint",
+    type: "color",
+    default: "__.currentColor",
+    value: "__.colors.accent.css",
+  }], runtimeRef);
+  assert.deepEqual(params, { tint: "rgba(255, 51, 102, 1)" });
+});
+
+test("keeps color parameter references live after the Excalidraw palette changes", () => {
+  let currentColor = "#fab005";
+  const runtimeRef = {
+    current: {
+      getAppearance: () => ({ currentColor, colors: {} }),
+    },
+  };
+  const params = resolveScriptParameterValues([{
+    name: "tint",
+    type: "color",
+    default: "__.currentColor",
+    value: "__.currentColor",
+  }], runtimeRef);
+  assert.equal(params.tint, "#fab005");
+  currentColor = "#e8590c";
+  assert.equal(params.tint, "#e8590c");
+});

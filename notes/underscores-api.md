@@ -17,8 +17,11 @@ code, not third-party plugins or a security sandbox.
 | `object` | Read-only current snapshot of that host in the Underscores scene. |
 | `frame` | p5/Play Core host configuration or a Livecode Node record. |
 | `params` | Values declared with `@param`; object params are live object snapshots. |
-| `currentColor`, `currentOpacity` | Active Underscores foreground appearance. |
-| `colors` | `foreground`, `accent`, `highlight`, and `muted`, each `{ color, opacity, css }`. |
+| `currentColor`, `currentStroke` | Live, theme-matched Excalidraw stroke color for an unfiltered p5/Livecode surface. |
+| `currentBackgroundColor`, `currentFill` | Live, theme-matched Excalidraw fill/background color. |
+| `currentOpacity`, `currentStrokeWidth`, `currentFillStyle`, `currentStrokeStyle` | Current Excalidraw opacity, width, fill style, and stroke style. |
+| `currentRawColor`, `currentRawBackgroundColor`, `appState` | Authored Excalidraw values and a read-only app-state snapshot. Use these when the exact stored color is required. |
+| `colors` | Underscores `foreground`, `accent`, `highlight`, `muted`, `panel`, `input`, `timeline`, and `canvas`, each `{ color, opacity, css }`, plus live `excalidraw` entries. |
 | `theme`, `appearance` | Theme id and full live appearance snapshot. |
 | `canvas`, `objects` | Scene-query bridge (`objects` is an alias). |
 | `events` | Event subscription and inspection. |
@@ -36,6 +39,28 @@ inspect captured events.
 ```js
 return { char: "●", color: __.colors.foreground.css };
 ```
+
+### Excalidraw colors and typed parameters
+
+The convenience color aliases follow the pixels an unfiltered live surface should display. In
+dark mode Excalidraw may filter its own canvas layer, so `currentColor`/`currentStroke` can differ
+from the authored `appState.currentItemStrokeColor`; `currentRawColor` preserves that exact value.
+The same split is available under `__.colors.excalidraw`: `foreground` and `background` expose
+`raw`, `rawCss`, `display`, `displayCss`, and `css`, while `palette` contains authored quick-picks and
+`displayPalette` (plus `displayStrokePalette` / `displayBackgroundPalette`) contains theme-matched
+values for unfiltered surfaces.
+
+```js
+p.stroke(__.currentStroke);
+const authored = __.currentRawColor;
+const blue = __.colors.excalidraw.displayPalette.blue[2];
+```
+
+`@param` declarations accept numbers, strings, booleans, JSON values, canvas object references,
+and CSS colors. A color may be a named/CSS value or a dynamic reference such as
+`__.currentColor`, `__.currentBackgroundColor`, or `__.colors.excalidraw.foreground.css`.
+Color references are resolved when the parameter is read, so a running node follows a later
+Excalidraw palette change without recompilation.
 
 ## Public application API
 

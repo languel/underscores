@@ -19,11 +19,11 @@ export const getLivecodeBridgeHelp = kind => {
     summary: details[normalizedKind] || "This script kind has no shared JavaScript bridge.",
     points: trusted ? [
       "__.element is the host snapshot ({ id, width, height }); __.object is the current scene-object snapshot.",
-      "__.params contains values declared with // @param. Object parameters resolve through the same canvas query API.",
+      "__.params contains values declared with // @param: numbers, strings, CSS colors, booleans, parsed JSON, and live canvas object references. Color references are live on each access, so __.params.tint follows __.currentColor or __.colors.foreground.css-style references after a palette click. Object parameters resolve through the same canvas query API.",
       "__.canvas (also __.objects) exposes read-only all(), get(id/label), find(query), and selected() scene queries.",
       "__.events provides recent(limit), latest(pattern), and on(pattern, listener). __.transport exposes time and timing context.",
       "Send messages to the Event Console with console.log/info/warn/error/debug (p5 captures these), __.console.log(...args), or the shorthand __.log/info/warn/error/debug(...args) from any JavaScript bridge runtime. Turn on Console → Log to collect script.log events.",
-      "__.colors, __.currentColor, __.currentOpacity, __.theme, and __.appearance follow the current Underscores theme.",
+      "__.currentColor/currentStroke and __.currentBackgroundColor/currentFill are theme-matched Excalidraw display colors for unfiltered live surfaces; __.currentRawColor and __.appState.currentItemStrokeColor expose authored Excalidraw values. __.colors keeps both raw and display color fields.",
       "__.api is the deliberate application API for commands, scene/time/grid, physics, mixer, inputs, relations, and streams. Prefer documented calls over DOM access.",
     ] : [],
   };

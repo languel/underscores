@@ -24,7 +24,7 @@ export const createDefaultIannixData = (overrides = {}) => ({
     start: 0,
     duration: 5,
     rate: 1,
-    loopMode: "once",
+    loopMode: overrides.role === "cursor" ? "loop" : "once",
     startValue: migrateNumericTimeValue(overrides.time?.start, 0),
     durationValue: migrateNumericTimeValue(overrides.time?.duration, 5),
     startMode: Object.prototype.hasOwnProperty.call(overrides.time || {}, "start")
@@ -71,8 +71,8 @@ export const createDefaultIannixData = (overrides = {}) => ({
 });
 
 export const normalizeIannixData = (data) => {
-  const defaults = createDefaultIannixData();
   const role = IANNIX_ROLES.includes(data?.role) ? data.role : null;
+  const defaults = createDefaultIannixData({ role });
   const loopMode = IANNIX_LOOP_MODES.includes(data?.time?.loopMode)
     ? data.time.loopMode
     : defaults.time.loopMode;

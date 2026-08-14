@@ -1,6 +1,6 @@
 # Underscores UI Guidelines
 
-Last updated: 2026-07-31
+Last updated: 2026-08-14
 
 Underscores's interface should feel dense, quiet, and predictable. Ableton Live is the reference for information density and Blender is the reference for managing many editable parameters. The application keeps its minimal color scheme and uses structure, alignment, and restrained state fills instead of decorative framing.
 
@@ -67,6 +67,7 @@ Do not use sliders for ordinary scalar parameters. Keep formatted values such as
 - Preserve the minimal neutral palette and existing accent variables.
 - Appearance presets must define one coordinated accent, hover, panel, input, timeline, canvas, and grid palette. Mono Dark is the neutral fresh-session baseline; Mono Light is its light counterpart. Transparent Dark and Transparent Light use zero-opacity surfaces for overlay hosts. Built-in light/dark switching preserves a matching preset family; custom or unpaired themes fall back to Mono Light/Dark. Saved custom themes are local named snapshots of the complete appearance state.
 - Theme and score-role color fields accept CSS color strings (`red`, hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`, `hwb()`, `lab()`/`lch()`, and `oklab()`/`oklch()`). The color picker resolves the authored string to a solid swatch while the text field retains the authored value.
+- Embedded Excalidraw UI follows the active Underscores panel/input/highlight/foreground tokens when **Force __ UI theme** is enabled in Board → Interface. Keep this bridge opt-outable and avoid hard-coded Excalidraw panel colors; verify both light and dark themes and the native-surface opt-out.
 - Context menus and command palette cards use the active panel surface. Command-palette overlays may dim the canvas, but never blur it.
 - Canvas opacity is a first-class theme setting. An opacity of `0%` is reserved for transparent-overlay hosts; surrounding panel opacity remains independently configurable.
 - Prefer separators, spacing, and background changes over extra frames.

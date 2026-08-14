@@ -12,7 +12,8 @@ import { getEditableSvgPathNodes } from "./svgPathGeometry.js";
 import { buildSvgTimingGraph } from "./svgAnimation.js";
 import { getSvgNodeStyleCascade, updateStructuredSvgStyleDeclaration } from "./svgStyleModel.js";
 import { isMediaStreamElement, MEDIA_STREAM_KINDS, normalizeMediaStreamConfig, patchMediaStreamConfig } from "./mediaStream.js";
-import { getScoreData } from "./iannixEngine.js";
+import { getScoreData, normalizeIannixData } from "./iannixEngine.js";
+import { createTimeValue } from "./timeValue.js";
 import { getPhysicsColliderSelectionValue } from "./physicsGeometry.js";
 import { normalizePhysicsConstraint } from "./relationshipGraph.js";
 import { getInspectableCustomData } from "./propertyInspectorModel.js";
@@ -1049,26 +1050,102 @@ const SharedPhysicsControls = ({ elements, physicsBodies, query, onChange, colli
 const scoreRoleMatchesQuery = (data, query) => {
   if (!data?.role) return false;
   if (!query?.needle) return true;
-  return ["score", "role", "label", "active", data.role]
+  return [
+    "score", "role", "label", "active", data.role,
+    ...(data.role === "cursor" ? [
+      "time", "start", "duration", "rate", "loop", "loopmode", "startmode", "durationmode",
+    ] : []),
+  ]
     .some(name => String(name).toLowerCase().includes(query.needle));
 };
 
-const scoreRoleFieldCount = (element, query) => scoreRoleMatchesQuery(getScoreData(element), query) ? 3 : 0;
+const scoreRoleFieldCount = (element, query) => {
+  const data = getScoreData(element);
+  if (!scoreRoleMatchesQuery(data, query)) return 0;
+  return data.role === "cursor" ? 9 : 3;
+};
 
 const ScoreRoleControls = ({ element, query, onChange }) => {
-  const data = getScoreData(element);
+  const data = normalizeIannixData(getScoreData(element));
   if (!data?.role) return null;
-  const matches = name => !query?.needle || name.includes(query.needle) || String(data.role).includes(query.needle);
+  const matches = (...names) => !query?.needle || names.some(name => name.includes(query.needle)) || String(data.role).includes(query.needle);
   if (!scoreRoleMatchesQuery(data, query)) return null;
+  const patchTime = patch => onChange({ time: { ...data.time, ...patch } });
   return (
-    <details className="properties-group" open>
-      <summary><span>Score role</span><small>{data.role}</small></summary>
-      <div className="properties-children">
-        <div className="properties-row editable"><span>role</span><select value={data.role} onChange={event => onChange({ role: event.target.value || null })}><option value="">None</option><option value="curve">Curve</option><option value="cursor">Cursor</option><option value="trigger">Trigger</option></select></div>
-        {matches("label") && <div className="properties-row editable"><span>label</span><input type="text" value={data.label || ""} onChange={event => onChange({ label: event.target.value })} /></div>}
-        {matches("active") && <div className="properties-row editable"><span>active</span><input type="checkbox" checked={data.active !== false} onChange={event => onChange({ active: event.target.checked })} /></div>}
-      </div>
-    </details>
+    <>
+      <details className="properties-group" open>
+        <summary><span>Score role</span><small>{data.role}</small></summary>
+        <div className="properties-children">
+          <div className="properties-row editable"><span>role</span><select value={data.role} onChange={event => onChange({ role: event.target.value || null })}><option value="">None</option><option value="curve">Curve</option><option value="cursor">Cursor</option><option value="trigger">Trigger</option></select></div>
+          {matches("label") && <div className="properties-row editable"><span>label</span><input type="text" value={data.label || ""} onChange={event => onChange({ label: event.target.value })} /></div>}
+          {matches("active") && <div className="properties-row editable"><span>active</span><input type="checkbox" checked={data.active !== false} onChange={event => onChange({ active: event.target.checked })} /></div>}
+        </div>
+      </details>
+      {data.role === "cursor" && matches("time", "start", "duration", "rate", "loop", "loopmode", "startmode", "durationmode") && (
+        <details className="properties-group" open>
+          <summary><span>Time</span><small>Cursor</small></summary>
+          <div className="properties-children">
+            {matches("time", "start") && <div className="properties-row editable">
+              <span>start</span>
+              <NumericInput
+                min="0"
+                step="0.01"
+                value={data.time.start}
+                defaultValue={0}
+                aria-label="Cursor start time"
+                onCommit={start => patchTime({ start, startValue: createTimeValue(start, start), startMode: "manual" })}
+              />
+            </div>}
+            {matches("time", "duration") && <div className="properties-row editable">
+              <span>duration</span>
+              <NumericInput
+                min="0.001"
+                step="0.01"
+                value={data.time.duration}
+                defaultValue={5}
+                aria-label="Cursor duration"
+                onCommit={duration => patchTime({ duration, durationValue: createTimeValue(duration, duration), durationMode: "manual" })}
+              />
+            </div>}
+            {matches("time", "rate") && <div className="properties-row editable">
+              <span>rate</span>
+              <NumericInput
+                min="0"
+                step="0.01"
+                value={data.time.rate}
+                defaultValue={1}
+                aria-label="Cursor playback rate"
+                onCommit={rate => patchTime({ rate })}
+              />
+            </div>}
+            {matches("time", "loop", "loopmode") && <div className="properties-row editable">
+              <span>loop</span>
+              <select value={data.time.loopMode} aria-label="Cursor loop mode" onChange={event => patchTime({ loopMode: event.target.value })}>
+                <option value="once">Once / hold</option>
+                <option value="loop">Loop</option>
+                <option value="pingPong">Ping-pong</option>
+              </select>
+            </div>}
+            {matches("time", "startmode") && <div className="properties-row editable">
+              <span>start mode</span>
+              <select value={data.time.startMode} aria-label="Cursor start mode" onChange={event => patchTime({ startMode: event.target.value })}>
+                <option value="manual">Manual</option>
+                <option value="curve">Curve</option>
+              </select>
+            </div>}
+            {matches("time", "durationmode") && <div className="properties-row editable">
+              <span>duration mode</span>
+              <select value={data.time.durationMode} aria-label="Cursor duration mode" onChange={event => patchTime({ durationMode: event.target.value })}>
+                <option value="geometry">Geometry</option>
+                <option value="manual">Manual</option>
+                <option value="curve">Curve</option>
+                <option value="ratio">Ratio</option>
+              </select>
+            </div>}
+          </div>
+        </details>
+      )}
+    </>
   );
 };
 

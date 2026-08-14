@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-08-12
+Last updated: 2026-08-14
 
 ## Release checkpoint
 
@@ -121,6 +121,16 @@ nodes now use compact icon-only run/step controls and a semantic clock-status ic
 waiting, paused, or stopped) with accessible labels/tooltips. The Orca title/status text no longer
 competes with the grid's compact editing surface; the dedicated Orca stabilization pass remains
 open for runtime behavior beyond this chrome refinement.
+
+## Excalidraw UI-theme bridge checkpoint (2026-08-14)
+
+Board → Interface now exposes the persisted **Force __ UI theme** toggle. When enabled, embedded
+Excalidraw islands, color popovers, settings, sidebars, inputs, menus, and accents inherit the
+active Underscores panel, input, highlight, border, and foreground tokens. Disabling the toggle
+restores Excalidraw's native UI surfaces without changing the canvas color bridge. The shared
+Livecode API also documents theme-matched `currentStroke`/`currentFill` aliases, authored raw
+appState values, Excalidraw display palettes, and live typed color references. The current branch
+passes 677 automated tests, lint (existing warnings only), and a production build.
 
 ## Known boundary
 

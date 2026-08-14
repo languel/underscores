@@ -19,6 +19,7 @@ import {
   getLivecodeViewForDoubleClick,
   LIVECODE_KIND_DEFINITIONS,
   normalizeLivecodeNode,
+  randomLivecodeName,
   shouldRenderLivecodeNode,
 } from "./livecodeNode.js";
 import { infoProps } from "./uiInfo.js";
@@ -129,7 +130,9 @@ function createLivecodeBridge(element, node, scriptRuntimeRef, onStrudelTranspor
     canvas,
   );
   const appearance = () => scriptRuntimeRef.current?.getAppearance?.() || {
-    theme: "dark", currentColor: "#e8e8e8", currentOpacity: 1, colors: {},
+    theme: "dark", currentColor: "#e8e8e8", currentRawColor: "#e8e8e8", currentOpacity: 100,
+    currentBackgroundColor: "transparent", currentRawBackgroundColor: "transparent", currentStroke: "#e8e8e8",
+    currentFill: "transparent", currentStrokeWidth: 1, colors: {}, appState: {},
   };
   const scriptConsole = createScriptConsole(scriptRuntimeRef, element.id);
   return Object.freeze({
@@ -143,7 +146,28 @@ function createLivecodeBridge(element, node, scriptRuntimeRef, onStrudelTranspor
     get object() { return canvas.get(element.id); },
     get time() { return canvas.transport.time; },
     get currentColor() { return appearance().currentColor; },
+    get currentRawColor() { return appearance().currentRawColor; },
     get currentOpacity() { return appearance().currentOpacity; },
+    get currentBackgroundColor() { return appearance().currentBackgroundColor; },
+    get currentRawBackgroundColor() { return appearance().currentRawBackgroundColor; },
+    get currentBackgroundOpacity() { return appearance().currentBackgroundOpacity; },
+    get currentStroke() { return appearance().currentStroke; },
+    get currentFill() { return appearance().currentFill; },
+    get currentStrokeWidth() { return appearance().currentStrokeWidth; },
+    get currentFillStyle() { return appearance().currentFillStyle; },
+    get currentStrokeStyle() { return appearance().currentStrokeStyle; },
+    get currentRoughness() { return appearance().currentRoughness; },
+    get currentRoundness() { return appearance().currentRoundness; },
+    get currentFontFamily() { return appearance().currentFontFamily; },
+    get currentFontSize() { return appearance().currentFontSize; },
+    get currentFontWeight() { return appearance().currentFontWeight; },
+    get currentTextAlign() { return appearance().currentTextAlign; },
+    get currentVerticalAlign() { return appearance().currentVerticalAlign; },
+    get activeTool() { return appearance().activeTool; },
+    get zoom() { return appearance().zoom; },
+    get scrollX() { return appearance().scrollX; },
+    get scrollY() { return appearance().scrollY; },
+    get appState() { return appearance().appState; },
     get colors() { return appearance().colors; },
     get theme() { return appearance().theme; },
     get appearance() { return appearance(); },
@@ -326,7 +350,7 @@ function NodeChrome({ node, onPatch, onToggleRun }) {
       value={node.kind}
       aria-label="Livecode node kind"
       title="Livecode kind"
-      onChange={event => onPatch?.({ kind: event.target.value, name: getLivecodeKindDefinition(event.target.value).defaultName })}
+      onChange={event => onPatch?.({ kind: event.target.value, name: randomLivecodeName(event.target.value) })}
       {...infoProps("Livecode kind", "Changes this node's adapter and editor profile. Its source stays on the node; choose a compatible kind before running it.")}
     >
       {Object.entries(LIVECODE_KIND_DEFINITIONS).map(([id, candidate]) => <option key={id} value={id}>{candidate.label}</option>)}

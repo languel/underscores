@@ -249,7 +249,7 @@ export const SCRIPT_AUTHORING_GUIDES = Object.freeze({
     "Underscores Brush / modifier script contract:",
     "- Source must be a JavaScript function with signature (points, globals) => tracks.",
     "- points is the source path. Return an array of drawable tracks, for example (points, globals) => [points]. Each track is an array of numeric [x, y] points.",
-    "- Declare editable numeric parameters with // @param name = default (min..max, step: increment).",
+    "- Declare editable parameters with // @param name = default. Numeric values may add (min..max, step: increment); typed values use (string), (color), (boolean), (json), or (object).",
     "- Write readable source: put each statement after a semicolon on its own line and indent blocks with two spaces. Underscores formats saved AI scripts too.",
     "- Use points and supplied globals only. Never use Date, DOM APIs, network APIs, storage, or module imports.",
     "- Use script.brush.create/update to save, then script.brush.apply with selected or explicit line/freedraw element ids to attach the brush as a modifier.",

@@ -1,4 +1,5 @@
 import { getObjectTimeState, getScoreData, resolveIannixObjectTiming } from "./iannixEngine.js";
+import { normalizeScriptParameterValue, resolveScriptColorReference } from "./scriptParameters.js";
 
 const matchesEvent = (event, pattern) => {
   const name = String(event?.name || "");
@@ -107,10 +108,26 @@ const liveObject = (reference, canvas) => {
 };
 
 export const resolveScriptParameterValues = (parameters, runtimeRef, canvas = createScriptCanvasApi(runtimeRef)) => {
-  return Object.fromEntries((parameters || []).map(parameter => [
+  const appearance = runtimeRef?.current?.getAppearance?.() || {};
+  const colorParameters = new Map();
+  const values = Object.fromEntries((parameters || []).map(parameter => [
     parameter.name,
     parameter.type === "object"
       ? liveObject(parameter.value || parameter.default, canvas)
-      : Number(parameter.value ?? parameter.default),
+      : parameter.type === "color"
+        ? (colorParameters.set(parameter.name, parameter), resolveScriptColorReference(normalizeScriptParameterValue(parameter, parameter.value), appearance))
+      : normalizeScriptParameterValue(parameter, parameter.value),
   ]));
+  // Color references are intentionally live. A script commonly keeps
+  // `__.params.tint` in its draw loop, so resolving only once at startup
+  // leaves it one palette click behind the Excalidraw app state. Keep the
+  // ordinary values as a plain object and resolve only color keys on access.
+  return new Proxy(values, {
+    get(target, property, receiver) {
+      const parameter = colorParameters.get(property);
+      if (!parameter) return Reflect.get(target, property, receiver);
+      const liveAppearance = runtimeRef?.current?.getAppearance?.() || appearance;
+      return resolveScriptColorReference(normalizeScriptParameterValue(parameter, parameter.value), liveAppearance);
+    },
+  });
 };

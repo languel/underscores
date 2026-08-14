@@ -1,5 +1,6 @@
 // Force rebuild timestamp: 2026-07-06T11:15:00
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { Excalidraw, MainMenu, exportToSvg, exportToCanvas, getCommonBounds, loadFromBlob, serializeAsJSON, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
 import "./App.css";
 import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, isDrawableTrack, mapEvaluatedTrackToElement, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
@@ -36,7 +37,7 @@ import { getIannixCommandAtSourcePosition } from "./iannixCommandReference.js";
 import { createUnderscoresMacro, UNDERSCORES_MACRO_TYPE, UnderscoresLibraryStore, UnderscoresSessionController, instantiateUnderscoresMacro, mergeSceneMutation, parseUnderscoresSession } from "./sessionHistory.js";
 import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCursorLoopMode, getIannixCurveStartAngle, serializeBezierElementToIannixCommands, tokenizeIannixCommand } from "./iannixScript.js";
 import { bezierWorldPointToLocal, createBezierGeometryFromElement, createBezierHostGeometry, findNearestBezierLocation, getBezierWorldAnchors, getBezierWorldPath, hasCubicBezierGeometry, normalizeBezierGeometry, normalizeBezierHostElement, reframeBezierElement, removeBezierAnchor, setBezierAnchorMode, setElementBezierGeometry, splitBezierSegment, updateBezierAnchor } from "./bezierGeometry.js";
-import { getScriptParameterValues, parseScriptParameters } from "./scriptParameters.js";
+import { getScriptParameterValues, normalizeScriptParameterValue, parseScriptParameters, resolveScriptColorReference } from "./scriptParameters.js";
 import { createScriptCanvasApi, resolveScriptParameterValues } from "./scriptRuntime.js";
 import { normalizeGmPrograms } from "./generalMidi.js";
 import { createInternalMidiSynth, disposeInternalMidiSynth, isInternalMidiSynthSupported, resumeInternalMidiSynth } from "./internalMidiSynth.js";
@@ -87,7 +88,7 @@ import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
 import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
 import { LivecodeNodeEditor, LivecodeNodeOverlay, StrudelPanelStatus } from "./LivecodeNodeOverlay.jsx";
-import { createLivecodeNode, defaultLivecodeName, defaultLivecodeSource, getLivecodeFont, getLivecodeKindDefinition, getLivecodeViewForDoubleClick, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, replaceLivecodeNodeProgram } from "./livecodeNode.js";
+import { copyLivecodeExampleName, createLivecodeNode, defaultLivecodeSource, getLivecodeFont, getLivecodeKindDefinition, getLivecodeViewForDoubleClick, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, randomLivecodeName, replaceLivecodeNodeProgram } from "./livecodeNode.js";
 import { getLivecodeExamples } from "./livecodeExamples.js";
 import { describeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
 import { getShaderExample, normalizeShaderCompositionSettings, shaderExampleForSource } from "./shaderLivecode.js";
@@ -116,6 +117,7 @@ import { mappingTargetValue } from "./mappingRuntime.js";
 import { PhysicsAudioRouter } from "./physicsAudio.js";
 import { createPhysicsExample } from "./physicsExamples.js";
 import { samplePortraitLandmarkFixture } from "./physicsFixtures.js";
+import { EXCALIDRAW_BACKGROUND_QUICK_PICKS, EXCALIDRAW_COLOR_PALETTE, EXCALIDRAW_STROKE_QUICK_PICKS } from "./excalidrawColors.js";
 import PhysicsPanel from "./PhysicsPanel.jsx";
 import PhysicsOverlay from "./PhysicsOverlay.jsx";
 import PhysicsCanvasToolbar, { PhysicsWorldIcon } from "./PhysicsCanvasToolbar.jsx";
@@ -470,6 +472,145 @@ const colorInputHex = (color, fallback = "#000000") => {
     .join("")}`;
 };
 
+const rgbColor = (red, green, blue, alpha = 1) => {
+  const channels = [red, green, blue].map(channel => Math.min(255, Math.max(0, Math.round(Number(channel) || 0))));
+  const opacity = Math.min(1, Math.max(0, Number(alpha)));
+  if (opacity >= 0.999) return `#${channels.map(channel => channel.toString(16).padStart(2, "0")).join("")}`;
+  return `rgba(${channels.join(", ")}, ${opacity})`;
+};
+
+const colorFromValue = value => {
+  const resolved = resolveCssColor(value);
+  return resolved && resolved.alpha > 0.01
+    ? rgbColor(resolved.red, resolved.green, resolved.blue, resolved.alpha)
+    : null;
+};
+
+const sampleRenderedElementColor = element => {
+  if (!element || typeof window === "undefined") return null;
+  const style = window.getComputedStyle(element);
+  const displayColor = color => color ? displaySampledColor(color, element) : null;
+  const background = colorFromValue(style.backgroundColor);
+  if (background) return displayColor(background);
+  const border = style.borderTopStyle !== "none" && Number.parseFloat(style.borderTopWidth) > 0
+    ? colorFromValue(style.borderTopColor)
+    : null;
+  if (border) return displayColor(border);
+  const fill = style.fill && style.fill !== "none" ? colorFromValue(style.fill) : null;
+  if (fill) return displayColor(fill);
+  const stroke = style.stroke && style.stroke !== "none" ? colorFromValue(style.stroke) : null;
+  if (stroke) return displayColor(stroke);
+  return displayColor(colorFromValue(style.color));
+};
+
+const sampleAppColorAt = (clientX, clientY) => {
+  if (typeof document === "undefined") return null;
+  const elements = document.elementsFromPoint?.(clientX, clientY) || [];
+  const canvases = [];
+  const seenCanvases = new Set();
+  for (const element of elements) {
+    if (element?.tagName === "CANVAS" && !seenCanvases.has(element)) {
+      seenCanvases.add(element);
+      canvases.push(element);
+    }
+  }
+  // Excalidraw keeps its static artwork beneath a transparent interactive
+  // canvas, so it is not returned by elementsFromPoint even though it is the
+  // layer carrying the visible pixels. Include every canvas whose bounds
+  // contain the pointer, preserving the hit-tested canvases first.
+  for (const canvas of document.querySelectorAll?.("canvas") || []) {
+    if (seenCanvases.has(canvas)) continue;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width >= 2 && rect.height >= 2
+      && clientX >= rect.left && clientY >= rect.top
+      && clientX <= rect.right && clientY <= rect.bottom) {
+      seenCanvases.add(canvas);
+      canvases.push(canvas);
+    }
+  }
+  for (const canvas of canvases) {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2 || clientX < rect.left || clientY < rect.top || clientX > rect.right || clientY > rect.bottom) continue;
+    const pixelX = Math.min(canvas.width - 1, Math.max(0, Math.floor((clientX - rect.left) * canvas.width / rect.width)));
+    const pixelY = Math.min(canvas.height - 1, Math.max(0, Math.floor((clientY - rect.top) * canvas.height / rect.height)));
+    try {
+      const context2d = canvas.getContext("2d", { willReadFrequently: true });
+      const pixel = context2d?.getImageData(pixelX, pixelY, 1, 1).data;
+      if (pixel && pixel[3] > 0) {
+        return displaySampledColor(rgbColor(pixel[0], pixel[1], pixel[2], pixel[3] / 255), canvas);
+      }
+      const contextGl = canvas.getContext("webgl2") || canvas.getContext("webgl");
+      if (contextGl) {
+        const glPixel = new Uint8Array(4);
+        contextGl.readPixels(pixelX, canvas.height - pixelY - 1, 1, 1, contextGl.RGBA, contextGl.UNSIGNED_BYTE, glPixel);
+        if (glPixel[3] > 0) {
+          return displaySampledColor(rgbColor(glPixel[0], glPixel[1], glPixel[2], glPixel[3] / 255), canvas);
+        }
+      }
+    } catch {
+      // Cross-origin or non-readable canvases are skipped in the fallback sampler.
+    }
+  }
+  const seen = new Set();
+  for (const element of elements) {
+    let current = element;
+    while (current && current !== document.documentElement) {
+      if (!seen.has(current)) {
+        seen.add(current);
+        const sampled = sampleRenderedElementColor(current);
+        if (sampled) return sampled;
+      }
+      current = current.parentElement;
+    }
+  }
+  return null;
+};
+
+const rgbToHsv = ({ red = 0, green = 0, blue = 0, alpha = 1 }) => {
+  const r = Math.min(1, Math.max(0, Number(red) / 255));
+  const g = Math.min(1, Math.max(0, Number(green) / 255));
+  const b = Math.min(1, Math.max(0, Number(blue) / 255));
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  let hue = 0;
+  if (delta > 0) {
+    if (max === r) hue = 60 * (((g - b) / delta) % 6);
+    else if (max === g) hue = 60 * ((b - r) / delta + 2);
+    else hue = 60 * ((r - g) / delta + 4);
+  }
+  return {
+    hue: (hue + 360) % 360,
+    saturation: max === 0 ? 0 : delta / max,
+    value: max,
+    alpha: Math.min(1, Math.max(0, Number(alpha))),
+  };
+};
+
+const hsvToRgb = (hue, saturation, value) => {
+  const h = ((Number(hue) % 360) + 360) % 360;
+  const s = Math.min(1, Math.max(0, Number(saturation)));
+  const v = Math.min(1, Math.max(0, Number(value)));
+  const chroma = v * s;
+  const sector = h / 60;
+  const x = chroma * (1 - Math.abs((sector % 2) - 1));
+  const match = v - chroma;
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+  if (sector < 1) [red, green, blue] = [chroma, x, 0];
+  else if (sector < 2) [red, green, blue] = [x, chroma, 0];
+  else if (sector < 3) [red, green, blue] = [0, chroma, x];
+  else if (sector < 4) [red, green, blue] = [0, x, chroma];
+  else if (sector < 5) [red, green, blue] = [x, 0, chroma];
+  else [red, green, blue] = [chroma, 0, x];
+  return {
+    red: Math.round((red + match) * 255),
+    green: Math.round((green + match) * 255),
+    blue: Math.round((blue + match) * 255),
+  };
+};
+
 const colorWithOpacity = (color, opacity) => {
   const resolved = resolveCssColor(color);
   if (!resolved) return color;
@@ -477,9 +618,15 @@ const colorWithOpacity = (color, opacity) => {
   return `rgba(${resolved.red}, ${resolved.green}, ${resolved.blue}, ${alpha})`;
 };
 
-// Excalidraw filters authored canvas marks in dark mode, while its laser
-// overlay and our custom cursor remain unfiltered. Convert canvas-derived
-// laser tokens to the color that is actually visible on the canvas.
+const colorWithAlpha = (color, alpha) => {
+  const resolved = resolveCssColor(color);
+  if (!resolved) return color;
+  return rgbColor(resolved.red, resolved.green, resolved.blue, alpha);
+};
+
+// Excalidraw filters authored canvas marks in dark mode, while some overlays
+// remain unfiltered. Convert authored canvas/overlay colors to what is
+// actually visible on the board.
 const canvasDisplayColor = (color, theme) => {
   const resolved = resolveCssColor(color);
   if (!resolved || theme !== "dark") return color;
@@ -501,9 +648,448 @@ const canvasDisplayColor = (color, theme) => {
   return `rgba(${red}, ${green}, ${blue}, ${resolved.alpha})`;
 };
 
+const hasExcalidrawDarkThemeFilter = element => {
+  if (!element || typeof window === "undefined") return false;
+  let current = element;
+  while (current && current !== document.documentElement) {
+    const filter = window.getComputedStyle(current).filter;
+    if (filter && filter !== "none" && /invert\(/i.test(filter) && /hue-rotate\(\s*180deg/i.test(filter)) return true;
+    current = current.parentElement;
+  }
+  return false;
+};
+
+const displaySampledColor = (color, element) => {
+  if (!color || !hasExcalidrawDarkThemeFilter(element)) return color;
+  return canvasDisplayColor(color, "dark");
+};
+
 const resolveLaserColorToken = (value, palette) => {
   const token = String(value || "").trim().toLowerCase();
   return palette[token] || value || "#ff0000";
+};
+
+const formatScriptJsonParameter = value => {
+  try {
+    return JSON.stringify(value === undefined ? {} : value, null, 2);
+  } catch {
+    return "{}";
+  }
+};
+
+const ScriptParameterEditor = ({ parameter, disabled = false, onChange, onPickObject, colorPreview, colorAppearance = {} }) => {
+  const jsonFocusedRef = useRef(false);
+  const colorFocusedRef = useRef(false);
+  const colorPickerRef = useRef(null);
+  const colorHsvRef = useRef(null);
+  const colorAlphaRef = useRef(1);
+  const eyedropperPreviewRef = useRef(null);
+  const commitColorDraftRef = useRef(null);
+  const [jsonDraft, setJsonDraft] = useState(() => formatScriptJsonParameter(parameter.value));
+  const [colorDraft, setColorDraft] = useState(() => String(parameter.value ?? ""));
+  const [colorPickerOpen, setColorPickerOpen] = useState(false);
+  const [eyedropperActive, setEyedropperActive] = useState(false);
+  const [eyedropperPreview, setEyedropperPreview] = useState(null);
+  const [eyedropperTheme, setEyedropperTheme] = useState(null);
+  const [colorHsv, setColorHsv] = useState(() => rgbToHsv(resolveCssColor(colorPreview ?? parameter.value) || {}));
+  useEffect(() => {
+    if (!jsonFocusedRef.current) setJsonDraft(formatScriptJsonParameter(parameter.value));
+    if (!colorFocusedRef.current) setColorDraft(String(parameter.value ?? ""));
+  }, [parameter.value]);
+  useEffect(() => {
+    if (!colorPickerOpen) return undefined;
+    const handlePointerDown = event => {
+      if (!colorPickerRef.current?.contains(event.target)) setColorPickerOpen(false);
+    };
+    const handleKeyDown = event => {
+      if (event.key !== "Escape") return;
+      setEyedropperActive(false);
+      setColorPickerOpen(false);
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [colorPickerOpen]);
+  useEffect(() => {
+    if (!eyedropperActive) {
+      eyedropperPreviewRef.current = null;
+      setEyedropperPreview(null);
+      setEyedropperTheme(null);
+      return undefined;
+    }
+    const themeScope = colorPickerRef.current || document.body;
+    const themeStyles = window.getComputedStyle(themeScope);
+    setEyedropperTheme({
+      "--color-primary": themeStyles.getPropertyValue("--color-primary").trim() || "#fff",
+      "--color-secondary": themeStyles.getPropertyValue("--color-secondary").trim() || "#bbb",
+      "--underscores-panel-bg": themeStyles.getPropertyValue("--underscores-panel-bg").trim() || "#181818",
+      "--border-color": themeStyles.getPropertyValue("--border-color").trim() || "#555",
+    });
+    const previousCursor = document.body.style.cursor;
+    document.body.style.cursor = "crosshair";
+    document.body.dataset.iannixEyedropper = "true";
+    const handlePointerMove = event => {
+      if (colorPickerRef.current?.contains(event.target)) {
+        eyedropperPreviewRef.current = null;
+        setEyedropperPreview(null);
+        return;
+      }
+      const sampled = sampleAppColorAt(event.clientX, event.clientY);
+      const nextPreview = sampled
+        ? {
+          x: Math.max(8, Math.min(window.innerWidth - 124, event.clientX + 16)),
+          y: Math.max(8, Math.min(window.innerHeight - 42, event.clientY + 16)),
+          color: sampled,
+        }
+        : null;
+      eyedropperPreviewRef.current = nextPreview;
+      setEyedropperPreview(nextPreview);
+    };
+    const handlePointerDown = event => {
+      if (colorPickerRef.current?.contains(event.target)) return;
+      const sampled = eyedropperPreviewRef.current?.color || sampleAppColorAt(event.clientX, event.clientY);
+      if (sampled) {
+        commitColorDraftRef.current?.(colorWithAlpha(sampled, colorAlphaRef.current));
+        setColorPickerOpen(false);
+      }
+      setEyedropperActive(false);
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const handleKeyDown = event => {
+      if (event.key !== "Escape") return;
+      setEyedropperActive(false);
+      setColorPickerOpen(false);
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    document.addEventListener("pointermove", handlePointerMove, true);
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("pointermove", handlePointerMove, true);
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("keydown", handleKeyDown, true);
+      document.body.style.cursor = previousCursor;
+      delete document.body.dataset.iannixEyedropper;
+      eyedropperPreviewRef.current = null;
+      setEyedropperPreview(null);
+      setEyedropperTheme(null);
+    };
+  }, [eyedropperActive]);
+  const label = parameter.label || parameter.name;
+  const type = parameter.type || "number";
+  const resolvedColor = colorPreview ?? parameter.value;
+  const parsedColor = type === "color"
+    ? resolveCssColor(resolvedColor) || { red: 0, green: 0, blue: 0, alpha: 1 }
+    : { red: 0, green: 0, blue: 0, alpha: 1 };
+  const alphaPercent = Math.round(Math.min(1, Math.max(0, parsedColor.alpha ?? 1)) * 100);
+  useEffect(() => {
+    if (type !== "color") return;
+    const nextHsv = rgbToHsv(resolveCssColor(resolvedColor) || {});
+    colorHsvRef.current = nextHsv;
+    colorAlphaRef.current = nextHsv.alpha;
+    setColorHsv(nextHsv);
+  }, [resolvedColor, type]);
+  const excalidrawColors = colorAppearance.colors?.excalidraw || colorAppearance.excalidraw || {};
+  const colorReferences = [
+    { value: "__.currentColor", label: "Current stroke", color: colorAppearance.currentColor || excalidrawColors.foreground?.css },
+    { value: "__.currentBackgroundColor", label: "Current fill", color: colorAppearance.currentBackgroundColor || excalidrawColors.background?.css },
+    { value: "__.colors.excalidraw.foreground.css", label: "Excalidraw stroke", color: excalidrawColors.foreground?.css },
+    { value: "__.colors.excalidraw.background.css", label: "Excalidraw fill", color: excalidrawColors.background?.css },
+    ...["foreground", "accent", "highlight", "muted", "panel", "input", "timeline", "canvas"].map(key => ({
+      value: `__.colors.${key}.css`,
+      label: key,
+      color: colorAppearance.colors?.[key]?.css,
+    })),
+  ].filter(option => option.color);
+  colorAlphaRef.current = parsedColor.alpha ?? 1;
+  colorHsvRef.current = colorHsv;
+  const setPickerHsv = next => {
+    colorHsvRef.current = next;
+    setColorHsv(next);
+  };
+  const commitPickerHsv = next => {
+    const rgb = hsvToRgb(next.hue, next.saturation, next.value);
+    commitColorDraft(rgbColor(rgb.red, rgb.green, rgb.blue, colorAlphaRef.current));
+  };
+  const updatePickerFromPoint = (event, field) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const position = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    const vertical = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
+    const next = field === "hue"
+      ? { ...colorHsvRef.current, hue: position * 360 }
+      : { ...colorHsvRef.current, saturation: position, value: 1 - vertical };
+    setPickerHsv(next);
+    commitPickerHsv(next);
+  };
+  const startPickerDrag = (event, field) => {
+    event.preventDefault();
+    const target = event.currentTarget;
+    const handleMove = moveEvent => updatePickerFromPoint(moveEvent, field);
+    const handleUp = () => {
+      target.removeEventListener("pointermove", handleMove);
+      target.removeEventListener("pointerup", handleUp);
+      target.removeEventListener("pointercancel", handleUp);
+    };
+    target.addEventListener("pointermove", handleMove);
+    target.addEventListener("pointerup", handleUp, { once: true });
+    target.addEventListener("pointercancel", handleUp, { once: true });
+    target.setPointerCapture?.(event.pointerId);
+    updatePickerFromPoint(event, field);
+  };
+  const commitColorDraft = value => {
+    colorFocusedRef.current = false;
+    setColorDraft(value);
+    const nextColor = resolveCssColor(value);
+    if (nextColor) {
+      const nextHsv = rgbToHsv(nextColor);
+      colorHsvRef.current = nextHsv;
+      setColorHsv(nextHsv);
+      colorAlphaRef.current = nextHsv.alpha;
+    }
+    onChange?.(value);
+  };
+  commitColorDraftRef.current = commitColorDraft;
+  const beginColorPick = event => {
+    if (!event?.altKey) {
+      setEyedropperActive(active => !active);
+      return;
+    }
+    const EyeDropperConstructor = typeof window !== "undefined" ? window.EyeDropper : undefined;
+    if (typeof EyeDropperConstructor === "function" && typeof EyeDropperConstructor.prototype?.open === "function") {
+      const picker = new EyeDropperConstructor();
+      picker.open()
+        .then(result => {
+          if (result?.sRGBHex) commitColorDraft(colorWithAlpha(result.sRGBHex, colorAlphaRef.current));
+        })
+        .catch(() => {
+          // Cancellation is a normal exit path for the native screen picker.
+        });
+      return;
+    }
+    setEyedropperActive(active => !active);
+  };
+  if (type === "object") {
+    return (
+      <div className="iannix-inline-action">
+        <input
+          className="custom-brush-param-input"
+          type="text"
+          value={String(parameter.value ?? "")}
+          placeholder="Object id, label, or group"
+          disabled={disabled}
+          onChange={event => onChange?.(event.target.value)}
+          aria-label={label + " (" + parameter.name + ")"}
+        />
+        {onPickObject && <button
+          type="button"
+          className="properties-object-picker"
+          onClick={onPickObject}
+          disabled={disabled}
+          title={"Pick " + label + " from the canvas"}
+          aria-label={"Pick " + label + " from the canvas"}
+        >⌖</button>}
+      </div>
+    );
+  }
+  if (type === "color") {
+    return (
+      <div className="iannix-inline-action iannix-color-parameter">
+        <div className="iannix-color-picker" ref={colorPickerRef}>
+          <button
+            type="button"
+            className="iannix-color-swatch"
+            style={{ "--iannix-color-value": resolvedColor || "transparent" }}
+            disabled={disabled}
+            onClick={() => setColorPickerOpen(open => !open)}
+            aria-haspopup="dialog"
+            aria-expanded={colorPickerOpen}
+            aria-label={label + " color picker"}
+            title="Choose color and alpha"
+          />
+          {colorPickerOpen && <div className="iannix-color-popover" role="dialog" aria-label={label + " color and alpha"}>
+            <div
+              className="iannix-color-sv-field"
+              style={{ "--iannix-picker-hue": colorHsv.hue }}
+              onPointerDown={event => startPickerDrag(event, "sv")}
+              role="slider"
+              aria-label={label + " saturation and brightness"}
+              aria-valuetext={`${Math.round(colorHsv.saturation * 100)}% saturation, ${Math.round(colorHsv.value * 100)}% brightness`}
+              tabIndex={0}
+            >
+              <span
+                className="iannix-color-sv-thumb"
+                style={{ left: `${colorHsv.saturation * 100}%`, top: `${(1 - colorHsv.value) * 100}%` }}
+              />
+            </div>
+            <div
+              className="iannix-color-hue-field"
+              onPointerDown={event => startPickerDrag(event, "hue")}
+              role="slider"
+              aria-label={label + " hue"}
+              aria-valuemin="0"
+              aria-valuemax="360"
+              aria-valuenow={Math.round(colorHsv.hue)}
+              tabIndex={0}
+            >
+              <span className="iannix-color-hue-thumb" style={{ left: `${(colorHsv.hue / 360) * 100}%` }} />
+            </div>
+            <div className="iannix-color-popover-toolbar">
+              <span className="iannix-color-readout" style={{ "--iannix-color-value": resolvedColor || "transparent" }} aria-hidden="true" />
+              <button
+                type="button"
+                className="iannix-color-eyedropper"
+                disabled={disabled}
+                onClick={beginColorPick}
+                aria-pressed={eyedropperActive}
+                title={eyedropperActive ? "Move over the app to preview; click to sample (Escape cancels)" : "Pick an app color (Alt-click for screen)"}
+                aria-label="Pick a color from the canvas"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m14 4 6 6" /><path d="m12 6 6 6" /><path d="m5 19 5-5" /><path d="m4 20 1-4L16 5l4 4-11 11-5 1Z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                className="iannix-color-transparent"
+                disabled={disabled}
+                onClick={() => commitColorDraft("transparent")}
+                aria-pressed={colorDraft === "transparent"}
+                title="Use transparent"
+                aria-label="Use transparent"
+              >None</button>
+              <output>{eyedropperActive
+                ? (eyedropperPreview ? colorInputHex(eyedropperPreview.color) : "Move to canvas")
+                : `${colorInputHex(resolvedColor)} · ${alphaPercent}%`}</output>
+            </div>
+            {colorReferences.length > 0 && <div className="iannix-color-reference-section">
+              <span className="iannix-color-reference-title">__ colors</span>
+              <div className="iannix-color-reference-grid">
+                {colorReferences.map(option => <button
+                  type="button"
+                  key={option.value}
+                  className="iannix-color-reference"
+                  onClick={() => commitColorDraft(option.value)}
+                  aria-pressed={colorDraft === option.value}
+                  title={option.value}
+                  aria-label={`Use ${option.label} color (${option.value})`}
+                >
+                  <span className="iannix-color-reference-swatch" style={{ "--iannix-color-value": option.color }} />
+                  <span>{option.label}</span>
+                </button>)}
+              </div>
+            </div>}
+            <label className="iannix-color-alpha-field">
+              <span>Alpha</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value={alphaPercent}
+                disabled={disabled}
+                onChange={event => commitColorDraft(colorWithAlpha(resolvedColor, Number(event.target.value) / 100))}
+                aria-label={label + " alpha"}
+              />
+              <output>{alphaPercent}%</output>
+            </label>
+          </div>}
+        </div>
+        {eyedropperActive && eyedropperPreview && createPortal(
+          <div
+            className="iannix-eyedropper-preview"
+            style={{ left: eyedropperPreview.x, top: eyedropperPreview.y, ...eyedropperTheme }}
+            role="status"
+            aria-live="polite"
+          >
+            <span
+              className="iannix-eyedropper-preview-swatch"
+              style={{ "--iannix-color-value": eyedropperPreview.color }}
+              aria-hidden="true"
+            />
+            <code>{colorInputHex(eyedropperPreview.color)}</code>
+          </div>,
+          document.body,
+        )}
+        <input
+          className="custom-brush-param-input"
+          type="text"
+          value={colorDraft}
+          disabled={disabled}
+          onFocus={() => { colorFocusedRef.current = true; }}
+          onChange={event => setColorDraft(event.target.value)}
+          onBlur={() => {
+            if (colorFocusedRef.current) commitColorDraft(colorDraft);
+          }}
+          onKeyDown={event => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitColorDraft(colorDraft);
+              event.currentTarget.blur();
+            }
+          }}
+          aria-label={label + " color value"}
+        />
+      </div>
+    );
+  }
+  if (type === "string") {
+    return <input
+      className="custom-brush-param-input"
+      type="text"
+      value={String(parameter.value ?? "")}
+      disabled={disabled}
+      onChange={event => onChange?.(event.target.value)}
+      aria-label={label + " (" + parameter.name + ")"}
+    />;
+  }
+  if (type === "json") {
+    return <textarea
+      className="custom-brush-param-input iannix-json-param-input"
+      value={jsonDraft}
+      disabled={disabled}
+      onFocus={() => { jsonFocusedRef.current = true; }}
+      onChange={event => setJsonDraft(event.target.value)}
+      onBlur={() => {
+        jsonFocusedRef.current = false;
+        try {
+          onChange?.(JSON.parse(jsonDraft));
+        } catch {
+          // Keep invalid JSON in the editor so it can be corrected without
+          // replacing the last valid value used by the running script.
+        }
+      }}
+      aria-label={label + " JSON"}
+      spellCheck="false"
+    />;
+  }
+  if (type === "boolean") {
+    return <input
+      type="checkbox"
+      checked={normalizeScriptParameterValue(parameter, parameter.value)}
+      disabled={disabled}
+      onChange={event => onChange?.(event.target.checked)}
+      aria-label={label + " (" + parameter.name + ")"}
+    />;
+  }
+  return <NumericInput
+    className="custom-brush-param-input"
+    min={parameter.min}
+    max={parameter.max}
+    step={parameter.step}
+    data-default={parameter.default}
+    value={parameter.value}
+    defaultValue={parameter.default ?? parameter.value}
+    disabled={disabled}
+    onCommit={onChange}
+    aria-label={label + " (" + parameter.name + ")"}
+  />;
 };
 
 const laserCursorForColor = color => {
@@ -1936,7 +2522,7 @@ const parseParameters = code => parseScriptParameters(code);
 const updateCodeWithParamValues = (code, params) => {
   let updatedCode = code;
   params.forEach(p => {
-    if (p.type === "object") return;
+    if (p.type) return;
     const regex = new RegExp(`(//\\s*@param\\s+${p.name}\\s*=\\s*)[0-9.-]+`, "g");
     updatedCode = updatedCode.replace(regex, `$1${p.value}`);
   });
@@ -2475,6 +3061,10 @@ function App() {
   });
   const [forceDesktopLayout, setForceDesktopLayout] = useState(() => {
     const saved = localStorage.getItem("underscores_force_desktop_layout");
+    return saved !== "false";
+  });
+  const [forceUnderscoresUiTheme, setForceUnderscoresUiTheme] = useState(() => {
+    const saved = localStorage.getItem("underscores_force_ui_theme");
     return saved !== "false";
   });
   const [defaultStabilizerDamping, setDefaultStabilizerDamping] = useState(() => {
@@ -3948,22 +4538,121 @@ function App() {
     getTime: () => scoreTimeRef.current,
     getTimeContext: () => timeContext,
     getGrid: () => globalGridRef.current,
-    getAppearance: () => Object.freeze({
-      theme,
-      interfaceThemePreset,
-      currentColor: foregroundColor,
-      currentOpacity: foregroundOpacity,
-      colors: Object.freeze({
-        foreground: Object.freeze({ color: foregroundColor, opacity: foregroundOpacity, css: colorWithOpacity(foregroundColor, foregroundOpacity) }),
-        accent: Object.freeze({ color: accentColor, opacity: accentOpacity, css: colorWithOpacity(accentColor, accentOpacity) }),
-        highlight: Object.freeze({ color: highlightColor, opacity: highlightOpacity, css: colorWithOpacity(highlightColor, highlightOpacity) }),
-        muted: Object.freeze({ color: mutedColor, opacity: mutedOpacity, css: colorWithOpacity(mutedColor, mutedOpacity) }),
-        panel: Object.freeze({ color: interfaceTheme.panel.color, opacity: interfaceTheme.panel.opacity, css: colorWithOpacity(interfaceTheme.panel.color, interfaceTheme.panel.opacity) }),
-        input: Object.freeze({ color: interfaceTheme.input.color, opacity: interfaceTheme.input.opacity, css: colorWithOpacity(interfaceTheme.input.color, interfaceTheme.input.opacity) }),
-        timeline: Object.freeze({ color: interfaceTheme.timeline.color, opacity: interfaceTheme.timeline.opacity, css: colorWithOpacity(interfaceTheme.timeline.color, interfaceTheme.timeline.opacity) }),
-        canvas: Object.freeze({ color: interfaceTheme.canvas.color, opacity: interfaceTheme.canvas.opacity, css: colorWithOpacity(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity) }),
-      }),
-    }),
+    getAppearance: () => {
+      // Read Excalidraw's app state at call time. Scripts hold onto the bridge
+      // for their whole lifetime, so capturing these values during a React
+      // render would leave __.currentColor stale after a palette click.
+      const appState = excalidrawAPIRef.current?.getAppState?.() || {};
+      const rawCurrentColor = appState.currentItemStrokeColor ?? lastStrokeColorRef.current ?? foregroundColor;
+      const rawCurrentBackgroundColor = appState.currentItemBackgroundColor ?? "transparent";
+      // Excalidraw applies its dark-theme filter to authored canvas pixels,
+      // while p5/Livecode surfaces are composited outside that filtered layer.
+      // Convenience aliases therefore use the visible/display color so a
+      // script stroke matches the color the author sees on the board. The
+      // exact authored values remain available in appState below.
+      const currentColor = canvasDisplayColor(rawCurrentColor, theme);
+      const currentBackgroundColor = canvasDisplayColor(rawCurrentBackgroundColor, theme);
+      const currentOpacity = Number.isFinite(Number(appState.currentItemOpacity))
+        ? Number(appState.currentItemOpacity)
+        : foregroundOpacity;
+      const currentStrokeWidth = Number.isFinite(Number(appState.currentItemStrokeWidth))
+        ? Number(appState.currentItemStrokeWidth)
+        : 1;
+      const currentTool = appState.activeTool?.type || null;
+      const appStateSnapshot = Object.freeze({
+        theme: appState.theme || theme,
+        currentItemStrokeColor: rawCurrentColor,
+        currentItemBackgroundColor: rawCurrentBackgroundColor,
+        currentItemOpacity: currentOpacity,
+        currentItemStrokeWidth: currentStrokeWidth,
+        currentItemFillStyle: appState.currentItemFillStyle ?? null,
+        currentItemStrokeStyle: appState.currentItemStrokeStyle ?? null,
+        currentItemRoughness: appState.currentItemRoughness ?? null,
+        currentItemRoundness: appState.currentItemRoundness ?? null,
+        currentItemFontFamily: appState.currentItemFontFamily ?? null,
+        currentItemFontSize: appState.currentItemFontSize ?? null,
+        currentItemFontWeight: appState.currentItemFontWeight ?? null,
+        currentItemTextAlign: appState.currentItemTextAlign ?? null,
+        currentItemVerticalAlign: appState.currentItemVerticalAlign ?? null,
+        activeTool: currentTool,
+        zoom: Number(appState.zoom?.value) || 1,
+        scrollX: Number(appState.scrollX) || 0,
+        scrollY: Number(appState.scrollY) || 0,
+        width: Number(appState.width) || null,
+        height: Number(appState.height) || null,
+        viewBackgroundColor: appState.viewBackgroundColor || null,
+        selectedElementIds: Object.freeze({ ...(appState.selectedElementIds || {}) }),
+      });
+      const colorEntry = (color, opacity = 100) => {
+        const display = canvasDisplayColor(color, theme);
+        return Object.freeze({
+          color,
+          raw: color,
+          display,
+          opacity,
+          css: colorWithOpacity(display, opacity),
+          rawCss: colorWithOpacity(color, opacity),
+          displayCss: colorWithOpacity(display, opacity),
+        });
+      };
+      const displayPalette = Object.freeze(Object.fromEntries(Object.entries(EXCALIDRAW_COLOR_PALETTE).map(([name, value]) => [
+        name,
+        Array.isArray(value)
+          ? Object.freeze(value.map(color => canvasDisplayColor(color, theme)))
+          : canvasDisplayColor(value, theme),
+      ])));
+      const excalidraw = Object.freeze({
+        foreground: colorEntry(rawCurrentColor, currentOpacity),
+        background: colorEntry(rawCurrentBackgroundColor, currentOpacity),
+        stroke: colorEntry(rawCurrentColor, currentOpacity),
+        fill: colorEntry(rawCurrentBackgroundColor, currentOpacity),
+        palette: EXCALIDRAW_COLOR_PALETTE,
+        displayPalette,
+        strokePalette: EXCALIDRAW_STROKE_QUICK_PICKS,
+        displayStrokePalette: Object.freeze(EXCALIDRAW_STROKE_QUICK_PICKS.map(color => canvasDisplayColor(color, theme))),
+        backgroundPalette: EXCALIDRAW_BACKGROUND_QUICK_PICKS,
+        displayBackgroundPalette: Object.freeze(EXCALIDRAW_BACKGROUND_QUICK_PICKS.map(color => canvasDisplayColor(color, theme))),
+      });
+      return Object.freeze({
+        theme,
+        interfaceThemePreset,
+        currentColor,
+        currentRawColor: rawCurrentColor,
+        currentOpacity,
+        currentBackgroundColor,
+        currentRawBackgroundColor: rawCurrentBackgroundColor,
+        currentBackgroundOpacity: currentOpacity,
+        currentStroke: currentColor,
+        currentFill: currentBackgroundColor,
+        currentStrokeWidth,
+        currentFillStyle: appState.currentItemFillStyle ?? null,
+        currentStrokeStyle: appState.currentItemStrokeStyle ?? null,
+        currentRoughness: appState.currentItemRoughness ?? null,
+        currentRoundness: appState.currentItemRoundness ?? null,
+        currentFontFamily: appState.currentItemFontFamily ?? null,
+        currentFontSize: appState.currentItemFontSize ?? null,
+        currentFontWeight: appState.currentItemFontWeight ?? null,
+        currentTextAlign: appState.currentItemTextAlign ?? null,
+        currentVerticalAlign: appState.currentItemVerticalAlign ?? null,
+        activeTool: currentTool,
+        zoom: appStateSnapshot.zoom,
+        scrollX: appStateSnapshot.scrollX,
+        scrollY: appStateSnapshot.scrollY,
+        appState: appStateSnapshot,
+        excalidraw,
+        colors: Object.freeze({
+          foreground: Object.freeze({ color: foregroundColor, opacity: foregroundOpacity, css: colorWithOpacity(foregroundColor, foregroundOpacity) }),
+          accent: Object.freeze({ color: accentColor, opacity: accentOpacity, css: colorWithOpacity(accentColor, accentOpacity) }),
+          highlight: Object.freeze({ color: highlightColor, opacity: highlightOpacity, css: colorWithOpacity(highlightColor, highlightOpacity) }),
+          muted: Object.freeze({ color: mutedColor, opacity: mutedOpacity, css: colorWithOpacity(mutedColor, mutedOpacity) }),
+          panel: Object.freeze({ color: interfaceTheme.panel.color, opacity: interfaceTheme.panel.opacity, css: colorWithOpacity(interfaceTheme.panel.color, interfaceTheme.panel.opacity) }),
+          input: Object.freeze({ color: interfaceTheme.input.color, opacity: interfaceTheme.input.opacity, css: colorWithOpacity(interfaceTheme.input.color, interfaceTheme.input.opacity) }),
+          timeline: Object.freeze({ color: interfaceTheme.timeline.color, opacity: interfaceTheme.timeline.opacity, css: colorWithOpacity(interfaceTheme.timeline.color, interfaceTheme.timeline.opacity) }),
+          canvas: Object.freeze({ color: interfaceTheme.canvas.color, opacity: interfaceTheme.canvas.opacity, css: colorWithOpacity(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity) }),
+          excalidraw,
+        }),
+      });
+    },
   };
   if (!scriptCanvasApiRef.current) scriptCanvasApiRef.current = createScriptCanvasApi(scriptRuntimeRef);
   const runtimeCursorSelectionRef = useRef({});
@@ -6052,16 +6741,18 @@ function App() {
     }
     try {
       const message = request.onPick(candidate, { point: [world.x, world.y] });
-      const selection = { [candidate.id]: true };
-      selectedElementIdsRef.current = selection;
-      setSelectedElementIds(selection);
-      excalidrawAPI.updateScene({
-        appState: {
-          selectedElementIds: selection,
-          selectedGroupIds: {},
-          activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false },
-        },
-      });
+      if (!request.preserveSelection) {
+        const selection = { [candidate.id]: true };
+        selectedElementIdsRef.current = selection;
+        setSelectedElementIds(selection);
+        excalidrawAPI.updateScene({
+          appState: {
+            selectedElementIds: selection,
+            selectedGroupIds: {},
+            activeTool: { ...(appState.activeTool || {}), type: "selection", locked: false },
+          },
+        });
+      }
       objectEyedropperRef.current = null;
       setObjectEyedropper(null);
       setSceneExchangeStatus(message || `${request.label}: object selected.`);
@@ -6882,6 +7573,10 @@ function App() {
     if (e.button !== 0) return;
     gridInteractionRef.current = { moving: false, resizing: false, pointEditing: false, pointIndices: null };
 
+    // An active object picker takes precedence over canvas overlays so object
+    // parameters can target any visible scene object, including live nodes.
+    if (handleObjectEyedropperPointerDown(e)) return;
+
     // An interactive embed owns its pointer session. Without this guard our
     // canvas capture handler can still begin a selection/drawing operation as
     // the iframe receives focus, which makes interactive presentation embeds
@@ -6902,8 +7597,6 @@ function App() {
     if (e.target?.closest?.(".physics-canvas-toolbar")) return;
 
     if (handlePhysicsPointerDown(e)) return;
-
-    if (handleObjectEyedropperPointerDown(e)) return;
 
     // Cmd/Ctrl-clicking an unselected Livecode node is an output shortcut,
     // not an additive Excalidraw selection gesture.
@@ -12593,6 +13286,7 @@ function App() {
               ...current.time,
               start: 0,
               startValue: createTimeValue("0 s", 0, timeContext),
+              loopMode: role === "cursor" ? "loop" : current.time.loopMode,
               startMode: role === "cursor" ? "curve" : "manual",
               durationMode: role === "cursor" ? "curve" : "geometry",
             },
@@ -14057,11 +14751,29 @@ function App() {
   // consumer, but parameter routes and other object-backed inputs can supply
   // their own acceptance predicate and commit callback without inventing a
   // second picking interaction.
-  const beginObjectEyedropper = useCallback(({ label, accept, onPick }) => {
-    objectEyedropperRef.current = { label, accept, onPick };
+  const beginObjectEyedropper = useCallback(({ label, accept, onPick, preserveSelection = false }) => {
+    objectEyedropperRef.current = { label, accept, onPick, preserveSelection };
     setObjectEyedropper({ label });
     setSceneExchangeStatus(`${label}: click a compatible canvas object, or press Escape to cancel.`);
   }, []);
+
+  const beginScriptObjectParameterEyedropper = (parameter, assign) => {
+    const label = parameter.label || parameter.name;
+    beginObjectEyedropper({
+      label: `Pick ${label}`,
+      preserveSelection: true,
+      accept: element => Boolean(
+        element
+        && !element.isDeleted
+        && element.customData?.outlinerHidden !== true
+        && element.customData?.presentationMaskActive !== true,
+      ),
+      onPick: element => {
+        assign(element.id);
+        return `${label} assigned to ${element.id}.`;
+      },
+    });
+  };
 
   const beginPhysicsConstraintEndpointEyedropper = (constraintId, side) => {
     const graph = normalizeRelationshipGraph(relationshipGraphRef.current);
@@ -14947,7 +15659,7 @@ function App() {
     const shaderExample = shaderDefaults ? getShaderExample(args.example || "hello") : null;
     const node = createLivecodeNode({
       kind,
-      name: args.name || shaderExample?.name || defaultLivecodeName(kind),
+      name: args.name || (shaderExample ? copyLivecodeExampleName(shaderExample.name) : randomLivecodeName(kind)),
       source: typeof args.source === "string" ? args.source : shaderExample?.source || (shaderDefaults ? defaultLivecodeSource(kind) : undefined),
       parameters: args.parameters,
       runtime: {
@@ -15008,7 +15720,7 @@ function App() {
     const kind = isP5 ? LIVECODE_KINDS.p5 : LIVECODE_KINDS.playcore;
     const node = createLivecodeNode({
       kind,
-      name: getScoreData(host)?.label || defaultLivecodeName(kind),
+      name: getScoreData(host)?.label || randomLivecodeName(kind, host.id),
       source: legacy.source,
       parameters: legacy.parameters,
       runtime: {
@@ -15534,6 +16246,7 @@ function App() {
             ...current.time,
             start: 0,
             startValue: createTimeValue("0 s", 0, timeContext),
+            loopMode: role === "cursor" ? "loop" : current.time.loopMode,
             startMode: role === "cursor" ? "curve" : "manual",
             durationMode: role === "cursor" ? "curve" : "geometry",
           },
@@ -16489,6 +17202,7 @@ function App() {
     if (typeof state.showToolbarHints === "boolean") setShowToolbarHints(state.showToolbarHints);
     if (typeof state.showBottomNotifications === "boolean") setShowBottomNotifications(state.showBottomNotifications);
     if (typeof state.forceDesktopLayout === "boolean") setForceDesktopLayout(state.forceDesktopLayout);
+    if (typeof state.forceUnderscoresUiTheme === "boolean") setForceUnderscoresUiTheme(state.forceUnderscoresUiTheme);
     if (typeof state.showDebugLayer === "boolean") setShowDebugLayer(state.showDebugLayer);
     if (Number.isFinite(Number(state.defaultStabilizerDamping))) {
       setDefaultStabilizerDamping(Number(state.defaultStabilizerDamping));
@@ -16725,6 +17439,7 @@ function App() {
       showToolbarHints,
       showBottomNotifications,
       forceDesktopLayout,
+      forceUnderscoresUiTheme,
       showDebugLayer,
       defaultStabilizerDamping,
     };
@@ -16743,7 +17458,7 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record board settings", error));
     }, 180);
-  }, [accentColor, accentOpacity, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
+  }, [accentColor, accentOpacity, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, forceUnderscoresUiTheme, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
 
   useLayoutEffect(() => {
     const relations = createRelationshipApi({
@@ -18688,7 +19403,12 @@ function App() {
       includeIannixAsk: true,
       values: activeScript?.parameters || {},
     });
-    const scriptParameterValues = getScriptParameterValues(scriptParameters);
+    const scriptParameterValues = Object.fromEntries(scriptParameters.map(parameter => [
+      parameter.name,
+      parameter.type === "color"
+        ? resolveScriptColorReference(parameter.value, scriptRuntimeRef.current?.getAppearance?.())
+        : getScriptParameterValues([parameter])[parameter.name],
+    ]));
     const runTrustedSource = (source, filename, parameters = {}, score = null) => {
       const trimmed = String(source || "").trim();
       if (!trimmed) return Promise.resolve(null);
@@ -18785,11 +19505,13 @@ function App() {
       setIannixCommandHelp(null);
     };
     const updateScriptParameter = (name, value) => {
-      if (!activeScript || !Number.isFinite(Number(value))) return;
+      const parameter = scriptParameters.find(candidate => candidate.name === name);
+      if (!activeScript || !parameter) return;
+      const nextValue = normalizeScriptParameterValue(parameter, value);
       setIannixScripts(previous => previous.map(script => script.id === activeScript.id
         ? {
             ...script,
-            parameters: { ...(script.parameters || {}), [name]: Number(value) },
+            parameters: { ...(script.parameters || {}), [name]: nextValue },
             updatedAt: Date.now(),
           }
         : script
@@ -18855,16 +19577,12 @@ function App() {
                   title={[parameter.category, parameter.name].filter(Boolean).join(" · ")}
                 >
                   <span className="iannix-script-parameter-header">{parameter.label || parameter.name}</span>
-                  <NumericInput
-                    min={parameter.min}
-                    max={parameter.max}
-                    step={parameter.step}
-                    data-default={parameter.default}
-                    value={parameter.value}
-                    defaultValue={parameter.default ?? parameter.value}
-                    onCommit={value => updateScriptParameter(parameter.name, value)}
+                  <ScriptParameterEditor
+                    parameter={parameter}
+                    colorPreview={resolveScriptColorReference(parameter.value, scriptRuntimeRef.current?.getAppearance?.())}
+                    colorAppearance={scriptRuntimeRef.current?.getAppearance?.()}
+                    onChange={value => updateScriptParameter(parameter.name, value)}
                     disabled={!activeScript}
-                    aria-label={`${parameter.label || parameter.name} (${parameter.name})`}
                   />
                 </label>
               ))}
@@ -18948,6 +19666,10 @@ function App() {
         },
       });
     };
+    const pickP5ObjectParameter = parameter => beginScriptObjectParameterEyedropper(
+      parameter,
+      value => updateP5Parameters({ [parameter.name]: value }),
+    );
     const updateScriptLive = patch => {
       if (Object.hasOwn(patch, "source")) {
         const validation = validateP5Source(patch.source);
@@ -19168,15 +19890,27 @@ function App() {
               <strong>{parameter.label}</strong>
               {parameter.type === "object" && <em>Canvas object</em>}
             </span>
-            {parameter.type === "object"
-              ? <input
-                className="custom-brush-param-input"
-                type="text"
-                value={parameter.value}
-                placeholder="Object id, label, or group"
-                disabled={!selectedP5Host}
-                onChange={event => updateP5Parameters({ [parameter.name]: event.target.value })}
-              />
+            {["string", "color", "json", "boolean"].includes(parameter.type)
+              ? <ScriptParameterEditor parameter={parameter} colorPreview={resolveScriptColorReference(parameter.value, scriptRuntimeRef.current?.getAppearance?.())} colorAppearance={scriptRuntimeRef.current?.getAppearance?.()} onChange={value => updateP5Parameters({ [parameter.name]: value })} disabled={!selectedP5Host} />
+              : parameter.type === "object"
+              ? <div className="iannix-inline-action">
+                <input
+                  className="custom-brush-param-input"
+                  type="text"
+                  value={parameter.value}
+                  placeholder="Object id, label, or group"
+                  disabled={!selectedP5Host}
+                  onChange={event => updateP5Parameters({ [parameter.name]: event.target.value })}
+                />
+                <button
+                  type="button"
+                  className="properties-object-picker"
+                  onClick={() => pickP5ObjectParameter(parameter)}
+                  disabled={!selectedP5Host}
+                  title={`Pick ${parameter.label} from the canvas`}
+                  aria-label={`Pick ${parameter.label} from the canvas`}
+                >⌖</button>
+              </div>
               : <NumericInput
                 className="custom-brush-param-input"
                 min={parameter.min}
@@ -19269,6 +20003,10 @@ function App() {
     const updateParameters = patch => syncSelectedFrames({
       parameters: { ...(selectedConfig?.parameters || {}), ...patch },
     });
+    const pickPlayCoreObjectParameter = parameter => beginScriptObjectParameterEyedropper(
+      parameter,
+      value => updateParameters({ [parameter.name]: value }),
+    );
     const updateScriptLive = patch => {
       if (Object.hasOwn(patch, "source")) {
         const validation = validatePlayCoreSource(patch.source);
@@ -19443,15 +20181,27 @@ function App() {
       {parameters.length > 0 && <div className="iannix-script-parameters p5-script-parameters" aria-label="Play Core parameters">
         {parameters.map(parameter => <label className="iannix-script-parameter" key={parameter.name}>
           <span className="iannix-script-parameter-header"><strong>{parameter.label}</strong>{parameter.type === "object" && <em>Canvas object</em>}</span>
-          {parameter.type === "object"
-            ? <input
-              className="custom-brush-param-input"
-              type="text"
-              value={parameter.value}
-              placeholder="Object id, label, or group"
-              disabled={!selectedConfig}
-              onChange={event => updateParameters({ [parameter.name]: event.target.value })}
-            />
+          {["string", "color", "json", "boolean"].includes(parameter.type)
+            ? <ScriptParameterEditor parameter={parameter} colorPreview={resolveScriptColorReference(parameter.value, scriptRuntimeRef.current?.getAppearance?.())} colorAppearance={scriptRuntimeRef.current?.getAppearance?.()} onChange={value => updateParameters({ [parameter.name]: value })} disabled={!selectedConfig} />
+            : parameter.type === "object"
+            ? <div className="iannix-inline-action">
+              <input
+                className="custom-brush-param-input"
+                type="text"
+                value={parameter.value}
+                placeholder="Object id, label, or group"
+                disabled={!selectedConfig}
+                onChange={event => updateParameters({ [parameter.name]: event.target.value })}
+              />
+              <button
+                type="button"
+                className="properties-object-picker"
+                onClick={() => pickPlayCoreObjectParameter(parameter)}
+                disabled={!selectedConfig}
+                title={`Pick ${parameter.label} from the canvas`}
+                aria-label={`Pick ${parameter.label} from the canvas`}
+              >⌖</button>
+            </div>
             : <NumericInput
               className="custom-brush-param-input"
               min={parameter.min}
@@ -19502,8 +20252,8 @@ function App() {
     const shaderComposition = normalizeShaderCompositionSettings(node.runtime.settings);
     const livecodeExamples = getLivecodeExamples(node.kind);
     const activeLivecodeExampleId = node.kind === LIVECODE_KINDS.shader
-      ? shaderExample?.id
-      : node.runtime.settings?.livecodeExample || livecodeExamples.find(example => example.source === node.source)?.id || "bare";
+      ? shaderExample?.id || livecodeExamples[0]?.id || ""
+      : node.runtime.settings?.livecodeExample || livecodeExamples.find(example => example.source === node.source)?.id || livecodeExamples[0]?.id || "";
     const parameters = parseScriptParameters(node.source, { values: node.parameters });
     const beginLivecodeRename = () => {
       setLivecodeNameDraft(node.name || definition.label);
@@ -19513,6 +20263,10 @@ function App() {
       renameSceneElement(nodeElement.id, livecodeNameDraft);
       setEditingLivecodeNameId(null);
     };
+    const pickLivecodeObjectParameter = parameter => beginScriptObjectParameterEyedropper(
+      parameter,
+      value => patchLivecodeCanvasNode(nodeElement.id, { parameters: { [parameter.name]: value } }, { commitToHistory: true }),
+    );
     const selectNode = elementId => {
       const api = excalidrawAPIRef.current;
       if (!api) return;
@@ -19573,17 +20327,15 @@ function App() {
       >
         <summary>Node settings</summary>
         <div className="livecode-panel-controls">
-        <label>Kind <select value={node.kind} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { kind: event.target.value, name: defaultLivecodeName(event.target.value) }, { commitToHistory: true })}>{Object.entries(LIVECODE_KINDS).map(([key, value]) => <option key={key} value={value}>{getLivecodeKindDefinition(value).label}</option>)}</select></label>
-        <label className="livecode-example-control">Example <select value={activeLivecodeExampleId} onChange={event => {
+        <label>Kind <select value={node.kind} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { kind: event.target.value, name: randomLivecodeName(event.target.value) }, { commitToHistory: true })}>{Object.entries(LIVECODE_KINDS).map(([key, value]) => <option key={key} value={value}>{getLivecodeKindDefinition(value).label}</option>)}</select></label>
+        {livecodeExamples.length > 0 && <label className="livecode-example-control">Example <select value={activeLivecodeExampleId} onChange={event => {
           const next = livecodeExamples.find(example => example.id === event.target.value) || livecodeExamples[0];
           if (!next) return;
           if (node.kind === LIVECODE_KINDS.shader) {
-            const shader = next.id === "bare"
-              ? { id: "bare", name: next.name, source: next.source, mode: "custom" }
-              : getShaderExample(next.id);
+            const shader = getShaderExample(next.id);
             if (!shader) return;
             patchLivecodeCanvasNode(nodeElement.id, {
-              name: shader.name,
+              name: copyLivecodeExampleName(shader.name),
               source: shader.source,
               runtime: { running: true, transportMode: "free", settings: { shaderExample: shader.id, shaderMode: shader.mode } },
               view: "preview",
@@ -19591,7 +20343,7 @@ function App() {
             return;
           }
           patchLivecodeCanvasNode(nodeElement.id, {
-            name: next.name,
+            name: copyLivecodeExampleName(next.name),
             source: next.source,
             runtime: { settings: {
               livecodeExample: next.id,
@@ -19600,7 +20352,7 @@ function App() {
               ...(next.settings || {}),
             } },
           }, { commitToHistory: true });
-        }}>{livecodeExamples.map(example => <option key={example.id} value={example.id}>{example.label}</option>)}</select></label>
+        }}>{livecodeExamples.map(example => <option key={example.id} value={example.id}>{example.label}</option>)}</select></label>}
         {node.kind === LIVECODE_KINDS.orca
           ? <label className="livecode-view-control">View <span className="livecode-static-option">Grid</span></label>
           : node.kind === LIVECODE_KINDS.strudel
@@ -19636,14 +20388,25 @@ function App() {
       {parameters.length > 0 && <div className="iannix-script-parameters p5-script-parameters" aria-label="Livecode node parameters">
         {parameters.map(parameter => <label className="iannix-script-parameter" key={parameter.name}>
           <span className="iannix-script-parameter-header"><strong>{parameter.label}</strong>{parameter.type === "object" && <em>Canvas object</em>}</span>
-          {parameter.type === "object"
-            ? <input
-              className="custom-brush-param-input"
-              type="text"
-              value={parameter.value}
-              placeholder="Object id, label, or group"
-              onChange={event => patchLivecodeCanvasNode(nodeElement.id, { parameters: { [parameter.name]: event.target.value } }, { commitToHistory: true })}
-            />
+          {["string", "color", "json", "boolean"].includes(parameter.type)
+            ? <ScriptParameterEditor parameter={parameter} colorPreview={resolveScriptColorReference(parameter.value, scriptRuntimeRef.current?.getAppearance?.())} colorAppearance={scriptRuntimeRef.current?.getAppearance?.()} onChange={value => patchLivecodeCanvasNode(nodeElement.id, { parameters: { [parameter.name]: value } }, { commitToHistory: true })} />
+            : parameter.type === "object"
+            ? <div className="iannix-inline-action">
+              <input
+                className="custom-brush-param-input"
+                type="text"
+                value={parameter.value}
+                placeholder="Object id, label, or group"
+                onChange={event => patchLivecodeCanvasNode(nodeElement.id, { parameters: { [parameter.name]: event.target.value } }, { commitToHistory: true })}
+              />
+              <button
+                type="button"
+                className="properties-object-picker"
+                onClick={() => pickLivecodeObjectParameter(parameter)}
+                title={`Pick ${parameter.label} from the canvas`}
+                aria-label={`Pick ${parameter.label} from the canvas`}
+              >⌖</button>
+            </div>
             : <NumericInput
               className="custom-brush-param-input"
               min={parameter.min}
@@ -20707,11 +21470,22 @@ function App() {
                           return (
                             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                               {scriptParams.map(sp => {
-                                const val = mod.params && mod.params[sp.name] !== undefined ? mod.params[sp.name] : sp.default;
+                                const val = mod.params && Object.prototype.hasOwnProperty.call(mod.params, sp.name) ? mod.params[sp.name] : sp.default;
                                 const isBinary = sp.min === 0 && sp.max === 1 && sp.step === 1;
+                                const hasTypedEditor = ["string", "color", "json", "boolean", "object"].includes(sp.type);
                                 return (
                                   <div key={sp.name} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                                    {isBinary ? (
+                                    {hasTypedEditor ? (
+                                      <>
+                                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}><span>{sp.name}:</span></div>
+                                        <ScriptParameterEditor
+                                        parameter={{ ...sp, value: val }}
+                                        colorPreview={resolveScriptColorReference(val, scriptRuntimeRef.current?.getAppearance?.())}
+                                        colorAppearance={scriptRuntimeRef.current?.getAppearance?.()}
+                                          onChange={value => handleUpdateModifierParams(index, sp.name, value)}
+                                        />
+                                      </>
+                                    ) : isBinary ? (
                                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "2px 0" }}>
                                         <span style={{ fontSize: "11px", opacity: 0.8 }}>{sp.name}:</span>
                                         <input 
@@ -21582,6 +22356,7 @@ function App() {
     setSatoriMode(true);
     setPresentationMode(false);
     setForceDesktopLayout(true);
+    setForceUnderscoresUiTheme(true);
     setShowToolbarHints(false);
     setShowBottomNotifications(false);
     setShowPerformanceOverlay(false);
@@ -21596,6 +22371,7 @@ function App() {
     setCustomBrushActive(false);
     runtimeCallbacksRef.current.globalGridReset();
     localStorage.setItem("underscores_force_desktop_layout", "true");
+    localStorage.setItem("underscores_force_ui_theme", "true");
     localStorage.setItem("underscores_show_toolbar_hints", "false");
     localStorage.setItem("underscores_show_bottom_notifications", "false");
     localStorage.setItem("underscores_performance_overlay", "false");
@@ -21913,12 +22689,13 @@ function App() {
             <InspectorSection title="Interface" className="settings-inspector-section">
             {[
               ["Force desktop layout", forceDesktopLayout, value => { setForceDesktopLayout(value); localStorage.setItem("underscores_force_desktop_layout", value); }],
+              ["Force __ UI theme", forceUnderscoresUiTheme, value => { setForceUnderscoresUiTheme(value); localStorage.setItem("underscores_force_ui_theme", value); }],
               ["Show toolbar hints", showToolbarHints, value => { setShowToolbarHints(value); localStorage.setItem("underscores_show_toolbar_hints", value); }],
               ["Show bottom alerts", showBottomNotifications, value => { setShowBottomNotifications(value); localStorage.setItem("underscores_show_bottom_notifications", value); }],
               ["Show performance monitor", showPerformanceOverlay, updatePerformanceVisibility],
               ["Show modifier debug coordinates", showDebugLayer, setShowDebugLayer],
             ].map(([label, checked, update]) => (
-              <label className="settings-panel-check" key={label} {...infoProps(label, label === "Force desktop layout" ? "Keep the full docked desktop interface at smaller viewport sizes." : label === "Show toolbar hints" ? "Show native hover labels for toolbar controls." : label === "Show bottom alerts" ? "Show transient status messages along the bottom edge." : label === "Show performance monitor" ? "Show the FPS and scene-workload monitor attached to Console or floating over the canvas." : "Overlay modifier coordinate diagnostics on the canvas.")}>
+              <label className="settings-panel-check" key={label} {...infoProps(label, label === "Force desktop layout" ? "Keep the full docked desktop interface at smaller viewport sizes." : label === "Force __ UI theme" ? "Make Excalidraw panels, tool islands, popovers, settings, inputs, and menus use the active __ interface surfaces and colors." : label === "Show toolbar hints" ? "Show native hover labels for toolbar controls." : label === "Show bottom alerts" ? "Show transient status messages along the bottom edge." : label === "Show performance monitor" ? "Show the FPS and scene-workload monitor attached to Console or floating over the canvas." : "Overlay modifier coordinate diagnostics on the canvas.")}>
                 <span>{label}</span>
                 <input type="checkbox" checked={checked} onChange={event => update(event.target.checked)} />
               </label>
@@ -22734,7 +23511,7 @@ function App() {
   return (
     <div 
       id="root" 
-      className={`underscores-shell underscores-theme-${theme} ${laserToolActive ? "laser-tool-active" : ""} ${laserCursorExitGuard ? "laser-cursor-exit-guard" : ""} ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} ${leftDockOpen ? "left-sidebar-open" : ""} ${rightDockOpen ? "right-sidebar-open" : ""} ${bottomDockOpen ? "horizontal-dock-open" : ""} ${collapsedDocks.bottom ? "bottom-dock-collapsed" : ""} ${draggingPanelId || transportDragging ? "panel-is-dragging" : ""}`}
+      className={`underscores-shell underscores-theme-${theme} ${forceUnderscoresUiTheme ? "underscores-force-ui-theme" : ""} ${laserToolActive ? "laser-tool-active" : ""} ${laserCursorExitGuard ? "laser-cursor-exit-guard" : ""} ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} ${leftDockOpen ? "left-sidebar-open" : ""} ${rightDockOpen ? "right-sidebar-open" : ""} ${bottomDockOpen ? "horizontal-dock-open" : ""} ${collapsedDocks.bottom ? "bottom-dock-collapsed" : ""} ${draggingPanelId || transportDragging ? "panel-is-dragging" : ""}`}
       style={{
         "--underscores-accent": colorWithOpacity(accentColor, accentOpacity),
         "--underscores-highlight": colorWithOpacity(highlightColor, highlightOpacity),
