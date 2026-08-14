@@ -87,6 +87,25 @@ test("object parameters remain live views of the assigned canvas object", () => 
   assert.equal(params.driver.time.progress, 1);
 });
 
+test("object parameters accept canonical __ canvas paths", () => {
+  const runtimeRef = {
+    current: {
+      getElements: () => [curve],
+      getTime: () => 0,
+      getTimeContext: () => ({}),
+      getGrid: () => null,
+    },
+  };
+  const canvas = createScriptCanvasApi(runtimeRef);
+  const params = resolveScriptParameterValues([{
+    name: "driver",
+    type: "object",
+    value: '__.canvas.get("curve-1")',
+    default: "",
+  }], runtimeRef, canvas);
+  assert.equal(params.driver.id, "curve-1");
+});
+
 test("resolves typed parameters without numeric coercion", () => {
   const params = resolveScriptParameterValues([
     { name: "title", type: "string", default: "Hello", value: "World" },

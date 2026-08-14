@@ -174,7 +174,16 @@ npm run dev -- --port 8089
 npm test
 npm run lint
 npm run build
+npm run build:students
 ```
+
+For a classroom-shareable GitHub Pages artifact, use `npm run deploy:students`.
+That profile excludes the native Strudel runtime and optional Monaspace test
+font pack at build time, checks the generated bundle, and publishes only the
+checked `dist` directory. The regular `npm run deploy` path remains blocked by
+the Strudel licensing gate until its corresponding-source and notice review is
+complete. See [student/public-safe release](notes/student-release.md) and
+[livecode licensing](notes/livecode-licensing.md).
 
 Modifier-stack, score-engine, command, session, macro, input, IanniX-import, and automation behavior are covered by Node's built-in test runner. See `notes/modifier-stack.md`, `notes/iannix.md`, and `notes/history-automation.md` for their data models and implementation invariants.
 

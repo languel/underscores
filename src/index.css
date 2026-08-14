@@ -6,37 +6,6 @@
 @import "@fontsource/inter/600.css";
 @import "@fontsource/inter/700.css";
 
-/* Monaspace is an optional code-font pack. Keep the imports Latin-only and
- * weight-specific so selecting a variant never pulls the full Unicode build
- * into the initial bundle. The families carry contextual/common ligatures;
- * LivecodeNodeOverlay enables those features only for these options. A local
- * Symbols Nerd Font fallback supplies extra icon glyphs when installed. */
-@import "@fontsource/monaspace-argon/latin-300.css";
-@import "@fontsource/monaspace-argon/latin-400.css";
-@import "@fontsource/monaspace-argon/latin-500.css";
-@import "@fontsource/monaspace-argon/latin-600.css";
-@import "@fontsource/monaspace-argon/latin-700.css";
-@import "@fontsource/monaspace-krypton/latin-300.css";
-@import "@fontsource/monaspace-krypton/latin-400.css";
-@import "@fontsource/monaspace-krypton/latin-500.css";
-@import "@fontsource/monaspace-krypton/latin-600.css";
-@import "@fontsource/monaspace-krypton/latin-700.css";
-@import "@fontsource/monaspace-neon/latin-300.css";
-@import "@fontsource/monaspace-neon/latin-400.css";
-@import "@fontsource/monaspace-neon/latin-500.css";
-@import "@fontsource/monaspace-neon/latin-600.css";
-@import "@fontsource/monaspace-neon/latin-700.css";
-@import "@fontsource/monaspace-radon/latin-300.css";
-@import "@fontsource/monaspace-radon/latin-400.css";
-@import "@fontsource/monaspace-radon/latin-500.css";
-@import "@fontsource/monaspace-radon/latin-600.css";
-@import "@fontsource/monaspace-radon/latin-700.css";
-@import "@fontsource/monaspace-xenon/latin-300.css";
-@import "@fontsource/monaspace-xenon/latin-400.css";
-@import "@fontsource/monaspace-xenon/latin-500.css";
-@import "@fontsource/monaspace-xenon/latin-600.css";
-@import "@fontsource/monaspace-xenon/latin-700.css";
-
 :root {
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-title: 'Outfit', var(--font-sans);
@@ -51,6 +20,17 @@
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --shadow-glow: 0 0 12px rgba(248, 250, 252, 0.15);
+}
+
+.livecode-student-build-unavailable {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  padding: 18px;
+  color: var(--underscores-muted-foreground, #92989f);
+  background: var(--underscores-input-background, transparent);
+  text-align: center;
+  font: 500 12px/1.45 var(--font-sans);
 }
 
 .excalidraw {
@@ -6046,10 +6026,49 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   pointer-events: none;
 }
 
-#canvas-container.underscores-object-eyedropper .excalidraw__canvas,
-#canvas-container.underscores-object-eyedropper .excalidraw__canvas * {
-  cursor: crosshair !important;
+#canvas-container.underscores-object-eyedropper,
+#canvas-container.underscores-object-eyedropper * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Ccircle cx='13' cy='13' r='7' fill='none' stroke='white' stroke-width='2'/%3E%3Ccircle cx='13' cy='13' r='2' fill='white' stroke='%231b1b1b' stroke-width='1.5'/%3E%3Cpath d='M13 1v5m0 14v5M1 13h5m14 0h5' stroke='%231b1b1b' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") 13 13, crosshair !important;
 }
+
+.underscores-object-eyedropper-preview {
+  position: fixed;
+  z-index: 100000;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--underscores-foreground) 22%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--underscores-panel-bg) 96%, transparent);
+  color: var(--underscores-foreground);
+  box-shadow: 0 5px 18px rgb(0 0 0 / 24%);
+  pointer-events: none;
+  font: 12px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.underscores-object-eyedropper-preview-icon {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  color: var(--underscores-accent);
+  font-size: 18px;
+}
+.underscores-object-eyedropper-preview-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+.underscores-object-eyedropper-preview code,
+.underscores-object-eyedropper-preview small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.underscores-object-eyedropper-preview code { color: var(--underscores-foreground); }
+.underscores-object-eyedropper-preview small { color: var(--underscores-muted); font: inherit; }
 
 /* Constraint tools author a visible pivot object, rather than a hidden
    two-click relationship. Keep their cursor distinct from selection. */

@@ -8,6 +8,7 @@ import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransfo
 import { createIannixMidiVoiceTracker, describeIannixMidiMessage, getIannixMidiTemplatePattern, getIannixPathIntersectionPoint, getIannixTriggerMidiContext, IANNIX_MIDI_TEMPLATES, parseIannixMidiPattern, selectIannixTriggerCursor } from "./iannixMidi.js";
 import { expandIndexedLabelTemplate } from "./iannixBulkEdit.js";
 import NumberInputController from "./NumberInputController.jsx";
+import ObjectPathClipboardController from "./ObjectPathClipboard.jsx";
 import TimeValueInput from "./TimeValueInput.jsx";
 import InspectorSection from "./InspectorSection.jsx";
 import { attachUnderscoresExchangeMetadata, getSelectionExchangeElements, parseUnderscoresExchange, remapSelectionForImport } from "./sceneExchange.js";
@@ -39,6 +40,7 @@ import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanv
 import { bezierWorldPointToLocal, createBezierGeometryFromElement, createBezierHostGeometry, findNearestBezierLocation, getBezierWorldAnchors, getBezierWorldPath, hasCubicBezierGeometry, normalizeBezierGeometry, normalizeBezierHostElement, reframeBezierElement, removeBezierAnchor, setBezierAnchorMode, setElementBezierGeometry, splitBezierSegment, updateBezierAnchor } from "./bezierGeometry.js";
 import { getScriptParameterValues, normalizeScriptParameterValue, parseScriptParameters, resolveScriptColorReference } from "./scriptParameters.js";
 import { createScriptCanvasApi, resolveScriptParameterValues } from "./scriptRuntime.js";
+import { objectPathForElement } from "./objectPath.js";
 import { normalizeGmPrograms } from "./generalMidi.js";
 import { createInternalMidiSynth, disposeInternalMidiSynth, isInternalMidiSynthSupported, resumeInternalMidiSynth } from "./internalMidiSynth.js";
 import { playWebAudioTestTone } from "./audioDiagnostics.js";
@@ -94,6 +96,7 @@ import { describeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapter
 import { getShaderExample, normalizeShaderCompositionSettings, shaderExampleForSource } from "./shaderLivecode.js";
 import { getShaderStatuses, SHADER_STATUS_EVENT } from "./shaderStatus.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
+import { isPublicSafeBuild } from "./buildProfile.js";
 import MediaStreamOverlay, { MediaSourceRuntimeLayer } from "./MediaStreamOverlay.jsx";
 import { HolisticPanel, MediaInputPanel } from "./MediaStreamPanels.jsx";
 import InputStreamsPanel from "./InputStreamsPanel.jsx";
@@ -1333,6 +1336,8 @@ const DEFAULT_INTERFACE_THEME_PRESET = "monoDark";
 const CUSTOM_THEME_STORAGE_KEY = "underscores_custom_themes_v1";
 const PHYSICS_DEBUG_STORAGE_KEY = "underscores_physics_debug_v1";
 const PHYSICS_TIME_SCRUB_STORAGE_KEY = "underscores_physics_time_scrub_v1";
+const PHYSICS_TOOLBAR_OPEN_STORAGE_KEY = "underscores_physics_toolbar_open";
+const PHYSICS_TOOLBAR_DOCKED_STORAGE_KEY = "underscores_physics_toolbar_docked";
 const INTERNAL_SYNTH_RESTORE_STORAGE_KEY = "underscores_internal_synth_restore";
 const DEFAULT_PHYSICS_DEBUG_COLORS = Object.freeze({
   bodies: "#518effe6",
@@ -3165,10 +3170,10 @@ function App() {
   const [physicsTelemetry, setPhysicsTelemetry] = useState({ systems: [], stepMs: 0, eventRate: 0, routeMs: 0 });
   const [physicsWorldPlaying, setPhysicsWorldPlaying] = useState(false);
   const [physicsTimeScrubEnabled, setPhysicsTimeScrubEnabled] = useState(() => localStorage.getItem(PHYSICS_TIME_SCRUB_STORAGE_KEY) === "true");
-  const [physicsToolbarOpen, setPhysicsToolbarOpen] = useState(true);
+  const [physicsToolbarOpen, setPhysicsToolbarOpen] = useState(() => localStorage.getItem(PHYSICS_TOOLBAR_OPEN_STORAGE_KEY) !== "false");
   const [physicsToolbarDockedTop, setPhysicsToolbarDockedTop] = useState(() => {
     try {
-      if (localStorage.getItem("underscores_physics_toolbar_docked") === "true") return true;
+      if (localStorage.getItem(PHYSICS_TOOLBAR_DOCKED_STORAGE_KEY) === "true") return true;
       const savedPanelVisibility = JSON.parse(localStorage.getItem("underscores_panel_visibility_v1") || "null");
       return savedPanelVisibility?.["physics-toolbar"] === true;
     } catch {
@@ -4449,6 +4454,9 @@ function App() {
   useEffect(() => {
     localStorage.setItem(PHYSICS_TIME_SCRUB_STORAGE_KEY, String(physicsTimeScrubEnabled));
   }, [physicsTimeScrubEnabled]);
+  useEffect(() => {
+    localStorage.setItem(PHYSICS_TOOLBAR_OPEN_STORAGE_KEY, String(physicsToolbarOpen));
+  }, [physicsToolbarOpen]);
   const historySuppressSceneRef = useRef(0);
   const lastSceneElementsRef = useRef(new Map());
   const pendingSceneMutationRef = useRef(null);
@@ -4476,7 +4484,10 @@ function App() {
   selectedElementIdsRef.current = selectedElementIds;
   const objectEyedropperRef = useRef(null);
   const beginCanvasSourceEyedropperRef = useRef(() => {});
+  const beginGlobalObjectEyedropperRef = useRef(() => {});
   const [objectEyedropper, setObjectEyedropper] = useState(null);
+  const [objectEyedropperPreview, setObjectEyedropperPreview] = useState(null);
+  const objectEyedropperPreviewRef = useRef(null);
   const selectedP5FrameForEditor = useMemo(() => {
     const matches = p5OverlayScene.elements.filter(element => (
       selectedElementIds[element.id] && isP5FrameElement(element)
@@ -5659,7 +5670,7 @@ function App() {
   }, [openPanels]);
 
   useEffect(() => {
-    localStorage.setItem("underscores_physics_toolbar_docked", String(physicsToolbarDockedTop));
+    localStorage.setItem(PHYSICS_TOOLBAR_DOCKED_STORAGE_KEY, String(physicsToolbarDockedTop));
   }, [physicsToolbarDockedTop]);
 
   useEffect(() => {
@@ -6564,6 +6575,37 @@ function App() {
   const [customContextMenu, setCustomContextMenu] = useState(null);
   const customContextMenuRef = useRef(null);
 
+  const getSelectedObjectForPath = useCallback(() => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return null;
+    const appState = api.getAppState?.() || {};
+    const selectedIds = {
+      ...(appState.selectedElementIds || {}),
+      ...(selectedElementIdsRef.current || {}),
+    };
+    const selected = (api.getSceneElementsIncludingDeleted?.() || api.getSceneElements?.() || [])
+      .filter(element => selectedIds[element.id] && !element.isDeleted);
+    return selected.length === 1 ? selected[0] : null;
+  }, []);
+
+  const getSelectedObjectPath = useCallback(() => objectPathForElement(getSelectedObjectForPath()), [getSelectedObjectForPath]);
+
+  const copySelectedObjectPath = useCallback(async () => {
+    const element = getSelectedObjectForPath();
+    const path = objectPathForElement(element);
+    if (!path) {
+      setSceneExchangeStatus("Select one canvas object first to copy its object path.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(path);
+      const label = getOutlinerElementLabel(element);
+      setSceneExchangeStatus(`Copied ${label && label !== element.id ? `${label} · ` : ""}${path}.`);
+    } catch {
+      setSceneExchangeStatus("Could not copy the selected object path.");
+    }
+  }, [getSelectedObjectForPath]);
+
   useLayoutEffect(() => {
     const menu = customContextMenuRef.current;
     if (!menu || !customContextMenu) return;
@@ -6711,13 +6753,10 @@ function App() {
     return [res.x, res.y];
   };
 
-  const handleObjectEyedropperPointerDown = event => {
-    const request = objectEyedropperRef.current;
-    if (!request || !excalidrawAPI || event.button !== 0) return false;
-    event.preventDefault();
-    event.stopPropagation();
+  const findObjectEyedropperCandidate = useCallback((clientX, clientY, request = objectEyedropperRef.current) => {
+    if (!request || !excalidrawAPI) return null;
     const appState = excalidrawAPI.getAppState();
-    const world = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, appState);
+    const world = viewportCoordsToSceneCoords({ clientX, clientY }, appState);
     const candidate = [...excalidrawAPI.getSceneElements()].reverse().find(element => {
       if (!request.accept?.(element)) return false;
       const x = Number(element.x) || 0;
@@ -6735,10 +6774,60 @@ function App() {
       const localY = centerY + dx * sine + dy * cosine;
       return localX >= x && localX <= x + width && localY >= y && localY <= y + height;
     });
-    if (!candidate) {
+    return candidate ? { candidate, world } : null;
+  }, [excalidrawAPI]);
+
+  useEffect(() => {
+    objectEyedropperPreviewRef.current = null;
+    setObjectEyedropperPreview(null);
+    if (!objectEyedropper) return undefined;
+    const updatePreview = event => {
+      if (!event.target?.closest?.("#canvas-container")) {
+        objectEyedropperPreviewRef.current = null;
+        setObjectEyedropperPreview(null);
+        return;
+      }
+      const hit = findObjectEyedropperCandidate(event.clientX, event.clientY);
+      if (!hit) {
+        objectEyedropperPreviewRef.current = null;
+        setObjectEyedropperPreview(null);
+        return;
+      }
+      const { candidate } = hit;
+      const label = getOutlinerElementLabel(candidate);
+      const preview = {
+        x: Math.min(event.clientX + 18, Math.max(8, window.innerWidth - 330)),
+        y: Math.min(event.clientY + 18, Math.max(8, window.innerHeight - 72)),
+        path: objectPathForElement(candidate),
+        label: label && label !== candidate.id ? label : "",
+      };
+      objectEyedropperPreviewRef.current = preview;
+      setObjectEyedropperPreview(preview);
+    };
+    const clearPreview = event => {
+      if (event?.target?.closest?.("#canvas-container")) return;
+      objectEyedropperPreviewRef.current = null;
+      setObjectEyedropperPreview(null);
+    };
+    document.addEventListener("pointermove", updatePreview, true);
+    document.addEventListener("pointerleave", clearPreview, true);
+    return () => {
+      document.removeEventListener("pointermove", updatePreview, true);
+      document.removeEventListener("pointerleave", clearPreview, true);
+    };
+  }, [excalidrawAPI, findObjectEyedropperCandidate, objectEyedropper]);
+
+  const handleObjectEyedropperPointerDown = event => {
+    const request = objectEyedropperRef.current;
+    if (!request || !excalidrawAPI || event.button !== 0) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    const hit = findObjectEyedropperCandidate(event.clientX, event.clientY, request);
+    if (!hit) {
       setSceneExchangeStatus(`${request.label}: choose a compatible object or press Escape to cancel.`);
       return true;
     }
+    const { candidate, world } = hit;
     try {
       const message = request.onPick(candidate, { point: [world.x, world.y] });
       if (!request.preserveSelection) {
@@ -6755,6 +6844,8 @@ function App() {
       }
       objectEyedropperRef.current = null;
       setObjectEyedropper(null);
+      objectEyedropperPreviewRef.current = null;
+      setObjectEyedropperPreview(null);
       setSceneExchangeStatus(message || `${request.label}: object selected.`);
     } catch (error) {
       setSceneExchangeStatus(error?.message || `${request.label}: could not use that object.`);
@@ -8541,6 +8632,7 @@ function App() {
         showViewportFit: viewportFitTarget,
         targetElementId: viewportFitTarget ? selectedContextElements[0].id : "",
         hasSelection: true,
+        hasSingleSelection: selectedContextElements.length === 1,
       });
     } else {
       setCustomContextMenu({
@@ -8552,6 +8644,7 @@ function App() {
         showCreateLivecode: true,
         showMakeBody: false,
         hasSelection: false,
+        hasSingleSelection: false,
       });
     }
   };
@@ -12450,6 +12543,8 @@ function App() {
       // canvas livecode editor: it switches the selected node to output and
       // defocuses it without changing plain Escape's editor behavior.
       const activeElement = document.activeElement;
+      const shortcutActionForEvent = findShortcutAction(shortcutBindings, e);
+      const objectPickerEscape = e.key === "Escape" && Boolean(objectEyedropperRef.current);
       const activeCanvasLivecodeNode = activeElement?.closest?.(".underscores-livecode-node");
       const activeCanvasLivecodeId = activeCanvasLivecodeNode?.dataset?.livecodeNodeId || null;
       const canvasLivecodeIsSelected = Boolean(
@@ -12479,7 +12574,9 @@ function App() {
         activeElement?.blur?.();
         return;
       }
-      if (activeElement?.closest?.(".underscores-code-editor, .orca-node")) return;
+      if (activeElement?.closest?.(".underscores-code-editor, .orca-node")
+        && shortcutActionForEvent?.id !== "object.pick.fromCanvas"
+        && !objectPickerEscape) return;
 
       // Escape is a global cancel/clear gesture: close transient UI, blur any
       // focused control, leave Bézier editing, and clear the canvas selection.
@@ -12510,6 +12607,8 @@ function App() {
         if (objectEyedropperRef.current) {
           objectEyedropperRef.current = null;
           setObjectEyedropper(null);
+          objectEyedropperPreviewRef.current = null;
+          setObjectEyedropperPreview(null);
           setSceneExchangeStatus("Object eyedropper cancelled.");
         }
         selectedElementIdsRef.current = {};
@@ -12529,7 +12628,8 @@ function App() {
       // clicked. Its p5 instance listens at document level, so consuming a
       // Underscores shortcut here would otherwise prevent keyPressed(),
       // keyReleased(), and keyTyped() from seeing the event.
-      if (document.activeElement?.closest?.(".underscores-p5-host")) return;
+      if (document.activeElement?.closest?.(".underscores-p5-host")
+        && shortcutActionForEvent?.id !== "object.pick.fromCanvas") return;
 
       // Space controls score transport from the canvas/UI. Text controls keep
       // their native spacebar behavior so users can still type normally.
@@ -12572,7 +12672,9 @@ function App() {
           return;
         }
       }
-      const shortcutAction = !isTextControlFocused ? findShortcutAction(shortcutBindings, e) : null;
+      const shortcutAction = !isTextControlFocused || shortcutActionForEvent?.id === "object.pick.fromCanvas"
+        ? shortcutActionForEvent
+        : null;
       if (shortcutAction) {
         if (shortcutAction.id !== "tool-line" && excalidrawAPI?.getAppState()?.activeTool?.type === "line" && nativeLineGridPointsRef.current?.points?.length >= 2) {
           finalizeCapturedNativeLine();
@@ -12615,6 +12717,10 @@ function App() {
         }
         if (shortcutAction.id === "object.eyedropper") {
           beginCanvasSourceEyedropperRef.current();
+          return;
+        }
+        if (shortcutAction.id === "object.pick.fromCanvas") {
+          beginGlobalObjectEyedropperRef.current();
           return;
         }
         if (shortcutAction.id === "brush.apply.selected") {
@@ -14753,9 +14859,29 @@ function App() {
   // second picking interaction.
   const beginObjectEyedropper = useCallback(({ label, accept, onPick, preserveSelection = false }) => {
     objectEyedropperRef.current = { label, accept, onPick, preserveSelection };
+    objectEyedropperPreviewRef.current = null;
+    setObjectEyedropperPreview(null);
     setObjectEyedropper({ label });
     setSceneExchangeStatus(`${label}: click a compatible canvas object, or press Escape to cancel.`);
   }, []);
+
+  const beginGlobalObjectEyedropper = useCallback(() => {
+    beginObjectEyedropper({
+      label: "Pick object from canvas",
+      accept: element => Boolean(
+        element
+        && !element.isDeleted
+        && element.customData?.outlinerHidden !== true
+        && element.customData?.presentationMaskActive !== true,
+      ),
+      onPick: element => {
+        const path = objectPathForElement(element);
+        const label = getOutlinerElementLabel(element);
+        return `Selected ${label && label !== element.id ? `${label} · ` : ""}${path}.`;
+      },
+    });
+  }, [beginObjectEyedropper]);
+  beginGlobalObjectEyedropperRef.current = beginGlobalObjectEyedropper;
 
   const beginScriptObjectParameterEyedropper = (parameter, assign) => {
     const label = parameter.label || parameter.name;
@@ -14769,8 +14895,9 @@ function App() {
         && element.customData?.presentationMaskActive !== true,
       ),
       onPick: element => {
-        assign(element.id);
-        return `${label} assigned to ${element.id}.`;
+        const path = objectPathForElement(element);
+        assign(path);
+        return `${label} assigned to ${path}.`;
       },
     });
   };
@@ -15572,6 +15699,10 @@ function App() {
     ));
     if (!element) return;
     const node = normalizeLivecodeNode(element.customData?.underscoresLivecode);
+    if (isPublicSafeBuild && node.kind === LIVECODE_KINDS.strudel) {
+      setLivecodeStatus("Strudel is omitted from this student build.");
+      return;
+    }
     if (command === "run" && node.runtime.running) {
       setLivecodeStatus("Strudel is already running · Ctrl+Enter updates the pattern.");
       return;
@@ -15652,9 +15783,14 @@ function App() {
   const createLivecodeCanvasNode = (args = {}) => {
     const api = excalidrawAPIRef.current;
     if (!api) throw new Error("The canvas is not ready.");
+    const requestedKind = args.kind || (isPublicSafeBuild ? LIVECODE_KINDS.p5 : undefined);
+    if (isPublicSafeBuild && requestedKind === LIVECODE_KINDS.strudel) {
+      setLivecodeStatus("Strudel is omitted from this student build.");
+      return null;
+    }
     const appState = api.getAppState();
     const center = viewportCoordsToSceneCoords({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 }, appState);
-    const kind = args.kind;
+    const kind = requestedKind;
     const shaderDefaults = kind === LIVECODE_KINDS.shader;
     const shaderExample = shaderDefaults ? getShaderExample(args.example || "hello") : null;
     const node = createLivecodeNode({
@@ -17203,6 +17339,8 @@ function App() {
     if (typeof state.showBottomNotifications === "boolean") setShowBottomNotifications(state.showBottomNotifications);
     if (typeof state.forceDesktopLayout === "boolean") setForceDesktopLayout(state.forceDesktopLayout);
     if (typeof state.forceUnderscoresUiTheme === "boolean") setForceUnderscoresUiTheme(state.forceUnderscoresUiTheme);
+    if (typeof state.physicsToolbarOpen === "boolean") setPhysicsToolbarOpen(state.physicsToolbarOpen);
+    if (typeof state.physicsToolbarDockedTop === "boolean") setPhysicsToolbarDockedTop(state.physicsToolbarDockedTop);
     if (typeof state.showDebugLayer === "boolean") setShowDebugLayer(state.showDebugLayer);
     if (Number.isFinite(Number(state.defaultStabilizerDamping))) {
       setDefaultStabilizerDamping(Number(state.defaultStabilizerDamping));
@@ -17440,6 +17578,8 @@ function App() {
       showBottomNotifications,
       forceDesktopLayout,
       forceUnderscoresUiTheme,
+      physicsToolbarOpen,
+      physicsToolbarDockedTop,
       showDebugLayer,
       defaultStabilizerDamping,
     };
@@ -17458,7 +17598,7 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record board settings", error));
     }, 180);
-  }, [accentColor, accentOpacity, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, forceUnderscoresUiTheme, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
+  }, [accentColor, accentOpacity, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, forceUnderscoresUiTheme, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, physicsToolbarDockedTop, physicsToolbarOpen, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
 
   useLayoutEffect(() => {
     const relations = createRelationshipApi({
@@ -20238,7 +20378,7 @@ function App() {
       || null;
     if (!nodeElement) return <div className="scene-panel-empty">
       <p>Create a self-contained Livecode Node to edit it here or directly on the canvas.</p>
-      <button type="button" className="palette-action-btn primary" onClick={() => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel })}>Create Livecode Node</button>
+      <button type="button" className="palette-action-btn primary" onClick={() => createLivecodeCanvasNode({ kind: isPublicSafeBuild ? LIVECODE_KINDS.p5 : LIVECODE_KINDS.strudel })}>Create Livecode Node</button>
     </div>;
     const node = normalizeLivecodeNode(nodeElement.customData?.underscoresLivecode);
     const definition = getLivecodeKindDefinition(node.kind);
@@ -20327,7 +20467,7 @@ function App() {
       >
         <summary>Node settings</summary>
         <div className="livecode-panel-controls">
-        <label>Kind <select value={node.kind} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { kind: event.target.value, name: randomLivecodeName(event.target.value) }, { commitToHistory: true })}>{Object.entries(LIVECODE_KINDS).map(([key, value]) => <option key={key} value={value}>{getLivecodeKindDefinition(value).label}</option>)}</select></label>
+        <label>Kind <select value={node.kind} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { kind: event.target.value, name: randomLivecodeName(event.target.value) }, { commitToHistory: true })}>{Object.entries(LIVECODE_KINDS).filter(([key]) => !isPublicSafeBuild || key !== "strudel").map(([key, value]) => <option key={key} value={value}>{getLivecodeKindDefinition(value).label}</option>)}</select></label>
         {livecodeExamples.length > 0 && <label className="livecode-example-control">Example <select value={activeLivecodeExampleId} onChange={event => {
           const next = livecodeExamples.find(example => example.id === event.target.value) || livecodeExamples[0];
           if (!next) return;
@@ -20377,7 +20517,7 @@ function App() {
         <label>Fold <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.showFoldGutter} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { showFoldGutter: event.target.checked } }, { commitToHistory: true })} />Gutter</span></label>
         <label title="Keep blank overlay space transparent while code is shown over output">Overlay <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.glyphOnlyOverlay} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { glyphOnlyOverlay: event.target.checked } }, { commitToHistory: true })} />Glyphs only</span></label>
         <label title={node.typography.glyphOnlyOverlay ? "Applies behind non-space code when Glyphs only is enabled" : "Applies across the full code surface"}>Code opacity % <NumericInput min="0" max="100" step="5" value={Math.round(node.typography.codeOverlayOpacity * 100)} defaultValue={100} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { codeOverlayOpacity: value / 100 } }, { commitToHistory: true })} /></label>
-        <label>Font <select value={node.typography.font} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { font: event.target.value } }, { commitToHistory: true })}>{LIVE_CODE_FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label>
+        <label>Font <select value={node.typography.font} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { font: event.target.value } }, { commitToHistory: true })}>{LIVE_CODE_FONT_OPTIONS.filter(font => !isPublicSafeBuild || !font.id.startsWith("monaspace-")).map(font => <option key={font.id} value={font.id}>{font.label}</option>)}</select></label>
         {getLivecodeFont(node.typography.font).supportsLigatures && <label title="Enable Monaspace contextual alternates, standard ligatures, and stylistic sets ss01–ss10">Ligatures <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.ligatures !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { ligatures: event.target.checked } }, { commitToHistory: true })} />On</span></label>}
         <label>Size <NumericInput min="8" max="72" step="1" value={node.typography.fontSize} defaultValue={14} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontSize: value } }, { commitToHistory: true })} /></label>
         <label>Line <NumericInput min="0.8" max="3" step="0.05" value={node.typography.lineHeight} defaultValue={1.4} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { typography: { lineHeight: value } }, { commitToHistory: true })} /></label>
@@ -22372,6 +22512,8 @@ function App() {
     runtimeCallbacksRef.current.globalGridReset();
     localStorage.setItem("underscores_force_desktop_layout", "true");
     localStorage.setItem("underscores_force_ui_theme", "true");
+    localStorage.setItem(PHYSICS_TOOLBAR_OPEN_STORAGE_KEY, "false");
+    localStorage.setItem(PHYSICS_TOOLBAR_DOCKED_STORAGE_KEY, "false");
     localStorage.setItem("underscores_show_toolbar_hints", "false");
     localStorage.setItem("underscores_show_bottom_notifications", "false");
     localStorage.setItem("underscores_performance_overlay", "false");
@@ -23536,6 +23678,32 @@ function App() {
         eventBus.emit("parameter.route.request", detail, { source: "number-box" });
         setSceneExchangeStatus(`Route request: ${detail.label}`);
       }} />
+      <ObjectPathClipboardController
+        getSelectedObjectPath={getSelectedObjectPath}
+        onStatus={setSceneExchangeStatus}
+      />
+      {objectEyedropper && objectEyedropperPreview && createPortal(
+        <div
+          className="underscores-object-eyedropper-preview"
+          style={{
+            left: `${objectEyedropperPreview.x}px`,
+            top: `${objectEyedropperPreview.y}px`,
+            "--underscores-panel-bg": colorWithOpacity(interfaceTheme.panel.color, interfaceTheme.panel.opacity),
+            "--underscores-foreground": colorWithOpacity(foregroundColor, foregroundOpacity),
+            "--underscores-muted": colorWithOpacity(mutedColor, mutedOpacity),
+            "--underscores-accent": colorWithOpacity(accentColor, accentOpacity),
+          }}
+          role="status"
+          aria-live="polite"
+        >
+          <span className="underscores-object-eyedropper-preview-icon" aria-hidden="true">⌖</span>
+          <span className="underscores-object-eyedropper-preview-copy">
+            <code>{objectEyedropperPreview.path}</code>
+            {objectEyedropperPreview.label && <small>{objectEyedropperPreview.label}</small>}
+          </span>
+        </div>,
+        document.body,
+      )}
       <input
         ref={sceneImportInputRef}
         type="file"
@@ -26180,6 +26348,20 @@ function App() {
               >
                 <span aria-hidden="true" style={{ width: 14, marginRight: 8 }}>⧉</span>
                 Copy Selection JSON
+              </button>
+              <button
+                onPointerDown={event => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void copySelectedObjectPath();
+                  setCustomContextMenu(null);
+                }}
+                className="custom-floating-context-menu-btn"
+                disabled={!customContextMenu.hasSingleSelection}
+                title="Copy the canonical __ path for the selected object"
+              >
+                <span aria-hidden="true" style={{ width: 14, marginRight: 8 }}>⌖</span>
+                Copy object path
               </button>
               <button
                 onPointerDown={event => {

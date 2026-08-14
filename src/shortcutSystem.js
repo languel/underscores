@@ -6,6 +6,7 @@ export const SHORTCUT_ACTIONS = Object.freeze([
   { id: "tool-line", label: "Line / path tool", defaultBinding: "KeyL" },
   { id: "tool-hand", label: "Hand / pan tool", defaultBinding: "KeyH" },
   { id: "object.eyedropper", label: "Object eyedropper", defaultBinding: "Alt+KeyI" },
+  { id: "object.pick.fromCanvas", label: "Pick object from canvas", defaultBinding: "Alt+Shift+KeyO" },
   { id: "transport.play.toggle", label: "Play / pause score", defaultBinding: "Space" },
   { id: "transport.jump.start", commandId: "transport.jump.start", label: "Jump to timeline / loop start", defaultBinding: "Shift+ArrowLeft" },
   { id: "transport.jump.end", commandId: "transport.jump.end", label: "Jump to timeline / loop end", defaultBinding: "Shift+ArrowRight" },

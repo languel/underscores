@@ -27,6 +27,12 @@ test("object eyedropper defaults to Option-I", () => {
   assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, event)?.id, "object.eyedropper");
 });
 
+test("object picker defaults to Option-Shift-O", () => {
+  const event = { code: "KeyO", metaKey: false, ctrlKey: false, altKey: true, shiftKey: true };
+  assert.equal(shortcutFromEvent(event), "Alt+Shift+KeyO");
+  assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, event)?.id, "object.pick.fromCanvas");
+});
+
 test("clear scene uses the explicit Ctrl+Shift+Backspace binding", () => {
   const event = { code: "Backspace", metaKey: false, ctrlKey: true, altKey: false, shiftKey: true };
   assert.equal(shortcutFromEvent(event), "Ctrl+Shift+Backspace");

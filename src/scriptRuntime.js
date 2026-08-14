@@ -1,5 +1,6 @@
 import { getObjectTimeState, getScoreData, resolveIannixObjectTiming } from "./iannixEngine.js";
 import { normalizeScriptParameterValue, resolveScriptColorReference } from "./scriptParameters.js";
+import { objectReferenceFromPath } from "./objectPath.js";
 
 const matchesEvent = (event, pattern) => {
   const name = String(event?.name || "");
@@ -46,7 +47,9 @@ export const createScriptCanvasApi = (runtimeRef, options = {}) => {
   const elements = () => (runtime().getElements?.() || []).filter(element => element && !element.isDeleted);
   const all = () => elements().map(element => snapshotObject(element, runtime()));
   const findElement = reference => {
-    const query = typeof reference === "object" && reference ? String(reference.id || "") : String(reference ?? "");
+    const query = typeof reference === "object" && reference
+      ? String(reference.id || "")
+      : objectReferenceFromPath(reference);
     return elements().find(element => {
       const score = getScoreData(element) || {};
       const imported = element?.customData?.iannixImport || {};
@@ -55,7 +58,9 @@ export const createScriptCanvasApi = (runtimeRef, options = {}) => {
     }) || null;
   };
   const get = reference => {
-    const query = typeof reference === "object" && reference ? String(reference.id || "") : String(reference ?? "").trim();
+    const query = typeof reference === "object" && reference
+      ? String(reference.id || "")
+      : objectReferenceFromPath(reference);
     if (!query) return null;
     const element = findElement(query);
     return element ? snapshotObject(element, runtime()) : null;

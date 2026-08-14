@@ -7,7 +7,19 @@ import { fileURLToPath } from 'node:url'
 export default defineConfig(({ mode }) => {
   const environment = loadEnv(mode, process.cwd(), '')
   const buildSingle = environment.BUILD_SINGLE === 'true'
+  const publicSafeBuild = environment.PUBLIC_SAFE_BUILD === 'true'
   const prattApiKey = String(environment.PRATT_LLM_API_KEY || '').trim()
+  const sourcePath = relative => fileURLToPath(new URL(relative, import.meta.url))
+  const aliases = {
+    '@underscores/physics-worker-factory': sourcePath(buildSingle ? './src/physicsWorkerFactory.inline.js' : './src/physicsWorkerFactory.js'),
+  }
+  if (publicSafeBuild) {
+    // These are deliberately source-specifier aliases: Vite resolves the
+    // relative imports before an absolute-file alias is consulted.
+    aliases['./strudelRuntime.js'] = sourcePath('./src/publicSafeStrudelRuntime.js')
+    aliases['./strudelCodeMirror.js'] = sourcePath('./src/publicSafeStrudelCodeMirror.js')
+    aliases['./testFonts.css'] = sourcePath('./src/publicSafeEmpty.css')
+  }
   const aiProxy = {
     '/api/nvidia': {
       target: 'https://integrate.api.nvidia.com',
@@ -47,9 +59,7 @@ export default defineConfig(({ mode }) => {
       proxy: aiProxy
     },
     resolve: {
-      alias: {
-        '@underscores/physics-worker-factory': fileURLToPath(new URL(buildSingle ? './src/physicsWorkerFactory.inline.js' : './src/physicsWorkerFactory.js', import.meta.url)),
-      },
+      alias: aliases,
     },
     // The internal synth is lazy-loaded on first use. Pre-bundle both CommonJS
     // packages at dev-server startup so a first click cannot race Vite's
@@ -62,6 +72,7 @@ export default defineConfig(({ mode }) => {
       "process.env.NODE_ENV": JSON.stringify("development"),
       "process.env": {},
       "import.meta.env.VITE_PRATT_LLM_API_KEY_AVAILABLE": JSON.stringify(Boolean(prattApiKey)),
+      "import.meta.env.VITE_PUBLIC_SAFE_BUILD": JSON.stringify(publicSafeBuild),
     }
   }
 })

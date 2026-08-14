@@ -16,6 +16,20 @@ Local `npm run dev`, test, and build workflows remain available for development.
 
 The environment variable is an administrative acknowledgement after compliance; it is not a substitute for the obligations above. The [Strudel custom UI guide](https://strudel.cc/technical-manual/project-start/) is the upstream integration reference.
 
+## Student/public-safe artifact
+
+The repository has a separate classroom release profile documented in
+[`notes/student-release.md`](./student-release.md). Run `npm run build:students`
+to build a single-file artifact with compile-time aliases that omit native
+Strudel, its CodeMirror integration, and the optional Monaspace font pack.
+Persisted Strudel nodes remain visible as an explicit unavailable notice, while
+new Livecode nodes default to p5. `npm run deploy:students` runs the same check
+and publishes the resulting `dist` directory to `gh-pages`.
+
+This profile is a packaging control, not a legal conclusion. The full source
+tree and normal development build continue to carry the experimental
+dependencies and their notices so they can be audited and acknowledged later.
+
 ## Orca
 
 `src/orcaEngine.js` and `src/OrcaNode.jsx` adapt the Orca grid interaction and selected operator semantics from [Orca by Hundredrabbits](https://github.com/hundredrabbits/Orca), copyright 2017 Hundredrabbits, under the MIT License. The complete MIT notice is retained in [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).

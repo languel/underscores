@@ -56,7 +56,7 @@ import {
   updateSliderWidgets,
   updateWidgets,
   widgetPlugin,
-} from "@strudel/codemirror";
+} from "./strudelCodeMirror.js";
 import { sourceDiagnostic } from "./scriptEditorDiagnostics.js";
 import { getScriptEditorCompletions, getScriptEditorProfile } from "./scriptEditorProfiles.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";

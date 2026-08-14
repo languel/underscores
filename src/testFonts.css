@@ -1,0 +1,28 @@
+/* Monaspace is an optional internal code-font pack. Keep it separate from the
+ * public-safe entry so a release can omit these packages without changing the
+ * normal local typography options. */
+@import "@fontsource/monaspace-argon/latin-300.css";
+@import "@fontsource/monaspace-argon/latin-400.css";
+@import "@fontsource/monaspace-argon/latin-500.css";
+@import "@fontsource/monaspace-argon/latin-600.css";
+@import "@fontsource/monaspace-argon/latin-700.css";
+@import "@fontsource/monaspace-krypton/latin-300.css";
+@import "@fontsource/monaspace-krypton/latin-400.css";
+@import "@fontsource/monaspace-krypton/latin-500.css";
+@import "@fontsource/monaspace-krypton/latin-600.css";
+@import "@fontsource/monaspace-krypton/latin-700.css";
+@import "@fontsource/monaspace-neon/latin-300.css";
+@import "@fontsource/monaspace-neon/latin-400.css";
+@import "@fontsource/monaspace-neon/latin-500.css";
+@import "@fontsource/monaspace-neon/latin-600.css";
+@import "@fontsource/monaspace-neon/latin-700.css";
+@import "@fontsource/monaspace-radon/latin-300.css";
+@import "@fontsource/monaspace-radon/latin-400.css";
+@import "@fontsource/monaspace-radon/latin-500.css";
+@import "@fontsource/monaspace-radon/latin-600.css";
+@import "@fontsource/monaspace-radon/latin-700.css";
+@import "@fontsource/monaspace-xenon/latin-300.css";
+@import "@fontsource/monaspace-xenon/latin-400.css";
+@import "@fontsource/monaspace-xenon/latin-500.css";
+@import "@fontsource/monaspace-xenon/latin-600.css";
+@import "@fontsource/monaspace-xenon/latin-700.css";

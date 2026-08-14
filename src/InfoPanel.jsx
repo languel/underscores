@@ -149,7 +149,7 @@ const ScriptParametersInfoGuide = () => (
       <li><strong>Color</strong> — a CSS color/name or live <code>__</code> reference such as <code>__.currentColor</code>, <code>__.currentBackgroundColor</code>, or <code>__.colors.foreground.css</code>. The compact picker includes saturation/value, hue, alpha, theme swatches, transparency, and an app/canvas eyedropper with a live cursor preview. Alt-click the eyedropper to use the native screen picker when the browser provides it.</li>
       <li><strong>Boolean / bool</strong> — <code>true</code> or <code>false</code>, rendered as a checkbox.</li>
       <li><strong>JSON</strong> — any valid JSON object, array, string, number, or <code>null</code>; the editor parses it on blur and keeps the last valid value while JSON is being corrected.</li>
-      <li><strong>Object / canvas / element</strong> — in canvas-backed p5, Play Core, Livecode, and Brush runtimes, a reference resolves by element id, label, or group to a live read-only object view; call <code>toJSON()</code> for a snapshot. IanniX resolves color references when the trusted script runs and keeps other references as strings.</li>
+      <li><strong>Object / canvas / element</strong> — in canvas-backed p5, Play Core, Livecode, and Brush runtimes, a reference resolves by element id, label, or group to a live read-only object view; call <code>toJSON()</code> for a snapshot. Use <code>⌥⇧O</code> (Option-Shift-O) to pick an object from the canvas. Hover shows its canonical <code>__.canvas.get("…")</code> path and label; the canvas context menu copies that path, and text-field context menus can paste it into params or the code editor. IanniX resolves color references when the trusted script runs and keeps other references as strings.</li>
     </ul>
   </section>
 );
@@ -185,7 +185,7 @@ const UnderscoresApiGuide = () => (
       <summary>Scene, events, and transport</summary>
       <dl className="info-svg-command-list">
         <div><dt><code>canvas.all()</code></dt><dd>Read-only snapshots of all non-deleted scene objects.</dd></div>
-        <div><dt><code>canvas.get(id)</code></dt><dd>Get one object by element id, label, or Score group; returns <code>null</code> when absent.</dd></div>
+        <div><dt><code>canvas.get(id)</code></dt><dd>Get one object by element id, label, or Score group; canonical paths such as <code>__.canvas.get("curve-1")</code> are accepted too; returns <code>null</code> when absent.</dd></div>
         <div><dt><code>canvas.find(query)</code></dt><dd>Search by text, or filter snapshots with a predicate. <code>objects</code> is an alias of <code>canvas</code>.</dd></div>
         <div><dt><code>canvas.selected()</code></dt><dd>Read-only snapshots of the current canvas selection.</dd></div>
         <div><dt><code>events.on(pattern, listener)</code></dt><dd>Subscribe to the event bus; supports a trailing <code>.*</code> wildcard and returns an unsubscribe function.</dd></div>

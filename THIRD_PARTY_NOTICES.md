@@ -37,10 +37,11 @@ packages at `node_modules/@fontsource/fira-mono/LICENSE` and `node_modules/@font
 source distributions and public release artifacts must preserve that notice and license.
 
 The Monaspace families Argon, Krypton, Neon, Radon, and Xenon are bundled through the corresponding
-`@fontsource/monaspace-*` packages. Monaspace is Copyright (c) 2023 GitHub, Inc. and is licensed
-under the SIL Open Font License, Version 1.1. The complete upstream license texts are retained in
-each installed package's `LICENSE` file; source distributions and public release artifacts must
-preserve the relevant notices and license.
+`@fontsource/monaspace-*` packages for the normal local/internal build. Monaspace is Copyright (c)
+2023 GitHub, Inc. and is licensed under the SIL Open Font License, Version 1.1. The complete
+upstream license texts are retained in each installed package's `LICENSE` file; source distributions
+must preserve the relevant notices and license. The student/public-safe build deliberately omits
+these packages until the internal asset audit is complete; see `notes/student-release.md`.
 
 SIL Open Font License, Version 1.1 — 26 February 2007
 

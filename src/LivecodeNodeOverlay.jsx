@@ -24,6 +24,7 @@ import {
 } from "./livecodeNode.js";
 import { infoProps } from "./uiInfo.js";
 import { createScriptConsole } from "./scriptConsole.js";
+import { isPublicSafeBuild } from "./buildProfile.js";
 
 const StopIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1" /></svg>;
 const RunIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 9 6-9 6V6Z" /></svg>;
@@ -67,6 +68,11 @@ export function LivecodeNodeEditor({
 }) {
   const node = useMemo(() => normalizeLivecodeNode(rawNode), [rawNode]);
   const definition = getLivecodeKindDefinition(node.kind);
+  if (isPublicSafeBuild && node.kind === "strudel") return <div
+    className={`livecode-node-editor livecode-student-build-unavailable ${className}`.trim()}
+    style={editorStyleFor(node.typography)}
+    role="status"
+  >Strudel is not included in this student build. Use a p5, Play Core, Orca, shader, or document node instead.</div>;
   const strudelVisualsCurrent = node.kind === "strudel"
     && evaluatedStrudelSource(node) === node.source;
   if (node.kind === "orca") return <div
@@ -326,6 +332,7 @@ function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef, transport, ed
     return <LivecodePresentation element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} editable={editable} documentEditing={documentEditing} onActivate={onActivate} onPatch={onPatch} onCommit={onCommit} />;
   }
   if (node.kind === "strudel" && isLivecodeNodeRunnable(node)) {
+    if (isPublicSafeBuild) return <div className="livecode-student-build-unavailable" role="status">Strudel is not included in this student build.</div>;
     return <StrudelNodeRuntime element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} onStrudelTransport={onStrudelTransport} />;
   }
   return isLivecodeNodeRunnable(node)
@@ -353,7 +360,7 @@ function NodeChrome({ node, onPatch, onToggleRun }) {
       onChange={event => onPatch?.({ kind: event.target.value, name: randomLivecodeName(event.target.value) })}
       {...infoProps("Livecode kind", "Changes this node's adapter and editor profile. Its source stays on the node; choose a compatible kind before running it.")}
     >
-      {Object.entries(LIVECODE_KIND_DEFINITIONS).map(([id, candidate]) => <option key={id} value={id}>{candidate.label}</option>)}
+      {Object.entries(LIVECODE_KIND_DEFINITIONS).filter(([id]) => !isPublicSafeBuild || id !== "strudel").map(([id, candidate]) => <option key={id} value={id}>{candidate.label}</option>)}
     </select>
     {!["orca", "strudel"].includes(node.kind) && <button type="button" onClick={() => onPatch?.({ view: nextLivecodeView(node.view) })} title="Cycle output, code, code overlay, and split view (Cmd/Ctrl+Shift+Enter while editing)" aria-label="Cycle livecode view">{node.view === "preview" ? "▥" : node.view === "source" ? "{}" : node.view === "code" || node.view === "overlay" ? "◒" : "‹/›"}</button>}
   </div>;
