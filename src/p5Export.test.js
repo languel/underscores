@@ -131,6 +131,7 @@ test("Holistic canvas pixels are composited at the media host transform", () => 
   });
   assert.equal(captured, 1);
   assert.equal(context.globalAlpha, 0.8);
+  assert.equal(context.filter, "none");
   assert.deepEqual(operations, [
     "save",
     ["translate", 100, 50],
@@ -230,6 +231,25 @@ test("dark PNG exports use Excalidraw's visible-canvas filter at device resoluti
   assert.equal(context.filter, EXCALIDRAW_DARK_THEME_FILTER);
   assert.deepEqual(operations, [[sourceCanvas, 0, 0]]);
   assert.deepEqual(exportOptions.getDimensions(100, 50), { width: 200, height: 100, scale: 2 });
+});
+
+test("visible Canvas-source exports can preserve display pixels without a second theme filter", async () => {
+  const sourceCanvas = { width: 80, height: 40, getContext: () => null };
+  const root = {
+    createElement: () => { throw new Error("theme filter should be skipped"); },
+    querySelectorAll: () => [],
+  };
+
+  const { canvas } = await exportUnderscoresPng({
+    exportToCanvas: async () => sourceCanvas,
+    elements: [{ id: "line", type: "line", x: 0, y: 0, width: 80, height: 40, angle: 0 }],
+    appState: { theme: "dark" },
+    files: {},
+    root,
+    applyThemeFilter: false,
+  });
+
+  assert.equal(canvas, sourceCanvas);
 });
 
 test("inverse dark-theme conversion restores authored clipboard pixels", () => {

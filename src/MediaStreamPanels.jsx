@@ -334,14 +334,16 @@ const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAs
 </div>;
 };
 
-const MediaClipRecorder = ({ source, onCreate }) => {
+const MediaClipRecorder = ({ source, onCreate, onPatch }) => {
   const [format, setFormat] = useState(MEDIA_CLIP_FORMATS.GIF);
   const [durationSeconds, setDurationSeconds] = useState(5);
+  const [gifBackground, setGifBackground] = useState("theme");
   const [recording, setRecording] = useState(false);
   const [statuses, setStatuses] = useState({});
   const recorderRef = useRef(null);
+  const isCanvas = source?.kind === MEDIA_STREAM_KINDS.CANVAS;
   const isAudio = source?.media?.mediaType === "audio";
-  const canRecordAudio = isAudio || source?.media?.mediaType === "video";
+  const canRecordAudio = !isCanvas && (isAudio || source?.media?.mediaType === "video");
   const status = statuses[source?.id] || null;
   const options = isAudio
     ? [{ value: MEDIA_CLIP_FORMATS.AUDIO, label: "Audio" }]
@@ -353,6 +355,7 @@ const MediaClipRecorder = ({ source, onCreate }) => {
 
   useEffect(() => {
     setFormat(isAudio ? MEDIA_CLIP_FORMATS.AUDIO : MEDIA_CLIP_FORMATS.GIF);
+    setGifBackground("theme");
   }, [isAudio, source?.id]);
 
   useEffect(() => () => recorderRef.current?.stop(), []);
@@ -360,16 +363,32 @@ const MediaClipRecorder = ({ source, onCreate }) => {
   const stop = () => recorderRef.current?.stop();
 
   const record = async () => {
-    if (recording) return;
-    const runtime = getMediaRuntimeSource(source.id);
+    if (recording || !source) return;
     const durationMs = Math.max(1000, Math.min(30000, (Number(durationSeconds) || 5) * 1000));
-    const session = format === MEDIA_CLIP_FORMATS.GIF
-      ? createGifClipRecorder({ canvas: runtime?.element, durationMs, fps: source.output?.fps || 15 })
-      : createMediaRecorderClip({ stream: runtime?.stream?.(), format, durationMs });
-    recorderRef.current = session;
+    const changesCanvasBackground = source.kind === MEDIA_STREAM_KINDS.CANVAS && format === MEDIA_CLIP_FORMATS.GIF;
+    const originalCanvasBackground = source.canvas?.background || "theme";
     setRecording(true);
     setStatuses(previous => ({ ...previous, [source.id]: { kind: "info", message: `Recording ${format.toUpperCase()}…` } }));
+    let session = null;
     try {
+      const runtime = getMediaRuntimeSource(source.id);
+      if (changesCanvasBackground) {
+        onPatch?.({ canvas: { background: gifBackground } });
+        // CanvasMediaSource restarts its capture effect when the background
+        // mode changes. Give that first themed/transparent frame time to
+        // publish before GIF sampling starts.
+        await new Promise(resolve => {
+          if (typeof requestAnimationFrame !== "function") {
+            setTimeout(resolve, 50);
+            return;
+          }
+          requestAnimationFrame(() => requestAnimationFrame(resolve));
+        });
+      }
+      session = format === MEDIA_CLIP_FORMATS.GIF
+        ? createGifClipRecorder({ canvas: runtime?.element, durationMs, fps: source.output?.fps || 15, transparent: gifBackground === "transparent" })
+        : createMediaRecorderClip({ stream: runtime?.stream?.(), format, durationMs });
+      recorderRef.current = session;
       const result = await session.promise;
       const stem = String(source.name || "clip").replace(/\.[^./]+$/, "") || "clip";
       const filename = `${stem}-clip-${Date.now()}.${result.extension}`;
@@ -395,6 +414,9 @@ const MediaClipRecorder = ({ source, onCreate }) => {
     } finally {
       recorderRef.current = null;
       setRecording(false);
+      if (changesCanvasBackground && originalCanvasBackground !== gifBackground) {
+        onPatch?.({ canvas: { background: originalCanvasBackground } });
+      }
     }
   };
 
@@ -408,6 +430,13 @@ const MediaClipRecorder = ({ source, onCreate }) => {
           {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
       </label>
+      {source.kind === MEDIA_STREAM_KINDS.CANVAS && format === MEDIA_CLIP_FORMATS.GIF && <label className="media-stream-panel-field">
+        <span>GIF background</span>
+        <select aria-label="GIF background" value={gifBackground} disabled={recording} onChange={event => setGifBackground(event.target.value)}>
+          <option value="theme">Theme</option>
+          <option value="transparent">Transparent</option>
+        </select>
+      </label>}
       <label className="media-stream-panel-field">
         <span>Seconds</span>
         <NumericInput aria-label="Record seconds" min="1" max="30" step="0.5" value={durationSeconds} defaultValue={5} disabled={recording} onKeyDown={stopKeyPropagation} onCommit={setDurationSeconds} />
@@ -467,11 +496,18 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
     const source = onCreate(MEDIA_STREAM_KINDS.MEDIA, { name: "Image source" });
     if (source?.id) setSelectedId(source.id);
   };
+  const addCanvasSource = () => {
+    const source = onCreate(MEDIA_STREAM_KINDS.CANVAS, { name: "Canvas capture" });
+    if (source?.id) setSelectedId(source.id);
+  };
 
   return <div className="media-stream-panel">
     <div className="media-stream-panel-source-header">
       <span>Sources</span>
-      <button type="button" className="iannix-flat-button media-stream-panel-add-source" onClick={addSource} aria-label="Add image source" title="Add image source">+</button>
+      <span className="media-stream-panel-source-actions">
+        <button type="button" className="iannix-flat-button media-stream-panel-add-source" onClick={addSource} aria-label="Add media source" title="Add media source">+</button>
+        <button type="button" className="iannix-flat-button media-stream-panel-add-source" onClick={addCanvasSource} aria-label="Add canvas source" title="Add canvas source">⌗</button>
+      </span>
     </div>
     <input ref={fileRef} type="file" hidden accept="image/*,video/*,audio/*,.gif" onChange={event => {
       const file = event.target.files?.[0];
@@ -515,6 +551,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
                 <input type="checkbox" checked={selected.canvas.live} onChange={event => onPatch(selected.id, { canvas: { live: event.target.checked } })} />
                 <span>Live</span>
               </label>
+              <div className="media-stream-panel-note">Draw a frame or rectangle, then choose it here. Captures follow the board theme; static capture reads the area when needed. Enable Live only for continuous action.</div>
             </>
       : <>
             <label className="media-stream-panel-field">
@@ -537,7 +574,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
             {selected.media.fileName && <div className="media-stream-panel-note">Local file: {selected.media.fileName}. Choose it again after reloading the page.</div>}
           </>}
     </SourceDetail>}
-    <MediaClipRecorder source={selected} onCreate={onCreate} />
+    <MediaClipRecorder source={selected} onCreate={onCreate} onPatch={patch => onPatch(selected.id, patch)} />
   </div>;
 }
 

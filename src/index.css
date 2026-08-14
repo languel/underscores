@@ -5733,7 +5733,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .underscores-media-stream-frame {
   position: absolute;
   overflow: hidden;
-  background: #08090a;
+  background: var(--underscores-canvas-bg, var(--color-canvas-background, #08090a));
   pointer-events: none;
 }
 
@@ -5797,7 +5797,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 
 .underscores-media-surface {
   object-fit: cover;
-  background: #08090a;
+  background: var(--underscores-canvas-bg, var(--color-canvas-background, #08090a));
 }
 
 .underscores-media-empty {
@@ -8115,6 +8115,12 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   text-transform: uppercase;
 }
 
+.media-stream-panel-source-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .input-streams-panel {
   border-top: 1px solid var(--color-border, #3a3b46);
   margin-top: 12px;
@@ -8387,7 +8393,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   width: 100%;
   height: min(180px, 24vh);
   border: 1px solid var(--underscores-panel-border, var(--border-color));
-  background: #08090a;
+  background: var(--underscores-canvas-bg, var(--color-canvas-background, #08090a));
   object-fit: contain;
 }
 

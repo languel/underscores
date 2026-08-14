@@ -42,8 +42,8 @@ const HELP_TOPICS = Object.freeze([
   {
     id: "media-streams",
     title: "Media streams and actors",
-    keywords: "media stream mediapipe holistic camera actor brush input landmark",
-    body: "Media observations remain transient streams. A Holistic processor stores its source, transform, and display settings without creating one object per landmark. Use the Media and Inputs panels to create streams, then use actors, Brush channels, or scripts to consume them.",
+    keywords: "media stream mediapipe holistic camera actor brush input landmark source catalog clip recorder gif mp4 audio",
+    body: "Media sources stay dormant in the catalog until selected or connected to an enabled scene object. Select one to preview and play it, use Record clip to create a GIF, MP4, or audio source, and press Escape to clear selection. A Holistic processor stores its source, transform, and display settings without creating one object per landmark. Use the Media and Inputs panels to create streams, then use actors, Brush channels, or scripts to consume them.",
   },
 ]);
 
@@ -209,6 +209,16 @@ function draw() {
 
 const MediaStreamsInfoGuide = () => (
   <div className="info-svg-guide">
+    <section>
+      <h3>Source catalog and clip recorder</h3>
+      <ul>
+        <li>Sources are a catalog, not an always-on mixer. Select a source to preview/play it; press <strong>Escape</strong> to clear selection.</li>
+        <li>Enabled previews, Canvas capture sources, Holistic processors, and Unicursal drawings keep their referenced inputs running. Unused sources stay dormant.</li>
+        <li>Add a <strong>Canvas capture</strong> source with <strong>⌗</strong>, draw a frame or rectangle, and choose it as the target. Static capture reads only when needed; enable <strong>Live</strong> for continuous action.</li>
+        <li><strong>Record clip</strong> saves the selected processed output as a new source: GIF for visuals, MP4 for visuals, and Audio for audio/video inputs. Canvas GIFs can use the active theme or a transparent background.</li>
+        <li>Choose 1–30 seconds or stop early. MP4 uses browser MIME support and may fall back to WebM; finished files are session-local until browser file storage is added.</li>
+      </ul>
+    </section>
     <section>
       <h3>Semantic streams</h3>
       <p>Holistic observations stay transient. The processor object persists its source, transform, overlay settings, and versioned actor bindings; it does not create one scene object per landmark.</p>
@@ -513,8 +523,8 @@ const SCRIPT_GUIDE_SEARCH = Object.freeze({
   }),
   media: Object.freeze({
     title: "Media streams and actors",
-    keywords: "media stream mediapipe holistic camera inputs actors landmarks brush",
-    body: "Media observations remain transient typed streams. Use the Media, Inputs, Mapping, and Brush panels to consume landmarks, values, events, and images.",
+    keywords: "media stream mediapipe holistic camera inputs actors landmarks brush source catalog clip recorder gif mp4 audio",
+    body: "Media sources stay dormant until selected or connected to an enabled scene object. Select one to preview/play it, use Record clip to create GIF, MP4, or audio sources, and press Escape to clear selection. Use the Media, Inputs, Mapping, and Brush panels to consume landmarks, values, events, and images.",
   }),
 });
 

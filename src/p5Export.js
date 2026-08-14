@@ -3,10 +3,10 @@ import { isMediaStreamElement, shouldRenderMediaStream } from "./mediaStream.js"
 
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 
-// Excalidraw draws the dark theme by filtering its light source canvas.  The
-// public export API deliberately returns that source canvas unfiltered, so a
-// Underscores export must apply the same filter before it composites live p5
-// canvases (which are already drawn in their final colours).
+// PNG exports normally apply Excalidraw's dark-theme filter before compositing
+// live p5/media canvases (which are already drawn in their final colours).
+// Scene-visible Canvas sources can opt out when their native content is already
+// in display colours and only need the current board background.
 export const EXCALIDRAW_DARK_THEME_FILTER = "invert(93%) hue-rotate(180deg)";
 
 export const getElementExportBounds = element => {
@@ -129,6 +129,10 @@ const drawElementCanvas = ({ context, source, element, bounds, scaleX, scaleY })
   const width = Math.max(1, Math.abs(finite(element.width, 1)));
   const height = Math.max(1, Math.abs(finite(element.height, 1)));
   context.save();
+  // The native Excalidraw layer may have been rendered through the dark-theme
+  // filter. Live p5/media surfaces are already display-coloured, so never
+  // inherit that filter when they are composited onto the result.
+  context.filter = "none";
   context.translate((x + width / 2 - bounds.minX) * scaleX, (y + height / 2 - bounds.minY) * scaleY);
   context.rotate(finite(element.angle));
   context.globalAlpha = Math.max(0, Math.min(1, finite(element.opacity, 100) / 100));
@@ -289,6 +293,7 @@ export const exportUnderscoresPng = async ({
   root = globalThis.document,
   pixelRatio = finite(globalThis.devicePixelRatio, 1),
   outputMode = "visible",
+  applyThemeFilter = true,
 }) => {
   const activeElements = (elements || []).filter(element => element && !element.isDeleted);
   if (!activeElements.length) throw new Error("There is nothing to export.");
@@ -307,7 +312,7 @@ export const exportUnderscoresPng = async ({
       scale: resolution,
     }),
   });
-  const canvas = outputMode === "authored"
+  const canvas = outputMode === "authored" || !applyThemeFilter
     ? sourceCanvas
     : applyExcalidrawThemeFilter({
       canvas: sourceCanvas,

@@ -63,6 +63,47 @@ resolution. The preview remains an ordinary selectable Underscores object and ap
 Outliner using the source name. Existing rectangles or frames can still become previews through
 the context menu or `/preview` command.
 
+### Canvas capture sources
+
+Use the `⌗` button beside **Sources** to add a **Canvas capture** source. Draw an ordinary
+rectangle or frame on the canvas, then choose it as the source's **Canvas target** (the picker
+button can select one directly). The target bounds define the capture area; authored objects that
+overlap it are included and clipped to the area, along with composited live p5 and media surfaces.
+
+Static capture performs a readback when the source is first demanded and again when the scene or
+target changes. Captures follow the active board theme by default. Leave **Live** off for
+event-driven/static areas. Enable **Live** only when the capture should refresh continuously at the
+configured source FPS. Because canvas sources also obey source demand gating, an unselected and
+unconnected capture source performs no readback at all.
+
+## Clip recorder
+
+The **Record clip** section appears in the Media panel when a source is selected. It records the
+source's processed runtime output, then adds the finished file as another ordinary `media` source
+in the catalog. The recorder is source-local and does not change the scene until the new source is
+explicitly added as a preview or processor input.
+
+- Visual sources (images/GIFs, cameras, videos, and Canvas captures) offer **GIF** and **MP4**.
+  Video sources also offer **Audio**; audio sources offer **Audio** only.
+- **Seconds** accepts 1–30 seconds, with a five-second default. **Stop recording** finishes early.
+- GIF recording samples the processed output canvas at the source FPS and encodes the frames locally
+  with `gifenc`, preserving the source crop and mirror treatment. Canvas captures offer **Theme**
+  or **Transparent** GIF background; the latter temporarily performs an alpha capture and restores
+  the source's normal themed output after recording.
+- MP4 and Audio recording use the browser's `MediaRecorder` on the source runtime stream. The
+  recorder checks supported MIME types first; MP4 is preferred, with WebM as the browser fallback.
+  If fallback occurs, the saved extension and status identify the actual browser output.
+- Completed files are named from the source, for example `dog-clip-<timestamp>.gif` or
+  `Echoes-of-the-Ancient-Dunes-clip-<timestamp>.m4a`, and use the same source-creation path as a
+  dropped file. The new source is session-local: its Blob URL works immediately, while catalog
+  metadata survives reload and the original file must be chosen again until browser filesystem
+  storage is added.
+
+The implementation lives in `src/mediaClipRecorder.js` and the panel integration is in
+`src/MediaStreamPanels.jsx`. Recording follows source demand gating: select the source (or keep it
+connected to an enabled scene object) before recording; unused catalog entries do not allocate a
+media runtime.
+
 ## MediaPipe runtime and output
 
 Holistic is loaded on demand from the upstream browser package used by MediaMime. **Processing FPS**

@@ -454,7 +454,7 @@ function CanvasMediaSource({ source, captureCanvasSource, captureRevision }) {
     const capture = async () => {
       if (disposed || sourceRef.current.media.playing === false) return;
       const current = sourceRef.current;
-      const frame = await captureCanvasSource?.(current.canvas.elementId);
+      const frame = await captureCanvasSource?.(current.canvas.elementId, { background: current.canvas.background });
       if (disposed || !frame) return;
       const context = output.getContext("2d", { alpha: true });
       if (!context || !drawProcessedFrame(context, output, frame, current)) return;
@@ -473,7 +473,7 @@ function CanvasMediaSource({ source, captureCanvasSource, captureRevision }) {
       window.clearTimeout(timer);
       unregister();
     };
-  }, [captureCanvasSource, captureRevision, source.canvas.elementId, source.canvas.live, source.enabled, source.id, source.output.fps, source.output.maxDimension]);
+  }, [captureCanvasSource, captureRevision, source.canvas.background, source.canvas.elementId, source.canvas.live, source.enabled, source.id, source.output.fps, source.output.maxDimension]);
 
   return <div className="underscores-media-runtime-source" data-media-runtime-source-id={source.id}><canvas ref={outputRef} /></div>;
 }

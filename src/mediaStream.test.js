@@ -6,6 +6,7 @@ import {
   createMediaBinding,
   createMediaSource,
   canUseAsObjectBoundsTarget,
+  canUseAsCanvasCaptureTarget,
   getConnectedMediaSourceIds,
   inferMediaType,
   isGifMediaSource,
@@ -31,7 +32,7 @@ test("media stream defaults distinguish acquisition and derived stream kinds", (
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.CAMERA).mirror, true);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).media.loop, true);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).media.playing, true);
-  assert.deepEqual(createMediaStreamConfig(MEDIA_STREAM_KINDS.CANVAS).canvas, { elementId: "", live: false });
+  assert.deepEqual(createMediaStreamConfig(MEDIA_STREAM_KINDS.CANVAS).canvas, { elementId: "", live: false, background: "theme" });
   assert.deepEqual(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).output, { fps: 30, maxDimension: 0 });
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.PREVIEW).sourceId, "");
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.showHands, true);
@@ -190,12 +191,13 @@ test("media type inference recognizes audio clips", () => {
 
 test("canvas inputs and processed-output limits normalize independently", () => {
   const source = createMediaSource("canvas", {
-    canvas: { elementId: "frame-a", live: true },
+    canvas: { elementId: "frame-a", live: true, background: "transparent" },
     output: { fps: 999, maxDimension: 123 },
   });
   const next = patchMediaSource(source, { output: { fps: 12, maxDimension: 960 } });
   assert.equal(source.canvas.elementId, "frame-a");
   assert.equal(source.canvas.live, true);
+  assert.equal(source.canvas.background, "transparent");
   assert.equal(source.output.fps, 60);
   assert.equal(source.output.maxDimension, 0);
   assert.deepEqual(next.output, { fps: 12, maxDimension: 960 });
@@ -238,6 +240,15 @@ test("holistic rectangle hosts remain valid object-bounds targets", () => {
   assert.equal(canUseAsObjectBoundsTarget(camera), false);
   assert.equal(objectBoundsTargetLabel(holistic), "Holistic");
   assert.equal(objectBoundsTargetLabel(rectangle), "rectangle");
+});
+
+test("canvas capture targets are ordinary frames and rectangles only", () => {
+  const rectangle = { id: "rect", type: "rectangle" };
+  const frame = { id: "frame", type: "frame" };
+  const holistic = { id: "holistic", type: "rectangle", customData: { underscoresMediaStream: createMediaStreamConfig("holistic") } };
+  assert.equal(canUseAsCanvasCaptureTarget(rectangle), true);
+  assert.equal(canUseAsCanvasCaptureTarget(frame), true);
+  assert.equal(canUseAsCanvasCaptureTarget(holistic), false);
 });
 
 test("panel sources have stable identities without requiring canvas elements", () => {

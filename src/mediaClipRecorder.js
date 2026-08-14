@@ -51,30 +51,34 @@ const cancelFrame = handle => {
   else clearTimeout(handle);
 };
 
-const encodeGif = (frames, width, height, delayMs) => {
+const encodeGif = (frames, width, height, delayMs, { transparent = false } = {}) => {
   if (!frames.length) throw new Error("No frames were captured.");
   const gif = GIFEncoder();
   frames.forEach((frame, index) => {
     const palette = quantize(frame, 256, {
       format: "rgba4444",
-      oneBitAlpha: true,
+      oneBitAlpha: transparent,
       clearAlpha: false,
     });
     const indexed = applyPalette(frame, palette, "rgba4444");
+    const transparentIndex = transparent
+      ? palette.findIndex(color => Array.isArray(color) && color[3] === 0)
+      : -1;
+    const hasTransparency = transparentIndex >= 0;
     gif.writeFrame(indexed, width, height, {
       palette,
       delay: delayMs,
       repeat: index === 0 ? 0 : undefined,
-      transparent: true,
-      transparentIndex: 0,
-      dispose: 2,
+      transparent: hasTransparency,
+      transparentIndex,
+      dispose: hasTransparency ? 2 : 0,
     });
   });
   gif.finish();
   return new Blob([gif.bytes()], { type: "image/gif" });
 };
 
-export const createGifClipRecorder = ({ canvas, durationMs = 5000, fps = 15 } = {}) => {
+export const createGifClipRecorder = ({ canvas, durationMs = 5000, fps = 15, transparent = false } = {}) => {
   let resolveResult;
   let rejectResult;
   let frameHandle = 0;
@@ -97,7 +101,7 @@ export const createGifClipRecorder = ({ canvas, durationMs = 5000, fps = 15 } = 
       const height = Number(canvas?.height) || 0;
       if (!context || !width || !height) throw new Error("The selected source has no visual frames to record.");
       const delayMs = Math.max(10, 1000 / Math.max(1, Number(fps) || 15));
-      const blob = encodeGif(frames, width, height, delayMs);
+      const blob = encodeGif(frames, width, height, delayMs, { transparent });
       resolveResult({
         blob,
         extension: "gif",

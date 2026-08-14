@@ -188,7 +188,7 @@ export const createMediaStreamConfig = (kind = MEDIA_STREAM_KINDS.MEDIA, overrid
     crop: DEFAULT_CROP,
     camera: { deviceId: "", facingMode: "user" },
     media: { url: "", mediaType: "video", fileName: "", loop: true, muted: true, playing: true, playbackRate: 1 },
-    canvas: { elementId: "", live: false },
+    canvas: { elementId: "", live: false, background: "theme" },
     output: DEFAULT_OUTPUT,
     holistic: {
       sourceId: "",
@@ -289,6 +289,9 @@ export const normalizeMediaStreamConfig = value => {
     canvas: {
       elementId: cleanString(canvas.elementId),
       live: canvas.live === true,
+      // Canvas captures follow the board's visible theme by default. GIF
+      // recording can temporarily request an alpha-only capture.
+      background: canvas.background === "transparent" ? "transparent" : "theme",
     },
     output: {
       fps: Math.round(clamp(output.fps, 1, 60, DEFAULT_OUTPUT.fps)),
@@ -394,6 +397,16 @@ export const canUseAsObjectBoundsTarget = element => {
     normalizeMediaStreamConfig(element.customData.underscoresMediaStream).kind,
   );
 };
+
+// Canvas sources capture a bounded authored area. Derived media objects are
+// deliberately excluded here; their live surfaces are composed when they sit
+// inside an ordinary frame or rectangle target.
+export const canUseAsCanvasCaptureTarget = element => Boolean(
+  element
+  && !element.isDeleted
+  && ["rectangle", "frame"].includes(element.type)
+  && !isMediaStreamElement(element),
+);
 
 export const objectBoundsTargetLabel = element => {
   if (isMediaStreamElement(element)) {

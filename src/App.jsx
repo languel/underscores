@@ -103,7 +103,7 @@ import MediaMapOverlay from "./MediaMapOverlay.jsx";
 import { isMediaMapElement, normalizeMediaMapConfig } from "./mediaMap.js";
 import { createMediaSemanticFrame, FACE_DISPLAY_GROUPS, getHolisticDisplayLayers, mediaLandmarkFeatureId, POSE_DISPLAY_GROUPS } from "./mediaLandmarkOntology.js";
 import { createMediaBindingRuntimeState, mediaBindingRuntimeHasExpired, mediaDrivenElementPosition, resolveMediaBindingGate, resolveMediaBindingSignal, shouldAppendMediaStrokePoint } from "./mediaActorRuntime.js";
-import { canUseAsObjectBoundsTarget, createMediaBinding, createMediaSource, createMediaStreamConfig, getConnectedMediaSourceIds, inferMediaType, isMediaStreamElement, isSupportedMediaFile, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig, readHolisticSettingsPreset, writeHolisticSettingsPreset } from "./mediaStream.js";
+import { canUseAsCanvasCaptureTarget, createMediaBinding, createMediaSource, createMediaStreamConfig, getConnectedMediaSourceIds, inferMediaType, isMediaStreamElement, isSupportedMediaFile, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig, readHolisticSettingsPreset, writeHolisticSettingsPreset } from "./mediaStream.js";
 import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, requestMediaSegmentation, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
 import { createUnifiedStreamsApi, UnderscoresStreamRegistry } from "./streamRuntime.js";
 import { generateUnicursalPath, getUnicursalSnapshotStrokeWidth, transformUnicursalFrame, transformUnicursalPoint, UNICURSAL_PRESETS } from "./unicursalPath.js";
@@ -157,7 +157,7 @@ import {
   getSvgSourceRangeForSelection,
 } from "./svgSourceSelection.js";
 import { getSvgNodeTransform, invertSvgTransform } from "./svgTransform.js";
-import { createModifierTrackExportElements, downloadCanvasAsPng, exportUnderscoresPng, findMediaStreamCanvasForElement } from "./p5Export.js";
+import { createModifierTrackExportElements, downloadCanvasAsPng, exportUnderscoresPng, findMediaStreamCanvasForElement, getElementExportBounds, getElementsExportBounds } from "./p5Export.js";
 import PerformanceOverlay from "./PerformanceOverlay.jsx";
 import { underscoresPerformanceMonitor } from "./performanceMonitor.js";
 import { createBakedImageElement, createBakedImageFile, createCanvasSnapshotImageElement, replaceSceneElementsWithBake } from "./sceneBake.js";
@@ -335,6 +335,33 @@ const getCanonicalExportBounds = elements => {
   const [minX, minY, maxX, maxY] = getCommonBounds(activeElements);
   if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
   return { minX, minY, maxX, maxY };
+};
+
+const cropCanvasToSceneBounds = (sourceCanvas, sourceBounds, targetBounds, documentRef = globalThis.document) => {
+  if (!sourceCanvas || !sourceBounds || !targetBounds || !documentRef?.createElement) return sourceCanvas;
+  const sourceWidth = Math.max(1, sourceBounds.maxX - sourceBounds.minX);
+  const sourceHeight = Math.max(1, sourceBounds.maxY - sourceBounds.minY);
+  const targetWidth = Math.max(1, targetBounds.maxX - targetBounds.minX);
+  const targetHeight = Math.max(1, targetBounds.maxY - targetBounds.minY);
+  const scaleX = sourceCanvas.width / sourceWidth;
+  const scaleY = sourceCanvas.height / sourceHeight;
+  const output = documentRef.createElement("canvas");
+  output.width = Math.max(1, Math.round(targetWidth * scaleX));
+  output.height = Math.max(1, Math.round(targetHeight * scaleY));
+  const context = output.getContext?.("2d");
+  if (!context) return sourceCanvas;
+  context.drawImage(
+    sourceCanvas,
+    (targetBounds.minX - sourceBounds.minX) * scaleX,
+    (targetBounds.minY - sourceBounds.minY) * scaleY,
+    targetWidth * scaleX,
+    targetHeight * scaleY,
+    0,
+    0,
+    output.width,
+    output.height,
+  );
+  return output;
 };
 
 const getBakeExportPadding = elements => Math.max(2, ...(elements || []).map(element => {
@@ -3872,7 +3899,7 @@ function App() {
     ));
     return matches.length === 1 ? matches[0] : null;
   }, [p5OverlayScene.elements, selectedElementIds]);
-  const canvasInputTargets = useMemo(() => p5OverlayScene.canvasElements.filter(canUseAsObjectBoundsTarget), [p5OverlayScene.canvasElements]);
+  const canvasInputTargets = useMemo(() => p5OverlayScene.canvasElements.filter(canUseAsCanvasCaptureTarget), [p5OverlayScene.canvasElements]);
   const selectedCanvasInputTarget = useMemo(() => {
     const matches = canvasInputTargets.filter(element => selectedElementIds[element.id]);
     return matches.length === 1 ? matches[0] : null;
@@ -13959,38 +13986,72 @@ function App() {
     setSelectedElementIds({});
   };
 
-  const captureCanvasInput = useCallback(async targetElementId => {
+  const captureCanvasInput = useCallback(async (targetElementId, { background = "theme" } = {}) => {
     const api = excalidrawAPIRef.current;
     if (!api || !targetElementId) return null;
     const target = p5OverlayScene.canvasElements.find(element => (
       !element.isDeleted
       && element.id === targetElementId
-      && (element.type === "rectangle" || element.type === "frame")
-      && !isMediaStreamElement(element)
+      && canUseAsCanvasCaptureTarget(element)
     ));
     if (!target) return null;
-    const left = Number(target.x) || 0;
-    const top = Number(target.y) || 0;
-    const right = left + Math.max(1, Number(target.width) || 1);
-    const bottom = top + Math.max(1, Number(target.height) || 1);
-    const elements = p5OverlayScene.canvasElements.filter(element => {
-      if (element.isDeleted || isMediaStreamElement(element)) return false;
-      const centerX = (Number(element.x) || 0) + (Number(element.width) || 0) / 2;
-      const centerY = (Number(element.y) || 0) + (Number(element.height) || 0) / 2;
-      return element.id === target.id || (centerX >= left && centerX <= right && centerY >= top && centerY <= bottom);
+    const targetBounds = getElementExportBounds(target);
+    if (!targetBounds || ![targetBounds.minX, targetBounds.minY, targetBounds.maxX, targetBounds.maxY].every(Number.isFinite)) return null;
+    const contentElements = p5OverlayScene.canvasElements.filter(element => {
+      if (element.isDeleted || element.id === target.id) return false;
+      const bounds = getElementExportBounds(element);
+      if (!bounds) return false;
+      return bounds.maxX > targetBounds.minX
+        && bounds.minX < targetBounds.maxX
+        && bounds.maxY > targetBounds.minY
+        && bounds.minY < targetBounds.maxY;
     });
-    if (!elements.length) return null;
+    // Keep the capture frame as a transparent anchor so Excalidraw lays out
+    // the source canvas in scene coordinates even when the selected area is
+    // empty or its contents extend beyond the area being captured.
+    const anchor = {
+      ...target,
+      id: `${target.id}-canvas-capture-anchor`,
+      opacity: 0,
+      customData: undefined,
+      boundElements: null,
+      isDeleted: false,
+    };
+    const elements = [anchor, ...contentElements];
+    const exportBounds = getElementsExportBounds(elements);
+    if (!exportBounds) return null;
+    const includeBackground = background !== "transparent";
+    const captureBackground = background === "transparent" || shaderUnderlayActive
+      ? "transparent"
+      : canvasColorForExcalidraw(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme);
     try {
-      return await exportToCanvas({
+      const exportResult = await exportUnderscoresPng({
+        exportToCanvas,
         elements,
-        appState: { ...api.getAppState(), exportBackground: false },
+        // Keep the offscreen export on the same theme as the visible
+        // Excalidraw canvas. The API appState can briefly lag React's theme
+        // state while a theme preset is being applied, which otherwise makes
+        // dark-mode native strokes look dimmer in the Canvas-source preview.
+        appState: {
+          ...api.getAppState(),
+          theme,
+          viewBackgroundColor: captureBackground,
+          exportBackground: includeBackground,
+        },
         files: api.getFiles?.() || {},
         exportPadding: 0,
+        exportBackground: includeBackground,
+        bounds: exportBounds,
+        pixelRatio: 1,
+        // Filter the native Excalidraw layer to match the visible canvas; live
+        // p5/media surfaces are composited afterward in their display colours.
+        applyThemeFilter: true,
       });
+      return cropCanvasToSceneBounds(exportResult.canvas, exportBounds, targetBounds);
     } catch {
       return null;
     }
-  }, [p5OverlayScene.canvasElements]);
+  }, [interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, p5OverlayScene.canvasElements, shaderUnderlayActive, theme]);
 
   // A reusable object-input gesture.  Media canvas sources are the first
   // consumer, but parameter routes and other object-backed inputs can supply
@@ -14058,7 +14119,7 @@ function App() {
     }
     beginObjectEyedropper({
       label: "Pick canvas source",
-      accept: canUseAsObjectBoundsTarget,
+      accept: canUseAsCanvasCaptureTarget,
       onPick: element => {
         patchMediaInputSource(targetSourceId, { canvas: { elementId: element.id } });
         return `${element.type === "frame" ? "Frame" : "Rectangle"} selected as canvas source.`;
@@ -22364,7 +22425,7 @@ function App() {
     if (path.join(".") !== "customData.underscoresMediaStream.canvas.elementId") return;
     beginObjectEyedropper({
       label: "Pick canvas input",
-      accept: canUseAsObjectBoundsTarget,
+      accept: canUseAsCanvasCaptureTarget,
       onPick: element => {
         updateSceneObjectProperty([ownerElementId], path, element.id);
         return `${element.type === "frame" ? "Frame" : "Rectangle"} assigned as canvas input.`;
@@ -24900,7 +24961,7 @@ function App() {
           >
             <InfoPanel
               info={infoView}
-              mode={shouldRenderPanel("script") ? scriptPanelType : shouldRenderPanel("mapping") ? "media" : "default"}
+              mode={shouldRenderPanel("script") ? scriptPanelType : (shouldRenderPanel("mapping") || shouldRenderPanel("media-input")) ? "media" : "default"}
               iannixCommand={iannixCommandHelp}
               livecodeKind={selectedLivecodeKindForInfo}
             />
