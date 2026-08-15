@@ -85,7 +85,7 @@ import UnderscoresCodeEditor from "./UnderscoresCodeEditor.jsx";
 import { sourceDiagnostic, validateJavascriptEditorSource } from "./scriptEditorDiagnostics.js";
 import { normalizeScriptType } from "./scriptTypes.js";
 import { P5FrameOverlay } from "./P5Frame.jsx";
-import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_EXAMPLES, P5_FRAME_STORAGE_KEY, canHostP5Frame, getP5Example, getP5HostElementType, isP5FrameElement, normalizeP5Frame, normalizeP5Scripts, normalizeP5SourceMode, reconcileP5ScriptsWithElements, validateP5Source } from "./p5Frame.js";
+import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_EXAMPLES, P5_FRAME_STORAGE_KEY, P5_RUNTIME_OPTIONS, canHostP5Frame, getP5Example, getP5HostElementType, isP5FrameElement, normalizeP5Frame, normalizeP5Scripts, normalizeP5SourceMode, normalizeP5Version, reconcileP5ScriptsWithElements, validateP5Source } from "./p5Frame.js";
 import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
 import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
@@ -163,6 +163,7 @@ import {
 } from "./svgSourceSelection.js";
 import { getSvgNodeTransform, invertSvgTransform } from "./svgTransform.js";
 import { createModifierTrackExportElements, downloadCanvasAsPng, exportUnderscoresPng, findMediaStreamCanvasForElement, getElementExportBounds, getElementsExportBounds } from "./p5Export.js";
+import { captureLivecodeFrameSnapshot, clearLivecodeFrameSnapshot } from "./livecodeFrameSnapshot.js";
 import PerformanceOverlay from "./PerformanceOverlay.jsx";
 import { underscoresPerformanceMonitor } from "./performanceMonitor.js";
 import { createBakedImageElement, createBakedImageFile, createCanvasSnapshotImageElement, replaceSceneElementsWithBake } from "./sceneBake.js";
@@ -1336,7 +1337,9 @@ const DEFAULT_INTERFACE_THEME_PRESET = "monoDark";
 const CUSTOM_THEME_STORAGE_KEY = "underscores_custom_themes_v1";
 const PHYSICS_DEBUG_STORAGE_KEY = "underscores_physics_debug_v1";
 const PHYSICS_TIME_SCRUB_STORAGE_KEY = "underscores_physics_time_scrub_v1";
-const PHYSICS_TOOLBAR_OPEN_STORAGE_KEY = "underscores_physics_toolbar_open";
+// Version the preference so boards created before the closed-by-default
+// layout do not inherit their old implicit `true` value on first launch.
+const PHYSICS_TOOLBAR_OPEN_STORAGE_KEY = "underscores_physics_toolbar_open_v2";
 const PHYSICS_TOOLBAR_DOCKED_STORAGE_KEY = "underscores_physics_toolbar_docked";
 const INTERNAL_SYNTH_RESTORE_STORAGE_KEY = "underscores_internal_synth_restore";
 const DEFAULT_PHYSICS_DEBUG_COLORS = Object.freeze({
@@ -3170,7 +3173,7 @@ function App() {
   const [physicsTelemetry, setPhysicsTelemetry] = useState({ systems: [], stepMs: 0, eventRate: 0, routeMs: 0 });
   const [physicsWorldPlaying, setPhysicsWorldPlaying] = useState(false);
   const [physicsTimeScrubEnabled, setPhysicsTimeScrubEnabled] = useState(() => localStorage.getItem(PHYSICS_TIME_SCRUB_STORAGE_KEY) === "true");
-  const [physicsToolbarOpen, setPhysicsToolbarOpen] = useState(() => localStorage.getItem(PHYSICS_TOOLBAR_OPEN_STORAGE_KEY) !== "false");
+  const [physicsToolbarOpen, setPhysicsToolbarOpen] = useState(() => localStorage.getItem(PHYSICS_TOOLBAR_OPEN_STORAGE_KEY) === "true");
   const [physicsToolbarDockedTop, setPhysicsToolbarDockedTop] = useState(() => {
     try {
       if (localStorage.getItem(PHYSICS_TOOLBAR_DOCKED_STORAGE_KEY) === "true") return true;
@@ -12358,7 +12361,7 @@ function App() {
     { id: "export.board.png", name: "Export Board as PNG /export board", aliases: ["/export board", "/export png", "Export Underscores board"], category: "Canvas", action: () => void exportUnderscoresBoardPng() },
     { id: "export.p5.frame.png", name: "Export Selected p5 Frame as PNG /export p5", aliases: ["/export p5", "/export p5 frame", "Export selected p5 frame"], category: "Canvas", action: () => void exportSelectedP5FramesPng() },
     { id: "webembed.create", name: "Create Web Embed /webembed", aliases: ["/webembed", "Create web embed", "Web embed"], category: "Canvas", args: { url: "URL?" }, action: (_api, args) => createWebEmbed(args) },
-    { id: "p5.frame.create", name: "Create p5 Frame /p5", aliases: ["/p5", "Create p5 frame", "p5 frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", source: "p5 source?", mode: "auto|instance|global?", runtime: "bundled|cdn?", cdnUrl: "string?" }, ai: { expose: true, description: "Create a trusted, interactive p5.js frame. Use mode: instance for p.setup/p.draw code, or mode: global for classic function setup()/draw() code. Omit mode for auto-detection. The bundled runtime is the default; only use runtime: cdn when the user specifically requests a remote p5 build. Keep the sketch self-contained and do not use HTML or script tags.", example: { name: "Pulsing circle", width: 640, height: 360, mode: "global", source: "function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(230);\n  strokeWeight(3);\n  const radius = 60 + 24 * Math.sin(millis() / 500);\n  circle(width / 2, height / 2, radius * 2);\n}" } }, action: (_api, args) => createP5Frame(args) },
+    { id: "p5.frame.create", name: "Create p5 Frame /p5", aliases: ["/p5", "Create p5 frame", "p5 frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", source: "p5 source?", mode: "auto|instance|global?", p5Version: "1|2?", runtime: "bundled|cdn?", cdnUrl: "string?" }, ai: { expose: true, description: "Create a trusted, interactive p5.js frame. Use p5Version: 2 for the embedded latest 2.x runtime or p5Version: 1 for the embedded latest 1.x runtime. Use mode: instance for p.setup/p.draw code, or mode: global for classic function setup()/draw() code. Omit mode for auto-detection. The bundled runtime is the default; only use runtime: cdn when the user specifically requests a remote p5 build. Keep the sketch self-contained and do not use HTML or script tags.", example: { name: "Pulsing circle", width: 640, height: 360, mode: "global", source: "function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(230);\n  strokeWeight(3);\n  const radius = 60 + 24 * Math.sin(millis() / 500);\n  circle(width / 2, height / 2, radius * 2);\n}" } }, action: (_api, args) => createP5Frame(args) },
     { id: "p5.frame.attach", name: "Attach p5 Sketch to Selection /attach p5", aliases: ["/attach p5", "Attach p5 sketch", "p5 attach"], category: "Canvas", args: { source: "p5 source?", mode: "auto|instance|global?", name: "string?" }, ai: { expose: true, description: "Attach a p5 sketch to each selected rectangle, frame, or existing p5 canvas. The selected objects become live p5 hosts; use a self-contained p5 source and choose global mode for classic setup()/draw() code.", example: { mode: "global", source: "function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  background(18);\n  circle(width / 2, height / 2, 80);\n}" } }, action: (_api, args) => attachP5ScriptToSelection(args) },
     { id: "play.core.frame.create", name: "Create Play Core Frame /play", aliases: ["/play", "Play Core frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", fps: "number?", source: "play.core source?" }, action: (_api, args) => createPlayCoreFrame(args) },
     { id: "livecode.node.run", name: "Run Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.underscoresLivecode); if (!node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
@@ -14182,6 +14185,7 @@ function App() {
       ...DEFAULT_P5_FRAME,
       source,
       mode,
+      p5Version: normalizeP5Version(args.p5Version),
       scriptId: script.id,
       runtime: args.runtime,
       cdnUrl: args.cdnUrl,
@@ -15735,6 +15739,13 @@ function App() {
       evaluatedSource: node.source,
       evaluationRevision: Math.max(0, Number(node.runtime.settings?.evaluationRevision) || 0) + 1,
     } : null;
+    if (!running && node.runtime.settings?.keepLastFrame === true) {
+      // Capture before the runtime unmounts. This is the only Livecode canvas
+      // readback performed for the thumbnail option, and it is bounded to a
+      // small in-memory PNG rather than being persisted into scene JSON.
+      clearLivecodeFrameSnapshot(elementId);
+      captureLivecodeFrameSnapshot(elementId);
+    }
     patchLivecodeCanvasNode(elementId, {
       runtime: {
         running,
@@ -18001,8 +18012,9 @@ function App() {
     ).filter(isP5FrameElement);
   };
 
-  // Keep Excalidraw's raw scene state here. The PNG exporter applies the same
-  // dark-theme display filter as the live canvas before compositing p5 frames.
+  // Keep the scene theme for the compositor, but let p5Export own the dark
+  // remap. Excalidraw's exportWithDarkMode flag is disabled there so native
+  // and Livecode pixels cannot be filtered twice.
   const getUnderscoresExportAppState = ({ transparent = transparentBoardExport } = {}) => ({
     ...excalidrawAPI.getAppState(),
     exportBackground: !transparent,
@@ -20498,11 +20510,13 @@ function App() {
           : node.kind === LIVECODE_KINDS.strudel
             ? <label className="livecode-view-control">View <span className="livecode-static-option">Code overlay</span></label>
             : <label className="livecode-view-control">View <select value={node.view === "overlay" ? "code" : node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="preview">Output</option><option value="source">Code</option><option value="code">Code Overlay</option><option value="split">Code/Output</option></select></label>}
+        {[LIVECODE_KINDS.p5, LIVECODE_KINDS.playcore, LIVECODE_KINDS.shader, LIVECODE_KINDS.strudel].includes(node.kind) && <label title="Keep the most recent rendered canvas frame visible when this node is stopped. Readback happens only when stopping.">Last frame <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.keepLastFrame === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { keepLastFrame: event.target.checked } } }, { commitToHistory: true })} />Keep</span></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Choose the native compact Orca cell spacing or fill the host frame">Spacing <select value={node.runtime.settings?.orcaDensity === "spacious" ? "spacious" : "compact"} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaDensity: event.target.value } } }, { commitToHistory: true })}><option value="compact">Compact</option><option value="spacious">Spacious</option></select></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Number of editable Orca columns">Grid width <NumericInput min="4" max="128" step="1" value={node.runtime.settings?.orcaGridWidth || 32} defaultValue={32} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridWidth: value } } }, { commitToHistory: true })} /></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Number of editable Orca rows">Grid height <NumericInput min="2" max="128" step="1" value={node.runtime.settings?.orcaGridHeight || 16} defaultValue={16} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridHeight: value } } }, { commitToHistory: true })} /></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Automatically size Orca cells to fit the host frame"><span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.orcaGridFit !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridFit: event.target.checked } } }, { commitToHistory: true })} />Fit frame</span></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Show a faint guide lattice behind the Orca cells">Guide <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.orcaGridGuide === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridGuide: event.target.checked } } }, { commitToHistory: true })} />Grid</span></label>}
+        {node.kind === LIVECODE_KINDS.p5 && <label title="Choose the embedded p5.js major runtime. The latest 2.x is the default; use 1.x for sketches or libraries that need the legacy API.">p5 version <select value={normalizeP5Version(node.runtime.settings?.p5Version)} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { p5Version: normalizeP5Version(event.target.value) } } }, { commitToHistory: true })}>{P5_RUNTIME_OPTIONS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>}
         <label title="Show the compact tab above this Livecode node on the canvas">Canvas tab <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.showChrome === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { showChrome: event.target.checked } } }, { commitToHistory: true })} />Show</span></label>
         {node.kind === LIVECODE_KINDS.shader && <label>Layer <select value={shaderComposition.compositeMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeMode: event.target.value } } }, { commitToHistory: true })}><option value="overlay">Above objects</option><option value="underlay">Below objects</option></select></label>}
         {node.kind === LIVECODE_KINDS.shader && <label>Opacity % <NumericInput min="0" max="100" step="5" value={Math.round(shaderComposition.compositeOpacity * 100)} defaultValue={100} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeOpacity: value / 100 } } }, { commitToHistory: true })} /></label>}
@@ -23509,7 +23523,7 @@ function App() {
           element.version,
           element.versionNonce,
           frame.scriptId,
-          ...(isP5 ? [frame.mode, frame.runtime, frame.cdnUrl, frame.autoplay, frame.transparent] : []),
+          ...(isP5 ? [frame.mode, frame.p5Version, frame.runtime, frame.cdnUrl, frame.autoplay, frame.transparent] : []),
           frame.fps,
           frame.allowInteraction,
           frame.reloadNonce,
@@ -23762,6 +23776,7 @@ function App() {
               gridSize: null,
               gridModeEnabled: false,
               objectsSnapModeEnabled: false,
+              activeTool: { type: "freedraw", locked: false },
             }
           }}
           onChange={(elements, appState) => {

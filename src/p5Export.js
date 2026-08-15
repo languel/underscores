@@ -301,7 +301,10 @@ export const exportUnderscoresPng = async ({
   const resolution = Math.min(4, Math.max(1, pixelRatio));
   const sourceCanvas = await exportToCanvas({
     elements: hideLiveCanvasHostsForExport(activeElements),
-    appState: { ...appState, exportBackground },
+    // The application owns the dark-mode remap below. Excalidraw's own
+    // exportWithDarkMode flag would bake the same filter into sourceCanvas,
+    // causing clipboard images to be transformed a second time on paste.
+    appState: { ...appState, exportBackground, exportWithDarkMode: false },
     files,
     exportPadding,
     // Excalidraw's scale controls its drawing transform; callers must enlarge

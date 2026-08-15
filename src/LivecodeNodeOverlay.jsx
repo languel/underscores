@@ -25,6 +25,7 @@ import {
 import { infoProps } from "./uiInfo.js";
 import { createScriptConsole } from "./scriptConsole.js";
 import { isPublicSafeBuild } from "./buildProfile.js";
+import { getLivecodeFrameSnapshot } from "./livecodeFrameSnapshot.js";
 
 const StopIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1" /></svg>;
 const RunIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 9 6-9 6V6Z" /></svg>;
@@ -315,6 +316,12 @@ function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef, transport }
 
 function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef, transport, editable = false, documentEditing = false, onActivate, onPatch, onCommit, onMidiEvents, onStrudelTransport, onToggleRun }) {
   useEffect(() => () => scriptRuntimeRef.current?.disposeStreamsOwner?.(element.id), [element.id, node.runtime.running, scriptRuntimeRef]);
+  const lastFrame = node.runtime.settings?.keepLastFrame === true
+    ? getLivecodeFrameSnapshot(element.id)
+    : "";
+  if (!node.runtime.running && lastFrame) return <div className="livecode-node-runtime visible livecode-last-frame" aria-label="Last rendered frame">
+    <img src={lastFrame} alt="Last rendered Livecode frame" draggable="false" />
+  </div>;
   if (node.kind === "orca") return <OrcaNode
     nodeId={element.id}
     source={node.source}

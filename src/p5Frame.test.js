@@ -5,7 +5,9 @@ import {
   compileInstanceP5Source,
   DEFAULT_P5_CDN_URL,
   DEFAULT_P5_CLASSIC_SOURCE,
+  DEFAULT_P5_LEGACY_CDN_URL,
   DEFAULT_P5_SOURCE,
+  DEFAULT_P5_VERSION,
   detectP5SourceMode,
   getP5Example,
   canHostP5Frame,
@@ -13,6 +15,8 @@ import {
   getP5HostElementType,
   isP5FrameElement,
   normalizeP5Frame,
+  normalizeP5Version,
+  P5_RUNTIME_OPTIONS,
   P5_EXAMPLES,
   reconcileP5ScriptsWithElements,
   resolveP5SourceMode,
@@ -27,6 +31,7 @@ test("normalizes p5 frame settings to the bundled trusted runtime", () => {
     scriptId: "",
     hostType: "rectangle",
     mode: "auto",
+    p5Version: DEFAULT_P5_VERSION,
     runtime: "bundled",
     cdnUrl: DEFAULT_P5_CDN_URL,
     autoplay: true,
@@ -209,6 +214,7 @@ test("p5 serial bridge streams chunks, text, and lifecycle events", async () => 
 test("normalizes p5 runtime bounds and recognizes p5 frames", () => {
   const frame = normalizeP5Frame({ runtime: "cdn", cdnUrl: " https://example.test/p5.js ", fps: 999, reloadNonce: -4, allowInteraction: false });
   assert.equal(frame.runtime, "cdn");
+  assert.equal(frame.p5Version, "2");
   assert.equal(frame.cdnUrl, "https://example.test/p5.js");
   assert.equal(frame.fps, 120);
   assert.equal(frame.reloadNonce, 0);
@@ -220,6 +226,14 @@ test("normalizes p5 runtime bounds and recognizes p5 frames", () => {
   assert.equal(canHostP5Frame({ type: "line" }), false);
   assert.equal(getP5HostElementType({ hostType: "frame" }), "frame");
   assert.equal(getP5HostElementType({ hostType: "embeddable" }), "rectangle");
+});
+
+test("keeps both embedded p5 major runtimes selectable", () => {
+  assert.deepEqual(P5_RUNTIME_OPTIONS.map(option => option.id), ["2", "1"]);
+  assert.equal(normalizeP5Version("1.11.13"), "1");
+  assert.equal(normalizeP5Version("2.3.2"), "2");
+  assert.equal(normalizeP5Frame({ p5Version: "1" }).p5Version, "1");
+  assert.equal(normalizeP5Frame({ p5Version: "1", runtime: "cdn" }).cdnUrl, DEFAULT_P5_LEGACY_CDN_URL);
 });
 
 test("does not render p5 overlays for outliner-hidden frames", () => {

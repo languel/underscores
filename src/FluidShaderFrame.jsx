@@ -121,7 +121,16 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
-    const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: false, antialias: false, depth: false, stencil: false });
+    const gl = canvas.getContext("webgl2", {
+      alpha: true,
+      premultipliedAlpha: false,
+      antialias: false,
+      depth: false,
+      stencil: false,
+      // Only retain the default framebuffer when the stopped-frame option is
+      // enabled; ordinary fluid playback does not pay the readback cost.
+      preserveDrawingBuffer: node.runtime.settings?.keepLastFrame === true,
+    });
     if (!gl) {
       publishFrameStatus(statusRef, "error", "WebGL 2 is unavailable in this browser.");
       return undefined;
@@ -151,7 +160,7 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
       gl.deleteBuffer(runtime.buffer);
       runtimeRef.current = null;
     };
-  }, []);
+  }, [node.runtime.settings?.keepLastFrame]);
 
   useEffect(() => {
     const runtime = runtimeRef.current;

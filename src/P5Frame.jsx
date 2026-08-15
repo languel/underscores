@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import BundledP5 from "p5";
+import BundledP5V2 from "p5";
+import BundledP5V1 from "p5-legacy";
 import {
   compileClassicP5Source,
   compileInstanceP5Source,
@@ -22,8 +23,78 @@ const publishP5Status = detail => {
   window.dispatchEvent(new CustomEvent("underscores:p5-status", { detail }));
 };
 
+// Both embedded p5 runtimes normally route point() through per-point renderer
+// work. When a sketch is drawing ordinary one-pixel points on an untransformed
+// 2D canvas, use the equivalent fillRect path and restore p5's fill state at
+// the end of the draw. Anything outside that narrow case keeps p5's original
+// implementation.
+const installFastP5PointPath = p => {
+  const originalPoint = p.point;
+  const originalStroke = p.stroke;
+  const originalNoStroke = p.noStroke;
+  const originalStrokeWeight = p.strokeWeight;
+  if (typeof originalPoint !== "function") return () => {};
+  const state = { fillStyle: null, strokeStyle: null, changed: false, canFast: null, fastPoint: null };
+  if (typeof originalStroke === "function") {
+    p.stroke = function trackedStroke(...args) {
+      const result = originalStroke.apply(p, args);
+      state.strokeStyle = p.drawingContext?.strokeStyle || null;
+      state.fastPoint = null;
+      return result;
+    };
+  }
+  if (typeof originalNoStroke === "function") {
+    p.noStroke = function trackedNoStroke(...args) {
+      state.fastPoint = null;
+      return originalNoStroke.apply(p, args);
+    };
+  }
+  if (typeof originalStrokeWeight === "function") {
+    p.strokeWeight = function trackedStrokeWeight(...args) {
+      state.fastPoint = null;
+      return originalStrokeWeight.apply(p, args);
+    };
+  }
+  p.point = function fastPoint(x, y, ...rest) {
+    const optimizedPoint = state.fastPoint;
+    if (optimizedPoint && rest.length === 0) return optimizedPoint(x, y);
+    const renderer = p._renderer;
+    const context = p.drawingContext;
+    if (!context || !renderer || renderer._clipping || renderer._doStroke === false || rest.length > 0) {
+      return originalPoint.call(p, x, y, ...rest);
+    }
+    if (state.canFast === null) {
+      const transform = context.getTransform?.();
+      state.canFast = Boolean(
+        context.lineWidth === 1
+        && (!transform || (transform.a === 1 && transform.b === 0 && transform.c === 0 && transform.d === 1 && transform.e === 0 && transform.f === 0))
+      );
+    }
+    if (!state.canFast || context.lineWidth !== 1) return originalPoint.call(p, x, y, ...rest);
+    if (!state.changed) {
+      state.fillStyle = context.fillStyle;
+      state.changed = true;
+    }
+    state.strokeStyle = context.strokeStyle;
+    context.fillStyle = state.strokeStyle;
+    state.fastPoint = (pointX, pointY) => {
+      context.fillRect(pointX - 0.5, pointY - 0.5, 1, 1);
+      return p;
+    };
+    return state.fastPoint(x, y);
+  };
+  return () => {
+    if (state.changed && p.drawingContext) p.drawingContext.fillStyle = state.fillStyle;
+    state.fillStyle = null;
+    state.strokeStyle = null;
+    state.changed = false;
+    state.canFast = null;
+    state.fastPoint = null;
+  };
+};
+
 const loadP5Runtime = async config => {
-  if (config.runtime !== "cdn") return BundledP5;
+  if (config.runtime !== "cdn") return config.p5Version === "1" ? BundledP5V1 : BundledP5V2;
   const url = config.cdnUrl;
   if (!loadedCdnRuntimes.has(url)) {
     loadedCdnRuntimes.set(url, new Promise((resolve, reject) => {
@@ -161,6 +232,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
         };
         const sketch = p => {
           const interactionState = { mouseIsDragged: false };
+          let restoreFastPointPath = () => {};
           let callbacks = {};
           const reportError = reason => {
             const message = reason instanceof Error ? reason.message : String(reason);
@@ -194,6 +266,24 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
           bridge.input = interactionState;
           bridge.serial = serialBridge;
           try {
+            // p5 defaults the main renderer to window.devicePixelRatio. That
+            // is useful for static UI, but it doubles both axes of a livecode
+            // canvas on a Retina display and makes point-heavy sketches pay a
+            // 4x fill cost. Wrap createCanvas before compiling so both classic
+            // and instance-mode sketches get a logical-resolution default;
+            // an authored pixelDensity() call remains the final authority.
+            const requestedPixelDensity = Number(activeConfig.pixelDensity);
+            if (Number.isFinite(requestedPixelDensity) && requestedPixelDensity > 0) {
+              const authoredCreateCanvas = p.createCanvas;
+              p.createCanvas = (...args) => {
+                const result = authoredCreateCanvas.apply(p, args);
+                if (typeof p.pixelDensity === "function" && p.pixelDensity() !== requestedPixelDensity) {
+                  p.pixelDensity(requestedPixelDensity);
+                }
+                return result;
+              };
+            }
+            restoreFastPointPath = installFastP5PointPath(p);
             // Deliberately trusted: this editor is for the local author and has
             // full page access, mirroring Underscores's trusted IanniX scripts.
             callbacks = resolveP5SourceMode(activeConfig) === "global"
@@ -242,16 +332,22 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
               }
               p.frameRate(activeConfig.fps);
               if (!activeConfig.autoplay) p.noLoop();
+              restoreFastPointPath();
               if (typeof authoredDraw !== "function") confirmRunnable();
-            } catch (reason) { reportError(reason); }
+            } catch (reason) {
+              restoreFastPointPath();
+              reportError(reason);
+            }
           };
           if (typeof authoredDraw === "function") {
             p.draw = () => {
               try {
                 const result = authoredDraw();
+                restoreFastPointPath();
                 confirmRunnable();
                 return result;
               } catch (reason) {
+                restoreFastPointPath();
                 reportError(reason);
                 return undefined;
               }

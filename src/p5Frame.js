@@ -1,6 +1,21 @@
 export const P5_FRAME_STORAGE_KEY = "underscores_p5_scripts";
 
-export const DEFAULT_P5_CDN_URL = "https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js";
+export const P5_RUNTIME_OPTIONS = Object.freeze([
+  Object.freeze({ id: "2", version: "2.3.2", label: "2.3.2 · latest 2.x" }),
+  Object.freeze({ id: "1", version: "1.11.13", label: "1.11.13 · latest 1.x" }),
+]);
+
+export const DEFAULT_P5_VERSION = "2";
+export const DEFAULT_P5_CDN_URL = "https://cdn.jsdelivr.net/npm/p5@2.3.2/lib/p5.min.js";
+export const DEFAULT_P5_LEGACY_CDN_URL = "https://cdn.jsdelivr.net/npm/p5@1.11.13/lib/p5.min.js";
+
+export const normalizeP5Version = value => (
+  String(value || "").trim().startsWith("1") ? "1" : DEFAULT_P5_VERSION
+);
+
+export const getP5RuntimeOption = value => (
+  P5_RUNTIME_OPTIONS.find(option => option.id === normalizeP5Version(value)) || P5_RUNTIME_OPTIONS[0]
+);
 
 export const DEFAULT_P5_SOURCE = `// p5 instance-mode sketch. __ is the node-local Underscores bridge.
 p.setup = () => {
@@ -319,6 +334,7 @@ export const DEFAULT_P5_FRAME = Object.freeze({
   hostType: "rectangle",
   source: DEFAULT_P5_SOURCE,
   mode: P5_SOURCE_MODES.auto,
+  p5Version: DEFAULT_P5_VERSION,
   runtime: "bundled",
   cdnUrl: DEFAULT_P5_CDN_URL,
   autoplay: true,
@@ -357,44 +373,104 @@ export const canHostP5Frame = element => Boolean(
 );
 
 // Classic p5 global mode is normally installed on window. Underscores instead
-// evaluates it in a frame-local proxy over a p5 instance, which preserves the
-// familiar setup()/draw() syntax without letting two frames overwrite each
-// other's callbacks or globals.
+// evaluates it in a frame-local function scope, which preserves the familiar
+// setup()/draw() syntax without letting two frames overwrite each other's
+// callbacks or globals. The scope is compiled into lexical bindings rather
+// than a `with (Proxy)` environment: a proxy is convenient, but it puts every
+// identifier lookup in a hot draw loop on the slow path.
 export const compileClassicP5Source = (p, bridge, source, interactionState = {}, scriptConsole = bridge?.console || globalThis.console) => {
-  const localValues = Object.create(null);
-  const scope = new Proxy(localValues, {
-    // Keep this evaluator-owned name visible from inside `with`; every other
-    // unresolved identifier is intentionally resolved against the p5 proxy.
-    has: (_target, key) => key !== "callbacks",
-    get(target, key) {
-      if (key === Symbol.unscopables) return undefined;
-      if (key === "p") return p;
-      if (key === "__") return bridge;
-      if (key === "console") return scriptConsole;
-      // p5 itself exposes mouseIsPressed but not mouseIsDragged. Supporting
-      // the latter here is a small compatibility affordance for classroom
-      // sketches while still using p5's real mouse events underneath.
-      if (key === "mouseIsDragged") return Boolean(interactionState.mouseIsDragged);
-      if (Object.hasOwn(target, key)) return target[key];
-      if (key in p) {
-        const value = p[key];
-        return typeof value === "function" ? value.bind(p) : value;
-      }
-      return key in globalThis ? globalThis[key] : undefined;
-    },
-    set(target, key, value) {
-      target[key] = value;
-      return true;
-    },
-  });
+  const code = typeof source === "string" ? source : "";
+  const identifiers = new Set(code.match(/[A-Za-z_$][\w$]*/g) || []);
+  const declared = new Set([...code.matchAll(/\b(?:const|let|var|class|function)\s+([A-Za-z_$][\w$]*)/g)]
+    .map(match => match[1]));
+  const reserved = new Set([
+    "arguments", "as", "await", "break", "case", "catch", "class", "const", "continue", "debugger",
+    "default", "delete", "do", "else", "enum", "eval", "export", "extends", "false", "finally", "for",
+    "from", "function", "if", "implements", "import", "in", "instanceof", "interface", "let", "new",
+    "null", "of", "package", "private", "protected", "public", "return", "static", "super", "switch",
+    "this", "throw", "true", "try", "typeof", "undefined", "var", "void", "while", "with", "yield",
+  ]);
+  const internal = base => {
+    let name = base;
+    while (identifiers.has(name)) name = `_${name}`;
+    identifiers.add(name);
+    return name;
+  };
+  const syncName = internal("__underscoresClassicSync");
+  const callbackObjectName = internal("__underscoresClassicCallbacks");
+  const originalCreateCanvasName = internal("__underscoresClassicCreateCanvas");
+  const originalResizeCanvasName = internal("__underscoresClassicResizeCanvas");
+  const globalScopeName = internal("__underscoresClassicGlobal");
+  const dynamicP5Globals = new Set([
+    "width", "height", "windowWidth", "windowHeight", "displayWidth", "displayHeight",
+    "mouseX", "mouseY", "pmouseX", "pmouseY", "winMouseX", "winMouseY", "movedX", "movedY",
+    "mouseIsPressed", "mouseButton", "key", "keyCode", "keyIsPressed", "keyIsDown",
+    "frameCount", "deltaTime", "focused", "touches", "deviceOrientation", "accelerationX",
+    "accelerationY", "accelerationZ", "rotationX", "rotationY", "rotationZ",
+  ]);
+  const names = [...identifiers].filter(name => (
+    !reserved.has(name)
+    && !declared.has(name)
+    && !["p", "__", "console", syncName, callbackObjectName, originalCreateCanvasName, originalResizeCanvasName, globalScopeName].includes(name)
+  ));
+  const dynamicNames = names.filter(name => (
+    dynamicP5Globals.has(name)
+    || name === "mouseIsDragged"
+    || (name in p && typeof p[name] !== "function")
+  ));
+  const declarations = names.map(name => {
+    if (name === "createCanvas" || name === "resizeCanvas") return `let ${name};`;
+    if (name in p) {
+      return typeof p[name] === "function"
+        ? `let ${name} = p[${JSON.stringify(name)}].bind(p);`
+        : `let ${name} = p[${JSON.stringify(name)}];`;
+    }
+    if (name in globalThis) return `let ${name} = ${globalScopeName}[${JSON.stringify(name)}];`;
+    if (name === "mouseIsDragged") return `let ${name} = Boolean(interactionState.mouseIsDragged);`;
+    return `let ${name};`;
+  }).join("\n");
+  const syncAssignments = dynamicNames.map(name => (
+    name === "mouseIsDragged"
+      ? `${name} = Boolean(interactionState.mouseIsDragged);`
+      : `${name} = p[${JSON.stringify(name)}];`
+  )).join("\n");
   const callbackAssignments = P5_CALLBACK_NAMES
-    .map(name => `callbacks.${name} = typeof ${name} === "function" ? ${name} : callbacks.${name};`)
+    .map(name => `${callbackObjectName}.${name} = typeof ${name} === "function" ? ${name} : ${callbackObjectName}.${name};`)
     .join("\n");
-  const callbacks = new Function("scope", "callbacks", `with (scope) {
-    ${typeof source === "string" ? source : ""}
+  const callbackWrappers = P5_CALLBACK_NAMES
+    .map(name => `if (typeof ${callbackObjectName}.${name} === "function") {
+      const authored = ${callbackObjectName}.${name};
+      ${callbackObjectName}.${name} = function (...args) {
+        ${syncName}();
+        return authored.apply(this, args);
+      };
+    }`)
+    .join("\n");
+  const callbacks = new Function("p", "__", "console", "interactionState", `
+    const ${globalScopeName} = globalThis;
+    ${declarations}
+    const ${syncName} = () => {
+      ${syncAssignments}
+    };
+    ${syncName}();
+    const ${originalCreateCanvasName} = typeof p.createCanvas === "function" ? p.createCanvas.bind(p) : null;
+    const ${originalResizeCanvasName} = typeof p.resizeCanvas === "function" ? p.resizeCanvas.bind(p) : null;
+    createCanvas = (...args) => {
+      const result = ${originalCreateCanvasName}?.(...args);
+      ${syncName}();
+      return result;
+    };
+    resizeCanvas = (...args) => {
+      const result = ${originalResizeCanvasName}?.(...args);
+      ${syncName}();
+      return result;
+    };
+    const ${callbackObjectName} = {};
+    ${code}
     ${callbackAssignments}
-  }
-  return callbacks;`)(scope, localValues);
+    ${callbackWrappers}
+    return ${callbackObjectName};
+  `)(p, bridge, scriptConsole, interactionState);
   return callbacks || {};
 };
 
@@ -409,6 +485,7 @@ export const compileInstanceP5Source = (p, bridge, source, scriptConsole = bridg
 
 export const normalizeP5Frame = value => {
   const raw = value && typeof value === "object" ? value : {};
+  const p5Version = normalizeP5Version(raw.p5Version);
   return {
     ...DEFAULT_P5_FRAME,
     ...raw,
@@ -418,8 +495,11 @@ export const normalizeP5Frame = value => {
     hostType: raw.hostType === "frame" ? "frame" : "rectangle",
     source: typeof raw.source === "string" ? raw.source : DEFAULT_P5_SOURCE,
     mode: normalizeP5SourceMode(raw.mode),
+    p5Version,
     runtime: raw.runtime === "cdn" ? "cdn" : "bundled",
-    cdnUrl: typeof raw.cdnUrl === "string" && raw.cdnUrl.trim() ? raw.cdnUrl.trim() : DEFAULT_P5_CDN_URL,
+    cdnUrl: typeof raw.cdnUrl === "string" && raw.cdnUrl.trim()
+      ? raw.cdnUrl.trim()
+      : (p5Version === "1" ? DEFAULT_P5_LEGACY_CDN_URL : DEFAULT_P5_CDN_URL),
     autoplay: raw.autoplay !== false,
     fps: Math.max(1, Math.min(120, Number(raw.fps) || DEFAULT_P5_FRAME.fps)),
     transparent: Boolean(raw.transparent),
@@ -442,10 +522,12 @@ export const getP5ConfigKey = value => {
     frame.scriptId,
     frame.source,
     frame.mode,
+    frame.p5Version,
     frame.runtime,
     frame.cdnUrl,
     frame.autoplay,
     frame.fps,
+    frame.pixelDensity ?? null,
     frame.transparent,
     frame.allowInteraction,
     frame.parameters,

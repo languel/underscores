@@ -3078,6 +3078,21 @@ body .excalidraw .sidebar {
   overflow: hidden;
 }
 
+.livecode-last-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+}
+
+.livecode-last-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+
 .livecode-node-code-overlay {
   position: relative;
   width: 100%;

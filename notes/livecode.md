@@ -1,6 +1,6 @@
 # Livecode canvas nodes
 
-Last updated: 2026-08-14
+Last updated: 2026-08-15
 
 ## What a node is
 
@@ -57,6 +57,28 @@ The p5 example catalog also includes **MediaPipe · Unicursal portrait**, a supp
 for the shared `__.art.unicursal` engine. Add a Holistic processor first; the example reads its
 latest completed frame and draws the same stable path topology used by a first-class Unicursal
 object without copying landmark or segmentation data into the scene.
+
+### Transparent frame policy (future shared runtime work)
+
+For a foreground-only live frame, authors can currently call p5 `clear()` at the beginning of
+`draw()`. `background("transparent")` and `background(0, 0)` are not equivalent reset operations:
+they paint an alpha-zero source over the existing surface and can leave prior pixels accumulated.
+The p5 `transparent` setting and transparent DOM hosts already provide the right surface; the
+remaining design work is to make frame reset a shared Livecode runtime policy rather than a
+per-sketch convention.
+
+The proposed persisted settings are `backgroundMode` (`transparent`, `theme`, or `solid`) and
+`persistence` (`clear` or `accumulate`). In transparent/clear mode, each visual adapter would
+reset its existing surface in place before authored rendering, avoiding readback and avoiding a
+second offscreen buffer. Accumulation/feedback would remain explicit. p5 would use `clear()`;
+Strudel would clear its registered painter canvas; WebGL shaders would clear their buffer and
+author alpha in `outColor`; DOM adapters would keep their host background transparent and replace
+content normally. `createGraphics()` remains an opt-in tool for layered or feedback work, not a
+requirement for ordinary transparent composition.
+
+This policy is not implemented universally yet. Shader nodes currently have their own
+`backgroundMode` composition setting, while p5 has a boolean `transparent` setting; neither is
+the shared `backgroundMode`/`persistence` contract described above.
 
 ### GLSL shaders
 

@@ -193,6 +193,7 @@ test("p5 PNG export forwards the requested background mode", async () => {
   });
 
   assert.equal(exportOptions.appState.exportBackground, false);
+  assert.equal(exportOptions.appState.exportWithDarkMode, false);
   assert.equal(exportOptions.exportPadding, 7);
 });
 

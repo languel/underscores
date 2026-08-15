@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { EMBED_DISPLAY_MODES, embedPolicyForElement, getEmbedProvider } from "./embedPolicy.js";
-import { DEFAULT_P5_CDN_URL, isP5FrameElement, normalizeP5Frame, resolveP5SourceMode } from "./p5Frame.js";
+import { DEFAULT_P5_CDN_URL, P5_RUNTIME_OPTIONS, isP5FrameElement, normalizeP5Frame, normalizeP5Version, resolveP5SourceMode } from "./p5Frame.js";
 import {
   analyzeSvgSource,
   isSvgObjectElement,
@@ -252,7 +252,7 @@ const EmbedControls = ({ element, query, onChange }) => {
 const P5FrameControls = ({ element, query, onChange }) => {
   if (!isP5FrameElement(element)) return null;
   const frame = normalizeP5Frame(element.customData?.underscoresP5);
-  const matches = name => !query?.needle || ["p5", "sketch", "mode", "classic", "global", "runtime", "cdn", "autoplay", "fps", "transparent", "interaction", "reload", "source", name]
+  const matches = name => !query?.needle || ["p5", "sketch", "mode", "classic", "global", "runtime", "version", "cdn", "autoplay", "fps", "transparent", "interaction", "reload", "source", name]
     .some(value => value.includes(query.needle));
   if (query?.needle && !matches("p5")) return null;
   const stopCanvasKeys = event => {
@@ -266,6 +266,7 @@ const P5FrameControls = ({ element, query, onChange }) => {
       <div className="properties-children">
         {matches("mode") && <div className="properties-row editable"><span>source mode</span><select value={frame.mode} onChange={event => update({ mode: event.target.value })}><option value="auto">Auto detect</option><option value="instance">Instance mode (p.*)</option><option value="global">Classic global mode</option></select></div>}
         {matches("runtime") && <div className="properties-row editable"><span>runtime</span><select value={frame.runtime} onChange={event => update({ runtime: event.target.value })}><option value="bundled">Bundled p5</option><option value="cdn">CDN URL</option></select></div>}
+        {frame.runtime === "bundled" && matches("version") && <div className="properties-row editable"><span>p5 version</span><select value={normalizeP5Version(frame.p5Version)} onChange={event => update({ p5Version: normalizeP5Version(event.target.value) })}>{P5_RUNTIME_OPTIONS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></div>}
         {frame.runtime === "cdn" && matches("cdn") && <div className="properties-row editable"><span>cdn url</span><input type="url" value={frame.cdnUrl || DEFAULT_P5_CDN_URL} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onChange={event => update({ cdnUrl: event.target.value })} /></div>}
         {matches("autoplay") && <div className="properties-row editable"><span>autoplay</span><input type="checkbox" checked={frame.autoplay} onChange={event => update({ autoplay: event.target.checked })} /></div>}
         {matches("fps") && <div className="properties-row editable"><span>fps</span><NumericInput min="1" max="120" step="1" value={frame.fps} defaultValue={30} onKeyDown={stopCanvasKeys} onKeyUp={stopCanvasKeys} onCommit={fps => update({ fps })} /></div>}

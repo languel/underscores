@@ -24,6 +24,25 @@ test("p5, Play Core, and shader nodes resolve through the native adapter registr
   assert.equal(getLivecodeRuntimeConfig(shader).source, shader.source);
 });
 
+test("p5 livecode uses the authored mode setting and a logical-resolution backing store by default", () => {
+  const node = createLivecodeNode({
+    kind: LIVECODE_KINDS.p5,
+    source: "function draw() {}",
+    runtime: { running: true, settings: { p5Mode: "global" } },
+  });
+  const config = getLivecodeRuntimeConfig(node);
+  assert.equal(config.mode, "global");
+  assert.equal(config.p5Version, "2");
+  assert.equal(config.fps, 120);
+  assert.equal(config.pixelDensity, 1);
+
+  const legacy = getLivecodeRuntimeConfig({
+    ...node,
+    runtime: { ...node.runtime, settings: { p5Version: "1" } },
+  });
+  assert.equal(legacy.p5Version, "1");
+});
+
 test("adapter validation retains a bad draft without declaring it runnable", () => {
   const invalidP5 = createLivecodeNode({ kind: LIVECODE_KINDS.p5, source: "function {", runtime: { running: true } });
   const invalidPlay = createLivecodeNode({ kind: LIVECODE_KINDS.playcore, source: "export function main( {", runtime: { running: true } });

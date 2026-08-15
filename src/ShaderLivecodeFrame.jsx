@@ -91,7 +91,10 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
       antialias: false,
       depth: false,
       stencil: false,
-      preserveDrawingBuffer: false,
+      // Keep the drawing buffer only when the node has opted into a stopped
+      // frame thumbnail. This makes the eventual readback reliable without
+      // imposing the buffer-retention cost on ordinary running shaders.
+      preserveDrawingBuffer: node.runtime.settings?.keepLastFrame === true,
     });
     if (!gl) {
       publishFrameStatus(statusRef, "error", "WebGL 2 is unavailable in this browser.");
@@ -108,7 +111,7 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
       gl.deleteBuffer(buffer);
       runtimeRef.current = null;
     };
-  }, []);
+  }, [node.runtime.settings?.keepLastFrame]);
 
   useEffect(() => {
     const runtime = runtimeRef.current;

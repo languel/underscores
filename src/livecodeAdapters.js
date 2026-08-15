@@ -1,4 +1,4 @@
-import { normalizeP5Frame, resolveP5SourceMode } from "./p5Frame.js";
+import { normalizeP5Frame, normalizeP5Version, resolveP5SourceMode } from "./p5Frame.js";
 import { normalizePlayCoreFrame, validatePlayCoreSource } from "./playCoreFrame.js";
 import { LIVECODE_KINDS, normalizeLivecodeNode } from "./livecodeNode.js";
 import { validateShaderSource } from "./shaderLivecode.js";
@@ -28,8 +28,17 @@ export const LIVECODE_ADAPTERS = Object.freeze({
       return normalizeP5Frame({
         source: node.source,
         parameters: node.parameters,
-        mode: node.runtime.settings?.mode || "auto",
-        fps: node.runtime.settings?.fps || 60,
+        mode: node.runtime.settings?.p5Mode || node.runtime.settings?.mode || "auto",
+        p5Version: normalizeP5Version(node.runtime.settings?.p5Version),
+        // Match a high-refresh teaching display by default; authors can set
+        // a lower runtime fps when a sketch needs a deliberate cadence.
+        fps: node.runtime.settings?.fps || 120,
+        // Livecode surfaces are small, authored canvases. Keep their backing
+        // store at logical resolution by default; a sketch can still opt into
+        // a denser buffer with pixelDensity() or this runtime setting.
+        pixelDensity: Number(node.runtime.settings?.pixelDensity) > 0
+          ? Number(node.runtime.settings.pixelDensity)
+          : 1,
         transparent: node.runtime.settings?.transparent !== false,
         autoplay: true,
         allowInteraction: node.runtime.settings?.allowInteraction !== false,
@@ -104,7 +113,7 @@ export const isLivecodeNodeRunnable = rawNode => {
 
 export const describeLivecodeRuntime = rawNode => {
   const adapter = getLivecodeAdapter(rawNode);
-  if (adapter.runtime === "p5") return "Bundled p5 runtime";
+  if (adapter.runtime === "p5") return "Bundled p5.js 2.x / 1.x runtime";
   if (adapter.runtime === "playcore") return "Bundled Play Core runtime";
   if (adapter.runtime === "strudel") return "Shared native Strudel scheduler";
   if (adapter.runtime === "orca") return "Native Orca grid and Underscores MIDI routing";
