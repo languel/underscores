@@ -35,12 +35,38 @@ test("p5 livecode uses the authored mode setting and a logical-resolution backin
   assert.equal(config.p5Version, "2");
   assert.equal(config.fps, 120);
   assert.equal(config.pixelDensity, 1);
+  assert.equal(config.backgroundMode, "auto");
+  assert.equal(config.persistence, "auto");
 
   const legacy = getLivecodeRuntimeConfig({
     ...node,
     runtime: { ...node.runtime, settings: { p5Version: "1" } },
   });
   assert.equal(legacy.p5Version, "1");
+});
+
+test("p5 livecode exposes explicit shared composition settings without changing Strudel", () => {
+  const node = createLivecodeNode({
+    kind: LIVECODE_KINDS.p5,
+    source: "function draw() {}",
+    runtime: { running: true, settings: { backgroundMode: "transparent", persistence: "clear" } },
+  });
+  const config = getLivecodeRuntimeConfig(node);
+  assert.equal(config.transparent, true);
+  assert.equal(config.backgroundMode, "transparent");
+  assert.equal(config.persistence, "clear");
+
+  const strudel = createLivecodeNode({
+    kind: LIVECODE_KINDS.strudel,
+    source: '$: note("c3")',
+    runtime: { running: true, settings: { backgroundMode: "transparent", persistence: "clear" } },
+  });
+  assert.deepEqual(getLivecodeRuntimeConfig(strudel).runtime.settings, {
+    backgroundMode: "transparent",
+    persistence: "clear",
+    evaluatedSource: '$: note("c3")',
+    evaluationRevision: 0,
+  });
 });
 
 test("adapter validation retains a bad draft without declaring it runnable", () => {

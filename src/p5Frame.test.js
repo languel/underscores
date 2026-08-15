@@ -20,6 +20,7 @@ import {
   P5_EXAMPLES,
   reconcileP5ScriptsWithElements,
   resolveP5SourceMode,
+  shouldAutoClearP5Frame,
   shouldRenderP5Frame,
   validateP5Source,
 } from "./p5Frame.js";
@@ -37,10 +38,18 @@ test("normalizes p5 frame settings to the bundled trusted runtime", () => {
     autoplay: true,
     fps: 60,
     transparent: false,
+    backgroundMode: "auto",
+    persistence: "auto",
     allowInteraction: true,
     reloadNonce: 0,
     parameters: {},
   });
+});
+
+test("p5 frame clearing is opt-in through the shared composition policy", () => {
+  assert.equal(shouldAutoClearP5Frame({}), false);
+  assert.equal(shouldAutoClearP5Frame({ persistence: "accumulate" }), false);
+  assert.equal(shouldAutoClearP5Frame({ backgroundMode: "transparent", persistence: "clear" }), true);
 });
 
 test("rehydrates p5 catalogs and migrates legacy p5 embeds to Underscores-owned hosts", () => {

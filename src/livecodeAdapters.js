@@ -1,6 +1,7 @@
 import { normalizeP5Frame, normalizeP5Version, resolveP5SourceMode } from "./p5Frame.js";
 import { normalizePlayCoreFrame, validatePlayCoreSource } from "./playCoreFrame.js";
 import { LIVECODE_KINDS, normalizeLivecodeNode } from "./livecodeNode.js";
+import { normalizeLivecodeComposition, resolveP5Transparency } from "./livecodeComposition.js";
 import { validateShaderSource } from "./shaderLivecode.js";
 
 // The registry is deliberately declarative.  A node's model never contains a
@@ -25,6 +26,7 @@ export const LIVECODE_ADAPTERS = Object.freeze({
     validate: syntaxValidation,
     makeRuntimeConfig: rawNode => {
       const node = normalizeLivecodeNode(rawNode);
+      const composition = normalizeLivecodeComposition(node.runtime.settings);
       return normalizeP5Frame({
         source: node.source,
         parameters: node.parameters,
@@ -39,7 +41,9 @@ export const LIVECODE_ADAPTERS = Object.freeze({
         pixelDensity: Number(node.runtime.settings?.pixelDensity) > 0
           ? Number(node.runtime.settings.pixelDensity)
           : 1,
-        transparent: node.runtime.settings?.transparent !== false,
+        transparent: resolveP5Transparency(node.runtime.settings),
+        backgroundMode: composition.backgroundMode,
+        persistence: composition.persistence,
         autoplay: true,
         allowInteraction: node.runtime.settings?.allowInteraction !== false,
       });

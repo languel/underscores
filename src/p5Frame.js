@@ -1,3 +1,9 @@
+import {
+  LIVECODE_BACKGROUND_MODES,
+  LIVECODE_PERSISTENCE_MODES,
+  shouldClearLivecodeFrame,
+} from "./livecodeComposition.js";
+
 export const P5_FRAME_STORAGE_KEY = "underscores_p5_scripts";
 
 export const P5_RUNTIME_OPTIONS = Object.freeze([
@@ -340,6 +346,8 @@ export const DEFAULT_P5_FRAME = Object.freeze({
   autoplay: true,
   fps: 60,
   transparent: false,
+  backgroundMode: "auto",
+  persistence: "auto",
   allowInteraction: true,
   parameters: {},
   reloadNonce: 0,
@@ -503,6 +511,8 @@ export const normalizeP5Frame = value => {
     autoplay: raw.autoplay !== false,
     fps: Math.max(1, Math.min(120, Number(raw.fps) || DEFAULT_P5_FRAME.fps)),
     transparent: Boolean(raw.transparent),
+    backgroundMode: LIVECODE_BACKGROUND_MODES.includes(raw.backgroundMode) ? raw.backgroundMode : "auto",
+    persistence: LIVECODE_PERSISTENCE_MODES.includes(raw.persistence) ? raw.persistence : "auto",
     allowInteraction: raw.allowInteraction !== false,
     parameters: raw.parameters && typeof raw.parameters === "object" && !Array.isArray(raw.parameters)
       ? raw.parameters
@@ -510,6 +520,8 @@ export const normalizeP5Frame = value => {
     reloadNonce: Math.max(0, Number(raw.reloadNonce) || 0),
   };
 };
+
+export const shouldAutoClearP5Frame = value => shouldClearLivecodeFrame(normalizeP5Frame(value));
 
 // A p5 instance is deliberately independent from ordinary Excalidraw element
 // revisions. Moving, rotating, selecting, or locking its host should only
@@ -529,6 +541,8 @@ export const getP5ConfigKey = value => {
     frame.fps,
     frame.pixelDensity ?? null,
     frame.transparent,
+    frame.backgroundMode,
+    frame.persistence,
     frame.allowInteraction,
     frame.parameters,
     frame.reloadNonce,

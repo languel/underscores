@@ -242,6 +242,7 @@ function draw() {
 }`}</code></pre>
       <p>Use global p5 functions such as <code>stroke</code>, <code>fill</code>, <code>circle</code>, <code>line</code>, <code>translate</code>, and <code>noise</code>. <code>__.element</code> is the host object; <code>__.params</code> contains declared parameters.</p>
       <p>p5 nodes embed the latest 2.x runtime by default (currently 2.3.2) and also include the latest 1.x runtime (currently 1.11.13). Change <strong>p5 version</strong> in Node settings when a sketch or library needs the legacy API; the setting remounts only that node.</p>
+      <p>For foreground-only compositing, choose <strong>Background → Transparent surface</strong> and <strong>Frame reset → Clear each frame</strong> in a Livecode p5 node. The default adapter/manual mode leaves reset behavior in the sketch, so existing sketches keep their timing and accumulation semantics.</p>
     </section>
     <UnderscoresApiGuide />
     <EditorKeys />

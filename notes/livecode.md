@@ -58,7 +58,7 @@ for the shared `__.art.unicursal` engine. Add a Holistic processor first; the ex
 latest completed frame and draws the same stable path topology used by a first-class Unicursal
 object without copying landmark or segmentation data into the scene.
 
-### Transparent frame policy (future shared runtime work)
+### Transparent frame policy and shared composition settings
 
 For a foreground-only live frame, authors can currently call p5 `clear()` at the beginning of
 `draw()`. `background("transparent")` and `background(0, 0)` are not equivalent reset operations:
@@ -67,18 +67,22 @@ The p5 `transparent` setting and transparent DOM hosts already provide the right
 remaining design work is to make frame reset a shared Livecode runtime policy rather than a
 per-sketch convention.
 
-The proposed persisted settings are `backgroundMode` (`transparent`, `theme`, or `solid`) and
-`persistence` (`clear` or `accumulate`). In transparent/clear mode, each visual adapter would
-reset its existing surface in place before authored rendering, avoiding readback and avoiding a
-second offscreen buffer. Accumulation/feedback would remain explicit. p5 would use `clear()`;
-Strudel would clear its registered painter canvas; WebGL shaders would clear their buffer and
-author alpha in `outColor`; DOM adapters would keep their host background transparent and replace
-content normally. `createGraphics()` remains an opt-in tool for layered or feedback work, not a
-requirement for ordinary transparent composition.
+The shared vocabulary is `backgroundMode` (`auto`, `transparent`, `theme`, or `solid`) and
+`persistence` (`auto`, `clear`, or `accumulate`). In explicit transparent/clear mode, a visual
+adapter can reset its existing surface in place before authored rendering, avoiding readback and
+avoiding a second offscreen buffer. Accumulation/feedback remains explicit. p5 uses `clear()`;
+future Strudel painter and WebGL feedback adapters can use the same policy without changing the
+node contract. DOM adapters keep their host background transparent and replace content normally.
+`createGraphics()` remains an opt-in tool for layered or feedback work, not a requirement for
+ordinary transparent composition.
 
-This policy is not implemented universally yet. Shader nodes currently have their own
-`backgroundMode` composition setting, while p5 has a boolean `transparent` setting; neither is
-the shared `backgroundMode`/`persistence` contract described above.
+Phase 1 is now implemented without changing existing defaults: `src/livecodeComposition.js`
+normalizes the shared vocabulary, p5 Livecode Nodes expose **Background** and **Frame reset**
+controls, and p5 calls `clear()` once per frame only when `persistence` is explicitly `clear`.
+`auto` keeps authored/manual behavior, so existing p5 sketches do not gain a hidden per-frame
+operation. Strudel's scheduler and painter path are intentionally unchanged. Shader nodes still
+own their existing `backgroundMode` implementation; extending the shared policy to Strudel and
+WebGL feedback remains a later adapter-specific phase.
 
 ### GLSL shaders
 

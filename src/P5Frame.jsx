@@ -342,6 +342,10 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
           if (typeof authoredDraw === "function") {
             p.draw = () => {
               try {
+                // Explicit shared composition policy. The default remains
+                // authored/manual, so existing p5 sketches and their timing
+                // are unchanged until an author selects "Clear each frame".
+                if (activeConfig.persistence === "clear") p.clear();
                 const result = authoredDraw();
                 restoreFastPointPath();
                 confirmRunnable();
