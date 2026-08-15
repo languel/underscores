@@ -94,7 +94,7 @@ import { copyLivecodeExampleName, createLivecodeNode, defaultLivecodeSource, get
 import { LIVECODE_PERSISTENCE_MODES, normalizeLivecodeComposition } from "./livecodeComposition.js";
 import { getLivecodeExamples } from "./livecodeExamples.js";
 import { describeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
-import { getShaderExample, normalizeShaderCompositionSettings, shaderExampleForSource } from "./shaderLivecode.js";
+import { getShaderExample, normalizeShaderCompositionSettings, normalizeShaderSourceMode, shaderExampleForSource } from "./shaderLivecode.js";
 import { getShaderStatuses, SHADER_STATUS_EVENT } from "./shaderStatus.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
 import { isPublicSafeBuild } from "./buildProfile.js";
@@ -12310,7 +12310,7 @@ function App() {
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
-    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|playcore|markdown|latex|html|orca|shader?", example: "hello|rainbow|shadow|fluid|stokes?", name: "string?", width: "number?", height: "number?", source: "string?", running: "boolean?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Shader nodes accept hello, rainbow, shadow, fluid, or stokes examples. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "shader", example: "fluid", name: "Fluid brush", width: 640, height: 360 } }, action: (_api, args) => createLivecodeCanvasNode(args) },
+    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|playcore|markdown|latex|html|orca|shader?", example: "hello|minimal|rainbow|shadow|fluid|stokes?", name: "string?", width: "number?", height: "number?", source: "string?", running: "boolean?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Shader nodes accept hello, minimal, rainbow, shadow, fluid, or stokes examples. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "shader", example: "fluid", name: "Fluid brush", width: 640, height: 360 } }, action: (_api, args) => createLivecodeCanvasNode(args) },
     { id: "livecode.node.create.strudel", name: "Create Strudel Livecode Node /live strudel", aliases: ["/live strudel"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel }) },
     { id: "livecode.node.create.p5", name: "Create p5 Livecode Node /live p5", aliases: ["/live p5"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.p5 }) },
     { id: "livecode.node.create.playcore", name: "Create Play Core Livecode Node /live playcore", aliases: ["/live playcore", "/live play"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.playcore }) },
@@ -12319,6 +12319,7 @@ function App() {
     { id: "livecode.node.create.html", name: "Create HTML Livecode Node /live html", aliases: ["/live html"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.html }) },
     { id: "livecode.node.create.orca", name: "Create Orca Livecode Node /live orca", aliases: ["/live orca"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.orca }) },
     { id: "livecode.node.create.shader", name: "Create Hello GLSL Livecode Node /live shader", aliases: ["/live shader", "/live glsl", "/shader", "/shader hello"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "hello" }) },
+    { id: "livecode.node.create.shader.minimal", name: "Create Minimal Shadertoy Shader /shader minimal", aliases: ["/shader minimal", "/live shader minimal", "/shader shadertoy"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "minimal-raymarch" }) },
     { id: "livecode.node.create.shader.rainbow", name: "Create Rainbow Shader /shader rainbow", aliases: ["/shader rainbow", "/live shader rainbow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "rainbow" }) },
     { id: "livecode.node.create.shader.shadow", name: "Create 2D Shadow Shader /shader shadow", aliases: ["/shader shadow", "/live shader shadow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "shadow" }) },
     { id: "livecode.node.create.shader.fluid", name: "Create Fluid Brush Shader /shader fluid", aliases: ["/shader fluid", "/live shader fluid"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "fluid" }) },
@@ -15817,6 +15818,7 @@ function App() {
         settings: shaderExample ? {
           shaderExample: shaderExample.id,
           shaderMode: shaderExample.mode,
+          shaderDialect: shaderExample.dialect || "standard",
           compositeMode: "overlay",
           compositeOpacity: 1,
           blendMode: "normal",
@@ -20404,6 +20406,7 @@ function App() {
       ? getShaderExample(node.runtime.settings?.shaderExample || shaderExampleForSource(node.source)?.id)
       : null;
     const shaderComposition = normalizeShaderCompositionSettings(node.runtime.settings);
+    const shaderSourceMode = normalizeShaderSourceMode(node.runtime.settings?.shaderDialect);
     const livecodeExamples = getLivecodeExamples(node.kind);
     const activeLivecodeExampleId = node.kind === LIVECODE_KINDS.shader
       ? shaderExample?.id || livecodeExamples[0]?.id || ""
@@ -20491,7 +20494,7 @@ function App() {
             patchLivecodeCanvasNode(nodeElement.id, {
               name: copyLivecodeExampleName(shader.name),
               source: shader.source,
-              runtime: { running: true, transportMode: "free", settings: { shaderExample: shader.id, shaderMode: shader.mode } },
+              runtime: { running: true, transportMode: "free", settings: { shaderExample: shader.id, shaderMode: shader.mode, shaderDialect: shader.dialect || "standard" } },
               view: "preview",
             }, { commitToHistory: true });
             return;
@@ -20522,6 +20525,7 @@ function App() {
         {node.kind === LIVECODE_KINDS.p5 && <label title="Choose whether this p5 surface is transparent or uses its authored/default background behavior">Background <select value={composition.backgroundMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { backgroundMode: event.target.value, transparent: undefined } } }, { commitToHistory: true })}><option value="auto">Adapter default</option><option value="transparent">Transparent surface</option><option value="solid">Solid / authored</option></select></label>}
         {node.kind === LIVECODE_KINDS.p5 && <label title="Reset the p5 surface before each frame, or leave accumulation under sketch control">Frame reset <select value={composition.persistence} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { persistence: event.target.value } } }, { commitToHistory: true })}>{LIVECODE_PERSISTENCE_MODES.map(mode => <option key={mode} value={mode}>{mode === "auto" ? "Adapter default" : mode === "clear" ? "Clear each frame" : "Accumulate"}</option>)}</select></label>}
         <label title="Show the compact tab above this Livecode node on the canvas">Canvas tab <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.showChrome === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { showChrome: event.target.checked } } }, { commitToHistory: true })} />Show</span></label>
+        {node.kind === LIVECODE_KINDS.shader && <label title="Choose the full GLSL ES 3.00 contract or a compact Shadertoy/TWGL-style fragment body">Source <select value={shaderSourceMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { shaderDialect: event.target.value } } }, { commitToHistory: true })}><option value="standard">GLSL 300</option><option value="shadertoy">Minimal / Shadertoy</option></select></label>}
         {node.kind === LIVECODE_KINDS.shader && <label>Layer <select value={shaderComposition.compositeMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeMode: event.target.value } } }, { commitToHistory: true })}><option value="overlay">Above objects</option><option value="underlay">Below objects</option></select></label>}
         {node.kind === LIVECODE_KINDS.shader && <label>Opacity % <NumericInput min="0" max="100" step="5" value={Math.round(shaderComposition.compositeOpacity * 100)} defaultValue={100} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeOpacity: value / 100 } } }, { commitToHistory: true })} /></label>}
         {node.kind === LIVECODE_KINDS.shader && <label>Blend <select value={shaderComposition.blendMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { blendMode: event.target.value } } }, { commitToHistory: true })}><option value="normal">Normal</option><option value="screen">Screen</option><option value="multiply">Multiply</option><option value="overlay">Overlay</option><option value="soft-light">Soft light</option></select></label>}

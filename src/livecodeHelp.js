@@ -11,7 +11,7 @@ export const getLivecodeBridgeHelp = kind => {
     [LIVECODE_KINDS.markdown]: "Markdown is a deterministic document renderer; it does not execute JavaScript and has no __ bridge. Use Markdown, inline/display LaTeX, and the Output/Code view modes.",
     [LIVECODE_KINDS.latex]: "LaTeX is a deterministic typesetting renderer; it does not execute JavaScript and has no __ bridge. Use TeX math delimiters and the Output/Code view modes.",
     [LIVECODE_KINDS.orca]: "Orca is a focused grid language rather than JavaScript, so __ is not available. Use its operators and the native MIDI/CC/pitch-bend routing instead.",
-    [LIVECODE_KINDS.shader]: "GLSL runs on the GPU and has no JavaScript __ bridge. Use the documented uniforms such as u_resolution, u_time, u_pointer, u_currentColor, and u_segments.",
+    [LIVECODE_KINDS.shader]: "GLSL runs on the GPU and has no JavaScript __ bridge. Use the documented uniforms such as u_resolution, u_time, u_pointer, u_currentColor, and u_segments; Minimal / Shadertoy mode also provides iResolution, iTime, iMouse, FC, r, t, and o.",
   };
   return {
     title: "Underscores bridge (__)",
@@ -107,9 +107,11 @@ export const LIVECODE_HELP = Object.freeze({
   }),
   [LIVECODE_KINDS.shader]: Object.freeze({
     title: "GLSL quick reference",
-    summary: "A WebGL 2 fragment shader rendered directly into this Livecode Node.",
+    summary: "A WebGL 2 fragment shader rendered directly into this Livecode Node, with a compact Shadertoy/TWGL-style source mode.",
     points: Object.freeze([
       "Write a GLSL ES 3.00 fragment shader with void main(), in vec2 v_uv, and out vec4 outColor. The host supplies the full-screen vertex stage.",
+      "For code-golf and small Shadertoy/TWGL-style fragments, choose Source → Minimal / Shadertoy. A body without main() is wrapped automatically; mainImage(out vec4, in vec2) is also accepted.",
+      "Minimal mode supplies iResolution, iTime, iMouse, iFrame, FC, r, t, and o. The example ‘Minimal / Shadertoy raymarch’ is the compact fragment-body form.",
       "Choose Hello GLSL, Rainbow geometry, 2D shadows, Fluid brush, Inkwash, or Stokes flow from the Example menu, then edit the complete source.",
       "Common uniforms are u_resolution, u_time, u_transportTime, u_pointer, u_pointerDown, and u_currentColor. Geometry examples also receive u_segments and u_segmentCount.",
       "Layer places the shader above or below Excalidraw objects. Opacity and Blend provide non-destructive composition without changing the GLSL source.",

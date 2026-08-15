@@ -145,6 +145,13 @@ const SHADER_COMPLETIONS = Object.freeze([
   completion("u_pointerDelta", "Normalized pointer motion since the previous event", "variable", 80),
   completion("v_uv", "Full-frame UV coordinate from 0 to 1", "variable", 80),
   completion("outColor", "Fragment output color", "variable", 80),
+  completion("iResolution", "Shadertoy-style resolution vec3", "variable", 70),
+  completion("iTime", "Shadertoy-style node time in seconds", "variable", 70),
+  completion("iMouse", "Shadertoy-style pointer in pixel coordinates", "variable", 70),
+  completion("FC", "Shadertoy-style gl_FragCoord alias", "variable", 70),
+  completion("r", "Minimal shader resolution alias", "variable", 60),
+  completion("t", "Minimal shader time alias", "variable", 60),
+  completion("o", "Minimal shader output accumulator alias", "variable", 60),
 ]);
 
 export const SCRIPT_EDITOR_PROFILES = Object.freeze({

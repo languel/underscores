@@ -7,6 +7,57 @@ void main() {
   gl_Position = vec4(a_position, 0.0, 1.0);
 }`;
 
+export const SHADER_SOURCE_MODES = Object.freeze(["standard", "shadertoy"]);
+
+export const normalizeShaderSourceMode = value => (
+  value === "shadertoy" ? "shadertoy" : "standard"
+);
+
+// The short-shader dialect keeps the renderer on the same WebGL 2 path while
+// making small Shadertoy/TWGL-style fragment bodies useful without boilerplate.
+// The aliases are macros rather than per-frame bridge values, so this adds no
+// runtime work after compilation.
+const SHADERTOY_HEADER = `#version 300 es
+precision highp float;
+
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform float u_transportTime;
+uniform vec2 u_pointer;
+uniform float u_pointerDown;
+uniform vec4 u_currentColor;
+
+in vec2 v_uv;
+out vec4 outColor;
+
+#define iResolution vec3(u_resolution, 1.0)
+#define iTime u_time
+#define iTimeDelta 0.016
+#define iFrame 0
+#define iMouse vec4(u_pointer * u_resolution, u_pointerDown, 0.0)
+#define iDate vec4(0.0)
+#define FC gl_FragCoord`;
+
+const SHADERTOY_BODY_ALIASES = `
+#define r vec3(u_resolution, 1.0)
+#define t u_time
+#define o outColor`;
+
+const stripShaderVersion = source => String(source || "").replace(/^\s*#version\s+[^\n]*(?:\n|$)/m, "");
+
+export const prepareShaderSource = (source, mode = "standard") => {
+  const text = String(source || "");
+  if (normalizeShaderSourceMode(mode) !== "shadertoy") return text;
+  const body = stripShaderVersion(text).trim();
+  if (/\bvoid\s+mainImage\s*\(/.test(body)) {
+    return `${SHADERTOY_HEADER}\n${body}\n\nvoid main() {\n  mainImage(outColor, gl_FragCoord.xy);\n}`;
+  }
+  if (/\bvoid\s+main\s*\(/.test(body)) return `${SHADERTOY_HEADER}\n${body}`;
+  return `${SHADERTOY_HEADER}${SHADERTOY_BODY_ALIASES}\n\nvoid main() {\n  outColor = vec4(0.0);\n  ${body}\n}`;
+};
+
+export const SHADERTOY_MINIMAL_RAYMARCH_SOURCE = `vec3 p;for(float i,z,d;i++<1e2;o+=(sin(p.x+t+vec4(0,2,4,0))+1.3)/d)p=z*normalize(FC.rgb*2.-r.xyy),p.xy*=mat2(cos(z*.2+vec4(0,33,11,0))),p.z-=t+t,z+=d=length(cos(p+cos(p.yzx*7.+t)))/9.;o=tanh(o*o/4e6);`;
+
 // An analytical 2D Stokes-flow field. This is intentionally a single editable
 // fragment shader rather than the stateful, multipass Navier-Stokes solver in
 // excalishader: it establishes the Livecode shader contract without hiding a
@@ -369,6 +420,7 @@ void main() {
 
 export const SHADER_EXAMPLES = Object.freeze([
   Object.freeze({ id: "hello", label: "Hello GLSL", name: "Hello GLSL", source: HELLO_GLSL_FRAGMENT_SOURCE, mode: "fragment", summary: "Minimal animated fragment shader and uniform reference." }),
+  Object.freeze({ id: "minimal-raymarch", label: "Minimal / Shadertoy raymarch", name: "Minimal Shadertoy raymarch", source: SHADERTOY_MINIMAL_RAYMARCH_SOURCE, mode: "fragment", dialect: "shadertoy", summary: "Code-golf-style fragment body with Shadertoy aliases and no main boilerplate." }),
   Object.freeze({ id: "rainbow", label: "Rainbow geometry", name: "Rainbow geometry shader", source: RAINBOW_GEOMETRY_FRAGMENT_SOURCE, mode: "fragment", summary: "Distance-field rainbow bands around Underscores scene geometry." }),
   Object.freeze({ id: "shadow", label: "2D shadows", name: "2D shadow simulation", source: SHADOW_CASTING_FRAGMENT_SOURCE, mode: "fragment", summary: "Pointer-driven 2D ray casting against Underscores scene geometry." }),
   Object.freeze({ id: "fluid", label: "Fluid brush", name: "Fluid brush shader", source: FLUID_BRUSH_FRAGMENT_SOURCE, mode: "feedback", summary: "Interactive ping-pong GLSL dye brush with editable feedback source." }),
@@ -397,10 +449,11 @@ export const normalizeShaderCompositionSettings = value => {
   };
 };
 
-export const validateShaderSource = source => {
+export const validateShaderSource = (source, value = {}) => {
   const text = String(source || "");
   if (!text.trim()) return { valid: false, error: "Enter a GLSL fragment shader before running this node." };
-  if (!/\bvoid\s+main\s*\(/.test(text)) return { valid: false, error: "The fragment shader needs a void main() entry point." };
+  const mode = normalizeShaderSourceMode(value?.runtime?.settings?.shaderDialect || value?.shaderDialect || value);
+  if (mode === "standard" && !/\bvoid\s+main\s*\(/.test(text)) return { valid: false, error: "The fragment shader needs a void main() entry point, or choose Minimal / Shadertoy source mode." };
   let depth = 0;
   for (const character of text) {
     if (character === "{") depth += 1;

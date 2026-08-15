@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import FluidShaderFrame from "./FluidShaderFrame.jsx";
-import { FLUID_BRUSH_FRAGMENT_SOURCE, SHADER_VERTEX_SOURCE } from "./shaderLivecode.js";
+import { FLUID_BRUSH_FRAGMENT_SOURCE, prepareShaderSource, SHADER_VERTEX_SOURCE } from "./shaderLivecode.js";
 import { collectShaderSceneSegments, flattenShaderSegments, MAX_SHADER_SEGMENTS } from "./shaderSceneGeometry.js";
 import { publishShaderStatus } from "./shaderStatus.js";
 
@@ -117,7 +117,7 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
     const runtime = runtimeRef.current;
     if (!runtime) return;
     try {
-      const program = createProgram(runtime.gl, node.source);
+      const program = createProgram(runtime.gl, prepareShaderSource(node.source, node.runtime.settings?.shaderDialect));
       if (runtime.program) runtime.gl.deleteProgram(runtime.program);
       runtime.program = program;
       runtime.uniforms = uniformLocations(runtime.gl, program);
@@ -125,7 +125,7 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
     } catch (compileError) {
       publishFrameStatus(statusRef, "error", compileError instanceof Error ? compileError.message : String(compileError));
     }
-  }, [node.revision, node.source]);
+  }, [node.revision, node.source, node.runtime.settings?.shaderDialect]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

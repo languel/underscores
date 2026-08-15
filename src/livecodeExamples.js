@@ -169,6 +169,6 @@ export const getLivecodeExamples = kind => {
   if (kind === LIVECODE_KINDS.playcore) return playCoreExamples;
   if (kind === LIVECODE_KINDS.strudel) return strudelExamples;
   if (kind === LIVECODE_KINDS.orca) return orcaExamples;
-  if (kind === LIVECODE_KINDS.shader) return SHADER_EXAMPLES.map(example => ({ id: example.id, label: example.label, name: example.name, source: example.source, mode: example.mode }));
+  if (kind === LIVECODE_KINDS.shader) return SHADER_EXAMPLES.map(example => ({ id: example.id, label: example.label, name: example.name, source: example.source, mode: example.mode, dialect: example.dialect }));
   return [];
 };

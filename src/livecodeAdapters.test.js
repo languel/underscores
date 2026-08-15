@@ -77,3 +77,12 @@ test("adapter validation retains a bad draft without declaring it runnable", () 
   assert.equal(validateLivecodeNode(invalidPlay).valid, false);
   assert.equal(validateLivecodeNode(invalidShader).valid, false);
 });
+
+test("shader adapter accepts a compact Shadertoy body when the dialect is selected", () => {
+  const node = createLivecodeNode({
+    kind: LIVECODE_KINDS.shader,
+    source: "vec3 p; o = vec4(p, 1.0);",
+    runtime: { running: true, settings: { shaderDialect: "shadertoy" } },
+  });
+  assert.equal(validateLivecodeNode(node).valid, true);
+});
