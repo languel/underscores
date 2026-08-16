@@ -12147,7 +12147,7 @@ function App() {
       ai: { expose: true, description: "Fit all live scene objects into the canvas view." },
       action: api => {
         const elements = api?.getSceneElements().filter(element => !element.isDeleted) || [];
-        if (elements.length) api.scrollToContent(elements, { fitToContent: true, animate: true });
+        if (elements.length) api.scrollToContent(elements, { fitToViewport: true, viewportZoomFactor: 1, animate: true });
       },
     },
     {
@@ -12160,7 +12160,7 @@ function App() {
         if (!api) return;
         const selectedElementIds = api.getAppState().selectedElementIds || {};
         const elements = api.getSceneElements().filter(element => !element.isDeleted && selectedElementIds[element.id]);
-        if (elements.length) api.scrollToContent(elements, { fitToContent: true, animate: true });
+        if (elements.length) api.scrollToContent(elements, { fitToViewport: true, viewportZoomFactor: 1, animate: true });
       },
     },
     {
@@ -12404,12 +12404,12 @@ function App() {
     { id: "reset-view", name: "Reset Zoom & Pan View", category: "Canvas", action: (api) => api.updateScene({ appState: { zoom: { value: 1 }, scrollX: 0, scrollY: 0 } }) },
     { id: "view.frameAll", name: "Frame All /frame all", aliases: ["/frame all", "Frame All"], category: "Canvas", record: "presentation", action: (api) => {
       const elements = api.getSceneElements().filter(element => !element.isDeleted);
-      if (elements.length) api.scrollToContent(elements, { fitToContent: true, animate: true });
+      if (elements.length) api.scrollToContent(elements, { fitToViewport: true, viewportZoomFactor: 1, animate: true });
     } },
     { id: "view.frameSelected", name: "Frame Selected /frame selected", aliases: ["/frame selected", "Frame Selected"], category: "Canvas", record: "presentation", action: (api) => {
       const selectedIds = api.getAppState().selectedElementIds || {};
       const elements = api.getSceneElements().filter(element => !element.isDeleted && selectedIds[element.id]);
-      if (elements.length) api.scrollToContent(elements, { fitToContent: true, animate: true });
+      if (elements.length) api.scrollToContent(elements, { fitToViewport: true, viewportZoomFactor: 1, animate: true });
     } },
     { id: "tool-select", name: "Select Pointer/Selection Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "selection", locked: tool.locked ?? false } } }); } },
     { id: "tool-rect", name: "Select Rectangle Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "rectangle", locked: tool.locked ?? false } } }); } },
@@ -20473,7 +20473,7 @@ function App() {
         .find(candidate => candidate.id === nodeElement.id && !candidate.isDeleted);
       if (!element) return;
       selectNode(element.id);
-      api.scrollToContent([element], { fitToContent: true, animate: true });
+      api.scrollToContent([element], { fitToViewport: true, viewportZoomFactor: 1, animate: true });
     };
     return <div className="iannix-properties iannix-script-pane p5-script-pane livecode-script-pane">
       <div className="livecode-node-selector-row">

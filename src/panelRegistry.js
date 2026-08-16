@@ -1,10 +1,11 @@
 export const UNDERSCORES_PANELS = Object.freeze([
-  Object.freeze({ id: "grid", label: "Grid", slash: "/grid", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "outliner", label: "Outliner", slash: "/outliner", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "properties", label: "Properties", slash: "/properties", kind: "dockable", placements: ["left", "floating", "right"] }),
   // Keep the stable panel id for saved layouts and API consumers. Score is
   // the public name; /iannix and /scene remain compatibility aliases.
   Object.freeze({ id: "iannix", label: "Score", slash: "/score", aliases: ["/iannix", "/scene", "IanniX", "Scene"], kind: "dockable", placements: ["left", "floating", "right"] }),
+  Object.freeze({ id: "script", label: "Script", slash: "/script", kind: "dockable", placements: ["left", "floating", "right"] }),
+  Object.freeze({ id: "grid", label: "Grid", slash: "/grid", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "physics", label: "Physics", slash: "/physics", aliases: ["/relations"], kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "mods", label: "Brush", slash: "/brush", aliases: ["/mods"], kind: "dockable", sidebarName: "modifiers-sidebar", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "synth", label: "Synth", slash: "/synth", kind: "dockable", placements: ["left", "floating", "right"] }),
@@ -12,7 +13,6 @@ export const UNDERSCORES_PANELS = Object.freeze([
   Object.freeze({ id: "inputs", label: "Inputs", slash: "/inputs", aliases: ["/signals"], kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "holistic", label: "MediaPipe Holistic", slash: "/holistic", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "mapping", label: "Media Mapping", slash: "/mapping", kind: "dockable", placements: ["left", "floating", "right"] }),
-  Object.freeze({ id: "script", label: "Script", slash: "/script", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "chat", label: "AI Assistant", slash: "/chat", kind: "dockable", sidebarName: "ai-sidebar", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "history", label: "History", slash: "/history", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "settings", label: "Settings", slash: "/settings", kind: "dockable", sidebarName: "settings-sidebar", placements: ["left", "floating", "right"] }),
