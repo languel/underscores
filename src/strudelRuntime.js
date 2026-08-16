@@ -18,6 +18,7 @@ const DEFAULT_CPS = 0.5;
 const BEATS_PER_CYCLE = 4;
 const SCHEDULER_SWAP_SAFETY_SECONDS = 0.16;
 const DRAW_TIME = [-2, 2];
+const DRAW_FPS = 30;
 const DEFAULT_SAMPLE_BASE = "https://raw.githubusercontent.com/felixroos/dough-samples/main";
 const DEFAULT_SAMPLE_MAPS = Object.freeze([
   "tidal-drum-machines.json",
@@ -33,6 +34,42 @@ const DEFAULT_BANK_ALIASES = "https://raw.githubusercontent.com/todepond/samples
 const nodeVisualTag = nodeId => `underscores:${nodeId}`;
 const bpmToCps = bpm => Math.max(0.01, Math.min(16, (Number(bpm) || 120) / 240));
 const ownsNodeHap = (nodeId, hap) => hap.context?.tags?.includes(nodeVisualTag(nodeId));
+
+// @strudel/draw's Drawer is intentionally tied to requestAnimationFrame. That
+// is ideal for the page-wide REPL, but every frame also re-queries the active
+// pattern (including Fraction/TimeSpan allocations) before it reaches a local
+// canvas. Keep the shared audio scheduler at full precision while bounding the
+// visual query loop to a steady 30 FPS for Livecode Nodes.
+const throttleDrawerFramer = framer => {
+  if (!framer || typeof requestAnimationFrame !== "function") return;
+  let frame = null;
+  let running = false;
+  let lastFrame = 0;
+  const interval = 1000 / DRAW_FPS;
+  framer.start = () => {
+    if (running) return;
+    running = true;
+    lastFrame = 0;
+    const tick = now => {
+      if (!running) return;
+      if (!lastFrame || now - lastFrame >= interval) {
+        lastFrame = now;
+        try {
+          framer.onFrame();
+        } catch (error) {
+          framer.onError?.(error);
+        }
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+  };
+  framer.stop = () => {
+    running = false;
+    if (frame !== null) cancelAnimationFrame(frame);
+    frame = null;
+  };
+};
 
 export const strudelNextBeatCycle = (
   cycle,
@@ -226,6 +263,32 @@ export class StrudelRuntimeManager {
     this.visualStates = new Map();
     this.visualListeners = new Map();
     this.frameCanvases = new Map();
+    // Audio scheduling stays sample-accurate, but editor highlights and panel
+    // status do not need to be pushed through React/CodeMirror on every draw
+    // tick. Keep the visual bridge at a bounded cadence so a busy Strudel
+    // pattern cannot turn the UI into a per-frame allocation loop.
+    this.lastVisualNotifyTime = new Map();
+    this.visualNotifyInterval = 1 / 30;
+    // Keep audio scheduling independent from visual drawing, but suspend the
+    // browser-only drawer while the document is hidden. A background tab can
+    // otherwise keep a Strudel RAF/painter loop alive (often at a throttled
+    // cadence) for every active visualizer.
+    this.pageVisible = typeof document === "undefined" || document.visibilityState !== "hidden";
+    this.handleVisibilityChange = () => {
+      this.pageVisible = document.visibilityState !== "hidden";
+      if (!this.pageVisible) {
+        if (this.drawerRunning) this.drawer?.stop();
+        this.drawerRunning = false;
+        return;
+      }
+      if (this._shouldPlay() && this.scheduler?.started && !this.drawerRunning) {
+        this.drawer?.start(this.scheduler);
+        this.drawerRunning = true;
+      }
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", this.handleVisibilityChange);
+    }
     this.transport = { playing: false, bpm: 120, time: 0 };
     this.cps = DEFAULT_CPS;
     this.linkedPhaseOffset = 0;
@@ -264,6 +327,9 @@ export class StrudelRuntimeManager {
 
   _drawFrame(haps, time, painters) {
     painters?.forEach(painter => painter(null, time, haps, DRAW_TIME));
+    const previousVisualTime = this.lastVisualNotifyTime.get("__all__");
+    if (previousVisualTime !== undefined && time - previousVisualTime < this.visualNotifyInterval * Math.max(0.01, this.cps)) return;
+    this.lastVisualNotifyTime.set("__all__", time);
     for (const nodeId of this.visualListeners.keys()) {
       const tag = nodeVisualTag(nodeId);
       const active = haps.filter(hap => (
@@ -337,6 +403,7 @@ export class StrudelRuntimeManager {
       (haps, time, _drawer, painters) => this._drawFrame(haps, time, painters),
       DRAW_TIME,
     );
+    throttleDrawerFramer(this.drawer.framer);
     return this.scheduler;
   }
 
@@ -544,7 +611,11 @@ export class StrudelRuntimeManager {
     const timer = this.activationTimers.get(nodeId);
     if (timer) clearTimeout(timer);
     this.activationTimers.delete(nodeId);
-    if (!this.entries.delete(nodeId)) return;
+    if (!this.entries.delete(nodeId)) {
+      this.lastVisualNotifyTime.delete("__all__");
+      return;
+    }
+    this.lastVisualNotifyTime.delete("__all__");
     this.clearFrameCanvas(nodeId);
     this._notifyVisual(nodeId, { haps: [], status: "Stopped" });
     await this.refresh();
@@ -649,7 +720,7 @@ export class StrudelRuntimeManager {
           this._notifyVisual(nodeId, { status: "Transport linked", error: "" });
         }
       }
-      if (!this.drawerRunning) {
+      if (this.pageVisible && !this.drawerRunning) {
         this.drawer?.start(scheduler);
         this.drawerRunning = true;
       }
@@ -691,6 +762,10 @@ export class StrudelRuntimeManager {
     this.scheduler = null;
     this.visualStates.clear();
     this.visualListeners.clear();
+    this.lastVisualNotifyTime.clear();
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    }
   }
 }
 

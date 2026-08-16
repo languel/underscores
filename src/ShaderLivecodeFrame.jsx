@@ -56,6 +56,10 @@ const uniformLocations = (gl, program) => Object.freeze({
   shadowContrast: gl.getUniformLocation(program, "u_shadowContrast"),
 });
 
+const attributeLocations = (gl, program) => Object.freeze({
+  position: gl.getAttribLocation(program, "a_position"),
+});
+
 const DISPLAY_FRAGMENT_SOURCE = `#version 300 es
 precision highp float;
 
@@ -161,8 +165,10 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
       buffer,
       program: null,
       uniforms: null,
+      attributes: null,
       displayProgram: null,
       displayUniforms: null,
+      displayAttributes: null,
       feedback: false,
       feedbackTargets: [],
       frame: 0,
@@ -190,15 +196,18 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
       if (usesFeedback && !runtime.displayProgram) {
         runtime.displayProgram = createProgram(runtime.gl, DISPLAY_FRAGMENT_SOURCE);
         runtime.displayUniforms = Object.freeze({ texture: runtime.gl.getUniformLocation(runtime.displayProgram, "u_texture") });
+        runtime.displayAttributes = attributeLocations(runtime.gl, runtime.displayProgram);
       } else if (!usesFeedback && runtime.displayProgram) {
         runtime.gl.deleteProgram(runtime.displayProgram);
         runtime.displayProgram = null;
         runtime.displayUniforms = null;
+        runtime.displayAttributes = null;
         disposeFeedbackTargets(runtime.gl, runtime.feedbackTargets);
         runtime.feedbackTargets = [];
       }
       runtime.program = program;
       runtime.uniforms = uniformLocations(runtime.gl, program);
+      runtime.attributes = attributeLocations(runtime.gl, program);
       runtime.feedback = usesFeedback;
       runtime.frame = 0;
       clearFeedbackTargets(runtime.gl, runtime.feedbackTargets);
@@ -215,6 +224,7 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
     const { gl } = runtime;
     let frame = 0;
     let active = true;
+    let pageVisible = document.visibilityState !== "hidden";
     let pointer = [0.5, 0.5];
     let pointerDown = false;
     let geometryCache = { elements: null, nodeSignature: "", values: null, count: 0 };
@@ -252,23 +262,23 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
         && canvas.getBoundingClientRect().bottom >= event.clientY;
     };
     const handlePointerUp = () => { pointerDown = false; };
-    const bindPosition = program => {
+    const bindPosition = (program, attributes = runtime.attributes) => {
       gl.bindBuffer(gl.ARRAY_BUFFER, runtime.buffer);
-      const position = gl.getAttribLocation(program, "a_position");
+      const position = attributes?.position ?? gl.getAttribLocation(program, "a_position");
       if (position >= 0) {
         gl.enableVertexAttribArray(position);
         gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
       }
     };
     const draw = now => {
-      if (active && runtime.program && runtime.uniforms) {
+      if (active && pageVisible && runtime.program && runtime.uniforms) {
         resize();
         const feedback = runtime.feedback && runtime.displayProgram && runtime.feedbackTargets.length === 2;
         const [readTarget, writeTarget] = feedback ? runtime.feedbackTargets : [null, null];
         gl.bindFramebuffer(gl.FRAMEBUFFER, writeTarget?.framebuffer || null);
         gl.viewport(0, 0, writeTarget?.width || canvas.width, writeTarget?.height || canvas.height);
         gl.useProgram(runtime.program);
-        bindPosition(runtime.program);
+        bindPosition(runtime.program, runtime.attributes);
         const linked = node.runtime.transportMode !== "free";
         const scoreTime = Number(transportRef.current?.time) || 0;
         const time = linked ? scoreTime : (now - runtime.startedAt) / 1000;
@@ -315,7 +325,7 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
           gl.bindFramebuffer(gl.FRAMEBUFFER, null);
           gl.viewport(0, 0, canvas.width, canvas.height);
           gl.useProgram(runtime.displayProgram);
-          bindPosition(runtime.displayProgram);
+          bindPosition(runtime.displayProgram, runtime.displayAttributes);
           gl.activeTexture(gl.TEXTURE0);
           gl.bindTexture(gl.TEXTURE_2D, writeTarget.texture);
           if (runtime.displayUniforms?.texture) gl.uniform1i(runtime.displayUniforms.texture, 0);
@@ -330,6 +340,7 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
     const observer = new IntersectionObserver(entries => {
       active = entries.some(entry => entry.isIntersecting);
     });
+    const handleVisibility = () => { pageVisible = document.visibilityState !== "hidden"; };
     observer.observe(canvas);
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(canvas);
@@ -337,6 +348,7 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
     window.addEventListener("pointerdown", handlePointerDown, { passive: true });
     window.addEventListener("pointerup", handlePointerUp, { passive: true });
     window.addEventListener("pointercancel", handlePointerUp, { passive: true });
+    document.addEventListener("visibilitychange", handleVisibility);
     resize();
     frame = window.requestAnimationFrame(draw);
     return () => {
@@ -347,6 +359,7 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
       window.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [node.runtime.transportMode, scriptRuntimeRef]);
 

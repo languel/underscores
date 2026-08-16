@@ -137,6 +137,10 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
     let serialBridge = null;
     let subscriptions = [];
     let confirmed = false;
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") instance?.noLoop?.();
+      else if (activeConfig.autoplay) instance?.loop?.();
+    };
     const activeConfig = runningConfig;
     const activeConfigKey = getP5ConfigKey(activeConfig);
     const report = (kind, message) => publishP5Status({
@@ -359,6 +363,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
           }
         };
         instance = new P5(sketch, host);
+        document.addEventListener("visibilitychange", handleVisibility);
         // The host is CSS-scaled with the camera zoom. Resizing the internal
         // p5 buffer to host.clientWidth/Height after setup therefore clears
         // setup-only drawings (and can use the zoomed dimensions). The
@@ -380,6 +385,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
       subscriptions.forEach(unsubscribe => unsubscribe?.());
       serialBridge?.dispose?.();
       instance?.remove?.();
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [runnerKey]);
 

@@ -142,6 +142,38 @@ The production bundle is also large (about 7.1 MB minified at this checkpoint). 
 MediaPipe, and Strudel are candidates for route/feature-level dynamic imports, but bundle size is a
 startup/network concern and should not be conflated with the steady-state canvas FPS issue.
 
+## Performance review: 2026-08-16
+
+The reported idle regression was reproduced in the running app: five live nodes, no media sources,
+no event logging, and an otherwise unchanged scene dropped to about 7.7 FPS (130.5 ms average
+animation-frame interval). A six-second CPU sample localized the hot path to Strudel's visual draw
+query, especially `TimeSpan.spanCycles` and the pattern query chain. This was not an Excalidraw
+scene-normalization or event-log problem. Heap usage in the captured run was high, so the same
+workload was also held through repeated garbage-collection cycles to distinguish retention from
+steady allocation; after a clean reload it oscillated between roughly 153 and 179 MB rather than
+growing monotonically.
+
+The runtime now keeps the audio scheduler independent from visual work and applies four bounded
+cost controls:
+
+- Strudel's shared visual Drawer is capped at 30 FPS. Its audio scheduler remains sample-accurate,
+  while the pattern query that prepares visual haps runs at a predictable rate instead of once per
+  browser animation frame.
+- Strudel panel/CodeMirror visual notifications are coalesced at 30 Hz, without throttling canvas
+  painters that are actually active.
+- The Strudel Drawer stops while the document is hidden and resumes when the tab is visible. p5,
+  GLSL, Fluid GLSL, and Play Core surfaces likewise stop or skip their per-frame work while hidden;
+  p5 audio-free sketches resume their loop when the tab returns.
+- WebGL shader attribute and uniform locations are cached at program creation, and offscreen
+  Strudel frame canvases register cold until their IntersectionObserver marks them active.
+
+Verification after the patch and a clean app reload held the idle board at 867 frames in 15.0 s
+(17.31 ms average, 0 frames over 34 ms; approximately 57.8 FPS). The browser snapshot remained
+healthy with the five live nodes and no runtime error state. The earlier active-score profile still
+shows that Strudel pattern evaluation is the work to watch; if a future repro still degrades after
+this pass, capture a fresh six-second profile and compare the `spanCycles` share before changing
+scene or physics code.
+
 ## Physics telemetry
 
 The relationship engine adds fixed-step time, transferable pose-buffer time, imperative-overlay paint

@@ -52,6 +52,7 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) 
     let cancelled = false;
     let raf = 0;
     let last = 0;
+    let pageVisible = document.visibilityState !== "hidden";
     let program;
     let bridge;
     let subscriptions = [];
@@ -110,10 +111,15 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) 
       pointer.pressed = type !== "pointerUp";
     };
     const down = event("pointerDown"), move = event("pointerMove"), up = event("pointerUp");
+    const handleVisibility = () => {
+      pageVisible = document.visibilityState !== "hidden";
+      if (pageVisible) last = 0;
+    };
     host.addEventListener("pointerdown", down); host.addEventListener("pointermove", move); host.addEventListener("pointerup", up);
+    document.addEventListener("visibilitychange", handleVisibility);
     const loop = time => {
       if (cancelled) return;
-      if (time - last >= 1000 / settings.fps) {
+      if (pageVisible && time - last >= 1000 / settings.fps) {
         last = time;
         const rect = host.getBoundingClientRect();
         const { cellWidth, cellHeight, contentWidth, contentHeight, paddingLeft, paddingTop } = measureGridMetrics(host);
@@ -147,7 +153,7 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) 
       raf = requestAnimationFrame(loop);
     };
     program.boot?.(bridge); raf = requestAnimationFrame(loop);
-    return () => { cancelled = true; scriptRuntimeRef.current?.disposeStreamsOwner?.(element.id); cancelAnimationFrame(raf); subscriptions.forEach(unsubscribe => unsubscribe?.()); host.removeEventListener("pointerdown", down); host.removeEventListener("pointermove", move); host.removeEventListener("pointerup", up); };
+    return () => { cancelled = true; scriptRuntimeRef.current?.disposeStreamsOwner?.(element.id); cancelAnimationFrame(raf); subscriptions.forEach(unsubscribe => unsubscribe?.()); host.removeEventListener("pointerdown", down); host.removeEventListener("pointermove", move); host.removeEventListener("pointerup", up); document.removeEventListener("visibilitychange", handleVisibility); };
   }, [element.id, element.width, element.height, config.source, config.fps, config.reloadNonce, config.parameters, scriptRuntimeRef]);
   return <pre ref={hostRef} className="underscores-play-core-host" tabIndex={config.allowInteraction ? 0 : -1} style={{ pointerEvents: config.allowInteraction ? "auto" : "none" }} />;
 }

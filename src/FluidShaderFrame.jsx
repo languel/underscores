@@ -143,8 +143,16 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
       runtimeRef.current = {
         gl,
         buffer,
-        displayProgram,
+      displayProgram,
+        displayAttributes: { position: gl.getAttribLocation(displayProgram, "a_position") },
+        displayUniforms: {
+          texture: gl.getUniformLocation(displayProgram, "u_texture"),
+          transparentBackground: gl.getUniformLocation(displayProgram, "u_transparentBackground"),
+          inkwash: gl.getUniformLocation(displayProgram, "u_inkwash"),
+        },
         updateProgram: null,
+        updateAttributes: null,
+        updateUniforms: null,
         targets: [],
         startedAt: performance.now(),
       };
@@ -169,6 +177,21 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
       const program = createProgram(runtime.gl, node.source);
       if (runtime.updateProgram) runtime.gl.deleteProgram(runtime.updateProgram);
       runtime.updateProgram = program;
+      runtime.updateAttributes = { position: runtime.gl.getAttribLocation(program, "a_position") };
+      runtime.updateUniforms = {
+        previous: runtime.gl.getUniformLocation(program, "u_previous"),
+        resolution: runtime.gl.getUniformLocation(program, "u_resolution"),
+        time: runtime.gl.getUniformLocation(program, "u_time"),
+        delta: runtime.gl.getUniformLocation(program, "u_delta"),
+        pointerDown: runtime.gl.getUniformLocation(program, "u_pointerDown"),
+        brushMode: runtime.gl.getUniformLocation(program, "u_brushMode"),
+        pointer: runtime.gl.getUniformLocation(program, "u_pointer"),
+        pointerDelta: runtime.gl.getUniformLocation(program, "u_pointerDelta"),
+        currentColor: runtime.gl.getUniformLocation(program, "u_currentColor"),
+        segments: runtime.gl.getUniformLocation(program, "u_segments[0]"),
+        segmentCount: runtime.gl.getUniformLocation(program, "u_segmentCount"),
+        sceneInteraction: runtime.gl.getUniformLocation(program, "u_sceneInteraction"),
+      };
       runtime.targets.forEach(target => {
         runtime.gl.bindFramebuffer(runtime.gl.FRAMEBUFFER, target.framebuffer);
         runtime.gl.viewport(0, 0, target.width, target.height);
@@ -190,6 +213,7 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
     const { gl } = runtime;
     let frame = 0;
     let active = true;
+    let pageVisible = document.visibilityState !== "hidden";
     let pointer = [0.5, 0.5];
     let previousPointer = [...pointer];
     let pointerDelta = [0, 0];
@@ -198,9 +222,9 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
     let lastTime = performance.now();
     let geometryCache = { elements: null, nodeSignature: "", values: null, count: 0 };
 
-    const bindQuad = program => {
+    const bindQuad = (program, attributes = null) => {
       gl.bindBuffer(gl.ARRAY_BUFFER, runtime.buffer);
-      const position = gl.getAttribLocation(program, "a_position");
+      const position = attributes?.position ?? gl.getAttribLocation(program, "a_position");
       if (position >= 0) {
         gl.enableVertexAttribArray(position);
         gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
@@ -241,12 +265,11 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
       brushMode = Boolean(event.metaKey);
     };
     const handlePointerUp = () => { pointerDown = false; brushMode = false; };
-    const setUniform1f = (program, name, value) => {
-      const location = gl.getUniformLocation(program, name);
+    const setUniform1f = (location, value) => {
       if (location) gl.uniform1f(location, value);
     };
     const draw = now => {
-      if (active && runtime.updateProgram) {
+      if (active && pageVisible && runtime.updateProgram) {
         resize();
         const delta = Math.min(1 / 20, Math.max(1 / 240, (now - lastTime) / 1000));
         lastTime = now;
@@ -257,25 +280,21 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
         gl.bindFramebuffer(gl.FRAMEBUFFER, write.framebuffer);
         gl.viewport(0, 0, write.width, write.height);
         gl.useProgram(runtime.updateProgram);
-        bindQuad(runtime.updateProgram);
+        bindQuad(runtime.updateProgram, runtime.updateAttributes);
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, read.texture);
-        const previous = gl.getUniformLocation(runtime.updateProgram, "u_previous");
-        if (previous) gl.uniform1i(previous, 0);
-        const resolution = gl.getUniformLocation(runtime.updateProgram, "u_resolution");
-        if (resolution) gl.uniform2f(resolution, write.width, write.height);
-        setUniform1f(runtime.updateProgram, "u_time", time);
-        setUniform1f(runtime.updateProgram, "u_delta", delta);
-        setUniform1f(runtime.updateProgram, "u_pointerDown", pointerDown ? 1 : 0);
-        setUniform1f(runtime.updateProgram, "u_brushMode", brushMode ? 1 : 0);
-        const pointerLocation = gl.getUniformLocation(runtime.updateProgram, "u_pointer");
-        if (pointerLocation) gl.uniform2f(pointerLocation, pointer[0], pointer[1]);
-        const pointerDeltaLocation = gl.getUniformLocation(runtime.updateProgram, "u_pointerDelta");
-        if (pointerDeltaLocation) gl.uniform2f(pointerDeltaLocation, pointerDelta[0], pointerDelta[1]);
-        const currentColor = gl.getUniformLocation(runtime.updateProgram, "u_currentColor");
-        if (currentColor) gl.uniform4f(currentColor, ...parseColor(scriptRuntimeRef.current?.getAppearance?.()?.currentColor));
-        const segmentsLocation = gl.getUniformLocation(runtime.updateProgram, "u_segments[0]");
-        const segmentCountLocation = gl.getUniformLocation(runtime.updateProgram, "u_segmentCount");
+        const uniforms = runtime.updateUniforms || {};
+        if (uniforms.previous) gl.uniform1i(uniforms.previous, 0);
+        if (uniforms.resolution) gl.uniform2f(uniforms.resolution, write.width, write.height);
+        setUniform1f(uniforms.time, time);
+        setUniform1f(uniforms.delta, delta);
+        setUniform1f(uniforms.pointerDown, pointerDown ? 1 : 0);
+        setUniform1f(uniforms.brushMode, brushMode ? 1 : 0);
+        if (uniforms.pointer) gl.uniform2f(uniforms.pointer, pointer[0], pointer[1]);
+        if (uniforms.pointerDelta) gl.uniform2f(uniforms.pointerDelta, pointerDelta[0], pointerDelta[1]);
+        if (uniforms.currentColor) gl.uniform4f(uniforms.currentColor, ...parseColor(scriptRuntimeRef.current?.getAppearance?.()?.currentColor));
+        const segmentsLocation = uniforms.segments;
+        const segmentCountLocation = uniforms.segmentCount;
         if (segmentsLocation || segmentCountLocation) {
           const shaderElement = elementRef.current;
           const useDebugEmitters = node.runtime.settings?.emitterSource === "debug";
@@ -307,19 +326,19 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
           if (segmentsLocation) gl.uniform4fv(segmentsLocation, geometryCache.values);
           if (segmentCountLocation) gl.uniform1f(segmentCountLocation, geometryCache.count);
         }
-        setUniform1f(runtime.updateProgram, "u_sceneInteraction", node.runtime.settings?.sceneInteraction === false ? 0 : 1);
+        setUniform1f(uniforms.sceneInteraction, node.runtime.settings?.sceneInteraction === false ? 0 : 1);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
 
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.viewport(0, 0, canvas.width, canvas.height);
         gl.useProgram(runtime.displayProgram);
-        bindQuad(runtime.displayProgram);
+        bindQuad(runtime.displayProgram, runtime.displayAttributes);
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, write.texture);
-        const displayTexture = gl.getUniformLocation(runtime.displayProgram, "u_texture");
+        const displayTexture = runtime.displayUniforms?.texture;
         if (displayTexture) gl.uniform1i(displayTexture, 0);
-        setUniform1f(runtime.displayProgram, "u_transparentBackground", node.runtime.settings?.backgroundMode === "transparent" ? 1 : 0);
-        setUniform1f(runtime.displayProgram, "u_inkwash", node.runtime.settings?.shaderExample === "inkwash" ? 1 : 0);
+        setUniform1f(runtime.displayUniforms?.transparentBackground, node.runtime.settings?.backgroundMode === "transparent" ? 1 : 0);
+        setUniform1f(runtime.displayUniforms?.inkwash, node.runtime.settings?.shaderExample === "inkwash" ? 1 : 0);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
         runtime.targets = [write, read];
         pointerDelta[0] *= 0.72;
@@ -329,6 +348,7 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
     };
 
     const intersectionObserver = new IntersectionObserver(entries => { active = entries.some(entry => entry.isIntersecting); });
+    const handleVisibility = () => { pageVisible = document.visibilityState !== "hidden"; };
     intersectionObserver.observe(canvas);
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(canvas);
@@ -336,6 +356,7 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
     window.addEventListener("pointerdown", handlePointerDown, { passive: true });
     window.addEventListener("pointerup", handlePointerUp, { passive: true });
     window.addEventListener("pointercancel", handlePointerUp, { passive: true });
+    document.addEventListener("visibilitychange", handleVisibility);
     resize();
     frame = window.requestAnimationFrame(draw);
     return () => {
@@ -346,6 +367,7 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
       window.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [node.runtime.settings?.backgroundMode, node.runtime.settings?.emitterSource, node.runtime.settings?.sceneInteraction, node.runtime.settings?.shaderExample, node.runtime.transportMode, scriptRuntimeRef]);
 

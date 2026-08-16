@@ -48,6 +48,20 @@ test("Strudel runtime keeps node ownership and free-run decisions separate", () 
   runtime.dispose();
 });
 
+test("Strudel visual notifications are bounded without throttling painters", () => {
+  const runtime = new StrudelRuntimeManager();
+  const states = [];
+  let paints = 0;
+  runtime.subscribeVisuals("node-a", state => states.push(state));
+  const painter = () => { paints += 1; };
+  runtime._drawFrame([], 0, [painter]);
+  runtime._drawFrame([], 0.005, [painter]);
+  runtime._drawFrame([], 0.02, [painter]);
+  assert.equal(paints, 3);
+  assert.equal(states.length, 3, "initial subscription plus two bounded frame updates");
+  runtime.dispose();
+});
+
 test("Strudel Linked patterns use the Underscores score phase", () => {
   const runtime = new StrudelRuntimeManager();
   runtime.transport = { playing: true, bpm: 120, time: 0.5 };

@@ -213,7 +213,10 @@ function StrudelFrameVisualizerCanvas({ runtime, nodeId, enabled }) {
       if (canvas.height !== height) canvas.height = height;
     };
     resize();
-    const unregister = runtime.registerFrameCanvas(nodeId, canvas);
+    // IntersectionObserver owns visibility after registration. Start cold so
+    // an offscreen node never paints one or more full frames before its first
+    // observer callback.
+    const unregister = runtime.registerFrameCanvas(nodeId, canvas, false);
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(canvas);
     const intersectionObserver = new IntersectionObserver(entries => {
