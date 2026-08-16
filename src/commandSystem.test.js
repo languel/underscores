@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { UnderscoresCommandRegistry, UnderscoresEventBus, UnderscoresInputBus, normalizeInputSample, parseGenericCommandSlash } from "./commandSystem.js";
+import { UnderscoresCommandRegistry, UnderscoresEventBus, UnderscoresInputBus, findExactCommand, normalizeInputSample, parseGenericCommandSlash } from "./commandSystem.js";
 
 test("command registry validates, executes, and publishes metadata", async () => {
   const bus = new UnderscoresEventBus({ now: () => 10 });
@@ -66,4 +66,18 @@ test("generic slash commands expose every stable command id with typed JSON", ()
   );
   assert.match(parseGenericCommandSlash("/command missing", ["transport.seek"]).error, /Unknown/);
   assert.match(parseGenericCommandSlash("/command transport.seek nope", ["transport.seek"]).error, /Invalid command JSON/);
+});
+
+test("exact command lookup matches palette entries with or without slash prefixes", () => {
+  const commands = [
+    { id: "view.frameAll", name: "Excalidraw: Frame All /ex frame all", aliases: ["/ex frame all", "/frame all"] },
+    { id: "performance.toggle", name: "Toggle Performance Monitor /performance", aliases: ["/performance"] },
+  ];
+
+  assert.equal(findExactCommand("Frame All", commands)?.id, "view.frameAll");
+  assert.equal(findExactCommand("/frame all", commands)?.id, "view.frameAll");
+  assert.equal(findExactCommand("Toggle Performance Monitor", commands)?.id, "performance.toggle");
+  assert.equal(findExactCommand("performance", commands)?.id, "performance.toggle");
+  assert.equal(findExactCommand("view.frameAll", commands)?.id, "view.frameAll");
+  assert.equal(findExactCommand("frame", commands), null);
 });
