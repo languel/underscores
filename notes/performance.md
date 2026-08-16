@@ -11,6 +11,9 @@ The FPS number measures the browser tab's `requestAnimationFrame` cadence. It is
 smoothness signal, not a substitute for a CPU flame chart. Scene and changed-object rates help tell
 continuous runtime work apart from a large but idle scene. Monitoring is disabled when the widget is
 closed, so its version-map accounting does not add permanent work to the normal canvas path.
+When the monitor is closed or hidden by presentation mode, Console keeps a compact **FPS** restore
+button. Activating it attaches the monitor to Console and exits presentation mode explicitly, so a
+diagnostic view cannot disappear without a visible way back.
 
 ## Bake workflow
 
@@ -173,6 +176,24 @@ healthy with the five live nodes and no runtime error state. The earlier active-
 shows that Strudel pattern evaluation is the work to watch; if a future repro still degrades after
 this pass, capture a fresh six-second profile and compare the `spanCycles` share before changing
 scene or physics code.
+
+### Follow-up: inference-triggered degradation and inline pianoroll cleanup
+
+A fresh repro after inference showed that the low cadence could persist after the detector work had
+finished. A six-second CPU sample contained `Pattern.prototype.pianoroll` → `Pattern.draw` from
+`@strudel/draw` as a continuing requestAnimationFrame loop. The loop was reached by CodeMirror's
+`_pianoroll` widget, whose `{ ctx }` option had been allowed to fall through to Strudel's native
+`pianoroll()` implementation. That native path owns a page-level animation frame and is not tied to
+the Livecode node manager, so stopping the manager did not stop the work.
+
+Livecode now captures both frame and inline pianoroll painters into the shared, throttled Drawer.
+Legacy native draw loops are also cleared when a node is compiled, removed, panicked, or disposed.
+The regression test exercises an inline `{ ctx }` pianoroll and verifies that it registers a shared
+painter. In the live browser, a clean reload after the final fix measured 361 frames in six seconds
+(16.66 ms average, no frames over 34 ms), left no default `test-canvas` behind, and showed no
+Strudel draw frames in the CPU profile. If the degradation returns during a real MediaPipe run,
+repeat the trace while inference is active and compare the profile for Strudel draw, detector
+callbacks, and worker/queue activity separately.
 
 ## Physics telemetry
 

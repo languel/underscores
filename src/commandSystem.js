@@ -84,6 +84,43 @@ export const parseGenericCommandSlash = (value, commandIds = []) => {
   }
 };
 
+const normalizeCommandLookupText = value => String(value ?? "")
+  .trim()
+  .replace(/\s+/g, " ")
+  .toLowerCase();
+
+const withoutCommandSlash = value => normalizeCommandLookupText(value).replace(/^\/+/, "");
+
+const commandCandidateVariants = value => {
+  const normalized = normalizeCommandLookupText(value);
+  if (!normalized) return [];
+  const label = normalized.replace(/\s+\/.*$/, "").trim();
+  const shortLabel = label.includes(":") ? label.slice(label.lastIndexOf(":") + 1).trim() : "";
+  return [...new Set([normalized, label, shortLabel].filter(Boolean))];
+};
+
+/**
+ * Resolve a command palette-style exact entry without executing it.
+ *
+ * The palette displays names and aliases, while the console historically only
+ * accepted slash aliases. Keeping this lookup in the command system makes the
+ * two entry points agree on ids, display names, and slash/non-slash aliases.
+ */
+export const findExactCommand = (value, commands = []) => {
+  const input = normalizeCommandLookupText(value);
+  if (!input) return null;
+  const inputWithoutSlash = withoutCommandSlash(input);
+  return commands.find(command => {
+    const candidates = [
+      command?.id,
+      command?.name,
+      command?.title,
+      ...(Array.isArray(command?.aliases) ? command.aliases : []),
+    ].flatMap(commandCandidateVariants);
+    return candidates.some(normalized => normalized === input || withoutCommandSlash(normalized) === inputWithoutSlash);
+  }) || null;
+};
+
 export class UnderscoresCommandRegistry {
   constructor({ eventBus = new UnderscoresEventBus(), contextProvider = () => ({}) } = {}) {
     this.eventBus = eventBus;

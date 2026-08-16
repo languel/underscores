@@ -30,7 +30,7 @@ import OutlinerPanel, { getOutlinerElementLabel } from "./OutlinerPanel.jsx";
 import { applyPresentationVisibility, canFitPresentationBounds, isElementVisibleInPresentation } from "./presentationVisibility.js";
 import { groupSceneElements, moveSceneElementsToGroup, moveSceneElementsToGroupParent, moveSceneGroupToParent, renameSceneGroup, reorderSceneElements, ungroupSceneElements } from "./sceneLayers.js";
 import IannixDataPanel from "./IannixDataPanel.jsx";
-import { UnderscoresCommandRegistry, UnderscoresEventBus, UnderscoresInputBus, parseGenericCommandSlash } from "./commandSystem.js";
+import { UnderscoresCommandRegistry, UnderscoresEventBus, UnderscoresInputBus, findExactCommand, parseGenericCommandSlash } from "./commandSystem.js";
 import { buildAIAutomationGuide, isAICommandAllowed, parseUnderscoresCommandTags } from "./aiTooling.js";
 import { autoKeyElement, AUTO_KEY_PATHS, collectAutomationKeys, evaluateElementAutomation, interpolationForPath, upsertAutomationKey } from "./automation.js";
 import { formatAIScriptSource, validateAIBrushSource, validateAIIannixSource } from "./scriptAuthoring.js";
@@ -10211,6 +10211,15 @@ function App() {
     if (nextPlacement === "console") toggleUnderscoresPanel("console", { open: true });
   };
 
+  const reopenPerformanceMonitor = () => {
+    // Presentation mode intentionally hides diagnostics. This is an explicit
+    // request to bring the monitor back, so leave presentation mode and attach
+    // it to the already visible Console panel.
+    if (presentationMode) setPresentationMode(false);
+    setPerformanceOverlayPlacement("console");
+    updatePerformanceVisibility(true);
+  };
+
   const closeUnderscoresPanel = panelId => {
     const panel = getUnderscoresPanel(panelId);
     if (!panel) return;
@@ -12987,11 +12996,13 @@ function App() {
     return "";
   };
 
-  const parseSlashInvocation = value => {
+  const parseSlashInvocation = (value, { allowBare = false } = {}) => {
     const input = String(value || "").trim();
-    if (!input.startsWith("/")) return null;
-    const exact = COMMANDS.find(command => command.aliases?.some(alias => alias.toLowerCase() === input.toLowerCase()));
+    if (!input) return null;
+    if (!input.startsWith("/") && !allowBare) return null;
+    const exact = findExactCommand(input, COMMANDS);
     if (exact) return { command: exact, args: {} };
+    if (!input.startsWith("/")) return null;
     const drawingStyle = parseDrawingStyleSlash(input);
     if (drawingStyle) return { command: COMMANDS.find(command => command.id === drawingStyle.id), args: drawingStyle.args };
     let match = /^\/(?:ix|iannix|score)\s+(.+)$/i.exec(input);
@@ -13027,7 +13038,7 @@ function App() {
   };
 
   const runConsoleSlashCommand = async source => {
-    const parsed = parseSlashInvocation(source);
+    const parsed = parseSlashInvocation(source, { allowBare: true });
     if (!parsed) return false;
     if (parsed.error) throw new Error(parsed.error);
     if (!parsed.command?.id) return false;
@@ -25021,9 +25032,11 @@ function App() {
               transportTime={scoreTime}
               liveStatus={consoleDisplayStatus}
               showPerformanceMonitor={!presentationMode && showPerformanceOverlay && performanceOverlayPlacement === "console"}
+              performanceMonitorVisible={!presentationMode && showPerformanceOverlay}
               onPerformancePlacementChange={updatePerformancePlacement}
+              onPerformanceOpen={reopenPerformanceMonitor}
               onPerformanceClose={() => updatePerformanceVisibility(false)}
-              onSlashCommand={runConsoleSlashCommand}
+              onCommandInput={runConsoleSlashCommand}
               globalStatus={sceneExchangeStatus}
             />
           </UnderscoresPanel>

@@ -10,7 +10,7 @@ import * as mondo from "@strudel/mondo";
 import * as tonal from "@strudel/tonal";
 import * as xen from "@strudel/xen";
 import { slider } from "@strudel/codemirror";
-import { __pianoroll, Drawer, getDrawOptions } from "@strudel/draw";
+import { __pianoroll, Drawer, cleanupDraw, getDrawOptions } from "@strudel/draw";
 import { transpiler } from "@strudel/transpiler";
 import * as webaudio from "@strudel/webaudio";
 
@@ -34,6 +34,34 @@ const DEFAULT_BANK_ALIASES = "https://raw.githubusercontent.com/todepond/samples
 const nodeVisualTag = nodeId => `underscores:${nodeId}`;
 const bpmToCps = bpm => Math.max(0.01, Math.min(16, (Number(bpm) || 120) / 240));
 const ownsNodeHap = (nodeId, hap) => hap.context?.tags?.includes(nodeVisualTag(nodeId));
+
+// Older compiled nodes can still have entered @strudel/draw's native
+// Pattern.draw loop (notably through the CodeMirror `_pianoroll` widget).
+// Livecode owns the draw lifecycle, so stop any such loop when tearing down or
+// replacing a node. The browser guard keeps runtime tests and SSR-safe imports
+// free of DOM assumptions.
+const cleanupNativeDraw = () => {
+  if (typeof window === "undefined") return;
+  const drawCanvasId = "test-canvas";
+  let temporaryCanvas = null;
+  try {
+    // cleanupDraw() asks @strudel/draw for its default canvas before stopping
+    // animations. Supply a detached-size canvas when the page has never used
+    // that default so cleanup never leaves a full-viewport canvas behind.
+    if (typeof document !== "undefined" && !document.querySelector(`#${drawCanvasId}`)) {
+      temporaryCanvas = document.createElement("canvas");
+      temporaryCanvas.id = drawCanvasId;
+      temporaryCanvas.width = 1;
+      temporaryCanvas.height = 1;
+      document.body?.appendChild(temporaryCanvas);
+    }
+    cleanupDraw(false);
+  } catch {
+    // A missing draw canvas should never make stopping a live node fail.
+  } finally {
+    temporaryCanvas?.remove();
+  }
+};
 
 // @strudel/draw's Drawer is intentionally tied to requestAnimationFrame. That
 // is ideal for the page-wide REPL, but every frame also re-queries the active
@@ -224,9 +252,23 @@ const captureFrameVisualizers = (runtime, nodeId) => {
       configurable: true,
       writable: true,
       value(options = {}) {
-        // Underscores widgets supply their own inline CodeMirror canvas and
-        // should retain Strudel's native widget behavior.
-        if (options?.ctx) return previousPianoroll.value.call(this, options);
+        // CodeMirror's `_pianoroll` passes an inline canvas context. Calling
+        // Strudel's native implementation here would start Pattern.draw(),
+        // which owns an independent requestAnimationFrame loop and survives
+        // Livecode node teardown. Register the same painter with our shared
+        // Drawer instead, while drawing into the widget's context captured at
+        // evaluation time.
+        if (options?.ctx) {
+          const inlineContext = options.ctx;
+          return this.onPaint((_ctx, time, haps, drawTime) => {
+            __pianoroll({
+              ...getDrawOptions(drawTime, options),
+              ctx: inlineContext,
+              time,
+              haps,
+            });
+          });
+        }
         return this.onPaint((ctx, time, haps, drawTime) => {
           __pianoroll({
             ctx,
@@ -463,6 +505,9 @@ export class StrudelRuntimeManager {
 
   async _compile(nodeId, source, bridge, transportMode = "linked") {
     await this.ensureScope();
+    // Replacing a node can follow a previous version that used a native
+    // Strudel widget. Clear that legacy loop before evaluating the new source.
+    cleanupNativeDraw();
     const tempoState = { cps: null };
     const scope = this._nodeScope(nodeId, bridge, transportMode, tempoState);
     const previous = Object.fromEntries(Object.keys(scope).map(key => [key, globalThis[key]]));
@@ -612,9 +657,11 @@ export class StrudelRuntimeManager {
     if (timer) clearTimeout(timer);
     this.activationTimers.delete(nodeId);
     if (!this.entries.delete(nodeId)) {
+      cleanupNativeDraw();
       this.lastVisualNotifyTime.delete("__all__");
       return;
     }
+    cleanupNativeDraw();
     this.lastVisualNotifyTime.delete("__all__");
     this.clearFrameCanvas(nodeId);
     this._notifyVisual(nodeId, { haps: [], status: "Stopped" });
@@ -744,6 +791,7 @@ export class StrudelRuntimeManager {
     this.frameCanvases.forEach((_target, nodeId) => this.clearFrameCanvas(nodeId));
     if (this.scheduler) this.scheduler.stop();
     this.drawer?.stop();
+    cleanupNativeDraw();
     this.drawerRunning = false;
     for (const nodeId of this.visualListeners.keys()) {
       this._notifyVisual(nodeId, { haps: [], status: "Stopped" });
@@ -756,6 +804,7 @@ export class StrudelRuntimeManager {
     this.entries.clear();
     this.frameCanvases.clear();
     this.drawer?.stop();
+    cleanupNativeDraw();
     this.drawer = null;
     this.drawerRunning = false;
     this.scheduler?.stop();

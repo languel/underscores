@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import PerformanceOverlay from "./PerformanceOverlay.jsx";
+import { underscoresPerformanceMonitor } from "./performanceMonitor.js";
 import { infoProps } from "./uiInfo.js";
 
 const MAX_VISIBLE_EVENTS = 500;
@@ -83,9 +84,11 @@ export default function EventConsole({
   transportTime = 0,
   liveStatus = [],
   showPerformanceMonitor = false,
+  performanceMonitorVisible = showPerformanceMonitor,
   onPerformancePlacementChange,
+  onPerformanceOpen,
   onPerformanceClose,
-  onSlashCommand,
+  onCommandInput,
   globalStatus = "",
 }) {
   const initialLoggingRef = useRef(readStoredLogging());
@@ -97,6 +100,11 @@ export default function EventConsole({
   const [pollFrequency, setPollFrequency] = useState(readStoredPollFrequency);
   const outputRef = useRef(null);
   const clearedAtRef = useRef(Math.max(consoleEventCutoff, performance.now()));
+  const performanceSnapshot = useSyncExternalStore(
+    underscoresPerformanceMonitor.subscribe,
+    underscoresPerformanceMonitor.getSnapshot,
+    underscoresPerformanceMonitor.getSnapshot,
+  );
 
   useEffect(() => {
     if (!loggingEnabled) return undefined;
@@ -121,18 +129,29 @@ export default function EventConsole({
     if (!source) return;
     try {
       if (source.startsWith("/")) {
-        const handled = await onSlashCommand?.(source);
+        const handled = await onCommandInput?.(source);
         if (!handled) throw new Error("Unknown slash command. Use the command palette to find a command.");
       } else {
-        const event = JSON.parse(source);
-        if (event.name === "command.before" && event.detail?.id) {
-          await commandRegistry.execute(event.detail.id, event.detail.args || {}, { source: "console", transportTime });
-        } else if (event.id) {
-          await commandRegistry.execute(event.id, event.args || {}, { source: "console", transportTime });
-        } else if (event.name) {
-          eventBus.emit(event.name, event.detail || {}, { source: "console-replay" });
-        } else {
-          throw new Error("Expected a /command invocation or event JSON with name or id.");
+        let event;
+        let handled = false;
+        try {
+          event = JSON.parse(source);
+        } catch {
+          handled = Boolean(await onCommandInput?.(source));
+          if (!handled) {
+            throw new Error("Expected a command name, /command invocation, or event JSON with name or id.");
+          }
+        }
+        if (!handled) {
+          if (event?.name === "command.before" && event.detail?.id) {
+            await commandRegistry.execute(event.detail.id, event.detail.args || {}, { source: "console", transportTime });
+          } else if (event?.id) {
+            await commandRegistry.execute(event.id, event.args || {}, { source: "console", transportTime });
+          } else if (event?.name) {
+            eventBus.emit(event.name, event.detail || {}, { source: "console-replay" });
+          } else {
+            throw new Error("Expected a command name, /command invocation, or event JSON with name or id.");
+          }
         }
       }
       setStatus("Executed");
@@ -224,6 +243,7 @@ export default function EventConsole({
   };
 
   const visibleEvents = events.filter(event => eventMatchesFilters(event, eventFilters));
+  const performanceRating = performanceSnapshot.fps >= 55 ? "good" : performanceSnapshot.fps >= 40 ? "warn" : "poor";
 
   return (
     <div className="event-console">
@@ -250,6 +270,7 @@ export default function EventConsole({
       <div className="event-console-toolbar">
         <span>{visibleEvents.length}{visibleEvents.length !== events.length ? ` / ${events.length}` : ""} events</span>
         <div className="event-console-toolbar-controls">
+          {!performanceMonitorVisible ? <button type="button" className={`performance-reopen ${performanceRating}`} onClick={onPerformanceOpen} title="Show performance monitor in Console"><strong>{performanceSnapshot.fps || "–"}</strong><span>FPS</span></button> : null}
           <details className="event-console-filter-menu" {...infoProps("Event types", "Choose one or more event categories to display. The log keeps recent events while filters change.")}>
             <summary>Types · {eventFilterSummary(eventFilters)}</summary>
             <div className="event-console-filter-options">
@@ -303,10 +324,10 @@ export default function EventConsole({
               runInput();
             }
           }}
-          placeholder="Paste /command or event JSON · Enter to run · Shift+Enter for a new line"
+          placeholder="Type a command, paste /command or event JSON · Enter to run · Shift+Enter for a new line"
           aria-label="Console input"
           rows={2}
-          {...infoProps("Console input", "Run a /command invocation, replay copied event JSON, or emit an event object. Enter runs; Shift+Enter adds a line.")}
+          {...infoProps("Console input", "Run a command name or slash invocation, replay copied event JSON, or emit an event object. Enter runs; Shift+Enter adds a line.")}
         />
         <button type="button" className="event-console-submit" onClick={runInput} title="Run console input (Enter)" aria-label="Run console input"><SendIcon /></button>
       </div>

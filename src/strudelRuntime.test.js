@@ -214,6 +214,49 @@ test("Strudel public pianoroll uses the shared node-frame painter", async () => 
   }
 });
 
+test("Strudel inline pianoroll widgets use the shared painter without a native draw loop", async () => {
+  const runtime = new StrudelRuntimeManager();
+  runtime.ensureScope = async () => {};
+  const previousPure = globalThis.pure;
+  const previousInlineContext = globalThis.__inlinePianorollContext;
+  globalThis.pure = core.pure;
+  const calls = [];
+  const inlineContext = new Proxy({
+    canvas: { width: 520, height: 60 },
+  }, {
+    get(target, key) {
+      if (key in target) return target[key];
+      return (...args) => calls.push([key, ...args]);
+    },
+  });
+  globalThis.__inlinePianorollContext = inlineContext;
+  runtime.registerFrameCanvas("node-inline-visual", {
+    width: 520,
+    height: 300,
+    getContext: () => inlineContext,
+  });
+  try {
+    const { pattern, meta } = await runtime._compile(
+      "node-inline-visual",
+      "pure(60).pianoroll({ ctx: __inlinePianorollContext })",
+      {},
+    );
+    assert.equal(meta.frameVisualizers, 1);
+    const painters = [];
+    const haps = pattern.queryArc(0, 2, { painters });
+    assert.equal(painters.length, 1);
+    painters[0](null, 0.5, haps, [-2, 2]);
+    assert.ok(calls.some(([method]) => method === "clearRect"));
+    assert.ok(calls.some(([method]) => method === "stroke"));
+  } finally {
+    if (previousPure === undefined) delete globalThis.pure;
+    else globalThis.pure = previousPure;
+    if (previousInlineContext === undefined) delete globalThis.__inlinePianorollContext;
+    else globalThis.__inlinePianorollContext = previousInlineContext;
+    runtime.dispose();
+  }
+});
+
 test("Strudel exposes __ as the same node-local bridge", async () => {
   const runtime = new StrudelRuntimeManager();
   runtime.ensureScope = async () => {};

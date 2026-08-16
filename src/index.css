@@ -5164,9 +5164,15 @@ a.iannix-flat-button {
 .performance-fps.good strong { color: color-mix(in srgb, var(--underscores-foreground, currentColor) 82%, #6f9 18%); }
 .performance-fps.warn strong { color: color-mix(in srgb, var(--underscores-foreground, currentColor) 75%, #fc7 25%); }
 .performance-fps.poor strong { color: color-mix(in srgb, var(--underscores-foreground, currentColor) 70%, #f88 30%); }
-.performance-dock, .performance-close { width: 22px; height: 22px; margin-left: auto; padding: 0; opacity: .72; }
+.performance-dock, .performance-close, .performance-reopen { width: 22px; height: 22px; margin-left: auto; padding: 0; opacity: .72; }
 .performance-close { margin-left: 0; }
-.performance-dock:hover, .performance-close:hover { opacity: 1; background: var(--underscores-highlight); border-radius: 2px; }
+.performance-reopen { width: auto; min-width: 0; margin-left: 0; padding: 2px 4px; border: 0 !important; color: var(--underscores-foreground, currentColor) !important; background: transparent !important; font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+.performance-reopen strong { font-size: 11px; font-variant-numeric: tabular-nums; }
+.performance-reopen span { margin-left: 3px; font-size: 8px; letter-spacing: .05em; opacity: .72; }
+.performance-reopen.good strong { color: color-mix(in srgb, var(--underscores-foreground, currentColor) 82%, #6f9 18%); }
+.performance-reopen.warn strong { color: color-mix(in srgb, var(--underscores-foreground, currentColor) 75%, #fc7 25%); }
+.performance-reopen.poor strong { color: color-mix(in srgb, var(--underscores-foreground, currentColor) 70%, #f88 30%); }
+.performance-dock:hover, .performance-close:hover, .performance-reopen:hover { opacity: 1; background: var(--underscores-highlight); border-radius: 2px; }
 
 .iannix-transport {
   --transport-bg: var(--underscores-panel-bg, var(--island-bg-color, var(--bg-sidebar, #fff)));
