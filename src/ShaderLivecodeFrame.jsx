@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import FluidShaderFrame from "./FluidShaderFrame.jsx";
-import { FLUID_BRUSH_FRAGMENT_SOURCE, prepareShaderSource, SHADER_VERTEX_SOURCE } from "./shaderLivecode.js";
+import { FLUID_BRUSH_FRAGMENT_SOURCE, prepareShaderSource, shaderSourceUsesFeedbackBuffer, SHADER_VERTEX_SOURCE } from "./shaderLivecode.js";
 import { collectShaderSceneSegments, flattenShaderSegments, MAX_SHADER_SEGMENTS } from "./shaderSceneGeometry.js";
 import { publishShaderStatus } from "./shaderStatus.js";
 
@@ -41,7 +41,9 @@ const uniformLocations = (gl, program) => Object.freeze({
   transportTime: gl.getUniformLocation(program, "u_transportTime"),
   pointer: gl.getUniformLocation(program, "u_pointer"),
   pointerDown: gl.getUniformLocation(program, "u_pointerDown"),
+  frame: gl.getUniformLocation(program, "u_frame"),
   currentColor: gl.getUniformLocation(program, "u_currentColor"),
+  buffer: gl.getUniformLocation(program, "b"),
   segments: gl.getUniformLocation(program, "u_segments[0]"),
   segmentCount: gl.getUniformLocation(program, "u_segmentCount"),
   darkMode: gl.getUniformLocation(program, "u_darkMode"),
@@ -53,6 +55,56 @@ const uniformLocations = (gl, program) => Object.freeze({
   lightPos: gl.getUniformLocation(program, "u_lightPos"),
   shadowContrast: gl.getUniformLocation(program, "u_shadowContrast"),
 });
+
+const DISPLAY_FRAGMENT_SOURCE = `#version 300 es
+precision highp float;
+
+uniform sampler2D u_texture;
+in vec2 v_uv;
+out vec4 outColor;
+
+void main() {
+  outColor = texture(u_texture, v_uv);
+}`;
+
+const createFeedbackTarget = (gl, width, height) => {
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  const framebuffer = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+    gl.deleteFramebuffer(framebuffer);
+    gl.deleteTexture(texture);
+    throw new Error("The minimal shader feedback framebuffer is incomplete.");
+  }
+  return { texture, framebuffer, width, height };
+};
+
+const disposeFeedbackTargets = (gl, targets = []) => {
+  targets.forEach(target => {
+    gl.deleteFramebuffer(target.framebuffer);
+    gl.deleteTexture(target.texture);
+  });
+};
+
+const clearFeedbackTargets = (gl, targets = []) => {
+  targets.forEach(target => {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+    gl.viewport(0, 0, target.width, target.height);
+    // A Shadertoy/TWGL-style buffer starts as opaque black. Clearing alpha to
+    // zero makes common compact `vec4(..., texture(b, ...))` bodies invisible
+    // forever because their first feedback sample is transparent.
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  });
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+};
 
 const parseColor = value => {
   const match = /^#([\da-f]{6})([\da-f]{2})?$/i.exec(String(value || ""));
@@ -104,10 +156,23 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
     const buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-    runtimeRef.current = { gl, buffer, program: null, uniforms: null, startedAt: performance.now() };
+    runtimeRef.current = {
+      gl,
+      buffer,
+      program: null,
+      uniforms: null,
+      displayProgram: null,
+      displayUniforms: null,
+      feedback: false,
+      feedbackTargets: [],
+      frame: 0,
+      startedAt: performance.now(),
+    };
     return () => {
       const runtime = runtimeRef.current;
       if (runtime?.program) gl.deleteProgram(runtime.program);
+      if (runtime?.displayProgram) gl.deleteProgram(runtime.displayProgram);
+      disposeFeedbackTargets(gl, runtime?.feedbackTargets);
       gl.deleteBuffer(buffer);
       runtimeRef.current = null;
     };
@@ -117,10 +182,26 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
     const runtime = runtimeRef.current;
     if (!runtime) return;
     try {
-      const program = createProgram(runtime.gl, prepareShaderSource(node.source, node.runtime.settings?.shaderDialect));
+      const dialect = node.runtime.settings?.shaderDialect;
+      const source = prepareShaderSource(node.source, dialect);
+      const usesFeedback = shaderSourceUsesFeedbackBuffer(node.source, dialect);
+      const program = createProgram(runtime.gl, source);
       if (runtime.program) runtime.gl.deleteProgram(runtime.program);
+      if (usesFeedback && !runtime.displayProgram) {
+        runtime.displayProgram = createProgram(runtime.gl, DISPLAY_FRAGMENT_SOURCE);
+        runtime.displayUniforms = Object.freeze({ texture: runtime.gl.getUniformLocation(runtime.displayProgram, "u_texture") });
+      } else if (!usesFeedback && runtime.displayProgram) {
+        runtime.gl.deleteProgram(runtime.displayProgram);
+        runtime.displayProgram = null;
+        runtime.displayUniforms = null;
+        disposeFeedbackTargets(runtime.gl, runtime.feedbackTargets);
+        runtime.feedbackTargets = [];
+      }
       runtime.program = program;
       runtime.uniforms = uniformLocations(runtime.gl, program);
+      runtime.feedback = usesFeedback;
+      runtime.frame = 0;
+      clearFeedbackTargets(runtime.gl, runtime.feedbackTargets);
       publishFrameStatus(statusRef, "clear");
     } catch (compileError) {
       publishFrameStatus(statusRef, "error", compileError instanceof Error ? compileError.message : String(compileError));
@@ -143,8 +224,17 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
       const scale = Math.min(2, Math.max(1, Number(window.devicePixelRatio) || 1));
       const width = Math.max(1, Math.round(rect.width * scale));
       const height = Math.max(1, Math.round(rect.height * scale));
-      if (canvas.width !== width) canvas.width = width;
-      if (canvas.height !== height) canvas.height = height;
+      const sizeChanged = canvas.width !== width || canvas.height !== height;
+      const target = runtime.feedbackTargets[0];
+      const targetsReady = runtime.feedbackTargets.length === 2 && target?.width === width && target?.height === height;
+      if (!sizeChanged && (!runtime.feedback || targetsReady)) return;
+      canvas.width = width;
+      canvas.height = height;
+      if (runtime.feedback && !targetsReady) {
+        disposeFeedbackTargets(gl, runtime.feedbackTargets);
+        runtime.feedbackTargets = [createFeedbackTarget(gl, width, height), createFeedbackTarget(gl, width, height)];
+        clearFeedbackTargets(gl, runtime.feedbackTargets);
+      }
     };
     const updatePointer = event => {
       const rect = canvas.getBoundingClientRect();
@@ -162,17 +252,23 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
         && canvas.getBoundingClientRect().bottom >= event.clientY;
     };
     const handlePointerUp = () => { pointerDown = false; };
+    const bindPosition = program => {
+      gl.bindBuffer(gl.ARRAY_BUFFER, runtime.buffer);
+      const position = gl.getAttribLocation(program, "a_position");
+      if (position >= 0) {
+        gl.enableVertexAttribArray(position);
+        gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+      }
+    };
     const draw = now => {
       if (active && runtime.program && runtime.uniforms) {
         resize();
-        gl.viewport(0, 0, canvas.width, canvas.height);
+        const feedback = runtime.feedback && runtime.displayProgram && runtime.feedbackTargets.length === 2;
+        const [readTarget, writeTarget] = feedback ? runtime.feedbackTargets : [null, null];
+        gl.bindFramebuffer(gl.FRAMEBUFFER, writeTarget?.framebuffer || null);
+        gl.viewport(0, 0, writeTarget?.width || canvas.width, writeTarget?.height || canvas.height);
         gl.useProgram(runtime.program);
-        gl.bindBuffer(gl.ARRAY_BUFFER, runtime.buffer);
-        const position = gl.getAttribLocation(runtime.program, "a_position");
-        if (position >= 0) {
-          gl.enableVertexAttribArray(position);
-          gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
-        }
+        bindPosition(runtime.program);
         const linked = node.runtime.transportMode !== "free";
         const scoreTime = Number(transportRef.current?.time) || 0;
         const time = linked ? scoreTime : (now - runtime.startedAt) / 1000;
@@ -183,7 +279,13 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
         if (runtime.uniforms.transportTime) gl.uniform1f(runtime.uniforms.transportTime, scoreTime);
         if (runtime.uniforms.pointer) gl.uniform2f(runtime.uniforms.pointer, pointer[0], pointer[1]);
         if (runtime.uniforms.pointerDown) gl.uniform1f(runtime.uniforms.pointerDown, pointerDown ? 1 : 0);
+        if (runtime.uniforms.frame) gl.uniform1f(runtime.uniforms.frame, runtime.frame);
         if (runtime.uniforms.currentColor) gl.uniform4f(runtime.uniforms.currentColor, ...color);
+        if (feedback && runtime.uniforms.buffer) {
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, readTarget.texture);
+          gl.uniform1i(runtime.uniforms.buffer, 0);
+        }
         if (runtime.uniforms.darkMode) gl.uniform1f(runtime.uniforms.darkMode, appearance.theme === "dark" ? 1 : 0);
         if (runtime.uniforms.zoom) gl.uniform1f(runtime.uniforms.zoom, 1);
         if (runtime.uniforms.quality) gl.uniform1f(runtime.uniforms.quality, 1);
@@ -209,6 +311,18 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
           if (runtime.uniforms.segmentCount) gl.uniform1f(runtime.uniforms.segmentCount, geometryCache.count);
         }
         gl.drawArrays(gl.TRIANGLES, 0, 3);
+        if (feedback) {
+          gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+          gl.viewport(0, 0, canvas.width, canvas.height);
+          gl.useProgram(runtime.displayProgram);
+          bindPosition(runtime.displayProgram);
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, writeTarget.texture);
+          if (runtime.displayUniforms?.texture) gl.uniform1i(runtime.displayUniforms.texture, 0);
+          gl.drawArrays(gl.TRIANGLES, 0, 3);
+          runtime.feedbackTargets = [writeTarget, readTarget];
+        }
+        runtime.frame += 1;
       }
       frame = window.requestAnimationFrame(draw);
     };

@@ -31,6 +31,8 @@ test("script editor profiles expose runtime-aware completions", () => {
   assert.ok(getScriptEditorCompletions("markdown").some(item => item.label === "inline math"));
   assert.ok(getScriptEditorCompletions("shader").some(item => item.label === "u_resolution"));
   assert.ok(getScriptEditorCompletions("shader").some(item => item.label === "FC"));
+  assert.ok(getScriptEditorCompletions("shader").some(item => item.label === "backbuffer"));
+  assert.ok(getScriptEditorCompletions("shader").some(item => item.label === "hsv"));
   assert.ok(getScriptEditorCompletions("svg").some(item => item.label === "viewBox"));
 });
 

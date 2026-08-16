@@ -94,7 +94,7 @@ import { copyLivecodeExampleName, createLivecodeNode, defaultLivecodeSource, get
 import { LIVECODE_PERSISTENCE_MODES, normalizeLivecodeComposition } from "./livecodeComposition.js";
 import { getLivecodeExamples } from "./livecodeExamples.js";
 import { describeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
-import { getShaderExample, normalizeShaderCompositionSettings, normalizeShaderSourceMode, shaderExampleForSource } from "./shaderLivecode.js";
+import { getShaderExample, isShaderUnderlayVisible, normalizeShaderCompositionSettings, normalizeShaderSourceMode, shaderExampleForSource } from "./shaderLivecode.js";
 import { getShaderStatuses, SHADER_STATUS_EVENT } from "./shaderStatus.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
 import { isPublicSafeBuild } from "./buildProfile.js";
@@ -164,7 +164,7 @@ import {
 } from "./svgSourceSelection.js";
 import { getSvgNodeTransform, invertSvgTransform } from "./svgTransform.js";
 import { createModifierTrackExportElements, downloadCanvasAsPng, exportUnderscoresPng, findMediaStreamCanvasForElement, getElementExportBounds, getElementsExportBounds } from "./p5Export.js";
-import { captureLivecodeFrameSnapshot, clearLivecodeFrameSnapshot } from "./livecodeFrameSnapshot.js";
+import { captureLivecodeFrameSnapshot, clearLivecodeFrameSnapshot, getLivecodeFrameSnapshot } from "./livecodeFrameSnapshot.js";
 import PerformanceOverlay from "./PerformanceOverlay.jsx";
 import { underscoresPerformanceMonitor } from "./performanceMonitor.js";
 import { createBakedImageElement, createBakedImageFile, createCanvasSnapshotImageElement, replaceSceneElementsWithBake } from "./sceneBake.js";
@@ -4059,13 +4059,13 @@ function App() {
   }, [brushChannels, foregroundColor]);
   const [svgOverlayScene, setSvgOverlayScene] = useState({ elements: [], appState: null });
   const [livecodeOverlayScene, setLivecodeOverlayScene] = useState({ elements: [], appState: null });
-  const shaderUnderlayActive = useMemo(() => livecodeOverlayScene.elements.some(element => {
-    const node = normalizeLivecodeNode(element.customData?.underscoresLivecode);
-    return node.kind === LIVECODE_KINDS.shader
-      && node.runtime.running
-      && normalizeShaderCompositionSettings(node.runtime.settings).compositeMode === "underlay";
-  }), [livecodeOverlayScene.elements]);
+  const shaderUnderlayActive = useMemo(() => livecodeOverlayScene.elements.some(element => (
+    isShaderUnderlayVisible(element, {
+      hasRetainedFrame: Boolean(getLivecodeFrameSnapshot(element.id)),
+    })
+  )), [livecodeOverlayScene.elements]);
   const [livecodeEditorId, setLivecodeEditorId] = useState(null);
+  const scriptPanelVisibleRef = useRef(false);
   const [editingLivecodeNameId, setEditingLivecodeNameId] = useState(null);
   const [livecodeNameDraft, setLivecodeNameDraft] = useState("");
   const [livecodeCanvasEditorId, setLivecodeCanvasEditorId] = useState(null);
@@ -5653,14 +5653,10 @@ function App() {
     if (!selectedLivecodeNodeForEditor) return;
     setLivecodeEditorId(selectedLivecodeNodeForEditor.id);
     setInfoView(DEFAULT_INFO_VIEW);
-    // Do not let a canvas selection or a modifier double-click pull the
-    // Script panel into a presentation. A manually opened panel still follows
-    // the active node through the editor id and script type.
-    if (presentationMode) {
-      setScriptPanelType("livecode");
-    } else {
-      toggleUnderscoresPanel("script", { open: true, scriptType: "livecode" });
-    }
+    // A canvas edit must never pull a hidden/collapsed Script sidebar into the
+    // presentation. When the Script panel is already visible, keep its
+    // content synchronized with the node being edited.
+    if (scriptPanelVisibleRef.current) setScriptPanelType("livecode");
   }, [selectedLivecodeNodeForEditor?.id]);
 
   useEffect(() => {
@@ -6663,6 +6659,8 @@ function App() {
   const livePointsRef = useRef([]);
   const rawCursorRef = useRef(null);
   const lastCanvasPointerRef = useRef(null);
+  const livecodeNodeAtCanvasPointerRef = useRef(null);
+  const toggleLivecodeNodeRunRef = useRef(null);
   const laserWasActiveRef = useRef(false);
 
   useLayoutEffect(() => {
@@ -7002,13 +7000,16 @@ function App() {
     return true;
   };
 
-  const handleLivecodeCommandOutputPointerDown = e => {
-    if (!excalidrawAPI || e.button !== 0 || !(e.metaKey || e.ctrlKey)) return false;
-    const [x, y] = getCanvasCoords(e.clientX, e.clientY, "none");
+  const livecodeNodeAtCanvasPointer = (clientX, clientY) => {
+    if (!excalidrawAPI || !Number.isFinite(Number(clientX)) || !Number.isFinite(Number(clientY))) return null;
+    const container = document.getElementById("canvas-container");
+    const target = document.elementFromPoint(Number(clientX), Number(clientY));
+    if (!container || !target || !container.contains(target)) return null;
+    const [x, y] = getCanvasCoords(clientX, clientY, "none");
     const candidates = excalidrawAPI.getSceneElements().filter(element => (
       !element.isDeleted && isLivecodeNodeElement(element) && !element.customData?.outlinerHidden
     ));
-    const hit = [...candidates].reverse().find(element => {
+    return [...candidates].reverse().find(element => {
       const centerX = element.x + element.width / 2;
       const centerY = element.y + element.height / 2;
       const dx = x - centerX;
@@ -7020,6 +7021,12 @@ function App() {
       const localY = -sin * dx + cos * dy;
       return Math.abs(localX) <= element.width / 2 && Math.abs(localY) <= element.height / 2;
     });
+  };
+  livecodeNodeAtCanvasPointerRef.current = livecodeNodeAtCanvasPointer;
+
+  const handleLivecodeCommandOutputPointerDown = e => {
+    if (!excalidrawAPI || e.button !== 0 || !(e.metaKey || e.ctrlKey)) return false;
+    const hit = livecodeNodeAtCanvasPointer(e.clientX, e.clientY);
     if (!hit) return false;
     e.preventDefault();
     e.stopPropagation();
@@ -12319,7 +12326,7 @@ function App() {
     { id: "livecode.node.create.html", name: "Create HTML Livecode Node /live html", aliases: ["/live html"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.html }) },
     { id: "livecode.node.create.orca", name: "Create Orca Livecode Node /live orca", aliases: ["/live orca"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.orca }) },
     { id: "livecode.node.create.shader", name: "Create Hello GLSL Livecode Node /live shader", aliases: ["/live shader", "/live glsl", "/shader", "/shader hello"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "hello" }) },
-    { id: "livecode.node.create.shader.minimal", name: "Create Minimal Shadertoy Shader /shader minimal", aliases: ["/shader minimal", "/live shader minimal", "/shader shadertoy"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "minimal-raymarch" }) },
+    { id: "livecode.node.create.shader.minimal", name: "Create Minimal Twigl Shader /shader minimal", aliases: ["/shader minimal", "/live shader minimal", "/shader shadertoy", "/shader twigl"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "minimal-raymarch" }) },
     { id: "livecode.node.create.shader.rainbow", name: "Create Rainbow Shader /shader rainbow", aliases: ["/shader rainbow", "/live shader rainbow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "rainbow" }) },
     { id: "livecode.node.create.shader.shadow", name: "Create 2D Shadow Shader /shader shadow", aliases: ["/shader shadow", "/live shader shadow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "shadow" }) },
     { id: "livecode.node.create.shader.fluid", name: "Create Fluid Brush Shader /shader fluid", aliases: ["/shader fluid", "/live shader fluid"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "fluid" }) },
@@ -12633,7 +12640,17 @@ function App() {
       // clicked. Its p5 instance listens at document level, so consuming a
       // Underscores shortcut here would otherwise prevent keyPressed(),
       // keyReleased(), and keyTyped() from seeing the event.
+      const pointer = lastCanvasPointerRef.current;
+      const canvasLivecodeShortcutCandidate = pointer
+        ? livecodeNodeAtCanvasPointerRef.current?.(pointer[0], pointer[1])
+        : null;
+      const isCanvasLivecodeRunStopShortcut = (e.metaKey || e.ctrlKey)
+        && !e.altKey
+        && !e.shiftKey
+        && (e.key === "Enter" || e.key === "." || e.code === "Period")
+        && Boolean(canvasLivecodeShortcutCandidate);
       if (document.activeElement?.closest?.(".underscores-p5-host")
+        && !isCanvasLivecodeRunStopShortcut
         && shortcutActionForEvent?.id !== "object.pick.fromCanvas") return;
 
       // Space controls score transport from the canvas/UI. Text controls keep
@@ -12648,6 +12665,27 @@ function App() {
           activeElement.closest?.(".cm-editor")
         )) || textControlEventTarget,
       );
+      // Canvas Livecode nodes use the same run/stop chords as their source
+      // editors when the pointer is over the node. The pointer location is
+      // read at key time so this does not add a per-frame hover state or any
+      // runtime work while the canvas is idle.
+      if (!isTextControlFocused && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
+        const hoveredLivecodeNode = canvasLivecodeShortcutCandidate;
+        const isRunShortcut = e.key === "Enter";
+        const isStopShortcut = e.key === "." || e.code === "Period";
+        if (hoveredLivecodeNode && (isRunShortcut || isStopShortcut)) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation?.();
+          const node = normalizeLivecodeNode(hoveredLivecodeNode.customData?.underscoresLivecode);
+          if (isRunShortcut) {
+            void toggleLivecodeNodeRunRef.current?.(hoveredLivecodeNode.id, { command: "run" });
+          } else if (node.runtime.running) {
+            void toggleLivecodeNodeRunRef.current?.(hoveredLivecodeNode.id);
+          }
+          return;
+        }
+      }
       if (!isTextControlFocused && !e.metaKey && !e.ctrlKey && !e.altKey && e.code === "Backslash") {
         e.preventDefault();
         e.stopPropagation();
@@ -15760,6 +15798,7 @@ function App() {
       ? `${getLivecodeKindDefinition(node.kind).label} node running · ${describeLivecodeRuntime(node)}`
       : "Livecode node stopped.");
   };
+  toggleLivecodeNodeRunRef.current = toggleLivecodeNodeRun;
 
   const handleStrudelTransportControl = useCallback((_element, node, control = {}) => {
     if (control.type === "tempo") {
@@ -15781,16 +15820,10 @@ function App() {
       setLivecodeCanvasFocusRequest(request => request + 1);
     }
     setLivecodeStatus("");
-    // Presentation is a performance surface: editing gestures may still
-    // retarget the active Livecode node (and its authored view), but they must
-    // not uncollapse or open the Script panel. If the panel is already open,
-    // switching its content to this node remains useful and does not change
-    // the presentation layout.
-    if (presentationMode) {
-      setScriptPanelType("livecode");
-    } else {
-      toggleUnderscoresPanel("script", { scriptType: "livecode" });
-    }
+    // Editing on the canvas must not uncollapse or open the Script panel. If
+    // it is already visible, switching its content to this node is useful and
+    // does not change the presentation layout.
+    if (scriptPanelVisibleRef.current) setScriptPanelType("livecode");
   };
 
   const createLivecodeCanvasNode = (args = {}) => {
@@ -20525,7 +20558,7 @@ function App() {
         {node.kind === LIVECODE_KINDS.p5 && <label title="Choose whether this p5 surface is transparent or uses its authored/default background behavior">Background <select value={composition.backgroundMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { backgroundMode: event.target.value, transparent: undefined } } }, { commitToHistory: true })}><option value="auto">Adapter default</option><option value="transparent">Transparent surface</option><option value="solid">Solid / authored</option></select></label>}
         {node.kind === LIVECODE_KINDS.p5 && <label title="Reset the p5 surface before each frame, or leave accumulation under sketch control">Frame reset <select value={composition.persistence} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { persistence: event.target.value } } }, { commitToHistory: true })}>{LIVECODE_PERSISTENCE_MODES.map(mode => <option key={mode} value={mode}>{mode === "auto" ? "Adapter default" : mode === "clear" ? "Clear each frame" : "Accumulate"}</option>)}</select></label>}
         <label title="Show the compact tab above this Livecode node on the canvas">Canvas tab <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.showChrome === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { showChrome: event.target.checked } } }, { commitToHistory: true })} />Show</span></label>
-        {node.kind === LIVECODE_KINDS.shader && <label title="Choose the full GLSL ES 3.00 contract or a compact Shadertoy/TWGL-style fragment body">Source <select value={shaderSourceMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { shaderDialect: event.target.value } } }, { commitToHistory: true })}><option value="standard">GLSL 300</option><option value="shadertoy">Minimal / Shadertoy</option></select></label>}
+        {node.kind === LIVECODE_KINDS.shader && <label title="Choose the full GLSL ES 3.00 contract or a compact Twigl/Shadertoy-style fragment body">Source <select value={shaderSourceMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { shaderDialect: event.target.value } } }, { commitToHistory: true })}><option value="standard">GLSL 300</option><option value="shadertoy">Minimal / Twigl / Shadertoy</option></select></label>}
         {node.kind === LIVECODE_KINDS.shader && <label>Layer <select value={shaderComposition.compositeMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeMode: event.target.value } } }, { commitToHistory: true })}><option value="overlay">Above objects</option><option value="underlay">Below objects</option></select></label>}
         {node.kind === LIVECODE_KINDS.shader && <label>Opacity % <NumericInput min="0" max="100" step="5" value={Math.round(shaderComposition.compositeOpacity * 100)} defaultValue={100} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeOpacity: value / 100 } } }, { commitToHistory: true })} /></label>}
         {node.kind === LIVECODE_KINDS.shader && <label>Blend <select value={shaderComposition.blendMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { blendMode: event.target.value } } }, { commitToHistory: true })}><option value="normal">Normal</option><option value="screen">Screen</option><option value="multiply">Multiply</option><option value="overlay">Overlay</option><option value="soft-light">Soft light</option></select></label>}
@@ -23416,6 +23449,7 @@ function App() {
     if (placement === PANEL_PLACEMENTS.FLOATING) return true;
     return resolvedActiveDockPanels[placement] === panelId;
   };
+  scriptPanelVisibleRef.current = shouldRenderPanel("script");
   const getPanelDockTabs = panelId => {
     const placement = panelLayouts[panelId]?.placement;
     return placement === PANEL_PLACEMENTS.LEFT ? leftDockTabs : placement === PANEL_PLACEMENTS.RIGHT ? rightDockTabs : [];

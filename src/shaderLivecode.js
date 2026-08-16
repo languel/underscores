@@ -25,7 +25,9 @@ uniform float u_time;
 uniform float u_transportTime;
 uniform vec2 u_pointer;
 uniform float u_pointerDown;
+uniform float u_frame;
 uniform vec4 u_currentColor;
+uniform sampler2D b;
 
 in vec2 v_uv;
 out vec4 outColor;
@@ -33,28 +35,93 @@ out vec4 outColor;
 #define iResolution vec3(u_resolution, 1.0)
 #define iTime u_time
 #define iTimeDelta 0.016
-#define iFrame 0
+#define iFrame int(u_frame)
 #define iMouse vec4(u_pointer * u_resolution, u_pointerDown, 0.0)
 #define iDate vec4(0.0)
-#define FC gl_FragCoord`;
+#define FC gl_FragCoord
+#define texture2D texture
+#define gl_FragColor outColor
+#define resolution u_resolution
+#define mouse vec4(u_pointer * u_resolution, u_pointerDown, 0.0)
+#define time u_time
+#define frame u_frame
+#define backbuffer b
+#define backbuffer0 b
+#define backbuffer1 b`;
 
 const SHADERTOY_BODY_ALIASES = `
-#define r vec3(u_resolution, 1.0)
+#define r u_resolution
+#define m vec4(u_pointer * u_resolution, u_pointerDown, 0.0)
 #define t u_time
-#define o outColor`;
+#define f u_frame
+#define o outColor
+#define o0 outColor
+#define o1 outColor
+#define b0 b
+#define b1 b`;
+
+const TWIGL_SNIPPETS = `
+#ifndef PI
+#define PI 3.141592653589793
+#endif
+#ifndef PI2
+#define PI2 6.283185307179586
+#endif
+
+mat2 rotate2D(float angle) {
+  float s = sin(angle);
+  float c = cos(angle);
+  return mat2(c, s, -s, c);
+}
+
+mat3 rotate3D(float angle, vec3 axis) {
+  vec3 a = normalize(axis);
+  float s = sin(angle);
+  float c = cos(angle);
+  float r = 1.0 - c;
+  return mat3(
+    a.x * a.x * r + c, a.y * a.x * r + a.z * s, a.z * a.x * r - a.y * s,
+    a.x * a.y * r - a.z * s, a.y * a.y * r + c, a.z * a.y * r + a.x * s,
+    a.x * a.z * r + a.y * s, a.y * a.z * r - a.x * s, a.z * a.z * r + c
+  );
+}
+
+vec3 hsv(float h, float s, float v) {
+  vec4 k = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  vec3 p = abs(fract(vec3(h) + k.xyz) * 6.0 - vec3(k.w));
+  return v * mix(vec3(k.x), clamp(p - vec3(k.x), 0.0, 1.0), s);
+}
+
+float fsnoise(vec2 point) {
+  return fract(sin(dot(point, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+float fsnoiseDigits(vec2 point) {
+  return fract(sin(dot(point, vec2(0.129898, 0.78233))) * 437.585453);
+}`;
 
 const stripShaderVersion = source => String(source || "").replace(/^\s*#version\s+[^\n]*(?:\n|$)/m, "");
+
+const stripTwiglBoilerplate = source => stripShaderVersion(source)
+  .replace(/\bprecision\s+\w+\s+float\s*;\s*/g, "")
+  .replace(/\buniform\s+(?:vec[234]|float|int|sampler2D)\s+(?:resolution|mouse|time|frame|backbuffer|r|m|t|f|b)\s*;\s*/g, "")
+  .replace(/^\s*(?:in\s+vec2\s+v_uv|out\s+vec4\s+(?:outColor|gl_FragColor))\s*;\s*/gm, "");
 
 export const prepareShaderSource = (source, mode = "standard") => {
   const text = String(source || "");
   if (normalizeShaderSourceMode(mode) !== "shadertoy") return text;
-  const body = stripShaderVersion(text).trim();
+  const body = stripTwiglBoilerplate(text).trim();
   if (/\bvoid\s+mainImage\s*\(/.test(body)) {
-    return `${SHADERTOY_HEADER}\n${body}\n\nvoid main() {\n  mainImage(outColor, gl_FragCoord.xy);\n}`;
+    return `${SHADERTOY_HEADER}${TWIGL_SNIPPETS}\n${body}\n\nvoid main() {\n  mainImage(outColor, gl_FragCoord.xy);\n}`;
   }
-  if (/\bvoid\s+main\s*\(/.test(body)) return `${SHADERTOY_HEADER}\n${body}`;
-  return `${SHADERTOY_HEADER}${SHADERTOY_BODY_ALIASES}\n\nvoid main() {\n  outColor = vec4(0.0);\n  ${body}\n}`;
+  if (/\bvoid\s+main\s*\(/.test(body)) return `${SHADERTOY_HEADER}${SHADERTOY_BODY_ALIASES}${TWIGL_SNIPPETS}\n${body}`;
+  return `${SHADERTOY_HEADER}${SHADERTOY_BODY_ALIASES}${TWIGL_SNIPPETS}\n\nvoid main() {\n  outColor = vec4(0.0);\n  ${body}\n}`;
 };
+
+export const shaderSourceUsesFeedbackBuffer = (source, mode = "standard") => (
+  normalizeShaderSourceMode(mode) === "shadertoy"
+  && /\b(?:texture|texture2D)\s*\(\s*(?:b|b0|b1|backbuffer|backbuffer0|backbuffer1)\s*,/.test(String(source || ""))
+);
 
 export const SHADERTOY_MINIMAL_RAYMARCH_SOURCE = `vec3 p;for(float i,z,d;i++<1e2;o+=(sin(p.x+t+vec4(0,2,4,0))+1.3)/d)p=z*normalize(FC.rgb*2.-r.xyy),p.xy*=mat2(cos(z*.2+vec4(0,33,11,0))),p.z-=t+t,z+=d=length(cos(p+cos(p.yzx*7.+t)))/9.;o=tanh(o*o/4e6);`;
 
@@ -420,7 +487,7 @@ void main() {
 
 export const SHADER_EXAMPLES = Object.freeze([
   Object.freeze({ id: "hello", label: "Hello GLSL", name: "Hello GLSL", source: HELLO_GLSL_FRAGMENT_SOURCE, mode: "fragment", summary: "Minimal animated fragment shader and uniform reference." }),
-  Object.freeze({ id: "minimal-raymarch", label: "Minimal / Shadertoy raymarch", name: "Minimal Shadertoy raymarch", source: SHADERTOY_MINIMAL_RAYMARCH_SOURCE, mode: "fragment", dialect: "shadertoy", summary: "Code-golf-style fragment body with Shadertoy aliases and no main boilerplate." }),
+  Object.freeze({ id: "minimal-raymarch", label: "Minimal / Twigl raymarch", name: "Minimal Twigl raymarch", source: SHADERTOY_MINIMAL_RAYMARCH_SOURCE, mode: "fragment", dialect: "shadertoy", summary: "Code-golf-style fragment body with Twigl aliases and no main boilerplate." }),
   Object.freeze({ id: "rainbow", label: "Rainbow geometry", name: "Rainbow geometry shader", source: RAINBOW_GEOMETRY_FRAGMENT_SOURCE, mode: "fragment", summary: "Distance-field rainbow bands around Underscores scene geometry." }),
   Object.freeze({ id: "shadow", label: "2D shadows", name: "2D shadow simulation", source: SHADOW_CASTING_FRAGMENT_SOURCE, mode: "fragment", summary: "Pointer-driven 2D ray casting against Underscores scene geometry." }),
   Object.freeze({ id: "fluid", label: "Fluid brush", name: "Fluid brush shader", source: FLUID_BRUSH_FRAGMENT_SOURCE, mode: "feedback", summary: "Interactive ping-pong GLSL dye brush with editable feedback source." }),
@@ -447,6 +514,18 @@ export const normalizeShaderCompositionSettings = value => {
     sceneInteraction: raw.sceneInteraction !== false,
     emitterSource: SHADER_EMITTER_SOURCES.includes(raw.emitterSource) ? raw.emitterSource : "scene",
   };
+};
+
+// The Excalidraw drawing surface must remain transparent while an underlay is
+// visible. A stopped shader can still be visible through its retained frame
+// thumbnail, so layer activation cannot depend on runtime.running alone.
+export const isShaderUnderlayVisible = (element, { hasRetainedFrame = false } = {}) => {
+  const node = element?.customData?.underscoresLivecode;
+  if (node?.kind !== "shader") return false;
+  const composition = normalizeShaderCompositionSettings(node.runtime?.settings);
+  if (composition.compositeMode !== "underlay") return false;
+  return node.runtime?.running === true
+    || (node.runtime?.settings?.keepLastFrame === true && hasRetainedFrame === true);
 };
 
 export const validateShaderSource = (source, value = {}) => {

@@ -5,8 +5,10 @@ import {
   getShaderExample,
   INKWASH_FRAGMENT_SOURCE,
   normalizeShaderCompositionSettings,
+  isShaderUnderlayVisible,
   prepareShaderSource,
   SHADER_EXAMPLES,
+  shaderSourceUsesFeedbackBuffer,
   SHADERTOY_MINIMAL_RAYMARCH_SOURCE,
   shaderExampleForSource,
   normalizeShaderSourceMode,
@@ -33,11 +35,38 @@ test("minimal shader mode wraps Shadertoy bodies and mainImage programs", () => 
   assert.equal(normalizeShaderSourceMode("unknown"), "standard");
   const body = prepareShaderSource(SHADERTOY_MINIMAL_RAYMARCH_SOURCE, "shadertoy");
   assert.match(body, /#define FC gl_FragCoord/);
+  assert.match(body, /#define iFrame int\(u_frame\)/);
+  assert.match(body, /uniform sampler2D b/);
+  assert.match(body, /#define r u_resolution/);
   assert.match(body, /#define o outColor/);
   assert.match(body, /void main\(\)/);
   assert.match(body, /outColor = vec4\(0\.0\)/);
   const mainImage = prepareShaderSource("void mainImage(out vec4 color, in vec2 coord) { color = vec4(coord, 0.0, 1.0); }", "shadertoy");
   assert.match(mainImage, /mainImage\(outColor, gl_FragCoord\.xy\)/);
+  assert.equal(shaderSourceUsesFeedbackBuffer("o = texture(b, FC.xy / r);", "shadertoy"), true);
+  assert.equal(shaderSourceUsesFeedbackBuffer("o = texture(backbuffer, FC.xy / resolution);", "shadertoy"), true);
+  assert.equal(shaderSourceUsesFeedbackBuffer("o = vec4(1.0);", "shadertoy"), false);
+  assert.equal(shaderSourceUsesFeedbackBuffer("o = texture(b, FC.xy / r);", "standard"), false);
+});
+
+test("minimal feedback bodies keep the compact buffer alias usable", () => {
+  const source = "vec2 p=FC.xy/r.y*2e1+t;for(float i;i++<8.;)p+=sin(p+t/.2+i)*.4,p*=mat2(6,-8,8,6)/9.;o=vec4(tanh(length(fwidth(sin(p*.3)/.1))),texture(b,FC.xy/r));";
+  const prepared = prepareShaderSource(source, "shadertoy");
+  assert.match(prepared, /uniform sampler2D b/);
+  assert.match(prepared, /#define r u_resolution/);
+  assert.equal(shaderSourceUsesFeedbackBuffer(source, "shadertoy"), true);
+});
+
+test("minimal mode accepts common twigl classic boilerplate and aliases", () => {
+  const source = "precision highp float; uniform vec2 resolution; uniform float time; void main(){vec2 uv=(gl_FragCoord.xy*2.-resolution)/resolution.y;gl_FragColor=vec4(hsv(time*.1,1.,1.),1.);}";
+  const prepared = prepareShaderSource(source, "shadertoy");
+  assert.doesNotMatch(prepared, /uniform vec2 resolution/);
+  assert.equal((prepared.match(/precision highp float;/g) || []).length, 1);
+  assert.doesNotMatch(prepared, /uniform float time/);
+  assert.match(prepared, /#define resolution u_resolution/);
+  assert.match(prepared, /#define mouse vec4\(u_pointer \* u_resolution, u_pointerDown, 0\.0\)/);
+  assert.match(prepared, /#define gl_FragColor outColor/);
+  assert.match(prepared, /vec3 hsv\(/);
 });
 
 test("the shader catalog exposes the excalishader examples, Inkwash, and Stokes", () => {
@@ -82,4 +111,20 @@ test("shader composition settings normalize optional layering and transparency",
   assert.equal(normalizeShaderCompositionSettings({ blendMode: "difference" }).blendMode, "normal");
   assert.equal(normalizeShaderCompositionSettings({ backgroundMode: "checkerboard" }).backgroundMode, "solid");
   assert.equal(normalizeShaderCompositionSettings({ emitterSource: "debug" }).emitterSource, "debug");
+});
+
+test("stopped underlay shaders remain visible when a last frame is retained", () => {
+  const element = {
+    customData: {
+      underscoresLivecode: {
+        kind: "shader",
+        runtime: {
+          running: false,
+          settings: { compositeMode: "underlay", keepLastFrame: true },
+        },
+      },
+    },
+  };
+  assert.equal(isShaderUnderlayVisible(element, { hasRetainedFrame: true }), true);
+  assert.equal(isShaderUnderlayVisible(element, { hasRetainedFrame: false }), false);
 });

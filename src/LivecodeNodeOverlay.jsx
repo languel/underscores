@@ -241,6 +241,10 @@ function StrudelNodeRuntime({ element, node, scriptRuntimeRef, onStrudelTranspor
   const elementHeight = element.height;
   const source = evaluatedStrudelSource(node);
   const evaluationRevision = Math.max(0, Number(node.runtime.settings?.evaluationRevision) || 0);
+  // Parameter edits are persisted independently from source revisions. Keep
+  // them in the bridge identity so a running Strudel node recompiles with the
+  // new __.params values at the scheduler's next safe beat.
+  const parameterSignature = JSON.stringify(node.parameters || {});
   const transportMode = node.runtime.transportMode;
   const frameVisualsEnabled = node.runtime.settings?.frameVisuals !== false;
   const latestNodeRef = useRef(node);
@@ -249,7 +253,7 @@ function StrudelNodeRuntime({ element, node, scriptRuntimeRef, onStrudelTranspor
     ...latestNodeRef.current,
     source,
     evaluationRevision,
-  }), [evaluationRevision, source]);
+  }), [evaluationRevision, parameterSignature, source]);
   const bridge = useMemo(
     () => createLivecodeBridge(
       { id: elementId, width: elementWidth, height: elementHeight },
@@ -257,7 +261,7 @@ function StrudelNodeRuntime({ element, node, scriptRuntimeRef, onStrudelTranspor
       scriptRuntimeRef,
       onStrudelTransport,
     ),
-    [elementHeight, elementId, elementWidth, onStrudelTransport, runtimeNode, scriptRuntimeRef],
+    [elementHeight, elementId, elementWidth, onStrudelTransport, parameterSignature, runtimeNode, scriptRuntimeRef],
   );
   useEffect(() => {
     void runtime.upsert({

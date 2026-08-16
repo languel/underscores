@@ -223,6 +223,25 @@ test("Strudel exposes __ as the same node-local bridge", async () => {
   }
 });
 
+test("Strudel patterns can consume shared color params through __.params", async () => {
+  const runtime = new StrudelRuntimeManager();
+  runtime.ensureScope = async () => {};
+  const previousPure = globalThis.pure;
+  globalThis.pure = core.pure;
+  try {
+    const { pattern } = await runtime._compile(
+      "node-param-color",
+      "$: pure(1).color(pure(__.params.c1))",
+      { params: { c1: "red" } },
+    );
+    assert.deepEqual(pattern.queryArc(0, 1).map(hap => hap.value), [{ value: 1, color: "red" }]);
+  } finally {
+    if (previousPure === undefined) delete globalThis.pure;
+    else globalThis.pure = previousPure;
+    runtime.dispose();
+  }
+});
+
 test("Strudel runtime stacks every anonymous $: voice in one node", async () => {
   const runtime = new StrudelRuntimeManager();
   runtime.ensureScope = async () => {};

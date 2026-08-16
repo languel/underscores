@@ -11,7 +11,7 @@ export const getLivecodeBridgeHelp = kind => {
     [LIVECODE_KINDS.markdown]: "Markdown is a deterministic document renderer; it does not execute JavaScript and has no __ bridge. Use Markdown, inline/display LaTeX, and the Output/Code view modes.",
     [LIVECODE_KINDS.latex]: "LaTeX is a deterministic typesetting renderer; it does not execute JavaScript and has no __ bridge. Use TeX math delimiters and the Output/Code view modes.",
     [LIVECODE_KINDS.orca]: "Orca is a focused grid language rather than JavaScript, so __ is not available. Use its operators and the native MIDI/CC/pitch-bend routing instead.",
-    [LIVECODE_KINDS.shader]: "GLSL runs on the GPU and has no JavaScript __ bridge. Use the documented uniforms such as u_resolution, u_time, u_pointer, u_currentColor, and u_segments; Minimal / Shadertoy mode also provides iResolution, iTime, iMouse, FC, r, t, and o.",
+    [LIVECODE_KINDS.shader]: "GLSL runs on the GPU and has no JavaScript __ bridge. Use the documented uniforms such as u_resolution, u_time, u_pointer, u_currentColor, and u_segments; Minimal / Twigl / Shadertoy mode also provides iResolution, iTime, iMouse, FC, r, t, and o.",
   };
   return {
     title: "Underscores bridge (__)",
@@ -38,8 +38,10 @@ export const LIVECODE_HELP = Object.freeze({
     summary: "A node-owned pattern feeds Underscores's shared Strudel scheduler.",
     points: Object.freeze([
       "Cmd+Enter runs the current draft. While it plays, editing does not replace it; Ctrl+Enter queues the draft for the next beat. Ctrl+. or Alt+. stops it.",
-      "Layer JavaScript voices with one `$:` statement per pattern. Mini Notation works inside double quotes; use a mondo`...` template for Mondo's bare `$` separator.",
+      "Layer JavaScript voices with one `$:` statement per pattern. Mini Notation works inside double quotes and backticks; backticks are reserved for Mini Notation, so JavaScript `${...}` interpolation is not evaluated. Use a normal variable such as `const c = __.params.c1` or pass `__.params.c1` directly. Use a mondo`...` template for Mondo's bare `$` separator.",
       "Event locations animate in the source. Public painters such as .pianoroll() fill the node frame when Frame visuals is enabled; underscores painters such as ._pianoroll() stay inline with the code.",
+      "Declare // @param c1 = \"red\" (color) and read it as __.params.c1, for example .color(pure(__.params.c1)). JavaScript expressions inside a quoted <...> mini-notation string are literal text; parameter edits recompile the running node on the next safe beat.",
+      "To combine a live parameter with a Mini sequence, build the pattern in JavaScript: .color(slowcat(pure(__.params.c1), \"#8bd5ff\", \"#f5d76e\", \"#9df59d\")). Strudel's color control stores each CSS color string on the resulting Hap for visualizers to render.",
       "Linked is the default, so Underscores play/pause and tempo control the pattern. Choose Free for a node-local clock. Runs and updates join the four-beat Strudel cycle on a beat boundary.",
       "Stopping, replacing, or hushing a node affects only that node's pattern; other active Strudel nodes remain scheduled.",
     ]),
@@ -107,11 +109,11 @@ export const LIVECODE_HELP = Object.freeze({
   }),
   [LIVECODE_KINDS.shader]: Object.freeze({
     title: "GLSL quick reference",
-    summary: "A WebGL 2 fragment shader rendered directly into this Livecode Node, with a compact Shadertoy/TWGL-style source mode.",
+    summary: "A WebGL 2 fragment shader rendered directly into this Livecode Node, with a compact Twigl/Shadertoy-style source mode.",
     points: Object.freeze([
       "Write a GLSL ES 3.00 fragment shader with void main(), in vec2 v_uv, and out vec4 outColor. The host supplies the full-screen vertex stage.",
-      "For code-golf and small Shadertoy/TWGL-style fragments, choose Source → Minimal / Shadertoy. A body without main() is wrapped automatically; mainImage(out vec4, in vec2) is also accepted.",
-      "Minimal mode supplies iResolution, iTime, iMouse, iFrame, FC, r, t, and o. The example ‘Minimal / Shadertoy raymarch’ is the compact fragment-body form.",
+      "For code-golf and small Twigl/Shadertoy-style fragments, choose Source → Minimal / Twigl / Shadertoy. A body without main() is wrapped automatically; mainImage(out vec4, in vec2) is also accepted.",
+      "Minimal mode supplies classic Twigl values resolution (vec2), mouse (vec4 pixels/press state), time, frame, and backbuffer, plus the short aliases iResolution, iTime, iMouse, iFrame, FC, r, m, t, f, b, and o. Common Twigl helpers include hsv(), rotate2D(), rotate3D(), fsnoise(), PI, and PI2.",
       "Choose Hello GLSL, Rainbow geometry, 2D shadows, Fluid brush, Inkwash, or Stokes flow from the Example menu, then edit the complete source.",
       "Common uniforms are u_resolution, u_time, u_transportTime, u_pointer, u_pointerDown, and u_currentColor. Geometry examples also receive u_segments and u_segmentCount.",
       "Layer places the shader above or below Excalidraw objects. Opacity and Blend provide non-destructive composition without changing the GLSL source.",
