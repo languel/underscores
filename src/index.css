@@ -3125,7 +3125,7 @@ body .excalidraw .sidebar {
 /* Strudel's code editor is also its visual surface: runtime haps decorate
  * source ranges and widget extensions mount canvases into the document. In
  * output view keep that live CodeMirror surface mounted, but make the source
- * glyphs transparent so highlights, markcss styling, pulses, and widgets are
+ * glyphs transparent so active highlights, markcss styling, and widgets are
  * still visible without duplicating the source as a second output. */
 .livecode-node-strudel-visual-output {
   isolation: isolate;
@@ -3153,8 +3153,9 @@ body .excalidraw .sidebar {
 }
 
 .livecode-node-strudel-visual-output > .strudel-visual-only .cm-content {
-  color: transparent !important;
+  color: var(--color-primary) !important;
   caret-color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
   user-select: none;
 }
 
@@ -3167,7 +3168,7 @@ body .excalidraw .sidebar {
 }
 
 .livecode-node-strudel-visual-output > .strudel-visual-only .cm-line span[style] {
-  -webkit-text-fill-color: transparent !important;
+  -webkit-text-fill-color: currentColor !important;
 }
 
 .livecode-node-strudel-visual-output > .strudel-visual-only .cm-content canvas {

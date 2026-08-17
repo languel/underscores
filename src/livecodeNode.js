@@ -228,6 +228,11 @@ export const normalizeLivecodeRuntime = value => {
 export const createLivecodeNode = value => {
   const raw = value && typeof value === "object" ? value : {};
   const kind = normalizeLivecodeKind(raw.kind);
+  const requestedView = ["code", "preview", "source", "split"].includes(raw.view)
+    ? raw.view
+    : raw.view === "overlay"
+      ? "code"
+      : "code";
   const nodeId = typeof raw.nodeId === "string" && raw.nodeId.trim() ? raw.nodeId : `livecode-${createLivecodeId()}`;
   const blankName = randomLivecodeName(kind, nodeId);
   const source = typeof raw.source === "string" ? raw.source : "";
@@ -253,13 +258,14 @@ export const createLivecodeNode = value => {
     source,
     parameters: raw.parameters && typeof raw.parameters === "object" && !Array.isArray(raw.parameters) ? raw.parameters : {},
     runtime: normalizedRuntime,
+    // Orca owns its grid surface. Strudel uses the same source/output views
+    // as the other Livecode kinds, but does not expose a redundant side-by-
+    // side split because its output is itself a live decorated code surface.
     view: kind === LIVECODE_KINDS.orca
       ? "code"
-      : ["code", "preview", "source", "split"].includes(raw.view)
-        ? raw.view
-        : raw.view === "overlay"
-          ? "code"
-          : "code",
+      : kind === LIVECODE_KINDS.strudel && requestedView === "split"
+        ? "code"
+        : requestedView,
     typography: normalizeLivecodeTypography(raw.typography),
     revision: Math.max(0, Math.floor(Number(raw.revision) || 0)),
     createdAt: Math.max(0, Number(raw.createdAt) || Date.now()),
