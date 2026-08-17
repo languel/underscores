@@ -184,6 +184,7 @@ export default function UnderscoresCodeEditor({
   glyphOnlyOverlay = false,
   strudelNodeId = "",
   strudelWidgets = false,
+  visualOnly = false,
   className = "",
   style,
 }) {
@@ -591,7 +592,11 @@ export default function UnderscoresCodeEditor({
         updateMiniLocations(view, visuals.miniLocations || []);
         updateSliderWidgets(view, widgets.filter(widget => widget.type === "slider"));
         if (strudelWidgets) updateWidgets(view, widgets.filter(widget => widget.type !== "slider"));
-        flash(view, 140);
+        // The visual-only Output surface intentionally hides static source
+        // glyphs. Strudel's document-wide flash would otherwise reveal the
+        // entire code briefly on every evaluation; active range decorations
+        // and widgets remain visible and animated below.
+        if (!visualOnly) flash(view, 140);
       }
       highlightMiniLocations(view, Number(visuals.time) || 0, visuals.haps || []);
     });
@@ -599,7 +604,7 @@ export default function UnderscoresCodeEditor({
       unsubscribe();
       clearVisuals();
     };
-  }, [scriptType, strudelNodeId, strudelWidgets]);
+  }, [scriptType, strudelNodeId, strudelWidgets, visualOnly]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -631,8 +636,9 @@ export default function UnderscoresCodeEditor({
   return (
     <div
       ref={hostRef}
-      className={`underscores-code-editor ${className}`.trim()}
+      className={`underscores-code-editor ${visualOnly ? "strudel-visual-only" : ""} ${className}`.trim()}
       data-script-type={scriptType}
+      data-visual-only={visualOnly ? "true" : undefined}
       style={style}
       onClick={onClick}
       onDoubleClick={onDoubleClick}

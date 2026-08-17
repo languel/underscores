@@ -1,6 +1,6 @@
 # Livecode canvas nodes
 
-Last updated: 2026-08-15
+Last updated: 2026-08-16
 
 ## What a node is
 
@@ -33,8 +33,8 @@ The global CodeMirror palette still controls editor syntax colors and surfaces. 
 
 ## Editing and views
 
-- **Code** is normally a live code overlay: the runtime stays visible while source is shown or edited above it. Press **Enter** on a selected node to enter this view and focus its canvas editor. Markdown is the deliberate exception: Code shows raw Markdown only, without a rendered layer underneath it.
-- **Output** shows the runtime only. Markdown Output is also its document editor: double-click a rendered block to edit that block's exact source, click another block to move the edit session, or click below the final block to append a paragraph. Blank lines and separators remain part of the canonical source. **Code/output** is the deliberate explicit split view. Use **Cmd/Ctrl+Shift+Enter** while a node editor has focus to cycle these views; Orca is code/grid only because its code is its output.
+- **Code** shows the source document by itself. **Code Overlay** keeps the running output underneath the source, while **Output** shows the runtime without source glyphs. Strudel omits the redundant Code/Output split: its Output surface already combines the runtime with synchronized source decorations, and active highlighted ranges can reveal their text (for example, the current mini-notation frame). Press **Enter** on a selected node to enter the authored code view and focus its canvas editor. Markdown is the deliberate exception only in that its rendered document has block-aware editing.
+- **Output** shows the runtime only. Strudel is the exception: its source remains the canonical code document, while a read-only visual CodeMirror surface keeps synchronized event highlights, `markcss(...)` styles, and inline visualizer widgets alive after the static source glyphs are hidden. Active decorated ranges can reveal their text, so the current mini-notation frame can still dance in place without flashing the whole source document. This means Cmd/Ctrl-clicking a Strudel node into Output view preserves the visual performance without showing the code. Markdown Output is also its document editor: double-click a rendered block to edit that block's exact source, click another block to move the edit session, or click below the final block to append a paragraph. Blank lines and separators remain part of the canonical source. **Code/output** is the deliberate explicit split view for other Livecode kinds. Use **Cmd/Ctrl+Shift+Enter** while a node editor has focus to cycle these views; Orca is code/grid only because its code is its output.
 - **Cmd/Ctrl+Enter** runs the current node. When the pointer is over a canvas Livecode node, the same chord starts it without needing to focus the editor; **Cmd/Ctrl+.** stops that hovered node. **Ctrl+M, then L** is CodeMirror's line-number toggle. The panel also exposes line numbers and the folding gutter; both default off for canvas Livecode Nodes.
 - On a canvas output, plain **Cmd/Ctrl-click** switches that Livecode node to Preview. **Cmd+Shift-click** is reserved for the canvas overlap-cycle gesture, and is never consumed by the Livecode output shortcut; clicks in the code editor or node chrome remain editor/UI interactions.
 - **Glyphs only** is on by default for Code overlay. Its opacity is painted behind non-whitespace source runs only, leaving blank character areas transparent so the running output remains visible. Turn it off for one continuous code surface.
@@ -106,8 +106,13 @@ $ s hh*2
 `
 ```
 
-The node is intentionally code-overlay-only. Its CodeMirror surface is part of the visual output:
-active event source locations receive Strudel's synchronized highlights and `markcss(...)` styles.
+The node treats source text as code and its CodeMirror decorations as output. In Code view the
+source and visual decorations share one editor surface. In Output view a visual-only, read-only
+CodeMirror surface remains mounted over the runtime: source glyphs are transparent, while active
+event locations, `markcss(...)` styles, pulses, and inline widgets remain visible. This keeps
+Cmd/Ctrl-click output useful for visual performances without creating a second source document.
+Code/output keeps the normal source-over-runtime overlay so code and output can be read together.
+Active event source locations receive Strudel's synchronized highlights and `markcss(...)` styles.
 Underscores painters such as `._pianoroll()`, `._scope()`, and `._spiral()` remain inline CodeMirror
 widgets. Public painters such as `.pianoroll()` use a node-sized canvas beneath the code overlay.
 The Script panel's **Visuals → Frame** toggle is on by default and removes or restores that canvas

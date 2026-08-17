@@ -20712,9 +20712,7 @@ function App() {
         }}>{livecodeExamples.map(example => <option key={example.id} value={example.id}>{example.label}</option>)}</select></label>}
         {node.kind === LIVECODE_KINDS.orca
           ? <label className="livecode-view-control">View <span className="livecode-static-option">Grid</span></label>
-          : node.kind === LIVECODE_KINDS.strudel
-            ? <label className="livecode-view-control">View <span className="livecode-static-option">Code overlay</span></label>
-            : <label className="livecode-view-control">View <select value={node.view === "overlay" ? "code" : node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="preview">Output</option><option value="source">Code</option><option value="code">Code Overlay</option><option value="split">Code/Output</option></select></label>}
+          : <label className="livecode-view-control">View <select value={node.view === "overlay" ? "code" : node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="preview">Output</option><option value="source">Code</option><option value="code">Code Overlay</option>{node.kind !== LIVECODE_KINDS.strudel && <option value="split">Code/Output</option>}</select></label>}
         {[LIVECODE_KINDS.p5, LIVECODE_KINDS.playcore, LIVECODE_KINDS.shader, LIVECODE_KINDS.strudel].includes(node.kind) && <label title="Keep the most recent rendered canvas frame visible when this node is stopped. Readback happens only when stopping.">Last frame <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.keepLastFrame === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { keepLastFrame: event.target.checked } } }, { commitToHistory: true })} />Keep</span></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Choose the native compact Orca cell spacing or fill the host frame">Spacing <select value={node.runtime.settings?.orcaDensity === "spacious" ? "spacious" : "compact"} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaDensity: event.target.value } } }, { commitToHistory: true })}><option value="compact">Compact</option><option value="spacious">Spacious</option></select></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Number of editable Orca columns">Grid width <NumericInput min="4" max="128" step="1" value={node.runtime.settings?.orcaGridWidth || 32} defaultValue={32} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridWidth: value } } }, { commitToHistory: true })} /></label>}
@@ -20803,7 +20801,10 @@ function App() {
           : undefined}
         onStop={node.kind === LIVECODE_KINDS.strudel && node.runtime.running ? () => toggleLivecodeNodeRun(nodeElement.id) : undefined}
         onBlur={() => commitLivecodeCanvasNode(nodeElement.id)}
-        onCycleView={node.kind === LIVECODE_KINDS.strudel ? undefined : () => patchLivecodeCanvasNode(nodeElement.id, { view: ({ preview: "source", source: "code", code: "split", split: "preview" }[node.view] || "source") })}
+        onCycleView={node.kind === LIVECODE_KINDS.orca ? undefined : () => {
+          const nextView = ({ preview: "source", source: "code", code: "split", split: "preview" }[node.view] || "source");
+          patchLivecodeCanvasNode(nodeElement.id, { view: node.kind === LIVECODE_KINDS.strudel && nextView === "split" ? "preview" : nextView });
+        }}
         transport={{ playing: scorePlaying, bpm: scoreTempo }}
         onMidiEvents={(events, metadata) => emitOrcaMidiEvents(nodeElement.id, events, metadata)}
         ariaLabel={`${definition.label} node source`}
