@@ -6,6 +6,10 @@ const sessionFiles = new Map();
 const listeners = new Set();
 const semanticListeners = new Map();
 const segmentationConsumers = new Map();
+const SESSION_FILE_DB_NAME = "underscores_media_files_v1";
+const SESSION_FILE_STORE_NAME = "files";
+let sessionFileDbPromise = null;
+const sessionFileOverrides = new Set();
 
 const publish = detail => {
   listeners.forEach(listener => listener(detail));
@@ -60,6 +64,57 @@ export const registerMediaRuntimeSource = (elementId, source) => {
 };
 
 export const getMediaRuntimeSource = elementId => runtimeSources.get(elementId) || null;
+
+const openSessionFileDb = () => {
+  if (typeof indexedDB === "undefined") return Promise.resolve(null);
+  if (sessionFileDbPromise) return sessionFileDbPromise;
+  sessionFileDbPromise = new Promise(resolve => {
+    try {
+      const request = indexedDB.open(SESSION_FILE_DB_NAME, 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains(SESSION_FILE_STORE_NAME)) request.result.createObjectStore(SESSION_FILE_STORE_NAME, { keyPath: "id" });
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(null);
+      request.onblocked = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+  return sessionFileDbPromise;
+};
+
+const persistSessionFile = async (elementId, file) => {
+  const db = await openSessionFileDb();
+  if (!db) return;
+  try {
+    const transaction = db.transaction(SESSION_FILE_STORE_NAME, "readwrite");
+    if (file) transaction.objectStore(SESSION_FILE_STORE_NAME).put({ id: elementId, blob: file });
+    else transaction.objectStore(SESSION_FILE_STORE_NAME).delete(elementId);
+  } catch {
+    // IndexedDB is an optional durability layer; the in-memory URL remains usable.
+  }
+};
+
+const hydrateSessionFiles = async () => {
+  const db = await openSessionFileDb();
+  if (!db) return;
+  try {
+    const records = await new Promise((resolve, reject) => {
+      const request = db.transaction(SESSION_FILE_STORE_NAME, "readonly").objectStore(SESSION_FILE_STORE_NAME).getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+    records.forEach(record => {
+      if (!record?.id || !record.blob || sessionFileOverrides.has(record.id) || sessionFiles.has(record.id)) return;
+      const url = URL.createObjectURL(record.blob);
+      sessionFiles.set(record.id, { file: record.blob, url });
+      publish({ type: "file", elementId: record.id, available: true, hydrated: true });
+    });
+  } catch {
+    // A private or quota-restricted browser may reject IndexedDB reads.
+  }
+};
 
 export const setMediaRuntimeResult = (elementId, result) => {
   runtimeResults.set(elementId, result);
@@ -154,11 +209,13 @@ export const createMediaStreamsApi = () => Object.freeze({
 });
 
 export const setMediaSessionFile = (elementId, file) => {
+  sessionFileOverrides.add(elementId);
   const previous = sessionFiles.get(elementId);
   if (previous?.url) URL.revokeObjectURL(previous.url);
   const entry = file ? { file, url: URL.createObjectURL(file) } : null;
   if (entry) sessionFiles.set(elementId, entry);
   else sessionFiles.delete(elementId);
+  void persistSessionFile(elementId, file);
   publish({ type: "file", elementId, available: Boolean(entry) });
   return entry?.url || "";
 };
@@ -175,5 +232,8 @@ export const disposeMediaStreamRuntime = () => {
   semanticListeners.clear();
   segmentationConsumers.forEach(entry => clearTimeout(entry.timer));
   segmentationConsumers.clear();
+  sessionFileOverrides.clear();
   publish({ type: "dispose" });
 };
+
+void hydrateSessionFiles();

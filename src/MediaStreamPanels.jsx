@@ -155,7 +155,7 @@ const SourceList = ({ sources, selectedId, empty, onSelect, onDelete, onDownload
         type="button"
         className="media-stream-panel-row-download"
         aria-label={`Download ${source.name}`}
-        title={getMediaSessionFileUrl(source.id) ? `Download ${source.name}` : "Choose the local file again after reloading the page"}
+        title={getMediaSessionFileUrl(source.id) ? `Download ${source.name}` : "Choose the local file again if it is unavailable"}
         disabled={!getMediaSessionFileUrl(source.id)}
         onClick={() => onDownload(source)}
       >↓</button>}
@@ -712,7 +712,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
                 <span>Muted</span>
               </label> : null}
             </>}
-            {selected.media.fileName && <div className="media-stream-panel-note">Local file: {selected.media.fileName}. Choose it again after reloading the page.</div>}
+            {selected.media.fileName && <div className="media-stream-panel-note">Local file: {selected.media.fileName}. Stored in this browser; choose it again only if it is unavailable.</div>}
           </>}
     </SourceDetail>}
     <MediaClipRecorder source={selected} onCreate={onCreate} onPatch={patch => onPatch(selected.id, patch)} onPrepareCapture={onPrepareCapture} timeContext={timeContext} transportLoopEnabled={transportLoopEnabled} transportLoopStart={transportLoopStart} transportLoopEnd={transportLoopEnd} />
