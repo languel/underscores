@@ -215,6 +215,12 @@ export const normalizeLivecodeTypography = value => {
   };
 };
 
+export const adjustLivecodeFontSize = (fontSize, delta) => {
+  const current = Number(fontSize);
+  const base = Number.isFinite(current) ? current : DEFAULT_LIVECODE_TYPOGRAPHY.fontSize;
+  return Math.max(8, Math.min(72, base + (Number(delta) < 0 ? -1 : 1)));
+};
+
 export const normalizeLivecodeRuntime = value => {
   const raw = value && typeof value === "object" ? value : {};
   return {

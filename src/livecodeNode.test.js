@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   LIVECODE_KINDS,
+  adjustLivecodeFontSize,
   copyLivecodeExampleName,
   createLivecodeNode,
   defaultLivecodeSource,
@@ -160,6 +161,13 @@ test("patches retain node identity, source ownership, and bump the document revi
   assert.equal(patched.revision, 5);
   assert.equal(patched.runtime.running, true);
   assert.equal(patched.typography.fontSize, 16);
+});
+
+test("adjusts Livecode font size by one pixel within the persisted bounds", () => {
+  assert.equal(adjustLivecodeFontSize(14, 1), 15);
+  assert.equal(adjustLivecodeFontSize(14, -1), 13);
+  assert.equal(adjustLivecodeFontSize(8, -1), 8);
+  assert.equal(adjustLivecodeFontSize(72, 1), 72);
 });
 
 test("runtime start and stop patches preserve the authored view", () => {

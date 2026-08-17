@@ -17,6 +17,7 @@ import {
   getLivecodeFont,
   getLivecodeKindDefinition,
   getLivecodeViewForDoubleClick,
+  adjustLivecodeFontSize,
   isLivecodeCommandOutputGesture,
   LIVECODE_KIND_DEFINITIONS,
   normalizeLivecodeNode,
@@ -56,6 +57,7 @@ export function LivecodeNodeEditor({
   onStop,
   onBlur,
   onCycleView,
+  onAdjustFontSize,
   transport,
   onMidiEvents,
   className = "",
@@ -111,6 +113,7 @@ export function LivecodeNodeEditor({
         ? () => onPatch?.({ typography: { showLineNumbers: !node.typography.showLineNumbers } })
         : undefined}
       onCycleView={onCycleView}
+      onAdjustFontSize={onAdjustFontSize}
       getDiagnostics={node.kind === "p5" ? source => {
         const validation = validateP5Source(source);
         return validation.valid
@@ -372,7 +375,6 @@ const livecodeViewCycleTitle = node => (
     ? "Cycle output, code, and code overlay view (Cmd/Ctrl+Shift+Enter while editing)"
     : "Cycle output, code, code overlay, and split view (Cmd/Ctrl+Shift+Enter while editing)"
 );
-
 function NodeChrome({ node, onPatch, onToggleRun }) {
   const definition = getLivecodeKindDefinition(node.kind);
   return <div className="livecode-node-chrome" onPointerDown={event => event.stopPropagation()}>
@@ -503,6 +505,7 @@ export function LivecodeNodeOverlay({
           onStop={node.kind === "strudel" && node.runtime.running ? () => onToggleRun?.(element.id) : undefined}
           onBlur={() => onCommit?.(element.id)}
           onCycleView={node.kind === "orca" ? undefined : () => onPatch?.(element.id, { view: nextLivecodeViewForNode(node) })}
+          onAdjustFontSize={delta => onPatch?.(element.id, { typography: { fontSize: adjustLivecodeFontSize(node.typography.fontSize, delta) } }, { commitToHistory: true })}
           transport={transport}
           onMidiEvents={(events, metadata) => onMidiEvents?.(element.id, events, metadata)}
           ariaLabel={node.kind === "orca" ? "Orca grid editor" : `${getLivecodeKindDefinition(node.kind).label} canvas node source`}

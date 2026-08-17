@@ -127,6 +127,7 @@ const EditorKeys = () => (
       <li><strong>↑ / ↓</strong> choose suggestions; <strong>Page Up / Page Down</strong> move by a page.</li>
       <li><strong>⌘/Ctrl A</strong> selects source only. <strong>⌘/Ctrl Z</strong> and <strong>⌘/Ctrl Shift Z</strong> undo and redo source edits only.</li>
       <li><strong>⌘/Ctrl F</strong> opens Find. <strong>Escape</strong> closes completion or Find. <strong>⌘/Ctrl Enter</strong> runs the active script.</li>
+      <li>In a Livecode editor, <strong>⌘/Ctrl Shift +</strong> and <strong>⌘/Ctrl Shift −</strong> adjust that node's font size.</li>
       <li>When this editor has focus, its selection, navigation, clipboard, and shortcut keys do not reach the canvas.</li>
       <li><strong>Settings → Board → Code editor palette</strong> can follow Underscores, use a fully transparent adaptive skin, stay monochrome for live coding, use adaptive VS Code colors, or switch to Teaching.</li>
     </ul>
