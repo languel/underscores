@@ -6352,6 +6352,26 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 
 .underscores-audio-waveform.is-paused .underscores-audio-waveform-line { opacity: .5; }
 .underscores-audio-waveform.is-muted { color: var(--color-secondary); }
+.underscores-audio-waveform-playhead {
+  position: absolute;
+  z-index: 2;
+  top: 5px;
+  bottom: 5px;
+  width: 1px;
+  background: var(--underscores-foreground, var(--color-primary));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--underscores-canvas-bg, #08090a) 55%, transparent);
+  pointer-events: none;
+  transform: translateX(-.5px);
+}
+.underscores-audio-waveform-playhead > span {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: inherit;
+}
 .underscores-audio-waveform-label {
   position: relative;
   z-index: 1;

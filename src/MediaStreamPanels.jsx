@@ -312,6 +312,7 @@ const isAnimatedSource = source => source.kind === MEDIA_STREAM_KINDS.CAMERA
 const SourceTransportControls = ({ source, onPatch }) => {
   const isCamera = source.kind === MEDIA_STREAM_KINDS.CAMERA;
   const canSetRate = !isCamera && source.media.mediaType !== "audio" && isAnimatedSource(source);
+  const canLinkTransport = !isCamera && isAnimatedSource(source);
   const isPlaying = source.media.playing;
   const transportTitle = isPlaying ? "Freeze input" : "Resume input";
   const transportHelp = isCamera
@@ -336,13 +337,17 @@ const SourceTransportControls = ({ source, onPatch }) => {
       <span>Speed</span>
       <NumericInput min="-8" max="8" step="0.1" value={source.media.playbackRate} defaultValue={1} onKeyDown={stopKeyPropagation} onCommit={playbackRate => onPatch({ media: { playbackRate } })} />
     </label>}
+    {canLinkTransport && <label className="media-stream-panel-check" {...infoProps("Link transport", "Follow the shared score transport for play, pause, seek, and the waveform playhead. The local Play button still gates this clip.")}>
+      <input type="checkbox" checked={source.media.linkTransport === true} onChange={event => onPatch({ media: { linkTransport: event.target.checked } })} />
+      <span>Link transport</span>
+    </label>}
   </div>;
 };
 
-const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAssignPreview, children, status }) => {
+const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAssignPreview, children, status, transportTime = 0, transportPlaying = false }) => {
   const metrics = useSourceMetrics(source.id);
   return <div className="media-stream-panel-detail">
-  <MediaRuntimePreview sourceId={source.id} source={source} className="media-stream-panel-preview" />
+  <MediaRuntimePreview sourceId={source.id} source={source} className="media-stream-panel-preview" transportTime={transportTime} transportPlaying={transportPlaying} />
   <label className="media-stream-panel-field">
     <span>Name</span>
     <input value={source.name} onKeyDown={stopKeyPropagation} onChange={event => onPatch({ name: event.target.value })} />
@@ -598,7 +603,7 @@ const useSelectedSource = (sources, controlledId, onControlledChange) => {
   return [sources.find(source => source.id === selectedId) || null, setSelectedId];
 };
 
-export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTarget, activeSourceId, onActiveSourceChange, onCreate, onPatch, onCreatePreview, onAssignPreview, onPickCanvasTarget, onChooseFile, onDelete, onPrepareCapture, timeContext, transportLoopEnabled, transportLoopStart, transportLoopEnd }) {
+export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTarget, activeSourceId, onActiveSourceChange, onCreate, onPatch, onCreatePreview, onAssignPreview, onPickCanvasTarget, onChooseFile, onDelete, onPrepareCapture, timeContext, transportLoopEnabled, transportLoopStart, transportLoopEnd, transportTime = 0, transportPlaying = false }) {
   const fileRef = useRef(null);
   const [selected, setSelectedId] = useSelectedSource(sources, activeSourceId, onActiveSourceChange);
   const status = useMediaStatus(selected?.id);
@@ -656,6 +661,8 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
       onAssignPreview={() => onAssignPreview(selected.id, selectedCanvasTarget?.id)}
       canAssignPreview={Boolean(selectedCanvasTarget)}
       status={status || (selected.kind === MEDIA_STREAM_KINDS.CAMERA && deviceStatus ? { kind: "error", message: deviceStatus } : null)}
+      transportTime={transportTime}
+      transportPlaying={transportPlaying}
     >
       {selected.kind === MEDIA_STREAM_KINDS.CAMERA
         ? <label className="media-stream-panel-field">

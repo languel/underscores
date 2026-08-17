@@ -33,6 +33,7 @@ test("media stream defaults distinguish acquisition and derived stream kinds", (
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.CAMERA).mirror, true);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).media.loop, true);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).media.playing, true);
+  assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).media.linkTransport, false);
   assert.deepEqual(createMediaStreamConfig(MEDIA_STREAM_KINDS.CANVAS).canvas, { elementId: "", live: false, background: "theme" });
   assert.deepEqual(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).output, { fps: 30, maxDimension: 0 });
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.PREVIEW).sourceId, "");
@@ -215,6 +216,13 @@ test("media sources preserve an independent processed-output play state and rate
   assert.equal(next.media.playbackRate, 8);
   assert.equal(patchMediaSource(source, { media: { playbackRate: -3 } }).media.playbackRate, -3);
   assert.equal(patchMediaSource(source, { media: { playbackRate: 0 } }).media.playbackRate, 0);
+});
+
+test("media sources can opt into shared transport playback without changing local defaults", () => {
+  const source = createMediaSource("media", { id: "linked-clip", media: { linkTransport: true } });
+  assert.equal(source.media.linkTransport, true);
+  assert.equal(patchMediaSource(source, { media: { linkTransport: false } }).media.linkTransport, false);
+  assert.equal(normalizeMediaStreamConfig({ kind: "media", media: { linkTransport: "yes" } }).media.linkTransport, false);
 });
 
 test("source element predicate excludes derived streams", () => {

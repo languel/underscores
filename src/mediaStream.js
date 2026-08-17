@@ -190,7 +190,7 @@ export const createMediaStreamConfig = (kind = MEDIA_STREAM_KINDS.MEDIA, overrid
     mirror: kind === MEDIA_STREAM_KINDS.CAMERA,
     crop: DEFAULT_CROP,
     camera: { deviceId: "", facingMode: "user" },
-    media: { url: "", mediaType: "video", fileName: "", loop: true, muted: true, playing: true, playbackRate: 1 },
+    media: { url: "", mediaType: "video", fileName: "", loop: true, muted: true, playing: true, playbackRate: 1, linkTransport: false },
     canvas: { elementId: "", live: false, background: "theme" },
     output: DEFAULT_OUTPUT,
     holistic: {
@@ -288,6 +288,9 @@ export const normalizeMediaStreamConfig = value => {
       // Signed rates are intentional: positive plays forward, negative plays
       // backward, and zero holds the current decoded frame.
       playbackRate: clamp(media.playbackRate, -8, 8, 1),
+      // Media inputs can either run independently or follow the shared score
+      // transport. The latter is opt-in so catalog sources remain dormant.
+      linkTransport: media.linkTransport === true,
     },
     canvas: {
       elementId: cleanString(canvas.elementId),

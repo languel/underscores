@@ -26098,6 +26098,8 @@ function App() {
               transportLoopEnabled={transportLoopEnabled}
               transportLoopStart={transportLoopStart}
               transportLoopEnd={transportLoopEnd}
+              transportTime={scoreTime}
+              transportPlaying={scorePlaying}
             />
           </UnderscoresPanel>
           )}
@@ -26336,6 +26338,9 @@ function App() {
           connectedSourceIds={connectedMediaSourceIds}
           captureCanvasSource={captureCanvasInput}
           captureRevision={p5OverlayScene.captureRevision}
+          transportTime={scoreTime}
+          transportPlaying={scorePlaying}
+          transportRate={scoreRate}
         />
         <MediaStreamOverlay
           elements={p5OverlayScene.elements}
@@ -26345,6 +26350,8 @@ function App() {
           onFocusSource={focusMediaInputSource}
           onResults={handleMediaStreamResults}
           onPathFrame={handleUnicursalPathFrame}
+          transportTime={scoreTime}
+          transportPlaying={scorePlaying}
         />
         <MediaActorOverlay
           appState={p5OverlayScene.appState}

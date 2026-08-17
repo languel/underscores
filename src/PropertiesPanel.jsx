@@ -381,9 +381,9 @@ const mediaPlaybackFieldCount = (element, query, mediaSources = []) => {
   const sourceId = mediaSourceReferenceForElement(stream);
   const source = mediaSources.find(candidate => candidate.id === sourceId);
   if (!source || !isAnimatedMediaSource(source)) return 0;
-  const matches = name => !query?.needle || ["media", "transport", "play", "pause", "mute", "loop", "speed", name]
+  const matches = name => !query?.needle || ["media", "transport", "play", "pause", "mute", "loop", "speed", "link", name]
     .some(value => value.includes(query.needle));
-  return matches("transport") ? 5 : 0;
+  return matches("transport") ? 6 : 0;
 };
 
 const MediaPlaybackControls = ({ element, query, mediaSources = [], onPatchMediaSource }) => {
@@ -392,7 +392,7 @@ const MediaPlaybackControls = ({ element, query, mediaSources = [], onPatchMedia
   const sourceId = mediaSourceReferenceForElement(stream);
   const source = mediaSources.find(candidate => candidate.id === sourceId);
   if (!source || !isAnimatedMediaSource(source)) return null;
-  const matches = name => !query?.needle || ["media", "transport", "play", "pause", "mute", "loop", "speed", name]
+  const matches = name => !query?.needle || ["media", "transport", "play", "pause", "mute", "loop", "speed", "link", name]
     .some(value => value.includes(query.needle));
   if (query?.needle && !matches("transport")) return null;
   const update = patch => onPatchMediaSource?.(source.id, { media: patch });
@@ -428,6 +428,10 @@ const MediaPlaybackControls = ({ element, query, mediaSources = [], onPatchMedia
             <input type="checkbox" checked={source.media.loop} onChange={event => update({ loop: event.target.checked })} />
             <span>Loop</span>
           </label>}
+          <label title="Follow the shared score transport for play, pause, seek, and the waveform playhead">
+            <input type="checkbox" checked={source.media.linkTransport === true} onChange={event => update({ linkTransport: event.target.checked })} />
+            <span>Link transport</span>
+          </label>
         </div>
         {canSetRate && <div className="properties-row editable">
           <span>speed</span>
