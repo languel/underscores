@@ -184,6 +184,7 @@ export default function UnderscoresCodeEditor({
   glyphOnlyOverlay = false,
   strudelNodeId = "",
   strudelWidgets = false,
+  visualOnly = false,
   className = "",
   style,
 }) {
@@ -631,8 +632,9 @@ export default function UnderscoresCodeEditor({
   return (
     <div
       ref={hostRef}
-      className={`underscores-code-editor ${className}`.trim()}
+      className={`underscores-code-editor ${visualOnly ? "strudel-visual-only" : ""} ${className}`.trim()}
       data-script-type={scriptType}
+      data-visual-only={visualOnly ? "true" : undefined}
       style={style}
       onClick={onClick}
       onDoubleClick={onDoubleClick}

@@ -3122,6 +3122,58 @@ body .excalidraw .sidebar {
   background: color-mix(in srgb, var(--underscores-panel-bg, var(--island-bg-color)) var(--livecode-code-opacity, 0%), transparent);
 }
 
+/* Strudel's code editor is also its visual surface: runtime haps decorate
+ * source ranges and widget extensions mount canvases into the document. In
+ * output view keep that live CodeMirror surface mounted, but make the source
+ * glyphs transparent so highlights, markcss styling, pulses, and widgets are
+ * still visible without duplicating the source as a second output. */
+.livecode-node-strudel-visual-output {
+  isolation: isolate;
+}
+
+.livecode-node-strudel-visual-output > .strudel-visual-only {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  background: transparent !important;
+}
+
+.livecode-node-strudel-visual-output > .strudel-visual-only .cm-editor,
+.livecode-node-strudel-visual-output > .strudel-visual-only .cm-scroller,
+.livecode-node-strudel-visual-output > .strudel-visual-only .cm-content,
+.livecode-node-strudel-visual-output > .strudel-visual-only .cm-gutters {
+  background: transparent !important;
+}
+
+.livecode-node-strudel-visual-output > .strudel-visual-only .cm-scroller {
+  overflow: hidden;
+}
+
+.livecode-node-strudel-visual-output > .strudel-visual-only .cm-content {
+  color: transparent !important;
+  caret-color: transparent !important;
+  user-select: none;
+}
+
+.livecode-node-strudel-visual-output > .strudel-visual-only .cm-line > span:not(.cm-widgetBuffer) {
+  -webkit-text-fill-color: transparent !important;
+}
+
+.livecode-node-strudel-visual-output > .strudel-visual-only .cm-gutters {
+  display: none;
+}
+
+.livecode-node-strudel-visual-output > .strudel-visual-only .cm-line span[style] {
+  -webkit-text-fill-color: transparent !important;
+}
+
+.livecode-node-strudel-visual-output > .strudel-visual-only .cm-content canvas {
+  pointer-events: none;
+}
+
 .livecode-node-runtime.hidden {
   visibility: hidden;
   pointer-events: none;

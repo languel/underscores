@@ -66,6 +66,7 @@ export function LivecodeNodeEditor({
   focusRequest = 0,
   glyphOnlyOverlay = false,
   enableStrudelWidgets = false,
+  visualOnly = false,
   showGutters = false,
 }) {
   const node = useMemo(() => normalizeLivecodeNode(rawNode), [rawNode]);
@@ -126,6 +127,7 @@ export function LivecodeNodeEditor({
       glyphOnlyOverlay={glyphOnlyOverlay}
       strudelNodeId={strudelVisualsCurrent ? element?.id || node.nodeId : ""}
       strudelWidgets={strudelVisualsCurrent && enableStrudelWidgets}
+      visualOnly={visualOnly}
     />
   );
 }
@@ -509,7 +511,17 @@ export function LivecodeNodeOverlay({
           if (node.kind === "markdown" && node.view === "preview") {
             return <div className="livecode-node-surface interactive markdown-document-editor">{runtime}</div>;
           }
-          if (node.view === "preview") return <div className="livecode-node-surface interactive">{runtime}</div>;
+          if (node.view === "preview") return <div className={`livecode-node-surface interactive ${node.kind === "strudel" ? "livecode-node-strudel-visual-output" : ""}`}>
+            {runtime}
+            {node.kind === "strudel" && isLivecodeNodeRunnable(node) && <LivecodeNodeEditor
+              node={node}
+              element={element}
+              readOnly
+              visualOnly
+              enableStrudelWidgets
+              ariaLabel="Strudel visual output"
+            />}
+          </div>;
           if (node.view === "source") return editor;
           if (node.kind !== "orca" && node.view === "split") {
             return <div className="livecode-node-split interactive">{editor}<div className="livecode-node-output">{runtime}</div></div>;
@@ -527,6 +539,7 @@ export function LivecodeNodeOverlay({
           element={element}
           readOnly
           glyphOnlyOverlay={false}
+          enableStrudelWidgets={node.kind === "strudel"}
           onClick={visible ? () => onEdit?.(element.id) : undefined}
           onDoubleClick={visible ? event => onEdit?.(element.id, { view: getLivecodeViewForDoubleClick(event) }) : undefined}
           ariaLabel={`${getLivecodeKindDefinition(node.kind).label} canvas node source`}
@@ -560,8 +573,16 @@ export function LivecodeNodeOverlay({
           onDoubleClick={visible ? event => onEdit?.(element.id, { view: getLivecodeViewForDoubleClick(event) }) : undefined}
           ariaLabel={`${getLivecodeKindDefinition(node.kind).label} canvas node source`}
         /></div>;
-        return <div className={`livecode-node-surface ${visible ? "interactive" : ""}`} onPointerDown={visible ? () => onEdit?.(element.id) : undefined}>
+        return <div className={`livecode-node-surface ${visible ? "interactive" : ""} ${node.kind === "strudel" ? "livecode-node-strudel-visual-output" : ""}`} onPointerDown={visible ? () => onEdit?.(element.id) : undefined}>
           {runtime}
+          {node.kind === "strudel" && isLivecodeNodeRunnable(node) && <LivecodeNodeEditor
+            node={node}
+            element={element}
+            readOnly
+            visualOnly
+            enableStrudelWidgets
+            ariaLabel="Strudel visual output"
+          />}
         </div>;
       })()}
     </div>;
