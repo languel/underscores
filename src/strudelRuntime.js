@@ -744,10 +744,22 @@ export class StrudelRuntimeManager {
     const loopedOrRewound = hasTime && transport.time + 0.02 < previous.time;
     const stoppedPositionChanged = hasTime && !transport.playing && transport.time !== previous.time;
     const shouldAnchorPhase = playingChanged || bpmChanged || loopedOrRewound || stoppedPositionChanged;
+    // Strudel's scheduler clock is monotonic while it is running. Re-anchoring
+    // with `_early()` alone makes a seek look correct to the pattern query, but
+    // leaves stateful pattern phases (and launch-at anchors) in the old score
+    // timeline. A backward seek is therefore a true phase reset: stop the
+    // scheduler so Cyclist clears its cycle counter, then start it again below
+    // when the linked transport is still playing.
+    const hardPhaseReset = loopedOrRewound;
     this.transport = transport;
     this.cps = bpmToCps(this.transport.bpm);
     let schedulerCycle = 0;
     if (this.scheduler) {
+      if (hardPhaseReset && this.scheduler.started) {
+        this.scheduler.stop?.();
+        if (this.drawerRunning) this.drawer?.stop();
+        this.drawerRunning = false;
+      }
       schedulerCycle = this.scheduler.now?.() || 0;
       if (shouldAnchorPhase) {
         // Cyclist's clock is monotonic and independent from Underscores's
@@ -758,6 +770,16 @@ export class StrudelRuntimeManager {
       this.scheduler.setCps(this.cps);
     } else if (shouldAnchorPhase) {
       this.linkedPhaseOffset = this.transport.time * this.cps;
+    }
+    if (hardPhaseReset) {
+      // A launch phase intentionally makes a newly activated node start at its
+      // first event. Once the score is rewound, every linked node should be
+      // phase-zero relative to the new transport origin instead of retaining
+      // the old activation point.
+      this.entries.forEach((entry, nodeId) => {
+        if (entry.transportMode !== "linked" || entry.launchPhase === null || entry.launchPhase === undefined) return;
+        this.entries.set(nodeId, { ...entry, launchPhase: null });
+      });
     }
     const onlyContinuousTimeAdvanced = hasTime
       && !playingChanged

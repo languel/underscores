@@ -178,6 +178,7 @@ export default function UnderscoresCodeEditor({
   showFoldGutter = true,
   onToggleLineNumbers,
   onCycleView,
+  onAdjustFontSize,
   onDoubleClick,
   onClick,
   focusRequest = 0,
@@ -200,6 +201,7 @@ export default function UnderscoresCodeEditor({
   const diagnosticsRef = useRef(getDiagnostics);
   const onToggleLineNumbersRef = useRef(onToggleLineNumbers);
   const onCycleViewRef = useRef(onCycleView);
+  const onAdjustFontSizeRef = useRef(onAdjustFontSize);
   const strudelWidgetsRef = useRef(strudelWidgets);
   const lineNumberToggleChordRef = useRef(false);
   const lineNumberToggleTimerRef = useRef(null);
@@ -215,6 +217,7 @@ export default function UnderscoresCodeEditor({
   diagnosticsRef.current = getDiagnostics;
   onToggleLineNumbersRef.current = onToggleLineNumbers;
   onCycleViewRef.current = onCycleView;
+  onAdjustFontSizeRef.current = onAdjustFontSize;
   strudelWidgetsRef.current = strudelWidgets;
 
   useLayoutEffect(() => {
@@ -242,6 +245,11 @@ export default function UnderscoresCodeEditor({
     const updateCommand = () => {
       if (typeof onUpdateRef.current !== "function") return false;
       onUpdateRef.current();
+      return true;
+    };
+    const adjustFontSize = delta => {
+      if (typeof onAdjustFontSizeRef.current !== "function") return false;
+      onAdjustFontSizeRef.current(delta);
       return true;
     };
     const acceptActiveCompletion = editor => (
@@ -294,6 +302,18 @@ export default function UnderscoresCodeEditor({
               onCycleViewRef.current();
               return true;
             }, preventDefault: true },
+            // CodeMirror reports shifted punctuation as either the base key
+            // (= / -) or the produced character (+ / _) depending on the
+            // platform and keyboard layout. Keep both spellings so the
+            // persisted Livecode font size is consistently adjustable.
+            { key: "Mod-Shift-=", run: () => adjustFontSize(1), preventDefault: true },
+            { key: "Mod-Shift-+", run: () => adjustFontSize(1), preventDefault: true },
+            { key: "Mod-Shift--", run: () => adjustFontSize(-1), preventDefault: true },
+            { key: "Mod-Shift-_", run: () => adjustFontSize(-1), preventDefault: true },
+            { key: "Ctrl-Shift-=", run: () => adjustFontSize(1), preventDefault: true },
+            { key: "Ctrl-Shift-+", run: () => adjustFontSize(1), preventDefault: true },
+            { key: "Ctrl-Shift--", run: () => adjustFontSize(-1), preventDefault: true },
+            { key: "Ctrl-Shift-_", run: () => adjustFontSize(-1), preventDefault: true },
             {
               key: "Meta-Enter",
               run: runCommand,

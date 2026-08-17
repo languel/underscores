@@ -107,6 +107,47 @@ test("Strudel reanchors Linked phase on play, rewind, and tempo changes", async 
   runtime.dispose();
 });
 
+test("Strudel hard-resets the scheduler and linked launch phases on backward seeks", async () => {
+  const runtime = new StrudelRuntimeManager();
+  let cycle = 3;
+  let stops = 0;
+  let starts = 0;
+  const scheduler = {
+    started: true,
+    now: () => (scheduler.started ? cycle : 0),
+    setCps: () => {},
+    setPattern: async () => {},
+    stop: () => {
+      stops += 1;
+      cycle = 0;
+      scheduler.started = false;
+    },
+    start: async () => {
+      starts += 1;
+      scheduler.started = true;
+    },
+  };
+  runtime.scheduler = scheduler;
+  runtime.ensureScheduler = async () => scheduler;
+  runtime.unlock = async () => {};
+  runtime.transport = { playing: true, bpm: 120, time: 4 };
+  runtime.entries.set("linked", {
+    pattern: core.pure("linked"),
+    transportMode: "linked",
+    cps: null,
+    launchPhase: 2,
+    pending: null,
+  });
+
+  await runtime.setTransport({ playing: true, bpm: 120, time: 0 });
+
+  assert.equal(stops, 1);
+  assert.equal(starts, 1);
+  assert.equal(runtime.linkedPhaseOffset, 0);
+  assert.equal(runtime.entries.get("linked").launchPhase, null);
+  runtime.dispose();
+});
+
 test("Strudel stops rather than pauses its scheduler when Linked transport stops", async () => {
   const runtime = new StrudelRuntimeManager();
   let stops = 0;
