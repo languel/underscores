@@ -89,10 +89,23 @@ explicitly added as a preview or processor input.
 - GIF recording samples the processed output canvas at the source FPS and encodes the frames locally
   with `gifenc`, preserving the source crop and mirror treatment. Canvas captures offer **Theme**
   or **Transparent** GIF background; the latter temporarily performs an alpha capture and restores
-  the source's normal themed output after recording.
+  the source's normal themed output after recording. The recorder waits for the first published
+  output frame before sampling, so a newly mounted static Canvas capture is not recorded as a blank
+  frame. Visual recording also temporarily enables **Live** on a static Canvas capture, then
+  restores its original setting, so MediaRecorder and GIF sampling receive a sequence of frames
+  without making an idle catalog source continuously redraw.
 - MP4 and Audio recording use the browser's `MediaRecorder` on the source runtime stream. The
   recorder checks supported MIME types first; MP4 is preferred, with WebM as the browser fallback.
-  If fallback occurs, the saved extension and status identify the actual browser output.
+  If fallback occurs, the saved extension and status identify the actual browser output. Empty browser
+  results are rejected instead of being saved as zero-byte files, and downloads keep their Blob URL
+  alive long enough for the browser to finish the transfer.
+- Choose **Current loop** as the capture range to seek the global transport to the loop start, start
+  playback, and record exactly one loop. The previous play/pause state is restored when the capture
+  finishes. A loop capture requires an enabled, positive transport range.
+- Remote image, GIF, video, and audio URLs must grant CORS access because processed output is read back
+  from a canvas for recording. A CORS proxy is not bundled (an unrestricted proxy would be unsafe);
+  use a local file or a URL that sends `Access-Control-Allow-Origin` when a remote source reports a
+  CORS error.
 - Completed files are named from the source, for example `dog-clip-<timestamp>.gif` or
   `Echoes-of-the-Ancient-Dunes-clip-<timestamp>.m4a`, and use the same source-creation path as a
   dropped file. The new source is session-local: its Blob URL works immediately, while catalog

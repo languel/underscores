@@ -450,7 +450,7 @@ export class StrudelRuntimeManager {
 
   async ensureScope() {
     if (!this.scopeReady) {
-      this.scopeReady = (async () => {
+      const pending = (async () => {
         // Keep soundfont implementation details out of the initial module
         // graph. Vite selects its browser build, while Node-based scheduler
         // tests need not instantiate the Web Audio dependencies.
@@ -461,10 +461,35 @@ export class StrudelRuntimeManager {
           webaudio.registerSynthSounds(),
           webaudio.registerZZFXSounds(),
           soundfonts.registerSoundfonts(),
-          ...DEFAULT_SAMPLE_MAPS.map(file => webaudio.samples(`${DEFAULT_SAMPLE_BASE}/${file}`)),
         ]);
-        await webaudio.aliasBank(DEFAULT_BANK_ALIASES);
+        // Sample maps are useful conveniences, but they are remote assets and
+        // must not be allowed to prevent the core Strudel synth scope from
+        // unlocking. In particular, a single unavailable map (for example
+        // piano.json during a transient GitHub/CORS failure) used to reject
+        // this whole promise and leave every Strudel node silent.
+        const optionalSampleMaps = Promise.allSettled(DEFAULT_SAMPLE_MAPS.map(file => (
+          Promise.resolve().then(() => webaudio.samples(`${DEFAULT_SAMPLE_BASE}/${file}`))
+        ))).then(sampleResults => {
+          sampleResults.forEach((result, index) => {
+            if (result.status === "rejected") {
+              console.warn(`Strudel sample map unavailable (${DEFAULT_SAMPLE_MAPS[index]}):`, result.reason);
+            }
+          });
+        });
+        // Do not make the first user-gesture wait for remote sample maps. They
+        // are optional; synths and already-loaded sounds should be audible
+        // immediately while these assets finish loading in the background.
+        void optionalSampleMaps;
+        void Promise.resolve()
+          .then(() => webaudio.aliasBank(DEFAULT_BANK_ALIASES))
+          .catch(error => console.warn("Strudel sample aliases unavailable:", error));
       })();
+      this.scopeReady = pending;
+      // Required scope registration should be retryable after a transient
+      // failure (for example a browser/network interruption).
+      pending.catch(() => {
+        if (this.scopeReady === pending) this.scopeReady = null;
+      });
     }
     await this.scopeReady;
   }
@@ -490,13 +515,14 @@ export class StrudelRuntimeManager {
 
   async unlock() {
     await this.ensureScope();
-    if (!this.audioReady) {
+    const audioContext = webaudio.getAudioContext();
+    if (!this.audioReady || audioContext?.state !== "running") {
       // This is called directly from a node Play action or global transport
       // action. Browsers therefore keep the normal user-gesture requirement.
       await webaudio.initAudio();
       this.audioReady = true;
     }
-    return webaudio.getAudioContext();
+    return audioContext;
   }
 
   _nodeScope(nodeId, bridge, transportMode = "linked", tempoState = { cps: null }, patternCapture = null) {

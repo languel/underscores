@@ -42,8 +42,8 @@ const HELP_TOPICS = Object.freeze([
   {
     id: "media-streams",
     title: "Media streams and actors",
-    keywords: "media stream mediapipe holistic camera actor brush input landmark source catalog clip recorder gif mp4 audio",
-    body: "Media sources stay dormant in the catalog until selected or connected to an enabled scene object. Select one to preview and play it, use Record clip to create a GIF, MP4, or audio source, and press Escape to clear selection. A Holistic processor stores its source, transform, and display settings without creating one object per landmark. Use the Media and Inputs panels to create streams, then use actors, Brush channels, or scripts to consume them.",
+    keywords: "media stream mediapipe holistic camera actor brush input landmark source catalog clip recorder gif mp4 webm alpha audio download frame all loop",
+    body: "Media sources stay dormant in the catalog until selected or connected to an enabled scene object. Select one to preview and play it, use Record clip to create GIF, MP4 with source audio, audio-only, or WebM alpha clips, and press Escape to clear selection. Canvas capture can target a frame, rectangle, or the full scene. A Holistic processor stores its source, transform, and display settings without creating one object per landmark. Use the Media and Inputs panels to create streams, then use actors, Brush channels, or scripts to consume them.",
   },
   {
     id: "script-parameters",
@@ -257,9 +257,10 @@ const MediaStreamsInfoGuide = () => (
       <ul>
         <li>Sources are a catalog, not an always-on mixer. Select a source to preview/play it; press <strong>Escape</strong> to clear selection.</li>
         <li>Enabled previews, Canvas capture sources, Holistic processors, and Unicursal drawings keep their referenced inputs running. Unused sources stay dormant.</li>
-        <li>Add a <strong>Canvas capture</strong> source with <strong>⌗</strong>, draw a frame or rectangle, and choose it as the target. Static capture reads only when needed; enable <strong>Live</strong> for continuous action.</li>
-        <li><strong>Record clip</strong> saves the selected processed output as a new source: GIF for visuals, MP4 for visuals, and Audio for audio/video inputs. Canvas GIFs can use the active theme or a transparent background.</li>
-        <li>Choose 1–30 seconds or stop early. MP4 uses browser MIME support and may fall back to WebM; finished files are session-local until browser file storage is added.</li>
+        <li>Add a <strong>Canvas capture</strong> source with <strong>⌗</strong>, draw a frame or rectangle, or choose <strong>Frame all</strong> to capture the full scene. Static capture reads only when needed; enable <strong>Live</strong> for continuous action.</li>
+        <li><strong>Record clip</strong> saves the selected processed output as a new source: GIF for visuals, MP4 for visuals with source audio when available, Audio for audio/video inputs, and WebM alpha for transparent video. Canvas GIFs can use the active theme or a transparent background.</li>
+        <li>Choose a typed duration in seconds, beats, timecode, or frames, or choose <strong>Current loop</strong> to rewind to the loop start, start transport, and record one loop. Use <strong>Download clip</strong> or the download arrow on a recorded source to save it; files remain session-local until browser file storage is added.</li>
+        <li>Remote media must allow CORS for canvas readback and recording; use a local file or a CORS-enabled URL when a source reports a load error.</li>
       </ul>
     </section>
     <section>
@@ -569,8 +570,8 @@ const SCRIPT_GUIDE_SEARCH = Object.freeze({
   }),
   media: Object.freeze({
     title: "Media streams and actors",
-    keywords: "media stream mediapipe holistic camera inputs actors landmarks brush source catalog clip recorder gif mp4 audio",
-    body: "Media sources stay dormant until selected or connected to an enabled scene object. Select one to preview/play it, use Record clip to create GIF, MP4, or audio sources, and press Escape to clear selection. Use the Media, Inputs, Mapping, and Brush panels to consume landmarks, values, events, and images.",
+    keywords: "media stream mediapipe holistic camera inputs actors landmarks brush source catalog clip recorder gif mp4 webm alpha audio download frame all loop",
+    body: "Media sources stay dormant until selected or connected to an enabled scene object. Select one to preview/play it, use Record clip to create GIF, MP4 with source audio, audio-only, or WebM alpha clips, and press Escape to clear selection. Canvas capture can target a frame, rectangle, or the full scene. Use the Media, Inputs, Mapping, and Brush panels to consume landmarks, values, events, and images.",
   }),
 });
 

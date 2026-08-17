@@ -295,7 +295,12 @@ function ProcessedMediaSource({ source }) {
       advance();
       publishStatus({ elementId: source.id, kind: "success", message: `Animated GIF ready (${frames.length} frames).` });
     }).catch(error => {
-      if (!disposed) publishStatus({ elementId: source.id, kind: "error", message: error?.message || "Animated GIF decoding failed." });
+      if (!disposed) {
+        const message = /fetch|network|cors/i.test(String(error?.message || ""))
+          ? "Animated GIF could not be fetched. Remote GIF URLs must allow CORS; choose a local file or a CORS-enabled URL."
+          : error?.message || "Animated GIF decoding failed.";
+        publishStatus({ elementId: source.id, kind: "error", message });
+      }
     });
     return () => {
       disposed = true;
@@ -394,7 +399,7 @@ function ProcessedMediaSource({ source }) {
               crossOrigin={sessionUrl ? undefined : "anonymous"}
               alt=""
               onLoad={() => publishStatus({ elementId: source.id, kind: "success", message: "Image loaded." })}
-              onError={() => publishStatus({ elementId: source.id, kind: "error", message: "Image could not be loaded. Check the URL and CORS policy." })}
+              onError={() => publishStatus({ elementId: source.id, kind: "error", message: "Image could not be loaded. Remote URLs must allow CORS; choose a local file or a CORS-enabled URL." })}
             />
           : isAudio
             ? <audio
@@ -411,7 +416,7 @@ function ProcessedMediaSource({ source }) {
                   else event.currentTarget.pause();
                   publishStatus({ elementId: source.id, kind: "success", message: "Audio ready." });
                 }}
-                onError={() => publishStatus({ elementId: source.id, kind: "error", message: "Audio could not be loaded. Check the URL and format." })}
+                onError={() => publishStatus({ elementId: source.id, kind: "error", message: "Audio could not be loaded. Check the URL, format, and CORS permissions." })}
               />
             : <video
                 ref={inputRef}
@@ -428,7 +433,7 @@ function ProcessedMediaSource({ source }) {
                   else event.currentTarget.pause();
                   publishStatus({ elementId: source.id, kind: "success", message: "Media ready." });
                 }}
-                onError={() => publishStatus({ elementId: source.id, kind: "error", message: "Media could not be loaded. Check the URL, format, and CORS policy." })}
+                onError={() => publishStatus({ elementId: source.id, kind: "error", message: "Media could not be loaded. Remote URLs must allow CORS; choose a local file or a CORS-enabled URL." })}
               />}
   </div>;
 }

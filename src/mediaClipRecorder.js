@@ -5,6 +5,7 @@ const { GIFEncoder, applyPalette, quantize } = gifenc;
 export const MEDIA_CLIP_FORMATS = Object.freeze({
   GIF: "gif",
   MP4: "mp4",
+  ALPHA: "alpha",
   AUDIO: "audio",
 });
 
@@ -13,6 +14,14 @@ const RECORDER_MIME_CANDIDATES = Object.freeze({
     "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
     "video/mp4",
     "video/webm;codecs=vp9,opus",
+    "video/webm",
+  ],
+  // VP9 WebM is broadly available in Chromium/Firefox and, unlike MP4,
+  // can preserve the transparent video track produced by a canvas. Browser
+  // support is still feature-tested at runtime rather than assumed.
+  [MEDIA_CLIP_FORMATS.ALPHA]: [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
     "video/webm",
   ],
   [MEDIA_CLIP_FORMATS.AUDIO]: [
@@ -39,6 +48,13 @@ export const resolveRecorderMimeType = (format, recorderConstructor = globalThis
     ? mimeType => recorderConstructor.isTypeSupported(mimeType)
     : () => true;
   return candidates.find(supports) || "";
+};
+
+const tracksForFormat = (stream, format) => {
+  if (!stream) return [];
+  if (format === MEDIA_CLIP_FORMATS.AUDIO) return stream.getAudioTracks?.() || [];
+  if (format === MEDIA_CLIP_FORMATS.ALPHA) return stream.getVideoTracks?.() || [];
+  return stream.getTracks?.() || [];
 };
 
 const requestFrame = callback => {
@@ -140,6 +156,7 @@ export const createMediaRecorderClip = ({ stream, format, durationMs = 5000 } = 
   let timer = 0;
   let recorder = null;
   let stopped = false;
+  let settled = false;
   let resolveResult;
   let rejectResult;
   const chunks = [];
@@ -152,20 +169,43 @@ export const createMediaRecorderClip = ({ stream, format, durationMs = 5000 } = 
     if (stopped) return;
     stopped = true;
     clearTimeout(timer);
-    if (recorder?.state === "recording") recorder.stop();
+    if (recorder?.state === "recording") {
+      // Some Chromium versions do not flush the final encoded packet until
+      // requestData() is called. It is harmless where unsupported and avoids
+      // producing a zero-byte clip when a short capture is stopped manually.
+      try { recorder.requestData?.(); } catch { /* recorder is already closing */ }
+      recorder.stop();
+    }
   };
 
   if (!Recorder) {
     rejectResult(new Error("MediaRecorder is unavailable in this browser."));
     return Object.freeze({ promise, stop: finish });
   }
-  if (!stream?.getTracks?.().length) {
+  const tracks = tracksForFormat(stream, format);
+  if (!tracks.length) {
     rejectResult(new Error("The selected source has no recordable media track."));
     return Object.freeze({ promise, stop: finish });
   }
+  let recordingStream = stream;
+  // Keep the requested output honest: audio-only recordings must not contain
+  // a video track, and alpha recordings must not accidentally include source
+  // audio. Constructing a fresh MediaStream also avoids mutating the live
+  // source stream or stopping tracks owned by the preview.
+  if (format === MEDIA_CLIP_FORMATS.AUDIO || format === MEDIA_CLIP_FORMATS.ALPHA) {
+    if (typeof globalThis.MediaStream !== "function") {
+      rejectResult(new Error("This browser cannot create a filtered recording stream."));
+      return Object.freeze({ promise, stop: finish });
+    }
+    recordingStream = new globalThis.MediaStream(tracks);
+  }
   const mimeType = resolveRecorderMimeType(format, Recorder);
+  if (format === MEDIA_CLIP_FORMATS.ALPHA && !mimeType) {
+    rejectResult(new Error("Transparent video is not supported by this browser. Try GIF or MP4 instead."));
+    return Object.freeze({ promise, stop: finish });
+  }
   try {
-    recorder = mimeType ? new Recorder(stream, { mimeType }) : new Recorder(stream);
+    recorder = mimeType ? new Recorder(recordingStream, { mimeType }) : new Recorder(recordingStream);
   } catch (error) {
     rejectResult(error);
     return Object.freeze({ promise, stop: finish });
@@ -173,20 +213,38 @@ export const createMediaRecorderClip = ({ stream, format, durationMs = 5000 } = 
   recorder.ondataavailable = event => {
     if (event.data?.size) chunks.push(event.data);
   };
-  recorder.onerror = event => rejectResult(event.error || new Error("Media recording failed."));
+  recorder.onerror = event => {
+    if (settled) return;
+    settled = true;
+    rejectResult(event.error || new Error("Media recording failed."));
+  };
   recorder.onstop = () => {
+    if (settled) return;
     const actualMimeType = recorder.mimeType || mimeType || (format === MEDIA_CLIP_FORMATS.AUDIO ? "audio/webm" : "video/webm");
     const blob = new Blob(chunks, { type: actualMimeType });
+    if (!chunks.length || blob.size === 0) {
+      settled = true;
+      rejectResult(new Error("The browser produced an empty recording. Check that the source is loaded, playing, and has a live media track."));
+      return;
+    }
+    settled = true;
     resolveResult({
       blob,
       extension: extensionForMime(actualMimeType),
       format,
       mimeType: actualMimeType,
       requestedMimeType: mimeType,
-      fallback: format === MEDIA_CLIP_FORMATS.MP4 && !actualMimeType.startsWith("video/mp4"),
+      fallback: (format === MEDIA_CLIP_FORMATS.MP4 && !actualMimeType.startsWith("video/mp4"))
+        || (format === MEDIA_CLIP_FORMATS.ALPHA && !/video\/webm(?:;|$)/i.test(actualMimeType)),
     });
   };
-  recorder.start();
+  try {
+    recorder.start();
+  } catch (error) {
+    settled = true;
+    rejectResult(error);
+    return Object.freeze({ promise, stop: finish });
+  }
   timer = setTimeout(finish, Math.max(100, Number(durationMs) || 5000));
   return Object.freeze({ promise, stop: finish });
 };

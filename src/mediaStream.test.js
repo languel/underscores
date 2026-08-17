@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createMediaStreamConfig,
+  CANVAS_CAPTURE_TARGET_FRAME_ALL,
   HOLISTIC_SETTINGS_STORAGE_KEY,
   createMediaBinding,
   createMediaSource,
@@ -249,6 +250,8 @@ test("canvas capture targets are ordinary frames and rectangles only", () => {
   assert.equal(canUseAsCanvasCaptureTarget(rectangle), true);
   assert.equal(canUseAsCanvasCaptureTarget(frame), true);
   assert.equal(canUseAsCanvasCaptureTarget(holistic), false);
+  assert.equal(CANVAS_CAPTURE_TARGET_FRAME_ALL, "__frame_all__");
+  assert.equal(normalizeMediaStreamConfig({ kind: "canvas", canvas: { elementId: CANVAS_CAPTURE_TARGET_FRAME_ALL } }).canvas.elementId, CANVAS_CAPTURE_TARGET_FRAME_ALL);
 });
 
 test("panel sources have stable identities without requiring canvas elements", () => {

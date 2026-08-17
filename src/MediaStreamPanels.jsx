@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   HOLISTIC_PROCESSING_FPS_OPTIONS,
+  CANVAS_CAPTURE_TARGET_FRAME_ALL,
   isGifMediaSource,
   isMediaStreamElement,
   MEDIA_STREAM_KINDS,
@@ -9,10 +10,11 @@ import {
 } from "./mediaStream.js";
 import { FACE_DISPLAY_GROUPS } from "./mediaLandmarkOntology.js";
 import { MediaRuntimePreview } from "./MediaStreamOverlay.jsx";
-import { getMediaRuntimeSource } from "./mediaStreamRuntime.js";
+import { getMediaRuntimeSource, getMediaSessionFileUrl } from "./mediaStreamRuntime.js";
 import { createGifClipRecorder, createMediaRecorderClip, MEDIA_CLIP_FORMATS } from "./mediaClipRecorder.js";
 import { infoProps } from "./uiInfo.js";
 import NumericInput from "./NumericInput.jsx";
+import TimeValueInput from "./TimeValueInput.jsx";
 import { normalizeUnicursalOptions, UNICURSAL_PRESETS } from "./unicursalPath.js";
 
 const stopKeyPropagation = event => event.stopPropagation();
@@ -20,6 +22,46 @@ const stopKeyPropagation = event => event.stopPropagation();
 const StatusLine = ({ status }) => status?.message
   ? <div className={`media-stream-panel-status is-${status.kind || "info"}`} role="status">{status.message}</div>
   : null;
+
+const waitForMediaRuntime = (sourceId, { visual = false, timeoutMs = 4000 } = {}) => new Promise((resolve, reject) => {
+  const startedAt = performance.now();
+  const poll = () => {
+    const runtime = getMediaRuntimeSource(sourceId);
+    const element = runtime?.element;
+    const hasFrame = !visual || (
+      Number(element?.width) > 0
+      && Number(element?.height) > 0
+      && Number(element?.dataset?.frameTime) > 0
+    );
+    if (runtime && hasFrame) {
+      resolve(runtime);
+      return;
+    }
+    if (performance.now() - startedAt >= timeoutMs) {
+      reject(new Error(visual
+        ? "The selected source has no rendered frame. Check the media URL, CORS permissions, and preview status."
+        : "The selected source has no active media runtime. Check that it is enabled and loaded."));
+      return;
+    }
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(poll);
+    else window.setTimeout(poll, 50);
+  };
+  poll();
+});
+
+const triggerMediaDownload = (url, filename, { revoke = false } = {}) => {
+  if (!url || typeof document === "undefined") return false;
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename || "clip";
+  link.rel = "noopener";
+  link.style.display = "none";
+  document.body?.appendChild(link);
+  link.click();
+  link.remove();
+  if (revoke) window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return true;
+};
 
 const OverlayToggle = ({ label, title, checked, onChange, color, colorLabel, onColorChange }) => <div className="media-stream-overlay-toggle" title={title}>
   <label className="media-stream-panel-check">
@@ -81,15 +123,17 @@ const sourceKindLabel = kind => ({
   [MEDIA_STREAM_KINDS.MEDIA]: "Media source",
 }[kind] || "Image source");
 
-const SourceList = ({ sources, selectedId, empty, onSelect, onDelete }) => {
+const SourceList = ({ sources, selectedId, empty, onSelect, onDelete, onDownload }) => {
   if (!sources.length) return <div className="media-stream-panel-empty">{empty}</div>;
   return <div className="media-stream-panel-list" role="list">
-    {sources.map(source => <div
-      key={source.id}
-      role="listitem"
-      data-media-source-id={source.id}
-      className={`media-stream-panel-row ${source.id === selectedId ? "is-selected" : ""}`}
-    >
+    {sources.map(source => {
+      const canDownload = Boolean(onDownload && source.kind === MEDIA_STREAM_KINDS.MEDIA && source.media?.fileName);
+      return <div
+        key={source.id}
+        role="listitem"
+        data-media-source-id={source.id}
+        className={`media-stream-panel-row ${canDownload ? "has-download" : ""} ${source.id === selectedId ? "is-selected" : ""}`}
+      >
       <button
         type="button"
         draggable
@@ -106,6 +150,14 @@ const SourceList = ({ sources, selectedId, empty, onSelect, onDelete }) => {
       <button type="button" className="media-stream-panel-row-select" onClick={() => onSelect(source.id)}>
         <span className="media-stream-panel-row-name">{source.name}</span>
       </button>
+      {canDownload && <button
+        type="button"
+        className="media-stream-panel-row-download"
+        aria-label={`Download ${source.name}`}
+        title={getMediaSessionFileUrl(source.id) ? `Download ${source.name}` : "Choose the local file again after reloading the page"}
+        disabled={!getMediaSessionFileUrl(source.id)}
+        onClick={() => onDownload(source)}
+      >↓</button>}
       {onDelete && <button
         type="button"
         className="media-stream-panel-row-delete"
@@ -113,7 +165,8 @@ const SourceList = ({ sources, selectedId, empty, onSelect, onDelete }) => {
         title={`Delete ${source.name}`}
         onClick={() => onDelete(source.id)}
       ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9 7V4h6v3M8 10v8M12 10v8M16 10v8M6.5 7l.8 13h9.4l.8-13" /></svg></button>}
-    </div>)}
+      </div>;
+    })}
   </div>;
 };
 
@@ -334,27 +387,37 @@ const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAs
 </div>;
 };
 
-const MediaClipRecorder = ({ source, onCreate, onPatch }) => {
+const MediaClipRecorder = ({ source, onCreate, onPatch, onPrepareCapture, timeContext, transportLoopEnabled = false, transportLoopStart = 0, transportLoopEnd = 0 }) => {
   const [format, setFormat] = useState(MEDIA_CLIP_FORMATS.GIF);
+  const [durationValue, setDurationValue] = useState("5 s");
   const [durationSeconds, setDurationSeconds] = useState(5);
+  const [durationMode, setDurationMode] = useState("duration");
   const [gifBackground, setGifBackground] = useState("theme");
   const [recording, setRecording] = useState(false);
   const [statuses, setStatuses] = useState({});
+  const [lastClip, setLastClip] = useState(null);
   const recorderRef = useRef(null);
   const isCanvas = source?.kind === MEDIA_STREAM_KINDS.CANVAS;
   const isAudio = source?.media?.mediaType === "audio";
   const canRecordAudio = !isCanvas && (isAudio || source?.media?.mediaType === "video");
+  const canRecordAlpha = !isAudio;
+  const loopDurationSeconds = Math.max(0, Number(transportLoopEnd) - Number(transportLoopStart));
+  const hasUsableLoop = transportLoopEnabled && loopDurationSeconds > 0;
   const status = statuses[source?.id] || null;
   const options = isAudio
     ? [{ value: MEDIA_CLIP_FORMATS.AUDIO, label: "Audio" }]
     : [
         { value: MEDIA_CLIP_FORMATS.GIF, label: "GIF" },
         { value: MEDIA_CLIP_FORMATS.MP4, label: "MP4" },
+        ...(canRecordAlpha ? [{ value: MEDIA_CLIP_FORMATS.ALPHA, label: "WebM · alpha" }] : []),
         ...(canRecordAudio ? [{ value: MEDIA_CLIP_FORMATS.AUDIO, label: "Audio" }] : []),
       ];
 
   useEffect(() => {
     setFormat(isAudio ? MEDIA_CLIP_FORMATS.AUDIO : MEDIA_CLIP_FORMATS.GIF);
+    setDurationValue("5 s");
+    setDurationSeconds(5);
+    setDurationMode("duration");
     setGifBackground("theme");
   }, [isAudio, source?.id]);
 
@@ -362,21 +425,50 @@ const MediaClipRecorder = ({ source, onCreate, onPatch }) => {
 
   const stop = () => recorderRef.current?.stop();
 
+  const downloadClip = () => {
+    if (!lastClip?.blob || typeof URL === "undefined" || typeof URL.createObjectURL !== "function") return;
+    const url = URL.createObjectURL(lastClip.blob);
+    triggerMediaDownload(url, lastClip.filename, { revoke: true });
+  };
+
   const record = async () => {
     if (recording || !source) return;
-    const durationMs = Math.max(1000, Math.min(30000, (Number(durationSeconds) || 5) * 1000));
-    const changesCanvasBackground = source.kind === MEDIA_STREAM_KINDS.CANVAS && format === MEDIA_CLIP_FORMATS.GIF;
+    const effectiveDurationSeconds = durationMode === "loop" ? loopDurationSeconds : durationSeconds;
+    if (durationMode === "loop" && !hasUsableLoop) {
+      setStatuses(previous => ({ ...previous, [source.id]: { kind: "error", message: "Enable a transport loop with a positive range before recording the current loop." } }));
+      return;
+    }
+    const durationMs = Math.max(durationMode === "loop" ? 100 : 1000, Math.min(30000, (Number(effectiveDurationSeconds) || 5) * 1000));
+    const isVisualCapture = format !== MEDIA_CLIP_FORMATS.AUDIO;
+    const changesCanvasBackground = source.kind === MEDIA_STREAM_KINDS.CANVAS
+      && (format === MEDIA_CLIP_FORMATS.GIF || format === MEDIA_CLIP_FORMATS.ALPHA);
+    // Canvas sources normally keep a single published frame until they are
+    // connected to a live scene object. A recording needs a fresh frame on
+    // every tick; temporarily enabling the source's live mode gives both
+    // MediaRecorder and the GIF sampler a real video sequence to consume.
+    const changesCanvasLive = source.kind === MEDIA_STREAM_KINDS.CANVAS
+      && isVisualCapture
+      && source.canvas?.live !== true;
+    const changesCanvasCapture = changesCanvasBackground || changesCanvasLive;
+    const captureBackground = format === MEDIA_CLIP_FORMATS.ALPHA ? "transparent" : gifBackground;
     const originalCanvasBackground = source.canvas?.background || "theme";
+    const originalCanvasLive = source.canvas?.live === true;
     setRecording(true);
-    setStatuses(previous => ({ ...previous, [source.id]: { kind: "info", message: `Recording ${format.toUpperCase()}…` } }));
+    setStatuses(previous => ({ ...previous, [source.id]: { kind: "info", message: `Recording ${format === MEDIA_CLIP_FORMATS.ALPHA ? "WebM alpha" : format.toUpperCase()}…` } }));
     let session = null;
+    let restoreTransport = null;
     try {
-      const runtime = getMediaRuntimeSource(source.id);
-      if (changesCanvasBackground) {
-        onPatch?.({ canvas: { background: gifBackground } });
-        // CanvasMediaSource restarts its capture effect when the background
-        // mode changes. Give that first themed/transparent frame time to
-        // publish before GIF sampling starts.
+      if (durationMode === "loop" && onPrepareCapture) {
+        restoreTransport = await onPrepareCapture({ start: Number(transportLoopStart) || 0, durationMs });
+      }
+      if (changesCanvasCapture) {
+        const canvasPatch = {};
+        if (changesCanvasBackground) canvasPatch.background = captureBackground;
+        if (changesCanvasLive) canvasPatch.live = true;
+        onPatch?.({ canvas: canvasPatch });
+        // CanvasMediaSource restarts its capture effect when these settings
+        // change. Give the first frame and live capture timer time to publish
+        // before GIF sampling or MediaRecorder starts.
         await new Promise(resolve => {
           if (typeof requestAnimationFrame !== "function") {
             setTimeout(resolve, 50);
@@ -385,9 +477,10 @@ const MediaClipRecorder = ({ source, onCreate, onPatch }) => {
           requestAnimationFrame(() => requestAnimationFrame(resolve));
         });
       }
+      const runtime = await waitForMediaRuntime(source.id, { visual: format !== MEDIA_CLIP_FORMATS.AUDIO });
       session = format === MEDIA_CLIP_FORMATS.GIF
-        ? createGifClipRecorder({ canvas: runtime?.element, durationMs, fps: source.output?.fps || 15, transparent: gifBackground === "transparent" })
-        : createMediaRecorderClip({ stream: runtime?.stream?.(), format, durationMs });
+        ? createGifClipRecorder({ canvas: runtime.element, durationMs, fps: source.output?.fps || 15, transparent: captureBackground === "transparent" })
+        : createMediaRecorderClip({ stream: runtime.stream?.(), format, durationMs });
       recorderRef.current = session;
       const result = await session.promise;
       const stem = String(source.name || "clip").replace(/\.[^./]+$/, "") || "clip";
@@ -402,10 +495,11 @@ const MediaClipRecorder = ({ source, onCreate, onPatch }) => {
         name: filename,
         media: { fileName: filename, mediaType, muted: mediaType !== "audio" },
       }, file);
+      setLastClip({ blob: result.blob, filename, mimeType: result.mimeType, sourceId: created?.id || source.id });
       const resultStatus = {
         kind: "success",
         message: result.fallback
-          ? `Saved ${filename} as a new source (MP4 is unavailable here; browser fallback is WebM).`
+          ? `Saved ${filename} as a new source (the requested codec is unavailable; browser fallback is WebM).`
           : `Saved ${filename} as a new source.`,
       };
       setStatuses(previous => ({ ...previous, [created?.id || source.id]: resultStatus }));
@@ -414,9 +508,15 @@ const MediaClipRecorder = ({ source, onCreate, onPatch }) => {
     } finally {
       recorderRef.current = null;
       setRecording(false);
-      if (changesCanvasBackground && originalCanvasBackground !== gifBackground) {
-        onPatch?.({ canvas: { background: originalCanvasBackground } });
+      if (changesCanvasCapture) {
+        const canvasPatch = {};
+        if (changesCanvasBackground && originalCanvasBackground !== captureBackground) {
+          canvasPatch.background = originalCanvasBackground;
+        }
+        if (changesCanvasLive && !originalCanvasLive) canvasPatch.live = false;
+        if (Object.keys(canvasPatch).length) onPatch?.({ canvas: canvasPatch });
       }
+      restoreTransport?.();
     }
   };
 
@@ -431,22 +531,37 @@ const MediaClipRecorder = ({ source, onCreate, onPatch }) => {
         </select>
       </label>
       {source.kind === MEDIA_STREAM_KINDS.CANVAS && format === MEDIA_CLIP_FORMATS.GIF && <label className="media-stream-panel-field">
-        <span>GIF background</span>
+        <span>Capture background</span>
         <select aria-label="GIF background" value={gifBackground} disabled={recording} onChange={event => setGifBackground(event.target.value)}>
           <option value="theme">Theme</option>
           <option value="transparent">Transparent</option>
         </select>
       </label>}
+      {source.kind === MEDIA_STREAM_KINDS.CANVAS && format === MEDIA_CLIP_FORMATS.ALPHA && <label className="media-stream-panel-field">
+        <span>Capture background</span>
+        <input aria-label="Capture background" value="Transparent" readOnly />
+      </label>}
       <label className="media-stream-panel-field">
-        <span>Seconds</span>
-        <NumericInput aria-label="Record seconds" min="1" max="30" step="0.5" value={durationSeconds} defaultValue={5} disabled={recording} onKeyDown={stopKeyPropagation} onCommit={setDurationSeconds} />
+        <span>Range</span>
+        <select aria-label="Capture range" value={durationMode} disabled={recording} onChange={event => setDurationMode(event.target.value)}>
+          <option value="duration">Duration</option>
+          <option value="loop" disabled={!hasUsableLoop}>Current loop</option>
+        </select>
       </label>
+      {durationMode === "duration" && <label className="media-stream-panel-field">
+        <span>Duration</span>
+        <TimeValueInput aria-label="Capture duration" value={durationValue} context={timeContext} defaultValue="5 s" minSeconds={1} disabled={recording} onKeyDown={stopKeyPropagation} onChange={(next, seconds) => { setDurationValue(next); setDurationSeconds(Math.min(30, Math.max(1, seconds))); }} />
+      </label>}
+      {durationMode === "loop" && <div className="media-stream-panel-note media-stream-recorder-range-note">{hasUsableLoop ? `Current loop · ${loopDurationSeconds.toFixed(2)} s` : "No active loop"}</div>}
     </div>
-    <button type="button" className="iannix-flat-button" disabled={recording ? false : !source.enabled} onClick={recording ? stop : record}>
-      {recording ? "Stop recording" : "Record clip"}
-    </button>
+    <div className="media-stream-recorder-actions">
+      <button type="button" className="iannix-flat-button" disabled={recording ? false : !source.enabled} onClick={recording ? stop : record}>
+        {recording ? "Stop recording" : "Record clip"}
+      </button>
+      <button type="button" className="iannix-flat-button" disabled={!lastClip || lastClip.sourceId !== source.id} onClick={downloadClip}>Download clip</button>
+    </div>
     {status && <StatusLine status={status} />}
-    <div className="media-stream-panel-note">The finished clip is added to Sources.</div>
+    <div className="media-stream-panel-note">The finished clip is added to Sources. MP4 includes source audio when available; WebM alpha preserves transparent video.</div>
   </div>;
 };
 
@@ -469,7 +584,7 @@ const useSelectedSource = (sources, controlledId, onControlledChange) => {
   return [sources.find(source => source.id === selectedId) || null, setSelectedId];
 };
 
-export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTarget, activeSourceId, onActiveSourceChange, onCreate, onPatch, onCreatePreview, onAssignPreview, onPickCanvasTarget, onChooseFile, onDelete }) {
+export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTarget, activeSourceId, onActiveSourceChange, onCreate, onPatch, onCreatePreview, onAssignPreview, onPickCanvasTarget, onChooseFile, onDelete, onPrepareCapture, timeContext, transportLoopEnabled, transportLoopStart, transportLoopEnd }) {
   const fileRef = useRef(null);
   const [selected, setSelectedId] = useSelectedSource(sources, activeSourceId, onActiveSourceChange);
   const status = useMediaStatus(selected?.id);
@@ -500,6 +615,10 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
     const source = onCreate(MEDIA_STREAM_KINDS.CANVAS, { name: "Canvas capture" });
     if (source?.id) setSelectedId(source.id);
   };
+  const downloadSource = source => {
+    const url = getMediaSessionFileUrl(source?.id);
+    triggerMediaDownload(url, source.media?.fileName || source.name || "clip");
+  };
 
   return <div className="media-stream-panel">
     <div className="media-stream-panel-source-header">
@@ -514,7 +633,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
       if (file) onChooseFile(file, selected?.id);
       event.target.value = "";
     }} />
-    <SourceList sources={sources} selectedId={selected?.id} empty="No image inputs yet." onSelect={setSelectedId} onDelete={onDelete} />
+    <SourceList sources={sources} selectedId={selected?.id} empty="No image inputs yet." onSelect={setSelectedId} onDelete={onDelete} onDownload={downloadSource} />
     {!selected && <div className="media-stream-panel-note">Catalog sources stay dormant until selected or connected to an enabled scene object. Press Escape to clear selection.</div>}
     {selected && <SourceDetail
       source={selected}
@@ -542,6 +661,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
                 <div className="media-stream-panel-inline-control">
                   <select value={selected.canvas.elementId} onKeyDown={stopKeyPropagation} onChange={event => onPatch(selected.id, { canvas: { elementId: event.target.value } })}>
                     <option value="">Choose a frame or rectangle</option>
+                    <option value={CANVAS_CAPTURE_TARGET_FRAME_ALL}>Frame all</option>
                     {canvasTargets.map(element => <option key={element.id} value={element.id}>{objectBoundsTargetLabel(element)} · {element.id.slice(0, 6)}</option>)}
                   </select>
                   <button type="button" className="iannix-flat-button media-stream-panel-icon-button" onClick={() => onPickCanvasTarget?.(selected.id)} aria-label="Pick canvas object" title="Pick a frame or rectangle (Option-I)">⌖</button>
@@ -551,7 +671,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
                 <input type="checkbox" checked={selected.canvas.live} onChange={event => onPatch(selected.id, { canvas: { live: event.target.checked } })} />
                 <span>Live</span>
               </label>
-              <div className="media-stream-panel-note">Draw a frame or rectangle, then choose it here. Captures follow the board theme; static capture reads the area when needed. Enable Live only for continuous action.</div>
+              <div className="media-stream-panel-note">Choose a frame or rectangle, or capture the full scene with <strong>Frame all</strong>. Captures follow the board theme; static capture reads the area when needed. Enable Live only for continuous action.</div>
             </>
       : <>
             <label className="media-stream-panel-field">
@@ -574,7 +694,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
             {selected.media.fileName && <div className="media-stream-panel-note">Local file: {selected.media.fileName}. Choose it again after reloading the page.</div>}
           </>}
     </SourceDetail>}
-    <MediaClipRecorder source={selected} onCreate={onCreate} onPatch={patch => onPatch(selected.id, patch)} />
+    <MediaClipRecorder source={selected} onCreate={onCreate} onPatch={patch => onPatch(selected.id, patch)} onPrepareCapture={onPrepareCapture} timeContext={timeContext} transportLoopEnabled={transportLoopEnabled} transportLoopStart={transportLoopStart} transportLoopEnd={transportLoopEnd} />
   </div>;
 }
 

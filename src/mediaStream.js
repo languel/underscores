@@ -10,6 +10,9 @@ export const MEDIA_STREAM_KINDS = Object.freeze({
 });
 
 export const MEDIA_STREAM_VERSION = 8;
+// Reserved canvas-source target used by the media panel to request a
+// composition of the complete scene instead of an individual frame.
+export const CANVAS_CAPTURE_TARGET_FRAME_ALL = "__frame_all__";
 export const MEDIA_SOURCE_STORAGE_KEY = "underscores_media_source_catalog_v1";
 export const MEDIA_ACTORS_ARMED_STORAGE_KEY = "underscores_media_actors_armed_v1";
 export const HOLISTIC_SETTINGS_STORAGE_KEY = "underscores_holistic_settings_v1";

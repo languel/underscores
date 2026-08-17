@@ -108,7 +108,7 @@ import MediaMapOverlay from "./MediaMapOverlay.jsx";
 import { isMediaMapElement, normalizeMediaMapConfig } from "./mediaMap.js";
 import { createMediaSemanticFrame, FACE_DISPLAY_GROUPS, getHolisticDisplayLayers, mediaLandmarkFeatureId, POSE_DISPLAY_GROUPS } from "./mediaLandmarkOntology.js";
 import { createMediaBindingRuntimeState, mediaBindingRuntimeHasExpired, mediaDrivenElementPosition, resolveMediaBindingGate, resolveMediaBindingSignal, shouldAppendMediaStrokePoint } from "./mediaActorRuntime.js";
-import { canUseAsCanvasCaptureTarget, createMediaBinding, createMediaSource, createMediaStreamConfig, getConnectedMediaSourceIds, inferMediaType, isMediaStreamElement, isSupportedMediaFile, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig, readHolisticSettingsPreset, writeHolisticSettingsPreset } from "./mediaStream.js";
+import { CANVAS_CAPTURE_TARGET_FRAME_ALL, canUseAsCanvasCaptureTarget, createMediaBinding, createMediaSource, createMediaStreamConfig, getConnectedMediaSourceIds, inferMediaType, isMediaStreamElement, isSupportedMediaFile, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig, readHolisticSettingsPreset, writeHolisticSettingsPreset } from "./mediaStream.js";
 import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, requestMediaSegmentation, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
 import { createUnifiedStreamsApi, UnderscoresStreamRegistry } from "./streamRuntime.js";
 import { generateUnicursalPath, getUnicursalSnapshotStrokeWidth, transformUnicursalFrame, transformUnicursalPoint, UNICURSAL_PRESETS } from "./unicursalPath.js";
@@ -4452,6 +4452,26 @@ function App() {
   const svgClipboardCacheRef = useRef(null);
   const scoreTimeRef = useRef(scoreTime);
   const pendingLivecodeActivationsRef = useRef(new Map());
+  const prepareMediaClipCapture = useCallback(async ({ start = 0 } = {}) => {
+    const wasPlaying = scorePlayingRef.current;
+    runtimeCallbacksRef.current.transportSeek(Math.max(0, Number(start) || 0));
+    setScorePlaying(true);
+    await new Promise(resolve => {
+      let remaining = 2;
+      const step = () => {
+        remaining -= 1;
+        if (remaining <= 0) {
+          resolve();
+          return;
+        }
+        if (typeof requestAnimationFrame === "function") requestAnimationFrame(step);
+        else window.setTimeout(step, 16);
+      };
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(step);
+      else window.setTimeout(step, 16);
+    });
+    return () => setScorePlaying(wasPlaying);
+  }, []);
   useEffect(() => {
     // Internal playback streams transport time directly from its animation
     // frame below. Do not overwrite that high-resolution clock with the
@@ -14883,15 +14903,15 @@ function App() {
   const captureCanvasInput = useCallback(async (targetElementId, { background = "theme" } = {}) => {
     const api = excalidrawAPIRef.current;
     if (!api || !targetElementId) return null;
-    const target = p5OverlayScene.canvasElements.find(element => (
-      !element.isDeleted
-      && element.id === targetElementId
-      && canUseAsCanvasCaptureTarget(element)
-    ));
-    if (!target) return null;
-    const targetBounds = getElementExportBounds(target);
+    const isFrameAll = targetElementId === CANVAS_CAPTURE_TARGET_FRAME_ALL;
+    const sceneElements = p5OverlayScene.canvasElements.filter(element => !element.isDeleted);
+    const target = isFrameAll
+      ? null
+      : sceneElements.find(element => element.id === targetElementId && canUseAsCanvasCaptureTarget(element));
+    if (!isFrameAll && !target) return null;
+    const targetBounds = isFrameAll ? getElementsExportBounds(sceneElements) : getElementExportBounds(target);
     if (!targetBounds || ![targetBounds.minX, targetBounds.minY, targetBounds.maxX, targetBounds.maxY].every(Number.isFinite)) return null;
-    const contentElements = p5OverlayScene.canvasElements.filter(element => {
+    const contentElements = isFrameAll ? sceneElements : sceneElements.filter(element => {
       if (element.isDeleted || element.id === target.id) return false;
       const bounds = getElementExportBounds(element);
       if (!bounds) return false;
@@ -14900,18 +14920,54 @@ function App() {
         && bounds.maxY > targetBounds.minY
         && bounds.minY < targetBounds.maxY;
     });
+    // Canvas sources can mount before a p5/media overlay has completed its
+    // first draw. Exporting during that startup window produces a valid but
+    // entirely black PNG/GIF, and a non-live canvas source then retains it
+    // forever. Wait only when the selected export actually contains an overlay
+    // surface; ordinary native-only captures remain synchronous.
+    const overlayElements = isFrameAll ? sceneElements : [target, ...contentElements];
+    const overlaySelectors = overlayElements
+      .filter(element => (
+        !element.customData?.outlinerHidden
+        && !element.customData?.presentationMaskActive
+        && (isP5FrameElement(element) || element.customData?.underscoresLivecode?.kind === "p5" || isMediaStreamElement(element))
+      ))
+      .map(element => isMediaStreamElement(element)
+        ? `[data-underscores-media-stream-id="${element.id}"] canvas.underscores-media-surface`
+        : `[data-underscores-p5-element-id="${element.id}"] canvas`);
+    if (overlaySelectors.length && typeof document !== "undefined") {
+      await new Promise(resolve => {
+        const startedAt = performance.now();
+        const wait = () => {
+          const ready = overlaySelectors.every(selector => {
+            const canvas = document.querySelector(selector);
+            return Number(canvas?.width) > 0 && Number(canvas?.height) > 0;
+          });
+          if (ready || performance.now() - startedAt >= 2000) {
+            // Let the first draw callback paint after p5 creates its backing
+            // canvas before taking the export snapshot.
+            if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => requestAnimationFrame(resolve));
+            else window.setTimeout(resolve, 32);
+            return;
+          }
+          if (typeof requestAnimationFrame === "function") requestAnimationFrame(wait);
+          else window.setTimeout(wait, 32);
+        };
+        wait();
+      });
+    }
     // Keep the capture frame as a transparent anchor so Excalidraw lays out
     // the source canvas in scene coordinates even when the selected area is
     // empty or its contents extend beyond the area being captured.
-    const anchor = {
+    const anchor = target ? {
       ...target,
       id: `${target.id}-canvas-capture-anchor`,
       opacity: 0,
       customData: undefined,
       boundElements: null,
       isDeleted: false,
-    };
-    const elements = [anchor, ...contentElements];
+    } : null;
+    const elements = anchor ? [anchor, ...contentElements] : contentElements;
     const exportBounds = getElementsExportBounds(elements);
     if (!exportBounds) return null;
     const includeBackground = background !== "transparent";
@@ -14941,7 +14997,7 @@ function App() {
         // p5/media surfaces are composited afterward in their display colours.
         applyThemeFilter: true,
       });
-      return cropCanvasToSceneBounds(exportResult.canvas, exportBounds, targetBounds);
+      return isFrameAll ? exportResult.canvas : cropCanvasToSceneBounds(exportResult.canvas, exportBounds, targetBounds);
     } catch {
       return null;
     }
@@ -26030,6 +26086,11 @@ function App() {
               onPickCanvasTarget={beginCanvasSourceEyedropper}
               onChooseFile={chooseMediaStreamFile}
               onDelete={deleteMediaInputSource}
+              onPrepareCapture={prepareMediaClipCapture}
+              timeContext={timeContext}
+              transportLoopEnabled={transportLoopEnabled}
+              transportLoopStart={transportLoopStart}
+              transportLoopEnd={transportLoopEnd}
             />
           </UnderscoresPanel>
           )}

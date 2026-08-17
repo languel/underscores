@@ -8722,6 +8722,10 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   text-align: left;
 }
 
+.media-stream-panel-row.has-download {
+  grid-template-columns: 30px minmax(0, 1fr) 26px 26px;
+}
+
 .media-stream-panel-row:hover,
 .media-stream-panel-row.is-selected {
   color: var(--color-primary);
@@ -8776,6 +8780,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   stroke-width: 1.7;
 }
 
+.media-stream-panel-row-download,
 .media-stream-panel-row-delete {
   width: 26px;
   min-width: 26px;
@@ -8786,6 +8791,11 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   border-left: 1px solid var(--underscores-panel-border, var(--border-color));
   background: transparent;
   cursor: pointer;
+}
+
+.media-stream-panel-row-download:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
 }
 
 .media-stream-panel-row-delete svg {
@@ -8803,6 +8813,11 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .media-stream-panel-row-delete:hover {
   color: var(--color-danger, #e58282);
   background: color-mix(in srgb, var(--color-danger, #e58282) 12%, transparent);
+}
+
+.media-stream-panel-row-download:not(:disabled):hover {
+  color: var(--color-primary);
+  background: var(--underscores-highlight, rgba(128, 128, 128, 0.12));
 }
 
 .media-stream-panel-row-name {
@@ -8939,14 +8954,27 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 }
 
 .media-stream-recorder-controls {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
   gap: 6px 8px;
 }
 
 .media-stream-recorder-controls .media-stream-panel-field {
+  flex: 1 1 120px;
+  min-width: 0;
   grid-template-columns: minmax(0, 1fr);
   gap: 3px;
+}
+
+.media-stream-recorder-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.media-stream-recorder-range-note {
+  flex: 1 0 100%;
 }
 
 .media-stream-panel-crop {
