@@ -342,7 +342,7 @@ const SourceTransportControls = ({ source, onPatch }) => {
 const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAssignPreview, children, status }) => {
   const metrics = useSourceMetrics(source.id);
   return <div className="media-stream-panel-detail">
-  <MediaRuntimePreview sourceId={source.id} className="media-stream-panel-preview" />
+  <MediaRuntimePreview sourceId={source.id} source={source} className="media-stream-panel-preview" />
   <label className="media-stream-panel-field">
     <span>Name</span>
     <input value={source.name} onKeyDown={stopKeyPropagation} onChange={event => onPatch({ name: event.target.value })} />

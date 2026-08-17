@@ -25385,6 +25385,7 @@ function App() {
               onChange={updateSceneObjectProperty}
               mediaSources={mediaSources}
               onFocusMediaSource={focusMediaInputSource}
+              onPatchMediaSource={patchMediaInputSource}
               onPickObjectReference={pickObjectReferenceForProperty}
               onSelectSvgNode={selectSvgNode}
               onExtractSvgSubpath={extractSvgSubpathToUnderscores}

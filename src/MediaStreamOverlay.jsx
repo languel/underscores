@@ -29,6 +29,7 @@ import {
   smoothUnicursalFrame,
   transformUnicursalFrame,
 } from "./unicursalPath.js";
+import { audioWaveformPath, createAudioWaveform } from "./audioWaveform.js";
 
 const HOLISTIC_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js";
 const HOLISTIC_ASSET_ROOT = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic/";
@@ -495,7 +496,27 @@ export function MediaSourceRuntimeLayer({ sources, activeSourceId = "", connecte
   </div>;
 }
 
-export function MediaRuntimePreview({ sourceId, className = "" }) {
+export function AudioWaveformPreview({ sourceId, source, className = "" }) {
+  const amplitudes = useMemo(() => createAudioWaveform(
+    source?.media?.fileName || source?.name || sourceId,
+  ), [source?.media?.fileName, source?.name, sourceId]);
+  const path = useMemo(() => audioWaveformPath(amplitudes), [amplitudes]);
+  const isPlaying = source?.media?.playing !== false;
+  const isMuted = source?.media?.muted === true;
+  return <div
+    className={`underscores-audio-waveform ${isPlaying ? "is-playing" : "is-paused"} ${isMuted ? "is-muted" : ""} ${className}`.trim()}
+    data-media-preview-source-id={sourceId}
+    aria-label={`${source?.name || "Audio"}${isPlaying ? " playing" : " paused"}${isMuted ? ", muted" : ""}`}
+  >
+    <svg viewBox="0 0 100 32" preserveAspectRatio="none" aria-hidden="true">
+      <path className="underscores-audio-waveform-fill" d={path} />
+      <path className="underscores-audio-waveform-line" d={path} />
+    </svg>
+    <span className="underscores-audio-waveform-label">{source?.name || "Audio"}</span>
+  </div>;
+}
+
+function MediaRuntimeCanvasPreview({ sourceId, className = "" }) {
   const canvasRef = useRef(null);
   const lastFrameTimeRef = useRef("");
   useEffect(() => {
@@ -531,6 +552,12 @@ export function MediaRuntimePreview({ sourceId, className = "" }) {
     return () => cancelAnimationFrame(raf);
   }, [sourceId]);
   return <canvas ref={canvasRef} className={`underscores-media-surface ${className}`.trim()} data-media-preview-source-id={sourceId} />;
+}
+
+export function MediaRuntimePreview({ sourceId, source = null, className = "" }) {
+  return source?.media?.mediaType === "audio"
+    ? <AudioWaveformPreview sourceId={sourceId} source={source} className={className} />
+    : <MediaRuntimeCanvasPreview sourceId={sourceId} className={className} />;
 }
 
 const drawLandmarks = (context, landmarks, connections, width, height, color, pointRadius = 2, options = {}) => {
@@ -1017,6 +1044,7 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
       && (shouldRenderMediaStream(element) || shouldProcessMediaStream(element));
   });
   const sourceIds = useMemo(() => new Set(sources.map(source => source.id)), [sources]);
+  const sourcesById = useMemo(() => new Map(sources.map(source => [source.id, source])), [sources]);
   const holisticIds = useMemo(() => new Set((elements || []).filter(element => {
     if (!isMediaStreamElement(element)) return false;
     return normalizeMediaStreamConfig(element.customData.underscoresMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC;
@@ -1036,6 +1064,7 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
   return <div className="underscores-media-stream-overlay" aria-hidden="true">
     {objects.map((element, layerIndex) => {
       const config = normalizeMediaStreamConfig(element.customData.underscoresMediaStream);
+      const previewSource = config.kind === MEDIA_STREAM_KINDS.PREVIEW ? sourcesById.get(config.sourceId) : null;
       const visible = shouldRenderMediaStream(element);
       const selected = Boolean(selectedElementIds[element.id]);
       const elementOpacity = Number(element.opacity);
@@ -1061,7 +1090,9 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
         <div className="underscores-media-stream-content">
           {config.kind === MEDIA_STREAM_KINDS.PREVIEW
             ? config.sourceId && sourceIds.has(config.sourceId)
-              ? <MediaRuntimePreview sourceId={config.sourceId} />
+              ? previewSource?.media?.mediaType === "audio"
+                ? <AudioWaveformPreview sourceId={config.sourceId} source={previewSource} />
+                : <MediaRuntimePreview sourceId={config.sourceId} source={previewSource} />
               : <div className="underscores-media-empty">Input stream is missing</div>
             : config.kind === MEDIA_STREAM_KINDS.UNICURSAL
               ? <UnicursalSource

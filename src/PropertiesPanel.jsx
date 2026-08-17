@@ -11,7 +11,7 @@ import {
 import { getEditableSvgPathNodes } from "./svgPathGeometry.js";
 import { buildSvgTimingGraph } from "./svgAnimation.js";
 import { getSvgNodeStyleCascade, updateStructuredSvgStyleDeclaration } from "./svgStyleModel.js";
-import { isMediaStreamElement, MEDIA_STREAM_KINDS, normalizeMediaStreamConfig, patchMediaStreamConfig } from "./mediaStream.js";
+import { isGifMediaSource, isMediaStreamElement, MEDIA_STREAM_KINDS, normalizeMediaStreamConfig, patchMediaStreamConfig } from "./mediaStream.js";
 import { getScoreData, normalizeIannixData } from "./iannixEngine.js";
 import { createTimeValue } from "./timeValue.js";
 import { getPhysicsColliderSelectionValue } from "./physicsGeometry.js";
@@ -356,6 +356,83 @@ const MediaPreviewControls = ({ element, query, onChange, mediaSources = [], onF
         </div>}
         {matches("enabled") && <div className="properties-row editable"><span>enabled</span><input type="checkbox" checked={stream.enabled} onChange={event => update({ enabled: event.target.checked })} /></div>}
         {matches("mirror") && <div className="properties-row editable"><span>mirror</span><input type="checkbox" checked={stream.mirror} onChange={event => update({ mirror: event.target.checked })} /></div>}
+      </div>
+    </details>
+  );
+};
+
+const mediaSourceReferenceForElement = stream => {
+  if (stream.kind === MEDIA_STREAM_KINDS.PREVIEW) return stream.sourceId;
+  if (stream.kind === MEDIA_STREAM_KINDS.HOLISTIC) return stream.holistic.sourceId;
+  if (stream.kind === MEDIA_STREAM_KINDS.UNICURSAL) return stream.unicursal.sourceId;
+  return "";
+};
+
+const isAnimatedMediaSource = source => Boolean(source && (
+  source.kind === MEDIA_STREAM_KINDS.CAMERA
+  || source.media?.mediaType === "video"
+  || source.media?.mediaType === "audio"
+  || isGifMediaSource(source)
+));
+
+const mediaPlaybackFieldCount = (element, query, mediaSources = []) => {
+  if (!isMediaStreamElement(element)) return 0;
+  const stream = normalizeMediaStreamConfig(element.customData?.underscoresMediaStream);
+  const sourceId = mediaSourceReferenceForElement(stream);
+  const source = mediaSources.find(candidate => candidate.id === sourceId);
+  if (!source || !isAnimatedMediaSource(source)) return 0;
+  const matches = name => !query?.needle || ["media", "transport", "play", "pause", "mute", "loop", "speed", name]
+    .some(value => value.includes(query.needle));
+  return matches("transport") ? 5 : 0;
+};
+
+const MediaPlaybackControls = ({ element, query, mediaSources = [], onPatchMediaSource }) => {
+  if (!isMediaStreamElement(element)) return null;
+  const stream = normalizeMediaStreamConfig(element.customData?.underscoresMediaStream);
+  const sourceId = mediaSourceReferenceForElement(stream);
+  const source = mediaSources.find(candidate => candidate.id === sourceId);
+  if (!source || !isAnimatedMediaSource(source)) return null;
+  const matches = name => !query?.needle || ["media", "transport", "play", "pause", "mute", "loop", "speed", name]
+    .some(value => value.includes(query.needle));
+  if (query?.needle && !matches("transport")) return null;
+  const update = patch => onPatchMediaSource?.(source.id, { media: patch });
+  const isPlaying = source.media.playing !== false;
+  const isCamera = source.kind === MEDIA_STREAM_KINDS.CAMERA;
+  const canMute = !isCamera && ["audio", "video"].includes(source.media.mediaType);
+  const canLoop = !isCamera && isAnimatedMediaSource(source);
+  const canSetRate = !isCamera && isAnimatedMediaSource(source)
+    && (source.media.mediaType !== "image" || isGifMediaSource(source));
+  return (
+    <details className="properties-group properties-media-playback-group" open>
+      <summary><span>media transport</span><small>{source.name}</small></summary>
+      <div className="properties-children">
+        <div className="properties-media-transport" role="group" aria-label="Media transport">
+          <button
+            type="button"
+            className={`iannix-flat-button media-source-play-toggle ${isPlaying ? "active" : ""}`}
+            onClick={() => update({ playing: !isPlaying })}
+            aria-label={isPlaying ? "Pause media" : "Play media"}
+            aria-pressed={isPlaying}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              {isPlaying
+                ? <><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></>
+                : <path d="M7 5.5v13l11-6.5z" />}
+            </svg>
+          </button>
+          {canMute && <label title={source.media.muted ? "Unmute media" : "Mute media"}>
+            <input type="checkbox" checked={source.media.muted} onChange={event => update({ muted: event.target.checked })} />
+            <span>Mute</span>
+          </label>}
+          {canLoop && <label title="Loop media">
+            <input type="checkbox" checked={source.media.loop} onChange={event => update({ loop: event.target.checked })} />
+            <span>Loop</span>
+          </label>}
+        </div>
+        {canSetRate && <div className="properties-row editable">
+          <span>speed</span>
+          <NumericInput min="0.1" max="8" step="0.1" value={source.media.playbackRate} defaultValue={1} onCommit={playbackRate => update({ playbackRate })} />
+        </div>}
       </div>
     </details>
   );
@@ -1189,6 +1266,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
   onDetachSvgJoint,
   mediaSources = [],
   onFocusMediaSource,
+  onPatchMediaSource,
   onPickObjectReference,
 }) {
   const [filter, setFilter] = useState("");
@@ -1223,7 +1301,8 @@ const PropertiesPanel = memo(function PropertiesPanel({
       + (embedMatchesQuery(element, query) ? 4 : 0)
       + (p5MatchesQuery(element, query) ? 6 : 0)
       + (svgMatchesQuery(element, query) ? svgFieldCount(element) : 0)
-  ), 0), [elements, physicsBodies, physicsConstraints, query]);
+      + mediaPlaybackFieldCount(element, query, mediaSources)
+  ), 0), [elements, physicsBodies, physicsConstraints, query, mediaSources]);
   const sharedPath = path => isSharedEditablePath(elements, path);
   const selectedPhysicsBodies = useMemo(() => elements.map(element => physicsBodies.find(body => (
     body.objectRef?.kind === "element" && body.objectRef.elementId === element.id
@@ -1317,7 +1396,8 @@ const PropertiesPanel = memo(function PropertiesPanel({
             + physicsConstraintFieldCount(physicsConstraints.find(constraint => constraint.objectRef?.kind === "element" && constraint.objectRef.elementId === element.id), query)
             + (embedMatchesQuery(element, query) ? 4 : 0)
             + (p5MatchesQuery(element, query) ? 6 : 0)
-            + (svgMatchesQuery(element, query) ? svgFieldCount(element) : 0);
+            + (svgMatchesQuery(element, query) ? svgFieldCount(element) : 0)
+            + mediaPlaybackFieldCount(element, query, mediaSources);
           if (!elementMatchCount) return null;
           const label = getElementName(element);
           return (
@@ -1342,6 +1422,12 @@ const PropertiesPanel = memo(function PropertiesPanel({
                 onChange={(path, value) => onChange([element.id], path, value)}
                 mediaSources={mediaSources}
                 onFocusMediaSource={onFocusMediaSource}
+              />
+              <MediaPlaybackControls
+                element={element}
+                query={query}
+                mediaSources={mediaSources}
+                onPatchMediaSource={onPatchMediaSource}
               />
               <PinnedPropertyControls
                 element={element}

@@ -6106,6 +6106,26 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .properties-embed-css textarea { width: 100%; min-height: 54px; resize: vertical; box-sizing: border-box; padding: 4px 5px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--underscores-foreground, var(--color-primary)); font: 10px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .properties-p5-group { background: color-mix(in srgb, var(--underscores-panel-bg, transparent) 92%, var(--underscores-highlight, transparent)); }
 .properties-media-preview-group { background: color-mix(in srgb, var(--underscores-panel-bg, transparent) 92%, var(--underscores-highlight, transparent)); }
+.properties-media-playback-group { background: color-mix(in srgb, var(--underscores-panel-bg, transparent) 92%, var(--underscores-highlight, transparent)); }
+.properties-media-transport {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px 3px;
+}
+.properties-media-transport label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--color-secondary);
+  font-size: 10px;
+  cursor: pointer;
+}
+.properties-media-transport label input { margin: 0; accent-color: var(--underscores-accent); }
+.properties-media-transport .media-source-play-toggle { flex: 0 0 26px; width: 26px; min-width: 26px; min-height: 24px; height: 24px; padding: 4px; }
+.properties-media-transport .media-source-play-toggle svg { width: 14px; height: 14px; }
+.properties-media-playback-group .properties-row { padding-top: 3px; padding-bottom: 5px; }
 .properties-pinned-group { background: color-mix(in srgb, var(--underscores-panel-bg, transparent) 94%, var(--underscores-highlight, transparent)); }
 .properties-row.properties-media-preview-source > div { display: flex; min-width: 0; gap: 4px; }
 .properties-media-preview-source select { min-width: 0; width: 100%; }
@@ -6289,6 +6309,61 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .underscores-media-surface {
   object-fit: cover;
   background: var(--underscores-canvas-bg, var(--color-canvas-background, #08090a));
+}
+
+/* Audio previews are a static, deterministic visual proxy. They deliberately
+   do not create an AnalyserNode or sample the audio buffer on every frame. */
+.underscores-audio-waveform {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 28px;
+  align-items: flex-end;
+  overflow: hidden;
+  padding: 8px 9px 7px;
+  color: var(--underscores-accent, var(--color-primary));
+  background: color-mix(in srgb, var(--underscores-canvas-bg, var(--color-canvas-background, #08090a)) 88%, var(--underscores-panel-bg, transparent));
+  border: 1px solid var(--underscores-panel-border, var(--border-color));
+  pointer-events: none;
+}
+
+.underscores-audio-waveform svg {
+  position: absolute;
+  inset: 7px 8px 6px;
+  width: calc(100% - 16px);
+  height: calc(100% - 13px);
+  overflow: visible;
+}
+
+.underscores-audio-waveform-fill {
+  fill: color-mix(in srgb, currentColor 16%, transparent);
+  stroke: none;
+}
+
+.underscores-audio-waveform-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 0.7;
+  vector-effect: non-scaling-stroke;
+  opacity: .84;
+}
+
+.underscores-audio-waveform.is-paused .underscores-audio-waveform-line { opacity: .5; }
+.underscores-audio-waveform.is-muted { color: var(--color-secondary); }
+.underscores-audio-waveform-label {
+  position: relative;
+  z-index: 1;
+  max-width: 100%;
+  overflow: hidden;
+  color: currentColor;
+  font: 9px/1.1 var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  letter-spacing: .02em;
+  opacity: .86;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px color-mix(in srgb, #000 60%, transparent);
 }
 
 .underscores-media-empty {
