@@ -16,6 +16,7 @@ import { infoProps } from "./uiInfo.js";
 import NumericInput from "./NumericInput.jsx";
 import TimeValueInput from "./TimeValueInput.jsx";
 import { normalizeUnicursalOptions, UNICURSAL_PRESETS } from "./unicursalPath.js";
+import { getStrudelAudioCaptureStream, releaseStrudelAudioCaptureStream } from "./strudelRuntime.js";
 
 const stopKeyPropagation = event => event.stopPropagation();
 
@@ -399,7 +400,10 @@ const MediaClipRecorder = ({ source, onCreate, onPatch, onPrepareCapture, timeCo
   const recorderRef = useRef(null);
   const isCanvas = source?.kind === MEDIA_STREAM_KINDS.CANVAS;
   const isAudio = source?.media?.mediaType === "audio";
-  const canRecordAudio = !isCanvas && (isAudio || source?.media?.mediaType === "video");
+  // Canvas sources can include the shared Strudel mix bus. The destination is
+  // attached lazily when recording starts, so merely selecting a source has no
+  // audio or graph cost.
+  const canRecordAudio = isCanvas || (isAudio || source?.media?.mediaType === "video");
   const canRecordAlpha = !isAudio;
   const loopDurationSeconds = Math.max(0, Number(transportLoopEnd) - Number(transportLoopStart));
   const hasUsableLoop = transportLoopEnabled && loopDurationSeconds > 0;
@@ -457,6 +461,7 @@ const MediaClipRecorder = ({ source, onCreate, onPatch, onPrepareCapture, timeCo
     setStatuses(previous => ({ ...previous, [source.id]: { kind: "info", message: `Recording ${format === MEDIA_CLIP_FORMATS.ALPHA ? "WebM alpha" : format.toUpperCase()}…` } }));
     let session = null;
     let restoreTransport = null;
+    let capturedStrudelAudio = false;
     try {
       if (durationMode === "loop" && onPrepareCapture) {
         restoreTransport = await onPrepareCapture({ start: Number(transportLoopStart) || 0, durationMs });
@@ -478,9 +483,17 @@ const MediaClipRecorder = ({ source, onCreate, onPatch, onPrepareCapture, timeCo
         });
       }
       const runtime = await waitForMediaRuntime(source.id, { visual: format !== MEDIA_CLIP_FORMATS.AUDIO });
+      const sourceStream = runtime.stream?.();
+      const needsStrudelAudio = isCanvas && (format === MEDIA_CLIP_FORMATS.AUDIO || format === MEDIA_CLIP_FORMATS.MP4);
+      const strudelAudioStream = needsStrudelAudio ? getStrudelAudioCaptureStream() : null;
+      capturedStrudelAudio = Boolean(strudelAudioStream);
+      const audioTracks = strudelAudioStream?.getAudioTracks?.() || [];
+      const recordingStream = needsStrudelAudio && audioTracks.length && typeof MediaStream === "function"
+        ? new MediaStream([...(sourceStream?.getTracks?.() || []), ...audioTracks])
+        : sourceStream;
       session = format === MEDIA_CLIP_FORMATS.GIF
         ? createGifClipRecorder({ canvas: runtime.element, durationMs, fps: source.output?.fps || 15, transparent: captureBackground === "transparent" })
-        : createMediaRecorderClip({ stream: runtime.stream?.(), format, durationMs });
+        : createMediaRecorderClip({ stream: recordingStream, format, durationMs });
       recorderRef.current = session;
       const result = await session.promise;
       const stem = String(source.name || "clip").replace(/\.[^./]+$/, "") || "clip";
@@ -517,6 +530,7 @@ const MediaClipRecorder = ({ source, onCreate, onPatch, onPrepareCapture, timeCo
         if (Object.keys(canvasPatch).length) onPatch?.({ canvas: canvasPatch });
       }
       restoreTransport?.();
+      if (capturedStrudelAudio) releaseStrudelAudioCaptureStream();
     }
   };
 

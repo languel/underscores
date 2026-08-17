@@ -18,3 +18,5 @@ const runtime = Object.freeze({
 });
 
 export const getStrudelRuntimeManager = () => runtime;
+export const getStrudelAudioCaptureStream = () => null;
+export const releaseStrudelAudioCaptureStream = () => {};

@@ -146,6 +146,47 @@ export const strudelInput = value => (
   core.isPattern(value) ? value : mini.mini(value)
 );
 
+// Mirror Strudel's private Superdough mix bus into a capture destination only
+// when a recorder asks for it. Playback remains connected to the speakers and
+// no analyser/readback work is performed until this function is called.
+export const getStrudelAudioCaptureStream = () => {
+  if (typeof MediaStream === "undefined") return null;
+  const context = webaudio.getAudioContext?.();
+  const getController = webaudio.__underscoresGetSuperdoughAudioController;
+  if (!context || typeof context.createMediaStreamDestination !== "function" || typeof getController !== "function") return null;
+  let controller;
+  try {
+    controller = getController();
+  } catch {
+    return null;
+  }
+  const output = controller?.output;
+  if (!output?.destinationGain) return null;
+  const previous = controller.__underscoresCaptureDestination;
+  if (!previous || previous.source !== output.destinationGain) {
+    const destination = context.createMediaStreamDestination();
+    try {
+      output.destinationGain.connect(destination);
+    } catch {
+      return null;
+    }
+    controller.__underscoresCaptureDestination = { source: output.destinationGain, destination };
+  }
+  return controller.__underscoresCaptureDestination.destination.stream || null;
+};
+
+export const releaseStrudelAudioCaptureStream = () => {
+  const getController = webaudio.__underscoresGetSuperdoughAudioController;
+  if (typeof getController !== "function") return;
+  let controller;
+  try { controller = getController(); } catch { return; }
+  const capture = controller?.__underscoresCaptureDestination;
+  if (!capture) return;
+  try { capture.source?.disconnect?.(capture.destination); } catch { /* already disconnected */ }
+  capture.destination?.stream?.getTracks?.().forEach(track => track.stop?.());
+  delete controller.__underscoresCaptureDestination;
+};
+
 export const installStrudelEvalScope = (...additionalScopes) => {
   mini.miniAllStrings?.();
   return core.evalScope(

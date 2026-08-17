@@ -28,6 +28,7 @@ import { infoProps } from "./uiInfo.js";
 import { createScriptConsole } from "./scriptConsole.js";
 import { isPublicSafeBuild } from "./buildProfile.js";
 import { getLivecodeFrameSnapshot } from "./livecodeFrameSnapshot.js";
+import { registerLivecodeCapture } from "./livecodeCapture.js";
 
 const StopIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1" /></svg>;
 const RunIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 9 6-9 6V6Z" /></svg>;
@@ -219,6 +220,7 @@ function StrudelFrameVisualizerCanvas({ runtime, nodeId, enabled }) {
       if (canvas.height !== height) canvas.height = height;
     };
     resize();
+    const unregisterCapture = registerLivecodeCapture(nodeId, () => canvas);
     // IntersectionObserver owns visibility after registration. Start cold so
     // an offscreen node never paints one or more full frames before its first
     // observer callback.
@@ -232,6 +234,7 @@ function StrudelFrameVisualizerCanvas({ runtime, nodeId, enabled }) {
     return () => {
       intersectionObserver.disconnect();
       resizeObserver.disconnect();
+      unregisterCapture();
       unregister();
     };
   }, [enabled, nodeId, runtime]);

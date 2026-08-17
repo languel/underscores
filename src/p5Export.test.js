@@ -8,6 +8,7 @@ import {
   shouldRenderLivecodeP5,
   createModifierTrackExportElements,
   drawMediaStreamsOnCanvas,
+  drawLivecodeCanvasesOnCanvas,
   hideP5FrameHostsForExport,
   hideLiveCanvasHostsForExport,
   drawP5FramesOnCanvas,
@@ -173,6 +174,28 @@ test("p5 canvas pixels are composited with their frame transform", () => {
     ["drawImage", sourceCanvas, -200, -100, 400, 200],
     "restore",
   ]);
+});
+
+test("shader and Strudel livecode canvases are composited only when requested", async () => {
+  const operations = [];
+  const context = {
+    save: () => operations.push("save"),
+    restore: () => operations.push("restore"),
+    translate: (...args) => operations.push(["translate", ...args]),
+    rotate: value => operations.push(["rotate", value]),
+    drawImage: (...args) => operations.push(["drawImage", ...args]),
+  };
+  const shader = { id: "shader", x: 0, y: 0, width: 100, height: 50, angle: 0, customData: { underscoresLivecode: { kind: "shader" } } };
+  const strudel = { id: "strudel", x: 110, y: 0, width: 100, height: 50, angle: 0, customData: { underscoresLivecode: { kind: "strudel" } } };
+  const sources = { shader: { width: 40, height: 20 }, strudel: { width: 60, height: 30 } };
+  const captured = await drawLivecodeCanvasesOnCanvas({
+    canvas: { width: 200, height: 50, getContext: () => context },
+    elements: [shader, strudel],
+    bounds: { minX: 0, maxX: 210, minY: 0, maxY: 50 },
+    capture: id => sources[id],
+  });
+  assert.equal(captured, 2);
+  assert.deepEqual(operations.filter(operation => operation[0] === "drawImage").map(operation => operation[1]), [sources.shader, sources.strudel]);
 });
 
 test("p5 PNG export forwards the requested background mode", async () => {

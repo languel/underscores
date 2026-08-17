@@ -14930,11 +14930,17 @@ function App() {
       .filter(element => (
         !element.customData?.outlinerHidden
         && !element.customData?.presentationMaskActive
-        && (isP5FrameElement(element) || element.customData?.underscoresLivecode?.kind === "p5" || isMediaStreamElement(element))
+        && (isP5FrameElement(element)
+          || ["p5", "shader", "strudel"].includes(element.customData?.underscoresLivecode?.kind)
+          || isMediaStreamElement(element))
       ))
       .map(element => isMediaStreamElement(element)
         ? `[data-underscores-media-stream-id="${element.id}"] canvas.underscores-media-surface`
-        : `[data-underscores-p5-element-id="${element.id}"] canvas`);
+        : element.customData?.underscoresLivecode?.kind === "shader"
+          ? `[data-livecode-node-id="${element.id}"] canvas.underscores-shader-canvas`
+          : element.customData?.underscoresLivecode?.kind === "strudel"
+            ? `[data-livecode-node-id="${element.id}"] canvas.strudel-frame-visualizer`
+            : `[data-underscores-p5-element-id="${element.id}"] canvas`);
     if (overlaySelectors.length && typeof document !== "undefined") {
       await new Promise(resolve => {
         const startedAt = performance.now();

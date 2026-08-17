@@ -44,10 +44,37 @@ export default defineConfig(({ mode }) => {
     }
   }
 
+  // The Strudel package keeps its final mix bus private. Expose a narrowly
+  // scoped accessor in the browser bundle so Canvas capture can mirror that
+  // bus into a MediaStreamAudioDestinationNode on demand. The transform is
+  // build-time only and leaves the dependency untouched on disk.
+  const strudelAudioCapturePlugin = {
+    name: 'underscores-strudel-audio-capture',
+    enforce: 'pre',
+    transform(code, id) {
+      const sourceId = id.split('?')[0].replaceAll('\\', '/');
+      if (code.includes('__underscoresGetSuperdoughAudioController')) return null;
+      if (sourceId.endsWith('/superdough/superdough.mjs')) {
+        return {
+          code: `${code}\nexport { getSuperdoughAudioController as __underscoresGetSuperdoughAudioController };`,
+          map: null,
+        };
+      }
+      if (sourceId.endsWith('/superdough/dist/index.mjs')) {
+        return {
+          code: `${code}\nexport { Je as __underscoresGetSuperdoughAudioController };`,
+          map: null,
+        };
+      }
+      return null;
+    },
+  }
+
   return {
     base: buildSingle ? '/underscores/' : '/',
     plugins: [
       react(),
+      strudelAudioCapturePlugin,
       buildSingle && viteSingleFile({ removeViteModuleLoader: true })
     ].filter(Boolean),
     server: {
@@ -65,7 +92,10 @@ export default defineConfig(({ mode }) => {
     // packages at dev-server startup so a first click cannot race Vite's
     // dependency discovery or retain an outdated optimizer URL after install.
     optimizeDeps: {
-      include: ['jzz', 'jzz-synth-tiny']
+      include: ['jzz', 'jzz-synth-tiny'],
+      // Keep these modules in Vite's source graph so the capture accessor
+      // transform above is applied in dev as well as production builds.
+      exclude: ['superdough', '@strudel/webaudio']
     },
     define: {
       "process.env.IS_PREACT": JSON.stringify("false"),

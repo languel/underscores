@@ -1,5 +1,6 @@
 import { isP5FrameElement, shouldRenderP5Frame } from "./p5Frame.js";
 import { isMediaStreamElement, shouldRenderMediaStream } from "./mediaStream.js";
+import { captureLivecodeFrame } from "./livecodeCapture.js";
 
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 
@@ -77,6 +78,15 @@ export const getElementsExportBounds = elements => {
 // path.
 export const isLivecodeP5Element = element => element?.customData?.underscoresLivecode?.kind === "p5";
 
+// Shader and Strudel nodes render into DOM canvases over their Excalidraw
+// hosts. They are captured through the opt-in livecode registry below. P5 is
+// intentionally excluded here because its existing export path handles the
+// instance canvas and its theme behaviour separately.
+export const isLivecodeCanvasElement = element => {
+  const kind = element?.customData?.underscoresLivecode?.kind;
+  return kind === "shader" || kind === "strudel";
+};
+
 export const shouldRenderLivecodeP5 = element => Boolean(
   element
   && !element.isDeleted
@@ -97,7 +107,7 @@ export const hideP5FrameHostsForExport = elements => (elements || []).map(elemen
 ));
 
 export const hideLiveCanvasHostsForExport = elements => hideP5FrameHostsForExport(elements).map(element => (
-  isMediaStreamElement(element) ? { ...element, opacity: 0 } : element
+  isMediaStreamElement(element) || isLivecodeCanvasElement(element) ? { ...element, opacity: 0 } : element
 ));
 
 export const findP5CanvasForElement = (elementId, root = globalThis.document) => {
@@ -173,6 +183,44 @@ export const drawMediaStreamsOnCanvas = ({ canvas, elements, bounds, root = glob
     const source = transformSource ? transformSource(rawSource) : rawSource;
     if (drawElementCanvas({ context, source, element, bounds, scaleX, scaleY })) captured += 1;
   });
+  return captured;
+};
+
+export const drawLivecodeCanvasesOnCanvas = async ({
+  canvas,
+  elements,
+  bounds,
+  capture = captureLivecodeFrame,
+  transformSource = null,
+}) => {
+  if (!canvas || !bounds) return 0;
+  const context = canvas.getContext?.("2d");
+  if (!context) return 0;
+  const sceneWidth = Math.max(1, bounds.maxX - bounds.minX);
+  const sceneHeight = Math.max(1, bounds.maxY - bounds.minY);
+  const scaleX = canvas.width / sceneWidth;
+  const scaleY = canvas.height / sceneHeight;
+  let captured = 0;
+  // Preserve scene order so multiple visual nodes composite consistently with
+  // the authored element order. Each callback is invoked only for an actual
+  // capture request (never during ordinary livecode playback).
+  for (const element of (elements || []).filter(candidate => (
+    isLivecodeCanvasElement(candidate)
+    && !candidate.isDeleted
+    && !candidate.customData?.outlinerHidden
+    && !candidate.customData?.presentationMaskActive
+  ))) {
+    const rawSource = await capture(element.id);
+    const source = transformSource ? transformSource(rawSource) : rawSource;
+    if (drawElementCanvas({
+      context,
+      source,
+      element,
+      bounds,
+      scaleX,
+      scaleY,
+    })) captured += 1;
+  }
   return captured;
 };
 
@@ -294,6 +342,7 @@ export const exportUnderscoresPng = async ({
   pixelRatio = finite(globalThis.devicePixelRatio, 1),
   outputMode = "visible",
   applyThemeFilter = true,
+  captureLivecode = captureLivecodeFrame,
 }) => {
   const activeElements = (elements || []).filter(element => element && !element.isDeleted);
   if (!activeElements.length) throw new Error("There is nothing to export.");
@@ -327,7 +376,14 @@ export const exportUnderscoresPng = async ({
     : null;
   const capturedP5Frames = drawP5FramesOnCanvas({ canvas, elements: activeElements, bounds, root, transformSource: transformLiveSource });
   const capturedMediaStreams = drawMediaStreamsOnCanvas({ canvas, elements: activeElements, bounds, root, transformSource: transformLiveSource });
-  return { canvas, capturedP5Frames, capturedMediaStreams };
+  const capturedLivecodeCanvases = await drawLivecodeCanvasesOnCanvas({
+    canvas,
+    elements: activeElements,
+    bounds,
+    capture: captureLivecode,
+    transformSource: transformLiveSource,
+  });
+  return { canvas, capturedP5Frames, capturedMediaStreams, capturedLivecodeCanvases };
 };
 
 export const downloadCanvasAsPng = (canvas, { filename = "underscores-export.png", documentRef = globalThis.document } = {}) => {

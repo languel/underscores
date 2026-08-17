@@ -4,6 +4,7 @@ import { FLUID_BRUSH_FRAGMENT_SOURCE, prepareShaderSource, shaderSourceUsesFeedb
 import { collectShaderSceneSegments, flattenShaderSegments, MAX_SHADER_SEGMENTS } from "./shaderSceneGeometry.js";
 import { publishShaderStatus } from "./shaderStatus.js";
 import { isLivecodeTransportPlaying } from "./livecodeTransport.js";
+import { readWebglFrame, registerLivecodeCapture } from "./livecodeCapture.js";
 
 const publishFrameStatus = (statusRef, kind, message = "") => publishShaderStatus({
   ...statusRef.current,
@@ -175,7 +176,9 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
       frame: 0,
       startedAt: performance.now(),
     };
+    const unregisterCapture = registerLivecodeCapture(element.id, () => readWebglFrame(canvas, gl, runtimeRef.current));
     return () => {
+      unregisterCapture();
       const runtime = runtimeRef.current;
       if (runtime?.program) gl.deleteProgram(runtime.program);
       if (runtime?.displayProgram) gl.deleteProgram(runtime.displayProgram);
@@ -183,7 +186,7 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
       gl.deleteBuffer(buffer);
       runtimeRef.current = null;
     };
-  }, [node.runtime.settings?.keepLastFrame]);
+  }, [element.id, node.runtime.settings?.keepLastFrame]);
 
   useEffect(() => {
     const runtime = runtimeRef.current;

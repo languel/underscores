@@ -3,6 +3,7 @@ import { SHADER_VERTEX_SOURCE } from "./shaderLivecode.js";
 import { collectShaderSceneSegments, collectShaderWorldSegments, flattenShaderSegments, MAX_SHADER_SEGMENTS } from "./shaderSceneGeometry.js";
 import { publishShaderStatus } from "./shaderStatus.js";
 import { isLivecodeTransportPlaying } from "./livecodeTransport.js";
+import { readWebglFrame, registerLivecodeCapture } from "./livecodeCapture.js";
 
 const publishFrameStatus = (statusRef, kind, message = "") => publishShaderStatus({
   ...statusRef.current,
@@ -157,19 +158,22 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
         targets: [],
         startedAt: performance.now(),
       };
+      const unregisterCapture = registerLivecodeCapture(element.id, () => readWebglFrame(canvas, gl, runtimeRef.current));
+      runtimeRef.current.unregisterCapture = unregisterCapture;
     } catch (setupError) {
       publishFrameStatus(statusRef, "error", setupError instanceof Error ? setupError.message : String(setupError));
     }
     return () => {
       const runtime = runtimeRef.current;
       if (!runtime) return;
+      runtime.unregisterCapture?.();
       runtime.targets.forEach(target => disposeTarget(gl, target));
       if (runtime.updateProgram) gl.deleteProgram(runtime.updateProgram);
       gl.deleteProgram(runtime.displayProgram);
       gl.deleteBuffer(runtime.buffer);
       runtimeRef.current = null;
     };
-  }, [node.runtime.settings?.keepLastFrame]);
+  }, [element.id, node.runtime.settings?.keepLastFrame]);
 
   useEffect(() => {
     const runtime = runtimeRef.current;
