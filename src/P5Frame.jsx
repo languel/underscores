@@ -15,6 +15,7 @@ import { createP5SerialBridge } from "./p5Serial.js";
 import { parseScriptParameters } from "./scriptParameters.js";
 import { createScriptCanvasApi, resolveScriptParameterValues } from "./scriptRuntime.js";
 import { createScriptConsole } from "./scriptConsole.js";
+import { isLivecodeTransportPlaying } from "./livecodeTransport.js";
 
 const loadedCdnRuntimes = new Map();
 
@@ -113,8 +114,12 @@ const loadP5Runtime = async config => {
   return loadedCdnRuntimes.get(url);
 };
 
-export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }) {
+export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef, transport, transportMode = "free" }) {
   const hostRef = useRef(null);
+  const instanceRef = useRef(null);
+  const loopStateRef = useRef({ userLooping: true, transportSyncing: false, setTransportLoop: null });
+  const transportRef = useRef(transport);
+  const transportModeRef = useRef(transportMode);
   const config = normalizeP5Frame(rawConfig);
   const [runningConfig, setRunningConfig] = useState(config);
   const runningConfigRef = useRef(config);
@@ -130,6 +135,24 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
   }, [config, configKey]);
 
   const runnerKey = getP5RunnerKey(runningConfig, element);
+  const transportPlaying = Boolean(transport?.playing);
+
+  transportRef.current = transport;
+  transportModeRef.current = transportMode;
+
+  // Linked livecode keeps its p5 instance mounted, but the timeline owns the
+  // render loop. Free-mode frames retain their historical local autoplay
+  // behavior and are intentionally unaffected by the score transport.
+  useEffect(() => {
+    const instance = instanceRef.current;
+    if (!instance || !runningConfig.autoplay) return;
+    const loopState = loopStateRef.current;
+    if (document.visibilityState === "hidden" || !isLivecodeTransportPlaying(transportMode, { playing: transportPlaying })) {
+      loopState.setTransportLoop?.(false);
+    } else if (loopState.userLooping) {
+      loopState.setTransportLoop?.(true);
+    }
+  }, [runningConfig.autoplay, transportMode, transportPlaying]);
 
   useEffect(() => {
     let disposed = false;
@@ -137,9 +160,15 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
     let serialBridge = null;
     let subscriptions = [];
     let confirmed = false;
+    const loopState = loopStateRef.current;
+    loopState.userLooping = true;
+    loopState.transportSyncing = false;
+    loopState.setTransportLoop = null;
+    const shouldPlay = () => activeConfig.autoplay
+      && isLivecodeTransportPlaying(transportModeRef.current, transportRef.current);
     const handleVisibility = () => {
-      if (document.visibilityState === "hidden") instance?.noLoop?.();
-      else if (activeConfig.autoplay) instance?.loop?.();
+      if (document.visibilityState === "hidden" || !shouldPlay()) loopState.setTransportLoop?.(false);
+      else if (loopState.userLooping) loopState.setTransportLoop?.(true);
     };
     const activeConfig = runningConfig;
     const activeConfigKey = getP5ConfigKey(activeConfig);
@@ -236,6 +265,27 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
         };
         const sketch = p => {
           const interactionState = { mouseIsDragged: false };
+          const originalLoop = p.loop;
+          const originalNoLoop = p.noLoop;
+          loopState.setTransportLoop = shouldLoop => {
+            loopState.transportSyncing = true;
+            try {
+              return (shouldLoop ? originalLoop : originalNoLoop).call(p);
+            } finally {
+              loopState.transportSyncing = false;
+            }
+          };
+          p.loop = (...args) => {
+            if (!loopState.transportSyncing) {
+              loopState.userLooping = true;
+              if (!isLivecodeTransportPlaying(transportModeRef.current, transportRef.current)) return p;
+            }
+            return originalLoop.apply(p, args);
+          };
+          p.noLoop = (...args) => {
+            if (!loopState.transportSyncing) loopState.userLooping = false;
+            return originalNoLoop.apply(p, args);
+          };
           let restoreFastPointPath = () => {};
           let callbacks = {};
           const reportError = reason => {
@@ -335,7 +385,7 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
                 );
               }
               p.frameRate(activeConfig.fps);
-              if (!activeConfig.autoplay) p.noLoop();
+              if (!shouldPlay() || !loopState.userLooping) loopState.setTransportLoop?.(false);
               restoreFastPointPath();
               if (typeof authoredDraw !== "function") confirmRunnable();
             } catch (reason) {
@@ -363,6 +413,8 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
           }
         };
         instance = new P5(sketch, host);
+        instanceRef.current = instance;
+        handleVisibility();
         document.addEventListener("visibilitychange", handleVisibility);
         // The host is CSS-scaled with the camera zoom. Resizing the internal
         // p5 buffer to host.clientWidth/Height after setup therefore clears
@@ -385,6 +437,8 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef }
       subscriptions.forEach(unsubscribe => unsubscribe?.());
       serialBridge?.dispose?.();
       instance?.remove?.();
+      instanceRef.current = null;
+      loopState.setTransportLoop = null;
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [runnerKey]);

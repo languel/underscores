@@ -18,6 +18,10 @@ import {
   secondsToMusicalPosition,
   songPositionToSeconds,
   snapTimelineTime,
+  nextTransportLaunchTime,
+  normalizeTransportLaunchQuantization,
+  transportLaunchQuantizationSeconds,
+  TRANSPORT_LAUNCH_QUANTIZATION_OPTIONS,
 } from "./transport.js";
 
 test("playback advances continuously between lower-rate timeline commits", () => {
@@ -54,6 +58,31 @@ test("projects seconds into bars, beats, and subdivisions", () => {
   });
   assert.equal(formatMusicalPosition(2, 120, { numerator: 4, denominator: 4 }), "2.1.1");
   assert.equal(formatMusicalPosition(1.5, 120, { numerator: 3, denominator: 4 }), "2.1.1");
+});
+
+test("launch quantization resolves musical intervals and the next strict boundary", () => {
+  assert.equal(TRANSPORT_LAUNCH_QUANTIZATION_OPTIONS.at(-1).value, "custom");
+  assert.equal(transportLaunchQuantizationSeconds({ enabled: true, interval: "bar" }, {
+    tempo: 120,
+    signature: { numerator: 4, denominator: 4 },
+  }), 2);
+  assert.equal(nextTransportLaunchTime(1.1, { enabled: true, interval: "bar" }, {
+    tempo: 120,
+    signature: { numerator: 4, denominator: 4 },
+  }), 2);
+  assert.equal(nextTransportLaunchTime(2, { enabled: true, interval: "bar" }, {
+    tempo: 120,
+    signature: { numerator: 4, denominator: 4 },
+  }), 4);
+  assert.equal(transportLaunchQuantizationSeconds({ enabled: true, interval: "custom", customBeats: 1.5 }, {
+    tempo: 120,
+    signature: { numerator: 4, denominator: 4 },
+  }), 0.75);
+  assert.deepEqual(normalizeTransportLaunchQuantization({ enabled: true, interval: "invalid", customBeats: -1 }), {
+    enabled: true,
+    interval: "bar",
+    customBeats: 4,
+  });
 });
 
 test("MIDI clock uses 24 PPQN and Song Position Pointer uses sixteenth notes", () => {

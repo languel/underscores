@@ -179,6 +179,26 @@ export const getLivecodeViewForDoubleClick = event => {
   return null;
 };
 
+// Command-clicking a Livecode output is a deliberate preview shortcut. Keep
+// modified command clicks available to canvas selection gestures, in
+// particular Command+Shift-click for cycling overlapping objects.
+export const isLivecodeCommandOutputGesture = event => Boolean(
+  event
+  && (event.metaKey || event.ctrlKey)
+  && !event.shiftKey
+  && !event.altKey
+  && (event.button === undefined || event.button === 0)
+);
+
+export const isLivecodeCommandCycleGesture = event => Boolean(
+  event
+  && event.metaKey
+  && event.shiftKey
+  && !event.ctrlKey
+  && !event.altKey
+  && (event.button === undefined || event.button === 0)
+);
+
 export const normalizeLivecodeTypography = value => {
   const raw = value && typeof value === "object" ? value : {};
   return {

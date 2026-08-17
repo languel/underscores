@@ -9,7 +9,7 @@ import * as mini from "@strudel/mini";
 import * as mondo from "@strudel/mondo";
 import * as tonal from "@strudel/tonal";
 import * as xen from "@strudel/xen";
-import { slider } from "@strudel/codemirror";
+import { slider, sliderWithID } from "@strudel/codemirror";
 import { __pianoroll, Drawer, cleanupDraw, getDrawOptions } from "@strudel/draw";
 import { transpiler } from "@strudel/transpiler";
 import * as webaudio from "@strudel/webaudio";
@@ -164,6 +164,11 @@ export const installStrudelEvalScope = (...additionalScopes) => {
       i: strudelInput,
       markcss: strudelMarkCss,
       slider,
+      // The transpiler rewrites slider(value, min, max, step) to
+      // sliderWithID(id, value, min, max). The page REPL installs both
+      // helpers; Livecode Nodes need the rewritten helper in their isolated
+      // evaluation scope as well.
+      sliderWithID,
     },
   );
 };
@@ -182,6 +187,8 @@ const captureLabelledPatterns = nodeId => {
   const prototype = core.Pattern.prototype;
   const previous = Object.getOwnPropertyDescriptor(prototype, "p");
   const patterns = new Map();
+  const allTransforms = [];
+  let eachTransform = null;
   let anonymousIndex = 0;
 
   Object.defineProperty(prototype, "p", {
@@ -203,15 +210,32 @@ const captureLabelledPatterns = nodeId => {
 
   return {
     patterns,
+    all(transform) {
+      if (typeof transform === "function") allTransforms.push(transform);
+      return core.silence;
+    },
+    each(transform) {
+      if (typeof transform === "function") eachTransform = transform;
+      return core.silence;
+    },
     restore() {
       if (previous) Object.defineProperty(prototype, "p", previous);
       else delete prototype.p;
     },
-    stack() {
-      const labelled = Array.from(patterns, ([patternId, pattern]) => (
+    stack(fallback) {
+      let labelled = Array.from(patterns, ([patternId, pattern]) => (
         pattern.withState(state => state.setControls({ id: `${nodeId}:${patternId}` }))
       ));
-      return labelled.length ? core.stack(...labelled) : null;
+      if (labelled.length) {
+        if (eachTransform) labelled = labelled.map(pattern => eachTransform(pattern));
+        fallback = core.stack(...labelled);
+      } else if (eachTransform && core.isPattern(fallback)) {
+        fallback = eachTransform(fallback);
+      }
+      for (const transform of allTransforms) {
+        fallback = transform(fallback);
+      }
+      return core.isPattern(fallback) ? fallback : null;
     },
   };
 };
@@ -224,6 +248,7 @@ const captureFrameVisualizers = (runtime, nodeId) => {
   const prototype = core.Pattern.prototype;
   const previousOnPaint = Object.getOwnPropertyDescriptor(prototype, "onPaint");
   const previousPianoroll = Object.getOwnPropertyDescriptor(prototype, "pianoroll");
+  const previousPiano = Object.getOwnPropertyDescriptor(prototype, "piano");
   let count = 0;
 
   if (typeof previousOnPaint?.value === "function") {
@@ -279,6 +304,18 @@ const captureFrameVisualizers = (runtime, nodeId) => {
         });
       },
     });
+    // Older Strudel songs used `.piano()` for the piano-roll visualizer.
+    // Keep that spelling working in Livecode nodes without confusing it
+    // with the `piano` sound name (`.s("piano")`).
+    if (!previousPiano) {
+      Object.defineProperty(prototype, "piano", {
+        configurable: true,
+        writable: true,
+        value(options = {}) {
+          return this.pianoroll(options);
+        },
+      });
+    }
   }
 
   return {
@@ -288,6 +325,8 @@ const captureFrameVisualizers = (runtime, nodeId) => {
       else delete prototype.onPaint;
       if (previousPianoroll) Object.defineProperty(prototype, "pianoroll", previousPianoroll);
       else delete prototype.pianoroll;
+      if (previousPiano) Object.defineProperty(prototype, "piano", previousPiano);
+      else delete prototype.piano;
     },
   };
 };
@@ -460,7 +499,7 @@ export class StrudelRuntimeManager {
     return webaudio.getAudioContext();
   }
 
-  _nodeScope(nodeId, bridge, transportMode = "linked", tempoState = { cps: null }) {
+  _nodeScope(nodeId, bridge, transportMode = "linked", tempoState = { cps: null }, patternCapture = null) {
     const linked = transportMode !== "free";
     const setCps = value => {
       const cps = Math.max(0.01, Math.min(16, Number(value) || this.cps));
@@ -485,6 +524,13 @@ export class StrudelRuntimeManager {
         bridge?.strudel?.setPlaying?.(false);
         return core.silence;
       },
+      // These are normally installed by core.repl. A node has its own
+      // labelled-pattern capture, so route the REPL transforms there instead
+      // of mutating the shared scheduler's pattern registry.
+      all: patternCapture?.all || (() => core.silence),
+      each: patternCapture?.each || (() => core.silence),
+      slider,
+      sliderWithID,
       setcps: setCps,
       setCps,
       setcpm: setCpm,
@@ -509,14 +555,14 @@ export class StrudelRuntimeManager {
     // Strudel widget. Clear that legacy loop before evaluating the new source.
     cleanupNativeDraw();
     const tempoState = { cps: null };
-    const scope = this._nodeScope(nodeId, bridge, transportMode, tempoState);
-    const previous = Object.fromEntries(Object.keys(scope).map(key => [key, globalThis[key]]));
     const labelled = captureLabelledPatterns(nodeId);
+    const scope = this._nodeScope(nodeId, bridge, transportMode, tempoState, labelled);
+    const previous = Object.fromEntries(Object.keys(scope).map(key => [key, globalThis[key]]));
     const frameVisualizers = captureFrameVisualizers(this, nodeId);
     Object.assign(globalThis, scope);
     try {
       const { pattern, meta } = await core.evaluate(source, transpiler, { id: nodeId });
-      const captured = labelled.stack();
+      const captured = labelled.stack(pattern);
       const result = captured || pattern;
       if (!core.isPattern(result)) throw new Error("Strudel source must evaluate to a pattern.");
       return {
@@ -535,7 +581,7 @@ export class StrudelRuntimeManager {
     }
   }
 
-  async upsert({ nodeId, source, transportMode = "linked", bridge }) {
+  async upsert({ nodeId, source, transportMode = "linked", bridge, launchAt = null }) {
     const run = async () => {
       this._notifyVisual(nodeId, { status: "Evaluating…", error: "" });
       // The reference REPL establishes core's shared time source before it
@@ -553,10 +599,21 @@ export class StrudelRuntimeManager {
           this.cps,
           SCHEDULER_SWAP_SAFETY_SECONDS,
         ) - phaseOffset;
+        // A freshly launched linked node should begin at the first event of
+        // its pattern when its scheduler-safe activation arrives. Existing
+        // nodes retain the transport phase so source edits still swap on a
+        // normal beat boundary.
+        const launchPhase = normalizedMode === "linked"
+          && launchAt !== null
+          && launchAt !== undefined
+          && Number.isFinite(Number(launchAt))
+          ? activateAt + phaseOffset
+          : null;
         this.entries.set(nodeId, {
           pattern: previous?.pattern || core.silence,
           transportMode: normalizedMode,
           cps,
+          launchPhase: previous?.launchPhase ?? launchPhase,
           pending: { pattern, meta, activateAt },
         });
         this._notifyVisual(nodeId, {
@@ -569,6 +626,12 @@ export class StrudelRuntimeManager {
           pattern,
           transportMode: normalizedMode,
           cps,
+          launchPhase: normalizedMode === "linked"
+            && launchAt !== null
+            && launchAt !== undefined
+            && Number.isFinite(Number(launchAt))
+            ? Number(launchAt) * this.cps
+            : null,
           pending: null,
         });
         this._publishEvaluation(nodeId, meta, normalizedMode);
@@ -729,7 +792,8 @@ export class StrudelRuntimeManager {
       .map(entry => {
         const transform = pattern => {
           if (entry.transportMode === "linked") {
-            return this.linkedPhaseOffset ? pattern._early(this.linkedPhaseOffset) : pattern;
+            const phaseOffset = this.linkedPhaseOffset - (Number(entry.launchPhase) || 0);
+            return phaseOffset ? pattern._early(phaseOffset) : pattern;
           }
           return !entry.cps || entry.cps === this.cps
             ? pattern

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { SHADER_VERTEX_SOURCE } from "./shaderLivecode.js";
 import { collectShaderSceneSegments, collectShaderWorldSegments, flattenShaderSegments, MAX_SHADER_SEGMENTS } from "./shaderSceneGeometry.js";
 import { publishShaderStatus } from "./shaderStatus.js";
+import { isLivecodeTransportPlaying } from "./livecodeTransport.js";
 
 const publishFrameStatus = (statusRef, kind, message = "") => publishShaderStatus({
   ...statusRef.current,
@@ -269,7 +270,7 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
       if (location) gl.uniform1f(location, value);
     };
     const draw = now => {
-      if (active && pageVisible && runtime.updateProgram) {
+      if (active && pageVisible && isLivecodeTransportPlaying(node.runtime.transportMode, transportRef.current) && runtime.updateProgram) {
         resize();
         const delta = Math.min(1 / 20, Math.max(1 / 240, (now - lastTime) / 1000));
         lastTime = now;

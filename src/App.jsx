@@ -11,12 +11,12 @@ import NumberInputController from "./NumberInputController.jsx";
 import ObjectPathClipboardController from "./ObjectPathClipboard.jsx";
 import TimeValueInput from "./TimeValueInput.jsx";
 import InspectorSection from "./InspectorSection.jsx";
-import { attachUnderscoresExchangeMetadata, getSelectionExchangeElements, parseUnderscoresExchange, remapSelectionForImport } from "./sceneExchange.js";
+import { attachUnderscoresExchangeMetadata, getSelectionExchangeElements, normalizeSceneExportFilename, parseUnderscoresExchange, remapSelectionForImport } from "./sceneExchange.js";
 import { loadLastScene, saveLastScene } from "./sceneSessionStorage.js";
 import { attachUnderscoresSvgMetadata, cleanSvgMarkup, extractUnderscoresSvgMetadata, extractSvgMarkup, getSvgDrawableBounds, offsetSvgDrawableSpecs, parseSvgToDrawableSpecs } from "./svgImport.js";
 import { UNDERSCORES_PANELS, getUnderscoresPanel, getNaturalPanelPlacement } from "./panelRegistry.js";
 import { getDockTarget, getOpenPanelsForPlacement, normalizeDockSizes, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
-import { advanceMidiClockReceiver, advanceTransportPlaybackTime, createMidiClockReceiverState, formatTimelinePosition, MIDI_REALTIME, midiClockIntervalMs, normalizeTimeSignature, parseTimelinePosition, secondsToFrame, songPositionToSeconds } from "./transport.js";
+import { advanceMidiClockReceiver, advanceTransportPlaybackTime, createMidiClockReceiverState, formatTimelinePosition, MIDI_REALTIME, midiClockIntervalMs, nextTransportLaunchTime, normalizeTimeSignature, normalizeTransportLaunchQuantization, parseTimelinePosition, secondsToFrame, songPositionToSeconds, TRANSPORT_LAUNCH_QUANTIZATION_OPTIONS } from "./transport.js";
 import UnderscoresPanel from "./UnderscoresPanel.jsx";
 import TransportTimeline from "./TransportTimeline.jsx";
 import HistoryPanel from "./HistoryPanel.jsx";
@@ -90,7 +90,7 @@ import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
 import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
 import { LivecodeNodeEditor, LivecodeNodeOverlay, StrudelPanelStatus } from "./LivecodeNodeOverlay.jsx";
-import { copyLivecodeExampleName, createLivecodeNode, defaultLivecodeSource, getLivecodeFont, getLivecodeKindDefinition, getLivecodeViewForDoubleClick, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, randomLivecodeName, replaceLivecodeNodeProgram } from "./livecodeNode.js";
+import { copyLivecodeExampleName, createLivecodeNode, defaultLivecodeSource, getLivecodeFont, getLivecodeKindDefinition, getLivecodeViewForDoubleClick, isLivecodeCommandCycleGesture, isLivecodeCommandOutputGesture, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, randomLivecodeName, replaceLivecodeNodeProgram } from "./livecodeNode.js";
 import { LIVECODE_PERSISTENCE_MODES, normalizeLivecodeComposition } from "./livecodeComposition.js";
 import { getLivecodeExamples } from "./livecodeExamples.js";
 import { describeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
@@ -4206,6 +4206,13 @@ function App() {
       return { numerator: 4, denominator: 4 };
     }
   });
+  const [transportLaunchQuantization, setTransportLaunchQuantization] = useState(() => {
+    try {
+      return normalizeTransportLaunchQuantization(JSON.parse(localStorage.getItem("underscores_transport_launch_quantization") || "null"));
+    } catch {
+      return normalizeTransportLaunchQuantization(null);
+    }
+  });
   const [transportDisplayMode, setTransportDisplayMode] = useState(() => {
     const saved = localStorage.getItem("underscores_transport_display");
     return ["frame", "timecode", "beats"].includes(saved) ? saved : "timecode";
@@ -4444,6 +4451,7 @@ function App() {
   const importSvgMarkupRef = useRef(null);
   const svgClipboardCacheRef = useRef(null);
   const scoreTimeRef = useRef(scoreTime);
+  const pendingLivecodeActivationsRef = useRef(new Map());
   useEffect(() => {
     // Internal playback streams transport time directly from its animation
     // frame below. Do not overwrite that high-resolution clock with the
@@ -5489,6 +5497,7 @@ function App() {
 
   useEffect(() => {
     localStorage.setItem("underscores_time_signature", JSON.stringify(scoreTimeSignature));
+    localStorage.setItem("underscores_transport_launch_quantization", JSON.stringify(transportLaunchQuantization));
     localStorage.setItem("underscores_transport_display", transportDisplayMode);
     localStorage.setItem("underscores_transport_fps", String(transportFps));
     localStorage.setItem("underscores_score_sample_rate", String(scoreSampleRate));
@@ -5501,7 +5510,7 @@ function App() {
     localStorage.setItem("underscores_follow_midi_clock_tempo", String(followMidiClockTempo));
     localStorage.setItem("underscores_follow_midi_transport", String(followMidiTransport));
     localStorage.setItem("underscores_latch_triggers_across_cursors", String(latchTriggersAcrossCursors));
-  }, [followMidiClockTempo, followMidiTransport, latchTriggersAcrossCursors, midiClockMode, scoreSampleRate, scoreTimeSignature, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopEndValue, transportLoopStart, transportLoopStartValue]);
+  }, [followMidiClockTempo, followMidiTransport, latchTriggersAcrossCursors, midiClockMode, scoreSampleRate, scoreTimeSignature, transportLaunchQuantization, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopEndValue, transportLoopStart, transportLoopStartValue]);
 
   useEffect(() => {
     const start = Math.max(0, resolveTimeValue(transportLoopStartValue, timeContext));
@@ -7025,7 +7034,7 @@ function App() {
   livecodeNodeAtCanvasPointerRef.current = livecodeNodeAtCanvasPointer;
 
   const handleLivecodeCommandOutputPointerDown = e => {
-    if (!excalidrawAPI || e.button !== 0 || !(e.metaKey || e.ctrlKey)) return false;
+    if (!excalidrawAPI || !isLivecodeCommandOutputGesture(e)) return false;
     const hit = livecodeNodeAtCanvasPointer(e.clientX, e.clientY);
     if (!hit) return false;
     e.preventDefault();
@@ -7688,7 +7697,11 @@ function App() {
     // Livecode Nodes reuse CodeMirror. Once their local editor or compact
     // chrome has focus, the canvas must not start a selection/drawing gesture
     // underneath it.
-    if (e.target?.closest?.(".underscores-livecode-node")) return;
+    const livecodeNodeTarget = e.target?.closest?.(".underscores-livecode-node");
+    const livecodeEditorTarget = e.target?.closest?.(".underscores-code-editor, .cm-editor, textarea, input, select, button");
+    // Let the overlap-cycle chord reach the hosted-object selector when it
+    // lands on a Livecode output, but never steal editor or chrome gestures.
+    if (livecodeNodeTarget && (!isLivecodeCommandCycleGesture(e) || livecodeEditorTarget)) return;
 
     // SVG control circles own their pointer session directly. This prevents a
     // drag from also reaching Excalidraw's drawing tools.
@@ -12022,16 +12035,18 @@ function App() {
       name: "Excalidraw: Save Scene /ex save",
       aliases: ["/save", "/save scene", "/scene save", "/ex save", "/ex export scene"],
       category: "Excalidraw",
-      ai: { expose: true, description: "Download the current Underscores scene with its metadata." },
-      action: () => exportUnderscoresScene(),
+      args: { name: "string?" },
+      ai: { expose: true, description: "Download the current Underscores scene with its metadata. An optional name becomes the downloaded .excalidraw filename." },
+      action: (_api, args = {}) => exportUnderscoresScene(args.name),
     },
     {
       id: "excalidraw.file.saveAs",
       name: "Excalidraw: Save Scene As /ex save as",
       aliases: ["/ex save as"],
       category: "Excalidraw",
-      ai: { expose: true, description: "Download the current Underscores scene as a new file." },
-      action: () => exportUnderscoresScene(),
+      args: { name: "string?" },
+      ai: { expose: true, description: "Download the current Underscores scene as a new file, optionally using the supplied .excalidraw filename." },
+      action: (_api, args = {}) => exportUnderscoresScene(args.name),
     },
     {
       id: "excalidraw.file.exportPng",
@@ -12452,7 +12467,7 @@ function App() {
     { id: "automation.keyframes.set", name: "AI: Set Object Keyframes", category: "AI Actions", args: { keyframes: "{elementId,path,time|seconds,value,interpolation?}[]" }, ai: { expose: true, description: "Animate supported Excalidraw object properties by adding or replacing keyframes. Supported paths are x, y, angle, width, height, opacity, strokeWidth, strokeColor, backgroundColor, points, customData.modifiers, customData.score, customData.physics, and customData.underscoresGeometry. Time accepts time expressions.", example: { keyframes: [{ elementId: "curve-a", path: "x", time: "0 s", value: 100 }, { elementId: "curve-a", path: "x", time: "2 bars", value: 600 }] } }, action: (_api, args) => setAIAutomationKeyframes(args) },
     { id: "scene.delete", name: "Delete Scene Objects", category: "Scene", args: { elementIds: "string[]" }, ai: { expose: true, description: "Delete objects by id.", example: { elementIds: ["curve-a"] } }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.delete", args) },
     { id: "score.roles.assign", name: "AI: Assign Score Roles", category: "AI Actions", args: { elementIds: "string[]?", role: "none|curve|cursor|trigger", label: "string?", active: "boolean?" }, ai: { expose: true, description: "Assign or clear Score roles. Without elementIds, applies to the current selection.", example: { elementIds: ["curve-a"], role: "curve", label: "Main curve" } }, action: (_api, args) => assignAIObjectRoles(args) },
-    { id: "transport.update", name: "Update Transport State", category: "Transport", args: { state: "transportState" }, ai: { expose: true, description: "Update transport tempo, meter, play state, display mode, fps, or loop range. Do not change MIDI credentials or providers.", example: { state: { tempo: 96, timeSignature: "4/4", displayMode: "beats" } } }, action: (_api, args) => runtimeCallbacksRef.current.transportUpdate(args?.state || args) },
+    { id: "transport.update", name: "Update Transport State", category: "Transport", args: { state: "transportState" }, ai: { expose: true, description: "Update transport tempo, meter, play state, display mode, fps, loop range, or linked launch quantization. Do not change MIDI credentials or providers.", example: { state: { tempo: 96, timeSignature: "4/4", displayMode: "beats", launchQuantization: { enabled: true, interval: "bar" } } } }, action: (_api, args) => runtimeCallbacksRef.current.transportUpdate(args?.state || args) },
     { id: "transport.seek", name: "Seek Global Transport", category: "Transport", args: { seconds: "number|timeValue" }, action: (_api, args) => runtimeCallbacksRef.current.transportSeek(resolveTimeValue(args?.value ?? args?.seconds ?? 0, timeContext)) },
     { id: "transport.jump.start", name: "Jump to Timeline or Loop Start", category: "Transport", action: () => runtimeCallbacksRef.current.transportJump("start") },
     { id: "transport.jump.end", name: "Jump to Timeline or Loop End", category: "Transport", action: () => runtimeCallbacksRef.current.transportJump("end") },
@@ -12971,6 +12986,17 @@ function App() {
         inlineWebEmbedUrl: url,
       });
     }
+    const inlineExcalidrawSaveMatch = /^\/ex\s+save(?:\s+as)?\s+(.+)$/i.exec(commandSearch.trim());
+    if (inlineExcalidrawSaveMatch) {
+      const saveAs = /^\/ex\s+save\s+as\s+/i.test(commandSearch.trim());
+      matches.unshift({
+        id: `excalidraw-save-inline:${inlineExcalidrawSaveMatch[1].trim()}`,
+        name: `Save Scene as ${inlineExcalidrawSaveMatch[1].trim()}`,
+        category: "Excalidraw",
+        inlineExcalidrawSaveName: inlineExcalidrawSaveMatch[1].trim(),
+        inlineExcalidrawSaveAs: saveAs,
+      });
+    }
     
     if (commandSearch.trim() !== "" && !query.startsWith("/")) {
       matches.unshift({
@@ -13018,6 +13044,16 @@ function App() {
     match = /^\/p5(?:\s+(.+))?$/i.exec(input);
     if (match) return {
       command: COMMANDS.find(command => command.id === "p5.frame.create"),
+      args: { name: match[1]?.trim() || "" },
+    };
+    match = /^\/ex\s+save\s+as(?:\s+(.+))?$/i.exec(input);
+    if (match) return {
+      command: COMMANDS.find(command => command.id === "excalidraw.file.saveAs"),
+      args: { name: match[1]?.trim() || "" },
+    };
+    match = /^\/ex\s+save(?:\s+(.+))?$/i.exec(input);
+    if (match) return {
+      command: COMMANDS.find(command => command.id === "excalidraw.file.save"),
       args: { name: match[1]?.trim() || "" },
     };
     match = /^\/history\s+seek\s+([0-9.]+)$/i.exec(input);
@@ -13068,6 +13104,9 @@ function App() {
       }
       if (cmd.inlineWebEmbedUrl) {
         return await commandRegistry.execute("webembed.create", { url: cmd.inlineWebEmbedUrl }, { source, transportTime: scoreTimeRef.current });
+      }
+      if (cmd.inlineExcalidrawSaveName) {
+        return await commandRegistry.execute(cmd.inlineExcalidrawSaveAs ? "excalidraw.file.saveAs" : "excalidraw.file.save", { name: cmd.inlineExcalidrawSaveName }, { source, transportTime: scoreTimeRef.current });
       }
       return await commandRegistry.execute(cmd.id, args, { source, transportTime: scoreTimeRef.current });
     } catch (error) {
@@ -15748,6 +15787,89 @@ function App() {
     setLivecodeStatus("Saved to the scene.");
   };
 
+  const flushPendingLivecodeActivations = () => {
+    const pending = pendingLivecodeActivationsRef.current;
+    if (!pending.size || !scorePlayingRef.current) return;
+    const now = Math.max(0, Number(scoreTimeRef.current) || 0);
+    const due = [];
+    pending.forEach((entry, elementId) => {
+      const crossed = entry.targetTime >= entry.queuedAt
+        ? now >= entry.targetTime - 1e-6
+        : now < entry.queuedAt && now >= entry.targetTime - 1e-6;
+      if (crossed) due.push({ elementId, entry });
+    });
+    if (!due.length) return;
+    due.forEach(({ elementId }) => pending.delete(elementId));
+    const ready = due.flatMap(({ elementId, entry }) => {
+      const element = (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || []).find(candidate => (
+        candidate.id === elementId && !candidate.isDeleted && isLivecodeNodeElement(candidate)
+      ));
+      if (!element) return [];
+      const node = normalizeLivecodeNode(element.customData?.underscoresLivecode);
+      const action = entry.action === "stop" ? "stop" : "start";
+      if (action === "start" ? node.runtime.running : !node.runtime.running) return [];
+      return [{
+        elementId,
+        action,
+        launchAt: action === "start" && node.kind === LIVECODE_KINDS.strudel ? entry.targetTime : null,
+      }];
+    });
+    ready.forEach(({ elementId, action, launchAt }, index) => {
+      const element = (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || []).find(candidate => (
+        candidate.id === elementId && !candidate.isDeleted && isLivecodeNodeElement(candidate)
+      ));
+      const node = element ? normalizeLivecodeNode(element.customData?.underscoresLivecode) : null;
+      if (action === "stop" && node?.runtime.settings?.keepLastFrame === true) {
+        clearLivecodeFrameSnapshot(elementId);
+        captureLivecodeFrameSnapshot(elementId);
+      }
+      patchLivecodeCanvasNode(elementId, {
+        runtime: {
+          running: action === "start",
+          ...(node?.kind === LIVECODE_KINDS.strudel
+            ? { settings: { launchAt: launchAt === null ? null : launchAt } }
+            : {}),
+        },
+      }, { commitToHistory: index === ready.length - 1 });
+    });
+    if (ready.length) {
+      const starts = ready.filter(entry => entry.action === "start").length;
+      const stops = ready.length - starts;
+      setLivecodeStatus([
+        starts ? `${starts} linked Livecode activation${starts === 1 ? "" : "s"} launched` : "",
+        stops ? `${stops} linked Livecode stop${stops === 1 ? "" : "s"} applied` : "",
+      ].filter(Boolean).join(" · ") + ".");
+      if (stops && ready.some(({ elementId }) => {
+        const element = (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || []).find(candidate => candidate.id === elementId);
+        const node = element ? normalizeLivecodeNode(element.customData?.underscoresLivecode) : null;
+        return node?.kind === LIVECODE_KINDS.strudel && node.runtime.settings?.syncTransport;
+      })) setScorePlaying(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!scorePlaying) {
+      // Stopping the shared transport cancels queued linked Livecode changes, matching
+      // Ableton's stop-all behavior. Starting again requires an explicit run.
+      pendingLivecodeActivationsRef.current.clear();
+      return;
+    }
+    const now = Math.max(0, Number(scoreTimeRef.current) || 0);
+    pendingLivecodeActivationsRef.current.forEach(entry => {
+      if (!transportLaunchQuantization.enabled) {
+        entry.targetTime = now;
+        entry.queuedAt = now;
+        return;
+      }
+      let targetTime = nextTransportLaunchTime(entry.queuedAt, transportLaunchQuantization, timeContext);
+      if (transportLoopEnabled && transportLoopEnd > transportLoopStart && targetTime >= transportLoopEnd) {
+        targetTime = transportLoopStart;
+      }
+      entry.targetTime = targetTime;
+    });
+    flushPendingLivecodeActivations();
+  }, [scorePlaying, scoreTime, transportLaunchQuantization, transportLoopEnabled, transportLoopEnd, transportLoopStart]);
+
   const toggleLivecodeNodeRun = async (elementId, { command = "toggle" } = {}) => {
     const element = (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || []).find(candidate => (
       candidate.id === elementId && !candidate.isDeleted && isLivecodeNodeElement(candidate)
@@ -15764,6 +15886,12 @@ function App() {
     }
     const updating = command === "update" && node.kind === LIVECODE_KINDS.strudel;
     const running = updating || command === "run" ? true : !node.runtime.running;
+    const pendingActivation = pendingLivecodeActivationsRef.current.get(elementId);
+    if (command === "toggle" && pendingActivation) {
+      pendingLivecodeActivationsRef.current.delete(elementId);
+      setLivecodeStatus(`Queued Livecode ${pendingActivation.action === "stop" ? "stop" : "activation"} canceled.`);
+      return;
+    }
     const validation = validateLivecodeNode(node);
     if (running && !validation.valid) {
       setLivecodeStatus(`${getLivecodeKindDefinition(node.kind).label} draft has an error: ${validation.error}`);
@@ -15786,10 +15914,33 @@ function App() {
       if (activeTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_GM)) await ensureInternalSynth();
       if (activeTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_EXPRESSIVE)) await ensureExpressiveSynth();
     }
+    const transportWillPlay = scorePlaying || (node.kind === LIVECODE_KINDS.strudel && node.runtime.settings?.syncTransport === true);
+    const shouldQuantizeTransportChange = (running !== node.runtime.running)
+      && node.runtime.transportMode !== "free"
+      && transportWillPlay
+      && transportLaunchQuantization.enabled;
+    if (shouldQuantizeTransportChange) {
+      const queuedAt = Math.max(0, Number(scoreTimeRef.current) || 0);
+      let targetTime = nextTransportLaunchTime(queuedAt, transportLaunchQuantization, timeContext);
+      if (transportLoopEnabled && transportLoopEnd > transportLoopStart && targetTime >= transportLoopEnd) {
+        targetTime = transportLoopStart;
+      }
+      const action = running ? "start" : "stop";
+      pendingLivecodeActivationsRef.current.set(elementId, { action, queuedAt, targetTime });
+      if (node.kind === LIVECODE_KINDS.strudel && node.runtime.settings?.syncTransport) setScorePlaying(true);
+      setLivecodeStatus(`Queued ${getLivecodeKindDefinition(node.kind).label} ${action} for ${formatSecondsAsBBU(targetTime, timeContext)}.`);
+      return;
+    }
     const evaluationSettings = running && node.kind === LIVECODE_KINDS.strudel ? {
       evaluatedSource: node.source,
       evaluationRevision: Math.max(0, Number(node.runtime.settings?.evaluationRevision) || 0) + 1,
     } : null;
+    const runtimeSettings = node.kind === LIVECODE_KINDS.strudel
+      ? {
+        ...(evaluationSettings || {}),
+        launchAt: running ? Math.max(0, Number(scoreTimeRef.current) || 0) : null,
+      }
+      : evaluationSettings;
     if (!running && node.runtime.settings?.keepLastFrame === true) {
       // Capture before the runtime unmounts. This is the only Livecode canvas
       // readback performed for the thumbnail option, and it is bounded to a
@@ -15800,7 +15951,7 @@ function App() {
     patchLivecodeCanvasNode(elementId, {
       runtime: {
         running,
-        ...(evaluationSettings ? { settings: evaluationSettings } : {}),
+        ...(runtimeSettings ? { settings: runtimeSettings } : {}),
       },
     }, { commitToHistory: true });
     if (!running && node.kind === LIVECODE_KINDS.strudel && node.runtime.settings?.syncTransport) setScorePlaying(false);
@@ -16824,6 +16975,7 @@ function App() {
       rate: scoreRate,
       tempo: scoreTempo,
       timeSignature: scoreTimeSignature,
+      launchQuantization: transportLaunchQuantization,
       displayMode: transportDisplayMode,
       fps: transportFps,
       sampleRate: scoreSampleRate,
@@ -16889,11 +17041,12 @@ function App() {
     setScoreRuntimeNonce(nonce => nonce + 1);
   };
 
-  const exportUnderscoresScene = () => {
+  const exportUnderscoresScene = (requestedName = "") => {
     try {
       const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
-      downloadTextFile(createUnderscoresExchangeJson("scene", elements), `underscores-scene-${new Date().toISOString().slice(0, 10)}.excalidraw`);
-      setSceneExchangeStatus(`Exported ${elements.filter(element => !element.isDeleted).length} scene objects with Underscores metadata.`);
+      const filename = normalizeSceneExportFilename(requestedName);
+      downloadTextFile(createUnderscoresExchangeJson("scene", elements), filename);
+      setSceneExchangeStatus(`Exported ${elements.filter(element => !element.isDeleted).length} scene objects with Underscores metadata as ${filename}.`);
     } catch (error) {
       setSceneExchangeStatus(error.message || "Scene export failed.");
     }
@@ -16908,7 +17061,7 @@ function App() {
         ? `data:application/json;charset=utf-8,${encodeURIComponent(text)}`
         : URL.createObjectURL(new Blob([text], { type: "application/json" }));
       event.currentTarget.href = url;
-      event.currentTarget.download = `underscores-scene-${new Date().toISOString().slice(0, 10)}.excalidraw`;
+      event.currentTarget.download = normalizeSceneExportFilename();
       if (!useDataUrl) window.setTimeout(() => URL.revokeObjectURL(url), 5000);
       setSceneExchangeStatus(`Exported ${elements.filter(element => !element.isDeleted).length} scene objects with Underscores metadata.`);
     } catch (error) {
@@ -16987,6 +17140,7 @@ function App() {
     if (Number.isFinite(score?.rate) && score.rate > 0) setScoreRate(score.rate);
     if (Number.isFinite(score?.tempo) && score.tempo >= 20 && score.tempo <= 400) setScoreTempo(score.tempo);
     if (score?.timeSignature) setScoreTimeSignature(normalizeTimeSignature(score.timeSignature));
+    if (score?.launchQuantization) setTransportLaunchQuantization(normalizeTransportLaunchQuantization(score.launchQuantization));
     if (["frame", "timecode", "beats"].includes(score?.displayMode)) setTransportDisplayMode(score.displayMode);
     if ([24, 25, 30, 50, 60].includes(score?.fps)) setTransportFps(score.fps);
     if (Number.isFinite(score?.sampleRate) && score.sampleRate >= 8000 && score.sampleRate <= 768000) setScoreSampleRate(score.sampleRate);
@@ -17321,6 +17475,7 @@ function App() {
       setScoreTempo(Number(state.tempo));
     }
     if (state.timeSignature) setScoreTimeSignature(normalizeTimeSignature(state.timeSignature));
+    if (state.launchQuantization) setTransportLaunchQuantization(normalizeTransportLaunchQuantization(state.launchQuantization));
     if (["frame", "timecode", "beats"].includes(state.displayMode)) setTransportDisplayMode(state.displayMode);
     if ([24, 25, 30, 50, 60].includes(Number(state.fps))) setTransportFps(Number(state.fps));
     if (Number.isFinite(Number(state.sampleRate)) && Number(state.sampleRate) >= 8000 && Number(state.sampleRate) <= 768000) setScoreSampleRate(Number(state.sampleRate));
@@ -17575,6 +17730,7 @@ function App() {
       rate: scoreRate,
       tempo: scoreTempo,
       timeSignature: scoreTimeSignature,
+      launchQuantization: transportLaunchQuantization,
       displayMode: transportDisplayMode,
       fps: transportFps,
       loop: { enabled: transportLoopEnabled, start: transportLoopStart, end: transportLoopEnd, startValue: transportLoopStartValue, endValue: transportLoopEndValue },
@@ -17596,7 +17752,7 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record transport state", error));
     }, 180);
-  }, [commandRegistry, followMidiClockTempo, followMidiTransport, historyController, midiClockMode, scorePlaying, scoreRate, scoreSampleRate, scoreTempo, scoreTimeSignature, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopEndValue, transportLoopStart, transportLoopStartValue]);
+  }, [commandRegistry, followMidiClockTempo, followMidiTransport, historyController, midiClockMode, scorePlaying, scoreRate, scoreSampleRate, scoreTempo, scoreTimeSignature, transportDisplayMode, transportFps, transportLaunchQuantization, transportLoopEnabled, transportLoopEnd, transportLoopEndValue, transportLoopStart, transportLoopStartValue]);
 
   useEffect(() => {
     const state = { openPanels, panelLayouts, dockSizes, activeDockPanels, collapsedDocks, activeSettingsTab, modsPanelTab, scriptPanelType };
@@ -22469,6 +22625,13 @@ function App() {
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="m7 22-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/></svg>
         </button>
 
+        <div className="iannix-transport-launch-quantization" title="Quantize starts and stops for linked Livecode nodes to the next musical boundary">
+          <button type="button" className={transportLaunchQuantization.enabled ? "active" : ""} onClick={() => setTransportLaunchQuantization(previous => normalizeTransportLaunchQuantization({ ...previous, enabled: !previous.enabled }))} aria-label="Toggle linked launch quantization" aria-pressed={transportLaunchQuantization.enabled}>Q</button>
+          <select aria-label="Linked launch quantization interval" value={transportLaunchQuantization.interval} onChange={event => setTransportLaunchQuantization(previous => normalizeTransportLaunchQuantization({ ...previous, interval: event.target.value }))}>
+            {TRANSPORT_LAUNCH_QUANTIZATION_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </div>
+
         <div className="iannix-transport-range">
           <TimeValueInput aria-label="Loop start" data-route-path="transport.loop.start" value={transportLoopStartValue} context={timeContext} defaultValue="0 s" minSeconds={0} onChange={(next, seconds) => { setTransportLoopStartValue(next); setTransportLoopStart(Math.max(0, Math.min(seconds, transportLoopEnd - 1 / transportFps))); setTransportLoopEnabled(true); }} />
           <span>–</span>
@@ -22568,6 +22731,7 @@ function App() {
     setShowPerformanceOverlay(false);
     setShowDebugLayer(false);
     setDefaultStabilizerDamping(0.12);
+    setTransportLaunchQuantization(normalizeTransportLaunchQuantization(null));
     setScriptEditorTheme("underscores");
     setTransparentBoardExport(false);
     setLaserColor("#ff0000");
@@ -22585,6 +22749,7 @@ function App() {
     localStorage.setItem("underscores_performance_overlay", "false");
     localStorage.setItem("underscores_show_debug_layer", "false");
     localStorage.setItem("underscores_default_stabilizer_damping", "0.12");
+    localStorage.setItem("underscores_transport_launch_quantization", JSON.stringify(normalizeTransportLaunchQuantization(null)));
     localStorage.setItem("underscores_export_transparent", "false");
     localStorage.setItem("underscores_laser_color", "#ff0000");
     localStorage.setItem("underscores_laser_opacity", "100");
@@ -22957,6 +23122,22 @@ function App() {
                 <span>Playback rate</span>
                 <NumericInput min="0.05" max="8" step="0.05" data-default="1" value={scoreRate} defaultValue={1} onCommit={setScoreRate} />
               </label>
+            </div>
+            <label className="settings-panel-check" {...infoProps("Quantize linked activation", "Queue starts and stops for Livecode nodes whose Clock is Linked, then apply them on the next selected musical boundary. Free-clock nodes and changes made while paused are immediate.")}>
+              <span>Quantize linked activation</span>
+              <input type="checkbox" checked={transportLaunchQuantization.enabled} onChange={event => setTransportLaunchQuantization(previous => normalizeTransportLaunchQuantization({ ...previous, enabled: event.target.checked }))} />
+            </label>
+            <div className="settings-panel-two-column">
+              <label className="settings-panel-field" {...infoProps("Launch quantization interval", "Choose the next 1/16, 1/8, beat, half-beat, bar, or multi-bar boundary. Custom beats uses the current meter beat as its unit.")}>
+                <span>Launch interval</span>
+                <select value={transportLaunchQuantization.interval} onChange={event => setTransportLaunchQuantization(previous => normalizeTransportLaunchQuantization({ ...previous, interval: event.target.value }))}>
+                  {TRANSPORT_LAUNCH_QUANTIZATION_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              {transportLaunchQuantization.interval === "custom" && <label className="settings-panel-field" {...infoProps("Custom launch beats", "Number of current meter beats between linked activation boundaries.")}>
+                <span>Custom beats</span>
+                <NumericInput min="0.0625" max="128" step="0.0625" value={transportLaunchQuantization.customBeats} defaultValue={4} onCommit={customBeats => setTransportLaunchQuantization(previous => normalizeTransportLaunchQuantization({ ...previous, customBeats }))} />
+              </label>}
             </div>
             <div className="settings-panel-two-column">
               <label className="settings-panel-field" {...infoProps("Transport display", "Display timeline positions as frames, timecode, or bars and beats.")}>

@@ -42,6 +42,8 @@ export const LIVECODE_HELP = Object.freeze({
       "Event locations animate in the source. Public painters such as .pianoroll() fill the node frame when Frame visuals is enabled; underscores painters such as ._pianoroll() stay inline with the code.",
       "Declare // @param c1 = \"red\" (color) and read it as __.params.c1, for example .color(pure(__.params.c1)). JavaScript expressions inside a quoted <...> mini-notation string are literal text; parameter edits recompile the running node on the next safe beat.",
       "To combine a live parameter with a Mini sequence, build the pattern in JavaScript: .color(slowcat(pure(__.params.c1), \"#8bd5ff\", \"#f5d76e\", \"#9df59d\")). Strudel's color control stores each CSS color string on the resulting Hap for visualizers to render.",
+      "Numeric // @param declarations are persistent node controls, for example // @param room = 1.93 (0..10, step: 0.01), then use .room(__.params.room). Inline slider(value, min, max, step) is also supported and appears beside the source when the editor is open.",
+      "REPL helpers all(transform) and each(transform) apply to this node's labelled `$:` voices. Legacy .piano() is supported as an alias for the piano-roll visualizer; use .s(\"piano\") for the piano sound.",
       "Linked is the default, so Underscores play/pause and tempo control the pattern. Choose Free for a node-local clock. Runs and updates join the four-beat Strudel cycle on a beat boundary.",
       "Stopping, replacing, or hushing a node affects only that node's pattern; other active Strudel nodes remain scheduled.",
     ]),

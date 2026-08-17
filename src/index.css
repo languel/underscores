@@ -5186,7 +5186,7 @@ a.iannix-flat-button {
   --transport-accent: var(--underscores-accent, #6b7173);
   --transport-accent-soft: var(--underscores-highlight, rgba(143, 143, 143, 0.1));
   display: grid;
-  grid-template-columns: 92px 180px 90px 174px 108px 86px 82px 46px minmax(80px, 1fr);
+  grid-template-columns: 92px 180px 90px 174px 108px 86px 82px 46px 124px minmax(80px, 1fr);
   grid-template-rows: var(--underscores-ui-control-height) minmax(0, 1fr);
   align-items: start;
   align-content: start;
@@ -5468,6 +5468,42 @@ a.iannix-flat-button {
   width: 100%;
   max-width: 220px;
   justify-self: start;
+}
+
+.iannix-transport-launch-quantization {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.iannix-transport-launch-quantization button,
+.iannix-transport-launch-quantization select {
+  box-sizing: border-box;
+  height: var(--underscores-ui-control-height);
+  min-height: var(--underscores-ui-control-height);
+  min-width: 0;
+  border: 1px solid var(--transport-border);
+  border-radius: var(--underscores-ui-control-radius);
+  background: var(--transport-field-bg);
+  color: var(--transport-text);
+  font-size: var(--underscores-ui-font-size);
+  line-height: var(--underscores-ui-line-height);
+}
+
+.iannix-transport-launch-quantization button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.iannix-transport-launch-quantization select {
+  width: 100%;
+  padding: 0 var(--underscores-ui-control-padding-x);
 }
 
 .iannix-transport-range input {
@@ -5763,7 +5799,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 
 @media (max-width: 980px) {
   .iannix-transport {
-    grid-template-columns: 76px 160px 82px 166px 92px 76px 72px 38px minmax(70px, 1fr);
+    grid-template-columns: 76px 160px 82px 166px 92px 76px 72px 38px 116px minmax(70px, 1fr);
   }
 
   .iannix-transport-status {
@@ -5779,6 +5815,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   .iannix-transport-signature,
   .iannix-transport-sync,
   .iannix-transport-range,
+  .iannix-transport-launch-quantization,
   .iannix-transport > button.loop {
     display: none;
   }
@@ -8198,7 +8235,8 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .iannix-transport-signature,
 .iannix-transport-sync,
 .iannix-transport > button.loop,
-.iannix-transport-range {
+.iannix-transport-range,
+.iannix-transport-launch-quantization {
   box-sizing: border-box;
   height: var(--underscores-ui-control-height);
   min-height: var(--underscores-ui-control-height);

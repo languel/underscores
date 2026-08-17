@@ -3,6 +3,7 @@ import FluidShaderFrame from "./FluidShaderFrame.jsx";
 import { FLUID_BRUSH_FRAGMENT_SOURCE, prepareShaderSource, shaderSourceUsesFeedbackBuffer, SHADER_VERTEX_SOURCE } from "./shaderLivecode.js";
 import { collectShaderSceneSegments, flattenShaderSegments, MAX_SHADER_SEGMENTS } from "./shaderSceneGeometry.js";
 import { publishShaderStatus } from "./shaderStatus.js";
+import { isLivecodeTransportPlaying } from "./livecodeTransport.js";
 
 const publishFrameStatus = (statusRef, kind, message = "") => publishShaderStatus({
   ...statusRef.current,
@@ -271,7 +272,7 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
       }
     };
     const draw = now => {
-      if (active && pageVisible && runtime.program && runtime.uniforms) {
+      if (active && pageVisible && isLivecodeTransportPlaying(node.runtime.transportMode, transportRef.current) && runtime.program && runtime.uniforms) {
         resize();
         const feedback = runtime.feedback && runtime.displayProgram && runtime.feedbackTargets.length === 2;
         const [readTarget, writeTarget] = feedback ? runtime.feedbackTargets : [null, null];

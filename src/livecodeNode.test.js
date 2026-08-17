@@ -8,6 +8,8 @@ import {
   getLivecodeFont,
   getLivecodeEditorProfile,
   getLivecodeViewForDoubleClick,
+  isLivecodeCommandCycleGesture,
+  isLivecodeCommandOutputGesture,
   isLivecodeNodeElement,
   normalizeLivecodeTypography,
   normalizeLivecodeNode,
@@ -40,6 +42,17 @@ test("maps Livecode double-click modifiers to explicit views", () => {
   assert.equal(getLivecodeViewForDoubleClick({ metaKey: true }), "preview");
   assert.equal(getLivecodeViewForDoubleClick({ ctrlKey: true }), "preview");
   assert.equal(getLivecodeViewForDoubleClick({ metaKey: true, shiftKey: true }), null);
+});
+
+test("Livecode command output shortcut leaves overlap cycling and editor chords alone", () => {
+  assert.equal(isLivecodeCommandOutputGesture({ button: 0, metaKey: true }), true);
+  assert.equal(isLivecodeCommandOutputGesture({ button: 0, ctrlKey: true }), true);
+  assert.equal(isLivecodeCommandOutputGesture({ button: 0, metaKey: true, shiftKey: true }), false);
+  assert.equal(isLivecodeCommandOutputGesture({ button: 0, metaKey: true, altKey: true }), false);
+  assert.equal(isLivecodeCommandOutputGesture({ button: 2, metaKey: true }), false);
+  assert.equal(isLivecodeCommandCycleGesture({ button: 0, metaKey: true, shiftKey: true }), true);
+  assert.equal(isLivecodeCommandCycleGesture({ button: 0, ctrlKey: true, shiftKey: true }), false);
+  assert.equal(isLivecodeCommandCycleGesture({ button: 0, metaKey: true, shiftKey: true, altKey: true }), false);
 });
 
 test("creates a versioned, self-contained Livecode Node with a stable runtime contract", () => {

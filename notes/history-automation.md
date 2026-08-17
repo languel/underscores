@@ -63,6 +63,7 @@ Useful slash commands include:
 - `/record start`, `/record play`, `/record pause`, `/record stop`
 - `/history`, `/history play`, `/history seek 2.5`
 - `/macro save My phrase`, `/macro insert My phrase relative`
+- `/ex save [name]` saves the current scene; an optional name such as `/ex save bioblip_melody` downloads `bioblip_melody.excalidraw`
 - `/autokey`
 - `/command transport.seek {"seconds":2.5}` for any stable registry ID
 

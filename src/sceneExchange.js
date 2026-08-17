@@ -9,6 +9,17 @@ import { normalizeRelationshipGraph, serializeRelationshipGraphForScene } from "
 
 const UNDERSCORES_EXCHANGE_VERSION = 10;
 
+export const normalizeSceneExportFilename = (requestedName = "", date = new Date()) => {
+  const fallback = `underscores-scene-${date.toISOString().slice(0, 10)}`;
+  const raw = String(requestedName ?? "").trim();
+  const sanitized = raw
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .replace(/[. ]+$/g, "")
+    .trim();
+  const basename = sanitized.replace(/\.excalidraw$/i, "").trim();
+  return `${basename || fallback}.excalidraw`;
+};
+
 const scoreData = customData => customData?.score || customData?.iannix || null;
 const withScoreAliases = element => {
   const source = scoreData(element?.customData);

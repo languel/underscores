@@ -3,6 +3,7 @@ import { evaluatePlayCoreSource, getPlayCoreGridSize, mapPlayCorePointerToLayout
 import { createScriptCanvasApi, resolveScriptParameterValues } from "./scriptRuntime.js";
 import { parseScriptParameters } from "./scriptParameters.js";
 import { createScriptConsole } from "./scriptConsole.js";
+import { isLivecodeTransportPlaying } from "./livecodeTransport.js";
 
 const escapeHtml = value => String(value ?? " ").replace(/[&<>]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[char]));
 const escapeCss = value => String(value ?? "").replace(/[&"'<>]/g, char => ({ "&": "&amp;", "\"": "&quot;", "'": "&#39;", "<": "&lt;", ">": "&gt;" }[char]));
@@ -43,9 +44,13 @@ const measureGridMetrics = host => {
   return { cellWidth, cellHeight, contentWidth, contentHeight, paddingLeft, paddingTop };
 };
 
-export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) {
+export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef, transport, transportMode = "free" }) {
   const hostRef = useRef(null);
+  const transportRef = useRef(transport);
+  const transportModeRef = useRef(transportMode);
   const config = normalizePlayCoreFrame(rawConfig);
+  transportRef.current = transport;
+  transportModeRef.current = transportMode;
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return undefined;
@@ -119,7 +124,7 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef }) 
     document.addEventListener("visibilitychange", handleVisibility);
     const loop = time => {
       if (cancelled) return;
-      if (pageVisible && time - last >= 1000 / settings.fps) {
+      if (pageVisible && isLivecodeTransportPlaying(transportModeRef.current, transportRef.current) && time - last >= 1000 / settings.fps) {
         last = time;
         const rect = host.getBoundingClientRect();
         const { cellWidth, cellHeight, contentWidth, contentHeight, paddingLeft, paddingTop } = measureGridMetrics(host);

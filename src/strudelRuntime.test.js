@@ -174,6 +174,45 @@ test("Strudel runtime compiles REPL-style anonymous pattern directives", async (
   }
 });
 
+test("Strudel Livecode exposes transpiled inline sliders", async () => {
+  const runtime = new StrudelRuntimeManager();
+  runtime.ensureScope = async () => {};
+  const previousPure = globalThis.pure;
+  globalThis.pure = core.pure;
+  try {
+    const { pattern, meta } = await runtime._compile(
+      "node-slider",
+      "$: slider(1.93, 0, 10, 0.01)",
+      {},
+    );
+    assert.equal(meta.widgets.length, 1);
+    assert.equal(pattern.queryArc(0, 1)[0].value, 1.93);
+  } finally {
+    if (previousPure === undefined) delete globalThis.pure;
+    else globalThis.pure = previousPure;
+    runtime.dispose();
+  }
+});
+
+test("Strudel Livecode applies all transforms to its node-local voices", async () => {
+  const runtime = new StrudelRuntimeManager();
+  runtime.ensureScope = async () => {};
+  const previousPure = globalThis.pure;
+  globalThis.pure = core.pure;
+  try {
+    const { pattern } = await runtime._compile(
+      "node-all",
+      "$: pure(1)\n$: pure(2)\nall(x => x)",
+      {},
+    );
+    assert.deepEqual(pattern.queryArc(0, 1).map(hap => hap.value), [1, 2]);
+  } finally {
+    if (previousPure === undefined) delete globalThis.pure;
+    else globalThis.pure = previousPure;
+    runtime.dispose();
+  }
+});
+
 test("Strudel public pianoroll uses the shared node-frame painter", async () => {
   const runtime = new StrudelRuntimeManager();
   runtime.ensureScope = async () => {};
@@ -207,6 +246,31 @@ test("Strudel public pianoroll uses the shared node-frame painter", async () => 
     painters[0](null, 0.5, haps, [-2, 2]);
     assert.ok(calls.some(([method]) => method === "clearRect"));
     assert.ok(calls.some(([method]) => method === "stroke"));
+  } finally {
+    if (previousPure === undefined) delete globalThis.pure;
+    else globalThis.pure = previousPure;
+    runtime.dispose();
+  }
+});
+
+test("Strudel keeps the legacy piano visualizer alias", async () => {
+  const runtime = new StrudelRuntimeManager();
+  runtime.ensureScope = async () => {};
+  const previousPure = globalThis.pure;
+  globalThis.pure = core.pure;
+  const canvas = {
+    width: 520,
+    height: 300,
+    getContext: () => ({ canvas: { width: 520, height: 300 } }),
+  };
+  try {
+    runtime.registerFrameCanvas("node-legacy-piano", canvas);
+    const { meta } = await runtime._compile(
+      "node-legacy-piano",
+      "pure(60).piano()",
+      {},
+    );
+    assert.equal(meta.frameVisualizers, 1);
   } finally {
     if (previousPure === undefined) delete globalThis.pure;
     else globalThis.pure = previousPure;
@@ -400,5 +464,23 @@ test("Strudel upsert clears a previous tempo override when source declares none"
   assert.equal(runtime.entries.get("node-a").cps, 0.75);
   await runtime.upsert({ nodeId: "node-a", source: "without tempo", transportMode: "free" });
   assert.equal(runtime.entries.get("node-a").cps, null);
+  runtime.dispose();
+});
+
+test("quantized Strudel launches preserve the first-event phase at activation", async () => {
+  const runtime = new StrudelRuntimeManager();
+  runtime.cps = 0.5;
+  runtime.linkedPhaseOffset = 0.4;
+  runtime.ensureScheduler = async () => ({ started: true, now: () => 1.2, stop: () => {} });
+  runtime.refresh = async () => {};
+  runtime._compile = async () => ({
+    pattern: core.silence,
+    meta: { miniLocations: [], widgets: [] },
+    cps: null,
+  });
+  await runtime.upsert({ nodeId: "node-a", source: "silence", transportMode: "linked", launchAt: 8 });
+  // The scheduler-safe activation is cycle 1.75. The node-specific phase is
+  // anchored there, so its first event is queried at cycle zero on launch.
+  assert.equal(runtime.entries.get("node-a").launchPhase, 1.75);
   runtime.dispose();
 });
