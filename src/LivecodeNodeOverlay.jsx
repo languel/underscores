@@ -384,7 +384,7 @@ function NodeChrome({ node, onPatch, onToggleRun }) {
     >
       {Object.entries(LIVECODE_KIND_DEFINITIONS).filter(([id]) => !isPublicSafeBuild || id !== "strudel").map(([id, candidate]) => <option key={id} value={id}>{candidate.label}</option>)}
     </select>
-    {!["orca", "strudel"].includes(node.kind) && <button type="button" onClick={() => onPatch?.({ view: nextLivecodeView(node.view) })} title="Cycle output, code, code overlay, and split view (Cmd/Ctrl+Shift+Enter while editing)" aria-label="Cycle livecode view">{node.view === "preview" ? "▥" : node.view === "source" ? "{}" : node.view === "code" || node.view === "overlay" ? "◒" : "‹/›"}</button>}
+    {node.kind !== "orca" && <button type="button" onClick={() => onPatch?.({ view: nextLivecodeView(node.view) })} title="Cycle output, code, code overlay, and split view (Cmd/Ctrl+Shift+Enter while editing)" aria-label="Cycle livecode view">{node.view === "preview" ? "▥" : node.view === "source" ? "{}" : node.view === "code" || node.view === "overlay" ? "◒" : "‹/›"}</button>}
   </div>;
 }
 
@@ -493,7 +493,7 @@ export function LivecodeNodeOverlay({
           onUpdate={node.kind === "strudel" ? () => onToggleRun?.(element.id, { command: "update" }) : undefined}
           onStop={node.kind === "strudel" && node.runtime.running ? () => onToggleRun?.(element.id) : undefined}
           onBlur={() => onCommit?.(element.id)}
-          onCycleView={node.kind === "strudel" ? undefined : () => onPatch?.(element.id, { view: nextLivecodeView(node.view) })}
+          onCycleView={node.kind === "orca" ? undefined : () => onPatch?.(element.id, { view: nextLivecodeView(node.view) })}
           transport={transport}
           onMidiEvents={(events, metadata) => onMidiEvents?.(element.id, events, metadata)}
           ariaLabel={node.kind === "orca" ? "Orca grid editor" : `${getLivecodeKindDefinition(node.kind).label} canvas node source`}

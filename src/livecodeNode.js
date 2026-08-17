@@ -253,7 +253,7 @@ export const createLivecodeNode = value => {
     source,
     parameters: raw.parameters && typeof raw.parameters === "object" && !Array.isArray(raw.parameters) ? raw.parameters : {},
     runtime: normalizedRuntime,
-    view: kind === LIVECODE_KINDS.orca || kind === LIVECODE_KINDS.strudel
+    view: kind === LIVECODE_KINDS.orca
       ? "code"
       : ["code", "preview", "source", "split"].includes(raw.view)
         ? raw.view

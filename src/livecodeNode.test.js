@@ -125,14 +125,14 @@ test("supports raw Code mode while retaining legacy code-overlay values", () => 
   assert.equal(createLivecodeNode({ kind: "shader", view: "overlay" }).view, "code");
 });
 
-test("Strudel nodes always use the in-code visualization surface", () => {
+test("Strudel nodes preserve a switchable code and output view", () => {
   const node = createLivecodeNode({ kind: "strudel", view: "split" });
-  assert.equal(node.view, "code");
+  assert.equal(node.view, "split");
   assert.equal(node.runtime.transportMode, "linked");
-  assert.equal(createLivecodeNode({ kind: "strudel", view: "preview" }).view, "code");
+  assert.equal(createLivecodeNode({ kind: "strudel", view: "preview" }).view, "preview");
   assert.equal(createLivecodeNode({ kind: "strudel", runtime: { transportMode: "linked" } }).runtime.transportMode, "linked");
   assert.equal(createLivecodeNode({ kind: "strudel", runtime: { transportMode: "free" } }).runtime.transportMode, "free");
-  assert.equal(patchLivecodeNode({ kind: "strudel" }, { view: "split" }).view, "code");
+  assert.equal(patchLivecodeNode({ kind: "strudel" }, { view: "split" }).view, "split");
 });
 
 test("running legacy Strudel nodes snapshot their active source before draft edits", () => {
