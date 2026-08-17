@@ -17,6 +17,7 @@ import {
   getLivecodeFont,
   getLivecodeKindDefinition,
   getLivecodeViewForDoubleClick,
+  isLivecodeCommandOutputGesture,
   LIVECODE_KIND_DEFINITIONS,
   normalizeLivecodeNode,
   randomLivecodeName,
@@ -249,6 +250,10 @@ function StrudelNodeRuntime({ element, node, scriptRuntimeRef, onStrudelTranspor
   // new __.params values at the scheduler's next safe beat.
   const parameterSignature = JSON.stringify(node.parameters || {});
   const transportMode = node.runtime.transportMode;
+  const rawLaunchAt = node.runtime.settings?.launchAt;
+  const launchAt = rawLaunchAt !== null && rawLaunchAt !== undefined && Number.isFinite(Number(rawLaunchAt))
+    ? Number(rawLaunchAt)
+    : null;
   const frameVisualsEnabled = node.runtime.settings?.frameVisuals !== false;
   const latestNodeRef = useRef(node);
   latestNodeRef.current = node;
@@ -272,8 +277,9 @@ function StrudelNodeRuntime({ element, node, scriptRuntimeRef, onStrudelTranspor
       source,
       transportMode,
       bridge,
+      launchAt,
     }).catch(() => undefined);
-  }, [bridge, elementId, evaluationRevision, runtime, source, transportMode]);
+  }, [bridge, elementId, evaluationRevision, launchAt, runtime, source, transportMode]);
   useEffect(() => {
     runtime.setNodeTransportMode(elementId, transportMode);
   }, [elementId, runtime, transportMode]);
@@ -315,8 +321,8 @@ function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef, transport }
   // painting diagnostics over the user's artwork.
   if (!lastWorkingConfig) return null;
   return <div className="livecode-node-runtime visible" aria-label={`${getLivecodeKindDefinition(node.kind).label} runtime`}>
-    {node.kind === "p5" ? <P5Frame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} /> : null}
-    {node.kind === "playcore" ? <PlayCoreFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} /> : null}
+    {node.kind === "p5" ? <P5Frame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
+    {node.kind === "playcore" ? <PlayCoreFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
     {node.kind === "shader" ? <ShaderLivecodeFrame element={element} node={node} transport={transport} scriptRuntimeRef={scriptRuntimeRef} /> : null}
   </div>;
 }
@@ -420,7 +426,7 @@ export function LivecodeNodeOverlay({
     const editing = activeEditorId === element.id;
     const visible = selected || editing;
     const handleCommandOutputPointer = event => {
-      if ((!event?.metaKey && !event?.ctrlKey) || event.button !== 0) return;
+      if (!isLivecodeCommandOutputGesture(event)) return;
       if (event.target?.closest?.(".livecode-node-chrome")) return;
       if (event.target?.closest?.("textarea, .underscores-code-editor, .cm-editor")) return;
       event.preventDefault();
@@ -428,7 +434,7 @@ export function LivecodeNodeOverlay({
       if (node.view !== "preview") onPatch?.(element.id, { view: "preview" }, { commitToHistory: true });
     };
     const handleCommandOutputClick = event => {
-      if (!event?.metaKey && !event?.ctrlKey) return;
+      if (!isLivecodeCommandOutputGesture(event)) return;
       if (event.target?.closest?.(".livecode-node-chrome")) return;
       if (event.target?.closest?.("textarea, .underscores-code-editor, .cm-editor")) return;
       event.preventDefault();

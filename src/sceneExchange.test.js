@@ -3,12 +3,21 @@ import assert from "node:assert/strict";
 import {
   attachUnderscoresExchangeMetadata,
   getSelectionExchangeElements,
+  normalizeSceneExportFilename,
   parseUnderscoresExchange,
   remapSelectionForImport,
 } from "./sceneExchange.js";
 import { mergeGridPatch, DEFAULT_GLOBAL_GRID } from "./gridSystem.js";
 import { DEFAULT_EXPRESSIVE_SYNTH_CONFIG, mergeExpressiveSynthConfig, normalizeExpressiveSynthConfig, upsertExpressiveSynthProgram } from "./expressiveSynth.js";
 import { MIXER_DESTINATION_INTERNAL, MIXER_INSTRUMENT_EXPRESSIVE, normalizeMixer } from "./mixerSystem.js";
+
+test("scene export filenames accept optional names and remain safe", () => {
+  const date = new Date("2026-08-16T12:34:56.000Z");
+  assert.equal(normalizeSceneExportFilename("bioblip_melody", date), "bioblip_melody.excalidraw");
+  assert.equal(normalizeSceneExportFilename("bioblip_melody.excalidraw", date), "bioblip_melody.excalidraw");
+  assert.equal(normalizeSceneExportFilename("folder/bioblip", date), "folder_bioblip.excalidraw");
+  assert.equal(normalizeSceneExportFilename("", date), "underscores-scene-2026-08-16.excalidraw");
+});
 
 test("scene exchange metadata preserves Underscores score state", () => {
   const payload = attachUnderscoresExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {

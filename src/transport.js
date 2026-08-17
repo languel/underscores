@@ -8,6 +8,66 @@ export const MIDI_REALTIME = Object.freeze({
 
 export const clampTempo = value => Math.min(400, Math.max(20, Number(value) || 120));
 
+export const TRANSPORT_LAUNCH_QUANTIZATION_OPTIONS = Object.freeze([
+  Object.freeze({ value: "1/16", label: "1/16" }),
+  Object.freeze({ value: "1/8", label: "1/8" }),
+  Object.freeze({ value: "1/4", label: "1/4 beat" }),
+  Object.freeze({ value: "1/2", label: "1/2 beat" }),
+  Object.freeze({ value: "bar", label: "1 bar" }),
+  Object.freeze({ value: "2bars", label: "2 bars" }),
+  Object.freeze({ value: "4bars", label: "4 bars" }),
+  Object.freeze({ value: "custom", label: "Custom beats" }),
+]);
+
+const TRANSPORT_LAUNCH_QUANTIZATION_VALUES = new Set(
+  TRANSPORT_LAUNCH_QUANTIZATION_OPTIONS.map(option => option.value),
+);
+
+export const normalizeTransportLaunchQuantization = value => {
+  const raw = value && typeof value === "object" ? value : {};
+  const parsedCustomBeats = Number(raw.customBeats);
+  const customBeats = Number.isFinite(parsedCustomBeats) && parsedCustomBeats > 0
+    ? parsedCustomBeats
+    : 4;
+  return {
+    enabled: raw.enabled === true,
+    interval: TRANSPORT_LAUNCH_QUANTIZATION_VALUES.has(raw.interval) ? raw.interval : "bar",
+    customBeats: Math.min(128, Math.max(0.0625, customBeats)),
+  };
+};
+
+export const transportLaunchQuantizationSeconds = (
+  quantization,
+  { tempo = 120, signature = { numerator: 4, denominator: 4 } } = {},
+) => {
+  const normalized = normalizeTransportLaunchQuantization(quantization);
+  const meter = normalizeTimeSignature(signature);
+  const beatSeconds = 60 / clampTempo(tempo) * 4 / meter.denominator;
+  const barSeconds = beatSeconds * meter.numerator;
+  const interval = normalized.interval;
+  if (interval === "1/16") return beatSeconds / 4;
+  if (interval === "1/8") return beatSeconds / 2;
+  if (interval === "1/2") return beatSeconds * 2;
+  if (interval === "bar") return barSeconds;
+  if (interval === "2bars") return barSeconds * 2;
+  if (interval === "4bars") return barSeconds * 4;
+  if (interval === "custom") return beatSeconds * normalized.customBeats;
+  return beatSeconds;
+};
+
+export const nextTransportLaunchTime = (
+  time,
+  quantization,
+  context = {},
+) => {
+  const normalized = normalizeTransportLaunchQuantization(quantization);
+  if (!normalized.enabled) return Math.max(0, Number(time) || 0);
+  const quantum = Math.max(Number.EPSILON, transportLaunchQuantizationSeconds(normalized, context));
+  const current = Math.max(0, Number(time) || 0);
+  const next = (Math.floor((current + quantum * 1e-9) / quantum) + 1) * quantum;
+  return Number(next.toFixed(9));
+};
+
 export const advanceTransportPlaybackTime = (
   currentTime,
   deltaSeconds,
