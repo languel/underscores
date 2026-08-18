@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-08-14
+Last updated: 2026-08-17
 
 ## Release checkpoint
 
@@ -37,6 +37,8 @@ snapshots live pose/hand landmarks as native scene geometry. A shared semantic o
 the `/mapping` feature browser, `__.streams`, persistent drive/freedraw bindings, selected-feature
 highlights, and capped traces without serializing raw observations. See
 [Media streams](media-streams.md).
+Canvas media instances now own their transport state, volume, opacity, and blend mode; linked
+audio/video loops avoid hard decoder-boundary jumps with a short edge fade.
 Holistic inference/publication now treats its configurable 15 FPS default as a ceiling and skips
 overlapping work. Default-on Performance mode caps that work at 8 FPS to preserve board cadence while
 interpolating only the displayed geometry at up to 30 FPS; semantic consumers still receive completed

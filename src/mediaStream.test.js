@@ -14,6 +14,7 @@ import {
   isSupportedMediaFile,
   isMediaSourceElement,
   MEDIA_STREAM_KINDS,
+  MEDIA_BLEND_MODES,
   MEDIA_BINDING_TYPES,
   normalizeMediaBinding,
   normalizeMediaStreamConfig,
@@ -37,6 +38,8 @@ test("media stream defaults distinguish acquisition and derived stream kinds", (
   assert.deepEqual(createMediaStreamConfig(MEDIA_STREAM_KINDS.CANVAS).canvas, { elementId: "", live: false, background: "theme" });
   assert.deepEqual(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).output, { fps: 30, maxDimension: 0 });
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.PREVIEW).sourceId, "");
+  assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.PREVIEW).media.playing, false);
+  assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.PREVIEW).media.manual, false);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.showHands, true);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.showSource, false);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.HOLISTIC).holistic.refineFaceLandmarks, true);
@@ -60,6 +63,17 @@ test("media stream defaults distinguish acquisition and derived stream kinds", (
   assert.equal(unicursal.unicursal.preset, "smooth");
   assert.equal(unicursal.unicursal.geometry.pointBudget, 384);
   assert.equal(unicursal.unicursal.motion.echoCount, 2);
+});
+
+test("preview playback is instance-owned and legacy previews start dormant", () => {
+  const legacy = normalizeMediaStreamConfig({ kind: MEDIA_STREAM_KINDS.PREVIEW, sourceId: "clip-a", media: { playing: true } });
+  assert.equal(legacy.media.playing, false);
+  const preview = createMediaStreamConfig(MEDIA_STREAM_KINDS.PREVIEW, { sourceId: "clip-a" });
+  const playing = patchMediaStreamConfig(preview, { media: { playing: true, muted: false, loop: false } });
+  assert.equal(playing.media.playing, true);
+  assert.equal(playing.media.muted, false);
+  assert.equal(playing.media.loop, false);
+  assert.equal(playing.media.manual, true);
 });
 
 test("media bindings normalize actor, gate, filtering, and style contracts", () => {
@@ -170,6 +184,19 @@ test("media patches preserve nested settings and infer image URLs", () => {
   assert.equal(next.media.mediaType, "image");
   assert.equal(next.media.playbackRate, 2);
   assert.equal(inferMediaType("photo.webp?size=2"), "image");
+});
+
+test("media instance presentation settings normalize to safe values", () => {
+  const config = normalizeMediaStreamConfig({
+    kind: MEDIA_STREAM_KINDS.PREVIEW,
+    media: { volume: 2 },
+    blendMode: "screen",
+  });
+  assert.equal(config.media.volume, 1);
+  assert.equal(config.blendMode, "screen");
+  assert.equal(normalizeMediaStreamConfig({ kind: "preview", media: { volume: -1 }, blendMode: "url(javascript:alert(1))" }).media.volume, 0);
+  assert.equal(normalizeMediaStreamConfig({ kind: "preview", blendMode: "url(javascript:alert(1))" }).blendMode, "normal");
+  assert.ok(MEDIA_BLEND_MODES.includes("screen"));
 });
 
 test("GIF detection survives session blob URLs by checking the authored file name", () => {

@@ -10,7 +10,7 @@ import {
 } from "./mediaStream.js";
 import { FACE_DISPLAY_GROUPS } from "./mediaLandmarkOntology.js";
 import { MediaRuntimePreview } from "./MediaStreamOverlay.jsx";
-import { getMediaRuntimeSource, getMediaSessionFileUrl } from "./mediaStreamRuntime.js";
+import { getMediaRuntimeSource, getMediaSessionFileUrl, subscribeMediaStreamRuntime } from "./mediaStreamRuntime.js";
 import { createGifClipRecorder, createMediaRecorderClip, MEDIA_CLIP_FORMATS } from "./mediaClipRecorder.js";
 import { infoProps } from "./uiInfo.js";
 import NumericInput from "./NumericInput.jsx";
@@ -124,16 +124,25 @@ const sourceKindLabel = kind => ({
   [MEDIA_STREAM_KINDS.MEDIA]: "Media source",
 }[kind] || "Image source");
 
-const SourceList = ({ sources, selectedId, empty, onSelect, onDelete, onDownload }) => {
+const isMissingLocalMediaFile = source => Boolean(
+  source?.kind === MEDIA_STREAM_KINDS.MEDIA
+  && source.media?.fileName
+  && !getMediaSessionFileUrl(source.id)
+  && !String(source.media?.url || "").trim()
+);
+
+const SourceList = ({ sources, selectedId, empty, onSelect, onDelete, onDownload, onRelink }) => {
   if (!sources.length) return <div className="media-stream-panel-empty">{empty}</div>;
   return <div className="media-stream-panel-list" role="list">
     {sources.map(source => {
       const canDownload = Boolean(onDownload && source.kind === MEDIA_STREAM_KINDS.MEDIA && source.media?.fileName);
+      const missingFile = isMissingLocalMediaFile(source);
+      const canRelink = Boolean(onRelink && missingFile);
       return <div
         key={source.id}
         role="listitem"
         data-media-source-id={source.id}
-        className={`media-stream-panel-row ${canDownload ? "has-download" : ""} ${source.id === selectedId ? "is-selected" : ""}`}
+        className={`media-stream-panel-row ${canDownload ? "has-download" : ""} ${canRelink ? "has-relink" : ""} ${missingFile ? "is-missing-file" : ""} ${source.id === selectedId ? "is-selected" : ""}`}
       >
       <button
         type="button"
@@ -150,7 +159,15 @@ const SourceList = ({ sources, selectedId, empty, onSelect, onDelete, onDownload
       ><SourceKindIcon kind={source.kind} /></button>
       <button type="button" className="media-stream-panel-row-select" onClick={() => onSelect(source.id)}>
         <span className="media-stream-panel-row-name">{source.name}</span>
+        {missingFile && <span className="media-stream-panel-row-missing" title="Local file unavailable" aria-label="Local file unavailable">!</span>}
       </button>
+      {canRelink && <button
+        type="button"
+        className="media-stream-panel-row-relink"
+        aria-label={`Relink ${source.name} from disk`}
+        title={`Relink ${source.name} from disk`}
+        onClick={() => onRelink(source)}
+      >↗</button>}
       {canDownload && <button
         type="button"
         className="media-stream-panel-row-download"
@@ -309,10 +326,58 @@ const isAnimatedSource = source => source.kind === MEDIA_STREAM_KINDS.CAMERA
     || isGifMediaSource(source)
   ));
 
+const SourcePreviewPlaybar = ({ source, runtimeId }) => {
+  const canSeek = source.kind === MEDIA_STREAM_KINDS.MEDIA
+    && ["audio", "video"].includes(source.media.mediaType);
+  const [position, setPosition] = useState(0);
+  const [duration, setDuration] = useState(0);
+  useEffect(() => {
+    if (!canSeek) return undefined;
+    let timer = 0;
+    const update = () => {
+      const runtime = getMediaRuntimeSource(runtimeId);
+      const media = runtime?.mediaElement || runtime?.element;
+      const nextDuration = Number(media?.duration);
+      const nextPosition = Number(media?.currentTime);
+      setDuration(Number.isFinite(nextDuration) && nextDuration > 0 ? nextDuration : 0);
+      setPosition(Number.isFinite(nextPosition) && nextPosition >= 0 ? nextPosition : 0);
+      timer = window.setTimeout(update, source.media.playing === true ? 50 : 150);
+    };
+    update();
+    return () => window.clearTimeout(timer);
+  }, [canSeek, runtimeId, source.media.playing]);
+  if (!canSeek) return null;
+  const seek = value => {
+    const runtime = getMediaRuntimeSource(runtimeId);
+    const media = runtime?.mediaElement || runtime?.element;
+    const nextPosition = Number(value);
+    if (!media || !Number.isFinite(nextPosition)) return;
+    try {
+      media.currentTime = nextPosition;
+      setPosition(nextPosition);
+    } catch { /* media metadata may not be ready yet */ }
+  };
+  return <label className="media-stream-panel-seek">
+    <span>Position</span>
+    <input
+      type="range"
+      min="0"
+      max={duration > 0 ? duration : 1}
+      step="0.01"
+      value={Math.max(0, Math.min(duration || 1, position))}
+      disabled={!duration}
+      aria-label="Preview position"
+      onChange={event => seek(event.target.value)}
+    />
+  </label>;
+};
+
 const SourceTransportControls = ({ source, onPatch }) => {
   const isCamera = source.kind === MEDIA_STREAM_KINDS.CAMERA;
   const canSetRate = !isCamera && source.media.mediaType !== "audio" && isAnimatedSource(source);
   const canLinkTransport = !isCamera && isAnimatedSource(source);
+  const canMute = !isCamera && ["audio", "video"].includes(source.media.mediaType);
+  const canLoop = !isCamera && isAnimatedSource(source);
   const isPlaying = source.media.playing;
   const transportTitle = isPlaying ? "Freeze input" : "Resume input";
   const transportHelp = isCamera
@@ -341,13 +406,39 @@ const SourceTransportControls = ({ source, onPatch }) => {
       <input type="checkbox" checked={source.media.linkTransport === true} onChange={event => onPatch({ media: { linkTransport: event.target.checked } })} />
       <span>Link transport</span>
     </label>}
+    {canMute && <label className="media-stream-panel-check" {...infoProps("Mute preview", "Mute this local source-bin preview. Canvas instances keep their own mute setting.")}>
+      <input type="checkbox" checked={source.media.muted === true} onChange={event => onPatch({ media: { muted: event.target.checked } })} />
+      <span>Mute</span>
+    </label>}
+    {canLoop && <label className="media-stream-panel-check" {...infoProps("Loop preview", "Loop this local source-bin preview. Canvas instances keep their own loop setting.")}>
+      <input type="checkbox" checked={source.media.loop === true} onChange={event => onPatch({ media: { loop: event.target.checked } })} />
+      <span>Loop</span>
+    </label>}
   </div>;
 };
 
-const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAssignPreview, children, status, transportTime = 0, transportPlaying = false }) => {
+const createSourcePreviewMedia = () => ({ playing: false, muted: true, loop: true, playbackRate: 1, linkTransport: false });
+
+const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAssignPreview, onPreviewPlaybackChange, children, status, transportTime = 0, transportPlaying = false }) => {
   const metrics = useSourceMetrics(source.id);
+  const [previewMedia, setPreviewMedia] = useState(createSourcePreviewMedia);
+  const previewRuntimeId = source.kind === MEDIA_STREAM_KINDS.MEDIA ? `${source.id}:panel` : source.id;
+  useEffect(() => {
+    const next = createSourcePreviewMedia();
+    setPreviewMedia(next);
+    onPreviewPlaybackChange?.(source.id, next);
+    return () => onPreviewPlaybackChange?.(source.id, null);
+  }, [onPreviewPlaybackChange, source.id]);
+  const patchPreviewMedia = patch => {
+    setPreviewMedia(previous => {
+      const next = { ...previous, ...patch.media };
+      onPreviewPlaybackChange?.(source.id, next);
+      return next;
+    });
+  };
+  const previewSource = useMemo(() => ({ ...source, media: { ...source.media, ...previewMedia } }), [previewMedia, source]);
   return <div className="media-stream-panel-detail">
-  <MediaRuntimePreview sourceId={source.id} source={source} className="media-stream-panel-preview" transportTime={transportTime} transportPlaying={transportPlaying} />
+  <MediaRuntimePreview sourceId={previewRuntimeId} sourceFileId={source.id} source={previewSource} className="media-stream-panel-preview" transportTime={transportTime} transportPlaying={transportPlaying} />
   <label className="media-stream-panel-field">
     <span>Name</span>
     <input value={source.name} onKeyDown={stopKeyPropagation} onChange={event => onPatch({ name: event.target.value })} />
@@ -361,7 +452,8 @@ const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAs
     </select>
   </label>
   {children}
-  <SourceTransportControls source={source} onPatch={onPatch} />
+  <SourceTransportControls source={previewSource} onPatch={patchPreviewMedia} />
+  <SourcePreviewPlaybar source={previewSource} runtimeId={previewRuntimeId} />
   <div className="media-stream-panel-output" role="group" aria-label="Published image stream settings">
     <label className="media-stream-panel-field"><span>FPS</span>
       <select value={source.output.fps} onKeyDown={stopKeyPropagation} onChange={event => onPatch({ output: { fps: Number(event.target.value) } })}>
@@ -393,7 +485,7 @@ const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAs
 </div>;
 };
 
-const MediaClipRecorder = ({ source, onCreate, onPatch, onPrepareCapture, timeContext, transportLoopEnabled = false, transportLoopStart = 0, transportLoopEnd = 0 }) => {
+const MediaClipRecorder = ({ source, onCreate, onPatch, onPreviewPlaybackChange, onPrepareCapture, timeContext, transportLoopEnabled = false, transportLoopStart = 0, transportLoopEnd = 0 }) => {
   const [format, setFormat] = useState(MEDIA_CLIP_FORMATS.GIF);
   const [durationValue, setDurationValue] = useState("5 s");
   const [durationSeconds, setDurationSeconds] = useState(5);
@@ -413,6 +505,7 @@ const MediaClipRecorder = ({ source, onCreate, onPatch, onPrepareCapture, timeCo
   const loopDurationSeconds = Math.max(0, Number(transportLoopEnd) - Number(transportLoopStart));
   const hasUsableLoop = transportLoopEnabled && loopDurationSeconds > 0;
   const status = statuses[source?.id] || null;
+  const previewRuntimeId = source?.kind === MEDIA_STREAM_KINDS.MEDIA ? `${source.id}:panel` : source?.id;
   const options = isAudio
     ? [{ value: MEDIA_CLIP_FORMATS.AUDIO, label: "Audio" }]
     : [
@@ -467,7 +560,15 @@ const MediaClipRecorder = ({ source, onCreate, onPatch, onPrepareCapture, timeCo
     let session = null;
     let restoreTransport = null;
     let capturedStrudelAudio = false;
+    const previewPlayback = source.kind === MEDIA_STREAM_KINDS.MEDIA ? {
+      playing: true,
+      muted: false,
+      loop: true,
+      playbackRate: 1,
+      linkTransport: false,
+    } : null;
     try {
+      if (previewPlayback) onPreviewPlaybackChange?.(source.id, previewPlayback);
       if (durationMode === "loop" && onPrepareCapture) {
         restoreTransport = await onPrepareCapture({ start: Number(transportLoopStart) || 0, durationMs });
       }
@@ -487,7 +588,7 @@ const MediaClipRecorder = ({ source, onCreate, onPatch, onPrepareCapture, timeCo
           requestAnimationFrame(() => requestAnimationFrame(resolve));
         });
       }
-      const runtime = await waitForMediaRuntime(source.id, { visual: format !== MEDIA_CLIP_FORMATS.AUDIO });
+      const runtime = await waitForMediaRuntime(previewRuntimeId, { visual: format !== MEDIA_CLIP_FORMATS.AUDIO });
       const sourceStream = runtime.stream?.();
       const needsStrudelAudio = isCanvas && (format === MEDIA_CLIP_FORMATS.AUDIO || format === MEDIA_CLIP_FORMATS.MP4);
       const strudelAudioStream = needsStrudelAudio ? getStrudelAudioCaptureStream() : null;
@@ -526,6 +627,7 @@ const MediaClipRecorder = ({ source, onCreate, onPatch, onPrepareCapture, timeCo
     } finally {
       recorderRef.current = null;
       setRecording(false);
+      if (previewPlayback) onPreviewPlaybackChange?.(source.id, null);
       if (changesCanvasCapture) {
         const canvasPatch = {};
         if (changesCanvasBackground && originalCanvasBackground !== captureBackground) {
@@ -603,10 +705,13 @@ const useSelectedSource = (sources, controlledId, onControlledChange) => {
   return [sources.find(source => source.id === selectedId) || null, setSelectedId];
 };
 
-export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTarget, activeSourceId, onActiveSourceChange, onCreate, onPatch, onCreatePreview, onAssignPreview, onPickCanvasTarget, onChooseFile, onDelete, onPrepareCapture, timeContext, transportLoopEnabled, transportLoopStart, transportLoopEnd, transportTime = 0, transportPlaying = false }) {
+export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTarget, activeSourceId, onActiveSourceChange, onPreviewPlaybackChange, onCreate, onPatch, onCreatePreview, onAssignPreview, onPickCanvasTarget, onChooseFile, onDelete, onPrepareCapture, timeContext, transportLoopEnabled, transportLoopStart, transportLoopEnd, transportTime = 0, transportPlaying = false }) {
   const fileRef = useRef(null);
+  const pendingFileSourceIdRef = useRef("");
   const [selected, setSelectedId] = useSelectedSource(sources, activeSourceId, onActiveSourceChange);
+  const [, refreshFileAvailability] = useState(0);
   const status = useMediaStatus(selected?.id);
+  const missingFileCount = sources.reduce((count, source) => count + (isMissingLocalMediaFile(source) ? 1 : 0), 0);
   const [devices, setDevices] = useState([]);
   const [deviceStatus, setDeviceStatus] = useState("");
 
@@ -625,6 +730,9 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
   };
 
   useEffect(() => { void refreshDevices(); }, []);
+  useEffect(() => subscribeMediaStreamRuntime(detail => {
+    if (detail.type === "file") refreshFileAvailability(value => value + 1);
+  }), []);
 
   const addSource = () => {
     const source = onCreate(MEDIA_STREAM_KINDS.MEDIA, { name: "Image source" });
@@ -638,6 +746,10 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
     const url = getMediaSessionFileUrl(source?.id);
     triggerMediaDownload(url, source.media?.fileName || source.name || "clip");
   };
+  const chooseFile = sourceId => {
+    pendingFileSourceIdRef.current = sourceId || selected?.id || "";
+    fileRef.current?.click();
+  };
 
   return <div className="media-stream-panel">
     <div className="media-stream-panel-source-header">
@@ -647,12 +759,28 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
         <button type="button" className="iannix-flat-button media-stream-panel-add-source" onClick={addCanvasSource} aria-label="Add canvas source" title="Add canvas source">⌗</button>
       </span>
     </div>
+    {missingFileCount > 0 && <div className="media-stream-panel-note media-stream-panel-missing-summary" role="status">
+      <strong>{missingFileCount} local {missingFileCount === 1 ? "file is" : "files are"} unavailable.</strong>
+    </div>}
     <input ref={fileRef} type="file" hidden accept="image/*,video/*,audio/*,.gif" onChange={event => {
       const file = event.target.files?.[0];
-      if (file) onChooseFile(file, selected?.id);
+      const sourceId = pendingFileSourceIdRef.current || selected?.id;
+      if (file) onChooseFile(file, sourceId);
+      pendingFileSourceIdRef.current = "";
       event.target.value = "";
     }} />
-    <SourceList sources={sources} selectedId={selected?.id} empty="No image inputs yet." onSelect={setSelectedId} onDelete={onDelete} onDownload={downloadSource} />
+    <SourceList
+      sources={sources}
+      selectedId={selected?.id}
+      empty="No image inputs yet."
+      onSelect={setSelectedId}
+      onDelete={onDelete}
+      onDownload={downloadSource}
+      onRelink={source => {
+        setSelectedId(source.id);
+        chooseFile(source.id);
+      }}
+    />
     {!selected && <div className="media-stream-panel-note">Catalog sources stay dormant until selected or connected to an enabled scene object. Press Escape to clear selection.</div>}
     {selected && <SourceDetail
       source={selected}
@@ -660,6 +788,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
       onCreatePreview={() => onCreatePreview(selected.id)}
       onAssignPreview={() => onAssignPreview(selected.id, selectedCanvasTarget?.id)}
       canAssignPreview={Boolean(selectedCanvasTarget)}
+      onPreviewPlaybackChange={onPreviewPlaybackChange}
       status={status || (selected.kind === MEDIA_STREAM_KINDS.CAMERA && deviceStatus ? { kind: "error", message: deviceStatus } : null)}
       transportTime={transportTime}
       transportPlaying={transportPlaying}
@@ -699,23 +828,18 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
               <span>URL</span>
               <div className="media-stream-panel-inline-control">
                 <input value={selected.media.url} placeholder={selected.media.fileName || "https://…"} onKeyDown={stopKeyPropagation} onChange={event => onPatch(selected.id, { media: { url: event.target.value, fileName: "" } })} />
-                <button type="button" className="iannix-flat-button media-stream-panel-icon-button" onClick={() => fileRef.current?.click()} aria-label="Choose media file" title="Choose image, GIF, or video">⌑</button>
+                <button type="button" className="iannix-flat-button media-stream-panel-icon-button" onClick={() => chooseFile(selected?.id)} aria-label="Choose media file" title="Choose image, GIF, or video">⌑</button>
               </div>
             </label>
-            {isAnimatedSource(selected) && <>
-              <label className="media-stream-panel-check">
-                <input type="checkbox" checked={selected.media.loop} onChange={event => onPatch(selected.id, { media: { loop: event.target.checked } })} />
-                <span>Loop</span>
-              </label>
-              {(selected.media.mediaType === "video" || selected.media.mediaType === "audio") ? <label className="media-stream-panel-check">
-                <input type="checkbox" checked={selected.media.muted} onChange={event => onPatch(selected.id, { media: { muted: event.target.checked } })} />
-                <span>Muted</span>
-              </label> : null}
-            </>}
-            {selected.media.fileName && <div className="media-stream-panel-note">Local file: {selected.media.fileName}. Stored in this browser; choose it again only if it is unavailable.</div>}
+            {selected.media.fileName && (isMissingLocalMediaFile(selected)
+              ? <div className="media-stream-panel-note media-stream-panel-missing-note" role="status">
+                  <span><strong>File unavailable.</strong>{" "}{selected.media.fileName} is in the catalog but not loaded in this browser.</span>
+                  <button type="button" className="iannix-flat-button media-stream-panel-relink-button" onClick={() => chooseFile(selected.id)}>Relink</button>
+                </div>
+              : <div className="media-stream-panel-note">Local file: {selected.media.fileName}. Stored in this browser.</div>)}
           </>}
     </SourceDetail>}
-    <MediaClipRecorder source={selected} onCreate={onCreate} onPatch={patch => onPatch(selected.id, patch)} onPrepareCapture={onPrepareCapture} timeContext={timeContext} transportLoopEnabled={transportLoopEnabled} transportLoopStart={transportLoopStart} transportLoopEnd={transportLoopEnd} />
+    <MediaClipRecorder source={selected} onCreate={onCreate} onPatch={patch => selected && onPatch(selected.id, patch)} onPreviewPlaybackChange={onPreviewPlaybackChange} onPrepareCapture={onPrepareCapture} timeContext={timeContext} transportLoopEnabled={transportLoopEnabled} transportLoopStart={transportLoopStart} transportLoopEnd={transportLoopEnd} />
   </div>;
 }
 

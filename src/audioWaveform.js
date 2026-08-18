@@ -27,7 +27,9 @@ export const createAudioWaveform = (seed = "audio", count = 64) => {
 };
 
 export const audioWaveformPath = (amplitudes = []) => {
-  if (!amplitudes.length) return "";
+  // An unavailable file has no waveform data. Keep that state honest with a
+  // neutral centerline rather than inventing a shape for the preview.
+  if (!amplitudes.length) return "M0 16 H100";
   const width = 100;
   const center = 16;
   const step = width / Math.max(1, amplitudes.length - 1);
@@ -44,4 +46,3 @@ export const audioWaveformPath = (amplitudes = []) => {
   }).join(" ");
   return `${top} ${bottom} Z`;
 };
-

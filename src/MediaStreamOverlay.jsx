@@ -155,7 +155,22 @@ const markPublishedFrame = (output, input, previousAt = 0) => {
   return now;
 };
 
-function ProcessedMediaSource({ source, transportTime = 0, transportPlaying = false, transportRate = 1 }) {
+const AUDIO_EDGE_FADE_MS = 20;
+const normalizeMediaVolume = value => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.max(0, Math.min(1, numeric)) : 1;
+};
+const isVolumeMedia = media => media instanceof HTMLAudioElement || media instanceof HTMLVideoElement;
+
+const linkedMediaTime = (time, duration, loop, rate) => {
+  const rawTime = Math.max(0, Number(time) || 0);
+  if (!Number.isFinite(duration) || duration <= 0) return rawTime;
+  const wrapped = ((rawTime % duration) + duration) % duration;
+  if (rate < 0) return wrapped ? duration - wrapped : 0;
+  return loop ? wrapped : Math.min(duration, rawTime);
+};
+
+function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride = null, transportTime = 0, transportPlaying = false, transportRate = 1 }) {
   const inputRef = useRef(null);
   const gifCanvasRef = useRef(null);
   const outputRef = useRef(null);
@@ -164,8 +179,23 @@ function ProcessedMediaSource({ source, transportTime = 0, transportPlaying = fa
   const lastTransportTimeRef = useRef(null);
   const staticDrawnRef = useRef(false);
   const sourceRef = useRef(source);
+  const gifAdvanceRef = useRef(null);
+  const gifTimerRef = useRef(0);
   const transportRef = useRef({ time: 0, playing: false, rate: 1 });
-  sourceRef.current = source;
+  const linkedTransportTimeRef = useRef(null);
+  const mediaPlaybackIntentRef = useRef(null);
+  const audioFadeFrameRef = useRef(0);
+  const audioFadeTokenRef = useRef(0);
+  const audioTargetVolumeRef = useRef(1);
+  // Catalog entries stay paused and muted unless a canvas instance or the
+  // local source-bin preview explicitly supplies player state.
+  const effectiveMedia = useMemo(() => ({
+    ...source.media,
+    ...(playbackOverride || {}),
+    ...(playbackOverride || source.kind !== MEDIA_STREAM_KINDS.MEDIA ? {} : { playing: false, muted: true }),
+  }), [playbackOverride, source.kind, source.media]);
+  const runtimeSource = useMemo(() => ({ ...source, media: effectiveMedia }), [effectiveMedia, source]);
+  sourceRef.current = runtimeSource;
   transportRef.current = {
     time: Number.isFinite(Number(transportTime)) ? Number(transportTime) : 0,
     playing: transportPlaying === true,
@@ -177,6 +207,100 @@ function ProcessedMediaSource({ source, transportTime = 0, transportPlaying = fa
   const isImage = !isCamera && source.media.mediaType === "image";
   const isAudio = !isCamera && source.media.mediaType === "audio";
   const isGif = isImage && isGifMediaSource(source);
+
+  const cancelAudioFade = () => {
+    if (audioFadeFrameRef.current) cancelAnimationFrame(audioFadeFrameRef.current);
+    audioFadeFrameRef.current = 0;
+    audioFadeTokenRef.current += 1;
+  };
+
+  const fadeAudioTo = (media, target, onComplete) => {
+    if (!isVolumeMedia(media)) {
+      onComplete?.();
+      return;
+    }
+    cancelAudioFade();
+    const token = audioFadeTokenRef.current;
+    const from = Number.isFinite(Number(media.volume)) ? media.volume : audioTargetVolumeRef.current;
+    const destination = Math.max(0, Math.min(1, Number(target) || 0));
+    const startedAt = performance.now();
+    const tick = now => {
+      if (token !== audioFadeTokenRef.current) return;
+      const progress = Math.min(1, Math.max(0, (now - startedAt) / AUDIO_EDGE_FADE_MS));
+      media.volume = from + ((destination - from) * progress);
+      if (progress < 1) {
+        audioFadeFrameRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      audioFadeFrameRef.current = 0;
+      onComplete?.();
+    };
+    audioFadeFrameRef.current = requestAnimationFrame(tick);
+  };
+
+  const startMediaPlayback = media => {
+    if (!media) return;
+    if (mediaPlaybackIntentRef.current === true && !media.ended) {
+      if (isVolumeMedia(media) && media.volume < audioTargetVolumeRef.current && !audioFadeFrameRef.current) {
+        fadeAudioTo(media, audioTargetVolumeRef.current);
+      }
+      return;
+    }
+    mediaPlaybackIntentRef.current = true;
+    const mediaDuration = Number(media.duration);
+    if (media.ended && (!Number.isFinite(mediaDuration) || media.currentTime >= mediaDuration - 0.001)) {
+      try {
+        media.currentTime = 0;
+      } catch {
+        // The media element may not have a seekable timeline yet.
+      }
+    }
+    if (isVolumeMedia(media)) {
+      const targetVolume = normalizeMediaVolume(audioTargetVolumeRef.current);
+      cancelAudioFade();
+      media.volume = 0;
+      const promise = media.play();
+      if (promise?.then) {
+        promise.then(() => {
+          if (mediaPlaybackIntentRef.current === true) {
+            fadeAudioTo(media, targetVolume);
+          } else if (!audioFadeFrameRef.current) {
+            media.pause();
+            media.volume = targetVolume;
+          }
+        }).catch(() => {
+          if (mediaPlaybackIntentRef.current === true) mediaPlaybackIntentRef.current = null;
+          if (!audioFadeFrameRef.current) media.volume = targetVolume;
+        });
+      } else {
+        fadeAudioTo(media, targetVolume);
+      }
+      return;
+    }
+    const promise = media.play();
+    promise?.catch?.(() => {
+      if (mediaPlaybackIntentRef.current === true) mediaPlaybackIntentRef.current = null;
+    });
+  };
+
+  const stopMediaPlayback = media => {
+    if (!media) return;
+    mediaPlaybackIntentRef.current = false;
+    if (!isVolumeMedia(media)) {
+      if (!media.paused) media.pause();
+      return;
+    }
+    const targetVolume = normalizeMediaVolume(audioTargetVolumeRef.current);
+    if (media.paused && !audioFadeFrameRef.current) {
+      media.volume = targetVolume;
+      return;
+    }
+    fadeAudioTo(media, 0, () => {
+      if (mediaPlaybackIntentRef.current !== false) return;
+      media.pause();
+      media.volume = targetVolume;
+    });
+  };
 
   const publishFrame = input => {
     const output = outputRef.current;
@@ -229,7 +353,6 @@ function ProcessedMediaSource({ source, transportTime = 0, transportPlaying = fa
   useEffect(() => {
     if (!source.enabled || !isGif || !url) return undefined;
     let disposed = false;
-    let timer = 0;
     fetch(url).then(response => {
       if (!response.ok) throw new Error(`GIF request failed (${response.status}).`);
       return response.arrayBuffer();
@@ -288,16 +411,23 @@ function ProcessedMediaSource({ source, transportTime = 0, transportPlaying = fa
         context.clearRect(0, 0, canvas.width, canvas.height);
         context.drawImage(rendered.canvas, 0, 0);
         canvas.dataset.gifFrame = String(index);
-        if (publishFrame(canvas)) outputRef.current.dataset.sourceFrame = String(index);
+        const current = sourceRef.current;
+        const shouldPublish = current.media.playing !== false || !staticDrawnRef.current;
+        if (shouldPublish && publishFrame(canvas)) {
+          outputRef.current.dataset.sourceFrame = String(index);
+          if (current.media.playing === false) staticDrawnRef.current = true;
+        }
       };
       const advance = () => {
         if (disposed) return;
+        window.clearTimeout(gifTimerRef.current);
+        gifTimerRef.current = 0;
         const current = sourceRef.current;
         const rate = Number(current.media.playbackRate) || 0;
         if (current.media.linkTransport) {
           index = frameAtTime(transportRef.current.time, rate);
           drawFrame();
-          timer = window.setTimeout(advance, transportRef.current.playing && rate !== 0 ? 50 : 100);
+          gifTimerRef.current = window.setTimeout(advance, transportRef.current.playing && rate !== 0 ? 50 : 100);
           return;
         }
         const nextDirection = rate < 0 ? -1 : 1;
@@ -307,19 +437,18 @@ function ProcessedMediaSource({ source, transportTime = 0, transportPlaying = fa
         }
         drawFrame();
         if (current.media.playing === false || rate === 0) {
-          timer = window.setTimeout(advance, 50);
           return;
         }
         const rendered = renderedFrames[index];
         const nextIndex = index + direction;
         const isFinalFrame = nextIndex < 0 || nextIndex >= renderedFrames.length;
         if (isFinalFrame && !current.media.loop) {
-          timer = window.setTimeout(advance, 50);
           return;
         }
         index = isFinalFrame ? (direction < 0 ? renderedFrames.length - 1 : 0) : nextIndex;
-        timer = window.setTimeout(advance, Math.max(20, rendered.delay / Math.abs(rate)));
+        gifTimerRef.current = window.setTimeout(advance, Math.max(20, rendered.delay / Math.abs(rate)));
       };
+      gifAdvanceRef.current = advance;
       advance();
       publishStatus({ elementId: source.id, kind: "success", message: `Animated GIF ready (${frames.length} frames).` });
     }).catch(error => {
@@ -332,9 +461,15 @@ function ProcessedMediaSource({ source, transportTime = 0, transportPlaying = fa
     });
     return () => {
       disposed = true;
-      window.clearTimeout(timer);
+      window.clearTimeout(gifTimerRef.current);
+      gifTimerRef.current = 0;
+      gifAdvanceRef.current = null;
     };
   }, [isGif, source.enabled, source.id, url]);
+
+  useEffect(() => {
+    if (isGif) gifAdvanceRef.current?.();
+  }, [effectiveMedia.linkTransport, effectiveMedia.loop, effectiveMedia.playbackRate, effectiveMedia.playing, isGif, transportPlaying]);
 
   useEffect(() => {
     if (!source.enabled) return undefined;
@@ -346,6 +481,7 @@ function ProcessedMediaSource({ source, transportTime = 0, transportPlaying = fa
     let raf = 0;
     const registered = {
       element: runtimeElement,
+      mediaElement: media,
       kind: isAudio ? "audio" : "canvas",
       isPlaying: () => sourceRef.current.media.playing !== false
         && (sourceRef.current.media.linkTransport !== true || transportRef.current.playing),
@@ -357,7 +493,7 @@ function ProcessedMediaSource({ source, transportTime = 0, transportPlaying = fa
         return typeof MediaStream === "function" && tracks.length ? new MediaStream(tracks) : null;
       },
     };
-    const unregister = registerMediaRuntimeSource(source.id, registered);
+    const unregister = registerMediaRuntimeSource(runtimeId, registered);
     if (isAudio) return () => unregister();
     const tick = () => {
       const decodedGif = gifCanvasRef.current;
@@ -388,46 +524,69 @@ function ProcessedMediaSource({ source, transportTime = 0, transportPlaying = fa
         lastVideoTickAtRef.current = performance.now();
       }
       const transportActive = !linkedTransport || transportRef.current.playing;
-      if (current.media.playing !== false && transportActive && input && (!staticImage || !staticDrawnRef.current) && publishFrame(input)) {
-        if (staticImage) staticDrawnRef.current = true;
+      const shouldPublishPlayback = current.media.playing !== false
+        && transportActive
+        && input
+        && (!staticImage || !staticDrawnRef.current);
+      const shouldPublishStatic = current.media.playing === false && !staticDrawnRef.current && input;
+      if ((shouldPublishPlayback || shouldPublishStatic) && publishFrame(input)) {
+        if (current.media.playing === false || staticImage) staticDrawnRef.current = true;
         if (input.dataset?.gifFrame !== undefined) output.dataset.sourceFrame = input.dataset.gifFrame;
-      } else if (current.media.playing !== false && transportPositionChanged && input && publishFrame(input)) {
+      } else if (transportPositionChanged && input && publishFrame(input)) {
         if (input.dataset?.gifFrame !== undefined) output.dataset.sourceFrame = input.dataset.gifFrame;
       }
-      raf = requestAnimationFrame(tick);
+      const needsInitialFrame = !staticDrawnRef.current && Boolean(input);
+      if (current.media.playing !== false && transportActive || needsInitialFrame) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(raf);
       unregister();
     };
-  }, [isAudio, isCamera, isGif, isImage, source.enabled, source.id]);
+  }, [effectiveMedia.linkTransport, effectiveMedia.playing, effectiveMedia.playbackRate, effectiveMedia.loop, isAudio, isCamera, isGif, isImage, runtimeId, source.enabled, source.id, transportPlaying, url]);
 
   useEffect(() => {
     staticDrawnRef.current = false;
     lastOutputAtRef.current = 0;
     lastTransportTimeRef.current = null;
+    linkedTransportTimeRef.current = null;
+    mediaPlaybackIntentRef.current = null;
   }, [source.id, url, source.crop.x, source.crop.y, source.crop.width, source.crop.height, source.mirror, source.output.fps, source.output.maxDimension]);
+
+  // Keep the native media element in sync with the authored instance volume.
+  // Audio fades temporarily own the element's volume, so do not interrupt an
+  // active edge fade when React re-renders during transport playback.
+  useEffect(() => {
+    const media = inputRef.current;
+    if (!(media instanceof HTMLVideoElement) && !(media instanceof HTMLAudioElement)) return;
+    const target = normalizeMediaVolume(effectiveMedia.volume);
+    audioTargetVolumeRef.current = target;
+    if (isVolumeMedia(media)) {
+      if (!audioFadeFrameRef.current) media.volume = target;
+    } else {
+      media.volume = target;
+    }
+  }, [effectiveMedia.volume, url]);
 
   useEffect(() => {
     const media = inputRef.current;
     if (!(media instanceof HTMLVideoElement) && !(media instanceof HTMLAudioElement)) return;
-    const rate = Number(source.media.playbackRate) || 0;
+    const rate = Number(effectiveMedia.playbackRate) || 0;
     lastVideoTickAtRef.current = 0;
-    if (source.media.linkTransport) return undefined;
-    if (source.media.playing === false || rate <= 0) {
-      media.pause();
+    if (effectiveMedia.linkTransport) return undefined;
+    if (effectiveMedia.playing === false || rate <= 0) {
+      stopMediaPlayback(media);
       return;
     }
     media.playbackRate = rate;
-    void media.play().catch(() => {});
-  }, [source.media.linkTransport, source.media.playbackRate, source.media.playing, url]);
+    startMediaPlayback(media);
+  }, [effectiveMedia.linkTransport, effectiveMedia.playbackRate, effectiveMedia.playing, url]);
 
   useEffect(() => {
-    if (!source.enabled || source.media.linkTransport !== true) return undefined;
+    if (!source.enabled || runtimeSource.media.linkTransport !== true) return undefined;
     const media = inputRef.current;
     if (!(media instanceof HTMLVideoElement) && !(media instanceof HTMLAudioElement)) return undefined;
-    let raf = 0;
+    let timer = 0;
     const sync = () => {
       const current = sourceRef.current;
       const rate = Number(current.media.playbackRate) || 0;
@@ -435,33 +594,81 @@ function ProcessedMediaSource({ source, transportTime = 0, transportPlaying = fa
       const duration = Number(media.duration);
       const loop = current.media.loop === true;
       const rawTime = Math.max(0, Number(transport.time) || 0);
+      const previousTransportTime = linkedTransportTimeRef.current;
+      const transportJump = previousTransportTime === null
+        || rawTime < previousTransportTime
+        || Math.abs(rawTime - previousTransportTime) > 0.2;
+      linkedTransportTimeRef.current = rawTime;
       if (Number.isFinite(duration) && duration > 0) {
-        const wrapped = ((rawTime % duration) + duration) % duration;
-        const desired = rate < 0
-          ? (wrapped ? duration - wrapped : 0)
-          : (loop ? wrapped : Math.min(duration, rawTime));
-        if (Math.abs((Number(media.currentTime) || 0) - desired) > 0.08) {
+        const desired = linkedMediaTime(rawTime, duration, loop, rate);
+        const currentTime = Number(media.currentTime) || 0;
+        // A modulo wrap is a normal loop boundary. Let the element finish its
+        // current audio buffer and restart through the short edge fade instead
+        // of seeking from the tail to zero while audio is still running.
+        const loopBoundary = loop
+          && previousTransportTime !== null
+          && desired + 0.1 < currentTime
+          && currentTime > Math.max(0.2, duration - 0.35);
+        // Let the native media clock run between transport seeks. Correcting
+        // currentTime every animation frame makes audio stutter and creates
+        // audible discontinuities. Only seek on the first sync, an explicit
+        // transport jump/rewind, or meaningful accumulated drift.
+        const drift = Math.abs(currentTime - desired);
+        const shouldSeek = !loopBoundary && (transportJump || (!transport.playing && drift > 0.01) || (transport.playing && drift > 0.25));
+        if (shouldSeek && drift > 0.01) {
           try {
             media.currentTime = desired;
             lastTransportTimeRef.current = null;
           } catch { /* media can be changing source */ }
         }
       }
-      const transportActive = transport.playing && rate !== 0;
+      const transportActive = current.media.playing !== false && transport.playing && rate !== 0;
       const withinClip = loop || !Number.isFinite(duration) || duration <= 0 || rawTime < duration;
       if (transportActive && withinClip) {
-        media.playbackRate = Math.max(0.01, Math.abs(rate) * Math.max(0.01, Math.abs(Number(transport.rate) || 1)));
-        void media.play().catch(() => {});
+        // transport.time already advances at the shared transport rate. The
+        // clip's native clock therefore only needs its local playback rate;
+        // multiplying by transport.rate here makes it outrun the playhead and
+        // forces corrective seeks (the audible stutter this path used to have).
+        const nextPlaybackRate = Math.max(0.01, Math.abs(rate));
+        if (Math.abs((Number(media.playbackRate) || 0) - nextPlaybackRate) > 0.001) media.playbackRate = nextPlaybackRate;
+        startMediaPlayback(media);
       } else {
-        media.pause();
+        stopMediaPlayback(media);
       }
-      raf = requestAnimationFrame(sync);
+      timer = window.setTimeout(sync, transport.playing ? 33 : 80);
     };
-    raf = requestAnimationFrame(sync);
-    return () => cancelAnimationFrame(raf);
-  }, [source.enabled, source.id, source.media.linkTransport, url]);
+    sync();
+    return () => window.clearTimeout(timer);
+  }, [runtimeSource.media.linkTransport, source.enabled, source.id, url]);
 
-  return <div className="underscores-media-runtime-source" data-media-runtime-source-id={source.id}>
+  // Apply the shared transport edge immediately as well as in the clock sync
+  // loop. This prevents a linked audio instance from being started or stopped
+  // at full volume before the next sync tick has a chance to run.
+  useEffect(() => {
+    if (!source.enabled || effectiveMedia.linkTransport !== true) return undefined;
+    const media = inputRef.current;
+    if (!(media instanceof HTMLVideoElement) && !(media instanceof HTMLAudioElement)) return undefined;
+    const rate = Number(effectiveMedia.playbackRate) || 0;
+    const shouldPlay = transportPlaying === true && effectiveMedia.playing !== false && rate > 0;
+    if (shouldPlay) {
+      media.playbackRate = Math.max(0.01, Math.abs(rate));
+      startMediaPlayback(media);
+    } else {
+      stopMediaPlayback(media);
+    }
+    return undefined;
+  }, [effectiveMedia.linkTransport, effectiveMedia.playbackRate, effectiveMedia.playing, source.enabled, transportPlaying, url]);
+
+  useEffect(() => () => {
+    cancelAudioFade();
+    const media = inputRef.current;
+    if (isVolumeMedia(media)) {
+      media.pause();
+      media.volume = normalizeMediaVolume(audioTargetVolumeRef.current);
+    }
+  }, [source.id]);
+
+  return <div className="underscores-media-runtime-source" data-media-runtime-source-id={runtimeId}>
     <canvas ref={outputRef} />
     {isGif && <canvas ref={gifCanvasRef} data-media-gif-decoder={source.id} />}
     {isCamera
@@ -482,15 +689,25 @@ function ProcessedMediaSource({ source, transportTime = 0, transportPlaying = fa
                 ref={inputRef}
                 src={url}
                 crossOrigin={sessionUrl ? undefined : "anonymous"}
-                autoPlay={!source.media.linkTransport}
-                loop={source.media.loop}
-                muted={source.media.muted}
+                autoPlay={false}
+                // Native looping jumps at the decoder boundary. Restarting
+                // from onEnded lets the shared short fade cover that edge.
+                loop={false}
+                muted={effectiveMedia.muted}
+                onEnded={event => {
+                  const current = sourceRef.current;
+                  if (current.media.loop && current.media.playing !== false && (!current.media.linkTransport || transportRef.current.playing)) {
+                    startMediaPlayback(event.currentTarget);
+                  } else {
+                    stopMediaPlayback(event.currentTarget);
+                  }
+                }}
                 onCanPlay={event => {
                   const rate = Number(sourceRef.current.media.playbackRate) || 0;
                   if (rate > 0) event.currentTarget.playbackRate = rate;
                   const transportReady = sourceRef.current.media.linkTransport !== true || transportRef.current.playing;
-                  if (sourceRef.current.media.playing !== false && transportReady && rate > 0) void event.currentTarget.play().catch(() => {});
-                  else event.currentTarget.pause();
+                  if (sourceRef.current.media.playing !== false && transportReady && rate > 0) startMediaPlayback(event.currentTarget);
+                  else stopMediaPlayback(event.currentTarget);
                   publishStatus({ elementId: source.id, kind: "success", message: "Audio ready." });
                 }}
                 onError={() => publishStatus({ elementId: source.id, kind: "error", message: "Audio could not be loaded. Check the URL, format, and CORS permissions." })}
@@ -499,16 +716,24 @@ function ProcessedMediaSource({ source, transportTime = 0, transportPlaying = fa
                 ref={inputRef}
                 src={url}
                 crossOrigin={sessionUrl ? undefined : "anonymous"}
-                autoPlay={!source.media.linkTransport}
+                autoPlay={false}
                 playsInline
-                loop={source.media.loop}
-                muted={source.media.muted}
+                loop={false}
+                muted={effectiveMedia.muted}
+                onEnded={event => {
+                  const current = sourceRef.current;
+                  if (current.media.loop && current.media.playing !== false && (!current.media.linkTransport || transportRef.current.playing)) {
+                    startMediaPlayback(event.currentTarget);
+                  } else {
+                    stopMediaPlayback(event.currentTarget);
+                  }
+                }}
                 onCanPlay={event => {
                   const rate = Number(sourceRef.current.media.playbackRate) || 0;
                   if (rate > 0) event.currentTarget.playbackRate = rate;
                   const transportReady = sourceRef.current.media.linkTransport !== true || transportRef.current.playing;
-                  if (sourceRef.current.media.playing !== false && transportReady && rate > 0) void event.currentTarget.play().catch(() => {});
-                  else event.currentTarget.pause();
+                  if (sourceRef.current.media.playing !== false && transportReady && rate > 0) startMediaPlayback(event.currentTarget);
+                  else stopMediaPlayback(event.currentTarget);
                   publishStatus({ elementId: source.id, kind: "success", message: "Media ready." });
                 }}
                 onError={() => publishStatus({ elementId: source.id, kind: "error", message: "Media could not be loaded. Remote URLs must allow CORS; choose a local file or a CORS-enabled URL." })}
@@ -561,22 +786,46 @@ function CanvasMediaSource({ source, captureCanvasSource, captureRevision }) {
   return <div className="underscores-media-runtime-source" data-media-runtime-source-id={source.id}><canvas ref={outputRef} /></div>;
 }
 
-export function MediaSourceRuntimeLayer({ sources, activeSourceId = "", connectedSourceIds = [], captureCanvasSource, captureRevision = 0, transportTime = 0, transportPlaying = false, transportRate = 1 }) {
+export function MediaSourceRuntimeLayer({ sources, activeSourceId = "", connectedSourceIds = [], playbackOverrides = {}, panelPreviewPlayback = {}, captureCanvasSource, captureRevision = 0, transportTime = 0, transportPlaying = false, transportRate = 1 }) {
+  const panelPreviewIds = useMemo(() => new Set(Object.keys(panelPreviewPlayback || {})), [panelPreviewPlayback]);
+  const panelOwnsActiveMedia = Boolean(
+    activeSourceId
+    && panelPreviewIds.has(activeSourceId)
+    && (sources || []).some(source => source.id === activeSourceId && source.kind === MEDIA_STREAM_KINDS.MEDIA),
+  );
   const demandedSourceIds = useMemo(() => new Set([
-    activeSourceId,
     ...(connectedSourceIds || []),
-  ].filter(Boolean)), [activeSourceId, connectedSourceIds]);
+    ...(activeSourceId && !panelOwnsActiveMedia ? [activeSourceId] : []),
+  ].filter(Boolean)), [activeSourceId, connectedSourceIds, panelOwnsActiveMedia]);
+  const panelSources = useMemo(() => (sources || []).filter(source => (
+    source.enabled
+    && source.kind === MEDIA_STREAM_KINDS.MEDIA
+    && panelPreviewIds.has(source.id)
+  )), [panelPreviewIds, sources]);
   return <div className="underscores-media-runtime-layer" aria-hidden="true">
     {(sources || []).filter(source => source.enabled && demandedSourceIds.has(source.id)).map(source => source.kind === MEDIA_STREAM_KINDS.CANVAS
       ? <CanvasMediaSource key={source.id} source={source} captureCanvasSource={captureCanvasSource} captureRevision={captureRevision} />
-      : <ProcessedMediaSource key={source.id} source={source} transportTime={transportTime} transportPlaying={transportPlaying} transportRate={transportRate} />)}
+      : <ProcessedMediaSource key={source.id} source={source} runtimeId={source.id} playbackOverride={playbackOverrides[source.id] || null} transportTime={transportTime} transportPlaying={transportPlaying} transportRate={transportRate} />)}
+    {panelSources.map(source => <ProcessedMediaSource
+      key={`${source.id}:panel`}
+      source={source}
+      runtimeId={`${source.id}:panel`}
+      playbackOverride={panelPreviewPlayback[source.id] || null}
+      transportTime={transportTime}
+      transportPlaying={transportPlaying}
+      transportRate={transportRate}
+    />)}
   </div>;
 }
 
-export function AudioWaveformPreview({ sourceId, source, className = "", transportTime = 0, transportPlaying = false }) {
-  const amplitudes = useMemo(() => createAudioWaveform(
-    source?.media?.fileName || source?.name || sourceId,
-  ), [source?.media?.fileName, source?.name, sourceId]);
+export function AudioWaveformPreview({ sourceId, sourceFileId = sourceId, source, className = "", transportTime = 0, transportPlaying = false }) {
+  const hasMediaSource = Boolean(
+    getMediaSessionFileUrl(sourceFileId)
+    || String(source?.media?.url || "").trim()
+  );
+  const amplitudes = useMemo(() => hasMediaSource
+    ? createAudioWaveform(source?.media?.fileName || source?.name || sourceId)
+    : [], [hasMediaSource, source?.media?.fileName, source?.name, sourceId]);
   const path = useMemo(() => audioWaveformPath(amplitudes), [amplitudes]);
   const [playhead, setPlayhead] = useState({ position: 0, duration: 0 });
   const transportRef = useRef({ time: 0, playing: false });
@@ -589,6 +838,11 @@ export function AudioWaveformPreview({ sourceId, source, className = "", transpo
     const update = () => {
       const runtime = getMediaRuntimeSource(sourceId)?.element;
       const duration = Number(runtime?.duration);
+      const instancePlaying = source?.media?.playing === true
+        && (source?.media?.linkTransport !== true || transportRef.current.playing === true);
+      if (!instancePlaying) {
+        return;
+      }
       const linked = source?.media?.linkTransport === true;
       const rawTime = linked ? transportRef.current.time : Number(runtime?.currentTime) || 0;
       const position = Number.isFinite(duration) && duration > 0
@@ -601,7 +855,7 @@ export function AudioWaveformPreview({ sourceId, source, className = "", transpo
     };
     update();
     return () => window.clearTimeout(timer);
-  }, [sourceId, source?.media?.linkTransport, source?.media?.loop]);
+  }, [sourceId, source?.media?.linkTransport, source?.media?.loop, source?.media?.playing, transportPlaying]);
   const isPlaying = source?.media?.playing !== false && (source?.media?.linkTransport !== true || transportPlaying === true);
   const isMuted = source?.media?.muted === true;
   const isLinked = source?.media?.linkTransport === true;
@@ -620,7 +874,7 @@ export function AudioWaveformPreview({ sourceId, source, className = "", transpo
   </div>;
 }
 
-function MediaRuntimeCanvasPreview({ sourceId, className = "" }) {
+function MediaRuntimeCanvasPreview({ sourceId, source = null, className = "", transportPlaying = false }) {
   const canvasRef = useRef(null);
   const lastFrameTimeRef = useRef("");
   useEffect(() => {
@@ -636,7 +890,10 @@ function MediaRuntimeCanvasPreview({ sourceId, className = "" }) {
       const input = getMediaRuntimeSource(sourceId)?.element;
       const output = canvasRef.current;
       const frameTime = input?.dataset?.frameTime || "";
-      if (input?.width && input?.height && output && frameTime && frameTime !== lastFrameTimeRef.current) {
+      const linked = source?.media?.linkTransport === true;
+      const playing = source?.media?.playing !== false && (!linked || transportPlaying === true);
+      const canPaint = !lastFrameTimeRef.current || playing;
+      if (canPaint && input?.width && input?.height && output && frameTime && frameTime !== lastFrameTimeRef.current) {
         if (output.width !== input.width || output.height !== input.height) {
           output.width = input.width;
           output.height = input.height;
@@ -650,18 +907,21 @@ function MediaRuntimeCanvasPreview({ sourceId, className = "" }) {
         }
         lastFrameTimeRef.current = frameTime;
       }
-      raf = requestAnimationFrame(tick);
+      // A paused instance holds its last painted frame. Keep polling only
+      // until that first frame arrives; active instances continue to follow
+      // the runtime surface at animation-frame cadence.
+      if (playing || !lastFrameTimeRef.current) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [sourceId]);
+  }, [sourceId, source?.media?.linkTransport, source?.media?.playing, transportPlaying]);
   return <canvas ref={canvasRef} className={`underscores-media-surface ${className}`.trim()} data-media-preview-source-id={sourceId} />;
 }
 
-export function MediaRuntimePreview({ sourceId, source = null, className = "", transportTime = 0, transportPlaying = false }) {
+export function MediaRuntimePreview({ sourceId, sourceFileId = sourceId, source = null, className = "", transportTime = 0, transportPlaying = false }) {
   return source?.media?.mediaType === "audio"
-    ? <AudioWaveformPreview sourceId={sourceId} source={source} className={className} transportTime={transportTime} transportPlaying={transportPlaying} />
-    : <MediaRuntimeCanvasPreview sourceId={sourceId} className={className} />;
+    ? <AudioWaveformPreview sourceId={sourceId} sourceFileId={sourceFileId} source={source} className={className} transportTime={transportTime} transportPlaying={transportPlaying} />
+    : <MediaRuntimeCanvasPreview sourceId={sourceId} source={source} transportPlaying={transportPlaying} className={className} />;
 }
 
 const drawLandmarks = (context, landmarks, connections, width, height, color, pointRadius = 2, options = {}) => {
@@ -1107,7 +1367,11 @@ function UnicursalSource({ element, config, sourceAvailable, onPathFrame }) {
   return <canvas ref={canvasRef} className="underscores-media-surface" />;
 }
 
-function PreviewChrome({ config, sources, onPatch, onFocusSource }) {
+function PreviewChrome({ config, source, sources, onPatch, onFocusSource }) {
+  const isAnimated = source?.kind === MEDIA_STREAM_KINDS.MEDIA
+    && (source.media?.mediaType === "audio" || source.media?.mediaType === "video" || isGifMediaSource(source));
+  const canMute = source?.media?.mediaType === "audio" || source?.media?.mediaType === "video";
+  const isPlaying = config.media?.playing === true;
   return <div className="underscores-media-preview-chrome" onPointerDown={event => event.stopPropagation()}>
     <select
       value={config.sourceId || ""}
@@ -1128,6 +1392,22 @@ function PreviewChrome({ config, sources, onPatch, onFocusSource }) {
       title="Open this input in Media Input"
       aria-label="Open preview input"
     >⌖</button>
+    {isAnimated && <button
+      type="button"
+      className={`iannix-flat-button media-source-play-toggle ${isPlaying ? "active" : ""}`}
+      onClick={() => onPatch?.({ media: { playing: !isPlaying } })}
+      aria-label={isPlaying ? "Pause media" : "Play media"}
+      aria-pressed={isPlaying}
+      title={isPlaying ? "Pause media" : "Play media"}
+    >{isPlaying ? "Ⅱ" : "▶"}</button>}
+    {canMute && <label title={config.media?.muted ? "Unmute media" : "Mute media"}>
+      <input type="checkbox" checked={config.media?.muted === true} onChange={event => onPatch?.({ media: { muted: event.target.checked } })} />
+      <span>Mute</span>
+    </label>}
+    {isAnimated && <label title="Loop media">
+      <input type="checkbox" checked={config.media?.loop === true} onChange={event => onPatch?.({ media: { loop: event.target.checked } })} />
+      <span>Loop</span>
+    </label>}
   </div>;
 }
 
@@ -1169,6 +1449,9 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
     {objects.map((element, layerIndex) => {
       const config = normalizeMediaStreamConfig(element.customData.underscoresMediaStream);
       const previewSource = config.kind === MEDIA_STREAM_KINDS.PREVIEW ? sourcesById.get(config.sourceId) : null;
+      const previewInstanceSource = previewSource
+        ? { ...previewSource, media: { ...previewSource.media, ...config.media } }
+        : null;
       const visible = shouldRenderMediaStream(element);
       const selected = Boolean(selectedElementIds[element.id]);
       const elementOpacity = Number(element.opacity);
@@ -1181,12 +1464,14 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
         opacity,
         visibility: visible ? "visible" : "hidden",
         zIndex: layerIndex,
+        ...(config.kind === MEDIA_STREAM_KINDS.PREVIEW ? { mixBlendMode: config.blendMode } : {}),
         transform: `rotate(${Number(element.angle) || 0}rad)`,
         transformOrigin: "center",
       };
       return <div key={element.id} className={`underscores-media-stream-frame is-${config.kind} ${selected && config.kind === MEDIA_STREAM_KINDS.PREVIEW ? "selected" : ""}`} data-underscores-media-stream-id={element.id} style={style}>
         {selected && config.kind === MEDIA_STREAM_KINDS.PREVIEW && <PreviewChrome
           config={config}
+          source={previewSource}
           sources={sources}
           onPatch={patch => onPatch?.(element.id, patch)}
           onFocusSource={onFocusSource}
@@ -1195,8 +1480,8 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
           {config.kind === MEDIA_STREAM_KINDS.PREVIEW
             ? config.sourceId && sourceIds.has(config.sourceId)
               ? previewSource?.media?.mediaType === "audio"
-                ? <AudioWaveformPreview sourceId={config.sourceId} source={previewSource} transportTime={transportTime} transportPlaying={transportPlaying} />
-                : <MediaRuntimePreview sourceId={config.sourceId} source={previewSource} transportTime={transportTime} transportPlaying={transportPlaying} />
+                ? <AudioWaveformPreview sourceId={config.sourceId} source={previewInstanceSource} transportTime={transportTime} transportPlaying={transportPlaying} />
+                : <MediaRuntimePreview sourceId={config.sourceId} source={previewInstanceSource} transportTime={transportTime} transportPlaying={transportPlaying} />
               : <div className="underscores-media-empty">Input stream is missing</div>
             : config.kind === MEDIA_STREAM_KINDS.UNICURSAL
               ? <UnicursalSource

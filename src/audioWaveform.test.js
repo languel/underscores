@@ -16,3 +16,6 @@ test("audio waveform path closes a centered silhouette", () => {
   assert.match(path, /^M0 13\.4 L50 9\.5 L100 3 L100 29 L50 22\.5 L0 18\.6 Z$/);
 });
 
+test("audio waveform path uses a neutral centerline without source data", () => {
+  assert.equal(audioWaveformPath([]), "M0 16 H100");
+});

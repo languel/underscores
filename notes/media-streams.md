@@ -18,13 +18,14 @@ The media graph has four principal kinds:
 
 Open the source catalog with `/media` (the `/media-input` alias remains available), signal streams with
 `/inputs`, and processors with `/holistic`. Creating an input adds it to the panel catalog only.
-Selecting a source starts its preview and playback; its transport controls still determine whether
-it is playing, and its mute control determines whether audio is audible. Press **Escape** to clear
-the panel selection. **Show as canvas object** adds or removes an ordinary transformable view;
-an enabled preview, Holistic processor, or derived Unicursal object keeps the source runtime alive
-even when the panel selection is cleared. Canvas opacity and Outliner visibility affect that view
-only, so a hidden source view remains available to active downstream processors. A disabled scene
-object no longer demands its input source.
+The catalog is a source bin: its local preview can be started, paused, muted, looped, and linked to
+the shared transport independently of any canvas instance. Preview playback is dormant until it is
+explicitly resumed, and clearing the panel selection with **Escape** releases its runtime demand.
+**Show as canvas object** adds or removes an ordinary transformable view; an enabled preview,
+Holistic processor, or derived Unicursal object keeps the source runtime alive even when the panel
+selection is cleared. Canvas opacity and Outliner visibility affect that view only, so a hidden
+source view remains available to active downstream processors. A disabled scene object no longer
+demands its input source.
 
 ## One processed output
 
@@ -62,6 +63,26 @@ use the source's current processed output size when available, falling back to t
 resolution. The preview remains an ordinary selectable Underscores object and appears in the
 Outliner using the source name. Existing rectangles or frames can still become previews through
 the context menu or `/preview` command.
+
+### Canvas media instances
+
+Dragging a catalog source onto the canvas creates a separate `preview` instance. Instances do not
+autoplay: a video or GIF holds its first frame, and audio is represented by an informative waveform
+with its playhead at zero. The instance is an ordinary scene object, so its playback can be started
+or stopped from the canvas transport, the Properties panel, **Cmd/Ctrl+Enter** or **Cmd/Ctrl+.** on
+hover, a linked timeline, or a future score/physics trigger.
+
+The instance's **media transport** group owns play/pause, mute, loop, local speed, and optional
+transport linking. Audio and video instances also expose a volume slider. Visual instances expose
+the core opacity slider and a CSS blend-mode selector (`normal`, `multiply`, `screen`, `overlay`,
+and the other standard compositing modes). These values belong to the instance; changing them does
+not change the catalog source or another instance created from it.
+
+When transport linking is enabled, the main playhead drives the clip modulo its duration while
+looping, or holds it at the end when looping is off. The runtime avoids corrective seeks during
+normal playback. Audio and video loop boundaries are restarted through a short edge fade rather
+than the browser's hard native loop jump, which reduces clicks and pops while preserving the
+authored loop timing.
 
 ### Canvas capture sources
 

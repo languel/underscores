@@ -3226,6 +3226,23 @@ function App() {
   const [inputStreamStatuses, setInputStreamStatuses] = useState({});
   const [shaderDiagnostics, setShaderDiagnostics] = useState(getShaderStatuses);
   const [activeMediaSourceId, setActiveMediaSourceId] = useState("");
+  // The source-bin preview is a local player, separate from the playback
+  // state persisted on canvas media instances. Keep its ephemeral controls
+  // out of the catalog and feed them to the shared runtime only while the
+  // source is selected in the Media panel.
+  const [mediaPanelPlayback, setMediaPanelPlayback] = useState({});
+  const updateMediaPanelPlayback = useCallback((sourceId, playback) => {
+    setMediaPanelPlayback(previous => {
+      if (!sourceId) return previous;
+      if (!playback) {
+        if (!Object.hasOwn(previous, sourceId)) return previous;
+        const next = { ...previous };
+        delete next[sourceId];
+        return next;
+      }
+      return { ...previous, [sourceId]: playback };
+    });
+  }, []);
   const [mediaActorsArmed, setMediaActorsArmed] = useState(() => (
     localStorage.getItem(MEDIA_ACTORS_ARMED_STORAGE_KEY) === "true"
   ));
@@ -3715,6 +3732,75 @@ function App() {
   const svgSourceSelectionMutedUntilRef = useRef(0);
   const [p5OverlayScene, setP5OverlayScene] = useState({ elements: [], canvasElements: [], appState: null, captureRevision: 0 });
   const connectedMediaSourceIds = useMemo(() => getConnectedMediaSourceIds(p5OverlayScene.elements, mediaSources), [p5OverlayScene.elements, mediaSources]);
+  const mediaPlaybackOverrides = useMemo(() => {
+    const grouped = new Map();
+    const processorElements = [];
+    p5OverlayScene.elements.forEach(element => {
+      if (!isMediaStreamElement(element)) return;
+      const config = normalizeMediaStreamConfig(element.customData?.underscoresMediaStream);
+      if (config.kind === MEDIA_STREAM_KINDS.HOLISTIC || config.kind === MEDIA_STREAM_KINDS.UNICURSAL) {
+        processorElements.push(element);
+      }
+      if (config.kind !== MEDIA_STREAM_KINDS.PREVIEW || !config.sourceId) return;
+      const entries = grouped.get(config.sourceId) || [];
+      entries.push(config.media);
+      grouped.set(config.sourceId, entries);
+    });
+    // Keep the full derived-processor chain (for example Unicursal ->
+    // Holistic -> camera) while intentionally excluding preview instances.
+    const processorSourceIds = getConnectedMediaSourceIds(processorElements, mediaSources);
+    const overrides = {};
+    grouped.forEach((entries, sourceId) => {
+      const active = entries.filter(media => media.playing === true);
+      const rateEntry = active.find(media => Number(media.playbackRate) !== 0) || entries[0];
+      overrides[sourceId] = {
+        playing: active.length > 0,
+        muted: entries.every(media => media.muted === true),
+        loop: entries.some(media => media.loop === true),
+        playbackRate: Number(rateEntry?.playbackRate) || 0,
+        linkTransport: entries.some(media => media.linkTransport === true),
+      };
+    });
+    // A media source feeding an enabled processor is an active scene input,
+    // even when there is no media-preview instance for it. Keep that source
+    // running so Holistic/Unicursal outputs do not get muted by the source-bin
+    // dormancy rule below.
+    processorSourceIds.forEach(sourceId => {
+      const source = mediaSources.find(candidate => candidate.id === sourceId);
+      if (!source) return;
+      const current = overrides[sourceId];
+      overrides[sourceId] = {
+        ...current,
+        playing: current?.playing === true || source.media.playing !== false,
+        muted: current ? current.muted : source.media.muted,
+        loop: current?.loop ?? source.media.loop,
+        playbackRate: current?.playbackRate ?? source.media.playbackRate,
+        linkTransport: current?.linkTransport ?? source.media.linkTransport,
+      };
+    });
+    // Camera and canvas inputs use their primary runtime for the source-bin
+    // preview. Let that ephemeral preview state control an otherwise unused
+    // input, but never let it pause a source already owned by a processor or
+    // a canvas-preview instance.
+    Object.entries(mediaPanelPlayback).forEach(([sourceId, playback]) => {
+      const source = mediaSources.find(candidate => candidate.id === sourceId);
+      if (!source || source.kind === MEDIA_STREAM_KINDS.MEDIA || processorSourceIds.has(sourceId) || grouped.has(sourceId)) return;
+      overrides[sourceId] = playback;
+    });
+    // Selection in the source bin is not a play request. Seed the selected
+    // source with a dormant local-preview state synchronously, before the
+    // panel effect has had a chance to publish its ephemeral controls.
+    if (activeMediaSourceId && !overrides[activeMediaSourceId] && mediaSources.some(source => source.id === activeMediaSourceId)) {
+      overrides[activeMediaSourceId] = {
+        playing: false,
+        muted: true,
+        loop: true,
+        playbackRate: 1,
+        linkTransport: false,
+      };
+    }
+    return overrides;
+  }, [activeMediaSourceId, mediaPanelPlayback, mediaSources, p5OverlayScene.elements]);
   useEffect(() => {
     const legacyHosts = p5OverlayScene.elements.filter(element => {
       if (!isMediaStreamElement(element)) return false;
@@ -6689,6 +6775,7 @@ function App() {
   const rawCursorRef = useRef(null);
   const lastCanvasPointerRef = useRef(null);
   const livecodeNodeAtCanvasPointerRef = useRef(null);
+  const mediaPreviewAtCanvasPointerRef = useRef(null);
   const toggleLivecodeNodeRunRef = useRef(null);
   const laserWasActiveRef = useRef(false);
 
@@ -7052,6 +7139,31 @@ function App() {
     });
   };
   livecodeNodeAtCanvasPointerRef.current = livecodeNodeAtCanvasPointer;
+
+  const mediaPreviewAtCanvasPointer = (clientX, clientY) => {
+    if (!excalidrawAPI || !Number.isFinite(Number(clientX)) || !Number.isFinite(Number(clientY))) return null;
+    const container = document.getElementById("canvas-container");
+    const target = document.elementFromPoint(Number(clientX), Number(clientY));
+    if (!container || !target || !container.contains(target)) return null;
+    const [x, y] = getCanvasCoords(clientX, clientY, "none");
+    const candidates = excalidrawAPI.getSceneElements().filter(element => {
+      if (element.isDeleted || element.customData?.outlinerHidden || !isMediaStreamElement(element)) return false;
+      return normalizeMediaStreamConfig(element.customData?.underscoresMediaStream).kind === MEDIA_STREAM_KINDS.PREVIEW;
+    });
+    return [...candidates].reverse().find(element => {
+      const centerX = element.x + element.width / 2;
+      const centerY = element.y + element.height / 2;
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const angle = Number(element.angle) || 0;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const localX = cos * dx + sin * dy;
+      const localY = -sin * dx + cos * dy;
+      return Math.abs(localX) <= element.width / 2 && Math.abs(localY) <= element.height / 2;
+    });
+  };
+  mediaPreviewAtCanvasPointerRef.current = mediaPreviewAtCanvasPointer;
 
   const handleLivecodeCommandOutputPointerDown = e => {
     if (!excalidrawAPI || !isLivecodeCommandOutputGesture(e)) return false;
@@ -12688,13 +12800,17 @@ function App() {
       const canvasLivecodeShortcutCandidate = pointer
         ? livecodeNodeAtCanvasPointerRef.current?.(pointer[0], pointer[1])
         : null;
+      const canvasMediaShortcutCandidate = pointer
+        ? mediaPreviewAtCanvasPointerRef.current?.(pointer[0], pointer[1])
+        : null;
       const isCanvasLivecodeRunStopShortcut = (e.metaKey || e.ctrlKey)
         && !e.altKey
         && !e.shiftKey
         && (e.key === "Enter" || e.key === "." || e.code === "Period")
-        && Boolean(canvasLivecodeShortcutCandidate);
+        && Boolean(canvasLivecodeShortcutCandidate || canvasMediaShortcutCandidate);
       if (document.activeElement?.closest?.(".underscores-p5-host")
         && !isCanvasLivecodeRunStopShortcut
+        && !canvasMediaShortcutCandidate
         && shortcutActionForEvent?.id !== "object.pick.fromCanvas") return;
 
       // Space controls score transport from the canvas/UI. Text controls keep
@@ -12727,6 +12843,13 @@ function App() {
           } else if (node.runtime.running) {
             void toggleLivecodeNodeRunRef.current?.(hoveredLivecodeNode.id);
           }
+          return;
+        }
+        if (canvasMediaShortcutCandidate && (isRunShortcut || isStopShortcut)) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation?.();
+          patchMediaStreamObject(canvasMediaShortcutCandidate.id, { media: { playing: isRunShortcut } });
           return;
         }
       }
@@ -26086,6 +26209,7 @@ function App() {
               selectedCanvasTarget={selectedCanvasInputTarget}
               activeSourceId={activeMediaSourceId}
               onActiveSourceChange={setActiveMediaSourceId}
+              onPreviewPlaybackChange={updateMediaPanelPlayback}
               onCreate={createMediaInputSource}
               onPatch={patchMediaInputSource}
               onCreatePreview={createMediaPreview}
@@ -26336,6 +26460,8 @@ function App() {
           sources={mediaSources}
           activeSourceId={activeMediaSourceId}
           connectedSourceIds={connectedMediaSourceIds}
+          playbackOverrides={mediaPlaybackOverrides}
+          panelPreviewPlayback={mediaPanelPlayback}
           captureCanvasSource={captureCanvasInput}
           captureRevision={p5OverlayScene.captureRevision}
           transportTime={scoreTime}

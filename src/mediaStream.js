@@ -32,6 +32,30 @@ export const MEDIA_BINDING_TYPES = Object.freeze({
   FREEDRAW_ACTOR: "freedraw-actor",
 });
 
+// Keep this list deliberately small and CSS-native. It is shared by the
+// instance inspector and the renderer so authored values can never inject an
+// arbitrary style value into the media overlay.
+export const MEDIA_BLEND_MODES = Object.freeze([
+  "normal",
+  "multiply",
+  "screen",
+  "overlay",
+  "darken",
+  "lighten",
+  "color-dodge",
+  "color-burn",
+  "hard-light",
+  "soft-light",
+  "difference",
+  "exclusion",
+  "hue",
+  "saturation",
+  "color",
+  "luminosity",
+]);
+
+export const normalizeMediaBlendMode = value => MEDIA_BLEND_MODES.includes(String(value)) ? String(value) : "normal";
+
 const DEFAULT_CROP = Object.freeze({ x: 0, y: 0, width: 1, height: 1 });
 const DEFAULT_HOLISTIC_COLORS = Object.freeze({
   pose: "#6fa5ff",
@@ -190,7 +214,11 @@ export const createMediaStreamConfig = (kind = MEDIA_STREAM_KINDS.MEDIA, overrid
     mirror: kind === MEDIA_STREAM_KINDS.CAMERA,
     crop: DEFAULT_CROP,
     camera: { deviceId: "", facingMode: "user" },
-    media: { url: "", mediaType: "video", fileName: "", loop: true, muted: true, playing: true, playbackRate: 1, linkTransport: false },
+    // Catalog inputs are not players. Preview instances own their transport
+    // state and start paused; source entries retain the legacy fields only so
+    // existing processor connections can be normalized safely.
+    media: { url: "", mediaType: "video", fileName: "", loop: true, muted: true, playing: kind === MEDIA_STREAM_KINDS.PREVIEW ? false : true, playbackRate: 1, volume: 1, linkTransport: false, manual: false },
+    blendMode: "normal",
     canvas: { elementId: "", live: false, background: "theme" },
     output: DEFAULT_OUTPUT,
     holistic: {
@@ -264,6 +292,7 @@ export const normalizeMediaStreamConfig = value => {
     sourceId: cleanString(source.sourceId),
     name: cleanString(source.name, kind === MEDIA_STREAM_KINDS.CAMERA ? "Camera" : kind === MEDIA_STREAM_KINDS.CANVAS ? "Canvas" : kind === MEDIA_STREAM_KINDS.PREVIEW ? "Preview" : kind === MEDIA_STREAM_KINDS.HOLISTIC ? "Holistic" : kind === MEDIA_STREAM_KINDS.UNICURSAL ? "Unicursal portrait" : "Media"),
     enabled: source.enabled !== false,
+    blendMode: normalizeMediaBlendMode(source.blendMode),
     mirror: source.mirror === undefined ? kind === MEDIA_STREAM_KINDS.CAMERA : Boolean(source.mirror),
     crop: {
       x: clamp(crop.x, 0, 0.99, DEFAULT_CROP.x),
@@ -284,13 +313,21 @@ export const normalizeMediaStreamConfig = value => {
       // Input sources run independently from the global score transport.  A
       // paused source keeps its most recently processed frame available to
       // MediaPipe and canvas hosts, rather than tearing down its runtime.
-      playing: media.playing !== false,
+      // Preview elements are explicit players. Older preview objects were
+      // authored with `playing: true`; keep them dormant until their local
+      // transport has been touched once (patchMediaStreamConfig marks that
+      // interaction with `manual`).
+      playing: kind === MEDIA_STREAM_KINDS.PREVIEW
+        ? media.manual === true && media.playing === true
+        : media.playing !== false,
       // Signed rates are intentional: positive plays forward, negative plays
       // backward, and zero holds the current decoded frame.
       playbackRate: clamp(media.playbackRate, -8, 8, 1),
       // Media inputs can either run independently or follow the shared score
       // transport. The latter is opt-in so catalog sources remain dormant.
       linkTransport: media.linkTransport === true,
+      volume: clamp(media.volume, 0, 1, 1),
+      manual: media.manual === true,
     },
     canvas: {
       elementId: cleanString(canvas.elementId),
@@ -480,7 +517,12 @@ export const getConnectedMediaSourceIds = (elements = [], sources = []) => {
 
 export const patchMediaStreamConfig = (value, patch = {}) => {
   const current = normalizeMediaStreamConfig(value);
-  const media = { ...current.media, ...(patch.media || {}) };
+  const mediaPatch = patch.media || {};
+  const media = {
+    ...current.media,
+    ...mediaPatch,
+    ...(current.kind === MEDIA_STREAM_KINDS.PREVIEW && Object.hasOwn(mediaPatch, "playing") ? { manual: true } : {}),
+  };
   const holisticPatch = patch.holistic || {};
   if (Object.hasOwn(patch.media || {}, "url") && !Object.hasOwn(patch.media || {}, "mediaType")) {
     media.mediaType = inferMediaType(patch.media.url);

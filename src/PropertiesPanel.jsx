@@ -11,7 +11,7 @@ import {
 import { getEditableSvgPathNodes } from "./svgPathGeometry.js";
 import { buildSvgTimingGraph } from "./svgAnimation.js";
 import { getSvgNodeStyleCascade, updateStructuredSvgStyleDeclaration } from "./svgStyleModel.js";
-import { isGifMediaSource, isMediaStreamElement, MEDIA_STREAM_KINDS, normalizeMediaStreamConfig, patchMediaStreamConfig } from "./mediaStream.js";
+import { isGifMediaSource, isMediaStreamElement, MEDIA_BLEND_MODES, MEDIA_STREAM_KINDS, normalizeMediaStreamConfig, patchMediaStreamConfig } from "./mediaStream.js";
 import { getScoreData, normalizeIannixData } from "./iannixEngine.js";
 import { createTimeValue } from "./timeValue.js";
 import { getPhysicsColliderSelectionValue } from "./physicsGeometry.js";
@@ -381,30 +381,39 @@ const mediaPlaybackFieldCount = (element, query, mediaSources = []) => {
   const sourceId = mediaSourceReferenceForElement(stream);
   const source = mediaSources.find(candidate => candidate.id === sourceId);
   if (!source || !isAnimatedMediaSource(source)) return 0;
-  const matches = name => !query?.needle || ["media", "transport", "play", "pause", "mute", "loop", "speed", "link", name]
+  const matches = name => !query?.needle || ["media", "transport", "play", "pause", "mute", "loop", "speed", "link", "volume", "opacity", "blend", "mode", name]
     .some(value => value.includes(query.needle));
-  return matches("transport") ? 6 : 0;
+  return matches("transport") ? 9 : 0;
 };
 
-const MediaPlaybackControls = ({ element, query, mediaSources = [], onPatchMediaSource }) => {
+const MediaPlaybackControls = ({ element, query, onChange, mediaSources = [], onPatchMediaSource }) => {
   if (!isMediaStreamElement(element)) return null;
   const stream = normalizeMediaStreamConfig(element.customData?.underscoresMediaStream);
   const sourceId = mediaSourceReferenceForElement(stream);
   const source = mediaSources.find(candidate => candidate.id === sourceId);
   if (!source || !isAnimatedMediaSource(source)) return null;
-  const matches = name => !query?.needle || ["media", "transport", "play", "pause", "mute", "loop", "speed", "link", name]
+  const matches = name => !query?.needle || ["media", "transport", "play", "pause", "mute", "loop", "speed", "link", "volume", "opacity", "blend", "mode", name]
     .some(value => value.includes(query.needle));
   if (query?.needle && !matches("transport")) return null;
-  const update = patch => onPatchMediaSource?.(source.id, { media: patch });
-  const isPlaying = source.media.playing !== false;
+  const isInstance = stream.kind === MEDIA_STREAM_KINDS.PREVIEW;
+  const media = isInstance ? stream.media : source.media;
+  const update = patch => isInstance
+    ? onChange?.(["customData", "underscoresMediaStream"], patchMediaStreamConfig(stream, { media: patch }))
+    : onPatchMediaSource?.(source.id, { media: patch });
+  const isPlaying = media.playing === true;
   const isCamera = source.kind === MEDIA_STREAM_KINDS.CAMERA;
   const canMute = !isCamera && ["audio", "video"].includes(source.media.mediaType);
   const canLoop = !isCamera && isAnimatedMediaSource(source);
   const canSetRate = !isCamera && isAnimatedMediaSource(source)
     && (source.media.mediaType !== "image" || isGifMediaSource(source));
+  const canVolume = isInstance && !isCamera && ["audio", "video"].includes(source.media.mediaType);
+  const canVisualBlend = isInstance && source.media.mediaType !== "audio";
+  const opacity = Math.max(0, Math.min(100, Number.isFinite(Number(element.opacity)) ? Number(element.opacity) : 100));
+  const blendMode = stream.blendMode || "normal";
+  const updateElement = (path, value) => onChange?.(path, value);
   return (
     <details className="properties-group properties-media-playback-group" open>
-      <summary><span>media transport</span><small>{source.name}</small></summary>
+      <summary><span>media transport</span><small>{isInstance ? "canvas instance" : source.name}</small></summary>
       <div className="properties-children">
         <div className="properties-media-transport" role="group" aria-label="Media transport">
           <button
@@ -420,22 +429,52 @@ const MediaPlaybackControls = ({ element, query, mediaSources = [], onPatchMedia
                 : <path d="M7 5.5v13l11-6.5z" />}
             </svg>
           </button>
-          {canMute && <label title={source.media.muted ? "Unmute media" : "Mute media"}>
-            <input type="checkbox" checked={source.media.muted} onChange={event => update({ muted: event.target.checked })} />
+          {canMute && <label title={media.muted ? "Unmute media" : "Mute media"}>
+            <input type="checkbox" checked={media.muted} onChange={event => update({ muted: event.target.checked })} />
             <span>Mute</span>
           </label>}
           {canLoop && <label title="Loop media">
-            <input type="checkbox" checked={source.media.loop} onChange={event => update({ loop: event.target.checked })} />
+            <input type="checkbox" checked={media.loop} onChange={event => update({ loop: event.target.checked })} />
             <span>Loop</span>
           </label>}
           <label title="Follow the shared score transport for play, pause, seek, and the waveform playhead">
-            <input type="checkbox" checked={source.media.linkTransport === true} onChange={event => update({ linkTransport: event.target.checked })} />
+            <input type="checkbox" checked={media.linkTransport === true} onChange={event => update({ linkTransport: event.target.checked })} />
             <span>Link transport</span>
           </label>
         </div>
         {canSetRate && <div className="properties-row editable">
           <span>speed</span>
-          <NumericInput min="0.1" max="8" step="0.1" value={source.media.playbackRate} defaultValue={1} onCommit={playbackRate => update({ playbackRate })} />
+          <NumericInput min="-8" max="8" step="0.1" value={media.playbackRate} defaultValue={1} onCommit={playbackRate => update({ playbackRate })} />
+        </div>}
+        {canVolume && <div className="properties-row editable properties-media-slider-row">
+          <span>volume</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={media.volume ?? 1}
+            onChange={event => update({ volume: Number(event.target.value) })}
+            aria-label="Media volume"
+          />
+        </div>}
+        {canVisualBlend && <div className="properties-row editable properties-media-slider-row">
+          <span>opacity</span>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value={opacity}
+            onChange={event => updateElement(["opacity"], Number(event.target.value))}
+            aria-label="Media opacity"
+          />
+        </div>}
+        {canVisualBlend && <div className="properties-row editable">
+          <span>blend mode</span>
+          <select value={blendMode} onChange={event => updateElement(["customData", "underscoresMediaStream"], patchMediaStreamConfig(stream, { blendMode: event.target.value }))} aria-label="Media blend mode">
+            {MEDIA_BLEND_MODES.map(mode => <option key={mode} value={mode}>{mode}</option>)}
+          </select>
         </div>}
       </div>
     </details>
@@ -1430,6 +1469,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
               <MediaPlaybackControls
                 element={element}
                 query={query}
+                onChange={(path, value) => onChange([element.id], path, value)}
                 mediaSources={mediaSources}
                 onPatchMediaSource={onPatchMediaSource}
               />
