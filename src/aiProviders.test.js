@@ -20,7 +20,7 @@ import {
 
 test("provider catalog contains local and requested remote routes", () => {
   const ids = AI_PROVIDER_OPTIONS.map(provider => provider.id);
-  for (const id of ["ollama", "lmstudio", "openrouter", "pratt", "nvidia", "openai", "anthropic", "github", "google"]) {
+  for (const id of ["ollama", "lmstudio", "unsloth", "openrouter", "pratt", "nvidia", "openai", "anthropic", "github", "google"]) {
     assert.ok(ids.includes(id), id);
   }
 });
@@ -61,6 +61,25 @@ test("model requests use provider authentication and routes", () => {
   const pratt = buildAIModelsRequest(normalizeAISettings({ provider: "pratt", apiKey: "sk-pratt-test" }), "http://localhost:8089");
   assert.equal(pratt.url, "http://localhost:8089/api/pratt/v1/models");
   assert.equal(pratt.options.headers.Authorization, "Bearer sk-pratt-test");
+
+  const unsloth = buildAIModelsRequest(normalizeAISettings({ provider: "unsloth" }));
+  assert.equal(unsloth.url, "http://localhost:8001/v1/models");
+  assert.equal(unsloth.options.headers["Content-Type"], "application/json");
+  assert.equal(aiProviderNeedsCredential("unsloth"), false);
+});
+
+test("LM Studio chat payload omits the UI-only leading assistant greeting", () => {
+  const settings = normalizeAISettings({ provider: "lmstudio", model: "qwen3.8-9b-mlx" });
+  const request = buildAIChatRequest(settings, [
+    { role: "system", content: "system" },
+    { role: "assistant", content: "UI greeting" },
+    { role: "user", content: "first" },
+    { role: "assistant", content: "reply" },
+    { role: "user", content: "second" },
+  ]);
+  const body = JSON.parse(request.options.body);
+  assert.deepEqual(body.messages.map(message => message.role), ["system", "user", "assistant", "user"]);
+  assert.equal(body.messages[1].content, "first");
 });
 
 test("Pratt defaults to its interactive model and accepts a server environment credential", () => {

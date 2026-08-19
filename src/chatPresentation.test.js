@@ -43,3 +43,11 @@ test("command return placeholders do not leak into the visible explanation", () 
   assert.match(html, /Updated the shader/);
   assert.doesNotMatch(html, />undefined</);
 });
+
+test("structured JSON action blocks stay out of the visible explanation", () => {
+  const source = `Applied the edit.\n\n\`\`\`json\n{"action":"livecode.node.update","payload":{"elementId":"node-1","source":"function draw() {}"}}\n\`\`\``;
+  assert.equal(stripAssistantCommandTags(source), "Applied the edit.");
+  const html = renderChatMessage({ source, role: "assistant" });
+  assert.match(html, /Applied the edit/);
+  assert.doesNotMatch(html, /livecode\.node\.update/);
+});

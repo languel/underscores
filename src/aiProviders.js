@@ -15,6 +15,14 @@ const PROVIDERS = Object.freeze({
     protocol: "openai",
     instructions: "Runs locally through LM Studio's OpenAI-compatible server. Start the local server in LM Studio and enable network or CORS access if Underscores is opened from another origin. No API key is normally required.",
   },
+  unsloth: {
+    id: "unsloth",
+    label: "Unsloth",
+    defaultUrl: "http://localhost:8001",
+    credentialLabel: "API key (optional)",
+    protocol: "openai",
+    instructions: "Uses Unsloth's OpenAI-compatible local server (usually llama-server on port 8001). Start Unsloth or llama-server, then enter its base URL without /v1. The documented local endpoint accepts a placeholder key such as sk-no-key-required; add a bearer token only when your server requires one.",
+  },
   "openai-compatible": {
     id: "openai-compatible",
     label: "OpenAI-compatible",
@@ -111,7 +119,7 @@ export const getAIProviderHelp = provider => {
 
 export const aiProviderNeedsCredential = (provider, environmentCredentialAvailable = false) => (
   Boolean(getAIProvider(provider).credentialLabel)
-  && provider !== "openai-compatible"
+  && !["openai-compatible", "unsloth"].includes(provider)
   && !(provider === "pratt" && environmentCredentialAvailable)
 );
 
@@ -139,7 +147,7 @@ export const getAIProviderCredential = settings => String(settings?.apiKeys?.[se
 export const cleanAIBaseUrl = (url, provider) => {
   const definition = getAIProvider(provider);
   let clean = String(url || definition.defaultUrl).trim().replace(/\/+$/, "");
-  if (["openai", "openrouter", "pratt", "nvidia", "anthropic", "lmstudio", "openai-compatible"].includes(provider)) {
+  if (["openai", "openrouter", "pratt", "nvidia", "anthropic", "lmstudio", "openai-compatible", "unsloth"].includes(provider)) {
     clean = clean.replace(/\/v1$/i, "");
   } else if (provider === "google") {
     clean = clean.replace(/\/v1beta$/i, "");
@@ -185,7 +193,7 @@ const providerHeaders = (settings, { stream = false } = {}) => {
   const provider = settings.provider;
   const credential = getAIProviderCredential(settings);
   const headers = { "Content-Type": "application/json" };
-  if (["openai", "openrouter", "pratt", "nvidia", "github", "openai-compatible"].includes(provider)) {
+  if (["openai", "openrouter", "pratt", "nvidia", "github", "openai-compatible", "unsloth"].includes(provider)) {
     Object.assign(headers, bearerHeaders(credential));
   }
   if (provider === "openrouter") headers["X-Title"] = "Underscores";
@@ -325,9 +333,16 @@ export const buildAIChatRequest = (settings, messages, runtimeOrigin = "") => {
     };
   }
   const path = provider === "github" ? "/chat/completions" : "/v1/chat/completions";
+  // LM Studio's default Qwen prompt template expects the first conversational
+  // turn after the system message to be from the user. The assistant greeting
+  // shown in the UI is presentation-only, so omit leading assistant turns from
+  // the wire payload while retaining all real conversation turns.
+  const chatMessages = provider === "lmstudio"
+    ? messages.filter((message, index, list) => message.role === "system" || index >= list.findIndex(item => item.role === "user"))
+    : messages;
   return {
     url: `${base}${path}`,
-    options: { method: "POST", headers: providerHeaders(settings, { stream: true }), body: JSON.stringify({ model, messages, stream: true }) },
+    options: { method: "POST", headers: providerHeaders(settings, { stream: true }), body: JSON.stringify({ model, messages: chatMessages, stream: true }) },
     streamFormat: "openai",
   };
 };
@@ -372,13 +387,14 @@ export const readAITextStream = async (response, format, onText) => {
           // A non-streaming OpenAI-compatible response is still valid JSON.
           : (line.startsWith("{") || line.startsWith("[")) ? line : "";
       if (!data || data === "[DONE]") continue;
-      try {
-        const text = extractAIStreamText(format, JSON.parse(data));
-        if (text) {
-          fullText += text;
-          onText(fullText, text);
-        }
-      } catch {}
+      let payload;
+      try { payload = JSON.parse(data); } catch { continue; }
+      if (payload?.error?.message) throw new Error(payload.error.message);
+      const text = extractAIStreamText(format, payload);
+      if (text) {
+        fullText += text;
+        onText(fullText, text);
+      }
     }
     if (done) break;
   }
@@ -386,13 +402,14 @@ export const readAITextStream = async (response, format, onText) => {
   // stream. The line parser intentionally ignores those interior lines, so
   // make one final structured attempt against the complete body.
   if (!fullText && rawResponse.trim()) {
-    try {
-      const text = extractAIStreamText(format, JSON.parse(rawResponse));
-      if (text) {
-        fullText = text;
-        onText(fullText, text);
-      }
-    } catch {}
+    let payload;
+    try { payload = JSON.parse(rawResponse); } catch { payload = null; }
+    if (payload?.error?.message) throw new Error(payload.error.message);
+    const text = extractAIStreamText(format, payload);
+    if (text) {
+      fullText = text;
+      onText(fullText, text);
+    }
   }
   return fullText;
 };

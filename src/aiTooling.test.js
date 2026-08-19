@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildAICommandCatalog, buildAIAutomationGuide, isAICommandAllowed, parseUnderscoresCommandTags } from "./aiTooling.js";
+import { buildAICommandCatalog, buildAIAutomationGuide, isAICommandAllowed, parseStructuredActionBlocks, parseUnderscoresCommandTags } from "./aiTooling.js";
 
 test("AI command tags preserve ordered calls and isolate malformed JSON", () => {
   const calls = parseUnderscoresCommandTags(`before
@@ -29,6 +29,23 @@ test("AI command tags tolerate harmless XML attribute variation", () => {
     `<underscores-command data-source="model" id='livecode.node.update'>{"elementId":"node-1"}</underscores-command >`,
   );
   assert.deepEqual(call, { id: "livecode.node.update", args: { elementId: "node-1" }, error: null });
+});
+
+test("AI command parser accepts a fenced structured action envelope", () => {
+  const calls = parseStructuredActionBlocks(`Here is the edit:\n\n\`\`\`json\n${JSON.stringify({
+    id: "model-request-1",
+    action: "livecode.node.update",
+    payload: { elementId: "node-1", source: "function draw() {}" },
+  })}\n\`\`\``);
+  assert.deepEqual(calls, [{
+    id: "livecode.node.update",
+    args: { elementId: "node-1", source: "function draw() {}" },
+    error: null,
+  }]);
+  assert.deepEqual(parseUnderscoresCommandTags(`\`\`\`json\n${JSON.stringify({
+    action: "scene.clear",
+    payload: {},
+  })}\n\`\`\``), [{ id: "scene.clear", args: {}, error: null }]);
 });
 
 test("AI catalog exposes only explicitly allowed commands", () => {

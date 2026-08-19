@@ -426,6 +426,7 @@ export function LivecodeNodeOverlay({
   onStrudelTransport,
   scriptRuntimeRef,
   transport,
+  aiQueryElementIds = [],
   layer = "overlay",
   showDocumentationOverlay = true,
   documentationOverlayByLanguage = null,
@@ -456,6 +457,7 @@ export function LivecodeNodeOverlay({
     const composition = normalizeShaderCompositionSettings(node.runtime.settings);
     const docsOverlayEnabled = documentationOverlayByLanguage?.[node.kind] ?? showDocumentationOverlay;
     const selected = Boolean(camera.selectedElementIds[element.id]);
+    const aiQueryActive = selected && aiQueryElementIds.includes(element.id);
     const editing = activeEditorId === element.id;
     const visible = selected || editing;
     const handleCommandOutputPointer = event => {
@@ -475,7 +477,7 @@ export function LivecodeNodeOverlay({
     };
     return <div
       key={element.id}
-      className={`underscores-livecode-node ${selected ? "selected" : ""} ${editing ? "editing" : ""} ${node.typography.glyphOnlyOverlay ? "glyph-only-overlay" : ""} ${node.view}`}
+      className={`underscores-livecode-node ${selected ? "selected" : ""} ${editing ? "editing" : ""} ${aiQueryActive ? "ai-query-active" : ""} ${node.typography.glyphOnlyOverlay ? "glyph-only-overlay" : ""} ${node.view}`}
       data-livecode-node-id={element.id}
       style={{
         left: (element.x + camera.scrollX) * camera.zoom,

@@ -406,6 +406,38 @@ const selectionContextForElement = element => {
 
 const INITIAL_GREETING = "Hello! I am your drawing assistant powered by local AI. You can write prompts like \"draw a flow chart\", \"sketch a house\", or \"clear the canvas\" and I will execute the drawing tools programmatically!";
 
+const THINKING_BRAILLE_FRAMES = Object.freeze(["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]);
+
+function ThinkingIndicator() {
+  const [frame, setFrame] = useState(0);
+  const [motionAllowed, setMotionAllowed] = useState(true);
+
+  useEffect(() => {
+    const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!media) return undefined;
+    const update = () => setMotionAllowed(!media.matches);
+    update();
+    media.addEventListener?.("change", update);
+    return () => media.removeEventListener?.("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (!motionAllowed) {
+      setFrame(0);
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      setFrame(previous => (previous + 1) % THINKING_BRAILLE_FRAMES.length);
+    }, 120);
+    return () => window.clearInterval(timer);
+  }, [motionAllowed]);
+
+  return <span className="ai-thinking-indicator" role="status" aria-label="AI is thinking">
+    <span>Thinking</span>
+    <span className="ai-thinking-braille" aria-hidden="true">{THINKING_BRAILLE_FRAMES[frame]}</span>
+  </span>;
+}
+
 const DRAWING_ROUNDNESS_STORAGE_KEY = "underscores_drawing_roundness";
 const CUSTOM_BRUSH_ROUNDNESS_STORAGE_KEY = "underscores_custom_brush_roundness";
 const readDrawingRoundness = () => {
@@ -9942,6 +9974,7 @@ function App() {
   ]);
   const [userInput, setUserInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [aiQueryElementIds, setAiQueryElementIds] = useState([]);
   
   // Settings States
   const [aiSettings, setAiSettings] = useState(() => {
@@ -10568,6 +10601,14 @@ function App() {
       processedMessage += `\n\n[Full Excalidraw Scene JSON]:\n${JSON.stringify(canvasSummary)}`;
     }
 
+    // Only contextual commands are actively targeting the current selection.
+    // Ordinary chat should not decorate selected nodes while it is streaming.
+    setAiQueryElementIds(options.contextPrompt
+      ? selectedElements
+        .filter(element => codeHostContextForElement(element))
+        .map(element => element.id)
+      : []);
+
     const newUserPayload = {
       role: "user",
       content: processedMessage,
@@ -10674,6 +10715,7 @@ function App() {
       });
     } finally {
       setIsStreaming(false);
+      setAiQueryElementIds([]);
     }
   };
 
@@ -10688,11 +10730,58 @@ function App() {
   };
 
   const clearChat = () => {
+    setAiQueryElementIds([]);
     setChatHistory([
       { role: "system", content: SYSTEM_PROMPT },
       { role: "assistant", content: INITIAL_GREETING }
     ]);
     reportAiStatus("Started a new AI conversation.");
+  };
+
+  const copyTextToClipboard = async text => {
+    const value = String(text || "");
+    if (!value.trim()) return false;
+
+    let clipboardError = null;
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(value);
+        return true;
+      } catch (error) {
+        clipboardError = error;
+      }
+    }
+
+    // The embedded browser can omit navigator.clipboard or reject it outside
+    // a secure context. Keep copy usable from the click gesture with the
+    // synchronous DOM fallback, without opening a popup or changing focus
+    // after the operation completes.
+    if (typeof document !== "undefined" && typeof document.execCommand === "function") {
+      const previousFocus = document.activeElement;
+      const textarea = document.createElement("textarea");
+      textarea.value = value;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      textarea.style.top = "0";
+      textarea.style.opacity = "0";
+      textarea.style.pointerEvents = "none";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      textarea.setSelectionRange(0, value.length);
+      let copied = false;
+      try {
+        copied = document.execCommand("copy") === true;
+      } catch (error) {
+        clipboardError = clipboardError || error;
+      }
+      textarea.remove();
+      previousFocus?.focus?.();
+      if (copied) return true;
+    }
+
+    throw clipboardError || new Error("Clipboard access is unavailable in this browser.");
   };
 
   const copyTranscript = () => {
@@ -10702,12 +10791,7 @@ function App() {
       .join("\n\n");
 
     if (!transcript.trim()) return;
-    if (!navigator.clipboard?.writeText) {
-      reportAiStatus("Clipboard access is unavailable in this browser.", "error");
-      return;
-    }
-
-    navigator.clipboard.writeText(transcript)
+    copyTextToClipboard(transcript)
       .then(() => reportAiStatus("Copied conversation transcript to the clipboard."))
       .catch(error => {
         console.error("Failed to copy conversation transcript", error);
@@ -10718,11 +10802,7 @@ function App() {
   const copyChatText = (message, successMessage = "Copied chat text to the clipboard.") => {
     const text = String(message || "").trim();
     if (!text) return;
-    if (!navigator.clipboard?.writeText) {
-      reportAiStatus("Clipboard access is unavailable in this browser.", "error");
-      return;
-    }
-    navigator.clipboard.writeText(text)
+    copyTextToClipboard(text)
       .then(() => reportAiStatus(successMessage))
       .catch(error => {
         console.error("Failed to copy chat text", error);
@@ -25165,6 +25245,7 @@ function App() {
           onStrudelTransport={handleStrudelTransportControl}
           scriptRuntimeRef={scriptRuntimeRef}
           transport={{ playing: scorePlaying, bpm: scoreTempo, time: scoreTime }}
+          aiQueryElementIds={aiQueryElementIds}
           showDocumentationOverlay={showDocumentationOverlay}
           documentationOverlayByLanguage={documentationOverlayByLanguage}
           documentationTipMode={documentationTipMode}
@@ -25975,10 +26056,12 @@ function App() {
                   .filter(msg => msg.role !== "system")
                   .map((msg, idx) => (
                     <div key={idx} className={`chat-message ${msg.role}`}>
-                      <div
-                        className="ai-chat-message-content"
-                        dangerouslySetInnerHTML={{ __html: renderChatMessage({ source: msg.displayContent || msg.content, role: msg.role }) }}
-                      />
+                      {msg.content === "Thinking..." && isStreaming
+                        ? <div className="ai-chat-message-content"><ThinkingIndicator /></div>
+                        : <div
+                          className="ai-chat-message-content"
+                          dangerouslySetInnerHTML={{ __html: renderChatMessage({ source: msg.displayContent || msg.content, role: msg.role }) }}
+                        />}
                       {msg.images && msg.images.map((img, imgIdx) => (
                         <img 
                           key={imgIdx} 
@@ -27517,6 +27600,7 @@ function App() {
           onStrudelTransport={handleStrudelTransportControl}
           scriptRuntimeRef={scriptRuntimeRef}
           transport={{ playing: scorePlaying, bpm: scoreTempo, time: scoreTime }}
+          aiQueryElementIds={aiQueryElementIds}
           showDocumentationOverlay={showDocumentationOverlay}
           documentationOverlayByLanguage={documentationOverlayByLanguage}
           documentationTipMode={documentationTipMode}

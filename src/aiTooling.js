@@ -2,6 +2,40 @@ import { buildRelevantScriptAuthoringGuide } from "./scriptAuthoring.js";
 
 const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 
+const isStructuredAction = value => (
+  value
+  && typeof value === "object"
+  && typeof value.action === "string"
+  && value.action.trim()
+  && value.payload
+  && typeof value.payload === "object"
+  && !Array.isArray(value.payload)
+);
+
+/**
+ * Local models sometimes return the same action envelope as a fenced JSON
+ * block instead of the documented XML tag. Keep that response compatible
+ * with the command executor without interpreting arbitrary prose/code as an
+ * action: only a complete JSON object with an explicit action and payload is
+ * accepted.
+ */
+export const parseStructuredActionBlocks = text => {
+  const calls = [];
+  const expression = /```(?:json|javascript|js)?\s*([\s\S]*?)```/gi;
+  let match;
+  while ((match = expression.exec(String(text || ""))) !== null) {
+    try {
+      const value = JSON.parse(match[1].trim());
+      if (isStructuredAction(value)) {
+        calls.push({ id: value.action.trim(), args: clone(value.payload), error: null });
+      }
+    } catch {
+      // Ordinary Markdown code fences are not action envelopes.
+    }
+  }
+  return calls;
+};
+
 /**
  * Parse Underscores command tags without interpreting any other model output.
  * Keeping this pure makes malformed model responses visible to the chat log
@@ -24,7 +58,11 @@ export const parseUnderscoresCommandTags = text => {
       tags.push({ id, args: null, error: `Invalid command JSON: ${error.message}` });
     }
   }
-  return tags;
+  // Accept the structured JSON envelope emitted by some OpenAI-compatible
+  // local servers/models when they decline to follow the XML-tag protocol.
+  // Prefer the XML protocol whenever it is present so mixed prose/examples
+  // cannot introduce a second, out-of-order execution path.
+  return tags.length > 0 ? tags : parseStructuredActionBlocks(text);
 };
 
 /** Return only the intentionally curated command subset that an AI can call. */
@@ -51,7 +89,7 @@ export const buildAIAutomationGuide = (commands, options = {}) => {
   const scriptGuide = buildRelevantScriptAuthoringGuide(options.prompt);
   return [
     "Underscores automation",
-    "Use only <underscores-command id=\"stable.id\">JSON</underscores-command> tags for actions.",
+    "Use only <underscores-command id=\"stable.id\">JSON</underscores-command> tags for actions. If the model cannot emit XML, a single fenced JSON object with {\"action\":\"stable.id\",\"payload\":{...}} is accepted as a compatibility envelope.",
     "The command body must be valid JSON. For multiline source/code values, JSON-escape it exactly as JSON.stringify would: use \\n for newlines, \\\" for quotes, and \\\\ for backslashes. Never put raw multiline text or raw unescaped double quotes inside a JSON string.",
     "Never emit a bare undefined or null as a response placeholder. After an action tag, continue with a short human-readable summary.",
     "In @selection JSON, a codeHost field identifies a code-capable object even when its Excalidraw type is rectangle; inspect its source, kind, parameters, runtime, and elementId before describing it as a plain shape.",
