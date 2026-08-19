@@ -3,6 +3,7 @@ import { getIannixCommandCategories } from "./iannixCommandReference.js";
 import { getLivecodeBridgeHelp, getLivecodeHelp } from "./livecodeHelp.js";
 import { normalizeLivecodeKind } from "./livecodeNode.js";
 import { ORCA_OPERATOR_REFERENCE } from "./orcaEngine.js";
+import { getScriptEditorReference } from "./scriptEditorProfiles.js";
 
 const DEFAULT_INFO_VIEW = Object.freeze({
   title: "Info",
@@ -57,6 +58,26 @@ const isDefaultInfo = info => (
   !info
   || (info.title === DEFAULT_INFO_VIEW.title && info.body === DEFAULT_INFO_VIEW.body)
 );
+
+const DocumentationReference = ({ documentation }) => {
+  if (!documentation) return null;
+  const source = documentation.referenceSource || "Language reference";
+  return (
+    <section className="info-panel-documentation" aria-label={`${source} documentation`}>
+      <div className="info-panel-documentation-heading">
+        <span>{source}</span>
+        {documentation.referenceUrl && (
+          <a href={documentation.referenceUrl} target="_blank" rel="noreferrer">Open reference ↗</a>
+        )}
+      </div>
+      {documentation.signature && <code className="info-panel-documentation-signature">{documentation.signature}</code>}
+      {documentation.description && <p>{documentation.description}</p>}
+      {documentation.example && (
+        <pre className="info-panel-documentation-example"><code>{documentation.example}</code></pre>
+      )}
+    </section>
+  );
+};
 
 const findHelpTopics = (query, extraTopics = []) => {
   const normalized = query.trim().toLowerCase();
@@ -228,6 +249,30 @@ await __.api.commands.execute("grid.global.update", {
   </section>
 );
 
+const P5ApiReference = () => {
+  const entries = getScriptEditorReference("p5");
+  return (
+    <details className="info-p5-api-reference">
+      <summary>p5 signatures and examples</summary>
+      <div className="info-p5-api-list">
+        {entries.map(entry => (
+          <section key={entry.name}>
+            <div className="info-p5-api-heading">
+              <code>{entry.name}</code>
+              <span>{entry.signature}</span>
+              {entry.referenceUrl && (
+                <a href={entry.referenceUrl} target="_blank" rel="noreferrer" aria-label={`Open ${entry.name} reference`}>↗</a>
+              )}
+            </div>
+            <p>{entry.description}</p>
+            <pre><code>{entry.example}</code></pre>
+          </section>
+        ))}
+      </div>
+    </details>
+  );
+};
+
 const P5InfoGuide = () => (
   <div className="info-svg-guide">
     <section>
@@ -245,6 +290,7 @@ function draw() {
       <p>p5 nodes embed the latest 2.x runtime by default (currently 2.3.2) and also include the latest 1.x runtime (currently 1.11.13). Change <strong>p5 version</strong> in Node settings when a sketch or library needs the legacy API; the setting remounts only that node.</p>
       <p>For foreground-only compositing, choose <strong>Background → Transparent surface</strong> and <strong>Frame reset → Clear each frame</strong> in a Livecode p5 node. The default adapter/manual mode leaves reset behavior in the sketch, so existing sketches keep their timing and accumulation semantics.</p>
     </section>
+    <P5ApiReference />
     <UnderscoresApiGuide />
     <EditorKeys />
   </div>
@@ -618,6 +664,7 @@ export default function InfoPanel({ info = DEFAULT_INFO_VIEW, mode = "default", 
     ? selectedTopic?.guide || selectedTopic?.body || "Try a different term, such as physics, formula, MIDI, score, or media."
     : focusedInfo?.body || guide || DEFAULT_INFO_VIEW.body;
   const examples = searchIsActive ? selectedTopic?.examples || [] : focusedInfo?.examples || [];
+  const documentation = searchIsActive ? null : focusedInfo?.documentation || null;
   const copyExample = async example => {
     if (!globalThis.navigator?.clipboard?.writeText) return;
     try {
@@ -666,6 +713,7 @@ export default function InfoPanel({ info = DEFAULT_INFO_VIEW, mode = "default", 
       <div className={`info-panel-body${typeof body === "string" ? " text" : ""}`} aria-live="polite">
         {body}
       </div>
+      <DocumentationReference documentation={documentation} />
       {examples.length > 0 && (
         <section className="info-panel-examples" aria-label="Copyable examples">
           <h3>Examples</h3>

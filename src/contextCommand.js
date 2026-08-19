@@ -39,6 +39,12 @@ const NODE_KIND_ALIASES = Object.freeze({
 
 const parseToggle = value => parseBoolean(value);
 
+const parseDocumentationOverlay = text => {
+  const match = text.match(/^(?:toggle\s+)?(?:code\s+)?(?:documentation|docs|hover|lsp)\s+overlay(?:\s+([a-z][a-z0-9_-]*))?(?:\s+(on|off|true|false|yes|no))?$/i);
+  if (!match) return null;
+  return { kind: "documentationOverlay", language: match[1]?.toLowerCase() || null, value: match[2] ? parseBoolean(match[2]) : "toggle" };
+};
+
 const parseNodeSetting = text => {
   const kind = text.match(/^(?:node\s+)?(?:set\s+)?kind\s+([a-z0-9-]+)$/i);
   if (kind && NODE_KIND_ALIASES[kind[1].toLowerCase()]) {
@@ -164,6 +170,9 @@ const parseObjectPatch = text => {
 export const parseContextCommand = input => {
   const text = String(input || "").trim().replace(/\s+/g, " ");
   if (!text) return null;
+
+  const documentationOverlay = parseDocumentationOverlay(text);
+  if (documentationOverlay) return documentationOverlay;
 
   const nodeSetting = parseNodeSetting(text);
   if (nodeSetting) return nodeSetting;

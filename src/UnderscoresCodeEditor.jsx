@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef } from "react";
 import {
   acceptCompletion,
   autocompletion,
+  closeCompletion,
   closeBrackets,
   closeBracketsKeymap,
   completionKeymap,
@@ -40,6 +41,7 @@ import {
   highlightActiveLine,
   highlightActiveLineGutter,
   highlightSpecialChars,
+  hoverTooltip,
   keymap,
   lineNumbers,
   placeholder as placeholderExtension,
@@ -58,7 +60,11 @@ import {
   widgetPlugin,
 } from "./strudelCodeMirror.js";
 import { sourceDiagnostic } from "./scriptEditorDiagnostics.js";
-import { getScriptEditorCompletions, getScriptEditorProfile } from "./scriptEditorProfiles.js";
+import {
+  getScriptEditorCompletionResult,
+  getScriptEditorHover,
+  getScriptEditorProfile,
+} from "./scriptEditorProfiles.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
 
 const externalDocumentUpdate = Annotation.define();
@@ -186,6 +192,11 @@ export default function UnderscoresCodeEditor({
   strudelNodeId = "",
   strudelWidgets = false,
   visualOnly = false,
+  p5Mode = "auto",
+  showDocumentationOverlay = true,
+  documentationTipMode = "hover",
+  autocompleteEnabled = true,
+  onDocumentationHover,
   className = "",
   style,
 }) {
@@ -198,6 +209,11 @@ export default function UnderscoresCodeEditor({
   const onStopRef = useRef(onStop);
   const onSelectionChangeRef = useRef(onSelectionChange);
   const scriptTypeRef = useRef(scriptType);
+  const p5ModeRef = useRef(p5Mode);
+  const showDocumentationOverlayRef = useRef(showDocumentationOverlay);
+  const documentationTipModeRef = useRef(documentationTipMode);
+  const autocompleteEnabledRef = useRef(autocompleteEnabled);
+  const onDocumentationHoverRef = useRef(onDocumentationHover);
   const diagnosticsRef = useRef(getDiagnostics);
   const onToggleLineNumbersRef = useRef(onToggleLineNumbers);
   const onCycleViewRef = useRef(onCycleView);
@@ -214,6 +230,11 @@ export default function UnderscoresCodeEditor({
   onStopRef.current = onStop;
   onSelectionChangeRef.current = onSelectionChange;
   scriptTypeRef.current = scriptType;
+  p5ModeRef.current = p5Mode;
+  showDocumentationOverlayRef.current = showDocumentationOverlay;
+  documentationTipModeRef.current = documentationTipMode;
+  autocompleteEnabledRef.current = autocompleteEnabled;
+  onDocumentationHoverRef.current = onDocumentationHover;
   diagnosticsRef.current = getDiagnostics;
   onToggleLineNumbersRef.current = onToggleLineNumbers;
   onCycleViewRef.current = onCycleView;
@@ -225,11 +246,60 @@ export default function UnderscoresCodeEditor({
 
     const profile = getScriptEditorProfile(scriptTypeRef.current);
     const completionSource = context => {
+      if (!autocompleteEnabledRef.current) return null;
       const token = completionToken(context);
       if (!context.explicit && (!token || token.from === token.to)) return null;
+      const result = getScriptEditorCompletionResult(scriptTypeRef.current, context, {
+        p5Mode: p5ModeRef.current,
+        mode: p5ModeRef.current,
+      });
       return {
-        from: token?.from ?? context.pos,
-        options: getScriptEditorCompletions(scriptTypeRef.current),
+        from: Number.isFinite(result?.from) ? result.from : (token?.from ?? context.pos),
+        options: Array.isArray(result?.options) ? result.options : [],
+      };
+    };
+    const hoverSource = (view, position) => {
+      if (documentationTipModeRef.current !== "hover") return null;
+      const item = getScriptEditorHover(scriptTypeRef.current, view.state.doc.toString(), position);
+      if (!item) {
+        onDocumentationHoverRef.current?.(null);
+        return null;
+      }
+      onDocumentationHoverRef.current?.(item);
+      // Completion owns the popup while its suggestion list is open. Keep the
+      // Info panel synchronized with the symbol, but don't stack a second
+      // floating card on top of the completion menu. CodeMirror will ask for
+      // the tooltip again after the pointer moves or the menu is dismissed.
+      if (completionStatus(view.state) === "active") return null;
+      if (!showDocumentationOverlayRef.current) return null;
+      return {
+        pos: item.from,
+        end: item.to,
+        above: true,
+        create: () => {
+          const dom = document.createElement("div");
+          dom.className = "cm-underscores-hover-info";
+          const signature = document.createElement("code");
+          signature.textContent = item.signature;
+          const description = document.createElement("div");
+          description.textContent = item.description;
+          const example = document.createElement("div");
+          example.className = "cm-underscores-hover-example";
+          example.textContent = `Example: ${item.example}`;
+          const source = document.createElement("div");
+          source.className = "cm-underscores-hover-source";
+          source.textContent = item.referenceSource || "Local language reference";
+          if (item.referenceUrl) {
+            const link = document.createElement("a");
+            link.href = item.referenceUrl;
+            link.target = "_blank";
+            link.rel = "noreferrer";
+            link.textContent = "Open docs ↗";
+            source.append(" · ", link);
+          }
+          dom.append(signature, description, example, source);
+          return { dom };
+        },
       };
     };
     const runCommand = () => {
@@ -289,6 +359,7 @@ export default function UnderscoresCodeEditor({
             activateOnTyping: true,
             override: [completionSource],
           }),
+          hoverTooltip(hoverSource, { hoverTime: 220 }),
           rectangularSelection(),
           crosshairCursor(),
           highlightActiveLine(),
@@ -366,11 +437,37 @@ export default function UnderscoresCodeEditor({
                 to: selection.to,
                 source,
               }, update);
+              if (documentationTipModeRef.current === "select") {
+                const item = selection.from < selection.to
+                  ? getScriptEditorHover(scriptTypeRef.current, source, selection.from, selection.to)
+                  : null;
+                onDocumentationHoverRef.current?.(item);
+              }
             }
           }),
           EditorView.domEventHandlers({
             blur: () => {
               onBlurRef.current?.();
+              const selection = viewRef.current?.state.selection.main;
+              const selectionOwnsDocumentation = documentationTipModeRef.current === "select"
+                && selection
+                && selection.from < selection.to;
+              if (!selectionOwnsDocumentation) onDocumentationHoverRef.current?.(null);
+              return false;
+            },
+            mouseleave: event => {
+              // CodeMirror places hover cards outside the editor DOM. Keep the
+              // Info panel alive while the pointer travels from the token to
+              // its card; in Select mode a selected word owns the Info panel
+              // until the selection itself is cleared.
+              const relatedTarget = event.relatedTarget;
+              const isHoverCard = relatedTarget?.closest?.(".cm-tooltip-hover")
+                || relatedTarget?.closest?.(".cm-underscores-hover-info");
+              const selection = viewRef.current?.state.selection.main;
+              const selectionOwnsDocumentation = documentationTipModeRef.current === "select"
+                && selection
+                && selection.from < selection.to;
+              if (!isHoverCard && !selectionOwnsDocumentation) onDocumentationHoverRef.current?.(null);
               return false;
             },
             // A focused source editor owns the keyboard session. Let
@@ -431,6 +528,27 @@ export default function UnderscoresCodeEditor({
       viewRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    if (!autocompleteEnabled) closeCompletion(view);
+  }, [autocompleteEnabled]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    if (documentationTipMode !== "select") {
+      onDocumentationHoverRef.current?.(null);
+      return;
+    }
+    const selection = view.state.selection.main;
+    const source = view.state.doc.toString();
+    const item = selection.from < selection.to
+      ? getScriptEditorHover(scriptTypeRef.current, source, selection.from, selection.to)
+      : null;
+    onDocumentationHoverRef.current?.(item);
+  }, [documentationTipMode]);
 
   useEffect(() => {
     const ownEditorNavigationKey = event => {

@@ -24,6 +24,10 @@ test("parses Livecode node settings", () => {
   assert.deepEqual(parseContextCommand("grid width 64"), { kind: "nodeSetting", setting: "orcaGridWidth", value: 64 });
   assert.deepEqual(parseContextCommand("last frame on"), { kind: "nodeSetting", setting: "keepLastFrame", value: true });
   assert.deepEqual(parseContextCommand("example minimal"), { kind: "nodeSetting", setting: "example", value: "minimal" });
+  assert.deepEqual(parseContextCommand("docs overlay"), { kind: "documentationOverlay", language: null, value: "toggle" });
+  assert.deepEqual(parseContextCommand("documentation overlay p5 off"), { kind: "documentationOverlay", language: "p5", value: false });
+  assert.deepEqual(parseContextCommand("docs overlay shader on"), { kind: "documentationOverlay", language: "shader", value: true });
+  assert.deepEqual(parseContextCommand("lsp overlay strudel off"), { kind: "documentationOverlay", language: "strudel", value: false });
 });
 
 test("parses media transport commands", () => {

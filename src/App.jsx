@@ -551,6 +551,26 @@ const makeColorOpaque = (color, fallback) => {
 
 const CSS_COLOR_HELP = "Accepts CSS color values: hex (#rgb, #rrggbb, #rrggbbaa), named colors (red), rgb()/rgba(), hsl()/hsla(), hwb(), lab(), lch(), oklab(), and oklch(). The separate percentage multiplies the color's own alpha.";
 
+// Keep the global interface choice deliberately small and local to fonts that
+// are already shipped with the application (plus stable system fallbacks).
+// Livecode node typography remains independently authored on each node.
+const INTERFACE_FONT_OPTIONS = Object.freeze([
+  Object.freeze({ id: "inter", label: "Inter", family: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" }),
+  Object.freeze({ id: "fira-mono", label: "Fira Mono", family: "'Fira Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" }),
+  Object.freeze({ id: "system", label: "System sans", family: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" }),
+  Object.freeze({ id: "system-mono", label: "System mono", family: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace" }),
+]);
+
+const getInterfaceFont = value => INTERFACE_FONT_OPTIONS.find(option => option.id === value) || INTERFACE_FONT_OPTIONS[0];
+
+const DOCUMENTATION_TIP_MODES = Object.freeze([
+  Object.freeze({ id: "none", label: "None" }),
+  Object.freeze({ id: "hover", label: "Hover" }),
+  Object.freeze({ id: "select", label: "Select" }),
+]);
+
+const normalizeDocumentationTipMode = value => DOCUMENTATION_TIP_MODES.some(option => option.id === value) ? value : "hover";
+
 const resolveCssColor = color => {
   const source = String(color || "").trim();
   if (!source) return null;
@@ -3030,6 +3050,11 @@ function App() {
   const [autoKeyEnabled, setAutoKeyEnabled] = useState(false);
   const [sessionPlaybackOverlay, setSessionPlaybackOverlay] = useState([]);
   const [theme, setTheme] = useState(() => localStorage.getItem("underscores_theme") || "dark");
+  const [interfaceFont, setInterfaceFont] = useState(() => getInterfaceFont(localStorage.getItem("underscores_interface_font")).id);
+  const [interfaceFontSize, setInterfaceFontSize] = useState(() => {
+    const saved = Number(localStorage.getItem("underscores_interface_font_size"));
+    return Number.isFinite(saved) && saved >= 8 && saved <= 18 ? saved : 10;
+  });
   const [laserToolActive, setLaserToolActive] = useState(false);
   const [laserCursorExitGuard, setLaserCursorExitGuard] = useState(false);
   const [transparentBoardExport, setTransparentBoardExport] = useState(() => localStorage.getItem("underscores_export_transparent") === "true");
@@ -3180,6 +3205,18 @@ function App() {
     const saved = localStorage.getItem("underscores_show_bottom_notifications");
     return saved === "true";
   });
+  const [showDocumentationOverlay, setShowDocumentationOverlay] = useState(() => localStorage.getItem("underscores_code_documentation_overlay") !== "false");
+  const [documentationOverlayByLanguage, setDocumentationOverlayByLanguage] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("underscores_code_documentation_overlays_v1") || "null");
+      return stored && typeof stored === "object" ? stored : {};
+    } catch {
+      return {};
+    }
+  });
+  const [documentationTipMode, setDocumentationTipMode] = useState(() => normalizeDocumentationTipMode(localStorage.getItem("underscores_code_documentation_tip_mode")));
+  const [autocompleteEnabled, setAutocompleteEnabled] = useState(() => localStorage.getItem("underscores_code_autocomplete") !== "false");
+  const showDocumentationOverlayRef = useRef(showDocumentationOverlay);
   const [showPerformanceOverlay, setShowPerformanceOverlay] = useState(() => localStorage.getItem("underscores_performance_overlay") === "true");
   const showPerformanceOverlayRef = useRef(showPerformanceOverlay);
   const [performanceOverlayPlacement, setPerformanceOverlayPlacement] = useState(() => localStorage.getItem("underscores_performance_overlay_placement") === "floating" ? "floating" : "console");
@@ -3205,6 +3242,21 @@ function App() {
   useEffect(() => {
     localStorage.setItem("underscores_presentation_mode", String(presentationMode));
   }, [presentationMode]);
+  useEffect(() => {
+    showDocumentationOverlayRef.current = showDocumentationOverlay;
+    localStorage.setItem("underscores_code_documentation_overlay", String(showDocumentationOverlay));
+  }, [showDocumentationOverlay]);
+  useEffect(() => {
+    localStorage.setItem("underscores_code_documentation_overlays_v1", JSON.stringify(documentationOverlayByLanguage));
+  }, [documentationOverlayByLanguage]);
+  useEffect(() => {
+    const nextMode = normalizeDocumentationTipMode(documentationTipMode);
+    if (nextMode !== documentationTipMode) setDocumentationTipMode(nextMode);
+    localStorage.setItem("underscores_code_documentation_tip_mode", nextMode);
+  }, [documentationTipMode]);
+  useEffect(() => {
+    localStorage.setItem("underscores_code_autocomplete", String(autocompleteEnabled));
+  }, [autocompleteEnabled]);
   useEffect(() => {
     showPerformanceOverlayRef.current = showPerformanceOverlay;
     localStorage.setItem("underscores_performance_overlay", String(showPerformanceOverlay));
@@ -6900,6 +6952,11 @@ function App() {
   const livePointsRef = useRef([]);
   const rawCursorRef = useRef(null);
   const lastCanvasPointerRef = useRef(null);
+  // A selected livecode node is a DOM sibling layered over Excalidraw. Touch
+  // pointers which begin there therefore do not naturally reach Excalidraw's
+  // gesture recognizer. Keep their ids while forwarding the native gesture
+  // to the real canvas so a two-finger pan/pinch remains a board gesture.
+  const forwardedLivecodePointerIdsRef = useRef(new Set());
   const livecodeNodeAtCanvasPointerRef = useRef(null);
   const mediaPreviewAtCanvasPointerRef = useRef(null);
   const toggleLivecodeNodeRunRef = useRef(null);
@@ -7938,6 +7995,12 @@ function App() {
 
   const handleCanvasPointerDown = (e) => {
     if (!excalidrawAPI) return;
+    if (isForwardedCanvasGesture(e.nativeEvent || e)) return;
+    if (forwardLivecodePointer(e.nativeEvent || e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
     if (e.button !== 0) return;
     gridInteractionRef.current = { moving: false, resizing: false, pointEditing: false, pointIndices: null };
@@ -8179,6 +8242,12 @@ function App() {
   };
 
   const handleCanvasPointerMove = (e) => {
+    if (isForwardedCanvasGesture(e.nativeEvent || e)) return;
+    if (forwardLivecodePointer(e.nativeEvent || e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
     if (handlePhysicsPointerMove(e)) return;
     if (handleSvgPathConstructionPointerMove(e)) return;
@@ -9483,7 +9552,175 @@ function App() {
     window.setTimeout(() => applyPendingNativeLineFinalize(), 80);
   };
 
+  const interactiveExcalidrawCanvas = () => {
+    const container = document.getElementById("canvas-container");
+    return container?.querySelector("canvas.excalidraw__canvas.interactive")
+      || container?.querySelector("canvas.excalidraw__canvas:not(.static)")
+      || null;
+  };
+
+  const isLivecodeEditorTarget = target => Boolean(target?.closest?.(
+    ".underscores-code-editor, .cm-editor, textarea, input, select, button"
+  ));
+
+  const isForwardedCanvasGesture = event => Boolean(event?.__underscoresForwarded);
+
+  const forwardLivecodePointer = event => {
+    const nativeEvent = event?.nativeEvent || event;
+    if (!nativeEvent || isForwardedCanvasGesture(nativeEvent)) return false;
+    const pointerId = nativeEvent.pointerId;
+    const pointerIds = forwardedLivecodePointerIdsRef.current;
+    const overLivecodeNode = nativeEvent.target?.closest?.(".underscores-livecode-node");
+    if (isLivecodeEditorTarget(nativeEvent.target)) return false;
+    const activeForwardedPointer = pointerId !== undefined && pointerIds.has(pointerId);
+    const shouldForward = nativeEvent.pointerType === "touch" && (overLivecodeNode || activeForwardedPointer);
+    if (!shouldForward) return false;
+    const canvas = interactiveExcalidrawCanvas();
+    if (!canvas) return false;
+    if (nativeEvent.type === "pointerdown" && pointerId !== undefined) pointerIds.add(pointerId);
+    const forwarded = new PointerEvent(nativeEvent.type, {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      detail: nativeEvent.detail || 0,
+      screenX: nativeEvent.screenX || 0,
+      screenY: nativeEvent.screenY || 0,
+      clientX: nativeEvent.clientX || 0,
+      clientY: nativeEvent.clientY || 0,
+      ctrlKey: Boolean(nativeEvent.ctrlKey),
+      altKey: Boolean(nativeEvent.altKey),
+      shiftKey: Boolean(nativeEvent.shiftKey),
+      metaKey: Boolean(nativeEvent.metaKey),
+      button: nativeEvent.button ?? 0,
+      buttons: nativeEvent.buttons ?? 0,
+      relatedTarget: nativeEvent.relatedTarget || null,
+      pointerId: pointerId ?? 1,
+      pointerType: nativeEvent.pointerType || "touch",
+      isPrimary: nativeEvent.isPrimary !== false,
+      width: nativeEvent.width || 1,
+      height: nativeEvent.height || 1,
+      pressure: Number.isFinite(nativeEvent.pressure) ? nativeEvent.pressure : 0.5,
+      tangentialPressure: nativeEvent.tangentialPressure || 0,
+      tiltX: nativeEvent.tiltX || 0,
+      tiltY: nativeEvent.tiltY || 0,
+      twist: nativeEvent.twist || 0,
+    });
+    Object.defineProperty(forwarded, "__underscoresForwarded", { value: true });
+    canvas.dispatchEvent(forwarded);
+    if ((nativeEvent.type === "pointerup" || nativeEvent.type === "pointercancel") && pointerId !== undefined) {
+      pointerIds.delete(pointerId);
+    }
+    return true;
+  };
+
+  // Trackpad pan and pinch are delivered as wheel events. A livecode node is
+  // a sibling overlay, so Excalidraw never sees those events when the node is
+  // selected. Forward them to the interactive canvas and cancel the browser
+  // default (which would otherwise zoom the whole page for a pinch gesture).
+  const forwardLivecodeWheel = (nativeEvent, coordinates = null) => {
+    const canvas = interactiveExcalidrawCanvas();
+    if (!canvas || isForwardedCanvasGesture(nativeEvent)) return false;
+    const clientX = coordinates?.clientX ?? nativeEvent.clientX;
+    const clientY = coordinates?.clientY ?? nativeEvent.clientY;
+    const forwarded = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      deltaX: nativeEvent.deltaX || 0,
+      deltaY: nativeEvent.deltaY || 0,
+      deltaZ: nativeEvent.deltaZ || 0,
+      deltaMode: nativeEvent.deltaMode || 0,
+      screenX: nativeEvent.screenX || 0,
+      screenY: nativeEvent.screenY || 0,
+      clientX: clientX || 0,
+      clientY: clientY || 0,
+      ctrlKey: Boolean(nativeEvent.ctrlKey),
+      altKey: Boolean(nativeEvent.altKey),
+      shiftKey: Boolean(nativeEvent.shiftKey),
+      metaKey: Boolean(nativeEvent.metaKey),
+      button: nativeEvent.button ?? 0,
+      buttons: nativeEvent.buttons ?? 0,
+    });
+    Object.defineProperty(forwarded, "__underscoresForwarded", { value: true });
+    canvas.dispatchEvent(forwarded);
+    return true;
+  };
+
+  const handleCanvasWheelCapture = event => {
+    const nativeEvent = event.nativeEvent || event;
+    if (
+      isForwardedCanvasGesture(nativeEvent)
+      || !event.target?.closest?.(".underscores-livecode-node")
+      || isLivecodeEditorTarget(event.target)
+    ) return;
+    event.preventDefault();
+    event.stopPropagation();
+    forwardLivecodeWheel(nativeEvent);
+  };
+
+  // React may install wheel listeners as passive in some browser versions, and
+  // some trackpads retarget later pinch samples to document/body. Capture at
+  // document level as a backstop: use the event target when available, then
+  // fall back to the gesture coordinates and the element under that point.
+  useEffect(() => {
+    const preventLivecodePageZoom = event => {
+      if (isForwardedCanvasGesture(event)) return;
+      const container = document.getElementById("canvas-container");
+      if (!container) return;
+      const targetNode = event.target && typeof event.target.nodeType === "number" ? event.target : null;
+      const targetLivecodeNode = targetNode?.closest?.(".underscores-livecode-node");
+      const targetEditor = isLivecodeEditorTarget(targetNode);
+      if (targetEditor) {
+        // Keep editor scrolling native, but never let a ctrl-wheel pinch over
+        // the editor escape into browser page zoom.
+        if (event.ctrlKey) event.preventDefault();
+        return;
+      }
+      const targetInsideCanvas = targetNode ? container.contains(targetNode) : false;
+      const rect = container.getBoundingClientRect();
+      const fallbackPoint = lastCanvasPointerRef.current;
+      const clientX = Number.isFinite(Number(event.clientX)) ? Number(event.clientX) : fallbackPoint?.[0];
+      const clientY = Number.isFinite(Number(event.clientY)) ? Number(event.clientY) : fallbackPoint?.[1];
+      const pointInsideCanvas = Number.isFinite(clientX)
+        && Number.isFinite(clientY)
+        && clientX >= rect.left
+        && clientX <= rect.right
+        && clientY >= rect.top
+        && clientY <= rect.bottom;
+      const pointElements = pointInsideCanvas ? document.elementsFromPoint?.(clientX, clientY) || [] : [];
+      if (pointElements.some(isLivecodeEditorTarget)) {
+        if (event.ctrlKey) event.preventDefault();
+        return;
+      }
+      const pointLivecodeNode = pointInsideCanvas && (
+        livecodeNodeAtCanvasPointerRef.current?.(clientX, clientY)
+        || pointElements.some(element => element.closest?.(".underscores-livecode-node"))
+      );
+      const retargetedToDocument = !targetInsideCanvas && pointInsideCanvas;
+      // A ctrl-wheel pinch is the browser's page-zoom gesture. Keep it inside
+      // the board whenever the gesture is over the canvas, even if the fast
+      // gesture's target has already retargeted to body/document.
+      const blockBrowserZoom = targetLivecodeNode || pointLivecodeNode || (event.ctrlKey && pointInsideCanvas);
+      if (!blockBrowserZoom && !retargetedToDocument) return;
+      event.preventDefault();
+      // Events whose target is still inside the canvas will be forwarded by
+      // React's capture handler. Only dispatch here when retargeting skipped
+      // the canvas entirely, otherwise the gesture would be applied twice.
+      if (retargetedToDocument) forwardLivecodeWheel(event, { clientX, clientY });
+    };
+    document.addEventListener("wheel", preventLivecodePageZoom, { capture: true, passive: false });
+    return () => document.removeEventListener("wheel", preventLivecodePageZoom, { capture: true });
+  }, []);
+
   const handleCanvasPointerUp = (e) => {
+    if (isForwardedCanvasGesture(e.nativeEvent || e)) return;
+    if (forwardLivecodePointer(e.nativeEvent || e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (handlePhysicsPointerUp(e)) return;
     if (handleSvgPathConstructionPointerUp(e)) return;
     if (handleSvgPathPointerUp(e)) return;
@@ -9784,6 +10021,20 @@ function App() {
     localStorage.setItem("underscores_interface_theme", JSON.stringify(interfaceTheme));
     localStorage.setItem("underscores_interface_theme_preset", interfaceThemePreset);
   }, [interfaceTheme, interfaceThemePreset]);
+
+  useEffect(() => {
+    const font = getInterfaceFont(interfaceFont);
+    const nextFont = font.id;
+    if (nextFont !== interfaceFont) setInterfaceFont(nextFont);
+    document.documentElement.style.setProperty("--font-sans", font.family);
+    document.documentElement.style.setProperty("--font-title", font.family);
+    document.documentElement.style.setProperty("--underscores-interface-font-size", `${interfaceFontSize}px`);
+    document.documentElement.style.setProperty("--underscores-ui-font-size", `${interfaceFontSize}px`);
+    document.documentElement.style.setProperty("--underscores-ui-font-size-small", `${Math.max(8, interfaceFontSize - 1)}px`);
+    document.documentElement.style.setProperty("--underscores-ui-font-size-title", `${interfaceFontSize + 1}px`);
+    localStorage.setItem("underscores_interface_font", nextFont);
+    localStorage.setItem("underscores_interface_font_size", String(interfaceFontSize));
+  }, [interfaceFont, interfaceFontSize]);
 
   useEffect(() => {
     localStorage.setItem(CUSTOM_THEME_STORAGE_KEY, JSON.stringify(customThemes));
@@ -12686,6 +12937,7 @@ function App() {
     { id: "panel-properties.open", name: "Open Properties Panel", category: "Panels", action: () => toggleUnderscoresPanel("properties", { open: true }) },
     { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "performance.toggle", version: 2, name: "Toggle Performance Monitor /performance", aliases: ["/performance", "/perf", "FPS monitor"], category: "View", action: () => updatePerformanceVisibility(!showPerformanceOverlayRef.current) },
+    { id: "code.documentation.toggle", name: "Toggle Code Documentation Overlay /docs overlay", aliases: ["/docs overlay", "/documentation overlay", "/lsp overlay", "docs overlay", "lsp overlay", "toggle documentation overlay"], category: "View", action: () => setShowDocumentationOverlay(previous => !previous) },
     { id: "physics.toolbar.toggle", name: "Toggle Physics Toolbar /physicstoolbar", aliases: ["/physicstoolbar", "/physics toolbar", "physics toolbar"], category: "Physics", ai: { expose: true, description: "Toggle the floating or docked physics authoring toolbar." }, action: () => physicsToolbarOpen ? closePhysicsToolbar() : setPhysicsToolbarOpen(true) },
     { id: "physics.system.create", name: "Physics: Create System", aliases: ["/physics new"], category: "Physics", args: { name: "string?", gravity: "{x,y}?", clock: "realtime|transport?" }, ai: { expose: true, description: "Create an independent canvas physics system." }, action: (_api, args = {}) => {
       const system = createDefaultPhysicsSystem({ name: args.name, gravity: args.gravity, clock: { mode: args.clock === "transport" ? "transport" : "realtime", fixedHz: 60, timeScale: 1 } });
@@ -13088,7 +13340,8 @@ function App() {
         && !isCanvasLivecodeRunStopShortcut
         && !canvasMediaShortcutCandidate
         && shortcutActionForEvent?.id !== "object.pick.fromCanvas"
-        && shortcutActionForEvent?.id !== "ai.context.prompt") return;
+        && shortcutActionForEvent?.id !== "ai.context.prompt"
+        && shortcutActionForEvent?.id !== "code.documentation.toggle") return;
 
       // Space controls score transport from the canvas/UI. Text controls keep
       // their native spacebar behavior so users can still type normally.
@@ -13162,6 +13415,7 @@ function App() {
       const shortcutAction = !isTextControlFocused
         || shortcutActionForEvent?.id === "object.pick.fromCanvas"
         || shortcutActionForEvent?.id === "ai.context.prompt"
+        || shortcutActionForEvent?.id === "code.documentation.toggle"
         ? shortcutActionForEvent
         : null;
       if (shortcutAction) {
@@ -13581,6 +13835,18 @@ function App() {
     });
     const mediaObjects = selected.filter(isMediaStreamElement);
     const livecodeNodes = selected.filter(isLivecodeNodeElement);
+
+    if (action?.kind === "documentationOverlay") {
+      const language = action.language;
+      const current = language
+        ? (documentationOverlayByLanguage[language] ?? showDocumentationOverlayRef.current)
+        : showDocumentationOverlayRef.current;
+      const next = action.value === "toggle" ? !current : action.value;
+      if (language) setDocumentationOverlayByLanguage(previous => ({ ...previous, [language]: next }));
+      else setShowDocumentationOverlay(next);
+      reportAiStatus(`${language ? `${language} ` : "Code "}documentation overlay ${next ? "enabled" : "disabled"}.`);
+      return;
+    }
 
     if (directCommand?.command?.id) {
       await commandRegistry.execute(directCommand.command.id, directCommand.args || {}, {
@@ -18349,6 +18615,18 @@ function App() {
     if (typeof state.showBottomNotifications === "boolean") setShowBottomNotifications(state.showBottomNotifications);
     if (typeof state.forceDesktopLayout === "boolean") setForceDesktopLayout(state.forceDesktopLayout);
     if (typeof state.forceUnderscoresUiTheme === "boolean") setForceUnderscoresUiTheme(state.forceUnderscoresUiTheme);
+    if (typeof state.documentationTipMode === "string") setDocumentationTipMode(normalizeDocumentationTipMode(state.documentationTipMode));
+    if (typeof state.autocompleteEnabled === "boolean") setAutocompleteEnabled(state.autocompleteEnabled);
+    if (typeof state.interfaceFont === "string") {
+      const nextFont = getInterfaceFont(state.interfaceFont).id;
+      setInterfaceFont(nextFont);
+      localStorage.setItem("underscores_interface_font", nextFont);
+    }
+    if (Number.isFinite(Number(state.interfaceFontSize))) {
+      const nextSize = Math.max(8, Math.min(18, Number(state.interfaceFontSize)));
+      setInterfaceFontSize(nextSize);
+      localStorage.setItem("underscores_interface_font_size", String(nextSize));
+    }
     if (typeof state.physicsToolbarOpen === "boolean") setPhysicsToolbarOpen(state.physicsToolbarOpen);
     if (typeof state.physicsToolbarDockedTop === "boolean") setPhysicsToolbarDockedTop(state.physicsToolbarDockedTop);
     if (typeof state.showDebugLayer === "boolean") setShowDebugLayer(state.showDebugLayer);
@@ -18589,6 +18867,10 @@ function App() {
       showBottomNotifications,
       forceDesktopLayout,
       forceUnderscoresUiTheme,
+      documentationTipMode,
+      autocompleteEnabled,
+      interfaceFont,
+      interfaceFontSize,
       physicsToolbarOpen,
       physicsToolbarDockedTop,
       showDebugLayer,
@@ -18609,7 +18891,7 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record board settings", error));
     }, 180);
-  }, [accentColor, accentOpacity, commandRegistry, defaultStabilizerDamping, forceDesktopLayout, forceUnderscoresUiTheme, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, physicsToolbarDockedTop, physicsToolbarOpen, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
+  }, [accentColor, accentOpacity, autocompleteEnabled, commandRegistry, defaultStabilizerDamping, documentationTipMode, forceDesktopLayout, forceUnderscoresUiTheme, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceFont, interfaceFontSize, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, physicsToolbarDockedTop, physicsToolbarOpen, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
 
   useLayoutEffect(() => {
     const relations = createRelationshipApi({
@@ -20715,6 +20997,8 @@ function App() {
               setIannixCommandHelp(getIannixCommandAtSourcePosition(selection.source, selection.head));
             }}
             scriptType="iannix"
+            documentationTipMode={documentationTipMode}
+            autocompleteEnabled={autocompleteEnabled}
             ariaLabel="IanniX script source"
             getDiagnostics={source => validateJavascriptEditorSource(source, {
               label: "IanniX source",
@@ -21097,6 +21381,11 @@ function App() {
           }}
           onRun={applyToSelection}
           scriptType="p5"
+          p5Mode={p5ScriptMode}
+          showDocumentationOverlay={documentationOverlayByLanguage.p5 ?? showDocumentationOverlay}
+          documentationTipMode={documentationTipMode}
+          autocompleteEnabled={autocompleteEnabled}
+          onDocumentationHover={updateInfoViewFromDocumentation}
           ariaLabel="p5 script source"
           getDiagnostics={source => {
             const validation = validateP5Source(source);
@@ -21379,7 +21668,7 @@ function App() {
       <UnderscoresCodeEditor value={playCoreSource} onChange={source => {
         setPlayCoreSource(source);
         if (updateScriptLive({ source })) setPlayCoreLiveStatus("Compiled successfully.", "success");
-      }} onRun={applyToSelection} scriptType="play" ariaLabel="Play Core source" getDiagnostics={source => { const validation = validatePlayCoreSource(source); return validation.valid ? [] : [sourceDiagnostic(source, validation.error)]; }} />
+      }} onRun={applyToSelection} scriptType="play" documentationTipMode={documentationTipMode} autocompleteEnabled={autocompleteEnabled} ariaLabel="Play Core source" getDiagnostics={source => { const validation = validatePlayCoreSource(source); return validation.valid ? [] : [sourceDiagnostic(source, validation.error)]; }} />
       <p className={`p5-script-status ${playCoreStatusKind}`} role="status" aria-live="polite">{playCoreStatus || <>Trusted local code: Play Core frames run directly in Underscores with access to <code>__</code>. Use only code you trust.</>}</p>
     </div>;
   };
@@ -21620,6 +21909,8 @@ function App() {
           patchLivecodeCanvasNode(nodeElement.id, { view: node.kind === LIVECODE_KINDS.strudel && nextView === "split" ? "preview" : nextView });
         }}
         transport={{ playing: scorePlaying, bpm: scoreTempo }}
+        documentationTipMode={documentationTipMode}
+        autocompleteEnabled={autocompleteEnabled}
         onMidiEvents={(events, metadata) => emitOrcaMidiEvents(nodeElement.id, events, metadata)}
         ariaLabel={`${definition.label} node source`}
       />
@@ -21824,6 +22115,8 @@ function App() {
               : nextAnalysis.error, nextAnalysis.valid ? "info" : "error");
           }}
           onRun={play}
+          documentationTipMode={documentationTipMode}
+          autocompleteEnabled={autocompleteEnabled}
           onSelectionChange={(selection, update) => {
             if (update?.docChanged) return;
             if (selection.from !== selection.to) return;
@@ -23544,9 +23837,15 @@ function App() {
     setForceUnderscoresUiTheme(true);
     setShowToolbarHints(false);
     setShowBottomNotifications(false);
+    setShowDocumentationOverlay(true);
+    setDocumentationOverlayByLanguage({});
+    setDocumentationTipMode("hover");
+    setAutocompleteEnabled(true);
     setShowPerformanceOverlay(false);
     setShowDebugLayer(false);
     setDefaultStabilizerDamping(0.12);
+    setInterfaceFont("inter");
+    setInterfaceFontSize(10);
     setTransportLaunchQuantization(normalizeTransportLaunchQuantization(null));
     setFollowTimelinePlayhead(true);
     setScriptEditorTheme("underscores");
@@ -23563,9 +23862,15 @@ function App() {
     localStorage.setItem(PHYSICS_TOOLBAR_DOCKED_STORAGE_KEY, "false");
     localStorage.setItem("underscores_show_toolbar_hints", "false");
     localStorage.setItem("underscores_show_bottom_notifications", "false");
+    localStorage.setItem("underscores_code_documentation_overlay", "true");
+    localStorage.setItem("underscores_code_documentation_overlays_v1", "{}");
+    localStorage.setItem("underscores_code_documentation_tip_mode", "hover");
+    localStorage.setItem("underscores_code_autocomplete", "true");
     localStorage.setItem("underscores_performance_overlay", "false");
     localStorage.setItem("underscores_show_debug_layer", "false");
     localStorage.setItem("underscores_default_stabilizer_damping", "0.12");
+    localStorage.setItem("underscores_interface_font", "inter");
+    localStorage.setItem("underscores_interface_font_size", "10");
     localStorage.setItem("underscores_transport_launch_quantization", JSON.stringify(normalizeTransportLaunchQuantization(null)));
     localStorage.setItem("underscores_iannix_follow_playhead", "true");
     localStorage.setItem("underscores_export_transparent", "false");
@@ -23878,15 +24183,35 @@ function App() {
             </details>
             </InspectorSection>
             <InspectorSection title="Interface" className="settings-inspector-section">
+            <label className="settings-panel-field" {...infoProps("Interface font", "Font family used by the Underscores interface. Livecode node fonts and Excalidraw drawing text remain independently authored.")}>
+              <span>Interface font</span>
+              <select value={getInterfaceFont(interfaceFont).id} onChange={event => setInterfaceFont(getInterfaceFont(event.target.value).id)}>
+                {INTERFACE_FONT_OPTIONS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+              </select>
+            </label>
+            <label className="settings-panel-field" {...infoProps("Interface font size", "Base size for interface labels and controls. This does not change the font size stored by a livecode node.")}>
+              <span>Interface font size</span>
+              <NumericInput min="8" max="18" step="1" data-default="10" value={interfaceFontSize} defaultValue={10} onCommit={value => setInterfaceFontSize(Math.max(8, Math.min(18, value)))} />
+            </label>
+            <label className="settings-panel-field" {...infoProps("Code tip trigger", "Choose when local language documentation reaches the Info panel. Hover waits briefly over a symbol; Select responds to a selected word; None disables documentation tips.")}>
+              <span>Code tip trigger</span>
+              <select value={normalizeDocumentationTipMode(documentationTipMode)} onChange={event => setDocumentationTipMode(normalizeDocumentationTipMode(event.target.value))}>
+                {DOCUMENTATION_TIP_MODES.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+              </select>
+            </label>
             {[
               ["Force desktop layout", forceDesktopLayout, value => { setForceDesktopLayout(value); localStorage.setItem("underscores_force_desktop_layout", value); }],
               ["Force __ UI theme", forceUnderscoresUiTheme, value => { setForceUnderscoresUiTheme(value); localStorage.setItem("underscores_force_ui_theme", value); }],
+              ["Code autocomplete", autocompleteEnabled, value => setAutocompleteEnabled(value)],
+              ["Code documentation overlay", showDocumentationOverlay, value => setShowDocumentationOverlay(value)],
+              ["p5 documentation overlay", documentationOverlayByLanguage.p5 ?? showDocumentationOverlay, value => setDocumentationOverlayByLanguage(previous => ({ ...previous, p5: value }))],
+              ["Strudel documentation overlay", documentationOverlayByLanguage.strudel ?? showDocumentationOverlay, value => setDocumentationOverlayByLanguage(previous => ({ ...previous, strudel: value }))],
               ["Show toolbar hints", showToolbarHints, value => { setShowToolbarHints(value); localStorage.setItem("underscores_show_toolbar_hints", value); }],
               ["Show bottom alerts", showBottomNotifications, value => { setShowBottomNotifications(value); localStorage.setItem("underscores_show_bottom_notifications", value); }],
               ["Show performance monitor", showPerformanceOverlay, updatePerformanceVisibility],
               ["Show modifier debug coordinates", showDebugLayer, setShowDebugLayer],
             ].map(([label, checked, update]) => (
-              <label className="settings-panel-check" key={label} {...infoProps(label, label === "Force desktop layout" ? "Keep the full docked desktop interface at smaller viewport sizes." : label === "Force __ UI theme" ? "Make Excalidraw panels, tool islands, popovers, settings, inputs, and menus use the active __ interface surfaces and colors." : label === "Show toolbar hints" ? "Show native hover labels for toolbar controls." : label === "Show bottom alerts" ? "Show transient status messages along the bottom edge." : label === "Show performance monitor" ? "Show the FPS and scene-workload monitor attached to Console or floating over the canvas." : "Overlay modifier coordinate diagnostics on the canvas.")}>
+              <label className="settings-panel-check" key={label} {...infoProps(label, label === "Force desktop layout" ? "Keep the full docked desktop interface at smaller viewport sizes." : label === "Force __ UI theme" ? "Make Excalidraw panels, tool islands, popovers, settings, inputs, and menus use the active __ interface surfaces and colors." : label === "Code autocomplete" ? "Show or hide the completion list while editing code. Documentation tips are controlled separately above." : label === "Code documentation overlay" ? "Allow the compact floating documentation card when the tip trigger is Hover. The Info panel remains available according to the trigger setting." : label === "p5 documentation overlay" ? "Show the compact local p5 reference card when hovering p5 symbols. The Info panel can still show documentation when this popup is hidden." : label === "Strudel documentation overlay" ? "Show the compact local Strudel reference card when hovering documented pattern functions." : label === "Show toolbar hints" ? "Show native hover labels for toolbar controls." : label === "Show bottom alerts" ? "Show transient status messages along the bottom edge." : label === "Show performance monitor" ? "Show the FPS and scene-workload monitor attached to Console or floating over the canvas." : "Overlay modifier coordinate diagnostics on the canvas.")}>
                 <span>{label}</span>
                 <input type="checkbox" checked={checked} onChange={event => update(event.target.checked)} />
               </label>
@@ -24182,6 +24507,8 @@ function App() {
               onBlur={() => syncEditorDraftToModifier(true)}
               onRun={applyActiveBrushToSelection}
               scriptType="brush"
+              documentationTipMode={documentationTipMode}
+              autocompleteEnabled={autocompleteEnabled}
               ariaLabel="Brush script source"
               getDiagnostics={source => validateJavascriptEditorSource(source, {
                 expression: true,
@@ -24691,10 +25018,12 @@ function App() {
   const updateInfoViewFromEvent = event => {
     const editor = event.target?.closest?.(".underscores-code-editor, .orca-node, .livecode-markdown-block textarea");
     if (editor) {
-      // Code, grid, and in-place Markdown editing should always restore the
-      // language guide. This also clears a stale control tooltip in the Info
-      // panel without changing the editor's selection or source.
-      setInfoView(DEFAULT_INFO_VIEW);
+      // Pointer movement inside an editor is also how CodeMirror discovers
+      // symbol documentation. Do not reset the Info panel on every
+      // pointerover: that races the local hover provider and makes the
+      // documentation appear intermittent. Focus still restores the guide
+      // before a symbol hover takes over.
+      if (event.type !== "pointerover") setInfoView(DEFAULT_INFO_VIEW);
       return;
     }
     const target = event.target?.closest?.("[data-info]");
@@ -24720,11 +25049,37 @@ function App() {
     });
   };
 
+  const updateInfoViewFromDocumentation = documentation => {
+    if (!documentation) {
+      setInfoView(previous => previous?.documentation ? { ...previous, documentation: null } : previous);
+      return;
+    }
+    setInfoView(previous => {
+      const title = documentation.name || documentation.signature || "Language reference";
+      if (
+        previous?.documentation?.name === documentation.name
+        && previous?.documentation?.signature === documentation.signature
+        && previous?.documentation?.referenceUrl === documentation.referenceUrl
+      ) return previous;
+      return {
+        title,
+        body: documentation.description || "",
+        documentation,
+      };
+    });
+  };
+
   return (
     <div 
       id="root" 
       className={`underscores-shell underscores-theme-${theme} ${forceUnderscoresUiTheme ? "underscores-force-ui-theme" : ""} ${laserToolActive ? "laser-tool-active" : ""} ${laserCursorExitGuard ? "laser-cursor-exit-guard" : ""} ${satoriMode ? "satori-mode" : ""} ${showToolbarHints ? "" : "hide-toolbar-hints"} ${showBottomNotifications ? "" : "hide-bottom-notifications"} ${anySidePanelOpen ? "sidebar-open" : ""} ${leftDockOpen ? "left-sidebar-open" : ""} ${rightDockOpen ? "right-sidebar-open" : ""} ${bottomDockOpen ? "horizontal-dock-open" : ""} ${collapsedDocks.bottom ? "bottom-dock-collapsed" : ""} ${draggingPanelId || transportDragging ? "panel-is-dragging" : ""}`}
       style={{
+        "--font-sans": getInterfaceFont(interfaceFont).family,
+        "--font-title": getInterfaceFont(interfaceFont).family,
+        "--underscores-interface-font-size": `${interfaceFontSize}px`,
+        "--underscores-ui-font-size": `${interfaceFontSize}px`,
+        "--underscores-ui-font-size-small": `${Math.max(8, interfaceFontSize - 1)}px`,
+        "--underscores-ui-font-size-title": `${interfaceFontSize + 1}px`,
         "--underscores-accent": colorWithOpacity(accentColor, accentOpacity),
         "--underscores-highlight": colorWithOpacity(highlightColor, highlightOpacity),
         "--underscores-foreground": colorWithOpacity(foregroundColor, foregroundOpacity),
@@ -24788,6 +25143,7 @@ function App() {
         onPointerUpCapture={handleCanvasPointerUp}
         onPointerCancelCapture={handleCanvasPointerUp}
         onLostPointerCaptureCapture={handleCanvasPointerUp}
+        onWheelCapture={handleCanvasWheelCapture}
         onDoubleClickCapture={handleCanvasDoubleClick}
         onContextMenuCapture={handleCanvasContextMenu}
         onDragOverCapture={handleCanvasMediaPreviewDragOver}
@@ -24809,6 +25165,11 @@ function App() {
           onStrudelTransport={handleStrudelTransportControl}
           scriptRuntimeRef={scriptRuntimeRef}
           transport={{ playing: scorePlaying, bpm: scoreTempo, time: scoreTime }}
+          showDocumentationOverlay={showDocumentationOverlay}
+          documentationOverlayByLanguage={documentationOverlayByLanguage}
+          documentationTipMode={documentationTipMode}
+          autocompleteEnabled={autocompleteEnabled}
+          onDocumentationHover={updateInfoViewFromDocumentation}
         />
         <Excalidraw 
           theme={theme} 
@@ -27156,6 +27517,11 @@ function App() {
           onStrudelTransport={handleStrudelTransportControl}
           scriptRuntimeRef={scriptRuntimeRef}
           transport={{ playing: scorePlaying, bpm: scoreTempo, time: scoreTime }}
+          showDocumentationOverlay={showDocumentationOverlay}
+          documentationOverlayByLanguage={documentationOverlayByLanguage}
+          documentationTipMode={documentationTipMode}
+          autocompleteEnabled={autocompleteEnabled}
+          onDocumentationHover={updateInfoViewFromDocumentation}
         />
         <SvgObjectOverlay
           elements={svgOverlayScene.elements}

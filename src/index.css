@@ -85,6 +85,8 @@ body, html {
 }
 
 .underscores-shell {
+  font-family: var(--font-sans);
+  font-size: var(--underscores-interface-font-size, 10px);
   --underscores-foreground: hsl(190, 5%, 32%);
   --underscores-muted: hsl(190, 5%, 46%);
   /* Quiet semantic text: useful for persistent status without competing with the canvas. */
@@ -3153,6 +3155,10 @@ body .excalidraw .sidebar {
   min-height: 1px;
   transform-origin: center;
   pointer-events: none;
+  /* Touch gestures are forwarded to Excalidraw by the canvas host. Keeping
+     the overlay from negotiating browser scroll/zoom prevents a selected
+     node from turning a board pinch into page zoom. */
+  touch-action: none;
 }
 
 .livecode-node-surface {
@@ -3964,6 +3970,10 @@ body .excalidraw .sidebar {
 .underscores-livecode-node.editing {
   z-index: 4;
   pointer-events: auto;
+  /* Editing surfaces keep native two-finger text scrolling; board gestures
+     are forwarded only from the non-editor node surface. Pinch remains out
+     of the browser's page-zoom path. */
+  touch-action: pan-x pan-y;
 }
 
 .underscores-livecode-node.selected .livecode-node-surface {
@@ -4120,6 +4130,37 @@ body .excalidraw .sidebar {
   margin-left: 9px;
   color: var(--underscores-menu-muted, var(--color-secondary));
   font-style: normal;
+}
+
+.underscores-code-editor .cm-underscores-hover-info {
+  display: grid;
+  gap: 5px;
+  max-width: min(420px, 70vw);
+  padding: 8px 10px;
+  color: var(--underscores-menu-text, var(--color-primary));
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.underscores-code-editor .cm-underscores-hover-info code {
+  color: var(--color-primary);
+  font-family: var(--font-mono, monospace);
+  font-size: 1.05em;
+}
+
+.underscores-code-editor .cm-underscores-hover-example {
+  color: var(--underscores-menu-muted, var(--color-secondary));
+  font-family: var(--font-mono, monospace);
+  font-size: 0.95em;
+}
+
+.underscores-code-editor .cm-underscores-hover-source {
+  color: var(--underscores-menu-muted, var(--color-secondary));
+  font-size: 0.9em;
+}
+
+.underscores-code-editor .cm-underscores-hover-source a {
+  color: var(--underscores-menu-text, var(--color-primary));
 }
 
 .underscores-code-editor .cm-diagnostic {
@@ -8296,6 +8337,67 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   white-space: pre-wrap;
 }
 
+.info-panel-documentation {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+  color: var(--color-secondary);
+}
+
+.info-panel-documentation-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--color-primary);
+  font-size: var(--underscores-ui-font-size-small);
+  font-weight: 650;
+}
+
+.info-panel-documentation-heading a {
+  color: var(--color-secondary);
+  font-size: 0.95em;
+  font-weight: 500;
+}
+
+.info-p5-api-heading a {
+  color: var(--color-secondary);
+  font-size: 0.9em;
+  text-decoration: none;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: start;
+}
+
+.info-p5-api-heading a:hover {
+  color: var(--color-primary);
+}
+
+.info-panel-documentation-signature {
+  color: var(--color-primary);
+  font-family: var(--font-mono, monospace);
+  white-space: pre-wrap;
+}
+
+.info-panel-documentation p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.info-panel-documentation-example {
+  margin: 0;
+  overflow: auto;
+  padding: 7px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--underscores-input-bg);
+  color: var(--color-primary);
+  font-family: var(--font-mono, monospace);
+  white-space: pre-wrap;
+}
+
 .info-panel-examples {
   display: grid;
   gap: 5px;
@@ -8418,6 +8520,70 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .info-svg-guide strong {
   color: var(--color-primary);
   font-weight: 650;
+}
+
+.info-p5-api-reference {
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.info-p5-api-reference > summary {
+  padding: 7px 9px;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: var(--underscores-ui-font-size-small);
+  font-weight: 650;
+}
+
+.info-p5-api-reference > summary:hover,
+.info-p5-api-reference[open] > summary {
+  background: var(--underscores-hover-bg, var(--button-hover-bg));
+}
+
+.info-p5-api-list {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+.info-p5-api-list section {
+  display: grid;
+  gap: 4px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 62%, transparent);
+}
+
+.info-p5-api-list section:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.info-p5-api-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px;
+}
+
+.info-p5-api-heading code {
+  color: var(--color-primary);
+  font-weight: 650;
+}
+
+.info-p5-api-heading span,
+.info-p5-api-list p {
+  color: var(--color-secondary);
+  font-size: var(--underscores-ui-font-size-small);
+}
+
+.info-p5-api-list p {
+  margin: 0;
+}
+
+.info-p5-api-list pre {
+  padding: 5px 6px;
+  font-size: 10px;
 }
 
 .info-iannix-command-group {

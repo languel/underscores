@@ -28,6 +28,7 @@ export const SHORTCUT_ACTIONS = Object.freeze([
   { id: "mods.script.open", label: "Script panel", defaultBinding: "Ctrl+Alt+KeyB" },
   { id: "history.record.toggle", label: "Session recording", defaultBinding: "Ctrl+Alt+KeyR" },
   { id: "toggle-theme", commandId: "toggle-theme", label: "Light / dark theme", defaultBinding: "Alt+Shift+KeyD" },
+  { id: "code.documentation.toggle", commandId: "code.documentation.toggle", label: "Code documentation overlay", defaultBinding: "Mod+Shift+KeyH" },
   { id: "toggle-transparency", commandId: "toggle-transparency", label: "Canvas transparency", defaultBinding: "Mod+Shift+Digit0" },
   { id: "toggle-satori", commandId: "toggle-satori", label: "Satori mode", defaultBinding: "Mod+Ctrl+KeyZ" },
   { id: "presentation.toggle", commandId: "presentation.toggle", label: "Presentation mode", defaultBinding: "Mod+Ctrl+KeyP" },

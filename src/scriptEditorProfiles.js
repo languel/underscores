@@ -1,5 +1,8 @@
 import { snippetCompletion } from "@codemirror/autocomplete";
 import { IANNIX_COMMAND_REFERENCE } from "./iannixCommandReference.js";
+import { getP5CompletionResult, getP5Hover, getP5Reference } from "./p5LanguageService.js";
+import { getStrudelHover, getStrudelReference, getStrudelBridgeCompletions } from "./strudelLanguageService.js";
+import { getUnderscoresHover, getUnderscoresReference } from "./underscoresLanguageService.js";
 import { normalizeScriptType } from "./scriptTypes.js";
 
 const completion = (label, detail, type = "variable", boost = 0) => ({
@@ -37,30 +40,7 @@ const BRUSH_COMPLETIONS = Object.freeze([
   completion("return [points]", "Return the original path as one track", "keyword", 70),
 ]);
 
-const P5_COMPLETIONS = Object.freeze([
-  snippet("setup()", "function setup() {\n  ${createCanvas(windowWidth, windowHeight)};\n}", "Classic p5 setup lifecycle"),
-  snippet("draw()", "function draw() {\n  ${background(18)};\n}", "Classic p5 draw lifecycle"),
-  snippet("p.setup", "p.setup = () => {\n  ${p.createCanvas(__.element.width, __.element.height)};\n};", "Instance-mode setup lifecycle"),
-  snippet("p.draw", "p.draw = () => {\n  ${p.background(18)};\n};", "Instance-mode draw lifecycle"),
-  snippet("@param", "// @param ${name} = ${1} (${0}..${10}, step: ${1})", "Editable Underscores parameter"),
-  ...[
-    "background", "clear", "circle", "ellipse", "line", "rect", "triangle", "beginShape",
-    "vertex", "endShape", "stroke", "strokeWeight", "noStroke", "fill", "noFill", "color",
-    "createCanvas", "resizeCanvas", "image", "loadImage", "text", "textSize", "push", "pop",
-    "translate", "rotate", "scale", "random", "noise", "map", "constrain", "lerp", "sin", "cos",
-    "frameCount", "width", "height", "mouseX", "mouseY", "pmouseX", "pmouseY",
-  ].map(label => completion(label, "p5 global", label === label.toUpperCase() ? "constant" : "function")),
-  ...[
-    "p.background", "p.clear", "p.circle", "p.ellipse", "p.line", "p.rect", "p.stroke",
-    "p.strokeWeight", "p.fill", "p.noFill", "p.createCanvas", "p.image", "p.text", "p.push",
-    "p.pop", "p.translate", "p.rotate", "p.scale", "p.random", "p.noise", "p.frameCount",
-    "p.width", "p.height", "p.mouseX", "p.mouseY",
-  ].map(label => completion(label, "p5 instance API", "function")),
-  completion("__", "Preferred short alias for the current p5 frame bridge", "variable", 95),
-  completion("__.canvas", "Live canvas object queries", "property", 85),
-  completion("__.params", "Resolved @param values", "property", 85),
-  completion("__.transport", "Live transport state", "property", 80),
-]);
+const P5_COMPLETIONS = Object.freeze(getP5CompletionResult({}).options);
 
 const PLAY_CORE_COMPLETIONS = Object.freeze([
   snippet("settings", "export const settings = { fps: ${30}, cols: ${0}, rows: ${0}, backgroundColor: \"${#101010}\", color: \"${#e8e8e8}\" };", "Play Core renderer settings"),
@@ -104,17 +84,16 @@ const SVG_COMPLETIONS = Object.freeze([
   ].map(label => completion(label, "SVG attribute", "property", 50)),
 ]);
 
+const strudelCompletion = entry => ({
+  ...completion(entry.name, entry.signature, entry.type === "method" ? "method" : "function", entry.name === "note" || entry.name === "sound" ? 80 : 60),
+  info: `${entry.description}\n\nExample: ${entry.example}\n\nReference: ${entry.referenceUrl}`,
+});
+
 const STRUDEL_COMPLETIONS = Object.freeze([
   snippet("pattern", "note(\"${c3 e3 g3 b3}\").slow(${2})", "Strudel pattern starter"),
-  completion("note", "Strudel note pattern", "function", 80),
-  completion("sound", "Strudel sound pattern", "function", 80),
-  completion("stack", "Combine patterns", "function", 70),
-  completion("s", "Sound alias", "function", 70),
-  completion("slow", "Slow a pattern by a factor", "method", 60),
-  completion("fast", "Speed a pattern by a factor", "method", 60),
+  ...getStrudelReference().map(strudelCompletion),
   completion("underscores", "Underscores bridge snapshot", "variable", 90),
-  completion("__", "Preferred short alias for the Underscores bridge snapshot", "variable", 95),
-  completion("__.transport", "Live transport bridge", "property", 85),
+  ...getStrudelBridgeCompletions(),
 ]);
 
 const MARKDOWN_COMPLETIONS = Object.freeze([
@@ -191,10 +170,13 @@ export const SCRIPT_EDITOR_PROFILES = Object.freeze({
     language: "javascript",
     label: "p5 JavaScript",
     completions: P5_COMPLETIONS,
+    completionSource: getP5CompletionResult,
+    hover: getP5Hover,
+    reference: getP5Reference,
   }),
   play: Object.freeze({ id: "play", language: "javascript", label: "Play Core JavaScript", completions: PLAY_CORE_COMPLETIONS }),
   livecode: Object.freeze({ id: "livecode", language: "plain", label: "Livecode Node", completions: [] }),
-  strudel: Object.freeze({ id: "strudel", language: "javascript", label: "Strudel", completions: STRUDEL_COMPLETIONS }),
+  strudel: Object.freeze({ id: "strudel", language: "javascript", label: "Strudel", completions: STRUDEL_COMPLETIONS, hover: getStrudelHover, reference: getStrudelReference }),
   markdown: Object.freeze({ id: "markdown", language: "plain", label: "Markdown", completions: MARKDOWN_COMPLETIONS }),
   latex: Object.freeze({ id: "latex", language: "plain", label: "LaTeX", completions: [] }),
   orca: Object.freeze({ id: "orca", language: "plain", label: "Orca grid", completions: ORCA_COMPLETIONS }),
@@ -213,3 +195,32 @@ export const getScriptEditorProfile = type => (
 );
 
 export const getScriptEditorCompletions = type => getScriptEditorProfile(type).completions;
+
+// CodeMirror consumes this small provider contract.  Keeping it beside the
+// editor profiles gives every future node kind a place to add a real language
+// service without making the shared editor know about individual runtimes.
+export const getScriptEditorCompletionResult = (type, context, options = {}) => {
+  const profile = getScriptEditorProfile(type);
+  if (typeof profile.completionSource === "function") return profile.completionSource(context, options);
+  return { options: profile.completions };
+};
+
+export const getScriptEditorHover = (type, source, position, selectionEnd) => {
+  const profile = getScriptEditorProfile(type);
+  const profileHover = typeof profile.hover === "function" ? profile.hover(source, position, selectionEnd) : null;
+  if (profileHover) return profileHover;
+  if (["brush", "livecode", "p5", "play", "strudel"].includes(profile.id)) {
+    return getUnderscoresHover(source, position, selectionEnd);
+  }
+  return null;
+};
+
+export const getScriptEditorReference = type => {
+  const profile = getScriptEditorProfile(type);
+  const reference = typeof profile.reference === "function" ? profile.reference() : [];
+  if (["brush", "livecode", "p5", "play", "strudel"].includes(profile.id)) {
+    const existing = new Set(reference.map(item => item.name));
+    return [...reference, ...getUnderscoresReference().filter(item => !existing.has(item.name))];
+  }
+  return reference;
+};

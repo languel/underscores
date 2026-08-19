@@ -71,6 +71,10 @@ export function LivecodeNodeEditor({
   enableStrudelWidgets = false,
   visualOnly = false,
   showGutters = false,
+  showDocumentationOverlay = true,
+  documentationTipMode = "hover",
+  autocompleteEnabled = true,
+  onDocumentationHover,
 }) {
   const node = useMemo(() => normalizeLivecodeNode(rawNode), [rawNode]);
   const definition = getLivecodeKindDefinition(node.kind);
@@ -122,6 +126,9 @@ export function LivecodeNodeEditor({
           : [sourceDiagnostic(source, `p5 does not compile: ${validation.error || "syntax error"}`)];
       } : undefined}
       scriptType={getLivecodeEditorProfile(node)}
+      p5Mode={node.kind === "p5"
+        ? (node.runtime.settings?.p5Mode || node.runtime.settings?.mode || "auto")
+        : "auto"}
       className={`livecode-node-editor ${className}`.trim()}
       ariaLabel={ariaLabel || `${definition.label} node source`}
       style={editorStyleFor(node.typography)}
@@ -132,6 +139,10 @@ export function LivecodeNodeEditor({
       strudelNodeId={strudelVisualsCurrent ? element?.id || node.nodeId : ""}
       strudelWidgets={strudelVisualsCurrent && enableStrudelWidgets}
       visualOnly={visualOnly}
+      showDocumentationOverlay={showDocumentationOverlay}
+      documentationTipMode={documentationTipMode}
+      autocompleteEnabled={autocompleteEnabled}
+      onDocumentationHover={onDocumentationHover}
     />
   );
 }
@@ -416,6 +427,11 @@ export function LivecodeNodeOverlay({
   scriptRuntimeRef,
   transport,
   layer = "overlay",
+  showDocumentationOverlay = true,
+  documentationOverlayByLanguage = null,
+  documentationTipMode = "hover",
+  autocompleteEnabled = true,
+  onDocumentationHover,
 }) {
   const camera = useMemo(() => ({
     zoom: Number(appState?.zoom?.value) || 1,
@@ -438,6 +454,7 @@ export function LivecodeNodeOverlay({
   }).map(element => {
     const node = normalizeLivecodeNode(element.customData.underscoresLivecode);
     const composition = normalizeShaderCompositionSettings(node.runtime.settings);
+    const docsOverlayEnabled = documentationOverlayByLanguage?.[node.kind] ?? showDocumentationOverlay;
     const selected = Boolean(camera.selectedElementIds[element.id]);
     const editing = activeEditorId === element.id;
     const visible = selected || editing;
@@ -510,6 +527,10 @@ export function LivecodeNodeOverlay({
           onCycleView={node.kind === "orca" ? undefined : () => onPatch?.(element.id, { view: nextLivecodeViewForNode(node) })}
           onAdjustFontSize={delta => onPatch?.(element.id, { typography: { fontSize: adjustLivecodeFontSize(node.typography.fontSize, delta) } }, { commitToHistory: true })}
           transport={transport}
+          showDocumentationOverlay={docsOverlayEnabled}
+          documentationTipMode={documentationTipMode}
+          autocompleteEnabled={autocompleteEnabled}
+          onDocumentationHover={onDocumentationHover}
           onMidiEvents={(events, metadata) => onMidiEvents?.(element.id, events, metadata)}
           ariaLabel={node.kind === "orca" ? "Orca grid editor" : `${getLivecodeKindDefinition(node.kind).label} canvas node source`}
         />;
@@ -531,9 +552,13 @@ export function LivecodeNodeOverlay({
             {node.kind === "strudel" && isLivecodeNodeRunnable(node) && <LivecodeNodeEditor
               node={node}
               element={element}
-              readOnly
-              visualOnly
-              enableStrudelWidgets
+          readOnly
+          visualOnly
+          enableStrudelWidgets
+              showDocumentationOverlay={docsOverlayEnabled}
+              documentationTipMode={documentationTipMode}
+              autocompleteEnabled={autocompleteEnabled}
+              onDocumentationHover={onDocumentationHover}
               ariaLabel="Strudel visual output"
             />}
           </div>;
@@ -555,6 +580,10 @@ export function LivecodeNodeOverlay({
           readOnly
           glyphOnlyOverlay={false}
           enableStrudelWidgets={node.kind === "strudel"}
+          showDocumentationOverlay={docsOverlayEnabled}
+          documentationTipMode={documentationTipMode}
+          autocompleteEnabled={autocompleteEnabled}
+          onDocumentationHover={onDocumentationHover}
           onClick={visible ? () => onEdit?.(element.id) : undefined}
           onDoubleClick={visible ? event => onEdit?.(element.id, { view: getLivecodeViewForDoubleClick(event) }) : undefined}
           ariaLabel={`${getLivecodeKindDefinition(node.kind).label} canvas node source`}
@@ -575,6 +604,10 @@ export function LivecodeNodeOverlay({
             readOnly
             glyphOnlyOverlay={node.typography.glyphOnlyOverlay}
             enableStrudelWidgets={node.kind === "strudel"}
+            showDocumentationOverlay={docsOverlayEnabled}
+            documentationTipMode={documentationTipMode}
+            autocompleteEnabled={autocompleteEnabled}
+            onDocumentationHover={onDocumentationHover}
             onClick={visible ? () => onEdit?.(element.id) : undefined}
             onDoubleClick={visible ? event => onEdit?.(element.id, { view: getLivecodeViewForDoubleClick(event) }) : undefined}
             ariaLabel={`${getLivecodeKindDefinition(node.kind).label} canvas node source`}
@@ -584,6 +617,10 @@ export function LivecodeNodeOverlay({
           node={node}
           element={element}
           readOnly
+          showDocumentationOverlay={docsOverlayEnabled}
+          documentationTipMode={documentationTipMode}
+          autocompleteEnabled={autocompleteEnabled}
+          onDocumentationHover={onDocumentationHover}
           onClick={visible ? () => onEdit?.(element.id) : undefined}
           onDoubleClick={visible ? event => onEdit?.(element.id, { view: getLivecodeViewForDoubleClick(event) }) : undefined}
           ariaLabel={`${getLivecodeKindDefinition(node.kind).label} canvas node source`}
@@ -596,6 +633,10 @@ export function LivecodeNodeOverlay({
             readOnly
             visualOnly
             enableStrudelWidgets
+            showDocumentationOverlay={docsOverlayEnabled}
+            documentationTipMode={documentationTipMode}
+            autocompleteEnabled={autocompleteEnabled}
+            onDocumentationHover={onDocumentationHover}
             ariaLabel="Strudel visual output"
           />}
         </div>;
