@@ -27825,10 +27825,10 @@ function App() {
             >
               <div className="command-palette-header">
                 <span className="context-prompt-marker" aria-hidden="true">❯ </span>
-                <input
+                <textarea
                   ref={contextPromptInputRef}
                   id="context-prompt-input"
-                  type="text"
+                  rows={1}
                   value={contextPrompt}
                   onChange={event => setContextPrompt(event.target.value)}
                   placeholder=""
@@ -27839,7 +27839,7 @@ function App() {
                       setShowContextPrompt(false);
                       setContextPrompt("");
                       setContextPromptPosition(null);
-                    } else if (event.key === "Enter") {
+                    } else if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
                       const prompt = contextPrompt.trim();
                       setShowContextPrompt(false);

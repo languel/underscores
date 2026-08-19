@@ -38,6 +38,7 @@ The global CodeMirror palette still controls editor syntax colors and surfaces. 
 - **Cmd/Ctrl+Enter** runs the current node. When the pointer is over a canvas Livecode node, the same chord starts it without needing to focus the editor; **Cmd/Ctrl+.** stops that hovered node. **Ctrl+M, then L** is CodeMirror's line-number toggle. The panel also exposes line numbers and the folding gutter; both default off for canvas Livecode Nodes.
 - **Cmd/Ctrl+Shift+=** and **Cmd/Ctrl+Shift+-** increase or decrease the focused Livecode editor's font size by one pixel, clamped to 8–72 px. The value is stored in that node's typography settings and is available in both the canvas editor and Script panel.
 - **Option/Alt+Shift+-** opens the compact contextual command field without dimming or blurring the canvas. The current canvas selection is passed as context; pressing Enter executes the command and Escape dismisses it. Common property changes use the direct scene API so they do not need an assistant round-trip: `clock free|linked|toggle` changes a Livecode node's clock or a media instance's transport link, `blend normal|screen|multiply|overlay|soft-light` changes shader/media composition, and the supported object fields include `opacity`, `volume`, `x`, `y`, `width`, `height`, `angle`, `stroke`, `background`, `stroke width`, `fill style`, `stroke style`, `roughness`, and `locked`. Media playback commands (`play`, `pause`, `loop`, `mute`, and `volume`) use the selected canvas instance. Open-ended requests, such as editing a shader, continue through the assistant with the selection preserved; with no selection the field behaves like a compact command prompt.
+- **Shift+Enter** inserts a newline in the contextual command field; Enter submits the command. This keeps multi-line requests available without opening the Chat panel.
 - On a canvas output, plain **Cmd/Ctrl-click** switches that Livecode node to Preview. **Cmd+Shift-click** is reserved for the canvas overlap-cycle gesture, and is never consumed by the Livecode output shortcut; clicks in the code editor or node chrome remain editor/UI interactions.
 - **Glyphs only** is on by default for Code overlay. Its opacity is painted behind non-whitespace source runs only, leaving blank character areas transparent so the running output remains visible. Turn it off for one continuous code surface.
 - Markdown output scrolls vertically and horizontally inside its node whenever it exceeds the available node bounds; scrolling is contained within the node.
@@ -60,6 +61,16 @@ The p5 example catalog also includes **MediaPipe · Unicursal portrait**, a supp
 for the shared `__.art.unicursal` engine. Add a Holistic processor first; the example reads its
 latest completed frame and draws the same stable path topology used by a first-class Unicursal
 object without copying landmark or segmentation data into the scene.
+
+#### Runtime repair notes
+
+Classic p5 nodes can compile successfully and still fail during the first draw. Keep values needed
+after a candidate-generation loop in the enclosing function scope rather than declaring them only
+inside the loop. Pointer-centered line sketches also need a fallback when an intersection filter
+rejects every candidate; otherwise the frame can go blank without a compile error. Use p5's built-in
+`dist()` directly: even a commented-out `function dist(...)` can be mistaken for an authored binding by
+the classic-mode declaration scan. The Live status stream reports runtime failures as `p5 error: ...`;
+successful output remains the authority for whether a repaired node is running.
 
 ### Transparent frame policy and shared composition settings
 

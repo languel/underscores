@@ -681,6 +681,9 @@ body, html {
 #context-prompt-input {
   min-width: 0;
   flex: 1 1 auto;
+  resize: none;
+  overflow-y: auto;
+  font-family: inherit;
   box-sizing: border-box;
   border: 0 !important;
   border-radius: 0;

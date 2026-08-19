@@ -22,6 +22,11 @@ unmodified Delete and Backspace are captured before Excalidraw's page-level dele
 run CodeMirror's character-deletion commands directly, preserving the selected canvas object while
 its source changes.
 
+The compact contextual command field is opened with **Option/Alt+Shift+-**. It keeps the canvas
+visible, passes the current selection as context, submits on Enter, and inserts a newline on
+Shift+Enter. The assistant may propose a source edit, but the application still routes writes
+through its controlled adapter update path; the canonical editor remains the source of truth.
+
 ## Boundaries
 
 `src/UnderscoresCodeEditor.jsx` owns CodeMirror state, controlled-source synchronization, configuration compartments, editor commands, and accessibility attributes. It does not save or execute scripts.
