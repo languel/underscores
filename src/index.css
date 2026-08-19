@@ -633,6 +633,34 @@ body, html {
   z-index: 2000;
 }
 
+#context-prompt-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 15vh;
+  z-index: 2001;
+}
+
+.context-prompt-card {
+  width: 600px;
+  max-width: 90vw;
+}
+
+#context-prompt-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 16px;
+  padding: 14px 16px;
+  outline: none;
+}
+
 .command-palette-card {
   background: var(--underscores-panel-bg, var(--island-bg-color));
   border: 1px solid var(--border-color);

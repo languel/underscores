@@ -33,6 +33,12 @@ test("object picker defaults to Option-Shift-O", () => {
   assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, event)?.id, "object.pick.fromCanvas");
 });
 
+test("context AI command defaults to Option-Shift-minus", () => {
+  const event = { code: "Minus", metaKey: false, ctrlKey: false, altKey: true, shiftKey: true };
+  assert.equal(shortcutFromEvent(event), "Alt+Shift+Minus");
+  assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, event)?.id, "ai.context.prompt");
+});
+
 test("clear scene uses the explicit Ctrl+Shift+Backspace binding", () => {
   const event = { code: "Backspace", metaKey: false, ctrlKey: true, altKey: false, shiftKey: true };
   assert.equal(shortcutFromEvent(event), "Ctrl+Shift+Backspace");

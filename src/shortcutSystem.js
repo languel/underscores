@@ -19,6 +19,7 @@ export const SHORTCUT_ACTIONS = Object.freeze([
   { id: "panel-transport", label: "Timeline panel", defaultBinding: "Ctrl+Alt+KeyT" },
   { id: "panel-settings", label: "Settings panel", defaultBinding: "Mod+Comma" },
   { id: "panel-chat", label: "AI panel", defaultBinding: "Ctrl+Alt+KeyA" },
+  { id: "ai.context.prompt", label: "Context AI command", defaultBinding: "Alt+Shift+Minus" },
   { id: "panel-properties.open", label: "Open Properties panel", defaultBinding: "Mod+Alt+KeyP" },
   { id: "physics.toolbar.toggle", commandId: "physics.toolbar.toggle", label: "Physics toolbar", defaultBinding: "Ctrl+Alt+KeyP" },
   { id: "dock.left.toggle", label: "Left dock collapse", defaultBinding: "Mod+KeyB" },
@@ -91,6 +92,7 @@ export const shortcutLabel = binding => {
     if (part === "Space") return "Space";
     if (part === "BracketLeft") return "[";
     if (part === "BracketRight") return "]";
+    if (part === "Minus") return "-";
     if (part.startsWith("Key")) return part.slice(3);
     if (part.startsWith("Digit")) return part.slice(5);
     return part;

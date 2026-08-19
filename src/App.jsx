@@ -172,6 +172,7 @@ import { underscoresPerformanceMonitor } from "./performanceMonitor.js";
 import { createBakedImageElement, createBakedImageFile, createCanvasSnapshotImageElement, replaceSceneElementsWithBake } from "./sceneBake.js";
 import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
+import { parseContextCommand } from "./contextCommand.js";
 import { stepStrokeWidth } from "./strokeWidthShortcuts.js";
 import { infoProps } from "./uiInfo.js";
 import {
@@ -3165,6 +3166,8 @@ function App() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandSearch, setCommandSearch] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [showContextPrompt, setShowContextPrompt] = useState(false);
+  const [contextPrompt, setContextPrompt] = useState("");
   const [satoriMode, setSatoriMode] = useState(true);
   const [presentationMode, setPresentationMode] = useState(() => localStorage.getItem("underscores_presentation_mode") === "true");
   const [zenMode, setZenMode] = useState(false);
@@ -10182,7 +10185,7 @@ function App() {
   };
 
   // Submit chat text to Local LLM
-  const sendChatMessage = async (msgOverride = null) => {
+  const sendChatMessage = async (msgOverride = null, options = {}) => {
     const textToSend = msgOverride !== null ? msgOverride : userInput;
     if (!textToSend.trim() || isStreaming) return;
     
@@ -10207,6 +10210,11 @@ function App() {
     });
 
     let processedMessage = userMessage;
+    if (options.contextPrompt) {
+      processedMessage = `${selectedElements.length > 0
+        ? "This is a contextual presentation command. Apply it directly to the currently selected canvas object(s), preserving their ids. Prefer an immediate Underscores API/tool action; do not create a replacement object unless explicitly asked."
+        : "This is a contextual presentation command. Execute it directly with an Underscores API/tool when possible; do not open a chat workflow or explain a command that can be run immediately."}\n\n${processedMessage}`;
+    }
     const imagesToAttach = [];
 
     // Check tags:
@@ -12920,9 +12928,12 @@ function App() {
   }, [commandRegistry, commandRegistrySignature]);
 
   const paletteInputRef = useRef(null);
+  const contextPromptInputRef = useRef(null);
+  const contextPromptActionRef = useRef(null);
   const lastNonTransparentColorRef = useRef(theme === "dark" ? "#121212" : "#ffffff");
 
-  // Toggle Command Palette on Cmd + / and Satori Mode on Opt + Shift + Z
+  // Toggle the command palette on Cmd + / and the context command field on
+  // Option + Shift + Minus. Keep these presentation shortcuts global.
   useEffect(() => {
     const refreshCanvasToolCursor = () => {
       const point = lastCanvasPointerRef.current;
@@ -12960,6 +12971,7 @@ function App() {
       // defocuses it without changing plain Escape's editor behavior.
       const activeElement = document.activeElement;
       const shortcutActionForEvent = findShortcutAction(shortcutBindings, e);
+      if (showContextPrompt && activeElement?.id === "context-prompt-input" && shortcutActionForEvent?.id === "ai.context.prompt") return;
       const objectPickerEscape = e.key === "Escape" && Boolean(objectEyedropperRef.current);
       const activeCanvasLivecodeNode = activeElement?.closest?.(".underscores-livecode-node");
       const activeCanvasLivecodeId = activeCanvasLivecodeNode?.dataset?.livecodeNodeId || null;
@@ -12992,6 +13004,7 @@ function App() {
       }
       if (activeElement?.closest?.(".underscores-code-editor, .orca-node")
         && shortcutActionForEvent?.id !== "object.pick.fromCanvas"
+        && shortcutActionForEvent?.id !== "ai.context.prompt"
         && !objectPickerEscape) return;
 
       // Escape is a global cancel/clear gesture: close transient UI, blur any
@@ -13017,6 +13030,10 @@ function App() {
         if (showContextDropdown) setShowContextDropdown(false);
         if (showAutocomplete) setShowAutocomplete(false);
         if (showCommandPalette) setShowCommandPalette(false);
+        if (showContextPrompt) {
+          setShowContextPrompt(false);
+          setContextPrompt("");
+        }
         if (typeof activeElement?.blur === "function") activeElement.blur();
         if (bezierEditElementId) exitBezierEditMode();
         if (svgPathEdit) exitSvgPathEditMode();
@@ -13059,7 +13076,8 @@ function App() {
       if (document.activeElement?.closest?.(".underscores-p5-host")
         && !isCanvasLivecodeRunStopShortcut
         && !canvasMediaShortcutCandidate
-        && shortcutActionForEvent?.id !== "object.pick.fromCanvas") return;
+        && shortcutActionForEvent?.id !== "object.pick.fromCanvas"
+        && shortcutActionForEvent?.id !== "ai.context.prompt") return;
 
       // Space controls score transport from the canvas/UI. Text controls keep
       // their native spacebar behavior so users can still type normally.
@@ -13130,7 +13148,9 @@ function App() {
           return;
         }
       }
-      const shortcutAction = !isTextControlFocused || shortcutActionForEvent?.id === "object.pick.fromCanvas"
+      const shortcutAction = !isTextControlFocused
+        || shortcutActionForEvent?.id === "object.pick.fromCanvas"
+        || shortcutActionForEvent?.id === "ai.context.prompt"
         ? shortcutActionForEvent
         : null;
       if (shortcutAction) {
@@ -13146,6 +13166,12 @@ function App() {
         }
         if (shortcutAction.id === "command.palette.toggle") {
           setShowCommandPalette(previous => !previous);
+          return;
+        }
+        if (shortcutAction.id === "ai.context.prompt") {
+          e.stopImmediatePropagation?.();
+          setShowContextPrompt(true);
+          setContextPrompt("");
           return;
         }
         if (shortcutAction.id === "dock.left.toggle" || shortcutAction.id === "dock.right.toggle") {
@@ -13257,7 +13283,7 @@ function App() {
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [theme, excalidrawAPI, customBrushActive, activeBrushId, shortcutBindings, commandRegistry, showContextDropdown, showAutocomplete, showCommandPalette, bezierEditElementId, svgPathEdit, livecodeCanvasEditorId]);
+  }, [theme, excalidrawAPI, customBrushActive, activeBrushId, shortcutBindings, commandRegistry, showContextDropdown, showAutocomplete, showCommandPalette, showContextPrompt, bezierEditElementId, svgPathEdit, livecodeCanvasEditorId]);
 
   // Autofocus input when Command Palette opens
   useEffect(() => {
@@ -13267,6 +13293,12 @@ function App() {
       setSelectedIndex(0);
     }
   }, [showCommandPalette]);
+
+  useEffect(() => {
+    if (!showContextPrompt) return undefined;
+    const timer = window.setTimeout(() => contextPromptInputRef.current?.focus(), 50);
+    return () => window.clearTimeout(timer);
+  }, [showContextPrompt]);
 
   const getExcalidrawInstance = () => {
     try {
@@ -13511,6 +13543,87 @@ function App() {
     const elements = excalidrawAPI.getSceneElements();
     return elements.filter(el => selectedElementIds[el.id] && !el.isDeleted);
   };
+
+  const getLiveSelectedElements = () => {
+    const api = excalidrawAPIRef.current || excalidrawAPI;
+    if (!api) return [];
+    const selectedIds = api.getAppState?.().selectedElementIds || {};
+    return (api.getSceneElements?.() || []).filter(element => !element.isDeleted && selectedIds[element.id]);
+  };
+
+  const executeContextPrompt = async prompt => {
+    const text = String(prompt || "").trim();
+    if (!text) return;
+    const selected = getLiveSelectedElements();
+    const action = parseContextCommand(text);
+    const directCommand = parseSlashInvocation(text, { allowBare: true });
+    const mediaInstances = selected.filter(element => {
+      if (!isMediaStreamElement(element)) return false;
+      return normalizeMediaStreamConfig(element.customData?.underscoresMediaStream).kind === MEDIA_STREAM_KINDS.PREVIEW;
+    });
+    const livecodeNodes = selected.filter(isLivecodeNodeElement);
+
+    if (directCommand?.command?.id) {
+      await commandRegistry.execute(directCommand.command.id, directCommand.args || {}, {
+        source: "context-prompt",
+        transportTime: scoreTimeRef.current,
+      });
+      reportAiStatus(`Executed ${directCommand.command.name || directCommand.command.id}.`);
+      return;
+    }
+
+    if (action?.kind === "transportLoop") {
+      const resolvedEnd = resolveTimeValue(action.duration, timeContext);
+      if (Number.isFinite(resolvedEnd) && resolvedEnd > 0) {
+        const end = Math.max(1 / transportFps, resolvedEnd);
+        runtimeCallbacksRef.current.transportUpdate({
+          playing: scorePlayingRef.current,
+          loop: { enabled: true, start: 0, end },
+        });
+        reportAiStatus(`Transport loop set to ${action.duration}.`);
+        return;
+      }
+    }
+
+    if (action?.kind === "opacity" && selected.length > 0) {
+      patchAIObjects({ patches: selected.map(element => ({ id: element.id, patch: { opacity: action.value } })) });
+      reportAiStatus(`Set opacity to ${action.value}% on ${selected.length} selected object${selected.length === 1 ? "" : "s"}.`);
+      return;
+    }
+
+    if (mediaInstances.length > 0 && action && ["loop", "volume", "mute", "play", "pause"].includes(action.kind)) {
+      mediaInstances.forEach(element => {
+        const config = normalizeMediaStreamConfig(element.customData?.underscoresMediaStream);
+        const media = config.media || {};
+        const patch = action.kind === "loop"
+          ? { media: { loop: action.value === "toggle" ? media.loop !== true : action.value } }
+          : action.kind === "volume"
+            ? { media: { volume: action.value } }
+            : action.kind === "mute"
+              ? { media: { muted: action.value } }
+              : { media: { playing: action.kind === "play" } };
+        patchMediaStreamObject(element.id, patch);
+      });
+      reportAiStatus(`${action.kind === "loop" ? "Loop" : action.kind === "volume" ? "Volume" : action.kind === "mute" ? (action.value ? "Muted" : "Unmuted") : action.kind === "play" ? "Playing" : "Paused"} ${mediaInstances.length} media instance${mediaInstances.length === 1 ? "" : "s"}.`);
+      return;
+    }
+
+    if (livecodeNodes.length > 0 && (action?.kind === "play" || action?.kind === "pause")) {
+      for (const element of livecodeNodes) {
+        const node = normalizeLivecodeNode(element.customData?.underscoresLivecode);
+        if (action.kind === "play" && !node.runtime.running) await toggleLivecodeNodeRunRef.current?.(element.id, { command: "run" });
+        if (action.kind === "pause" && node.runtime.running) await toggleLivecodeNodeRunRef.current?.(element.id);
+      }
+      reportAiStatus(`${action.kind === "play" ? "Started" : "Paused"} ${livecodeNodes.length} Livecode node${livecodeNodes.length === 1 ? "" : "s"}.`);
+      return;
+    }
+
+    // Open-ended requests use the same assistant/tool pipeline as chat. The
+    // context instruction is added to the provider payload, while the compact
+    // command shown in chat remains exactly what the presenter typed.
+    await sendChatMessage(text, { contextPrompt: true });
+  };
+  contextPromptActionRef.current = executeContextPrompt;
 
   useEffect(() => {
     const selectedP5Frames = getSelectedElements().filter(isP5FrameElement);
@@ -27048,6 +27161,39 @@ function App() {
                 {getFilteredCommands().length === 0 && (
                   <div className="command-palette-empty">No matching commands found</div>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showContextPrompt && (
+        <div className={`excalidraw theme--${theme}`}>
+          <div id="context-prompt-overlay" onClick={() => { setShowContextPrompt(false); setContextPrompt(""); }}>
+            <div className="context-prompt-card command-palette-card" onClick={event => event.stopPropagation()}>
+              <div className="command-palette-header">
+                <input
+                  ref={contextPromptInputRef}
+                  id="context-prompt-input"
+                  type="text"
+                  value={contextPrompt}
+                  onChange={event => setContextPrompt(event.target.value)}
+                  placeholder="Command…"
+                  aria-label="Context AI command"
+                  onKeyDown={event => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setShowContextPrompt(false);
+                      setContextPrompt("");
+                    } else if (event.key === "Enter") {
+                      event.preventDefault();
+                      const prompt = contextPrompt.trim();
+                      setShowContextPrompt(false);
+                      setContextPrompt("");
+                      if (prompt) void contextPromptActionRef.current?.(prompt);
+                    }
+                  }}
+                />
               </div>
             </div>
           </div>
