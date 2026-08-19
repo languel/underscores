@@ -33,6 +33,7 @@ import { groupSceneElements, moveSceneElementsToGroup, moveSceneElementsToGroupP
 import IannixDataPanel from "./IannixDataPanel.jsx";
 import { UnderscoresCommandRegistry, UnderscoresEventBus, UnderscoresInputBus, findExactCommand, parseGenericCommandSlash } from "./commandSystem.js";
 import { buildAIAutomationGuide, isAICommandAllowed, parseUnderscoresCommandTags } from "./aiTooling.js";
+import { renderChatMessage } from "./chatPresentation.js";
 import { autoKeyElement, AUTO_KEY_PATHS, collectAutomationKeys, evaluateElementAutomation, interpolationForPath, upsertAutomationKey } from "./automation.js";
 import { formatAIScriptSource, validateAIBrushSource, validateAIIannixSource } from "./scriptAuthoring.js";
 import { getIannixCommandAtSourcePosition } from "./iannixCommandReference.js";
@@ -262,6 +263,10 @@ You drive a collaborative sketchboard (Excalidraw) programmatically through regi
 
 CRITICAL: You MUST write your text explanation FIRST, then output any tool XML tags.
 
+Do not emit a bare undefined or null as a response placeholder. After an action tag, continue with a short human-readable summary.
+
+When a user asks to explain, expand, beautify, or modify code, show the explanation and formatted code in Markdown first. A selected object with a "codeHost" field is code-capable even when its Excalidraw type is "rectangle"; inspect its elementId, kind, source, parameters, runtime, and other fields before deciding it is a plain shape. If the selected host is legacy p5 or Play Core, use livecode.node.update and keep the same elementId; Underscores will migrate that host in place. The command payload must be valid JSON: encode source with JSON.stringify semantics (\\n for newlines, \\\" for quotes, and \\\\ for backslashes). Never put raw multiline source or unescaped double quotes inside a command JSON string. Use @selection or @livecode context when the user asks about a specific node, and @score for the transport.
+
 Use high-level <underscores-command> tags for all new work. Legacy drawing XML tags remain available only for compatibility:
 1. Draw Rectangle:
    <rect x="[coord]" y="[coord]" w="[width]" h="[height]" color="[hex_color]" fill="[hex_color/transparent]"/>
@@ -282,9 +287,121 @@ Guidelines:
 - All shapes should be sized logically (typical screen coords range from 0 to 1000).
 - If the user selected a shape or path, you will receive its coordinates in the context. Use this context to duplicate, resize, move, or offset the shape.
 - Create objects with scene.create.objects and modify them with scene.patch.objects; use score.roles.assign for score roles.
-- Create and edit scripts through script.brush.* and script.iannix.* commands. Create interactive p5 canvas frames through p5.frame.create. p5 supports instance mode (p.setup, p.draw, and p.* calls) and classic global mode (function setup(), function draw(), and ordinary p5 calls); set mode: "global" for classic source, or omit it for safe auto-detection. Change application settings only through the exposed settings/grid/transport commands.
+- Create and edit scripts through the relevant livecode.node.*, script.brush.*, and script.iannix.* commands. Create interactive p5 canvas frames through p5.frame.create. p5 supports instance mode (p.setup, p.draw, and p.* calls) and classic global mode (function setup(), function draw(), and ordinary p5 calls); set mode: "global" for classic source, or omit it for safe auto-detection. Change application settings only through the exposed settings/grid/transport commands.
 - Keep your conversational text responses extremely concise and to the point.
 `;
+
+// Keep the assistant's scene context semantic without dumping the entire
+// Excalidraw customData object. A Livecode node is stored on a transparent
+// rectangle host, so geometry alone is not enough to identify it. Older p5
+// and Play Core hosts are included as code-capable objects as well; this lets
+// the assistant inspect and migrate them instead of describing them as plain
+// shapes.
+const codeHostContextForElement = element => {
+  if (!element || element.isDeleted) return null;
+  const customData = element.customData && typeof element.customData === "object" ? element.customData : {};
+  const label = customData.label
+    || customData.underscoresLabel
+    || getScoreData(element)?.label
+    || "";
+  const geometry = {
+    elementId: element.id,
+    elementType: element.type,
+    x: Math.round(element.x || 0),
+    y: Math.round(element.y || 0),
+    width: Math.round(element.width || 0),
+    height: Math.round(element.height || 0),
+  };
+
+  if (isLivecodeNodeElement(element)) {
+    const node = normalizeLivecodeNode(customData.underscoresLivecode);
+    return {
+      ...geometry,
+      hostType: "livecode",
+      nodeId: node.nodeId,
+      kind: node.kind,
+      name: node.name,
+      ...(label ? { label } : {}),
+      source: node.source,
+      parameters: node.parameters,
+      view: node.view,
+      runtime: {
+        running: node.runtime.running,
+        enabled: node.runtime.enabled,
+        transportMode: node.runtime.transportMode,
+        settings: node.runtime.settings,
+      },
+      revision: node.revision,
+    };
+  }
+
+  if (isP5FrameElement(element)) {
+    const frame = normalizeP5Frame(customData.underscoresP5);
+    return {
+      ...geometry,
+      hostType: "p5-legacy",
+      kind: LIVECODE_KINDS.p5,
+      name: label || frame.scriptId || "p5 frame",
+      ...(label ? { label } : {}),
+      source: frame.source,
+      parameters: frame.parameters,
+      runtime: {
+        running: frame.autoplay !== false,
+        enabled: true,
+        transportMode: "linked",
+        settings: {
+          mode: frame.mode,
+          p5Version: frame.p5Version,
+          runtime: frame.runtime,
+          fps: frame.fps,
+          transparent: frame.transparent,
+          backgroundMode: frame.backgroundMode,
+          persistence: frame.persistence,
+          allowInteraction: frame.allowInteraction,
+        },
+      },
+      legacy: true,
+      scriptId: frame.scriptId,
+    };
+  }
+
+  if (isPlayCoreFrameElement(element)) {
+    const frame = normalizePlayCoreFrame(customData.underscoresPlayCore);
+    return {
+      ...geometry,
+      hostType: "playcore-legacy",
+      kind: LIVECODE_KINDS.playcore,
+      name: label || frame.scriptId || "Play Core frame",
+      ...(label ? { label } : {}),
+      source: frame.source,
+      parameters: frame.parameters,
+      runtime: {
+        running: true,
+        enabled: true,
+        transportMode: "linked",
+        settings: { fps: frame.fps, allowInteraction: frame.allowInteraction },
+      },
+      legacy: true,
+      scriptId: frame.scriptId,
+    };
+  }
+
+  return null;
+};
+
+const selectionContextForElement = element => {
+  const context = {
+    type: element.type,
+    id: element.id,
+    x: Math.round(element.x || 0),
+    y: Math.round(element.y || 0),
+    w: Math.round(element.width || 0),
+    h: Math.round(element.height || 0),
+    points: element.points ? element.points.map(point => [Math.round(point[0]), Math.round(point[1])]) : undefined,
+  };
+  const codeHost = codeHostContextForElement(element);
+  return codeHost ? { ...context, codeHost } : context;
+};
 
 const INITIAL_GREETING = "Hello! I am your drawing assistant powered by local AI. You can write prompts like \"draw a flow chart\", \"sketch a house\", or \"clear the canvas\" and I will execute the drawing tools programmatically!";
 
@@ -9720,12 +9837,14 @@ function App() {
   };
 
   const ALL_TAGS = [
-    { name: "@selection", description: "Selected elements (JSON)" },
+    { name: "@selection", description: "Selected elements and code fields (JSON)" },
     { name: "@selection-as-svg", description: "Selected elements (SVG)" },
     { name: "@selection-as-png", description: "Selected elements (PNG)" },
     { name: "@canvas", description: "Entire canvas (JSON)" },
     { name: "@canvas-as-svg", description: "Entire canvas (SVG)" },
     { name: "@canvas-as-png", description: "Entire canvas (PNG)" },
+    { name: "@livecode", description: "Livecode node source and runtime state" },
+    { name: "@score", description: "Current score and transport state" },
     { name: "@mermaid", description: "Create Mermaid diagrams" },
     { name: "@manim", description: "Math animation script" },
     { name: "@imagegen", description: "Generate images/illustrations" }
@@ -9750,16 +9869,46 @@ function App() {
 
     const targetElements = type.startsWith("selection") ? selectedElements : allElements.filter(el => !el.isDeleted);
 
+    if (type === "livecode") {
+      const selectedNodes = selectedElements.filter(element => codeHostContextForElement(element));
+      const activeEditorId = livecodeCanvasEditorId || livecodeEditorId;
+      const activeEditorNode = activeEditorId
+        ? allElements.find(element => element.id === activeEditorId && codeHostContextForElement(element))
+        : null;
+      const nodeElements = selectedNodes.length > 0
+        ? selectedNodes
+        : activeEditorNode
+          ? [activeEditorNode]
+          : allElements.filter(element => codeHostContextForElement(element));
+      const nodes = nodeElements.map(codeHostContextForElement).filter(Boolean);
+      return { text: JSON.stringify(nodes, null, 2), type: "json" };
+    }
+
+    if (type === "score") {
+      return {
+        text: JSON.stringify({
+          time: Number(scoreTimeRef.current) || 0,
+          playing: Boolean(scorePlaying),
+          rate: Number(scoreRate) || 1,
+          tempo: Number(scoreTempo) || 120,
+          displayMode: transportDisplayMode,
+          fps: transportFps,
+          loop: {
+            enabled: Boolean(transportLoopEnabled),
+            start: Number(transportLoopStartValue) || 0,
+            end: Number(transportLoopEndValue) || 0,
+          },
+          quantization: {
+            enabled: Boolean(transportLaunchQuantization?.enabled),
+            interval: transportLaunchQuantization?.interval || null,
+          },
+        }, null, 2),
+        type: "json",
+      };
+    }
+
     if (type === "selection" || type === "canvas") {
-      const cleanElements = targetElements.map(el => ({
-        type: el.type,
-        id: el.id,
-        x: Math.round(el.x),
-        y: Math.round(el.y),
-        w: Math.round(el.width),
-        h: Math.round(el.height),
-        points: el.points ? el.points.map(p => [Math.round(p[0]), Math.round(p[1])]) : undefined
-      }));
+      const cleanElements = targetElements.map(selectionContextForElement);
       return { text: JSON.stringify(cleanElements, null, 2), type: "json" };
     }
 
@@ -10064,7 +10213,7 @@ function App() {
     if (userMessage.includes("@selection-as-png")) {
       const val = await getContextValue("selection-as-png");
       if (val?.error) {
-        alert(val.error);
+        reportAiStatus(val.error, "error");
         return;
       }
       if (val?.dataUrl) imagesToAttach.push(val.dataUrl);
@@ -10072,7 +10221,7 @@ function App() {
     if (userMessage.includes("@canvas-as-png")) {
       const val = await getContextValue("canvas-as-png");
       if (val?.error) {
-        alert(val.error);
+        reportAiStatus(val.error, "error");
         return;
       }
       if (val?.dataUrl) imagesToAttach.push(val.dataUrl);
@@ -10081,7 +10230,7 @@ function App() {
     if (userMessage.includes("@selection-as-svg")) {
       const val = await getContextValue("selection-as-svg");
       if (val?.error) {
-        alert(val.error);
+        reportAiStatus(val.error, "error");
         return;
       }
       processedMessage += `\n\n[Context: @selection-as-svg]:\n\`\`\`xml\n${val.text}\n\`\`\``;
@@ -10089,7 +10238,7 @@ function App() {
     if (userMessage.includes("@canvas-as-svg")) {
       const val = await getContextValue("canvas-as-svg");
       if (val?.error) {
-        alert(val.error);
+        reportAiStatus(val.error, "error");
         return;
       }
       processedMessage += `\n\n[Context: @canvas-as-svg]:\n\`\`\`xml\n${val.text}\n\`\`\``;
@@ -10098,7 +10247,7 @@ function App() {
     if (userMessage.includes("@selection") && !userMessage.includes("@selection-as-")) {
       const val = await getContextValue("selection");
       if (val?.error) {
-        alert(val.error);
+        reportAiStatus(val.error, "error");
         return;
       }
       processedMessage += `\n\n[Context: @selection JSON]:\n${val.text}`;
@@ -10106,26 +10255,56 @@ function App() {
     if (userMessage.includes("@canvas") && !userMessage.includes("@canvas-as-")) {
       const val = await getContextValue("canvas");
       if (val?.error) {
-        alert(val.error);
+        reportAiStatus(val.error, "error");
         return;
       }
       processedMessage += `\n\n[Context: @canvas JSON]:\n${val.text}`;
     }
+    if (userMessage.includes("@livecode")) {
+      const val = await getContextValue("livecode");
+      if (val?.error) {
+        reportAiStatus(val.error, "error");
+        return;
+      }
+      processedMessage += `\n\n[Context: @livecode JSON]:\n${val.text}`;
+    }
+    if (userMessage.includes("@score")) {
+      const val = await getContextValue("score");
+      processedMessage += `\n\n[Context: @score JSON]:\n${val.text}`;
+    }
 
     // Default fallback context if no explicit tags are used
-    const hasExplicitTags = ["@selection", "@selection-as-svg", "@selection-as-png", "@canvas", "@canvas-as-svg", "@canvas-as-png"].some(tag => userMessage.includes(tag));
+    const hasExplicitTags = ["@selection", "@selection-as-svg", "@selection-as-png", "@canvas", "@canvas-as-svg", "@canvas-as-png", "@livecode", "@score"].some(tag => userMessage.includes(tag));
     if (!hasExplicitTags) {
       if (selectedElements.length > 0) {
-        processedMessage += `\n\n[Active Selection Element Details]:\n${JSON.stringify(selectedElements.map(el => ({
-          id: el.id,
-          type: el.type,
-          x: Math.round(el.x),
-          y: Math.round(el.y),
-          w: Math.round(el.width),
-          h: Math.round(el.height),
-          points: el.points ? el.points.map(p => [Math.round(p[0]), Math.round(p[1])]) : undefined
-        })), null, 2)}`;
+        processedMessage += `\n\n[Active Selection Element Details]:\n${JSON.stringify(selectedElements.map(selectionContextForElement), null, 2)}`;
       }
+      const selectedLivecodeNodes = selectedElements.filter(element => codeHostContextForElement(element));
+      const activeEditorId = livecodeCanvasEditorId || livecodeEditorId;
+      const hasActiveLivecodeNode = Boolean(activeEditorId && allElements.some(element => element.id === activeEditorId && codeHostContextForElement(element)));
+      if (selectedLivecodeNodes.length > 0 || hasActiveLivecodeNode) {
+        const livecodeContext = await getContextValue("livecode");
+        processedMessage += `\n\n[Active Livecode Nodes]:\n${livecodeContext.text}`;
+      } else {
+        const availableLivecodeNodes = allElements
+          .map(codeHostContextForElement)
+          .filter(Boolean)
+          .map(node => ({
+            elementId: node.elementId,
+            nodeId: node.nodeId,
+            kind: node.kind,
+            name: node.name,
+            hostType: node.hostType,
+            view: node.view,
+            running: node.runtime?.running,
+            legacy: node.legacy === true,
+          }));
+        if (availableLivecodeNodes.length > 0) {
+          processedMessage += `\n\n[Livecode Nodes]:\n${JSON.stringify(availableLivecodeNodes, null, 2)}`;
+        }
+      }
+      const scoreContext = await getContextValue("score");
+      processedMessage += `\n\n[Active Score State]:\n${scoreContext.text}`;
       processedMessage += `\n\n[Full Excalidraw Scene JSON]:\n${JSON.stringify(canvasSummary)}`;
     }
 
@@ -10204,7 +10383,11 @@ function App() {
           return updated;
         });
       });
-      if (!fullResponse) throw new Error("The provider returned an empty response.");
+      if (!fullResponse) {
+        const providerLabel = getAIProvider(provider).label;
+        const contentType = response.headers.get("content-type") || "unknown content type";
+        throw new Error(`${providerLabel} (${aiSettings.model || "default"}) returned no text (${contentType}). The server may have returned an unsupported stream shape, an empty completion, or a context-limit response; check its local server log and model output format.`);
+      }
 
       const toolResult = await executeAIToolCalls(fullResponse, excalidrawAPI);
       if (toolResult.errors.length) {
@@ -10215,7 +10398,7 @@ function App() {
           if (last?.role === "assistant") {
             updated[updated.length - 1] = {
               ...last,
-              content: `${last.content}\n\n> Underscores rejected an action; nothing unsafe was saved or run.\n> - ${report}\n> Ask me to repair the script using the IanniX or Brush contract.`,
+              content: `${last.content}\n\n> Underscores rejected an action; nothing unsafe was saved or run.\n> - ${report}\n> The action payload must be valid JSON; escape multiline source with JSON.stringify and never use raw quotes or newlines inside string values.`,
             };
           }
           return updated;
@@ -10234,13 +10417,22 @@ function App() {
     }
   };
 
+  const reportAiStatus = (message, level = "info") => {
+    const detail = String(message || "").trim();
+    if (!detail) return;
+    setSceneExchangeStatus(detail);
+    eventBus.emit("ai.status", { message: detail, level }, {
+      source: "ai-chat",
+      transportTime: scoreTimeRef.current,
+    });
+  };
+
   const clearChat = () => {
-    if (window.confirm("Reset conversation history?")) {
-      setChatHistory([
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "assistant", content: INITIAL_GREETING }
-      ]);
-    }
+    setChatHistory([
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "assistant", content: INITIAL_GREETING }
+    ]);
+    reportAiStatus("Started a new AI conversation.");
   };
 
   const copyTranscript = () => {
@@ -10248,12 +10440,54 @@ function App() {
       .filter(h => h.role !== "system")
       .map(h => `[${h.role === "user" ? "User" : "AI Assistant"}]:\n${h.displayContent || h.content}`)
       .join("\n\n");
-      
-    if (!transcript.trim()) return;
 
-    navigator.clipboard.writeText(transcript).then(() => {
-      alert("Transcript copied to clipboard!");
-    });
+    if (!transcript.trim()) return;
+    if (!navigator.clipboard?.writeText) {
+      reportAiStatus("Clipboard access is unavailable in this browser.", "error");
+      return;
+    }
+
+    navigator.clipboard.writeText(transcript)
+      .then(() => reportAiStatus("Copied conversation transcript to the clipboard."))
+      .catch(error => {
+        console.error("Failed to copy conversation transcript", error);
+        reportAiStatus("Could not copy the conversation transcript; check clipboard permissions.", "error");
+      });
+  };
+
+  const copyChatText = (message, successMessage = "Copied chat text to the clipboard.") => {
+    const text = String(message || "").trim();
+    if (!text) return;
+    if (!navigator.clipboard?.writeText) {
+      reportAiStatus("Clipboard access is unavailable in this browser.", "error");
+      return;
+    }
+    navigator.clipboard.writeText(text)
+      .then(() => reportAiStatus(successMessage))
+      .catch(error => {
+        console.error("Failed to copy chat text", error);
+        reportAiStatus("Could not copy chat text; check clipboard permissions.", "error");
+      });
+  };
+
+  const copyChatMessage = message => copyChatText(message, "Copied chat message to the clipboard.");
+
+  const handleChatBlockAction = event => {
+    const actionButton = event.target?.closest?.("[data-chat-action][data-chat-block-source]");
+    if (!actionButton) return;
+    event.preventDefault();
+    event.stopPropagation();
+    let source = actionButton.getAttribute("data-chat-block-source") || "";
+    try {
+      source = decodeURIComponent(source);
+    } catch {
+      // Keep the encoded value as a best-effort fallback if a streamed block
+      // was interrupted before its attribute finished decoding.
+    }
+    if (!source) return;
+    if (actionButton.getAttribute("data-chat-action") === "copy") {
+      copyChatText(source, "Copied block to the clipboard.");
+    }
   };
 
   const toggleBackgroundTransparency = (api) => {
@@ -12494,6 +12728,7 @@ function App() {
     { id: "livecode.node.create.latex", name: "Create LaTeX Livecode Node /live latex", aliases: ["/live latex", "/live tex"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.latex }) },
     { id: "livecode.node.create.html", name: "Create HTML Livecode Node /live html", aliases: ["/live html"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.html }) },
     { id: "livecode.node.create.orca", name: "Create Orca Livecode Node /live orca", aliases: ["/live orca"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.orca }) },
+    { id: "livecode.node.update", name: "Update Livecode Node", category: "Livecode", args: { elementId: "string?", kind: "strudel|p5|playcore|markdown|latex|html|orca|shader?", name: "string?", source: "string?", parameters: "object?", view: "preview|source|code|split?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", runtimeSettings: "object?" }, ai: { expose: true, description: "Explain, replace, or adjust an existing code-capable canvas object. Uses elementId from the active scene; when omitted, updates the selected Livecode, legacy p5, or Play Core host. Legacy hosts are migrated in place so the edit stays on the selected object. Source is stored as authored text and must be a valid JSON string in the command payload. This does not execute arbitrary code outside the node runtime.", example: { elementId: "livecode-host", source: "void main() {\\n  outColor = vec4(1.0);\\n}", view: "code" } }, action: (_api, args) => updateAILivecodeNode(args) },
     { id: "livecode.node.create.shader", name: "Create Hello GLSL Livecode Node /live shader", aliases: ["/live shader", "/live glsl", "/shader", "/shader hello"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "hello" }) },
     { id: "livecode.node.create.shader.minimal", name: "Create Minimal Twigl Shader /shader minimal", aliases: ["/shader minimal", "/live shader minimal", "/shader shadertoy", "/shader twigl"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "minimal-raymarch" }) },
     { id: "livecode.node.create.shader.rainbow", name: "Create Rainbow Shader /shader rainbow", aliases: ["/shader rainbow", "/live shader rainbow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "rainbow" }) },
@@ -16246,6 +16481,47 @@ function App() {
     setSelectedElementIds({ [element.id]: true });
     editLivecodeCanvasNode(element.id);
     return { elementIds: [element.id], nodeId: node.nodeId, name: node.name, kind: node.kind };
+  };
+
+  const updateAILivecodeNode = (args = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The canvas is not ready.");
+    let elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const requestedId = typeof args.elementId === "string" ? args.elementId.trim() : "";
+    let target = (requestedId
+      ? elements.find(element => element.id === requestedId)
+      : getSelectedElements().find(element => codeHostContextForElement(element)));
+    if (!target || target.isDeleted || !codeHostContextForElement(target)) {
+      throw new Error(requestedId
+        ? `No code-capable object with elementId ${requestedId} was found.`
+        : "Select a Livecode node, p5 frame, or Play Core host first, or provide elementId.");
+    }
+    // Older p5 and Play Core hosts carry the same authored program but do not
+    // yet have the canonical Livecode metadata. Migrate in place so an AI
+    // edit remains attached to the selected canvas object rather than making
+    // a second object or refusing a valid code edit.
+    if (!isLivecodeNodeElement(target)) {
+      migrateLegacyHostToLivecodeNode(target.id);
+      elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+      target = elements.find(element => element.id === target.id && !element.isDeleted && isLivecodeNodeElement(element));
+      if (!target) throw new Error(`Code host ${requestedId || "selection"} could not be migrated to a Livecode node.`);
+    }
+    const patch = {};
+    if (typeof args.kind === "string") patch.kind = args.kind;
+    if (typeof args.name === "string") patch.name = args.name;
+    if (typeof args.source === "string") patch.source = args.source;
+    if (args.parameters && typeof args.parameters === "object" && !Array.isArray(args.parameters)) patch.parameters = args.parameters;
+    if (["preview", "source", "code", "split"].includes(args.view)) patch.view = args.view;
+    const runtime = {};
+    if (typeof args.running === "boolean") runtime.running = args.running;
+    if (typeof args.enabled === "boolean") runtime.enabled = args.enabled;
+    if (["linked", "free"].includes(args.transportMode)) runtime.transportMode = args.transportMode;
+    if (args.runtimeSettings && typeof args.runtimeSettings === "object" && !Array.isArray(args.runtimeSettings)) runtime.settings = args.runtimeSettings;
+    if (Object.keys(runtime).length > 0) patch.runtime = runtime;
+    if (Object.keys(patch).length === 0) throw new Error("Provide at least one Livecode field to update.");
+    const node = patchLivecodeCanvasNode(target.id, patch, { commitToHistory: true });
+    if (!node) throw new Error(`Livecode node ${target.id} could not be updated.`);
+    return { elementId: target.id, nodeId: node.nodeId, kind: node.kind, name: node.name, revision: node.revision };
   };
 
   const migrateLegacyHostToLivecodeNode = elementId => {
@@ -25018,12 +25294,19 @@ function App() {
             
             <div style={{ display: "flex", flexDirection: "column", height: "calc(100% - 50px)", overflow: "hidden", background: "var(--underscores-panel-bg, transparent)" }}>
               {/* Messages Stream */}
-              <div id="chat-messages" style={{ flex: 1, overflowY: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
+              <div
+                id="chat-messages"
+                onClick={handleChatBlockAction}
+                style={{ flex: 1, overflowY: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}
+              >
                 {chatHistory
                   .filter(msg => msg.role !== "system")
                   .map((msg, idx) => (
                     <div key={idx} className={`chat-message ${msg.role}`}>
-                      {msg.displayContent || msg.content}
+                      <div
+                        className="ai-chat-message-content"
+                        dangerouslySetInnerHTML={{ __html: renderChatMessage({ source: msg.displayContent || msg.content, role: msg.role }) }}
+                      />
                       {msg.images && msg.images.map((img, imgIdx) => (
                         <img 
                           key={imgIdx} 
@@ -25044,7 +25327,7 @@ function App() {
                           className="copy-bubble-btn" 
                           onClick={(e) => {
                             e.stopPropagation();
-                            navigator.clipboard.writeText(msg.displayContent || msg.content);
+                            copyChatMessage(msg.displayContent || msg.content);
                           }}
                           title="Copy message"
                         >

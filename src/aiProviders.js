@@ -334,12 +334,16 @@ export const buildAIChatRequest = (settings, messages, runtimeOrigin = "") => {
 
 export const extractAIStreamText = (format, payload) => {
   if (!payload || typeof payload !== "object") return "";
-  if (format === "ollama") return payload.message?.content || "";
+  if (format === "ollama") return payload.message?.content || payload.response || "";
   if (format === "anthropic") return payload.type === "content_block_delta" ? payload.delta?.text || "" : "";
   if (format === "google") {
     return (payload.candidates?.[0]?.content?.parts || []).map(part => part?.text || "").join("");
   }
-  const content = payload.choices?.[0]?.delta?.content;
+  // Some local OpenAI-compatible servers ignore `stream: true` and return a
+  // normal completion. Accept both shapes so LM Studio and similar servers do
+  // not appear to have produced an empty answer.
+  const choice = payload.choices?.[0] || {};
+  const content = choice.delta?.content ?? choice.message?.content ?? payload.content;
   if (typeof content === "string") return content;
   return Array.isArray(content) ? content.map(part => part?.text || "").join("") : "";
 };
@@ -349,16 +353,24 @@ export const readAITextStream = async (response, format, onText) => {
   if (!reader) throw new Error("The provider returned no response stream.");
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
+  let rawResponse = "";
   let fullText = "";
   while (true) {
     const { done, value } = await reader.read();
-    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const chunk = decoder.decode(value || new Uint8Array(), { stream: !done });
+    rawResponse += chunk;
+    buffer += chunk;
     const lines = buffer.split(/\r?\n/);
     buffer = done ? "" : lines.pop() || "";
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line) continue;
-      const data = format === "ollama" ? line : line.startsWith("data:") ? line.slice(5).trim() : "";
+      const data = format === "ollama"
+        ? line
+        : line.startsWith("data:")
+          ? line.slice(5).trim()
+          // A non-streaming OpenAI-compatible response is still valid JSON.
+          : (line.startsWith("{") || line.startsWith("[")) ? line : "";
       if (!data || data === "[DONE]") continue;
       try {
         const text = extractAIStreamText(format, JSON.parse(data));
@@ -369,6 +381,18 @@ export const readAITextStream = async (response, format, onText) => {
       } catch {}
     }
     if (done) break;
+  }
+  // A few local servers return pretty-printed JSON despite requesting a
+  // stream. The line parser intentionally ignores those interior lines, so
+  // make one final structured attempt against the complete body.
+  if (!fullText && rawResponse.trim()) {
+    try {
+      const text = extractAIStreamText(format, JSON.parse(rawResponse));
+      if (text) {
+        fullText = text;
+        onText(fullText, text);
+      }
+    } catch {}
   }
   return fullText;
 };

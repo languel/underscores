@@ -9,11 +9,15 @@ const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringi
  */
 export const parseUnderscoresCommandTags = text => {
   const tags = [];
-  const expression = /<underscores-command\s+id="([^"]+)"\s*>([\s\S]*?)<\/underscores-command>/gi;
+  // Accept harmless attribute/whitespace variation from local models while
+  // keeping the command id explicit. The visible chat uses the same broad
+  // tag shape so a command cannot accidentally leak into the transcript just
+  // because a provider chose single quotes or added an attribute.
+  const expression = /<underscores-command\b[^>]*\bid\s*=\s*(?:"([^"]+)"|'([^']+)')[^>]*>([\s\S]*?)<\/underscores-command\s*>/gi;
   let match;
   while ((match = expression.exec(String(text || ""))) !== null) {
-    const id = match[1];
-    const source = match[2].trim();
+    const id = match[1] || match[2];
+    const source = match[3].trim();
     try {
       tags.push({ id, args: source ? JSON.parse(source) : {}, error: null });
     } catch (error) {
@@ -48,6 +52,10 @@ export const buildAIAutomationGuide = (commands, options = {}) => {
   return [
     "Underscores automation",
     "Use only <underscores-command id=\"stable.id\">JSON</underscores-command> tags for actions.",
+    "The command body must be valid JSON. For multiline source/code values, JSON-escape it exactly as JSON.stringify would: use \\n for newlines, \\\" for quotes, and \\\\ for backslashes. Never put raw multiline text or raw unescaped double quotes inside a JSON string.",
+    "Never emit a bare undefined or null as a response placeholder. After an action tag, continue with a short human-readable summary.",
+    "In @selection JSON, a codeHost field identifies a code-capable object even when its Excalidraw type is rectangle; inspect its source, kind, parameters, runtime, and elementId before describing it as a plain shape.",
+    "Explain or transform code in Markdown fences outside the action tag; keep the action payload compact and machine-valid. If editing a Livecode node, use livecode.node.update with the elementId from scene context and an escaped source string.",
     "Commands run in the order written. Use high-level scene.create.objects and scene.patch.objects; do not construct raw Excalidraw snapshots.",
     "For visual drawing, use scene.create.objects (rectangle, ellipse, diamond, line, or freedraw), then scene.patch.objects, score.roles.assign, script.brush.apply, or automation.keyframes.set as needed.",
     "Never request, expose, or alter credentials, API keys, tokens, provider endpoints, local storage, or browser permissions.",

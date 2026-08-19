@@ -13,6 +13,24 @@ test("AI command tags preserve ordered calls and isolate malformed JSON", () => 
   assert.deepEqual(calls[2].args, { patch: { appearance: { visible: true } } });
 });
 
+test("AI command tags accept JSON-stringified multiline source", () => {
+  const payload = JSON.stringify({
+    kind: "shader",
+    source: '// "screen"\nvoid main() {\n  outColor = vec4(1.0);\n}',
+  });
+  const [call] = parseUnderscoresCommandTags(`<underscores-command id="livecode.node.update">${payload}</underscores-command>`);
+  assert.equal(call.error, null);
+  assert.match(call.args.source, /"screen"/);
+  assert.match(call.args.source, /void main/);
+});
+
+test("AI command tags tolerate harmless XML attribute variation", () => {
+  const [call] = parseUnderscoresCommandTags(
+    `<underscores-command data-source="model" id='livecode.node.update'>{"elementId":"node-1"}</underscores-command >`,
+  );
+  assert.deepEqual(call, { id: "livecode.node.update", args: { elementId: "node-1" }, error: null });
+});
+
 test("AI catalog exposes only explicitly allowed commands", () => {
   const commands = [
     { id: "scene.create.objects", args: { objects: "object[]" }, ai: { expose: true, description: "Create objects", example: { objects: [] } } },
@@ -29,6 +47,15 @@ test("AI catalog exposes only explicitly allowed commands", () => {
   assert.doesNotMatch(buildAIAutomationGuide(commands), /settings\.secret/);
   assert.equal(isAICommandAllowed("scene.create.objects", commands), true);
   assert.equal(isAICommandAllowed("settings.secret", commands), false);
+});
+
+test("AI guide makes source escaping and livecode updates explicit", () => {
+  const guide = buildAIAutomationGuide([
+    { id: "livecode.node.update", args: { elementId: "string", source: "string?" }, ai: { expose: true, description: "Update a Livecode node" } },
+  ], { prompt: "Explain and edit this shader" });
+  assert.match(guide, /valid JSON/);
+  assert.match(guide, /JSON\.stringify/);
+  assert.match(guide, /livecode\.node\.update/);
 });
 
 test("AI guide injects the relevant script contract only for a script request", () => {

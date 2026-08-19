@@ -219,6 +219,8 @@ body, html {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* Custom Scrollbar */
@@ -245,6 +247,93 @@ body, html {
   white-space: pre-wrap;
   word-break: break-word;
   position: relative;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.ai-chat-message-content {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--color-primary);
+  user-select: text;
+  -webkit-user-select: text;
+}
+.ai-chat-message-content * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+.ai-chat-message-content button,
+.ai-chat-message-content img {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.ai-chat-message-content > :first-child { margin-top: 0; }
+.ai-chat-message-content > :last-child { margin-bottom: 0; }
+.ai-chat-message-content p { margin: 0.35em 0; }
+.ai-chat-message-content :is(h1, h2, h3, h4, h5, h6) {
+  font-family: var(--font-sans);
+  line-height: 1.2;
+  margin: 0.7em 0 0.35em;
+}
+.ai-chat-message-content ul,
+.ai-chat-message-content ol { margin: 0.45em 0; padding-left: 1.35em; }
+.ai-chat-message-content blockquote {
+  border-left: 2px solid var(--border-focus);
+  margin: 0.6em 0;
+  padding-left: 0.8em;
+  color: var(--color-secondary);
+}
+.ai-chat-message-content :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  padding: 0.08em 0.3em;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--underscores-panel-bg, currentColor) 20%, transparent);
+}
+.ai-chat-message-content .livecode-markdown-code-block {
+  margin: 0.7em 0 0.25em;
+  max-width: 100%;
+  font-size: 0.9em;
+}
+.ai-chat-message-content .chat-markdown-block {
+  position: relative;
+  min-width: 0;
+}
+.ai-chat-message-content .chat-markdown-block-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  min-height: 0;
+  margin: 0 0 2px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+.ai-chat-message-content .chat-markdown-block:hover > .chat-markdown-block-actions,
+.ai-chat-message-content .chat-markdown-block:focus-within > .chat-markdown-block-actions {
+  opacity: 1;
+}
+.ai-chat-message-content .chat-block-action {
+  appearance: none;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: var(--underscores-ui-control-radius, 3px);
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  background: var(--bg-sidebar, var(--underscores-panel-bg, transparent));
+  color: var(--color-secondary);
+  cursor: pointer;
+}
+.ai-chat-message-content .chat-block-action:hover,
+.ai-chat-message-content .chat-block-action:focus-visible {
+  color: var(--color-primary);
+  border-color: var(--border-focus);
+  outline: none;
+}
+.ai-chat-message-content .katex-display { overflow-x: auto; overflow-y: hidden; margin: 0.55em 0; }
+.chat-message.user .ai-chat-message-content .livecode-markdown-code-block {
+  background: color-mix(in srgb, var(--bg-message-user) 72%, var(--underscores-panel-bg, transparent));
 }
 .chat-message.user {
   background: var(--bg-message-user);
@@ -3295,15 +3384,22 @@ body .excalidraw .sidebar {
   color: var(--color-primary);
 }
 
-.livecode-markdown-code-block .livecode-code-comment { color: color-mix(in srgb, var(--underscores-muted, currentColor) 84%, transparent); font-style: italic; }
-.livecode-markdown-code-block .livecode-code-string { color: #668f61; }
-.livecode-markdown-code-block .livecode-code-number { color: #a36b36; }
-.livecode-markdown-code-block .livecode-code-keyword { color: var(--underscores-accent, #6b7173); font-weight: 600; }
-.livecode-markdown-code-block .livecode-code-builtin { color: var(--underscores-highlight, #7d8588); }
-
-@media (prefers-color-scheme: dark) {
-  .livecode-markdown-code-block .livecode-code-string { color: #9dcc92; }
-  .livecode-markdown-code-block .livecode-code-number { color: #e0a96d; }
+.livecode-markdown-code-block .livecode-code-comment {
+  color: color-mix(in srgb, var(--color-primary) 82%, var(--color-secondary));
+  font-style: italic;
+}
+.livecode-markdown-code-block .livecode-code-string {
+  color: color-mix(in srgb, var(--color-primary) 78%, var(--color-accent));
+}
+.livecode-markdown-code-block .livecode-code-number {
+  color: color-mix(in srgb, var(--color-primary) 62%, var(--color-accent));
+}
+.livecode-markdown-code-block .livecode-code-keyword {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.livecode-markdown-code-block .livecode-code-builtin {
+  color: var(--color-secondary);
 }
 
 .livecode-markdown-block {

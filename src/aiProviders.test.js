@@ -13,6 +13,7 @@ import {
   getAIProviderManualModels,
   normalizeAISettings,
   parseAIModelList,
+  readAITextStream,
   resolveAIRequestBase,
   selectAIModelFromList,
 } from "./aiProviders.js";
@@ -135,6 +136,16 @@ test("native Gemini request maps roles and inline image data", () => {
 test("stream text extraction handles all protocols", () => {
   assert.equal(extractAIStreamText("ollama", { message: { content: "a" } }), "a");
   assert.equal(extractAIStreamText("openai", { choices: [{ delta: { content: "b" } }] }), "b");
+  assert.equal(extractAIStreamText("openai", { choices: [{ message: { content: "normal completion" } }] }), "normal completion");
   assert.equal(extractAIStreamText("anthropic", { type: "content_block_delta", delta: { text: "c" } }), "c");
   assert.equal(extractAIStreamText("google", { candidates: [{ content: { parts: [{ text: "d" }] } }] }), "d");
+});
+
+test("stream reader accepts a non-streaming local OpenAI completion", async () => {
+  const chunks = [];
+  const response = new Response(JSON.stringify({ choices: [{ message: { content: "local answer" } }] }), {
+    headers: { "content-type": "application/json" },
+  });
+  assert.equal(await readAITextStream(response, "openai", (fullText, delta) => chunks.push([fullText, delta])), "local answer");
+  assert.deepEqual(chunks, [["local answer", "local answer"]]);
 });

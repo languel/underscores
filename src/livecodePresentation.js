@@ -93,26 +93,60 @@ export const highlightMarkdownCode = (source, language) => {
   }).join("");
 };
 
-export const renderMarkdownWithMath = source => {
+const encodeChatBlockSource = value => encodeURIComponent(String(value ?? ""));
+
+const chatBlockActionsPlaceholder = source => (
+  `<span class="chat-markdown-block-actions" data-chat-block-source="${encodeChatBlockSource(source)}"></span>`
+);
+
+const wrapChatMarkdownBlock = (html, source, className = "") => (
+  `<div class="chat-markdown-block ${className}" data-chat-block-source="${encodeChatBlockSource(source)}">${chatBlockActionsPlaceholder(source)}${html}</div>`
+);
+
+const renderChatBlockActions = encodedSource => {
+  const escapedSource = String(encodedSource || "");
+  return `<div class="chat-markdown-block-actions" data-chat-block-actions="${escapedSource}">
+    <button type="button" class="chat-block-action" data-chat-action="copy" data-chat-block-source="${escapedSource}" aria-label="Copy block" title="Copy block">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+    </button>
+  </div>`;
+};
+
+export const renderMarkdownWithMath = (source, options = {}) => {
+  const chatActions = options?.chatActions === true;
   const formulas = [];
   const tokenized = String(source || "")
-    .replace(/\$\$([\s\S]+?)\$\$/g, (_match, expression) => {
+    .replace(/\$\$([\s\S]+?)\$\$/g, (sourceMatch, expression) => {
       const token = mathToken(formulas.length);
-      formulas.push({ token, expression, displayMode: true });
+      formulas.push({ token, expression, source: sourceMatch, displayMode: true });
       return token;
     })
-    .replace(/(?<!\\)\$([^$\n]+?)\$/g, (_match, expression) => {
+    .replace(/(?<!\\)\$([^$\n]+?)\$/g, (sourceMatch, expression) => {
       const token = mathToken(formulas.length);
-      formulas.push({ token, expression, displayMode: false });
+      formulas.push({ token, expression, source: sourceMatch, displayMode: false });
       return token;
     });
+  const restoreMathTokens = value => formulas.reduce(
+    (restored, formula) => restored.replaceAll(formula.token, formula.source),
+    String(value ?? ""),
+  );
   const renderer = new marked.Renderer();
   renderer.html = () => "";
   renderer.code = ({ text, lang }) => {
     const language = normalizeCodeLanguage(lang);
     const languageClass = language === "text" ? "" : ` language-${escapeHtml(language)}`;
-    return `<pre class="livecode-markdown-code-block"><code class="${languageClass.trim()}">${highlightMarkdownCode(text, language)}</code></pre>`;
+    const code = `<pre class="livecode-markdown-code-block"><code class="${languageClass.trim()}">${highlightMarkdownCode(text, language)}</code></pre>`;
+    return chatActions ? wrapChatMarkdownBlock(code, restoreMathTokens(text), "chat-markdown-code-block") : code;
   };
+  if (chatActions) {
+    renderer.paragraph = ({ text, raw }) => wrapChatMarkdownBlock(`<p>${text}</p>`, restoreMathTokens(raw ?? text), "chat-markdown-text-block");
+    renderer.heading = ({ text, depth, raw }) => wrapChatMarkdownBlock(`<h${depth}>${text}</h${depth}>`, restoreMathTokens(raw ?? text), "chat-markdown-text-block");
+    renderer.list = ({ body, ordered, start, raw }) => {
+      const tag = ordered ? "ol" : "ul";
+      const startAttribute = ordered && start !== undefined && start !== 1 ? ` start="${Number(start) || 1}"` : "";
+      return wrapChatMarkdownBlock(`<${tag}${startAttribute}>${body}</${tag}>`, restoreMathTokens(raw ?? body), "chat-markdown-text-block");
+    };
+  }
   let html = marked.parse(tokenized, { async: false, renderer, gfm: true, breaks: false });
   formulas.forEach(({ token, expression, displayMode }) => {
     let rendered;
@@ -123,7 +157,14 @@ export const renderMarkdownWithMath = source => {
     }
     html = html.replaceAll(token, rendered);
   });
-  return sanitizeMarkdownHtml(html);
+  html = sanitizeMarkdownHtml(html);
+  if (chatActions) {
+    html = html.replace(
+      /<span class="chat-markdown-block-actions" data-chat-block-source="([^"]*)"><\/span>/g,
+      (_match, encodedSource) => renderChatBlockActions(encodedSource),
+    );
+  }
+  return html;
 };
 
 // Marked retains the exact source text for each block token. Keep those raw
