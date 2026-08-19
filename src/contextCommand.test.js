@@ -6,6 +6,13 @@ test("parses deterministic visual commands", () => {
   assert.deepEqual(parseContextCommand("opacity 50%"), { kind: "opacity", value: 50 });
   assert.deepEqual(parseContextCommand("volume 25"), { kind: "volume", value: 0.25 });
   assert.deepEqual(parseContextCommand("toggle loop"), { kind: "loop", value: "toggle" });
+  assert.deepEqual(parseContextCommand("clock free"), { kind: "clock", value: "free" });
+  assert.deepEqual(parseContextCommand("clock toggle"), { kind: "clock", value: "toggle" });
+  assert.deepEqual(parseContextCommand("blend screen"), { kind: "blend", value: "screen" });
+  assert.deepEqual(parseContextCommand("stroke width 3"), { kind: "objectPatch", property: "strokeWidth", patch: { strokeWidth: 3 } });
+  assert.deepEqual(parseContextCommand("background __.currentFill"), { kind: "objectPatch", property: "backgroundColor", patch: { backgroundColor: "__.currentFill" } });
+  assert.deepEqual(parseContextCommand("background color red"), { kind: "objectPatch", property: "backgroundColor", patch: { backgroundColor: "red" } });
+  assert.deepEqual(parseContextCommand("fill style hachure"), { kind: "objectPatch", property: "fillStyle", patch: { fillStyle: "hachure" } });
 });
 
 test("parses media transport commands", () => {

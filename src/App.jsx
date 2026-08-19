@@ -13561,6 +13561,7 @@ function App() {
       if (!isMediaStreamElement(element)) return false;
       return normalizeMediaStreamConfig(element.customData?.underscoresMediaStream).kind === MEDIA_STREAM_KINDS.PREVIEW;
     });
+    const mediaObjects = selected.filter(isMediaStreamElement);
     const livecodeNodes = selected.filter(isLivecodeNodeElement);
 
     if (directCommand?.command?.id) {
@@ -13585,9 +13586,57 @@ function App() {
       }
     }
 
+    if (action?.kind === "clock") {
+      let changed = 0;
+      let applicable = 0;
+      livecodeNodes.forEach(element => {
+        applicable += 1;
+        const node = normalizeLivecodeNode(element.customData?.underscoresLivecode);
+        const current = node.runtime.transportMode === "free" ? "free" : "linked";
+        const value = action.value === "toggle" ? (current === "free" ? "linked" : "free") : action.value;
+        if (value === current) return;
+        if (patchLivecodeCanvasNode(element.id, { runtime: { transportMode: value } }, { commitToHistory: true })) changed += 1;
+      });
+      mediaInstances.forEach(element => {
+        applicable += 1;
+        const config = normalizeMediaStreamConfig(element.customData?.underscoresMediaStream);
+        const current = config.media?.linkTransport === true ? "linked" : "free";
+        const value = action.value === "toggle" ? (current === "free" ? "linked" : "free") : action.value;
+        if (value === current) return;
+        if (patchMediaStreamObject(element.id, { media: { linkTransport: value === "linked" } })) changed += 1;
+      });
+      if (applicable > 0) {
+        const target = action.value === "toggle" ? "toggled" : action.value;
+        reportAiStatus(`Clock ${target} on ${applicable} selected object${applicable === 1 ? "" : "s"}${changed < applicable ? ` (${changed} changed)` : ""}.`);
+        return;
+      }
+    }
+
+    if (action?.kind === "blend") {
+      const shaderNodes = livecodeNodes.filter(element => normalizeLivecodeNode(element.customData?.underscoresLivecode).kind === LIVECODE_KINDS.shader);
+      let changed = 0;
+      const applicable = shaderNodes.length + mediaObjects.length;
+      shaderNodes.forEach(element => {
+        if (patchLivecodeCanvasNode(element.id, { runtime: { settings: { blendMode: action.value } } }, { commitToHistory: true })) changed += 1;
+      });
+      mediaObjects.forEach(element => {
+        if (patchMediaStreamObject(element.id, { blendMode: action.value })) changed += 1;
+      });
+      if (applicable > 0) {
+        reportAiStatus(`Blend mode set to ${action.value} on ${changed} selected object${changed === 1 ? "" : "s"}.`);
+        return;
+      }
+    }
+
     if (action?.kind === "opacity" && selected.length > 0) {
       patchAIObjects({ patches: selected.map(element => ({ id: element.id, patch: { opacity: action.value } })) });
       reportAiStatus(`Set opacity to ${action.value}% on ${selected.length} selected object${selected.length === 1 ? "" : "s"}.`);
+      return;
+    }
+
+    if (action?.kind === "objectPatch" && selected.length > 0) {
+      patchAIObjects({ patches: selected.map(element => ({ id: element.id, patch: action.patch })) });
+      reportAiStatus(`Set ${action.property} on ${selected.length} selected object${selected.length === 1 ? "" : "s"}.`);
       return;
     }
 
