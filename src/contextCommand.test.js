@@ -15,6 +15,17 @@ test("parses deterministic visual commands", () => {
   assert.deepEqual(parseContextCommand("fill style hachure"), { kind: "objectPatch", property: "fillStyle", patch: { fillStyle: "hachure" } });
 });
 
+test("parses Livecode node settings", () => {
+  assert.deepEqual(parseContextCommand("kind p5"), { kind: "nodeSetting", setting: "kind", value: "p5" });
+  assert.deepEqual(parseContextCommand("view output"), { kind: "nodeSetting", setting: "view", value: "preview" });
+  assert.deepEqual(parseContextCommand("background transparent"), { kind: "nodeSetting", setting: "backgroundMode", value: "transparent" });
+  assert.deepEqual(parseContextCommand("frame reset clear"), { kind: "nodeSetting", setting: "persistence", value: "clear" });
+  assert.deepEqual(parseContextCommand("node font mono"), { kind: "nodeSetting", setting: "font", value: "mono" });
+  assert.deepEqual(parseContextCommand("grid width 64"), { kind: "nodeSetting", setting: "orcaGridWidth", value: 64 });
+  assert.deepEqual(parseContextCommand("last frame on"), { kind: "nodeSetting", setting: "keepLastFrame", value: true });
+  assert.deepEqual(parseContextCommand("example minimal"), { kind: "nodeSetting", setting: "example", value: "minimal" });
+});
+
 test("parses media transport commands", () => {
   assert.deepEqual(parseContextCommand("play"), { kind: "play" });
   assert.deepEqual(parseContextCommand("mute"), { kind: "mute", value: true });

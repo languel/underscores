@@ -320,12 +320,10 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef, 
           bridge.input = interactionState;
           bridge.serial = serialBridge;
           try {
-            // p5 defaults the main renderer to window.devicePixelRatio. That
-            // is useful for static UI, but it doubles both axes of a livecode
-            // canvas on a Retina display and makes point-heavy sketches pay a
-            // 4x fill cost. Wrap createCanvas before compiling so both classic
-            // and instance-mode sketches get a logical-resolution default;
-            // an authored pixelDensity() call remains the final authority.
+            // Preserve p5's display-density default for crisp zoomed and
+            // Retina rendering. Only wrap createCanvas when a node explicitly
+            // requests a density; an authored pixelDensity() call after
+            // createCanvas remains the final authority.
             const requestedPixelDensity = Number(activeConfig.pixelDensity);
             if (Number.isFinite(requestedPixelDensity) && requestedPixelDensity > 0) {
               const authoredCreateCanvas = p.createCanvas;

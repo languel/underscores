@@ -35,12 +35,13 @@ export const LIVECODE_ADAPTERS = Object.freeze({
         // Match a high-refresh teaching display by default; authors can set
         // a lower runtime fps when a sketch needs a deliberate cadence.
         fps: node.runtime.settings?.fps || 120,
-        // Livecode surfaces are small, authored canvases. Keep their backing
-        // store at logical resolution by default; a sketch can still opt into
-        // a denser buffer with pixelDensity() or this runtime setting.
+        // Let p5 choose the display density by default so zoomed/Retina
+        // canvases stay sharp. A node may still opt into a specific density
+        // through runtime settings, and authored pixelDensity() calls remain
+        // available for sketches that deliberately trade fidelity for speed.
         pixelDensity: Number(node.runtime.settings?.pixelDensity) > 0
           ? Number(node.runtime.settings.pixelDensity)
-          : 1,
+          : null,
         transparent: resolveP5Transparency(node.runtime.settings),
         backgroundMode: composition.backgroundMode,
         persistence: composition.persistence,

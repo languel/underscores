@@ -648,19 +648,26 @@ body, html {
 }
 
 .context-prompt-card {
+  position: fixed;
+  left: 12px;
+  top: 12px;
   width: 600px;
   max-width: 90vw;
   pointer-events: auto;
 }
 
 #context-prompt-input {
-  width: 100%;
-  border: none;
-  background: transparent;
+  min-width: 0;
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  border: 0 !important;
+  border-radius: 0;
+  background: var(--underscores-input-bg, var(--input-bg-color, transparent));
   color: var(--color-primary);
   font-size: 16px;
   padding: 14px 16px;
-  outline: none;
+  outline: 0 !important;
+  box-shadow: none !important;
 }
 
 .command-palette-card {
@@ -672,6 +679,33 @@ body, html {
   box-shadow: var(--shadow-island-stronger, 0 10px 30px rgba(0,0,0,0.3));
   overflow: hidden;
   animation: slideUp var(--transition-fast) ease-out;
+}
+
+/* The contextual command field is a presentation affordance, not a modal
+   palette. Keep the canvas visually uninterrupted while the field is active. */
+.context-prompt-card.command-palette-card {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.context-prompt-card .command-palette-header {
+  display: flex;
+  align-items: center;
+  border-bottom: none;
+  padding: 0;
+  background: var(--input-bg-color, rgba(128,128,128,.08));
+}
+
+.context-prompt-marker {
+  flex: 0 0 auto;
+  color: var(--color-primary);
+  font: inherit;
+  line-height: 1;
+  padding: 14px 0 14px 16px;
+  user-select: none;
 }
 
 .command-palette-header {

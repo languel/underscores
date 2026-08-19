@@ -3168,6 +3168,7 @@ function App() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [showContextPrompt, setShowContextPrompt] = useState(false);
   const [contextPrompt, setContextPrompt] = useState("");
+  const [contextPromptPosition, setContextPromptPosition] = useState(null);
   const [satoriMode, setSatoriMode] = useState(true);
   const [presentationMode, setPresentationMode] = useState(() => localStorage.getItem("underscores_presentation_mode") === "true");
   const [zenMode, setZenMode] = useState(false);
@@ -12930,7 +12931,16 @@ function App() {
   const paletteInputRef = useRef(null);
   const contextPromptInputRef = useRef(null);
   const contextPromptActionRef = useRef(null);
+  const lastPointerRef = useRef(null);
   const lastNonTransparentColorRef = useRef(theme === "dark" ? "#121212" : "#ffffff");
+
+  useEffect(() => {
+    const rememberPointer = event => {
+      lastPointerRef.current = [event.clientX, event.clientY];
+    };
+    window.addEventListener("pointermove", rememberPointer, { passive: true });
+    return () => window.removeEventListener("pointermove", rememberPointer);
+  }, []);
 
   // Toggle the command palette on Cmd + / and the context command field on
   // Option + Shift + Minus. Keep these presentation shortcuts global.
@@ -13033,6 +13043,7 @@ function App() {
         if (showContextPrompt) {
           setShowContextPrompt(false);
           setContextPrompt("");
+          setContextPromptPosition(null);
         }
         if (typeof activeElement?.blur === "function") activeElement.blur();
         if (bezierEditElementId) exitBezierEditMode();
@@ -13170,6 +13181,13 @@ function App() {
         }
         if (shortcutAction.id === "ai.context.prompt") {
           e.stopImmediatePropagation?.();
+          const [pointerX, pointerY] = lastPointerRef.current || lastCanvasPointerRef.current || [window.innerWidth / 2, window.innerHeight / 2];
+          const promptWidth = Math.min(600, window.innerWidth * 0.9);
+          const promptHeight = 48;
+          setContextPromptPosition({
+            left: Math.max(12, Math.min(pointerX, window.innerWidth - promptWidth - 12)),
+            top: Math.max(12, Math.min(pointerY + 12, window.innerHeight - promptHeight - 12)),
+          });
           setShowContextPrompt(true);
           setContextPrompt("");
           return;
@@ -13608,6 +13626,116 @@ function App() {
       if (applicable > 0) {
         const target = action.value === "toggle" ? "toggled" : action.value;
         reportAiStatus(`Clock ${target} on ${applicable} selected object${applicable === 1 ? "" : "s"}${changed < applicable ? ` (${changed} changed)` : ""}.`);
+        return;
+      }
+    }
+
+    if (action?.kind === "nodeSetting") {
+      let changed = 0;
+      const setting = action.setting;
+      livecodeNodes.forEach(element => {
+        const node = normalizeLivecodeNode(element.customData?.underscoresLivecode);
+        let patch = null;
+        switch (setting) {
+          case "kind":
+            patch = { kind: action.value };
+            break;
+          case "name":
+            patch = { name: action.value };
+            break;
+          case "example": {
+            const examples = getLivecodeExamples(node.kind);
+            const shaderExampleId = action.value === "minimal" ? "minimal-raymarch" : action.value;
+            const example = node.kind === LIVECODE_KINDS.shader
+              ? getShaderExample(shaderExampleId)
+              : examples.find(candidate => candidate.id === action.value || candidate.name?.toLowerCase() === action.value);
+            if (example) {
+              patch = {
+                name: copyLivecodeExampleName(example.name || example.label),
+                source: example.source,
+                runtime: { settings: {
+                  livecodeExample: example.id,
+                  ...(node.kind === LIVECODE_KINDS.shader ? {
+                    shaderExample: example.id,
+                    shaderMode: example.mode,
+                    shaderDialect: example.dialect || "standard",
+                  } : {}),
+                  ...(example.settings || {}),
+                } },
+              };
+            }
+            break;
+          }
+          case "view":
+            patch = { view: action.value };
+            break;
+          case "font":
+            patch = { typography: { font: getLivecodeFont(action.value).id } };
+            break;
+          case "fontSize":
+            patch = { typography: { fontSize: action.value } };
+            break;
+          case "lineHeight":
+            patch = { typography: { lineHeight: action.value } };
+            break;
+          case "fontWeight":
+            patch = { typography: { fontWeight: action.value } };
+            break;
+          case "letterSpacing":
+            patch = { typography: { letterSpacing: action.value } };
+            break;
+          case "codeOverlayOpacity":
+            patch = { typography: { codeOverlayOpacity: action.value } };
+            break;
+          case "showLineNumbers":
+          case "showFoldGutter":
+          case "glyphOnlyOverlay":
+          case "ligatures":
+            patch = { typography: { [setting]: action.value } };
+            break;
+          case "p5Version":
+            patch = { runtime: { settings: { p5Version: normalizeP5Version(action.value) } } };
+            break;
+          case "backgroundMode":
+            patch = { runtime: { settings: { backgroundMode: action.value } } };
+            break;
+          case "persistence":
+            patch = { runtime: { settings: { persistence: action.value } } };
+            break;
+          case "compositeMode":
+          case "compositeOpacity":
+          case "shaderDialect":
+          case "orcaDensity":
+          case "orcaGridWidth":
+          case "orcaGridHeight":
+          case "orcaGridFit":
+          case "orcaGridGuide":
+          case "emitterSource":
+          case "sceneInteraction":
+          case "showChrome":
+          case "syncTransport":
+          case "frameVisuals":
+          case "keepLastFrame":
+            patch = { runtime: { settings: { [setting]: action.value } } };
+            break;
+          case "enabled":
+            patch = { runtime: { enabled: action.value } };
+            break;
+          default:
+            break;
+        }
+        if (patch && patchLivecodeCanvasNode(element.id, patch, { commitToHistory: true })) changed += 1;
+      });
+      if (livecodeNodes.length > 0) {
+        reportAiStatus(`Set ${setting} on ${changed} selected Livecode node${changed === 1 ? "" : "s"}.`);
+        return;
+      }
+      // Keep the compact node setting vocabulary useful for ordinary
+      // Excalidraw objects too. In particular, "background transparent" is a
+      // natural canvas command even when the selected object is not a node.
+      if (setting === "backgroundMode" && action.value === "transparent" && selected.length > 0) {
+        patchAIObjects({ patches: selected.map(element => ({ id: element.id, patch: { backgroundColor: "transparent" } })) });
+        reportAiStatus(`Set transparent background on ${selected.length} selected object${selected.length === 1 ? "" : "s"}.`);
         return;
       }
     }
@@ -16594,12 +16722,18 @@ function App() {
     const appState = api.getAppState();
     const center = viewportCoordsToSceneCoords({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 }, appState);
     const kind = requestedKind;
-    const shaderDefaults = kind === LIVECODE_KINDS.shader;
-    const shaderExample = shaderDefaults ? getShaderExample(args.example || "hello") : null;
+    // A new node is an empty authoring surface. Templates are opt-in via an
+    // explicit example (the dedicated /shader example commands pass one).
+    // This keeps the generic create action useful for live performance and
+    // avoids surprising the author with a running demo sketch.
+    const shaderExample = kind === LIVECODE_KINDS.shader && args.example
+      ? getShaderExample(args.example)
+      : null;
+    const shaderDefaults = Boolean(shaderExample);
     const node = createLivecodeNode({
       kind,
       name: args.name || (shaderExample ? copyLivecodeExampleName(shaderExample.name) : randomLivecodeName(kind)),
-      source: typeof args.source === "string" ? args.source : shaderExample?.source || (shaderDefaults ? defaultLivecodeSource(kind) : undefined),
+      source: typeof args.source === "string" ? args.source : shaderExample?.source || undefined,
       parameters: args.parameters,
       runtime: {
         running: typeof args.running === "boolean" ? args.running : shaderDefaults,
@@ -21266,15 +21400,18 @@ function App() {
     const p5RuntimeStatus = p5Validation && !p5Validation.valid
       ? { kind: "error", message: `p5 error: ${p5Validation.error || "source does not compile"}` }
       : livecodeRuntimeStatuses[nodeElement.id] || null;
-    const shaderExample = node.kind === LIVECODE_KINDS.shader
-      ? getShaderExample(node.runtime.settings?.shaderExample || shaderExampleForSource(node.source)?.id)
+    const shaderExampleId = node.kind === LIVECODE_KINDS.shader
+      ? node.runtime.settings?.shaderExample || shaderExampleForSource(node.source)?.id
+      : null;
+    const shaderExample = node.kind === LIVECODE_KINDS.shader && shaderExampleId
+      ? getShaderExample(shaderExampleId)
       : null;
     const shaderComposition = normalizeShaderCompositionSettings(node.runtime.settings);
     const shaderSourceMode = normalizeShaderSourceMode(node.runtime.settings?.shaderDialect);
     const livecodeExamples = getLivecodeExamples(node.kind);
     const activeLivecodeExampleId = node.kind === LIVECODE_KINDS.shader
-      ? shaderExample?.id || livecodeExamples[0]?.id || ""
-      : node.runtime.settings?.livecodeExample || livecodeExamples.find(example => example.source === node.source)?.id || livecodeExamples[0]?.id || "";
+      ? shaderExample?.id || ""
+      : node.runtime.settings?.livecodeExample || livecodeExamples.find(example => example.source === node.source)?.id || "";
     const parameters = parseScriptParameters(node.source, { values: node.parameters });
     const beginLivecodeRename = () => {
       setLivecodeNameDraft(node.name || definition.label);
@@ -21350,8 +21487,20 @@ function App() {
         <div className="livecode-panel-controls">
         <label>Kind <select value={node.kind} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { kind: event.target.value, name: randomLivecodeName(event.target.value) }, { commitToHistory: true })}>{Object.entries(LIVECODE_KINDS).filter(([key]) => !isPublicSafeBuild || key !== "strudel").map(([key, value]) => <option key={key} value={value}>{getLivecodeKindDefinition(value).label}</option>)}</select></label>
         {livecodeExamples.length > 0 && <label className="livecode-example-control">Example <select value={activeLivecodeExampleId} onChange={event => {
-          const next = livecodeExamples.find(example => example.id === event.target.value) || livecodeExamples[0];
-          if (!next) return;
+          const next = livecodeExamples.find(example => example.id === event.target.value);
+          if (!next) {
+            patchLivecodeCanvasNode(nodeElement.id, {
+              name: randomLivecodeName(node.kind),
+              source: "",
+              runtime: { settings: {
+                livecodeExample: undefined,
+                shaderExample: undefined,
+                shaderMode: undefined,
+                shaderDialect: undefined,
+              } },
+            }, { commitToHistory: true });
+            return;
+          }
           if (node.kind === LIVECODE_KINDS.shader) {
             const shader = getShaderExample(next.id);
             if (!shader) return;
@@ -21373,7 +21522,7 @@ function App() {
               ...(next.settings || {}),
             } },
           }, { commitToHistory: true });
-        }}>{livecodeExamples.map(example => <option key={example.id} value={example.id}>{example.label}</option>)}</select></label>}
+        }}><option value="">Blank document</option>{livecodeExamples.map(example => <option key={example.id} value={example.id}>{example.label}</option>)}</select></label>}
         {node.kind === LIVECODE_KINDS.orca
           ? <label className="livecode-view-control">View <span className="livecode-static-option">Grid</span></label>
           : <label className="livecode-view-control">View <select value={node.view === "overlay" ? "code" : node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="preview">Output</option><option value="source">Code</option><option value="code">Code Overlay</option>{node.kind !== LIVECODE_KINDS.strudel && <option value="split">Code/Output</option>}</select></label>}
@@ -27218,27 +27367,34 @@ function App() {
 
       {showContextPrompt && (
         <div className={`excalidraw theme--${theme}`}>
-          <div id="context-prompt-overlay" onClick={() => { setShowContextPrompt(false); setContextPrompt(""); }}>
-            <div className="context-prompt-card command-palette-card" onClick={event => event.stopPropagation()}>
+          <div id="context-prompt-overlay" onClick={() => { setShowContextPrompt(false); setContextPrompt(""); setContextPromptPosition(null); }}>
+            <div
+              className="context-prompt-card command-palette-card"
+              style={contextPromptPosition ? { left: `${contextPromptPosition.left}px`, top: `${contextPromptPosition.top}px` } : undefined}
+              onClick={event => event.stopPropagation()}
+            >
               <div className="command-palette-header">
+                <span className="context-prompt-marker" aria-hidden="true">❯ </span>
                 <input
                   ref={contextPromptInputRef}
                   id="context-prompt-input"
                   type="text"
                   value={contextPrompt}
                   onChange={event => setContextPrompt(event.target.value)}
-                  placeholder="Command…"
+                  placeholder=""
                   aria-label="Context AI command"
                   onKeyDown={event => {
                     if (event.key === "Escape") {
                       event.preventDefault();
                       setShowContextPrompt(false);
                       setContextPrompt("");
+                      setContextPromptPosition(null);
                     } else if (event.key === "Enter") {
                       event.preventDefault();
                       const prompt = contextPrompt.trim();
                       setShowContextPrompt(false);
                       setContextPrompt("");
+                      setContextPromptPosition(null);
                       if (prompt) void contextPromptActionRef.current?.(prompt);
                     }
                   }}

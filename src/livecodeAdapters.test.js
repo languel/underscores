@@ -24,7 +24,7 @@ test("p5, Play Core, and shader nodes resolve through the native adapter registr
   assert.equal(getLivecodeRuntimeConfig(shader).source, shader.source);
 });
 
-test("p5 livecode uses the authored mode setting and a logical-resolution backing store by default", () => {
+test("p5 livecode uses the authored mode setting and display-density backing store by default", () => {
   const node = createLivecodeNode({
     kind: LIVECODE_KINDS.p5,
     source: "function draw() {}",
@@ -34,7 +34,7 @@ test("p5 livecode uses the authored mode setting and a logical-resolution backin
   assert.equal(config.mode, "global");
   assert.equal(config.p5Version, "2");
   assert.equal(config.fps, 120);
-  assert.equal(config.pixelDensity, 1);
+  assert.equal(config.pixelDensity, null);
   assert.equal(config.backgroundMode, "auto");
   assert.equal(config.persistence, "auto");
 
