@@ -638,17 +638,19 @@ body, html {
   inset: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.5);
+  background: transparent;
   display: flex;
   justify-content: center;
   align-items: flex-start;
   padding-top: 15vh;
   z-index: 2001;
+  pointer-events: none;
 }
 
 .context-prompt-card {
   width: 600px;
   max-width: 90vw;
+  pointer-events: auto;
 }
 
 #context-prompt-input {
