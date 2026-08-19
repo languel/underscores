@@ -17,6 +17,7 @@ import {
   isGifMediaSource,
   isMediaStreamElement,
   normalizeMediaStreamConfig,
+  resolveLinkedMediaTime,
   resolveHolisticProcessingIntervalMs,
   shouldProcessMediaStream,
   shouldRenderMediaStream,
@@ -162,14 +163,6 @@ const normalizeMediaVolume = value => {
 };
 const isVolumeMedia = media => media instanceof HTMLAudioElement || media instanceof HTMLVideoElement;
 
-const linkedMediaTime = (time, duration, loop, rate) => {
-  const rawTime = Math.max(0, Number(time) || 0);
-  if (!Number.isFinite(duration) || duration <= 0) return rawTime;
-  const wrapped = ((rawTime % duration) + duration) % duration;
-  if (rate < 0) return wrapped ? duration - wrapped : 0;
-  return loop ? wrapped : Math.min(duration, rawTime);
-};
-
 function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride = null, transportTime = 0, transportPlaying = false, transportRate = 1 }) {
   const inputRef = useRef(null);
   const gifCanvasRef = useRef(null);
@@ -184,6 +177,7 @@ function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride 
   const transportRef = useRef({ time: 0, playing: false, rate: 1 });
   const linkedTransportTimeRef = useRef(null);
   const mediaPlaybackIntentRef = useRef(null);
+  const linkedMediaEndedRef = useRef(false);
   const audioFadeFrameRef = useRef(0);
   const audioFadeTokenRef = useRef(0);
   const audioTargetVolumeRef = useRef(1);
@@ -395,9 +389,13 @@ function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride 
       const frameAtTime = (time, rate) => {
         if (!renderedFrames.length || !totalDuration) return 0;
         const elapsed = Number(time) || 0;
-        const wrapped = ((elapsed % totalDuration) + totalDuration) % totalDuration;
-        const position = rate < 0 ? (wrapped ? totalDuration - wrapped : 0) : wrapped;
         if (!sourceRef.current.media.loop && elapsed >= totalDuration) return rate < 0 ? 0 : renderedFrames.length - 1;
+        const position = resolveLinkedMediaTime(
+          elapsed,
+          totalDuration,
+          sourceRef.current.media.loop === true,
+          rate,
+        );
         let cursor = 0;
         for (let frameIndex = 0; frameIndex < renderedFrames.length; frameIndex += 1) {
           cursor += Math.max(20, Number(renderedFrames[frameIndex].delay) || 100);
@@ -425,9 +423,19 @@ function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride 
         const current = sourceRef.current;
         const rate = Number(current.media.playbackRate) || 0;
         if (current.media.linkTransport) {
-          index = frameAtTime(transportRef.current.time, rate);
+          const transport = transportRef.current;
+          // GIF frame delays from gifuct-js are milliseconds; the shared
+          // transport clock is expressed in seconds.
+          const mediaTime = Math.max(0, Number(transport.time) || 0) * 1000;
+          index = frameAtTime(mediaTime, rate);
           drawFrame();
-          gifTimerRef.current = window.setTimeout(advance, transportRef.current.playing && rate !== 0 ? 50 : 100);
+          const clipFinished = current.media.loop !== true && mediaTime >= totalDuration;
+          // A stopped transport still updates the linked clip to a newly
+          // sought position, but it must not keep an animated GIF advancing
+          // while the global transport is paused. Keep a low-rate wake-up so
+          // a later seek/rewind can resume without rebuilding the decoder.
+          const transportActive = current.media.playing !== false && transport.playing && rate !== 0;
+          gifTimerRef.current = window.setTimeout(advance, transportActive && !clipFinished ? 50 : 100);
           return;
         }
         const nextDirection = rate < 0 ? -1 : 1;
@@ -598,9 +606,10 @@ function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride 
       const transportJump = previousTransportTime === null
         || rawTime < previousTransportTime
         || Math.abs(rawTime - previousTransportTime) > 0.2;
+      if (previousTransportTime !== null && rawTime < previousTransportTime) linkedMediaEndedRef.current = false;
       linkedTransportTimeRef.current = rawTime;
       if (Number.isFinite(duration) && duration > 0) {
-        const desired = linkedMediaTime(rawTime, duration, loop, rate);
+        const desired = resolveLinkedMediaTime(rawTime, duration, loop, rate);
         const currentTime = Number(media.currentTime) || 0;
         // A modulo wrap is a normal loop boundary. Let the element finish its
         // current audio buffer and restart through the short edge fade instead
@@ -622,7 +631,8 @@ function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride 
           } catch { /* media can be changing source */ }
         }
       }
-      const transportActive = current.media.playing !== false && transport.playing && rate !== 0;
+      const clipFinished = !loop && Number.isFinite(duration) && duration > 0 && rawTime >= duration;
+      const transportActive = current.media.playing !== false && transport.playing && rate !== 0 && !clipFinished && !linkedMediaEndedRef.current;
       const withinClip = loop || !Number.isFinite(duration) || duration <= 0 || rawTime < duration;
       if (transportActive && withinClip) {
         // transport.time already advances at the shared transport rate. The
@@ -649,7 +659,17 @@ function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride 
     const media = inputRef.current;
     if (!(media instanceof HTMLVideoElement) && !(media instanceof HTMLAudioElement)) return undefined;
     const rate = Number(effectiveMedia.playbackRate) || 0;
-    const shouldPlay = transportPlaying === true && effectiveMedia.playing !== false && rate > 0;
+    const duration = Number(media.duration);
+    const rawTime = Math.max(0, Number(transportRef.current.time) || 0);
+    const clipFinished = effectiveMedia.loop !== true
+      && Number.isFinite(duration)
+      && duration > 0
+      && rawTime >= duration;
+    const shouldPlay = transportPlaying === true
+      && effectiveMedia.playing !== false
+      && rate > 0
+      && !clipFinished
+      && !linkedMediaEndedRef.current;
     if (shouldPlay) {
       media.playbackRate = Math.max(0.01, Math.abs(rate));
       startMediaPlayback(media);
@@ -657,7 +677,7 @@ function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride 
       stopMediaPlayback(media);
     }
     return undefined;
-  }, [effectiveMedia.linkTransport, effectiveMedia.playbackRate, effectiveMedia.playing, source.enabled, transportPlaying, url]);
+  }, [effectiveMedia.linkTransport, effectiveMedia.loop, effectiveMedia.playbackRate, effectiveMedia.playing, source.enabled, transportPlaying, url]);
 
   useEffect(() => () => {
     cancelAudioFade();
@@ -699,14 +719,23 @@ function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride 
                   if (current.media.loop && current.media.playing !== false && (!current.media.linkTransport || transportRef.current.playing)) {
                     startMediaPlayback(event.currentTarget);
                   } else {
+                    if (current.media.linkTransport) linkedMediaEndedRef.current = true;
                     stopMediaPlayback(event.currentTarget);
                   }
                 }}
                 onCanPlay={event => {
-                  const rate = Number(sourceRef.current.media.playbackRate) || 0;
+                  const current = sourceRef.current;
+                  const rate = Number(current.media.playbackRate) || 0;
                   if (rate > 0) event.currentTarget.playbackRate = rate;
-                  const transportReady = sourceRef.current.media.linkTransport !== true || transportRef.current.playing;
-                  if (sourceRef.current.media.playing !== false && transportReady && rate > 0) startMediaPlayback(event.currentTarget);
+                  const duration = Number(event.currentTarget.duration);
+                  const rawTime = Math.max(0, Number(transportRef.current.time) || 0);
+                  const clipFinished = current.media.linkTransport === true
+                    && current.media.loop !== true
+                    && Number.isFinite(duration)
+                    && duration > 0
+                    && rawTime >= duration;
+                  const transportReady = current.media.linkTransport !== true || transportRef.current.playing;
+                  if (current.media.playing !== false && transportReady && rate > 0 && !clipFinished && !linkedMediaEndedRef.current) startMediaPlayback(event.currentTarget);
                   else stopMediaPlayback(event.currentTarget);
                   publishStatus({ elementId: source.id, kind: "success", message: "Audio ready." });
                 }}
@@ -725,14 +754,23 @@ function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride 
                   if (current.media.loop && current.media.playing !== false && (!current.media.linkTransport || transportRef.current.playing)) {
                     startMediaPlayback(event.currentTarget);
                   } else {
+                    if (current.media.linkTransport) linkedMediaEndedRef.current = true;
                     stopMediaPlayback(event.currentTarget);
                   }
                 }}
                 onCanPlay={event => {
-                  const rate = Number(sourceRef.current.media.playbackRate) || 0;
+                  const current = sourceRef.current;
+                  const rate = Number(current.media.playbackRate) || 0;
                   if (rate > 0) event.currentTarget.playbackRate = rate;
-                  const transportReady = sourceRef.current.media.linkTransport !== true || transportRef.current.playing;
-                  if (sourceRef.current.media.playing !== false && transportReady && rate > 0) startMediaPlayback(event.currentTarget);
+                  const duration = Number(event.currentTarget.duration);
+                  const rawTime = Math.max(0, Number(transportRef.current.time) || 0);
+                  const clipFinished = current.media.linkTransport === true
+                    && current.media.loop !== true
+                    && Number.isFinite(duration)
+                    && duration > 0
+                    && rawTime >= duration;
+                  const transportReady = current.media.linkTransport !== true || transportRef.current.playing;
+                  if (current.media.playing !== false && transportReady && rate > 0 && !clipFinished && !linkedMediaEndedRef.current) startMediaPlayback(event.currentTarget);
                   else stopMediaPlayback(event.currentTarget);
                   publishStatus({ elementId: source.id, kind: "success", message: "Media ready." });
                 }}

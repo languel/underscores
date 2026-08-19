@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createTimelineTicks, formatTimelinePosition, snapTimelineTime } from "./transport.js";
+import { createTimelineTicks, followTimelineViewRange, formatTimelinePosition, snapTimelineTime } from "./transport.js";
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const snapLevelFromPointer = event => event.metaKey ? (event.shiftKey ? "minor" : "major") : null;
@@ -19,14 +19,24 @@ const TransportTimeline = memo(function TransportTimeline({
   onLoopEnabledChange,
   onLoopChange,
   automationKeys = [],
+  followPlayhead = true,
 }) {
   const trackRef = useRef(null);
   const zoomRef = useRef(null);
   const dragRef = useRef(null);
-  const safeDuration = Math.max(0.001, duration);
-  const previousDurationRef = useRef(safeDuration);
+  const authoredDuration = Math.max(0.001, Number(duration) || 0.001);
+  const previousDurationRef = useRef(authoredDuration);
   const [trackWidth, setTrackWidth] = useState(768);
-  const [viewRange, setViewRange] = useState(() => ({ start: 0, end: safeDuration }));
+  const [viewRange, setViewRange] = useState(() => ({ start: 0, end: authoredDuration }));
+  const currentTimeValue = Math.max(0, Number(currentTime) || 0);
+  // Follow mode may need to look beyond the authored score end. Keep that
+  // extension local to the timeline so a live transport never loses its
+  // playhead when a score's static duration has been reached.
+  const safeDuration = Math.max(
+    authoredDuration,
+    followPlayhead ? currentTimeValue : 0,
+    followPlayhead ? Number(viewRange.end) || 0 : 0,
+  );
   const viewStart = clamp(viewRange.start, 0, safeDuration);
   const viewEnd = clamp(Math.max(viewStart + Number.EPSILON, viewRange.end), 0, safeDuration);
   const viewDuration = Math.max(Number.EPSILON, viewEnd - viewStart);
@@ -57,15 +67,21 @@ const TransportTimeline = memo(function TransportTimeline({
 
   useEffect(() => {
     const previousDuration = previousDurationRef.current;
-    previousDurationRef.current = safeDuration;
+    previousDurationRef.current = authoredDuration;
     setViewRange(previous => {
       const wasFit = previous.start <= 1e-9 && Math.abs(previous.end - previousDuration) <= Math.max(1e-9, previousDuration * 1e-6);
-      if (wasFit) return { start: 0, end: safeDuration };
-      const width = Math.min(safeDuration, Math.max(1 / Math.max(1, fps), previous.end - previous.start));
-      const start = clamp(previous.start, 0, Math.max(0, safeDuration - width));
+      if (wasFit) return { start: 0, end: authoredDuration };
+      const width = Math.min(authoredDuration, Math.max(1 / Math.max(1, fps), previous.end - previous.start));
+      const start = clamp(previous.start, 0, Math.max(0, authoredDuration - width));
       return { start, end: start + width };
     });
-  }, [fps, safeDuration]);
+  }, [authoredDuration, fps]);
+
+  useEffect(() => {
+    if (!followPlayhead) return;
+    setViewRange(previous => followTimelineViewRange(previous, currentTime, safeDuration, true));
+  }, [currentTime, followPlayhead, safeDuration]);
+
   const interactionRef = useRef(null);
   interactionRef.current = {
     fps,

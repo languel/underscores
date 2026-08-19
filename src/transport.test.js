@@ -5,6 +5,7 @@ import {
   advanceMidiClockReceiver,
   createMidiClockReceiverState,
   createTimelineTicks,
+  followTimelineViewRange,
   getTimelineSubdivision,
   estimateMidiClockTempo,
   formatMusicalPosition,
@@ -139,6 +140,15 @@ test("timeline ticks cover the complete visible range", () => {
   assert.equal(ticks.length, 7);
   assert.deepEqual(ticks[0], { time: 0, percent: 0 });
   assert.deepEqual(ticks.at(-1), { time: 12, percent: 100 });
+});
+
+test("timeline follow preserves zoom and moves only when the playhead exits", () => {
+  const view = { start: 0, end: 10 };
+  assert.deepEqual(followTimelineViewRange(view, 5, 100), view);
+  assert.deepEqual(followTimelineViewRange(view, 12, 100), { start: 4.5, end: 14.5 });
+  assert.deepEqual(followTimelineViewRange(view, 15, 10), { start: 5, end: 15 });
+  assert.deepEqual(followTimelineViewRange({ start: 20, end: 30 }, 12, 100), { start: 9.5, end: 19.5 });
+  assert.deepEqual(followTimelineViewRange(view, 12, 100, false), view);
 });
 
 test("beat timeline uses bars as major ticks and meter beats as subdivisions", () => {

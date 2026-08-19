@@ -24,6 +24,8 @@ import {
   patchMediaSource,
   patchMediaStreamConfig,
   readHolisticSettingsPreset,
+  resolveLinkedMediaTime,
+  resolveLinkedGifTime,
   resolveHolisticProcessingIntervalMs,
   shouldProcessMediaStream,
   shouldRenderMediaStream,
@@ -216,6 +218,20 @@ test("media type inference recognizes audio clips", () => {
   assert.equal(inferMediaType("voice.mp3"), "audio");
   assert.equal(inferMediaType("voice.m4a"), "audio");
   assert.equal(inferMediaType("voice.mp3", "video"), "video");
+});
+
+test("linked media time wraps animated clips and stops once when looping is off", () => {
+  assert.equal(resolveLinkedMediaTime(2.5, 2, true, 1), 0.5);
+  assert.equal(resolveLinkedMediaTime(2.5, 2, false, 1), 2);
+  assert.equal(resolveLinkedMediaTime(0.5, 2, true, -1), 1.5);
+  assert.equal(resolveLinkedMediaTime(3, 2, false, -1), 0);
+});
+
+test("linked GIF time converts transport seconds to gifuct millisecond delays", () => {
+  assert.equal(resolveLinkedGifTime(0.15, 200, true, 1), 150);
+  assert.equal(resolveLinkedGifTime(0.25, 200, true, 1), 50);
+  assert.equal(resolveLinkedGifTime(0.05, 200, true, -1), 150);
+  assert.equal(resolveLinkedGifTime(0.25, 200, false, 1), 200);
 });
 
 test("canvas inputs and processed-output limits normalize independently", () => {

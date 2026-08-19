@@ -174,6 +174,28 @@ export const inferMediaType = (url = "", explicit = "") => {
   return "video";
 };
 
+// Resolve a media instance's local playhead from the shared transport. A
+// linked clip follows the transport modulo its own duration when looping, and
+// reaches its final frame once when looping is disabled. Negative rates mirror
+// the same mapping from the end of the clip.
+export const resolveLinkedMediaTime = (time, duration, loop = true, rate = 1) => {
+  const rawTime = Math.max(0, Number(time) || 0);
+  const safeDuration = Number(duration);
+  if (!Number.isFinite(safeDuration) || safeDuration <= 0) return rawTime;
+  const wrapped = ((rawTime % safeDuration) + safeDuration) % safeDuration;
+  if (Number(rate) < 0) {
+    if (loop) return wrapped ? safeDuration - wrapped : 0;
+    return Math.max(0, safeDuration - rawTime);
+  }
+  return loop ? wrapped : Math.min(safeDuration, rawTime);
+};
+
+// GIF frame delays are reported in milliseconds by gifuct-js, while the
+// shared transport clock is expressed in seconds. Keep that unit conversion
+// explicit at the GIF boundary so other media timelines can stay in seconds.
+export const resolveLinkedGifTime = (transportSeconds, durationMs, loop = true, rate = 1) =>
+  resolveLinkedMediaTime(Math.max(0, Number(transportSeconds) || 0) * 1000, durationMs, loop, rate);
+
 // Local files are represented by session-scoped blob URLs at runtime. Those
 // URLs intentionally do not retain the original extension, so GIF detection
 // must consider the authored file name as well as the current URL.

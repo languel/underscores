@@ -202,6 +202,28 @@ export const snapTimelineTime = (time, duration, mode, options = {}, subdivision
   return Math.min(safeDuration, Math.max(0, Number(snapped.toFixed(9))));
 };
 
+// Keep the playhead comfortably inside a manually chosen timeline window when
+// follow mode is enabled. The window width is preserved, so playback follows
+// without changing the user's zoom level.
+export const followTimelineViewRange = (viewRange, currentTime, duration, enabled = true) => {
+  if (!enabled || !Number.isFinite(Number(currentTime))) return viewRange;
+  const playhead = Math.max(0, Number(currentTime));
+  // The transport can legitimately run past the authored score end (for
+  // example while a linked live node is still playing). Treat that position
+  // as a virtual extension of the timeline so follow mode can still move the
+  // view instead of clamping the playhead to the old end.
+  const safeDuration = Math.max(0.001, Number(duration) || 0.001, playhead);
+  const previousStart = Math.max(0, Math.min(safeDuration, Number(viewRange?.start) || 0));
+  const previousEnd = Math.max(previousStart + Number.EPSILON, Math.min(safeDuration, Number(viewRange?.end) || safeDuration));
+  const width = previousEnd - previousStart;
+  if (width >= safeDuration - Number.EPSILON || (playhead >= previousStart && playhead <= previousEnd)) return viewRange;
+  const targetStart = playhead < previousStart
+    ? playhead - width * 0.25
+    : playhead - width * 0.75;
+  const start = Math.max(0, Math.min(Math.max(0, safeDuration - width), targetStart));
+  return { start, end: start + width };
+};
+
 export const createTimelineTicks = (duration, count = 12, options = {}) => {
   const safeDuration = Math.max(0.001, Number(duration) || 0.001);
   const safeCount = Math.max(2, Math.floor(Number(count) || 12));

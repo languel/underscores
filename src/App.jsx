@@ -12,6 +12,7 @@ import ObjectPathClipboardController from "./ObjectPathClipboard.jsx";
 import TimeValueInput from "./TimeValueInput.jsx";
 import InspectorSection from "./InspectorSection.jsx";
 import { attachUnderscoresExchangeMetadata, getSelectionExchangeElements, normalizeSceneExportFilename, parseUnderscoresExchange, remapSelectionForImport } from "./sceneExchange.js";
+import { createMediaFreeSceneJson, createSceneShareUrl, decodeSceneSharePayload, readSceneSharePayload } from "./sceneShare.js";
 import { loadLastScene, saveLastScene } from "./sceneSessionStorage.js";
 import { attachUnderscoresSvgMetadata, cleanSvgMarkup, extractUnderscoresSvgMetadata, extractSvgMarkup, getSvgDrawableBounds, offsetSvgDrawableSpecs, parseSvgToDrawableSpecs } from "./svgImport.js";
 import { UNDERSCORES_PANELS, getUnderscoresPanel, getNaturalPanelPlacement } from "./panelRegistry.js";
@@ -4303,6 +4304,9 @@ function App() {
     const saved = localStorage.getItem("underscores_transport_display");
     return ["frame", "timecode", "beats"].includes(saved) ? saved : "timecode";
   });
+  const [followTimelinePlayhead, setFollowTimelinePlayhead] = useState(() => (
+    localStorage.getItem("underscores_iannix_follow_playhead") !== "false"
+  ));
   const [transportFps, setTransportFps] = useState(() => {
     const saved = Number(localStorage.getItem("underscores_transport_fps"));
     return [24, 25, 30, 50, 60].includes(saved) ? saved : 30;
@@ -5605,6 +5609,7 @@ function App() {
     localStorage.setItem("underscores_time_signature", JSON.stringify(scoreTimeSignature));
     localStorage.setItem("underscores_transport_launch_quantization", JSON.stringify(transportLaunchQuantization));
     localStorage.setItem("underscores_transport_display", transportDisplayMode);
+    localStorage.setItem("underscores_iannix_follow_playhead", String(followTimelinePlayhead));
     localStorage.setItem("underscores_transport_fps", String(transportFps));
     localStorage.setItem("underscores_score_sample_rate", String(scoreSampleRate));
     localStorage.setItem("underscores_transport_loop", String(transportLoopEnabled));
@@ -5616,7 +5621,7 @@ function App() {
     localStorage.setItem("underscores_follow_midi_clock_tempo", String(followMidiClockTempo));
     localStorage.setItem("underscores_follow_midi_transport", String(followMidiTransport));
     localStorage.setItem("underscores_latch_triggers_across_cursors", String(latchTriggersAcrossCursors));
-  }, [followMidiClockTempo, followMidiTransport, latchTriggersAcrossCursors, midiClockMode, scoreSampleRate, scoreTimeSignature, transportLaunchQuantization, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopEndValue, transportLoopStart, transportLoopStartValue]);
+  }, [followMidiClockTempo, followMidiTransport, followTimelinePlayhead, latchTriggersAcrossCursors, midiClockMode, scoreSampleRate, scoreTimeSignature, transportLaunchQuantization, transportDisplayMode, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopEndValue, transportLoopStart, transportLoopStartValue]);
 
   useEffect(() => {
     const start = Math.max(0, resolveTimeValue(transportLoopStartValue, timeContext));
@@ -12181,6 +12186,14 @@ function App() {
       action: (_api, args = {}) => exportUnderscoresScene(args.name),
     },
     {
+      id: "excalidraw.file.share",
+      name: "Excalidraw: Copy Scene Share Link /ex share",
+      aliases: ["/ex share", "/share scene", "copy scene share link"],
+      category: "Excalidraw",
+      ai: { expose: true, description: "Copy a compressed URL fragment that reopens the current Underscores scene. Local media files remain metadata-only and may need to be relinked." },
+      action: () => void copyUnderscoresSceneLink(),
+    },
+    {
       id: "excalidraw.file.exportPng",
       name: "Excalidraw: Export Board PNG /ex export png",
       aliases: ["/ex export png", "/ex png", "/export png"],
@@ -17368,6 +17381,20 @@ function App() {
   useEffect(() => {
     if (!excalidrawAPI || lastSceneRestoreAttemptedRef.current) return;
     lastSceneRestoreAttemptedRef.current = true;
+    const sharedPayload = readSceneSharePayload();
+    if (sharedPayload) {
+      lastSceneRestoreInProgressRef.current = true;
+      void decodeSceneSharePayload(sharedPayload)
+        .then(text => importUnderscoresSceneText(text, { commitToHistory: false }))
+        .catch(error => {
+          console.error("Underscores could not restore the shared scene.", error);
+          setSceneExchangeStatus(`Shared scene could not be opened: ${error?.message || error}`);
+        })
+        .finally(() => {
+          lastSceneRestoreInProgressRef.current = false;
+        });
+      return;
+    }
     const saved = loadLastScene();
     if (!saved) return;
     lastSceneRestoreInProgressRef.current = true;
@@ -17390,6 +17417,19 @@ function App() {
       setSceneExchangeStatus(`Copied ${elements.filter(element => !element.isDeleted).length} scene objects as Underscores JSON.`);
     } catch (error) {
       setSceneExchangeStatus(error.message || "Could not copy scene JSON.");
+    }
+  };
+
+  const copyUnderscoresSceneLink = async () => {
+    try {
+      const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
+      // Share links carry authored scene metadata and media URLs/file names,
+      // but never embed binary Excalidraw files or local media blobs.
+      const link = await createSceneShareUrl(createMediaFreeSceneJson(createUnderscoresExchangeJson("scene", elements)));
+      await navigator.clipboard.writeText(link);
+      setSceneExchangeStatus(`Copied a share link for ${elements.filter(element => !element.isDeleted).length} scene objects. Local media will need to be relinked when opened elsewhere.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not create a scene share link.");
     }
   };
 
@@ -19103,11 +19143,12 @@ function App() {
     const selectedCount = getSelectedElements().length;
     return (
       <>
-        <InspectorSection title="Scene data" className="iannix-section compact iannix-data-section" {...infoProps("Scene data", "Scene exchange preserves Underscores metadata. Trusted .iannix compatibility executes familiar run()/load() scripts, reports unsupported commands, and is not a security sandbox.")}>
+        <InspectorSection title="Scene data" className="iannix-section compact iannix-data-section" {...infoProps("Scene data", "Scene exchange preserves Underscores metadata. Share links carry the scene and media URL or file-name references without embedding binary media; local files may need to be relinked on the receiving device. Trusted .iannix compatibility executes familiar run()/load() scripts, reports unsupported commands, and is not a security sandbox.")}>
           <div className="iannix-data-actions">
             <a className="iannix-flat-button" href="#" download onClick={prepareUnderscoresSceneDownload}>Export scene</a>
             <button type="button" className="iannix-flat-button" onClick={() => sceneImportInputRef.current?.click()}>Import scene</button>
             <button type="button" className="iannix-flat-button" onClick={() => void copyUnderscoresScene()}>Copy scene JSON</button>
+            <button type="button" className="iannix-flat-button" onClick={() => void copyUnderscoresSceneLink()}>Copy share link</button>
             <button type="button" className="iannix-flat-button" onClick={() => void pasteUnderscoresScene()}>Paste scene JSON</button>
             <button type="button" className="iannix-flat-button" onClick={copyUnderscoresSelection} disabled={selectedCount === 0}>Copy selection JSON</button>
             <button type="button" className="iannix-flat-button" onClick={pasteUnderscoresSelection}>Paste selection JSON</button>
@@ -22840,6 +22881,7 @@ function App() {
           onLoopEnabledChange={setTransportLoopEnabled}
           onLoopChange={updateTransportLoop}
           automationKeys={collectAutomationKeys(excalidrawAPI.getSceneElements())}
+          followPlayhead={followTimelinePlayhead}
         />
       </div>
     );
@@ -22919,6 +22961,7 @@ function App() {
     setShowDebugLayer(false);
     setDefaultStabilizerDamping(0.12);
     setTransportLaunchQuantization(normalizeTransportLaunchQuantization(null));
+    setFollowTimelinePlayhead(true);
     setScriptEditorTheme("underscores");
     setTransparentBoardExport(false);
     setLaserColor("#ff0000");
@@ -22937,6 +22980,7 @@ function App() {
     localStorage.setItem("underscores_show_debug_layer", "false");
     localStorage.setItem("underscores_default_stabilizer_damping", "0.12");
     localStorage.setItem("underscores_transport_launch_quantization", JSON.stringify(normalizeTransportLaunchQuantization(null)));
+    localStorage.setItem("underscores_iannix_follow_playhead", "true");
     localStorage.setItem("underscores_export_transparent", "false");
     localStorage.setItem("underscores_laser_color", "#ff0000");
     localStorage.setItem("underscores_laser_opacity", "100");
@@ -23342,6 +23386,10 @@ function App() {
                 </select>
               </label>
             </div>
+            <label className="settings-panel-check" {...infoProps("Follow playhead", "Automatically move the timeline view when the playhead leaves the visible window. Turn this off to keep the current zoom and position while playback continues.")}>
+              <span>Follow playhead</span>
+              <input type="checkbox" checked={followTimelinePlayhead} onChange={event => setFollowTimelinePlayhead(event.target.checked)} />
+            </label>
             <label className="settings-panel-field" {...infoProps("Score sample rate", "Persisted sample rate used to resolve authored sample-count time expressions.")}>
               <span>Score sample rate</span>
               <NumericInput min="8000" max="768000" step="1" data-default="48000" value={scoreSampleRate} defaultValue={48000} onCommit={setScoreSampleRate} />
