@@ -322,35 +322,41 @@ body, html {
   min-width: 0;
 }
 .ai-chat-message-content .chat-markdown-block-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
   display: flex;
   justify-content: flex-end;
   gap: 4px;
   min-height: 0;
-  margin: 0 0 2px;
+  margin: 0;
   opacity: 0;
+  pointer-events: none;
+  z-index: 1;
   transition: opacity var(--transition-fast);
 }
 .ai-chat-message-content .chat-markdown-block:hover > .chat-markdown-block-actions,
 .ai-chat-message-content .chat-markdown-block:focus-within > .chat-markdown-block-actions {
   opacity: 1;
+  pointer-events: auto;
 }
 .ai-chat-message-content .chat-block-action {
   appearance: none;
   display: inline-grid;
   place-items: center;
-  border: 1px solid var(--border-color);
+  border: 1px solid transparent;
   border-radius: var(--underscores-ui-control-radius, 3px);
   width: 24px;
   height: 22px;
   padding: 0;
-  background: var(--bg-sidebar, var(--underscores-panel-bg, transparent));
+  background: transparent;
   color: var(--color-secondary);
   cursor: pointer;
 }
 .ai-chat-message-content .chat-block-action:hover,
 .ai-chat-message-content .chat-block-action:focus-visible {
   color: var(--color-primary);
-  border-color: var(--border-focus);
+  border-color: transparent;
   outline: none;
 }
 .ai-chat-message-content .katex-display { overflow-x: auto; overflow-y: hidden; margin: 0.55em 0; }
@@ -379,33 +385,6 @@ body, html {
   text-align: center;
 }
 
-/* Copy bubble button on hover */
-.copy-bubble-btn {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border-color);
-  color: var(--color-secondary);
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
-  padding: 0;
-}
-.chat-message:hover .copy-bubble-btn {
-  opacity: 1;
-}
-.copy-bubble-btn:hover {
-  color: var(--color-primary);
-  border-color: var(--border-focus);
-}
-
 /* --- CHAT INPUT BLOCK --- */
 .chat-input-container {
   padding: 14px;
@@ -413,6 +392,23 @@ body, html {
   display: flex;
   gap: 8px;
   align-items: flex-end;
+}
+
+.chat-input-hint {
+  position: absolute;
+  left: 10px;
+  bottom: calc(100% + 6px);
+  max-width: min(360px, calc(100% - 20px));
+  padding: 5px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--underscores-ui-control-radius, 3px);
+  background: var(--bg-sidebar, var(--underscores-panel-bg, var(--color-surface-primary)));
+  color: var(--color-secondary);
+  font-size: var(--underscores-ui-font-size-small, 11px);
+  line-height: 1.25;
+  pointer-events: none;
+  z-index: 2;
+  box-shadow: var(--shadow-sm, none);
 }
 
 #chat-message-input {

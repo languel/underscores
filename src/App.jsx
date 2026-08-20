@@ -266,6 +266,8 @@ CRITICAL: You MUST write your text explanation FIRST, then output any tool XML t
 
 Do not emit a bare undefined or null as a response placeholder. After an action tag, continue with a short human-readable summary.
 
+The preferred action protocol is <underscores-command id="stable.id">JSON</underscores-command>. A fenced JSON compatibility envelope must be {"action":"stable.id","payload":{...}}; do not flatten arguments beside action.
+
 When a user asks to explain, expand, beautify, or modify code, show the explanation and formatted code in Markdown first. A selected object with a "codeHost" field is code-capable even when its Excalidraw type is "rectangle"; inspect its elementId, kind, source, parameters, runtime, and other fields before deciding it is a plain shape. If the selected host is legacy p5 or Play Core, use livecode.node.update and keep the same elementId; Underscores will migrate that host in place. The command payload must be valid JSON: encode source with JSON.stringify semantics (\\n for newlines, \\\" for quotes, and \\\\ for backslashes). Never put raw multiline source or unescaped double quotes inside a command JSON string. Use @selection or @livecode context when the user asks about a specific node, and @score for the transport.
 
 Use high-level <underscores-command> tags for all new work. Legacy drawing XML tags remain available only for compatibility:
@@ -289,6 +291,8 @@ Guidelines:
 - If the user selected a shape or path, you will receive its coordinates in the context. Use this context to duplicate, resize, move, or offset the shape.
 - Create objects with scene.create.objects and modify them with scene.patch.objects; use score.roles.assign for score roles.
 - Create and edit scripts through the relevant livecode.node.*, script.brush.*, and script.iannix.* commands. Create interactive p5 canvas frames through p5.frame.create. p5 supports instance mode (p.setup, p.draw, and p.* calls) and classic global mode (function setup(), function draw(), and ordinary p5 calls); set mode: "global" for classic source, or omit it for safe auto-detection. Change application settings only through the exposed settings/grid/transport commands.
+- @param is an authored source annotation, not a runtime command. Declare it as a line comment such as // @param maxlines = 100 (1..500, step: 1) and read it in trusted p5, Play Core, or Strudel code as __.params.maxlines. There is no implicit global parameters object. The parameters field of livecode.node.update only overrides a value for a declaration already present in the source; it does not expose a new control. When asked to expose a parameter, include the annotation and the __.params use in the source update.
+- Never claim that a parameter was exposed unless the updated source visibly contains both the // @param declaration and a matching __.params.<name> read. An empty parameters: {} object does not create a parameter; omit it unless setting a non-default value for an existing declaration.
 - Keep your conversational text responses extremely concise and to the point.
 `;
 
@@ -9973,6 +9977,8 @@ function App() {
     { role: "assistant", content: INITIAL_GREETING }
   ]);
   const [userInput, setUserInput] = useState("");
+  const [showChatInputHint, setShowChatInputHint] = useState(false);
+  const chatInputHintTimerRef = useRef(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [aiQueryElementIds, setAiQueryElementIds] = useState([]);
   
@@ -10273,6 +10279,11 @@ function App() {
   const handleTextareaChange = (e) => {
     const val = e.target.value;
     setUserInput(val);
+    setShowChatInputHint(false);
+    if (chatInputHintTimerRef.current) {
+      window.clearTimeout(chatInputHintTimerRef.current);
+      chatInputHintTimerRef.current = null;
+    }
 
     const cursorPosition = e.target.selectionStart;
     const textBeforeCursor = val.substring(0, cursorPosition);
@@ -10286,6 +10297,27 @@ function App() {
       setShowAutocomplete(false);
     }
   };
+
+  const hideChatInputHint = () => {
+    setShowChatInputHint(false);
+    if (chatInputHintTimerRef.current) {
+      window.clearTimeout(chatInputHintTimerRef.current);
+      chatInputHintTimerRef.current = null;
+    }
+  };
+
+  const scheduleChatInputHint = () => {
+    hideChatInputHint();
+    if (userInput.trim()) return;
+    chatInputHintTimerRef.current = window.setTimeout(() => {
+      chatInputHintTimerRef.current = null;
+      setShowChatInputHint(true);
+    }, 900);
+  };
+
+  useEffect(() => () => {
+    if (chatInputHintTimerRef.current) window.clearTimeout(chatInputHintTimerRef.current);
+  }, []);
 
   useEffect(() => {
     setModelFilter("");
@@ -10809,8 +10841,6 @@ function App() {
         reportAiStatus("Could not copy chat text; check clipboard permissions.", "error");
       });
   };
-
-  const copyChatMessage = message => copyChatText(message, "Copied chat message to the clipboard.");
 
   const handleChatBlockAction = event => {
     const actionButton = event.target?.closest?.("[data-chat-action][data-chat-block-source]");
@@ -13069,7 +13099,7 @@ function App() {
     { id: "livecode.node.create.latex", name: "Create LaTeX Livecode Node /live latex", aliases: ["/live latex", "/live tex"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.latex }) },
     { id: "livecode.node.create.html", name: "Create HTML Livecode Node /live html", aliases: ["/live html"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.html }) },
     { id: "livecode.node.create.orca", name: "Create Orca Livecode Node /live orca", aliases: ["/live orca"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.orca }) },
-    { id: "livecode.node.update", name: "Update Livecode Node", category: "Livecode", args: { elementId: "string?", kind: "strudel|p5|playcore|markdown|latex|html|orca|shader?", name: "string?", source: "string?", parameters: "object?", view: "preview|source|code|split?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", runtimeSettings: "object?" }, ai: { expose: true, description: "Explain, replace, or adjust an existing code-capable canvas object. Uses elementId from the active scene; when omitted, updates the selected Livecode, legacy p5, or Play Core host. Legacy hosts are migrated in place so the edit stays on the selected object. Source is stored as authored text and must be a valid JSON string in the command payload. This does not execute arbitrary code outside the node runtime.", example: { elementId: "livecode-host", source: "void main() {\\n  outColor = vec4(1.0);\\n}", view: "code" } }, action: (_api, args) => updateAILivecodeNode(args) },
+    { id: "livecode.node.update", name: "Update Livecode Node", category: "Livecode", args: { elementId: "string?", kind: "strudel|p5|playcore|markdown|latex|html|orca|shader?", name: "string?", source: "string?", parameters: "object?", view: "preview|source|code|split?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", runtimeSettings: "object?" }, ai: { expose: true, description: "Explain, replace, or adjust an existing code-capable canvas object. Uses elementId from the active scene; when omitted, updates the selected Livecode, legacy p5, or Play Core host. Legacy hosts are migrated in place so the edit stays on the selected object. Source is stored as authored text and must be a valid JSON string in the command payload. To expose an @param, put the // @param declaration in source and read it as __.params.name; parameters only overrides an already-declared value. This does not execute arbitrary code outside the node runtime.", example: { elementId: "livecode-host", source: "void main() {\\n  outColor = vec4(1.0);\\n}", view: "code" } }, action: (_api, args) => updateAILivecodeNode(args) },
     { id: "livecode.node.create.shader", name: "Create Hello GLSL Livecode Node /live shader", aliases: ["/live shader", "/live glsl", "/shader", "/shader hello"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "hello" }) },
     { id: "livecode.node.create.shader.minimal", name: "Create Minimal Twigl Shader /shader minimal", aliases: ["/shader minimal", "/live shader minimal", "/shader shadertoy", "/shader twigl"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "minimal-raymarch" }) },
     { id: "livecode.node.create.shader.rainbow", name: "Create Rainbow Shader /shader rainbow", aliases: ["/shader rainbow", "/live shader rainbow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "rainbow" }) },
@@ -17161,6 +17191,36 @@ function App() {
     if (args.runtimeSettings && typeof args.runtimeSettings === "object" && !Array.isArray(args.runtimeSettings)) runtime.settings = args.runtimeSettings;
     if (Object.keys(runtime).length > 0) patch.runtime = runtime;
     if (Object.keys(patch).length === 0) throw new Error("Provide at least one Livecode field to update.");
+
+    // Make parameter edits truthful at the command boundary. A model can
+    // describe an @param change correctly while still sending a source that
+    // has no declaration, or an override for a name that is not declared.
+    // Reject that mismatch before mutating the selected node so the chat can
+    // report the concrete repair instead of claiming success.
+    const currentNode = normalizeLivecodeNode(target.customData?.underscoresLivecode);
+    const proposedSource = typeof args.source === "string" ? args.source : currentNode.source;
+    const declaredParameters = new Set(parseScriptParameters(proposedSource).map(parameter => parameter.name));
+    const requestedOverrides = args.parameters && typeof args.parameters === "object" && !Array.isArray(args.parameters)
+      ? Object.keys(args.parameters)
+      : [];
+    if (Object.prototype.hasOwnProperty.call(args, "parameters") && requestedOverrides.length === 0 && declaredParameters.size === 0) {
+      throw new Error("parameters: {} does not create a control. Add a // @param declaration and read it through __.params in source, or omit parameters.");
+    }
+    const missingOverrides = requestedOverrides.filter(name => !declaredParameters.has(name));
+    if (missingOverrides.length > 0) {
+      throw new Error(`Parameter override${missingOverrides.length > 1 ? "s" : ""} ${missingOverrides.join(", ")} has no matching @param declaration in the source.`);
+    }
+    const parameterSource = proposedSource
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .filter(line => !line.trim().startsWith("//"))
+      .join("\n");
+    const referencedParameters = [...parameterSource.matchAll(/__\.params\.([a-zA-Z_$][a-zA-Z0-9_$]*)/g)]
+      .map(match => match[1]);
+    const missingDeclarations = [...new Set(referencedParameters.filter(name => !declaredParameters.has(name)))];
+    if (missingDeclarations.length > 0) {
+      throw new Error(`Source reads __.params.${missingDeclarations.join(" and __.params.")} without a matching @param declaration.`);
+    }
     const node = patchLivecodeCanvasNode(target.id, patch, { commitToHistory: true });
     if (!node) throw new Error(`Livecode node ${target.id} could not be updated.`);
     return { elementId: target.id, nodeId: node.nodeId, kind: node.kind, name: node.name, revision: node.revision };
@@ -26077,21 +26137,6 @@ function App() {
                           }} 
                         />
                       ))}
-                      {msg.content !== "Thinking..." && (
-                        <button 
-                          className="copy-bubble-btn" 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            copyChatMessage(msg.displayContent || msg.content);
-                          }}
-                          title="Copy message"
-                        >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                          </svg>
-                        </button>
-                      )}
                     </div>
                   ))}
                 <div ref={messagesEndRef} />
@@ -26150,11 +26195,21 @@ function App() {
                   </div>
                 )}
 
+                {showChatInputHint && !userInput.trim() && (
+                  <div className="chat-input-hint" role="tooltip">
+                    Enter to send · Shift+Enter for a new line
+                  </div>
+                )}
+
                 <textarea
                   id="chat-message-input"
                   value={userInput}
                   onChange={handleTextareaChange}
+                  onMouseEnter={scheduleChatInputHint}
+                  onMouseLeave={hideChatInputHint}
+                  onFocus={hideChatInputHint}
                   onKeyDown={(e) => {
+                    hideChatInputHint();
                     const filteredTags = getFilteredTags();
                     if (showAutocomplete && filteredTags.length > 0) {
                       if (e.key === "ArrowDown") {
@@ -26180,7 +26235,7 @@ function App() {
                       sendChatMessage();
                     }
                   }}
-                  placeholder="Type prompt (Enter to send, Shift+Enter for new line)..."
+                  placeholder=""
                   style={{
                     width: "100%",
                     minHeight: "60px",

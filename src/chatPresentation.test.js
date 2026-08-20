@@ -51,3 +51,15 @@ test("structured JSON action blocks stay out of the visible explanation", () => 
   assert.match(html, /Applied the edit/);
   assert.doesNotMatch(html, /livecode\.node\.update/);
 });
+
+test("action return placeholders are removed before structured envelopes", () => {
+  const source = `I'll modify the selected node.\n\nI'll:\n\nundefined\n\n\`\`\`json\n{"action":"livecode.node.update","elementId":"node-1","source":"function draw() {}","parameters":{},"view":"code"}\n\`\`\`\n\nThe edit is applied.`;
+  assert.equal(stripAssistantCommandTags(source), "I'll modify the selected node.\n\nI'll:\n\nThe edit is applied.");
+  const html = renderChatMessage({ source, role: "assistant" });
+  assert.doesNotMatch(html, />undefined</);
+  assert.doesNotMatch(html, /livecode\.node\.update/);
+});
+
+test("ordinary undefined text is preserved when no action is present", () => {
+  assert.equal(stripAssistantCommandTags("The value is undefined until setup runs."), "The value is undefined until setup runs.");
+});

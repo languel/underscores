@@ -48,6 +48,22 @@ test("AI command parser accepts a fenced structured action envelope", () => {
   })}\n\`\`\``), [{ id: "scene.clear", args: {}, error: null }]);
 });
 
+test("AI command parser tolerates flat structured envelopes from local models", () => {
+  assert.deepEqual(parseStructuredActionBlocks(`\`\`\`json
+${JSON.stringify({
+    action: "livecode.node.update",
+    elementId: "node-1",
+    source: "function draw() {}",
+    parameters: {},
+    view: "code",
+  })}
+\`\`\``), [{
+    id: "livecode.node.update",
+    args: { elementId: "node-1", source: "function draw() {}", parameters: {}, view: "code" },
+    error: null,
+  }]);
+});
+
 test("AI catalog exposes only explicitly allowed commands", () => {
   const commands = [
     { id: "scene.create.objects", args: { objects: "object[]" }, ai: { expose: true, description: "Create objects", example: { objects: [] } } },
@@ -73,6 +89,16 @@ test("AI guide makes source escaping and livecode updates explicit", () => {
   assert.match(guide, /valid JSON/);
   assert.match(guide, /JSON\.stringify/);
   assert.match(guide, /livecode\.node\.update/);
+});
+
+test("AI guide explains authored @param declarations and persisted overrides", () => {
+  const guide = buildAIAutomationGuide([
+    { id: "livecode.node.update", args: { source: "string?", parameters: "object?" }, ai: { expose: true, description: "Update a Livecode node" } },
+  ], { prompt: "Expose maxlines as @param on this p5 node" });
+  assert.match(guide, /`@param` is an authored source annotation/);
+  assert.match(guide, /__\.params\.maxlines/);
+  assert.match(guide, /no implicit global `parameters` object/);
+  assert.match(guide, /does not create an @param control/);
 });
 
 test("AI guide injects the relevant script contract only for a script request", () => {

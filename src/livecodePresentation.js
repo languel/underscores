@@ -106,7 +106,7 @@ const wrapChatMarkdownBlock = (html, source, className = "") => (
 const renderChatBlockActions = encodedSource => {
   const escapedSource = String(encodedSource || "");
   return `<div class="chat-markdown-block-actions" data-chat-block-actions="${escapedSource}">
-    <button type="button" class="chat-block-action" data-chat-action="copy" data-chat-block-source="${escapedSource}" aria-label="Copy block" title="Copy block">
+    <button type="button" class="chat-block-action" data-chat-action="copy" data-chat-block-source="${escapedSource}" aria-label="Copy block">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
     </button>
   </div>`;
