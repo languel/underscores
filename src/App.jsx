@@ -38,6 +38,7 @@ import { autoKeyElement, AUTO_KEY_PATHS, collectAutomationKeys, evaluateElementA
 import { formatAIScriptSource, validateAIBrushSource, validateAIIannixSource } from "./scriptAuthoring.js";
 import { getIannixCommandAtSourcePosition } from "./iannixCommandReference.js";
 import { createUnderscoresMacro, UNDERSCORES_MACRO_TYPE, UnderscoresLibraryStore, UnderscoresSessionController, instantiateUnderscoresMacro, mergeSceneMutation, parseUnderscoresSession } from "./sessionHistory.js";
+import { createGestureTrack, getGesturePlaybackState, normalizeGestureTrack, sliceGesturePath } from "./gestureTrack.js";
 import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCursorLoopMode, getIannixCurveStartAngle, serializeBezierElementToIannixCommands, tokenizeIannixCommand } from "./iannixScript.js";
 import { bezierWorldPointToLocal, createBezierGeometryFromElement, createBezierHostGeometry, findNearestBezierLocation, getBezierWorldAnchors, getBezierWorldPath, hasCubicBezierGeometry, normalizeBezierGeometry, normalizeBezierHostElement, reframeBezierElement, removeBezierAnchor, setBezierAnchorMode, setElementBezierGeometry, splitBezierSegment, updateBezierAnchor } from "./bezierGeometry.js";
 import { getScriptParameterValues, normalizeScriptParameterValue, parseScriptParameters, resolveScriptColorReference } from "./scriptParameters.js";
@@ -3083,6 +3084,7 @@ function App() {
   const [historyShowPointer, setHistoryShowPointer] = useState(true);
   const [historyClockMode, setHistoryClockMode] = useState(() => localStorage.getItem("underscores_history_clock_mode") || "realtime");
   const [historyRecordFilter, setHistoryRecordFilter] = useState(() => localStorage.getItem("underscores_history_record_filter") || "all");
+  const [historyLoopOverdub, setHistoryLoopOverdub] = useState(() => localStorage.getItem("underscores_history_loop_overdub") === "true");
   const [autoKeyEnabled, setAutoKeyEnabled] = useState(false);
   const [sessionPlaybackOverlay, setSessionPlaybackOverlay] = useState([]);
   const [theme, setTheme] = useState(() => localStorage.getItem("underscores_theme") || "dark");
@@ -4799,6 +4801,7 @@ function App() {
   const autoKeyApplyingRef = useRef(false);
   const strokeInputSamplesRef = useRef([]);
   const strokeRecordingSuppressedRef = useRef(false);
+  const gestureLoopRecordingRef = useRef(false);
   const passiveStrokeCaptureRef = useRef(null);
   const nativeLineGridPointsRef = useRef(null);
   const pendingNativeLineFinalizeRef = useRef(null);
@@ -5554,7 +5557,12 @@ function App() {
       ).map(action => {
         const samples = action.args?.samples || [];
         const progress = action.duration > 0 ? Math.min(1, Math.max(0, (snapshot.playhead - action.at) / action.duration)) : 1;
-        const count = Math.max(1, Math.ceil(samples.length * progress));
+        const recordedDurationMs = Math.max(0, Number(samples.at(-1)?.time) || 0);
+        const recordedPlayheadMs = recordedDurationMs * progress;
+        const firstFutureSample = recordedDurationMs > 0
+          ? samples.findIndex(sample => Number(sample.time) > recordedPlayheadMs)
+          : -1;
+        const count = Math.max(1, firstFutureSample < 0 ? samples.length : firstFutureSample);
         const visibleSamples = samples.slice(0, count);
         const finalElements = action.args?.finalElements || [];
         const sourceElement = finalElements.find(element => !element.customData?.isModifierGenerated) || finalElements[0];
@@ -6065,6 +6073,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem("underscores_history_midi_armed", String(historyMidiArmed));
   }, [historyMidiArmed]);
+
+  useEffect(() => {
+    localStorage.setItem("underscores_history_loop_overdub", String(historyLoopOverdub));
+  }, [historyLoopOverdub]);
 
   useEffect(() => {
     midiInputIdRef.current = midiInputId;
@@ -7263,6 +7275,7 @@ function App() {
       data: {
         strokeTime: coords.strokeTime || 0,
         speed: coords.speed || 0,
+        transportTime: Number(scoreTimeRef.current) || 0,
       },
     });
     strokeInputSamplesRef.current.push(sample);
@@ -9422,15 +9435,69 @@ function App() {
       ...sample,
       time: Math.max(0, (sample.time || 0) - (strokeInputSamplesRef.current[0]?.time || 0)),
     }));
+    const duration = Math.max(0.001, Math.max(0, durationMs || 0) / 1000);
+    const transportStart = Number(samples[0]?.data?.transportTime);
+    const startTime = Number.isFinite(transportStart) ? transportStart : Number(scoreTimeRef.current) || 0;
+    const loopOverdub = gestureLoopRecordingRef.current
+      && historyController.status === "recording"
+      && transportLoopEnd > transportLoopStart;
+    const gestureId = crypto.randomUUID();
+    const sourceElements = (finalElements || []).map(element => JSON.parse(JSON.stringify(element)));
+    const gestureElements = samples.length >= 2 ? sourceElements.map(element => {
+      const sourceOpacity = Number(element.customData?.savedOpacity ?? element.opacity ?? 100);
+      const track = createGestureTrack({
+        id: gestureId,
+        samples,
+        duration,
+        startTime,
+        loopStart: transportLoopStart,
+        loopEnd: transportLoopEnd,
+        source: samples[0]?.source || "pointer",
+        enabled: loopOverdub,
+        sourceOpacity,
+      });
+      return {
+        ...element,
+        ...(loopOverdub ? { opacity: 0 } : {}),
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: Date.now(),
+        customData: {
+          ...(element.customData || {}),
+          underscoresGesture: track,
+        },
+      };
+    }) : sourceElements;
+
+    if (gestureElements.length && excalidrawAPIRef.current) {
+      const replacementById = new Map(gestureElements.map(element => [element.id, element]));
+      historySuppressSceneRef.current += 1;
+      excalidrawAPIRef.current.updateScene({
+        elements: excalidrawAPIRef.current.getSceneElementsIncludingDeleted()
+          .map(element => replacementById.get(element.id) || element),
+        commitToHistory: false,
+      });
+      window.setTimeout(() => {
+        historySuppressSceneRef.current = Math.max(0, historySuppressSceneRef.current - 1);
+        if (excalidrawAPIRef.current) {
+          lastSceneElementsRef.current = new Map(
+            excalidrawAPIRef.current.getSceneElementsIncludingDeleted().map(element => [element.id, element])
+          );
+        }
+      }, 0);
+      setModifierUpdateNonce(nonce => nonce + 1);
+    }
     historyController.record({
       kind: "stroke",
-      duration: Math.max(0, durationMs || 0) / 1000,
-      transportTime: scoreTimeRef.current,
+      ...(loopOverdub ? { at: Math.max(0, startTime - transportLoopStart) } : {}),
+      duration,
+      transportTime: startTime,
       source: samples[0]?.source || "pointer",
       args: {
         samples,
-        finalElements: (finalElements || []).map(element => JSON.parse(JSON.stringify(element))),
+        finalElements: gestureElements,
         brush,
+        gestureId: samples.length >= 2 ? gestureId : null,
       },
     });
     strokeInputSamplesRef.current = [];
@@ -13236,6 +13303,7 @@ function App() {
     { id: "score.grid.quantization", name: "Set Score Quantization /score quantize", aliases: ["/score quantize"], category: "Grid", args: { elementIds: "string[]?", quantize: "object" }, action: (_api, args) => updateScoreGridBinding(args) },
     { id: "history.record.start", name: "Start Session Recording /record start", aliases: ["/record start"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyStart({ play: false }) },
     { id: "history.record.play", name: "Record and Play /record play", aliases: ["/record play"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyStart({ play: true }) },
+    { id: "history.record.loop", name: "Loop Overdub Recording /record loop", aliases: ["/record loop"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyStart({ play: true, loopOverdub: true }) },
     { id: "history.record.pause", name: "Pause or Resume Recording /record pause", aliases: ["/record pause"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyPause() },
     { id: "history.record.stop", name: "Stop Session Recording /record stop", aliases: ["/record stop"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyStop() },
     { id: "history.play", name: "Play Session /history play", aliases: ["/history play"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyPlay() },
@@ -18536,7 +18604,7 @@ function App() {
       : { elements: args.elements || [] },
   });
 
-  const startHistoryRecording = ({ play = false } = {}) => {
+  const startHistoryRecording = ({ play = false, loopOverdub = false } = {}) => {
     const baseline = captureSessionBaseline();
     lastSceneElementsRef.current = new Map(
       (excalidrawAPI?.getSceneElementsIncludingDeleted() || []).map(element => [element.id, element])
@@ -18549,14 +18617,94 @@ function App() {
       clock: { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature, sampleRate: scoreSampleRate, historyMode: historyClockMode },
       name: `Session ${new Date().toLocaleString()}`,
     });
-    if (play) setScorePlaying(true);
+    gestureLoopRecordingRef.current = Boolean(loopOverdub);
+    if (loopOverdub) {
+      setTransportLoopEnabled(true);
+      scoreTimeRef.current = transportLoopStart;
+      setScoreTime(transportLoopStart);
+      setScorePlaying(true);
+    } else if (play) setScorePlaying(true);
   };
 
   const stopHistory = async () => {
     const wasRecording = historyController.status === "recording" || historyController.status === "recording-paused";
     historyController.stop();
+    gestureLoopRecordingRef.current = false;
     panicMidi();
     if (wasRecording) await historyLibrary.put(historyController.get());
+  };
+
+  const getHistoryActionElementIds = action => {
+    const ids = new Set();
+    (action?.args?.finalElements || action?.args?.elements || []).forEach(element => {
+      if (element?.id) ids.add(element.id);
+    });
+    (action?.args?.elementIds || action?.args?.deletedElementIds || []).forEach(id => {
+      if (id) ids.add(id);
+    });
+    return ids;
+  };
+
+  const removeHistoryAction = id => {
+    const session = historyController.get();
+    const selected = session.actions.find(action => action.id === id);
+    if (!selected) return false;
+
+    const selectedElementIds = getHistoryActionElementIds(selected);
+    const relatedActionIds = new Set([id]);
+    if (selectedElementIds.size > 0) {
+      session.actions.forEach(action => {
+        if (action.id === id) return;
+        const isSceneMutation = action.kind === "scene"
+          || (action.kind === "command" && ["scene.create", "scene.update", "scene.delete"].includes(action.commandId));
+        if (!isSceneMutation) return;
+        const overlaps = [...getHistoryActionElementIds(action)].some(elementId => selectedElementIds.has(elementId));
+        if (overlaps) relatedActionIds.add(action.id);
+      });
+    }
+
+    const baselineIds = new Set();
+    try {
+      const baselinePayload = session.baseline?.sceneJson ? JSON.parse(session.baseline.sceneJson) : null;
+      (baselinePayload?.elements || []).forEach(element => {
+        if (element?.id) baselineIds.add(element.id);
+      });
+    } catch {
+      // A malformed/legacy baseline should not prevent the History action
+      // itself from being removed.
+    }
+
+    const removableIds = new Set([...selectedElementIds].filter(elementId => !baselineIds.has(elementId)));
+    if (removableIds.size && excalidrawAPIRef.current) {
+      const api = excalidrawAPIRef.current;
+      const current = api.getSceneElementsIncludingDeleted();
+      const next = current.map(element => {
+        if (!removableIds.has(element.id) || element.isDeleted) return element;
+        return {
+          ...element,
+          isDeleted: true,
+          version: (element.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: Date.now(),
+        };
+      });
+      if (next.some((element, index) => element !== current[index])) {
+        api.updateScene({
+          elements: next,
+          appState: {
+            selectedElementIds: Object.fromEntries(
+              Object.entries(api.getAppState().selectedElementIds || {})
+                .filter(([elementId]) => !removableIds.has(elementId))
+            ),
+          },
+          commitToHistory: true,
+        });
+        setModifierUpdateNonce(nonce => nonce + 1);
+      }
+    }
+
+    relatedActionIds.forEach(actionId => historyController.removeAction(actionId));
+    return true;
   };
 
   const playHistory = () => historyController.play({
@@ -23179,7 +23327,8 @@ function App() {
     const sourcePaths = getElementCorePaths(element);
     const modifiers = element.customData?.modifiers || [];
     const data = normalizeIannixData(getScoreData(element));
-    const authoredOpacity = data.cursor.sourceOpacity ?? element.opacity ?? 100;
+    const gesture = normalizeGestureTrack(element.customData?.underscoresGesture);
+    const authoredOpacity = gesture?.sourceOpacity ?? data.cursor.sourceOpacity ?? element.opacity ?? 100;
     const renderedOpacity = element.customData?.hideOriginal && modifiers.length > 0
       ? (element.customData.savedOpacity ?? authoredOpacity)
       : authoredOpacity;
@@ -23264,6 +23413,42 @@ function App() {
       hideOriginal: Boolean(element.customData?.hideOriginal),
       muteModifiers: false,
     }).map(styleTrack);
+  };
+
+  const renderGesturePlaybackOverlay = () => {
+    if (!excalidrawAPI) return null;
+    const loopOverride = transportLoopEnabled
+      ? { start: transportLoopStart, end: transportLoopEnd }
+      : null;
+    const elements = excalidrawAPI.getSceneElements().filter(element => (
+      !element.isDeleted && normalizeGestureTrack(element.customData?.underscoresGesture)?.playback.enabled
+    ));
+    if (!elements.length) return null;
+    const zoom = excalidrawAPI.getAppState().zoom?.value || 1;
+    const rendered = elements.flatMap(element => {
+      const gesture = normalizeGestureTrack(element.customData?.underscoresGesture);
+      const playback = getGesturePlaybackState(gesture, scoreTime, loopOverride);
+      if (!playback.visible) return [];
+      return getElementRenderedCanvasTracks(element).flatMap((track, pathIndex) => {
+        const revealed = sliceGesturePath(track.points, playback.progress);
+        if (revealed.length < 2) return [];
+        const screenPath = revealed.map(point => mapCanvasToScreen(point[0], point[1]));
+        const commonProps = {
+          fill: "none",
+          stroke: getThemeColor(track.strokeColor || element.strokeColor || "#ffffff"),
+          strokeWidth: Math.max(0.5, track.strokeWidth || element.strokeWidth || 1) * zoom,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+          opacity: track.opacity,
+        };
+        return track.smooth
+          ? <path key={`${element.id}-${pathIndex}`} d={pointsToSmoothSvgPath(screenPath)} {...commonProps} />
+          : <polyline key={`${element.id}-${pathIndex}`} points={screenPath.map(point => `${point[0]},${point[1]}`).join(" ")} {...commonProps} />;
+      });
+    });
+    return rendered.length
+      ? <svg className="underscores-gesture-playback-overlay" aria-hidden="true">{rendered}</svg>
+      : null;
   };
 
   const handleBakeModifiers = (parentElement) => {
@@ -26577,6 +26762,7 @@ function App() {
               presentationMode={presentationMode}
               emitMidi={historyMidiArmed}
               showPointer={historyShowPointer}
+              loopOverdub={historyLoopOverdub}
               clockMode={historyClockMode}
               recordFilter={historyRecordFilter}
               timeContext={timeContext}
@@ -26584,6 +26770,7 @@ function App() {
               onPresentationModeChange={setPresentationMode}
               onEmitMidiChange={setHistoryMidiArmed}
               onShowPointerChange={setHistoryShowPointer}
+              onLoopOverdubChange={setHistoryLoopOverdub}
               onClockModeChange={mode => {
                 setHistoryClockMode(mode);
                 localStorage.setItem("underscores_history_clock_mode", mode);
@@ -26592,7 +26779,7 @@ function App() {
                 setHistoryRecordFilter(filter);
                 localStorage.setItem("underscores_history_record_filter", filter);
               }}
-              onStart={() => startHistoryRecording()}
+              onStart={() => startHistoryRecording({ play: historyLoopOverdub, loopOverdub: historyLoopOverdub })}
               onPause={() => historyController.pause()}
               onStop={stopHistory}
               onPlay={playHistory}
@@ -26600,7 +26787,7 @@ function App() {
               onSeek={seconds => historyController.seek(seconds, { includePresentation: historyIncludePresentation, emitMidi: historyMidiArmed })}
               onRateChange={rate => historyController.setPlaybackRate(rate)}
               onUpdateAction={(id, patch) => historyController.updateAction(id, patch)}
-              onRemoveAction={id => historyController.removeAction(id)}
+              onRemoveAction={removeHistoryAction}
               onDuplicateAction={id => historyController.duplicateAction(id)}
               onMoveAction={(id, direction) => historyController.moveAction(id, direction)}
               onSaveMacro={saveHistoryMacro}
@@ -27760,6 +27947,8 @@ function App() {
             })()}
           </svg>
         )}
+
+        {renderGesturePlaybackOverlay()}
 
         {sessionPlaybackOverlay.length > 0 && (
           <svg className="underscores-session-playback-overlay" aria-hidden="true">

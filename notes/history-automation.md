@@ -1,6 +1,6 @@
 # Recordable Sessions and Automation
 
-Last updated: 2026-07-15
+Last updated: 2026-08-19
 
 Underscores records semantic intent and world-coordinate input rather than screen pixels. The first implementation is deliberately separate from Excalidraw undo, but both observe the same scene and command transactions so they can converge later.
 
@@ -36,6 +36,21 @@ Every action has monotonic `at` time, global `transportTime`, `duration`, `sourc
 
 High-rate strokes store normalized input samples as one stream rather than one command per point. Samples include scene coordinates, relative time, pressure, tilt, twist, buttons, pointer/device identity, and phase. The completed native Excalidraw element snapshot is kept beside the stream so playback can reveal the stroke and then commit exact geometry independent of viewport size or zoom.
 
+## Loop gesture overdub
+
+History's **Loop overdub** mode uses the active score-transport loop as a repeating drawing pass. Starting recording in this mode enables the loop, seeks to its start, and starts transport playback. Each completed Excalidraw freedraw/line or modifier-stack stroke becomes an ordinary selectable scene object with `customData.underscoresGesture`:
+
+- sample timestamps and pressure/speed cadence;
+- traveled-path progress for accurate partial reveals;
+- the transport phase at pointer-down and the captured loop range;
+- a retained authored opacity plus transport-loop playback settings.
+
+The authored object remains the editable geometry and hit target. During loop playback its normal Excalidraw paint is hidden and a lightweight SVG overlay reveals the current portion without rewriting scene geometry every frame. Completed strokes hold until the loop boundary, disappear before their recorded phase on the next pass, and redraw with subsequent overdubs. The current global transport loop is authoritative, so changing that loop retimes the pass; per-gesture loop ranges and start phases remain stored for later clip/layer editing.
+
+Use `/record loop` for the one-step command path, or set the loop in Transport, enable **Loop overdub** in History, and press Record. Stopping History ends capture but leaves the score transport and gesture playback at their current state.
+
+Deleting a recorded stroke removes its non-baseline gesture objects and any linked scene-create/update actions, so a later replay cannot resurrect the deleted take.
+
 Unmediated Excalidraw changes are converted to coalesced `scene.create`, `scene.update`, and `scene.delete` actions. Continuous resize, drag, point edits, and styling are grouped after activity settles.
 
 ## History and sequences
@@ -60,7 +75,7 @@ Numbers interpolate linearly, rotations use the shortest angular path, and struc
 
 Useful slash commands include:
 
-- `/record start`, `/record play`, `/record pause`, `/record stop`
+- `/record start`, `/record play`, `/record loop`, `/record pause`, `/record stop`
 - `/history`, `/history play`, `/history seek 2.5`
 - `/macro save My phrase`, `/macro insert My phrase relative`
 - `/ex save [name]` saves the current scene; an optional name such as `/ex save bioblip_melody` downloads `bioblip_melody.excalidraw`

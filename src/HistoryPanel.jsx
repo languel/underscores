@@ -25,6 +25,7 @@ const HistoryPanel = memo(function HistoryPanel({
   presentationMode = false,
   emitMidi,
   showPointer,
+  loopOverdub,
   clockMode,
   recordFilter,
   timeContext,
@@ -32,6 +33,7 @@ const HistoryPanel = memo(function HistoryPanel({
   onPresentationModeChange,
   onEmitMidiChange,
   onShowPointerChange,
+  onLoopOverdubChange,
   onClockModeChange,
   onRecordFilterChange,
   onStart,
@@ -132,6 +134,7 @@ const HistoryPanel = memo(function HistoryPanel({
         <label {...infoProps("Live presentation mode", "Show embeds configured as Presentation only. Use this for lectures or playback; web pages remain hidden when it is off.")}><span>Live presentation</span><input type="checkbox" checked={presentationMode} onChange={event => onPresentationModeChange?.(event.target.checked)} /></label>
         <label {...infoProps("MIDI armed", "Recorded MIDI is sent to the currently selected route only while this is armed.")}><span>MIDI armed</span><input type="checkbox" checked={emitMidi} onChange={event => onEmitMidiChange(event.target.checked)} /></label>
         <label {...infoProps("Pointer", "Show the recorded pointer position during History playback.")}><span>Pointer</span><input type="checkbox" checked={showPointer} onChange={event => onShowPointerChange(event.target.checked)} /></label>
+        <label {...infoProps("Loop overdub", "Use the active transport loop as a repeating drawing pass. Recording rewinds to the loop start, starts transport playback, and adds completed strokes to the next pass.")}><span>Loop overdub</span><input type="checkbox" checked={loopOverdub} onChange={event => onLoopOverdubChange(event.target.checked)} disabled={isRecording} /></label>
         <div className="history-file-actions">
           <button type="button" onClick={onClear} disabled={!actions.length || isRecording || isPlaying}>Clear</button>
           <button type="button" onClick={onExport} disabled={!actions.length}>Export</button>

@@ -6129,7 +6129,8 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   }
 }
 
-.underscores-session-playback-overlay {
+.underscores-session-playback-overlay,
+.underscores-gesture-playback-overlay {
   position: absolute;
   inset: 0;
   z-index: 4;
