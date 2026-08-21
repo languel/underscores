@@ -48,7 +48,7 @@ test("scene exchange preserves frame timeline display mode", () => {
   assert.equal(payload.underscores.score.fps, 24);
 });
 
-test("scene exchange version 10 preserves streams, brush channels, global configuration, p5 scripts, relationships, and migrates legacy scenes", () => {
+test("scene exchange version 11 preserves streams, brush channels, global configuration, p5 scripts, relationships, and migrates legacy scenes", () => {
   const grid = mergeGridPatch(DEFAULT_GLOBAL_GRID, {
     appearance: { visible: true },
     spacing: { x: 120, y: 80, subdivisionsX: 6, subdivisionsY: 4 },
@@ -76,7 +76,7 @@ test("scene exchange version 10 preserves streams, brush channels, global config
     }],
   };
   const payload = attachUnderscoresExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, grid, synth, mixer, p5Scripts, streamGraph, brushChannels, null, relationshipGraph);
-  assert.equal(payload.underscores.version, 10);
+  assert.equal(payload.underscores.version, 11);
   assert.deepEqual(parseUnderscoresExchange(payload, "scene").grid, grid);
   assert.deepEqual(parseUnderscoresExchange(payload, "scene").expressiveSynth, normalizeExpressiveSynthConfig(synth));
   assert.deepEqual(parseUnderscoresExchange(payload, "scene").mixer, mixer);
@@ -104,6 +104,7 @@ test("scene exchange preserves authored media sources and reusable code definiti
     iannixScripts: [{ id: "score-a", name: "Score A", source: 'run("clear");' }],
     playCoreScripts: [{ id: "ascii-a", name: "ASCII A", source: "export function main() {}" }],
     svgScripts: [{ id: "svg-a", name: "SVG A", source: '<svg xmlns="http://www.w3.org/2000/svg" />' }],
+    arrangement: { takes: [{ id: "take-a", name: "Take A", solo: true }], recording: { mode: "step", stepValue: "1 f", stepDurationMode: "hold" } },
   };
   const payload = attachUnderscoresExchangeMetadata(
     { type: "excalidraw", elements: [] }, "scene", {}, null, null, null, [], null, null, authoredState,
@@ -114,6 +115,8 @@ test("scene exchange preserves authored media sources and reusable code definiti
   assert.equal(restored.iannixScripts[0].id, "score-a");
   assert.equal(restored.playCoreScripts[0].id, "ascii-a");
   assert.equal(restored.svgScripts[0].id, "svg-a");
+  assert.equal(restored.arrangement.takes[0].id, "take-a");
+  assert.equal(restored.arrangement.recording.mode, "step");
 });
 
 test("selection exchange does not carry the scene-global grid", () => {
@@ -161,4 +164,22 @@ test("selection import remaps element, parent, and IanniX curve links", () => {
   assert.equal(result.elements[1].customData.iannix.cursor.curveId, result.elements[0].id);
   assert.equal(result.elements[2].customData.parentId, result.elements[1].id);
   assert.deepEqual([result.elements[0].x, result.elements[0].y], [20, 30]);
+});
+
+test("selection import gives arranged clips fresh ids", () => {
+  let id = 0;
+  const result = remapSelectionForImport([{
+    id: "arranged",
+    x: 0,
+    y: 0,
+    groupIds: [],
+    customData: { underscoresArrangement: { version: 1, mode: "clips", clips: [{
+      id: "clip-a",
+      timing: { start: 0, duration: 1 },
+      recording: { recordingId: "recording-a" },
+    }] } },
+  }], [], () => `new-${++id}`);
+  const importedClip = result.elements[0].customData.underscoresArrangement.clips[0];
+  assert.notEqual(importedClip.id, "clip-a");
+  assert.notEqual(importedClip.recording.recordingId, "recording-a");
 });

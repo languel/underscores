@@ -163,7 +163,7 @@ const normalizeMediaVolume = value => {
 };
 const isVolumeMedia = media => media instanceof HTMLAudioElement || media instanceof HTMLVideoElement;
 
-function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride = null, transportTime = 0, transportPlaying = false, transportRate = 1 }) {
+function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride = null, transportTime = 0, transportPlaying = false, transportRate = 1, onMediaEnded = null }) {
   const inputRef = useRef(null);
   const gifCanvasRef = useRef(null);
   const outputRef = useRef(null);
@@ -190,10 +190,18 @@ function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride 
   }), [playbackOverride, source.kind, source.media]);
   const runtimeSource = useMemo(() => ({ ...source, media: effectiveMedia }), [effectiveMedia, source]);
   sourceRef.current = runtimeSource;
+  const overrideTransportTime = Number(playbackOverride?.transportTime);
+  const overrideTransportRate = Number(playbackOverride?.transportRate);
   transportRef.current = {
-    time: Number.isFinite(Number(transportTime)) ? Number(transportTime) : 0,
-    playing: transportPlaying === true,
-    rate: Number.isFinite(Number(transportRate)) ? Number(transportRate) : 1,
+    time: Number.isFinite(overrideTransportTime)
+      ? overrideTransportTime
+      : (Number.isFinite(Number(transportTime)) ? Number(transportTime) : 0),
+    playing: typeof playbackOverride?.transportPlaying === "boolean"
+      ? playbackOverride.transportPlaying
+      : transportPlaying === true,
+    rate: Number.isFinite(overrideTransportRate)
+      ? overrideTransportRate
+      : (Number.isFinite(Number(transportRate)) ? Number(transportRate) : 1),
   };
   const sessionUrl = useSessionFileUrl(source.id);
   const url = sessionUrl || source.media.url;
@@ -721,6 +729,7 @@ function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride 
                   } else {
                     if (current.media.linkTransport) linkedMediaEndedRef.current = true;
                     stopMediaPlayback(event.currentTarget);
+                    onMediaEnded?.(source.id);
                   }
                 }}
                 onCanPlay={event => {
@@ -756,6 +765,7 @@ function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride 
                   } else {
                     if (current.media.linkTransport) linkedMediaEndedRef.current = true;
                     stopMediaPlayback(event.currentTarget);
+                    onMediaEnded?.(source.id);
                   }
                 }}
                 onCanPlay={event => {
@@ -824,7 +834,7 @@ function CanvasMediaSource({ source, captureCanvasSource, captureRevision }) {
   return <div className="underscores-media-runtime-source" data-media-runtime-source-id={source.id}><canvas ref={outputRef} /></div>;
 }
 
-export function MediaSourceRuntimeLayer({ sources, activeSourceId = "", connectedSourceIds = [], playbackOverrides = {}, panelPreviewPlayback = {}, captureCanvasSource, captureRevision = 0, transportTime = 0, transportPlaying = false, transportRate = 1 }) {
+export function MediaSourceRuntimeLayer({ sources, activeSourceId = "", connectedSourceIds = [], playbackOverrides = {}, panelPreviewPlayback = {}, captureCanvasSource, captureRevision = 0, transportTime = 0, transportPlaying = false, transportRate = 1, onMediaEnded = null }) {
   const panelPreviewIds = useMemo(() => new Set(Object.keys(panelPreviewPlayback || {})), [panelPreviewPlayback]);
   const panelOwnsActiveMedia = Boolean(
     activeSourceId
@@ -843,7 +853,7 @@ export function MediaSourceRuntimeLayer({ sources, activeSourceId = "", connecte
   return <div className="underscores-media-runtime-layer" aria-hidden="true">
     {(sources || []).filter(source => source.enabled && demandedSourceIds.has(source.id)).map(source => source.kind === MEDIA_STREAM_KINDS.CANVAS
       ? <CanvasMediaSource key={source.id} source={source} captureCanvasSource={captureCanvasSource} captureRevision={captureRevision} />
-      : <ProcessedMediaSource key={source.id} source={source} runtimeId={source.id} playbackOverride={playbackOverrides[source.id] || null} transportTime={transportTime} transportPlaying={transportPlaying} transportRate={transportRate} />)}
+      : <ProcessedMediaSource key={source.id} source={source} runtimeId={source.id} playbackOverride={playbackOverrides[source.id] || null} transportTime={transportTime} transportPlaying={transportPlaying} transportRate={transportRate} onMediaEnded={onMediaEnded} />)}
     {panelSources.map(source => <ProcessedMediaSource
       key={`${source.id}:panel`}
       source={source}
@@ -852,6 +862,7 @@ export function MediaSourceRuntimeLayer({ sources, activeSourceId = "", connecte
       transportTime={transportTime}
       transportPlaying={transportPlaying}
       transportRate={transportRate}
+      onMediaEnded={onMediaEnded}
     />)}
   </div>;
 }
@@ -1449,7 +1460,7 @@ function PreviewChrome({ config, source, sources, onPatch, onFocusSource }) {
   </div>;
 }
 
-export default function MediaStreamOverlay({ elements, appState, sources = [], onResults, onPathFrame, onPatch, onFocusSource, transportTime = 0, transportPlaying = false }) {
+export default function MediaStreamOverlay({ elements, appState, sources = [], onResults, onPathFrame, onPatch, onFocusSource, transportTime = 0, transportPlaying = false, arrangementRuntime = null }) {
   const [segmentationDemandRevision, setSegmentationDemandRevision] = useState(0);
   useEffect(() => subscribeMediaStreamRuntime(detail => {
     if (detail.type === "segmentation-demand") setSegmentationDemandRevision(value => value + 1);
@@ -1485,12 +1496,24 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
   if (!objects.length) return null;
   return <div className="underscores-media-stream-overlay" aria-hidden="true">
     {objects.map((element, layerIndex) => {
-      const config = normalizeMediaStreamConfig(element.customData.underscoresMediaStream);
+    const config = normalizeMediaStreamConfig(element.customData.underscoresMediaStream);
+      const arranged = arrangementRuntime?.get?.(element.id) || null;
       const previewSource = config.kind === MEDIA_STREAM_KINDS.PREVIEW ? sourcesById.get(config.sourceId) : null;
       const previewInstanceSource = previewSource
-        ? { ...previewSource, media: { ...previewSource.media, ...config.media } }
+        ? { ...previewSource, media: {
+            ...previewSource.media,
+            ...config.media,
+            ...(arranged ? {
+              playing: arranged.active,
+              linkTransport: true,
+              loop: arranged.clip?.timing?.loopMode === "loop",
+              playbackRate: arranged.clip?.timing?.rate || 1,
+            } : {}),
+          } }
         : null;
-      const visible = shouldRenderMediaStream(element);
+      const visible = shouldRenderMediaStream(element) && (!arranged || arranged.active);
+      const instanceTransportTime = arranged ? arranged.state?.localTime || 0 : transportTime;
+      const instanceTransportPlaying = arranged ? arranged.active && transportPlaying : transportPlaying;
       const selected = Boolean(selectedElementIds[element.id]);
       const elementOpacity = Number(element.opacity);
       const opacity = Math.max(0, Math.min(1, (Number.isFinite(elementOpacity) ? elementOpacity : 100) / 100));
@@ -1518,8 +1541,8 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
           {config.kind === MEDIA_STREAM_KINDS.PREVIEW
             ? config.sourceId && sourceIds.has(config.sourceId)
               ? previewSource?.media?.mediaType === "audio"
-                ? <AudioWaveformPreview sourceId={config.sourceId} source={previewInstanceSource} transportTime={transportTime} transportPlaying={transportPlaying} />
-                : <MediaRuntimePreview sourceId={config.sourceId} source={previewInstanceSource} transportTime={transportTime} transportPlaying={transportPlaying} />
+                ? <AudioWaveformPreview sourceId={config.sourceId} source={previewInstanceSource} transportTime={instanceTransportTime} transportPlaying={instanceTransportPlaying} />
+                : <MediaRuntimePreview sourceId={config.sourceId} source={previewInstanceSource} transportTime={instanceTransportTime} transportPlaying={instanceTransportPlaying} />
               : <div className="underscores-media-empty">Input stream is missing</div>
             : config.kind === MEDIA_STREAM_KINDS.UNICURSAL
               ? <UnicursalSource

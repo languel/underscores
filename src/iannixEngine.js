@@ -405,7 +405,10 @@ const getBoxPath = (element) => {
   ];
 };
 
-const FREEDRAW_RENDERED_STROKE_SCALE = 4.25;
+// Excalidraw's freehand renderer expands the persisted centerline by this
+// factor. Playback overlays use the same centerline data, so they must apply
+// the scale as well or a recorded stroke appears much thinner than its source.
+export const FREEDRAW_RENDERED_STROKE_SCALE = 4.25;
 const SINGLE_POINT_CIRCLE_SEGMENTS = 32;
 
 const isPointLikeFreedraw = element => {

@@ -433,6 +433,7 @@ export function LivecodeNodeOverlay({
   documentationTipMode = "hover",
   autocompleteEnabled = true,
   onDocumentationHover,
+  arrangementRuntime = null,
 }) {
   const camera = useMemo(() => ({
     zoom: Number(appState?.zoom?.value) || 1,
@@ -449,11 +450,23 @@ export function LivecodeNodeOverlay({
   }, [transport?.playing, transport?.bpm, transport?.time]);
   return <div className={`underscores-livecode-overlay ${layer}`} aria-label={layer === "underlay" ? "Background Livecode canvas nodes" : "Livecode canvas nodes"}>{elements.filter(element => {
     if (!shouldRenderLivecodeNode(element)) return false;
+    const arranged = arrangementRuntime?.get?.(element.id);
+    if (arranged && !arranged.active) return false;
     const candidate = normalizeLivecodeNode(element.customData.underscoresLivecode);
     const underlay = candidate.kind === "shader" && normalizeShaderCompositionSettings(candidate.runtime.settings).compositeMode === "underlay";
     return layer === "underlay" ? underlay : !underlay;
   }).map(element => {
-    const node = normalizeLivecodeNode(element.customData.underscoresLivecode);
+    const arranged = arrangementRuntime?.get?.(element.id) || null;
+    const authoredNode = normalizeLivecodeNode(element.customData.underscoresLivecode);
+    const node = arranged ? {
+      ...authoredNode,
+      runtime: { ...authoredNode.runtime, running: arranged.active },
+    } : authoredNode;
+    const nodeTransport = arranged ? {
+      ...transport,
+      playing: Boolean(transport?.playing) && arranged.active,
+      time: arranged.state?.localTime || 0,
+    } : transport;
     const composition = normalizeShaderCompositionSettings(node.runtime.settings);
     const docsOverlayEnabled = documentationOverlayByLanguage?.[node.kind] ?? showDocumentationOverlay;
     const selected = Boolean(camera.selectedElementIds[element.id]);
@@ -502,7 +515,7 @@ export function LivecodeNodeOverlay({
           element={element}
           node={node}
           scriptRuntimeRef={scriptRuntimeRef}
-          transport={transport}
+          transport={nodeTransport}
           editable={visible && node.kind === "markdown" && node.view === "preview"}
           documentEditing={editing}
           onActivate={event => onEdit?.(element.id, event ? { view: getLivecodeViewForDoubleClick(event) } : undefined)}
@@ -528,7 +541,7 @@ export function LivecodeNodeOverlay({
           onBlur={() => onCommit?.(element.id)}
           onCycleView={node.kind === "orca" ? undefined : () => onPatch?.(element.id, { view: nextLivecodeViewForNode(node) })}
           onAdjustFontSize={delta => onPatch?.(element.id, { typography: { fontSize: adjustLivecodeFontSize(node.typography.fontSize, delta) } }, { commitToHistory: true })}
-          transport={transport}
+          transport={nodeTransport}
           showDocumentationOverlay={docsOverlayEnabled}
           documentationTipMode={documentationTipMode}
           autocompleteEnabled={autocompleteEnabled}

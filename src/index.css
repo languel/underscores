@@ -5837,6 +5837,26 @@ a.iannix-flat-button {
   color: var(--transport-text);
 }
 
+.arrangement-step-options {
+  display: flex;
+  align-items: center;
+  min-width: 66px;
+}
+
+.arrangement-step-options .time-value-input-shell,
+.arrangement-step-options .time-value-input-shell > input {
+  width: 44px;
+  min-width: 0;
+}
+
+body .excalidraw .iannix-transport-controls .arrangement-record {
+  color: var(--transport-secondary);
+}
+
+body .excalidraw .iannix-transport-controls .arrangement-record.active {
+  color: var(--transport-accent);
+}
+
 .iannix-timeline-ruler {
   position: relative;
   margin: 0 8px;
@@ -5888,6 +5908,199 @@ a.iannix-flat-button {
   touch-action: none;
   overflow: visible;
 }
+
+.iannix-timeline.has-arrangement {
+  --arrangement-label-width: 116px;
+  min-height: 150px;
+}
+
+/* Keep lane metadata in a fixed NLE-style gutter. The ruler, grid, loop and
+   playhead all begin after it, so labels can never sit under the time cursor. */
+.iannix-timeline.has-arrangement .iannix-timeline-ruler,
+.iannix-timeline.has-arrangement .iannix-timeline-track {
+  margin-left: calc(8px + var(--arrangement-label-width));
+}
+
+.iannix-timeline.has-arrangement .iannix-timeline-ruler {
+  overflow: visible;
+}
+
+.iannix-arrangement-lanes {
+  position: absolute;
+  z-index: 2;
+  inset-block: 0;
+  left: calc(-1 * var(--arrangement-label-width, 116px));
+  right: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  cursor: default;
+  scrollbar-width: thin;
+}
+
+.iannix-arrangement-row {
+  position: relative;
+  height: 24px;
+  border-bottom: 1px solid color-mix(in srgb, var(--transport-border) 66%, transparent);
+}
+
+.iannix-arrangement-row.take {
+  background: color-mix(in srgb, var(--transport-field-bg) 78%, transparent);
+}
+
+.iannix-arrangement-row.object {
+  background: color-mix(in srgb, var(--transport-lane-bg) 88%, transparent);
+}
+
+.iannix-arrangement-row-label {
+  position: absolute;
+  z-index: 3;
+  inset: 0 auto 0 0;
+  display: flex;
+  align-items: center;
+  width: var(--arrangement-label-width, 116px);
+  min-width: 0;
+  padding: 0 3px;
+  overflow: hidden;
+  border-right: 1px solid var(--transport-border);
+  background: inherit;
+  color: var(--transport-secondary);
+  font: 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.iannix-arrangement-row.object .iannix-arrangement-row-label {
+  padding-left: 13px;
+}
+
+.iannix-arrangement-row-label > button,
+.iannix-arrangement-row-label > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iannix-arrangement-take-chevron {
+  flex: 0 0 auto;
+  margin-right: 3px;
+}
+
+.iannix-arrangement-take-label,
+.iannix-arrangement-object-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body .excalidraw .iannix-arrangement-row-label button {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.iannix-arrangement-label-toggle {
+  position: absolute;
+  z-index: 5;
+  top: 4px;
+  left: calc(-1 * var(--arrangement-label-width, 116px) + 4px);
+  width: 20px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--transport-secondary);
+  cursor: pointer;
+  font: 14px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.iannix-arrangement-label-toggle:hover {
+  color: var(--transport-text);
+}
+
+.iannix-arrangement-take-actions {
+  display: flex;
+  margin-left: auto;
+}
+
+body .excalidraw .iannix-arrangement-take-actions button {
+  width: 17px;
+  padding: 0;
+}
+
+body .excalidraw .iannix-arrangement-take-actions button.active {
+  color: var(--transport-accent);
+}
+
+.iannix-arrangement-row-track {
+  position: absolute;
+  inset-block: 0;
+  left: var(--arrangement-label-width, 116px);
+  right: 0;
+  overflow: hidden;
+}
+
+.iannix-timeline.arrangement-labels-collapsed .iannix-arrangement-row-label {
+  padding-inline: 3px;
+}
+
+.iannix-timeline.arrangement-labels-collapsed .iannix-arrangement-row.object .iannix-arrangement-row-label {
+  padding-left: 3px;
+}
+
+.iannix-timeline.arrangement-labels-collapsed .iannix-arrangement-take-label,
+.iannix-timeline.arrangement-labels-collapsed .iannix-arrangement-object-label,
+.iannix-timeline.arrangement-labels-collapsed .iannix-arrangement-take-actions {
+  display: none;
+}
+
+body .excalidraw .iannix-arrangement-clip {
+  position: absolute;
+  z-index: 2;
+  inset-block: 3px;
+  min-width: 4px;
+  height: auto;
+  padding: 0 7px;
+  overflow: hidden;
+  border: 1px solid var(--transport-secondary);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--transport-secondary) 18%, var(--transport-lane-bg));
+  color: var(--transport-text);
+  cursor: grab;
+  font: 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  touch-action: none;
+}
+
+body .excalidraw .iannix-arrangement-clip.loop {
+  background-image: repeating-linear-gradient(90deg, transparent 0 8px, var(--transport-accent-soft) 8px 10px);
+}
+
+body .excalidraw .iannix-arrangement-clip.selected {
+  z-index: 3;
+  border-color: var(--transport-accent);
+}
+
+body .excalidraw .iannix-arrangement-clip:active {
+  cursor: grabbing;
+}
+
+.iannix-arrangement-clip-handle {
+  position: absolute;
+  z-index: 2;
+  inset-block: 0;
+  width: 7px;
+  cursor: col-resize;
+}
+
+.iannix-arrangement-clip-handle.start { left: 0; }
+.iannix-arrangement-clip-handle.end { right: 0; }
 
 .iannix-timeline-gridline {
   position: absolute;

@@ -6,8 +6,9 @@ import { normalizeStreamGraph } from "./streamGraph.js";
 import { normalizeBrushChannels } from "./brushChannelRuntime.js";
 import { normalizeMediaSources } from "./mediaStream.js";
 import { normalizeRelationshipGraph, serializeRelationshipGraphForScene } from "./relationshipGraph.js";
+import { createArrangementState, remapArrangementForDuplicate } from "./arrangementClips.js";
 
-const UNDERSCORES_EXCHANGE_VERSION = 10;
+const UNDERSCORES_EXCHANGE_VERSION = 11;
 
 export const normalizeSceneExportFilename = (requestedName = "", date = new Date()) => {
   const fallback = `underscores-scene-${date.toISOString().slice(0, 10)}`;
@@ -78,8 +79,11 @@ export const attachUnderscoresExchangeMetadata = (serializedScene, kind, score =
           iannixScripts: Array.isArray(normalizedAuthoredState.iannixScripts) ? structuredClone(normalizedAuthoredState.iannixScripts) : [],
           playCoreScripts: Array.isArray(normalizedAuthoredState.playCoreScripts) ? structuredClone(normalizedAuthoredState.playCoreScripts) : [],
           svgScripts: Array.isArray(normalizedAuthoredState.svgScripts) ? structuredClone(normalizedAuthoredState.svgScripts) : [],
+          arrangement: createArrangementState(normalizedAuthoredState.arrangement),
         },
-      } : {}),
+      } : {
+        arrangement: createArrangementState(normalizedAuthoredState.arrangement),
+      }),
       relationshipGraph: serializeRelationshipGraphForScene(relationshipGraph),
     },
   };
@@ -111,7 +115,9 @@ export const parseUnderscoresExchange = (text, expectedKind = null) => {
       iannixScripts: Array.isArray(payload.underscores?.authoredState?.iannixScripts) ? structuredClone(payload.underscores.authoredState.iannixScripts) : [],
       playCoreScripts: Array.isArray(payload.underscores?.authoredState?.playCoreScripts) ? structuredClone(payload.underscores.authoredState.playCoreScripts) : [],
       svgScripts: Array.isArray(payload.underscores?.authoredState?.svgScripts) ? structuredClone(payload.underscores.authoredState.svgScripts) : [],
+      arrangement: createArrangementState(payload.underscores?.authoredState?.arrangement),
     } : null,
+    arrangement: kind === "selection" ? createArrangementState(payload.underscores?.arrangement) : null,
   };
 };
 
@@ -164,7 +170,7 @@ export const remapSelectionForImport = (
   }));
 
   const elements = source.map(element => {
-    const customData = structuredClone(element.customData || {});
+    let customData = structuredClone(element.customData || {});
     if (customData.parentId) {
       customData.parentId = idMap.get(customData.parentId) || null;
     }
@@ -177,6 +183,7 @@ export const remapSelectionForImport = (
     const boundElements = (element.boundElements || [])
       .map(bound => ({ ...bound, id: idMap.get(bound.id) || (existingIds.has(bound.id) ? bound.id : null) }))
       .filter(bound => bound.id);
+    customData = remapArrangementForDuplicate({ customData }).customData || customData;
     return {
       ...structuredClone(element),
       id: idMap.get(element.id),

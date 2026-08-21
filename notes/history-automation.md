@@ -4,6 +4,8 @@ Last updated: 2026-08-19
 
 Underscores records semantic intent and world-coordinate input rather than screen pixels. The first implementation is deliberately separate from Excalidraw undo, but both observe the same scene and command transactions so they can converge later.
 
+History is also deliberately separate from [Arrangement clips](arrangement-clips.md). Arrangement schedules object lifecycles on the score timeline; History remains the complete-app audit, automation, and replay system. Arrangement commands may appear in an active History audit like other commands, but this project does not change History's action schema, Actions table, controls, playback model, or project-duration authority.
+
 ## Runtime layers
 
 - `src/commandSystem.js` owns the stable, versioned command registry, event bus, and normalized input bus. Menus, shortcuts, slash commands, the public API, AI prompts, panels, History, and transport controls share these command IDs.

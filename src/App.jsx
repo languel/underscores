@@ -1,10 +1,10 @@
 // Force rebuild timestamp: 2026-07-06T11:15:00
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { Excalidraw, MainMenu, exportToSvg, exportToCanvas, getCommonBounds, loadFromBlob, serializeAsJSON, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
+import { Excalidraw, MainMenu, exportToSvg, exportToCanvas, getCommonBounds, getFreeDrawSvgPath, loadFromBlob, serializeAsJSON, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
 import "./App.css";
 import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, isDrawableTrack, mapEvaluatedTrackToElement, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
-import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, getElementCenter, getElementCorePaths, getObjectTimeState, getScoreData, isRuntimeCursor, normalizeIannixData, normalizeScoreElementMetadata, reconcileRuntimeCursorHosts, resolveIannixObjectTiming, snapCursorHostToCurveStart, transformPaths, withScoreData } from "./iannixEngine.js";
+import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, FREEDRAW_RENDERED_STROKE_SCALE, getElementCenter, getElementCorePaths, getObjectTimeState, getScoreData, isRuntimeCursor, normalizeIannixData, normalizeScoreElementMetadata, reconcileRuntimeCursorHosts, resolveIannixObjectTiming, snapCursorHostToCurveStart, transformPaths, withScoreData } from "./iannixEngine.js";
 import { createIannixMidiVoiceTracker, describeIannixMidiMessage, getIannixMidiTemplatePattern, getIannixPathIntersectionPoint, getIannixTriggerMidiContext, IANNIX_MIDI_TEMPLATES, parseIannixMidiPattern, selectIannixTriggerCursor } from "./iannixMidi.js";
 import { expandIndexedLabelTemplate } from "./iannixBulkEdit.js";
 import NumberInputController from "./NumberInputController.jsx";
@@ -38,7 +38,23 @@ import { autoKeyElement, AUTO_KEY_PATHS, collectAutomationKeys, evaluateElementA
 import { formatAIScriptSource, validateAIBrushSource, validateAIIannixSource } from "./scriptAuthoring.js";
 import { getIannixCommandAtSourcePosition } from "./iannixCommandReference.js";
 import { createUnderscoresMacro, UNDERSCORES_MACRO_TYPE, UnderscoresLibraryStore, UnderscoresSessionController, instantiateUnderscoresMacro, mergeSceneMutation, parseUnderscoresSession } from "./sessionHistory.js";
-import { createGestureTrack, getGesturePlaybackState, normalizeGestureTrack, sliceGesturePath } from "./gestureTrack.js";
+import { createGestureTrack, gesturePathProgressAtElapsed, getGesturePlaybackState, normalizeGestureTrack, sliceGesturePath } from "./gestureTrack.js";
+import {
+  addElementArrangementClip,
+  advanceArrangementRecordingClock,
+  createArrangementClip,
+  createArrangementIndex,
+  createArrangementState,
+  createArrangementTake,
+  getArrangementProjectEnd,
+  getElementArrangementClips,
+  migrateGestureToArrangement,
+  queryArrangementLaneAtTime,
+  selectArrangementClipAtTime,
+  setElementArrangementClips,
+  splitClipAcrossLoop,
+} from "./arrangementClips.js";
+import { getArrangementAdapterKind } from "./arrangementAdapters.js";
 import { buildIannixObjectModel, executeTrustedIannixScript, getIannixCursorCanvasLength, getIannixCursorDuration, getIannixCursorLoopMode, getIannixCurveStartAngle, serializeBezierElementToIannixCommands, tokenizeIannixCommand } from "./iannixScript.js";
 import { bezierWorldPointToLocal, createBezierGeometryFromElement, createBezierHostGeometry, findNearestBezierLocation, getBezierWorldAnchors, getBezierWorldPath, hasCubicBezierGeometry, normalizeBezierGeometry, normalizeBezierHostElement, reframeBezierElement, removeBezierAnchor, setBezierAnchorMode, setElementBezierGeometry, splitBezierSegment, updateBezierAnchor } from "./bezierGeometry.js";
 import { getScriptParameterValues, normalizeScriptParameterValue, parseScriptParameters, resolveScriptColorReference } from "./scriptParameters.js";
@@ -2702,6 +2718,98 @@ const pointsToSmoothSvgPath = (points) => {
   return path;
 };
 
+// Excalidraw freehand paths are pressure-aware outlines, not a single
+// constant-width centerline. Playback stays in the lightweight SVG overlay,
+// so approximate that feel with short, smooth cubic segments whose widths are
+// sampled from the captured pressure profile. Keeping this as separate
+// segments lets adjacent widths change without rewriting the scene or adding
+// a heavyweight canvas renderer to every frame.
+const getFreedrawPressureAtProgress = (element, gesture, progress) => {
+  const authoredPressures = Array.isArray(element?.pressures)
+    ? element.pressures.map(value => Number(value)).filter(Number.isFinite)
+    : [];
+  if (authoredPressures.length > 1) {
+    const position = Math.min(authoredPressures.length - 1, Math.max(0, progress) * (authoredPressures.length - 1));
+    const index = Math.floor(position);
+    const amount = position - index;
+    const next = authoredPressures[Math.min(authoredPressures.length - 1, index + 1)];
+    return Math.min(1, Math.max(0, authoredPressures[index] + (next - authoredPressures[index]) * amount));
+  }
+  const samples = Array.isArray(gesture?.samples)
+    ? gesture.samples.filter(sample => Number.isFinite(Number(sample?.pressure)))
+    : [];
+  if (samples.length > 1) {
+    const target = Math.min(1, Math.max(0, progress));
+    let previous = samples[0];
+    for (const next of samples.slice(1)) {
+      const previousProgress = Number(previous.pathProgress) || 0;
+      const nextProgress = Number(next.pathProgress);
+      if (!Number.isFinite(nextProgress) || target > nextProgress) {
+        previous = next;
+        continue;
+      }
+      const span = Math.max(0.000001, nextProgress - previousProgress);
+      const amount = Math.min(1, Math.max(0, (target - previousProgress) / span));
+      return Math.min(1, Math.max(0, Number(previous.pressure) + (Number(next.pressure) - Number(previous.pressure)) * amount));
+    }
+    return Math.min(1, Math.max(0, Number(previous.pressure)));
+  }
+  return 0.5;
+};
+
+const makeFreedrawSvgSegments = (points, element, gesture, baseWidth) => {
+  if (!Array.isArray(points) || points.length < 2) return [];
+  const segments = [];
+  const lastIndex = points.length - 1;
+  for (let index = 0; index < lastIndex; index += 1) {
+    const previous = points[Math.max(0, index - 1)];
+    const current = points[index];
+    const next = points[index + 1];
+    const following = points[Math.min(lastIndex, index + 2)];
+    const control1 = [
+      current[0] + (next[0] - previous[0]) / 6,
+      current[1] + (next[1] - previous[1]) / 6,
+    ];
+    const control2 = [
+      next[0] - (following[0] - current[0]) / 6,
+      next[1] - (following[1] - current[1]) / 6,
+    ];
+    const progress = (index + 0.5) / Math.max(1, lastIndex);
+    const pressure = getFreedrawPressureAtProgress(element, gesture, progress);
+    // Map the usual 0..1 pressure range to a restrained variation around the
+    // authored visual weight.
+    const pressureScale = 0.62 + pressure * 0.76;
+    segments.push({
+      d: `M ${current[0]} ${current[1]} C ${control1[0]} ${control1[1]}, ${control2[0]} ${control2[1]}, ${next[0]} ${next[1]}`,
+      strokeWidth: Math.max(0.5, baseWidth * pressureScale),
+    });
+  }
+  return segments;
+};
+
+const getFreedrawPlaybackOutline = (screenPath, element) => {
+  if (!Array.isArray(screenPath) || screenPath.length < 2) return "";
+  try {
+    // Reuse Excalidraw's own freehand outline generator for the captured
+    // prefix. The points are already in viewport coordinates, so a zero
+    // origin clone can be painted directly into the playback SVG. This keeps
+    // simulated pressure, caps, joins, and corner handling consistent with
+    // the authored stroke while leaving the scene element untouched.
+    return getFreeDrawSvgPath({
+      ...element,
+      x: 0,
+      y: 0,
+      points: screenPath.map(([x, y]) => [x, y]),
+      pressures: Array.isArray(element.pressures) && element.pressures.length === screenPath.length
+        ? element.pressures
+        : undefined,
+      simulatePressure: element.simulatePressure !== false,
+    });
+  } catch {
+    return "";
+  }
+};
+
 const parseParameters = code => parseScriptParameters(code);
 
 const updateCodeWithParamValues = (code, params) => {
@@ -3944,7 +4052,7 @@ function App() {
   const svgSourceSelectionMutedUntilRef = useRef(0);
   const [p5OverlayScene, setP5OverlayScene] = useState({ elements: [], canvasElements: [], appState: null, captureRevision: 0 });
   const connectedMediaSourceIds = useMemo(() => getConnectedMediaSourceIds(p5OverlayScene.elements, mediaSources), [p5OverlayScene.elements, mediaSources]);
-  const mediaPlaybackOverrides = useMemo(() => {
+  const legacyMediaPlaybackOverrides = useMemo(() => {
     const grouped = new Map();
     const processorElements = [];
     p5OverlayScene.elements.forEach(element => {
@@ -4488,6 +4596,19 @@ function App() {
 
   const [scoreTime, setScoreTime] = useState(0);
   const [scorePlaying, setScorePlaying] = useState(false);
+  const [arrangementState, setArrangementState] = useState(() => createArrangementState());
+  const arrangementStateRef = useRef(arrangementState);
+  arrangementStateRef.current = arrangementState;
+  const [arrangementRecordArmed, setArrangementRecordArmed] = useState(false);
+  const [selectedArrangementClipId, setSelectedArrangementClipId] = useState("");
+  const arrangementRecordArmedRef = useRef(arrangementRecordArmed);
+  arrangementRecordArmedRef.current = arrangementRecordArmed;
+  const arrangementRecordingClockRef = useRef({ unwrappedTime: 0, transportTime: 0, loopPhase: 0, loopIteration: 0 });
+  const arrangementTakeIdsRef = useRef(new Map());
+  const arrangementPendingLifecycleRef = useRef(new Map());
+  const arrangementFinalizePendingRef = useRef(() => null);
+  const previousArrangementTransportPlayingRef = useRef(scorePlaying);
+  const arrangementStaticRuntimeRef = useRef(new Map());
   const [scoreRate, setScoreRate] = useState(() => {
     const saved = Number(localStorage.getItem("underscores_iannix_rate"));
     return Number.isFinite(saved) && saved > 0 ? saved : 1;
@@ -4617,6 +4738,82 @@ function App() {
     setTransportLoopStartValue(createTimeValue(`${Math.max(0, start)} s`, Math.max(0, start)));
     setTransportLoopEndValue(createTimeValue(`${Math.max(start + 0.001, end)} s`, Math.max(start + 0.001, end)));
   }, []);
+  // Arrangement lanes cover every authored canvas object, not only the
+  // overlay-managed media/Livecode subset.  The overlay list is deliberately
+  // filtered for rendering, so using it here would make static rectangles,
+  // gestures, and other native objects disappear from the arrangement UI.
+  const arrangementSceneElements = p5OverlayScene.canvasElements?.length
+    ? p5OverlayScene.canvasElements
+    : p5OverlayScene.elements;
+  const arrangementIndex = useMemo(() => createArrangementIndex(
+    arrangementSceneElements.filter(element => !element.isDeleted),
+    arrangementState,
+    { context: timeContext },
+  ), [arrangementSceneElements, arrangementState, timeContext]);
+  const arrangementProjectEnd = useMemo(() => getArrangementProjectEnd({
+    elements: arrangementSceneElements,
+    loopEnd: transportLoopEnabled ? transportLoopEnd : 0,
+    minimum: 10,
+    context: timeContext,
+  }), [arrangementSceneElements, timeContext, transportLoopEnabled, transportLoopEnd]);
+  const arrangementRuntime = useMemo(() => {
+    const runtime = new Map();
+    arrangementIndex.lanes.forEach(lane => {
+      const element = arrangementIndex.elementById.get(lane.elementId);
+      const gesture = normalizeGestureTrack(element?.customData?.underscoresGesture);
+      const selected = selectArrangementClipAtTime(queryArrangementLaneAtTime(lane, scoreTime), scoreTime, {
+        arrangementState,
+        context: timeContext,
+        projectEnd: arrangementProjectEnd,
+        intrinsicDuration: gesture?.duration || 0,
+      });
+      runtime.set(lane.elementId, {
+        controlled: true,
+        adapterKind: getArrangementAdapterKind(element),
+        active: Boolean(selected),
+        clip: selected?.clip || null,
+        state: selected?.state || null,
+      });
+    });
+    return runtime;
+  }, [arrangementIndex, arrangementProjectEnd, arrangementState, scoreTime, timeContext]);
+  const mediaPlaybackOverrides = useMemo(() => {
+    const overrides = { ...legacyMediaPlaybackOverrides };
+    const arrangedBySource = new Map();
+    p5OverlayScene.elements.forEach((element, elementIndex) => {
+      if (!isMediaStreamElement(element)) return;
+      const config = normalizeMediaStreamConfig(element.customData?.underscoresMediaStream);
+      if (config.kind !== MEDIA_STREAM_KINDS.PREVIEW || !config.sourceId) return;
+      const runtime = arrangementRuntime.get(element.id);
+      if (!runtime?.controlled) return;
+      const entries = arrangedBySource.get(config.sourceId) || [];
+      entries.push({ config, runtime, elementIndex });
+      arrangedBySource.set(config.sourceId, entries);
+    });
+    arrangedBySource.forEach((entries, sourceId) => {
+      const active = entries
+        .filter(entry => entry.runtime.active)
+        .sort((left, right) => {
+          const startDifference = Number(right.runtime.clip?.timing?.start || 0)
+            - Number(left.runtime.clip?.timing?.start || 0);
+          return startDifference || right.elementIndex - left.elementIndex;
+        })[0] || null;
+      const fallback = active || entries[entries.length - 1];
+      overrides[sourceId] = {
+        ...(overrides[sourceId] || {}),
+        muted: fallback.config.media.muted === true,
+        volume: fallback.config.media.volume,
+        playing: Boolean(active),
+        loop: active?.runtime.clip?.timing?.loopMode === "loop",
+        playbackRate: Number(active?.runtime.clip?.timing?.rate) || 1,
+        linkTransport: true,
+        transportTime: Number(active?.runtime.state?.localTime) || 0,
+        transportPlaying: Boolean(active) && scorePlaying,
+        transportRate: scoreRate,
+      };
+    });
+    return overrides;
+  }, [arrangementRuntime, legacyMediaPlaybackOverrides, p5OverlayScene.elements, scorePlaying, scoreRate]);
   const [midiClockMode, setMidiClockMode] = useState(() => {
     const saved = localStorage.getItem("underscores_midi_clock_mode");
     return ["send", "receive"].includes(saved) ? saved : "internal";
@@ -5111,17 +5308,74 @@ function App() {
       );
       const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
       lastSceneElementPersistenceSignatureRef.current = scenePersistenceSignature(elements);
-      const migrated = elements.map(normalizeScoreElementMetadata);
+      const migrated = elements.map(element => migrateGestureToArrangement(normalizeScoreElementMetadata(element), timeContext));
       if (migrated.some((element, index) => element !== elements[index])) {
         excalidrawAPI.updateScene({ elements: migrated, commitToHistory: false });
       }
       setRelationshipGraph(previous => hydratePhysicsGraphForElements(previous, migrated));
     }
-  }, [excalidrawAPI, setRelationshipGraph]);
+  }, [excalidrawAPI, setRelationshipGraph, timeContext]);
 
   useEffect(() => {
     scoreTimeRef.current = scoreTime;
   }, [scoreTime]);
+
+  useEffect(() => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+    const saved = arrangementStaticRuntimeRef.current;
+    const nextControlledIds = new Set();
+    let changed = false;
+    const now = Date.now();
+    const elements = api.getSceneElementsIncludingDeleted().map(element => {
+      const runtime = arrangementRuntime.get(element.id);
+      const isGesture = Boolean(normalizeGestureTrack(element.customData?.underscoresGesture));
+      const runtimeOverlayOwnsElement = isGesture || isMediaStreamElement(element) || isLivecodeNodeElement(element);
+      if (!runtime || runtimeOverlayOwnsElement || element.isDeleted) {
+        const previous = saved.get(element.id);
+        if (!previous) return element;
+        saved.delete(element.id);
+        changed = true;
+        return {
+          ...element,
+          opacity: previous.opacity,
+          locked: previous.locked,
+          version: (element.version || 0) + 1,
+          versionNonce: Math.floor(Math.random() * 0x7fffffff),
+          updated: now,
+        };
+      }
+      nextControlledIds.add(element.id);
+      const previous = saved.get(element.id) || {
+        opacity: element.opacity ?? 100,
+        locked: element.locked === true,
+        active: null,
+      };
+      saved.set(element.id, previous);
+      if (previous.active === runtime.active) return element;
+      previous.active = runtime.active;
+      changed = true;
+      return {
+        ...element,
+        opacity: runtime.active ? previous.opacity : 0,
+        locked: runtime.active ? previous.locked : true,
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: now,
+      };
+    });
+    for (const elementId of [...saved.keys()]) {
+      if (!nextControlledIds.has(elementId) && !elements.some(element => element.id === elementId)) saved.delete(elementId);
+    }
+    if (changed) {
+      historySuppressSceneRef.current += 1;
+      api.updateScene({ elements, commitToHistory: false });
+      window.setTimeout(() => {
+        historySuppressSceneRef.current = Math.max(0, historySuppressSceneRef.current - 1);
+        lastSceneElementsRef.current = new Map(api.getSceneElementsIncludingDeleted().map(element => [element.id, element]));
+      }, 0);
+    }
+  }, [arrangementRuntime]);
 
   const panicMidi = useCallback(() => {
     midiVoiceTrackerRef.current?.panic();
@@ -6132,6 +6386,13 @@ function App() {
       // display/timecode preference and must not batch two 60 Hz solver steps
       // into one 30 Hz canvas pose.
       scoreTimeRef.current = playbackTime;
+      if (arrangementRecordArmedRef.current) {
+        arrangementRecordingClockRef.current = advanceArrangementRecordingClock(
+          arrangementRecordingClockRef.current,
+          playbackTime,
+          { enabled: transportLoopEnabled, start: transportLoopStart, end: transportLoopEnd },
+        );
+      }
       if (physicsFollowsTransport(relationshipGraphRef.current.systems)) {
         physicsRuntimeRef.current?.transport(playbackTime, { scrub: false });
       }
@@ -7260,6 +7521,7 @@ function App() {
 
   const emitPointerInputSample = (event, phase, coords) => {
     const nativeEvent = event?.nativeEvent || event || {};
+    const recordingClock = arrangementRecordingClockRef.current;
     const sample = inputBus.emit({
       source: nativeEvent.pointerType || "pointer",
       deviceId: `${nativeEvent.pointerType || "pointer"}:${nativeEvent.pointerId ?? 0}`,
@@ -7276,6 +7538,12 @@ function App() {
         strokeTime: coords.strokeTime || 0,
         speed: coords.speed || 0,
         transportTime: Number(scoreTimeRef.current) || 0,
+        // Keep the recording clock captured at pointer time. In particular,
+        // a paused transport must anchor a gesture at the playhead rather
+        // than backdating it by the wall-clock duration of the stroke.
+        unwrappedTime: Number(recordingClock?.unwrappedTime),
+        loopPhase: Number(recordingClock?.loopPhase),
+        loopIteration: Number(recordingClock?.loopIteration),
       },
     });
     strokeInputSamplesRef.current.push(sample);
@@ -9430,18 +9698,323 @@ function App() {
     return () => window.clearTimeout(timeout);
   }, [activeBrushCode, brushParams, activeBrushId, editingModifierTarget]);
 
-  const recordCompletedStroke = ({ finalElements, durationMs, brush = null }) => {
-    const samples = strokeInputSamplesRef.current.map(sample => ({
-      ...sample,
-      time: Math.max(0, (sample.time || 0) - (strokeInputSamplesRef.current[0]?.time || 0)),
+  const updateElementArrangement = useCallback((elementId, updater, { commitToHistory = true } = {}) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return null;
+    let updatedElement = null;
+    const now = Date.now();
+    const elements = api.getSceneElementsIncludingDeleted().map(element => {
+      if (element.id !== elementId || element.isDeleted) return element;
+      const currentClips = getElementArrangementClips(element);
+      const nextClips = typeof updater === "function" ? updater(currentClips, element) : updater;
+      let withClips = setElementArrangementClips(element, nextClips);
+      const gesture = normalizeGestureTrack(withClips.customData?.underscoresGesture);
+      if (!nextClips.length && gesture) withClips = { ...withClips, opacity: gesture.sourceOpacity };
+      updatedElement = {
+        ...withClips,
+        version: (element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: now,
+      };
+      return updatedElement;
+    });
+    if (!updatedElement) return null;
+    api.updateScene({ elements, commitToHistory });
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return updatedElement;
+  }, []);
+
+  const ensureArrangementTake = useCallback((recordingId, loopIteration = 0) => {
+    const key = `${recordingId}:${loopIteration}`;
+    const existingId = arrangementTakeIdsRef.current.get(key);
+    if (existingId) return existingId;
+    const previous = arrangementStateRef.current;
+    const take = createArrangementTake({
+      id: crypto.randomUUID(),
+      name: `Take ${previous.takes.length + 1}`,
+      order: previous.takes.length,
+      recordingId,
+    }, previous.takes.length);
+    const next = createArrangementState({ ...previous, takes: [...previous.takes, take] });
+    arrangementStateRef.current = next;
+    setArrangementState(next);
+    arrangementTakeIdsRef.current.set(key, take.id);
+    return take.id;
+  }, []);
+
+  const setArrangementRecordingArmed = useCallback(nextValue => {
+    const enabled = typeof nextValue === "function" ? nextValue(arrangementRecordArmedRef.current) : Boolean(nextValue);
+    arrangementRecordArmedRef.current = enabled;
+    setArrangementRecordArmed(enabled);
+    arrangementTakeIdsRef.current = new Map();
+    if (enabled) {
+      arrangementRecordingClockRef.current = {
+        unwrappedTime: Math.max(0, Number(scoreTimeRef.current) || 0),
+        transportTime: Math.max(0, Number(scoreTimeRef.current) || 0),
+        loopPhase: transportLoopEnd > transportLoopStart
+          ? ((scoreTimeRef.current - transportLoopStart) % (transportLoopEnd - transportLoopStart) + (transportLoopEnd - transportLoopStart)) % (transportLoopEnd - transportLoopStart)
+          : 0,
+        loopIteration: 0,
+      };
+      if (arrangementStateRef.current.recording.mode === "rolling") setScorePlaying(true);
+    } else {
+      [...arrangementPendingLifecycleRef.current.keys()].forEach(elementId => {
+        arrangementFinalizePendingRef.current(elementId);
+      });
+    }
+    setSceneExchangeStatus(enabled ? `Arrangement recording armed (${arrangementStateRef.current.recording.mode}).` : "Arrangement recording disarmed.");
+    return enabled;
+  }, [transportLoopEnd, transportLoopStart]);
+
+  const setArrangementRecordingMode = useCallback(modeValue => {
+    const mode = modeValue === "step" ? "step" : "rolling";
+    const next = createArrangementState({
+      ...arrangementStateRef.current,
+      recording: { ...arrangementStateRef.current.recording, mode },
+    });
+    arrangementStateRef.current = next;
+    setArrangementState(next);
+    if (mode === "step") setScorePlaying(false);
+    setSceneExchangeStatus(`Arrangement record mode: ${mode}.`);
+  }, []);
+
+  const patchArrangementRecordingSettings = useCallback(patch => {
+    const next = createArrangementState({
+      ...arrangementStateRef.current,
+      recording: { ...arrangementStateRef.current.recording, ...patch },
+    });
+    arrangementStateRef.current = next;
+    setArrangementState(next);
+    return next.recording;
+  }, []);
+
+  const stepArrangementPlayhead = useCallback(direction => {
+    const step = Math.max(1 / Math.max(1, transportFps), resolveTimeValue(arrangementStateRef.current.recording.stepValue, timeContext));
+    const next = Math.max(0, (Number(scoreTimeRef.current) || 0) + Math.sign(direction || 1) * step);
+    scoreTimeRef.current = next;
+    setScoreTime(next);
+    return next;
+  }, [timeContext, transportFps]);
+
+  const addArrangementClipAtPlayhead = useCallback((elementIds = null) => {
+    const api = excalidrawAPIRef.current;
+    if (!api) throw new Error("The scene is not ready.");
+    const selectedIds = elementIds?.length
+      ? new Set(elementIds)
+      : new Set(Object.keys(api.getAppState().selectedElementIds || {}).filter(id => api.getAppState().selectedElementIds[id]));
+    const targets = api.getSceneElements().filter(element => selectedIds.has(element.id));
+    if (!targets.length) throw new Error("Select at least one canvas object first.");
+    const start = Math.max(0, Number(scoreTimeRef.current) || 0);
+    const oneBar = Math.max(1 / transportFps, resolveTimeValue("1 bar", timeContext));
+    const replacements = new Map();
+    targets.forEach(element => {
+      const media = normalizeMediaStreamConfig(element.customData?.underscoresMediaStream);
+      const isMedia = isMediaStreamElement(element) && media.kind === MEDIA_STREAM_KINDS.PREVIEW;
+      const isLivecode = isLivecodeNodeElement(element);
+      const gesture = normalizeGestureTrack(element.customData?.underscoresGesture);
+      const intrinsicMediaDuration = isMedia ? Number(getMediaRuntimeSource(media.sourceId)?.element?.duration) : 0;
+      const durationMode = isMedia || isLivecode || gesture ? "fixed" : "hold";
+      const duration = gesture?.duration || (Number.isFinite(intrinsicMediaDuration) && intrinsicMediaDuration > 0 ? intrinsicMediaDuration : (isMedia || isLivecode ? oneBar : 0));
+      let replacement = addElementArrangementClip(element, createArrangementClip({
+        timing: {
+          start,
+          startValue: createTimeValue(start, start, timeContext),
+          duration,
+          durationValue: createTimeValue(duration, duration, timeContext),
+          durationMode,
+          sourceOffset: 0,
+          rate: 1,
+          loopMode: media.media?.loop === true ? "loop" : "once",
+        },
+        recording: { mode: "step", unwrappedStart: start, transportStart: start, loopStart: transportLoopStart, loopEnd: transportLoopEnd, loopIteration: 0 },
+      }, timeContext));
+      if (normalizeGestureTrack(element.customData?.underscoresGesture)) replacement = { ...replacement, opacity: 0 };
+      replacements.set(element.id, replacement);
+    });
+    api.updateScene({
+      elements: api.getSceneElementsIncludingDeleted().map(element => {
+        const replacement = replacements.get(element.id);
+        return replacement ? { ...replacement, version: (element.version || 0) + 1, versionNonce: Math.floor(Math.random() * 0x7fffffff), updated: Date.now() } : element;
+      }),
+      commitToHistory: true,
+    });
+    setModifierUpdateNonce(nonce => nonce + 1);
+    setSceneExchangeStatus(`Added ${targets.length} arrangement clip${targets.length === 1 ? "" : "s"} at the playhead.`);
+    return { elementIds: targets.map(element => element.id) };
+  }, [timeContext, transportFps, transportLoopEnd, transportLoopStart]);
+
+  const editArrangementClip = useCallback((elementId, clipId, patch, { commitToHistory = true } = {}) => updateElementArrangement(
+    elementId,
+    clips => clips.map(clip => clip.id === clipId ? createArrangementClip({
+      ...clip,
+      ...patch,
+      timing: { ...clip.timing, ...(patch?.timing || {}) },
+      recording: { ...clip.recording, ...(patch?.recording || {}) },
+    }, timeContext) : clip),
+    { commitToHistory },
+  ), [timeContext, updateElementArrangement]);
+
+  const deleteArrangementClip = useCallback((elementId, clipId) => {
+    const result = updateElementArrangement(elementId, clips => clips.filter(clip => clip.id !== clipId), { commitToHistory: true });
+    if (selectedArrangementClipId === clipId) setSelectedArrangementClipId("");
+    return result;
+  }, [selectedArrangementClipId, updateElementArrangement]);
+
+  const selectArrangementClip = useCallback((elementId, clipId) => {
+    setSelectedArrangementClipId(clipId);
+    const api = excalidrawAPIRef.current;
+    if (!api) return;
+    api.updateScene({ appState: { selectedElementIds: { [elementId]: true } }, commitToHistory: false });
+  }, []);
+
+  const patchArrangementTake = useCallback((takeId, patch) => {
+    const next = createArrangementState({
+      ...arrangementStateRef.current,
+      takes: arrangementStateRef.current.takes.map(take => take.id === takeId ? { ...take, ...patch } : take),
+    });
+    arrangementStateRef.current = next;
+    setArrangementState(next);
+  }, []);
+
+  const deleteArrangementTake = useCallback(takeId => {
+    const api = excalidrawAPIRef.current;
+    if (!api) return false;
+    const now = Date.now();
+    const elements = api.getSceneElementsIncludingDeleted().map(element => {
+      const clips = getElementArrangementClips(element);
+      if (!clips.some(clip => clip.takeId === takeId)) return element;
+      const remaining = clips.filter(clip => clip.takeId !== takeId);
+      let next = setElementArrangementClips(element, remaining);
+      const gesture = normalizeGestureTrack(next.customData?.underscoresGesture);
+      if (!remaining.length && gesture) next = { ...next, opacity: gesture.sourceOpacity };
+      return { ...next, version: (element.version || 0) + 1, versionNonce: Math.floor(Math.random() * 0x7fffffff), updated: now };
+    });
+    const nextArrangement = createArrangementState({
+      ...arrangementStateRef.current,
+      takes: arrangementStateRef.current.takes.filter(take => take.id !== takeId),
+    });
+    arrangementStateRef.current = nextArrangement;
+    setArrangementState(nextArrangement);
+    api.updateScene({ elements, commitToHistory: true });
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return true;
+  }, []);
+
+  const beginArrangementLifecycleRecording = useCallback((elementId, lifecycleKind) => {
+    if (!arrangementRecordArmedRef.current || arrangementPendingLifecycleRef.current.has(elementId)) return;
+    const clock = arrangementRecordingClockRef.current;
+    arrangementPendingLifecycleRef.current.set(elementId, {
+      elementId,
+      lifecycleKind,
+      mode: arrangementStateRef.current.recording.mode,
+      recordingId: crypto.randomUUID(),
+      unwrappedStart: clock.unwrappedTime,
+      transportStart: Math.max(0, Number(scoreTimeRef.current) || 0),
+      loopIteration: clock.loopIteration,
+    });
+  }, []);
+
+  const finalizeArrangementLifecycleRecording = useCallback(elementId => {
+    const pending = arrangementPendingLifecycleRef.current.get(elementId);
+    if (!pending) return null;
+    arrangementPendingLifecycleRef.current.delete(elementId);
+    const clock = arrangementRecordingClockRef.current;
+    const oneFrame = 1 / Math.max(1, transportFps);
+    const rollingDuration = Math.max(oneFrame, clock.unwrappedTime - pending.unwrappedStart);
+    const durationMode = pending.mode === "step" ? arrangementStateRef.current.recording.stepDurationMode : "fixed";
+    const duration = pending.mode === "step" ? (durationMode === "fixed" ? oneFrame : 0) : rollingDuration;
+    const clip = createArrangementClip({
+      timing: {
+        start: pending.transportStart,
+        startValue: createTimeValue(pending.transportStart, pending.transportStart, timeContext),
+        duration,
+        durationValue: createTimeValue(duration, duration, timeContext),
+        durationMode,
+        sourceOffset: 0,
+        rate: 1,
+        loopMode: "once",
+      },
+      recording: {
+        mode: pending.mode,
+        unwrappedStart: pending.unwrappedStart,
+        transportStart: pending.transportStart,
+        loopStart: transportLoopStart,
+        loopEnd: transportLoopEnd,
+        loopIteration: pending.loopIteration,
+        recordingId: pending.recordingId,
+      },
+    }, timeContext);
+    const segments = pending.mode === "rolling" && transportLoopEnabled
+      ? splitClipAcrossLoop(clip, transportLoopStart, transportLoopEnd, { context: timeContext })
+      : [clip];
+    const clips = segments.map(segment => ({
+      ...segment,
+      takeId: ensureArrangementTake(pending.recordingId, segment.recording.loopIteration),
     }));
+    updateElementArrangement(elementId, current => [...current, ...clips], { commitToHistory: true });
+    if (pending.mode === "step") stepArrangementPlayhead(1);
+    return clips;
+  }, [ensureArrangementTake, stepArrangementPlayhead, timeContext, transportFps, transportLoopEnabled, transportLoopEnd, transportLoopStart, updateElementArrangement]);
+  arrangementFinalizePendingRef.current = finalizeArrangementLifecycleRecording;
+
+  const handleArrangementMediaEnded = useCallback(sourceId => {
+    if (!sourceId || !arrangementRecordArmedRef.current) return;
+    const api = excalidrawAPIRef.current;
+    (api?.getSceneElements?.() || []).forEach(element => {
+      const pending = arrangementPendingLifecycleRef.current.get(element.id);
+      if (pending?.lifecycleKind !== "media" || !isMediaStreamElement(element)) return;
+      const config = normalizeMediaStreamConfig(element.customData?.underscoresMediaStream);
+      if (config.sourceId === sourceId) finalizeArrangementLifecycleRecording(element.id);
+    });
+  }, [finalizeArrangementLifecycleRecording]);
+
+  useEffect(() => {
+    const wasPlaying = previousArrangementTransportPlayingRef.current;
+    previousArrangementTransportPlayingRef.current = scorePlaying;
+    if (!wasPlaying || scorePlaying) return;
+    [...arrangementPendingLifecycleRef.current.keys()].forEach(finalizeArrangementLifecycleRecording);
+  }, [finalizeArrangementLifecycleRecording, scorePlaying]);
+
+  const recordCompletedStroke = ({ finalElements, durationMs, brush = null }) => {
+    const rawSamples = strokeInputSamplesRef.current;
+    const firstSampleTime = rawSamples[0]?.time || 0;
     const duration = Math.max(0.001, Math.max(0, durationMs || 0) / 1000);
-    const transportStart = Number(samples[0]?.data?.transportTime);
+    const recordingClock = arrangementRecordingClockRef.current;
+    const firstSampleTransportTime = Number(rawSamples[0]?.data?.transportTime);
+    const firstSampleUnwrappedTime = Number(rawSamples[0]?.data?.unwrappedTime);
+    const unwrappedStart = !scorePlaying && Number.isFinite(firstSampleTransportTime)
+      ? Math.max(0, firstSampleTransportTime)
+      : Number.isFinite(firstSampleUnwrappedTime)
+      ? Math.max(0, firstSampleUnwrappedTime)
+      : Math.max(0, recordingClock.unwrappedTime - duration);
+    const loopDuration = Math.max(0, transportLoopEnd - transportLoopStart);
+    const samples = rawSamples.map(sample => {
+      const elapsed = Math.max(0, ((sample.time || 0) - firstSampleTime) / 1000);
+      const unwrappedTime = unwrappedStart + elapsed;
+      const relative = loopDuration > 0 ? unwrappedTime - transportLoopStart : unwrappedTime;
+      const loopIteration = loopDuration > 0 ? Math.max(0, Math.floor(relative / loopDuration)) : 0;
+      const loopPhase = loopDuration > 0 ? ((relative % loopDuration) + loopDuration) % loopDuration : 0;
+      const sampledTransportTime = Number(sample?.data?.transportTime);
+      const transportTime = Number.isFinite(sampledTransportTime)
+        ? sampledTransportTime
+        : (loopDuration > 0 && transportLoopEnabled ? transportLoopStart + loopPhase : (Number(scoreTimeRef.current) || 0));
+      return {
+      ...sample,
+        time: Math.max(0, (sample.time || 0) - firstSampleTime),
+        recording: { unwrappedTime, transportTime, loopPhase, loopIteration },
+      };
+    });
+    const transportStart = Number.isFinite(firstSampleTransportTime)
+      ? firstSampleTransportTime
+      : Number(samples[0]?.recording?.transportTime ?? samples[0]?.data?.transportTime);
     const startTime = Number.isFinite(transportStart) ? transportStart : Number(scoreTimeRef.current) || 0;
     const loopOverdub = gestureLoopRecordingRef.current
       && historyController.status === "recording"
       && transportLoopEnd > transportLoopStart;
     const gestureId = crypto.randomUUID();
+    const arrangementCapture = arrangementRecordArmedRef.current;
+    const arrangementMode = arrangementStateRef.current.recording.mode;
+    const arrangementRecordingId = crypto.randomUUID();
     const sourceElements = (finalElements || []).map(element => JSON.parse(JSON.stringify(element)));
     const gestureElements = samples.length >= 2 ? sourceElements.map(element => {
       const sourceOpacity = Number(element.customData?.savedOpacity ?? element.opacity ?? 100);
@@ -9453,12 +10026,13 @@ function App() {
         loopStart: transportLoopStart,
         loopEnd: transportLoopEnd,
         source: samples[0]?.source || "pointer",
-        enabled: loopOverdub,
+        enabled: loopOverdub && !arrangementCapture,
         sourceOpacity,
+        strokeWidth: element.strokeWidth,
       });
-      return {
+      let nextElement = {
         ...element,
-        ...(loopOverdub ? { opacity: 0 } : {}),
+        ...(loopOverdub || arrangementCapture ? { opacity: 0 } : {}),
         version: (element.version || 0) + 1,
         versionNonce: Math.floor(Math.random() * 0x7fffffff),
         updated: Date.now(),
@@ -9467,6 +10041,42 @@ function App() {
           underscoresGesture: track,
         },
       };
+      if (arrangementCapture) {
+        const stepDurationMode = arrangementStateRef.current.recording.stepDurationMode;
+        const oneFrame = 1 / Math.max(1, transportFps);
+        const clipStart = arrangementMode === "step" ? Math.max(0, Number(scoreTimeRef.current) || 0) : startTime;
+        const clipDuration = arrangementMode === "step" ? (stepDurationMode === "fixed" ? oneFrame : 0) : duration;
+        const clip = createArrangementClip({
+          timing: {
+            start: clipStart,
+            startValue: createTimeValue(clipStart, clipStart, timeContext),
+            duration: clipDuration,
+            durationValue: createTimeValue(clipDuration, clipDuration, timeContext),
+            durationMode: arrangementMode === "step" ? stepDurationMode : "fixed",
+            sourceOffset: 0,
+            rate: 1,
+            loopMode: "once",
+          },
+          recording: {
+            mode: arrangementMode,
+            unwrappedStart,
+            transportStart: clipStart,
+            loopStart: transportLoopStart,
+            loopEnd: transportLoopEnd,
+            loopIteration: samples[0]?.recording?.loopIteration || 0,
+            recordingId: arrangementRecordingId,
+          },
+        }, timeContext);
+        const split = arrangementMode === "rolling" && transportLoopEnabled
+          ? splitClipAcrossLoop(clip, transportLoopStart, transportLoopEnd, { context: timeContext })
+          : [clip];
+        const clips = split.map(segment => ({
+          ...segment,
+          takeId: ensureArrangementTake(arrangementRecordingId, segment.recording.loopIteration),
+        }));
+        nextElement = setElementArrangementClips(nextElement, clips);
+      }
+      return nextElement;
     }) : sourceElements;
 
     if (gestureElements.length && excalidrawAPIRef.current) {
@@ -9500,6 +10110,7 @@ function App() {
         gestureId: samples.length >= 2 ? gestureId : null,
       },
     });
+    if (arrangementCapture && arrangementMode === "step") stepArrangementPlayhead(1);
     strokeInputSamplesRef.current = [];
     strokeRecordingSuppressedRef.current = false;
   };
@@ -13289,6 +13900,18 @@ function App() {
     { id: "transport.seek", name: "Seek Global Transport", category: "Transport", args: { seconds: "number|timeValue" }, action: (_api, args) => runtimeCallbacksRef.current.transportSeek(resolveTimeValue(args?.value ?? args?.seconds ?? 0, timeContext)) },
     { id: "transport.jump.start", name: "Jump to Timeline or Loop Start", category: "Transport", action: () => runtimeCallbacksRef.current.transportJump("start") },
     { id: "transport.jump.end", name: "Jump to Timeline or Loop End", category: "Transport", action: () => runtimeCallbacksRef.current.transportJump("end") },
+    { id: "arrangement.clip.add", name: "Add Clip at Playhead", category: "Arrangement", args: { elementIds: "string[]?" }, ai: { expose: true, description: "Opt selected canvas objects into arrangement control by creating clips at the current playhead." }, action: (_api, args) => addArrangementClipAtPlayhead(args?.elementIds) },
+    { id: "arrangement.clip.update", name: "Update Arrangement Clip", category: "Arrangement", args: { elementId: "string", clipId: "string", timing: "object?", enabled: "boolean?" }, ai: { expose: true, description: "Move, trim, stretch, loop, enable, or disable an existing arrangement clip." }, action: (_api, args) => editArrangementClip(args.elementId, args.clipId, { ...(typeof args.enabled === "boolean" ? { enabled: args.enabled } : {}), timing: args.timing || {} }) },
+    { id: "arrangement.clip.move", name: "Move Arrangement Clip", category: "Arrangement", args: { elementId: "string", clipId: "string", start: "timeValue" }, action: (_api, args) => editArrangementClip(args.elementId, args.clipId, { timing: { start: resolveTimeValue(args.start, timeContext), startValue: createTimeValue(args.start) } }) },
+    { id: "arrangement.clip.trim", name: "Trim Arrangement Clip", category: "Arrangement", args: { elementId: "string", clipId: "string", start: "timeValue?", duration: "timeValue", sourceOffset: "number?" }, action: (_api, args) => editArrangementClip(args.elementId, args.clipId, { timing: { ...(args.start != null ? { start: resolveTimeValue(args.start, timeContext), startValue: createTimeValue(args.start) } : {}), duration: resolveTimeValue(args.duration, timeContext), durationValue: createTimeValue(args.duration), ...(args.sourceOffset != null ? { sourceOffset: Number(args.sourceOffset) || 0 } : {}) } }) },
+    { id: "arrangement.clip.stretch", name: "Stretch Arrangement Clip", category: "Arrangement", args: { elementId: "string", clipId: "string", duration: "timeValue", rate: "number" }, action: (_api, args) => editArrangementClip(args.elementId, args.clipId, { timing: { duration: resolveTimeValue(args.duration, timeContext), durationValue: createTimeValue(args.duration), rate: Number(args.rate) || 1 } }) },
+    { id: "arrangement.clip.loop", name: "Toggle Arrangement Clip Loop", category: "Arrangement", args: { elementId: "string", clipId: "string", loop: "boolean" }, action: (_api, args) => editArrangementClip(args.elementId, args.clipId, { timing: { loopMode: args.loop === false ? "once" : "loop" } }) },
+    { id: "arrangement.clip.delete", name: "Delete Arrangement Clip", category: "Arrangement", args: { elementId: "string", clipId: "string" }, action: (_api, args) => deleteArrangementClip(args.elementId, args.clipId) },
+    { id: "arrangement.take.mute", name: "Mute Arrangement Take", category: "Arrangement", args: { takeId: "string", muted: "boolean" }, action: (_api, args) => patchArrangementTake(args.takeId, { muted: args.muted !== false }) },
+    { id: "arrangement.take.solo", name: "Solo Arrangement Take", category: "Arrangement", args: { takeId: "string", solo: "boolean" }, action: (_api, args) => patchArrangementTake(args.takeId, { solo: args.solo !== false }) },
+    { id: "arrangement.take.delete", name: "Delete Arrangement Take", category: "Arrangement", args: { takeId: "string" }, action: (_api, args) => deleteArrangementTake(args.takeId) },
+    { id: "arrangement.record.toggle", name: "Arm Arrangement Recording", category: "Arrangement", action: () => setArrangementRecordingArmed(value => !value) },
+    { id: "arrangement.record.mode", name: "Set Arrangement Recording Mode", category: "Arrangement", args: { mode: "rolling|step" }, action: (_api, args) => setArrangementRecordingMode(args?.mode) },
     { id: "presentation.panels", name: "Update Panel Presentation", category: "Panels", record: "presentation", args: { state: "panelState" }, action: (_api, args) => runtimeCallbacksRef.current.panelStateUpdate(args?.state || args) },
     { id: "settings.board.update", name: "Update Board Settings", category: "Settings", record: "presentation", args: { state: "boardSettings" }, sensitiveArgs: ["state.credentials", "state.apiKey", "state.token"], ai: { expose: true, description: "Change visual board settings such as theme, toolbar hints, accent/highlight colors, or interface theme. Never set credentials, API keys, tokens, endpoints, or permissions.", example: { state: { theme: "dark", accentColor: "#7d8588", accentOpacity: 70 } } }, action: (_api, args) => runtimeCallbacksRef.current.boardSettingsUpdate(args?.state || args) },
     { id: "grid.global.update", name: "Update Global Grid /grid update", aliases: ["/grid update"], category: "Grid", args: { patch: "gridPatch" }, ai: { expose: true, description: "Update the global grid, including appearance, spacing, subdivisions, snapping, time mapping, or value mapping.", example: { patch: { appearance: { visible: true }, snap: { mode: "hard" }, spacing: { x: 100, y: 100 } } } }, action: (_api, args) => runtimeCallbacksRef.current.globalGridUpdate(args?.patch || args) },
@@ -13641,6 +14264,18 @@ function App() {
         if (shortcutAction.id === "history.record.toggle") {
           const commandId = historyController.status.startsWith("recording") ? "history.record.stop" : "history.record.start";
           commandRegistry.execute(commandId, {}, { source: "shortcut", record: false, transportTime: scoreTimeRef.current });
+          return;
+        }
+        if (shortcutAction.id === "arrangement.record.toggle") {
+          setArrangementRecordingArmed(value => !value);
+          return;
+        }
+        if (shortcutAction.id === "arrangement.record.mode.toggle") {
+          setArrangementRecordingMode(arrangementStateRef.current.recording.mode === "rolling" ? "step" : "rolling");
+          return;
+        }
+        if (shortcutAction.id === "arrangement.step.forward" || shortcutAction.id === "arrangement.step.backward") {
+          stepArrangementPlayhead(shortcutAction.id.endsWith("forward") ? 1 : -1);
           return;
         }
         if (shortcutAction.id === "modpen.toggle") {
@@ -16234,6 +16869,7 @@ function App() {
     const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
     const existing = elements.find(element => element.id === elementId && isMediaStreamElement(element));
     if (!existing) return null;
+    const previousConfig = normalizeMediaStreamConfig(existing.customData.underscoresMediaStream);
     const config = patchMediaStreamConfig(existing.customData.underscoresMediaStream, patch);
     if (config.kind === MEDIA_STREAM_KINDS.HOLISTIC) writeHolisticSettingsPreset(config.holistic);
     const now = Date.now();
@@ -16250,6 +16886,10 @@ function App() {
     });
     persistMediaStreamSceneSoon(nextElements);
     setModifierUpdateNonce(nonce => nonce + 1);
+    if (typeof patch.media?.playing === "boolean" && patch.media.playing !== previousConfig.media.playing) {
+      if (patch.media.playing) beginArrangementLifecycleRecording(elementId, "media");
+      else finalizeArrangementLifecycleRecording(elementId);
+    }
     return config;
   };
 
@@ -17121,6 +17761,10 @@ function App() {
         ...(runtimeSettings ? { settings: runtimeSettings } : {}),
       },
     }, { commitToHistory: true });
+    if (running !== node.runtime.running) {
+      if (running) beginArrangementLifecycleRecording(elementId, "livecode");
+      else finalizeArrangementLifecycleRecording(elementId);
+    }
     if (!running && node.kind === LIVECODE_KINDS.strudel && node.runtime.settings?.syncTransport) setScorePlaying(false);
     if (node.kind === LIVECODE_KINDS.strudel && running) setLivecodeStatus("");
     else setLivecodeStatus(running
@@ -18205,9 +18849,16 @@ function App() {
     });
   };
 
+  const getArrangementAuthoredSerializationElements = elements => elements.map(element => {
+    const saved = arrangementStaticRuntimeRef.current.get(element.id);
+    return saved ? { ...element, opacity: saved.opacity, locked: saved.locked } : element;
+  });
+
   const createUnderscoresExchangeJson = (kind, elements) => {
     if (!excalidrawAPI) throw new Error("The scene is not ready.");
-    const serializedElements = kind === "scene" ? getPhysicsAuthoredSerializationElements(elements) : elements;
+    const serializedElements = kind === "scene"
+      ? getPhysicsAuthoredSerializationElements(getArrangementAuthoredSerializationElements(elements))
+      : getArrangementAuthoredSerializationElements(elements);
     const serialized = serializeAsJSON(
       serializedElements,
       excalidrawAPI.getAppState(),
@@ -18230,7 +18881,8 @@ function App() {
       iannixScripts,
       playCoreScripts,
       svgScripts,
-    } : null, kind === "scene"
+      arrangement: arrangementStateRef.current,
+    } : { arrangement: arrangementStateRef.current }, kind === "scene"
       ? relationshipGraphRef.current
       : relationshipGraphForSelection(relationshipGraphRef.current, elements.filter(element => !element.isDeleted).map(element => element.id))), null, 2);
   };
@@ -18326,7 +18978,7 @@ function App() {
     const restoredRuntimeElements = reconcileRuntimeCursorHosts((restored.elements || []).map(normalizeScoreElementMetadata));
     const restoredP5 = reconcileP5ScriptsWithElements(importedP5Scripts, restoredRuntimeElements);
     const repairedPhysics = repairLegacyAxleEndpointsForScene(importedRelationshipGraph, restoredP5.elements);
-    const restoredElements = repairedPhysics.elements;
+    const restoredElements = repairedPhysics.elements.map(element => migrateGestureToArrangement(element, timeContext));
     if (restored.files) excalidrawAPI.addFiles(Object.values(restored.files));
     excalidrawAPI.updateScene({
       elements: restoredElements,
@@ -18375,6 +19027,13 @@ function App() {
       setIannixScripts(authoredState.iannixScripts);
       setPlayCoreScripts(authoredState.playCoreScripts);
       setSvgScripts(authoredState.svgScripts);
+      const importedArrangement = createArrangementState(authoredState.arrangement);
+      arrangementStateRef.current = importedArrangement;
+      setArrangementState(importedArrangement);
+    } else {
+      const emptyArrangement = createArrangementState();
+      arrangementStateRef.current = emptyArrangement;
+      setArrangementState(emptyArrangement);
     }
     const restoredActiveP5Script = restoredP5.scripts[0];
     setActiveP5ScriptId(restoredActiveP5Script?.id || "");
@@ -18423,6 +19082,11 @@ function App() {
     window.clearTimeout(lastSceneSaveTimerRef.current);
     lastSceneSaveTimerRef.current = window.setTimeout(saveCurrentSceneLocally, delay);
   }, [saveCurrentSceneLocally]);
+
+  useEffect(() => {
+    if (!lastSceneRestoreAttemptedRef.current || lastSceneRestoreInProgressRef.current) return;
+    scheduleLastSceneSave();
+  }, [arrangementState, scheduleLastSceneSave]);
 
   useEffect(() => {
     if (!excalidrawAPI || lastSceneRestoreAttemptedRef.current) return;
@@ -18806,10 +19470,10 @@ function App() {
       return;
     }
     const elements = excalidrawAPIRef.current?.getSceneElements() || [];
+    const automationEnd = collectAutomationKeys(elements).reduce((end, key) => Math.max(end, Number(key.time) || 0), 0);
     const scoreEnd = Math.max(
-      10,
-      scoreTimeRef.current + 1,
-      historySnapshot.duration,
+      arrangementProjectEnd,
+      automationEnd,
       ...elements.filter(element => !element.isDeleted && getScoreData(element)?.role).map(element => {
         const timing = resolveIannixObjectTiming(element, { context: timeContext, grid: globalGridRef.current });
         return timing.start + timing.duration / Math.max(0.001, timing.rate || 1);
@@ -19375,7 +20039,7 @@ function App() {
       const imported = remapSelectionForImport(restored.elements || [], existing);
       if (imported.elements.length === 0) throw new Error("The selection JSON contains no objects.");
       const canonicalImportedElements = imported.elements.map(normalizeScoreElementMetadata);
-      const importedElements = reconcileRuntimeCursorHosts(
+      let importedElements = reconcileRuntimeCursorHosts(
         canonicalImportedElements,
         [...existing, ...canonicalImportedElements],
       );
@@ -19422,8 +20086,32 @@ function App() {
         mappings: [...current.mappings, ...importedRelationships.mappings.map(uniqueItem)],
         routes: [...current.routes, ...importedRelationships.routes.map(uniqueItem)],
       }));
+      const referencedTakeIds = new Set(pastedElements.flatMap(element => getElementArrangementClips(element).map(clip => clip.takeId).filter(Boolean)));
+      const referencedTakes = (parsedSelection.arrangement?.takes || []).filter(take => referencedTakeIds.has(take.id));
+      const takeIdMap = new Map(referencedTakes.map(take => [take.id, crypto.randomUUID()]));
+      importedElements = pastedElements.map(element => {
+        const clips = getElementArrangementClips(element);
+        return clips.length ? setElementArrangementClips(element, clips.map(clip => ({
+          ...clip,
+          takeId: takeIdMap.get(clip.takeId) || clip.takeId,
+        }))) : element;
+      });
+      const importedTakes = referencedTakes
+        .map((take, index) => ({
+          ...take,
+          id: takeIdMap.get(take.id),
+          order: arrangementStateRef.current.takes.length + index,
+        }));
+      if (importedTakes.length) {
+        const nextArrangement = createArrangementState({
+          ...arrangementStateRef.current,
+          takes: [...arrangementStateRef.current.takes, ...importedTakes],
+        });
+        arrangementStateRef.current = nextArrangement;
+        setArrangementState(nextArrangement);
+      }
       excalidrawAPI.updateScene({
-        elements: [...existing, ...pastedElements],
+        elements: [...existing, ...importedElements],
         appState: { selectedElementIds: importedIds },
         commitToHistory: true,
       });
@@ -21674,6 +22362,7 @@ function App() {
           documentationTipMode={documentationTipMode}
           autocompleteEnabled={autocompleteEnabled}
           onDocumentationHover={updateInfoViewFromDocumentation}
+          arrangementRuntime={arrangementRuntime}
           ariaLabel="p5 script source"
           getDiagnostics={source => {
             const validation = validateP5Source(source);
@@ -23334,11 +24023,13 @@ function App() {
       : authoredOpacity;
     const styleTrack = points => ({
       points,
-      smooth: !!element.roundness && points.length >= 3,
+      // Native freedraws are smoothed by Excalidraw even when roundness is
+      // null. Keep their playback centerline smooth for the same reason.
+      smooth: (element.type === "freedraw" || !!element.roundness) && points.length >= 3,
       strokeColor: isRuntimeCursor(element)
         ? (data.cursor.sourceStrokeColor || element.customData?.roleThemeSourceStrokeColor || "#ff3b0a")
         : element.strokeColor,
-      strokeWidth: element.strokeWidth,
+      strokeWidth: gesture?.strokeWidth ?? element.strokeWidth,
       opacity: renderedOpacity / 100,
     });
 
@@ -23420,27 +24111,67 @@ function App() {
     const loopOverride = transportLoopEnabled
       ? { start: transportLoopStart, end: transportLoopEnd }
       : null;
-    const elements = excalidrawAPI.getSceneElements().filter(element => (
-      !element.isDeleted && normalizeGestureTrack(element.customData?.underscoresGesture)?.playback.enabled
-    ));
+    const elements = excalidrawAPI.getSceneElements().filter(element => {
+      if (element.isDeleted) return false;
+      const gesture = normalizeGestureTrack(element.customData?.underscoresGesture);
+      return Boolean(gesture && (gesture.playback.enabled || arrangementRuntime.has(element.id)));
+    });
     if (!elements.length) return null;
     const zoom = excalidrawAPI.getAppState().zoom?.value || 1;
     const rendered = elements.flatMap(element => {
       const gesture = normalizeGestureTrack(element.customData?.underscoresGesture);
-      const playback = getGesturePlaybackState(gesture, scoreTime, loopOverride);
+      const arranged = arrangementRuntime.get(element.id);
+      const playback = arranged
+        ? {
+            visible: arranged.active,
+            progress: arranged.active
+              ? (arranged.clip?.recording?.mode === "step"
+                  ? 1
+                  : gesturePathProgressAtElapsed(gesture, arranged.state?.localTime || 0))
+              : 0,
+          }
+        : getGesturePlaybackState(gesture, scoreTime, loopOverride);
       if (!playback.visible) return [];
       return getElementRenderedCanvasTracks(element).flatMap((track, pathIndex) => {
         const revealed = sliceGesturePath(track.points, playback.progress);
         if (revealed.length < 2) return [];
         const screenPath = revealed.map(point => mapCanvasToScreen(point[0], point[1]));
+        const baseStrokeWidth = Math.max(0.5, track.strokeWidth || element.strokeWidth || 1)
+          * (element.type === "freedraw" ? FREEDRAW_RENDERED_STROKE_SCALE : 1)
+          * zoom;
         const commonProps = {
           fill: "none",
           stroke: getThemeColor(track.strokeColor || element.strokeColor || "#ffffff"),
-          strokeWidth: Math.max(0.5, track.strokeWidth || element.strokeWidth || 1) * zoom,
+          // The authored freedraw is rendered by Excalidraw's pressure-aware
+          // freehand renderer, which expands its centerline. The playback
+          // overlay is intentionally lightweight, but it still needs to use
+          // the same visual weight as the source instead of exposing the raw
+          // persisted centerline width.
+          strokeWidth: baseStrokeWidth,
           strokeLinecap: "round",
           strokeLinejoin: "round",
           opacity: track.opacity,
         };
+        if (element.type === "freedraw" && element.simulatePressure !== false && screenPath.length >= 2) {
+          const nativeOutline = getFreedrawPlaybackOutline(screenPath, element);
+          if (nativeOutline) {
+            return <path
+              key={`${element.id}-${pathIndex}-outline`}
+              d={nativeOutline}
+              fill={getThemeColor(track.strokeColor || element.strokeColor || "#ffffff")}
+              stroke="none"
+              opacity={track.opacity}
+            />;
+          }
+          return makeFreedrawSvgSegments(screenPath, element, gesture, baseStrokeWidth).map((segment, segmentIndex) => (
+            <path
+              key={`${element.id}-${pathIndex}-${segmentIndex}`}
+              d={segment.d}
+              {...commonProps}
+              strokeWidth={segment.strokeWidth}
+            />
+          ));
+        }
         return track.smooth
           ? <path key={`${element.id}-${pathIndex}`} d={pointsToSmoothSvgPath(screenPath)} {...commonProps} />
           : <polyline key={`${element.id}-${pathIndex}`} points={screenPath.map(point => `${point[0]},${point[1]}`).join(" ")} {...commonProps} />;
@@ -23883,10 +24614,11 @@ function App() {
       !element.isDeleted && ["curve", "cursor", "trigger"].includes(getScoreData(element)?.role)
     );
     const timingFrame = evaluateScoreFrame(excalidrawAPI.getSceneElements(), scoreTime, undefined, { detectCollisions: false, timeContext, globalGrid: globalGridRef.current });
+    const automationKeys = collectAutomationKeys(excalidrawAPI.getSceneElements());
+    const automationEnd = automationKeys.reduce((end, key) => Math.max(end, Number(key.time) || 0), 0);
     const scoreEnd = Math.max(
-      transportLoopEnd,
-      10,
-      historySnapshot.duration,
+      arrangementProjectEnd,
+      automationEnd,
       ...scoreObjects.map(element => {
         const timing = timingFrame.resolvedTimings.get(element.id) || resolveIannixObjectTiming(element, { context: timeContext, grid: globalGridRef.current });
         return timing.start + timing.duration / Math.max(0.001, timing.rate || 1);
@@ -23993,6 +24725,37 @@ function App() {
           </button>
           <button
             type="button"
+            className={arrangementRecordArmed ? "active arrangement-record" : "arrangement-record"}
+            onClick={() => setArrangementRecordingArmed(value => !value)}
+            title="Arm arrangement recording (Option-Shift-R)"
+            aria-label="Arm arrangement recording"
+            aria-pressed={arrangementRecordArmed}
+          >●</button>
+          <button
+            type="button"
+            className="arrangement-record-mode"
+            onClick={() => setArrangementRecordingMode(arrangementState.recording.mode === "rolling" ? "step" : "rolling")}
+            title="Toggle rolling or step recording (Option-Shift-S)"
+            aria-label={`Arrangement recording mode: ${arrangementState.recording.mode}`}
+          >{arrangementState.recording.mode === "rolling" ? "R" : "S"}</button>
+          {arrangementState.recording.mode === "step" ? <div className="arrangement-step-options">
+            <TimeValueInput
+              aria-label="Arrangement step size"
+              value={arrangementState.recording.stepValue}
+              context={timeContext}
+              defaultValue="1 f"
+              minSeconds={1 / transportFps}
+              onChange={value => patchArrangementRecordingSettings({ stepValue: value })}
+            />
+            <button
+              type="button"
+              onClick={() => patchArrangementRecordingSettings({ stepDurationMode: arrangementState.recording.stepDurationMode === "fixed" ? "hold" : "fixed" })}
+              title="Toggle Hold or One frame step clips"
+              aria-label={`Step clip duration: ${arrangementState.recording.stepDurationMode === "fixed" ? "one frame" : "hold"}`}
+            >{arrangementState.recording.stepDurationMode === "fixed" ? "1F" : "H"}</button>
+          </div> : null}
+          <button
+            type="button"
             className={autoKeyEnabled ? "active autokey" : "autokey"}
             onClick={() => commandRegistry.execute("automation.autokey.toggle", {}, { source: "transport", transportTime: scoreTimeRef.current })}
             title="Auto-key object changes"
@@ -24085,8 +24848,20 @@ function App() {
           onSeekCommit={commitTransportSeek}
           onLoopEnabledChange={setTransportLoopEnabled}
           onLoopChange={updateTransportLoop}
-          automationKeys={collectAutomationKeys(excalidrawAPI.getSceneElements())}
+          automationKeys={automationKeys}
           followPlayhead={followTimelinePlayhead}
+          arrangementLanes={arrangementIndex.lanes.map(lane => ({
+            ...lane,
+            label: getOutlinerElementLabel(arrangementIndex.elementById.get(lane.elementId)) || lane.elementId,
+          }))}
+          arrangementTakes={arrangementState.takes}
+          selectedElementIds={selectedElementIds}
+          selectedClipId={selectedArrangementClipId}
+          onClipSelect={selectArrangementClip}
+          onClipEdit={(elementId, clipId, timing, optionsValue) => editArrangementClip(elementId, clipId, { timing }, optionsValue)}
+          onClipDelete={deleteArrangementClip}
+          onTakePatch={patchArrangementTake}
+          onTakeDelete={deleteArrangementTake}
         />
       </div>
     );
@@ -25496,6 +26271,7 @@ function App() {
           documentationTipMode={documentationTipMode}
           autocompleteEnabled={autocompleteEnabled}
           onDocumentationHover={updateInfoViewFromDocumentation}
+          arrangementRuntime={arrangementRuntime}
         />
         <Excalidraw 
           theme={theme} 
@@ -27795,6 +28571,7 @@ function App() {
           transportTime={scoreTime}
           transportPlaying={scorePlaying}
           transportRate={scoreRate}
+          onMediaEnded={handleArrangementMediaEnded}
         />
         <MediaStreamOverlay
           elements={p5OverlayScene.elements}
@@ -27806,6 +28583,7 @@ function App() {
           onPathFrame={handleUnicursalPathFrame}
           transportTime={scoreTime}
           transportPlaying={scorePlaying}
+          arrangementRuntime={arrangementRuntime}
         />
         <MediaActorOverlay
           appState={p5OverlayScene.appState}
@@ -27848,6 +28626,7 @@ function App() {
           documentationTipMode={documentationTipMode}
           autocompleteEnabled={autocompleteEnabled}
           onDocumentationHover={updateInfoViewFromDocumentation}
+          arrangementRuntime={arrangementRuntime}
         />
         <SvgObjectOverlay
           elements={svgOverlayScene.elements}

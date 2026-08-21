@@ -21,6 +21,11 @@ test("gesture timing preserves recorded sample cadence", () => {
   assert.equal(gesturePathProgressAtElapsed(track, 1.25), 0.625);
 });
 
+test("gesture tracks preserve authored stroke width for overlay playback", () => {
+  assert.equal(createGestureTrack({ duration: 1, strokeWidth: 12 }).strokeWidth, 12);
+  assert.equal(createGestureTrack({ duration: 1 }).strokeWidth, null);
+});
+
 test("gesture timing maps sample cadence to travelled path length", () => {
   const paced = createGestureTrack({
     duration: 2,

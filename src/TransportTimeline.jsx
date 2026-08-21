@@ -20,10 +20,23 @@ const TransportTimeline = memo(function TransportTimeline({
   onLoopChange,
   automationKeys = [],
   followPlayhead = true,
+  arrangementLanes = [],
+  arrangementTakes = [],
+  selectedElementIds = {},
+  selectedClipId = "",
+  onClipSelect = () => {},
+  onClipEdit = () => {},
+  onClipDelete = () => {},
+  onTakePatch = () => {},
+  onTakeDelete = () => {},
 }) {
   const trackRef = useRef(null);
   const zoomRef = useRef(null);
   const dragRef = useRef(null);
+  const laneScrollRef = useRef(null);
+  const [expandedTakeIds, setExpandedTakeIds] = useState(() => new Set());
+  const [arrangementLabelsCollapsed, setArrangementLabelsCollapsed] = useState(false);
+  const [clipPreviewTimings, setClipPreviewTimings] = useState(() => new Map());
   const authoredDuration = Math.max(0.001, Number(duration) || 0.001);
   const previousDurationRef = useRef(authoredDuration);
   const [trackWidth, setTrackWidth] = useState(768);
@@ -50,6 +63,43 @@ const TransportTimeline = memo(function TransportTimeline({
     rangeEnd: viewEnd,
     pixelWidth: trackWidth,
   }), [displayMode, fps, safeDuration, signature, tempo, trackWidth, viewEnd, viewStart]);
+  const arrangementRows = useMemo(() => {
+    const knownTakeIds = new Set(arrangementTakes.map(take => take.id));
+    const rows = [];
+    arrangementTakes.forEach(take => {
+      const clips = arrangementLanes.flatMap(lane => lane.clips
+        .filter(clip => clip.takeId === take.id)
+        .map(clip => ({ ...clip, elementId: lane.elementId, elementLabel: lane.label })));
+      if (!clips.length) return;
+      rows.push({ kind: "take", id: take.id, label: take.name || "Take", take, clips });
+      if (expandedTakeIds.has(take.id)) {
+        arrangementLanes.forEach(lane => {
+          const laneClips = lane.clips.filter(clip => clip.takeId === take.id);
+          if (laneClips.length) rows.push({ kind: "object", id: `${take.id}:${lane.elementId}`, takeId: take.id, ...lane, clips: laneClips });
+        });
+      }
+    });
+    arrangementLanes.forEach(lane => {
+      const clips = lane.clips.filter(clip => !clip.takeId || !knownTakeIds.has(clip.takeId));
+      if (clips.length) rows.push({ kind: "object", id: `standalone:${lane.elementId}`, ...lane, clips });
+    });
+    return rows;
+  }, [arrangementLanes, arrangementTakes, expandedTakeIds]);
+
+  useEffect(() => {
+    const selectedId = Object.keys(selectedElementIds || {}).find(id => selectedElementIds[id]);
+    if (!selectedId) return;
+    const takeIds = arrangementLanes
+      .find(lane => lane.elementId === selectedId)?.clips
+      .map(clip => clip.takeId)
+      .filter(Boolean) || [];
+    if (takeIds.length) setExpandedTakeIds(previous => new Set([...previous, ...takeIds]));
+    const frame = requestAnimationFrame(() => {
+      laneScrollRef.current?.querySelector?.(`[data-element-id="${CSS.escape(selectedId)}"]`)
+        ?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [arrangementLanes, selectedElementIds]);
 
   useEffect(() => {
     const node = trackRef.current;
@@ -88,6 +138,7 @@ const TransportTimeline = memo(function TransportTimeline({
     displayMode,
     loopEnd,
     loopStart,
+    onClipEdit,
     onLoopChange,
     onSeek,
     onSeekCommit,
@@ -110,6 +161,14 @@ const TransportTimeline = memo(function TransportTimeline({
       if (!drag || (event?.pointerId != null && drag.pointerId !== event.pointerId)) return;
       if (drag.kind === "playhead" && Number.isFinite(drag.time)) {
         interactionRef.current.onSeekCommit(drag.time);
+      }
+      if (drag.kind?.startsWith?.("clip-") && drag.latestTiming) {
+        interactionRef.current.onClipEdit(drag.elementId, drag.clipId, drag.latestTiming, { commitToHistory: true });
+        setClipPreviewTimings(previous => {
+          const next = new Map(previous);
+          next.delete(drag.clipId);
+          return next;
+        });
       }
       try {
         if (drag.captureTarget?.hasPointerCapture?.(drag.pointerId)) {
@@ -153,6 +212,46 @@ const TransportTimeline = memo(function TransportTimeline({
       const currentViewEnd = interactionRef.current.viewEnd;
       const currentViewDuration = currentViewEnd - currentViewStart;
       const rawTime = clamp(currentViewStart + (event.clientX - rect.left) / rect.width * currentViewDuration, currentViewStart, currentViewEnd);
+      if (drag.kind.startsWith("clip-")) {
+        const delta = (event.clientX - drag.clientX) / rect.width * currentViewDuration;
+        const snapLevel = snapLevelFromPointer(event);
+        const snap = value => snapLevel
+          ? snapTimelineTime(value, currentDuration, interactionRef.current.displayMode, interactionRef.current, snapLevel)
+          : value;
+        const minimumDuration = 1 / Math.max(1, currentFps);
+        const original = drag.timing;
+        let timing = original;
+        if (drag.kind === "clip-body") {
+          const start = Math.max(0, snap(original.start + delta));
+          timing = { ...original, start, startValue: `${start} s` };
+        } else if (drag.kind === "clip-start") {
+          const end = original.start + original.duration;
+          const start = clamp(snap(original.start + delta), 0, end - minimumDuration);
+          const removed = start - original.start;
+          const duration = end - start;
+          timing = {
+            ...original,
+            start,
+            startValue: `${start} s`,
+            duration,
+            durationValue: `${duration} s`,
+            sourceOffset: Math.max(0, original.sourceOffset + removed * original.rate),
+            ...(event.altKey ? { rate: original.duration * original.rate / duration } : {}),
+          };
+        } else if (drag.kind === "clip-end") {
+          const end = Math.max(original.start + minimumDuration, snap(original.start + original.duration + delta));
+          const duration = end - original.start;
+          timing = {
+            ...original,
+            duration,
+            durationValue: `${duration} s`,
+            ...(event.altKey ? { rate: original.duration * original.rate / duration } : {}),
+          };
+        }
+        drag.latestTiming = timing;
+        setClipPreviewTimings(previous => new Map(previous).set(drag.clipId, timing));
+        return;
+      }
       // The playhead has a generous label-sized target. Preserve where within
       // that target it was grabbed so the marker does not jump under the
       // pointer before the user begins dragging.
@@ -278,9 +377,76 @@ const TransportTimeline = memo(function TransportTimeline({
   const loopEndPercent = percentInView(visibleLoopEnd);
   const zoomStartPercent = viewStart / safeDuration * 100;
   const zoomEndPercent = viewEnd / safeDuration * 100;
+  const renderArrangementClip = (clip, row) => {
+    const timing = clipPreviewTimings.get(clip.id) || clip.timing || {};
+    const start = Math.max(0, Number(timing.start) || 0);
+    const duration = timing.durationMode === "hold"
+      ? Math.max(1 / Math.max(1, fps), safeDuration - start)
+      : Math.max(1 / Math.max(1, fps), Number(timing.duration) || 0);
+    const end = start + duration;
+    if (end < viewStart || start > viewEnd) return null;
+    const visibleStart = Math.max(start, viewStart);
+    const visibleEnd = Math.min(end, viewEnd);
+    const elementId = clip.elementId || row.elementId;
+    const selected = selectedClipId === clip.id;
+    const label = row.kind === "take" ? (clip.elementLabel || row.label) : row.label;
+    const beginClipDrag = (event, kind) => {
+      event.stopPropagation();
+      onClipSelect(elementId, clip.id);
+      beginDrag(event, {
+        kind,
+        elementId,
+        clipId: clip.id,
+        clientX: event.clientX,
+        timing: {
+          ...timing,
+          start,
+          duration,
+          sourceOffset: Math.max(0, Number(timing.sourceOffset) || 0),
+          rate: Math.max(0.0001, Number(timing.rate) || 1),
+        },
+      });
+    };
+    return (
+      <button
+        type="button"
+        key={`${row.id}:${clip.id}`}
+        className={`iannix-arrangement-clip${selected ? " selected" : ""}${timing.loopMode === "loop" ? " loop" : ""}`}
+        style={{ left: `${percentInView(visibleStart)}%`, width: `${Math.max(0.2, percentInView(visibleEnd) - percentInView(visibleStart))}%` }}
+        data-clip-id={clip.id}
+        onPointerDown={event => beginClipDrag(event, "clip-body")}
+        onDoubleClick={event => {
+          event.stopPropagation();
+          onClipEdit(elementId, clip.id, { ...timing, loopMode: timing.loopMode === "loop" ? "once" : "loop" }, { commitToHistory: true });
+        }}
+        onKeyDown={event => {
+          if (event.key !== "Delete" && event.key !== "Backspace") return;
+          event.preventDefault();
+          onClipDelete(elementId, clip.id);
+        }}
+        title={`${label} · ${formatTimelinePosition(start, displayMode, options)}`}
+        aria-label={`${label} clip`}
+      >
+        <i className="iannix-arrangement-clip-handle start" onPointerDown={event => beginClipDrag(event, "clip-start")} />
+        <span>{label}</span>
+        <i className="iannix-arrangement-clip-handle end" onPointerDown={event => beginClipDrag(event, "clip-end")} />
+      </button>
+    );
+  };
   return (
-    <div className="iannix-timeline" aria-label="Score timeline">
-      <div className="iannix-timeline-ruler" aria-hidden="true">
+    <div
+      className={`iannix-timeline${arrangementRows.length ? " has-arrangement" : ""}${arrangementLabelsCollapsed ? " arrangement-labels-collapsed" : ""}`}
+      style={{ "--arrangement-label-width": arrangementLabelsCollapsed ? "30px" : "116px" }}
+      aria-label="Score timeline"
+    >
+      <div className="iannix-timeline-ruler">
+        {arrangementRows.length ? <button
+          type="button"
+          className="iannix-arrangement-label-toggle"
+          onClick={() => setArrangementLabelsCollapsed(value => !value)}
+          aria-label={arrangementLabelsCollapsed ? "Expand arrangement labels" : "Collapse arrangement labels"}
+          title={arrangementLabelsCollapsed ? "Expand arrangement labels" : "Collapse arrangement labels"}
+        >{arrangementLabelsCollapsed ? "›" : "‹"}</button> : null}
         {ticks.map(tick => (
           <div className={`iannix-timeline-tick ${tick.major ? "major" : "minor"}`} key={tick.time} style={{ left: `${tick.percent}%` }}>
             {tick.showLabel !== false ? <span>{formatTimelinePosition(tick.time, displayMode, options)}</span> : null}
@@ -294,6 +460,32 @@ const TransportTimeline = memo(function TransportTimeline({
         title="Drag to seek · Command-drag snaps units · Command-Shift snaps subunits · Shift-drag marks a loop"
       >
         {ticks.map(tick => <i className={`iannix-timeline-gridline ${tick.major ? "major" : "minor"}`} key={tick.time} style={{ left: `${tick.percent}%` }} />)}
+        {arrangementRows.length ? <div ref={laneScrollRef} className="iannix-arrangement-lanes" onPointerDown={event => event.stopPropagation()}>
+          {arrangementRows.map(row => (
+            <div className={`iannix-arrangement-row ${row.kind}`} key={row.id} data-element-id={row.elementId || undefined}>
+              <div className="iannix-arrangement-row-label">
+                {row.kind === "take" ? <button
+                  type="button"
+                  onClick={() => setExpandedTakeIds(previous => {
+                    const next = new Set(previous);
+                    if (next.has(row.id)) next.delete(row.id); else next.add(row.id);
+                    return next;
+                  })}
+                  title={expandedTakeIds.has(row.id) ? "Collapse take" : "Expand take"}
+                  aria-expanded={expandedTakeIds.has(row.id)}
+                ><span className="iannix-arrangement-take-chevron">{expandedTakeIds.has(row.id) ? "▾" : "▸"}</span><span className="iannix-arrangement-take-label">{row.label}</span></button> : <span className="iannix-arrangement-object-label">{row.label}</span>}
+                {row.kind === "take" ? <span className="iannix-arrangement-take-actions">
+                  <button type="button" className={row.take.muted ? "active" : ""} onClick={() => onTakePatch(row.id, { muted: !row.take.muted })} title="Mute take">M</button>
+                  <button type="button" className={row.take.solo ? "active" : ""} onClick={() => onTakePatch(row.id, { solo: !row.take.solo })} title="Solo take">S</button>
+                  <button type="button" onClick={() => onTakeDelete(row.id)} title="Delete take">×</button>
+                </span> : null}
+              </div>
+              <div className="iannix-arrangement-row-track">
+                {row.clips.map(clip => renderArrangementClip(clip, row))}
+              </div>
+            </div>
+          ))}
+        </div> : null}
         <div className="iannix-timeline-key-lane" aria-label="Object automation keyframes">
           {automationKeys.filter(key => key.time >= viewStart && key.time <= viewEnd).map(key => <i key={`${key.elementId}-${key.path}-${key.id}`} className="iannix-timeline-key" style={{ left: `${percentInView(key.time)}%` }} title={`${key.path} · ${formatTimelinePosition(key.time, displayMode, options)}`} />)}
         </div>

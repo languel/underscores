@@ -36,6 +36,7 @@ const normalizeSamples = (samples, duration) => {
     pressure: Math.min(1, Math.max(0, finite(sample?.pressure, 0.5))),
     speed: Math.max(0, finite(sample?.speed ?? sample?.data?.speed)),
     phase: sample?.phase || (index === 0 ? "start" : index === source.length - 1 ? "end" : "move"),
+    ...(sample?.recording ? { recording: clone(sample.recording) } : {}),
   }));
 };
 
@@ -52,6 +53,10 @@ export const normalizeGestureTrack = value => {
     duration,
     durationValue: clone(value.durationValue || { version: 1, expression: `${duration} s`, fallbackSeconds: duration }),
     startTime: finite(value.startTime, loopStart),
+    // Arrangement playback is rendered by the lightweight SVG overlay. Keep
+    // the authored visual weight with the lifecycle instead of depending on
+    // a later scene/style read after the source is hidden or regenerated.
+    strokeWidth: value.strokeWidth == null ? null : Math.max(0.5, finite(value.strokeWidth, 1)),
     samples: normalizeSamples(value.samples, duration),
     loop: { start: loopStart, end: loopEnd },
     playback: {
@@ -74,6 +79,7 @@ export const createGestureTrack = ({
   source = "pointer",
   enabled = false,
   sourceOpacity = 100,
+  strokeWidth = null,
 } = {}) => normalizeGestureTrack({
   version: UNDERSCORES_GESTURE_VERSION,
   id: id || crypto.randomUUID(),
@@ -82,6 +88,7 @@ export const createGestureTrack = ({
   duration: Math.max(0.001, finite(duration, 0.001)),
   durationValue,
   startTime,
+  strokeWidth,
   samples,
   loop: {
     start: loopStart,
