@@ -12,7 +12,15 @@ import ObjectPathClipboardController from "./ObjectPathClipboard.jsx";
 import TimeValueInput from "./TimeValueInput.jsx";
 import InspectorSection from "./InspectorSection.jsx";
 import { attachUnderscoresExchangeMetadata, getSelectionExchangeElements, normalizeSceneExportFilename, parseUnderscoresExchange, remapSelectionForImport } from "./sceneExchange.js";
-import { createMediaFreeSceneJson, createSceneShareUrl, decodeSceneSharePayload, readSceneSharePayload } from "./sceneShare.js";
+import {
+  createMediaFreeSceneJson,
+  createSceneShareUrl,
+  decodeSceneSharePayload,
+  fetchSceneSource,
+  normalizeSceneSourceText,
+  readSceneSharePayload,
+  readSceneSourceReference,
+} from "./sceneShare.js";
 import { loadLastScene, saveLastScene } from "./sceneSessionStorage.js";
 import { attachUnderscoresSvgMetadata, cleanSvgMarkup, extractUnderscoresSvgMetadata, extractSvgMarkup, getSvgDrawableBounds, offsetSvgDrawableSpecs, parseSvgToDrawableSpecs } from "./svgImport.js";
 import { UNDERSCORES_PANELS, getUnderscoresPanel, getNaturalPanelPlacement } from "./panelRegistry.js";
@@ -5013,6 +5021,7 @@ function App() {
   const [selectedElementIds, setSelectedElementIds] = useState({});
   const selectedElementIdsRef = useRef(selectedElementIds);
   selectedElementIdsRef.current = selectedElementIds;
+  const [hoveredLinkedElementId, setHoveredLinkedElementId] = useState(null);
   const objectEyedropperRef = useRef(null);
   const beginCanvasSourceEyedropperRef = useRef(() => {});
   const beginGlobalObjectEyedropperRef = useRef(() => {});
@@ -7363,6 +7372,36 @@ function App() {
     return [res.x, res.y];
   };
 
+  // Excalidraw paints its linked-image glyph directly into the scene canvas.
+  // That glyph cannot inherit Underscores theme tokens, so media thumbnails
+  // use this lightweight hit test to show a theme-aware affordance only while
+  // the pointer is over the linked image/embed. The URL remains available in
+  // the native hyperlink popup and as the affordance title.
+  const findLinkedMediaAtPointer = useCallback((clientX, clientY) => {
+    if (!excalidrawAPI) return null;
+    const appState = excalidrawAPI.getAppState();
+    const world = viewportCoordsToSceneCoords({ clientX, clientY }, appState);
+    const elements = excalidrawAPI.getSceneElementsIncludingDeleted?.() || excalidrawAPI.getSceneElements?.() || [];
+    return [...elements].reverse().find(element => {
+      if (element.isDeleted || !element.link || !["image", "embeddable"].includes(element.type)) return false;
+      const x = Number(element.x) || 0;
+      const y = Number(element.y) || 0;
+      const width = Math.abs(Number(element.width) || 0);
+      const height = Math.abs(Number(element.height) || 0);
+      if (width < 1 || height < 1) return false;
+      const centerX = x + width / 2;
+      const centerY = y + height / 2;
+      const angle = -(Number(element.angle) || 0);
+      const cosine = Math.cos(angle);
+      const sine = Math.sin(angle);
+      const dx = world.x - centerX;
+      const dy = world.y - centerY;
+      const localX = centerX + dx * cosine - dy * sine;
+      const localY = centerY + dx * sine + dy * cosine;
+      return localX >= x && localX <= x + width && localY >= y && localY <= y + height;
+    }) || null;
+  }, [excalidrawAPI]);
+
   const findObjectEyedropperCandidate = useCallback((clientX, clientY, request = objectEyedropperRef.current) => {
     if (!request || !excalidrawAPI) return null;
     const appState = excalidrawAPI.getAppState();
@@ -8331,6 +8370,7 @@ function App() {
     // the iframe receives focus, which makes interactive presentation embeds
     // feel unreliable.
     if (e.target?.closest?.(".underscores-embed-interactive")) return;
+    if (e.target?.closest?.(".underscores-link-affordance")) return;
 
     // Livecode Nodes reuse CodeMirror. Once their local editor or compact
     // chrome has focus, the canvas must not start a selection/drawing gesture
@@ -8566,6 +8606,8 @@ function App() {
       return;
     }
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
+    const linkedMedia = findLinkedMediaAtPointer(e.clientX, e.clientY);
+    setHoveredLinkedElementId(previous => previous === (linkedMedia?.id || null) ? previous : (linkedMedia?.id || null));
     if (handlePhysicsPointerMove(e)) return;
     if (handleSvgPathConstructionPointerMove(e)) return;
     if (handleSvgPathPointerMove(e)) return;
@@ -13810,6 +13852,7 @@ function App() {
     { id: "svg.node.role.assign", name: "Assign SVG Node Score Role", category: "SVG", args: { elementId: "string", nodeIndex: "number", subpathIndex: "number?", role: "curve|cursor|trigger|none" }, ai: { expose: true, description: "Attach a Curve, Cursor, or Trigger role directly to an SVG node or subpath.", example: { elementId: "svg-host", nodeIndex: 3, subpathIndex: 0, role: "curve" } }, action: (_api, args) => assignSvgNodeRole(args.elementId, Number(args.nodeIndex), Number.isInteger(args.subpathIndex) ? args.subpathIndex : null, args.role === "none" ? null : args.role) },
     { id: "svg.object.fromSelection", name: "Convert / Bake Selection to SVG /svg from selection", aliases: ["/svg from selection", "/bake svg", "Convert selection to SVG object", "Bake selection to SVG"], category: "SVG", action: () => convertSelectionToSvgObject() },
     { id: "scene.bake.png", name: "Bake Selection to PNG /bake png", aliases: ["/bake png", "Bake selection to PNG"], category: "Canvas", action: () => bakeSelectionToPng() },
+    { id: "scene.copy.base64", name: "Copy Selection as Base64 Image /copy base64", aliases: ["/copy base64", "/bake base64", "Copy selection as base64 image", "Bake selection as base64 image"], category: "Canvas", action: () => copySelectionAsBase64Image() },
     { id: "svg.path.edit", name: "Edit Selected SVG Path /svg path edit", aliases: ["/svg path edit", "Edit SVG path"], category: "SVG", action: () => enterSvgPathEditMode() },
     { id: "svg.path.cubic", name: "Convert Selected SVG Path to Cubic /svg path cubic", aliases: ["/svg path cubic", "Convert SVG path to cubic"], category: "SVG", action: () => convertSelectedSvgPathToCubic() },
     { id: "svg.path.toggleClosed", name: "Open or Close Selected SVG Path", category: "SVG", action: () => toggleSelectedSvgPathClosed() },
@@ -19091,7 +19134,22 @@ function App() {
   useEffect(() => {
     if (!excalidrawAPI || lastSceneRestoreAttemptedRef.current) return;
     lastSceneRestoreAttemptedRef.current = true;
+    const sceneReference = readSceneSourceReference();
     const sharedPayload = readSceneSharePayload();
+    if (sceneReference) {
+      lastSceneRestoreInProgressRef.current = true;
+      setSceneExchangeStatus("Loading shared scene source…");
+      void fetchSceneSource(sceneReference)
+        .then(({ text, url }) => importUnderscoresSceneText(normalizeSceneSourceText(text, url), { commitToHistory: false }))
+        .catch(error => {
+          console.error("Underscores could not restore the remote scene source.", error);
+          setSceneExchangeStatus(`Shared scene source could not be opened: ${error?.message || error}`);
+        })
+        .finally(() => {
+          lastSceneRestoreInProgressRef.current = false;
+        });
+      return;
+    }
     if (sharedPayload) {
       lastSceneRestoreInProgressRef.current = true;
       void decodeSceneSharePayload(sharedPayload)
@@ -20335,6 +20393,22 @@ function App() {
       setSceneExchangeStatus(`Copied ${selected.length} selected ${selected.length === 1 ? "object" : "objects"} as PNG.`);
     } catch (error) {
       setSceneExchangeStatus(error.message || "Could not copy selection as PNG.");
+    }
+  };
+
+  const copySelectionAsBase64Image = async () => {
+    try {
+      // Keep this as a plain text data URL so it can be pasted into Markdown,
+      // Obsidian, or another static document without depending on a local file
+      // attachment or a remote image host.
+      const { canvas, selected } = await renderSelectionPng({ outputMode: "authored" });
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Text clipboard is unavailable in this browser. Use Copy Selection as PNG instead.");
+      }
+      await navigator.clipboard.writeText(canvas.toDataURL("image/png"));
+      setSceneExchangeStatus(`Copied ${selected.length} selected ${selected.length === 1 ? "object" : "objects"} as a base64 PNG data URL.`);
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Could not copy selection as a base64 PNG.");
     }
   };
 
@@ -25949,7 +26023,20 @@ function App() {
           transform: `translate(${-crop.left}px, ${-crop.top}px)`,
           pointerEvents: policy.allowInteraction ? "auto" : "none",
         }}
-        onLoad={event => applySameOriginCSS(event.currentTarget)}
+        tabIndex={policy.allowInteraction ? 0 : -1}
+        onPointerDown={event => {
+          if (!policy.allowInteraction) return;
+          // Some embedded Chromium/WebKit shells do not move keyboard focus
+          // into a cross-origin iframe until it is focused explicitly. The
+          // child still owns the event; this only establishes its focus ring
+          // and lets subsequent key events reach the embedded page.
+          event.currentTarget.focus({ preventScroll: true });
+        }}
+        onLoad={event => {
+          const iframe = event.currentTarget;
+          applySameOriginCSS(iframe);
+          if (policy.allowInteraction) iframe.focus({ preventScroll: true });
+        }}
         sandbox="allow-scripts allow-same-origin allow-presentation allow-forms"
         allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
         allowFullScreen
@@ -26240,6 +26327,7 @@ function App() {
         id="canvas-container" 
         onPointerDownCapture={handleCanvasPointerDown}
         onPointerMoveCapture={handleCanvasPointerMove}
+        onPointerLeaveCapture={() => setHoveredLinkedElementId(null)}
         onPointerUpCapture={handleCanvasPointerUp}
         onPointerCancelCapture={handleCanvasPointerUp}
         onLostPointerCaptureCapture={handleCanvasPointerUp}
@@ -28523,6 +28611,42 @@ function App() {
 
         </Excalidraw>
 
+        {hoveredLinkedElementId && (() => {
+          const linkedElement = (excalidrawAPI?.getSceneElementsIncludingDeleted?.() || [])
+            .find(element => element.id === hoveredLinkedElementId && !element.isDeleted && element.link && ["image", "embeddable"].includes(element.type));
+          if (!linkedElement) return null;
+          const container = document.getElementById("canvas-container");
+          const containerBounds = container?.getBoundingClientRect?.();
+          const x = Number(linkedElement.x) || 0;
+          const y = Number(linkedElement.y) || 0;
+          const width = Math.abs(Number(linkedElement.width) || 0);
+          const screen = mapCanvasToScreen(x + width - 18, y + 6);
+          const left = screen[0] - (containerBounds?.left || 0);
+          const top = screen[1] - (containerBounds?.top || 0);
+          return (
+            <div
+              className="underscores-link-affordance-wrap"
+              style={{ left: `${left}px`, top: `${top}px` }}
+              onPointerDown={event => event.stopPropagation()}
+            >
+              <a
+                className="underscores-link-affordance"
+                href={linkedElement.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={linkedElement.link}
+                aria-label={`Open linked ${linkedElement.type}: ${linkedElement.link}`}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M14 5h5v5M19 5l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M18 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </a>
+              <span className="underscores-link-url" role="tooltip">{linkedElement.link}</span>
+            </div>
+          );
+        })()}
+
         {physicsToolbarDockedTop ? <div className="physics-canvas-toolbar-dock-top">
           <PhysicsCanvasToolbar {...physicsToolbarProps} docked />
         </div> : <PhysicsCanvasToolbar {...physicsToolbarProps} />}
@@ -29048,6 +29172,22 @@ function App() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14" />
                   </svg>
                   Export Selection as PNG
+                </button>
+                <button
+                  onPointerDown={event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setCustomContextMenu(null);
+                    void copySelectionAsBase64Image();
+                  }}
+                  className="custom-floating-context-menu-btn"
+                  title="Copy the selected objects as a self-contained base64 PNG data URL"
+                >
+                  <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                    <rect x="7" y="7" width="13" height="13" rx="1" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16V5a1 1 0 011-1h11M10 11h7M10 14h5" />
+                  </svg>
+                  Copy Selection as Base64 Image
                 </button>
                 <div className="custom-floating-context-menu-separator" />
                 <button

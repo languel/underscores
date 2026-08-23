@@ -1,12 +1,99 @@
 // A scene share link carries the existing Underscores exchange JSON in the
 // URL fragment. Fragments stay client-side (they are not sent in requests),
 // and the payload is compressed before URL-safe Base64 encoding so a modest
-// scene remains practical to copy or turn into a QR code.
+// scene remains practical to copy or turn into a QR code. A separate ?scene=
+// query can point at a published raw Markdown, JSON, or .excalidraw source.
 
 export const SCENE_SHARE_HASH_KEY = "u";
 export const SCENE_SHARE_VERSION = "1";
 export const SCENE_SHARE_MAX_URL_LENGTH = 250_000;
 export const SCENE_SHARE_MAX_DECODED_BYTES = 8_000_000;
+export const SCENE_SOURCE_QUERY_KEY = "scene";
+export const SCENE_SOURCE_MAX_BYTES = 20_000_000;
+
+const isSceneDocument = value => (
+  value &&
+  typeof value === "object" &&
+  Array.isArray(value.elements)
+);
+
+const normalizeSceneDocument = value => {
+  if (!isSceneDocument(value)) return null;
+  const document = { ...value, type: value.type || "excalidraw" };
+  // Remote scene references are deliberately media-free. Keep authored media
+  // URLs and file names in customData, but never copy local/blob file payloads.
+  delete document.files;
+  return document;
+};
+
+const tryParseSceneDocument = candidate => {
+  try {
+    return normalizeSceneDocument(JSON.parse(String(candidate || "")));
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Turn a raw JSON, .excalidraw JSON, or Markdown document containing a fenced
+ * Excalidraw JSON block into the media-free scene exchange text consumed by
+ * the normal importer. Markdown is intentionally parsed as data, not HTML:
+ * a rendered Quartz page is not itself a scene source and should publish a
+ * raw .md or sidecar .json asset for this loader.
+ */
+export const normalizeSceneSourceText = (sourceText, sourceUrl = "") => {
+  const raw = String(sourceText ?? "").trim();
+  const direct = tryParseSceneDocument(raw);
+  if (direct) return JSON.stringify(direct);
+
+  const candidates = [];
+  const fenced = /```[^\r\n]*\r?\n([\s\S]*?)\r?\n```/g;
+  let match;
+  while ((match = fenced.exec(raw))) candidates.push(match[1]);
+  for (const candidate of candidates) {
+    const document = tryParseSceneDocument(candidate);
+    if (document) return JSON.stringify(document);
+  }
+
+  const sourceLabel = sourceUrl ? ` (${sourceUrl})` : "";
+  throw new Error(`Scene source${sourceLabel} does not contain an Excalidraw JSON document. Publish a raw Markdown file with a fenced JSON scene or a .json/.excalidraw sidecar.`);
+};
+
+export const readSceneSourceReference = (search = globalThis.location?.search || "") => {
+  const params = new URLSearchParams(String(search || "").replace(/^\?/, ""));
+  return params.get(SCENE_SOURCE_QUERY_KEY)?.trim() || "";
+};
+
+export const resolveSceneSourceUrl = (reference, baseUrl = globalThis.location?.href || "http://localhost/") => {
+  const value = String(reference || "").trim();
+  if (!value) throw new Error("The scene source URL is empty.");
+  let url;
+  try {
+    url = new URL(value, baseUrl);
+  } catch {
+    throw new Error("The scene source URL is not valid.");
+  }
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new Error("Scene sources must use an HTTP(S) URL.");
+  }
+  return url.toString();
+};
+
+export const fetchSceneSource = async (reference, { baseUrl, fetchImpl = globalThis.fetch } = {}) => {
+  if (typeof fetchImpl !== "function") throw new Error("This browser cannot fetch a remote scene source.");
+  const url = resolveSceneSourceUrl(reference, baseUrl);
+  const response = await fetchImpl(url, { credentials: "omit" });
+  if (!response?.ok) throw new Error(`Scene source could not be fetched (${response?.status || "network error"}).`);
+  const declaredLength = Number(response.headers?.get?.("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > SCENE_SOURCE_MAX_BYTES) {
+    throw new Error("The remote scene source is too large to open safely.");
+  }
+  const text = await response.text();
+  if (new TextEncoder().encode(text).byteLength > SCENE_SOURCE_MAX_BYTES) {
+    throw new Error("The remote scene source is too large to open safely.");
+  }
+  return { url, text };
+};
 
 // Keep the share contract explicit: authored scene metadata (including media
 // URLs and file names) is retained, while Excalidraw's binary file map is not.

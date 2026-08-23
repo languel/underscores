@@ -13,8 +13,13 @@ export const EMBED_DISPLAY_MODES = Object.freeze([
 
 export const DEFAULT_EMBED_POLICY = Object.freeze({
   enabled: true,
-  display: "presentation",
-  allowInteraction: false,
+  // Embeds are active in the normal authoring canvas by default. Users can
+  // still opt an instance out with `enabled: false`, or choose Presentation
+  // only / Never in Properties when a scene needs an explicit visibility gate.
+  display: "always",
+  // Web embeds receive input by default. Set `allowInteraction: false` on an
+  // instance when the canvas should retain ownership for selection/transform.
+  allowInteraction: true,
   cropTop: 0,
   cropRight: 0,
   cropBottom: 0,
@@ -62,7 +67,7 @@ export const normalizeEmbedPolicy = value => {
     ...source,
     enabled: source.enabled !== false,
     display: EMBED_DISPLAY_MODES.some(([mode]) => mode === source.display) ? source.display : DEFAULT_EMBED_POLICY.display,
-    allowInteraction: source.allowInteraction === true,
+    allowInteraction: source.allowInteraction !== false,
     cropTop: nonNegativeNumber(source.cropTop),
     cropRight: nonNegativeNumber(source.cropRight),
     cropBottom: nonNegativeNumber(source.cropBottom),

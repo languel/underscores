@@ -61,6 +61,21 @@ Holistic remains a first-class canvas processor and can independently hide its s
 Mapping consumes the same transient semantic frame as livecode. Its locally remembered arm switch
 does not become scene state; versioned actor bindings persist on their Holistic processor.
 
+Web embeds load in every view mode by default, so an authored embed is available while editing,
+arranging, and presenting. Properties keeps explicit per-instance gates: **Enabled** disables the
+embed, **Presentation only** defers loading until live presentation mode, and **Never** keeps it
+off. External pages still obey their own browser autoplay and permission policies. **Interact** is
+enabled by default and is the input handoff: the iframe receives pointer and keyboard input after
+its first click; when disabled, the canvas keeps ownership for selection and transforms. Cross-origin
+embeds cannot be driven by a parent-side event bridge, so the child page must handle its own input.
+
+Linked image and web-embed thumbnails keep their URL in the native hyperlink
+popup, while Underscores adds a small theme-colored external-link affordance only
+while the pointer is over the media. The canvas context menu's **Copy Selection as
+Base64 Image** action writes an authored PNG as a self-contained `data:image/png`
+URL, which is useful when a Markdown or Obsidian document cannot resolve a local
+or remote image URL.
+
 **Settings → Board → Reset to defaults**, `/reset defaults`, and `Ctrl+Opt+Shift+D` share the stable `workspace.reset.defaults` command. It returns every panel to its natural dock, resets shared dock dimensions, keeps every panel available as a dock tab, collapses all three docks and Excalidraw chrome, restores Mono Dark, selects the unlocked pen, restores sharp zero-sloppiness authoring, and disables Underscores/native grid snapping.
 
 ## Script panel

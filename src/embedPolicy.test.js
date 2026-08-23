@@ -8,7 +8,7 @@ test("accepts safe web URLs and rejects executable schemes", () => {
   assert.equal(sanitizeEmbedURL("javascript:alert(1)"), "");
 });
 
-test("normalizes presentation-gated embed policy", () => {
+test("normalizes the always-loaded interactive default and explicit visibility gates", () => {
   assert.deepEqual(normalizeEmbedPolicy({ display: "always", allowInteraction: true }), {
     enabled: true, display: "always", allowInteraction: true,
     cropTop: 0, cropRight: 0, cropBottom: 0, cropLeft: 0, css: "", reloadNonce: 0,
@@ -16,15 +16,18 @@ test("normalizes presentation-gated embed policy", () => {
   assert.equal(shouldRenderEmbed({ display: "presentation" }, false), false);
   assert.equal(shouldRenderEmbed({ display: "presentation" }, true), true);
   assert.equal(shouldRenderEmbed({ display: "never" }, true), false);
+  assert.equal(shouldRenderEmbed({}, false), true);
+  assert.equal(shouldRenderEmbed({ enabled: false }, false), false);
   assert.deepEqual(embedPolicyForElement({ customData: {} }), normalizeEmbedPolicy({}));
 });
 
 test("normalizes embed viewport cropping and same-origin CSS", () => {
   assert.deepEqual(normalizeEmbedPolicy({ cropTop: "72", cropLeft: -4, css: "body { margin: 0; }" }), {
-    enabled: true, display: "presentation", allowInteraction: false,
+    enabled: true, display: "always", allowInteraction: true,
     cropTop: 72, cropRight: 0, cropBottom: 0, cropLeft: 0,
     css: "body { margin: 0; }", reloadNonce: 0,
   });
+  assert.equal(normalizeEmbedPolicy({ allowInteraction: false }).allowInteraction, false);
 });
 
 test("normalizes an embed reload nonce without accepting negative values", () => {

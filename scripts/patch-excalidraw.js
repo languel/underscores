@@ -49,6 +49,17 @@ for (const target of targets) {
       .replace(/5e5ad8/gi, '6d7374')
       // Selection bounding box and frame highlight color overrides
       .replace(/rgb\(0,\s*118,\s*255\)/gi, 'rgb(120, 125, 126)')
+      // Images and web embeds get their own theme-aware hover affordance in
+      // Underscores. Keep Excalidraw's stock blue link glyph for other linked
+      // elements, but avoid painting a second icon over media thumbnails.
+      .replace(
+        /if \(element\.link && !appState\.selectedElementIds\[element\.id\]\)/g,
+        'if (element.link && !appState.selectedElementIds[element.id] && element.type !== "image" && element.type !== "embeddable")'
+      )
+      .replace(
+        /oe=function\(e,t,n\)\{if\(e\.link&&!n\.selectedElementIds\[e\.id\]\)\{/g,
+        'oe=function(e,t,n){if(e.link&&!n.selectedElementIds[e.id]&&"image"!==e.type&&"embeddable"!==e.type){'
+      )
       // Replace deprecated unload event with pagehide to satisfy browser policies
       .replace(/(EVENT\\?\[\\?["']UNLOAD\\?["']\\?\]\s*=\s*)(\\?["'])unload\2/gi, '$1$2pagehide$2')
       .replace(/(\bUNLOAD\s*=\s*)(\\?["'])unload\2/gi, '$1$2pagehide$2');
