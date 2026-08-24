@@ -48,7 +48,7 @@ test("scene exchange preserves frame timeline display mode", () => {
   assert.equal(payload.underscores.score.fps, 24);
 });
 
-test("scene exchange version 11 preserves streams, brush channels, global configuration, p5 scripts, relationships, and migrates legacy scenes", () => {
+test("scene exchange version 12 preserves streams, brush channels, global configuration, p5 scripts, relationships, and migrates legacy scenes", () => {
   const grid = mergeGridPatch(DEFAULT_GLOBAL_GRID, {
     appearance: { visible: true },
     spacing: { x: 120, y: 80, subdivisionsX: 6, subdivisionsY: 4 },
@@ -76,7 +76,7 @@ test("scene exchange version 11 preserves streams, brush channels, global config
     }],
   };
   const payload = attachUnderscoresExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, grid, synth, mixer, p5Scripts, streamGraph, brushChannels, null, relationshipGraph);
-  assert.equal(payload.underscores.version, 11);
+  assert.equal(payload.underscores.version, 12);
   assert.deepEqual(parseUnderscoresExchange(payload, "scene").grid, grid);
   assert.deepEqual(parseUnderscoresExchange(payload, "scene").expressiveSynth, normalizeExpressiveSynthConfig(synth));
   assert.deepEqual(parseUnderscoresExchange(payload, "scene").mixer, mixer);

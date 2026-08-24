@@ -7094,6 +7094,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .outliner-row.drop-back { box-shadow: inset 0 -2px 0 var(--color-primary, currentColor); }
 .outliner-row.drop-inside { background: color-mix(in srgb, var(--underscores-highlight) 16%, transparent); box-shadow: inset 3px 0 0 var(--underscores-accent); }
 .outliner-object { display: grid; grid-template-columns: 10px 22px minmax(0, 1fr); align-items: center; gap: 4px; min-width: 0; padding: 6px 8px 6px calc(8px + (var(--outliner-depth, 0) * 14px)); border: 0; background: transparent; color: var(--color-primary); text-align: left; cursor: pointer; }
+.outliner-object { height: 30px; min-height: 30px; overflow: visible; }
 .outliner-group-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) 24px 24px 24px 24px; align-items: center; gap: 2px; width: 100%; min-width: 0; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.13)); background: color-mix(in srgb, var(--button-hover-bg, transparent) 42%, transparent); color: var(--color-secondary); font: inherit; text-align: left; }
 .outliner-group-row:hover { color: var(--color-primary); background: var(--button-hover-bg, rgba(128,128,128,.12)); }
 .outliner-group-row.selected { background: var(--button-selected-bg, rgba(128,128,128,.2)); }
@@ -7128,6 +7129,39 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .outliner-type { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1px solid var(--border-color); border-radius: 3px; color: var(--color-secondary); font-size: 9px; }
 .outliner-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: capitalize; }
 .outliner-label-input { min-width: 0; flex: 1; border: 1px solid var(--color-primary); border-radius: 4px; background: var(--island-bg-color); color: var(--color-primary); padding: 2px 5px; font: inherit; }
+.underscores-panel-body .outliner-row .outliner-label-input { height: 18px !important; min-height: 18px !important; box-sizing: border-box; padding: 0 7px !important; }
+
+.playlist-panel { display: flex; flex-direction: column; min-height: 0; height: 100%; overflow: hidden; color: var(--color-primary); font-size: var(--underscores-ui-font-size); line-height: var(--underscores-ui-line-height); }
+.playlist-toolbar { display: flex; align-items: center; gap: 4px; padding: 8px; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.24)); }
+.playlist-toolbar > button { display: inline-flex; align-items: center; justify-content: center; width: 25px; height: 25px; padding: 4px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--button-bg, transparent); color: var(--color-secondary); cursor: pointer; font: inherit; }
+.playlist-toolbar > button:hover, .playlist-toolbar > button.active { color: var(--color-primary); background: var(--button-hover-bg, rgba(128,128,128,.12)); }
+.playlist-toolbar > button:disabled { opacity: .4; cursor: default; }
+.playlist-toolbar > button svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.playlist-default-duration { width: 78px; margin-left: auto; }
+.playlist-duration { width: 86px; }
+.playlist-default-duration > input, .playlist-duration > input { padding: 4px 5px; }
+.playlist-add { gap: 4px; width: auto !important; padding-inline: 7px !important; }
+.playlist-loop-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 0 4px; color: var(--color-secondary); font-size: var(--underscores-ui-font-size-small); white-space: nowrap; }
+.playlist-loop-toggle input { margin: 0; accent-color: var(--underscores-accent); }
+.playlist-options { display: flex; align-items: center; justify-content: flex-end; padding: 6px 8px; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.18)); color: var(--color-secondary); font-size: var(--underscores-ui-font-size-small); }
+.playlist-options label { display: inline-flex; align-items: center; gap: 5px; }
+.playlist-options input, .playlist-arm input { accent-color: var(--underscores-accent); }
+.playlist-list { min-height: 0; overflow: auto; }
+.playlist-empty { padding: 22px 12px; color: var(--color-secondary); text-align: center; }
+.playlist-row { display: grid; grid-template-columns: minmax(0, 1fr) 86px 58px 26px 24px; align-items: center; gap: 3px; border-bottom: 1px solid var(--border-color, rgba(128,128,128,.13)); }
+.playlist-row:hover { background: var(--button-hover-bg, rgba(128,128,128,.12)); }
+.playlist-row.selected { background: var(--button-selected-bg, rgba(128,128,128,.2)); box-shadow: inset 2px 0 0 var(--underscores-accent); }
+.playlist-row.dragging { opacity: .45; }
+.playlist-row-main { display: flex; align-items: center; gap: 7px; min-width: 0; height: 24px; min-height: 24px; padding: 7px 5px 7px 8px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit; overflow: visible; }
+.playlist-row-index { width: 16px; color: var(--color-secondary); font-variant-numeric: tabular-nums; }
+.playlist-row-copy { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.playlist-row-copy strong, .playlist-row-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.playlist-row-copy small { color: var(--color-secondary); font-size: var(--underscores-ui-font-size-small); }
+.underscores-panel-body .playlist-row .playlist-label-input { min-width: 0; width: 100%; height: 20px !important; min-height: 20px !important; box-sizing: border-box; padding: 0 4px !important; border: 1px solid var(--color-primary); border-radius: 3px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--color-primary); font: inherit; line-height: inherit; }
+.playlist-transition { min-width: 0; padding: 4px 3px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--color-primary); font: inherit; }
+.playlist-arm { display: flex; align-items: center; justify-content: center; }
+.playlist-remove { width: 24px; height: 24px; padding: 0; border: 0; background: transparent; color: var(--color-secondary); cursor: pointer; font: inherit; font-size: 16px; }
+.playlist-remove:hover { color: var(--underscores-accent); }
 
 .history-empty { padding: 20px 12px; color: var(--color-secondary); line-height: 1.4; text-align: center; }
 .history-empty.compact { padding: 8px; }

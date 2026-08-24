@@ -36,6 +36,8 @@ import NumericInput from "./NumericInput.jsx";
 import GeometryResetIcon from "./GeometryResetIcon.jsx";
 import { embedPolicyForElement, isAllowedEmbedURL, sanitizeEmbedURL, shouldRenderEmbed } from "./embedPolicy.js";
 import OutlinerPanel, { getOutlinerElementLabel } from "./OutlinerPanel.jsx";
+import PlaylistPanel from "./PlaylistPanel.jsx";
+import { createPlaylistItem, createPlaylistState, getPlaylistItemElements, movePlaylistItem } from "./playlist.js";
 import { applyPresentationVisibility, canFitPresentationBounds, isElementVisibleInPresentation } from "./presentationVisibility.js";
 import { groupSceneElements, moveSceneElementsToGroup, moveSceneElementsToGroupParent, moveSceneGroupToParent, renameSceneGroup, reorderSceneElements, ungroupSceneElements } from "./sceneLayers.js";
 import IannixDataPanel from "./IannixDataPanel.jsx";
@@ -3312,12 +3314,12 @@ function App() {
       const saved = JSON.parse(localStorage.getItem("underscores_panel_visibility_v1") || "null") || {};
       return {
         chat: true, settings: true, mods: true, script: true, iannix: true, physics: saved.physics ?? true, mixer: true, synth: true, inputs: saved.inputs ?? true,
-        holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true,
+        holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, playlist: true, grid: true,
         ...saved,
         "media-input": saved["media-input"] ?? saved["video-input"] ?? true,
       };
     } catch {
-      return { chat: true, settings: true, mods: true, script: true, iannix: true, physics: true, mixer: true, synth: true, "media-input": true, inputs: true, holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, grid: true };
+      return { chat: true, settings: true, mods: true, script: true, iannix: true, physics: true, mixer: true, synth: true, "media-input": true, inputs: true, holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, playlist: true, grid: true };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
@@ -4617,6 +4619,11 @@ function App() {
   const arrangementFinalizePendingRef = useRef(() => null);
   const previousArrangementTransportPlayingRef = useRef(scorePlaying);
   const arrangementStaticRuntimeRef = useRef(new Map());
+  const [playlistState, setPlaylistState] = useState(() => createPlaylistState());
+  const playlistStateRef = useRef(playlistState);
+  playlistStateRef.current = playlistState;
+  const [playlistPlaying, setPlaylistPlaying] = useState(false);
+  const playlistClockRef = useRef({ index: 0, startedAt: 0 });
   const [scoreRate, setScoreRate] = useState(() => {
     const saved = Number(localStorage.getItem("underscores_iannix_rate"));
     return Number.isFinite(saved) && saved > 0 ? saved : 1;
@@ -9907,6 +9914,133 @@ function App() {
     const api = excalidrawAPIRef.current;
     if (!api) return;
     api.updateScene({ appState: { selectedElementIds: { [elementId]: true } }, commitToHistory: false });
+  }, []);
+
+  const selectPlaylistIndex = useCallback((index, { frame = false } = {}) => {
+    const state = playlistStateRef.current;
+    const items = state.items || [];
+    if (!items.length) return null;
+    const nextIndex = Math.max(0, Math.min(items.length - 1, Math.floor(Number(index) || 0)));
+    const item = items[nextIndex];
+    setPlaylistState(previous => ({ ...previous, activeIndex: nextIndex }));
+    const api = excalidrawAPIRef.current;
+    const targets = getPlaylistItemElements(item, api?.getSceneElements?.() || []);
+    if (targets.length && api) {
+      const selected = Object.fromEntries(targets.map(element => [element.id, true]));
+      api.updateScene({ appState: { selectedElementIds: selected, selectedGroupIds: {} }, commitToHistory: false });
+      setSelectedElementIds(selected);
+      if (frame) api.scrollToContent(targets, { fitToViewport: true, viewportZoomFactor: 1, animate: true });
+    }
+    return item;
+  }, []);
+
+  const advancePlaylist = useCallback((direction = 1, { keepPlaying = playlistPlaying } = {}) => {
+    const state = playlistStateRef.current;
+    const items = state.items || [];
+    if (!items.length) return null;
+    const delta = direction < 0 ? -1 : 1;
+    let nextIndex = state.activeIndex + delta;
+    if (nextIndex >= items.length) nextIndex = state.loop ? 0 : items.length - 1;
+    if (nextIndex < 0) nextIndex = state.loop ? items.length - 1 : 0;
+    const reachedEnd = !state.loop && ((delta > 0 && state.activeIndex >= items.length - 1) || (delta < 0 && state.activeIndex <= 0));
+    if (reachedEnd && keepPlaying) setPlaylistPlaying(false);
+    playlistClockRef.current = { index: nextIndex, startedAt: performance.now() };
+    return selectPlaylistIndex(nextIndex, { frame: true });
+  }, [playlistPlaying, selectPlaylistIndex]);
+
+  const startPlaylist = useCallback(() => {
+    const state = playlistStateRef.current;
+    if (!state.items.length) return;
+    const index = Math.max(0, Math.min(state.items.length - 1, state.activeIndex));
+    playlistClockRef.current = { index, startedAt: performance.now() };
+    setPlaylistPlaying(true);
+    selectPlaylistIndex(index, { frame: true });
+  }, [selectPlaylistIndex]);
+
+  const stopPlaylist = useCallback(() => setPlaylistPlaying(false), []);
+  const previousPlaylistItem = useCallback(() => advancePlaylist(-1), [advancePlaylist]);
+  const nextPlaylistItem = useCallback(() => advancePlaylist(1), [advancePlaylist]);
+  const stepPlaylist = useCallback(() => {
+    setPlaylistPlaying(false);
+    advancePlaylist(1, { keepPlaying: false });
+  }, [advancePlaylist]);
+
+  useEffect(() => {
+    if (!playlistPlaying || !playlistState.items.length) return undefined;
+    const index = playlistState.activeIndex;
+    if (playlistClockRef.current.index !== index || !playlistClockRef.current.startedAt) {
+      playlistClockRef.current = { index, startedAt: performance.now() };
+    }
+    const timer = window.setInterval(() => {
+      const current = playlistStateRef.current;
+      const item = current.items[current.activeIndex];
+      if (!item) return;
+      const duration = Math.max(0.1, Number(item.duration) || current.defaultDuration || 5);
+      if (performance.now() - playlistClockRef.current.startedAt >= duration * 1000) advancePlaylist(1);
+    }, 40);
+    return () => window.clearInterval(timer);
+  }, [advancePlaylist, playlistPlaying, playlistState.activeIndex, playlistState.items.length]);
+
+  const patchPlaylistState = useCallback(patch => {
+    const next = createPlaylistState({ ...playlistStateRef.current, ...patch });
+    playlistStateRef.current = next;
+    setPlaylistState(next);
+  }, []);
+
+  const addPlaylistElementIds = useCallback((elementIds = []) => {
+    const api = excalidrawAPIRef.current;
+    const scene = api?.getSceneElements?.() || [];
+    const ids = [...new Set(elementIds.map(String))].filter(id => scene.some(element => element.id === id && !element.isDeleted));
+    if (!ids.length) return false;
+    const targets = scene.filter(element => ids.includes(element.id));
+    const item = createPlaylistItem({
+      elementIds: ids,
+      label: targets.length === 1 ? "" : `${targets.length} objects`,
+      duration: playlistStateRef.current.defaultDuration,
+      durationValue: playlistStateRef.current.defaultDurationValue,
+    });
+    const next = createPlaylistState({ ...playlistStateRef.current, items: [...playlistStateRef.current.items, item], activeIndex: playlistStateRef.current.items.length });
+    playlistStateRef.current = next;
+    setPlaylistState(next);
+    selectPlaylistIndex(next.items.length - 1, { frame: false });
+    setSceneExchangeStatus(`Added ${item.label || "object"} to the playlist.`);
+    return true;
+  }, [selectPlaylistIndex]);
+
+  const addSelectedToPlaylist = useCallback(() => addPlaylistElementIds(
+    Object.keys(selectedElementIdsRef.current || {}).filter(id => selectedElementIdsRef.current[id]),
+  ), [addPlaylistElementIds]);
+
+  const patchPlaylistItem = useCallback((itemId, patch) => {
+    const next = createPlaylistState({
+      ...playlistStateRef.current,
+      items: playlistStateRef.current.items.map(item => item.id === itemId ? { ...item, ...patch } : item),
+    });
+    playlistStateRef.current = next;
+    setPlaylistState(next);
+  }, []);
+
+  const removePlaylistItem = useCallback(itemId => {
+    const index = playlistStateRef.current.items.findIndex(item => item.id === itemId);
+    if (index < 0) return;
+    const next = createPlaylistState({
+      ...playlistStateRef.current,
+      items: playlistStateRef.current.items.filter(item => item.id !== itemId),
+      activeIndex: Math.max(0, Math.min(playlistStateRef.current.items.length - 2, playlistStateRef.current.activeIndex)),
+    });
+    playlistStateRef.current = next;
+    setPlaylistState(next);
+  }, []);
+
+  const movePlaylistRow = useCallback((fromIndex, toIndex) => {
+    const state = playlistStateRef.current;
+    const items = movePlaylistItem(state.items, fromIndex, toIndex);
+    if (items === state.items) return;
+    const activeItemId = state.items[state.activeIndex]?.id;
+    const activeIndex = Math.max(0, items.findIndex(item => item.id === activeItemId));
+    const next = createPlaylistState({ ...state, items, activeIndex });
+    playlistStateRef.current = next;
+    setPlaylistState(next);
   }, []);
 
   const patchArrangementTake = useCallback((takeId, patch) => {
@@ -18925,7 +19059,8 @@ function App() {
       playCoreScripts,
       svgScripts,
       arrangement: arrangementStateRef.current,
-    } : { arrangement: arrangementStateRef.current }, kind === "scene"
+      playlist: playlistStateRef.current,
+    } : { arrangement: arrangementStateRef.current, playlist: playlistStateRef.current }, kind === "scene"
       ? relationshipGraphRef.current
       : relationshipGraphForSelection(relationshipGraphRef.current, elements.filter(element => !element.isDeleted).map(element => element.id))), null, 2);
   };
@@ -19073,10 +19208,16 @@ function App() {
       const importedArrangement = createArrangementState(authoredState.arrangement);
       arrangementStateRef.current = importedArrangement;
       setArrangementState(importedArrangement);
+      const importedPlaylist = createPlaylistState(authoredState.playlist);
+      playlistStateRef.current = importedPlaylist;
+      setPlaylistState(importedPlaylist);
     } else {
       const emptyArrangement = createArrangementState();
       arrangementStateRef.current = emptyArrangement;
       setArrangementState(emptyArrangement);
+      const emptyPlaylist = createPlaylistState();
+      playlistStateRef.current = emptyPlaylist;
+      setPlaylistState(emptyPlaylist);
     }
     const restoredActiveP5Script = restoredP5.scripts[0];
     setActiveP5ScriptId(restoredActiveP5Script?.id || "");
@@ -19129,7 +19270,7 @@ function App() {
   useEffect(() => {
     if (!lastSceneRestoreAttemptedRef.current || lastSceneRestoreInProgressRef.current) return;
     scheduleLastSceneSave();
-  }, [arrangementState, scheduleLastSceneSave]);
+  }, [arrangementState, playlistState, scheduleLastSceneSave]);
 
   useEffect(() => {
     if (!excalidrawAPI || lastSceneRestoreAttemptedRef.current) return;
@@ -27054,6 +27195,9 @@ function App() {
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-outliner", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Outliner
             </MainMenu.Item>
+            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-playlist", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
+              Playlist
+            </MainMenu.Item>
             <MainMenu.Item onSelect={() => commandRegistry.execute("panel-transport", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
               Timeline
             </MainMenu.Item>
@@ -27917,6 +28061,48 @@ function App() {
                 if (nextElements !== elements) excalidrawAPI.updateScene({ elements: nextElements, commitToHistory: true });
               }}
               onRename={renameSceneElement}
+            />
+          </UnderscoresPanel>
+          )}
+
+          {shouldRenderPanel("playlist") && (
+          <UnderscoresPanel
+            id="playlist"
+            title="Playlist"
+            placement={panelLayouts.playlist.placement}
+            layout={panelLayouts.playlist}
+            dockTabs={getPanelDockTabs("playlist")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.playlist.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeUnderscoresPanel}
+            onPlacementChange={placement => setPanelPlacement("playlist", placement)}
+            onDragStart={event => startSidebarPanelDrag("playlist", event)}
+            onClose={() => closeUnderscoresPanel("playlist")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.playlist.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.playlist.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.playlist.placement]: false }))}
+          >
+            <PlaylistPanel
+              elements={excalidrawAPI?.getSceneElementsIncludingDeleted() || []}
+              selectedElementIds={selectedElementIds}
+              playlist={playlistState}
+              playing={playlistPlaying}
+              onAddSelected={addSelectedToPlaylist}
+              onAddElementIds={addPlaylistElementIds}
+              onRemove={removePlaylistItem}
+              onPatchItem={patchPlaylistItem}
+              onMove={movePlaylistRow}
+              onSelect={index => selectPlaylistIndex(index)}
+              onActivate={index => selectPlaylistIndex(index, { frame: true })}
+              onRenameElement={renameSceneElement}
+              timeContext={timeContext}
+              onPlay={startPlaylist}
+              onPause={stopPlaylist}
+              onPrevious={previousPlaylistItem}
+              onNext={nextPlaylistItem}
+              onStep={stepPlaylist}
+              onPatchState={patchPlaylistState}
             />
           </UnderscoresPanel>
           )}

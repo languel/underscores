@@ -1,5 +1,6 @@
 export const UNDERSCORES_PANELS = Object.freeze([
   Object.freeze({ id: "outliner", label: "Outliner", slash: "/outliner", kind: "dockable", placements: ["left", "floating", "right"] }),
+  Object.freeze({ id: "playlist", label: "Playlist", slash: "/playlist", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "properties", label: "Properties", slash: "/properties", kind: "dockable", placements: ["left", "floating", "right"] }),
   // Keep the stable panel id for saved layouts and API consumers. Score is
   // the public name; /iannix and /scene remain compatibility aliases.

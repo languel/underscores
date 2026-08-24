@@ -7,8 +7,9 @@ import { normalizeBrushChannels } from "./brushChannelRuntime.js";
 import { normalizeMediaSources } from "./mediaStream.js";
 import { normalizeRelationshipGraph, serializeRelationshipGraphForScene } from "./relationshipGraph.js";
 import { createArrangementState, remapArrangementForDuplicate } from "./arrangementClips.js";
+import { createPlaylistState } from "./playlist.js";
 
-const UNDERSCORES_EXCHANGE_VERSION = 11;
+const UNDERSCORES_EXCHANGE_VERSION = 12;
 
 export const normalizeSceneExportFilename = (requestedName = "", date = new Date()) => {
   const fallback = `underscores-scene-${date.toISOString().slice(0, 10)}`;
@@ -80,9 +81,11 @@ export const attachUnderscoresExchangeMetadata = (serializedScene, kind, score =
           playCoreScripts: Array.isArray(normalizedAuthoredState.playCoreScripts) ? structuredClone(normalizedAuthoredState.playCoreScripts) : [],
           svgScripts: Array.isArray(normalizedAuthoredState.svgScripts) ? structuredClone(normalizedAuthoredState.svgScripts) : [],
           arrangement: createArrangementState(normalizedAuthoredState.arrangement),
+          playlist: createPlaylistState(normalizedAuthoredState.playlist),
         },
       } : {
         arrangement: createArrangementState(normalizedAuthoredState.arrangement),
+        playlist: createPlaylistState(normalizedAuthoredState.playlist),
       }),
       relationshipGraph: serializeRelationshipGraphForScene(relationshipGraph),
     },
@@ -116,8 +119,10 @@ export const parseUnderscoresExchange = (text, expectedKind = null) => {
       playCoreScripts: Array.isArray(payload.underscores?.authoredState?.playCoreScripts) ? structuredClone(payload.underscores.authoredState.playCoreScripts) : [],
       svgScripts: Array.isArray(payload.underscores?.authoredState?.svgScripts) ? structuredClone(payload.underscores.authoredState.svgScripts) : [],
       arrangement: createArrangementState(payload.underscores?.authoredState?.arrangement),
+      playlist: createPlaylistState(payload.underscores?.authoredState?.playlist),
     } : null,
     arrangement: kind === "selection" ? createArrangementState(payload.underscores?.arrangement) : null,
+    playlist: kind === "selection" ? createPlaylistState(payload.underscores?.playlist) : null,
   };
 };
 
