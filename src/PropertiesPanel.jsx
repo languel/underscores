@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { EMBED_DISPLAY_MODES, embedPolicyForElement, getEmbedProvider } from "./embedPolicy.js";
+import { EMBED_DISPLAY_MODES, embedPolicyForElement, getEmbedProvider, sanitizeEmbedURL } from "./embedPolicy.js";
 import { DEFAULT_P5_CDN_URL, P5_RUNTIME_OPTIONS, isP5FrameElement, normalizeP5Frame, normalizeP5Version, resolveP5SourceMode } from "./p5Frame.js";
 import {
   analyzeSvgSource,
@@ -236,7 +236,10 @@ const EmbedControls = ({ element, query, onChange }) => {
     <details className="properties-group properties-embed-group" open>
       <summary><span>embed</span><small>{getEmbedProvider(element.link)}</small></summary>
       <div className="properties-children">
-        {matches("link") && <div className="properties-row editable"><span>url</span><input className="properties-embed-url" type="url" value={element.link || ""} onKeyDown={preventCanvasDeletion} onKeyUp={preventCanvasDeletion} onChange={event => onChange(["link"], event.target.value)} /></div>}
+        {matches("link") && <div className="properties-row editable"><span>url</span><input className="properties-embed-url" type="url" value={element.link || ""} onKeyDown={preventCanvasDeletion} onKeyUp={preventCanvasDeletion} onChange={event => onChange(["link"], event.target.value)} onBlur={event => {
+          const normalized = sanitizeEmbedURL(event.target.value);
+          if (normalized && normalized !== event.target.value) onChange(["link"], normalized);
+        }} /></div>}
         {matches("reload") && <div className="properties-row properties-embed-reload"><span>content</span><button type="button" className="iannix-flat-button" onClick={() => onChange(["customData", "underscoresEmbed", "reloadNonce"], Date.now())}>Reload embed</button></div>}
         {matches("enabled") && <div className="properties-row editable"><span>enabled</span><input type="checkbox" checked={policy.enabled} onChange={event => onChange(["customData", "underscoresEmbed", "enabled"], event.target.checked)} /></div>}
         {matches("display") && <div className="properties-row editable"><span>display</span><select value={policy.display} onChange={event => onChange(["customData", "underscoresEmbed", "display"], event.target.value)}>{EMBED_DISPLAY_MODES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>}

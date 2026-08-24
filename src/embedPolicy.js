@@ -37,7 +37,7 @@ const hostMatches = (hostname, candidate) => hostname === candidate || hostname.
 
 export const getEmbedProvider = (value) => {
   try {
-    const url = new URL(String(value || ""));
+    const url = new URL(sanitizeEmbedURL(value));
     const host = url.hostname.toLowerCase();
     for (const [provider, hosts] of Object.entries(PROVIDER_HOSTS)) {
       if (hosts.some(candidate => hostMatches(host, candidate))) return provider;
@@ -48,9 +48,36 @@ export const getEmbedProvider = (value) => {
   }
 };
 
+const looksLikeBareWebHost = value => {
+  if (!value || /\s/.test(value) || value.startsWith("/") || value.startsWith("#")) return false;
+  const possibleScheme = /^[a-z][a-z\d+.-]*:/i.exec(value);
+  if (possibleScheme && !/^\d+(?:[/?#]|$)/.test(value.slice(possibleScheme[0].length))) return false;
+  const host = value.split(/[/?#]/, 1)[0].replace(/:\d+$/, "");
+  return host === "localhost"
+    || host === "127.0.0.1"
+    || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)
+    || host.includes(".");
+};
+
+/**
+ * Resolve a user-facing web embed value to a safe absolute HTTP(S) URL.
+ * Bare domains are intentionally treated as HTTPS; other schemes are not
+ * accepted because an embeddable iframe must never become a script/document
+ * navigation escape hatch.
+ */
 export const sanitizeEmbedURL = (value) => {
   try {
-    const url = new URL(String(value || ""));
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const candidate = raw.startsWith("//")
+      ? `https:${raw}`
+      : /^https?:\/\//i.test(raw)
+        ? raw
+        : /^[a-z][a-z\d+.-]*:/i.test(raw) && !looksLikeBareWebHost(raw)
+          ? ""
+          : (looksLikeBareWebHost(raw) ? `https://${raw}` : "");
+    if (!candidate) return "";
+    const url = new URL(candidate);
     if (!["http:", "https:"].includes(url.protocol)) return "";
     return url.toString();
   } catch {
@@ -59,6 +86,44 @@ export const sanitizeEmbedURL = (value) => {
 };
 
 export const isAllowedEmbedURL = value => Boolean(sanitizeEmbedURL(value));
+
+const decodeDroppedText = value => String(value || "")
+  .replace(/&amp;/gi, "&")
+  .replace(/&quot;/gi, '"')
+  .replace(/&#39;/gi, "'")
+  .replace(/&lt;/gi, "<")
+  .replace(/&gt;/gi, ">");
+
+/** Extract the first web URL from a browser link or dragged text payload. */
+export const extractDroppedEmbedURL = dataTransfer => {
+  if (!dataTransfer) return "";
+  const candidates = [];
+  const add = value => {
+    const text = decodeDroppedText(value).trim();
+    if (text) candidates.push(text);
+  };
+  const uriList = dataTransfer.getData?.("text/uri-list") || "";
+  uriList.split(/\r?\n/).forEach(line => {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith("#")) add(trimmed);
+  });
+  const html = dataTransfer.getData?.("text/html") || "";
+  const href = /<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/i.exec(html)?.[1];
+  if (href) add(href);
+  const plain = dataTransfer.getData?.("text/plain") || "";
+  plain.split(/\r?\n/).forEach(line => {
+    const match = line.match(/(?:https?:\/\/|\/\/|www\.)[^\s<>"']+/i);
+    // Do not interpret arbitrary dragged text (or a filename such as
+    // `image.gif`) as a hostname. Browser address-bar drags expose the URL
+    // through this field with an explicit protocol or `www.` prefix.
+    if (match) add(match[0]);
+  });
+  for (const candidate of candidates) {
+    const normalized = sanitizeEmbedURL(candidate.replace(/[),.;]+$/, ""));
+    if (normalized) return normalized;
+  }
+  return "";
+};
 
 export const normalizeEmbedPolicy = value => {
   const source = value && typeof value === "object" ? value : {};

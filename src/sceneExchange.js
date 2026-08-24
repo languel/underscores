@@ -22,6 +22,51 @@ export const normalizeSceneExportFilename = (requestedName = "", date = new Date
   return `${basename || fallback}.excalidraw`;
 };
 
+/**
+ * `/ex save` uses the requested extension as a small format switch. Markdown
+ * scene files are written in the format understood by the Obsidian
+ * Excalidraw plugin; every other name continues to produce plain JSON.
+ */
+export const isObsidianSceneExportFilename = (requestedName = "") =>
+  /\.md$/i.test(String(requestedName ?? "").trim());
+
+export const normalizeObsidianSceneExportFilename = (requestedName = "", date = new Date()) => {
+  const fallback = `underscores-scene-${date.toISOString().slice(0, 10)}`;
+  const raw = String(requestedName ?? "").trim();
+  const sanitized = raw
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .replace(/[. ]+$/g, "")
+    .trim();
+  const basename = sanitized.replace(/\.md$/i, "").trim();
+  return `${basename || fallback}.md`;
+};
+
+/**
+ * Wrap an Excalidraw scene JSON document in Obsidian Excalidraw Markdown.
+ * The uncompressed JSON fence is intentional: it is portable, inspectable,
+ * and is also accepted by the plugin's current Markdown parser.
+ */
+export const createObsidianExcalidrawMarkdown = (sceneJson) => {
+  const json = String(sceneJson ?? "").trim();
+  return [
+    "---",
+    "excalidraw-plugin: parsed",
+    "tags:",
+    "  - excalidraw",
+    "---",
+    "# Excalidraw Data",
+    "",
+    "## Text Elements",
+    "%%",
+    "## Drawing",
+    "```json",
+    json,
+    "```",
+    "%%",
+    "",
+  ].join("\n");
+};
+
 const scoreData = customData => customData?.score || customData?.iannix || null;
 const withScoreAliases = element => {
   const source = scoreData(element?.customData);

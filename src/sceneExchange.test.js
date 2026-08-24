@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   attachUnderscoresExchangeMetadata,
+  createObsidianExcalidrawMarkdown,
   getSelectionExchangeElements,
+  isObsidianSceneExportFilename,
+  normalizeObsidianSceneExportFilename,
   normalizeSceneExportFilename,
   parseUnderscoresExchange,
   remapSelectionForImport,
@@ -17,6 +20,24 @@ test("scene export filenames accept optional names and remain safe", () => {
   assert.equal(normalizeSceneExportFilename("bioblip_melody.excalidraw", date), "bioblip_melody.excalidraw");
   assert.equal(normalizeSceneExportFilename("folder/bioblip", date), "folder_bioblip.excalidraw");
   assert.equal(normalizeSceneExportFilename("", date), "underscores-scene-2026-08-16.excalidraw");
+});
+
+test("scene export detects and normalizes Obsidian Markdown names", () => {
+  const date = new Date("2026-08-16T12:34:56.000Z");
+  assert.equal(isObsidianSceneExportFilename("lecture01.md"), true);
+  assert.equal(isObsidianSceneExportFilename("lecture01.excalidraw"), false);
+  assert.equal(normalizeObsidianSceneExportFilename("lecture01.md", date), "lecture01.md");
+  assert.equal(normalizeObsidianSceneExportFilename("lecture01.excalidraw.md", date), "lecture01.excalidraw.md");
+  assert.equal(normalizeObsidianSceneExportFilename("", date), "underscores-scene-2026-08-16.md");
+});
+
+test("Obsidian Excalidraw Markdown wraps the scene in the plugin's drawing section", () => {
+  const sceneJson = JSON.stringify({ type: "excalidraw", elements: [], files: {} }, null, 2);
+  const markdown = createObsidianExcalidrawMarkdown(sceneJson);
+  assert.match(markdown, /^---\nexcalidraw-plugin: parsed\n/);
+  assert.match(markdown, /# Excalidraw Data\n\n## Text Elements\n%%\n## Drawing\n```json\n/);
+  assert.match(markdown, /\n```\n%%\n$/);
+  assert.match(markdown, new RegExp(sceneJson.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
 test("scene exchange metadata preserves Underscores score state", () => {

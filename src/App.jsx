@@ -11,7 +11,7 @@ import NumberInputController from "./NumberInputController.jsx";
 import ObjectPathClipboardController from "./ObjectPathClipboard.jsx";
 import TimeValueInput from "./TimeValueInput.jsx";
 import InspectorSection from "./InspectorSection.jsx";
-import { attachUnderscoresExchangeMetadata, getSelectionExchangeElements, normalizeSceneExportFilename, parseUnderscoresExchange, remapSelectionForImport } from "./sceneExchange.js";
+import { attachUnderscoresExchangeMetadata, createObsidianExcalidrawMarkdown, getSelectionExchangeElements, isObsidianSceneExportFilename, normalizeObsidianSceneExportFilename, normalizeSceneExportFilename, parseUnderscoresExchange, remapSelectionForImport } from "./sceneExchange.js";
 import {
   createMediaFreeSceneJson,
   createSceneShareUrl,
@@ -34,7 +34,7 @@ import { buildConsoleLiveStatus, changedConsoleStatusRows } from "./consoleStatu
 import PropertiesPanel from "./PropertiesPanel.jsx";
 import NumericInput from "./NumericInput.jsx";
 import GeometryResetIcon from "./GeometryResetIcon.jsx";
-import { embedPolicyForElement, isAllowedEmbedURL, sanitizeEmbedURL, shouldRenderEmbed } from "./embedPolicy.js";
+import { embedPolicyForElement, extractDroppedEmbedURL, isAllowedEmbedURL, sanitizeEmbedURL, shouldRenderEmbed } from "./embedPolicy.js";
 import OutlinerPanel, { getOutlinerElementLabel } from "./OutlinerPanel.jsx";
 import PlaylistPanel from "./PlaylistPanel.jsx";
 import { createPlaylistItem, createPlaylistState, getPlaylistItemElements, movePlaylistItem } from "./playlist.js";
@@ -13631,7 +13631,7 @@ function App() {
       aliases: ["/save", "/save scene", "/scene save", "/ex save", "/ex export scene"],
       category: "Excalidraw",
       args: { name: "string?" },
-      ai: { expose: true, description: "Download the current Underscores scene with its metadata. An optional name becomes the downloaded .excalidraw filename." },
+      ai: { expose: true, description: "Download the current Underscores scene with its metadata. An optional .md name exports Obsidian Excalidraw Markdown; other names download .excalidraw JSON." },
       action: (_api, args = {}) => exportUnderscoresScene(args.name),
     },
     {
@@ -13640,7 +13640,7 @@ function App() {
       aliases: ["/ex save as"],
       category: "Excalidraw",
       args: { name: "string?" },
-      ai: { expose: true, description: "Download the current Underscores scene as a new file, optionally using the supplied .excalidraw filename." },
+      ai: { expose: true, description: "Download the current Underscores scene as a new file. Use a .md name for Obsidian Excalidraw Markdown, or any other name for .excalidraw JSON." },
       action: (_api, args = {}) => exportUnderscoresScene(args.name),
     },
     {
@@ -15977,18 +15977,20 @@ function App() {
 
   const createWebEmbed = (args = {}) => {
     const rawUrl = String(args?.url || "").trim()
-      || window.prompt("Web embed URL (http or https)", "")?.trim();
+      || window.prompt("Web embed URL", "")?.trim();
     if (!rawUrl) return null;
     const url = sanitizeEmbedURL(rawUrl);
     if (!url || !isAllowedEmbedURL(url)) {
-      throw new Error("Enter a valid http:// or https:// URL.");
+      throw new Error("Enter a valid web URL.");
     }
     const api = excalidrawAPIRef.current;
     if (!api) throw new Error("The canvas is not ready.");
     const appState = api.getAppState();
+    const clientX = Number(args?.clientX);
+    const clientY = Number(args?.clientY);
     const center = viewportCoordsToSceneCoords({
-      clientX: window.innerWidth / 2,
-      clientY: window.innerHeight / 2,
+      clientX: Number.isFinite(clientX) ? clientX : window.innerWidth / 2,
+      clientY: Number.isFinite(clientY) ? clientY : window.innerHeight / 2,
     }, appState);
     const width = 720;
     const height = 405;
@@ -16752,17 +16754,34 @@ function App() {
   const handleCanvasMediaPreviewDragOver = event => {
     const types = Array.from(event.dataTransfer?.types || []);
     const hasMediaFile = types.includes("Files");
-    if (!types.includes("application/x-underscores-media-source") && !hasMediaFile) return;
+    // Browsers often hide drag payload values until `drop`, so the MIME type
+    // is the reliable signal while dragging a page link over the canvas.
+    const hasWebEmbed = Boolean(extractDroppedEmbedURL(event.dataTransfer))
+      || types.includes("text/uri-list")
+      || types.includes("text/html");
+    if (!types.includes("application/x-underscores-media-source") && !hasMediaFile && !hasWebEmbed) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
   };
 
   const handleCanvasMediaPreviewDrop = event => {
+    // Internal source drags must win over the browser's text/URI payload. A
+    // media row may expose a label or URL as text, but it should still create
+    // the existing media preview rather than an unrelated web embed.
     const sourceId = event.dataTransfer?.getData("application/x-underscores-media-source");
     if (sourceId) {
       event.preventDefault();
       event.stopPropagation();
       createMediaPreviewAt(sourceId, event.clientX, event.clientY);
+      return;
+    }
+
+    const embedUrl = extractDroppedEmbedURL(event.dataTransfer);
+    if (embedUrl) {
+      event.preventDefault();
+      event.stopPropagation();
+      createWebEmbed({ url: embedUrl, clientX: event.clientX, clientY: event.clientY });
+      setSceneExchangeStatus(`Added web embed: ${embedUrl}`);
       return;
     }
     const file = event.dataTransfer?.files?.[0];
@@ -19118,8 +19137,16 @@ function App() {
   const exportUnderscoresScene = (requestedName = "") => {
     try {
       const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
-      const filename = normalizeSceneExportFilename(requestedName);
-      downloadTextFile(createUnderscoresExchangeJson("scene", elements), filename);
+      const sceneJson = createUnderscoresExchangeJson("scene", elements);
+      const markdown = isObsidianSceneExportFilename(requestedName);
+      const filename = markdown
+        ? normalizeObsidianSceneExportFilename(requestedName)
+        : normalizeSceneExportFilename(requestedName);
+      downloadTextFile(
+        markdown ? createObsidianExcalidrawMarkdown(sceneJson) : sceneJson,
+        filename,
+        markdown ? "text/markdown" : "application/json",
+      );
       setSceneExchangeStatus(`Exported ${elements.filter(element => !element.isDeleted).length} scene objects with Underscores metadata as ${filename}.`);
     } catch (error) {
       setSceneExchangeStatus(error.message || "Scene export failed.");
