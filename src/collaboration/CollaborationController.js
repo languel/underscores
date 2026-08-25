@@ -531,7 +531,7 @@ export class CollaborationController {
     }
   }
 
-  publishDocument(source, { immediate = false } = {}) {
+  publishDocument(source, { immediate = false, allowActiveGesture = false } = {}) {
     if (!this.state.active || !this.state.initialized || !source) return false;
     // Applying a remote snapshot updates Excalidraw synchronously but React's
     // authored-state setters commit on the following render. Ignore that
@@ -544,7 +544,8 @@ export class CollaborationController {
     // it as an unfinished draft while a real pointer gesture is active, or a
     // newly-created Livecode node can be suppressed forever.
     if (
-      this.callbacks().isPointerGestureActive?.()
+      !allowActiveGesture
+      && this.callbacks().isPointerGestureActive?.()
       && activeElementId
       && source.elements?.some(element => element.id === activeElementId)
     ) return false;

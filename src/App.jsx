@@ -10691,6 +10691,16 @@ function App() {
       if (capture.tool === "freedraw" && passiveGridFreedrawRef.current) {
         excalidrawAPI?.updateScene({ appState: { currentItemStrokeColor: lastStrokeColorRef.current }, commitToHistory: false });
       }
+      // Excalidraw normally reports the matching pointer-up through
+      // `onPointerUpdate`. Native line gestures can commit their element
+      // before that callback arrives, though, leaving collaboration's
+      // gesture gate down until the next checkpoint. Release the gate here
+      // as a capture-phase fallback so the completed line is published to
+      // peers immediately.
+      if (collaborationPointerStateRef.current.down) {
+        collaborationPointerStateRef.current.down = false;
+        collaborationController.checkpointAfterGesture();
+      }
       window.setTimeout(() => {
         let finalElements = excalidrawAPI?.getSceneElementsIncludingDeleted().filter(element =>
           !element.isDeleted && !capture.existingIds.has(element.id)
@@ -27182,11 +27192,27 @@ function App() {
             ) {
               lastSceneElementPersistenceSignatureRef.current = persistenceSignature;
               if (collaborationState.active && !collaborationApplyingRemoteRef.current) {
-                // Do not publish Excalidraw's transient one-point freedraw.
-                // Pointer-up schedules a settled checkpoint after Excalidraw
-                // commits the completed path.
-                if (!collaborationPointerStateRef.current.down) {
-                  collaborationController.publishDocument(JSON.parse(createUnderscoresExchangeJson("scene", effectiveElements, { preserveDeleted: true })));
+                // Excalidraw renders the active stroke locally before it is
+                // committed. Share a renderable multi-point prefix as well so
+                // peers see the gesture in progress; the one-point draft and
+                // transparent grid preview remain local until release.
+                const activeGestureElementId = appState.newElement?.id || appState.multiElement?.id;
+                const activeGestureElement = activeGestureElementId
+                  ? effectiveElements.find(element => element.id === activeGestureElementId && !element.isDeleted)
+                  : null;
+                const activeGestureHasRenderablePoints = Boolean(
+                  activeGestureElement
+                  && !isColorTransparent(activeGestureElement.strokeColor)
+                  && Array.isArray(activeGestureElement.points)
+                  && activeGestureElement.points.length >= 2
+                  && ["freedraw", "line"].includes(activeGestureElement.type)
+                );
+                const liveGestureUpdate = collaborationPointerStateRef.current.down && activeGestureHasRenderablePoints;
+                if (!collaborationPointerStateRef.current.down || liveGestureUpdate) {
+                  collaborationController.publishDocument(
+                    JSON.parse(createUnderscoresExchangeJson("scene", effectiveElements, { preserveDeleted: true })),
+                    { allowActiveGesture: liveGestureUpdate },
+                  );
                 }
               } else {
                 scheduleLastSceneSave();
