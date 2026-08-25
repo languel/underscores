@@ -3224,7 +3224,10 @@ function App() {
   const collaborationApplyingRemoteRef = useRef(false);
   const collaborationPointerStateRef = useRef({ down: false });
   const handleCollaborationPointerUpdate = useCallback(payload => {
-    collaborationController.publishPresence(payload);
+    collaborationController.publishPresence({
+      ...payload,
+      tool: excalidrawAPIRef.current?.getAppState().activeTool?.type || null,
+    });
     if (consumeCollaborationGestureEnd(payload, collaborationPointerStateRef.current)) {
       // Pointer-up is only the end of one segment for Excalidraw's
       // click-based line mode. The scene checkpoint belongs to the completed
@@ -27290,31 +27293,17 @@ function App() {
             ) {
               lastSceneElementPersistenceSignatureRef.current = persistenceSignature;
               if (collaborationState.active && !collaborationApplyingRemoteRef.current) {
-                // Excalidraw renders the active stroke locally before it is
-                // committed. Share a renderable multi-point prefix as well so
-                // peers see the gesture in progress; the one-point draft and
-                // transparent grid preview remain local until release.
-                const activeGestureElementId = appState.newElement?.id || appState.multiElement?.id;
-                const activeGestureElement = activeGestureElementId
-                  ? effectiveElements.find(element => element.id === activeGestureElementId && !element.isDeleted)
-                  : null;
-                const activeGestureHasRenderablePoints = Boolean(
-                  activeGestureElement
-                  && !isColorTransparent(activeGestureElement.strokeColor)
-                  && Array.isArray(activeGestureElement.points)
-                  && activeGestureElement.points.length >= 2
-                  && activeGestureElement.type === "freedraw"
-                );
+                // Keep Excalidraw's in-progress element editor-local. Pointer
+                // presence provides the lightweight live stroke preview; the
+                // canonical scene element is published once the gesture ends.
                 const activeGestureInProgress = Boolean(
                   collaborationPointerStateRef.current.down
                   || appState.multiElement?.id
                   || passiveLineSessionRef.current
                 );
-                const liveGestureUpdate = activeGestureInProgress && activeGestureHasRenderablePoints;
-                if (!activeGestureInProgress || liveGestureUpdate) {
+                if (!activeGestureInProgress) {
                   collaborationController.publishDocument(
                     JSON.parse(createUnderscoresExchangeJson("scene", effectiveElements, { preserveDeleted: true })),
-                    { allowActiveGesture: liveGestureUpdate },
                   );
                 }
               } else {

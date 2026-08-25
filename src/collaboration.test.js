@@ -629,6 +629,7 @@ test("pointer-only presence refreshes collaborators without rerendering status s
     actorId: "remote",
     identity: { name: "Peer", color: "#1971c2" },
     pointer: { x: 1, y: 2 },
+    tool: "freedraw",
     sequence: 1,
   }, "peer");
   await new Promise(resolve => setTimeout(resolve, 70));
@@ -641,6 +642,7 @@ test("pointer-only presence refreshes collaborators without rerendering status s
       actorId: "remote",
       identity: { name: "Peer", color: "#1971c2" },
       pointer: { x: sequence, y: sequence * 2 },
+      tool: "freedraw",
       sequence,
     }, "peer");
   }
@@ -650,6 +652,7 @@ test("pointer-only presence refreshes collaborators without rerendering status s
   assert.equal(collaboratorFrames.length, 1, "pointer-only packets do not redraw Excalidraw collaborators");
   assert.equal(collaboratorFrames.at(-1).get("peer").pointer, null);
   assert.deepEqual(controller.getPeers()[0].pointer, { x: 20, y: 40 });
+  assert.equal(controller.getPeers()[0].tool, "freedraw");
 });
 
 test("guest hex colors are passed to Excalidraw as matching pointer colors", async t => {
