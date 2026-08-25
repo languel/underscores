@@ -3223,6 +3223,17 @@ function App() {
   const collaborationMetadataRef = useRef(null);
   const collaborationApplyingRemoteRef = useRef(false);
   const collaborationPointerStateRef = useRef({ down: false });
+  const handleCollaborationPointerUpdate = useCallback(payload => {
+    collaborationController.publishPresence(payload);
+    if (consumeCollaborationGestureEnd(payload, collaborationPointerStateRef.current)) {
+      // Pointer-up is only the end of one segment for Excalidraw's
+      // click-based line mode. The scene checkpoint belongs to the completed
+      // multiElement, not to each intermediate click.
+      if (!excalidrawAPIRef.current?.getAppState().multiElement?.id) {
+        collaborationController.checkpointAfterGesture();
+      }
+    }
+  }, [collaborationController]);
   useEffect(() => {
     const unsubscribe = collaborationController.subscribe(setCollaborationState);
     return unsubscribe;
@@ -5049,6 +5060,7 @@ function App() {
   const strokeRecordingSuppressedRef = useRef(false);
   const gestureLoopRecordingRef = useRef(false);
   const passiveStrokeCaptureRef = useRef(null);
+  const passiveLineSessionRef = useRef(null);
   const nativeLineGridPointsRef = useRef(null);
   const pendingNativeLineFinalizeRef = useRef(null);
   const passiveGridFreedrawRef = useRef(false);
@@ -8613,10 +8625,28 @@ function App() {
         }
         excalidrawAPI.updateScene({ appState: { currentItemStrokeColor: "transparent" }, commitToHistory: false });
       }
+      const activeLineId = activeTool === "line"
+        ? nativeAppState.multiElement?.id || nativeAppState.editingLinearElement?.elementId || null
+        : null;
+      if (activeTool === "line") {
+        if (!activeLineId || !passiveLineSessionRef.current) {
+          passiveLineSessionRef.current = {
+            startedAt: Date.now(),
+            elementId: activeLineId,
+            existingIds: new Set(excalidrawAPI.getSceneElementsIncludingDeleted().map(element => element.id)),
+            samples: [],
+          };
+        } else if (!passiveLineSessionRef.current.elementId) {
+          passiveLineSessionRef.current.elementId = activeLineId;
+        }
+      }
+      const lineSession = activeTool === "line" ? passiveLineSessionRef.current : null;
       passiveStrokeCaptureRef.current = {
-        startedAt: Date.now(),
+        startedAt: lineSession?.startedAt || Date.now(),
         tool: activeTool,
-        existingIds: new Set(excalidrawAPI.getSceneElementsIncludingDeleted().map(element => element.id)),
+        activeElementId: activeLineId,
+        existingIds: lineSession?.existingIds
+          || new Set(excalidrawAPI.getSceneElementsIncludingDeleted().map(element => element.id)),
       };
       return;
     }
@@ -10340,6 +10370,35 @@ function App() {
     strokeRecordingSuppressedRef.current = false;
   };
 
+  const finalizePassiveLineRecording = (elements = null, fallbackElementId = null) => {
+    const session = passiveLineSessionRef.current;
+    const api = excalidrawAPIRef.current;
+    if (!session || !api || api.getAppState().multiElement?.id) return false;
+    const sceneElements = elements || api.getSceneElementsIncludingDeleted();
+    const elementId = session.elementId || fallbackElementId;
+    const line = (elementId
+      ? sceneElements.find(element => element.id === elementId && !element.isDeleted)
+      : null)
+      || [...sceneElements].reverse().find(element => (
+        element.type === "line"
+        && !element.isDeleted
+        && !session.existingIds.has(element.id)
+      ));
+    passiveLineSessionRef.current = null;
+    if (!line) {
+      strokeInputSamplesRef.current = [];
+      strokeRecordingSuppressedRef.current = false;
+      return false;
+    }
+    strokeInputSamplesRef.current = session.samples;
+    recordCompletedStroke({
+      finalElements: [line],
+      durationMs: Date.now() - session.startedAt,
+      brush: { kind: "excalidraw", tool: "line" },
+    });
+    return true;
+  };
+
   const quantizeGlobalGridElements = ({
     elementIds = null,
     transformOnly = false,
@@ -10677,6 +10736,15 @@ function App() {
       coords.strokeTime = Date.now() - capture.startedAt;
       coords.speed = 0;
       emitPointerInputSample(e, "end", coords);
+      if (capture.tool === "line" && passiveLineSessionRef.current) {
+        const session = passiveLineSessionRef.current;
+        session.elementId = session.elementId
+          || excalidrawAPIRef.current?.getAppState().multiElement?.id
+          || nativeLineGridPointsRef.current?.elementId
+          || capture.activeElementId
+          || null;
+        session.samples.push(...strokeInputSamplesRef.current);
+      }
       if (capture.tool === "line" && nativeLineGridPointsRef.current) {
         const points = [...nativeLineGridPointsRef.current.points];
         const previous = points[points.length - 1];
@@ -10697,13 +10765,35 @@ function App() {
       // gesture gate down until the next checkpoint. Release the gate here
       // as a capture-phase fallback so the completed line is published to
       // peers immediately.
-      if (collaborationPointerStateRef.current.down) {
+      if (
+        capture.tool === "line"
+        && collaborationState.active
+        && collaborationPointerStateRef.current.down
+      ) {
         collaborationPointerStateRef.current.down = false;
-        collaborationController.checkpointAfterGesture();
+        if (!excalidrawAPIRef.current?.getAppState().multiElement?.id) {
+          collaborationController.checkpointAfterGesture();
+        }
       }
       window.setTimeout(() => {
+        const api = excalidrawAPIRef.current;
+        // A click-based native line remains Excalidraw's `multiElement`
+        // between clicks. Rewriting that draft through recordCompletedStroke
+        // severs Excalidraw's continuation state, leaving only the first dot
+        // or a short segment. Let Excalidraw own the element until Enter,
+        // double-click, or a final drag actually commits it.
+        if (capture.tool === "line" && api?.getAppState().multiElement?.id) {
+          strokeInputSamplesRef.current = [];
+          strokeRecordingSuppressedRef.current = false;
+          return;
+        }
+        if (capture.tool === "line" && finalizePassiveLineRecording(
+          api?.getSceneElementsIncludingDeleted(),
+          capture.activeElementId,
+        )) return;
         let finalElements = excalidrawAPI?.getSceneElementsIncludingDeleted().filter(element =>
-          !element.isDeleted && !capture.existingIds.has(element.id)
+          !element.isDeleted
+          && (!capture.existingIds.has(element.id) || element.id === capture.activeElementId)
         ) || [];
         const grid = globalGridRef.current;
         if (capture.tool === "freedraw" && grid.snap.mode !== "off" && grid.snap.targets.input && finalElements.length) {
@@ -19453,7 +19543,10 @@ function App() {
     persistSolo: saveCurrentSceneLocally,
     resumeSolo: saveCurrentSceneLocally,
     getAppState: () => excalidrawAPIRef.current?.getAppState() || {},
-    isPointerGestureActive: () => collaborationPointerStateRef.current.down,
+    isPointerGestureActive: () => Boolean(
+      collaborationPointerStateRef.current.down
+      || excalidrawAPIRef.current?.getAppState().multiElement?.id
+    ),
     getFiles: () => excalidrawAPIRef.current?.getFiles() || {},
     addFiles: files => excalidrawAPIRef.current?.addFiles(files),
     getPresence: () => ({
@@ -26812,12 +26905,7 @@ function App() {
           theme={theme} 
           isCollaborating={collaborationState.active}
           renderTopRightUI={renderCollaborationTopRightUI}
-          onPointerUpdate={payload => {
-            collaborationController.publishPresence(payload);
-            if (consumeCollaborationGestureEnd(payload, collaborationPointerStateRef.current)) {
-              collaborationController.checkpointAfterGesture();
-            }
-          }}
+          onPointerUpdate={collaborationState.active ? handleCollaborationPointerUpdate : undefined}
           gridModeEnabled={false}
           validateEmbeddable={isAllowedEmbedURL}
           renderEmbeddable={renderEmbeddable}
@@ -26923,6 +27011,13 @@ function App() {
             const multiElementId = appState.multiElement?.id || null;
             const previousMultiElementId = multiElementGridRef.current;
             multiElementGridRef.current = multiElementId;
+
+            if (previousMultiElementId && !multiElementId && passiveLineSessionRef.current) {
+              window.setTimeout(() => {
+                finalizePassiveLineRecording(null, previousMultiElementId);
+              }, 0);
+              if (collaborationState.active) collaborationController.checkpointAfterGesture();
+            }
 
             if (previousActiveToolType === "line" && activeToolType !== "line" && nativeLineGridPointsRef.current) {
               if (nativeLineGridPointsRef.current.points?.length >= 2) {
@@ -27207,8 +27302,11 @@ function App() {
                   && activeGestureElement.points.length >= 2
                   && ["freedraw", "line"].includes(activeGestureElement.type)
                 );
-                const liveGestureUpdate = collaborationPointerStateRef.current.down && activeGestureHasRenderablePoints;
-                if (!collaborationPointerStateRef.current.down || liveGestureUpdate) {
+                const activeGestureInProgress = Boolean(
+                  collaborationPointerStateRef.current.down || appState.multiElement?.id
+                );
+                const liveGestureUpdate = activeGestureInProgress && activeGestureHasRenderablePoints;
+                if (!activeGestureInProgress || liveGestureUpdate) {
                   collaborationController.publishDocument(
                     JSON.parse(createUnderscoresExchangeJson("scene", effectiveElements, { preserveDeleted: true })),
                     { allowActiveGesture: liveGestureUpdate },
