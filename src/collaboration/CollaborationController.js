@@ -341,7 +341,20 @@ export class CollaborationController {
       if (error) this.emit("collaboration.connection.error", { message: error });
       return;
     }
+    if (event.type === "peer-error") {
+      const message = this.redactError(event.error || "A peer connection could not be established.");
+      // Keep a usable room usable. If another peer is already present, the
+      // failed ICE path is not a room outage and should not paint the whole
+      // people menu as disconnected.
+      this.updateState({
+        status: this.state.peerCount > 0 ? "connected" : "degraded",
+        error: this.state.peerCount > 0 ? "" : message,
+      });
+      this.emit("collaboration.connection.error", { message, peerId: event.peerId || "" });
+      return;
+    }
     if (event.type === "peer-join") {
+      if (this.state.status === "degraded") this.updateState({ status: "connected", error: "" });
       await this.sendReliable({ kind: "hello", actorId: this.actorId, identity: this.identity, digest: await this.currentDigest() }, event.peerId);
       this.publishPresence({}, { immediate: true, peerId: event.peerId });
       return;
@@ -452,7 +465,12 @@ export class CollaborationController {
     if (rosterSignature !== this.peerRosterSignature) {
       this.peerRosterSignature = rosterSignature;
       const capacityWarning = peerCount + 1 > COLLABORATION_SOFT_CAPACITY;
-      this.updateState({ peers: roster, peerCount, capacityWarning });
+      this.updateState({
+        peers: roster,
+        peerCount,
+        capacityWarning,
+        ...(peerCount > 0 && this.state.status === "degraded" ? { status: "connected", error: "" } : {}),
+      });
       this.emit("collaboration.presence", { peerCount, peers: roster });
     }
   }

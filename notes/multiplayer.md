@@ -72,3 +72,11 @@ The current provider is a direct WebRTC mesh intended for small rooms (roughly
 6–16 peers). It has no accounts, durable server history, teacher authority,
 comments, chat, voice, view-only roles, or room-wide lockdown. Those require a
 trusted persistent provider in a later phase.
+
+If the people menu briefly reports a limited connection while a peer is still
+visible, one browser-to-browser ICE path timed out while another path succeeded.
+This is common on restrictive networks without TURN. The room does not need a
+guest service running in either client: Trystero uses its discovery relay for
+signaling, then browsers attempt direct WebRTC connections. A room with at
+least one reachable peer remains usable; only a room with no reachable peers
+stays degraded.

@@ -332,6 +332,43 @@ test("controller creates, publishes, receives, and leaves through the provider c
   assert.equal(location.href, "https://example.test/board");
 });
 
+test("a failed peer path does not mark an already connected room as unavailable", async t => {
+  const provider = new FakeProvider();
+  const callbacks = {
+    getDocument: () => scene(),
+    getAppState: () => ({}),
+    getFiles: () => ({}),
+    getPresence: () => ({ selectedElementIds: {} }),
+    applyCollaborators: () => {},
+  };
+  const location = { href: "https://example.test/board" };
+  const controller = new CollaborationController({
+    getCallbacks: () => callbacks,
+    providerFactory: () => provider,
+    cache: new CollaborationRoomCache(null),
+    location,
+    history: { replaceState: (_state, _title, href) => { location.href = href; } },
+  });
+  t.after(() => controller.leaveRoom({ keepUrl: true, resumeSolo: false }));
+  await controller.createRoom();
+
+  provider.emit({ type: "peer-error", peerId: "unreachable", error: "ICE timeout" });
+  assert.equal(controller.getStatus().status, "degraded");
+  assert.match(controller.getStatus().error, /ICE timeout/);
+
+  provider.emit({ type: "peer-join", peerId: "reachable" });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  controller.handleReliableMessage({
+    protocol: 1,
+    kind: "hello",
+    actorId: "reachable-actor",
+    identity: { name: "Guest", color: "#1971c2" },
+    digest: "",
+  }, "reachable");
+  assert.equal(controller.getStatus().status, "connected");
+  assert.equal(controller.getStatus().error, "");
+});
+
 test("controller applies one linked-room snapshot and forwards a later authored edit", async t => {
   const firstProvider = new LinkedProvider("first");
   const secondProvider = new LinkedProvider("second");

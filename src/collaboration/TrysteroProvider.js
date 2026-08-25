@@ -30,8 +30,10 @@ export class TrysteroCollaborationProvider extends CollaborationProvider {
       this.room = joinRoom({ appId: this.appId, password: secret }, roomId, {
         onJoinError: details => {
           const message = details?.error?.message || "A peer connection could not be established.";
-          this.state = { status: "degraded", error: message };
-          this.emit({ type: "status", ...this.state });
+          // A Trystero join error is peer-scoped: discovery may have found a
+          // room while one ICE/WebRTC path still fails. Keep the provider
+          // alive and let the controller decide whether the room is usable.
+          this.emit({ type: "peer-error", peerId: details?.peerId || "", error: message });
         },
       });
       this.actions = {
