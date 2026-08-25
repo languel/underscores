@@ -36,6 +36,11 @@ export const consumeCollaborationGestureEnd = (payload, pointerState) => {
 };
 
 const DEFAULT_COLORS = Object.freeze(["#e03131", "#f08c00", "#2f9e44", "#1971c2", "#7048e8", "#c2255c", "#0b7285", "#5f3dc4"]);
+const normalizeIdentityColor = value => /^#[0-9a-f]{6}$/i.test(String(value || "")) ? String(value) : "#1971c2";
+const toExcalidrawCollaboratorColor = value => {
+  const color = normalizeIdentityColor(value);
+  return { background: color, stroke: color };
+};
 const clone = value => value === undefined ? undefined : structuredClone(value);
 const randomId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const storage = () => globalThis.localStorage;
@@ -446,7 +451,7 @@ export class CollaborationController {
     const peers = this.getPeers();
     const collaborators = new Map(peers.map(peer => [peer.peerId, {
       username: peer.username,
-      color: peer.color,
+      color: toExcalidrawCollaboratorColor(peer.color),
       pointer: peer.pointer || null,
       button: peer.button || "up",
       selectedElementIds: peer.selectedElementIds || {},

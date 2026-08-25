@@ -574,6 +574,27 @@ test("pointer-only presence refreshes collaborators without rerendering status s
   assert.deepEqual(controller.getPeers()[0].pointer, { x: 20, y: 40 });
 });
 
+test("guest hex colors are passed to Excalidraw as matching pointer colors", async t => {
+  const collaboratorFrames = [];
+  const controller = new CollaborationController({
+    getCallbacks: () => ({ applyCollaborators: collaborators => collaboratorFrames.push(collaborators) }),
+    cache: new CollaborationRoomCache(null),
+  });
+  t.after(() => controller.leaveRoom({ keepUrl: true, resumeSolo: false }));
+
+  controller.handlePresenceMessage({
+    protocol: 1,
+    kind: "presence",
+    actorId: "remote",
+    identity: { name: "Purple", color: "#8e44ad" },
+    pointer: { x: 1, y: 2, tool: "pointer" },
+    sequence: 1,
+  }, "peer-purple");
+  await new Promise(resolve => setTimeout(resolve, 70));
+  const collaborator = collaboratorFrames.at(-1).get("peer-purple");
+  assert.deepEqual(collaborator.color, { background: "#8e44ad", stroke: "#8e44ad" });
+});
+
 test("initialized remote edits do not publish redundant controller status", async t => {
   const applied = [];
   const controller = new CollaborationController({
