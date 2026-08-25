@@ -11247,7 +11247,7 @@ function App() {
     const errors = [];
     
     if (/<clear\s*\/>/i.test(text)) {
-      api.updateScene({ elements: [] });
+      tombstoneSceneElements(api);
       logToolAction("clear_canvas()", "ok");
     }
 
@@ -13653,6 +13653,36 @@ function App() {
       api.updateScene({ appState: { activeTool: { ...activeTool, type, locked: activeTool.locked ?? false } } });
     },
   }));
+  // Excalidraw represents deletion with retained tombstones. Keeping those
+  // records is important for multiplayer: an empty `elements` array is an
+  // ambiguous omission, so the collaboration controller deliberately keeps
+  // objects authored by another peer. A clear operation is explicit and must
+  // therefore tombstone every live object, regardless of its author.
+  const tombstoneSceneElements = (api, selectedIds = null) => {
+    if (!api) return false;
+    const elements = api.getSceneElementsIncludingDeleted?.() || [];
+    const selected = selectedIds ? new Set(selectedIds) : null;
+    const now = Date.now();
+    let changed = false;
+    const nextElements = elements.map(element => {
+      if (element.isDeleted || (selected && !selected.has(element.id))) return element;
+      changed = true;
+      return {
+        ...element,
+        isDeleted: true,
+        version: Number(element.version || 0) + 1,
+        versionNonce: Math.floor(Math.random() * 0x7fffffff),
+        updated: now,
+      };
+    });
+    if (!changed) return false;
+    api.updateScene({
+      elements: nextElements,
+      appState: { selectedElementIds: {}, selectedGroupIds: {} },
+      commitToHistory: true,
+    });
+    return true;
+  };
   const EXCALIDRAW_COMMANDS = [
     {
       id: "excalidraw.commands",
@@ -13767,7 +13797,7 @@ function App() {
       category: "Excalidraw",
       ai: { expose: true, description: "Clear the board and its physics relationships without a popup." },
       action: api => {
-        api?.updateScene({ elements: [] });
+        tombstoneSceneElements(api);
         physicsRuntimeRef.current.pause();
         setPhysicsWorldPlaying(false);
         setRelationshipGraph(createEmptyRelationshipGraph());
@@ -13803,8 +13833,7 @@ function App() {
         if (!api) return;
         const selectedElementIds = api.getAppState().selectedElementIds || {};
         if (!Object.keys(selectedElementIds).length) return;
-        const elements = api.getSceneElementsIncludingDeleted().map(element => selectedElementIds[element.id] ? { ...element, isDeleted: true } : element);
-        api.updateScene({ elements, appState: { selectedElementIds: {} }, commitToHistory: true });
+        tombstoneSceneElements(api, Object.keys(selectedElementIds));
       },
     },
     {
@@ -14078,7 +14107,7 @@ function App() {
     { id: "brush.channel.remove", name: "Remove Brush Channel", category: "Brush", args: { channelId: "string" }, action: (_api, args) => { deleteBrushChannel(args.channelId); return { channelId: args.channelId }; } },
     { id: "brush.channel.reorder", name: "Reorder Brush Channel", category: "Brush", args: { channelId: "string", delta: "number" }, action: (_api, args) => { reorderBrushChannel(args.channelId, Number(args.delta) || 0); return { channelId: args.channelId }; } },
     { id: "settings-ai", name: "Open AI Configuration /settings-ai", aliases: ["/settings-ai"], category: "Panels", action: () => toggleUnderscoresPanel("settings", { settingsTab: "ai" }) },
-    { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: (api) => api.updateScene({ elements: [] }) },
+    { id: "clear-canvas", name: "Clear Sketchboard Canvas", category: "Canvas", action: api => tombstoneSceneElements(api) },
     { id: "toggle-transparency", name: "Toggle Canvas Background Transparency", category: "Canvas", action: (api) => toggleBackgroundTransparency(api) },
     { id: "reset-view", name: "Reset Zoom & Pan View", category: "Canvas", action: (api) => api.updateScene({ appState: { zoom: { value: 1 }, scrollX: 0, scrollY: 0 } }) },
     { id: "view.frameAll", name: "Frame All /frame all", aliases: ["/frame all", "Frame All"], category: "Canvas", record: "presentation", action: (api) => {
@@ -14172,7 +14201,8 @@ function App() {
       name: "Score: Clear Scene /score clear",
       aliases: ["/score clear", "/ix clear", "/iannix clear", "Score clear", "IanniX clear"],
       category: "Score",
-      action: () => {
+      action: api => {
+        tombstoneSceneElements(api);
         runtimeCallbacksRef.current.iannixCommand("clear");
         // This is also the Ctrl+Shift+Delete/Backspace scene-clear shortcut.
         // Its old score-only path left the physics runtime and overlay alive.
@@ -21262,11 +21292,7 @@ function App() {
     if (unsupported.length) throw new Error(unsupported[0].reason);
     if (operations.some(operation => operation.type === "clear")) {
       await runWithoutSessionSceneRecording(async () => {
-        excalidrawAPIRef.current.updateScene({
-          elements: [],
-          appState: { selectedElementIds: {}, selectedGroupIds: {}, editingLinearElement: null, selectedLinearElement: null },
-          commitToHistory: true,
-        });
+        tombstoneSceneElements(excalidrawAPIRef.current);
         setSelectedElementIds({});
       });
       resetIannixRuntime();

@@ -324,6 +324,16 @@ test("controller creates, publishes, receives, and leaves through the provider c
   }
   assert.ok(applied.at(-1).elements.some(item => item.id === "remote"), "a local undo must not remove a remote element");
 
+  // An explicit tombstone is different from an omitted element. This is the
+  // shape emitted by a whole-scene clear, and it must be allowed to delete an
+  // object that was previously authored by another peer.
+  controller.publishDocument(scene({ elements: [
+    element("local", 2, 7),
+    element("remote", 2, 5, { isDeleted: true }),
+  ] }), { immediate: true });
+  await controller.remoteApplyChain;
+  assert.equal(controller.currentDocument.elements.find(item => item.id === "remote")?.isDeleted, true);
+
   provider.emit({ type: "status", status: "degraded", error: `relay failed for ${credentials.secret}` });
   assert.equal(controller.getStatus().error, "relay failed for [redacted]");
 

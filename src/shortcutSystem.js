@@ -12,7 +12,13 @@ export const SHORTCUT_ACTIONS = Object.freeze([
   { id: "transport.jump.end", commandId: "transport.jump.end", label: "Jump to timeline / loop end", defaultBinding: "Shift+ArrowRight" },
   { id: "command.palette.toggle", label: "Command palette", defaultBinding: "Mod+Slash" },
   { id: "workspace.reset.defaults", commandId: "workspace.reset.defaults", label: "Reset workspace to defaults", defaultBinding: "Ctrl+Alt+Shift+KeyD" },
-  { id: "iannix.command.clear", commandId: "iannix.command.clear", label: "Clear scene", defaultBinding: "Ctrl+Shift+Backspace" },
+  {
+    id: "iannix.command.clear",
+    commandId: "iannix.command.clear",
+    label: "Clear scene",
+    defaultBinding: "Ctrl+Shift+Backspace",
+    alternateBindings: ["Ctrl+Shift+Delete"],
+  },
   { id: "grid.visible.toggle", commandId: "grid.visible.toggle", label: "Grid visibility", defaultBinding: "Mod+Shift+Quote" },
   { id: "grid.snap.toggle", label: "Grid snapping", defaultBinding: "Mod+Alt+Quote" },
   { id: "panel-grid", label: "Grid panel", defaultBinding: "Ctrl+Alt+KeyG" },
@@ -106,4 +112,5 @@ export const shortcutLabel = binding => {
 
 export const findShortcutAction = (bindings, event) => SHORTCUT_ACTIONS.find(action =>
   shortcutMatchesEvent(bindings?.[action.id], event)
+    || (action.alternateBindings || []).some(binding => shortcutMatchesEvent(binding, event))
 ) || null;
