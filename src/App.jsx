@@ -26687,6 +26687,50 @@ function App() {
     });
   };
 
+  // Excalidraw's MainMenu is delivered through an internal React tunnel. Its
+  // registration effect is not safe when the entire children tree changes on
+  // every App render (a theme transition is one especially visible trigger),
+  // so keep the tree stable and route menu actions through current refs.
+  const exportUnderscoresSceneRef = useRef(exportUnderscoresScene);
+  exportUnderscoresSceneRef.current = exportUnderscoresScene;
+  const runMenuCommand = useCallback(commandId => {
+    commandRegistry.execute(commandId, {}, { source: "menu", transportTime: scoreTimeRef.current });
+  }, [commandRegistry]);
+  const mainMenu = useMemo(() => (
+    <MainMenu>
+      <MainMenu.DefaultItems.ClearCanvas />
+      <MainMenu.DefaultItems.LoadScene />
+      <MainMenu.DefaultItems.SaveAsImage />
+      <MainMenu.DefaultItems.Export />
+      <MainMenu.Item onSelect={() => exportUnderscoresSceneRef.current()}>Export Underscores .excalidraw</MainMenu.Item>
+      <MainMenu.Separator />
+      <MainMenu.DefaultItems.ToggleTheme />
+      <MainMenu.Separator />
+      <MainMenu.Item onSelect={() => runMenuCommand("library")}>Library</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-chat")}>AI Assistant</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-mods")}>Brush</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-script")}>Script</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-iannix")}>Score</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-physics")}>Physics</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-mixer")}>Mixer</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-synth")}>Expressive Synth</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-media-input")}>Media</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-inputs")}>Inputs</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-holistic")}>MediaPipe Holistic</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-info")}>Info</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-settings")}>Settings</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-console")}>Console</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-history")}>History</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-properties")}>Properties</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-outliner")}>Outliner</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-playlist")}>Playlist</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-transport")}>Timeline</MainMenu.Item>
+      <MainMenu.Item onSelect={() => runMenuCommand("panel-grid")}>Grid</MainMenu.Item>
+      <MainMenu.Separator />
+      <MainMenu.DefaultItems.ChangeCanvasBackground />
+    </MainMenu>
+  ), [runMenuCommand]);
+
   return (
     <div 
       id="root" 
@@ -27456,76 +27500,7 @@ function App() {
           }}
         >
           {/* Main Hamburguer Menu */}
-          <MainMenu>
-            <MainMenu.DefaultItems.ClearCanvas />
-            <MainMenu.DefaultItems.LoadScene />
-            <MainMenu.DefaultItems.SaveAsImage />
-            <MainMenu.DefaultItems.Export />
-            <MainMenu.Item onSelect={exportUnderscoresScene}>Export Underscores .excalidraw</MainMenu.Item>
-            <MainMenu.Separator />
-            <MainMenu.DefaultItems.ToggleTheme />
-            <MainMenu.Separator />
-            <MainMenu.Item onSelect={() => commandRegistry.execute("library", {}, { source: "menu", transportTime: scoreTimeRef.current })}>Library</MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-chat", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              AI Assistant
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-mods", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Brush
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-script", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Script
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-iannix", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Score
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-physics", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Physics
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-mixer", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Mixer
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-synth", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Expressive Synth
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-media-input", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Media
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-inputs", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Inputs
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-holistic", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              MediaPipe Holistic
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-info", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Info
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-settings", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Settings
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-console", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Console
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-history", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              History
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-properties", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Properties
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-outliner", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Outliner
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-playlist", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Playlist
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-transport", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Timeline
-            </MainMenu.Item>
-            <MainMenu.Item onSelect={() => commandRegistry.execute("panel-grid", {}, { source: "menu", transportTime: scoreTimeRef.current })}>
-              Grid
-            </MainMenu.Item>
-            <MainMenu.Separator />
-            <MainMenu.DefaultItems.ChangeCanvasBackground />
-          </MainMenu>
+          {mainMenu}
 
           {/* Underscores-owned panels can coexist when floating and share icon tabs when docked. */}
           {shouldRenderPanel("chat") && (
