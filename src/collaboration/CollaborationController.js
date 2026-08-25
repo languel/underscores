@@ -452,7 +452,6 @@ export class CollaborationController {
     const collaborators = new Map(peers.map(peer => [peer.peerId, {
       username: peer.username,
       color: toExcalidrawCollaboratorColor(peer.color),
-      pointer: peer.pointer || null,
       button: peer.button || "up",
       selectedElementIds: peer.selectedElementIds || {},
       idleState: peer.idleState || "active",

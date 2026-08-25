@@ -570,7 +570,7 @@ test("pointer-only presence refreshes collaborators without rerendering status s
   await new Promise(resolve => setTimeout(resolve, 70));
 
   assert.equal(statusNotifications, afterRosterJoin);
-  assert.deepEqual(collaboratorFrames.at(-1).get("peer").pointer, { x: 20, y: 40 });
+  assert.equal(collaboratorFrames.at(-1).get("peer").pointer, undefined);
   assert.deepEqual(controller.getPeers()[0].pointer, { x: 20, y: 40 });
 });
 
@@ -593,6 +593,7 @@ test("guest hex colors are passed to Excalidraw as matching pointer colors", asy
   await new Promise(resolve => setTimeout(resolve, 70));
   const collaborator = collaboratorFrames.at(-1).get("peer-purple");
   assert.deepEqual(collaborator.color, { background: "#8e44ad", stroke: "#8e44ad" });
+  assert.equal(collaborator.pointer, undefined, "native Excalidraw pointers use a peer-id palette; Underscores renders the color-matched overlay");
 });
 
 test("initialized remote edits do not publish redundant controller status", async t => {

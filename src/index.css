@@ -6910,6 +6910,45 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   pointer-events: none;
 }
 
+.underscores-collaboration-pointers {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
+  pointer-events: none;
+}
+.underscores-collaboration-pointer {
+  position: absolute;
+  transform: translate(-1px, -1px);
+  width: 11px;
+  height: 14px;
+  color: var(--peer-color);
+  pointer-events: none;
+}
+.underscores-collaboration-pointer-arrow {
+  position: absolute;
+  inset: 0;
+  width: 11px;
+  height: 14px;
+  background: var(--peer-color);
+  border: 1px solid var(--peer-color);
+  clip-path: polygon(0 0, 0 100%, 34% 70%, 100% 64%);
+  filter: drop-shadow(0 0 0.5px var(--underscores-canvas-bg, #111));
+}
+.underscores-collaboration-pointer-name {
+  position: absolute;
+  top: 16px;
+  left: 9px;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--peer-color) 70%, white 30%);
+  border-radius: 7px;
+  background: var(--peer-color);
+  color: #000;
+  font: 600 12px/1.2 sans-serif;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 30%);
+}
+
 #canvas-container.underscores-object-eyedropper,
 #canvas-container.underscores-object-eyedropper * {
   cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Ccircle cx='13' cy='13' r='7' fill='none' stroke='white' stroke-width='2'/%3E%3Ccircle cx='13' cy='13' r='2' fill='white' stroke='%231b1b1b' stroke-width='1.5'/%3E%3Cpath d='M13 1v5m0 14v5M1 13h5m14 0h5' stroke='%231b1b1b' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") 13 13, crosshair !important;

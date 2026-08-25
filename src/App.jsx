@@ -23,6 +23,7 @@ import {
 } from "./sceneShare.js";
 import { loadLastScene, saveLastScene } from "./sceneSessionStorage.js";
 import CollaborationMenu from "./CollaborationMenu.jsx";
+import CollaborationPointers from "./CollaborationPointers.jsx";
 import { CollaborationController, consumeCollaborationGestureEnd } from "./collaboration/CollaborationController.js";
 import { mergeCollaborationAppState } from "./collaboration/sceneDocument.js";
 import { parseCollaborationUrl } from "./collaboration/roomUrl.js";
@@ -29160,6 +29161,11 @@ function App() {
           elements={p5OverlayScene.elements}
           appState={p5OverlayScene.appState}
           scriptRuntimeRef={scriptRuntimeRef}
+        />
+        <CollaborationPointers
+          controller={collaborationController}
+          active={collaborationState.active}
+          excalidrawAPI={excalidrawAPI}
         />
         <PlayCoreFrameOverlay elements={p5OverlayScene.elements} appState={p5OverlayScene.appState} scriptRuntimeRef={scriptRuntimeRef} />
         <MediaSourceRuntimeLayer
