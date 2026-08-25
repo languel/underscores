@@ -117,6 +117,7 @@ export class CollaborationController {
     this.peerRefreshTimer = null;
     this.presenceSequence = 0;
     this.peerRosterSignature = "";
+    this.peerCollaboratorSignature = "";
     this.remoteApplyChain = Promise.resolve();
     this.localPublishSuspendedUntil = 0;
     this.lastBroadcastSignature = "";
@@ -227,6 +228,7 @@ export class CollaborationController {
     this.currentDocument = null;
     this.presences.clear();
     this.peerRosterSignature = "";
+    this.peerCollaboratorSignature = "";
     this.elementActors.clear();
     this.lastBroadcastSignature = "";
     this.lastSentSnapshotByPeer.clear();
@@ -307,6 +309,7 @@ export class CollaborationController {
     this.roomUrl = "";
     this.presences.clear();
     this.peerRosterSignature = "";
+    this.peerCollaboratorSignature = "";
     this.pendingUpdate = null;
     this.pendingPresence = null;
     this.updateState({ active: false, status: "disconnected", roomId: "", peerCount: 0, peers: [], error: "", capacityWarning: false, initialized: false });
@@ -449,14 +452,33 @@ export class CollaborationController {
       return;
     }
     const peers = this.getPeers();
-    const collaborators = new Map(peers.map(peer => [peer.peerId, {
+    // Pointer packets are high-frequency ephemeral state. Keep them in the
+    // controller for the lightweight overlay, but do not force Excalidraw to
+    // redraw its interactive canvas for every packet.
+    const collaboratorRoster = peers.map(peer => ({
+      peerId: peer.peerId,
       username: peer.username,
-      color: toExcalidrawCollaboratorColor(peer.color),
+      color: peer.color,
       button: peer.button || "up",
       selectedElementIds: peer.selectedElementIds || {},
       idleState: peer.idleState || "active",
-    }]));
-    this.callbacks().applyCollaborators?.(collaborators);
+    }));
+    const collaboratorSignature = JSON.stringify(collaboratorRoster);
+    if (collaboratorSignature !== this.peerCollaboratorSignature) {
+      this.peerCollaboratorSignature = collaboratorSignature;
+      const collaborators = new Map(peers.map(peer => [peer.peerId, {
+        username: peer.username,
+        color: toExcalidrawCollaboratorColor(peer.color),
+        // Excalidraw replaces collaborator entries through updateScene(), but
+        // explicitly clearing pointer prevents a previously rendered native
+        // pointer from surviving while the color-matched overlay is active.
+        pointer: null,
+        button: peer.button || "up",
+        selectedElementIds: peer.selectedElementIds || {},
+        idleState: peer.idleState || "active",
+      }]));
+      this.callbacks().applyCollaborators?.(collaborators);
+    }
     const peerCount = peers.length;
     const roster = peers.map(peer => ({
       peerId: peer.peerId,
