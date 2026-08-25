@@ -76,6 +76,29 @@ for (const target of targets) {
       .replace(/(EVENT\\?\[\\?["']UNLOAD\\?["']\\?\]\s*=\s*)(\\?["'])unload\2/gi, '$1$2pagehide$2')
       .replace(/(\bUNLOAD\s*=\s*)(\\?["'])unload\2/gi, '$1$2pagehide$2');
 
+    // Excalidraw 0.17.6 delivers its fallback MainMenu through an internal
+    // tunnel-rat registration. The menu registers a freshly-created JSX child
+    // on every app-state render; in a scene with live runtime/collaboration
+    // updates its mount/unmount effects can recurse until React throws
+    // "Maximum update depth exceeded" and blanks the app. Underscores owns the
+    // command palette and shortcut surface, so omit only the fallback menu
+    // while leaving the rest of Excalidraw's LayerUI intact. Keep this patch
+    // here (rather than editing node_modules by hand) so dev and production
+    // builds apply the same guarded workaround.
+    const defaultMainMenuPatterns = [
+      {
+        search: 'children: [children, (0,react_jsx_runtime__WEBPACK_IMPORTED_MODULE_0__.jsx)(DefaultMainMenu, {\\n      UIOptions: UIOptions\\n    }),',
+        replacement: 'children: [children,',
+      },
+      {
+        search: 'children:[w,(0,P.jsx)(Kn,{UIOptions:g}),',
+        replacement: 'children:[w,',
+      },
+    ];
+    for (const { search, replacement } of defaultMainMenuPatterns) {
+      if (content.includes(search)) content = content.replace(search, replacement);
+    }
+
     if (content !== initialContent) {
       fs.writeFileSync(target, content, "utf8");
       console.log(`Successfully patched ${target}!`);

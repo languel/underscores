@@ -1,7 +1,7 @@
 // Force rebuild timestamp: 2026-07-06T11:15:00
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { Excalidraw, MainMenu, exportToSvg, exportToCanvas, getCommonBounds, getFreeDrawSvgPath, loadFromBlob, serializeAsJSON, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
+import { Excalidraw, exportToSvg, exportToCanvas, getCommonBounds, getFreeDrawSvgPath, loadFromBlob, serializeAsJSON, viewportCoordsToSceneCoords, sceneCoordsToViewportCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
 import "./App.css";
 import { composePreviewTracks, composeRuntimeCursorTracks, inferAxisFlipSign, isDrawableTrack, mapEvaluatedTrackToElement, mapTrackPointToElement, removeModifierAt, replaceModifierBrushAt, resampleStrokeByDistance, resolveBakedTracks, resolveBrushId, resolveDrawingModifiers, resolveHideOriginalControl } from "./modifierStack.js";
 import { advanceScoreCollisionState, allocateIannixRoleLabels, dampCursorTransform, enforceRuntimeCursorHostVisibility, evaluateScoreFrame, FREEDRAW_RENDERED_STROKE_SCALE, getElementCenter, getElementCorePaths, getObjectTimeState, getScoreData, isRuntimeCursor, normalizeIannixData, normalizeScoreElementMetadata, reconcileRuntimeCursorHosts, resolveIannixObjectTiming, snapCursorHostToCurveStart, transformPaths, withScoreData } from "./iannixEngine.js";
@@ -14201,15 +14201,12 @@ function App() {
       name: "Score: Clear Scene /score clear",
       aliases: ["/score clear", "/ix clear", "/iannix clear", "Score clear", "IanniX clear"],
       category: "Score",
-      action: api => {
-        tombstoneSceneElements(api);
-        runtimeCallbacksRef.current.iannixCommand("clear");
-        // This is also the Ctrl+Shift+Delete/Backspace scene-clear shortcut.
-        // Its old score-only path left the physics runtime and overlay alive.
-        physicsRuntimeRef.current.pause();
-        setPhysicsWorldPlaying(false);
-        setRelationshipGraph(createEmptyRelationshipGraph());
-      },
+      // Route every clear entry point through the same trusted operation. The
+      // old action tombstoned once here and then called the trusted handler,
+      // which tombstoned again while Excalidraw was still publishing the first
+      // scene update. In a live room that produced overlapping scene/runtime
+      // updates and could blank the renderer.
+      action: () => runtimeCallbacksRef.current.iannixCommand("clear"),
     },
     { id: "iannix.command.execute", name: "Execute Score Command", category: "Score", args: { command: "string" }, action: (_api, args) => runtimeCallbacksRef.current.iannixCommand(args?.command) },
     { id: "collaboration.room.create", name: "Create Multiplayer Room", aliases: ["/multiplayer create"], category: "Collaboration", record: "never", action: async () => {
@@ -21297,6 +21294,12 @@ function App() {
       });
       resetIannixRuntime();
       setModifierUpdateNonce(nonce => nonce + 1);
+      // A scene clear also stops score-driven physics and removes its authored
+      // graph. Keep this in the single trusted clear path so the shortcut,
+      // command palette, and IanniX command UI cannot diverge.
+      physicsRuntimeRef.current.pause();
+      setPhysicsWorldPlaying(false);
+      setRelationshipGraph(createEmptyRelationshipGraph());
       setSceneExchangeStatus("Executed IanniX command: cleared the scene.");
       eventBus.emit("iannix.command.executed", { command, objectCount: 0 }, { source: "iannix" });
       return { command, objectCount: 0 };
@@ -26687,50 +26690,6 @@ function App() {
     });
   };
 
-  // Excalidraw's MainMenu is delivered through an internal React tunnel. Its
-  // registration effect is not safe when the entire children tree changes on
-  // every App render (a theme transition is one especially visible trigger),
-  // so keep the tree stable and route menu actions through current refs.
-  const exportUnderscoresSceneRef = useRef(exportUnderscoresScene);
-  exportUnderscoresSceneRef.current = exportUnderscoresScene;
-  const runMenuCommand = useCallback(commandId => {
-    commandRegistry.execute(commandId, {}, { source: "menu", transportTime: scoreTimeRef.current });
-  }, [commandRegistry]);
-  const mainMenu = useMemo(() => (
-    <MainMenu>
-      <MainMenu.DefaultItems.ClearCanvas />
-      <MainMenu.DefaultItems.LoadScene />
-      <MainMenu.DefaultItems.SaveAsImage />
-      <MainMenu.DefaultItems.Export />
-      <MainMenu.Item onSelect={() => exportUnderscoresSceneRef.current()}>Export Underscores .excalidraw</MainMenu.Item>
-      <MainMenu.Separator />
-      <MainMenu.DefaultItems.ToggleTheme />
-      <MainMenu.Separator />
-      <MainMenu.Item onSelect={() => runMenuCommand("library")}>Library</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-chat")}>AI Assistant</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-mods")}>Brush</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-script")}>Script</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-iannix")}>Score</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-physics")}>Physics</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-mixer")}>Mixer</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-synth")}>Expressive Synth</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-media-input")}>Media</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-inputs")}>Inputs</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-holistic")}>MediaPipe Holistic</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-info")}>Info</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-settings")}>Settings</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-console")}>Console</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-history")}>History</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-properties")}>Properties</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-outliner")}>Outliner</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-playlist")}>Playlist</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-transport")}>Timeline</MainMenu.Item>
-      <MainMenu.Item onSelect={() => runMenuCommand("panel-grid")}>Grid</MainMenu.Item>
-      <MainMenu.Separator />
-      <MainMenu.DefaultItems.ChangeCanvasBackground />
-    </MainMenu>
-  ), [runMenuCommand]);
-
   return (
     <div 
       id="root" 
@@ -27499,9 +27458,6 @@ function App() {
             }
           }}
         >
-          {/* Main Hamburguer Menu */}
-          {mainMenu}
-
           {/* Underscores-owned panels can coexist when floating and share icon tabs when docked. */}
           {shouldRenderPanel("chat") && (
           <UnderscoresPanel
