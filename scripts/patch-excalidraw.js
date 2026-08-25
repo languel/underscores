@@ -60,6 +60,18 @@ for (const target of targets) {
         /oe=function\(e,t,n\)\{if\(e\.link&&!n\.selectedElementIds\[e\.id\]\)\{/g,
         'oe=function(e,t,n){if(e.link&&!n.selectedElementIds[e.id]&&"image"!==e.type&&"embeddable"!==e.type){'
       )
+      // Underscores renders collaborator pointers in its own DOM overlay so
+      // guest colors remain stable across clients. Keep Excalidraw's remote
+      // selection rendering, but prevent its native canvas cursor from
+      // painting a second pointer with the peer-id palette.
+      .replace(
+        /remotePointerViewportCoords: pointerViewportCoords/g,
+        'remotePointerViewportCoords: {}'
+      )
+      .replace(
+        /remotePointerViewportCoords:o/g,
+        'remotePointerViewportCoords:{}'
+      )
       // Replace deprecated unload event with pagehide to satisfy browser policies
       .replace(/(EVENT\\?\[\\?["']UNLOAD\\?["']\\?\]\s*=\s*)(\\?["'])unload\2/gi, '$1$2pagehide$2')
       .replace(/(\bUNLOAD\s*=\s*)(\\?["'])unload\2/gi, '$1$2pagehide$2');
