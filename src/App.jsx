@@ -22,6 +22,10 @@ import {
   readSceneSourceReference,
 } from "./sceneShare.js";
 import { loadLastScene, saveLastScene } from "./sceneSessionStorage.js";
+import CollaborationMenu from "./CollaborationMenu.jsx";
+import { CollaborationController, consumeCollaborationGestureEnd } from "./collaboration/CollaborationController.js";
+import { mergeCollaborationAppState } from "./collaboration/sceneDocument.js";
+import { parseCollaborationUrl } from "./collaboration/roomUrl.js";
 import { attachUnderscoresSvgMetadata, cleanSvgMarkup, extractUnderscoresSvgMetadata, extractSvgMarkup, getSvgDrawableBounds, offsetSvgDrawableSpecs, parseSvgToDrawableSpecs } from "./svgImport.js";
 import { UNDERSCORES_PANELS, getUnderscoresPanel, getNaturalPanelPlacement } from "./panelRegistry.js";
 import { getDockTarget, getOpenPanelsForPlacement, normalizeDockSizes, normalizePanelLayouts, PANEL_PLACEMENTS, resolveActiveDockPanel } from "./panelLayout.js";
@@ -3154,7 +3158,6 @@ const repairLegacyAxleEndpointsForScene = (graphValue, elements = []) => {
 };
 
 function App() {
-  console.log("Underscores version: 1.8.0 (rebuilt at 2026-07-08T22:25:00)");
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const runtimeCallbacksRef = useRef({
@@ -3195,6 +3198,34 @@ function App() {
     };
   }
   const { eventBus, inputBus, commandRegistry, historyController, library: historyLibrary } = underscoresRuntimeRef.current;
+  const collaborationCallbacksRef = useRef({});
+  const collaborationControllerRef = useRef(null);
+  if (!collaborationControllerRef.current) {
+    collaborationControllerRef.current = new CollaborationController({
+      getCallbacks: () => collaborationCallbacksRef.current,
+    });
+  }
+  const collaborationController = collaborationControllerRef.current;
+  const [collaborationState, setCollaborationState] = useState(() => collaborationController.getStatus());
+  // Excalidraw renders collaboration UI through an internal React tunnel.
+  // Returning a new element from the render prop on every unrelated App
+  // update (including each CodeMirror keystroke) makes that tunnel repeatedly
+  // replace its children and can hit React's maximum update depth. Keep both
+  // the payload and callback stable until collaboration state actually changes.
+  const collaborationTopRightUI = useMemo(() => (
+    <CollaborationMenu controller={collaborationController} state={collaborationState} />
+  ), [collaborationController, collaborationState]);
+  const renderCollaborationTopRightUI = useCallback(
+    () => collaborationTopRightUI,
+    [collaborationTopRightUI],
+  );
+  const collaborationMetadataRef = useRef(null);
+  const collaborationApplyingRemoteRef = useRef(false);
+  const collaborationPointerStateRef = useRef({ down: false });
+  useEffect(() => {
+    const unsubscribe = collaborationController.subscribe(setCollaborationState);
+    return unsubscribe;
+  }, [collaborationController]);
   const [historySnapshot, setHistorySnapshot] = useState(() => historyController.snapshot());
   const [historyMacros, setHistoryMacros] = useState([]);
   const [historyIncludePresentation, setHistoryIncludePresentation] = useState(true);
@@ -4952,6 +4983,8 @@ function App() {
   const lastSceneRestoreAttemptedRef = useRef(false);
   const lastSceneRestoreInProgressRef = useRef(false);
   const lastSceneElementPersistenceSignatureRef = useRef("");
+  const lastCollaborationAppStateSignatureRef = useRef("");
+  const lastCollaborationAuthoredStateSignatureRef = useRef("");
   const iannixImportInputRef = useRef(null);
   const brushImportInputRef = useRef(null);
   const p5ImportInputRef = useRef(null);
@@ -5215,6 +5248,18 @@ function App() {
   if (!scriptCanvasApiRef.current) scriptCanvasApiRef.current = createScriptCanvasApi(scriptRuntimeRef);
   const runtimeCursorSelectionRef = useRef({});
   const [modifierUpdateNonce, setModifierUpdateNonce] = useState(0);
+  const modifierRefreshTimerRef = useRef(null);
+  const lastModifierRefreshAtRef = useRef(0);
+  const scheduleModifierRefresh = useCallback(() => {
+    if (modifierRefreshTimerRef.current !== null) return;
+    const elapsed = performance.now() - lastModifierRefreshAtRef.current;
+    modifierRefreshTimerRef.current = window.setTimeout(() => {
+      modifierRefreshTimerRef.current = null;
+      lastModifierRefreshAtRef.current = performance.now();
+      setModifierUpdateNonce(nonce => nonce + 1);
+    }, Math.max(0, 33 - elapsed));
+  }, []);
+  useEffect(() => () => window.clearTimeout(modifierRefreshTimerRef.current), []);
   const [bezierEditElementId, setBezierEditElementId] = useState(null);
   const [bezierSelectedAnchor, setBezierSelectedAnchor] = useState(null);
   const bezierDragRef = useRef(null);
@@ -5324,6 +5369,9 @@ function App() {
       );
       const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
       lastSceneElementPersistenceSignatureRef.current = scenePersistenceSignature(elements);
+      lastCollaborationAppStateSignatureRef.current = JSON.stringify({
+        viewBackgroundColor: excalidrawAPI.getAppState()?.viewBackgroundColor || null,
+      });
       const migrated = elements.map(element => migrateGestureToArrangement(normalizeScoreElementMetadata(element), timeContext));
       if (migrated.some((element, index) => element !== elements[index])) {
         excalidrawAPI.updateScene({ elements: migrated, commitToHistory: false });
@@ -14133,6 +14181,23 @@ function App() {
       },
     },
     { id: "iannix.command.execute", name: "Execute Score Command", category: "Score", args: { command: "string" }, action: (_api, args) => runtimeCallbacksRef.current.iannixCommand(args?.command) },
+    { id: "collaboration.room.create", name: "Create Multiplayer Room", aliases: ["/multiplayer create"], category: "Collaboration", record: "never", action: async () => {
+      await collaborationController.createRoom();
+      return collaborationController.getStatus();
+    } },
+    { id: "collaboration.room.join", name: "Join Multiplayer Room", aliases: ["/multiplayer join"], category: "Collaboration", record: "never", args: { link: "string" }, sensitiveArgs: ["link"], action: async (_api, args) => {
+      await collaborationController.joinRoom(args?.link);
+      return collaborationController.getStatus();
+    } },
+    { id: "collaboration.room.leave", name: "Leave Multiplayer Room", aliases: ["/multiplayer leave"], category: "Collaboration", record: "never", action: async () => {
+      await collaborationController.leaveRoom();
+      return collaborationController.getStatus();
+    } },
+    { id: "collaboration.room.copyLink", name: "Copy Multiplayer Link", aliases: ["/multiplayer copy"], category: "Collaboration", record: "never", action: async () => {
+      await collaborationController.copyLink();
+      return collaborationController.getStatus();
+    } },
+    { id: "collaboration.identity.update", name: "Update Multiplayer Identity", aliases: ["/multiplayer identity"], category: "Collaboration", record: "never", args: { name: "string?", color: "hexColor?" }, action: (_api, args) => collaborationController.setIdentity(args) },
     { id: "ai.prompt", name: "Send AI Prompt", category: "AI Chat", args: { prompt: "string" }, action: (_api, args) => { openAISidebar(); return sendChatMessage(args?.prompt || ""); } },
   ];
 
@@ -19050,10 +19115,18 @@ function App() {
     return saved ? { ...element, opacity: saved.opacity, locked: saved.locked } : element;
   });
 
+  const getAutomationAuthoredSerializationElements = elements => elements.map(element => {
+    let authored = evaluateElementAutomation(element, 0);
+    if (authored !== element && hasCubicBezierGeometry(authored)) {
+      authored = setElementBezierGeometry(authored, authored.customData.underscoresGeometry);
+    }
+    return authored;
+  });
+
   const createUnderscoresExchangeJson = (kind, elements) => {
     if (!excalidrawAPI) throw new Error("The scene is not ready.");
     const serializedElements = kind === "scene"
-      ? getPhysicsAuthoredSerializationElements(getArrangementAuthoredSerializationElements(elements))
+      ? getPhysicsAuthoredSerializationElements(getArrangementAuthoredSerializationElements(getAutomationAuthoredSerializationElements(elements)))
       : getArrangementAuthoredSerializationElements(elements);
     const serialized = serializeAsJSON(
       serializedElements,
@@ -19081,7 +19154,9 @@ function App() {
       playlist: playlistStateRef.current,
     } : { arrangement: arrangementStateRef.current, playlist: playlistStateRef.current }, kind === "scene"
       ? relationshipGraphRef.current
-      : relationshipGraphForSelection(relationshipGraphRef.current, elements.filter(element => !element.isDeleted).map(element => element.id))), null, 2);
+      : relationshipGraphForSelection(relationshipGraphRef.current, elements.filter(element => !element.isDeleted).map(element => element.id)), kind === "scene"
+      ? collaborationMetadataRef.current
+      : null));
   };
 
   const downloadTextFile = (text, filename, mimeType = "application/json") => {
@@ -19171,14 +19246,26 @@ function App() {
     }
   };
 
-  const importUnderscoresSceneText = async (text, { commitToHistory = true } = {}) => {
+  const importUnderscoresSceneText = async (source, {
+    applyAuthoredState = true,
+    commitToHistory = true,
+    directDocument = false,
+    preserveLocalAppState = false,
+    resetHistory = !commitToHistory,
+    showStatus = true,
+  } = {}) => {
     if (!excalidrawAPI) return;
-    const { score, grid, expressiveSynth, mixer: importedMixer, p5Scripts: importedP5Scripts, streamGraph: importedStreamGraph, brushChannels: importedBrushChannels, relationshipGraph: importedRelationshipGraph, authoredState } = parseUnderscoresExchange(text, "scene");
-    const restored = await loadFromBlob(new Blob([text], { type: "application/json" }), null, null);
+    const sourceDocument = typeof source === "string" ? JSON.parse(source) : source;
+    const { score, grid, expressiveSynth, mixer: importedMixer, p5Scripts: importedP5Scripts, streamGraph: importedStreamGraph, brushChannels: importedBrushChannels, relationshipGraph: importedRelationshipGraph, authoredState, collaboration } = parseUnderscoresExchange(sourceDocument, "scene");
+    const restored = directDocument
+      ? { elements: sourceDocument.elements || [], appState: sourceDocument.appState || {}, files: sourceDocument.files || null }
+      : await loadFromBlob(new Blob([JSON.stringify(sourceDocument)], { type: "application/json" }), null, null);
     // Scene content may be shared, but the interface theme is a local user
     // preference. A restored Excalidraw app state must not overwrite the
     // saved Underscores light/dark choice on page reload.
-    const restoredAppState = { ...(restored.appState || {}) };
+    const restoredAppState = preserveLocalAppState
+      ? mergeCollaborationAppState(excalidrawAPI.getAppState(), restored.appState)
+      : { ...(restored.appState || {}) };
     delete restoredAppState.theme;
     const restoredRuntimeElements = reconcileRuntimeCursorHosts((restored.elements || []).map(normalizeScoreElementMetadata));
     const restoredP5 = reconcileP5ScriptsWithElements(importedP5Scripts, restoredRuntimeElements);
@@ -19190,9 +19277,11 @@ function App() {
       appState: {
         ...restoredAppState,
         theme,
-        currentItemRoughness: 0,
-        currentItemRoundness: globalRoundness ? "round" : "sharp",
-        selectedElementIds: {},
+        ...(!preserveLocalAppState ? {
+          currentItemRoughness: 0,
+          currentItemRoundness: globalRoundness ? "round" : "sharp",
+          selectedElementIds: {},
+        } : {}),
         gridSize: null,
         gridModeEnabled: false,
         objectsSnapModeEnabled: false,
@@ -19204,80 +19293,83 @@ function App() {
     // leaves that empty mount state as the first undo target, so the first
     // user edit followed by Undo clears the whole restored scene. Treat a
     // non-history import as the new editor baseline instead.
-    if (!commitToHistory) {
+    if (resetHistory) {
       excalidrawAPI.history?.clear?.();
       // The first recorded update after a clear establishes History's current
       // entry; without this seed, the user's first edit becomes that entry and
       // cannot itself be undone.
       excalidrawAPI.updateScene({ elements: restoredElements, commitToHistory: true });
     }
+    collaborationMetadataRef.current = collaboration;
     lastSceneElementPersistenceSignatureRef.current = scenePersistenceSignature(restoredElements);
-    setGlobalGrid(grid);
-    setExpressiveSynthConfig(expressiveSynth);
-    mixerRef.current = importedMixer;
-    setMixer(importedMixer);
-    setP5Scripts(restoredP5.scripts);
-    setStreamGraph(normalizeStreamGraphWithBuiltins(importedStreamGraph));
-    setBrushChannels(normalizeBrushChannels(importedBrushChannels));
-    const hydratedRelationshipGraph = repairedPhysics.graph;
-    // Scene persistence can run immediately after import. Keep its reset-pose
-    // serializer aligned with the imported elements before React commits the
-    // graph state update.
-    relationshipGraphRef.current = hydratedRelationshipGraph;
-    setRelationshipGraph(hydratedRelationshipGraph);
-    if (authoredState) {
-      mediaSourcesRef.current = authoredState.mediaSources;
-      setMediaSources(authoredState.mediaSources);
-      if (authoredState.brushPalette.length) setBrushPalette(authoredState.brushPalette);
-      setIannixScripts(authoredState.iannixScripts);
-      setPlayCoreScripts(authoredState.playCoreScripts);
-      setSvgScripts(authoredState.svgScripts);
-      const importedArrangement = createArrangementState(authoredState.arrangement);
-      arrangementStateRef.current = importedArrangement;
-      setArrangementState(importedArrangement);
-      const importedPlaylist = createPlaylistState(authoredState.playlist);
-      playlistStateRef.current = importedPlaylist;
-      setPlaylistState(importedPlaylist);
-    } else {
-      const emptyArrangement = createArrangementState();
-      arrangementStateRef.current = emptyArrangement;
-      setArrangementState(emptyArrangement);
-      const emptyPlaylist = createPlaylistState();
-      playlistStateRef.current = emptyPlaylist;
-      setPlaylistState(emptyPlaylist);
-    }
-    const restoredActiveP5Script = restoredP5.scripts[0];
-    setActiveP5ScriptId(restoredActiveP5Script?.id || "");
-    setP5ScriptSource(restoredActiveP5Script?.source || "");
-    setP5ScriptMode(normalizeP5SourceMode(restoredActiveP5Script?.mode));
-    if (Number.isFinite(score?.time)) setScoreTime(score.time);
-    if (Number.isFinite(score?.rate) && score.rate > 0) setScoreRate(score.rate);
-    if (Number.isFinite(score?.tempo) && score.tempo >= 20 && score.tempo <= 400) setScoreTempo(score.tempo);
-    if (score?.timeSignature) setScoreTimeSignature(normalizeTimeSignature(score.timeSignature));
-    if (score?.launchQuantization) setTransportLaunchQuantization(normalizeTransportLaunchQuantization(score.launchQuantization));
-    if (["frame", "timecode", "beats"].includes(score?.displayMode)) setTransportDisplayMode(score.displayMode);
-    if ([24, 25, 30, 50, 60].includes(score?.fps)) setTransportFps(score.fps);
-    if (Number.isFinite(score?.sampleRate) && score.sampleRate >= 8000 && score.sampleRate <= 768000) setScoreSampleRate(score.sampleRate);
-    if (score?.loop) {
-      setTransportLoopEnabled(!!score.loop.enabled);
-      if (score.loop.startValue) setTransportLoopStartValue(createTimeValue(score.loop.startValue, score.loop.start, timeContext));
-      else if (Number.isFinite(score.loop.start)) setTransportLoopStartValue(createTimeValue(`${Math.max(0, score.loop.start)} s`, score.loop.start));
-      if (score.loop.endValue) setTransportLoopEndValue(createTimeValue(score.loop.endValue, score.loop.end, timeContext));
-      else if (Number.isFinite(score.loop.end)) setTransportLoopEndValue(createTimeValue(`${Math.max(0.1, score.loop.end)} s`, score.loop.end));
+    if (applyAuthoredState) {
+      setGlobalGrid(grid);
+      setExpressiveSynthConfig(expressiveSynth);
+      mixerRef.current = importedMixer;
+      setMixer(importedMixer);
+      setP5Scripts(restoredP5.scripts);
+      setStreamGraph(normalizeStreamGraphWithBuiltins(importedStreamGraph));
+      setBrushChannels(normalizeBrushChannels(importedBrushChannels));
+      const hydratedRelationshipGraph = repairedPhysics.graph;
+      // Scene persistence can run immediately after import. Keep its reset-pose
+      // serializer aligned with the imported elements before React commits the
+      // graph state update.
+      relationshipGraphRef.current = hydratedRelationshipGraph;
+      setRelationshipGraph(hydratedRelationshipGraph);
+      if (authoredState) {
+        mediaSourcesRef.current = authoredState.mediaSources;
+        setMediaSources(authoredState.mediaSources);
+        if (authoredState.brushPalette.length) setBrushPalette(authoredState.brushPalette);
+        setIannixScripts(authoredState.iannixScripts);
+        setPlayCoreScripts(authoredState.playCoreScripts);
+        setSvgScripts(authoredState.svgScripts);
+        const importedArrangement = createArrangementState(authoredState.arrangement);
+        arrangementStateRef.current = importedArrangement;
+        setArrangementState(importedArrangement);
+        const importedPlaylist = createPlaylistState(authoredState.playlist);
+        playlistStateRef.current = importedPlaylist;
+        setPlaylistState(importedPlaylist);
+      } else {
+        const emptyArrangement = createArrangementState();
+        arrangementStateRef.current = emptyArrangement;
+        setArrangementState(emptyArrangement);
+        const emptyPlaylist = createPlaylistState();
+        playlistStateRef.current = emptyPlaylist;
+        setPlaylistState(emptyPlaylist);
+      }
+      const restoredActiveP5Script = restoredP5.scripts[0];
+      setActiveP5ScriptId(restoredActiveP5Script?.id || "");
+      setP5ScriptSource(restoredActiveP5Script?.source || "");
+      setP5ScriptMode(normalizeP5SourceMode(restoredActiveP5Script?.mode));
+      if (Number.isFinite(score?.time)) setScoreTime(score.time);
+      if (Number.isFinite(score?.rate) && score.rate > 0) setScoreRate(score.rate);
+      if (Number.isFinite(score?.tempo) && score.tempo >= 20 && score.tempo <= 400) setScoreTempo(score.tempo);
+      if (score?.timeSignature) setScoreTimeSignature(normalizeTimeSignature(score.timeSignature));
+      if (score?.launchQuantization) setTransportLaunchQuantization(normalizeTransportLaunchQuantization(score.launchQuantization));
+      if (["frame", "timecode", "beats"].includes(score?.displayMode)) setTransportDisplayMode(score.displayMode);
+      if ([24, 25, 30, 50, 60].includes(score?.fps)) setTransportFps(score.fps);
+      if (Number.isFinite(score?.sampleRate) && score.sampleRate >= 8000 && score.sampleRate <= 768000) setScoreSampleRate(score.sampleRate);
+      if (score?.loop) {
+        setTransportLoopEnabled(!!score.loop.enabled);
+        if (score.loop.startValue) setTransportLoopStartValue(createTimeValue(score.loop.startValue, score.loop.start, timeContext));
+        else if (Number.isFinite(score.loop.start)) setTransportLoopStartValue(createTimeValue(`${Math.max(0, score.loop.start)} s`, score.loop.start));
+        if (score.loop.endValue) setTransportLoopEndValue(createTimeValue(score.loop.endValue, score.loop.end, timeContext));
+        else if (Number.isFinite(score.loop.end)) setTransportLoopEndValue(createTimeValue(`${Math.max(0.1, score.loop.end)} s`, score.loop.end));
+      }
     }
     previousCursorStatesRef.current = new Map();
     activeScoreCollisionsRef.current = new Set();
     triggerCollisionLockoutsRef.current = new Map();
     visualCursorTransformsRef.current = new Map();
-    setModifierUpdateNonce(nonce => nonce + 1);
-    setSceneExchangeStatus(`Imported ${restoredElements.filter(element => !element.isDeleted).length} scene objects.`);
+    scheduleModifierRefresh();
+    if (showStatus) setSceneExchangeStatus(`Imported ${restoredElements.filter(element => !element.isDeleted).length} scene objects.`);
   };
 
   const saveCurrentSceneLocally = useCallback(() => {
     const api = excalidrawAPIRef.current;
     // Excalidraw emits an initial empty-scene change while the saved scene is
     // being imported. Never let that transient state overwrite the session.
-    if (!api || !lastSceneRestoreAttemptedRef.current || lastSceneRestoreInProgressRef.current) return;
+    if (!api || collaborationController.getStatus().active || !lastSceneRestoreAttemptedRef.current || lastSceneRestoreInProgressRef.current) return;
     try {
       const text = createUnderscoresExchangeJson("scene", api.getSceneElementsIncludingDeleted());
       if (!saveLastScene(text)) {
@@ -19286,13 +19378,51 @@ function App() {
     } catch (error) {
       console.error("Underscores last-scene autosave failed.", error);
     }
-  }, [eventBus, excalidrawAPI, scoreTime, scoreRate, scoreTempo, scoreTimeSignature, transportDisplayMode, transportFps, scoreSampleRate, transportLoopEnabled, transportLoopStart, transportLoopEnd, transportLoopStartValue, transportLoopEndValue, p5Scripts, streamGraph, brushChannels, mediaSources, brushPalette, iannixScripts, playCoreScripts, svgScripts]);
+  }, [collaborationController, eventBus, excalidrawAPI, scoreTime, scoreRate, scoreTempo, scoreTimeSignature, transportDisplayMode, transportFps, scoreSampleRate, transportLoopEnabled, transportLoopStart, transportLoopEnd, transportLoopStartValue, transportLoopEndValue, p5Scripts, streamGraph, brushChannels, mediaSources, brushPalette, iannixScripts, playCoreScripts, svgScripts]);
 
   const scheduleLastSceneSave = useCallback((delay = 500) => {
-    if (!lastSceneRestoreAttemptedRef.current || lastSceneRestoreInProgressRef.current) return;
+    if (collaborationController.getStatus().active || !lastSceneRestoreAttemptedRef.current || lastSceneRestoreInProgressRef.current) return;
     window.clearTimeout(lastSceneSaveTimerRef.current);
     lastSceneSaveTimerRef.current = window.setTimeout(saveCurrentSceneLocally, delay);
-  }, [saveCurrentSceneLocally]);
+  }, [collaborationController, saveCurrentSceneLocally]);
+
+  collaborationCallbacksRef.current = {
+    getDocument: () => {
+      const api = excalidrawAPIRef.current;
+      return api ? JSON.parse(createUnderscoresExchangeJson("scene", api.getSceneElementsIncludingDeleted())) : null;
+    },
+    applyDocument: async (sceneDocument, options = {}) => {
+      collaborationApplyingRemoteRef.current = true;
+      try {
+        await runWithoutSessionSceneRecording(() => importUnderscoresSceneText(sceneDocument, {
+          applyAuthoredState: options.applyAuthoredState !== false,
+          commitToHistory: false,
+          directDocument: true,
+          preserveLocalAppState: true,
+          resetHistory: Boolean(options.baseline),
+          showStatus: false,
+        }));
+      } finally {
+        collaborationApplyingRemoteRef.current = false;
+      }
+      if (options.baseline) {
+        eventBus.emit("status.scene", { kind: "info", message: `Synchronized scene from ${options.source || "room"}.` }, { source: "collaboration" });
+      }
+    },
+    persistSolo: saveCurrentSceneLocally,
+    resumeSolo: saveCurrentSceneLocally,
+    getAppState: () => excalidrawAPIRef.current?.getAppState() || {},
+    isPointerGestureActive: () => collaborationPointerStateRef.current.down,
+    getFiles: () => excalidrawAPIRef.current?.getFiles() || {},
+    addFiles: files => excalidrawAPIRef.current?.addFiles(files),
+    getPresence: () => ({
+      selectedElementIds: excalidrawAPIRef.current?.getAppState()?.selectedElementIds || {},
+      idleState: document.visibilityState === "hidden" ? "away" : "active",
+    }),
+    applyCollaborators: collaborators => excalidrawAPIRef.current?.updateScene({ collaborators, commitToHistory: false }),
+    setCollaborationMetadata: metadata => { collaborationMetadataRef.current = metadata; },
+    emit: (name, detail, metadata) => eventBus.emit(name, detail, metadata),
+  };
 
   useEffect(() => {
     if (!lastSceneRestoreAttemptedRef.current || lastSceneRestoreInProgressRef.current) return;
@@ -19300,10 +19430,106 @@ function App() {
   }, [arrangementState, playlistState, scheduleLastSceneSave]);
 
   useEffect(() => {
+    if (!collaborationState.active || !collaborationState.initialized || collaborationApplyingRemoteRef.current) return;
+    // Several runtime subsystems publish referentially new but value-identical
+    // authored objects while they render. React sees those as changed effect
+    // dependencies. Gate the expensive full scene serialization/reconciliation
+    // on authored value changes so runtime animation cannot turn multiplayer
+    // duplicate suppression into a full-core busy loop.
+    const authoredStateSignature = JSON.stringify([
+      arrangementState,
+      brushChannels,
+      brushPalette,
+      expressiveSynthConfig,
+      globalGrid,
+      iannixScripts,
+      mediaSources,
+      mixer,
+      p5Scripts,
+      playCoreScripts,
+      playlistState,
+      relationshipGraph,
+      scoreRate,
+      scoreSampleRate,
+      scoreTempo,
+      scoreTimeSignature,
+      streamGraph,
+      svgScripts,
+      transportDisplayMode,
+      transportFps,
+      transportLaunchQuantization,
+      transportLoopEnabled,
+      transportLoopEnd,
+      transportLoopEndValue,
+      transportLoopStart,
+      transportLoopStartValue,
+    ]);
+    if (authoredStateSignature === lastCollaborationAuthoredStateSignatureRef.current) return;
+    lastCollaborationAuthoredStateSignatureRef.current = authoredStateSignature;
+    const document = collaborationCallbacksRef.current.getDocument?.();
+    if (document) collaborationController.publishDocument(document);
+  }, [
+    arrangementState,
+    brushChannels,
+    brushPalette,
+    collaborationController,
+    collaborationState.active,
+    collaborationState.initialized,
+    expressiveSynthConfig,
+    globalGrid,
+    iannixScripts,
+    mediaSources,
+    mixer,
+    p5Scripts,
+    playCoreScripts,
+    playlistState,
+    relationshipGraph,
+    scoreRate,
+    scoreSampleRate,
+    scoreTempo,
+    scoreTimeSignature,
+    streamGraph,
+    svgScripts,
+    transportDisplayMode,
+    transportFps,
+    transportLaunchQuantization,
+    transportLoopEnabled,
+    transportLoopEnd,
+    transportLoopEndValue,
+    transportLoopStart,
+    transportLoopStartValue,
+  ]);
+
+  useEffect(() => {
     if (!excalidrawAPI || lastSceneRestoreAttemptedRef.current) return;
     lastSceneRestoreAttemptedRef.current = true;
+    let collaborationRoom = null;
+    try {
+      collaborationRoom = parseCollaborationUrl(window.location.href);
+    } catch (error) {
+      setSceneExchangeStatus(error?.message || "The multiplayer room link is invalid.");
+    }
     const sceneReference = readSceneSourceReference();
     const sharedPayload = readSceneSharePayload();
+    if (collaborationRoom) {
+      const saved = loadLastScene();
+      lastSceneRestoreInProgressRef.current = true;
+      const restore = saved
+        ? importUnderscoresSceneText(saved, { commitToHistory: false })
+        : Promise.resolve();
+      void restore
+        .catch(error => {
+          console.error("Underscores could not restore the solo scene before joining multiplayer.", error);
+          eventBus.emit("status.scene", { kind: "error", message: `Solo scene could not be preserved: ${error?.message || error}` }, { source: "collaboration" });
+        })
+        .finally(() => {
+          lastSceneRestoreInProgressRef.current = false;
+          void collaborationController.joinRoom(collaborationRoom).catch(error => {
+            setSceneExchangeStatus(error?.message || "The multiplayer room could not be joined.");
+          });
+        });
+      return;
+    }
     if (sceneReference) {
       lastSceneRestoreInProgressRef.current = true;
       setSceneExchangeStatus("Loading shared scene source…");
@@ -19342,7 +19568,7 @@ function App() {
       .finally(() => {
         lastSceneRestoreInProgressRef.current = false;
       });
-  }, [excalidrawAPI, scheduleLastSceneSave]);
+  }, [collaborationController, eventBus, excalidrawAPI, scheduleLastSceneSave]);
 
   useEffect(() => () => window.clearTimeout(lastSceneSaveTimerRef.current), []);
 
@@ -20086,7 +20312,7 @@ function App() {
       materialize: materializePhysicsPopulation,
     });
     const api = {
-      apiVersion: 9,
+      apiVersion: 10,
       commands: {
         list: () => commandRegistry.list(),
         describe: id => commandRegistry.describe(id),
@@ -20125,6 +20351,16 @@ function App() {
       events: {
         subscribe: (pattern, listener) => eventBus.subscribe(pattern, listener),
       },
+      collaboration: Object.freeze({
+        createRoom: () => collaborationController.createRoom(),
+        joinRoom: link => collaborationController.joinRoom(link),
+        leaveRoom: () => collaborationController.leaveRoom(),
+        copyLink: () => collaborationController.copyLink(),
+        getStatus: () => collaborationController.getStatus(),
+        getPeers: () => collaborationController.getPeers(),
+        getIdentity: () => collaborationController.getIdentity(),
+        setIdentity: identity => collaborationController.setIdentity(identity),
+      }),
       relations,
       physics,
       art: Object.freeze({
@@ -20222,7 +20458,7 @@ function App() {
     return () => {
       if (window.__ === api) delete window.__;
     };
-  }, [commandRegistry, eventBus, historyController, historyIncludePresentation, historyLibrary, historyMidiArmed, inputBus, refreshHistoryMacros, timeContext]);
+  }, [collaborationController, commandRegistry, eventBus, historyController, historyIncludePresentation, historyLibrary, historyMidiArmed, inputBus, refreshHistoryMacros, timeContext]);
 
   const handleUnderscoresSceneFile = async (event) => {
     const file = event.target.files?.[0];
@@ -26531,6 +26767,14 @@ function App() {
         />
         <Excalidraw 
           theme={theme} 
+          isCollaborating={collaborationState.active}
+          renderTopRightUI={renderCollaborationTopRightUI}
+          onPointerUpdate={payload => {
+            collaborationController.publishPresence(payload);
+            if (consumeCollaborationGestureEnd(payload, collaborationPointerStateRef.current)) {
+              collaborationController.checkpointAfterGesture();
+            }
+          }}
           gridModeEnabled={false}
           validateEmbeddable={isAllowedEmbedURL}
           renderEmbeddable={renderEmbeddable}
@@ -26710,6 +26954,7 @@ function App() {
             }
             if (!selectionMapsEqual(selectedIds, selectedElementIds)) {
               setSelectedElementIds(selectedIds);
+              collaborationController.publishPresence();
             }
 
             // Sync camera zoom/scroll state to trigger visual overlay position updates in real-time
@@ -26723,7 +26968,7 @@ function App() {
                 scrollY: appState.scrollY,
                 zoom: appState.zoom.value
               };
-              setModifierUpdateNonce(n => n + 1);
+              scheduleModifierRefresh();
             }
 
             const presentationState = {
@@ -26891,6 +27136,11 @@ function App() {
             lastSceneElementsRef.current = currentSceneMap;
 
             const persistenceSignature = scenePersistenceSignature(effectiveElements);
+            const collaborationAppStateSignature = JSON.stringify({
+              viewBackgroundColor: appState.viewBackgroundColor || null,
+            });
+            const collaborationAppStateChanged = collaborationAppStateSignature !== lastCollaborationAppStateSignatureRef.current;
+            lastCollaborationAppStateSignatureRef.current = collaborationAppStateSignature;
             if (
               lastSceneRestoreAttemptedRef.current
               && !lastSceneRestoreInProgressRef.current
@@ -26898,7 +27148,22 @@ function App() {
               && persistenceSignature !== lastSceneElementPersistenceSignatureRef.current
             ) {
               lastSceneElementPersistenceSignatureRef.current = persistenceSignature;
-              scheduleLastSceneSave();
+              if (collaborationState.active && !collaborationApplyingRemoteRef.current) {
+                // Do not publish Excalidraw's transient one-point freedraw.
+                // Pointer-up schedules a settled checkpoint after Excalidraw
+                // commits the completed path.
+                if (!collaborationPointerStateRef.current.down) {
+                  collaborationController.publishDocument(JSON.parse(createUnderscoresExchangeJson("scene", effectiveElements)));
+                }
+              } else {
+                scheduleLastSceneSave();
+              }
+            } else if (
+              collaborationAppStateChanged
+              && collaborationState.active
+              && !collaborationApplyingRemoteRef.current
+            ) {
+              collaborationController.publishDocument(JSON.parse(createUnderscoresExchangeJson("scene", effectiveElements)));
             }
 
             if (

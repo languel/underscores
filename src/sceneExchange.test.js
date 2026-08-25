@@ -69,7 +69,7 @@ test("scene exchange preserves frame timeline display mode", () => {
   assert.equal(payload.underscores.score.fps, 24);
 });
 
-test("scene exchange version 12 preserves streams, brush channels, global configuration, p5 scripts, relationships, and migrates legacy scenes", () => {
+test("scene exchange version 13 preserves streams, brush channels, global configuration, p5 scripts, relationships, and migrates legacy scenes", () => {
   const grid = mergeGridPatch(DEFAULT_GLOBAL_GRID, {
     appearance: { visible: true },
     spacing: { x: 120, y: 80, subdivisionsX: 6, subdivisionsY: 4 },
@@ -97,7 +97,7 @@ test("scene exchange version 12 preserves streams, brush channels, global config
     }],
   };
   const payload = attachUnderscoresExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, grid, synth, mixer, p5Scripts, streamGraph, brushChannels, null, relationshipGraph);
-  assert.equal(payload.underscores.version, 12);
+  assert.equal(payload.underscores.version, 13);
   assert.deepEqual(parseUnderscoresExchange(payload, "scene").grid, grid);
   assert.deepEqual(parseUnderscoresExchange(payload, "scene").expressiveSynth, normalizeExpressiveSynthConfig(synth));
   assert.deepEqual(parseUnderscoresExchange(payload, "scene").mixer, mixer);
@@ -116,6 +116,46 @@ test("scene exchange version 12 preserves streams, brush channels, global config
   assert.deepEqual(parseUnderscoresExchange(legacy, "scene").expressiveSynth, normalizeExpressiveSynthConfig(DEFAULT_EXPRESSIVE_SYNTH_CONFIG));
   assert.equal(parseUnderscoresExchange(legacy, "scene").mixer.tracks.length, 16);
   assert.deepEqual(parseUnderscoresExchange(legacy, "scene").relationshipGraph.systems, []);
+});
+
+test("scene exchange version 13 carries collaboration revisions only for full scenes", () => {
+  const collaboration = {
+    schemaVersion: 1,
+    clock: 4,
+    revisions: { "underscores.p5Scripts.orbit": { clock: 4, actorId: "student-a" } },
+  };
+  const scene = attachUnderscoresExchangeMetadata(
+    { type: "excalidraw", elements: [] },
+    "scene",
+    {}, null, null, null, [], null, null, {}, null,
+    collaboration,
+  );
+  const selection = attachUnderscoresExchangeMetadata(
+    { type: "excalidraw", elements: [] },
+    "selection",
+    {}, null, null, null, [], null, null, {}, null,
+    collaboration,
+  );
+  assert.deepEqual(parseUnderscoresExchange(scene, "scene").collaboration, collaboration);
+  assert.equal(parseUnderscoresExchange(selection, "selection").collaboration, null);
+  assert.equal(selection.underscores.collaboration, undefined);
+});
+
+test("scene exchange version 13 keeps authored background but drops local camera and tool state", () => {
+  const payload = attachUnderscoresExchangeMetadata({
+    type: "excalidraw",
+    elements: [],
+    appState: {
+      viewBackgroundColor: "#f8f9fa",
+      scrollX: 120,
+      scrollY: -40,
+      zoom: { value: 2 },
+      activeTool: { type: "rectangle" },
+      selectedElementIds: { selected: true },
+      theme: "light",
+    },
+  }, "scene");
+  assert.deepEqual(payload.appState, { viewBackgroundColor: "#f8f9fa" });
 });
 
 test("scene exchange preserves authored media sources and reusable code definitions", () => {

@@ -9,7 +9,7 @@ import { normalizeRelationshipGraph, serializeRelationshipGraphForScene } from "
 import { createArrangementState, remapArrangementForDuplicate } from "./arrangementClips.js";
 import { createPlaylistState } from "./playlist.js";
 
-const UNDERSCORES_EXCHANGE_VERSION = 12;
+const UNDERSCORES_EXCHANGE_VERSION = 13;
 
 export const normalizeSceneExportFilename = (requestedName = "", date = new Date()) => {
   const fallback = `underscores-scene-${date.toISOString().slice(0, 10)}`;
@@ -82,12 +82,17 @@ const withScoreAliases = element => {
   };
 };
 
-export const attachUnderscoresExchangeMetadata = (serializedScene, kind, score = {}, grid = null, expressiveSynth = null, mixer = null, p5Scripts = [], streamGraph = null, brushChannels = null, authoredState = {}, relationshipGraph = null) => {
+export const attachUnderscoresExchangeMetadata = (serializedScene, kind, score = {}, grid = null, expressiveSynth = null, mixer = null, p5Scripts = [], streamGraph = null, brushChannels = null, authoredState = {}, relationshipGraph = null, collaboration = null) => {
   const normalizedAuthoredState = authoredState && typeof authoredState === "object" ? authoredState : {};
   const payload = typeof serializedScene === "string"
     ? JSON.parse(serializedScene)
     : structuredClone(serializedScene);
   payload.elements = (payload.elements || []).map(withScoreAliases);
+  if (kind === "scene") {
+    payload.appState = {
+      viewBackgroundColor: payload.appState?.viewBackgroundColor,
+    };
+  }
   return {
     ...payload,
     underscores: {
@@ -128,6 +133,9 @@ export const attachUnderscoresExchangeMetadata = (serializedScene, kind, score =
           arrangement: createArrangementState(normalizedAuthoredState.arrangement),
           playlist: createPlaylistState(normalizedAuthoredState.playlist),
         },
+        ...(collaboration && typeof collaboration === "object"
+          ? { collaboration: structuredClone(collaboration) }
+          : {}),
       } : {
         arrangement: createArrangementState(normalizedAuthoredState.arrangement),
         playlist: createPlaylistState(normalizedAuthoredState.playlist),
@@ -157,6 +165,9 @@ export const parseUnderscoresExchange = (text, expectedKind = null) => {
     streamGraph: kind === "scene" ? normalizeStreamGraph(payload.underscores?.streamGraph) : null,
     brushChannels: kind === "scene" ? normalizeBrushChannels(payload.underscores?.brushChannels) : [],
     relationshipGraph: normalizeRelationshipGraph(payload.underscores?.relationshipGraph),
+    collaboration: kind === "scene" && payload.underscores?.collaboration
+      ? structuredClone(payload.underscores.collaboration)
+      : null,
     authoredState: kind === "scene" && payload.underscores?.authoredState ? {
       mediaSources: normalizeMediaSources(payload.underscores?.authoredState?.mediaSources),
       brushPalette: Array.isArray(payload.underscores?.authoredState?.brushPalette) ? structuredClone(payload.underscores.authoredState.brushPalette) : [],

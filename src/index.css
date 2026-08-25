@@ -612,6 +612,183 @@ body, html {
   transition: all var(--transition-fast) !important;
 }
 
+.underscores-collaboration {
+  position: relative;
+  order: 4;
+  color: var(--color-primary);
+}
+
+#btn-collaboration-header {
+  width: var(--default-button-size, 36px);
+  height: var(--default-button-size, 36px);
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-lg, 8px);
+  background: var(--island-bg-color);
+  color: var(--color-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  cursor: pointer;
+}
+
+#btn-collaboration-header:hover,
+#btn-collaboration-header:focus-visible {
+  background: var(--button-hover-bg);
+}
+
+#btn-collaboration-header.active {
+  border-color: color-mix(in srgb, var(--underscores-accent, #6b7173) 60%, transparent);
+}
+
+.underscores-collaboration-facepile {
+  position: absolute;
+  right: -5px;
+  bottom: -4px;
+  display: flex;
+  flex-direction: row-reverse;
+}
+
+.underscores-collaboration-facepile > span {
+  width: 10px;
+  height: 10px;
+  margin-left: -3px;
+  border: 1.5px solid var(--island-bg-color);
+  border-radius: 50%;
+}
+
+.underscores-collaboration-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 248px;
+  padding: 10px;
+  border: 1px solid var(--underscores-menu-border);
+  border-radius: 7px;
+  background: var(--underscores-menu-bg);
+  color: var(--underscores-menu-text);
+  box-shadow: var(--underscores-menu-shadow);
+  font: 500 var(--underscores-ui-font-size)/var(--underscores-ui-line-height) var(--font-sans);
+  z-index: 20;
+}
+
+.underscores-collaboration-heading,
+.underscores-collaboration-actions,
+.underscores-collaboration-peer,
+.underscores-collaboration-identity {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.underscores-collaboration-heading {
+  justify-content: space-between;
+  margin-bottom: 9px;
+}
+
+.underscores-collaboration-heading strong {
+  font-size: var(--underscores-ui-font-size-title);
+}
+
+.underscores-collaboration-status,
+.underscores-collaboration-peer small {
+  color: var(--underscores-menu-muted);
+}
+
+.underscores-collaboration-status::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--underscores-menu-muted);
+}
+
+.underscores-collaboration-status.is-connected::before { background: var(--underscores-status-success); }
+.underscores-collaboration-status.is-error::before,
+.underscores-collaboration-status.is-degraded::before { background: var(--underscores-status-error); }
+
+.underscores-collaboration-popover button,
+.underscores-collaboration-popover input[type="text"] {
+  min-height: var(--underscores-ui-control-height);
+  border: 1px solid var(--underscores-menu-border);
+  border-radius: var(--underscores-ui-control-radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.underscores-collaboration-popover button {
+  padding: 0 var(--underscores-ui-control-padding-x);
+  cursor: pointer;
+}
+
+.underscores-collaboration-popover button:hover,
+.underscores-collaboration-popover button:focus-visible {
+  background: var(--underscores-menu-hover);
+}
+
+.underscores-collaboration-primary {
+  width: 100%;
+}
+
+.underscores-collaboration-identity {
+  margin-bottom: 8px;
+}
+
+.underscores-collaboration-identity input[type="color"] {
+  width: 27px;
+  height: 27px;
+  padding: 2px;
+  border: 1px solid var(--underscores-menu-border);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.underscores-collaboration-identity input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: 0 7px;
+}
+
+.underscores-collaboration-peers {
+  max-height: 178px;
+  margin: 0 -3px 8px;
+  overflow: auto;
+}
+
+.underscores-collaboration-peer {
+  min-height: 25px;
+  padding: 2px 3px;
+}
+
+.underscores-collaboration-peer > span:first-child {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.underscores-collaboration-peer > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.underscores-collaboration-actions {
+  justify-content: flex-end;
+}
+
+.underscores-collaboration-warning,
+.underscores-collaboration-error {
+  margin: 7px 0;
+  color: var(--underscores-status-error);
+}
+
 .theme-btn-top-left {
   width: var(--default-button-size, 36px) !important;
   height: var(--default-button-size, 36px) !important;
@@ -796,6 +973,35 @@ body, html {
 /* --- SATORI ZEN MODE OVERRIDES --- */
 .satori-mode .excalidraw .layer-ui__wrapper > *:not(.sidebar) {
   display: none !important;
+}
+
+/* Multiplayer remains reachable in the chrome-free workspace. Re-open only
+   Excalidraw's top-right slot and keep every native sibling hidden. */
+.satori-mode .excalidraw .layer-ui__wrapper > .FixedSideContainer_side_top {
+  display: block !important;
+}
+
+.satori-mode .excalidraw .FixedSideContainer_side_top .App-menu_top {
+  display: grid !important;
+}
+
+.satori-mode .excalidraw .FixedSideContainer_side_top .layer-ui__wrapper__top-right {
+  display: flex !important;
+}
+
+.satori-mode .excalidraw .FixedSideContainer_side_top {
+  pointer-events: none;
+}
+
+.satori-mode .excalidraw .FixedSideContainer_side_top .App-menu_top > *:not(.layer-ui__wrapper__top-right),
+.satori-mode .excalidraw .layer-ui__wrapper__top-right > *:not(.underscores-collaboration) {
+  display: none !important;
+}
+
+.satori-mode .excalidraw .layer-ui__wrapper__top-right {
+  grid-column: 3;
+  justify-self: end;
+  pointer-events: auto;
 }
 
 /* Satori mode is deliberately chrome-free. It is exited through Underscores's

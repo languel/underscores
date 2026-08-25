@@ -2,6 +2,18 @@
 
 Last updated: 2026-08-17
 
+## Anonymous multiplayer checkpoint (2026-08-25)
+
+The `multiplayer` branch now includes anonymous encrypted rooms over a direct
+Trystero/WebRTC mesh. Excalidraw elements, Livecode `customData`, authored scene
+state, guest presence, and room caching use the canonical collaboration scene;
+camera, selection, active tool, theme, and playback position remain local to
+each browser. Linked Livecode follows the shared score transport, while Free
+clock mode runs locally. The two-peer smoke covers room lifecycle, scene
+updates, settled freedraws, and programmatic Livecode-node creation. See
+[Anonymous multiplayer](multiplayer.md) for the browser test workflow and
+current provider boundaries.
+
 ## Release checkpoint
 
 Underscores is currently a local, browser-based score and canvas environment built around
