@@ -3229,7 +3229,8 @@ function App() {
       // Pointer-up is only the end of one segment for Excalidraw's
       // click-based line mode. The scene checkpoint belongs to the completed
       // multiElement, not to each intermediate click.
-      if (!excalidrawAPIRef.current?.getAppState().multiElement?.id) {
+      const appState = excalidrawAPIRef.current?.getAppState();
+      if (appState?.activeTool?.type !== "line" && !appState?.multiElement?.id) {
         collaborationController.checkpointAfterGesture();
       }
     }
@@ -10729,6 +10730,14 @@ function App() {
       const capture = passiveStrokeCaptureRef.current;
       passiveStrokeCaptureRef.current = null;
       const completedInputSamples = [...strokeInputSamplesRef.current];
+      const firstCompletedInputSample = completedInputSamples[0];
+      const linePointerSegmentMoved = capture.tool === "line" && Boolean(
+        firstCompletedInputSample
+        && completedInputSamples.some(sample => Math.hypot(
+          Number(sample.scene?.x || 0) - Number(firstCompletedInputSample.scene?.x || 0),
+          Number(sample.scene?.y || 0) - Number(firstCompletedInputSample.scene?.y || 0),
+        ) > 2)
+      );
       const last = strokeInputSamplesRef.current[strokeInputSamplesRef.current.length - 1];
       const coords = capture.tool === "line"
         ? getCanvasCoords(e.clientX, e.clientY)
@@ -10759,24 +10768,17 @@ function App() {
       if (capture.tool === "freedraw" && passiveGridFreedrawRef.current) {
         excalidrawAPI?.updateScene({ appState: { currentItemStrokeColor: lastStrokeColorRef.current }, commitToHistory: false });
       }
-      // Excalidraw normally reports the matching pointer-up through
-      // `onPointerUpdate`. Native line gestures can commit their element
-      // before that callback arrives, though, leaving collaboration's
-      // gesture gate down until the next checkpoint. Release the gate here
-      // as a capture-phase fallback so the completed line is published to
-      // peers immediately.
-      if (
-        capture.tool === "line"
-        && collaborationState.active
-        && collaborationPointerStateRef.current.down
-      ) {
-        collaborationPointerStateRef.current.down = false;
-        if (!excalidrawAPIRef.current?.getAppState().multiElement?.id) {
-          collaborationController.checkpointAfterGesture();
-        }
-      }
       window.setTimeout(() => {
         const api = excalidrawAPIRef.current;
+        // A stationary pointer-up is one vertex in Excalidraw's multi-click
+        // line workflow, never a completed stroke. `multiElement` is not a
+        // reliable guard by itself because collaboration reconciliation can
+        // briefly make it unavailable while this delayed callback runs.
+        if (capture.tool === "line" && !linePointerSegmentMoved) {
+          strokeInputSamplesRef.current = [];
+          strokeRecordingSuppressedRef.current = false;
+          return;
+        }
         // A click-based native line remains Excalidraw's `multiElement`
         // between clicks. Rewriting that draft through recordCompletedStroke
         // severs Excalidraw's continuation state, leaving only the first dot
@@ -19546,6 +19548,7 @@ function App() {
     isPointerGestureActive: () => Boolean(
       collaborationPointerStateRef.current.down
       || excalidrawAPIRef.current?.getAppState().multiElement?.id
+      || passiveLineSessionRef.current
     ),
     getFiles: () => excalidrawAPIRef.current?.getFiles() || {},
     addFiles: files => excalidrawAPIRef.current?.addFiles(files),
@@ -27300,10 +27303,12 @@ function App() {
                   && !isColorTransparent(activeGestureElement.strokeColor)
                   && Array.isArray(activeGestureElement.points)
                   && activeGestureElement.points.length >= 2
-                  && ["freedraw", "line"].includes(activeGestureElement.type)
+                  && activeGestureElement.type === "freedraw"
                 );
                 const activeGestureInProgress = Boolean(
-                  collaborationPointerStateRef.current.down || appState.multiElement?.id
+                  collaborationPointerStateRef.current.down
+                  || appState.multiElement?.id
+                  || passiveLineSessionRef.current
                 );
                 const liveGestureUpdate = activeGestureInProgress && activeGestureHasRenderablePoints;
                 if (!activeGestureInProgress || liveGestureUpdate) {

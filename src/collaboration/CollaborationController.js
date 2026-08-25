@@ -540,6 +540,14 @@ export class CollaborationController {
     if (Date.now() < this.localPublishSuspendedUntil) return false;
     const appState = this.callbacks().getAppState?.() || {};
     const activeElementId = appState.newElement?.id || appState.multiElement?.id;
+    const activeSourceElement = activeElementId
+      ? source.elements?.find(element => element.id === activeElementId)
+      : null;
+    // Free-draw points may be streamed while the pointer is down. Excalidraw
+    // linear elements retain editor-owned `multiElement` state between
+    // clicks; publishing one of those drafts and importing it on a peer can
+    // terminate the author's still-open line.
+    if (allowActiveGesture && activeSourceElement && activeSourceElement.type !== "freedraw") return false;
     // Excalidraw may retain newElement after programmatic creation. Only treat
     // it as an unfinished draft while a real pointer gesture is active, or a
     // newly-created Livecode node can be suppressed forever.

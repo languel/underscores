@@ -53,6 +53,15 @@ const freedraw = (id, points, version = 1, versionNonce = 1) => element(id, vers
   height: Math.max(0, ...points.map(point => point[1])),
 });
 
+const line = (id, points, version = 1, versionNonce = 1) => element(id, version, versionNonce, {
+  type: "line",
+  points,
+  x: 100,
+  y: 100,
+  width: Math.max(0, ...points.map(point => point[0])),
+  height: Math.max(0, ...points.map(point => point[1])),
+});
+
 test("room links keep credentials in the hash and redact the secret", () => {
   const credentials = generateRoomCredentials();
   const link = createCollaborationUrl(credentials, "https://example.test/board?scene=ignored#u=old");
@@ -128,6 +137,34 @@ test("controller can publish a renderable multi-point gesture prefix", async t =
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.deepEqual(controller.currentDocument.elements[0].points, active.points);
   assert.ok(provider.sent.some(item => item.channel === "reliable"));
+});
+
+test("controller never publishes an active multi-click line prefix", async t => {
+  const provider = new FakeProvider();
+  const active = line("active-line", [[0, 0], [12, 8]], 2, 6);
+  const callbacks = {
+    getDocument: () => scene(),
+    getAppState: () => ({ multiElement: { id: active.id } }),
+    isPointerGestureActive: () => true,
+    getFiles: () => ({}),
+    getPresence: () => ({ selectedElementIds: {} }),
+    applyCollaborators: () => {},
+  };
+  const location = { href: "https://example.test/board" };
+  const controller = new CollaborationController({
+    getCallbacks: () => callbacks,
+    providerFactory: () => provider,
+    cache: new CollaborationRoomCache(null),
+    location,
+    history: { replaceState: (_state, _title, href) => { location.href = href; } },
+  });
+  t.after(() => controller.leaveRoom({ keepUrl: true, resumeSolo: false }));
+  await controller.createRoom();
+  assert.equal(
+    controller.publishDocument(scene({ elements: [active] }), { immediate: true, allowActiveGesture: true }),
+    false,
+  );
+  assert.equal(controller.currentDocument.elements.length, 0);
 });
 
 test("controller publishes a programmatic Livecode element while the pointer is idle", async t => {
