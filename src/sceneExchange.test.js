@@ -8,6 +8,7 @@ import {
   normalizeObsidianSceneExportFilename,
   normalizeSceneExportFilename,
   parseUnderscoresExchange,
+  preserveDeletedSceneElements,
   remapSelectionForImport,
 } from "./sceneExchange.js";
 import { mergeGridPatch, DEFAULT_GLOBAL_GRID } from "./gridSystem.js";
@@ -139,6 +140,14 @@ test("scene exchange version 13 carries collaboration revisions only for full sc
   assert.deepEqual(parseUnderscoresExchange(scene, "scene").collaboration, collaboration);
   assert.equal(parseUnderscoresExchange(selection, "selection").collaboration, null);
   assert.equal(selection.underscores.collaboration, undefined);
+});
+
+test("collaboration payloads retain Excalidraw deletion tombstones", () => {
+  const live = { id: "live", type: "rectangle", version: 2, versionNonce: 4, isDeleted: false };
+  const deleted = { id: "deleted", type: "rectangle", version: 3, versionNonce: 5, isDeleted: true };
+  const payload = preserveDeletedSceneElements({ type: "excalidraw", elements: [live] }, [live, deleted]);
+  assert.deepEqual(payload.elements.map(element => [element.id, element.isDeleted]), [["live", false], ["deleted", true]]);
+  assert.notEqual(payload.elements[1], deleted);
 });
 
 test("scene exchange version 13 keeps authored background but drops local camera and tool state", () => {

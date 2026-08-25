@@ -11,7 +11,7 @@ import NumberInputController from "./NumberInputController.jsx";
 import ObjectPathClipboardController from "./ObjectPathClipboard.jsx";
 import TimeValueInput from "./TimeValueInput.jsx";
 import InspectorSection from "./InspectorSection.jsx";
-import { attachUnderscoresExchangeMetadata, createObsidianExcalidrawMarkdown, getSelectionExchangeElements, isObsidianSceneExportFilename, normalizeObsidianSceneExportFilename, normalizeSceneExportFilename, parseUnderscoresExchange, remapSelectionForImport } from "./sceneExchange.js";
+import { attachUnderscoresExchangeMetadata, createObsidianExcalidrawMarkdown, getSelectionExchangeElements, isObsidianSceneExportFilename, normalizeObsidianSceneExportFilename, normalizeSceneExportFilename, parseUnderscoresExchange, preserveDeletedSceneElements, remapSelectionForImport } from "./sceneExchange.js";
 import {
   createMediaFreeSceneJson,
   createSceneShareUrl,
@@ -19151,7 +19151,7 @@ function App() {
     return authored;
   });
 
-  const createUnderscoresExchangeJson = (kind, elements) => {
+  const createUnderscoresExchangeJson = (kind, elements, { preserveDeleted = false } = {}) => {
     if (!excalidrawAPI) throw new Error("The scene is not ready.");
     const serializedElements = kind === "scene"
       ? getPhysicsAuthoredSerializationElements(getArrangementAuthoredSerializationElements(getAutomationAuthoredSerializationElements(elements)))
@@ -19162,7 +19162,10 @@ function App() {
       excalidrawAPI.getFiles(),
       "local",
     );
-    return JSON.stringify(attachUnderscoresExchangeMetadata(serialized, kind, {
+    const serializedPayload = kind === "scene" && preserveDeleted
+      ? preserveDeletedSceneElements(serialized, serializedElements)
+      : serialized;
+    return JSON.stringify(attachUnderscoresExchangeMetadata(serializedPayload, kind, {
       time: scoreTime,
       rate: scoreRate,
       tempo: scoreTempo,
@@ -19417,7 +19420,7 @@ function App() {
   collaborationCallbacksRef.current = {
     getDocument: () => {
       const api = excalidrawAPIRef.current;
-      return api ? JSON.parse(createUnderscoresExchangeJson("scene", api.getSceneElementsIncludingDeleted())) : null;
+      return api ? JSON.parse(createUnderscoresExchangeJson("scene", api.getSceneElementsIncludingDeleted(), { preserveDeleted: true })) : null;
     },
     applyDocument: async (sceneDocument, options = {}) => {
       collaborationApplyingRemoteRef.current = true;
@@ -27183,7 +27186,7 @@ function App() {
                 // Pointer-up schedules a settled checkpoint after Excalidraw
                 // commits the completed path.
                 if (!collaborationPointerStateRef.current.down) {
-                  collaborationController.publishDocument(JSON.parse(createUnderscoresExchangeJson("scene", effectiveElements)));
+                  collaborationController.publishDocument(JSON.parse(createUnderscoresExchangeJson("scene", effectiveElements, { preserveDeleted: true })));
                 }
               } else {
                 scheduleLastSceneSave();
@@ -27193,7 +27196,7 @@ function App() {
               && collaborationState.active
               && !collaborationApplyingRemoteRef.current
             ) {
-              collaborationController.publishDocument(JSON.parse(createUnderscoresExchangeJson("scene", effectiveElements)));
+              collaborationController.publishDocument(JSON.parse(createUnderscoresExchangeJson("scene", effectiveElements, { preserveDeleted: true })));
             }
 
             if (

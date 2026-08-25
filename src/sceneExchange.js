@@ -145,6 +145,29 @@ export const attachUnderscoresExchangeMetadata = (serializedScene, kind, score =
   };
 };
 
+/**
+ * Excalidraw's local/database serializers intentionally remove deleted
+ * elements. That is correct for files and solo autosave, but unsafe for a
+ * multiplayer document where an `isDeleted` tombstone is the only explicit
+ * signal that an element was removed. Reinsert those tombstones into the
+ * already-normalized payload while retaining the serializer's cleanup for
+ * live elements.
+ */
+export const preserveDeletedSceneElements = (serializedScene, sourceElements = []) => {
+  const payload = typeof serializedScene === "string"
+    ? JSON.parse(serializedScene)
+    : structuredClone(serializedScene);
+  const elements = Array.isArray(sourceElements) ? sourceElements : [];
+  if (!elements.some(element => element?.isDeleted)) return payload;
+  const serializedById = new Map((payload.elements || []).map(element => [element.id, element]));
+  payload.elements = elements.map(element => (
+    element?.isDeleted
+      ? structuredClone(element)
+      : serializedById.get(element.id) || structuredClone(element)
+  ));
+  return payload;
+};
+
 export const parseUnderscoresExchange = (text, expectedKind = null) => {
   const payload = typeof text === "string" ? JSON.parse(text) : text;
   if (!payload || payload.type !== "excalidraw" || !Array.isArray(payload.elements)) {
