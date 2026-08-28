@@ -73,11 +73,18 @@ export default function ManimFrame({ element, config: rawConfig, scriptRuntimeRe
   const gateRef = useRef(null);
   const cueRef = useRef(null);
   const generationRef = useRef(0);
+  const transportRef = useRef(transport);
+  transportRef.current = transport;
+  const elementSnapshot = useMemo(() => ({
+    id: element?.id || "",
+    width: Math.max(1, Number(element?.width) || 1),
+    height: Math.max(1, Number(element?.height) || 1),
+  }), [element?.id, element?.width, element?.height]);
   const config = useMemo(() => normalizeManimFrame({
     ...rawConfig,
-    width: element?.width,
-    height: element?.height,
-  }), [rawConfig, element?.width, element?.height]);
+    width: elementSnapshot.width,
+    height: elementSnapshot.height,
+  }), [rawConfig, elementSnapshot.height, elementSnapshot.width]);
   const [status, setStatus] = useState("Loading Manim…");
 
   useEffect(() => {
@@ -99,25 +106,25 @@ export default function ManimFrame({ element, config: rawConfig, scriptRuntimeRe
     if (!host) return undefined;
     host.replaceChildren();
 
-    const gate = createManimTransportGate({ mode: transportMode, transport });
+    const gate = createManimTransportGate({ mode: transportMode, transport: transportRef.current });
     gateRef.current = gate;
     const cueController = createManimCueController({
       mode: config.progressionMode,
       onCue: cue => {
-        publishManimStatus({ elementId: element.id, kind: "cue", cue });
+        publishManimStatus({ elementId: elementSnapshot.id, kind: "cue", cue });
         setStatus(`Cue ${cue.index + 1}: ${cue.label}`);
       },
     });
     cueRef.current = cueController;
 
     const report = (kind, message) => {
-      publishManimStatus({ elementId: element.id, kind, message });
+      publishManimStatus({ elementId: elementSnapshot.id, kind, message });
       setStatus(message);
     };
 
     const handleControl = event => {
       const detail = event?.detail || {};
-      if (detail.elementId && detail.elementId !== element.id) return;
+      if (detail.elementId && detail.elementId !== elementSnapshot.id) return;
       if (detail.action === "next") cueController.next();
       if (detail.action === "auto") cueController.setMode("auto");
       if (detail.action === "cue") cueController.setMode("cue");
@@ -145,7 +152,7 @@ export default function ManimFrame({ element, config: rawConfig, scriptRuntimeRe
           };
         }
 
-        const bridge = createBridge(element, config, scriptRuntimeRef, gate);
+        const bridge = createBridge(elementSnapshot, config, scriptRuntimeRef, gate);
         const run = compileManimSource(config.source, MANIM);
         const allowed = await gate.wait();
         if (!allowed || disposed || generation !== generationRef.current) return;
@@ -177,20 +184,32 @@ export default function ManimFrame({ element, config: rawConfig, scriptRuntimeRe
       disposeScene(scene);
       host.replaceChildren();
     };
-  }, [config, element, scriptRuntimeRef, transportMode]);
+  }, [config, elementSnapshot, scriptRuntimeRef, transportMode]);
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return undefined;
-    const unregister = registerLivecodeCapture(element.id, () => host.querySelector("canvas"));
+    const unregister = registerLivecodeCapture(elementSnapshot.id, () => host.querySelector("canvas"));
     return unregister;
-  }, [element.id]);
+  }, [elementSnapshot.id]);
 
   return <div
     className={`manim-livecode-frame ${config.allowInteraction ? "interactive" : ""}`}
     style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden" }}
   >
     <div ref={hostRef} className="manim-livecode-host" style={{ width: "100%", height: "100%" }} />
+    {config.progressionMode === "cue" && <button
+      type="button"
+      className="manim-cue-next"
+      aria-label="Advance Manim cue"
+      title="Advance Manim cue"
+      onPointerDown={event => event.stopPropagation()}
+      onClick={event => {
+        event.stopPropagation();
+        cueRef.current?.next();
+      }}
+      style={{ position: "absolute", right: 8, bottom: 8, zIndex: 2 }}
+    >Next</button>}
     <span className="sr-only" role="status" aria-live="polite">{status}</span>
   </div>;
 }
