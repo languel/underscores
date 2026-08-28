@@ -1,6 +1,7 @@
 import { P5_EXAMPLES } from "./p5Frame.js";
 import { PLAY_CORE_EXAMPLES } from "./playCoreExamples.js";
 import { SHADER_EXAMPLES } from "./shaderLivecode.js";
+import { MANIM_DEMO_EXAMPLES } from "./manimDemoExamples.js";
 import { LIVECODE_KINDS, defaultLivecodeSource } from "./livecodeNode.js";
 import { ORCA_GRID_HEIGHT, ORCA_GRID_WIDTH } from "./orcaEngine.js";
 
@@ -64,7 +65,7 @@ await scene.play(new Create(circle));`,
     id: "equation",
     label: "Math · Equation reveal",
     name: "Equation reveal",
-    source: `const title = new MathTex("e^{i\\\\pi}+1=0");
+    source: `const title = new MathTex({ latex: "e^{i\\\\pi}+1=0" });
 await scene.play(new Write(title));
 await scene.play(title.animate.scale(1.35));`,
   },
@@ -81,9 +82,10 @@ const graph = new FunctionGraph({ fn: x => 0.25 * x * x });
 await scene.play(new Create(graph));
 
 await cue("Equation");
-const equation = new MathTex("f(x)=\\\\frac{x^2}{4}");
+const equation = new MathTex({ latex: "f(x)=\\\\frac{x^2}{4}" });
 await scene.play(new Write(equation));`,
   },
+  ...MANIM_DEMO_EXAMPLES,
 ]);
 
 const playCoreExamples = Object.freeze([
