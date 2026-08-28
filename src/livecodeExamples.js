@@ -25,6 +25,7 @@ const orcaRow = entries => {
 export const LIVECODE_TEMPLATES = Object.freeze({
   [LIVECODE_KINDS.strudel]: `// Ctrl/Cmd+Enter evaluates this node.\n$: note("c3 e3 g3 b3")\n  .s("sine")\n  .slow(2)`,
   [LIVECODE_KINDS.p5]: defaultLivecodeSource(LIVECODE_KINDS.p5),
+  [LIVECODE_KINDS.manim]: defaultLivecodeSource(LIVECODE_KINDS.manim),
   [LIVECODE_KINDS.playcore]: defaultLivecodeSource(LIVECODE_KINDS.playcore),
   [LIVECODE_KINDS.markdown]: `# Markdown starter\n\nWrite **rich text** here. Inline math: $E = mc^2$.\n\n- one\n- two`,
   [LIVECODE_KINDS.latex]: `\\frac{\\partial}{\\partial t} \\Psi = i \\nabla^2 \\Psi`,
@@ -35,6 +36,54 @@ export const LIVECODE_TEMPLATES = Object.freeze({
 
 const p5Examples = Object.freeze([
   ...P5_EXAMPLES.map(example => ({ id: example.id, label: example.name, name: example.name, source: example.source, mode: example.mode })),
+]);
+
+const manimExamples = Object.freeze([
+  {
+    id: "circle-to-square",
+    label: "Basics · Circle to square",
+    name: "Circle to square",
+    source: `const circle = new Circle({ radius: 1.5 });
+const square = new Square({ sideLength: 3 });
+
+await scene.play(new Create(circle));
+await scene.play(new Transform(circle, square));
+await scene.play(new FadeOut(circle));`,
+  },
+  {
+    id: "parameter-circle",
+    label: "Interactive · Parameterized circle",
+    name: "Parameterized circle",
+    source: `// @param radius = 1.5 (0.25..3 step:0.05)
+// @param scale = 1 (0.25..2 step:0.05)
+const circle = new Circle({ radius: __.params.radius });
+circle.scale(__.params.scale);
+await scene.play(new Create(circle));`,
+  },
+  {
+    id: "equation",
+    label: "Math · Equation reveal",
+    name: "Equation reveal",
+    source: `const title = new MathTex("e^{i\\\\pi}+1=0");
+await scene.play(new Write(title));
+await scene.play(title.animate.scale(1.35));`,
+  },
+  {
+    id: "cue-build",
+    label: "Presentation · Cue build",
+    name: "Cue build",
+    settings: { progressionMode: "cue" },
+    source: `const axes = new Axes({ xRange: [-4, 4, 1], yRange: [-2, 4, 1] });
+await scene.play(new Create(axes));
+
+await cue("Function");
+const graph = new FunctionGraph({ fn: x => 0.25 * x * x });
+await scene.play(new Create(graph));
+
+await cue("Equation");
+const equation = new MathTex("f(x)=\\\\frac{x^2}{4}");
+await scene.play(new Write(equation));`,
+  },
 ]);
 
 const playCoreExamples = Object.freeze([
@@ -166,6 +215,7 @@ $: s("bd ~ bd ~, ~ sd ~ sd, hh*8")
 
 export const getLivecodeExamples = kind => {
   if (kind === LIVECODE_KINDS.p5) return p5Examples;
+  if (kind === LIVECODE_KINDS.manim) return manimExamples;
   if (kind === LIVECODE_KINDS.playcore) return playCoreExamples;
   if (kind === LIVECODE_KINDS.strudel) return strudelExamples;
   if (kind === LIVECODE_KINDS.orca) return orcaExamples;
