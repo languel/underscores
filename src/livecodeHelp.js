@@ -2,9 +2,10 @@ import { LIVECODE_KINDS, normalizeLivecodeKind } from "./livecodeNode.js";
 
 export const getLivecodeBridgeHelp = kind => {
   const normalizedKind = normalizeLivecodeKind(kind);
-  const trusted = [LIVECODE_KINDS.p5, LIVECODE_KINDS.playcore, LIVECODE_KINDS.strudel].includes(normalizedKind);
+  const trusted = [LIVECODE_KINDS.p5, LIVECODE_KINDS.manim, LIVECODE_KINDS.playcore, LIVECODE_KINDS.strudel].includes(normalizedKind);
   const details = {
     [LIVECODE_KINDS.p5]: "p5 receives __ as its live frame bridge. Use __.element for the host size, __.params for @param values, and __.canvas / __.events / __.transport for scene queries, events, and score time.",
+    [LIVECODE_KINDS.manim]: "Manim receives __ beside scene and cue(). Use __.params for authored controls, __.canvas / __.events for score context, __.transport for linked timing, and __.currentColor / __.colors for canvas-aware styling.",
     [LIVECODE_KINDS.playcore]: "Play Core receives __ as the final program argument. Use __.element, __.params, __.canvas, __.events, __.transport, and __.api from lifecycle hooks and main().",
     [LIVECODE_KINDS.strudel]: "Strudel evaluates with __ in scope. The most useful live values are __.transport, __.canvas, __.events, __.params, and __.strudel for node-local transport controls.",
     [LIVECODE_KINDS.html]: "HTML runs in an isolated iframe instead of the JavaScript bridge. Use window.__.post(type, detail) to send a message and window.__.onMessage(listener) to receive the host's read-only runtime snapshot.",
@@ -58,6 +59,17 @@ export const LIVECODE_HELP = Object.freeze({
       "Valid edits keep the last working sketch until the replacement compiles; docking never stops the running node.",
     ]),
     footer: "Legacy p5 frames remain supported. Use Migrate to Livecode Node when you want the self-contained node model.",
+  }),
+  [LIVECODE_KINDS.manim]: Object.freeze({
+    title: "Manim quick reference",
+    summary: "A manim-web scene runs inside a first-class Livecode Node.",
+    points: Object.freeze([
+      "Create normal Manim objects such as Circle, Square, Axes, MathTex, Create, and Transform. The node injects manim-web's public API along with scene, cue(), MANIM, and __.",
+      "Top-level await is supported: await scene.play(new Create(shape)). Use await cue(\"Label\") to add optional presentation pauses, then advance them with the node's Next control.",
+      "Declare // @param values and read them through __.params. The shared __ bridge also exposes canvas objects, events, transport time, appearance colors, console output, and __.api.",
+      "Linked waits for Underscores transport before advancing; Free uses Manim's own scheduler. Source or parameter edits restart the disposable runtime while the authored node remains canonical.",
+    ]),
+    footer: "The pinned manim-web browser runtime currently loads from its official CDN on first use, so offline packaging remains a follow-up.",
   }),
   [LIVECODE_KINDS.playcore]: Object.freeze({
     title: "Play Core quick reference",

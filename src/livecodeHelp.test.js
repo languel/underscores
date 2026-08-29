@@ -23,7 +23,7 @@ test("livecode references describe bridge availability for every kind", () => {
     const bridge = getLivecodeBridgeHelp(kind);
     assert.equal(bridge.title, "Underscores bridge (__)");
     assert.ok(bridge.summary.length > 0);
-    if ([LIVECODE_KINDS.p5, LIVECODE_KINDS.playcore, LIVECODE_KINDS.strudel].includes(kind)) {
+    if ([LIVECODE_KINDS.p5, LIVECODE_KINDS.manim, LIVECODE_KINDS.playcore, LIVECODE_KINDS.strudel].includes(kind)) {
       assert.equal(bridge.available, true);
       assert.ok(bridge.points.some(point => point.includes("__.canvas")));
     } else {
