@@ -13,7 +13,7 @@ test("dock registry keeps the requested primary right and bottom tab order", () 
     .filter(panel => panel.placements.includes("right"))
     .map(panel => panel.id);
   assert.deepEqual(rightDockOrder, [
-    "outliner", "playlist", "properties", "iannix", "script", "grid", "physics", "mods", "synth", "media-input", "inputs", "holistic", "mapping", "chat", "history", "settings", "mixer", "info", "console",
+    "outliner", "playlist", "properties", "iannix", "script", "grid", "physics", "mods", "synth", "media-input", "inputs", "holistic", "mapping", "collaboration", "chat", "history", "settings", "mixer", "info", "console",
   ]);
   assert.deepEqual(UNDERSCORES_PANELS
     .filter(panel => panel.naturalPlacement === "bottom")
@@ -34,6 +34,9 @@ test("panel lookup and slash matching share one registry", () => {
   assert.equal(matchesUnderscoresPanel(getUnderscoresPanel("inputs"), "/signals"), true);
   assert.equal(getUnderscoresPanel("holistic")?.label, "MediaPipe Holistic");
   assert.equal(getUnderscoresPanel("mapping")?.slash, "/mapping");
+  assert.equal(getUnderscoresPanel("collaboration")?.label, "Multiplayer");
+  assert.equal(matchesUnderscoresPanel(getUnderscoresPanel("collaboration"), "/collaboration"), true);
+  assert.equal(getNaturalPanelPlacement(getUnderscoresPanel("collaboration")), "right");
   assert.equal(matchesUnderscoresPanel(getUnderscoresPanel("physics"), "/relations"), true);
   assert.equal(getUnderscoresPanel("script")?.slash, "/script");
   assert.equal(getUnderscoresPanel("info")?.slash, "/info");

@@ -658,22 +658,18 @@ body, html {
   border-radius: 50%;
 }
 
-.underscores-collaboration-popover {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 248px;
-  padding: 10px;
-  border: 1px solid var(--underscores-menu-border);
-  border-radius: 7px;
-  background: var(--underscores-menu-bg);
-  color: var(--underscores-menu-text);
-  box-shadow: var(--underscores-menu-shadow);
+.underscores-collaboration-panel {
+  min-height: 0;
+  height: 100%;
+  padding: 0 12px 12px;
+  display: flex;
+  flex-direction: column;
+  background: var(--underscores-panel-bg, var(--island-bg-color));
+  color: var(--color-primary);
   font: 500 var(--underscores-ui-font-size)/var(--underscores-ui-line-height) var(--font-sans);
-  z-index: 20;
 }
 
-.underscores-collaboration-heading,
+.underscores-collaboration-panel-toolbar,
 .underscores-collaboration-actions,
 .underscores-collaboration-peer,
 .underscores-collaboration-identity {
@@ -682,18 +678,18 @@ body, html {
   gap: 7px;
 }
 
-.underscores-collaboration-heading {
+.underscores-collaboration-panel-toolbar {
+  min-height: 38px;
   justify-content: space-between;
-  margin-bottom: 9px;
-}
-
-.underscores-collaboration-heading strong {
-  font-size: var(--underscores-ui-font-size-title);
+  margin: 0 -12px 10px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .underscores-collaboration-status,
-.underscores-collaboration-peer small {
-  color: var(--underscores-menu-muted);
+.underscores-collaboration-peer small,
+.underscores-collaboration-count {
+  color: var(--color-secondary);
 }
 
 .underscores-collaboration-status::before {
@@ -703,35 +699,61 @@ body, html {
   height: 6px;
   margin-right: 4px;
   border-radius: 50%;
-  background: var(--underscores-menu-muted);
+  background: var(--color-secondary);
 }
 
 .underscores-collaboration-status.is-connected::before { background: var(--underscores-status-success); }
 .underscores-collaboration-status.is-error::before,
 .underscores-collaboration-status.is-degraded::before { background: var(--underscores-status-error); }
 
-.underscores-collaboration-popover button,
-.underscores-collaboration-popover input[type="text"] {
+.underscores-collaboration-panel button,
+.underscores-collaboration-panel input[type="text"] {
   min-height: var(--underscores-ui-control-height);
-  border: 1px solid var(--underscores-menu-border);
+  border: 1px solid var(--border-color);
   border-radius: var(--underscores-ui-control-radius);
-  background: transparent;
+  background: var(--underscores-input-bg, transparent);
   color: inherit;
   font: inherit;
 }
 
-.underscores-collaboration-popover button {
+.underscores-collaboration-panel button {
   padding: 0 var(--underscores-ui-control-padding-x);
   cursor: pointer;
 }
 
-.underscores-collaboration-popover button:hover,
-.underscores-collaboration-popover button:focus-visible {
-  background: var(--underscores-menu-hover);
+.underscores-collaboration-panel button:hover,
+.underscores-collaboration-panel button:focus-visible {
+  background: var(--button-hover-bg);
 }
 
 .underscores-collaboration-primary {
   width: 100%;
+  color: var(--color-btn-text, var(--color-primary)) !important;
+  background: var(--underscores-accent, var(--color-accent)) !important;
+}
+
+.underscores-collaboration-empty {
+  margin: auto 0;
+}
+
+.underscores-collaboration-section {
+  margin: 0 0 12px;
+}
+
+.underscores-collaboration-section h3 {
+  margin: 0 0 6px;
+  color: var(--color-secondary);
+  font-size: var(--underscores-ui-font-size-small);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.underscores-collaboration-people {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .underscores-collaboration-identity {
@@ -742,9 +764,9 @@ body, html {
   width: 27px;
   height: 27px;
   padding: 2px;
-  border: 1px solid var(--underscores-menu-border);
+  border: 1px solid var(--border-color);
   border-radius: 50%;
-  background: transparent;
+  background: var(--underscores-input-bg, transparent);
 }
 
 .underscores-collaboration-identity input[type="text"] {
@@ -754,8 +776,8 @@ body, html {
 }
 
 .underscores-collaboration-peers {
-  max-height: 178px;
-  margin: 0 -3px 8px;
+  min-height: 0;
+  margin: 0 -3px;
   overflow: auto;
 }
 
@@ -781,6 +803,10 @@ body, html {
 
 .underscores-collaboration-actions {
   justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
 }
 
 .underscores-collaboration-warning,

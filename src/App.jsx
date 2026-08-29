@@ -23,6 +23,7 @@ import {
 } from "./sceneShare.js";
 import { loadLastScene, saveLastScene } from "./sceneSessionStorage.js";
 import CollaborationMenu from "./CollaborationMenu.jsx";
+import CollaborationPanel from "./CollaborationPanel.jsx";
 import CollaborationPointers from "./CollaborationPointers.jsx";
 import { CollaborationController, consumeCollaborationGestureEnd } from "./collaboration/CollaborationController.js";
 import { mergeCollaborationAppState } from "./collaboration/sceneDocument.js";
@@ -3209,18 +3210,6 @@ function App() {
   }
   const collaborationController = collaborationControllerRef.current;
   const [collaborationState, setCollaborationState] = useState(() => collaborationController.getStatus());
-  // Excalidraw renders collaboration UI through an internal React tunnel.
-  // Returning a new element from the render prop on every unrelated App
-  // update (including each CodeMirror keystroke) makes that tunnel repeatedly
-  // replace its children and can hit React's maximum update depth. Keep both
-  // the payload and callback stable until collaboration state actually changes.
-  const collaborationTopRightUI = useMemo(() => (
-    <CollaborationMenu key="collaboration-menu" controller={collaborationController} state={collaborationState} />
-  ), [collaborationController, collaborationState]);
-  const renderCollaborationTopRightUI = useCallback(
-    () => collaborationTopRightUI,
-    [collaborationTopRightUI],
-  );
   const collaborationMetadataRef = useRef(null);
   const collaborationApplyingRemoteRef = useRef(false);
   const collaborationPointerStateRef = useRef({ down: false });
@@ -3361,13 +3350,13 @@ function App() {
     try {
       const saved = JSON.parse(localStorage.getItem("underscores_panel_visibility_v1") || "null") || {};
       return {
-        chat: true, settings: true, mods: true, script: true, iannix: true, physics: saved.physics ?? true, mixer: true, synth: true, inputs: saved.inputs ?? true,
+        collaboration: saved.collaboration ?? true, chat: true, settings: true, mods: true, script: true, iannix: true, physics: saved.physics ?? true, mixer: true, synth: true, inputs: saved.inputs ?? true,
         holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, playlist: true, grid: true,
         ...saved,
         "media-input": saved["media-input"] ?? saved["video-input"] ?? true,
       };
     } catch {
-      return { chat: true, settings: true, mods: true, script: true, iannix: true, physics: true, mixer: true, synth: true, "media-input": true, inputs: true, holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, playlist: true, grid: true };
+      return { collaboration: true, chat: true, settings: true, mods: true, script: true, iannix: true, physics: true, mixer: true, synth: true, "media-input": true, inputs: true, holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, playlist: true, grid: true };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
@@ -11962,6 +11951,46 @@ function App() {
     }
     setOpenPanels(previous => ({ ...previous, [panelId]: true }));
   };
+
+  const collaborationPanelPlacement = panelLayouts.collaboration?.placement;
+  const collaborationPanelOpen = Boolean(
+    openPanels.collaboration
+    && (
+      collaborationPanelPlacement === PANEL_PLACEMENTS.FLOATING
+      || (
+        activeDockPanels[collaborationPanelPlacement] === "collaboration"
+        && !collapsedDocks[collaborationPanelPlacement]
+      )
+    )
+  );
+  const toggleCollaborationPanel = useCallback(() => {
+    if (collaborationPanelOpen) {
+      setOpenPanels(previous => ({ ...previous, collaboration: false }));
+      return;
+    }
+    setOpenPanels(previous => ({ ...previous, collaboration: true }));
+    if (collaborationPanelPlacement === PANEL_PLACEMENTS.LEFT || collaborationPanelPlacement === PANEL_PLACEMENTS.RIGHT) {
+      setActiveDockPanels(previous => ({ ...previous, [collaborationPanelPlacement]: "collaboration" }));
+      setCollapsedDocks(previous => ({ ...previous, [collaborationPanelPlacement]: false }));
+    }
+  }, [collaborationPanelOpen, collaborationPanelPlacement]);
+  useEffect(() => {
+    window.addEventListener("underscores:multiplayer-panel-toggle", toggleCollaborationPanel);
+    return () => window.removeEventListener("underscores:multiplayer-panel-toggle", toggleCollaborationPanel);
+  }, [toggleCollaborationPanel]);
+  // Excalidraw renders its top-right UI through an internal React tunnel.
+  // Keep the launcher stable until its visible collaboration state changes.
+  const collaborationTopRightUI = useMemo(() => (
+    <CollaborationMenu
+      key="collaboration-menu"
+      state={collaborationState}
+      open={collaborationPanelOpen}
+    />
+  ), [collaborationPanelOpen, collaborationState]);
+  const renderCollaborationTopRightUI = useCallback(
+    () => collaborationTopRightUI,
+    [collaborationTopRightUI],
+  );
 
   const closePhysicsToolbar = () => {
     setPhysicsToolbarOpen(false);
@@ -27816,6 +27845,27 @@ function App() {
           }}
         >
           {/* Underscores-owned panels can coexist when floating and share icon tabs when docked. */}
+          {shouldRenderPanel("collaboration") && (
+          <UnderscoresPanel
+            id="collaboration"
+            title="Multiplayer"
+            placement={panelLayouts.collaboration.placement}
+            layout={panelLayouts.collaboration}
+            dockTabs={getPanelDockTabs("collaboration")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.collaboration.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeUnderscoresPanel}
+            onPlacementChange={placement => setPanelPlacement("collaboration", placement)}
+            onDragStart={event => startSidebarPanelDrag("collaboration", event)}
+            onClose={() => setOpenPanels(previous => ({ ...previous, collaboration: false }))}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.collaboration.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.collaboration.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.collaboration.placement]: false }))}
+          >
+            <CollaborationPanel controller={collaborationController} state={collaborationState} />
+          </UnderscoresPanel>
+          )}
           {shouldRenderPanel("chat") && (
           <UnderscoresPanel
             id="chat"

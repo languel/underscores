@@ -14,6 +14,7 @@ export const UNDERSCORES_PANELS = Object.freeze([
   Object.freeze({ id: "inputs", label: "Inputs", slash: "/inputs", aliases: ["/signals"], kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "holistic", label: "MediaPipe Holistic", slash: "/holistic", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "mapping", label: "Media Mapping", slash: "/mapping", kind: "dockable", placements: ["left", "floating", "right"] }),
+  Object.freeze({ id: "collaboration", label: "Multiplayer", slash: "/multiplayer", aliases: ["/collaboration", "Collaboration"], kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "chat", label: "AI Assistant", slash: "/chat", kind: "dockable", sidebarName: "ai-sidebar", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "history", label: "History", slash: "/history", kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "settings", label: "Settings", slash: "/settings", kind: "dockable", sidebarName: "settings-sidebar", placements: ["left", "floating", "right"] }),
