@@ -23,6 +23,17 @@ test("chat messages render fenced code and math", () => {
   assert.match(html, /data-chat-block-source="vec3%20color%20%3D%20vec3\(1.0\)%3B"/);
 });
 
+test("chat messages render TeX bracket and parenthesis math fences", () => {
+  const html = renderChatMessage({
+    source: "Display: \\[a^2 + b^2 = c^2\\] and inline \\(x + y\\)",
+    role: "user",
+  });
+  assert.equal((html.match(/class=\"katex\"/g) || []).length, 2);
+  assert.match(html, /katex-display/);
+  assert.doesNotMatch(html, /\\\[/);
+  assert.doesNotMatch(html, /\\\(/);
+});
+
 test("chat text blocks expose their own block actions", () => {
   const html = renderChatMessage({ source: "A **readable** paragraph.\n\n## A heading", role: "assistant" });
   assert.equal((html.match(/data-chat-action="copy"/g) || []).length, 2);

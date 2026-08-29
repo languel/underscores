@@ -22,6 +22,16 @@ viewport. Presence shares a guest name/color, pointer, selection, and idle
 state, but presence is not a permission system. Native Excalidraw locks are
 shared conventions in this anonymous all-editor room.
 
+The multiplayer panel also includes an ephemeral room chat below the people
+roster. Messages use participant-colored bubbles and render the same Markdown,
+fenced code, and LaTeX forms as the assistant chat. `@` context tags can attach
+PNG previews, including `@selection-as-png` and `@canvas-as-png`; attached PNGs
+can be dragged onto the canvas and canvas PNGs can be dropped back into the
+composer. Chat has its own font-size control, compact participant roster,
+transcript copy, and clear-chat actions. Chat messages are exchanged in the
+room hello/update flow but are not part of the authored scene document or scene
+exports.
+
 ## Livecode and the shared clock
 
 Livecode nodes are scene elements, so creating a second node, changing its
@@ -70,8 +80,9 @@ local with an explicit missing/relink state when unavailable.
 
 The current provider is a direct WebRTC mesh intended for small rooms (roughly
 6–16 peers). It has no accounts, durable server history, teacher authority,
-comments, chat, voice, view-only roles, or room-wide lockdown. Those require a
-trusted persistent provider in a later phase.
+voice, view-only roles, or room-wide lockdown. Chat is intentionally transient
+room-session state rather than durable server history. Those other capabilities
+require a trusted persistent provider in a later phase.
 
 If the people menu briefly reports a limited connection while a peer is still
 visible, one browser-to-browser ICE path timed out while another path succeeded.

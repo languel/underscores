@@ -84,6 +84,12 @@ Useful slash commands include:
 - `/autokey`
 - `/command transport.seek {"seconds":2.5}` for any stable registry ID
 
+AI and multiplayer chat, as well as the Command Palette, share the same `@` context tags and
+slash-command completion list. Exact slash aliases execute locally through the registry; for
+example, `/physics play` does not become a model prompt. The generic `/command <id> <json>` form
+remains available for typed arguments and for replay strings copied from Console. Chat transcripts
+are not stored in scene-authored state or History sessions.
+
 The browser API is exposed after `underscores:ready`:
 
 ```js

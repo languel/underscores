@@ -121,6 +121,16 @@ export const renderMarkdownWithMath = (source, options = {}) => {
       formulas.push({ token, expression, source: sourceMatch, displayMode: true });
       return token;
     })
+    .replace(/\\\[([\s\S]+?)\\\]/g, (sourceMatch, expression) => {
+      const token = mathToken(formulas.length);
+      formulas.push({ token, expression, source: sourceMatch, displayMode: true });
+      return token;
+    })
+    .replace(/\\\(([\s\S]+?)\\\)/g, (sourceMatch, expression) => {
+      const token = mathToken(formulas.length);
+      formulas.push({ token, expression, source: sourceMatch, displayMode: false });
+      return token;
+    })
     .replace(/(?<!\\)\$([^$\n]+?)\$/g, (sourceMatch, expression) => {
       const token = mathToken(formulas.length);
       formulas.push({ token, expression, source: sourceMatch, displayMode: false });
