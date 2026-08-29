@@ -123,7 +123,7 @@ const axes = new Axes();
 await scene.play(new Create(axes));
 
 await cue("Function");
-const graph = new FunctionGraph({ fn: x => x * x });
+const graph = new FunctionGraph({ func: x => x * x });
 await scene.play(new Create(graph));
 
 await cue("Derivative");
@@ -134,11 +134,14 @@ In `auto` mode those boundaries cost nothing. In `cue` mode the program suspends
 
 Current controls:
 
-- the Manim frame shows a small **Next** control in cue mode;
+- the Manim frame shows a small **Next** control in cue mode. It is disabled until a cue is actually pending, and remains clickable inside the otherwise pass-through livecode overlay;
 - external code may dispatch `underscores:manim-control` with `{ elementId, action: "next" }`;
+- trusted Livecode code may emit `__.events.emit("manim.cue.next", { elementId: __.element.id })`;
+- the public API exposes the same event path as `window.__.events.emit(...)`;
+- the command registry exposes `livecode.manim.cue.next`, which is also available to WebMCP and defaults to `Alt+Shift+ArrowRight` (customizable in Settings → Shortcuts);
 - the frame publishes `underscores:manim-status` events including cue metadata and runtime status.
 
-The next integration step is to route those actions through Underscores's stable command registry so keyboard shortcuts, History, MIDI, AI, and presentation controls all invoke the same semantic command.
+All of these routes converge on the same `manim.cue.next` event and cue controller. This keeps keyboard shortcuts, WebMCP, AI, scripted events, and presentation controls semantically aligned. The outer Playlist **Next** hierarchy still needs to be wired to consume a pending Manim cue before advancing its anchor.
 
 ## Presentation integration
 
@@ -253,6 +256,18 @@ Do not create a Manim-specific lock mode if the generic Livecode mechanism can o
 ## Resize and appearance
 
 The node rectangle is the viewport. Mathematical coordinates should remain stable while the renderer/camera adapts to node size.
+
+The Manim canvas follows the node's transformed DOM viewport (`width: 100%` /
+`height: 100%`) while retaining its authored renderer dimensions for the
+logical scene. This keeps board zoom and node transforms from leaving a fixed
+Three.js canvas stranded in the upper-left corner. Authored width/height
+changes recreate the disposable `Scene` with the new renderer dimensions.
+
+`manim-web` does not currently consume a `transparent` Scene option. The
+adapter translates the persisted `transparent` setting to
+`backgroundOpacity: 0` (or `1` for an opaque frame), which enables WebGL alpha
+compositing. A scene can still draw an opaque rectangle or background itself;
+transparency only controls the renderer clear color.
 
 The bridge exposes Underscores appearance state (`__.currentColor`, theme/colors) so authored scenes can opt into canvas styling. A later helper may provide sensible Manim defaults derived from Underscores foreground/background without hiding standard Manim color controls.
 

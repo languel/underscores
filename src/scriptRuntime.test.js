@@ -64,6 +64,21 @@ test("script canvas resolves canvas objects by id, label, and IanniX group", () 
   assert.equal(canvas.events.latest("trigger.*").elementId, "trigger-1");
 });
 
+test("script canvas can emit namespaced runtime events", () => {
+  const emitted = [];
+  const runtimeRef = {
+    current: {
+      getElements: () => [],
+      eventBus: {
+        emit: (...args) => emitted.push(args),
+      },
+    },
+  };
+  const canvas = createScriptCanvasApi(runtimeRef);
+  canvas.events.emit("manim.cue.next", { elementId: "manim-1" });
+  assert.deepEqual(emitted, [["manim.cue.next", { elementId: "manim-1" }, { source: "livecode" }]]);
+});
+
 test("object parameters remain live views of the assigned canvas object", () => {
   let time = 1;
   const runtimeRef = {

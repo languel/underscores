@@ -50,4 +50,5 @@ test("Manim starter and teaching examples are available", () => {
   assert.ok(examples.length >= 4);
   assert.ok(examples.some(example => /@param/.test(example.source)));
   assert.ok(examples.some(example => /await cue/.test(example.source)));
+  assert.match(examples.find(example => example.id === "cue-build").source, /FunctionGraph\(\{ func:/);
 });

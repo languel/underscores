@@ -6894,6 +6894,33 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .underscores-p5-host { width: 100%; height: 100%; }
 .underscores-p5-host:focus { outline: none; }
 .underscores-p5-host canvas { display: block; width: 100% !important; height: 100% !important; }
+.manim-livecode-frame { position: relative; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+.manim-livecode-host { width: 100%; height: 100%; }
+.manim-livecode-host canvas { display: block; width: 100% !important; height: 100% !important; }
+.manim-cue-next {
+  pointer-events: auto;
+  appearance: none;
+  min-width: 44px;
+  min-height: 24px;
+  padding: 3px 8px;
+  color: var(--color-primary);
+  font: 11px/1 var(--font-sans);
+  background: color-mix(in srgb, var(--underscores-panel-bg, var(--island-bg-color)) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+  border-radius: 4px;
+  box-shadow: 0 1px 3px color-mix(in srgb, black 28%, transparent);
+  cursor: pointer;
+}
+.manim-cue-next:hover,
+.manim-cue-next:focus-visible {
+  color: var(--underscores-panel-bg, var(--island-bg-color));
+  background: var(--underscores-highlight, var(--underscores-accent, var(--button-hover-bg)));
+  outline: none;
+}
+.manim-cue-next:disabled {
+  opacity: .45;
+  cursor: default;
+}
 .underscores-p5-overlay { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
 .underscores-p5-overlay-frame { position: absolute; overflow: hidden; pointer-events: none; }
 .underscores-p5-overlay-frame.underscores-p5-overlay-interactive { pointer-events: auto; }

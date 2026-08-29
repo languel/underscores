@@ -24,7 +24,7 @@ code, not third-party plugins or a security sandbox.
 | `colors` | Underscores `foreground`, `accent`, `highlight`, `muted`, `panel`, `input`, `timeline`, and `canvas`, each `{ color, opacity, css }`, plus live `excalidraw` entries. |
 | `theme`, `appearance` | Theme id and full live appearance snapshot. |
 | `canvas`, `objects` | Scene-query bridge (`objects` is an alias). |
-| `events` | Event subscription and inspection. |
+| `events` | Event emission, subscription, and inspection. |
 | `streams` | Live semantic MediaPipe stream queries and subscriptions. |
 | `art` | Shared artistic generators. `art.unicursal` exposes the same engine as first-class Unicursal objects. |
 | `transport`, `time` | Score clock and timing context; `time` is `transport.time`. |
@@ -33,8 +33,10 @@ code, not third-party plugins or a security sandbox.
 `canvas.all()` returns non-deleted object snapshots. `canvas.get(reference)` resolves an id, score
 label, or Score group. `canvas.find(query)` accepts text or a predicate, and `canvas.selected()`
 returns the current selection. `events.on(pattern, listener)` subscribes and returns an unsubscribe
-function; a trailing `.*` is a prefix wildcard. `events.recent(limit)` and `events.latest(pattern)`
-inspect captured events.
+function; a trailing `.*` is a prefix wildcard. `events.emit(name, detail?, metadata?)` publishes a
+namespaced event to the shared runtime bus. `events.recent(limit)` and `events.latest(pattern)` inspect
+captured events. Manim cue controls listen for `manim.cue.next`, `manim.cue.auto`, and
+`manim.cue.cue`.
 
 ```js
 return { char: "●", color: __.colors.foreground.css };

@@ -7,6 +7,7 @@ import {
   cacheManimFrameConfig,
   compileManimSource,
   createManimCueController,
+  getManimSceneOptions,
   createManimTransportGate,
 } from "./manimFrame.js";
 
@@ -92,6 +93,7 @@ export default function ManimFrame({ element, config: rawConfig, scriptRuntimeRe
   // unrelated app renders cannot dispose and restart an in-flight animation.
   const config = configCacheRef.current.value;
   const [status, setStatus] = useState("Loading Manim…");
+  const [pendingCue, setPendingCue] = useState(null);
 
   useEffect(() => {
     gateRef.current?.setMode(transportMode);
@@ -119,22 +121,49 @@ export default function ManimFrame({ element, config: rawConfig, scriptRuntimeRe
       onCue: cue => {
         publishManimStatus({ elementId: elementSnapshot.id, kind: "cue", cue });
         setStatus(`Cue ${cue.index + 1}: ${cue.label}`);
+        setPendingCue(cueController.mode === "cue" && cue.options?.auto !== true ? cue : null);
       },
     });
     cueRef.current = cueController;
+    setPendingCue(null);
 
     const report = (kind, message) => {
       publishManimStatus({ elementId: elementSnapshot.id, kind, message });
       setStatus(message);
     };
 
+    const applyControl = detail => {
+      const action = detail?.action || detail?.type || "";
+      if (detail?.elementId && detail.elementId !== elementSnapshot.id) return { handled: false };
+      if (action === "next") {
+        const advanced = cueController.next();
+        publishManimStatus({ elementId: elementSnapshot.id, kind: "control", action, advanced });
+        return { handled: true, advanced };
+      }
+      if (action === "auto" || (action === "mode" && detail?.mode === "auto")) {
+        cueController.setMode("auto");
+        setPendingCue(null);
+        publishManimStatus({ elementId: elementSnapshot.id, kind: "control", action: "auto" });
+        return { handled: true };
+      }
+      if (action === "cue" || (action === "mode" && detail?.mode === "cue")) {
+        cueController.setMode("cue");
+        publishManimStatus({ elementId: elementSnapshot.id, kind: "control", action: "cue" });
+        return { handled: true };
+      }
+      return { handled: false };
+    };
+
     const handleControl = event => {
       const detail = event?.detail || {};
-      if (detail.elementId && detail.elementId !== elementSnapshot.id) return;
-      if (detail.action === "next") cueController.next();
-      if (detail.action === "auto") cueController.setMode("auto");
-      if (detail.action === "cue") cueController.setMode("cue");
+      applyControl(detail);
     };
+    const handleBusEvent = event => {
+      const detail = event?.detail || {};
+      const action = detail.action || String(event?.name || "").split(".").at(-1);
+      applyControl({ ...detail, action });
+    };
+    const unsubscribeBus = scriptRuntimeRef.current?.eventBus?.subscribe?.("manim.cue.*", handleBusEvent) || (() => {});
     window.addEventListener("underscores:manim-control", handleControl);
 
     const start = async () => {
@@ -142,11 +171,7 @@ export default function ManimFrame({ element, config: rawConfig, scriptRuntimeRe
         const MANIM = await loadManimRuntime(config.runtimeUrl);
         if (disposed || generation !== generationRef.current || !hostRef.current) return;
         report("loading", "Starting Manim…");
-        const scene = new MANIM.Scene(hostRef.current, {
-          width: Math.max(1, Math.round(config.width)),
-          height: Math.max(1, Math.round(config.height)),
-          transparent: config.transparent,
-        });
+        const scene = new MANIM.Scene(hostRef.current, getManimSceneOptions(config));
         sceneRef.current = scene;
 
         const originalPlay = typeof scene.play === "function" ? scene.play.bind(scene) : null;
@@ -166,7 +191,13 @@ export default function ManimFrame({ element, config: rawConfig, scriptRuntimeRe
         await run({
           scene,
           bridge,
-          cue: (label, options) => cueController.cue(label, options),
+          cue: async (label, options) => {
+            try {
+              return await cueController.cue(label, options);
+            } finally {
+              if (!disposed && generation === generationRef.current) setPendingCue(null);
+            }
+          },
         });
         if (!disposed && generation === generationRef.current) report("success", "Complete");
       } catch (error) {
@@ -180,6 +211,7 @@ export default function ManimFrame({ element, config: rawConfig, scriptRuntimeRe
     return () => {
       disposed = true;
       generationRef.current += 1;
+      unsubscribeBus();
       window.removeEventListener("underscores:manim-control", handleControl);
       cueController.dispose();
       gate.dispose();
@@ -199,6 +231,13 @@ export default function ManimFrame({ element, config: rawConfig, scriptRuntimeRe
     return unregister;
   }, [elementSnapshot.id]);
 
+  const requestNextCue = event => {
+    event.stopPropagation();
+    window.dispatchEvent(new CustomEvent("underscores:manim-control", {
+      detail: { elementId: elementSnapshot.id, action: "next", source: "button" },
+    }));
+  };
+
   return <div
     className={`manim-livecode-frame ${config.allowInteraction ? "interactive" : ""}`}
     style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden" }}
@@ -208,12 +247,11 @@ export default function ManimFrame({ element, config: rawConfig, scriptRuntimeRe
       type="button"
       className="manim-cue-next"
       aria-label="Advance Manim cue"
+      aria-keyshortcuts="Alt+Shift+ArrowRight"
       title="Advance Manim cue"
+      disabled={!pendingCue}
       onPointerDown={event => event.stopPropagation()}
-      onClick={event => {
-        event.stopPropagation();
-        cueRef.current?.next();
-      }}
+      onClick={requestNextCue}
       style={{ position: "absolute", right: 8, bottom: 8, zIndex: 2 }}
     >Next</button>}
     <span className="sr-only" role="status" aria-live="polite">{status}</span>

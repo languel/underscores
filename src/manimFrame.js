@@ -20,6 +20,18 @@ export const normalizeManimFrame = value => {
   };
 };
 
+// manim-web exposes transparency through the renderer's backgroundOpacity
+// option rather than a `transparent` Scene option. Keep the translation in
+// one place so the persisted setting and the renderer contract cannot drift.
+export const getManimSceneOptions = frame => {
+  const config = normalizeManimFrame(frame);
+  return {
+    width: Math.max(1, Math.round(config.width)),
+    height: Math.max(1, Math.round(config.height)),
+    backgroundOpacity: config.transparent ? 0 : 1,
+  };
+};
+
 export const cacheManimFrameConfig = (previous, value) => {
   const normalized = normalizeManimFrame(value);
   const key = JSON.stringify(normalized);

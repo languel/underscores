@@ -78,7 +78,7 @@ await scene.play(title.animate.scale(1.35));`,
 await scene.play(new Create(axes));
 
 await cue("Function");
-const graph = new FunctionGraph({ fn: x => 0.25 * x * x });
+const graph = new FunctionGraph({ func: x => 0.25 * x * x });
 await scene.play(new Create(graph));
 
 await cue("Equation");

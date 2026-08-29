@@ -79,6 +79,10 @@ export const createScriptCanvasApi = (runtimeRef, options = {}) => {
       options.onSubscription?.(unsubscribe);
       return unsubscribe;
     },
+    emit: (name, detail = {}, metadata = {}) => runtime().eventBus?.emit?.(name, detail, {
+      source: "livecode",
+      ...metadata,
+    }) || null,
     recent: (limit = 20) => runtime().eventBus?.recent?.(limit) || [],
     latest: pattern => [...(runtime().eventBus?.recent?.(100) || [])].reverse().find(event => matchesEvent(event, pattern)) || null,
   };

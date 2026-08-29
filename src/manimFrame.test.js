@@ -5,6 +5,7 @@ import {
   compileManimSource,
   createManimCueController,
   createManimTransportGate,
+  getManimSceneOptions,
   normalizeManimFrame,
   validateManimSource,
 } from "./manimFrame.js";
@@ -41,6 +42,15 @@ test("normalizeManimFrame supplies stable defaults", () => {
   assert.equal(frame.transparent, true);
 });
 
+test("Manim scene options map transparent frames to an alpha clear", () => {
+  assert.deepEqual(getManimSceneOptions({ width: 801.4, height: 449.6 }), {
+    width: 801,
+    height: 450,
+    backgroundOpacity: 0,
+  });
+  assert.equal(getManimSceneOptions({ transparent: false }).backgroundOpacity, 1);
+});
+
 test("validateManimSource accepts top-level await", () => {
   assert.equal(validateManimSource("await scene.play(Create(new Circle()));").valid, true);
   assert.equal(validateManimSource("const = nope").valid, false);
@@ -66,6 +76,12 @@ test("cue controller blocks only in cue mode", async () => {
   await pending;
   assert.equal(resolved, true);
   assert.equal(cues.length, 1);
+});
+
+test("cue controller reports a no-op when Next is pressed without a pending cue", () => {
+  const controller = createManimCueController({ mode: "cue" });
+  assert.equal(controller.next(), false);
+  controller.dispose();
 });
 
 test("linked transport gate waits for play while free mode runs", async () => {

@@ -37,6 +37,7 @@ export const SHORTCUT_ACTIONS = Object.freeze([
   { id: "arrangement.record.mode.toggle", label: "Rolling / step recording", defaultBinding: "Alt+Shift+KeyS" },
   { id: "arrangement.step.forward", label: "Advance arrangement step", defaultBinding: "Alt+ArrowRight" },
   { id: "arrangement.step.backward", label: "Reverse arrangement step", defaultBinding: "Alt+ArrowLeft" },
+  { id: "livecode.manim.cue.next", commandId: "livecode.manim.cue.next", label: "Advance Manim cue", defaultBinding: "Alt+Shift+ArrowRight" },
   { id: "toggle-theme", commandId: "toggle-theme", label: "Light / dark theme", defaultBinding: "Alt+Shift+KeyD" },
   { id: "code.documentation.toggle", commandId: "code.documentation.toggle", label: "Code documentation overlay", defaultBinding: "Mod+Shift+KeyH" },
   { id: "toggle-transparency", commandId: "toggle-transparency", label: "Canvas transparency", defaultBinding: "Mod+Shift+Digit0" },

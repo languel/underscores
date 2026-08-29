@@ -3215,7 +3215,7 @@ function App() {
   // replace its children and can hit React's maximum update depth. Keep both
   // the payload and callback stable until collaboration state actually changes.
   const collaborationTopRightUI = useMemo(() => (
-    <CollaborationMenu controller={collaborationController} state={collaborationState} />
+    <CollaborationMenu key="collaboration-menu" controller={collaborationController} state={collaborationState} />
   ), [collaborationController, collaborationState]);
   const renderCollaborationTopRightUI = useCallback(
     () => collaborationTopRightUI,
@@ -14251,6 +14251,14 @@ function App() {
     { id: "play.core.frame.create", name: "Create Play Core Frame /play", aliases: ["/play", "Play Core frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", fps: "number?", source: "play.core source?" }, action: (_api, args) => createPlayCoreFrame(args) },
     { id: "livecode.node.run", name: "Run Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.underscoresLivecode); if (!node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
     { id: "livecode.node.stop", name: "Stop Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.underscoresLivecode); if (node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
+    { id: "livecode.manim.cue.next", name: "Advance Manim Cue", category: "Livecode", args: { elementId: "string?" }, ai: { expose: true, description: "Advance the pending presentation cue on a Manim Livecode node. If elementId is omitted, the selected Manim node is targeted." }, action: (_api, args = {}) => {
+      const selected = getSelectedElements().find(element => isLivecodeNodeElement(element)
+        && normalizeLivecodeNode(element.customData?.underscoresLivecode).kind === LIVECODE_KINDS.manim);
+      const elementId = String(args.elementId || selected?.id || "");
+      if (!elementId) return { advanced: false, reason: "Select a Manim Livecode node or provide elementId." };
+      const event = eventBus.emit("manim.cue.next", { elementId, action: "next" }, { source: "command" });
+      return { dispatched: true, elementId, eventId: event.id };
+    } },
     { id: "livecode.node.migrate", name: "Migrate p5 or Play Core Host to Livecode Node", aliases: ["Migrate to Livecode Node"], category: "Canvas", action: () => { const target = getSelectedElements().find(element => isP5FrameElement(element) || isPlayCoreFrameElement(element)); if (!target) throw new Error("Select a p5 or Play Core host first."); return migrateLegacyHostToLivecodeNode(target.id); } },
     { id: "media.camera.create", name: "Create Camera Input", aliases: ["/camera", "webcam stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.CAMERA, args) },
     { id: "media.input.create", name: "Create Media Input", aliases: ["/media", "image stream", "video stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.MEDIA, { ...args, media: { url: args?.url || args?.media?.url || "", ...(args?.media || {}) } }) },
@@ -14516,6 +14524,7 @@ function App() {
       if (activeElement?.closest?.(".underscores-code-editor, .orca-node")
         && shortcutActionForEvent?.id !== "object.pick.fromCanvas"
         && shortcutActionForEvent?.id !== "ai.context.prompt"
+        && shortcutActionForEvent?.id !== "livecode.manim.cue.next"
         && !objectPickerEscape) return;
 
       // Escape is a global cancel/clear gesture: close transient UI, blur any
@@ -20695,6 +20704,10 @@ function App() {
       },
       events: {
         subscribe: (pattern, listener) => eventBus.subscribe(pattern, listener),
+        emit: (name, detail = {}, metadata = {}) => eventBus.emit(name, detail, {
+          source: "api",
+          ...metadata,
+        }),
       },
       webmcp: Object.freeze({
         tools: () => [...UNDERSCORES_WEBMCP_TOOL_NAMES],
@@ -27096,7 +27109,7 @@ function App() {
         id="canvas-container" 
         onPointerDownCapture={handleCanvasPointerDown}
         onPointerMoveCapture={handleCanvasPointerMove}
-        onPointerLeaveCapture={() => setHoveredLinkedElementId(null)}
+        onPointerLeave={() => setHoveredLinkedElementId(null)}
         onPointerUpCapture={handleCanvasPointerUp}
         onPointerCancelCapture={handleCanvasPointerUp}
         onLostPointerCaptureCapture={handleCanvasPointerUp}
