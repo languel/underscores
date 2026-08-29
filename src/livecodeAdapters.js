@@ -1,5 +1,6 @@
 import { normalizeP5Frame, normalizeP5Version, resolveP5SourceMode } from "./p5Frame.js";
 import { normalizePlayCoreFrame, validatePlayCoreSource } from "./playCoreFrame.js";
+import { normalizeManimFrame, validateManimSource } from "./manimFrame.js";
 import { LIVECODE_KINDS, normalizeLivecodeNode } from "./livecodeNode.js";
 import { normalizeLivecodeComposition, resolveP5Transparency } from "./livecodeComposition.js";
 import { validateShaderSource } from "./shaderLivecode.js";
@@ -47,6 +48,23 @@ export const LIVECODE_ADAPTERS = Object.freeze({
         persistence: composition.persistence,
         autoplay: true,
         allowInteraction: node.runtime.settings?.allowInteraction !== false,
+      });
+    },
+  }),
+  [LIVECODE_KINDS.manim]: Object.freeze({
+    id: LIVECODE_KINDS.manim,
+    runtime: "manim",
+    validate: validateManimSource,
+    makeRuntimeConfig: rawNode => {
+      const node = normalizeLivecodeNode(rawNode);
+      return normalizeManimFrame({
+        source: node.source,
+        parameters: node.parameters,
+        transparent: node.runtime.settings?.transparent !== false,
+        allowInteraction: node.runtime.settings?.allowInteraction !== false,
+        progressionMode: node.runtime.settings?.progressionMode || "auto",
+        runtimeUrl: node.runtime.settings?.runtimeUrl,
+        reloadNonce: node.revision,
       });
     },
   }),
@@ -108,7 +126,7 @@ export const getLivecodeRuntimeConfig = rawNode => {
 
 export const hasNativeLivecodeRuntime = rawNode => {
   const runtime = getLivecodeAdapter(rawNode).runtime;
-  return runtime === "p5" || runtime === "playcore" || runtime === "strudel" || runtime === "orca" || runtime === "shader";
+  return runtime === "p5" || runtime === "manim" || runtime === "playcore" || runtime === "strudel" || runtime === "orca" || runtime === "shader";
 };
 
 export const isLivecodeNodeRunnable = rawNode => {
@@ -119,6 +137,7 @@ export const isLivecodeNodeRunnable = rawNode => {
 export const describeLivecodeRuntime = rawNode => {
   const adapter = getLivecodeAdapter(rawNode);
   if (adapter.runtime === "p5") return "Bundled p5.js 2.x / 1.x runtime";
+  if (adapter.runtime === "manim") return "manim-web mathematical animation runtime";
   if (adapter.runtime === "playcore") return "Bundled Play Core runtime";
   if (adapter.runtime === "strudel") return "Shared native Strudel scheduler";
   if (adapter.runtime === "orca") return "Native Orca grid and Underscores MIDI routing";

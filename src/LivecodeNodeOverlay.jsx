@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import UnderscoresCodeEditor from "./UnderscoresCodeEditor.jsx";
 import P5Frame from "./P5Frame.jsx";
+import ManimFrame from "./ManimFrame.jsx";
 import { PlayCoreFrame } from "./PlayCoreFrame.jsx";
 import { getLivecodeRuntimeConfig, isLivecodeNodeRunnable, validateLivecodeNode } from "./livecodeAdapters.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
@@ -11,6 +12,7 @@ import OrcaNode from "./OrcaNode.jsx";
 import ShaderLivecodeFrame from "./ShaderLivecodeFrame.jsx";
 import { normalizeShaderCompositionSettings } from "./shaderLivecode.js";
 import { validateP5Source } from "./p5Frame.js";
+import { validateManimSource } from "./manimFrame.js";
 import { sourceDiagnostic } from "./scriptEditorDiagnostics.js";
 import {
   getLivecodeEditorProfile,
@@ -124,6 +126,11 @@ export function LivecodeNodeEditor({
         return validation.valid
           ? []
           : [sourceDiagnostic(source, `p5 does not compile: ${validation.error || "syntax error"}`)];
+      } : node.kind === "manim" ? source => {
+        const validation = validateManimSource(source);
+        return validation.valid
+          ? []
+          : [sourceDiagnostic(source, `Manim does not compile: ${validation.error || "syntax error"}`)];
       } : undefined}
       scriptType={getLivecodeEditorProfile(node)}
       p5Mode={node.kind === "p5"
@@ -341,6 +348,7 @@ function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef, transport }
   if (!lastWorkingConfig) return null;
   return <div className="livecode-node-runtime visible" aria-label={`${getLivecodeKindDefinition(node.kind).label} runtime`}>
     {node.kind === "p5" ? <P5Frame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
+    {node.kind === "manim" ? <ManimFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
     {node.kind === "playcore" ? <PlayCoreFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
     {node.kind === "shader" ? <ShaderLivecodeFrame element={element} node={node} transport={transport} scriptRuntimeRef={scriptRuntimeRef} /> : null}
   </div>;
@@ -567,9 +575,9 @@ export function LivecodeNodeOverlay({
             {node.kind === "strudel" && isLivecodeNodeRunnable(node) && <LivecodeNodeEditor
               node={node}
               element={element}
-          readOnly
-          visualOnly
-          enableStrudelWidgets
+              readOnly
+              visualOnly
+              enableStrudelWidgets
               showDocumentationOverlay={docsOverlayEnabled}
               documentationTipMode={documentationTipMode}
               autocompleteEnabled={autocompleteEnabled}

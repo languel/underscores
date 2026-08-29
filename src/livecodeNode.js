@@ -11,6 +11,7 @@ export const LIVECODE_NODE_VERSION = 1;
 export const LIVECODE_KINDS = Object.freeze({
   strudel: "strudel",
   p5: "p5",
+  manim: "manim",
   playcore: "playcore",
   markdown: "markdown",
   latex: "latex",
@@ -33,6 +34,13 @@ export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
     defaultName: "Untitled p5 node",
     defaultSource: `function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  clear();\n  noFill();\n  stroke(__.currentColor);\n  circle(width / 2, height / 2, Math.min(width, height) * 0.45);\n}`,
     summary: "Self-contained p5 sketch using the embedded latest 2.x runtime, with latest 1.x available per node.",
+  }),
+  [LIVECODE_KINDS.manim]: Object.freeze({
+    label: "Manim",
+    editorProfile: "javascript",
+    defaultName: "Untitled Manim",
+    defaultSource: `// @param radius = 1.5 (0.25..3 step:0.05)\nconst circle = new Circle({ radius: __.params.radius });\n\nawait scene.play(new Create(circle));\nawait cue("Transform");\nconst square = new Square({ sideLength: __.params.radius * 2 });\nawait scene.play(new Transform(circle, square));`,
+    summary: "Interactive mathematical animation with manim-web. Uses the shared Livecode parameters, free/linked transport, and optional cue progression.",
   }),
   [LIVECODE_KINDS.playcore]: Object.freeze({
     label: "Play Core",
