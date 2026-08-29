@@ -20,6 +20,12 @@ export const normalizeManimFrame = value => {
   };
 };
 
+export const cacheManimFrameConfig = (previous, value) => {
+  const normalized = normalizeManimFrame(value);
+  const key = JSON.stringify(normalized);
+  return previous?.key === key ? previous : { key, value: normalized };
+};
+
 export const validateManimSource = source => {
   try {
     // Manim Livecode is deliberately trusted author code. AsyncFunction is

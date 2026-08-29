@@ -4,10 +4,10 @@ import { parseScriptParameters } from "./scriptParameters.js";
 import { createScriptConsole } from "./scriptConsole.js";
 import { registerLivecodeCapture } from "./livecodeCapture.js";
 import {
+  cacheManimFrameConfig,
   compileManimSource,
   createManimCueController,
   createManimTransportGate,
-  normalizeManimFrame,
 } from "./manimFrame.js";
 
 const runtimePromises = new Map();
@@ -26,9 +26,10 @@ const loadManimRuntime = url => {
 
 const disposeScene = scene => {
   try { scene?.stop?.(); } catch { /* best effort */ }
-  try { scene?.dispose?.(); } catch { /* best effort */ }
-  try { scene?.renderer?.dispose?.(); } catch { /* best effort */ }
-  try { scene?.controls?.dispose?.(); } catch { /* best effort */ }
+  try {
+    if (typeof scene?.dispose === "function") scene.dispose();
+    else scene?.renderer?.dispose?.();
+  } catch { /* best effort */ }
 };
 
 const createBridge = (element, config, scriptRuntimeRef, transportGate) => {
@@ -80,11 +81,16 @@ export default function ManimFrame({ element, config: rawConfig, scriptRuntimeRe
     width: Math.max(1, Number(element?.width) || 1),
     height: Math.max(1, Number(element?.height) || 1),
   }), [element?.id, element?.width, element?.height]);
-  const config = useMemo(() => normalizeManimFrame({
+  const configCacheRef = useRef(null);
+  configCacheRef.current = cacheManimFrameConfig(configCacheRef.current, {
     ...rawConfig,
     width: elementSnapshot.width,
     height: elementSnapshot.height,
-  }), [rawConfig, elementSnapshot.height, elementSnapshot.width]);
+  });
+  // Parent scene normalization may produce a fresh config object while its
+  // authored content is unchanged. Keep one stable value for that content so
+  // unrelated app renders cannot dispose and restart an in-flight animation.
+  const config = configCacheRef.current.value;
   const [status, setStatus] = useState("Loading Manim…");
 
   useEffect(() => {

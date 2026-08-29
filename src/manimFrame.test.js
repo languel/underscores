@@ -1,12 +1,37 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  cacheManimFrameConfig,
   compileManimSource,
   createManimCueController,
   createManimTransportGate,
   normalizeManimFrame,
   validateManimSource,
 } from "./manimFrame.js";
+
+test("Manim frame config stays referentially stable across equivalent scene normalization", () => {
+  const first = cacheManimFrameConfig(null, {
+    source: "scene.add(new Circle());",
+    parameters: { radius: 1.5 },
+    width: 640,
+    height: 360,
+  });
+  const repeated = cacheManimFrameConfig(first, {
+    source: "scene.add(new Circle());",
+    parameters: { radius: 1.5 },
+    width: 640,
+    height: 360,
+  });
+  const edited = cacheManimFrameConfig(repeated, {
+    source: "scene.add(new Square());",
+    parameters: { radius: 1.5 },
+    width: 640,
+    height: 360,
+  });
+
+  assert.equal(repeated, first);
+  assert.notEqual(edited, first);
+});
 
 test("normalizeManimFrame supplies stable defaults", () => {
   const frame = normalizeManimFrame({ width: 800, height: 450, progressionMode: "cue" });
