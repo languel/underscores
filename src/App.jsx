@@ -22,7 +22,6 @@ import {
   readSceneSourceReference,
 } from "./sceneShare.js";
 import { loadLastScene, saveLastScene } from "./sceneSessionStorage.js";
-import CollaborationMenu from "./CollaborationMenu.jsx";
 import CollaborationPanel from "./CollaborationPanel.jsx";
 import CollaborationPointers from "./CollaborationPointers.jsx";
 import { CollaborationController, consumeCollaborationGestureEnd } from "./collaboration/CollaborationController.js";
@@ -11951,46 +11950,6 @@ function App() {
     }
     setOpenPanels(previous => ({ ...previous, [panelId]: true }));
   };
-
-  const collaborationPanelPlacement = panelLayouts.collaboration?.placement;
-  const collaborationPanelOpen = Boolean(
-    openPanels.collaboration
-    && (
-      collaborationPanelPlacement === PANEL_PLACEMENTS.FLOATING
-      || (
-        activeDockPanels[collaborationPanelPlacement] === "collaboration"
-        && !collapsedDocks[collaborationPanelPlacement]
-      )
-    )
-  );
-  const toggleCollaborationPanel = useCallback(() => {
-    if (collaborationPanelOpen) {
-      setOpenPanels(previous => ({ ...previous, collaboration: false }));
-      return;
-    }
-    setOpenPanels(previous => ({ ...previous, collaboration: true }));
-    if (collaborationPanelPlacement === PANEL_PLACEMENTS.LEFT || collaborationPanelPlacement === PANEL_PLACEMENTS.RIGHT) {
-      setActiveDockPanels(previous => ({ ...previous, [collaborationPanelPlacement]: "collaboration" }));
-      setCollapsedDocks(previous => ({ ...previous, [collaborationPanelPlacement]: false }));
-    }
-  }, [collaborationPanelOpen, collaborationPanelPlacement]);
-  useEffect(() => {
-    window.addEventListener("underscores:multiplayer-panel-toggle", toggleCollaborationPanel);
-    return () => window.removeEventListener("underscores:multiplayer-panel-toggle", toggleCollaborationPanel);
-  }, [toggleCollaborationPanel]);
-  // Excalidraw renders its top-right UI through an internal React tunnel.
-  // Keep the launcher stable until its visible collaboration state changes.
-  const collaborationTopRightUI = useMemo(() => (
-    <CollaborationMenu
-      key="collaboration-menu"
-      state={collaborationState}
-      open={collaborationPanelOpen}
-    />
-  ), [collaborationPanelOpen, collaborationState]);
-  const renderCollaborationTopRightUI = useCallback(
-    () => collaborationTopRightUI,
-    [collaborationTopRightUI],
-  );
 
   const closePhysicsToolbar = () => {
     setPhysicsToolbarOpen(false);
@@ -27175,7 +27134,6 @@ function App() {
         <Excalidraw 
           theme={theme} 
           isCollaborating={collaborationState.active}
-          renderTopRightUI={renderCollaborationTopRightUI}
           onPointerUpdate={collaborationState.active ? handleCollaborationPointerUpdate : undefined}
           gridModeEnabled={false}
           validateEmbeddable={isAllowedEmbedURL}
