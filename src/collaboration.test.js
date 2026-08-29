@@ -409,6 +409,82 @@ test("controller creates, publishes, receives, and leaves through the provider c
   assert.equal(location.href, "https://example.test/board");
 });
 
+test("room chat uses the reliable channel, syncs recent history, and clears on leave", async () => {
+  const provider = new FakeProvider();
+  const callbacks = {
+    getDocument: () => scene(),
+    getAppState: () => ({}),
+    getFiles: () => ({}),
+    getPresence: () => ({ selectedElementIds: {} }),
+    applyCollaborators: () => {},
+  };
+  const location = { href: "https://example.test/board" };
+  const controller = new CollaborationController({
+    getCallbacks: () => callbacks,
+    providerFactory: () => provider,
+    cache: new CollaborationRoomCache(null),
+    location,
+    history: { replaceState: (_state, _title, href) => { location.href = href; } },
+  });
+  const created = await controller.createRoom();
+  const credentials = parseCollaborationUrl(created.url);
+
+  const local = await controller.sendChat("  hello room  ", {
+    attachments: [{ dataUrl: "data:image/png;base64,AA==", label: "Canvas (PNG)" }],
+  });
+  assert.equal(local.text, "hello room");
+  assert.equal(local.participantKind, "human");
+  assert.deepEqual(local.attachments, [{ type: "image/png", dataUrl: "data:image/png;base64,AA==", label: "Canvas (PNG)" }]);
+  assert.equal(controller.getStatus().messages.length, 1);
+  const sentChat = await decryptJson(provider.sent.at(-1).data, credentials.secret);
+  assert.equal(sentChat.kind, "chat");
+  assert.equal(sentChat.message.text, "hello room");
+  assert.equal(sentChat.message.attachments[0].dataUrl, "data:image/png;base64,AA==");
+
+  provider.emit({ type: "peer-join", peerId: "late-peer" });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const helloEnvelope = provider.sent.findLast(item => item.peerId === "late-peer" && item.channel === "reliable");
+  const hello = await decryptJson(helloEnvelope.data, credentials.secret);
+  assert.equal(hello.kind, "hello");
+  assert.equal(hello.messages.at(-1).text, "hello room");
+  assert.equal(hello.messages.at(-1).attachments[0].label, "Canvas (PNG)");
+
+  provider.emit({
+    type: "message",
+    channel: "reliable",
+    peerId: "remote-peer",
+    data: await encryptJson({
+      protocol: 1,
+      kind: "chat",
+      actorId: "remote-actor",
+      message: {
+        id: "remote-message",
+        actorId: "remote-actor",
+        username: "Room Assistant",
+        color: "#7048e8",
+        participantKind: "assistant",
+        text: "I can join later.",
+        images: ["data:image/png;base64,AA=="],
+        sentAt: Date.now() + 1,
+      },
+    }, credentials.secret),
+  });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const chatDeadline = Date.now() + 1_000;
+  while (controller.getStatus().messages.at(-1)?.participantKind !== "assistant" && Date.now() < chatDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+  assert.equal(controller.getStatus().messages.at(-1).participantKind, "assistant");
+  assert.equal(controller.getStatus().messages.at(-1).attachments[0].label, "Context preview");
+
+  assert.equal(controller.clearChat(), true);
+  assert.deepEqual(controller.getStatus().messages, []);
+  assert.equal(controller.clearChat(), false);
+
+  await controller.leaveRoom();
+  assert.deepEqual(controller.getStatus().messages, []);
+});
+
 test("a failed peer path does not mark an already connected room as unavailable", async t => {
   const provider = new FakeProvider();
   const callbacks = {

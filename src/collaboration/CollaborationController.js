@@ -21,6 +21,10 @@ export const COLLABORATION_UPDATE_THROTTLE_MS = 50;
 export const COLLABORATION_PRESENCE_THROTTLE_MS = 33;
 export const COLLABORATION_AWAY_MS = 60_000;
 export const COLLABORATION_GESTURE_SETTLE_MS = 50;
+export const COLLABORATION_CHAT_HISTORY_LIMIT = 200;
+export const COLLABORATION_CHAT_TEXT_LIMIT = 2000;
+export const COLLABORATION_CHAT_ATTACHMENT_LIMIT = 2;
+export const COLLABORATION_CHAT_ATTACHMENT_MAX_CHARS = 1_000_000;
 
 export const consumeCollaborationGestureEnd = (payload, pointerState) => {
   if (!pointerState || !payload) return false;
@@ -83,6 +87,24 @@ const fileIdsInDocument = document => [...new Set((document?.elements || [])
 
 const fileBytes = file => new TextEncoder().encode(JSON.stringify(file));
 
+const normalizeChatAttachments = (attachments = []) => {
+  const source = Array.isArray(attachments) ? attachments : [attachments];
+  return source
+    .map(candidate => {
+      const dataUrl = typeof candidate === "string"
+        ? candidate
+        : String(candidate?.dataUrl || candidate?.src || "");
+      if (!/^data:image\/png;base64,/i.test(dataUrl) || dataUrl.length > COLLABORATION_CHAT_ATTACHMENT_MAX_CHARS) return null;
+      return {
+        type: "image/png",
+        dataUrl,
+        label: String(candidate?.label || "Context preview").trim().slice(0, 80) || "Context preview",
+      };
+    })
+    .filter(Boolean)
+    .slice(0, COLLABORATION_CHAT_ATTACHMENT_LIMIT);
+};
+
 export class CollaborationController {
   constructor({
     getCallbacks = () => ({}),
@@ -122,6 +144,7 @@ export class CollaborationController {
     this.localPublishSuspendedUntil = 0;
     this.lastBroadcastSignature = "";
     this.lastSentSnapshotByPeer = new Map();
+    this.chatMessages = [];
     this.state = {
       active: false,
       status: "disconnected",
@@ -131,6 +154,7 @@ export class CollaborationController {
       error: "",
       capacityWarning: false,
       initialized: false,
+      messages: [],
     };
     this.onVisibilityChange = () => {
       this.publishPresence({}, { immediate: true });
@@ -188,6 +212,68 @@ export class CollaborationController {
     return clone(this.identity);
   }
 
+  mergeChatMessages(messages = []) {
+    const byId = new Map(this.chatMessages.map(message => [message.id, message]));
+    for (const candidate of messages) {
+      const text = String(candidate?.text || "").trim().slice(0, COLLABORATION_CHAT_TEXT_LIMIT);
+      const id = String(candidate?.id || "").slice(0, 120);
+      const actorId = String(candidate?.actorId || "").slice(0, 120);
+      if (!id || !actorId || !text || byId.has(id)) continue;
+      byId.set(id, {
+        id,
+        actorId,
+        username: String(candidate?.username || "Guest").trim().slice(0, 40) || "Guest",
+        color: normalizeIdentityColor(candidate?.color),
+        participantKind: candidate?.participantKind === "assistant" ? "assistant" : "human",
+        text,
+        // Accept the assistant panel's existing `images` shape as well as the
+        // multiplayer-native attachment envelope so an assistant participant
+        // can join the room without a translation step.
+        attachments: normalizeChatAttachments(
+          Array.isArray(candidate?.attachments) && candidate.attachments.length > 0
+            ? candidate.attachments
+            : candidate?.images,
+        ),
+        sentAt: Number.isFinite(Number(candidate?.sentAt)) ? Number(candidate.sentAt) : Date.now(),
+      });
+    }
+    const next = [...byId.values()]
+      .sort((left, right) => left.sentAt - right.sentAt || left.id.localeCompare(right.id))
+      .slice(-COLLABORATION_CHAT_HISTORY_LIMIT);
+    if (JSON.stringify(next) === JSON.stringify(this.chatMessages)) return false;
+    this.chatMessages = next;
+    this.updateState({ messages: clone(next) });
+    return true;
+  }
+
+  async sendChat(text, options = {}) {
+    if (!this.state.active) throw new Error("Join a multiplayer room before sending a message.");
+    const content = String(text || "").trim().slice(0, COLLABORATION_CHAT_TEXT_LIMIT);
+    if (!content) return null;
+    const message = {
+      id: `${this.actorId}:${randomId()}`,
+      actorId: this.actorId,
+      username: this.identity.name,
+      color: this.identity.color,
+      participantKind: "human",
+      text: content,
+      attachments: normalizeChatAttachments(options.attachments),
+      sentAt: Date.now(),
+    };
+    this.mergeChatMessages([message]);
+    await this.sendReliable({ kind: "chat", actorId: this.actorId, message });
+    this.emit("collaboration.chat.send", { messageId: message.id });
+    return clone(message);
+  }
+
+  clearChat() {
+    if (this.chatMessages.length === 0) return false;
+    this.chatMessages = [];
+    this.updateState({ messages: [] });
+    this.emit("collaboration.chat.clear");
+    return true;
+  }
+
   async setIdentity(patch = {}) {
     const next = {
       name: String(patch.name ?? this.identity.name).trim().slice(0, 40) || this.identity.name,
@@ -197,7 +283,7 @@ export class CollaborationController {
     try { storage()?.setItem(COLLABORATION_IDENTITY_KEY, JSON.stringify(next)); } catch { /* identity remains in memory */ }
     this.updateState({});
     if (this.state.active) {
-      await this.sendReliable({ kind: "hello", actorId: this.actorId, identity: this.identity, digest: await this.currentDigest() });
+      await this.sendReliable({ kind: "hello", actorId: this.actorId, identity: this.identity, digest: await this.currentDigest(), messages: this.chatMessages });
       this.publishPresence({}, { immediate: true });
     }
     this.emit("collaboration.identity", { identity: next });
@@ -233,8 +319,9 @@ export class CollaborationController {
     this.elementActors.clear();
     this.lastBroadcastSignature = "";
     this.lastSentSnapshotByPeer.clear();
+    this.chatMessages = [];
     this.localPublishSuspendedUntil = 0;
-    this.updateState({ active: true, status: "connecting", roomId, peerCount: 0, peers: [], error: "", initialized: false, capacityWarning: false });
+    this.updateState({ active: true, status: "connecting", roomId, peerCount: 0, peers: [], messages: [], error: "", initialized: false, capacityWarning: false });
 
     if (seed) {
       const stamped = stampCollaborationDocument(seed, null, this.actorId);
@@ -268,7 +355,7 @@ export class CollaborationController {
     this.idleRefreshTimer = globalThis.setInterval(() => this.refreshPeers(), 15_000);
     this.updateState({ status: "connected" });
     await this.saveCache();
-    await this.sendReliable({ kind: "hello", actorId: this.actorId, identity: this.identity, digest: await this.currentDigest(), creator: Boolean(creator) });
+    await this.sendReliable({ kind: "hello", actorId: this.actorId, identity: this.identity, digest: await this.currentDigest(), messages: this.chatMessages, creator: Boolean(creator) });
     this.publishPresence({}, { immediate: true });
     this.emit("collaboration.room.join", { creator: Boolean(creator), initialized: Boolean(this.currentDocument) });
     return { roomId, url: this.roomUrl, status: this.getStatus() };
@@ -309,11 +396,12 @@ export class CollaborationController {
     this.secret = "";
     this.roomUrl = "";
     this.presences.clear();
+    this.chatMessages = [];
     this.peerRosterSignature = "";
     this.peerCollaboratorSignature = "";
     this.pendingUpdate = null;
     this.pendingPresence = null;
-    this.updateState({ active: false, status: "disconnected", roomId: "", peerCount: 0, peers: [], error: "", capacityWarning: false, initialized: false });
+    this.updateState({ active: false, status: "disconnected", roomId: "", peerCount: 0, peers: [], messages: [], error: "", capacityWarning: false, initialized: false });
     this.callbacks().applyCollaborators?.(new Map());
     if (!keepUrl && this.location?.href) {
       const url = new URL(this.location.href);
@@ -364,7 +452,7 @@ export class CollaborationController {
     }
     if (event.type === "peer-join") {
       if (this.state.status === "degraded") this.updateState({ status: "connected", error: "" });
-      await this.sendReliable({ kind: "hello", actorId: this.actorId, identity: this.identity, digest: await this.currentDigest() }, event.peerId);
+      await this.sendReliable({ kind: "hello", actorId: this.actorId, identity: this.identity, digest: await this.currentDigest(), messages: this.chatMessages }, event.peerId);
       this.publishPresence({}, { immediate: true, peerId: event.peerId });
       return;
     }
@@ -398,11 +486,25 @@ export class CollaborationController {
         updatedAt: Date.now(),
       });
       this.refreshPeers({ immediate: true });
+      this.mergeChatMessages(message.messages);
       const digest = await this.currentDigest();
       if (!this.currentDocument) {
         await this.sendReliable({ kind: "snapshot-request", actorId: this.actorId }, peerId);
       } else if (digest !== message.digest) {
         await this.sendSnapshot(peerId);
+      }
+      return;
+    }
+    if (message.kind === "chat") {
+      const presence = this.presences.get(peerId) || {};
+      const received = {
+        ...message.message,
+        actorId: presence.actorId || message.actorId || message.message?.actorId,
+        username: presence.username || message.message?.username,
+        color: presence.color || message.message?.color,
+      };
+      if (this.mergeChatMessages([received])) {
+        this.emit("collaboration.chat.receive", { messageId: received.id, peerId });
       }
       return;
     }

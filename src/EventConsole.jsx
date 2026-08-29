@@ -72,28 +72,18 @@ const exportableEvent = event => ({
   detail: event.detail,
 });
 
-const SendIcon = () => (
-  <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-  </svg>
-);
-
 export default function EventConsole({
   eventBus,
-  commandRegistry,
-  transportTime = 0,
   liveStatus = [],
   showPerformanceMonitor = false,
   performanceMonitorVisible = showPerformanceMonitor,
   onPerformancePlacementChange,
   onPerformanceOpen,
   onPerformanceClose,
-  onCommandInput,
   globalStatus = "",
 }) {
   const initialLoggingRef = useRef(readStoredLogging());
   const [events, setEvents] = useState([]);
-  const [input, setInput] = useState("");
   const [status, setStatus] = useState("");
   const [eventFilters, setEventFilters] = useState(readStoredEventFilters);
   const [loggingEnabled, setLoggingEnabled] = useState(initialLoggingRef.current);
@@ -123,43 +113,6 @@ export default function EventConsole({
     const output = outputRef.current;
     if (output) output.scrollTop = output.scrollHeight;
   }, [events]);
-
-  const runInput = async () => {
-    const source = input.trim();
-    if (!source) return;
-    try {
-      if (source.startsWith("/")) {
-        const handled = await onCommandInput?.(source);
-        if (!handled) throw new Error("Unknown slash command. Use the command palette to find a command.");
-      } else {
-        let event;
-        let handled = false;
-        try {
-          event = JSON.parse(source);
-        } catch {
-          handled = Boolean(await onCommandInput?.(source));
-          if (!handled) {
-            throw new Error("Expected a command name, /command invocation, or event JSON with name or id.");
-          }
-        }
-        if (!handled) {
-          if (event?.name === "command.before" && event.detail?.id) {
-            await commandRegistry.execute(event.detail.id, event.detail.args || {}, { source: "console", transportTime });
-          } else if (event?.id) {
-            await commandRegistry.execute(event.id, event.args || {}, { source: "console", transportTime });
-          } else if (event?.name) {
-            eventBus.emit(event.name, event.detail || {}, { source: "console-replay" });
-          } else {
-            throw new Error("Expected a command name, /command invocation, or event JSON with name or id.");
-          }
-        }
-      }
-      setStatus("Executed");
-      setInput("");
-    } catch (error) {
-      setStatus(error.message || "Could not execute console input.");
-    }
-  };
 
   const copyEvent = async event => {
     try {
@@ -313,23 +266,6 @@ export default function EventConsole({
             <span className="event-console-detail">{eventDetailText(event)}</span>
           </div>
         ))}
-      </div>
-      <div className="event-console-input-row">
-        <textarea
-          value={input}
-          onChange={event => setInput(event.target.value)}
-          onKeyDown={event => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              runInput();
-            }
-          }}
-          placeholder="Type a command, paste /command or event JSON · Enter to run · Shift+Enter for a new line"
-          aria-label="Console input"
-          rows={2}
-          {...infoProps("Console input", "Run a command name or slash invocation, replay copied event JSON, or emit an event object. Enter runs; Shift+Enter adds a line.")}
-        />
-        <button type="button" className="event-console-submit" onClick={runInput} title="Run console input (Enter)" aria-label="Run console input"><SendIcon /></button>
       </div>
       <div className={`event-console-status ${status && status !== "Executed" && !status.startsWith("Copied") ? "error" : ""}`}>{status}</div>
     </div>

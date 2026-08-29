@@ -6,6 +6,7 @@ export const PANEL_PLACEMENTS = Object.freeze({
 });
 
 export const DEFAULT_PANEL_LAYOUTS = Object.freeze({
+  collaboration: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 24, y: 72, width: 320, height: 390 }),
   chat: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 24, y: 72, width: 380, height: 760 }),
   settings: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 48, y: 88, width: 380, height: 760 }),
   mods: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 72, y: 104, width: 380, height: 760 }),

@@ -22,7 +22,7 @@ import {
   readSceneSourceReference,
 } from "./sceneShare.js";
 import { loadLastScene, saveLastScene } from "./sceneSessionStorage.js";
-import CollaborationMenu from "./CollaborationMenu.jsx";
+import CollaborationPanel from "./CollaborationPanel.jsx";
 import CollaborationPointers from "./CollaborationPointers.jsx";
 import { CollaborationController, consumeCollaborationGestureEnd } from "./collaboration/CollaborationController.js";
 import { mergeCollaborationAppState } from "./collaboration/sceneDocument.js";
@@ -50,6 +50,7 @@ import { UnderscoresCommandRegistry, UnderscoresEventBus, UnderscoresInputBus, f
 import { buildAIAutomationGuide, isAICommandAllowed, parseUnderscoresCommandTags } from "./aiTooling.js";
 import { registerUnderscoresWebMCP, UNDERSCORES_WEBMCP_TOOL_NAMES } from "./webmcp.js";
 import { renderChatMessage } from "./chatPresentation.js";
+import { buildChatAutocompleteSuggestions, filterChatAutocompleteSuggestions, getChatAutocompleteToken, resizeChatInput } from "./chatAutocomplete.js";
 import { autoKeyElement, AUTO_KEY_PATHS, collectAutomationKeys, evaluateElementAutomation, interpolationForPath, upsertAutomationKey } from "./automation.js";
 import { formatAIScriptSource, validateAIBrushSource, validateAIIannixSource } from "./scriptAuthoring.js";
 import { getIannixCommandAtSourcePosition } from "./iannixCommandReference.js";
@@ -251,6 +252,9 @@ const COLLAPSED_DOCK_EDGE_SIZE = 5;
 const BOTTOM_DOCK_COLLAPSE_THRESHOLD = 72;
 const BOTTOM_DOCK_MIN_HEIGHT = 112;
 const AI_MODEL_FAVORITES_STORAGE_KEY = "underscores_ai_model_favorites";
+const AI_CHAT_FONT_SIZE_KEY = "underscores_ai_chat_font_size";
+const CHAT_ATTACHMENT_DND_TYPE = "application/x-underscores-chat-attachment";
+const CHAT_ATTACHMENT_MAX_CHARS = 1_000_000;
 const PRATT_ENV_CREDENTIAL_AVAILABLE = import.meta.env.VITE_PRATT_LLM_API_KEY_AVAILABLE === true
   || import.meta.env.VITE_PRATT_LLM_API_KEY_AVAILABLE === "true";
 const hasAIEnvironmentCredential = settings => aiProviderEnvironmentCredentialApplies(
@@ -3209,18 +3213,6 @@ function App() {
   }
   const collaborationController = collaborationControllerRef.current;
   const [collaborationState, setCollaborationState] = useState(() => collaborationController.getStatus());
-  // Excalidraw renders collaboration UI through an internal React tunnel.
-  // Returning a new element from the render prop on every unrelated App
-  // update (including each CodeMirror keystroke) makes that tunnel repeatedly
-  // replace its children and can hit React's maximum update depth. Keep both
-  // the payload and callback stable until collaboration state actually changes.
-  const collaborationTopRightUI = useMemo(() => (
-    <CollaborationMenu key="collaboration-menu" controller={collaborationController} state={collaborationState} />
-  ), [collaborationController, collaborationState]);
-  const renderCollaborationTopRightUI = useCallback(
-    () => collaborationTopRightUI,
-    [collaborationTopRightUI],
-  );
   const collaborationMetadataRef = useRef(null);
   const collaborationApplyingRemoteRef = useRef(false);
   const collaborationPointerStateRef = useRef({ down: false });
@@ -3361,13 +3353,13 @@ function App() {
     try {
       const saved = JSON.parse(localStorage.getItem("underscores_panel_visibility_v1") || "null") || {};
       return {
-        chat: true, settings: true, mods: true, script: true, iannix: true, physics: saved.physics ?? true, mixer: true, synth: true, inputs: saved.inputs ?? true,
+        collaboration: saved.collaboration ?? true, chat: true, settings: true, mods: true, script: true, iannix: true, physics: saved.physics ?? true, mixer: true, synth: true, inputs: saved.inputs ?? true,
         holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, playlist: true, grid: true,
         ...saved,
         "media-input": saved["media-input"] ?? saved["video-input"] ?? true,
       };
     } catch {
-      return { chat: true, settings: true, mods: true, script: true, iannix: true, physics: true, mixer: true, synth: true, "media-input": true, inputs: true, holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, playlist: true, grid: true };
+      return { collaboration: true, chat: true, settings: true, mods: true, script: true, iannix: true, physics: true, mixer: true, synth: true, "media-input": true, inputs: true, holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, playlist: true, grid: true };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
@@ -3395,6 +3387,7 @@ function App() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandSearch, setCommandSearch] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [, setCommandRegistryVersion] = useState(0);
   const [showContextPrompt, setShowContextPrompt] = useState(false);
   const [contextPrompt, setContextPrompt] = useState("");
   const [contextPromptPosition, setContextPromptPosition] = useState(null);
@@ -5368,8 +5361,10 @@ function App() {
   const [showContextDropdown, setShowContextDropdown] = useState(false);
   const [contextMenuTab, setContextMenuTab] = useState("main");
   const [showAutocomplete, setShowAutocomplete] = useState(false);
-  const [autocompleteSearch, setAutocompleteSearch] = useState("");
+  const [autocompleteToken, setAutocompleteToken] = useState(null);
   const [autocompleteIndex, setAutocompleteIndex] = useState(0);
+  const [paletteAutocompleteToken, setPaletteAutocompleteToken] = useState(null);
+  const [paletteAutocompleteIndex, setPaletteAutocompleteIndex] = useState(0);
   const [showDebugLayer, setShowDebugLayer] = useState(() => {
     return localStorage.getItem("underscores_show_debug_layer") === "true";
   });
@@ -5967,6 +5962,14 @@ function App() {
   useEffect(() => commandRegistry.subscribe(detail => {
     historyController.recordCommand(detail);
   }), [commandRegistry, historyController]);
+
+  // The registry is populated after the first render. Keep the shared chat
+  // autocomplete list in sync so the palette can offer slash commands as
+  // soon as the command catalog is available, not only after another UI
+  // interaction happens to trigger a render.
+  useEffect(() => commandRegistry.subscribeRegistry(() => {
+    setCommandRegistryVersion(version => version + 1);
+  }), [commandRegistry]);
 
   const refreshHistoryMacros = useCallback(async () => {
     setHistoryMacros(await historyLibrary.list(UNDERSCORES_MACRO_TYPE));
@@ -11008,6 +11011,12 @@ function App() {
   const chatInputHintTimerRef = useRef(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [aiQueryElementIds, setAiQueryElementIds] = useState([]);
+  const [aiChatFontSize, setAiChatFontSize] = useState(() => {
+    const saved = Number(localStorage.getItem(AI_CHAT_FONT_SIZE_KEY));
+    return Number.isFinite(saved) && saved >= 10 && saved <= 24
+      ? Math.round(saved)
+      : Math.max(10, Math.min(24, interfaceFontSize));
+  });
   
   // Settings States
   const [aiSettings, setAiSettings] = useState(() => {
@@ -11032,6 +11041,7 @@ function App() {
   const [toolLogs, setToolLogs] = useState([]);
   
   const messagesEndRef = useRef(null);
+  const chatInputRef = useRef(null);
   const activeModelFavorites = useMemo(() => (
     Array.isArray(favoriteModels[aiSettings.provider]) ? favoriteModels[aiSettings.provider] : []
   ), [aiSettings.provider, favoriteModels]);
@@ -11131,6 +11141,10 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory]);
 
+  useEffect(() => {
+    resizeChatInput(chatInputRef.current);
+  }, [userInput]);
+
   // Test AI Connection & Fetch Models
   const testAIConnection = async (settings = aiSettings) => {
     setConnectionStatus("pending");
@@ -11157,32 +11171,19 @@ function App() {
     }
   };
 
-  const ALL_TAGS = [
-    { name: "@selection", description: "Selected elements and code fields (JSON)" },
-    { name: "@selection-as-svg", description: "Selected elements (SVG)" },
-    { name: "@selection-as-png", description: "Selected elements (PNG)" },
-    { name: "@canvas", description: "Entire canvas (JSON)" },
-    { name: "@canvas-as-svg", description: "Entire canvas (SVG)" },
-    { name: "@canvas-as-png", description: "Entire canvas (PNG)" },
-    { name: "@livecode", description: "Livecode node source and runtime state" },
-    { name: "@score", description: "Current score and transport state" },
-    { name: "@mermaid", description: "Create Mermaid diagrams" },
-    { name: "@manim", description: "Math animation script" },
-    { name: "@imagegen", description: "Generate images/illustrations" }
-  ];
+  const chatAutocompleteSuggestions = buildChatAutocompleteSuggestions(commandRegistry.list());
+  const getFilteredTags = () => filterChatAutocompleteSuggestions(autocompleteToken, chatAutocompleteSuggestions).slice(0, 12);
 
-  const getFilteredTags = () => {
-    if (!autocompleteSearch) return ALL_TAGS;
-    return ALL_TAGS.filter(tag => tag.name.toLowerCase().includes(autocompleteSearch.toLowerCase()));
-  };
-
-  const getContextValue = async (type) => {
+  const getContextValue = async (type, contextElementIds = null) => {
     if (!excalidrawAPI) return null;
     const allElements = excalidrawAPI.getSceneElements();
     const activeState = excalidrawAPI.getAppState();
     const files = excalidrawAPI.getFiles();
 
-    const selectedElements = allElements.filter(el => activeState.selectedElementIds?.[el.id]);
+    const requestedElementIds = Array.isArray(contextElementIds) ? new Set(contextElementIds) : null;
+    const selectedElements = allElements.filter(el => requestedElementIds
+      ? requestedElementIds.has(el.id)
+      : activeState.selectedElementIds?.[el.id]);
 
     if (type.startsWith("selection") && selectedElements.length === 0) {
       return { error: "No elements are currently selected on the canvas." };
@@ -11277,6 +11278,9 @@ function App() {
     const currentVal = textarea.value;
     const newVal = currentVal.substring(0, start) + text + currentVal.substring(end);
     setUserInput(newVal);
+    setShowAutocomplete(false);
+    setAutocompleteToken(null);
+    setAutocompleteIndex(0);
     
     setTimeout(() => {
       textarea.focus();
@@ -11284,23 +11288,23 @@ function App() {
     }, 50);
   };
 
-  const handleAutocompleteSelect = (tagName) => {
-    const textarea = document.getElementById("chat-message-input");
-    if (!textarea) return;
-    const cursorPosition = textarea.selectionStart;
-    const textBeforeCursor = userInput.substring(0, cursorPosition);
-    const lastAtIdx = textBeforeCursor.lastIndexOf("@");
-    
-    if (lastAtIdx !== -1) {
-      const newVal = userInput.substring(0, lastAtIdx) + tagName + " " + userInput.substring(cursorPosition);
-      setUserInput(newVal);
-      setShowAutocomplete(false);
-      setTimeout(() => {
-        textarea.focus();
-        const newCursorPos = lastAtIdx + tagName.length + 1;
-        textarea.selectionStart = textarea.selectionEnd = newCursorPos;
-      }, 50);
-    }
+  const handleAutocompleteSelect = suggestion => {
+    const textarea = chatInputRef.current || document.getElementById("chat-message-input");
+    const suggestionName = typeof suggestion === "string" ? suggestion : suggestion?.name;
+    const token = autocompleteToken || getChatAutocompleteToken(userInput, textarea?.selectionStart);
+    if (!textarea || !token || !suggestionName) return;
+    const insertion = `${suggestionName} `;
+    const newVal = `${userInput.substring(0, token.start)}${insertion}${userInput.substring(token.end)}`;
+    const newCursorPos = token.start + insertion.length;
+    setUserInput(newVal);
+    setShowAutocomplete(false);
+    setAutocompleteToken(null);
+    setAutocompleteIndex(0);
+    setTimeout(() => {
+      textarea.focus();
+      textarea.selectionStart = textarea.selectionEnd = newCursorPos;
+      resizeChatInput(textarea);
+    }, 0);
   };
 
   const handleTextareaChange = (e) => {
@@ -11312,17 +11316,10 @@ function App() {
       chatInputHintTimerRef.current = null;
     }
 
-    const cursorPosition = e.target.selectionStart;
-    const textBeforeCursor = val.substring(0, cursorPosition);
-    const lastWordMatch = textBeforeCursor.match(/@(\w*-?\w*)$/);
-
-    if (lastWordMatch) {
-      setShowAutocomplete(true);
-      setAutocompleteSearch(lastWordMatch[1]);
-      setAutocompleteIndex(0);
-    } else {
-      setShowAutocomplete(false);
-    }
+    const token = getChatAutocompleteToken(val, e.target.selectionStart);
+    setAutocompleteToken(token);
+    setShowAutocomplete(Boolean(token));
+    setAutocompleteIndex(0);
   };
 
   const hideChatInputHint = () => {
@@ -11534,7 +11531,52 @@ function App() {
     if (!textToSend.trim() || isStreaming) return;
     
     const userMessage = textToSend.trim();
-    if (msgOverride === null) setUserInput("");
+    if (msgOverride === null) {
+      setUserInput("");
+      setShowAutocomplete(false);
+      setAutocompleteToken(null);
+      setAutocompleteIndex(0);
+    }
+
+    // Slash commands entered in the assistant chat are trusted local actions,
+    // so they can replace the old Console command composer without sending a
+    // command-shaped prompt through the model first.
+    if (userMessage.startsWith("/")) {
+      const directCommand = parseSlashInvocation(userMessage);
+      if (directCommand?.error) {
+        reportAiStatus(directCommand.error, "error");
+        return;
+      }
+      if (directCommand?.command?.id) {
+        const commandName = directCommand.command.name || directCommand.command.id;
+        setChatHistory(previous => [
+          ...previous,
+          { role: "user", content: userMessage, displayContent: userMessage },
+        ]);
+        setIsStreaming(true);
+        try {
+          await commandRegistry.execute(directCommand.command.id, directCommand.args || {}, {
+            source: "ai-chat",
+            transportTime: scoreTimeRef.current,
+          });
+          setChatHistory(previous => [
+            ...previous,
+            { role: "assistant", content: `Executed ${commandName}.` },
+          ]);
+          reportAiStatus(`Executed ${commandName}.`);
+        } catch (error) {
+          const message = error?.message || "Command failed.";
+          setChatHistory(previous => [
+            ...previous,
+            { role: "assistant", content: `Error: ${message}` },
+          ]);
+          reportAiStatus(message, "error");
+        } finally {
+          setIsStreaming(false);
+        }
+        return;
+      }
+    }
     setIsStreaming(true);
 
     const allElements = excalidrawAPI ? excalidrawAPI.getSceneElements().filter(el => !el.isDeleted) : [];
@@ -11795,6 +11837,13 @@ function App() {
       { role: "assistant", content: INITIAL_GREETING }
     ]);
     reportAiStatus("Started a new AI conversation.");
+  };
+
+  const updateAiChatFontSize = value => {
+    if (!Number.isFinite(Number(value))) return;
+    const next = Math.max(10, Math.min(24, Math.round(Number(value))));
+    setAiChatFontSize(next);
+    localStorage.setItem(AI_CHAT_FONT_SIZE_KEY, String(next));
   };
 
   const copyTextToClipboard = async text => {
@@ -14548,7 +14597,11 @@ function App() {
           return;
         }
         if (showContextDropdown) setShowContextDropdown(false);
-        if (showAutocomplete) setShowAutocomplete(false);
+        if (showAutocomplete) {
+          setShowAutocomplete(false);
+          setAutocompleteToken(null);
+          setAutocompleteIndex(0);
+        }
         if (showCommandPalette) setShowCommandPalette(false);
         if (showContextPrompt) {
           setShowContextPrompt(false);
@@ -14833,6 +14886,8 @@ function App() {
       setTimeout(() => paletteInputRef.current?.focus(), 50);
       setCommandSearch("");
       setSelectedIndex(0);
+      setPaletteAutocompleteToken(null);
+      setPaletteAutocompleteIndex(0);
     }
   }, [showCommandPalette]);
 
@@ -14974,6 +15029,30 @@ function App() {
     return matches;
   };
 
+  const getFilteredPaletteTags = () => filterChatAutocompleteSuggestions(
+    paletteAutocompleteToken,
+    chatAutocompleteSuggestions,
+  ).slice(0, 12);
+
+  const handlePaletteAutocompleteSelect = suggestion => {
+    const input = paletteInputRef.current;
+    const suggestionName = typeof suggestion === "string" ? suggestion : suggestion?.name;
+    const cursor = input?.selectionStart ?? commandSearch.length;
+    const token = paletteAutocompleteToken || getChatAutocompleteToken(commandSearch, cursor);
+    if (!input || !token || !suggestionName) return;
+    const insertion = `${suggestionName} `;
+    const nextValue = `${commandSearch.slice(0, token.start)}${insertion}${commandSearch.slice(token.end)}`;
+    const nextCursor = token.start + insertion.length;
+    setCommandSearch(nextValue);
+    setPaletteAutocompleteToken(null);
+    setPaletteAutocompleteIndex(0);
+    setSelectedIndex(0);
+    window.setTimeout(() => {
+      input.focus();
+      input.setSelectionRange(nextCursor, nextCursor);
+    }, 0);
+  };
+
   const getSlashCompletion = (value, commands = getFilteredCommands()) => {
     const query = String(value || "").trim().toLowerCase();
     if (!query.startsWith("/")) return "";
@@ -15036,18 +15115,6 @@ function App() {
       return { command: COMMANDS.find(command => command.id === generic.id), args: generic.args };
     }
     return null;
-  };
-
-  const runConsoleSlashCommand = async source => {
-    const parsed = parseSlashInvocation(source, { allowBare: true });
-    if (!parsed) return false;
-    if (parsed.error) throw new Error(parsed.error);
-    if (!parsed.command?.id) return false;
-    await commandRegistry.execute(parsed.command.id, parsed.args || {}, {
-      source: "console",
-      transportTime: scoreTimeRef.current,
-    });
-    return true;
   };
 
   const openAISidebar = () => {
@@ -17038,17 +17105,75 @@ function App() {
   const handleCanvasMediaPreviewDragOver = event => {
     const types = Array.from(event.dataTransfer?.types || []);
     const hasMediaFile = types.includes("Files");
+    const hasChatAttachment = types.includes(CHAT_ATTACHMENT_DND_TYPE);
     // Browsers often hide drag payload values until `drop`, so the MIME type
     // is the reliable signal while dragging a page link over the canvas.
     const hasWebEmbed = Boolean(extractDroppedEmbedURL(event.dataTransfer))
       || types.includes("text/uri-list")
       || types.includes("text/html");
-    if (!types.includes("application/x-underscores-media-source") && !hasMediaFile && !hasWebEmbed) return;
+    if (!types.includes("application/x-underscores-media-source") && !hasChatAttachment && !hasMediaFile && !hasWebEmbed) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
   };
 
+  const createChatAttachmentAt = async (attachment, clientX, clientY) => {
+    const api = excalidrawAPIRef.current;
+    const dataURL = String(attachment?.dataUrl || "");
+    if (!api || !/^data:image\/png;base64,/i.test(dataURL) || dataURL.length > CHAT_ATTACHMENT_MAX_CHARS) return;
+    const imageSize = await new Promise(resolve => {
+      const image = new globalThis.Image();
+      image.onload = () => resolve({ width: Number(image.naturalWidth) || 480, height: Number(image.naturalHeight) || 320 });
+      image.onerror = () => resolve({ width: 480, height: 320 });
+      image.src = dataURL;
+    });
+    const maxDimension = 480;
+    const scale = Math.min(1, maxDimension / Math.max(imageSize.width, imageSize.height));
+    const width = Math.max(1, Math.round(imageSize.width * scale));
+    const height = Math.max(1, Math.round(imageSize.height * scale));
+    const point = viewportCoordsToSceneCoords({ clientX, clientY }, api.getAppState());
+    const now = Date.now();
+    const fileId = crypto.randomUUID();
+    const file = createBakedImageFile({ fileId, dataURL, now });
+    const baseImage = createBakedImageElement({
+      fileId,
+      bounds: { minX: point.x - width / 2, minY: point.y - height / 2, maxX: point.x + width / 2, maxY: point.y + height / 2 },
+      sourceElements: [],
+      now,
+    });
+    const label = String(attachment?.label || "Chat attachment").trim().slice(0, 80) || "Chat attachment";
+    const imageElement = {
+      ...baseImage,
+      customData: {
+        underscoresChatAttachment: { version: 1, label, createdAt: now },
+        underscoresLabel: `Chat attachment · ${label}`,
+      },
+    };
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
+    const selection = { [imageElement.id]: true };
+    api.addFiles([file]);
+    api.updateScene({
+      elements: [...elements, imageElement],
+      appState: { selectedElementIds: selection, selectedGroupIds: {}, activeTool: { ...(api.getAppState().activeTool || {}), type: "selection", locked: false } },
+      commitToHistory: true,
+    });
+    selectedElementIdsRef.current = selection;
+    setSelectedElementIds(selection);
+    setSceneExchangeStatus(`Added ${label} from room chat.`);
+  };
+
   const handleCanvasMediaPreviewDrop = event => {
+    const encodedChatAttachment = event.dataTransfer?.getData(CHAT_ATTACHMENT_DND_TYPE);
+    if (encodedChatAttachment) {
+      try {
+        const attachment = JSON.parse(encodedChatAttachment);
+        if (/^data:image\/png;base64,/i.test(String(attachment?.dataUrl || ""))) {
+          event.preventDefault();
+          event.stopPropagation();
+          void createChatAttachmentAt(attachment, event.clientX, event.clientY);
+          return;
+        }
+      } catch { /* continue with the other canvas drop handlers */ }
+    }
     // Internal source drags must win over the browser's text/URI payload. A
     // media row may expose a label or URL as text, but it should still create
     // the existing media preview rather than an unrelated web embed.
@@ -27146,7 +27271,6 @@ function App() {
         <Excalidraw 
           theme={theme} 
           isCollaborating={collaborationState.active}
-          renderTopRightUI={renderCollaborationTopRightUI}
           onPointerUpdate={collaborationState.active ? handleCollaborationPointerUpdate : undefined}
           gridModeEnabled={false}
           validateEmbeddable={isAllowedEmbedURL}
@@ -27816,6 +27940,27 @@ function App() {
           }}
         >
           {/* Underscores-owned panels can coexist when floating and share icon tabs when docked. */}
+          {shouldRenderPanel("collaboration") && (
+          <UnderscoresPanel
+            id="collaboration"
+            title="Multiplayer"
+            placement={panelLayouts.collaboration.placement}
+            layout={panelLayouts.collaboration}
+            dockTabs={getPanelDockTabs("collaboration")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.collaboration.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeUnderscoresPanel}
+            onPlacementChange={placement => setPanelPlacement("collaboration", placement)}
+            onDragStart={event => startSidebarPanelDrag("collaboration", event)}
+            onClose={() => setOpenPanels(previous => ({ ...previous, collaboration: false }))}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.collaboration.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.collaboration.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.collaboration.placement]: false }))}
+          >
+            <CollaborationPanel controller={collaborationController} state={collaborationState} getContextValue={getContextValue} commands={commandRegistry.list()} />
+          </UnderscoresPanel>
+          )}
           {shouldRenderPanel("chat") && (
           <UnderscoresPanel
             id="chat"
@@ -27836,8 +27981,15 @@ function App() {
           >
             <div className="underscores-panel-secondary-header">
               <div style={{ display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", paddingRight: "10px", gap: "10px" }}>
-                {/* Model Selector Pill */}
-                <div className="ai-model-picker">
+                <div className="ai-chat-model-controls">
+                  <button className="header-btn ai-chat-reset-button" onClick={clearChat} title="Reset chat history" aria-label="Reset chat history">
+                    <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 3.5h8l4 4v13H6a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2Z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M14 3.5v5h4" />
+                    </svg>
+                  </button>
+                  {/* Model Selector Pill */}
+                  <div className="ai-model-picker">
                   <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" style={{ color: "var(--color-secondary)", flexShrink: 0 }}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
@@ -27884,16 +28036,14 @@ function App() {
                   {/* Custom tiny down arrow */}
                   <span className="ai-model-picker-arrow">▼</span>
                 </div>
-                <div style={{ display: "flex", gap: "6px" }}>
-                  <button className="header-btn" onClick={clearChat} title="Reset chat history">
-                    <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                    </svg>
-                  </button>
-                  <button className="header-btn" onClick={copyTranscript} title="Copy transcript">
-                    <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                    </svg>
+                </div>
+                <div className="ai-chat-toolbar-actions" style={{ display: "flex", gap: "6px" }}>
+                  <label className="underscores-collaboration-font-size-control" title="Chat font size">
+                    <span aria-hidden="true">Aa</span>
+                    <NumericInput min="10" max="24" step="1" value={aiChatFontSize} defaultValue={interfaceFontSize} onCommit={updateAiChatFontSize} aria-label="AI chat font size" />
+                  </label>
+                  <button className="header-btn" onClick={copyTranscript} title="Copy transcript" aria-label="Copy transcript">
+                    <ScriptActionIcon type="copy" />
                   </button>
                   <button className="header-btn" onClick={() => toggleUnderscoresPanel("settings", { settingsTab: "ai" })} title="AI settings">
                     <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -27905,17 +28055,23 @@ function App() {
               </div>
             </div>
             
-            <div style={{ display: "flex", flexDirection: "column", height: "calc(100% - 50px)", overflow: "hidden", background: "var(--underscores-panel-bg, transparent)" }}>
+            <div className="underscores-collaboration-chat ai-chat-panel" style={{ "--underscores-chat-font-size": `${aiChatFontSize}px` }}>
               {/* Messages Stream */}
               <div
                 id="chat-messages"
+                className="underscores-collaboration-chat-messages"
                 onClick={handleChatBlockAction}
-                style={{ flex: 1, overflowY: "auto", padding: "12px", display: "flex", flexDirection: "column", gap: "10px" }}
+                aria-live="polite"
+                aria-label="Assistant messages"
               >
                 {chatHistory
                   .filter(msg => msg.role !== "system")
                   .map((msg, idx) => (
-                    <div key={idx} className={`chat-message ${msg.role}`}>
+                    <div
+                      key={idx}
+                      className={`underscores-collaboration-chat-message${msg.role === "user" ? " is-local" : ""}${msg.role === "assistant" ? " is-assistant" : ""}`}
+                      style={{ "--participant-color": msg.role === "user" ? "var(--color-accent)" : "var(--color-secondary)" }}
+                    >
                       {msg.content === "Thinking..." && isStreaming
                         ? <div className="ai-chat-message-content"><ThinkingIndicator /></div>
                         : <div
@@ -27923,74 +28079,31 @@ function App() {
                           dangerouslySetInnerHTML={{ __html: renderChatMessage({ source: msg.displayContent || msg.content, role: msg.role }) }}
                         />}
                       {msg.images && msg.images.map((img, imgIdx) => (
-                        <img 
-                          key={imgIdx} 
-                          src={img} 
-                          alt="Context preview" 
-                          style={{ 
-                            maxWidth: "100%", 
-                            maxHeight: "150px", 
-                            borderRadius: "6px", 
-                            marginTop: "8px", 
-                            display: "block",
-                            border: "1px solid var(--border-color)"
-                          }} 
-                        />
+                        <img key={imgIdx} className="underscores-collaboration-chat-attachment" src={img} alt="Context preview" />
                       ))}
-                    </div>
-                  ))}
+                  </div>
+                ))}
                 <div ref={messagesEndRef} />
               </div>
 
               {/* Chat Input Container */}
-              <div className="chat-input-container" style={{
-                padding: "10px",
-                borderTop: "1px solid var(--border-color)",
-                display: "flex",
-                flexDirection: "column",
-                gap: "8px",
-                background: "var(--color-surface-primary)",
-                position: "relative",
-                alignItems: "stretch"
-              }}>
+              <div className="underscores-collaboration-chat-composer ai-chat-composer">
                 {/* Autocomplete Suggestions Popover */}
                 {showAutocomplete && getFilteredTags().length > 0 && (
-                  <div 
-                    style={{
-                      position: "absolute",
-                      bottom: "100%",
-                      left: "10px",
-                      right: "10px",
-                      background: "var(--island-bg-color, #1e1e24)",
-                      border: "1px solid var(--border-color, #2d2d34)",
-                      borderRadius: "8px",
-                      boxShadow: "0 -10px 25px -5px rgba(0, 0, 0, 0.3), 0 -8px 10px -6px rgba(0, 0, 0, 0.3)",
-                      maxHeight: "180px",
-                      overflowY: "auto",
-                      zIndex: 2100,
-                      backdropFilter: "blur(8px)",
-                      marginBottom: "4px"
-                    }}
-                  >
+                  <div className="underscores-collaboration-chat-autocomplete" role="listbox" aria-label="Chat suggestions">
                     {getFilteredTags().map((tag, idx) => (
-                      <div
-                        key={tag.name}
-                        onClick={() => handleAutocompleteSelect(tag.name)}
-                        className={`autocomplete-item ${idx === autocompleteIndex ? "active" : ""}`}
-                        style={{
-                          padding: "6px 12px",
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          fontSize: "12px",
-                          color: "var(--color-primary)",
-                          cursor: "pointer",
-                          background: idx === autocompleteIndex ? "var(--button-hover-bg, rgba(255, 255, 255, 0.08))" : "transparent"
-                        }}
+                      <button
+                        key={`${tag.trigger}:${tag.name}`}
+                        type="button"
+                        role="option"
+                        aria-selected={idx === autocompleteIndex}
+                        className={idx === autocompleteIndex ? "is-active" : ""}
+                        onMouseDown={event => event.preventDefault()}
+                        onClick={() => handleAutocompleteSelect(tag)}
                       >
-                        <span style={{ fontWeight: "600", color: "var(--color-accent)" }}>{tag.name}</span>
-                        <span style={{ fontSize: "11px", color: "var(--color-secondary)", opacity: 0.8 }}>{tag.description}</span>
-                      </div>
+                        <span>{tag.name}</span>
+                        <small>{tag.description}</small>
+                      </button>
                     ))}
                   </div>
                 )}
@@ -28001,8 +28114,13 @@ function App() {
                   </div>
                 )}
 
+                <div className="underscores-collaboration-chat-composer-row">
                 <textarea
+                  ref={chatInputRef}
                   id="chat-message-input"
+                  className="underscores-collaboration-chat-input"
+                  rows={1}
+                  maxLength={12000}
                   value={userInput}
                   onChange={handleTextareaChange}
                   onMouseEnter={scheduleChatInputHint}
@@ -28024,6 +28142,7 @@ function App() {
                       } else if (e.key === "Escape") {
                         e.preventDefault();
                         setShowAutocomplete(false);
+                        setAutocompleteToken(null);
                       }
                     } else if (e.key === "Escape") {
                       if (showContextDropdown) {
@@ -28035,47 +28154,21 @@ function App() {
                       sendChatMessage();
                     }
                   }}
-                  placeholder=""
-                  style={{
-                    width: "100%",
-                    minHeight: "60px",
-                    maxHeight: "150px",
-                    resize: "none",
-                    fontSize: "13px",
-                    background: "transparent",
-                    border: "none",
-                    outline: "none",
-                    color: "var(--color-primary)",
-                    padding: 0
-                  }}
+                  placeholder="..."
+                  aria-label="Message assistant"
+                  title="Message assistant"
                 />
                 
-                <div style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  width: "100%"
-                }}>
                   {/* Plus / Add Context Button */}
-                  <div style={{ position: "relative" }}>
+                  <div className="underscores-collaboration-chat-context-picker">
                     <button
+                      className="underscores-collaboration-chat-context-button"
+                      type="button"
+                      aria-label="Add context"
+                      aria-expanded={showContextDropdown}
                       onClick={() => {
                         setShowContextDropdown(!showContextDropdown);
                         setContextMenuTab("main");
-                      }}
-                      style={{
-                        background: "transparent",
-                        border: "none",
-                        color: "var(--color-secondary)",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        width: "28px",
-                        height: "28px",
-                        borderRadius: "50%",
-                        transition: "background var(--transition-fast)",
-                        padding: 0
                       }}
                       title="Add context (@)"
                     >
@@ -28267,21 +28360,13 @@ function App() {
 
                   {/* Send Button */}
                   <button 
+                    type="button"
                     id="chat-send-btn" 
+                    className="underscores-collaboration-chat-send"
                     onClick={() => sendChatMessage()} 
                     disabled={isStreaming} 
-                    style={{ 
-                      width: "28px", 
-                      height: "28px", 
-                      borderRadius: "50%", 
-                      background: "var(--color-accent)", 
-                      color: "var(--color-btn-text)", 
-                      border: "none", 
-                      display: "flex", 
-                      alignItems: "center", 
-                      justifyContent: "center",
-                      cursor: "pointer"
-                    }}
+                    title="Send message"
+                    aria-label="Send message"
                   >
                     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
@@ -28337,15 +28422,12 @@ function App() {
           >
             <EventConsole
               eventBus={eventBus}
-              commandRegistry={commandRegistry}
-              transportTime={scoreTime}
               liveStatus={consoleDisplayStatus}
               showPerformanceMonitor={!presentationMode && showPerformanceOverlay && performanceOverlayPlacement === "console"}
               performanceMonitorVisible={!presentationMode && showPerformanceOverlay}
               onPerformancePlacementChange={updatePerformancePlacement}
               onPerformanceOpen={reopenPerformanceMonitor}
               onPerformanceClose={() => updatePerformanceVisibility(false)}
-              onCommandInput={runConsoleSlashCommand}
               globalStatus={sceneExchangeStatus}
             />
           </UnderscoresPanel>
@@ -29691,25 +29773,54 @@ function App() {
         <div className={`excalidraw theme--${theme}`}>
           <div id="command-palette-overlay" onClick={() => setShowCommandPalette(false)}>
             <div className="command-palette-card" onClick={(e) => e.stopPropagation()}>
-              <div className="command-palette-header">
+              <div className="command-palette-input-wrap">
+                <div className="command-palette-header">
                 <input
                   ref={paletteInputRef}
                   id="command-palette-input"
                   type="text"
                   value={commandSearch}
                   onChange={(e) => {
-                    setCommandSearch(e.target.value);
+                    const value = e.target.value;
+                    setCommandSearch(value);
                     setSelectedIndex(0);
+                    setPaletteAutocompleteToken(getChatAutocompleteToken(value, e.target.selectionStart));
+                    setPaletteAutocompleteIndex(0);
                   }}
-                  placeholder="Type a command (e.g. /ex tool rectangle) or ask AI..."
+                  placeholder="Type @context, /command, or ask AI..."
                   onKeyDown={(e) => {
                     const filtered = getFilteredCommands();
+                    const paletteTags = getFilteredPaletteTags();
+                    const exactPaletteTag = paletteTags.find(tag => tag.name.toLowerCase() === commandSearch.trim().toLowerCase());
+                    if (paletteTags.length > 0) {
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        setPaletteAutocompleteIndex(previous => (previous + 1) % paletteTags.length);
+                        return;
+                      }
+                      if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        setPaletteAutocompleteIndex(previous => (previous - 1 + paletteTags.length) % paletteTags.length);
+                        return;
+                      }
+                      if (e.key === "Tab" || (e.key === "Enter" && !exactPaletteTag)) {
+                        e.preventDefault();
+                        handlePaletteAutocompleteSelect(paletteTags[paletteAutocompleteIndex]);
+                        return;
+                      }
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        setPaletteAutocompleteToken(null);
+                        setPaletteAutocompleteIndex(0);
+                        return;
+                      }
+                    }
                     if (e.key === "ArrowDown") {
                       e.preventDefault();
-                      setSelectedIndex(prev => (prev + 1) % filtered.length);
+                      if (filtered.length) setSelectedIndex(prev => (prev + 1) % filtered.length);
                     } else if (e.key === "ArrowUp") {
                       e.preventDefault();
-                      setSelectedIndex(prev => (prev - 1 + filtered.length) % filtered.length);
+                      if (filtered.length) setSelectedIndex(prev => (prev - 1 + filtered.length) % filtered.length);
                     } else if (e.key === "Tab") {
                       const completion = getSlashCompletion(commandSearch, filtered);
                       if (completion) {
@@ -29733,6 +29844,25 @@ function App() {
                     }
                   }}
                 />
+                </div>
+                {getFilteredPaletteTags().length > 0 && (
+                  <div className="underscores-collaboration-chat-autocomplete command-palette-autocomplete" role="listbox" aria-label="Command palette suggestions">
+                    {getFilteredPaletteTags().map((tag, idx) => (
+                      <button
+                        key={`${tag.trigger}:${tag.name}`}
+                        type="button"
+                        role="option"
+                        aria-selected={idx === paletteAutocompleteIndex}
+                        className={idx === paletteAutocompleteIndex ? "is-active" : ""}
+                        onMouseDown={event => event.preventDefault()}
+                        onClick={() => handlePaletteAutocompleteSelect(tag)}
+                      >
+                        <span>{tag.name}</span>
+                        <small>{tag.description}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="command-palette-results">
                 {getFilteredCommands().map((cmd, idx) => (
