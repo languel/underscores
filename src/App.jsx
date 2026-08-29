@@ -48,6 +48,7 @@ import { groupSceneElements, moveSceneElementsToGroup, moveSceneElementsToGroupP
 import IannixDataPanel from "./IannixDataPanel.jsx";
 import { UnderscoresCommandRegistry, UnderscoresEventBus, UnderscoresInputBus, findExactCommand, parseGenericCommandSlash } from "./commandSystem.js";
 import { buildAIAutomationGuide, isAICommandAllowed, parseUnderscoresCommandTags } from "./aiTooling.js";
+import { registerUnderscoresWebMCP, UNDERSCORES_WEBMCP_TOOL_NAMES } from "./webmcp.js";
 import { renderChatMessage } from "./chatPresentation.js";
 import { autoKeyElement, AUTO_KEY_PATHS, collectAutomationKeys, evaluateElementAutomation, interpolationForPath, upsertAutomationKey } from "./automation.js";
 import { formatAIScriptSource, validateAIBrushSource, validateAIIannixSource } from "./scriptAuthoring.js";
@@ -5013,6 +5014,7 @@ function App() {
   const importSvgMarkupRef = useRef(null);
   const svgClipboardCacheRef = useRef(null);
   const scoreTimeRef = useRef(scoreTime);
+  const webMCPContextRef = useRef({});
   const pendingLivecodeActivationsRef = useRef(new Map());
   const prepareMediaClipCapture = useCallback(async ({ start = 0 } = {}) => {
     const wasPlaying = scorePlayingRef.current;
@@ -5625,6 +5627,23 @@ function App() {
       return null;
     }
   }, [timeContext]);
+
+  useEffect(() => {
+    // A WebMCP call is not necessarily a browser user gesture. Once an
+    // expressive synth has been requested, the performer's next click or key
+    // press completes the browser's audio-unlock handshake without requiring
+    // them to re-create or restart the score.
+    const resumeFromGesture = () => {
+      if (!expressiveSynthRef.current || expressiveSynthRef.current.getState?.() === "running") return;
+      void ensureExpressiveSynth();
+    };
+    window.addEventListener("pointerdown", resumeFromGesture, true);
+    window.addEventListener("keydown", resumeFromGesture, true);
+    return () => {
+      window.removeEventListener("pointerdown", resumeFromGesture, true);
+      window.removeEventListener("keydown", resumeFromGesture, true);
+    };
+  }, [ensureExpressiveSynth]);
 
   const resetExpressiveSynth = useCallback(async () => {
     panicMidi();
@@ -13670,13 +13689,25 @@ function App() {
     return changed;
   };
 
-  const loadPhysicsExample = kind => {
+  const loadPhysicsExample = (kind, options = {}) => {
     const api = excalidrawAPIRef.current;
     if (!api) return null;
     const appState = api.getAppState();
     const center = viewportCoordsToSceneCoords({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 }, appState);
-    const size = kind === "gas" ? [720, 460] : kind === "marionette" ? [260, 320] : [280, 320];
-    const example = createPhysicsExample(kind, { x: center.x - size[0] / 2, y: center.y - size[1] / 2 });
+    const size = kind === "gas"
+      ? [Number(options.width) || 720, Number(options.height) || 460]
+      : kind === "marionette"
+        ? [Number(options.width) || 260, Number(options.height) || 320]
+        : kind === "reich-pendulum"
+          ? [Number(options.width) || 820, Number(options.height) || 540]
+          : [Number(options.width) || 280, Number(options.height) || 320];
+    const example = createPhysicsExample(kind, {
+      ...options,
+      x: Number.isFinite(Number(options.x)) ? Number(options.x) : center.x - size[0] / 2,
+      y: Number.isFinite(Number(options.y)) ? Number(options.y) : center.y - size[1] / 2,
+      width: size[0],
+      height: size[1],
+    });
     const scene = api.getSceneElementsIncludingDeleted();
     const existingIds = new Set(scene.map(element => element.id));
     const idMap = new Map();
@@ -13698,18 +13729,39 @@ function App() {
           : body;
       }),
     });
-    setRelationshipGraph(previous => normalizeRelationshipGraph({
-      systems: [...previous.systems, ...remappedGraph.systems],
-      bodies: [...previous.bodies, ...remappedGraph.bodies],
-      populations: [...previous.populations, ...remappedGraph.populations],
-      constraints: [...previous.constraints, ...remappedGraph.constraints],
-      mappings: [...previous.mappings, ...remappedGraph.mappings],
-      routes: [...previous.routes, ...remappedGraph.routes],
-    }));
-    api.updateScene({ elements: [...scene, ...created], appState: { selectedElementIds: Object.fromEntries(created.map(element => [element.id, true])) }, commitToHistory: true });
+    const bodyByElementId = new Map(remappedGraph.bodies
+      .filter(body => body.objectRef?.kind === "element")
+      .map(body => [body.objectRef.elementId, body]));
+    const constraintByElementId = new Map(remappedGraph.constraints
+      .filter(constraint => constraint.objectRef?.kind === "element")
+      .map(constraint => [constraint.objectRef.elementId, constraint]));
+    const authoredCreated = created.map(element => {
+      const body = bodyByElementId.get(element.id);
+      const constraint = constraintByElementId.get(element.id);
+      if (!body && !constraint) return element;
+      return {
+        ...element,
+        customData: constraint
+          ? withPhysicsCustomData(element.customData, constraint)
+          : withPhysicsCustomData(element.customData, body),
+      };
+    });
+    const previousGraph = normalizeRelationshipGraph(relationshipGraphRef.current);
+    const nextGraph = normalizeRelationshipGraph({
+      systems: [...previousGraph.systems, ...remappedGraph.systems],
+      bodies: [...previousGraph.bodies, ...remappedGraph.bodies],
+      populations: [...previousGraph.populations, ...remappedGraph.populations],
+      constraints: [...previousGraph.constraints, ...remappedGraph.constraints],
+      mappings: [...previousGraph.mappings, ...remappedGraph.mappings],
+      routes: [...previousGraph.routes, ...remappedGraph.routes],
+    });
+    relationshipGraphRef.current = nextGraph;
+    physicsRuntimeRef.current.setGraph(nextGraph);
+    setRelationshipGraph(nextGraph);
+    api.updateScene({ elements: [...scene, ...authoredCreated], appState: { selectedElementIds: Object.fromEntries(authoredCreated.map(element => [element.id, true])) }, commitToHistory: true });
     setActivePhysicsSystemId(remappedGraph.systems[0]?.id || "");
     setSceneExchangeStatus(`Loaded ${example.name}. Open /physics and press Play.`);
-    return { elements: created, graph: remappedGraph };
+    return { ...example, elements: authoredCreated, graph: remappedGraph };
   };
 
   // --- COMMAND PALETTE LOGIC ---
@@ -13903,9 +13955,12 @@ function App() {
       ai: { expose: true, description: "Clear the board and its physics relationships without a popup." },
       action: api => {
         tombstoneSceneElements(api);
+        const emptyGraph = createEmptyRelationshipGraph();
         physicsRuntimeRef.current.pause();
+        physicsRuntimeRef.current.setGraph(emptyGraph);
+        relationshipGraphRef.current = emptyGraph;
         setPhysicsWorldPlaying(false);
-        setRelationshipGraph(createEmptyRelationshipGraph());
+        setRelationshipGraph(emptyGraph);
       },
     },
     {
@@ -14115,6 +14170,14 @@ function App() {
     { id: "physics.example.gas", name: "Physics Example: Musical Gas", aliases: ["/physics demo gas"], category: "Physics", action: () => loadPhysicsExample("gas") },
     { id: "physics.example.marionette", name: "Physics Example: Marionette", aliases: ["/physics demo marionette"], category: "Physics", action: () => loadPhysicsExample("marionette") },
     { id: "physics.example.portrait", name: "Physics Example: Stream Portrait", aliases: ["/physics demo portrait"], category: "Physics", action: () => loadPhysicsExample("portrait") },
+    { id: "demo.catalog", name: "AI: List Ready-made Demos", category: "AI Actions", ai: { expose: true, description: "List high-level composition and physics demos that are safe to stage through WebMCP or the embedded assistant.", example: {} }, action: () => ({
+      demos: [
+        { id: "reich-pendulum", commandId: "demo.reich.pendulum.create", title: "Steve Reich-inspired pendulum music", phase: "collision-to-expressive-voice", supports: ["four-pendulum", "internal-synth", "physics", "score-metadata"], futureVariants: ["raw-feedback", "double-pendulum"] },
+        { id: "physics-gas", commandId: "physics.example.gas", title: "Musical gas", phase: "collision-routes", supports: ["physics", "collision-audio"] },
+        { id: "physics-marionette", commandId: "physics.example.marionette", title: "Marionette", phase: "articulated-physics", supports: ["physics", "constraints"] },
+      ],
+    }) },
+    { id: "demo.reich.pendulum.create", name: "AI Demo: Create Reich Pendulum Music", aliases: ["/demo reich pendulum", "Steve Reich pendulum", "Pendulum music"], category: "AI Actions", args: { count: "number? (1-8)", width: "number?", height: "number?", length: "number?", tempo: "number?", duration: "number?", preset: "sine|subtractive|fm|bowed|reed?", running: "boolean?", audio: "boolean?" }, ai: { expose: true, description: "Create a native four-pendulum physics score with stable rod, bob, axle, speaker, and timeline ids. Bob contacts are mapped to built-in Expressive Synth voices; contact velocity, angular velocity, and position shape the sound. Defaults to four pendulums and starts physics when running is not false. This is an inspired scaffold, not a claim to reproduce the original recording.", example: { count: 4, preset: "bowed", running: true } }, action: (_api, args) => loadReichPendulumDemo(args) },
     { id: "physics.sculpt.smooth", name: "Physics Sculpt: Smooth", aliases: ["/sculpt smooth"], category: "Physics", action: () => sculptPhysicsSelection("smooth") },
     { id: "physics.sculpt.randomize", name: "Physics Sculpt: Randomize", aliases: ["/sculpt randomize"], category: "Physics", action: () => sculptPhysicsSelection("randomize") },
     { id: "physics.sculpt.morph", name: "Physics Sculpt: Morph", aliases: ["/sculpt morph"], category: "Physics", action: () => sculptPhysicsSelection("morph") },
@@ -14251,6 +14314,16 @@ function App() {
     { id: "iannix.export.bezier", name: "Export Selected Bézier Curves as Score /score export", aliases: ["/score export", "/iannix export"], category: "Score", action: () => exportSelectedBezierIannix() },
     { id: "scene.create", name: "Create Scene Objects", category: "Scene", args: { elements: "element[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.create", args) },
     { id: "scene.update", name: "Update Scene Objects", category: "Scene", args: { elements: "element[]" }, action: (_api, args) => runtimeCallbacksRef.current.sceneCommand("scene.update", args) },
+    { id: "scene.selection.set", name: "Select Scene Objects", category: "Scene", args: { elementIds: "string[]", additive: "boolean?" }, ai: { expose: true, description: "Select existing canvas objects by stable id so a following physics, score, or livecode command can operate on the objects an agent identified visually." }, action: (api, args = {}) => {
+      const availableIds = new Set((api?.getSceneElements?.() || []).filter(element => !element.isDeleted).map(element => element.id));
+      const requestedIds = Array.isArray(args.elementIds)
+        ? args.elementIds.filter(id => typeof id === "string" && availableIds.has(id)).slice(0, 100)
+        : [];
+      const current = args.additive === true ? (api?.getAppState?.().selectedElementIds || {}) : {};
+      const selectedElementIds = { ...current, ...Object.fromEntries(requestedIds.map(id => [id, true])) };
+      api?.updateScene?.({ appState: { selectedElementIds }, commitToHistory: false });
+      return { elementIds: Object.keys(selectedElementIds) };
+    } },
     { id: "scene.create.objects", name: "AI: Create Scene Objects", category: "AI Actions", args: { objects: "{id?,type,x,y,width?,height?,x2?,y2?,points?,strokeColor?,backgroundColor?,role?,label?}[]", select: "boolean?" }, ai: { expose: true, description: "Create rectangles, ellipses, diamonds, lines, or freedraw paths. Freedraw points are absolute [x,y] pairs. Give objects explicit ids when later commands need them.", example: { objects: [{ id: "curve-a", type: "line", x: 100, y: 120, x2: 420, y2: 220, strokeColor: "#00b8e8", role: "curve", label: "AI curve" }] } }, action: (_api, args) => createAIObjects(args) },
     { id: "scene.patch.objects", name: "AI: Patch Scene Objects", category: "AI Actions", args: { patches: "{id,patch:{x?,y?,width?,height?,angle?,strokeColor?,backgroundColor?,fillStyle?,strokeWidth?,strokeStyle?,roughness?,opacity?,locked?}}[]" }, ai: { expose: true, description: "Move or restyle existing objects using only the supplied shallow patch fields. Use ids from scene context or objects created earlier in this response.", example: { patches: [{ id: "curve-a", patch: { strokeColor: "#ff8a3d", strokeWidth: 4 } }] } }, action: (_api, args) => patchAIObjects(args) },
     { id: "automation.keyframes.set", name: "AI: Set Object Keyframes", category: "AI Actions", args: { keyframes: "{elementId,path,time|seconds,value,interpolation?}[]" }, ai: { expose: true, description: "Animate supported Excalidraw object properties by adding or replacing keyframes. Supported paths are x, y, angle, width, height, opacity, strokeWidth, strokeColor, backgroundColor, points, customData.modifiers, customData.score, customData.physics, and customData.underscoresGeometry. Time accepts time expressions.", example: { keyframes: [{ elementId: "curve-a", path: "x", time: "0 s", value: 100 }, { elementId: "curve-a", path: "x", time: "2 bars", value: 600 }] } }, action: (_api, args) => setAIAutomationKeyframes(args) },
@@ -16137,6 +16210,10 @@ function App() {
     const base = {
       ...createBaseElement(type, x, y, Math.max(1, width), Math.max(1, height), strokeColor),
       id,
+      ...(Number.isFinite(Number(spec.angle)) ? { angle: Number(spec.angle) } : {}),
+      ...(spec.customData && typeof spec.customData === "object" && !Array.isArray(spec.customData)
+        ? { customData: structuredClone(spec.customData) }
+        : {}),
       ...(typeof spec.backgroundColor === "string" ? { backgroundColor: spec.backgroundColor } : {}),
       ...(typeof spec.fillStyle === "string" ? { fillStyle: spec.fillStyle } : {}),
       ...(Number.isFinite(Number(spec.strokeWidth)) ? { strokeWidth: Math.max(1, Number(spec.strokeWidth)) } : {}),
@@ -19068,6 +19145,112 @@ function App() {
     return demo.elements.map(element => element.id);
   };
 
+  const loadReichPendulumDemo = async (args = {}) => {
+    if (!excalidrawAPIRef.current) throw new Error("The canvas is not ready.");
+    const api = excalidrawAPIRef.current;
+    const appState = api.getAppState();
+    const requestedWidth = Math.max(420, Math.min(1600, Number(args.width) || 820));
+    const requestedHeight = Math.max(380, Math.min(1000, Number(args.height) || 540));
+    const center = viewportCoordsToSceneCoords({
+      clientX: Math.max(200, (window.innerWidth - 320) / 2),
+      clientY: Math.max(180, (window.innerHeight - 120) / 2),
+    }, appState);
+    const loaded = loadPhysicsExample("reich-pendulum", {
+      ...args,
+      width: requestedWidth,
+      height: requestedHeight,
+      x: center.x - requestedWidth / 2,
+      y: center.y - requestedHeight / 2,
+      count: Number(args.count) || 4,
+      length: Number(args.length) || undefined,
+      duration: Number(args.duration) || 16,
+      tempo: Number(args.tempo) || 60,
+    });
+    if (!loaded) throw new Error("The canvas is not ready.");
+
+    const demoConfig = mergeExpressiveSynthConfig(expressiveSynthConfigRef.current, {
+      preset: args.preset || "bowed",
+      masterGain: Number.isFinite(Number(args.masterGain)) ? Number(args.masterGain) : 0.2,
+      voiceGain: Number.isFinite(Number(args.voiceGain)) ? Number(args.voiceGain) : 0.38,
+      referenceNote: 60,
+      referenceY: loaded.bounds.y + loaded.bounds.height / 2,
+      pixelsPerOctave: 180,
+      cursorVoices: false,
+      triggerVoices: false,
+      strokeWidthAmount: 0.25,
+      speedAmount: 0.18,
+    });
+    expressiveSynthConfigRef.current = demoConfig;
+    setExpressiveSynthConfig(demoConfig);
+    const voiceCount = loaded.voiceCount;
+    if (args.audio !== false) {
+      const demoMixer = normalizeMixer({
+        ...mixerRef.current,
+        tracks: mixerRef.current.tracks.map((track, index) => index < voiceCount ? {
+          ...track,
+          destination: MIXER_DESTINATION_INTERNAL,
+          instrument: MIXER_INSTRUMENT_EXPRESSIVE,
+          program: args.preset || "bowed",
+          midiChannel: index + 1,
+          enabled: true,
+          muted: false,
+        } : track),
+      });
+      mixerRef.current = demoMixer;
+      setMixer(demoMixer);
+    }
+
+    const shouldRun = args.running !== false;
+    let audioState = expressiveSynthRef.current?.getState?.() || "off";
+    if (shouldRun) {
+      // Pendulum Music is a durational study. Bind its deterministic world to
+      // a looping score transport so the first ten seconds of the default
+      // timeline cannot leave the study visibly stopped.
+      scoreTimeRef.current = 0;
+      setScoreTime(0);
+      setScoreTempo(loaded.tempo);
+      setTransportLoopStart(0);
+      setTransportLoopEnd(loaded.duration);
+      setTransportLoopEnabled(true);
+      synchronizePausedPhysicsBodies();
+      if (args.audio !== false) resumePhysicsAudio();
+      physicsRuntimeRef.current.play(loaded.graph.systems[0]?.id);
+      setScorePlaying(true);
+    }
+    // AudioContext construction is allowed to await a browser gesture.  It is
+    // deliberately non-blocking: a WebMCP call must never leave a newly
+    // authored performance visually inert just because audio is suspended.
+    if (args.audio !== false) {
+      audioState = audioState === "running" ? "running" : "starting";
+      void ensureExpressiveSynth().then(output => {
+        if (output?.getState?.() === "running") {
+          setMidiStatus(`Pendulum impacts drive ${loaded.voiceCount} internal Expressive Synth voices.`);
+        }
+      }).catch(error => {
+        console.warn("Pendulum demo audio could not start", error);
+      });
+    }
+    api.scrollToContent(loaded.elements, { fitToContent: true, animate: true });
+    setSceneExchangeStatus(`${shouldRun ? "Running" : "Created"} ${loaded.name} with ${loaded.voiceCount} pendulums and speakers.`);
+    setMidiStatus(audioState === "running"
+      ? `Pendulum impacts drive ${loaded.voiceCount} internal Expressive Synth voices.`
+      : "Pendulum demo is running; click the canvas once to enable internal audio.");
+    setModifierUpdateNonce(nonce => nonce + 1);
+    return {
+      id: loaded.id,
+      name: loaded.name,
+      systemId: loaded.graph.systems[0]?.id || null,
+      elementIds: loaded.elements.map(element => element.id),
+      pendulumCount: loaded.voiceCount,
+      speakerCount: loaded.voiceCount,
+      voiceCount: loaded.voiceCount,
+      running: shouldRun,
+      audioState,
+      mappingCount: loaded.graph.mappings.length,
+      futureVariants: loaded.demo.futureVariants,
+    };
+  };
+
   const connectIannixMidi = async () => {
     if (!navigator.requestMIDIAccess) {
       setMidiStatus("Web MIDI is unavailable in this browser");
@@ -20437,6 +20620,27 @@ function App() {
     }, 180);
   }, [accentColor, accentOpacity, autocompleteEnabled, commandRegistry, defaultStabilizerDamping, documentationTipMode, forceDesktopLayout, forceUnderscoresUiTheme, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceFont, interfaceFontSize, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, physicsToolbarDockedTop, physicsToolbarOpen, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
 
+  webMCPContextRef.current = {
+    transport: {
+      time: Number(scoreTimeRef.current) || 0,
+      playing: Boolean(scorePlaying),
+      rate: Number(scoreRate) || 1,
+      tempo: Number(scoreTempo) || 120,
+      timeSignature: scoreTimeSignature,
+      displayMode: transportDisplayMode,
+      fps: transportFps,
+      loop: {
+        enabled: Boolean(transportLoopEnabled),
+        start: Number(transportLoopStart) || 0,
+        end: Number(transportLoopEnd) || 0,
+      },
+      launchQuantization: {
+        enabled: Boolean(transportLaunchQuantization?.enabled),
+        interval: transportLaunchQuantization?.interval || null,
+      },
+    },
+  };
+
   useLayoutEffect(() => {
     const relations = createRelationshipApi({
       runtime: physicsRuntimeRef.current,
@@ -20451,8 +20655,9 @@ function App() {
       reset: resetPhysicsSystem,
       materialize: materializePhysicsPopulation,
     });
+    let webMCPRegistration = null;
     const api = {
-      apiVersion: 10,
+      apiVersion: 12,
       commands: {
         list: () => commandRegistry.list(),
         describe: id => commandRegistry.describe(id),
@@ -20491,6 +20696,15 @@ function App() {
       events: {
         subscribe: (pattern, listener) => eventBus.subscribe(pattern, listener),
       },
+      webmcp: Object.freeze({
+        tools: () => [...UNDERSCORES_WEBMCP_TOOL_NAMES],
+        getStatus: () => webMCPRegistration?.getStatus() || {
+          supported: typeof document.modelContext?.registerTool === "function",
+          active: false,
+          tools: [],
+          errors: [],
+        },
+      }),
       collaboration: Object.freeze({
         createRoom: () => collaborationController.createRoom(),
         joinRoom: link => collaborationController.joinRoom(link),
@@ -20594,8 +20808,17 @@ function App() {
     // __.api surface and the public window.__ surface share one contract.
     api.api = api;
     window.__ = api;
+    webMCPRegistration = registerUnderscoresWebMCP({
+      api,
+      getContext: () => webMCPContextRef.current,
+      documentRef: document,
+    });
+    webMCPRegistration.ready.then(status => {
+      if (status.errors.length) console.warn("Some Underscores WebMCP tools could not be registered", status.errors);
+    });
     window.dispatchEvent(new CustomEvent("underscores:ready", { detail: { apiVersion: api.apiVersion } }));
     return () => {
+      webMCPRegistration?.dispose();
       if (window.__ === api) delete window.__;
     };
   }, [collaborationController, commandRegistry, eventBus, historyController, historyIncludePresentation, historyLibrary, historyMidiArmed, inputBus, refreshHistoryMacros, timeContext]);

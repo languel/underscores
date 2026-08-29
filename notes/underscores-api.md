@@ -75,6 +75,7 @@ Excalidraw palette change without recompilation.
 | `macros` | `list()`, `saveRange(options)`, `insert(id, options)`, `remove(id)` |
 | `inputs` | `registerAdapter(adapter)`, `unregisterAdapter(id)`, `emit(sample)` |
 | `events` | `subscribe(pattern, listener)` |
+| `webmcp` | `tools()`, `getStatus()`; reports the progressive-enhancement Site tools adapter added in API version 12 |
 | `art.unicursal` | `presets()`, `generate(sourceRef, options)` |
 | `relations` | Graph `get()`, `set(graph)`, `add(collection, item)`, `update(collection, id, patch)`, `remove(collection, id)`; `mappings.list(systemId)`, `mappings.create(item)`, `mappings.update(id, patch)`, and `mappings.remove(id)`; endpoint, adapter, collision-stream, and relationship-event helpers |
 | `physics` | `world.get()` / `world.update(patch)`; system/body/population/constraint/mapping helpers; a legacy `routes` compatibility collection; `play`, `pause`, `reset`, `apply`, `materialize`, `impulse`, `grab`, `moveGrab`, `releaseGrab`, `poses`, `telemetry`, and `snapshot`. `world.pausedEditMode` defaults to `author` (paused canvas edits update the reset pose); set it to `preview` to preserve the reset pose. `world.livePose` enables constraint-solving authoring grabs; press `\\` outside a text field to toggle it. Plain Cmd remains available to Excalidraw alignment. `world.collisionLayers` owns the named layer stack and symmetric contact matrix. Authored body settings live at `object.customData.physics`, including `collider.kind` (`circle`, `ellipse`, `box`, `convex`, `polyline`, or compound `chain`) and optional `collisionLayers` membership. Constraint objects additionally persist `axle`, legacy-compatible `fixate`/Weld, `spring`, or `rope` configuration there. A rope is one authored path plus a `rope` constraint; its sampled Rapier links are runtime-only and exposed only through the rope's rendered geometry. The relationship graph supplies only stable relationship bindings. `customData.underscoresPhysics` remains a read-only legacy alias. |
@@ -118,6 +119,15 @@ if (portrait?.available) portrait.points.forEach(({ x, y, pressure }) => {
 
 const presetCatalog = __.api.art.unicursal.presets();
 ```
+
+API version 12 expands `__.webmcp` into a progressive-enhancement Site-tools bridge when
+`document.modelContext.registerTool` is available. In addition to semantic score inspection and
+direct object helpers, WebMCP can discover and invoke the existing assistant `ai.expose` command
+surface through bounded `get_underscores_command_catalog`, `execute_underscores_command`, and
+`execute_underscores_sequence` tools. This covers physics systems and runtime controls,
+livecode/p5/shader nodes, IanniX scores, keyframes, transport, SVG, arrangement, grid, history, and
+brush workflows without exposing the raw JavaScript API or arbitrary code execution. See
+[WebMCP Site tools](webmcp.md) for schemas, safety boundaries, confirmation rules, and testing.
 
 Persistent actor changes go through `media.binding.create`, `media.binding.update`,
 `media.binding.remove`, and `media.actors.arm`. API version 6 introduces the semantic stream service
