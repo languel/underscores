@@ -3,6 +3,7 @@ import { createScriptCanvasApi, resolveScriptParameterValues } from "./scriptRun
 import { parseScriptParameters } from "./scriptParameters.js";
 import { createScriptConsole } from "./scriptConsole.js";
 import { registerLivecodeCapture } from "./livecodeCapture.js";
+import { registerManimRuntime } from "./manimRuntimeRegistry.js";
 import {
   cacheManimFrameConfig,
   compileManimSource,
@@ -125,6 +126,9 @@ export default function ManimFrame({ element, config: rawConfig, scriptRuntimeRe
       },
     });
     cueRef.current = cueController;
+    const unregisterRuntime = registerManimRuntime(elementSnapshot.id, {
+      getPendingCue: () => cueController.pendingCue,
+    });
     setPendingCue(null);
 
     const report = (kind, message) => {
@@ -211,6 +215,7 @@ export default function ManimFrame({ element, config: rawConfig, scriptRuntimeRe
     return () => {
       disposed = true;
       generationRef.current += 1;
+      unregisterRuntime();
       unsubscribeBus();
       window.removeEventListener("underscores:manim-control", handleControl);
       cueController.dispose();
@@ -253,7 +258,7 @@ export default function ManimFrame({ element, config: rawConfig, scriptRuntimeRe
       onPointerDown={event => event.stopPropagation()}
       onClick={requestNextCue}
       style={{ position: "absolute", right: 8, bottom: 8, zIndex: 2 }}
-    >Next</button>}
+    >&gt;</button>}
     <span className="sr-only" role="status" aria-live="polite">{status}</span>
   </div>;
 }

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "katex/dist/katex.min.css";
-import { normalizeLivecodeNode } from "./livecodeNode.js";
+import { isLivecodeAutoUpdateEnabled, normalizeLivecodeNode, resolveLivecodeRuntimeNode } from "./livecodeNode.js";
 import { buildHtmlSandboxDocument, getMarkdownSourceBlocks, renderLatex, renderMarkdownWithMath, validateMarkdownSource } from "./livecodePresentation.js";
+import { resumeSvgDocument, sanitizeSvgForInertRender, seekSvgDocument } from "./svgRuntime.js";
 
 const runtimeSnapshot = (element, node, scriptRuntimeRef) => {
   const appearance = scriptRuntimeRef.current?.getAppearance?.() || {};
@@ -56,8 +57,9 @@ function HtmlPresentation({ element, node, scriptRuntimeRef }) {
   />;
 }
 
-function MarkdownPresentation({ node, editable = false, documentEditing = false, onActivate, onPatch, onCommit }) {
-  const blocks = useMemo(() => getMarkdownSourceBlocks(node.source), [node.source]);
+function MarkdownPresentation({ node, runtimeNode = node, editable = false, documentEditing = false, onActivate, onPatch, onCommit }) {
+  const displaySource = editable && documentEditing ? node.source : runtimeNode.source;
+  const blocks = useMemo(() => getMarkdownSourceBlocks(displaySource), [displaySource]);
   const [editingBlock, setEditingBlock] = useState(null);
   const [error, setError] = useState("");
   const committingRef = useRef(false);
@@ -105,7 +107,7 @@ function MarkdownPresentation({ node, editable = false, documentEditing = false,
     setError("");
   };
 
-  const commit = () => {
+  const commit = (explicitEvaluation = false) => {
     if (!editingBlock || committingRef.current) return;
     const validation = validateMarkdownSource(editingBlock.draft);
     if (!validation.valid) {
@@ -114,13 +116,20 @@ function MarkdownPresentation({ node, editable = false, documentEditing = false,
     }
     committingRef.current = true;
     const source = `${editingBlock.originalSource.slice(0, editingBlock.start)}${editingBlock.prefix || ""}${editingBlock.draft}${editingBlock.trailing}${editingBlock.originalSource.slice(editingBlock.end)}`;
-    if (source === editingBlock.originalSource) {
+    const shouldEvaluate = explicitEvaluation && !isLivecodeAutoUpdateEnabled(node);
+    if (source === editingBlock.originalSource && !(shouldEvaluate && runtimeNode.source !== source)) {
       setEditingBlock(null);
       setError("");
       return;
     }
     sourceRef.current = source;
-    onPatch?.({ source });
+    const runtimePatch = shouldEvaluate
+      ? {
+        evaluatedSource: source,
+        evaluationRevision: Math.max(0, Number(node.runtime.settings?.evaluationRevision) || 0) + 1,
+      }
+      : null;
+    onPatch?.({ source, ...(runtimePatch ? { runtime: { settings: runtimePatch } } : {}) });
     onCommit?.();
     setEditingBlock(null);
     setError("");
@@ -157,8 +166,8 @@ function MarkdownPresentation({ node, editable = false, documentEditing = false,
       beginEdit(Number(target.dataset.markdownBlock));
     }}
   >{(editingBlock?.append ? [...blocks, {
-    start: node.source.length,
-    end: node.source.length,
+    start: displaySource.length,
+    end: displaySource.length,
     source: "",
     type: "paragraph",
     depth: null,
@@ -188,7 +197,7 @@ function MarkdownPresentation({ node, editable = false, documentEditing = false,
       } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         event.stopPropagation();
-        commit();
+        commit(true);
       }
     }}
     aria-label="Edit Markdown block"
@@ -201,10 +210,35 @@ function MarkdownPresentation({ node, editable = false, documentEditing = false,
   />)}</article>;
 }
 
-export default function LivecodePresentation({ element, node: rawNode, scriptRuntimeRef, editable = false, documentEditing = false, onActivate, onPatch, onCommit }) {
+function SvgPresentation({ node, scriptRuntimeRef, transport }) {
+  const hostRef = useRef(null);
+  const source = useMemo(() => sanitizeSvgForInertRender(node.source), [node.source]);
+  const clock = node.runtime.transportMode;
+  const transportTime = Number(transport?.time);
+  const time = Number.isFinite(transportTime)
+    ? Math.max(0, transportTime)
+    : Number(scriptRuntimeRef.current?.getTime?.()) || 0;
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return undefined;
+    host.innerHTML = source;
+    return undefined;
+  }, [source]);
+  useEffect(() => {
+    if (clock === "free") resumeSvgDocument(hostRef.current);
+  }, [clock, source]);
+  useEffect(() => {
+    if (clock !== "free") seekSvgDocument(hostRef.current, time);
+  }, [clock, source, time]);
+  return <div ref={hostRef} className="livecode-svg" aria-label="Livecode SVG output" />;
+}
+
+export default function LivecodePresentation({ element, node: rawNode, scriptRuntimeRef, transport, editable = false, documentEditing = false, onActivate, onPatch, onCommit }) {
   const node = normalizeLivecodeNode(rawNode);
-  if (node.kind === "markdown") return <MarkdownPresentation node={node} editable={editable} documentEditing={documentEditing} onActivate={onActivate} onPatch={onPatch} onCommit={onCommit} />;
-  if (node.kind === "latex") return <div className="livecode-latex" dangerouslySetInnerHTML={{ __html: renderLatex(node.source) }} />;
-  if (node.kind === "html") return <HtmlPresentation element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} />;
+  const runtimeNode = resolveLivecodeRuntimeNode(node);
+  if (node.kind === "markdown") return <MarkdownPresentation node={node} runtimeNode={runtimeNode} editable={editable} documentEditing={documentEditing} onActivate={onActivate} onPatch={onPatch} onCommit={onCommit} />;
+  if (node.kind === "latex") return <div className="livecode-latex" dangerouslySetInnerHTML={{ __html: renderLatex(runtimeNode.source) }} />;
+  if (node.kind === "html") return <HtmlPresentation element={element} node={runtimeNode} scriptRuntimeRef={scriptRuntimeRef} />;
+  if (node.kind === "svg") return <SvgPresentation node={runtimeNode} scriptRuntimeRef={scriptRuntimeRef} transport={transport} />;
   return null;
 }

@@ -51,14 +51,17 @@ const OrcaStatusIcon = ({ type }) => {
 export default function OrcaNode({
   nodeId,
   source,
+  runtimeSource = source,
   revision = 0,
   running = false,
   transportMode = "linked",
   transport,
   settings = {},
+  autoUpdate = true,
   onPatch,
   onMidiEvents,
   onToggleRun,
+  onUpdate,
   onBlur,
   focusRequest = 0,
   ariaLabel = "Orca grid",
@@ -66,13 +69,14 @@ export default function OrcaNode({
   const manager = useMemo(() => getOrcaRuntimeManager(), []);
   const gridSize = useMemo(() => normalizeOrcaGridSize({ width: settings.orcaGridWidth, height: settings.orcaGridHeight }), [settings.orcaGridHeight, settings.orcaGridWidth]);
   const [runtime, setRuntime] = useState(() => ({
-    source: serializeOrcaGrid(parseOrcaGrid(source, gridSize)),
+    source: serializeOrcaGrid(parseOrcaGrid(runtimeSource, gridSize)),
     frame: 0,
     width: gridSize.width,
     height: gridSize.height,
   }));
   const [selection, setSelection] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const [dragFrom, setDragFrom] = useState(null);
+  const [draftSource, setDraftSource] = useState(source);
   const rootRef = useRef(null);
   const gridRef = useRef(null);
   const [gridBounds, setGridBounds] = useState({ width: 0, height: 0 });
@@ -93,8 +97,11 @@ export default function OrcaNode({
   }), [transport?.bpm, transport?.playing]);
 
   useEffect(() => {
-    manager.upsert({ nodeId, source, revision, running, transportMode, transport: transportSnapshot, loopFrames: settings.orcaLoopFrames, gridWidth: gridSize.width, gridHeight: gridSize.height, onMidiEvents: onMidiEventsProxy });
-  }, [gridSize.height, gridSize.width, manager, nodeId, onMidiEventsProxy, revision, running, settings.orcaLoopFrames, source, transportMode, transportSnapshot]);
+    manager.upsert({ nodeId, source: runtimeSource, revision, running, transportMode, transport: transportSnapshot, loopFrames: settings.orcaLoopFrames, gridWidth: gridSize.width, gridHeight: gridSize.height, onMidiEvents: onMidiEventsProxy });
+  }, [gridSize.height, gridSize.width, manager, nodeId, onMidiEventsProxy, revision, running, runtimeSource, settings.orcaLoopFrames, transportMode, transportSnapshot]);
+  useEffect(() => {
+    setDraftSource(source);
+  }, [source]);
   useEffect(() => manager.subscribe(nodeId, next => {
     setRuntime(next);
     setSelection(current => normalizeOrcaSelection(current, parseOrcaGrid(next.source, { width: next.width, height: next.height })));
@@ -115,7 +122,8 @@ export default function OrcaNode({
     return () => observer.disconnect();
   }, []);
 
-  const grid = useMemo(() => parseOrcaGrid(runtime.source, { width: runtime.width, height: runtime.height }), [runtime.height, runtime.source, runtime.width]);
+  const displaySource = autoUpdate ? runtime.source : draftSource;
+  const grid = useMemo(() => parseOrcaGrid(displaySource, { width: runtime.width, height: runtime.height }), [displaySource, runtime.height, runtime.width]);
   const normalizedSelection = useMemo(() => normalizeOrcaSelection(selection, grid), [selection, grid]);
   const shouldTick = running && (transportMode === "free" || transport?.playing);
   const density = settings.orcaDensity === "spacious" ? "spacious" : "compact";
@@ -140,7 +148,8 @@ export default function OrcaNode({
 
   const commitSource = nextSource => {
     const normalized = serializeOrcaGrid(parseOrcaGrid(nextSource, { width: grid.width, height: grid.height }));
-    manager.patchSource(nodeId, normalized);
+    setDraftSource(normalized);
+    if (autoUpdate) manager.patchSource(nodeId, normalized);
     onPatch?.({ source: normalized });
   };
 
@@ -148,7 +157,7 @@ export default function OrcaNode({
 
   const writeGlyph = glyph => {
     const value = cleanGlyph(glyph);
-    const nextSource = patchOrcaSelection(runtime.source, normalizedSelection, value, { width: grid.width, height: grid.height });
+    const nextSource = patchOrcaSelection(displaySource, normalizedSelection, value, { width: grid.width, height: grid.height });
     commitSource(nextSource);
     if (normalizedSelection.width === 0 && normalizedSelection.height === 0 && value !== ".") {
       setSelection(current => moveSelection(current, grid, 1, 0, false));
@@ -178,7 +187,7 @@ export default function OrcaNode({
       void navigator.clipboard?.readText?.().then(text => {
         if (!text) return;
         const lines = text.replace(/\r/g, "").split("\n");
-        let nextSource = runtime.source;
+        let nextSource = displaySource;
         lines.forEach((line, row) => Array.from(line).forEach((glyph, column) => {
           nextSource = patchOrcaCell(nextSource, normalizedSelection.x + column, normalizedSelection.y + row, glyph, { width: grid.width, height: grid.height });
         }));
@@ -200,6 +209,12 @@ export default function OrcaNode({
     if (key === "Escape") {
       event.preventDefault();
       rootRef.current?.blur();
+      return;
+    }
+    if (key === "Enter" && command) {
+      event.preventDefault();
+      if (typeof onUpdate === "function") onUpdate();
+      else tick();
       return;
     }
     if ((key === "Enter" || key === " ") && (command || event.altKey)) {

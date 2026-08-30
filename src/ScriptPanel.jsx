@@ -1,6 +1,6 @@
 import React from "react";
 import { infoProps } from "./uiInfo.js";
-import { SCRIPT_TYPES } from "./scriptTypes.js";
+import { SCRIPT_TYPES, SCRIPT_TYPE_ORDER } from "./scriptTypes.js";
 
 export default function ScriptPanel({ type, onTypeChange, editorFontSize, children }) {
   const definition = SCRIPT_TYPES[type] || SCRIPT_TYPES.brush;
@@ -26,7 +26,7 @@ export default function ScriptPanel({ type, onTypeChange, editorFontSize, childr
             <span className="script-panel-type-caret" aria-hidden="true">▼</span>
           </summary>
           <div className="script-panel-type-options" role="listbox" aria-label="Script type">
-            {Object.values(SCRIPT_TYPES).map(candidate => (
+            {SCRIPT_TYPE_ORDER.map(typeId => SCRIPT_TYPES[typeId]).filter(Boolean).map(candidate => (
               <button
                 key={candidate.id}
                 type="button"

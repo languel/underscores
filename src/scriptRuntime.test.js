@@ -171,3 +171,28 @@ test("keeps color parameter references live after the Excalidraw palette changes
   currentColor = "#e8590c";
   assert.equal(params.tint, "#e8590c");
 });
+
+test("can resolve live color parameters from a frame-scoped appearance snapshot", () => {
+  let runtimeReads = 0;
+  let frameColor = "#12b886";
+  const runtimeRef = {
+    current: {
+      getAppearance: () => {
+        runtimeReads += 1;
+        return { currentColor: "#fa5252", colors: {} };
+      },
+    },
+  };
+  const params = resolveScriptParameterValues([{
+    name: "tint",
+    type: "color",
+    default: "__.currentColor",
+    value: "__.currentColor",
+  }], runtimeRef, undefined, {
+    getAppearance: () => ({ currentColor: frameColor, colors: {} }),
+  });
+  assert.equal(params.tint, "#12b886");
+  frameColor = "#228be6";
+  assert.equal(params.tint, "#228be6");
+  assert.equal(runtimeReads, 0);
+});

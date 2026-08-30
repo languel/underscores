@@ -1,5 +1,6 @@
 import { HELLO_GLSL_FRAGMENT_SOURCE } from "./shaderLivecode.js";
 import { createEmptyOrcaSource } from "./orcaEngine.js";
+import { TIXY_DEFAULT_SOURCE } from "./tixyRuntime.js";
 
 // Canonical, scene-persisted representation for a Livecode Node.  The
 // Excalidraw rectangle that carries this data is intentionally transparent:
@@ -18,7 +19,26 @@ export const LIVECODE_KINDS = Object.freeze({
   html: "html",
   orca: "orca",
   shader: "shader",
+  tixy: "tixy",
+  svg: "svg",
 });
+
+// Keep the author-facing kind selector focused on the most common visual
+// coding surfaces first. The registry remains keyed by kind so persisted
+// nodes and command payloads are unaffected by presentation order.
+export const LIVECODE_KIND_ORDER = Object.freeze([
+  LIVECODE_KINDS.p5,
+  LIVECODE_KINDS.markdown,
+  LIVECODE_KINDS.shader,
+  LIVECODE_KINDS.tixy,
+  LIVECODE_KINDS.html,
+  LIVECODE_KINDS.strudel,
+  LIVECODE_KINDS.manim,
+  LIVECODE_KINDS.playcore,
+  LIVECODE_KINDS.latex,
+  LIVECODE_KINDS.orca,
+  LIVECODE_KINDS.svg,
+]);
 
 export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
   [LIVECODE_KINDS.strudel]: Object.freeze({
@@ -84,6 +104,20 @@ export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
     defaultSource: HELLO_GLSL_FRAGMENT_SOURCE,
     summary: "Editable GLSL ES 3.00 fragment shader rendered into the node with WebGL 2.",
   }),
+  [LIVECODE_KINDS.tixy]: Object.freeze({
+    label: "Tixy",
+    editorProfile: "tixy",
+    defaultName: "Untitled Tixy",
+    defaultSource: TIXY_DEFAULT_SOURCE,
+    summary: "Tiny configurable `(t, i, x, y) => value` creative coding grid synchronized to the shared transport (16×16 by default).",
+  }),
+  [LIVECODE_KINDS.svg]: Object.freeze({
+    label: "SVG",
+    editorProfile: "svg",
+    defaultName: "Untitled SVG",
+    defaultSource: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180">\n  <path d="M20 90 C80 20 140 160 300 90" fill="none" stroke="currentColor" stroke-width="3"/>\n</svg>`,
+    summary: "Source-preserving SVG document rendered locally with transport-aware SMIL and Web Animations playback.",
+  }),
 });
 
 export const LIVE_CODE_FONT_OPTIONS = Object.freeze([
@@ -110,7 +144,18 @@ export const DEFAULT_LIVECODE_TYPOGRAPHY = Object.freeze({
   glyphOnlyOverlay: true,
 });
 
+// Visual/document nodes are immediately useful as live surfaces, so a fresh
+// node starts running on its own clock. Audio-pattern nodes remain the
+// deliberate exception: they need an explicit evaluation boundary and follow
+// the score clock by default.
 export const DEFAULT_LIVECODE_RUNTIME = Object.freeze({
+  running: true,
+  enabled: true,
+  transportMode: "free",
+  settings: {},
+});
+
+export const DEFAULT_STRUDEL_RUNTIME = Object.freeze({
   running: false,
   enabled: true,
   transportMode: "linked",
@@ -239,6 +284,47 @@ export const normalizeLivecodeRuntime = value => {
   };
 };
 
+export const defaultLivecodeRuntimeForKind = kind => (
+  normalizeLivecodeKind(kind) === LIVECODE_KINDS.strudel
+    ? DEFAULT_STRUDEL_RUNTIME
+    : DEFAULT_LIVECODE_RUNTIME
+);
+
+// Strudel has historically treated Cmd/Ctrl+Enter as an explicit evaluation
+// boundary, while the visual runtimes compile source as it changes. Keep that
+// distinction as a small per-node setting without rewriting older scene data:
+// an omitted value preserves the established default for each kind, and an
+// explicit value is persisted when the author toggles it.
+export const isLivecodeAutoUpdateEnabled = rawNode => {
+  const kind = normalizeLivecodeKind(rawNode?.kind);
+  const setting = rawNode?.runtime?.settings?.autoUpdate;
+  if (typeof setting === "boolean") return setting;
+  return kind !== LIVECODE_KINDS.strudel;
+};
+
+export const resolveLivecodeRuntimeSource = rawNode => {
+  const source = typeof rawNode?.source === "string" ? rawNode.source : "";
+  if (isLivecodeAutoUpdateEnabled(rawNode)) return source;
+  return typeof rawNode?.runtime?.settings?.evaluatedSource === "string"
+    ? rawNode.runtime.settings.evaluatedSource
+    : source;
+};
+
+// Runtime adapters receive a source snapshot, while the authored node keeps
+// the latest draft for the editor. Manual-update nodes also use the evaluation
+// revision as their runtime revision so draft edits do not tear down a live
+// renderer before Cmd/Ctrl+Enter commits them.
+export const resolveLivecodeRuntimeNode = rawNode => {
+  const node = normalizeLivecodeNode(rawNode);
+  const autoUpdate = isLivecodeAutoUpdateEnabled(node);
+  const evaluationRevision = Math.max(0, Number(node.runtime.settings?.evaluationRevision) || 0);
+  return {
+    ...node,
+    source: resolveLivecodeRuntimeSource(node),
+    revision: autoUpdate ? node.revision : evaluationRevision,
+  };
+};
+
 export const createLivecodeNode = value => {
   const raw = value && typeof value === "object" ? value : {};
   const kind = normalizeLivecodeKind(raw.kind);
@@ -250,10 +336,23 @@ export const createLivecodeNode = value => {
   const nodeId = typeof raw.nodeId === "string" && raw.nodeId.trim() ? raw.nodeId : `livecode-${createLivecodeId()}`;
   const blankName = randomLivecodeName(kind, nodeId);
   const source = typeof raw.source === "string" ? raw.source : "";
-  const normalizedRuntime = normalizeLivecodeRuntime(raw.runtime);
+  const runtimeInput = raw.runtime && typeof raw.runtime === "object" && !Array.isArray(raw.runtime)
+    ? raw.runtime
+    : {};
+  const defaults = defaultLivecodeRuntimeForKind(kind);
+  const normalizedRuntime = normalizeLivecodeRuntime({
+    ...runtimeInput,
+    // Only valid, explicitly-authored values override the kind default. This
+    // also keeps callers that build a partial runtime object from accidentally
+    // opting a new visual node out with `running: undefined`.
+    running: typeof runtimeInput.running === "boolean" ? runtimeInput.running : defaults.running,
+    transportMode: runtimeInput.transportMode === "free" || runtimeInput.transportMode === "linked"
+      ? runtimeInput.transportMode
+      : defaults.transportMode,
+  });
   if (
-    kind === LIVECODE_KINDS.strudel
-    && normalizedRuntime.running
+    normalizedRuntime.running
+    && !isLivecodeAutoUpdateEnabled({ kind, runtime: normalizedRuntime })
     && typeof normalizedRuntime.settings.evaluatedSource !== "string"
   ) {
     normalizedRuntime.settings = {
@@ -300,6 +399,9 @@ export const getLivecodeEditorProfile = node => getLivecodeKindDefinition(node?.
 export const patchLivecodeNode = (value, patch = {}) => {
   const previous = normalizeLivecodeNode(value);
   const kind = normalizeLivecodeKind(patch.kind ?? previous.kind);
+  const settingPatch = patch.runtime?.settings && typeof patch.runtime.settings === "object"
+    ? patch.runtime.settings
+    : null;
   const runtime = patch.runtime ? {
     ...previous.runtime,
     ...patch.runtime,
@@ -307,6 +409,22 @@ export const patchLivecodeNode = (value, patch = {}) => {
       ? { ...previous.runtime.settings, ...patch.runtime.settings }
       : previous.runtime.settings,
   } : previous.runtime;
+  // When leaving auto-update, freeze the currently-rendered source as the
+  // explicit evaluation snapshot. This prevents a draft that was typed just
+  // before the toggle from unexpectedly replacing the running surface.
+  if (
+    settingPatch
+    && Object.hasOwn(settingPatch, "autoUpdate")
+    && isLivecodeAutoUpdateEnabled(previous)
+    && settingPatch.autoUpdate === false
+    && !Object.hasOwn(settingPatch, "evaluatedSource")
+  ) {
+    runtime.settings = {
+      ...runtime.settings,
+      evaluatedSource: previous.source,
+      evaluationRevision: Math.max(0, Number(previous.runtime.settings?.evaluationRevision) || 0) + 1,
+    };
+  }
   return normalizeLivecodeNode({
     ...previous,
     ...patch,

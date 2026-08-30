@@ -316,16 +316,41 @@ class FakeProvider {
   constructor() {
     this.listeners = new Set();
     this.sent = [];
+    this.disconnects = 0;
     this.capabilities = { persistence: false, binaryTransfer: true };
   }
   subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   async connect() { this.emit({ type: "status", status: "connected", error: "" }); }
-  async disconnect() {}
+  async disconnect() { this.disconnects += 1; }
   async sendReliable(data, peerId) { this.sent.push({ channel: "reliable", data, peerId }); }
   async sendEphemeral(data, peerId) { this.sent.push({ channel: "ephemeral", data, peerId }); }
   async sendBinary(data, metadata, peerId) { this.sent.push({ channel: "binary", data, metadata, peerId }); }
   emit(event) { this.listeners.forEach(listener => listener(event)); }
 }
+
+test("a failed provider connection is torn down and cannot publish scene churn", async () => {
+  const provider = new FakeProvider();
+  provider.connect = async () => { throw new Error("WebRTC capacity exhausted"); };
+  const controller = new CollaborationController({
+    getCallbacks: () => ({
+      getDocument: () => scene({ elements: [element("local")] }),
+      getAppState: () => ({}),
+      getFiles: () => ({}),
+      getPresence: () => ({ selectedElementIds: {} }),
+      applyCollaborators: () => {},
+    }),
+    providerFactory: () => provider,
+    cache: new CollaborationRoomCache(null),
+    location: { href: "https://example.test/board" },
+    history: { replaceState: () => {} },
+  });
+
+  await assert.rejects(() => controller.createRoom(), /WebRTC capacity exhausted/);
+  assert.equal(provider.disconnects, 1);
+  assert.equal(controller.getStatus().status, "error");
+  assert.equal(controller.publishDocument(scene({ elements: [element("local", 2, 2)] }), { immediate: true }), false);
+  assert.equal(provider.sent.length, 0);
+});
 
 class LinkedProvider extends FakeProvider {
   constructor(id) {
@@ -442,8 +467,13 @@ test("room chat uses the reliable channel, syncs recent history, and clears on l
   assert.equal(sentChat.message.attachments[0].dataUrl, "data:image/png;base64,AA==");
 
   provider.emit({ type: "peer-join", peerId: "late-peer" });
-  await new Promise(resolve => setTimeout(resolve, 0));
-  const helloEnvelope = provider.sent.findLast(item => item.peerId === "late-peer" && item.channel === "reliable");
+  const helloDeadline = Date.now() + 1_000;
+  let helloEnvelope = null;
+  while (!helloEnvelope && Date.now() < helloDeadline) {
+    await new Promise(resolve => setTimeout(resolve, 5));
+    helloEnvelope = provider.sent.findLast(item => item.peerId === "late-peer" && item.channel === "reliable");
+  }
+  assert.ok(helloEnvelope, "a late peer should receive the room hello after its digest is prepared");
   const hello = await decryptJson(helloEnvelope.data, credentials.secret);
   assert.equal(hello.kind, "hello");
   assert.equal(hello.messages.at(-1).text, "hello room");

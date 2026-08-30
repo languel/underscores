@@ -347,7 +347,24 @@ export class CollaborationController {
 
     this.provider = this.providerFactory();
     this.providerUnsubscribe = this.provider.subscribe(event => void this.handleProviderEvent(event));
-    await this.provider.connect({ roomId, secret, identity: this.identity });
+    try {
+      await this.provider.connect({ roomId, secret, identity: this.identity });
+    } catch (error) {
+      // A provider may allocate a room and several WebRTC transports before
+      // its connection promise rejects. Tear that partial room down now so a
+      // retry or a hot reload cannot retain its peer connections and timers.
+      this.providerUnsubscribe?.();
+      this.providerUnsubscribe = null;
+      await this.provider?.disconnect?.();
+      this.provider = null;
+      this.updateState({
+        status: "error",
+        error: this.redactError(error?.message || error),
+        peerCount: 0,
+        peers: [],
+      });
+      throw error;
+    }
     this.replaceUrl(this.roomUrl);
     globalThis.document?.addEventListener?.("visibilitychange", this.onVisibilityChange);
     globalThis.addEventListener?.("pagehide", this.onPageHide);
@@ -373,7 +390,7 @@ export class CollaborationController {
     return this.roomUrl;
   }
 
-  async leaveRoom({ keepUrl = false, resumeSolo = true } = {}) {
+  async leaveRoom({ keepUrl = false, resumeSolo = true, checkpoint = true } = {}) {
     globalThis.clearTimeout(this.updateTimer);
     globalThis.clearTimeout(this.presenceTimer);
     globalThis.clearTimeout(this.gestureCheckpointTimer);
@@ -386,7 +403,7 @@ export class CollaborationController {
     this.peerRefreshTimer = null;
     globalThis.document?.removeEventListener?.("visibilitychange", this.onVisibilityChange);
     globalThis.removeEventListener?.("pagehide", this.onPageHide);
-    if (this.state.active) await this.checkpoint({ broadcast: false });
+    if (checkpoint && this.state.active) await this.checkpoint({ broadcast: false });
     this.providerUnsubscribe?.();
     this.providerUnsubscribe = null;
     await this.provider?.disconnect?.();
@@ -421,13 +438,15 @@ export class CollaborationController {
   }
 
   async sendReliable(message, peerId) {
-    if (!this.provider || !this.secret) return;
+    if (!this.provider || !this.secret || !["connected", "degraded"].includes(this.state.status)) return false;
     await this.provider.sendReliable(await this.encryptMessage(message), peerId);
+    return true;
   }
 
   async sendEphemeral(message, peerId) {
-    if (!this.provider || !this.secret) return;
+    if (!this.provider || !this.secret || !["connected", "degraded"].includes(this.state.status)) return false;
     await this.provider.sendEphemeral(await this.encryptMessage(message), peerId);
+    return true;
   }
 
   async handleProviderEvent(event) {
@@ -637,7 +656,7 @@ export class CollaborationController {
   }
 
   publishDocument(source, { immediate = false, allowActiveGesture = false } = {}) {
-    if (!this.state.active || !this.state.initialized || !source) return false;
+    if (!this.state.active || !this.state.initialized || !["connected", "degraded"].includes(this.state.status) || !source) return false;
     // Applying a remote snapshot updates Excalidraw synchronously but React's
     // authored-state setters commit on the following render. Ignore that
     // short settling window so the importing tab cannot publish its old solo

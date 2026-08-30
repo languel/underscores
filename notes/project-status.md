@@ -1,6 +1,15 @@
 # Project status
 
-Last updated: 2026-08-17
+Last updated: 2026-08-30
+
+## Known undo/redo limitation (2026-08-30)
+
+Undo and redo are not yet universal across Underscores. Native element edits and focused operations
+often behave correctly, but some object creation/deletion and compound element-plus-app-state edits
+do not restore the complete authored result. The current split between Excalidraw history,
+top-level `underscores` state, collaboration tombstones, and the separate recordable History system
+is the leading architectural boundary. See [Recordable Sessions and Automation](history-automation.md#known-undoredo-boundary)
+for the current contract and transaction-convergence target.
 
 ## Anonymous multiplayer checkpoint (2026-08-25)
 

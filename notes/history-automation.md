@@ -1,10 +1,32 @@
 # Recordable Sessions and Automation
 
-Last updated: 2026-08-19
+Last updated: 2026-08-30
 
 Underscores records semantic intent and world-coordinate input rather than screen pixels. The first implementation is deliberately separate from Excalidraw undo, but both observe the same scene and command transactions so they can converge later.
 
 History is also deliberately separate from [Arrangement clips](arrangement-clips.md). Arrangement schedules object lifecycles on the score timeline; History remains the complete-app audit, automation, and replay system. Arrangement commands may appear in an active History audit like other commands, but this project does not change History's action schema, Actions table, controls, playback model, or project-duration authority.
+
+## Known undo/redo boundary
+
+Underscores does not yet have one universal, functioning undo/redo transaction model. Native
+Excalidraw edits often undo correctly, and several focused Underscores operations explicitly commit
+one scene-history transaction, but creation/deletion and compound edits can still fail to restore the
+complete authored result. This is an architectural limitation, not a guarantee callers should infer
+from an individual `commitToHistory: true` flag.
+
+The likely boundary is the split representation of authored state: Excalidraw owns the element
+array and its native history, while top-level `underscores` state, React-owned configuration,
+collaboration tombstones/reconciliation, and the separate recordable History system can change in
+parallel. An element undo does not automatically reverse a paired top-level mutation, and a delete
+that is not represented consistently as a history entry and a collaboration tombstone can be
+missed or later reintroduced. Until those writes share a transaction envelope, every feature that
+claims undoability must be tested through visible create, mutate, delete, undo, and redo results—not
+only through scene JSON or a successful command return value.
+
+The convergence target is one authored transaction containing the element diff, top-level
+Underscores-state diff, durable deletion/tombstone intent, command provenance, and collaboration
+publication boundary. Runtime-only state such as camera, selection, playback pose, pointer presence,
+and live renderer frames remains outside that transaction unless an operation explicitly authors it.
 
 ## Runtime layers
 

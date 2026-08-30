@@ -78,13 +78,13 @@ export const getElementsExportBounds = elements => {
 // path.
 export const isLivecodeP5Element = element => element?.customData?.underscoresLivecode?.kind === "p5";
 
-// Shader and Strudel nodes render into DOM canvases over their Excalidraw
+// Shader, Strudel, and Tixy nodes render into DOM canvases over their Excalidraw
 // hosts. They are captured through the opt-in livecode registry below. P5 is
 // intentionally excluded here because its existing export path handles the
 // instance canvas and its theme behaviour separately.
 export const isLivecodeCanvasElement = element => {
   const kind = element?.customData?.underscoresLivecode?.kind;
-  return kind === "shader" || kind === "strudel";
+  return kind === "shader" || kind === "strudel" || kind === "tixy";
 };
 
 export const shouldRenderLivecodeP5 = element => Boolean(

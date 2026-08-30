@@ -2,17 +2,19 @@ import { LIVECODE_KINDS, normalizeLivecodeKind } from "./livecodeNode.js";
 
 export const getLivecodeBridgeHelp = kind => {
   const normalizedKind = normalizeLivecodeKind(kind);
-  const trusted = [LIVECODE_KINDS.p5, LIVECODE_KINDS.manim, LIVECODE_KINDS.playcore, LIVECODE_KINDS.strudel].includes(normalizedKind);
+  const trusted = [LIVECODE_KINDS.p5, LIVECODE_KINDS.manim, LIVECODE_KINDS.playcore, LIVECODE_KINDS.strudel, LIVECODE_KINDS.tixy].includes(normalizedKind);
   const details = {
     [LIVECODE_KINDS.p5]: "p5 receives __ as its live frame bridge. Use __.element for the host size, __.params for @param values, and __.canvas / __.events / __.transport for scene queries, events, and score time.",
     [LIVECODE_KINDS.manim]: "Manim receives __ beside scene and cue(). Use __.params for authored controls, __.canvas / __.events for score context, __.transport for linked timing, and __.currentColor / __.colors for canvas-aware styling.",
     [LIVECODE_KINDS.playcore]: "Play Core receives __ as the final program argument. Use __.element, __.params, __.canvas, __.events, __.transport, and __.api from lifecycle hooks and main().",
     [LIVECODE_KINDS.strudel]: "Strudel evaluates with __ in scope. The most useful live values are __.transport, __.canvas, __.events, __.params, and __.strudel for node-local transport controls.",
     [LIVECODE_KINDS.html]: "HTML runs in an isolated iframe instead of the JavaScript bridge. Use window.__.post(type, detail) to send a message and window.__.onMessage(listener) to receive the host's read-only runtime snapshot.",
+    [LIVECODE_KINDS.svg]: "SVG is rendered locally from sanitized source. SMIL and Web Animations follow linked transport time or run continuously in Free mode; scripts and remote resources are removed from the inert preview.",
     [LIVECODE_KINDS.markdown]: "Markdown is a deterministic document renderer; it does not execute JavaScript and has no __ bridge. Use Markdown, inline/display LaTeX, and the Output/Code view modes.",
     [LIVECODE_KINDS.latex]: "LaTeX is a deterministic typesetting renderer; it does not execute JavaScript and has no __ bridge. Use TeX math delimiters and the Output/Code view modes.",
     [LIVECODE_KINDS.orca]: "Orca is a focused grid language rather than JavaScript, so __ is not available. Use its operators and the native MIDI/CC/pitch-bend routing instead.",
     [LIVECODE_KINDS.shader]: "GLSL runs on the GPU and has no JavaScript __ bridge. Use the documented uniforms such as u_resolution, u_time, u_pointer, u_currentColor, and u_segments; Minimal / Twigl / Shadertoy mode also provides iResolution, iTime, iMouse, FC, r, t, and o.",
+    [LIVECODE_KINDS.tixy]: "Tixy evaluates one compact JavaScript expression as `(t, i, x, y) => value` over a 16×16 grid by default, with optional grid and palette @params. Use __.transport, __.pointer, __.params, __.events, and __.api for Underscores integration.",
   };
   return {
     title: "Underscores bridge (__)",
@@ -46,6 +48,7 @@ export const LIVECODE_HELP = Object.freeze({
       "Numeric // @param declarations are persistent node controls, for example // @param room = 1.93 (0..10, step: 0.01), then use .room(__.params.room). Inline slider(value, min, max, step) is also supported and appears beside the source when the editor is open.",
       "REPL helpers all(transform) and each(transform) apply to this node's labelled `$:` voices. Legacy .piano() is supported as an alias for the piano-roll visualizer; use .s(\"piano\") for the piano sound.",
       "Linked is the default, so Underscores play/pause and tempo control the pattern. Choose Free for a node-local clock. Runs and updates join the four-beat Strudel cycle on a beat boundary.",
+      "Auto-update is off by default for Strudel: edit a draft, then press Cmd/Ctrl+Enter to evaluate it on the next safe beat. The Auto-update toggle can opt into compile-on-edit behavior for this node.",
       "Stopping, replacing, or hushing a node affects only that node's pattern; other active Strudel nodes remain scheduled.",
     ]),
     footer: "Native Strudel is available locally, but public deployment remains blocked until Underscores completes its AGPL compliance gate.",
@@ -56,6 +59,7 @@ export const LIVECODE_HELP = Object.freeze({
     points: Object.freeze([
       "Use global setup() and draw(), or the existing compatible p5 mode. The live surface is the node's rectangle size.",
       "Use __.element, __.params, __.canvas, __.events, and __.transport from the shared bridge.",
+      "Auto-update is on by default, so valid edits compile immediately. Turn it off to keep a draft separate until Cmd/Ctrl+Enter evaluates it.",
       "Valid edits keep the last working sketch until the replacement compiles; docking never stops the running node.",
     ]),
     footer: "Legacy p5 frames remain supported. Use Migrate to Livecode Node when you want the self-contained node model.",
@@ -111,6 +115,16 @@ export const LIVECODE_HELP = Object.freeze({
     ]),
     footer: "Treat HTML source as trusted board content even though it is isolated from Underscores's parent page.",
   }),
+  [LIVECODE_KINDS.svg]: Object.freeze({
+    title: "SVG quick reference",
+    summary: "A source-preserving SVG document rendered as a local Livecode Node.",
+    points: Object.freeze([
+      "Write a complete <svg> document with paths, shapes, styles, SMIL, or Web Animations.",
+      "The preview is sanitized before rendering: scripts, foreignObject content, event handlers, and remote resource URLs are removed.",
+      "Linked follows Underscores score time; Free lets browser animations run continuously. Code and Code Overlay views remain available for source editing.",
+    ]),
+    footer: "SVG nodes share the same transparent Excalidraw host and transform/history model as other Livecode nodes.",
+  }),
   [LIVECODE_KINDS.orca]: Object.freeze({
     title: "Orca quick reference",
     summary: "A focused per-node grid with native frame timing and Underscores MIDI routing.",
@@ -137,6 +151,19 @@ export const LIVECODE_HELP = Object.freeze({
       "While editing, Cmd/Ctrl+Shift+Enter cycles Output → Code → Code Overlay → Code/Output. Cmd/Ctrl+Enter runs, Ctrl+. or Alt+. stops, and Ctrl+M then L toggles line numbers. Clicking in the source only places the editor cursor.",
     ]),
     footer: "These ports preserve excalishader's four example ideas inside the editable Livecode model; the Fluid brush uses a compact ping-pong feedback pass.",
+  }),
+  [LIVECODE_KINDS.tixy]: Object.freeze({
+    title: "Tixy quick reference",
+    summary: "A tiny JavaScript expression animates a configurable dot grid (16×16 by default).",
+    points: Object.freeze([
+      "Write an expression such as sin(t + x / 4) * cos(t + y / 4). Tixy calls it for every cell with time t, linear index i, column x, and row y.",
+      "The original tixy.land function form also works: (t, i, x, y) => sin(t + x / 4). Function bodies with return are accepted for teaching longer experiments.",
+      "Add // @param gridSize = 16 (1..64, step: 1) for a square grid or // @param gridSize = [16, 20] (json) for a rectangular grid. gridWidth and gridHeight can still override either axis. x, y, and i follow the resolved dimensions.",
+      "Add // @param color1 = __.currentColor (color) and // @param color0 = __.colors.accent.css (color) to customize the positive / one and negative / zero palettes. // @param backgroundColor = transparent (color) optionally fills the frame; transparent remains the layering-friendly default. Values are clamped to -1..1 for stable dot radii.",
+      "Use __.transport for score time, __.pointer for normalized pointer state, __.params for // @param values, and __.events / __.api for the shared bridge.",
+      "Linked follows the score transport; Free runs its own clock. Playlist and livecode.node.run/stop commands target Tixy nodes the same way as p5 and shaders.",
+    ]),
+    footer: "Tixy keeps the original one-expression teaching model while making grid size, colors, clock, and bridge first-class in Underscores.",
   }),
 });
 

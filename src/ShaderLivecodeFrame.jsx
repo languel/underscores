@@ -152,7 +152,7 @@ function FragmentShaderLivecodeFrame({ element, node, transport, scriptRuntimeRe
       // Keep the drawing buffer only when the node has opted into a stopped
       // frame thumbnail. This makes the eventual readback reliable without
       // imposing the buffer-retention cost on ordinary running shaders.
-      preserveDrawingBuffer: node.runtime.settings?.keepLastFrame === true,
+      preserveDrawingBuffer: node.runtime.settings?.keepLastFrame !== false,
     });
     if (!gl) {
       publishFrameStatus(statusRef, "error", "WebGL 2 is unavailable in this browser.");

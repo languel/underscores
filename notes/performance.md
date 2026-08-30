@@ -145,6 +145,34 @@ The production bundle is also large (about 7.1 MB minified at this checkpoint). 
 MediaPipe, and Strudel are candidates for route/feature-level dynamic imports, but bundle size is a
 startup/network concern and should not be conflated with the steady-state canvas FPS issue.
 
+## Tixy runtime review: 2026-08-30
+
+The first integrated Tixy scene exposed a steady-state regression that the FPS monitor made visible
+but could not attribute. The exact collaboration scene contained two 16×16 Tixy grids, two Manim
+nodes, one shader node, and nine live scene objects. It rendered at 3.87 FPS with nine frames longer
+than 34 ms during a 2.58-second sample. A Chrome CPU profile localized the cost to Tixy's bridge
+construction rather than its expression math, Manim, WebGL, or canvas dot drawing.
+
+The original cell loop spread the shared `__` bridge into a new object for every dot. Because that
+bridge intentionally exposes live getters, each spread evaluated the complete appearance, palette,
+canvas-object, transport, and API surface. Two default grids therefore triggered 512 bridge spreads
+per rendered frame. `resolveCssColor` accounted for 28.47% of CPU samples, canvas `getContext` calls
+for 19.44%, and garbage collection for 4.6%; direct Tixy expression evaluation was below 1%.
+
+The renderer now creates one frame-scoped bridge and one appearance snapshot, shared by all cells.
+Live color parameters resolve against that snapshot for the duration of the frame, while subsequent
+frames still observe theme and palette changes. Canvas display bounds come from `ResizeObserver`
+instead of a layout read on every frame. Runtime configuration identity and the free-running clock
+also survive ordinary selection and transport rerenders, so clicking a node neither restarts its
+renderer nor resets `t`.
+
+The same live scene subsequently measured 60.07 FPS over 3.01 seconds with zero frames longer than
+34 ms. A second CPU sample was 76.87% idle; `resolveCssColor` fell to 0.81%, canvas `getContext` to
+0.46%, and garbage collection to 0.6%. The active document contained 722 DOM elements and seven
+canvases, including both Tixy outputs. The development tab retained elevated heap after the original
+allocation storm and hot-module reloads, but active DOM size and the post-fix CPU trace do not point
+to that retained development-session state as a continuing frame-cadence bottleneck.
+
 ## Performance review: 2026-08-16
 
 The reported idle regression was reproduced in the running app: five live nodes, no media sources,

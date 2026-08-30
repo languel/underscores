@@ -78,11 +78,13 @@ mat3 rotate3D(float angle, vec3 axis) {
   vec3 a = normalize(axis);
   float s = sin(angle);
   float c = cos(angle);
-  float r = 1.0 - c;
+  // Do not call this local r: the Twigl dialect defines r as the resolution
+  // alias, and the preprocessor would rewrite helper locals too.
+  float oneMinusCos = 1.0 - c;
   return mat3(
-    a.x * a.x * r + c, a.y * a.x * r + a.z * s, a.z * a.x * r - a.y * s,
-    a.x * a.y * r - a.z * s, a.y * a.y * r + c, a.z * a.y * r + a.x * s,
-    a.x * a.z * r + a.y * s, a.y * a.z * r - a.x * s, a.z * a.z * r + c
+    a.x * a.x * oneMinusCos + c, a.y * a.x * oneMinusCos + a.z * s, a.z * a.x * oneMinusCos - a.y * s,
+    a.x * a.y * oneMinusCos - a.z * s, a.y * a.y * oneMinusCos + c, a.z * a.y * oneMinusCos + a.x * s,
+    a.x * a.z * oneMinusCos + a.y * s, a.y * a.z * oneMinusCos - a.x * s, a.z * a.z * oneMinusCos + c
   );
 }
 
@@ -107,15 +109,30 @@ const stripTwiglBoilerplate = source => stripShaderVersion(source)
   .replace(/\buniform\s+(?:vec[234]|float|int|sampler2D)\s+(?:resolution|mouse|time|frame|backbuffer|r|m|t|f|b)\s*;\s*/g, "")
   .replace(/^\s*(?:in\s+vec2\s+v_uv|out\s+vec4\s+(?:outColor|gl_FragColor))\s*;\s*/gm, "");
 
+// Twigl's compact loop idiom relies on its compiler/driver starting local
+// loop variables at zero, for example `for(float i,g,e,s; ++i<99.; ...)`.
+// GLSL ES leaves locals without an initializer undefined, and WebGL 2 drivers
+// are allowed to propagate that undefined value as NaN.  Normalize the
+// declaration-only forms while preserving explicitly initialized loops and
+// ordinary GLSL source.  This keeps Twigl snippets deterministic in a node
+// without changing the authored source shown to the user.
+const initializeTwiglLoopVariables = source => String(source || "")
+  .replace(/for\s*\(\s*float\s+([^;]+);/g, (match, declarations) => {
+    const names = declarations.split(",").map(value => value.trim());
+    if (!names.length || names.some(name => !/^[A-Za-z_]\w*$/.test(name))) return match;
+    return `for(float ${names.map(name => `${name}=0.`).join(",")};`;
+  })
+  .replace(/for\s*\(\s*int\s+([A-Za-z_]\w*)\s*;/g, "for(int $1=0;");
+
 export const prepareShaderSource = (source, mode = "standard") => {
   const text = String(source || "");
   if (normalizeShaderSourceMode(mode) !== "shadertoy") return text;
-  const body = stripTwiglBoilerplate(text).trim();
+  const body = initializeTwiglLoopVariables(stripTwiglBoilerplate(text)).trim();
   if (/\bvoid\s+mainImage\s*\(/.test(body)) {
     return `${SHADERTOY_HEADER}${TWIGL_SNIPPETS}\n${body}\n\nvoid main() {\n  mainImage(outColor, gl_FragCoord.xy);\n}`;
   }
   if (/\bvoid\s+main\s*\(/.test(body)) return `${SHADERTOY_HEADER}${SHADERTOY_BODY_ALIASES}${TWIGL_SNIPPETS}\n${body}`;
-  return `${SHADERTOY_HEADER}${SHADERTOY_BODY_ALIASES}${TWIGL_SNIPPETS}\n\nvoid main() {\n  outColor = vec4(0.0);\n  ${body}\n}`;
+  return `${SHADERTOY_HEADER}${SHADERTOY_BODY_ALIASES}${TWIGL_SNIPPETS}\n\nvoid main() {\n  // Compact Twigl snippets commonly accumulate into o.rgb without assigning\n  // alpha. Keep the default opaque so those fragments are visible when they\n  // are composited into the scene.\n  outColor = vec4(0.0, 0.0, 0.0, 1.0);\n  ${body}\n}`;
 };
 
 export const shaderSourceUsesFeedbackBuffer = (source, mode = "standard") => (
@@ -525,7 +542,7 @@ export const isShaderUnderlayVisible = (element, { hasRetainedFrame = false } = 
   const composition = normalizeShaderCompositionSettings(node.runtime?.settings);
   if (composition.compositeMode !== "underlay") return false;
   return node.runtime?.running === true
-    || (node.runtime?.settings?.keepLastFrame === true && hasRetainedFrame === true);
+    || (node.runtime?.settings?.keepLastFrame !== false && hasRetainedFrame === true);
 };
 
 export const validateShaderSource = (source, value = {}) => {

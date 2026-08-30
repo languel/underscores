@@ -38,15 +38,26 @@ test("minimal shader mode wraps Shadertoy bodies and mainImage programs", () => 
   assert.match(body, /#define iFrame int\(u_frame\)/);
   assert.match(body, /uniform sampler2D b/);
   assert.match(body, /#define r u_resolution/);
+  assert.match(body, /float oneMinusCos = 1\.0 - c/);
+  assert.doesNotMatch(body, /float u_resolution = 1\.0 - c/);
   assert.match(body, /#define o outColor/);
   assert.match(body, /void main\(\)/);
-  assert.match(body, /outColor = vec4\(0\.0\)/);
+  assert.match(body, /outColor = vec4\(0\.0, 0\.0, 0\.0, 1\.0\)/);
   const mainImage = prepareShaderSource("void mainImage(out vec4 color, in vec2 coord) { color = vec4(coord, 0.0, 1.0); }", "shadertoy");
   assert.match(mainImage, /mainImage\(outColor, gl_FragCoord\.xy\)/);
   assert.equal(shaderSourceUsesFeedbackBuffer("o = texture(b, FC.xy / r);", "shadertoy"), true);
   assert.equal(shaderSourceUsesFeedbackBuffer("o = texture(backbuffer, FC.xy / resolution);", "shadertoy"), true);
   assert.equal(shaderSourceUsesFeedbackBuffer("o = vec4(1.0);", "shadertoy"), false);
   assert.equal(shaderSourceUsesFeedbackBuffer("o = texture(b, FC.xy / r);", "standard"), false);
+});
+
+test("minimal mode initializes Twigl declaration-only loop variables for WebGL 2", () => {
+  const source = "for(float i,g,e,s;++i<99.;o.rgb+=hsv(g,e,s)){for(int i;i++<19;)s+=1.;}";
+  const prepared = prepareShaderSource(source, "shadertoy");
+  assert.match(prepared, /for\(float i=0\.,g=0\.,e=0\.,s=0\.;/);
+  assert.match(prepared, /for\(int i=0;/);
+  const explicit = prepareShaderSource("for(float i=1.,g; i<2.; i++) o=vec4(g);", "shadertoy");
+  assert.match(explicit, /for\(float i=1\.,g;/);
 });
 
 test("minimal feedback bodies keep the compact buffer alias usable", () => {

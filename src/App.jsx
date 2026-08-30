@@ -42,7 +42,9 @@ import GeometryResetIcon from "./GeometryResetIcon.jsx";
 import { embedPolicyForElement, extractDroppedEmbedURL, isAllowedEmbedURL, sanitizeEmbedURL, shouldRenderEmbed } from "./embedPolicy.js";
 import OutlinerPanel, { getOutlinerElementLabel } from "./OutlinerPanel.jsx";
 import PlaylistPanel from "./PlaylistPanel.jsx";
+import { applyPlaylistTargetArgs, executePlaylistJavaScript, parsePlaylistCommand } from "./playlistTriggers.js";
 import { createPlaylistItem, createPlaylistState, getPlaylistItemElements, movePlaylistItem } from "./playlist.js";
+import { findPendingManimCue } from "./manimRuntimeRegistry.js";
 import { applyPresentationVisibility, canFitPresentationBounds, isElementVisibleInPresentation } from "./presentationVisibility.js";
 import { groupSceneElements, moveSceneElementsToGroup, moveSceneElementsToGroupParent, moveSceneGroupToParent, renameSceneGroup, reorderSceneElements, ungroupSceneElements } from "./sceneLayers.js";
 import IannixDataPanel from "./IannixDataPanel.jsx";
@@ -125,8 +127,8 @@ import { DEFAULT_P5_CLASSIC_SOURCE, DEFAULT_P5_FRAME, DEFAULT_P5_SOURCE, P5_EXAM
 import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
 import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
-import { LivecodeNodeEditor, LivecodeNodeOverlay, StrudelPanelStatus } from "./LivecodeNodeOverlay.jsx";
-import { adjustLivecodeFontSize, copyLivecodeExampleName, createLivecodeNode, defaultLivecodeSource, getLivecodeFont, getLivecodeKindDefinition, getLivecodeViewForDoubleClick, isLivecodeCommandCycleGesture, isLivecodeCommandOutputGesture, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, randomLivecodeName, replaceLivecodeNodeProgram } from "./livecodeNode.js";
+import { LivecodeAutoUpdateToggle, LivecodeClockToggle, LivecodeNodeEditor, LivecodeNodeOverlay, StrudelPanelStatus } from "./LivecodeNodeOverlay.jsx";
+import { adjustLivecodeFontSize, copyLivecodeExampleName, createLivecodeNode, defaultLivecodeSource, getLivecodeFont, getLivecodeKindDefinition, getLivecodeViewForDoubleClick, isLivecodeAutoUpdateEnabled, isLivecodeCommandCycleGesture, isLivecodeCommandOutputGesture, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KIND_DEFINITIONS, LIVECODE_KIND_ORDER, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, randomLivecodeName, replaceLivecodeNodeProgram, resolveLivecodeRuntimeSource } from "./livecodeNode.js";
 import { LIVECODE_PERSISTENCE_MODES, normalizeLivecodeComposition } from "./livecodeComposition.js";
 import { getLivecodeExamples } from "./livecodeExamples.js";
 import { describeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
@@ -225,6 +227,7 @@ import {
   readAITextStream,
   selectAIModelFromList,
 } from "./aiProviders.js";
+
 import { convertShapeElementToPath, fitRectangularElementToViewport, getCanvasContextMenuCapabilities, setSelectedElementRoundness } from "./canvasContextMenu.js";
 import { normalizeRoughnessValue, normalizeRoundnessValue, parseDrawingStyleSlash } from "./drawingStyleCommands.js";
 import { DEFAULT_SELECTION_FILTER, filterSelectedElementIds, isInteriorObjectSelectionGesture, normalizeSelectionFilter, selectionFilterAllowsElement, selectionMapsEqual, SELECTION_FILTER_STORAGE_KEY, toggleSelectionFilter } from "./selectionFilter.js";
@@ -243,6 +246,20 @@ import {
 } from "./gridSystem.js";
 import { createTimeValue, formatSecondsAsBBU, formatTimeValue, parseTimeValue, quantizeTimeValue, resolveTimeValue } from "./timeValue.js";
 import { gridTimeQuantumCells } from "./scoreTiming.js";
+
+// Fast Refresh replaces this module without unloading the browser page. Keep
+// track of collaboration controllers created by this module generation so its
+// dispose hook can close Trystero rooms, timers, listeners, and WebRTC peer
+// connections before the replacement App joins the room again.
+const hotCollaborationControllers = new Set();
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    for (const controller of hotCollaborationControllers) {
+      void controller.leaveRoom({ keepUrl: true, resumeSolo: false, checkpoint: false });
+    }
+    hotCollaborationControllers.clear();
+  });
+}
 
 const DEFAULT_INFO_VIEW = Object.freeze({
   title: "Info",
@@ -3185,6 +3202,16 @@ function App() {
     globalGridUpdate: () => {},
     globalGridReset: () => {},
     gridQuantizeSelection: () => {},
+    playlistPlay: () => {},
+    playlistPause: () => {},
+    playlistNext: async () => {},
+    playlistPrevious: () => {},
+    playlistStep: async () => {},
+    playlistSelect: () => null,
+    playlistActivate: async () => null,
+    playlistGet: () => createPlaylistState(),
+    playlistTarget: () => null,
+    playlistTrigger: async () => ({ triggered: false }),
   });
   const underscoresRuntimeRef = useRef(null);
   if (!underscoresRuntimeRef.current) {
@@ -3210,6 +3237,7 @@ function App() {
     collaborationControllerRef.current = new CollaborationController({
       getCallbacks: () => collaborationCallbacksRef.current,
     });
+    hotCollaborationControllers.add(collaborationControllerRef.current);
   }
   const collaborationController = collaborationControllerRef.current;
   const [collaborationState, setCollaborationState] = useState(() => collaborationController.getStatus());
@@ -4604,7 +4632,7 @@ function App() {
       const detail = event.detail || {};
       const reportRuntimeErrorToConsole = () => {
         if (detail.kind !== "error" || !detail.elementId) return;
-        const message = String(detail.message || "p5 runtime error");
+        const message = String(detail.message || `${detail.runtime || "p5"} runtime error`);
         const signature = `error:${message}`;
         if (p5RuntimeConsoleSignaturesRef.current.get(detail.elementId) === signature) return;
         p5RuntimeConsoleSignaturesRef.current.set(detail.elementId, signature);
@@ -4634,7 +4662,11 @@ function App() {
       setP5ScriptStatusKind(detail.kind === "error" ? "error" : detail.kind === "success" ? "success" : "info");
     };
     window.addEventListener("underscores:p5-status", receiveP5Status);
-    return () => window.removeEventListener("underscores:p5-status", receiveP5Status);
+    window.addEventListener("underscores:tixy-status", receiveP5Status);
+    return () => {
+      window.removeEventListener("underscores:p5-status", receiveP5Status);
+      window.removeEventListener("underscores:tixy-status", receiveP5Status);
+    };
   }, [activeP5ScriptId]);
 
   // The trust warning is introductory copy, not a second persistent status.
@@ -4665,6 +4697,8 @@ function App() {
   playlistStateRef.current = playlistState;
   const [playlistPlaying, setPlaylistPlaying] = useState(false);
   const playlistClockRef = useRef({ index: 0, startedAt: 0 });
+  const playlistTriggerDepthRef = useRef(0);
+  const playlistTriggerTargetRef = useRef(null);
   const [scoreRate, setScoreRate] = useState(() => {
     const saved = Number(localStorage.getItem("underscores_iannix_rate"));
     return Number.isFinite(saved) && saved > 0 ? saved : 1;
@@ -10027,7 +10061,9 @@ function App() {
     if (!items.length) return null;
     const nextIndex = Math.max(0, Math.min(items.length - 1, Math.floor(Number(index) || 0)));
     const item = items[nextIndex];
-    setPlaylistState(previous => ({ ...previous, activeIndex: nextIndex }));
+    const nextState = { ...state, activeIndex: nextIndex };
+    playlistStateRef.current = nextState;
+    setPlaylistState(nextState);
     const api = excalidrawAPIRef.current;
     const targets = getPlaylistItemElements(item, api?.getSceneElements?.() || []);
     if (targets.length && api) {
@@ -10039,7 +10075,15 @@ function App() {
     return item;
   }, []);
 
-  const advancePlaylist = useCallback((direction = 1, { keepPlaying = playlistPlaying } = {}) => {
+  const activatePlaylistIndex = useCallback(async (index, { frame = true, trigger = true } = {}) => {
+    const item = selectPlaylistIndex(index, { frame });
+    if (item && trigger && playlistTriggerDepthRef.current === 0) {
+      await runtimeCallbacksRef.current.playlistTrigger(item, { index });
+    }
+    return item;
+  }, [selectPlaylistIndex]);
+
+  const advancePlaylist = useCallback(async (direction = 1, { keepPlaying = playlistPlaying } = {}) => {
     const state = playlistStateRef.current;
     const items = state.items || [];
     if (!items.length) return null;
@@ -10049,26 +10093,52 @@ function App() {
     if (nextIndex < 0) nextIndex = state.loop ? items.length - 1 : 0;
     const reachedEnd = !state.loop && ((delta > 0 && state.activeIndex >= items.length - 1) || (delta < 0 && state.activeIndex <= 0));
     if (reachedEnd && keepPlaying) setPlaylistPlaying(false);
+    if (nextIndex === state.activeIndex) return selectPlaylistIndex(nextIndex, { frame: true });
     playlistClockRef.current = { index: nextIndex, startedAt: performance.now() };
-    return selectPlaylistIndex(nextIndex, { frame: true });
-  }, [playlistPlaying, selectPlaylistIndex]);
+    return activatePlaylistIndex(nextIndex, { frame: true });
+  }, [activatePlaylistIndex, playlistPlaying, selectPlaylistIndex]);
 
-  const startPlaylist = useCallback(() => {
+  const startPlaylist = useCallback(async () => {
     const state = playlistStateRef.current;
     if (!state.items.length) return;
     const index = Math.max(0, Math.min(state.items.length - 1, state.activeIndex));
     playlistClockRef.current = { index, startedAt: performance.now() };
     setPlaylistPlaying(true);
-    selectPlaylistIndex(index, { frame: true });
-  }, [selectPlaylistIndex]);
+    await activatePlaylistIndex(index, { frame: true });
+  }, [activatePlaylistIndex]);
 
   const stopPlaylist = useCallback(() => setPlaylistPlaying(false), []);
   const previousPlaylistItem = useCallback(() => advancePlaylist(-1), [advancePlaylist]);
-  const nextPlaylistItem = useCallback(() => advancePlaylist(1), [advancePlaylist]);
-  const stepPlaylist = useCallback(() => {
+  const advancePendingPlaylistManimCue = useCallback(async () => {
+    const state = playlistStateRef.current;
+    const item = state.items?.[state.activeIndex];
+    const pending = findPendingManimCue(item?.elementIds || []);
+    if (!pending) return false;
+    // A Manim cue is an inner presentation step. Dispatch it through the
+    // command registry so Playlist, shortcuts, History, AI, and WebMCP keep
+    // one semantic control path instead of reaching into the renderer.
+    playlistClockRef.current = { index: state.activeIndex, startedAt: performance.now() };
+    try {
+      await commandRegistry.execute("livecode.manim.cue.next", {
+        elementId: pending.elementId,
+      }, {
+        source: "playlist",
+        transportTime: scoreTimeRef.current,
+      });
+    } catch (error) {
+      setSceneExchangeStatus(`Could not advance Manim cue: ${error?.message || String(error)}`);
+    }
+    return true;
+  }, [commandRegistry]);
+  const nextPlaylistItem = useCallback(async () => {
+    if (await advancePendingPlaylistManimCue()) return;
+    await advancePlaylist(1);
+  }, [advancePendingPlaylistManimCue, advancePlaylist]);
+  const stepPlaylist = useCallback(async () => {
     setPlaylistPlaying(false);
-    advancePlaylist(1, { keepPlaying: false });
-  }, [advancePlaylist]);
+    if (await advancePendingPlaylistManimCue()) return;
+    await advancePlaylist(1, { keepPlaying: false });
+  }, [advancePendingPlaylistManimCue, advancePlaylist]);
 
   useEffect(() => {
     if (!playlistPlaying || !playlistState.items.length) return undefined;
@@ -10081,7 +10151,16 @@ function App() {
       const item = current.items[current.activeIndex];
       if (!item) return;
       const duration = Math.max(0.1, Number(item.duration) || current.defaultDuration || 5);
-      if (performance.now() - playlistClockRef.current.startedAt >= duration * 1000) advancePlaylist(1);
+      if (performance.now() - playlistClockRef.current.startedAt < duration * 1000) return;
+      // Cue mode is explicitly presenter-driven. Autoplay may advance an
+      // ordinary anchor, but it must never skip a Manim node that is waiting
+      // for its internal Next action.
+      if (findPendingManimCue(item.elementIds)) {
+        setPlaylistPlaying(false);
+        setSceneExchangeStatus("Playlist paused at a Manim cue.");
+        return;
+      }
+      void advancePlaylist(1);
     }, 40);
     return () => window.clearInterval(timer);
   }, [advancePlaylist, playlistPlaying, playlistState.activeIndex, playlistState.items.length]);
@@ -10096,11 +10175,15 @@ function App() {
     const api = excalidrawAPIRef.current;
     const scene = api?.getSceneElements?.() || [];
     const ids = [...new Set(elementIds.map(String))].filter(id => scene.some(element => element.id === id && !element.isDeleted));
-    if (!ids.length) return false;
     const targets = scene.filter(element => ids.includes(element.id));
+    // A Playlist row is useful even before it has a frame/anchor. When the
+    // current selection contains a Livecode node, remember it as the row's
+    // trigger target so command/miniscript/JS calls can address that node.
+    const triggerTargetId = targets.find(isLivecodeNodeElement)?.id || "";
     const item = createPlaylistItem({
       elementIds: ids,
-      label: targets.length === 1 ? "" : `${targets.length} objects`,
+      label: targets.length > 1 ? `${targets.length} objects` : "",
+      triggerTargetId,
       duration: playlistStateRef.current.defaultDuration,
       durationValue: playlistStateRef.current.defaultDurationValue,
     });
@@ -10108,7 +10191,9 @@ function App() {
     playlistStateRef.current = next;
     setPlaylistState(next);
     selectPlaylistIndex(next.items.length - 1, { frame: false });
-    setSceneExchangeStatus(`Added ${item.label || "object"} to the playlist.`);
+    setSceneExchangeStatus(ids.length
+      ? `Added ${item.label || "object"} to the playlist${triggerTargetId ? " with a Livecode target" : ""}.`
+      : "Added an empty row to the playlist.");
     return true;
   }, [selectPlaylistIndex]);
 
@@ -10147,6 +10232,15 @@ function App() {
     playlistStateRef.current = next;
     setPlaylistState(next);
   }, []);
+
+  runtimeCallbacksRef.current.playlistPlay = startPlaylist;
+  runtimeCallbacksRef.current.playlistPause = stopPlaylist;
+  runtimeCallbacksRef.current.playlistNext = nextPlaylistItem;
+  runtimeCallbacksRef.current.playlistPrevious = previousPlaylistItem;
+  runtimeCallbacksRef.current.playlistStep = stepPlaylist;
+  runtimeCallbacksRef.current.playlistSelect = index => selectPlaylistIndex(index, { frame: true });
+  runtimeCallbacksRef.current.playlistActivate = index => activatePlaylistIndex(index, { frame: true });
+  runtimeCallbacksRef.current.playlistGet = () => playlistStateRef.current;
 
   const patchArrangementTake = useCallback((takeId, patch) => {
     const next = createArrangementState({
@@ -11010,6 +11104,7 @@ function App() {
   const [showChatInputHint, setShowChatInputHint] = useState(false);
   const chatInputHintTimerRef = useRef(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const aiAbortControllerRef = useRef(null);
   const [aiQueryElementIds, setAiQueryElementIds] = useState([]);
   const [aiChatFontSize, setAiChatFontSize] = useState(() => {
     const saved = Number(localStorage.getItem(AI_CHAT_FONT_SIZE_KEY));
@@ -11341,6 +11436,7 @@ function App() {
 
   useEffect(() => () => {
     if (chatInputHintTimerRef.current) window.clearTimeout(chatInputHintTimerRef.current);
+    aiAbortControllerRef.current?.abort();
   }, []);
 
   useEffect(() => {
@@ -11525,6 +11621,33 @@ function App() {
     return { errors };
   };
 
+  const markAiGenerationStopped = () => {
+    setChatHistory(previous => {
+      const updated = [...previous];
+      const last = updated[updated.length - 1];
+      if (last?.role === "assistant" && last.content === "Thinking...") {
+        updated[updated.length - 1] = { ...last, content: "Generation stopped." };
+      }
+      return updated;
+    });
+  };
+
+  const beginAiGeneration = () => {
+    const controller = new AbortController();
+    aiAbortControllerRef.current = controller;
+    return controller;
+  };
+
+  const stopAiGeneration = () => {
+    const controller = aiAbortControllerRef.current;
+    if (!controller) return false;
+    controller.abort();
+    markAiGenerationStopped();
+    setIsStreaming(false);
+    setAiQueryElementIds([]);
+    return true;
+  };
+
   // Submit chat text to Local LLM
   const sendChatMessage = async (msgOverride = null, options = {}) => {
     const textToSend = msgOverride !== null ? msgOverride : userInput;
@@ -11549,22 +11672,26 @@ function App() {
       }
       if (directCommand?.command?.id) {
         const commandName = directCommand.command.name || directCommand.command.id;
+        const abortController = beginAiGeneration();
         setChatHistory(previous => [
           ...previous,
           { role: "user", content: userMessage, displayContent: userMessage },
         ]);
         setIsStreaming(true);
         try {
+          if (abortController.signal.aborted) return;
           await commandRegistry.execute(directCommand.command.id, directCommand.args || {}, {
             source: "ai-chat",
             transportTime: scoreTimeRef.current,
           });
+          if (abortController.signal.aborted) return;
           setChatHistory(previous => [
             ...previous,
             { role: "assistant", content: `Executed ${commandName}.` },
           ]);
           reportAiStatus(`Executed ${commandName}.`);
         } catch (error) {
+          if (abortController.signal.aborted || error?.name === "AbortError") return;
           const message = error?.message || "Command failed.";
           setChatHistory(previous => [
             ...previous,
@@ -11573,10 +11700,12 @@ function App() {
           reportAiStatus(message, "error");
         } finally {
           setIsStreaming(false);
+          if (aiAbortControllerRef.current === abortController) aiAbortControllerRef.current = null;
         }
         return;
       }
     }
+    const abortController = beginAiGeneration();
     setIsStreaming(true);
 
     const allElements = excalidrawAPI ? excalidrawAPI.getSceneElements().filter(el => !el.isDeleted) : [];
@@ -11767,7 +11896,7 @@ function App() {
         throw new Error(`${getAIProvider(provider).credentialLabel} is required.`);
       }
       const request = buildAIChatRequest(aiSettings, messagesPayload, window.location.origin);
-      const response = await fetch(request.url, request.options);
+      const response = await fetch(request.url, { ...request.options, signal: abortController.signal });
 
       if (!response.ok) {
         let detail = "";
@@ -11791,6 +11920,7 @@ function App() {
         throw new Error(`${providerLabel} (${aiSettings.model || "default"}) returned no text (${contentType}). The server may have returned an unsupported stream shape, an empty completion, or a context-limit response; check its local server log and model output format.`);
       }
 
+      if (abortController.signal.aborted) return;
       const toolResult = await executeAIToolCalls(fullResponse, excalidrawAPI);
       if (toolResult.errors.length) {
         const report = toolResult.errors.slice(0, 3).join("\n- ");
@@ -11808,6 +11938,11 @@ function App() {
       }
 
     } catch (e) {
+      if (abortController.signal.aborted || e?.name === "AbortError") {
+        markAiGenerationStopped();
+        reportAiStatus("AI response stopped.");
+        return;
+      }
       console.error(e);
       setChatHistory(prev => {
         const updated = [...prev];
@@ -11817,6 +11952,7 @@ function App() {
     } finally {
       setIsStreaming(false);
       setAiQueryElementIds([]);
+      if (aiAbortControllerRef.current === abortController) aiAbortControllerRef.current = null;
     }
   };
 
@@ -14240,21 +14376,23 @@ function App() {
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
-    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|manim|playcore|markdown|latex|html|orca|shader?", example: "kind-specific example id?", name: "string?", width: "number?", height: "number?", source: "string?", parameters: "object?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", view: "preview|source|code|split?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Manim nodes accept authored manim-web JavaScript with top-level await and receive scene, cue(), MANIM, and the shared __ bridge; choose transportMode free for an immediately self-running animation or linked for score-controlled playback. Shader nodes accept hello, minimal, rainbow, shadow, fluid, or stokes examples. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "manim", name: "Animated geometric proof", width: 640, height: 420, transportMode: "free", view: "preview", running: true, source: "const circle = new Circle({ radius: 1.5 });\nawait scene.play(new Create(circle));" } }, action: (_api, args) => createLivecodeCanvasNode(args) },
-    { id: "livecode.node.create.strudel", name: "Create Strudel Livecode Node /live strudel", aliases: ["/live strudel"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel }) },
-    { id: "livecode.node.create.p5", name: "Create p5 Livecode Node /live p5", aliases: ["/live p5"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.p5 }) },
-    { id: "livecode.node.create.playcore", name: "Create Play Core Livecode Node /live playcore", aliases: ["/live playcore", "/live play"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.playcore }) },
-    { id: "livecode.node.create.markdown", name: "Create Markdown Livecode Node /live markdown", aliases: ["/live markdown", "/live md"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.markdown }) },
-    { id: "livecode.node.create.latex", name: "Create LaTeX Livecode Node /live latex", aliases: ["/live latex", "/live tex"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.latex }) },
-    { id: "livecode.node.create.html", name: "Create HTML Livecode Node /live html", aliases: ["/live html"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.html }) },
-    { id: "livecode.node.create.orca", name: "Create Orca Livecode Node /live orca", aliases: ["/live orca"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.orca }) },
-    { id: "livecode.node.update", name: "Update Livecode Node", category: "Livecode", args: { elementId: "string?", kind: "strudel|p5|manim|playcore|markdown|latex|html|orca|shader?", name: "string?", source: "string?", parameters: "object?", view: "preview|source|code|split?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", runtimeSettings: "object?" }, ai: { expose: true, description: "Explain, replace, or adjust an existing code-capable canvas object. Uses elementId from the active scene; when omitted, updates the selected Livecode, legacy p5, or Play Core host. Legacy hosts are migrated in place so the edit stays on the selected object. Source is stored as authored text and must be a valid JSON string in the command payload. To expose an @param, put the // @param declaration in source and read it as __.params.name; parameters only overrides an already-declared value. Manim source may use top-level await with scene, cue(), MANIM, and __. This does not execute arbitrary code outside the node runtime.", example: { elementId: "livecode-host", source: "const square = new Square({ sideLength: 2 });\\nawait scene.play(new Create(square));", view: "code" } }, action: (_api, args) => updateAILivecodeNode(args) },
-    { id: "livecode.node.create.shader", name: "Create Hello GLSL Livecode Node /live shader", aliases: ["/live shader", "/live glsl", "/shader", "/shader hello"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "hello" }) },
-    { id: "livecode.node.create.shader.minimal", name: "Create Minimal Twigl Shader /shader minimal", aliases: ["/shader minimal", "/live shader minimal", "/shader shadertoy", "/shader twigl"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "minimal-raymarch" }) },
-    { id: "livecode.node.create.shader.rainbow", name: "Create Rainbow Shader /shader rainbow", aliases: ["/shader rainbow", "/live shader rainbow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "rainbow" }) },
-    { id: "livecode.node.create.shader.shadow", name: "Create 2D Shadow Shader /shader shadow", aliases: ["/shader shadow", "/live shader shadow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "shadow" }) },
-    { id: "livecode.node.create.shader.fluid", name: "Create Fluid Brush Shader /shader fluid", aliases: ["/shader fluid", "/live shader fluid"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "fluid" }) },
-    { id: "livecode.node.create.shader.stokes", name: "Create Stokes Flow Shader /shader stokes", aliases: ["/shader stokes", "/live shader stokes"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "stokes" }) },
+    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "/code", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|manim|playcore|markdown|latex|html|orca|shader|tixy|svg?", example: "kind-specific example id?", name: "string?", width: "number?", height: "number?", source: "string?", parameters: "object?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", view: "preview|source|code|split?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Manim nodes accept authored manim-web JavaScript with top-level await and receive scene, cue(), MANIM, and the shared __ bridge; choose transportMode free for an immediately self-running animation or linked for score-controlled playback. Shader nodes accept hello, minimal, rainbow, shadow, fluid, or stokes examples. Tixy nodes accept a compact (t, i, x, y) JavaScript expression and render a transport-synchronized 16×16 dot grid by default; optional @param gridSize, gridWidth, gridHeight, color1, color0, and backgroundColor declarations customize dimensions and palettes. A numeric gridSize is square, a [width, height] JSON value is rectangular, and the background defaults to transparent for layering. SVG nodes render sanitized source locally with transport-aware animation seeking. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "manim", name: "Animated geometric proof", width: 640, height: 420, transportMode: "free", view: "preview", running: true, source: "const circle = new Circle({ radius: 1.5 });\nawait scene.play(new Create(circle));" } }, action: (_api, args) => createLivecodeCanvasNode(args) },
+    { id: "livecode.node.create.strudel", name: "Create Strudel Livecode Node /live strudel", aliases: ["/live strudel", "/code strudel"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel }) },
+    { id: "livecode.node.create.p5", name: "Create p5 Livecode Node /live p5", aliases: ["/live p5", "/code p5"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.p5 }) },
+    { id: "livecode.node.create.playcore", name: "Create Play Core Livecode Node /live playcore", aliases: ["/live playcore", "/live play", "/code playcore", "/code play"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.playcore }) },
+    { id: "livecode.node.create.markdown", name: "Create Markdown Livecode Node /live markdown", aliases: ["/live markdown", "/live md", "/code markdown", "/code md"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.markdown }) },
+    { id: "livecode.node.create.latex", name: "Create LaTeX Livecode Node /live latex", aliases: ["/live latex", "/live tex", "/code latex", "/code tex"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.latex }) },
+    { id: "livecode.node.create.html", name: "Create HTML Livecode Node /live html", aliases: ["/live html", "/code html"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.html }) },
+    { id: "livecode.node.create.orca", name: "Create Orca Livecode Node /live orca", aliases: ["/live orca", "/code orca"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.orca }) },
+    { id: "livecode.node.create.tixy", name: "Create Tixy Livecode Node /live tixy", aliases: ["/live tixy", "/code tixy", "/tixy"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.tixy, example: "waves" }) },
+    { id: "livecode.node.create.svg", name: "Create SVG Livecode Node /live svg", aliases: ["/live svg", "/code svg"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.svg }) },
+    { id: "livecode.node.update", name: "Update Livecode Node", category: "Livecode", args: { elementId: "string?", kind: "strudel|p5|manim|playcore|markdown|latex|html|orca|shader|tixy|svg?", name: "string?", source: "string?", parameters: "object?", view: "preview|source|code|split?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", runtimeSettings: "object?" }, ai: { expose: true, description: "Explain, replace, or adjust an existing code-capable canvas object. Uses elementId from the active scene; when omitted, updates the selected Livecode, legacy p5, or Play Core host. Legacy hosts are migrated in place so the edit stays on the selected object. Source is stored as authored text and must be a valid JSON string in the command payload. To expose an @param, put the // @param declaration in source and read it as __.params.name; parameters only overrides an already-declared value. Manim source may use top-level await with scene, cue(), MANIM, and __. Tixy source uses the compact (t, i, x, y) expression contract. SVG nodes render sanitized source locally with transport-aware animation seeking. This does not execute arbitrary code outside the node runtime.", example: { elementId: "livecode-host", source: "const square = new Square({ sideLength: 2 });\\nawait scene.play(new Create(square));", view: "code" } }, action: (_api, args) => updateAILivecodeNode(args) },
+    { id: "livecode.node.create.shader", name: "Create Hello GLSL Livecode Node /live shader", aliases: ["/live shader", "/live glsl", "/code shader", "/code glsl", "/shader", "/shader hello"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "hello" }) },
+    { id: "livecode.node.create.shader.minimal", name: "Create Minimal Twigl Shader /shader minimal", aliases: ["/shader minimal", "/live shader minimal", "/code shader minimal", "/shader shadertoy", "/shader twigl"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "minimal-raymarch" }) },
+    { id: "livecode.node.create.shader.rainbow", name: "Create Rainbow Shader /shader rainbow", aliases: ["/shader rainbow", "/live shader rainbow", "/code shader rainbow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "rainbow" }) },
+    { id: "livecode.node.create.shader.shadow", name: "Create 2D Shadow Shader /shader shadow", aliases: ["/shader shadow", "/live shader shadow", "/code shader shadow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "shadow" }) },
+    { id: "livecode.node.create.shader.fluid", name: "Create Fluid Brush Shader /shader fluid", aliases: ["/shader fluid", "/live shader fluid", "/code shader fluid"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "fluid" }) },
+    { id: "livecode.node.create.shader.stokes", name: "Create Stokes Flow Shader /shader stokes", aliases: ["/shader stokes", "/live shader stokes", "/code shader stokes"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "stokes" }) },
     { id: "livecode.node.edit", name: "Edit Selected Livecode Node", aliases: ["Edit livecode node"], category: "Livecode", action: () => {
       const node = getSelectedElements().find(isLivecodeNodeElement);
       if (!node) throw new Error("Select one Livecode Node first.");
@@ -14298,8 +14436,8 @@ function App() {
     { id: "p5.frame.create", name: "Create p5 Frame /p5", aliases: ["/p5", "Create p5 frame", "p5 frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", source: "p5 source?", mode: "auto|instance|global?", p5Version: "1|2?", runtime: "bundled|cdn?", cdnUrl: "string?" }, ai: { expose: true, description: "Create a trusted, interactive p5.js frame. Use p5Version: 2 for the embedded latest 2.x runtime or p5Version: 1 for the embedded latest 1.x runtime. Use mode: instance for p.setup/p.draw code, or mode: global for classic function setup()/draw() code. Omit mode for auto-detection. The bundled runtime is the default; only use runtime: cdn when the user specifically requests a remote p5 build. Keep the sketch self-contained and do not use HTML or script tags.", example: { name: "Pulsing circle", width: 640, height: 360, mode: "global", source: "function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(230);\n  strokeWeight(3);\n  const radius = 60 + 24 * Math.sin(millis() / 500);\n  circle(width / 2, height / 2, radius * 2);\n}" } }, action: (_api, args) => createP5Frame(args) },
     { id: "p5.frame.attach", name: "Attach p5 Sketch to Selection /attach p5", aliases: ["/attach p5", "Attach p5 sketch", "p5 attach"], category: "Canvas", args: { source: "p5 source?", mode: "auto|instance|global?", name: "string?" }, ai: { expose: true, description: "Attach a p5 sketch to each selected rectangle, frame, or existing p5 canvas. The selected objects become live p5 hosts; use a self-contained p5 source and choose global mode for classic setup()/draw() code.", example: { mode: "global", source: "function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  background(18);\n  circle(width / 2, height / 2, 80);\n}" } }, action: (_api, args) => attachP5ScriptToSelection(args) },
     { id: "play.core.frame.create", name: "Create Play Core Frame /play", aliases: ["/play", "Play Core frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", fps: "number?", source: "play.core source?" }, action: (_api, args) => createPlayCoreFrame(args) },
-    { id: "livecode.node.run", name: "Run Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.underscoresLivecode); if (!node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
-    { id: "livecode.node.stop", name: "Stop Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.underscoresLivecode); if (node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
+    { id: "livecode.node.run", name: "Run Selected Livecode Node", category: "Canvas", args: { elementId: "string?" }, action: (_api, args = {}) => { const target = getLivecodeNodeTarget(args.elementId || args.targetId); if (!target) throw new Error("Select a Livecode Node first or provide elementId."); const node = normalizeLivecodeNode(target.customData.underscoresLivecode); if (!node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
+    { id: "livecode.node.stop", name: "Stop Selected Livecode Node", category: "Canvas", args: { elementId: "string?" }, action: (_api, args = {}) => { const target = getLivecodeNodeTarget(args.elementId || args.targetId); if (!target) throw new Error("Select a Livecode Node first or provide elementId."); const node = normalizeLivecodeNode(target.customData.underscoresLivecode); if (node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
     { id: "livecode.manim.cue.next", name: "Advance Manim Cue", category: "Livecode", args: { elementId: "string?" }, ai: { expose: true, description: "Advance the pending presentation cue on a Manim Livecode node. If elementId is omitted, the selected Manim node is targeted." }, action: (_api, args = {}) => {
       const selected = getSelectedElements().find(element => isLivecodeNodeElement(element)
         && normalizeLivecodeNode(element.customData?.underscoresLivecode).kind === LIVECODE_KINDS.manim);
@@ -14308,6 +14446,13 @@ function App() {
       const event = eventBus.emit("manim.cue.next", { elementId, action: "next" }, { source: "command" });
       return { dispatched: true, elementId, eventId: event.id };
     } },
+    { id: "playlist.play", name: "Play Playlist", category: "Playlist", record: "never", ai: { expose: true, description: "Start the current Playlist from its active anchor." }, action: () => runtimeCallbacksRef.current.playlistPlay() },
+    { id: "playlist.pause", name: "Pause Playlist", category: "Playlist", record: "never", ai: { expose: true, description: "Pause current Playlist playback without changing the active anchor." }, action: () => runtimeCallbacksRef.current.playlistPause() },
+    { id: "playlist.next", name: "Advance Playlist", aliases: ["/playlist next"], category: "Playlist", record: "never", ai: { expose: true, description: "Advance the active Playlist anchor, first advancing a pending Manim cue when present." }, action: () => runtimeCallbacksRef.current.playlistNext() },
+    { id: "playlist.previous", name: "Previous Playlist Item", aliases: ["/playlist previous"], category: "Playlist", record: "never", ai: { expose: true, description: "Move to the previous outer Playlist anchor." }, action: () => runtimeCallbacksRef.current.playlistPrevious() },
+    { id: "playlist.step", name: "Step Playlist", aliases: ["/playlist step"], category: "Playlist", record: "never", ai: { expose: true, description: "Pause and advance one pending Manim cue or outer Playlist anchor." }, action: () => runtimeCallbacksRef.current.playlistStep() },
+    { id: "playlist.select", name: "Select Playlist Anchor", aliases: ["/playlist select"], category: "Playlist", record: "never", args: { index: "number" }, ai: { expose: true, description: "Select and frame a Playlist anchor by zero-based index without firing its trigger." }, action: (_api, args = {}) => runtimeCallbacksRef.current.playlistSelect(Number(args.index) || 0) },
+    { id: "playlist.activate", name: "Activate Playlist Anchor", aliases: ["/playlist activate"], category: "Playlist", record: "never", args: { index: "number" }, ai: { expose: true, description: "Select, frame, and fire a Playlist anchor trigger by zero-based index." }, action: (_api, args = {}) => runtimeCallbacksRef.current.playlistActivate(Number(args.index) || 0) },
     { id: "livecode.node.migrate", name: "Migrate p5 or Play Core Host to Livecode Node", aliases: ["Migrate to Livecode Node"], category: "Canvas", action: () => { const target = getSelectedElements().find(element => isP5FrameElement(element) || isPlayCoreFrameElement(element)); if (!target) throw new Error("Select a p5 or Play Core host first."); return migrateLegacyHostToLivecodeNode(target.id); } },
     { id: "media.camera.create", name: "Create Camera Input", aliases: ["/camera", "webcam stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.CAMERA, args) },
     { id: "media.input.create", name: "Create Media Input", aliases: ["/media", "image stream", "video stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.MEDIA, { ...args, media: { url: args?.url || args?.media?.url || "", ...(args?.media || {}) } }) },
@@ -15117,6 +15262,79 @@ function App() {
     return null;
   };
 
+  const executePlaylistTrigger = async (item, { index = playlistStateRef.current.activeIndex } = {}) => {
+    const trigger = item?.trigger || "manual";
+    if (trigger === "manual" || trigger === "event" || trigger === "srt") return { triggered: false, reason: "manual" };
+    if (playlistTriggerDepthRef.current > 0) return { triggered: false, reason: "nested" };
+    const source = String(item?.triggerSource || "").trim();
+    if (!source) {
+      const message = `Playlist item ${Number(index) + 1} has a ${trigger} trigger but no source.`;
+      setSceneExchangeStatus(message);
+      return { triggered: false, error: message };
+    }
+    const targetId = String(item?.triggerTargetId || "").trim();
+    let target = null;
+    if (targetId) {
+      const scene = excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || excalidrawAPIRef.current?.getSceneElements?.() || [];
+      const element = scene.find(candidate => candidate.id === targetId && !candidate.isDeleted && isLivecodeNodeElement(candidate));
+      if (!element) {
+        const message = `Playlist target ${targetId} is missing or is not a Livecode node.`;
+        setSceneExchangeStatus(message);
+        return { triggered: false, error: message };
+      }
+      const node = normalizeLivecodeNode(element.customData?.underscoresLivecode);
+      target = {
+        id: element.id,
+        elementId: element.id,
+        type: element.type,
+        kind: node.kind,
+        name: node.name,
+        label: getOutlinerElementLabel(element) || node.name || element.id,
+        x: Number(element.x) || 0,
+        y: Number(element.y) || 0,
+        width: Number(element.width) || 0,
+        height: Number(element.height) || 0,
+      };
+    }
+    playlistTriggerDepthRef.current += 1;
+    playlistTriggerTargetRef.current = target;
+    try {
+      let result;
+      let invocation = null;
+      if (trigger === "command") {
+        invocation = parsePlaylistCommand(source, COMMANDS);
+      } else if (trigger === "miniscript") {
+        invocation = parseSlashInvocation(source, { allowBare: true }) || parsePlaylistCommand(source, COMMANDS);
+      } else if (trigger === "js" || trigger === "script") {
+        result = await executePlaylistJavaScript(source, window.__);
+      } else {
+        return { triggered: false, reason: `unsupported trigger: ${trigger}` };
+      }
+      if (invocation?.error) throw new Error(invocation.error);
+      if (invocation) {
+        if (!invocation.id && invocation.command?.id) invocation = { id: invocation.command.id, args: invocation.args || {} };
+        if (!invocation.id) throw new Error(`Could not resolve Playlist trigger: ${source}`);
+        result = await commandRegistry.execute(invocation.id, applyPlaylistTargetArgs(invocation.args || {}, target), {
+          source: "playlist-trigger",
+          record: false,
+          playlistItemId: item.id,
+          playlistIndex: index,
+          transportTime: scoreTimeRef.current,
+        });
+      }
+      return { triggered: true, type: trigger, source, result };
+    } catch (error) {
+      const message = `Playlist trigger failed: ${error?.message || String(error)}`;
+      setSceneExchangeStatus(message);
+      return { triggered: false, error: message };
+    } finally {
+      playlistTriggerTargetRef.current = null;
+      playlistTriggerDepthRef.current = Math.max(0, playlistTriggerDepthRef.current - 1);
+    }
+  };
+  runtimeCallbacksRef.current.playlistTrigger = executePlaylistTrigger;
+  runtimeCallbacksRef.current.playlistTarget = () => playlistTriggerTargetRef.current;
+
   const openAISidebar = () => {
     setOpenPanels(previous => ({ ...previous, chat: true }));
     const placement = panelLayouts.chat.placement;
@@ -15151,6 +15369,14 @@ function App() {
     if (!excalidrawAPI) return [];
     const elements = excalidrawAPI.getSceneElements();
     return elements.filter(el => selectedElementIds[el.id] && !el.isDeleted);
+  };
+
+  const getLivecodeNodeTarget = (elementId = "") => {
+    const api = excalidrawAPIRef.current || excalidrawAPI;
+    const requestedId = String(elementId || "").trim();
+    const scene = api?.getSceneElementsIncludingDeleted?.() || api?.getSceneElements?.() || [];
+    if (requestedId) return scene.find(element => element.id === requestedId && !element.isDeleted && isLivecodeNodeElement(element)) || null;
+    return getSelectedElements().find(isLivecodeNodeElement) || null;
   };
 
   const getLiveSelectedElements = () => {
@@ -17366,6 +17592,17 @@ function App() {
     setSceneExchangeStatus(`${label}: click a compatible canvas object, or press Escape to cancel.`);
   }, []);
 
+  const pickPlaylistTriggerTarget = (itemId) => {
+    beginObjectEyedropper({
+      label: "Pick Livecode target",
+      accept: element => Boolean(element && !element.isDeleted && isLivecodeNodeElement(element)),
+      onPick: element => {
+        patchPlaylistItem(itemId, { triggerTargetId: element.id });
+        return `Playlist target set to ${getOutlinerElementLabel(element) || element.id}.`;
+      },
+    });
+  };
+
   const beginGlobalObjectEyedropper = useCallback(() => {
     beginObjectEyedropper({
       label: "Pick object from canvas",
@@ -18231,7 +18468,7 @@ function App() {
         candidate.id === elementId && !candidate.isDeleted && isLivecodeNodeElement(candidate)
       ));
       const node = element ? normalizeLivecodeNode(element.customData?.underscoresLivecode) : null;
-      if (action === "stop" && node?.runtime.settings?.keepLastFrame === true) {
+      if (action === "stop" && node?.runtime.settings?.keepLastFrame !== false) {
         clearLivecodeFrameSnapshot(elementId);
         captureLivecodeFrameSnapshot(elementId);
       }
@@ -18293,10 +18530,10 @@ function App() {
       return;
     }
     if (command === "run" && node.runtime.running) {
-      setLivecodeStatus("Strudel is already running · Ctrl+Enter updates the pattern.");
+      setLivecodeStatus(`${getLivecodeKindDefinition(node.kind).label} is already running${isLivecodeAutoUpdateEnabled(node) ? "." : " · Cmd/Ctrl+Enter updates the source."}`);
       return;
     }
-    const updating = command === "update" && node.kind === LIVECODE_KINDS.strudel;
+    const updating = command === "update";
     const running = updating || command === "run" ? true : !node.runtime.running;
     const pendingActivation = pendingLivecodeActivationsRef.current.get(elementId);
     if (command === "toggle" && pendingActivation) {
@@ -18305,7 +18542,7 @@ function App() {
       return;
     }
     const validation = validateLivecodeNode(node);
-    if (running && !validation.valid) {
+    if ((running || updating) && !validation.valid) {
       setLivecodeStatus(`${getLivecodeKindDefinition(node.kind).label} draft has an error: ${validation.error}`);
       return;
     }
@@ -18343,7 +18580,7 @@ function App() {
       setLivecodeStatus(`Queued ${getLivecodeKindDefinition(node.kind).label} ${action} for ${formatSecondsAsBBU(targetTime, timeContext)}.`);
       return;
     }
-    const evaluationSettings = running && node.kind === LIVECODE_KINDS.strudel ? {
+    const evaluationSettings = updating ? {
       evaluatedSource: node.source,
       evaluationRevision: Math.max(0, Number(node.runtime.settings?.evaluationRevision) || 0) + 1,
     } : null;
@@ -18353,7 +18590,7 @@ function App() {
         launchAt: running ? Math.max(0, Number(scoreTimeRef.current) || 0) : null,
       }
       : evaluationSettings;
-    if (!running && node.runtime.settings?.keepLastFrame === true) {
+    if (!running && node.runtime.settings?.keepLastFrame !== false) {
       // Capture before the runtime unmounts. This is the only Livecode canvas
       // readback performed for the thumbnail option, and it is bounded to a
       // small in-memory PNG rather than being persisted into scene JSON.
@@ -18417,21 +18654,30 @@ function App() {
     const kind = requestedKind;
     // A new node is an empty authoring surface. Templates are opt-in via an
     // explicit example (the dedicated /shader example commands pass one).
-    // This keeps the generic create action useful for live performance and
-    // avoids surprising the author with a running demo sketch.
+    // Visual nodes still start immediately on their free clock; Strudel's
+    // kind-aware runtime default remains stopped and linked until evaluated.
     const shaderExample = kind === LIVECODE_KINDS.shader && args.example
       ? getShaderExample(args.example)
       : null;
+    const tixyExample = kind === LIVECODE_KINDS.tixy && args.example
+      ? getLivecodeExamples(kind).find(example => example.id === args.example)
+      : null;
+    const starterExample = shaderExample || tixyExample;
     const shaderDefaults = Boolean(shaderExample);
+    const tixyDefaults = Boolean(tixyExample);
     const node = createLivecodeNode({
       kind,
-      name: args.name || (shaderExample ? copyLivecodeExampleName(shaderExample.name) : randomLivecodeName(kind)),
-      source: typeof args.source === "string" ? args.source : shaderExample?.source || undefined,
+      name: args.name || (starterExample ? copyLivecodeExampleName(starterExample.name) : randomLivecodeName(kind)),
+      source: typeof args.source === "string" ? args.source : starterExample?.source || undefined,
       parameters: args.parameters,
       runtime: {
-        running: typeof args.running === "boolean" ? args.running : shaderDefaults,
+        ...(typeof args.running === "boolean"
+          ? { running: args.running }
+          : (shaderDefaults || tixyDefaults ? { running: true } : {})),
         enabled: args.enabled !== false,
-        transportMode: args.transportMode || (shaderDefaults ? "free" : undefined),
+        ...(args.transportMode === "free" || args.transportMode === "linked"
+          ? { transportMode: args.transportMode }
+          : (shaderDefaults || tixyDefaults ? { transportMode: "free" } : {})),
         settings: shaderExample ? {
           shaderExample: shaderExample.id,
           shaderMode: shaderExample.mode,
@@ -18443,7 +18689,7 @@ function App() {
           emitterSource: "scene",
         } : undefined,
       },
-      view: args.view || (shaderDefaults ? "preview" : undefined),
+      view: args.view || (shaderDefaults || tixyDefaults ? "preview" : undefined),
       typography: args.typography,
     });
     const width = Math.max(120, Math.min(4096, Number(args.width) || (node.kind === LIVECODE_KINDS.orca ? 480 : 520)));
@@ -20791,13 +21037,38 @@ function App() {
     });
     let webMCPRegistration = null;
     const api = {
-      apiVersion: 12,
+      apiVersion: 13,
       commands: {
         list: () => commandRegistry.list(),
         describe: id => commandRegistry.describe(id),
         execute: (id, args, options) => commandRegistry.execute(id, args, { transportTime: scoreTimeRef.current, ...options }),
         subscribe: listener => commandRegistry.subscribe(listener),
       },
+      playlist: Object.freeze({
+        get: () => {
+          const state = runtimeCallbacksRef.current.playlistGet();
+          return {
+            ...state,
+            defaultDurationValue: state?.defaultDurationValue ? { ...state.defaultDurationValue } : state?.defaultDurationValue,
+            items: (state?.items || []).map(item => ({
+              ...item,
+              elementIds: [...(item.elementIds || [])],
+              durationValue: item.durationValue ? { ...item.durationValue } : item.durationValue,
+            })),
+          };
+        },
+        getTarget: () => {
+          const target = runtimeCallbacksRef.current.playlistTarget();
+          return target ? { ...target } : null;
+        },
+        play: () => runtimeCallbacksRef.current.playlistPlay(),
+        pause: () => runtimeCallbacksRef.current.playlistPause(),
+        next: () => runtimeCallbacksRef.current.playlistNext(),
+        previous: () => runtimeCallbacksRef.current.playlistPrevious(),
+        step: () => runtimeCallbacksRef.current.playlistStep(),
+        select: index => runtimeCallbacksRef.current.playlistSelect(index),
+        activate: index => runtimeCallbacksRef.current.playlistActivate(index),
+      }),
       history: {
         start: options => runtimeCallbacksRef.current.historyStart(options),
         pause: () => runtimeCallbacksRef.current.historyPause(),
@@ -23690,6 +23961,8 @@ function App() {
       selectNode(element.id);
       api.scrollToContent([element], { fitToViewport: true, viewportZoomFactor: 1, animate: true });
     };
+    const manualDraftPending = !isLivecodeAutoUpdateEnabled(node)
+      && resolveLivecodeRuntimeSource(node) !== node.source;
     return <div className="iannix-properties iannix-script-pane p5-script-pane livecode-script-pane">
       <div className="livecode-node-selector-row">
         {editingLivecodeNameId === nodeElement.id ? <input
@@ -23732,7 +24005,7 @@ function App() {
       >
         <summary>Node settings</summary>
         <div className="livecode-panel-controls">
-        <label>Kind <select value={node.kind} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { kind: event.target.value, name: randomLivecodeName(event.target.value) }, { commitToHistory: true })}>{Object.entries(LIVECODE_KINDS).filter(([key]) => !isPublicSafeBuild || key !== "strudel").map(([key, value]) => <option key={key} value={value}>{getLivecodeKindDefinition(value).label}</option>)}</select></label>
+        <label>Kind <select value={node.kind} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { kind: event.target.value, name: randomLivecodeName(event.target.value) }, { commitToHistory: true })}>{LIVECODE_KIND_ORDER.filter(id => !isPublicSafeBuild || id !== "strudel").map(id => <option key={id} value={id}>{LIVECODE_KIND_DEFINITIONS[id].label}</option>)}</select></label>
         {livecodeExamples.length > 0 && <label className="livecode-example-control">Example <select value={activeLivecodeExampleId} onChange={event => {
           const next = livecodeExamples.find(example => example.id === event.target.value);
           if (!next) {
@@ -23773,7 +24046,7 @@ function App() {
         {node.kind === LIVECODE_KINDS.orca
           ? <label className="livecode-view-control">View <span className="livecode-static-option">Grid</span></label>
           : <label className="livecode-view-control">View <select value={node.view === "overlay" ? "code" : node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="preview">Output</option><option value="source">Code</option><option value="code">Code Overlay</option>{node.kind !== LIVECODE_KINDS.strudel && <option value="split">Code/Output</option>}</select></label>}
-        {[LIVECODE_KINDS.p5, LIVECODE_KINDS.playcore, LIVECODE_KINDS.shader, LIVECODE_KINDS.strudel].includes(node.kind) && <label title="Keep the most recent rendered canvas frame visible when this node is stopped. Readback happens only when stopping.">Last frame <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.keepLastFrame === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { keepLastFrame: event.target.checked } } }, { commitToHistory: true })} />Keep</span></label>}
+        {[LIVECODE_KINDS.p5, LIVECODE_KINDS.manim, LIVECODE_KINDS.playcore, LIVECODE_KINDS.shader, LIVECODE_KINDS.strudel, LIVECODE_KINDS.tixy].includes(node.kind) && <label title="Keep the most recent rendered canvas frame visible when this node is stopped. Readback happens only when stopping.">Last frame <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.keepLastFrame !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { keepLastFrame: event.target.checked } } }, { commitToHistory: true })} />Keep</span></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Choose the native compact Orca cell spacing or fill the host frame">Spacing <select value={node.runtime.settings?.orcaDensity === "spacious" ? "spacious" : "compact"} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaDensity: event.target.value } } }, { commitToHistory: true })}><option value="compact">Compact</option><option value="spacious">Spacious</option></select></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Number of editable Orca columns">Grid width <NumericInput min="4" max="128" step="1" value={node.runtime.settings?.orcaGridWidth || 32} defaultValue={32} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridWidth: value } } }, { commitToHistory: true })} /></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Number of editable Orca rows">Grid height <NumericInput min="2" max="128" step="1" value={node.runtime.settings?.orcaGridHeight || 16} defaultValue={16} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridHeight: value } } }, { commitToHistory: true })} /></label>}
@@ -23790,7 +24063,6 @@ function App() {
         {node.kind === LIVECODE_KINDS.shader && <label>Background <select value={shaderComposition.backgroundMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { backgroundMode: event.target.value } } }, { commitToHistory: true })}><option value="solid">Solid</option><option value="transparent">Transparent</option></select></label>}
         {node.kind === LIVECODE_KINDS.shader && shaderExample?.id === "inkwash" && <label title="Choose whether ink is emitted by authored Excalidraw paths or only by currently visible physics diagnostics">Emitters <select value={shaderComposition.emitterSource} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { emitterSource: event.target.value } } }, { commitToHistory: true })}><option value="scene">Scene objects</option><option value="debug">Physics debug</option></select></label>}
         {node.kind === LIVECODE_KINDS.shader && ["fluid", "inkwash"].includes(shaderExample?.id) && <label title="Enable the selected geometry source as a continuously emitting flow field">Emission <span className="livecode-checkbox"><input type="checkbox" checked={shaderComposition.sceneInteraction} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { sceneInteraction: event.target.checked } } }, { commitToHistory: true })} />Enabled</span></label>}
-        <label>Clock <select value={node.runtime.transportMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { transportMode: event.target.value } }, { commitToHistory: true })}><option value="linked">Linked</option><option value="free">Free</option></select></label>
         {node.kind === LIVECODE_KINDS.strudel && <label>Transport <span className="livecode-checkbox"><input type="checkbox" checked={Boolean(node.runtime.settings?.syncTransport)} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { syncTransport: event.target.checked } } }, { commitToHistory: true })} />Full sync</span></label>}
         {node.kind === LIVECODE_KINDS.strudel && <label title="Render public Strudel visualizers such as .pianoroll() across this node frame">Visuals <span className="livecode-checkbox"><input type="checkbox" aria-label="Strudel frame visuals" checked={node.runtime.settings?.frameVisuals !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { frameVisuals: event.target.checked } } }, { commitToHistory: true })} />Frame</span></label>}
         <label title="Ctrl-M, then L">Lines <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.showLineNumbers} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { showLineNumbers: event.target.checked } }, { commitToHistory: true })} />Numbers</span></label>
@@ -23843,9 +24115,19 @@ function App() {
           type="button"
           className="palette-action-btn primary script-icon-button"
           onClick={() => toggleLivecodeNodeRun(nodeElement.id)}
-          title={`${node.runtime.running ? "Stop" : "Start"} this node · Cmd/Ctrl+Enter starts${node.kind === LIVECODE_KINDS.strudel ? " or updates" : ""} · Ctrl+. or Alt+. stops`}
+          title={`${node.runtime.running ? "Stop" : "Start"} this node · Cmd/Ctrl+Enter ${isLivecodeAutoUpdateEnabled(node) ? "starts" : "updates the draft"} · Ctrl+. or Alt+. stops`}
           aria-label={node.runtime.running ? "Stop livecode node" : "Start livecode node"}
         ><ScriptActionIcon type={node.runtime.running ? "pause" : "run"} /></button>
+        <LivecodeAutoUpdateToggle
+          node={node}
+          className="palette-action-btn secondary script-icon-button"
+          onPatch={patch => patchLivecodeCanvasNode(nodeElement.id, patch, { commitToHistory: true })}
+        />
+        <LivecodeClockToggle
+          node={node}
+          className="palette-action-btn secondary script-icon-button"
+          onPatch={patch => patchLivecodeCanvasNode(nodeElement.id, patch, { commitToHistory: true })}
+        />
         <button type="button" className="palette-action-btn secondary script-icon-button" onClick={() => commitLivecodeCanvasNode(nodeElement.id)} title="Save source to the scene" aria-label="Save livecode source"><ScriptActionIcon type="save" /></button>
         <button type="button" className="palette-action-btn secondary script-icon-button" onClick={() => createLivecodeCanvasNode({ kind: node.kind })} title="New livecode node" aria-label="New livecode node"><ScriptActionIcon type="add" /></button>
       </div>
@@ -23857,10 +24139,10 @@ function App() {
         onAdjustFontSize={delta => patchLivecodeCanvasNode(nodeElement.id, { typography: { fontSize: adjustLivecodeFontSize(node.typography.fontSize, delta) } }, { commitToHistory: true })}
         onRun={() => toggleLivecodeNodeRun(nodeElement.id, { command: "run" })}
         onToggleRun={() => toggleLivecodeNodeRun(nodeElement.id)}
-        onUpdate={node.kind === LIVECODE_KINDS.strudel
-          ? () => toggleLivecodeNodeRun(nodeElement.id, { command: "update" })
-          : undefined}
-        onStop={node.kind === LIVECODE_KINDS.strudel && node.runtime.running ? () => toggleLivecodeNodeRun(nodeElement.id) : undefined}
+        onUpdate={isLivecodeAutoUpdateEnabled(node)
+          ? undefined
+          : () => toggleLivecodeNodeRun(nodeElement.id, { command: "update" })}
+        onStop={node.runtime.running ? () => toggleLivecodeNodeRun(nodeElement.id) : undefined}
         onBlur={() => commitLivecodeCanvasNode(nodeElement.id)}
         onCycleView={node.kind === LIVECODE_KINDS.orca ? undefined : () => {
           const nextView = ({ preview: "source", source: "code", code: "split", split: "preview" }[node.view] || "source");
@@ -23879,7 +24161,7 @@ function App() {
           transport={{ playing: scorePlaying, bpm: scoreTempo }}
           message={livecodeStatus}
         />
-        : <p className={`p5-script-status ${p5RuntimeStatus?.kind || "info"}`} role="status" aria-live="polite">{p5RuntimeStatus?.message || livecodeStatus || definition.summary}</p>}
+        : <p className={`p5-script-status ${p5RuntimeStatus?.kind || "info"}`} role="status" aria-live="polite">{manualDraftPending ? "Draft changed · Cmd/Ctrl+Enter updates this node" : p5RuntimeStatus?.message || livecodeStatus || definition.summary}</p>}
     </div>;
   };
 
@@ -28362,15 +28644,14 @@ function App() {
                   <button 
                     type="button"
                     id="chat-send-btn" 
-                    className="underscores-collaboration-chat-send"
-                    onClick={() => sendChatMessage()} 
-                    disabled={isStreaming} 
-                    title="Send message"
-                    aria-label="Send message"
+                    className={`underscores-collaboration-chat-send${isStreaming ? " is-streaming" : ""}`}
+                    onClick={() => isStreaming ? stopAiGeneration() : sendChatMessage()}
+                    title={isStreaming ? "Stop generating" : "Send message"}
+                    aria-label={isStreaming ? "Stop generating" : "Send message"}
                   >
-                    <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                    </svg>
+                    {isStreaming
+                      ? <svg width="14" height="14" fill="none" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1" fill="currentColor" stroke="none" /></svg>
+                      : <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>}
                   </button>
                 </div>
               </div>
@@ -28781,9 +29062,10 @@ function App() {
               onAddElementIds={addPlaylistElementIds}
               onRemove={removePlaylistItem}
               onPatchItem={patchPlaylistItem}
+              onPickTarget={pickPlaylistTriggerTarget}
               onMove={movePlaylistRow}
               onSelect={index => selectPlaylistIndex(index)}
-              onActivate={index => selectPlaylistIndex(index, { frame: true })}
+              onActivate={index => activatePlaylistIndex(index, { frame: true })}
               onRenameElement={renameSceneElement}
               timeContext={timeContext}
               onPlay={startPlaylist}
