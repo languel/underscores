@@ -4222,6 +4222,24 @@ body .excalidraw .sidebar {
   pointer-events: none;
 }
 
+.underscores-tixy-frame,
+.underscores-tixy-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.underscores-tixy-frame {
+  position: relative;
+  overflow: hidden;
+  background: var(--underscores-panel-bg, #101010);
+}
+
+.underscores-tixy-canvas {
+  pointer-events: auto;
+  touch-action: none;
+}
+
 .underscores-code-editor[data-script-type="strudel"] .cm-content {
   padding-bottom: 20px;
 }

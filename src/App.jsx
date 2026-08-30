@@ -4616,7 +4616,7 @@ function App() {
       const detail = event.detail || {};
       const reportRuntimeErrorToConsole = () => {
         if (detail.kind !== "error" || !detail.elementId) return;
-        const message = String(detail.message || "p5 runtime error");
+        const message = String(detail.message || `${detail.runtime || "p5"} runtime error`);
         const signature = `error:${message}`;
         if (p5RuntimeConsoleSignaturesRef.current.get(detail.elementId) === signature) return;
         p5RuntimeConsoleSignaturesRef.current.set(detail.elementId, signature);
@@ -4646,7 +4646,11 @@ function App() {
       setP5ScriptStatusKind(detail.kind === "error" ? "error" : detail.kind === "success" ? "success" : "info");
     };
     window.addEventListener("underscores:p5-status", receiveP5Status);
-    return () => window.removeEventListener("underscores:p5-status", receiveP5Status);
+    window.addEventListener("underscores:tixy-status", receiveP5Status);
+    return () => {
+      window.removeEventListener("underscores:p5-status", receiveP5Status);
+      window.removeEventListener("underscores:tixy-status", receiveP5Status);
+    };
   }, [activeP5ScriptId]);
 
   // The trust warning is introductory copy, not a second persistent status.
@@ -14314,7 +14318,7 @@ function App() {
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
-    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|manim|playcore|markdown|latex|html|orca|shader?", example: "kind-specific example id?", name: "string?", width: "number?", height: "number?", source: "string?", parameters: "object?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", view: "preview|source|code|split?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Manim nodes accept authored manim-web JavaScript with top-level await and receive scene, cue(), MANIM, and the shared __ bridge; choose transportMode free for an immediately self-running animation or linked for score-controlled playback. Shader nodes accept hello, minimal, rainbow, shadow, fluid, or stokes examples. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "manim", name: "Animated geometric proof", width: 640, height: 420, transportMode: "free", view: "preview", running: true, source: "const circle = new Circle({ radius: 1.5 });\nawait scene.play(new Create(circle));" } }, action: (_api, args) => createLivecodeCanvasNode(args) },
+    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "/code", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|manim|playcore|markdown|latex|html|orca|shader|tixy?", example: "kind-specific example id?", name: "string?", width: "number?", height: "number?", source: "string?", parameters: "object?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", view: "preview|source|code|split?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Manim nodes accept authored manim-web JavaScript with top-level await and receive scene, cue(), MANIM, and the shared __ bridge; choose transportMode free for an immediately self-running animation or linked for score-controlled playback. Shader nodes accept hello, minimal, rainbow, shadow, fluid, or stokes examples. Tixy nodes accept a compact (t, i, x, y) JavaScript expression and render a transport-synchronized 16×16 dot grid by default; optional @param gridSize, gridWidth, gridHeight, color1, and color0 declarations customize the dimensions and palettes. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "manim", name: "Animated geometric proof", width: 640, height: 420, transportMode: "free", view: "preview", running: true, source: "const circle = new Circle({ radius: 1.5 });\nawait scene.play(new Create(circle));" } }, action: (_api, args) => createLivecodeCanvasNode(args) },
     { id: "livecode.node.create.strudel", name: "Create Strudel Livecode Node /live strudel", aliases: ["/live strudel"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel }) },
     { id: "livecode.node.create.p5", name: "Create p5 Livecode Node /live p5", aliases: ["/live p5"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.p5 }) },
     { id: "livecode.node.create.playcore", name: "Create Play Core Livecode Node /live playcore", aliases: ["/live playcore", "/live play"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.playcore }) },
@@ -14322,7 +14326,8 @@ function App() {
     { id: "livecode.node.create.latex", name: "Create LaTeX Livecode Node /live latex", aliases: ["/live latex", "/live tex"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.latex }) },
     { id: "livecode.node.create.html", name: "Create HTML Livecode Node /live html", aliases: ["/live html"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.html }) },
     { id: "livecode.node.create.orca", name: "Create Orca Livecode Node /live orca", aliases: ["/live orca"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.orca }) },
-    { id: "livecode.node.update", name: "Update Livecode Node", category: "Livecode", args: { elementId: "string?", kind: "strudel|p5|manim|playcore|markdown|latex|html|orca|shader?", name: "string?", source: "string?", parameters: "object?", view: "preview|source|code|split?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", runtimeSettings: "object?" }, ai: { expose: true, description: "Explain, replace, or adjust an existing code-capable canvas object. Uses elementId from the active scene; when omitted, updates the selected Livecode, legacy p5, or Play Core host. Legacy hosts are migrated in place so the edit stays on the selected object. Source is stored as authored text and must be a valid JSON string in the command payload. To expose an @param, put the // @param declaration in source and read it as __.params.name; parameters only overrides an already-declared value. Manim source may use top-level await with scene, cue(), MANIM, and __. This does not execute arbitrary code outside the node runtime.", example: { elementId: "livecode-host", source: "const square = new Square({ sideLength: 2 });\\nawait scene.play(new Create(square));", view: "code" } }, action: (_api, args) => updateAILivecodeNode(args) },
+    { id: "livecode.node.create.tixy", name: "Create Tixy Livecode Node /live tixy", aliases: ["/live tixy", "/tixy"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.tixy, example: "waves" }) },
+    { id: "livecode.node.update", name: "Update Livecode Node", category: "Livecode", args: { elementId: "string?", kind: "strudel|p5|manim|playcore|markdown|latex|html|orca|shader|tixy?", name: "string?", source: "string?", parameters: "object?", view: "preview|source|code|split?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", runtimeSettings: "object?" }, ai: { expose: true, description: "Explain, replace, or adjust an existing code-capable canvas object. Uses elementId from the active scene; when omitted, updates the selected Livecode, legacy p5, or Play Core host. Legacy hosts are migrated in place so the edit stays on the selected object. Source is stored as authored text and must be a valid JSON string in the command payload. To expose an @param, put the // @param declaration in source and read it as __.params.name; parameters only overrides an already-declared value. Manim source may use top-level await with scene, cue(), MANIM, and __. Tixy source uses the compact (t, i, x, y) expression contract. This does not execute arbitrary code outside the node runtime.", example: { elementId: "livecode-host", source: "const square = new Square({ sideLength: 2 });\\nawait scene.play(new Create(square));", view: "code" } }, action: (_api, args) => updateAILivecodeNode(args) },
     { id: "livecode.node.create.shader", name: "Create Hello GLSL Livecode Node /live shader", aliases: ["/live shader", "/live glsl", "/shader", "/shader hello"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "hello" }) },
     { id: "livecode.node.create.shader.minimal", name: "Create Minimal Twigl Shader /shader minimal", aliases: ["/shader minimal", "/live shader minimal", "/shader shadertoy", "/shader twigl"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "minimal-raymarch" }) },
     { id: "livecode.node.create.shader.rainbow", name: "Create Rainbow Shader /shader rainbow", aliases: ["/shader rainbow", "/live shader rainbow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "rainbow" }) },
@@ -18595,16 +18600,21 @@ function App() {
     const shaderExample = kind === LIVECODE_KINDS.shader && args.example
       ? getShaderExample(args.example)
       : null;
+    const tixyExample = kind === LIVECODE_KINDS.tixy && args.example
+      ? getLivecodeExamples(kind).find(example => example.id === args.example)
+      : null;
+    const starterExample = shaderExample || tixyExample;
     const shaderDefaults = Boolean(shaderExample);
+    const tixyDefaults = Boolean(tixyExample);
     const node = createLivecodeNode({
       kind,
-      name: args.name || (shaderExample ? copyLivecodeExampleName(shaderExample.name) : randomLivecodeName(kind)),
-      source: typeof args.source === "string" ? args.source : shaderExample?.source || undefined,
+      name: args.name || (starterExample ? copyLivecodeExampleName(starterExample.name) : randomLivecodeName(kind)),
+      source: typeof args.source === "string" ? args.source : starterExample?.source || undefined,
       parameters: args.parameters,
       runtime: {
-        running: typeof args.running === "boolean" ? args.running : shaderDefaults,
+        running: typeof args.running === "boolean" ? args.running : (shaderDefaults || tixyDefaults),
         enabled: args.enabled !== false,
-        transportMode: args.transportMode || (shaderDefaults ? "free" : undefined),
+        transportMode: args.transportMode || (shaderDefaults || tixyDefaults ? "free" : undefined),
         settings: shaderExample ? {
           shaderExample: shaderExample.id,
           shaderMode: shaderExample.mode,
@@ -18616,7 +18626,7 @@ function App() {
           emitterSource: "scene",
         } : undefined,
       },
-      view: args.view || (shaderDefaults ? "preview" : undefined),
+      view: args.view || (shaderDefaults || tixyDefaults ? "preview" : undefined),
       typography: args.typography,
     });
     const width = Math.max(120, Math.min(4096, Number(args.width) || (node.kind === LIVECODE_KINDS.orca ? 480 : 520)));
@@ -23971,7 +23981,7 @@ function App() {
         {node.kind === LIVECODE_KINDS.orca
           ? <label className="livecode-view-control">View <span className="livecode-static-option">Grid</span></label>
           : <label className="livecode-view-control">View <select value={node.view === "overlay" ? "code" : node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="preview">Output</option><option value="source">Code</option><option value="code">Code Overlay</option>{node.kind !== LIVECODE_KINDS.strudel && <option value="split">Code/Output</option>}</select></label>}
-        {[LIVECODE_KINDS.p5, LIVECODE_KINDS.playcore, LIVECODE_KINDS.shader, LIVECODE_KINDS.strudel].includes(node.kind) && <label title="Keep the most recent rendered canvas frame visible when this node is stopped. Readback happens only when stopping.">Last frame <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.keepLastFrame === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { keepLastFrame: event.target.checked } } }, { commitToHistory: true })} />Keep</span></label>}
+        {[LIVECODE_KINDS.p5, LIVECODE_KINDS.playcore, LIVECODE_KINDS.shader, LIVECODE_KINDS.strudel, LIVECODE_KINDS.tixy].includes(node.kind) && <label title="Keep the most recent rendered canvas frame visible when this node is stopped. Readback happens only when stopping.">Last frame <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.keepLastFrame === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { keepLastFrame: event.target.checked } } }, { commitToHistory: true })} />Keep</span></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Choose the native compact Orca cell spacing or fill the host frame">Spacing <select value={node.runtime.settings?.orcaDensity === "spacious" ? "spacious" : "compact"} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaDensity: event.target.value } } }, { commitToHistory: true })}><option value="compact">Compact</option><option value="spacious">Spacious</option></select></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Number of editable Orca columns">Grid width <NumericInput min="4" max="128" step="1" value={node.runtime.settings?.orcaGridWidth || 32} defaultValue={32} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridWidth: value } } }, { commitToHistory: true })} /></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Number of editable Orca rows">Grid height <NumericInput min="2" max="128" step="1" value={node.runtime.settings?.orcaGridHeight || 16} defaultValue={16} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridHeight: value } } }, { commitToHistory: true })} /></label>}

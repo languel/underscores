@@ -13,15 +13,20 @@ test("p5, Play Core, and shader nodes resolve through the native adapter registr
   const p5 = createLivecodeNode({ kind: LIVECODE_KINDS.p5, source: "function setup() {}", runtime: { running: true } });
   const play = createLivecodeNode({ kind: LIVECODE_KINDS.playcore, source: "export function main() { return '.'; }", runtime: { running: true } });
   const shader = createLivecodeNode({ kind: LIVECODE_KINDS.shader, source: "#version 300 es\nvoid main() {}", runtime: { running: true } });
+  const tixy = createLivecodeNode({ kind: LIVECODE_KINDS.tixy, source: "sin(t + x)", runtime: { running: true } });
   assert.equal(hasNativeLivecodeRuntime(p5), true);
   assert.equal(hasNativeLivecodeRuntime(play), true);
   assert.equal(hasNativeLivecodeRuntime(shader), true);
+  assert.equal(hasNativeLivecodeRuntime(tixy), true);
   assert.equal(isLivecodeNodeRunnable(p5), true);
   assert.equal(isLivecodeNodeRunnable(play), true);
   assert.equal(isLivecodeNodeRunnable(shader), true);
+  assert.equal(isLivecodeNodeRunnable(tixy), true);
   assert.equal(getLivecodeP5SourceMode(p5), "global");
   assert.equal(getLivecodeRuntimeConfig(play).source, play.source);
   assert.equal(getLivecodeRuntimeConfig(shader).source, shader.source);
+  assert.equal(getLivecodeRuntimeConfig(tixy).source, tixy.source);
+  assert.equal(getLivecodeRuntimeConfig(tixy).fps, 60);
 });
 
 test("p5 livecode uses the authored mode setting and display-density backing store by default", () => {
@@ -73,9 +78,11 @@ test("adapter validation retains a bad draft without declaring it runnable", () 
   const invalidP5 = createLivecodeNode({ kind: LIVECODE_KINDS.p5, source: "function {", runtime: { running: true } });
   const invalidPlay = createLivecodeNode({ kind: LIVECODE_KINDS.playcore, source: "export function main( {", runtime: { running: true } });
   const invalidShader = createLivecodeNode({ kind: LIVECODE_KINDS.shader, source: "precision highp float;", runtime: { running: true } });
+  const invalidTixy = createLivecodeNode({ kind: LIVECODE_KINDS.tixy, source: "(t, i, x, y) =>", runtime: { running: true } });
   assert.equal(validateLivecodeNode(invalidP5).valid, false);
   assert.equal(validateLivecodeNode(invalidPlay).valid, false);
   assert.equal(validateLivecodeNode(invalidShader).valid, false);
+  assert.equal(validateLivecodeNode(invalidTixy).valid, false);
 });
 
 test("shader adapter accepts a compact Shadertoy body when the dialect is selected", () => {

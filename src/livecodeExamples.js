@@ -33,6 +33,7 @@ export const LIVECODE_TEMPLATES = Object.freeze({
   [LIVECODE_KINDS.html]: `<!doctype html>\n<main>\n  <h1>HTML starter</h1>\n  <p>Edit this isolated document.</p>\n</main>`,
   [LIVECODE_KINDS.orca]: defaultLivecodeSource(LIVECODE_KINDS.orca),
   [LIVECODE_KINDS.shader]: defaultLivecodeSource(LIVECODE_KINDS.shader),
+  [LIVECODE_KINDS.tixy]: defaultLivecodeSource(LIVECODE_KINDS.tixy),
 });
 
 const p5Examples = Object.freeze([
@@ -146,6 +147,33 @@ const orcaExamples = Object.freeze([
   },
 ]);
 
+const tixyExamples = Object.freeze([
+  {
+    id: "waves",
+    label: "Basics · Waves",
+    name: "Waves",
+    source: defaultLivecodeSource(LIVECODE_KINDS.tixy),
+  },
+  {
+    id: "ripple",
+    label: "Motion · Ripple",
+    name: "Ripple",
+    source: "sin(t * 2 - sqrt((x - 7.5) ** 2 + (y - 7.5) ** 2))",
+  },
+  {
+    id: "checkerboard",
+    label: "Logic · Checkerboard",
+    name: "Checkerboard",
+    source: "(x + y + floor(t * 0.01 * 2)) % 2 ? 1 : 0",
+  },
+  {
+    id: "orbit",
+    label: "Math · Orbit",
+    name: "Orbit",
+    source: "sin(t * 3 + atan2(y - 7.5, x - 7.5) * 4) * (1 - min(1, sqrt((x - 7.5) ** 2 + (y - 7.5) ** 2) / 8))",
+  },
+]);
+
 // A small, local Strudel library: the first entries teach one idea at a time,
 // while the final theme demonstrates several voices, effects, and a frame
 // visualizer in one editable node. Keep the source self-contained so examples
@@ -222,5 +250,6 @@ export const getLivecodeExamples = kind => {
   if (kind === LIVECODE_KINDS.strudel) return strudelExamples;
   if (kind === LIVECODE_KINDS.orca) return orcaExamples;
   if (kind === LIVECODE_KINDS.shader) return SHADER_EXAMPLES.map(example => ({ id: example.id, label: example.label, name: example.name, source: example.source, mode: example.mode, dialect: example.dialect }));
+  if (kind === LIVECODE_KINDS.tixy) return tixyExamples;
   return [];
 };

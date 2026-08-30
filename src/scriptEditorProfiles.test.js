@@ -11,7 +11,7 @@ import {
 import { getIannixCommandAtSourcePosition } from "./iannixCommandReference.js";
 
 test("every script adapter has one editor language profile", () => {
-  assert.deepEqual(Object.keys(SCRIPT_EDITOR_PROFILES), ["brush", "iannix", "p5", "play", "livecode", "strudel", "markdown", "latex", "orca", "shader", "html", "svg"]);
+  assert.deepEqual(Object.keys(SCRIPT_EDITOR_PROFILES), ["brush", "iannix", "p5", "play", "livecode", "strudel", "markdown", "latex", "orca", "shader", "tixy", "html", "svg"]);
   assert.equal(getScriptEditorProfile("brush").language, "javascript");
   assert.equal(getScriptEditorProfile("iannix").language, "javascript");
   assert.equal(getScriptEditorProfile("p5").language, "javascript");
@@ -36,6 +36,7 @@ test("script editor profiles expose runtime-aware completions", () => {
   assert.ok(getScriptEditorCompletions("shader").some(item => item.label === "FC"));
   assert.ok(getScriptEditorCompletions("shader").some(item => item.label === "backbuffer"));
   assert.ok(getScriptEditorCompletions("shader").some(item => item.label === "hsv"));
+  assert.ok(getScriptEditorCompletions("tixy").some(item => item.label === "x"));
   assert.ok(getScriptEditorCompletions("svg").some(item => item.label === "viewBox"));
 });
 

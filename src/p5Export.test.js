@@ -176,7 +176,7 @@ test("p5 canvas pixels are composited with their frame transform", () => {
   ]);
 });
 
-test("shader and Strudel livecode canvases are composited only when requested", async () => {
+test("shader, Strudel, and Tixy livecode canvases are composited only when requested", async () => {
   const operations = [];
   const context = {
     save: () => operations.push("save"),
@@ -187,15 +187,16 @@ test("shader and Strudel livecode canvases are composited only when requested", 
   };
   const shader = { id: "shader", x: 0, y: 0, width: 100, height: 50, angle: 0, customData: { underscoresLivecode: { kind: "shader" } } };
   const strudel = { id: "strudel", x: 110, y: 0, width: 100, height: 50, angle: 0, customData: { underscoresLivecode: { kind: "strudel" } } };
-  const sources = { shader: { width: 40, height: 20 }, strudel: { width: 60, height: 30 } };
+  const tixy = { id: "tixy", x: 0, y: 60, width: 100, height: 50, angle: 0, customData: { underscoresLivecode: { kind: "tixy" } } };
+  const sources = { shader: { width: 40, height: 20 }, strudel: { width: 60, height: 30 }, tixy: { width: 80, height: 40 } };
   const captured = await drawLivecodeCanvasesOnCanvas({
     canvas: { width: 200, height: 50, getContext: () => context },
-    elements: [shader, strudel],
-    bounds: { minX: 0, maxX: 210, minY: 0, maxY: 50 },
+    elements: [shader, strudel, tixy],
+    bounds: { minX: 0, maxX: 210, minY: 0, maxY: 110 },
     capture: id => sources[id],
   });
-  assert.equal(captured, 2);
-  assert.deepEqual(operations.filter(operation => operation[0] === "drawImage").map(operation => operation[1]), [sources.shader, sources.strudel]);
+  assert.equal(captured, 3);
+  assert.deepEqual(operations.filter(operation => operation[0] === "drawImage").map(operation => operation[1]), [sources.shader, sources.strudel, sources.tixy]);
 });
 
 test("p5 PNG export forwards the requested background mode", async () => {

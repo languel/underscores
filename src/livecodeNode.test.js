@@ -261,6 +261,7 @@ test("detects scene nodes and maps their source to established CodeMirror profil
   assert.equal(getLivecodeEditorProfile({ kind: "html" }), "html");
   assert.equal(getLivecodeEditorProfile({ kind: "orca" }), "orca");
   assert.equal(getLivecodeEditorProfile({ kind: "shader" }), "shader");
+  assert.equal(getLivecodeEditorProfile({ kind: "tixy" }), "tixy");
   assert.match(getLivecodeFont("mono").family, /Fira Mono/);
   assert.match(getLivecodeFont("sans").family, /Inter/);
   assert.match(getLivecodeFont("monaspace-neon").family, /Monaspace Neon/);
@@ -272,4 +273,9 @@ test("detects scene nodes and maps their source to established CodeMirror profil
 test("shader nodes expose the editable Hello GLSL starter without injecting it into blank generic nodes", () => {
   assert.equal(defaultLivecodeSource(LIVECODE_KINDS.shader), HELLO_GLSL_FRAGMENT_SOURCE);
   assert.equal(createLivecodeNode({ kind: LIVECODE_KINDS.shader }).source, "");
+});
+
+test("Tixy nodes expose the compact expression starter", () => {
+  assert.match(defaultLivecodeSource(LIVECODE_KINDS.tixy), /sin\(t/);
+  assert.equal(createLivecodeNode({ kind: LIVECODE_KINDS.tixy }).source, "");
 });

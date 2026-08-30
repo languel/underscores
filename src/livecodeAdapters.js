@@ -4,6 +4,7 @@ import { normalizeManimFrame, validateManimSource } from "./manimFrame.js";
 import { LIVECODE_KINDS, normalizeLivecodeNode } from "./livecodeNode.js";
 import { normalizeLivecodeComposition, resolveP5Transparency } from "./livecodeComposition.js";
 import { validateShaderSource } from "./shaderLivecode.js";
+import { validateTixySource } from "./tixyRuntime.js";
 
 // The registry is deliberately declarative.  A node's model never contains a
 // renderer instance: adapters receive its canonical source/configuration and
@@ -108,6 +109,21 @@ export const LIVECODE_ADAPTERS = Object.freeze({
     validate: validateShaderSource,
     makeRuntimeConfig: rawNode => normalizeLivecodeNode(rawNode),
   }),
+  [LIVECODE_KINDS.tixy]: Object.freeze({
+    id: LIVECODE_KINDS.tixy,
+    runtime: "tixy",
+    validate: validateTixySource,
+    makeRuntimeConfig: rawNode => {
+      const node = normalizeLivecodeNode(rawNode);
+      return {
+        source: node.source,
+        parameters: node.parameters,
+        fps: Math.max(1, Math.min(240, Number(node.runtime.settings?.fps) || 60)),
+        allowInteraction: node.runtime.settings?.allowInteraction !== false,
+        reloadNonce: node.revision,
+      };
+    },
+  }),
 });
 
 export const getLivecodeAdapter = rawNode => (
@@ -126,7 +142,7 @@ export const getLivecodeRuntimeConfig = rawNode => {
 
 export const hasNativeLivecodeRuntime = rawNode => {
   const runtime = getLivecodeAdapter(rawNode).runtime;
-  return runtime === "p5" || runtime === "manim" || runtime === "playcore" || runtime === "strudel" || runtime === "orca" || runtime === "shader";
+  return runtime === "p5" || runtime === "manim" || runtime === "playcore" || runtime === "strudel" || runtime === "orca" || runtime === "shader" || runtime === "tixy";
 };
 
 export const isLivecodeNodeRunnable = rawNode => {
@@ -142,6 +158,7 @@ export const describeLivecodeRuntime = rawNode => {
   if (adapter.runtime === "strudel") return "Shared native Strudel scheduler";
   if (adapter.runtime === "orca") return "Native Orca grid and Underscores MIDI routing";
   if (adapter.runtime === "shader") return "GLSL ES 3.00 on WebGL 2";
+  if (adapter.runtime === "tixy") return "Tixy configurable JavaScript expression grid (16×16 default)";
   if (adapter.runtime === "presentation") return "Local presentation renderer";
   return "Native runtime arrives in a later phase.";
 };

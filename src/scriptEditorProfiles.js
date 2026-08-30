@@ -152,6 +152,24 @@ const SHADER_COMPLETIONS = Object.freeze([
   completion("fsnoiseDigits", "Twigl compact digit-noise helper", "function", 55),
 ]);
 
+const TIXY_COMPLETIONS = Object.freeze([
+  completion("tixy expression", "sin(t + x / 4) * cos(t + y / 4)", "snippet", 90),
+  completion("t", "Tixy time in seconds (linked or free transport)", "variable", 90),
+  completion("i", "Linear cell index for the current grid", "variable", 90),
+  completion("x", "Cell column (0 to grid width - 1)", "variable", 90),
+  completion("y", "Cell row (0 to grid height - 1)", "variable", 90),
+  completion("__", "Underscores livecode bridge", "variable", 80),
+  completion("__.transport", "Shared score transport state", "variable", 80),
+  completion("__.params", "Declared Livecode parameters", "variable", 80),
+  completion("__.pointer", "Normalized pointer position and button state", "variable", 80),
+  completion("gridSize", "Optional // @param gridSize; sets a square grid (default 16)", "parameter", 75),
+  completion("gridWidth", "Optional // @param gridWidth; overrides the grid width", "parameter", 75),
+  completion("gridHeight", "Optional // @param gridHeight; overrides the grid height", "parameter", 75),
+  completion("color1", "Optional // @param color1; color for positive / one values", "parameter", 75),
+  completion("color0", "Optional // @param color0; color for negative / zero values", "parameter", 75),
+  ...["sin", "cos", "tan", "abs", "sqrt", "min", "max", "floor", "round", "PI"].map(label => completion(label, "Math function available without Math.", "function", 70)),
+]);
+
 export const SCRIPT_EDITOR_PROFILES = Object.freeze({
   brush: Object.freeze({
     id: "brush",
@@ -181,6 +199,7 @@ export const SCRIPT_EDITOR_PROFILES = Object.freeze({
   latex: Object.freeze({ id: "latex", language: "plain", label: "LaTeX", completions: [] }),
   orca: Object.freeze({ id: "orca", language: "plain", label: "Orca grid", completions: ORCA_COMPLETIONS }),
   shader: Object.freeze({ id: "shader", language: "plain", label: "GLSL fragment shader", completions: SHADER_COMPLETIONS }),
+  tixy: Object.freeze({ id: "tixy", language: "javascript", label: "Tixy JavaScript expression", completions: TIXY_COMPLETIONS }),
   html: Object.freeze({ id: "html", language: "html", label: "HTML", completions: SVG_COMPLETIONS }),
   svg: Object.freeze({
     id: "svg",

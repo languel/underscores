@@ -10,6 +10,7 @@ import { parseScriptParameters } from "./scriptParameters.js";
 import LivecodePresentation from "./LivecodePresentation.jsx";
 import OrcaNode from "./OrcaNode.jsx";
 import ShaderLivecodeFrame from "./ShaderLivecodeFrame.jsx";
+import TixyFrame from "./TixyFrame.jsx";
 import { normalizeShaderCompositionSettings } from "./shaderLivecode.js";
 import { validateP5Source } from "./p5Frame.js";
 import { validateManimSource } from "./manimFrame.js";
@@ -336,7 +337,20 @@ export function StrudelPanelStatus({ nodeId, node, transport, message = "" }) {
 }
 
 function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef, transport }) {
-  const config = useMemo(() => getLivecodeRuntimeConfig(node), [node]);
+  // `node` is normalized afresh whenever the overlay renders (including
+  // transport ticks and selection changes).  Memoizing on its object identity
+  // would therefore rebuild the runtime config and tear down a renderer even
+  // when the authored source is unchanged.  Keep the config identity tied to
+  // the authored inputs instead so animation clocks and subscriptions survive
+  // ordinary UI interaction.
+  const parameterKey = JSON.stringify(node.parameters || {});
+  const settingsKey = JSON.stringify(node.runtime.settings || {});
+  const configKey = `${node.kind}\u0000${node.revision}\u0000${node.source}\u0000${parameterKey}\u0000${settingsKey}`;
+  const configRef = useRef(null);
+  if (configRef.current?.key !== configKey) {
+    configRef.current = { key: configKey, value: getLivecodeRuntimeConfig(node) };
+  }
+  const config = configRef.current.value;
   const validation = validateLivecodeNode(node);
   const [lastWorkingConfig, setLastWorkingConfig] = useState(() => validation.valid ? config : null);
   useEffect(() => {
@@ -351,6 +365,7 @@ function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef, transport }
     {node.kind === "manim" ? <ManimFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
     {node.kind === "playcore" ? <PlayCoreFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
     {node.kind === "shader" ? <ShaderLivecodeFrame element={element} node={node} transport={transport} scriptRuntimeRef={scriptRuntimeRef} /> : null}
+    {node.kind === "tixy" ? <TixyFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
   </div>;
 }
 

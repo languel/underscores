@@ -1,5 +1,6 @@
 import { HELLO_GLSL_FRAGMENT_SOURCE } from "./shaderLivecode.js";
 import { createEmptyOrcaSource } from "./orcaEngine.js";
+import { TIXY_DEFAULT_SOURCE } from "./tixyRuntime.js";
 
 // Canonical, scene-persisted representation for a Livecode Node.  The
 // Excalidraw rectangle that carries this data is intentionally transparent:
@@ -18,6 +19,7 @@ export const LIVECODE_KINDS = Object.freeze({
   html: "html",
   orca: "orca",
   shader: "shader",
+  tixy: "tixy",
 });
 
 export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
@@ -83,6 +85,13 @@ export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
     defaultName: "Hello GLSL",
     defaultSource: HELLO_GLSL_FRAGMENT_SOURCE,
     summary: "Editable GLSL ES 3.00 fragment shader rendered into the node with WebGL 2.",
+  }),
+  [LIVECODE_KINDS.tixy]: Object.freeze({
+    label: "Tixy",
+    editorProfile: "tixy",
+    defaultName: "Untitled Tixy",
+    defaultSource: TIXY_DEFAULT_SOURCE,
+    summary: "Tiny configurable `(t, i, x, y) => value` creative coding grid synchronized to the shared transport (16×16 by default).",
   }),
 });
 

@@ -116,8 +116,9 @@ const liveObject = (reference, canvas) => {
   });
 };
 
-export const resolveScriptParameterValues = (parameters, runtimeRef, canvas = createScriptCanvasApi(runtimeRef)) => {
-  const appearance = runtimeRef?.current?.getAppearance?.() || {};
+export const resolveScriptParameterValues = (parameters, runtimeRef, canvas = createScriptCanvasApi(runtimeRef), options = {}) => {
+  const readAppearance = () => options.getAppearance?.() || runtimeRef?.current?.getAppearance?.() || {};
+  const appearance = readAppearance();
   const colorParameters = new Map();
   const values = Object.fromEntries((parameters || []).map(parameter => [
     parameter.name,
@@ -135,7 +136,7 @@ export const resolveScriptParameterValues = (parameters, runtimeRef, canvas = cr
     get(target, property, receiver) {
       const parameter = colorParameters.get(property);
       if (!parameter) return Reflect.get(target, property, receiver);
-      const liveAppearance = runtimeRef?.current?.getAppearance?.() || appearance;
+      const liveAppearance = readAppearance() || appearance;
       return resolveScriptColorReference(normalizeScriptParameterValue(parameter, parameter.value), liveAppearance);
     },
   });

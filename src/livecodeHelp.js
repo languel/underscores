@@ -2,7 +2,7 @@ import { LIVECODE_KINDS, normalizeLivecodeKind } from "./livecodeNode.js";
 
 export const getLivecodeBridgeHelp = kind => {
   const normalizedKind = normalizeLivecodeKind(kind);
-  const trusted = [LIVECODE_KINDS.p5, LIVECODE_KINDS.manim, LIVECODE_KINDS.playcore, LIVECODE_KINDS.strudel].includes(normalizedKind);
+  const trusted = [LIVECODE_KINDS.p5, LIVECODE_KINDS.manim, LIVECODE_KINDS.playcore, LIVECODE_KINDS.strudel, LIVECODE_KINDS.tixy].includes(normalizedKind);
   const details = {
     [LIVECODE_KINDS.p5]: "p5 receives __ as its live frame bridge. Use __.element for the host size, __.params for @param values, and __.canvas / __.events / __.transport for scene queries, events, and score time.",
     [LIVECODE_KINDS.manim]: "Manim receives __ beside scene and cue(). Use __.params for authored controls, __.canvas / __.events for score context, __.transport for linked timing, and __.currentColor / __.colors for canvas-aware styling.",
@@ -13,6 +13,7 @@ export const getLivecodeBridgeHelp = kind => {
     [LIVECODE_KINDS.latex]: "LaTeX is a deterministic typesetting renderer; it does not execute JavaScript and has no __ bridge. Use TeX math delimiters and the Output/Code view modes.",
     [LIVECODE_KINDS.orca]: "Orca is a focused grid language rather than JavaScript, so __ is not available. Use its operators and the native MIDI/CC/pitch-bend routing instead.",
     [LIVECODE_KINDS.shader]: "GLSL runs on the GPU and has no JavaScript __ bridge. Use the documented uniforms such as u_resolution, u_time, u_pointer, u_currentColor, and u_segments; Minimal / Twigl / Shadertoy mode also provides iResolution, iTime, iMouse, FC, r, t, and o.",
+    [LIVECODE_KINDS.tixy]: "Tixy evaluates one compact JavaScript expression as `(t, i, x, y) => value` over a 16×16 grid by default, with optional grid and palette @params. Use __.transport, __.pointer, __.params, __.events, and __.api for Underscores integration.",
   };
   return {
     title: "Underscores bridge (__)",
@@ -137,6 +138,19 @@ export const LIVECODE_HELP = Object.freeze({
       "While editing, Cmd/Ctrl+Shift+Enter cycles Output → Code → Code Overlay → Code/Output. Cmd/Ctrl+Enter runs, Ctrl+. or Alt+. stops, and Ctrl+M then L toggles line numbers. Clicking in the source only places the editor cursor.",
     ]),
     footer: "These ports preserve excalishader's four example ideas inside the editable Livecode model; the Fluid brush uses a compact ping-pong feedback pass.",
+  }),
+  [LIVECODE_KINDS.tixy]: Object.freeze({
+    title: "Tixy quick reference",
+    summary: "A tiny JavaScript expression animates a configurable dot grid (16×16 by default).",
+    points: Object.freeze([
+      "Write an expression such as sin(t + x / 4) * cos(t + y / 4). Tixy calls it for every cell with time t, linear index i, column x, and row y.",
+      "The original tixy.land function form also works: (t, i, x, y) => sin(t + x / 4). Function bodies with return are accepted for teaching longer experiments.",
+      "Add // @param gridSize = 16 (1..64, step: 1) for a square grid, or declare gridWidth and gridHeight separately for a rectangular grid. x, y, and i follow the resulting dimensions.",
+      "Add // @param color1 = __.currentColor (color) and // @param color0 = __.colors.accent.css (color) to customize the positive / one and negative / zero palettes. Values are clamped to -1..1 for stable dot radii.",
+      "Use __.transport for score time, __.pointer for normalized pointer state, __.params for // @param values, and __.events / __.api for the shared bridge.",
+      "Linked follows the score transport; Free runs its own clock. Playlist and livecode.node.run/stop commands target Tixy nodes the same way as p5 and shaders.",
+    ]),
+    footer: "Tixy keeps the original one-expression teaching model while making grid size, colors, clock, and bridge first-class in Underscores.",
   }),
 });
 
