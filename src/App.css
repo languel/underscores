@@ -9,7 +9,8 @@
   inset: 0;
   z-index: 10020;
   pointer-events: none;
-  color: var(--underscores-foreground, currentColor);
+  color: var(--underscores-foreground, var(--text-primary-color, #e7eaed));
+  color-scheme: inherit;
   font-family: var(--font-sans, sans-serif);
 }
 
@@ -59,6 +60,7 @@
   padding: 14px 16px 12px;
   border: 1px solid color-mix(in srgb, var(--underscores-foreground, #ddd) 18%, transparent);
   border-radius: 10px;
+  color: var(--underscores-foreground, var(--text-primary-color, #e7eaed));
   background: color-mix(in srgb, var(--underscores-panel-bg, #171717) 94%, transparent);
   box-shadow: 0 16px 44px rgba(0,0,0,.34), 0 0 24px color-mix(in srgb, var(--underscores-accent, #7aa2ff) 12%, transparent);
   backdrop-filter: blur(16px);
@@ -80,7 +82,7 @@
 .walkthrough-narration button {
   min-height: 28px;
   padding: 4px 9px;
-  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--underscores-foreground, #e7eaed) 20%, transparent);
   border-radius: 5px;
   background: transparent;
 }

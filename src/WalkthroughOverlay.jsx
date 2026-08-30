@@ -47,6 +47,9 @@ export default function WalkthroughOverlay({
   }, [snapshot?.stepIndex, snapshot?.walkthrough?.steps?.length]);
 
   if (!active || !step || typeof document === "undefined") return null;
+  // Keep the portal inside the themed shell so its CSS variables follow the
+  // active light/dark/custom appearance while remaining above every panel.
+  const portalTarget = document.querySelector(".underscores-shell") || document.body;
   return createPortal(
     <div className="walkthrough-overlay" aria-live="polite" data-walkthrough-status={snapshot.status}>
       <div
@@ -78,6 +81,6 @@ export default function WalkthroughOverlay({
         </footer>
       </section>
     </div>,
-    document.body,
+    portalTarget,
   );
 }
