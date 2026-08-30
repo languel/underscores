@@ -87,6 +87,10 @@ body, html {
 .underscores-shell {
   font-family: var(--font-sans);
   font-size: var(--underscores-interface-font-size, 10px);
+  /* Keep native controls (including option popups) aligned with the shell's
+     active theme. Individual controls can still opt into a more specific
+     scheme when they are embedded in another themed surface. */
+  color-scheme: light;
   --underscores-foreground: hsl(190, 5%, 32%);
   --underscores-muted: hsl(190, 5%, 46%);
   /* Quiet semantic text: useful for persistent status without competing with the canvas. */
@@ -118,6 +122,7 @@ body, html {
 }
 
 .underscores-shell.underscores-theme-dark {
+  color-scheme: dark;
   --underscores-foreground: hsl(190, 5%, 82%);
   --underscores-muted: hsl(190, 5%, 64%);
   --underscores-status-success: #8eaf98;
@@ -1349,6 +1354,21 @@ body .excalidraw .underscores-collaboration-chat-composer textarea {
   opacity: 0.4;
   transform: none;
   box-shadow: none;
+}
+
+.underscores-collaboration-chat-send.is-streaming {
+  background: var(--color-primary) !important;
+  color: var(--underscores-panel-bg, var(--bg-app, #111)) !important;
+  cursor: pointer;
+  opacity: 1;
+}
+
+.underscores-collaboration-chat-send.is-streaming:hover,
+.underscores-collaboration-chat-send.is-streaming:focus-visible {
+  background: var(--color-primary) !important;
+  color: var(--underscores-panel-bg, var(--bg-app, #111)) !important;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow);
 }
 
 .underscores-collaboration-chat-send svg {
@@ -3646,6 +3666,19 @@ body .excalidraw .sidebar {
   flex: 0 0 30px;
 }
 
+/* Script actions follow the app's flat control convention: state is carried by
+   the icon itself, while hover/focus can still provide a quiet surface cue. */
+.script-icon-toolbar .palette-action-btn {
+  border-color: transparent;
+  background: transparent;
+}
+
+.script-icon-toolbar .palette-action-btn:hover,
+.script-icon-toolbar .palette-action-btn:focus-visible {
+  border-color: transparent;
+  background: var(--bg-hover-btn);
+}
+
 .custom-brush-dock-btn-compact {
   background: transparent;
   border: none !important;
@@ -4279,7 +4312,8 @@ body .excalidraw .sidebar {
 
 .livecode-markdown,
 .livecode-latex,
-.livecode-html-frame {
+.livecode-html-frame,
+.livecode-svg {
   box-sizing: border-box;
   display: block;
   width: 100%;
@@ -4631,6 +4665,7 @@ body .excalidraw .sidebar {
 .livecode-node-split > .livecode-node-output > .livecode-markdown,
 .livecode-node-split > .livecode-node-output > .livecode-latex,
 .livecode-node-split > .livecode-node-output > .livecode-html-frame,
+.livecode-node-split > .livecode-node-output > .livecode-svg,
 .livecode-node-split > .livecode-node-output > .orca-node {
   position: relative;
   inset: auto;
@@ -4697,6 +4732,24 @@ body .excalidraw .sidebar {
 .livecode-node-chrome select {
   max-width: 84px;
   cursor: pointer;
+  /* Native select popups use the element's color scheme. Keep the compact
+     canvas chrome in sync with the active Underscores theme instead of
+     allowing the browser to fall back to its light menu palette. */
+  color-scheme: light;
+}
+
+.underscores-shell.underscores-theme-dark .livecode-node-chrome select {
+  color-scheme: dark;
+}
+
+.livecode-node-chrome select option {
+  background: var(--underscores-menu-bg, #fff);
+  color: var(--underscores-menu-text, var(--color-primary));
+}
+
+.underscores-shell.underscores-theme-dark .livecode-node-chrome select option {
+  background: var(--underscores-menu-bg, #232329);
+  color: var(--underscores-menu-text, var(--color-primary));
 }
 
 .livecode-node-control svg {
@@ -4710,6 +4763,76 @@ body .excalidraw .sidebar {
 
 .livecode-node-control.running {
   color: var(--underscores-highlight, var(--underscores-accent));
+}
+
+.livecode-auto-update-control.enabled,
+.livecode-auto-update-control[aria-pressed="false"],
+.livecode-clock-control.free,
+.livecode-clock-control.linked {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-primary) !important;
+}
+
+.livecode-clock-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.livecode-auto-update-control .livecode-toggle-icon,
+.livecode-clock-control .livecode-toggle-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The inspector toolbar has enough room for a clearer optical size than the
+   compact canvas chrome. Keep the same geometry, just make each state legible
+   at a glance beside play/pause. */
+.script-icon-toolbar .livecode-auto-update-control .livecode-toggle-icon,
+.script-icon-toolbar .livecode-clock-control .livecode-toggle-icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.9;
+}
+
+/* Linked time is intentionally a technical, quantized clock: keep its square
+ * face and the twelve subdivisions crisp rather than inheriting the rounded
+ * caps used by the more gestural livecode controls. */
+.livecode-clock-linked-icon {
+  shape-rendering: geometricPrecision;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+/* Reuse the timeline's transport glyph and its quiet technical weight for both
+ * clock modes. The linked face differs in meaning, not visual density. */
+.livecode-clock-control .livecode-clock-free-icon,
+.livecode-clock-control .livecode-clock-linked-icon {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.7;
+  stroke-linecap: butt;
+  stroke-linejoin: miter;
+}
+
+.livecode-auto-update-control .livecode-toggle-icon {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.7;
+}
+
+.script-icon-toolbar .livecode-clock-control .livecode-clock-free-icon,
+.script-icon-toolbar .livecode-clock-control .livecode-clock-linked-icon,
+.script-icon-toolbar .livecode-auto-update-control .livecode-toggle-icon {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.7;
 }
 
 .livecode-help {
@@ -8076,6 +8199,9 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .playlist-trigger { flex: 0 0 106px; min-width: 0; height: 22px; padding: 2px 4px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--color-secondary); font: inherit; font-size: var(--underscores-ui-font-size-small); }
 .playlist-trigger-source { min-width: 0; flex: 1 1 auto; height: 22px; box-sizing: border-box; padding: 2px 5px; border: 1px solid var(--border-color); border-radius: 3px; background: var(--input-bg-color, rgba(128,128,128,.08)); color: var(--color-primary); font: inherit; font-size: var(--underscores-ui-font-size-small); }
 .playlist-trigger-source::placeholder { color: var(--color-secondary); opacity: .8; }
+
+.livecode-svg { width: 100%; height: 100%; overflow: visible; color: var(--color-primary); }
+.livecode-svg > svg { display: block; width: 100%; height: 100%; overflow: visible; }
 
 .history-empty { padding: 20px 12px; color: var(--color-secondary); line-height: 1.4; text-align: center; }
 .history-empty.compact { padding: 8px; }

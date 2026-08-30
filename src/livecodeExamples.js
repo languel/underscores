@@ -34,6 +34,7 @@ export const LIVECODE_TEMPLATES = Object.freeze({
   [LIVECODE_KINDS.orca]: defaultLivecodeSource(LIVECODE_KINDS.orca),
   [LIVECODE_KINDS.shader]: defaultLivecodeSource(LIVECODE_KINDS.shader),
   [LIVECODE_KINDS.tixy]: defaultLivecodeSource(LIVECODE_KINDS.tixy),
+  [LIVECODE_KINDS.svg]: defaultLivecodeSource(LIVECODE_KINDS.svg),
 });
 
 const p5Examples = Object.freeze([

@@ -29,6 +29,14 @@ test("p5, Play Core, and shader nodes resolve through the native adapter registr
   assert.equal(getLivecodeRuntimeConfig(tixy).fps, 60);
 });
 
+test("SVG livecode uses the presentation adapter and validates complete SVG documents", () => {
+  const svg = createLivecodeNode({ kind: LIVECODE_KINDS.svg, source: '<svg xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="4" /></svg>' });
+  assert.equal(hasNativeLivecodeRuntime(svg), false);
+  assert.equal(isLivecodeNodeRunnable(svg), false);
+  assert.equal(validateLivecodeNode(svg).valid, true);
+  assert.equal(validateLivecodeNode(createLivecodeNode({ kind: LIVECODE_KINDS.svg, source: "<circle />" })).valid, false);
+});
+
 test("p5 livecode uses the authored mode setting and display-density backing store by default", () => {
   const node = createLivecodeNode({
     kind: LIVECODE_KINDS.p5,
@@ -72,6 +80,22 @@ test("p5 livecode exposes explicit shared composition settings without changing 
     evaluatedSource: '$: note("c3")',
     evaluationRevision: 0,
   });
+});
+
+test("manual-update runtimes expose the last evaluated source to adapters", () => {
+  const node = createLivecodeNode({
+    kind: LIVECODE_KINDS.p5,
+    source: "function draw() { circle(20, 20, 10); }",
+    runtime: {
+      running: true,
+      settings: {
+        autoUpdate: false,
+        evaluatedSource: "function draw() { background(0); }",
+        evaluationRevision: 3,
+      },
+    },
+  });
+  assert.equal(getLivecodeRuntimeConfig(node).source, node.runtime.settings.evaluatedSource);
 });
 
 test("adapter validation retains a bad draft without declaring it runnable", () => {

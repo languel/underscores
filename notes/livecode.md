@@ -1,6 +1,6 @@
 # Livecode canvas nodes
 
-Last updated: 2026-08-19
+Last updated: 2026-08-30
 
 ## What a node is
 
@@ -8,7 +8,7 @@ A **Livecode Node** is one transparent Excalidraw rectangle plus a minimal live 
 
 This avoids attaching a program to a separate host object. A node has one source document and can run alongside any number of other nodes. Its source and its `code`, `output`, or `code/output` view persist with the scene.
 
-Create a node from **New Livecode Node**, `/live`, the command palette, or `livecode.node.create`. `/live p5`, `/live playcore`, `/live markdown`, `/live latex`, `/live html`, `/live strudel`, `/live orca`, `/live shader`, and `/live tixy` select a kind immediately. Selecting a node always opens its source in the shared Script panel; clicking its code or pressing **Enter** enters the same source directly on the canvas. These are two views of one source document, never competing drafts, and neither interrupts a running runtime. The Script panel exposes Run/Stop, linked/free clock mode, typography, adapter settings such as Strudel's full-frame visualizer toggle, and any `@param` values declared in the source.
+Create a node from **New Livecode Node**, `/live`, the command palette, or `livecode.node.create`. `/live p5`, `/live playcore`, `/live markdown`, `/live latex`, `/live html`, `/live strudel`, `/live orca`, `/live shader`, `/live tixy`, and `/live svg` select a kind immediately. A new node starts with a blank source document unless an explicit example or source is supplied. Visual/document nodes start running on a free clock with Auto-update on; Strudel remains stopped, linked, and manually evaluated by default. Selecting a node always opens its source in the shared Script panel; clicking its code or pressing **Enter** enters the same source directly on the canvas. These are two views of one source document, never competing drafts, and neither interrupts a running runtime. The Script panel exposes Run/Stop, the compact linked/free clock toggle beside Auto-update, typography, adapter settings such as Strudel's full-frame visualizer toggle, and any `@param` values declared in the source.
 
 ## Scene schema
 
@@ -19,11 +19,11 @@ Create a node from **New Livecode Node**, `/live`, the command palette, or `live
 | `version`, `nodeId`, `revision` | Versioned, stable node identity and source revision. |
 | `kind`, `name`, `source` | Adapter id, readable name, and canonical source text. |
 | `parameters` | Persisted `@param` values. |
-| `runtime` | `enabled`, `running`, `transportMode` (`linked` or `free`), and adapter settings such as Strudel's default-on `frameVisuals`. |
+| `runtime` | `enabled`, `running`, `transportMode` (`linked` or `free`), and adapter settings such as default-on `keepLastFrame`, `autoUpdate`, and Strudel's default-on `frameVisuals`. Manual-update nodes also retain `evaluatedSource` and an `evaluationRevision` so drafts do not replace a running surface. |
 | `view` | Scene-persisted `code`, `preview` (output), or `split` (`code/output`) surface choice. Code is normally a live overlay; Markdown deliberately uses a raw-source-only Code view. |
 | `typography` | Font, size, line height, weight, tracking, line-number/fold-gutter toggles, overlay opacity, and glyph-only overlay preference. |
 
-Source is always owned by the node. The canvas editor and the Script panel use the same CodeMirror controller; a valid edit updates the runtime, while adapters that can compile preserve their last working output when a draft is invalid.
+Source is always owned by the node. The canvas editor and the Script panel use the same CodeMirror controller. Every kind has **Auto-update** and a compact clock toggle beside its run/pause control. Auto-update is on for visual/document nodes and off for Strudel: when on, valid edits compile immediately; when off, edits remain authored drafts until **Cmd/Ctrl+Enter** explicitly evaluates them. The clock toggle uses a stopwatch for Free and a square clock with twelve edge subdivisions for Linked; the timeline/transport tab uses the same square-clock symbol. The manual-update state uses a compact return corner with an upward chevron, while automatic updates use the circular-arrow-and-dot glyph. **Keep last frame** is on by default for canvas-rendered kinds and can be turned off when a stopped node should disappear. The last evaluated source stays live while a manual-update draft is being edited, and linked/free transport behavior is unchanged. Adapters that can compile preserve their last working output when either an auto-update draft or an explicitly evaluated replacement is invalid.
 
 ## Typography
 
@@ -35,7 +35,7 @@ The global CodeMirror palette still controls editor syntax colors and surfaces. 
 
 - **Code** shows the source document by itself. **Code Overlay** keeps the running output underneath the source, while **Output** shows the runtime without source glyphs. Strudel omits the redundant Code/Output split: its Output surface already combines the runtime with synchronized source decorations, and active highlighted ranges can reveal their text (for example, the current mini-notation frame). Press **Enter** on a selected node to enter the authored code view and focus its canvas editor. Markdown is the deliberate exception only in that its rendered document has block-aware editing.
 - **Output** shows the runtime only. Strudel is the exception: its source remains the canonical code document, while a read-only visual CodeMirror surface keeps synchronized event highlights, `markcss(...)` styles, and inline visualizer widgets alive after the static source glyphs are hidden. Active decorated ranges can reveal their text, so the current mini-notation frame can still dance in place without flashing the whole source document. This means Cmd/Ctrl-clicking a Strudel node into Output view preserves the visual performance without showing the code. Markdown Output is also its document editor: double-click a rendered block to edit that block's exact source, click another block to move the edit session, or click below the final block to append a paragraph. Blank lines and separators remain part of the canonical source. **Code/output** is the deliberate explicit split view for other Livecode kinds. Use **Cmd/Ctrl+Shift+Enter** while a node editor has focus to cycle these views; Orca is code/grid only because its code is its output.
-- **Cmd/Ctrl+Enter** runs the current node. When the pointer is over a canvas Livecode node, the same chord starts it without needing to focus the editor; **Cmd/Ctrl+.** stops that hovered node. **Ctrl+M, then L** is CodeMirror's line-number toggle. The panel also exposes line numbers and the folding gutter; both default off for canvas Livecode Nodes.
+- **Cmd/Ctrl+Enter** starts an auto-update node when it is stopped, or explicitly evaluates a manual-update draft (including Strudel) and starts it when needed. When the pointer is over a canvas Livecode node, the same chord starts it without needing to focus the editor; **Cmd/Ctrl+.** stops that hovered node. **Ctrl+M, then L** is CodeMirror's line-number toggle. The panel also exposes line numbers and the folding gutter; both default off for canvas Livecode Nodes.
 - **Cmd/Ctrl+Shift+=** and **Cmd/Ctrl+Shift+-** increase or decrease the focused Livecode editor's font size by one pixel, clamped to 8–72 px. The value is stored in that node's typography settings and is available in both the canvas editor and Script panel.
 - **Option/Alt+Shift+-** opens the compact contextual command field without dimming or blurring the canvas. The current canvas selection is passed as context; pressing Enter executes the command and Escape dismisses it. Common property changes use the direct scene API so they do not need an assistant round-trip: `clock free|linked|toggle` changes a Livecode node's clock or a media instance's transport link, `blend normal|screen|multiply|overlay|soft-light` changes shader/media composition, and the supported object fields include `opacity`, `volume`, `x`, `y`, `width`, `height`, `angle`, `stroke`, `background`, `stroke width`, `fill style`, `stroke style`, `roughness`, and `locked`. Media playback commands (`play`, `pause`, `loop`, `mute`, and `volume`) use the selected canvas instance. Open-ended requests, such as editing a shader, continue through the assistant with the selection preserved; with no selection the field behaves like a compact command prompt.
 - **Shift+Enter** inserts a newline in the contextual command field; Enter submits the command. This keeps multi-line requests available without opening the Chat panel.
@@ -90,7 +90,7 @@ node contract. DOM adapters keep their host background transparent and replace c
 `createGraphics()` remains an opt-in tool for layered or feedback work, not a requirement for
 ordinary transparent composition.
 
-Phase 1 is now implemented without changing existing defaults: `src/livecodeComposition.js`
+Phase 1 is now implemented with explicit per-node defaults: `src/livecodeComposition.js`
 normalizes the shared vocabulary, p5 Livecode Nodes expose **Background** and **Frame reset**
 controls, and p5 calls `clear()` once per frame only when `persistence` is explicitly `clear`.
 `auto` keeps authored/manual behavior, so existing p5 sketches do not gain a hidden per-frame

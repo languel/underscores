@@ -23,8 +23,12 @@ import {
   adjustLivecodeFontSize,
   isLivecodeCommandOutputGesture,
   LIVECODE_KIND_DEFINITIONS,
+  LIVECODE_KIND_ORDER,
   normalizeLivecodeNode,
   randomLivecodeName,
+  isLivecodeAutoUpdateEnabled,
+  resolveLivecodeRuntimeNode,
+  resolveLivecodeRuntimeSource,
   shouldRenderLivecodeNode,
 } from "./livecodeNode.js";
 import { infoProps } from "./uiInfo.js";
@@ -32,9 +36,24 @@ import { createScriptConsole } from "./scriptConsole.js";
 import { isPublicSafeBuild } from "./buildProfile.js";
 import { getLivecodeFrameSnapshot } from "./livecodeFrameSnapshot.js";
 import { registerLivecodeCapture } from "./livecodeCapture.js";
+import { SquareClockIcon, StopwatchIcon } from "./UnderscoresPanel.jsx";
 
 const StopIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1" /></svg>;
 const RunIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 9 6-9 6V6Z" /></svg>;
+
+const LivecodeAutoUpdateIcon = ({ enabled }) => enabled
+  ? <svg className="livecode-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M18.5 10.5A7 7 0 1 0 19 14" />
+    <path d="M19 6.5v4h-4" />
+    <circle cx="12" cy="13" r="1.75" fill="currentColor" stroke="none" />
+  </svg>
+  : <svg className="livecode-toggle-icon livecode-auto-update-manual-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <g transform="translate(0 1)">
+      <path d="M4.5 18h15V4.5" />
+      <path d="m7.25 15.25-2.75 2.75 2.75 2.75" />
+      <path d="m7 8.5 3-3 3 3" />
+    </g>
+  </svg>;
 
 const editorStyleFor = typography => {
   const font = getLivecodeFont(typography.font);
@@ -80,6 +99,7 @@ export function LivecodeNodeEditor({
   onDocumentationHover,
 }) {
   const node = useMemo(() => normalizeLivecodeNode(rawNode), [rawNode]);
+  const runtimeNode = resolveLivecodeRuntimeNode(node);
   const definition = getLivecodeKindDefinition(node.kind);
   if (isPublicSafeBuild && node.kind === "strudel") return <div
     className={`livecode-node-editor livecode-student-build-unavailable ${className}`.trim()}
@@ -94,14 +114,17 @@ export function LivecodeNodeEditor({
   ><OrcaNode
     nodeId={element?.id || node.nodeId}
     source={node.source}
-    revision={node.revision}
+    runtimeSource={runtimeNode.source}
+    revision={runtimeNode.revision}
     running={node.runtime.running}
     transportMode={node.runtime.transportMode}
     transport={transport}
     settings={node.runtime.settings}
+    autoUpdate={isLivecodeAutoUpdateEnabled(node)}
     onPatch={onPatch}
     onMidiEvents={onMidiEvents}
     onToggleRun={onToggleRun}
+    onUpdate={onUpdate}
     onBlur={onBlur}
     focusRequest={focusRequest}
     ariaLabel={ariaLabel || "Orca grid editor"}
@@ -220,9 +243,7 @@ function createLivecodeBridge(element, node, scriptRuntimeRef, onStrudelTranspor
 }
 
 const evaluatedStrudelSource = node => (
-  typeof node.runtime.settings?.evaluatedSource === "string"
-    ? node.runtime.settings.evaluatedSource
-    : node.source
+  resolveLivecodeRuntimeSource(node)
 );
 
 function StrudelFrameVisualizerCanvas({ runtime, nodeId, enabled }) {
@@ -345,17 +366,18 @@ function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef, transport }
   // ordinary UI interaction.
   const parameterKey = JSON.stringify(node.parameters || {});
   const settingsKey = JSON.stringify(node.runtime.settings || {});
-  const configKey = `${node.kind}\u0000${node.revision}\u0000${node.source}\u0000${parameterKey}\u0000${settingsKey}`;
+  const runtimeNode = resolveLivecodeRuntimeNode(node);
+  const configKey = `${runtimeNode.kind}\u0000${runtimeNode.revision}\u0000${runtimeNode.source}\u0000${parameterKey}\u0000${settingsKey}`;
   const configRef = useRef(null);
   if (configRef.current?.key !== configKey) {
-    configRef.current = { key: configKey, value: getLivecodeRuntimeConfig(node) };
+    configRef.current = { key: configKey, value: getLivecodeRuntimeConfig(runtimeNode) };
   }
   const config = configRef.current.value;
-  const validation = validateLivecodeNode(node);
+  const validation = validateLivecodeNode(runtimeNode);
   const [lastWorkingConfig, setLastWorkingConfig] = useState(() => validation.valid ? config : null);
   useEffect(() => {
     if (validation.valid) setLastWorkingConfig(config);
-  }, [node.kind, node.revision, validation.valid, config]);
+  }, [runtimeNode.kind, runtimeNode.revision, validation.valid, config]);
   // Runtime failures belong to the script panel and Event Console. Keep the
   // canvas surface empty while an invalid draft is being edited rather than
   // painting diagnostics over the user's artwork.
@@ -364,14 +386,15 @@ function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef, transport }
     {node.kind === "p5" ? <P5Frame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
     {node.kind === "manim" ? <ManimFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
     {node.kind === "playcore" ? <PlayCoreFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
-    {node.kind === "shader" ? <ShaderLivecodeFrame element={element} node={node} transport={transport} scriptRuntimeRef={scriptRuntimeRef} /> : null}
+    {node.kind === "shader" ? <ShaderLivecodeFrame element={element} node={runtimeNode} transport={transport} scriptRuntimeRef={scriptRuntimeRef} /> : null}
     {node.kind === "tixy" ? <TixyFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
   </div>;
 }
 
 function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef, transport, editable = false, documentEditing = false, onActivate, onPatch, onCommit, onMidiEvents, onStrudelTransport, onToggleRun }) {
+  const runtimeNode = resolveLivecodeRuntimeNode(node);
   useEffect(() => () => scriptRuntimeRef.current?.disposeStreamsOwner?.(element.id), [element.id, node.runtime.running, scriptRuntimeRef]);
-  const lastFrame = node.runtime.settings?.keepLastFrame === true
+  const lastFrame = node.runtime.settings?.keepLastFrame !== false
     ? getLivecodeFrameSnapshot(element.id)
     : "";
   if (!node.runtime.running && lastFrame) return <div className="livecode-node-runtime visible livecode-last-frame" aria-label="Last rendered frame">
@@ -380,22 +403,24 @@ function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef, transport, ed
   if (node.kind === "orca") return <OrcaNode
     nodeId={element.id}
     source={node.source}
-    revision={node.revision}
+    runtimeSource={runtimeNode.source}
+    revision={runtimeNode.revision}
     running={node.runtime.running}
     transportMode={node.runtime.transportMode}
     transport={transport}
     settings={node.runtime.settings}
+    autoUpdate={isLivecodeAutoUpdateEnabled(node)}
     onPatch={onPatch}
     onMidiEvents={onMidiEvents}
     onToggleRun={() => onToggleRun?.(element.id)}
     ariaLabel="Orca runtime grid"
   />;
-  if (["markdown", "latex", "html"].includes(node.kind)) {
-    return <LivecodePresentation element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} editable={editable} documentEditing={documentEditing} onActivate={onActivate} onPatch={onPatch} onCommit={onCommit} />;
+  if (["markdown", "latex", "html", "svg"].includes(node.kind)) {
+    return <LivecodePresentation element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} transport={transport} editable={editable} documentEditing={documentEditing} onActivate={onActivate} onPatch={onPatch} onCommit={onCommit} />;
   }
   if (node.kind === "strudel" && isLivecodeNodeRunnable(node)) {
     if (isPublicSafeBuild) return <div className="livecode-student-build-unavailable" role="status">Strudel is not included in this student build.</div>;
-    return <StrudelNodeRuntime element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} onStrudelTransport={onStrudelTransport} />;
+    return <StrudelNodeRuntime element={element} node={runtimeNode} scriptRuntimeRef={scriptRuntimeRef} onStrudelTransport={onStrudelTransport} />;
   }
   return isLivecodeNodeRunnable(node)
     ? <PersistedLivecodeRuntime key={node.kind} element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} transport={transport} />
@@ -412,6 +437,42 @@ const livecodeViewCycleTitle = node => (
     ? "Cycle output, code, and code overlay view (Cmd/Ctrl+Shift+Enter while editing)"
     : "Cycle output, code, code overlay, and split view (Cmd/Ctrl+Shift+Enter while editing)"
 );
+export function LivecodeAutoUpdateToggle({ node, onPatch, className = "" }) {
+  const enabled = isLivecodeAutoUpdateEnabled(node);
+  return <button
+    type="button"
+    className={`livecode-auto-update-control${enabled ? " enabled" : ""}${className ? ` ${className}` : ""}`}
+    aria-label={`Auto-update ${enabled ? "on" : "off"}`}
+    aria-pressed={enabled}
+    {...infoProps("Auto-update", enabled
+      ? "Source changes compile as soon as they are valid. Turn this off to keep drafts separate until Cmd/Ctrl+Enter."
+      : "Source edits stay as a draft. Cmd/Ctrl+Enter commits the source while preserving the node's transport mode.")}
+    title={enabled ? "Auto-update on · source changes compile immediately" : "Auto-update off · Cmd/Ctrl+Enter commits source"}
+    onClick={() => onPatch?.({ runtime: { settings: { autoUpdate: !enabled } } })}
+  ><LivecodeAutoUpdateIcon enabled={enabled} /></button>;
+}
+
+const LivecodeClockIcon = ({ mode }) => mode === "free"
+  ? <StopwatchIcon className="livecode-toggle-icon livecode-clock-free-icon" />
+  : <SquareClockIcon className="livecode-toggle-icon livecode-clock-linked-icon" />;
+
+export function LivecodeClockToggle({ node, onPatch, className = "" }) {
+  const mode = node?.runtime?.transportMode === "free" ? "free" : "linked";
+  const nextMode = mode === "free" ? "linked" : "free";
+  const description = mode === "free"
+    ? "Free clock runs independently of the score transport. Click to link this node to the score clock."
+    : "Linked clock follows the score transport. Click to run this node on its own free clock.";
+  return <button
+    type="button"
+    className={`livecode-clock-control ${mode}${className ? ` ${className}` : ""}`}
+    aria-label={`Clock ${mode}`}
+    aria-pressed="true"
+    {...infoProps("Clock", description)}
+    title={mode === "free" ? "Clock free · click to link" : "Clock linked · click for free clock"}
+    onClick={() => onPatch?.({ runtime: { transportMode: nextMode } })}
+  ><LivecodeClockIcon mode={mode} /></button>;
+}
+
 function NodeChrome({ node, onPatch, onToggleRun }) {
   const definition = getLivecodeKindDefinition(node.kind);
   return <div className="livecode-node-chrome" onPointerDown={event => event.stopPropagation()}>
@@ -423,6 +484,8 @@ function NodeChrome({ node, onPatch, onToggleRun }) {
       title={node.runtime.running ? "Stop node" : "Run node"}
       {...infoProps("Livecode runtime", "Starts or stops this node only. Runtime adapters are registered per node so other live nodes keep running.")}
     >{node.runtime.running ? <StopIcon /> : <RunIcon />}</button>
+    <LivecodeAutoUpdateToggle node={node} onPatch={onPatch} />
+    <LivecodeClockToggle node={node} onPatch={onPatch} />
     <select
       value={node.kind}
       aria-label="Livecode node kind"
@@ -430,7 +493,10 @@ function NodeChrome({ node, onPatch, onToggleRun }) {
       onChange={event => onPatch?.({ kind: event.target.value, name: randomLivecodeName(event.target.value) })}
       {...infoProps("Livecode kind", "Changes this node's adapter and editor profile. Its source stays on the node; choose a compatible kind before running it.")}
     >
-      {Object.entries(LIVECODE_KIND_DEFINITIONS).filter(([id]) => !isPublicSafeBuild || id !== "strudel").map(([id, candidate]) => <option key={id} value={id}>{candidate.label}</option>)}
+      {LIVECODE_KIND_ORDER.filter(id => !isPublicSafeBuild || id !== "strudel").map(id => {
+        const candidate = LIVECODE_KIND_DEFINITIONS[id];
+        return <option key={id} value={id}>{candidate.label}</option>;
+      })}
     </select>
     {node.kind !== "orca" && <button type="button" onClick={() => onPatch?.({ view: nextLivecodeViewForNode(node) })} title={livecodeViewCycleTitle(node)} aria-label="Cycle livecode view">{node.view === "preview" ? "▥" : node.view === "source" ? "{}" : node.view === "code" || node.view === "overlay" ? "◒" : "‹/›"}</button>}
   </div>;
@@ -559,8 +625,8 @@ export function LivecodeNodeOverlay({
             onToggleRun?.(element.id, { command: "run" });
           }}
           onToggleRun={() => onToggleRun?.(element.id)}
-          onUpdate={node.kind === "strudel" ? () => onToggleRun?.(element.id, { command: "update" }) : undefined}
-          onStop={node.kind === "strudel" && node.runtime.running ? () => onToggleRun?.(element.id) : undefined}
+          onUpdate={isLivecodeAutoUpdateEnabled(node) ? undefined : () => onToggleRun?.(element.id, { command: "update" })}
+          onStop={node.runtime.running ? () => onToggleRun?.(element.id) : undefined}
           onBlur={() => onCommit?.(element.id)}
           onCycleView={node.kind === "orca" ? undefined : () => onPatch?.(element.id, { view: nextLivecodeViewForNode(node) })}
           onAdjustFontSize={delta => onPatch?.(element.id, { typography: { fontSize: adjustLivecodeFontSize(node.typography.fontSize, delta) } }, { commitToHistory: true })}

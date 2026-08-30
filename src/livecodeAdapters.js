@@ -1,7 +1,7 @@
 import { normalizeP5Frame, normalizeP5Version, resolveP5SourceMode } from "./p5Frame.js";
 import { normalizePlayCoreFrame, validatePlayCoreSource } from "./playCoreFrame.js";
 import { normalizeManimFrame, validateManimSource } from "./manimFrame.js";
-import { LIVECODE_KINDS, normalizeLivecodeNode } from "./livecodeNode.js";
+import { LIVECODE_KINDS, normalizeLivecodeNode, resolveLivecodeRuntimeNode } from "./livecodeNode.js";
 import { normalizeLivecodeComposition, resolveP5Transparency } from "./livecodeComposition.js";
 import { validateShaderSource } from "./shaderLivecode.js";
 import { validateTixySource } from "./tixyRuntime.js";
@@ -95,6 +95,13 @@ export const LIVECODE_ADAPTERS = Object.freeze({
   [LIVECODE_KINDS.markdown]: Object.freeze({ id: LIVECODE_KINDS.markdown, runtime: "presentation", validate: () => ({ valid: true, error: "" }) }),
   [LIVECODE_KINDS.latex]: Object.freeze({ id: LIVECODE_KINDS.latex, runtime: "presentation", validate: () => ({ valid: true, error: "" }) }),
   [LIVECODE_KINDS.html]: Object.freeze({ id: LIVECODE_KINDS.html, runtime: "presentation", validate: () => ({ valid: true, error: "" }) }),
+  [LIVECODE_KINDS.svg]: Object.freeze({
+    id: LIVECODE_KINDS.svg,
+    runtime: "presentation",
+    validate: source => /^\s*<svg(?:\s|>)/i.test(String(source || ""))
+      ? { valid: true, error: "" }
+      : { valid: false, error: "SVG source must start with an <svg> element." },
+  }),
   [LIVECODE_KINDS.orca]: Object.freeze({
     id: LIVECODE_KINDS.orca,
     runtime: "orca",
@@ -136,7 +143,7 @@ export const validateLivecodeNode = rawNode => {
 };
 
 export const getLivecodeRuntimeConfig = rawNode => {
-  const node = normalizeLivecodeNode(rawNode);
+  const node = resolveLivecodeRuntimeNode(rawNode);
   return getLivecodeAdapter(node).makeRuntimeConfig?.(node) || null;
 };
 

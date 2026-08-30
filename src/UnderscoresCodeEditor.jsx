@@ -387,12 +387,12 @@ export default function UnderscoresCodeEditor({
             { key: "Ctrl-Shift-_", run: () => adjustFontSize(-1), preventDefault: true },
             {
               key: "Meta-Enter",
-              run: runCommand,
+              run: () => typeof onUpdateRef.current === "function" ? updateCommand() : runCommand(),
               preventDefault: true,
             },
             {
               key: "Ctrl-Enter",
-              run: () => scriptTypeRef.current === "strudel" ? updateCommand() : runCommand(),
+              run: () => typeof onUpdateRef.current === "function" ? updateCommand() : runCommand(),
               preventDefault: true,
             },
             { key: "Ctrl-.", run: stopCommand, preventDefault: true },

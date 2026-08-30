@@ -3,6 +3,10 @@ import PanelPlacementControls from "./PanelPlacementControls.jsx";
 import { PANEL_PLACEMENTS } from "./panelLayout.js";
 import { getUnderscoresPanel, getNaturalPanelPlacement } from "./panelRegistry.js";
 
+export const StopwatchIcon = ({ className } = {}) => <svg className={className} viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="7.5"/><path d="M12 9v4l3 2M9 2h6M12 2v3"/></svg>;
+export const SquareClockIcon = ({ className } = {}) => <svg className={className} viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="5.5" width="15" height="15"/><path d="M12 8.5v5l3.6 3M8.25 4.5v2m3.75-2v2m3.75-2v2M8.25 19.5v2m3.75-2v2m3.75-2v2M3.5 9.25h2m-2 3.75h2m-2 3.75h2M18.5 9.25h2m-2 3.75h2m-2 3.75h2"/></svg>;
+export const TransportIcon = SquareClockIcon;
+
 export const PanelIcon = ({ id }) => {
   if (id === "chat") {
     return <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -60,7 +64,7 @@ export const PanelIcon = ({ id }) => {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>;
   }
   if (id === "transport") {
-    return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6M12 2v3"/></svg>;
+    return <TransportIcon />;
   }
   if (id === "grid") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM9.3 4v16M14.7 4v16M4 9.3h16M4 14.7h16"/></svg>;

@@ -542,7 +542,7 @@ export const isShaderUnderlayVisible = (element, { hasRetainedFrame = false } = 
   const composition = normalizeShaderCompositionSettings(node.runtime?.settings);
   if (composition.compositeMode !== "underlay") return false;
   return node.runtime?.running === true
-    || (node.runtime?.settings?.keepLastFrame === true && hasRetainedFrame === true);
+    || (node.runtime?.settings?.keepLastFrame !== false && hasRetainedFrame === true);
 };
 
 export const validateShaderSource = (source, value = {}) => {

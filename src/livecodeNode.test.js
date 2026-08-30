@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   LIVECODE_KINDS,
+  LIVECODE_KIND_ORDER,
   adjustLivecodeFontSize,
   copyLivecodeExampleName,
   createLivecodeNode,
@@ -9,6 +10,7 @@ import {
   getLivecodeFont,
   getLivecodeEditorProfile,
   getLivecodeViewForDoubleClick,
+  isLivecodeAutoUpdateEnabled,
   isLivecodeCommandCycleGesture,
   isLivecodeCommandOutputGesture,
   isLivecodeNodeElement,
@@ -17,6 +19,8 @@ import {
   patchLivecodeNode,
   replaceLivecodeNodeProgram,
   randomLivecodeName,
+  resolveLivecodeRuntimeNode,
+  resolveLivecodeRuntimeSource,
   shouldRenderLivecodeNode,
 } from "./livecodeNode.js";
 import { HELLO_GLSL_FRAGMENT_SOURCE } from "./shaderLivecode.js";
@@ -28,6 +32,17 @@ test("blank nodes get stable human-readable names without adapter suffixes", () 
   assert.notEqual(first.name, "Untitled p5 node");
   assert.doesNotMatch(first.name, /p5|node/i);
   assert.equal(randomLivecodeName(LIVECODE_KINDS.p5, "node-blank"), first.name);
+});
+
+test("author-facing Livecode kinds keep the visual-first order and include SVG", () => {
+  assert.deepEqual(LIVECODE_KIND_ORDER.slice(0, 5), [
+    LIVECODE_KINDS.p5,
+    LIVECODE_KINDS.markdown,
+    LIVECODE_KINDS.shader,
+    LIVECODE_KINDS.tixy,
+    LIVECODE_KINDS.html,
+  ]);
+  assert.equal(LIVECODE_KIND_ORDER.includes(LIVECODE_KINDS.svg), true);
 });
 
 test("example copies append copy once", () => {
@@ -136,6 +151,48 @@ test("Strudel nodes preserve code and output views without a split surface", () 
   assert.equal(patchLivecodeNode({ kind: "strudel" }, { view: "split" }).view, "code");
 });
 
+test("Livecode auto-update defaults preserve visual runtimes and Strudel evaluation boundaries", () => {
+  const p5 = createLivecodeNode({ kind: "p5", source: "function draw() {}" });
+  const strudel = createLivecodeNode({ kind: "strudel", source: "s(\"bd\")", runtime: { running: true } });
+  assert.equal(isLivecodeAutoUpdateEnabled(p5), true);
+  assert.equal(p5.runtime.running, true);
+  assert.equal(p5.runtime.transportMode, "free");
+  assert.equal(isLivecodeAutoUpdateEnabled(strudel), false);
+  assert.equal(strudel.runtime.running, true);
+  assert.equal(strudel.runtime.transportMode, "linked");
+  assert.equal(resolveLivecodeRuntimeSource(strudel), strudel.source);
+  const draft = patchLivecodeNode(strudel, { source: "s(\"hh\")" });
+  assert.equal(resolveLivecodeRuntimeSource(draft), strudel.source);
+  assert.equal(resolveLivecodeRuntimeNode(draft).source, strudel.source);
+});
+
+test("fresh visual nodes accept explicit runtime overrides", () => {
+  const linked = createLivecodeNode({
+    kind: "shader",
+    runtime: { running: false, transportMode: "linked" },
+  });
+  assert.equal(linked.runtime.running, false);
+  assert.equal(linked.runtime.transportMode, "linked");
+  assert.equal(linked.source, "");
+  const blankVisualKinds = ["p5", "manim", "playcore", "markdown", "latex", "html", "orca", "shader", "tixy", "svg"];
+  blankVisualKinds.forEach(kind => assert.equal(createLivecodeNode({ kind }).source, ""));
+});
+
+test("disabling auto-update freezes the current source until an explicit evaluation", () => {
+  const initial = createLivecodeNode({ kind: "p5", source: "function draw() {}" });
+  const manual = patchLivecodeNode(initial, { runtime: { settings: { autoUpdate: false } } });
+  assert.equal(isLivecodeAutoUpdateEnabled(manual), false);
+  assert.equal(manual.runtime.settings.evaluatedSource, initial.source);
+  const draft = patchLivecodeNode(manual, { source: "function draw() { circle(1, 1, 1); }" });
+  assert.equal(resolveLivecodeRuntimeSource(draft), initial.source);
+  assert.equal(resolveLivecodeRuntimeNode(draft).revision, 1);
+  const evaluated = patchLivecodeNode(draft, {
+    runtime: { settings: { evaluatedSource: draft.source, evaluationRevision: 2 } },
+  });
+  assert.equal(resolveLivecodeRuntimeSource(evaluated), draft.source);
+  assert.equal(resolveLivecodeRuntimeNode(evaluated).revision, 2);
+});
+
 test("running legacy Strudel nodes snapshot their active source before draft edits", () => {
   const node = createLivecodeNode({
     kind: "strudel",
@@ -147,6 +204,17 @@ test("running legacy Strudel nodes snapshot their active source before draft edi
   const edited = patchLivecodeNode(node, { source: "s(\"hh\")" });
   assert.equal(edited.source, "s(\"hh\")");
   assert.equal(edited.runtime.settings.evaluatedSource, "s(\"bd\")");
+});
+
+test("new manual-update visual nodes snapshot an initial running source", () => {
+  const node = createLivecodeNode({
+    kind: "p5",
+    source: "function draw() {}",
+    runtime: { running: true, settings: { autoUpdate: false } },
+  });
+  assert.equal(node.runtime.settings.evaluatedSource, node.source);
+  const draft = patchLivecodeNode(node, { source: "function draw() { circle(1, 1, 1); }" });
+  assert.equal(resolveLivecodeRuntimeSource(draft), node.source);
 });
 
 test("patches retain node identity, source ownership, and bump the document revision", () => {

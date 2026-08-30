@@ -9,6 +9,7 @@ export const getLivecodeBridgeHelp = kind => {
     [LIVECODE_KINDS.playcore]: "Play Core receives __ as the final program argument. Use __.element, __.params, __.canvas, __.events, __.transport, and __.api from lifecycle hooks and main().",
     [LIVECODE_KINDS.strudel]: "Strudel evaluates with __ in scope. The most useful live values are __.transport, __.canvas, __.events, __.params, and __.strudel for node-local transport controls.",
     [LIVECODE_KINDS.html]: "HTML runs in an isolated iframe instead of the JavaScript bridge. Use window.__.post(type, detail) to send a message and window.__.onMessage(listener) to receive the host's read-only runtime snapshot.",
+    [LIVECODE_KINDS.svg]: "SVG is rendered locally from sanitized source. SMIL and Web Animations follow linked transport time or run continuously in Free mode; scripts and remote resources are removed from the inert preview.",
     [LIVECODE_KINDS.markdown]: "Markdown is a deterministic document renderer; it does not execute JavaScript and has no __ bridge. Use Markdown, inline/display LaTeX, and the Output/Code view modes.",
     [LIVECODE_KINDS.latex]: "LaTeX is a deterministic typesetting renderer; it does not execute JavaScript and has no __ bridge. Use TeX math delimiters and the Output/Code view modes.",
     [LIVECODE_KINDS.orca]: "Orca is a focused grid language rather than JavaScript, so __ is not available. Use its operators and the native MIDI/CC/pitch-bend routing instead.",
@@ -47,6 +48,7 @@ export const LIVECODE_HELP = Object.freeze({
       "Numeric // @param declarations are persistent node controls, for example // @param room = 1.93 (0..10, step: 0.01), then use .room(__.params.room). Inline slider(value, min, max, step) is also supported and appears beside the source when the editor is open.",
       "REPL helpers all(transform) and each(transform) apply to this node's labelled `$:` voices. Legacy .piano() is supported as an alias for the piano-roll visualizer; use .s(\"piano\") for the piano sound.",
       "Linked is the default, so Underscores play/pause and tempo control the pattern. Choose Free for a node-local clock. Runs and updates join the four-beat Strudel cycle on a beat boundary.",
+      "Auto-update is off by default for Strudel: edit a draft, then press Cmd/Ctrl+Enter to evaluate it on the next safe beat. The Auto-update toggle can opt into compile-on-edit behavior for this node.",
       "Stopping, replacing, or hushing a node affects only that node's pattern; other active Strudel nodes remain scheduled.",
     ]),
     footer: "Native Strudel is available locally, but public deployment remains blocked until Underscores completes its AGPL compliance gate.",
@@ -57,6 +59,7 @@ export const LIVECODE_HELP = Object.freeze({
     points: Object.freeze([
       "Use global setup() and draw(), or the existing compatible p5 mode. The live surface is the node's rectangle size.",
       "Use __.element, __.params, __.canvas, __.events, and __.transport from the shared bridge.",
+      "Auto-update is on by default, so valid edits compile immediately. Turn it off to keep a draft separate until Cmd/Ctrl+Enter evaluates it.",
       "Valid edits keep the last working sketch until the replacement compiles; docking never stops the running node.",
     ]),
     footer: "Legacy p5 frames remain supported. Use Migrate to Livecode Node when you want the self-contained node model.",
@@ -111,6 +114,16 @@ export const LIVECODE_HELP = Object.freeze({
       "Output runs the document. Code shows only source, Code Overlay combines source and output, and Code/Output splits them. Browser security can prevent deterministic raster export of this kind.",
     ]),
     footer: "Treat HTML source as trusted board content even though it is isolated from Underscores's parent page.",
+  }),
+  [LIVECODE_KINDS.svg]: Object.freeze({
+    title: "SVG quick reference",
+    summary: "A source-preserving SVG document rendered as a local Livecode Node.",
+    points: Object.freeze([
+      "Write a complete <svg> document with paths, shapes, styles, SMIL, or Web Animations.",
+      "The preview is sanitized before rendering: scripts, foreignObject content, event handlers, and remote resource URLs are removed.",
+      "Linked follows Underscores score time; Free lets browser animations run continuously. Code and Code Overlay views remain available for source editing.",
+    ]),
+    footer: "SVG nodes share the same transparent Excalidraw host and transform/history model as other Livecode nodes.",
   }),
   [LIVECODE_KINDS.orca]: Object.freeze({
     title: "Orca quick reference",

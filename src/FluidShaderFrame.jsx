@@ -131,7 +131,7 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
       stencil: false,
       // Only retain the default framebuffer when the stopped-frame option is
       // enabled; ordinary fluid playback does not pay the readback cost.
-      preserveDrawingBuffer: node.runtime.settings?.keepLastFrame === true,
+      preserveDrawingBuffer: node.runtime.settings?.keepLastFrame !== false,
     });
     if (!gl) {
       publishFrameStatus(statusRef, "error", "WebGL 2 is unavailable in this browser.");
