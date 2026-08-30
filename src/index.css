@@ -4232,7 +4232,7 @@ body .excalidraw .sidebar {
 .underscores-tixy-frame {
   position: relative;
   overflow: hidden;
-  background: var(--underscores-panel-bg, #101010);
+  background: transparent;
 }
 
 .underscores-tixy-canvas {

@@ -227,6 +227,7 @@ import {
   readAITextStream,
   selectAIModelFromList,
 } from "./aiProviders.js";
+
 import { convertShapeElementToPath, fitRectangularElementToViewport, getCanvasContextMenuCapabilities, setSelectedElementRoundness } from "./canvasContextMenu.js";
 import { normalizeRoughnessValue, normalizeRoundnessValue, parseDrawingStyleSlash } from "./drawingStyleCommands.js";
 import { DEFAULT_SELECTION_FILTER, filterSelectedElementIds, isInteriorObjectSelectionGesture, normalizeSelectionFilter, selectionFilterAllowsElement, selectionMapsEqual, SELECTION_FILTER_STORAGE_KEY, toggleSelectionFilter } from "./selectionFilter.js";
@@ -245,6 +246,20 @@ import {
 } from "./gridSystem.js";
 import { createTimeValue, formatSecondsAsBBU, formatTimeValue, parseTimeValue, quantizeTimeValue, resolveTimeValue } from "./timeValue.js";
 import { gridTimeQuantumCells } from "./scoreTiming.js";
+
+// Fast Refresh replaces this module without unloading the browser page. Keep
+// track of collaboration controllers created by this module generation so its
+// dispose hook can close Trystero rooms, timers, listeners, and WebRTC peer
+// connections before the replacement App joins the room again.
+const hotCollaborationControllers = new Set();
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    for (const controller of hotCollaborationControllers) {
+      void controller.leaveRoom({ keepUrl: true, resumeSolo: false, checkpoint: false });
+    }
+    hotCollaborationControllers.clear();
+  });
+}
 
 const DEFAULT_INFO_VIEW = Object.freeze({
   title: "Info",
@@ -3222,6 +3237,7 @@ function App() {
     collaborationControllerRef.current = new CollaborationController({
       getCallbacks: () => collaborationCallbacksRef.current,
     });
+    hotCollaborationControllers.add(collaborationControllerRef.current);
   }
   const collaborationController = collaborationControllerRef.current;
   const [collaborationState, setCollaborationState] = useState(() => collaborationController.getStatus());
@@ -14318,22 +14334,22 @@ function App() {
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
-    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "/code", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|manim|playcore|markdown|latex|html|orca|shader|tixy?", example: "kind-specific example id?", name: "string?", width: "number?", height: "number?", source: "string?", parameters: "object?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", view: "preview|source|code|split?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Manim nodes accept authored manim-web JavaScript with top-level await and receive scene, cue(), MANIM, and the shared __ bridge; choose transportMode free for an immediately self-running animation or linked for score-controlled playback. Shader nodes accept hello, minimal, rainbow, shadow, fluid, or stokes examples. Tixy nodes accept a compact (t, i, x, y) JavaScript expression and render a transport-synchronized 16×16 dot grid by default; optional @param gridSize, gridWidth, gridHeight, color1, and color0 declarations customize the dimensions and palettes. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "manim", name: "Animated geometric proof", width: 640, height: 420, transportMode: "free", view: "preview", running: true, source: "const circle = new Circle({ radius: 1.5 });\nawait scene.play(new Create(circle));" } }, action: (_api, args) => createLivecodeCanvasNode(args) },
-    { id: "livecode.node.create.strudel", name: "Create Strudel Livecode Node /live strudel", aliases: ["/live strudel"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel }) },
-    { id: "livecode.node.create.p5", name: "Create p5 Livecode Node /live p5", aliases: ["/live p5"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.p5 }) },
-    { id: "livecode.node.create.playcore", name: "Create Play Core Livecode Node /live playcore", aliases: ["/live playcore", "/live play"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.playcore }) },
-    { id: "livecode.node.create.markdown", name: "Create Markdown Livecode Node /live markdown", aliases: ["/live markdown", "/live md"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.markdown }) },
-    { id: "livecode.node.create.latex", name: "Create LaTeX Livecode Node /live latex", aliases: ["/live latex", "/live tex"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.latex }) },
-    { id: "livecode.node.create.html", name: "Create HTML Livecode Node /live html", aliases: ["/live html"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.html }) },
-    { id: "livecode.node.create.orca", name: "Create Orca Livecode Node /live orca", aliases: ["/live orca"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.orca }) },
-    { id: "livecode.node.create.tixy", name: "Create Tixy Livecode Node /live tixy", aliases: ["/live tixy", "/tixy"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.tixy, example: "waves" }) },
+    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "/code", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|manim|playcore|markdown|latex|html|orca|shader|tixy?", example: "kind-specific example id?", name: "string?", width: "number?", height: "number?", source: "string?", parameters: "object?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", view: "preview|source|code|split?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Manim nodes accept authored manim-web JavaScript with top-level await and receive scene, cue(), MANIM, and the shared __ bridge; choose transportMode free for an immediately self-running animation or linked for score-controlled playback. Shader nodes accept hello, minimal, rainbow, shadow, fluid, or stokes examples. Tixy nodes accept a compact (t, i, x, y) JavaScript expression and render a transport-synchronized 16×16 dot grid by default; optional @param gridSize, gridWidth, gridHeight, color1, color0, and backgroundColor declarations customize dimensions and palettes. A numeric gridSize is square, a [width, height] JSON value is rectangular, and the background defaults to transparent for layering. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "manim", name: "Animated geometric proof", width: 640, height: 420, transportMode: "free", view: "preview", running: true, source: "const circle = new Circle({ radius: 1.5 });\nawait scene.play(new Create(circle));" } }, action: (_api, args) => createLivecodeCanvasNode(args) },
+    { id: "livecode.node.create.strudel", name: "Create Strudel Livecode Node /live strudel", aliases: ["/live strudel", "/code strudel"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel }) },
+    { id: "livecode.node.create.p5", name: "Create p5 Livecode Node /live p5", aliases: ["/live p5", "/code p5"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.p5 }) },
+    { id: "livecode.node.create.playcore", name: "Create Play Core Livecode Node /live playcore", aliases: ["/live playcore", "/live play", "/code playcore", "/code play"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.playcore }) },
+    { id: "livecode.node.create.markdown", name: "Create Markdown Livecode Node /live markdown", aliases: ["/live markdown", "/live md", "/code markdown", "/code md"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.markdown }) },
+    { id: "livecode.node.create.latex", name: "Create LaTeX Livecode Node /live latex", aliases: ["/live latex", "/live tex", "/code latex", "/code tex"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.latex }) },
+    { id: "livecode.node.create.html", name: "Create HTML Livecode Node /live html", aliases: ["/live html", "/code html"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.html }) },
+    { id: "livecode.node.create.orca", name: "Create Orca Livecode Node /live orca", aliases: ["/live orca", "/code orca"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.orca }) },
+    { id: "livecode.node.create.tixy", name: "Create Tixy Livecode Node /live tixy", aliases: ["/live tixy", "/code tixy", "/tixy"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.tixy, example: "waves" }) },
     { id: "livecode.node.update", name: "Update Livecode Node", category: "Livecode", args: { elementId: "string?", kind: "strudel|p5|manim|playcore|markdown|latex|html|orca|shader|tixy?", name: "string?", source: "string?", parameters: "object?", view: "preview|source|code|split?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", runtimeSettings: "object?" }, ai: { expose: true, description: "Explain, replace, or adjust an existing code-capable canvas object. Uses elementId from the active scene; when omitted, updates the selected Livecode, legacy p5, or Play Core host. Legacy hosts are migrated in place so the edit stays on the selected object. Source is stored as authored text and must be a valid JSON string in the command payload. To expose an @param, put the // @param declaration in source and read it as __.params.name; parameters only overrides an already-declared value. Manim source may use top-level await with scene, cue(), MANIM, and __. Tixy source uses the compact (t, i, x, y) expression contract. This does not execute arbitrary code outside the node runtime.", example: { elementId: "livecode-host", source: "const square = new Square({ sideLength: 2 });\\nawait scene.play(new Create(square));", view: "code" } }, action: (_api, args) => updateAILivecodeNode(args) },
-    { id: "livecode.node.create.shader", name: "Create Hello GLSL Livecode Node /live shader", aliases: ["/live shader", "/live glsl", "/shader", "/shader hello"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "hello" }) },
-    { id: "livecode.node.create.shader.minimal", name: "Create Minimal Twigl Shader /shader minimal", aliases: ["/shader minimal", "/live shader minimal", "/shader shadertoy", "/shader twigl"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "minimal-raymarch" }) },
-    { id: "livecode.node.create.shader.rainbow", name: "Create Rainbow Shader /shader rainbow", aliases: ["/shader rainbow", "/live shader rainbow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "rainbow" }) },
-    { id: "livecode.node.create.shader.shadow", name: "Create 2D Shadow Shader /shader shadow", aliases: ["/shader shadow", "/live shader shadow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "shadow" }) },
-    { id: "livecode.node.create.shader.fluid", name: "Create Fluid Brush Shader /shader fluid", aliases: ["/shader fluid", "/live shader fluid"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "fluid" }) },
-    { id: "livecode.node.create.shader.stokes", name: "Create Stokes Flow Shader /shader stokes", aliases: ["/shader stokes", "/live shader stokes"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "stokes" }) },
+    { id: "livecode.node.create.shader", name: "Create Hello GLSL Livecode Node /live shader", aliases: ["/live shader", "/live glsl", "/code shader", "/code glsl", "/shader", "/shader hello"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "hello" }) },
+    { id: "livecode.node.create.shader.minimal", name: "Create Minimal Twigl Shader /shader minimal", aliases: ["/shader minimal", "/live shader minimal", "/code shader minimal", "/shader shadertoy", "/shader twigl"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "minimal-raymarch" }) },
+    { id: "livecode.node.create.shader.rainbow", name: "Create Rainbow Shader /shader rainbow", aliases: ["/shader rainbow", "/live shader rainbow", "/code shader rainbow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "rainbow" }) },
+    { id: "livecode.node.create.shader.shadow", name: "Create 2D Shadow Shader /shader shadow", aliases: ["/shader shadow", "/live shader shadow", "/code shader shadow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "shadow" }) },
+    { id: "livecode.node.create.shader.fluid", name: "Create Fluid Brush Shader /shader fluid", aliases: ["/shader fluid", "/live shader fluid", "/code shader fluid"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "fluid" }) },
+    { id: "livecode.node.create.shader.stokes", name: "Create Stokes Flow Shader /shader stokes", aliases: ["/shader stokes", "/live shader stokes", "/code shader stokes"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "stokes" }) },
     { id: "livecode.node.edit", name: "Edit Selected Livecode Node", aliases: ["Edit livecode node"], category: "Livecode", action: () => {
       const node = getSelectedElements().find(isLivecodeNodeElement);
       if (!node) throw new Error("Select one Livecode Node first.");

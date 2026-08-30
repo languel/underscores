@@ -11,6 +11,7 @@ export const TIXY_CELL_GAP = 1;
 export const TIXY_DEFAULT_SOURCE = `// @param gridSize = 16 (1..64, step: 1)
 // @param color1 = __.currentColor (color)
 // @param color0 = __.colors.accent.css (color)
+// @param backgroundColor = transparent (color)
 sin(t + x / 4) * cos(t + y / 4)`;
 
 const TIXY_MATH_NAMES = Object.freeze([
@@ -93,6 +94,12 @@ const normalizeGridDimension = (value, fallback = TIXY_GRID_SIZE) => {
 };
 
 const parseGridSize = value => {
+  if (Array.isArray(value)) {
+    return {
+      width: normalizeGridDimension(value[0], TIXY_GRID_SIZE),
+      height: normalizeGridDimension(value[1] ?? value[0], TIXY_GRID_SIZE),
+    };
+  }
   if (value && typeof value === "object" && !Array.isArray(value)) {
     return {
       width: normalizeGridDimension(value.width ?? value.x ?? value.size, TIXY_GRID_SIZE),

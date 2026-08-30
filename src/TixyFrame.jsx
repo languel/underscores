@@ -163,7 +163,7 @@ export default function TixyFrame({ element, config, scriptRuntimeRef, transport
         appearanceSnapshot = appearance();
         const one = parseCssColor(firstParameter(params, ["color1", "oneColor", "positiveColor"], appearanceSnapshot.currentColor || "#e8e8e8"));
         const zero = parseCssColor(firstParameter(params, ["color0", "zeroColor", "negativeColor"], appearanceSnapshot.colors?.accent?.css || "#ff547d"));
-        const background = appearanceSnapshot.colors?.canvas?.css || "transparent";
+        const background = firstParameter(params, ["backgroundColor", "background", "bgColor"], "transparent");
         context.setTransform(canvas.width / width, 0, 0, canvas.height / height, 0, 0);
         context.clearRect(0, 0, width, height);
         if (background && background !== "transparent") {

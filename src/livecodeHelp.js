@@ -145,8 +145,8 @@ export const LIVECODE_HELP = Object.freeze({
     points: Object.freeze([
       "Write an expression such as sin(t + x / 4) * cos(t + y / 4). Tixy calls it for every cell with time t, linear index i, column x, and row y.",
       "The original tixy.land function form also works: (t, i, x, y) => sin(t + x / 4). Function bodies with return are accepted for teaching longer experiments.",
-      "Add // @param gridSize = 16 (1..64, step: 1) for a square grid, or declare gridWidth and gridHeight separately for a rectangular grid. x, y, and i follow the resulting dimensions.",
-      "Add // @param color1 = __.currentColor (color) and // @param color0 = __.colors.accent.css (color) to customize the positive / one and negative / zero palettes. Values are clamped to -1..1 for stable dot radii.",
+      "Add // @param gridSize = 16 (1..64, step: 1) for a square grid or // @param gridSize = [16, 20] (json) for a rectangular grid. gridWidth and gridHeight can still override either axis. x, y, and i follow the resolved dimensions.",
+      "Add // @param color1 = __.currentColor (color) and // @param color0 = __.colors.accent.css (color) to customize the positive / one and negative / zero palettes. // @param backgroundColor = transparent (color) optionally fills the frame; transparent remains the layering-friendly default. Values are clamped to -1..1 for stable dot radii.",
       "Use __.transport for score time, __.pointer for normalized pointer state, __.params for // @param values, and __.events / __.api for the shared bridge.",
       "Linked follows the score transport; Free runs its own clock. Playlist and livecode.node.run/stop commands target Tixy nodes the same way as p5 and shaders.",
     ]),

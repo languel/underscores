@@ -35,6 +35,7 @@ test("validates blank and malformed source without throwing", () => {
   assert.match(TIXY_DEFAULT_SOURCE, /@param gridSize/);
   assert.match(TIXY_DEFAULT_SOURCE, /@param color1/);
   assert.match(TIXY_DEFAULT_SOURCE, /@param color0/);
+  assert.match(TIXY_DEFAULT_SOURCE, /@param backgroundColor = transparent/);
   assert.equal(validateTixySource("").valid, false);
   assert.equal(validateTixySource("(t, i, x, y) =>").valid, false);
 });
@@ -47,6 +48,8 @@ test("keeps the original 16 by 16 grid dimensions", () => {
 test("resolves square, rectangular, and bounded Tixy grids from optional parameters", () => {
   assert.deepEqual(resolveTixyGrid({}), { width: 16, height: 16 });
   assert.deepEqual(resolveTixyGrid({ gridSize: 20 }), { width: 20, height: 20 });
+  assert.deepEqual(resolveTixyGrid({ gridSize: [16, 20] }), { width: 16, height: 20 });
+  assert.deepEqual(resolveTixyGrid({ gridSize: [12] }), { width: 12, height: 12 });
   assert.deepEqual(resolveTixyGrid({ gridSize: "12x8" }), { width: 12, height: 8 });
   assert.deepEqual(resolveTixyGrid({ gridSize: 20, gridWidth: 4, gridHeight: 70 }), { width: 4, height: 64 });
   assert.deepEqual(resolveTixyGrid({ gridSize: { width: 10, height: 6 } }), { width: 10, height: 6 });

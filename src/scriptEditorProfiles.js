@@ -162,11 +162,12 @@ const TIXY_COMPLETIONS = Object.freeze([
   completion("__.transport", "Shared score transport state", "variable", 80),
   completion("__.params", "Declared Livecode parameters", "variable", 80),
   completion("__.pointer", "Normalized pointer position and button state", "variable", 80),
-  completion("gridSize", "Optional // @param gridSize; sets a square grid (default 16)", "parameter", 75),
+  completion("gridSize", "Optional // @param gridSize; number makes a square, [width, height] makes a rectangle", "parameter", 75),
   completion("gridWidth", "Optional // @param gridWidth; overrides the grid width", "parameter", 75),
   completion("gridHeight", "Optional // @param gridHeight; overrides the grid height", "parameter", 75),
   completion("color1", "Optional // @param color1; color for positive / one values", "parameter", 75),
   completion("color0", "Optional // @param color0; color for negative / zero values", "parameter", 75),
+  completion("backgroundColor", "Optional // @param backgroundColor; transparent by default for layering", "parameter", 75),
   ...["sin", "cos", "tan", "abs", "sqrt", "min", "max", "floor", "round", "PI"].map(label => completion(label, "Math function available without Math.", "function", 70)),
 ]);
 
