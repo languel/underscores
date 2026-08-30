@@ -19,6 +19,8 @@ and the [Chrome imperative API](https://developer.chrome.com/docs/ai/webmcp/impe
 | `create_score_objects` | Create rectangles, ellipses, diamonds, lines, or freedraw paths through `scene.create.objects`. |
 | `patch_score_objects` | Move or restyle existing objects by stable id through `scene.patch.objects`. |
 | `assign_score_roles` | Assign or clear curve, cursor, and trigger roles through `score.roles.assign`. |
+| `get_guided_walkthroughs` | Discover authored walkthroughs and the active local run without exposing learner-private progress to collaboration. |
+| `control_guided_walkthrough` | Start, pause, resume, move, stop, or set the pace of a walkthrough through the shared revisioned command surface. |
 
 The first high-level composition commands are discoverable through the same catalog:
 
@@ -78,6 +80,11 @@ __.webmcp.getStatus();
 `getStatus()` returns `{ supported, active, tools, errors }`. Underscores dispatches
 `underscores:webmcp-ready` after registration settles and `underscores:webmcp-disposed` when the
 application unregisters its tools.
+
+`get_score_context` also includes a bounded `walkthrough` status snapshot. WebMCP can author a
+walkthrough through the exposed `walkthrough.create` and revision-checked `walkthrough.update`
+commands, then control it with `control_guided_walkthrough`; neither tool accepts selectors or
+arbitrary browser script.
 
 In a browser implementation that exposes discovery and manual execution:
 

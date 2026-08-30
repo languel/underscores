@@ -11,6 +11,17 @@ top-level `underscores` state, collaboration tombstones, and the separate record
 is the leading architectural boundary. See [Recordable Sessions and Automation](history-automation.md#known-undoredo-boundary)
 for the current contract and transaction-convergence target.
 
+## Guided Walkthrough v1 (2026-08-30)
+
+The `multiplayer` branch includes a local visible-automation and learning layer built on the shared
+command registry. Versioned walkthrough definitions merge per ID, while playback, learner prompts,
+pace, and recovery remain local. The first bundled onboarding covers the main panels, p5, GLSL,
+audio permission, and physics; History can produce editable walkthrough drafts, Playlist and
+transport can drive playback, and the same controls are available through `window.__`, WebMCP, and
+the assistant. Project/fragment/help patch metadata and the `.__.json` default establish the first
+help-catalog foundation. See [Guided Walkthroughs](guided-walkthrough.md) and
+[Patches and help catalog](patches-and-help.md).
+
 ## Anonymous multiplayer checkpoint (2026-08-25)
 
 The `multiplayer` branch now includes anonymous encrypted rooms over a direct
@@ -30,8 +41,8 @@ Excalidraw-native objects, first-class SVG documents, IanniX score behavior, Liv
 shared scene hierarchy. This checkpoint is ready for the release/compliance review that precedes
 any public Strudel deployment.
 
-The canvas-first relationship and physics engine is now available as API version 8 and scene
-exchange version 10. It combines a persistent solver-independent graph, lazy deterministic Rapier 2D
+The canvas-first relationship and physics engine is available in API version 14 and scene exchange
+version 14. It combines a persistent solver-independent graph, lazy deterministic Rapier 2D
 Worker, lightweight curve/stream geometry adapter, runtime population overlay, canonical collision
 mappings (`Source -> Filter -> Transform -> Target`),
 canvas-authored bodies and constraints, grab springs, Apply/Reset semantics, materialization, and
