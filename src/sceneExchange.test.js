@@ -6,6 +6,7 @@ import {
   getSelectionExchangeElements,
   isObsidianSceneExportFilename,
   normalizeObsidianSceneExportFilename,
+  normalizePatchExportFilename,
   normalizeSceneExportFilename,
   parseUnderscoresExchange,
   preserveDeletedSceneElements,
@@ -21,6 +22,31 @@ test("scene export filenames accept optional names and remain safe", () => {
   assert.equal(normalizeSceneExportFilename("bioblip_melody.excalidraw", date), "bioblip_melody.excalidraw");
   assert.equal(normalizeSceneExportFilename("folder/bioblip", date), "folder_bioblip.excalidraw");
   assert.equal(normalizeSceneExportFilename("", date), "underscores-scene-2026-08-16.excalidraw");
+});
+
+test("patch export filenames use the .__.json convention", () => {
+  const date = new Date("2026-08-16T12:34:56.000Z");
+  assert.equal(normalizePatchExportFilename("lesson", date), "lesson.__.json");
+  assert.equal(normalizePatchExportFilename("lesson.__.json", date), "lesson.__.json");
+  assert.equal(normalizePatchExportFilename("lesson.excalidraw", date), "lesson.__.json");
+  assert.equal(normalizePatchExportFilename("", date), "underscores-patch-2026-08-16.__.json");
+});
+
+test("project, fragment, and help patch metadata round-trip without changing exchange kinds", () => {
+  const project = attachUnderscoresExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, null, null, null, [], null, null, {}, null, null, {
+    kind: "project", id: "project-a", title: "Project A", tags: ["class"],
+  });
+  const fragment = attachUnderscoresExchangeMetadata({ type: "excalidraw", elements: [] }, "selection", {}, null, null, null, [], null, null, {}, null, null, {
+    kind: "fragment", id: "fragment-a", title: "Node A",
+  });
+  const help = attachUnderscoresExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, null, null, null, [], null, null, {}, null, null, {
+    kind: "help", id: "help-a", title: "Help A", summary: "A reusable lesson patch.",
+  });
+  assert.deepEqual(parseUnderscoresExchange(project, "scene").patch, project.underscores.patch);
+  assert.equal(parseUnderscoresExchange(fragment, "selection").patch.kind, "fragment");
+  assert.equal(parseUnderscoresExchange(fragment, "selection").kind, "selection");
+  assert.equal(parseUnderscoresExchange(help, "scene").patch.kind, "help");
+  assert.equal(parseUnderscoresExchange(help, "scene").kind, "scene");
 });
 
 test("scene export detects and normalizes Obsidian Markdown names", () => {
@@ -70,7 +96,7 @@ test("scene exchange preserves frame timeline display mode", () => {
   assert.equal(payload.underscores.score.fps, 24);
 });
 
-test("scene exchange version 13 preserves streams, brush channels, global configuration, p5 scripts, relationships, and migrates legacy scenes", () => {
+test("scene exchange version 14 preserves streams, brush channels, global configuration, p5 scripts, relationships, and migrates legacy scenes", () => {
   const grid = mergeGridPatch(DEFAULT_GLOBAL_GRID, {
     appearance: { visible: true },
     spacing: { x: 120, y: 80, subdivisionsX: 6, subdivisionsY: 4 },
@@ -98,7 +124,7 @@ test("scene exchange version 13 preserves streams, brush channels, global config
     }],
   };
   const payload = attachUnderscoresExchangeMetadata({ type: "excalidraw", elements: [] }, "scene", {}, grid, synth, mixer, p5Scripts, streamGraph, brushChannels, null, relationshipGraph);
-  assert.equal(payload.underscores.version, 13);
+  assert.equal(payload.underscores.version, 14);
   assert.deepEqual(parseUnderscoresExchange(payload, "scene").grid, grid);
   assert.deepEqual(parseUnderscoresExchange(payload, "scene").expressiveSynth, normalizeExpressiveSynthConfig(synth));
   assert.deepEqual(parseUnderscoresExchange(payload, "scene").mixer, mixer);
@@ -119,7 +145,7 @@ test("scene exchange version 13 preserves streams, brush channels, global config
   assert.deepEqual(parseUnderscoresExchange(legacy, "scene").relationshipGraph.systems, []);
 });
 
-test("scene exchange version 13 carries collaboration revisions only for full scenes", () => {
+test("scene exchange version 14 carries collaboration revisions only for full scenes", () => {
   const collaboration = {
     schemaVersion: 1,
     clock: 4,
@@ -150,7 +176,7 @@ test("collaboration payloads retain Excalidraw deletion tombstones", () => {
   assert.notEqual(payload.elements[1], deleted);
 });
 
-test("scene exchange version 13 keeps authored background but drops local camera and tool state", () => {
+test("scene exchange version 14 keeps authored background but drops local camera and tool state", () => {
   const payload = attachUnderscoresExchangeMetadata({
     type: "excalidraw",
     elements: [],
@@ -175,6 +201,7 @@ test("scene exchange preserves authored media sources and reusable code definiti
     playCoreScripts: [{ id: "ascii-a", name: "ASCII A", source: "export function main() {}" }],
     svgScripts: [{ id: "svg-a", name: "SVG A", source: '<svg xmlns="http://www.w3.org/2000/svg" />' }],
     arrangement: { takes: [{ id: "take-a", name: "Take A", solo: true }], recording: { mode: "step", stepValue: "1 f", stepDurationMode: "hold" } },
+    walkthroughs: [{ type: "underscores-walkthrough", version: 1, id: "tour", revision: 1, title: "Tour", steps: [] }],
   };
   const payload = attachUnderscoresExchangeMetadata(
     { type: "excalidraw", elements: [] }, "scene", {}, null, null, null, [], null, null, authoredState,
@@ -187,6 +214,8 @@ test("scene exchange preserves authored media sources and reusable code definiti
   assert.equal(restored.svgScripts[0].id, "svg-a");
   assert.equal(restored.arrangement.takes[0].id, "take-a");
   assert.equal(restored.arrangement.recording.mode, "step");
+  assert.equal(restored.walkthroughs[0].id, "tour");
+  assert.equal(payload.underscores.patch.kind, "project");
 });
 
 test("selection exchange does not carry the scene-global grid", () => {

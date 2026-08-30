@@ -29,6 +29,7 @@ const RECORD_PATHS = Object.freeze([
   "underscores.authoredState.iannixScripts",
   "underscores.authoredState.playCoreScripts",
   "underscores.authoredState.svgScripts",
+  "underscores.authoredState.walkthroughs",
 ]);
 
 const getPath = (object, path) => path.split(".").reduce((value, key) => value?.[key], object);
@@ -69,7 +70,7 @@ export const toCollaborationSceneDocument = source => {
     underscores: clone(input.underscores || {}),
   };
   delete document.files;
-  document.underscores.version = 13;
+  document.underscores.version = 14;
   document.underscores.kind = "scene";
   document.underscores.score = authoredScore(document.underscores.score);
   document.underscores.collaboration = collaborationMetadata(document);
