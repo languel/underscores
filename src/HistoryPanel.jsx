@@ -53,6 +53,7 @@ const HistoryPanel = memo(function HistoryPanel({
   onExport,
   onImport,
   onClear,
+  onCreateWalkthrough,
 }) {
   const fileRef = useRef(null);
   const [selectedActionId, setSelectedActionId] = useState(null);
@@ -138,6 +139,7 @@ const HistoryPanel = memo(function HistoryPanel({
         <div className="history-file-actions">
           <button type="button" onClick={onClear} disabled={!actions.length || isRecording || isPlaying}>Clear</button>
           <button type="button" onClick={onExport} disabled={!actions.length}>Export</button>
+          <button type="button" onClick={onCreateWalkthrough} disabled={!actions.length}>Create walkthrough</button>
           <button type="button" onClick={() => fileRef.current?.click()}>Import</button>
           <input ref={fileRef} hidden type="file" accept=".json,.underscores-session" onChange={event => {
             const file = event.target.files?.[0];

@@ -13,7 +13,7 @@ test("dock registry keeps the requested primary right and bottom tab order", () 
     .filter(panel => panel.placements.includes("right"))
     .map(panel => panel.id);
   assert.deepEqual(rightDockOrder, [
-    "outliner", "playlist", "properties", "iannix", "script", "grid", "physics", "mods", "synth", "media-input", "inputs", "holistic", "mapping", "collaboration", "chat", "history", "settings", "mixer", "info", "console",
+    "outliner", "playlist", "properties", "iannix", "script", "grid", "physics", "mods", "synth", "media-input", "inputs", "holistic", "mapping", "collaboration", "chat", "history", "walkthrough", "settings", "mixer", "info", "console",
   ]);
   assert.deepEqual(UNDERSCORES_PANELS
     .filter(panel => panel.naturalPlacement === "bottom")

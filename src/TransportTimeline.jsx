@@ -19,6 +19,7 @@ const TransportTimeline = memo(function TransportTimeline({
   onLoopEnabledChange,
   onLoopChange,
   automationKeys = [],
+  walkthroughMarkers = [],
   followPlayhead = true,
   arrangementLanes = [],
   arrangementTakes = [],
@@ -488,6 +489,14 @@ const TransportTimeline = memo(function TransportTimeline({
         </div> : null}
         <div className="iannix-timeline-key-lane" aria-label="Object automation keyframes">
           {automationKeys.filter(key => key.time >= viewStart && key.time <= viewEnd).map(key => <i key={`${key.elementId}-${key.path}-${key.id}`} className="iannix-timeline-key" style={{ left: `${percentInView(key.time)}%` }} title={`${key.path} · ${formatTimelinePosition(key.time, displayMode, options)}`} />)}
+        </div>
+        <div className="iannix-walkthrough-marker-lane" aria-label="Guided walkthrough steps">
+          {walkthroughMarkers.filter(marker => marker.time >= viewStart && marker.time <= viewEnd).map(marker => <i
+            key={marker.id}
+            className={`iannix-walkthrough-marker${marker.active ? " active" : ""}`}
+            style={{ left: `${percentInView(marker.time)}%` }}
+            title={`${marker.title} · ${formatTimelinePosition(marker.time, displayMode, options)}`}
+          />)}
         </div>
         {loopVisible ? (
           <>

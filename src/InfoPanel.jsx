@@ -644,7 +644,7 @@ const guideTitle = (mode, livecodeKind) => ({
   ? normalizeLivecodeKind(livecodeKind) === "orca" ? "Orca quick reference" : getLivecodeHelp(livecodeKind).title
   : null));
 
-export default function InfoPanel({ info = DEFAULT_INFO_VIEW, mode = "default", iannixCommand = null, livecodeKind = null }) {
+export default function InfoPanel({ info = DEFAULT_INFO_VIEW, mode = "default", iannixCommand = null, livecodeKind = null, helpCatalog = [], onStartWalkthrough, onInsertHelp }) {
   const [search, setSearch] = useState("");
   const [selectedTopicId, setSelectedTopicId] = useState(null);
   const [copiedExample, setCopiedExample] = useState("");
@@ -665,6 +665,8 @@ export default function InfoPanel({ info = DEFAULT_INFO_VIEW, mode = "default", 
     : focusedInfo?.body || guide || DEFAULT_INFO_VIEW.body;
   const examples = searchIsActive ? selectedTopic?.examples || [] : focusedInfo?.examples || [];
   const documentation = searchIsActive ? null : focusedInfo?.documentation || null;
+  const helpQuery = search.trim().toLowerCase();
+  const catalogMatches = helpCatalog.filter(item => !helpQuery || [item.title, item.category, item.summary, ...(item.tags || [])].join(" ").toLowerCase().includes(helpQuery));
   const copyExample = async example => {
     if (!globalThis.navigator?.clipboard?.writeText) return;
     try {
@@ -723,6 +725,19 @@ export default function InfoPanel({ info = DEFAULT_INFO_VIEW, mode = "default", 
               <button type="button" onClick={() => void copyExample(example)}>{copiedExample === example ? "Copied" : "Copy"}</button>
             </div>
           ))}
+        </section>
+      )}
+      {catalogMatches.length > 0 && (
+        <section className="info-panel-help-catalog" aria-label="Help patch library">
+          <h3>Help patches</h3>
+          {catalogMatches.map(item => <article key={item.id}>
+            <div><strong>{item.title}</strong><small>{item.category}</small></div>
+            <p>{item.summary}</p>
+            <footer>
+              {item.walkthroughId && <button type="button" onClick={() => onStartWalkthrough?.(item.walkthroughId, { stepId: item.stepId })}>Start walkthrough</button>}
+              {item.insertCommand && <button type="button" onClick={() => onInsertHelp?.(item)}>Insert patch</button>}
+            </footer>
+          </article>)}
         </section>
       )}
     </div>
