@@ -32,15 +32,15 @@
   height: 11px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  background: var(--underscores-accent, #7aa2ff);
-  box-shadow: 0 0 14px 4px color-mix(in srgb, var(--underscores-accent, #7aa2ff) 65%, transparent);
+  background: var(--underscores-laser-color, var(--underscores-accent, #67d7e6));
+  box-shadow: 0 0 14px 4px color-mix(in srgb, var(--underscores-laser-color, var(--underscores-accent, #67d7e6)) 65%, transparent);
 }
 .walkthrough-cursor-ring {
   position: absolute;
   width: 30px;
   height: 30px;
   transform: translate(-50%, -50%);
-  border: 1px solid var(--underscores-accent, #7aa2ff);
+  border: 1px solid var(--underscores-laser-color, var(--underscores-accent, #67d7e6));
   border-radius: 50%;
   animation: walkthrough-pulse 1.5s ease-out infinite;
 }

@@ -903,9 +903,11 @@ const displaySampledColor = (color, element) => {
   return canvasDisplayColor(color, "dark");
 };
 
+const DEFAULT_LASER_COLOR = "#67d7e6";
+
 const resolveLaserColorToken = (value, palette) => {
   const token = String(value || "").trim().toLowerCase();
-  return palette[token] || value || "#ff0000";
+  return palette[token] || value || DEFAULT_LASER_COLOR;
 };
 
 const formatScriptJsonParameter = value => {
@@ -1332,7 +1334,7 @@ const ScriptParameterEditor = ({ parameter, disabled = false, onChange, onPickOb
 };
 
 const laserCursorForColor = color => {
-  const resolved = resolveCssColor(color) || { red: 255, green: 0, blue: 0 };
+  const resolved = resolveCssColor(color) || { red: 103, green: 215, blue: 230 };
   const stroke = `rgba(${resolved.red}, ${resolved.green}, ${resolved.blue}, ${resolved.alpha ?? 1})`;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="${stroke}" stroke-width="1.35"/><circle cx="12" cy="12" r="2.25" fill="${stroke}"/></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 12 12, crosshair`;
@@ -3321,7 +3323,11 @@ function App() {
   const [foregroundOpacity, setForegroundOpacity] = useState(() => Number(localStorage.getItem("underscores_foreground_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].foreground.opacity));
   const [mutedColor, setMutedColor] = useState(() => localStorage.getItem("underscores_muted_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].muted.color);
   const [mutedOpacity, setMutedOpacity] = useState(() => Number(localStorage.getItem("underscores_muted_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].muted.opacity));
-  const [laserColor, setLaserColor] = useState(() => localStorage.getItem("underscores_laser_color") || "#ff0000");
+  const [laserColor, setLaserColor] = useState(() => {
+    const stored = localStorage.getItem("underscores_laser_color");
+    // Migrate the previous built-in red default while preserving other user choices.
+    return !stored || stored.trim().toLowerCase() === "#ff0000" ? DEFAULT_LASER_COLOR : stored;
+  });
   const [laserOpacity, setLaserOpacity] = useState(() => Number(localStorage.getItem("underscores_laser_opacity") || 100));
   const [canvasDrawingStyle, setCanvasDrawingStyle] = useState({ stroke: "#1e1e1e", fill: "transparent", strokeWidth: 1 });
   const [interfaceThemePreset, setInterfaceThemePreset] = useState(() => localStorage.getItem("underscores_interface_theme_preset") || defaultInterfaceThemePreset);
@@ -26444,7 +26450,7 @@ function App() {
     setFollowTimelinePlayhead(true);
     setScriptEditorTheme("underscores");
     setTransparentBoardExport(false);
-    setLaserColor("#ff0000");
+    setLaserColor(DEFAULT_LASER_COLOR);
     setLaserOpacity(100);
     setGlobalRoundness(false);
     setCustomBrushRoundness(false);
@@ -26468,7 +26474,7 @@ function App() {
     localStorage.setItem("underscores_transport_launch_quantization", JSON.stringify(normalizeTransportLaunchQuantization(null)));
     localStorage.setItem("underscores_iannix_follow_playhead", "true");
     localStorage.setItem("underscores_export_transparent", "false");
-    localStorage.setItem("underscores_laser_color", "#ff0000");
+    localStorage.setItem("underscores_laser_color", DEFAULT_LASER_COLOR);
     localStorage.setItem("underscores_laser_opacity", "100");
     localStorage.setItem(CUSTOM_BRUSH_ROUNDNESS_STORAGE_KEY, "false");
     localStorage.setItem(DRAWING_ROUNDNESS_STORAGE_KEY, "0");
