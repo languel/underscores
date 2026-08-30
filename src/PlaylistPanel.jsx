@@ -1,6 +1,8 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { getOutlinerElementLabel } from "./OutlinerPanel.jsx";
-import { playlistItemLabel } from "./playlist.js";
+import { playlistItemLabel, PLAYLIST_TRIGGER_TYPES } from "./playlist.js";
+import { playlistTriggerPlaceholder } from "./playlistTriggers.js";
+import { getLivecodeKindDefinition, isLivecodeNodeElement, normalizeLivecodeNode } from "./livecodeNode.js";
 import TimeValueInput from "./TimeValueInput.jsx";
 
 const Icon = ({ type }) => {
@@ -21,6 +23,7 @@ const PlaylistPanel = memo(function PlaylistPanel({
   onAddElementIds,
   onRemove,
   onPatchItem,
+  onPickTarget,
   onMove,
   onSelect,
   onActivate,
@@ -39,6 +42,7 @@ const PlaylistPanel = memo(function PlaylistPanel({
   const editingRef = useRef(null);
   const selectedIds = Object.keys(selectedElementIds || {}).filter(id => selectedElementIds[id]);
   const items = playlist?.items || [];
+  const livecodeTargets = elements.filter(element => !element.isDeleted && isLivecodeNodeElement(element));
 
   const itemDisplayLabel = item => {
     const targets = (item?.elementIds || []).map(id => elements.find(element => element.id === id)).filter(Boolean);
@@ -94,12 +98,12 @@ const PlaylistPanel = memo(function PlaylistPanel({
   return <div className="playlist-panel" ref={panelRef} tabIndex={0} onDragOver={event => event.preventDefault()} onDrop={handleDrop}>
     <div className="playlist-toolbar">
       <button type="button" className={playing ? "active" : ""} onClick={playing ? onPause : onPlay} title={playing ? "Pause playlist" : "Play playlist"} aria-label={playing ? "Pause playlist" : "Play playlist"}><Icon type={playing ? "pause" : "play"} /></button>
-      <button type="button" onClick={onStep} title="Manual advance" aria-label="Manual advance">⇥</button>
+      <button type="button" onClick={onStep} title="Advance cue or playlist item and pause" aria-label="Advance cue or playlist item and pause">⇥</button>
       <button type="button" onClick={onPrevious} title="Previous playlist item" aria-label="Previous playlist item"><Icon type="prev" /></button>
-      <button type="button" onClick={onNext} title="Next playlist item" aria-label="Next playlist item"><Icon type="next" /></button>
+      <button type="button" onClick={onNext} title="Next cue or playlist item" aria-label="Next cue or playlist item"><Icon type="next" /></button>
       <TimeValueInput className="playlist-default-duration" aria-label="Default playlist duration" value={playlist?.defaultDurationValue || `${playlist?.defaultDuration ?? 5} s`} context={timeContext} defaultValue="5 s" minSeconds={0.1} onChange={(next, seconds) => onPatchState?.({ defaultDurationValue: next, defaultDuration: seconds })} title="Default duration for new playlist items" />
       <label className="playlist-loop-toggle" title="Loop playlist"><input type="checkbox" checked={playlist?.loop === true} onChange={event => onPatchState?.({ loop: event.target.checked })} /> <span>Loop</span></label>
-      <button type="button" className="playlist-add" onClick={() => onAddSelected?.()} disabled={!selectedIds.length} title="Add selected canvas objects"><Icon type="add" /> Add</button>
+      <button type="button" className="playlist-add" onClick={() => onAddSelected?.()} title={selectedIds.length ? "Add selected canvas objects as a playlist row" : "Add an empty playlist row"}><Icon type="add" /> Add</button>
     </div>
     <div className="playlist-options">
       <span>{items.length} {items.length === 1 ? "anchor" : "anchors"}</span>
@@ -119,6 +123,27 @@ const PlaylistPanel = memo(function PlaylistPanel({
           <select className="playlist-transition" aria-label="Transition" value={item.transition} onChange={event => onPatchItem?.(item.id, { transition: event.target.value })}><option value="cut">Cut</option><option value="fade" disabled>Fade (later)</option></select>
           <label className="playlist-arm" title="Arm cue"><input type="checkbox" checked={item.armed === true} onChange={event => onPatchItem?.(item.id, { armed: event.target.checked })} /></label>
           <button type="button" className="playlist-remove" onClick={() => onRemove?.(item.id)} title="Remove playlist item" aria-label="Remove playlist item">×</button>
+          <div className="playlist-row-trigger" onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
+            <select className="playlist-trigger-target" aria-label={`Target for ${itemDisplayLabel(item)}`} title="Livecode target for this playlist row" value={item.triggerTargetId || ""} onChange={event => onPatchItem?.(item.id, { triggerTargetId: event.target.value })}>
+              <option value="">Target: automatic</option>
+              {item.triggerTargetId && !livecodeTargets.some(element => element.id === item.triggerTargetId) && <option value={item.triggerTargetId}>Missing target · {item.triggerTargetId}</option>}
+              {livecodeTargets.map(element => {
+                const node = normalizeLivecodeNode(element.customData?.underscoresLivecode);
+                const label = getOutlinerElementLabel(element) || node.name || element.id;
+                const kind = getLivecodeKindDefinition(node.kind)?.label || node.kind;
+                return <option key={element.id} value={element.id}>{label} · {kind}</option>;
+              })}
+            </select>
+            <button type="button" className="playlist-target-picker" onClick={() => onPickTarget?.(item.id)} title="Pick Livecode target from canvas" aria-label={`Pick target for ${itemDisplayLabel(item)}`}>⌖</button>
+            <select className="playlist-trigger" aria-label={`Trigger for ${itemDisplayLabel(item)}`} value={item.trigger || "manual"} onChange={event => onPatchItem?.(item.id, { trigger: event.target.value, triggerSource: event.target.value === "manual" ? "" : item.triggerSource || "" })}>
+              <option value="manual">Manual</option>
+              {PLAYLIST_TRIGGER_TYPES.filter(trigger => trigger !== "manual").map(trigger => <option key={trigger} value={trigger}>{trigger === "js" ? "JavaScript" : trigger === "miniscript" ? "Mini-script" : "Command"}</option>)}
+              {item.trigger === "script" && <option value="script">JavaScript (legacy)</option>}
+              {item.trigger === "event" && <option value="event">Event (later)</option>}
+              {item.trigger === "srt" && <option value="srt">SRT (later)</option>}
+            </select>
+            {item.trigger && item.trigger !== "manual" && <input className="playlist-trigger-source" aria-label={`Source for ${itemDisplayLabel(item)} trigger`} value={item.triggerSource || ""} placeholder={playlistTriggerPlaceholder(item.trigger)} onChange={event => onPatchItem?.(item.id, { triggerSource: event.target.value })} />}
+          </div>
         </div>;
       })}
     </div>

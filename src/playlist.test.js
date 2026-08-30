@@ -26,6 +26,24 @@ test("playlist time values preserve authored units for display and editing", () 
   assert.equal(state.items[0].duration, 1);
 });
 
+test("playlist rows preserve trigger kind and bounded source", () => {
+  const state = createPlaylistState({ items: [{ elementId: "frame-a", trigger: "command", triggerSource: "playlist.next", triggerTargetId: "node-a" }] });
+  assert.equal(state.items[0].trigger, "command");
+  assert.equal(state.items[0].triggerSource, "playlist.next");
+  assert.equal(state.items[0].triggerTargetId, "node-a");
+  const item = createPlaylistItem({ elementIds: ["frame-b"], trigger: "js", triggerSource: "__.playlist.next()", triggerTargetId: "node-b" });
+  assert.equal(item.trigger, "js");
+  assert.equal(item.triggerSource, "__.playlist.next()");
+  assert.equal(item.triggerTargetId, "node-b");
+});
+
+test("playlist state keeps empty rows so they can be configured later", () => {
+  const state = createPlaylistState({ items: [{ triggerTargetId: "node-a" }] });
+  assert.equal(state.items.length, 1);
+  assert.deepEqual(state.items[0].elementIds, []);
+  assert.equal(playlistItemLabel(state.items[0]), "Empty playlist row");
+});
+
 test("playlist rows reorder without mutating the source", () => {
   const items = ["a", "b", "c"].map(id => createPlaylistItem({ elementIds: [id], label: id }));
   const reordered = movePlaylistItem(items, 0, 2);

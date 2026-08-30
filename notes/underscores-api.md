@@ -69,6 +69,7 @@ Excalidraw palette change without recompilation.
 | Namespace | Public methods |
 | --- | --- |
 | `commands` | `list()`, `describe(id)`, `execute(id, args, options)`, `subscribe(listener)` |
+| `playlist` | `get()`, `getTarget()`, `play()`, `pause()`, `next()`, `previous()`, `step()`, `select(index)`, `activate(index)` |
 | `scene` | `get()`, `getAppState()` |
 | `canvas`, `objects` | Same read-only query bridge available to the frame |
 | `time` | `parse(expression)`, `resolve(value, context)`, `format(value)`, `quantize(value, quantum, context)` |
@@ -92,6 +93,13 @@ await __.api.commands.execute("grid.global.update", {
   patch: { enabled: true },
 });
 ```
+
+Playlist anchors can be driven from trusted code with `__.playlist`. `getTarget()` returns the
+resolved target snapshot while a Playlist trigger is running (otherwise `null`). `select(index)` only frames
+the anchor; `activate(index)` also fires its persisted Command, Mini-script, or JavaScript trigger.
+`next()` and `step()` preserve the presenter rule that a pending Manim cue is advanced before the
+outer anchor. JavaScript trigger rows use the same trusted `__` bridge as Manim and other local
+script hosts; command and Mini-script rows remain resolved through the allowlisted command catalog.
 
 Semantic observations are transient and read-only:
 
@@ -130,6 +138,9 @@ surface through bounded `get_underscores_command_catalog`, `execute_underscores_
 livecode/p5/shader nodes, IanniX scores, keyframes, transport, SVG, arrangement, grid, history, and
 brush workflows without exposing the raw JavaScript API or arbitrary code execution. See
 [WebMCP Site tools](webmcp.md) for schemas, safety boundaries, confirmation rules, and testing.
+
+API version 13 adds the `__.playlist` control namespace and persisted per-anchor Command,
+Mini-script, and trusted JavaScript triggers.
 
 Persistent actor changes go through `media.binding.create`, `media.binding.update`,
 `media.binding.remove`, and `media.actors.arm`. API version 6 introduces the semantic stream service

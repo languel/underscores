@@ -141,7 +141,7 @@ Current controls:
 - the command registry exposes `livecode.manim.cue.next`, which is also available to WebMCP and defaults to `Alt+Shift+ArrowRight` (customizable in Settings → Shortcuts);
 - the frame publishes `underscores:manim-status` events including cue metadata and runtime status.
 
-All of these routes converge on the same `manim.cue.next` event and cue controller. This keeps keyboard shortcuts, WebMCP, AI, scripted events, and presentation controls semantically aligned. The outer Playlist **Next** hierarchy still needs to be wired to consume a pending Manim cue before advancing its anchor.
+All of these routes converge on the same `manim.cue.next` event and cue controller. This keeps keyboard shortcuts, WebMCP, AI, scripted events, and presentation controls semantically aligned. Playlist **Next** and manual Step query the active anchor's mounted Manim nodes in authored element order; when one is waiting at a cue, they dispatch `livecode.manim.cue.next` through the command registry and keep the outer anchor in place. Playlist autoplay pauses at a pending manual cue rather than skipping it.
 
 ## Presentation integration
 
@@ -155,9 +155,17 @@ Playlist anchor / presentation step
     `- next outer anchor
 ```
 
-Presentation **Next** should first ask the active Manim node whether it has a pending cue. If so, advance that cue. Otherwise advance the outer Playlist anchor.
+Presentation **Next** first asks the active Playlist anchor whether one of its Manim nodes has a pending cue. If so, it advances that cue. Otherwise it advances the outer Playlist anchor. Previous still moves between outer anchors until deterministic cue reconstruction provides a truthful `gotoCue`/previous-build operation.
 
 This is preferable to representing every mathematical reveal as a full canvas presentation anchor.
+
+Playlist anchors can now invoke the same presentation command surface on activation. A row may
+carry a command id (`livecode.manim.cue.next {"elementId":"…"}`), a command-palette mini-script
+(`/command playlist.next {}`), or trusted one-line bridge code (`await __.api.playlist.next()`). This
+lets a Playlist coordinate vanilla Manim scenes and subsequences without modifying their source;
+the Manim cue hierarchy remains inside the selected anchor. Rows can target a specific Livecode node
+with `triggerTargetId`; command/miniscript calls receive that id as an implicit `elementId`, while JS
+triggers can read the resolved snapshot with `__.api.playlist.getTarget()`.
 
 `manim-web` 0.3.x also has its own slides mode (`nextSlide`, auto-next, per-slide looping). The integration should evaluate adapting that upstream machinery, but Underscores remains authoritative for persistence, commands, History, and outer presentation state.
 

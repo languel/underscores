@@ -42,7 +42,9 @@ import GeometryResetIcon from "./GeometryResetIcon.jsx";
 import { embedPolicyForElement, extractDroppedEmbedURL, isAllowedEmbedURL, sanitizeEmbedURL, shouldRenderEmbed } from "./embedPolicy.js";
 import OutlinerPanel, { getOutlinerElementLabel } from "./OutlinerPanel.jsx";
 import PlaylistPanel from "./PlaylistPanel.jsx";
+import { applyPlaylistTargetArgs, executePlaylistJavaScript, parsePlaylistCommand } from "./playlistTriggers.js";
 import { createPlaylistItem, createPlaylistState, getPlaylistItemElements, movePlaylistItem } from "./playlist.js";
+import { findPendingManimCue } from "./manimRuntimeRegistry.js";
 import { applyPresentationVisibility, canFitPresentationBounds, isElementVisibleInPresentation } from "./presentationVisibility.js";
 import { groupSceneElements, moveSceneElementsToGroup, moveSceneElementsToGroupParent, moveSceneGroupToParent, renameSceneGroup, reorderSceneElements, ungroupSceneElements } from "./sceneLayers.js";
 import IannixDataPanel from "./IannixDataPanel.jsx";
@@ -3185,6 +3187,16 @@ function App() {
     globalGridUpdate: () => {},
     globalGridReset: () => {},
     gridQuantizeSelection: () => {},
+    playlistPlay: () => {},
+    playlistPause: () => {},
+    playlistNext: async () => {},
+    playlistPrevious: () => {},
+    playlistStep: async () => {},
+    playlistSelect: () => null,
+    playlistActivate: async () => null,
+    playlistGet: () => createPlaylistState(),
+    playlistTarget: () => null,
+    playlistTrigger: async () => ({ triggered: false }),
   });
   const underscoresRuntimeRef = useRef(null);
   if (!underscoresRuntimeRef.current) {
@@ -4665,6 +4677,8 @@ function App() {
   playlistStateRef.current = playlistState;
   const [playlistPlaying, setPlaylistPlaying] = useState(false);
   const playlistClockRef = useRef({ index: 0, startedAt: 0 });
+  const playlistTriggerDepthRef = useRef(0);
+  const playlistTriggerTargetRef = useRef(null);
   const [scoreRate, setScoreRate] = useState(() => {
     const saved = Number(localStorage.getItem("underscores_iannix_rate"));
     return Number.isFinite(saved) && saved > 0 ? saved : 1;
@@ -10027,7 +10041,9 @@ function App() {
     if (!items.length) return null;
     const nextIndex = Math.max(0, Math.min(items.length - 1, Math.floor(Number(index) || 0)));
     const item = items[nextIndex];
-    setPlaylistState(previous => ({ ...previous, activeIndex: nextIndex }));
+    const nextState = { ...state, activeIndex: nextIndex };
+    playlistStateRef.current = nextState;
+    setPlaylistState(nextState);
     const api = excalidrawAPIRef.current;
     const targets = getPlaylistItemElements(item, api?.getSceneElements?.() || []);
     if (targets.length && api) {
@@ -10039,7 +10055,15 @@ function App() {
     return item;
   }, []);
 
-  const advancePlaylist = useCallback((direction = 1, { keepPlaying = playlistPlaying } = {}) => {
+  const activatePlaylistIndex = useCallback(async (index, { frame = true, trigger = true } = {}) => {
+    const item = selectPlaylistIndex(index, { frame });
+    if (item && trigger && playlistTriggerDepthRef.current === 0) {
+      await runtimeCallbacksRef.current.playlistTrigger(item, { index });
+    }
+    return item;
+  }, [selectPlaylistIndex]);
+
+  const advancePlaylist = useCallback(async (direction = 1, { keepPlaying = playlistPlaying } = {}) => {
     const state = playlistStateRef.current;
     const items = state.items || [];
     if (!items.length) return null;
@@ -10049,26 +10073,52 @@ function App() {
     if (nextIndex < 0) nextIndex = state.loop ? items.length - 1 : 0;
     const reachedEnd = !state.loop && ((delta > 0 && state.activeIndex >= items.length - 1) || (delta < 0 && state.activeIndex <= 0));
     if (reachedEnd && keepPlaying) setPlaylistPlaying(false);
+    if (nextIndex === state.activeIndex) return selectPlaylistIndex(nextIndex, { frame: true });
     playlistClockRef.current = { index: nextIndex, startedAt: performance.now() };
-    return selectPlaylistIndex(nextIndex, { frame: true });
-  }, [playlistPlaying, selectPlaylistIndex]);
+    return activatePlaylistIndex(nextIndex, { frame: true });
+  }, [activatePlaylistIndex, playlistPlaying, selectPlaylistIndex]);
 
-  const startPlaylist = useCallback(() => {
+  const startPlaylist = useCallback(async () => {
     const state = playlistStateRef.current;
     if (!state.items.length) return;
     const index = Math.max(0, Math.min(state.items.length - 1, state.activeIndex));
     playlistClockRef.current = { index, startedAt: performance.now() };
     setPlaylistPlaying(true);
-    selectPlaylistIndex(index, { frame: true });
-  }, [selectPlaylistIndex]);
+    await activatePlaylistIndex(index, { frame: true });
+  }, [activatePlaylistIndex]);
 
   const stopPlaylist = useCallback(() => setPlaylistPlaying(false), []);
   const previousPlaylistItem = useCallback(() => advancePlaylist(-1), [advancePlaylist]);
-  const nextPlaylistItem = useCallback(() => advancePlaylist(1), [advancePlaylist]);
-  const stepPlaylist = useCallback(() => {
+  const advancePendingPlaylistManimCue = useCallback(async () => {
+    const state = playlistStateRef.current;
+    const item = state.items?.[state.activeIndex];
+    const pending = findPendingManimCue(item?.elementIds || []);
+    if (!pending) return false;
+    // A Manim cue is an inner presentation step. Dispatch it through the
+    // command registry so Playlist, shortcuts, History, AI, and WebMCP keep
+    // one semantic control path instead of reaching into the renderer.
+    playlistClockRef.current = { index: state.activeIndex, startedAt: performance.now() };
+    try {
+      await commandRegistry.execute("livecode.manim.cue.next", {
+        elementId: pending.elementId,
+      }, {
+        source: "playlist",
+        transportTime: scoreTimeRef.current,
+      });
+    } catch (error) {
+      setSceneExchangeStatus(`Could not advance Manim cue: ${error?.message || String(error)}`);
+    }
+    return true;
+  }, [commandRegistry]);
+  const nextPlaylistItem = useCallback(async () => {
+    if (await advancePendingPlaylistManimCue()) return;
+    await advancePlaylist(1);
+  }, [advancePendingPlaylistManimCue, advancePlaylist]);
+  const stepPlaylist = useCallback(async () => {
     setPlaylistPlaying(false);
-    advancePlaylist(1, { keepPlaying: false });
-  }, [advancePlaylist]);
+    if (await advancePendingPlaylistManimCue()) return;
+    await advancePlaylist(1, { keepPlaying: false });
+  }, [advancePendingPlaylistManimCue, advancePlaylist]);
 
   useEffect(() => {
     if (!playlistPlaying || !playlistState.items.length) return undefined;
@@ -10081,7 +10131,16 @@ function App() {
       const item = current.items[current.activeIndex];
       if (!item) return;
       const duration = Math.max(0.1, Number(item.duration) || current.defaultDuration || 5);
-      if (performance.now() - playlistClockRef.current.startedAt >= duration * 1000) advancePlaylist(1);
+      if (performance.now() - playlistClockRef.current.startedAt < duration * 1000) return;
+      // Cue mode is explicitly presenter-driven. Autoplay may advance an
+      // ordinary anchor, but it must never skip a Manim node that is waiting
+      // for its internal Next action.
+      if (findPendingManimCue(item.elementIds)) {
+        setPlaylistPlaying(false);
+        setSceneExchangeStatus("Playlist paused at a Manim cue.");
+        return;
+      }
+      void advancePlaylist(1);
     }, 40);
     return () => window.clearInterval(timer);
   }, [advancePlaylist, playlistPlaying, playlistState.activeIndex, playlistState.items.length]);
@@ -10096,11 +10155,15 @@ function App() {
     const api = excalidrawAPIRef.current;
     const scene = api?.getSceneElements?.() || [];
     const ids = [...new Set(elementIds.map(String))].filter(id => scene.some(element => element.id === id && !element.isDeleted));
-    if (!ids.length) return false;
     const targets = scene.filter(element => ids.includes(element.id));
+    // A Playlist row is useful even before it has a frame/anchor. When the
+    // current selection contains a Livecode node, remember it as the row's
+    // trigger target so command/miniscript/JS calls can address that node.
+    const triggerTargetId = targets.find(isLivecodeNodeElement)?.id || "";
     const item = createPlaylistItem({
       elementIds: ids,
-      label: targets.length === 1 ? "" : `${targets.length} objects`,
+      label: targets.length > 1 ? `${targets.length} objects` : "",
+      triggerTargetId,
       duration: playlistStateRef.current.defaultDuration,
       durationValue: playlistStateRef.current.defaultDurationValue,
     });
@@ -10108,7 +10171,9 @@ function App() {
     playlistStateRef.current = next;
     setPlaylistState(next);
     selectPlaylistIndex(next.items.length - 1, { frame: false });
-    setSceneExchangeStatus(`Added ${item.label || "object"} to the playlist.`);
+    setSceneExchangeStatus(ids.length
+      ? `Added ${item.label || "object"} to the playlist${triggerTargetId ? " with a Livecode target" : ""}.`
+      : "Added an empty row to the playlist.");
     return true;
   }, [selectPlaylistIndex]);
 
@@ -10147,6 +10212,15 @@ function App() {
     playlistStateRef.current = next;
     setPlaylistState(next);
   }, []);
+
+  runtimeCallbacksRef.current.playlistPlay = startPlaylist;
+  runtimeCallbacksRef.current.playlistPause = stopPlaylist;
+  runtimeCallbacksRef.current.playlistNext = nextPlaylistItem;
+  runtimeCallbacksRef.current.playlistPrevious = previousPlaylistItem;
+  runtimeCallbacksRef.current.playlistStep = stepPlaylist;
+  runtimeCallbacksRef.current.playlistSelect = index => selectPlaylistIndex(index, { frame: true });
+  runtimeCallbacksRef.current.playlistActivate = index => activatePlaylistIndex(index, { frame: true });
+  runtimeCallbacksRef.current.playlistGet = () => playlistStateRef.current;
 
   const patchArrangementTake = useCallback((takeId, patch) => {
     const next = createArrangementState({
@@ -14298,8 +14372,8 @@ function App() {
     { id: "p5.frame.create", name: "Create p5 Frame /p5", aliases: ["/p5", "Create p5 frame", "p5 frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", source: "p5 source?", mode: "auto|instance|global?", p5Version: "1|2?", runtime: "bundled|cdn?", cdnUrl: "string?" }, ai: { expose: true, description: "Create a trusted, interactive p5.js frame. Use p5Version: 2 for the embedded latest 2.x runtime or p5Version: 1 for the embedded latest 1.x runtime. Use mode: instance for p.setup/p.draw code, or mode: global for classic function setup()/draw() code. Omit mode for auto-detection. The bundled runtime is the default; only use runtime: cdn when the user specifically requests a remote p5 build. Keep the sketch self-contained and do not use HTML or script tags.", example: { name: "Pulsing circle", width: 640, height: 360, mode: "global", source: "function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  background(18);\n  noFill();\n  stroke(230);\n  strokeWeight(3);\n  const radius = 60 + 24 * Math.sin(millis() / 500);\n  circle(width / 2, height / 2, radius * 2);\n}" } }, action: (_api, args) => createP5Frame(args) },
     { id: "p5.frame.attach", name: "Attach p5 Sketch to Selection /attach p5", aliases: ["/attach p5", "Attach p5 sketch", "p5 attach"], category: "Canvas", args: { source: "p5 source?", mode: "auto|instance|global?", name: "string?" }, ai: { expose: true, description: "Attach a p5 sketch to each selected rectangle, frame, or existing p5 canvas. The selected objects become live p5 hosts; use a self-contained p5 source and choose global mode for classic setup()/draw() code.", example: { mode: "global", source: "function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  background(18);\n  circle(width / 2, height / 2, 80);\n}" } }, action: (_api, args) => attachP5ScriptToSelection(args) },
     { id: "play.core.frame.create", name: "Create Play Core Frame /play", aliases: ["/play", "Play Core frame"], category: "Canvas", args: { name: "string?", width: "number?", height: "number?", fps: "number?", source: "play.core source?" }, action: (_api, args) => createPlayCoreFrame(args) },
-    { id: "livecode.node.run", name: "Run Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.underscoresLivecode); if (!node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
-    { id: "livecode.node.stop", name: "Stop Selected Livecode Node", category: "Canvas", action: () => { const target = getSelectedElements().find(isLivecodeNodeElement); if (!target) throw new Error("Select a Livecode Node first."); const node = normalizeLivecodeNode(target.customData.underscoresLivecode); if (node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
+    { id: "livecode.node.run", name: "Run Selected Livecode Node", category: "Canvas", args: { elementId: "string?" }, action: (_api, args = {}) => { const target = getLivecodeNodeTarget(args.elementId || args.targetId); if (!target) throw new Error("Select a Livecode Node first or provide elementId."); const node = normalizeLivecodeNode(target.customData.underscoresLivecode); if (!node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
+    { id: "livecode.node.stop", name: "Stop Selected Livecode Node", category: "Canvas", args: { elementId: "string?" }, action: (_api, args = {}) => { const target = getLivecodeNodeTarget(args.elementId || args.targetId); if (!target) throw new Error("Select a Livecode Node first or provide elementId."); const node = normalizeLivecodeNode(target.customData.underscoresLivecode); if (node.runtime.running) toggleLivecodeNodeRun(target.id); return { elementIds: [target.id] }; } },
     { id: "livecode.manim.cue.next", name: "Advance Manim Cue", category: "Livecode", args: { elementId: "string?" }, ai: { expose: true, description: "Advance the pending presentation cue on a Manim Livecode node. If elementId is omitted, the selected Manim node is targeted." }, action: (_api, args = {}) => {
       const selected = getSelectedElements().find(element => isLivecodeNodeElement(element)
         && normalizeLivecodeNode(element.customData?.underscoresLivecode).kind === LIVECODE_KINDS.manim);
@@ -14308,6 +14382,13 @@ function App() {
       const event = eventBus.emit("manim.cue.next", { elementId, action: "next" }, { source: "command" });
       return { dispatched: true, elementId, eventId: event.id };
     } },
+    { id: "playlist.play", name: "Play Playlist", category: "Playlist", record: "never", ai: { expose: true, description: "Start the current Playlist from its active anchor." }, action: () => runtimeCallbacksRef.current.playlistPlay() },
+    { id: "playlist.pause", name: "Pause Playlist", category: "Playlist", record: "never", ai: { expose: true, description: "Pause current Playlist playback without changing the active anchor." }, action: () => runtimeCallbacksRef.current.playlistPause() },
+    { id: "playlist.next", name: "Advance Playlist", aliases: ["/playlist next"], category: "Playlist", record: "never", ai: { expose: true, description: "Advance the active Playlist anchor, first advancing a pending Manim cue when present." }, action: () => runtimeCallbacksRef.current.playlistNext() },
+    { id: "playlist.previous", name: "Previous Playlist Item", aliases: ["/playlist previous"], category: "Playlist", record: "never", ai: { expose: true, description: "Move to the previous outer Playlist anchor." }, action: () => runtimeCallbacksRef.current.playlistPrevious() },
+    { id: "playlist.step", name: "Step Playlist", aliases: ["/playlist step"], category: "Playlist", record: "never", ai: { expose: true, description: "Pause and advance one pending Manim cue or outer Playlist anchor." }, action: () => runtimeCallbacksRef.current.playlistStep() },
+    { id: "playlist.select", name: "Select Playlist Anchor", aliases: ["/playlist select"], category: "Playlist", record: "never", args: { index: "number" }, ai: { expose: true, description: "Select and frame a Playlist anchor by zero-based index without firing its trigger." }, action: (_api, args = {}) => runtimeCallbacksRef.current.playlistSelect(Number(args.index) || 0) },
+    { id: "playlist.activate", name: "Activate Playlist Anchor", aliases: ["/playlist activate"], category: "Playlist", record: "never", args: { index: "number" }, ai: { expose: true, description: "Select, frame, and fire a Playlist anchor trigger by zero-based index." }, action: (_api, args = {}) => runtimeCallbacksRef.current.playlistActivate(Number(args.index) || 0) },
     { id: "livecode.node.migrate", name: "Migrate p5 or Play Core Host to Livecode Node", aliases: ["Migrate to Livecode Node"], category: "Canvas", action: () => { const target = getSelectedElements().find(element => isP5FrameElement(element) || isPlayCoreFrameElement(element)); if (!target) throw new Error("Select a p5 or Play Core host first."); return migrateLegacyHostToLivecodeNode(target.id); } },
     { id: "media.camera.create", name: "Create Camera Input", aliases: ["/camera", "webcam stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.CAMERA, args) },
     { id: "media.input.create", name: "Create Media Input", aliases: ["/media", "image stream", "video stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.MEDIA, { ...args, media: { url: args?.url || args?.media?.url || "", ...(args?.media || {}) } }) },
@@ -15117,6 +15198,79 @@ function App() {
     return null;
   };
 
+  const executePlaylistTrigger = async (item, { index = playlistStateRef.current.activeIndex } = {}) => {
+    const trigger = item?.trigger || "manual";
+    if (trigger === "manual" || trigger === "event" || trigger === "srt") return { triggered: false, reason: "manual" };
+    if (playlistTriggerDepthRef.current > 0) return { triggered: false, reason: "nested" };
+    const source = String(item?.triggerSource || "").trim();
+    if (!source) {
+      const message = `Playlist item ${Number(index) + 1} has a ${trigger} trigger but no source.`;
+      setSceneExchangeStatus(message);
+      return { triggered: false, error: message };
+    }
+    const targetId = String(item?.triggerTargetId || "").trim();
+    let target = null;
+    if (targetId) {
+      const scene = excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || excalidrawAPIRef.current?.getSceneElements?.() || [];
+      const element = scene.find(candidate => candidate.id === targetId && !candidate.isDeleted && isLivecodeNodeElement(candidate));
+      if (!element) {
+        const message = `Playlist target ${targetId} is missing or is not a Livecode node.`;
+        setSceneExchangeStatus(message);
+        return { triggered: false, error: message };
+      }
+      const node = normalizeLivecodeNode(element.customData?.underscoresLivecode);
+      target = {
+        id: element.id,
+        elementId: element.id,
+        type: element.type,
+        kind: node.kind,
+        name: node.name,
+        label: getOutlinerElementLabel(element) || node.name || element.id,
+        x: Number(element.x) || 0,
+        y: Number(element.y) || 0,
+        width: Number(element.width) || 0,
+        height: Number(element.height) || 0,
+      };
+    }
+    playlistTriggerDepthRef.current += 1;
+    playlistTriggerTargetRef.current = target;
+    try {
+      let result;
+      let invocation = null;
+      if (trigger === "command") {
+        invocation = parsePlaylistCommand(source, COMMANDS);
+      } else if (trigger === "miniscript") {
+        invocation = parseSlashInvocation(source, { allowBare: true }) || parsePlaylistCommand(source, COMMANDS);
+      } else if (trigger === "js" || trigger === "script") {
+        result = await executePlaylistJavaScript(source, window.__);
+      } else {
+        return { triggered: false, reason: `unsupported trigger: ${trigger}` };
+      }
+      if (invocation?.error) throw new Error(invocation.error);
+      if (invocation) {
+        if (!invocation.id && invocation.command?.id) invocation = { id: invocation.command.id, args: invocation.args || {} };
+        if (!invocation.id) throw new Error(`Could not resolve Playlist trigger: ${source}`);
+        result = await commandRegistry.execute(invocation.id, applyPlaylistTargetArgs(invocation.args || {}, target), {
+          source: "playlist-trigger",
+          record: false,
+          playlistItemId: item.id,
+          playlistIndex: index,
+          transportTime: scoreTimeRef.current,
+        });
+      }
+      return { triggered: true, type: trigger, source, result };
+    } catch (error) {
+      const message = `Playlist trigger failed: ${error?.message || String(error)}`;
+      setSceneExchangeStatus(message);
+      return { triggered: false, error: message };
+    } finally {
+      playlistTriggerTargetRef.current = null;
+      playlistTriggerDepthRef.current = Math.max(0, playlistTriggerDepthRef.current - 1);
+    }
+  };
+  runtimeCallbacksRef.current.playlistTrigger = executePlaylistTrigger;
+  runtimeCallbacksRef.current.playlistTarget = () => playlistTriggerTargetRef.current;
+
   const openAISidebar = () => {
     setOpenPanels(previous => ({ ...previous, chat: true }));
     const placement = panelLayouts.chat.placement;
@@ -15151,6 +15305,14 @@ function App() {
     if (!excalidrawAPI) return [];
     const elements = excalidrawAPI.getSceneElements();
     return elements.filter(el => selectedElementIds[el.id] && !el.isDeleted);
+  };
+
+  const getLivecodeNodeTarget = (elementId = "") => {
+    const api = excalidrawAPIRef.current || excalidrawAPI;
+    const requestedId = String(elementId || "").trim();
+    const scene = api?.getSceneElementsIncludingDeleted?.() || api?.getSceneElements?.() || [];
+    if (requestedId) return scene.find(element => element.id === requestedId && !element.isDeleted && isLivecodeNodeElement(element)) || null;
+    return getSelectedElements().find(isLivecodeNodeElement) || null;
   };
 
   const getLiveSelectedElements = () => {
@@ -17365,6 +17527,17 @@ function App() {
     setObjectEyedropper({ label });
     setSceneExchangeStatus(`${label}: click a compatible canvas object, or press Escape to cancel.`);
   }, []);
+
+  const pickPlaylistTriggerTarget = (itemId) => {
+    beginObjectEyedropper({
+      label: "Pick Livecode target",
+      accept: element => Boolean(element && !element.isDeleted && isLivecodeNodeElement(element)),
+      onPick: element => {
+        patchPlaylistItem(itemId, { triggerTargetId: element.id });
+        return `Playlist target set to ${getOutlinerElementLabel(element) || element.id}.`;
+      },
+    });
+  };
 
   const beginGlobalObjectEyedropper = useCallback(() => {
     beginObjectEyedropper({
@@ -20791,13 +20964,38 @@ function App() {
     });
     let webMCPRegistration = null;
     const api = {
-      apiVersion: 12,
+      apiVersion: 13,
       commands: {
         list: () => commandRegistry.list(),
         describe: id => commandRegistry.describe(id),
         execute: (id, args, options) => commandRegistry.execute(id, args, { transportTime: scoreTimeRef.current, ...options }),
         subscribe: listener => commandRegistry.subscribe(listener),
       },
+      playlist: Object.freeze({
+        get: () => {
+          const state = runtimeCallbacksRef.current.playlistGet();
+          return {
+            ...state,
+            defaultDurationValue: state?.defaultDurationValue ? { ...state.defaultDurationValue } : state?.defaultDurationValue,
+            items: (state?.items || []).map(item => ({
+              ...item,
+              elementIds: [...(item.elementIds || [])],
+              durationValue: item.durationValue ? { ...item.durationValue } : item.durationValue,
+            })),
+          };
+        },
+        getTarget: () => {
+          const target = runtimeCallbacksRef.current.playlistTarget();
+          return target ? { ...target } : null;
+        },
+        play: () => runtimeCallbacksRef.current.playlistPlay(),
+        pause: () => runtimeCallbacksRef.current.playlistPause(),
+        next: () => runtimeCallbacksRef.current.playlistNext(),
+        previous: () => runtimeCallbacksRef.current.playlistPrevious(),
+        step: () => runtimeCallbacksRef.current.playlistStep(),
+        select: index => runtimeCallbacksRef.current.playlistSelect(index),
+        activate: index => runtimeCallbacksRef.current.playlistActivate(index),
+      }),
       history: {
         start: options => runtimeCallbacksRef.current.historyStart(options),
         pause: () => runtimeCallbacksRef.current.historyPause(),
@@ -28781,9 +28979,10 @@ function App() {
               onAddElementIds={addPlaylistElementIds}
               onRemove={removePlaylistItem}
               onPatchItem={patchPlaylistItem}
+              onPickTarget={pickPlaylistTriggerTarget}
               onMove={movePlaylistRow}
               onSelect={index => selectPlaylistIndex(index)}
-              onActivate={index => selectPlaylistIndex(index, { frame: true })}
+              onActivate={index => activatePlaylistIndex(index, { frame: true })}
               onRenameElement={renameSceneElement}
               timeContext={timeContext}
               onPlay={startPlaylist}
