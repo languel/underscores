@@ -82,11 +82,18 @@
 .walkthrough-narration button {
   min-height: 28px;
   padding: 4px 9px;
-  border: 1px solid color-mix(in srgb, var(--underscores-foreground, #e7eaed) 20%, transparent);
+  border: 1px solid var(--border-color, color-mix(in srgb, var(--underscores-foreground, #e7eaed) 20%, transparent));
   border-radius: 5px;
   background: transparent;
+  color: var(--color-primary, var(--underscores-foreground, #e7eaed));
 }
-.walkthrough-narration button.primary { background: var(--underscores-accent, #7aa2ff); color: #fff; border-color: transparent; }
+.walkthrough-narration button:hover:not(:disabled),
+.walkthrough-narration button:focus-visible,
+.info-panel-help-catalog button:hover:not(:disabled),
+.info-panel-help-catalog button:focus-visible,
+.walkthrough-panel button:hover:not(:disabled),
+.walkthrough-panel button:focus-visible { background: var(--bg-hover-btn, color-mix(in srgb, currentColor 12%, transparent)); }
+.walkthrough-narration button.primary { font-weight: 700; border-color: var(--border-focus, var(--underscores-accent, #67d7e6)); }
 .walkthrough-narration .is-warning { color: #e6a74f; }
 .walkthrough-narration .is-success { color: #76c893; }
 .walkthrough-hint { padding-left: 9px; border-left: 2px solid var(--underscores-accent, #7aa2ff); }
@@ -105,7 +112,7 @@
   border-radius: 4px;
   background: var(--underscores-input-bg, transparent);
 }
-.walkthrough-panel button { min-height: 26px; padding: 3px 7px; }
+.walkthrough-panel button { min-height: 26px; padding: 3px 7px; background: transparent; color: var(--color-primary, var(--underscores-foreground, #e7eaed)); }
 .walkthrough-title-field,
 .walkthrough-step-editor label { display: grid; grid-template-columns: 72px minmax(0,1fr); align-items: center; gap: 8px; padding: 5px 8px; }
 .walkthrough-title-field input,
@@ -134,6 +141,15 @@
 .info-panel-help-catalog article footer { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .info-panel-help-catalog article p { margin: 0; color: var(--underscores-muted); }
 .info-panel-help-catalog article small { color: var(--underscores-muted); }
+.info-panel-help-catalog button {
+  min-height: 25px;
+  padding: 3px 7px;
+  border: 1px solid var(--border-color, color-mix(in srgb, currentColor 16%, transparent));
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-primary, var(--underscores-foreground, #e7eaed));
+  font: inherit;
+}
 
 .iannix-walkthrough-marker-lane { position: absolute; inset: 0; pointer-events: none; }
 .iannix-walkthrough-marker { position: absolute; top: 4px; width: 1px; height: 10px; background: var(--underscores-muted); }
