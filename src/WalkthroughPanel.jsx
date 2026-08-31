@@ -28,6 +28,8 @@ export default function WalkthroughPanel({
   const running = snapshot && !["idle", "stopped", "completed"].includes(snapshot.status);
   const paused = snapshot?.status === "paused";
   const instant = snapshot?.instant === true;
+  const completed = snapshot?.status === "completed";
+  const finalStep = Boolean(snapshot?.walkthrough?.steps?.length && snapshot.stepIndex >= snapshot.walkthrough.steps.length - 1);
 
   useEffect(() => {
     if (!active?.steps.some(step => step.id === selectedStepId)) setSelectedStepId(active?.steps[0]?.id || "");
@@ -73,7 +75,7 @@ export default function WalkthroughPanel({
         <option value="instant">Instant</option>
       </select>
       <input className="walkthrough-custom-rate" type="number" min="0.05" max="100" step="0.05" value={instant ? 1 : snapshot?.rate || 1} onChange={event => onRate?.(Number(event.target.value), { instant: false })} aria-label="Custom walkthrough pace" title="Custom pace" />
-      <button type="button" onClick={onStop} disabled={!running && snapshot?.status !== "completed"}>■</button>
+      <button type="button" onClick={onStop} disabled={!running && !completed} title={completed || finalStep ? "Finish the walkthrough and choose whether to keep or restore its results" : "Stop walkthrough"}>{completed || finalStep ? "Done" : "■"}</button>
       <button type="button" onClick={onExportRun} disabled={!snapshot?.trace?.events?.length}>Export run</button>
     </div>
 

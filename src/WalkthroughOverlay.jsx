@@ -25,6 +25,8 @@ export default function WalkthroughOverlay({
   const active = snapshot && !["idle", "stopped"].includes(snapshot.status);
   const waiting = snapshot?.status === "waiting";
   const paused = snapshot?.status === "paused";
+  const completed = snapshot?.status === "completed";
+  const isFinalStep = Boolean(step && snapshot?.walkthrough?.steps?.length && snapshot.stepIndex >= snapshot.walkthrough.steps.length - 1);
 
   useEffect(() => {
     if (!active || !step?.focusTarget) {
@@ -119,22 +121,27 @@ export default function WalkthroughOverlay({
         {snapshot.assertion && <p className={snapshot.assertion.passed ? "is-success" : "is-warning"}>{snapshot.assertion.reason}</p>}
         {hint && <p className="walkthrough-hint">{hint}</p>}
         <footer>
-          <button type="button" onClick={onPrevious} disabled={snapshot.stepIndex <= 0} title="Previous walkthrough step">←</button>
-          <button type="button" onClick={paused ? onResume : onPause} title={paused ? "Resume walkthrough" : "Pause walkthrough"}>{paused ? "▶" : "Ⅱ"}</button>
-          {step.advance.mode === "assertion" && waiting
-            ? <button type="button" className="primary" onClick={onCheck}>Check</button>
-            : <button type="button" className="primary" onClick={onNext} disabled={!waiting && step.advance.mode !== "continue"}>Continue</button>}
-          {step.hint && <button type="button" onClick={() => setHint(onHint?.() || step.hint)}>Hint</button>}
-          <button
-            type="button"
-            onClick={onDoIt}
-            disabled={!waiting}
-            title="Try this step yourself first; Do it lets the walkthrough perform it for you."
-          >
-            Do it
-          </button>
-          {step.allowSkip && waiting && <button type="button" onClick={onSkip}>Skip</button>}
-          <button type="button" onClick={onStop}>Stop</button>
+          {completed ? <>
+            <span className="walkthrough-complete-label">Walkthrough complete</span>
+            <button type="button" className="primary" onClick={onStop} title="Finish the walkthrough and choose whether to keep or restore its results">Done</button>
+          </> : <>
+            <button type="button" onClick={onPrevious} disabled={snapshot.stepIndex <= 0} title="Previous walkthrough step">←</button>
+            <button type="button" onClick={paused ? onResume : onPause} title={paused ? "Resume walkthrough" : "Pause walkthrough"}>{paused ? "▶" : "Ⅱ"}</button>
+            {step.advance.mode === "assertion" && waiting
+              ? <button type="button" className="primary" onClick={onCheck}>Check</button>
+              : <button type="button" className="primary" onClick={onNext} disabled={!waiting && step.advance.mode !== "continue"}>Continue</button>}
+            {step.hint && <button type="button" onClick={() => setHint(onHint?.() || step.hint)}>Hint</button>}
+            <button
+              type="button"
+              onClick={onDoIt}
+              disabled={!waiting}
+              title="Try this step yourself first; Do it lets the walkthrough perform it for you."
+            >
+              Do it
+            </button>
+            {step.allowSkip && waiting && <button type="button" onClick={onSkip}>Skip</button>}
+            <button type="button" onClick={onStop} title={isFinalStep ? "Finish the walkthrough and choose whether to keep or restore its results" : "Stop walkthrough"}>{isFinalStep ? "Done" : "Stop"}</button>
+          </>}
         </footer>
       </section>
     </div>,

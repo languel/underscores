@@ -73,6 +73,7 @@
 .walkthrough-narration h2 { margin: 8px 0 4px; font-size: 16px; font-weight: 600; }
 .walkthrough-narration p { margin: 4px 0 10px; line-height: 1.45; }
 .walkthrough-narration footer { justify-content: flex-end; }
+.walkthrough-complete-label { margin-right: auto; color: var(--underscores-muted, #999); font-size: 11px; }
 .walkthrough-narration button,
 .walkthrough-panel button,
 .walkthrough-panel input,

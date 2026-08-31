@@ -12,7 +12,7 @@ Every step has an `id`, `title`, optional `narration`, optional `info`, `focusTa
 
 - `auto` moves on after its cues.
 - `continue` waits for the learner.
-- `assertion` evaluates one allowlisted assertion and offers Check, Retry, Hint, Skip, or Continue as appropriate. Waiting steps also expose `Do it`; try the step yourself first, then let the walkthrough advance it for you when needed.
+- `assertion` evaluates one allowlisted assertion and offers Check, Retry, Hint, Skip, or Continue as appropriate. Waiting steps also expose `Do it`; try the step yourself first, then let the walkthrough advance it for you when needed. The final step uses `Done` for the keep/restore decision, and a completed run presents the same final action.
 
 Assertions can inspect panel state, object existence by ID/kind/name/count, selection membership, Livecode kind/compile/running state, and observed commands or events. Walkthrough files cannot contain CSS selectors, arbitrary DOM access, or arbitrary JavaScript.
 
