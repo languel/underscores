@@ -11,6 +11,36 @@ export const getOutlinerLayerElements = (elements = []) => (
   [...getSceneLayerElements(elements)].reverse()
 );
 
+const hasObjectData = (element, keys) => {
+  if (!element || element.isDeleted) return false;
+  const customData = element.customData || {};
+  return keys.some(key => customData[key] != null);
+};
+
+const CODE_OBJECT_DATA_KEYS = ["underscoresLivecode", "underscoresSvg", "underscoresP5", "p5", "underscoresPlayCore"];
+const SCORE_OBJECT_DATA_KEYS = ["score", "iannix", "iannixImport"];
+const PHYSICS_OBJECT_DATA_KEYS = ["physics", "underscoresPhysics"];
+const OTHER_MANAGED_OBJECT_DATA_KEYS = [
+  "underscoresMediaStream",
+  "underscoresMediaMap",
+  "underscoresEmbed",
+];
+
+export const isOutlinerCodeElement = element => hasObjectData(element, CODE_OBJECT_DATA_KEYS);
+export const isOutlinerScoreElement = element => hasObjectData(element, SCORE_OBJECT_DATA_KEYS);
+export const isOutlinerPhysicsElement = element => hasObjectData(element, PHYSICS_OBJECT_DATA_KEYS);
+
+// Native Excalidraw objects are ordinary drawing primitives without one of the
+// dedicated Outliner roles above. Gesture/automation metadata intentionally
+// remains native: it enhances a drawing rather than replacing it with a node.
+export const isNativeExcalidrawElement = element => {
+  if (!element || element.isDeleted) return false;
+  return !isOutlinerCodeElement(element)
+    && !isOutlinerScoreElement(element)
+    && !isOutlinerPhysicsElement(element)
+    && !hasObjectData(element, OTHER_MANAGED_OBJECT_DATA_KEYS);
+};
+
 export const reorderSceneElements = (
   elements = [],
   movedId,

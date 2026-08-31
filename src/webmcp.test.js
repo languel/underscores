@@ -35,6 +35,7 @@ const createFakeApi = () => {
   ];
   const appState = { selectedElementIds: { "curve-a": true } };
   const calls = [];
+  let walkthroughStatus = { status: "idle" };
   const update = (id, transform) => {
     elements = elements.map(element => element.id === id
       ? { ...transform(element), version: element.version + 1, versionNonce: element.versionNonce + 1 }
@@ -97,6 +98,17 @@ const createFakeApi = () => {
       getStatus: () => ({ roomId: "room-a", connected: true }),
       getPeers: () => [{ id: "peer-a" }],
     },
+    walkthroughs: {
+      list: () => [{ id: "guided-onboarding-v1", title: "Welcome", revision: 1, stepCount: 9 }],
+      status: () => walkthroughStatus,
+      start: async (id, options) => (walkthroughStatus = { status: "running", id, ...options }),
+      pause: () => (walkthroughStatus = { ...walkthroughStatus, status: "paused" }),
+      resume: () => (walkthroughStatus = { ...walkthroughStatus, status: "running" }),
+      next: async () => walkthroughStatus,
+      previous: async () => walkthroughStatus,
+      stop: async options => (walkthroughStatus = { ...walkthroughStatus, status: "stopped", ...options }),
+      setRate: (rate, options) => (walkthroughStatus = { ...walkthroughStatus, rate, ...options }),
+    },
     physics: {
       world: { get: () => ({ pausedEditMode: "author" }) },
       systems: { list: () => [{ id: "system-a", name: "World", clock: { mode: "realtime" } }] },
@@ -121,14 +133,25 @@ test("WebMCP exposes a narrow, strict composition tool catalog", () => {
   assert.equal(toolNamed(tools, "patch_score_objects").inputSchema.properties.patches.items.additionalProperties, false);
 });
 
+test("WebMCP discovers and controls local guided walkthrough playback", async () => {
+  const { api } = createFakeApi();
+  const tools = createUnderscoresWebMCPTools({ api });
+  const catalog = await toolNamed(tools, "get_guided_walkthroughs").execute({});
+  assert.equal(catalog.walkthroughs[0].id, "guided-onboarding-v1");
+  const status = await toolNamed(tools, "control_guided_walkthrough").execute({ action: "start", id: "guided-onboarding-v1", instant: true });
+  assert.equal(status.status, "running");
+  assert.equal(status.instant, true);
+});
+
 test("score context is bounded, semantic, revisioned, and collaboration-aware", () => {
   const { api } = createFakeApi();
   const context = buildWebMCPScoreContext({
     api,
-    getContext: () => ({ transport: { time: 2.5, tempo: 96, playing: false } }),
+    getContext: () => ({ transport: { time: 2.5, tempo: 96, playing: false }, walkthrough: { status: "paused", stepId: "p5" } }),
   }, {});
   assert.match(context.revision, /^u1-2-/);
   assert.deepEqual(context.transport, { time: 2.5, tempo: 96, playing: false });
+  assert.deepEqual(context.walkthrough, { status: "paused", stepId: "p5" });
   assert.deepEqual(context.collaboration, {
     active: false,
     status: null,

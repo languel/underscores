@@ -14,6 +14,8 @@ export const UNDERSCORES_WEBMCP_TOOL_NAMES = Object.freeze([
   "get_underscores_command_catalog",
   "execute_underscores_command",
   "execute_underscores_sequence",
+  "get_guided_walkthroughs",
+  "control_guided_walkthrough",
   "create_score_objects",
   "patch_score_objects",
   "assign_score_roles",
@@ -444,6 +446,7 @@ export const buildWebMCPScoreContext = ({ api, getContext }, args = {}) => {
     apiVersion: finiteNumber(api?.apiVersion),
     revision,
     transport: plainObject(context?.transport) ? clone(context.transport) : null,
+    walkthrough: plainObject(context?.walkthrough) ? clone(context.walkthrough) : null,
     collaboration,
     physics: physicsSummary(api),
     visionHints: {
@@ -744,6 +747,50 @@ export const createUnderscoresWebMCPTools = ({ api, getContext } = {}) => {
       },
       annotations: { ...writeAnnotations, destructiveHint: true },
       execute: executeSequence,
+    },
+    {
+      name: "get_guided_walkthroughs",
+      description: "Discover authored guided walkthroughs and inspect the current local playback state. Walkthrough definitions are shared patch state; learner progress and playback remain local.",
+      inputSchema: { type: "object", additionalProperties: false, properties: {} },
+      annotations: { readOnlyHint: true, openWorldHint: false, untrustedContentHint: true },
+      execute: async (_args = {}, execution = {}) => {
+        throwIfAborted(getExecutionSignal(execution));
+        return {
+          walkthroughs: safeResultValue(api.walkthroughs?.list?.() || []),
+          active: safeResultValue(api.walkthroughs?.status?.() || null),
+          revision: documentRevision(api),
+        };
+      },
+    },
+    {
+      name: "control_guided_walkthrough",
+      description: "Start or control a local guided walkthrough through the same revisioned command-backed API used by Playlist and the assistant. Stopping may keep results or restore the captured starting patch.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          action: { type: "string", enum: ["start", "pause", "resume", "next", "previous", "stop", "set-rate"] },
+          id: { type: "string", maxLength: 160 },
+          stepId: { type: "string", maxLength: 160 },
+          rate: { type: "number", minimum: 0.05, maximum: 100 },
+          instant: { type: "boolean" },
+          restore: { type: "boolean" },
+        },
+        required: ["action"],
+      },
+      annotations: writeAnnotations,
+      execute: async (args = {}, execution = {}) => {
+        throwIfAborted(getExecutionSignal(execution));
+        const surface = api.walkthroughs;
+        if (!surface) throw new Error("Guided walkthroughs are not available in this build.");
+        if (args.action === "start") return safeResultValue(await surface.start(args.id, { stepId: args.stepId, rate: args.rate, instant: args.instant }));
+        if (args.action === "pause") return safeResultValue(surface.pause());
+        if (args.action === "resume") return safeResultValue(surface.resume());
+        if (args.action === "next") return safeResultValue(await surface.next());
+        if (args.action === "previous") return safeResultValue(await surface.previous());
+        if (args.action === "stop") return safeResultValue(await surface.stop({ restore: Boolean(args.restore) }));
+        return safeResultValue(surface.setRate(args.rate, { instant: Boolean(args.instant) }));
+      },
     },
     {
       name: "create_score_objects",

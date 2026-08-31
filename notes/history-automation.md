@@ -34,6 +34,7 @@ and live renderer frames remains outside that transaction unless an operation ex
 - `src/sessionHistory.js` owns `underscores-session` documents, playback, editable steps, IndexedDB persistence, and `underscores-macro` sequences.
 - `src/automation.js` owns auto-key extraction and playback interpolation.
 - `src/HistoryPanel.jsx` is the dockable editor for recording, playback, action timing/state/JSON, time-range macro creation, and MIDI/presentation/pointer playback policies.
+- History's **Create walkthrough** action preserves the recording baseline, converts each non-null command group into one editable walkthrough step, and converts each ungrouped action into its own step. It infers semantic targets from panel commands and element IDs but deliberately leaves pedagogical narration blank.
 - `src/TransportTimeline.jsx` renders session-action and object-automation lanes under the existing score transport.
 
 Playback never feeds back into the recorder. Commands invoked by playback use `record: false`; scene mutations run inside the scene-recorder suppression transaction.
@@ -99,11 +100,15 @@ Numbers interpolate linearly, rotations use the shortest angular path, and struc
 
 Useful slash commands include:
 
+- `/welcome` or `/get_started` starts the bundled Getting Started guided tour.
 - `/record start`, `/record play`, `/record loop`, `/record pause`, `/record stop`
 - `/history`, `/history play`, `/history seek 2.5`
 - `/macro save My phrase`, `/macro insert My phrase relative`
-- `/ex save [name]` saves the current scene; an optional name such as `/ex save bioblip_melody` downloads `bioblip_melody.excalidraw`
+- `/ex save [name]` saves the current project; an optional name such as `/ex save bioblip_melody` downloads `bioblip_melody.__.json`. Explicit `.excalidraw` export remains available for interoperability.
 - `/autokey`
+- `/left sidebar`, `/right sidebar`, and `/bottom bar` collapse or reveal the corresponding dock.
+  These presentation commands are also exposed through WebMCP as `dock.left.toggle`,
+  `dock.right.toggle`, and `dock.bottom.toggle`.
 - `/command transport.seek {"seconds":2.5}` for any stable registry ID
 
 AI and multiplayer chat, as well as the Command Palette, share the same `@` context tags and

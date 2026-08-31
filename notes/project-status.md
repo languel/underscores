@@ -1,6 +1,14 @@
 # Project status
 
-Last updated: 2026-08-30
+Last updated: 2026-08-31
+
+## Documentation and panel polish (2026-08-31)
+
+Documentation now has a searchable, nested table of contents with local reading-size control,
+patch insertion, and walkthrough launch actions. It is a first-class left-docked panel that can
+also join the deterministic bottom order (Timeline, Mixer, Info, Documentation, Console), while
+Info remains a compact contextual reference. The shared AI and room-chat composers use a themed
+50%-translucent input surface, and panel notes now document the `/docs` and `/help` lookup aliases.
 
 ## Known undo/redo limitation (2026-08-30)
 
@@ -10,6 +18,17 @@ do not restore the complete authored result. The current split between Excalidra
 top-level `underscores` state, collaboration tombstones, and the separate recordable History system
 is the leading architectural boundary. See [Recordable Sessions and Automation](history-automation.md#known-undoredo-boundary)
 for the current contract and transaction-convergence target.
+
+## Guided Walkthrough v1 (2026-08-30)
+
+The `multiplayer` branch includes a local visible-automation and learning layer built on the shared
+command registry. Versioned walkthrough definitions merge per ID, while playback, learner prompts,
+pace, and recovery remain local. The first bundled onboarding covers the main panels, p5, GLSL,
+audio permission, and physics; History can produce editable walkthrough drafts, Playlist and
+transport can drive playback, and the same controls are available through `window.__`, WebMCP, and
+the assistant. Project/fragment/help patch metadata and the `.__.json` default establish the first
+help-catalog foundation. See [Guided Walkthroughs](guided-walkthrough.md) and
+[Patches and help catalog](patches-and-help.md).
 
 ## Anonymous multiplayer checkpoint (2026-08-25)
 
@@ -30,8 +49,8 @@ Excalidraw-native objects, first-class SVG documents, IanniX score behavior, Liv
 shared scene hierarchy. This checkpoint is ready for the release/compliance review that precedes
 any public Strudel deployment.
 
-The canvas-first relationship and physics engine is now available as API version 8 and scene
-exchange version 10. It combines a persistent solver-independent graph, lazy deterministic Rapier 2D
+The canvas-first relationship and physics engine is available in API version 14 and scene exchange
+version 14. It combines a persistent solver-independent graph, lazy deterministic Rapier 2D
 Worker, lightweight curve/stream geometry adapter, runtime population overlay, canonical collision
 mappings (`Source -> Filter -> Transform -> Target`),
 canvas-authored bodies and constraints, grab springs, Apply/Reset semantics, materialization, and

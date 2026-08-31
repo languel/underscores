@@ -19,6 +19,7 @@ export const DEFAULT_PANEL_LAYOUTS = Object.freeze({
   inputs: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 144, y: 152, width: 380, height: 700 }),
   holistic: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 156, y: 160, width: 380, height: 720 }),
   mapping: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 168, y: 168, width: 420, height: 760 }),
+  documentation: Object.freeze({ placement: PANEL_PLACEMENTS.LEFT, x: 32, y: 72, width: 380, height: 720 }),
   info: Object.freeze({ placement: PANEL_PLACEMENTS.BOTTOM, x: 32, y: 520, width: 720, height: 240 }),
   console: Object.freeze({ placement: PANEL_PLACEMENTS.BOTTOM, x: 96, y: 520, width: 960, height: 220 }),
   history: Object.freeze({ placement: PANEL_PLACEMENTS.RIGHT, x: 120, y: 136, width: 420, height: 720 }),
@@ -55,6 +56,9 @@ const SIDEBAR_PLACEMENTS = new Set([
   PANEL_PLACEMENTS.FLOATING,
 ]);
 
+const BOTTOM_DOCK_ORDER = Object.freeze(["transport", "mixer", "info", "documentation", "console"]);
+const BOTTOM_DOCK_RANK = new Map(BOTTOM_DOCK_ORDER.map((id, index) => [id, index]));
+
 export const normalizePanelLayouts = value => {
   const source = value && typeof value === "object" ? value : {};
   return Object.fromEntries(Object.entries(DEFAULT_PANEL_LAYOUTS).map(([id, fallback]) => {
@@ -68,7 +72,7 @@ export const normalizePanelLayouts = value => {
     );
     const allowed = id === "transport"
       ? new Set([PANEL_PLACEMENTS.BOTTOM, PANEL_PLACEMENTS.FLOATING])
-      : id === "mixer" || id === "info" || id === "console"
+      : id === "mixer" || id === "documentation" || id === "info" || id === "console"
         ? new Set([...SIDEBAR_PLACEMENTS, PANEL_PLACEMENTS.BOTTOM])
         : SIDEBAR_PLACEMENTS;
     return [id, {
@@ -89,8 +93,14 @@ export const getDockTarget = (clientX, clientY, viewportWidth, viewportHeight, o
   return PANEL_PLACEMENTS.FLOATING;
 };
 
-export const getOpenPanelsForPlacement = (panels, openPanels, layouts, placement) =>
-  panels.filter(panel => Boolean(openPanels?.[panel.id]) && layouts?.[panel.id]?.placement === placement);
+export const getOpenPanelsForPlacement = (panels, openPanels, layouts, placement) => {
+  const filtered = panels.filter(panel => Boolean(openPanels?.[panel.id]) && layouts?.[panel.id]?.placement === placement);
+  if (placement !== PANEL_PLACEMENTS.BOTTOM) return filtered;
+  return filtered
+    .map((panel, index) => ({ panel, index }))
+    .sort((a, b) => (BOTTOM_DOCK_RANK.get(a.panel.id) ?? Number.POSITIVE_INFINITY) - (BOTTOM_DOCK_RANK.get(b.panel.id) ?? Number.POSITIVE_INFINITY) || a.index - b.index)
+    .map(({ panel }) => panel);
+};
 
 export const resolveActiveDockPanel = (tabs, requestedPanelId) =>
   tabs.some(panel => panel.id === requestedPanelId) ? requestedPanelId : tabs[0]?.id || null;

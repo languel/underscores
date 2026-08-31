@@ -24,7 +24,7 @@ test("chat autocomplete recognizes mention and slash command tokens", () => {
 
 test("chat autocomplete shares context tags and registered slash aliases", () => {
   const suggestions = buildChatAutocompleteSuggestions([
-    { id: "physics.system.create", name: "Physics: Create System", aliases: ["/physics new"] },
+    { id: "physics.system.create", name: "Physics: Create System", category: "Physics", aliases: ["/physics new"] },
     { id: "demo", title: "Demo", aliases: [] },
     { id: "physics.system.create", name: "Duplicate", aliases: ["/physics new"] },
   ]);
@@ -32,5 +32,6 @@ test("chat autocomplete shares context tags and registered slash aliases", () =>
   const commands = filterChatAutocompleteSuggestions(getChatAutocompleteToken("/physics", 8), suggestions);
   assert.equal(mentions[0].name, "@canvas");
   assert.deepEqual(commands.map(item => item.name), ["/physics new"]);
+  assert.equal(commands[0].category, "Physics");
   assert.equal(suggestions.some(item => item.name === "/demo"), true);
 });

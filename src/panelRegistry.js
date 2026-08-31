@@ -17,6 +17,8 @@ export const UNDERSCORES_PANELS = Object.freeze([
   Object.freeze({ id: "collaboration", label: "Multiplayer", slash: "/multiplayer", aliases: ["/collaboration", "Collaboration"], kind: "dockable", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "chat", label: "AI Assistant", slash: "/chat", kind: "dockable", sidebarName: "ai-sidebar", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "history", label: "History", slash: "/history", kind: "dockable", placements: ["left", "floating", "right"] }),
+  Object.freeze({ id: "walkthrough", label: "Walkthrough", slash: "/walkthrough", aliases: ["/tour", "/guide"], kind: "dockable", placements: ["left", "floating", "right"] }),
+  Object.freeze({ id: "documentation", label: "Documentation", slash: "/documentation", aliases: ["/docs", "/help"], kind: "dockable", placements: ["left", "floating", "right", "bottom"], naturalPlacement: "left", dockedHeight: 320 }),
   Object.freeze({ id: "settings", label: "Settings", slash: "/settings", kind: "dockable", sidebarName: "settings-sidebar", placements: ["left", "floating", "right"] }),
   Object.freeze({ id: "transport", label: "Timeline", slash: "/transport", kind: "dockable", placements: ["floating", "bottom"], naturalPlacement: "bottom", dockedHeight: 114 }),
   Object.freeze({ id: "mixer", label: "Mixer", slash: "/mixer", kind: "dockable", placements: ["left", "floating", "right", "bottom"], naturalPlacement: "bottom", dockedHeight: 286 }),

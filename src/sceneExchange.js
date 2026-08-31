@@ -8,18 +8,31 @@ import { normalizeMediaSources } from "./mediaStream.js";
 import { normalizeRelationshipGraph, serializeRelationshipGraphForScene } from "./relationshipGraph.js";
 import { createArrangementState, remapArrangementForDuplicate } from "./arrangementClips.js";
 import { createPlaylistState } from "./playlist.js";
+import { normalizeWalkthroughs } from "./walkthroughSystem.js";
 
-const UNDERSCORES_EXCHANGE_VERSION = 13;
+const UNDERSCORES_EXCHANGE_VERSION = 14;
+export const UNDERSCORES_PATCH_VERSION = 1;
 
-export const normalizeSceneExportFilename = (requestedName = "", date = new Date()) => {
-  const fallback = `underscores-scene-${date.toISOString().slice(0, 10)}`;
+const safeExportBasename = (requestedName, fallback, extensions = []) => {
   const raw = String(requestedName ?? "").trim();
   const sanitized = raw
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
     .replace(/[. ]+$/g, "")
     .trim();
-  const basename = sanitized.replace(/\.excalidraw$/i, "").trim();
-  return `${basename || fallback}.excalidraw`;
+  const expression = extensions.length
+    ? new RegExp(`(?:${extensions.map(extension => extension.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})$`, "i")
+    : null;
+  return (expression ? sanitized.replace(expression, "") : sanitized).trim() || fallback;
+};
+
+export const normalizePatchExportFilename = (requestedName = "", date = new Date()) => {
+  const fallback = `underscores-patch-${date.toISOString().slice(0, 10)}`;
+  return `${safeExportBasename(requestedName, fallback, [".__.json", ".excalidraw", ".json"])}.__.json`;
+};
+
+export const normalizeSceneExportFilename = (requestedName = "", date = new Date()) => {
+  const fallback = `underscores-scene-${date.toISOString().slice(0, 10)}`;
+  return `${safeExportBasename(requestedName, fallback, [".excalidraw", ".__.json"])}.excalidraw`;
 };
 
 /**
@@ -82,7 +95,7 @@ const withScoreAliases = element => {
   };
 };
 
-export const attachUnderscoresExchangeMetadata = (serializedScene, kind, score = {}, grid = null, expressiveSynth = null, mixer = null, p5Scripts = [], streamGraph = null, brushChannels = null, authoredState = {}, relationshipGraph = null, collaboration = null) => {
+export const attachUnderscoresExchangeMetadata = (serializedScene, kind, score = {}, grid = null, expressiveSynth = null, mixer = null, p5Scripts = [], streamGraph = null, brushChannels = null, authoredState = {}, relationshipGraph = null, collaboration = null, patchMetadata = null) => {
   const normalizedAuthoredState = authoredState && typeof authoredState === "object" ? authoredState : {};
   const payload = typeof serializedScene === "string"
     ? JSON.parse(serializedScene)
@@ -98,6 +111,14 @@ export const attachUnderscoresExchangeMetadata = (serializedScene, kind, score =
     underscores: {
       version: UNDERSCORES_EXCHANGE_VERSION,
       kind,
+      patch: {
+        version: UNDERSCORES_PATCH_VERSION,
+        kind: patchMetadata?.kind || (kind === "scene" ? "project" : "fragment"),
+        id: patchMetadata?.id || null,
+        title: patchMetadata?.title || null,
+        summary: patchMetadata?.summary || null,
+        tags: Array.isArray(patchMetadata?.tags) ? [...patchMetadata.tags] : [],
+      },
       score: {
         time: Number.isFinite(score.time) ? score.time : 0,
         rate: Number.isFinite(score.rate) && score.rate > 0 ? score.rate : 1,
@@ -132,6 +153,7 @@ export const attachUnderscoresExchangeMetadata = (serializedScene, kind, score =
           svgScripts: Array.isArray(normalizedAuthoredState.svgScripts) ? structuredClone(normalizedAuthoredState.svgScripts) : [],
           arrangement: createArrangementState(normalizedAuthoredState.arrangement),
           playlist: createPlaylistState(normalizedAuthoredState.playlist),
+          walkthroughs: normalizeWalkthroughs(normalizedAuthoredState.walkthroughs),
         },
         ...(collaboration && typeof collaboration === "object"
           ? { collaboration: structuredClone(collaboration) }
@@ -199,9 +221,13 @@ export const parseUnderscoresExchange = (text, expectedKind = null) => {
       svgScripts: Array.isArray(payload.underscores?.authoredState?.svgScripts) ? structuredClone(payload.underscores.authoredState.svgScripts) : [],
       arrangement: createArrangementState(payload.underscores?.authoredState?.arrangement),
       playlist: createPlaylistState(payload.underscores?.authoredState?.playlist),
+      walkthroughs: normalizeWalkthroughs(payload.underscores?.authoredState?.walkthroughs),
     } : null,
     arrangement: kind === "selection" ? createArrangementState(payload.underscores?.arrangement) : null,
     playlist: kind === "selection" ? createPlaylistState(payload.underscores?.playlist) : null,
+    patch: payload.underscores?.patch && typeof payload.underscores.patch === "object"
+      ? structuredClone(payload.underscores.patch)
+      : { version: UNDERSCORES_PATCH_VERSION, kind: kind === "scene" ? "project" : "fragment", id: null, title: null, summary: null, tags: [] },
   };
 };
 

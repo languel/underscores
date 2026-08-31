@@ -218,7 +218,7 @@ test("canonical collaboration scenes omit local runtime state and files", () => 
   assert.deepEqual(document.appState, { viewBackgroundColor: "#ffffff" });
   assert.equal(document.files, undefined);
   assert.equal(document.underscores.score.time, undefined);
-  assert.equal(document.underscores.version, 13);
+  assert.equal(document.underscores.version, 14);
   assert.equal(document.underscores.collaboration.schemaVersion, 1);
 });
 
@@ -271,6 +271,19 @@ test("metadata merge resolves whole records by Lamport clock and actor id", () =
   const mergedRightLeft = mergeCollaborationDocuments(right, left);
   assert.equal(mergedLeftRight.underscores.p5Scripts[0].source, "right");
   assert.equal(mergedRightLeft.underscores.p5Scripts[0].source, "right");
+});
+
+test("walkthrough definitions merge independently by walkthrough id", () => {
+  const base = scene();
+  base.underscores.authoredState.walkthroughs = [];
+  const localSource = structuredClone(base);
+  localSource.underscores.authoredState.walkthroughs = [{ type: "underscores-walkthrough", version: 1, id: "tour-a", revision: 1, title: "A", steps: [] }];
+  const remoteSource = structuredClone(base);
+  remoteSource.underscores.authoredState.walkthroughs = [{ type: "underscores-walkthrough", version: 1, id: "tour-b", revision: 1, title: "B", steps: [] }];
+  const local = stampCollaborationDocument(localSource, base, "alice").document;
+  const remote = stampCollaborationDocument(remoteSource, base, "bob").document;
+  const merged = mergeCollaborationDocuments(local, remote);
+  assert.deepEqual(merged.underscores.authoredState.walkthroughs.map(item => item.id).sort(), ["tour-a", "tour-b"]);
 });
 
 test("element reconciliation preserves active local edits and remote tombstones", () => {

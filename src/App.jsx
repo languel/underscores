@@ -11,7 +11,7 @@ import NumberInputController from "./NumberInputController.jsx";
 import ObjectPathClipboardController from "./ObjectPathClipboard.jsx";
 import TimeValueInput from "./TimeValueInput.jsx";
 import InspectorSection from "./InspectorSection.jsx";
-import { attachUnderscoresExchangeMetadata, createObsidianExcalidrawMarkdown, getSelectionExchangeElements, isObsidianSceneExportFilename, normalizeObsidianSceneExportFilename, normalizeSceneExportFilename, parseUnderscoresExchange, preserveDeletedSceneElements, remapSelectionForImport } from "./sceneExchange.js";
+import { attachUnderscoresExchangeMetadata, createObsidianExcalidrawMarkdown, getSelectionExchangeElements, isObsidianSceneExportFilename, normalizeObsidianSceneExportFilename, normalizePatchExportFilename, normalizeSceneExportFilename, parseUnderscoresExchange, preserveDeletedSceneElements, remapSelectionForImport } from "./sceneExchange.js";
 import {
   createMediaFreeSceneJson,
   createSceneShareUrl,
@@ -34,6 +34,8 @@ import { advanceMidiClockReceiver, advanceTransportPlaybackTime, createMidiClock
 import UnderscoresPanel from "./UnderscoresPanel.jsx";
 import TransportTimeline from "./TransportTimeline.jsx";
 import HistoryPanel from "./HistoryPanel.jsx";
+import WalkthroughPanel from "./WalkthroughPanel.jsx";
+import WalkthroughOverlay from "./WalkthroughOverlay.jsx";
 import EventConsole from "./EventConsole.jsx";
 import { buildConsoleLiveStatus, changedConsoleStatusRows } from "./consoleStatus.js";
 import PropertiesPanel from "./PropertiesPanel.jsx";
@@ -57,6 +59,9 @@ import { autoKeyElement, AUTO_KEY_PATHS, collectAutomationKeys, evaluateElementA
 import { formatAIScriptSource, validateAIBrushSource, validateAIIannixSource } from "./scriptAuthoring.js";
 import { getIannixCommandAtSourcePosition } from "./iannixCommandReference.js";
 import { createUnderscoresMacro, UNDERSCORES_MACRO_TYPE, UnderscoresLibraryStore, UnderscoresSessionController, instantiateUnderscoresMacro, mergeSceneMutation, parseUnderscoresSession } from "./sessionHistory.js";
+import { WalkthroughRunner, createWalkthrough, evaluateWalkthroughAssertion, normalizeWalkthroughs, parseWalkthrough, requiresWalkthroughLearnerGate, updateWalkthroughRevision, walkthroughFromSession } from "./walkthroughSystem.js";
+import { BUNDLED_HELP_CATALOG, BUNDLED_WALKTHROUGHS, ONBOARDING_WALKTHROUGH_ID } from "./walkthroughCatalog.js";
+import { performWalkthroughUiAction, resolveWalkthroughTarget } from "./walkthroughTargets.js";
 import { createGestureTrack, gesturePathProgressAtElapsed, getGesturePlaybackState, normalizeGestureTrack, sliceGesturePath } from "./gestureTrack.js";
 import {
   addElementArrangementClip,
@@ -88,6 +93,7 @@ import GridPanel from "./GridPanel.jsx";
 import ExpressiveSynthPanel from "./ExpressiveSynthPanel.jsx";
 import MixerPanel from "./MixerPanel.jsx";
 import InfoPanel from "./InfoPanel.jsx";
+import DocumentationPanel from "./DocumentationPanel.jsx";
 import {
   addMixerTrack,
   getExternalMixerOutputId,
@@ -898,9 +904,11 @@ const displaySampledColor = (color, element) => {
   return canvasDisplayColor(color, "dark");
 };
 
+const DEFAULT_LASER_COLOR = "#67d7e6";
+
 const resolveLaserColorToken = (value, palette) => {
   const token = String(value || "").trim().toLowerCase();
-  return palette[token] || value || "#ff0000";
+  return palette[token] || value || DEFAULT_LASER_COLOR;
 };
 
 const formatScriptJsonParameter = value => {
@@ -1327,7 +1335,7 @@ const ScriptParameterEditor = ({ parameter, disabled = false, onChange, onPickOb
 };
 
 const laserCursorForColor = color => {
-  const resolved = resolveCssColor(color) || { red: 255, green: 0, blue: 0 };
+  const resolved = resolveCssColor(color) || { red: 103, green: 215, blue: 230 };
   const stroke = `rgba(${resolved.red}, ${resolved.green}, ${resolved.blue}, ${resolved.alpha ?? 1})`;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="${stroke}" stroke-width="1.35"/><circle cx="12" cy="12" r="2.25" fill="${stroke}"/></svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 12 12, crosshair`;
@@ -3212,6 +3220,10 @@ function App() {
     playlistGet: () => createPlaylistState(),
     playlistTarget: () => null,
     playlistTrigger: async () => ({ triggered: false }),
+    walkthroughCaptureBaseline: () => null,
+    walkthroughRestoreBaseline: async () => {},
+    walkthroughPerformUi: async () => {},
+    walkthroughEvaluate: async () => ({ passed: true }),
   });
   const underscoresRuntimeRef = useRef(null);
   if (!underscoresRuntimeRef.current) {
@@ -3312,7 +3324,11 @@ function App() {
   const [foregroundOpacity, setForegroundOpacity] = useState(() => Number(localStorage.getItem("underscores_foreground_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].foreground.opacity));
   const [mutedColor, setMutedColor] = useState(() => localStorage.getItem("underscores_muted_color") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].muted.color);
   const [mutedOpacity, setMutedOpacity] = useState(() => Number(localStorage.getItem("underscores_muted_opacity") || INTERFACE_THEME_PRESETS[defaultInterfaceThemePreset].muted.opacity));
-  const [laserColor, setLaserColor] = useState(() => localStorage.getItem("underscores_laser_color") || "#ff0000");
+  const [laserColor, setLaserColor] = useState(() => {
+    const stored = localStorage.getItem("underscores_laser_color");
+    // Migrate the previous built-in red default while preserving other user choices.
+    return !stored || stored.trim().toLowerCase() === "#ff0000" ? DEFAULT_LASER_COLOR : stored;
+  });
   const [laserOpacity, setLaserOpacity] = useState(() => Number(localStorage.getItem("underscores_laser_opacity") || 100));
   const [canvasDrawingStyle, setCanvasDrawingStyle] = useState({ stroke: "#1e1e1e", fill: "transparent", strokeWidth: 1 });
   const [interfaceThemePreset, setInterfaceThemePreset] = useState(() => localStorage.getItem("underscores_interface_theme_preset") || defaultInterfaceThemePreset);
@@ -3382,24 +3398,24 @@ function App() {
       const saved = JSON.parse(localStorage.getItem("underscores_panel_visibility_v1") || "null") || {};
       return {
         collaboration: saved.collaboration ?? true, chat: true, settings: true, mods: true, script: true, iannix: true, physics: saved.physics ?? true, mixer: true, synth: true, inputs: saved.inputs ?? true,
-        holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, playlist: true, grid: true,
+        holistic: true, mapping: true, documentation: true, info: true, console: true, history: true, walkthrough: true, properties: true, outliner: true, playlist: true, grid: true,
         ...saved,
         "media-input": saved["media-input"] ?? saved["video-input"] ?? true,
       };
     } catch {
-      return { collaboration: true, chat: true, settings: true, mods: true, script: true, iannix: true, physics: true, mixer: true, synth: true, "media-input": true, inputs: true, holistic: true, mapping: true, info: true, console: true, history: true, properties: true, outliner: true, playlist: true, grid: true };
+      return { collaboration: true, chat: true, settings: true, mods: true, script: true, iannix: true, physics: true, mixer: true, synth: true, "media-input": true, inputs: true, holistic: true, mapping: true, documentation: true, info: true, console: true, history: true, walkthrough: true, properties: true, outliner: true, playlist: true, grid: true };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("underscores_panel_dock_tabs_v1") || "null") || {};
       return {
-        left: saved.left === "video-input" ? "media-input" : (saved.left || "mods"),
+        left: saved.left === "video-input" ? "media-input" : (saved.left || "documentation"),
         right: saved.right === "video-input" ? "media-input" : (saved.right || "mods"),
         bottom: saved.bottom === "video-input" ? "media-input" : (saved.bottom || "transport"),
       };
     } catch {
-      return { left: "mods", right: "mods", bottom: "transport" };
+      return { left: "documentation", right: "mods", bottom: "transport" };
     }
   });
   const [collapsedDocks, setCollapsedDocks] = useState(() => {
@@ -3411,6 +3427,32 @@ function App() {
   });
   const [draggingPanelId, setDraggingPanelId] = useState(null);
   const [infoView, setInfoView] = useState(DEFAULT_INFO_VIEW);
+  const [documentationRequest, setDocumentationRequest] = useState(null);
+  const [walkthroughs, setWalkthroughs] = useState(() => normalizeWalkthroughs(BUNDLED_WALKTHROUGHS));
+  const walkthroughsRef = useRef(walkthroughs);
+  const [activeWalkthroughId, setActiveWalkthroughId] = useState(() => BUNDLED_WALKTHROUGHS[0]?.id || "");
+  const [walkthroughSnapshot, setWalkthroughSnapshot] = useState({ status: "idle", walkthrough: null, stepIndex: -1, step: null, rate: 1, instant: false, assertion: null, baseline: null, trace: null });
+  const walkthroughRunnerRef = useRef(null);
+  if (!walkthroughRunnerRef.current) {
+    walkthroughRunnerRef.current = new WalkthroughRunner({
+      executeCommand: (id, args, options) => {
+        if (requiresWalkthroughLearnerGate(id) && !window.confirm(`The walkthrough wants to run “${commandRegistry.describe(id)?.title || id}”. Continue?`)) {
+          throw new Error("The learner did not allow this protected walkthrough action.");
+        }
+        return commandRegistry.execute(id, args, options);
+      },
+      performUiAction: cue => runtimeCallbacksRef.current.walkthroughPerformUi(cue),
+      evaluateAssertion: assertion => runtimeCallbacksRef.current.walkthroughEvaluate(assertion),
+      captureBaseline: () => runtimeCallbacksRef.current.walkthroughCaptureBaseline(),
+      restoreBaseline: baseline => runtimeCallbacksRef.current.walkthroughRestoreBaseline(baseline),
+      persistRecovery: recovery => historyLibrary.put({ type: "underscores-walkthrough-recovery", version: 1, id: "active-walkthrough-recovery", ...recovery, updatedAt: new Date().toISOString() }),
+      clearRecovery: () => historyLibrary.remove("active-walkthrough-recovery"),
+      onChange: setWalkthroughSnapshot,
+      onInfo: info => setInfoView(info),
+    });
+  }
+  const walkthroughRunner = walkthroughRunnerRef.current;
+  walkthroughsRef.current = walkthroughs;
   const [dockPreview, setDockPreview] = useState(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandSearch, setCommandSearch] = useState("");
@@ -5107,6 +5149,11 @@ function App() {
   const [selectedElementIds, setSelectedElementIds] = useState({});
   const selectedElementIdsRef = useRef(selectedElementIds);
   selectedElementIdsRef.current = selectedElementIds;
+  const resolveWalkthroughTargetForOverlay = useCallback(target => resolveWalkthroughTarget(target, {
+    documentRef: document,
+    getCanvasApi: () => excalidrawAPIRef.current,
+    sceneToViewport: sceneCoordsToViewportCoords,
+  }), []);
   const [hoveredLinkedElementId, setHoveredLinkedElementId] = useState(null);
   const objectEyedropperRef = useRef(null);
   const beginCanvasSourceEyedropperRef = useRef(() => {});
@@ -8953,9 +9000,15 @@ function App() {
     }
   }, [customBrushActive, excalidrawAPI]);
 
-  const handlePanelResizeMouseDown = (panelId, e, placement = PANEL_PLACEMENTS.RIGHT) => {
+  const handlePanelResizeMouseDown = (panelId, e, placement = PANEL_PLACEMENTS.RIGHT, options = {}) => {
     e.preventDefault();
     e.stopPropagation();
+    if (options.collapse) {
+      if ([PANEL_PLACEMENTS.LEFT, PANEL_PLACEMENTS.RIGHT, PANEL_PLACEMENTS.BOTTOM].includes(placement)) {
+        setCollapsedDocks(previous => ({ ...previous, [placement]: true }));
+      }
+      return;
+    }
     const panel = e.currentTarget.closest(".underscores-panel-shell");
     const startRect = panel?.getBoundingClientRect();
     const startX = e.clientX;
@@ -12148,6 +12201,18 @@ function App() {
     setOpenPanels(previous => ({ ...previous, [panelId]: true }));
   };
 
+  const setUnderscoresPanelOpen = (panelId, open, options = {}) => {
+    const panel = getUnderscoresPanel(panelId);
+    if (!panel) throw new Error(`Unknown panel: ${panelId}.`);
+    if (open) {
+      toggleUnderscoresPanel(panelId, { ...options, open: true });
+      return true;
+    }
+    if (panelId === "transport") setShowIannixTransport(false);
+    else setOpenPanels(previous => ({ ...previous, [panelId]: false }));
+    return false;
+  };
+
   const closePhysicsToolbar = () => {
     setPhysicsToolbarOpen(false);
     setPhysicsToolbarDockedTop(false);
@@ -13956,6 +14021,7 @@ function App() {
     aliases: [panel.slash, ...(panel.aliases || []), panel.label, `panel ${panel.label}`],
     category: "Panels",
     record: "presentation",
+    ai: { expose: true, description: `Toggle the ${panel.label} panel.` },
     panel,
     action: () => {
       applyingRecordedUiStateRef.current = true;
@@ -14052,7 +14118,7 @@ function App() {
       aliases: ["/save", "/save scene", "/scene save", "/ex save", "/ex export scene"],
       category: "Excalidraw",
       args: { name: "string?" },
-      ai: { expose: true, description: "Download the current Underscores scene with its metadata. An optional .md name exports Obsidian Excalidraw Markdown; other names download .excalidraw JSON." },
+      ai: { expose: true, description: "Download the current Underscores patch as .__.json. An explicit .excalidraw or .md name preserves those compatible export formats." },
       action: (_api, args = {}) => exportUnderscoresScene(args.name),
     },
     {
@@ -14061,8 +14127,17 @@ function App() {
       aliases: ["/ex save as"],
       category: "Excalidraw",
       args: { name: "string?" },
-      ai: { expose: true, description: "Download the current Underscores scene as a new file. Use a .md name for Obsidian Excalidraw Markdown, or any other name for .excalidraw JSON." },
+      ai: { expose: true, description: "Download the current Underscores patch under a new name. Use .excalidraw or .md for those explicit compatibility formats." },
       action: (_api, args = {}) => exportUnderscoresScene(args.name),
+    },
+    {
+      id: "underscores.patch.fragment.export",
+      name: "Export Selected Patch Fragment /patch export selection",
+      aliases: ["/patch export selection", "/export fragment"],
+      category: "Excalidraw",
+      args: { name: "string?" },
+      ai: { expose: true, description: "Export the selected objects and their remapped dependencies as a portable .__.json patch fragment." },
+      action: (_api, args = {}) => exportUnderscoresSelectionFragment(args.name),
     },
     {
       id: "excalidraw.file.share",
@@ -14318,11 +14393,79 @@ function App() {
     return { roundness, changed: selectedUpdate.changed };
   };
 
+  const getWalkthrough = id => walkthroughsRef.current.find(item => item.id === id) || null;
+  const storeWalkthrough = walkthrough => {
+    const normalized = parseWalkthrough(walkthrough);
+    setWalkthroughs(current => normalizeWalkthroughs([...current.filter(item => item.id !== normalized.id), normalized]));
+    setActiveWalkthroughId(normalized.id);
+    return normalized;
+  };
+  const createWalkthroughDocument = value => storeWalkthrough(createWalkthrough(value));
+  const updateWalkthroughDocument = (id, patch, expectedRevision) => {
+    const current = getWalkthrough(id);
+    if (!current) throw new Error(`Unknown walkthrough: ${id}.`);
+    return storeWalkthrough(updateWalkthroughRevision(current, patch, expectedRevision));
+  };
+  const deleteWalkthroughDocument = (id, expectedRevision = null) => {
+    const current = getWalkthrough(id);
+    if (!current) return false;
+    if (expectedRevision != null && Number(expectedRevision) !== current.revision) {
+      throw new Error(`Walkthrough revision conflict: expected ${expectedRevision}, found ${current.revision}.`);
+    }
+    setWalkthroughs(items => items.filter(item => item.id !== id));
+    setActiveWalkthroughId(value => value === id ? (walkthroughsRef.current.find(item => item.id !== id)?.id || "") : value);
+    return true;
+  };
+  const createWalkthroughFromHistory = (options = {}) => storeWalkthrough(walkthroughFromSession(historyController.get(), {
+    title: options.title,
+    describeCommand: id => commandRegistry.describe(id),
+  }));
+  const startWalkthrough = async (id, options = {}) => {
+    const walkthrough = getWalkthrough(id || activeWalkthroughId);
+    if (!walkthrough) throw new Error("Choose a walkthrough first.");
+    setActiveWalkthroughId(walkthrough.id);
+    toggleUnderscoresPanel("walkthrough", { open: true });
+    return walkthroughRunner.start(walkthrough, options);
+  };
+
   const COMMANDS = [
+    {
+      id: "walkthrough.welcome",
+      name: "/welcome — Start Getting Started Tour",
+      aliases: ["/welcome", "/get_started"],
+      category: "Walkthrough",
+      record: "never",
+      ai: {
+        expose: true,
+        description: "Start the bundled Getting Started guided tour from its first step.",
+      },
+      action: () => startWalkthrough(ONBOARDING_WALKTHROUGH_ID),
+    },
     ...PANEL_COMMANDS,
     ...EXCALIDRAW_COMMANDS,
+    { id: "commandPalette.open", name: "Open Command Palette", category: "Panels", record: "presentation", action: () => { setShowCommandPalette(true); window.setTimeout(() => paletteInputRef.current?.focus(), 0); } },
+    { id: "commandPalette.close", name: "Close Command Palette", category: "Panels", record: "presentation", action: () => setShowCommandPalette(false) },
+    { id: "panel.open", name: "Open Panel", category: "Panels", record: "presentation", args: { panelId: "string" }, ai: { expose: true, description: "Open a registered Underscores panel deterministically." }, action: (_api, args = {}) => setUnderscoresPanelOpen(args.panelId, true, args.options || {}) },
+    { id: "panel.close", name: "Close Panel", category: "Panels", record: "presentation", args: { panelId: "string" }, ai: { expose: true, description: "Close a registered Underscores panel deterministically." }, action: (_api, args = {}) => setUnderscoresPanelOpen(args.panelId, false) },
+    { id: "documentation.open", name: "Documentation: Open Page /docs open", aliases: ["/docs open", "/documentation open", "/help open"], category: "Documentation", record: "presentation", args: { id: "string" }, ai: { expose: true, description: "Open the Documentation panel and select a page by its stable id." }, action: (_api, args = {}) => { setDocumentationRequest({ entryId: args.id, query: "", nonce: Date.now() }); setUnderscoresPanelOpen("documentation", true, { forceOpen: true }); return { id: args.id }; } },
+    { id: "documentation.search", name: "Documentation: Search /docs search", aliases: ["/docs search", "/documentation search", "/help search"], category: "Documentation", record: "presentation", args: { query: "string" }, ai: { expose: true, description: "Open the Documentation panel and search its nested reference and help catalog." }, action: (_api, args = {}) => { setDocumentationRequest({ query: String(args.query || ""), nonce: Date.now() }); setUnderscoresPanelOpen("documentation", true, { forceOpen: true }); return { query: String(args.query || "") }; } },
+    { id: "walkthrough.list", name: "Walkthrough: List", aliases: ["/walkthrough list"], category: "Walkthrough", record: "never", ai: { expose: true, description: "List the guided walkthroughs authored in this patch." }, action: () => walkthroughsRef.current.map(({ id, revision, title, description, clockMode, steps }) => ({ id, revision, title, description, clockMode, stepCount: steps.length })) },
+    { id: "walkthrough.get", name: "Walkthrough: Get", aliases: ["/walkthrough get"], category: "Walkthrough", record: "never", args: { id: "string" }, ai: { expose: true, description: "Read one guided walkthrough document." }, action: (_api, args = {}) => { const item = getWalkthrough(args.id); if (!item) throw new Error(`Unknown walkthrough: ${args.id}.`); return structuredClone(item); } },
+    { id: "walkthrough.create", name: "Walkthrough: Create", aliases: ["/walkthrough create"], category: "Walkthrough", record: "never", args: { document: "underscores-walkthrough" }, ai: { expose: true, description: "Create a revisioned guided walkthrough using registered commands and semantic targets only." }, action: (_api, args = {}) => createWalkthroughDocument(args.document || args) },
+    { id: "walkthrough.update", name: "Walkthrough: Update", aliases: ["/walkthrough update"], category: "Walkthrough", record: "never", args: { id: "string", patch: "object", expectedRevision: "number" }, ai: { expose: true, description: "Update a walkthrough when its expected revision still matches." }, action: (_api, args = {}) => updateWalkthroughDocument(args.id, args.patch || {}, args.expectedRevision) },
+    { id: "walkthrough.delete", name: "Walkthrough: Delete", aliases: ["/walkthrough delete"], category: "Walkthrough", record: "never", args: { id: "string", expectedRevision: "number?" }, ai: { expose: true, description: "Delete a walkthrough with optional revision checking." }, action: (_api, args = {}) => deleteWalkthroughDocument(args.id, args.expectedRevision) },
+    { id: "walkthrough.fromHistory", name: "Walkthrough: Create from History", aliases: ["/walkthrough from history"], category: "Walkthrough", record: "never", args: { title: "string?" }, ai: { expose: true, description: "Convert the active recorded History session into an editable walkthrough draft." }, action: (_api, args = {}) => createWalkthroughFromHistory(args) },
+    { id: "walkthrough.start", name: "Walkthrough: Start", aliases: ["/walkthrough start"], category: "Walkthrough", record: "never", args: { id: "string", rate: "number?", instant: "boolean?", stepId: "string?" }, ai: { expose: true, description: "Start a local guided walkthrough, optionally at one step or instantly." }, action: (_api, args = {}) => startWalkthrough(args.id, args) },
+    { id: "walkthrough.pause", name: "Walkthrough: Pause", aliases: ["/walkthrough pause"], category: "Walkthrough", record: "never", ai: { expose: true, description: "Pause the active local walkthrough." }, action: () => walkthroughRunner.pause() },
+    { id: "walkthrough.resume", name: "Walkthrough: Resume", aliases: ["/walkthrough resume"], category: "Walkthrough", record: "never", ai: { expose: true, description: "Resume the active local walkthrough." }, action: () => walkthroughRunner.resume() },
+    { id: "walkthrough.next", name: "Walkthrough: Next", aliases: ["/walkthrough next"], category: "Walkthrough", record: "never", ai: { expose: true, description: "Advance the active local walkthrough." }, action: () => walkthroughRunner.next() },
+    { id: "walkthrough.previous", name: "Walkthrough: Previous", aliases: ["/walkthrough previous"], category: "Walkthrough", record: "never", ai: { expose: true, description: "Return to the previous walkthrough step." }, action: () => walkthroughRunner.previous() },
+    { id: "walkthrough.stop", name: "Walkthrough: Stop", aliases: ["/walkthrough stop"], category: "Walkthrough", record: "never", args: { restore: "boolean?" }, ai: { expose: true, description: "Stop the walkthrough and either keep results or restore the captured starting patch." }, action: (_api, args = {}) => walkthroughRunner.stop({ restore: Boolean(args.restore) }) },
+    { id: "walkthrough.rate.set", name: "Walkthrough: Set Pace", aliases: ["/walkthrough rate"], category: "Walkthrough", record: "never", args: { rate: "number", instant: "boolean?" }, ai: { expose: true, description: "Set walkthrough pacing or instant execution." }, action: (_api, args = {}) => walkthroughRunner.setRate(args.rate, { instant: Boolean(args.instant) }) },
     { id: "panel-properties.open", name: "Open Properties Panel", category: "Panels", action: () => toggleUnderscoresPanel("properties", { open: true }) },
-    { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
+    { id: "dock.left.toggle", name: "Toggle Left Sidebar /left sidebar", aliases: ["/left sidebar", "/sidebar left", "/left dock", "left sidebar"], category: "Panels", record: "presentation", ai: { expose: true, description: "Collapse or reveal the left sidebar dock." }, action: () => setCollapsedDocks(previous => ({ ...previous, left: !previous.left })) },
+    { id: "dock.right.toggle", name: "Toggle Right Sidebar /right sidebar", aliases: ["/right sidebar", "/sidebar right", "/right dock", "right sidebar"], category: "Panels", record: "presentation", ai: { expose: true, description: "Collapse or reveal the right sidebar dock." }, action: () => setCollapsedDocks(previous => ({ ...previous, right: !previous.right })) },
+    { id: "dock.bottom.toggle", name: "Toggle Bottom Bar /bottom bar", aliases: ["/bottom", "/bottom bar", "/bottom dock", "bottom bar"], category: "Panels", record: "presentation", ai: { expose: true, description: "Collapse or reveal the bottom bar dock." }, action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "performance.toggle", version: 2, name: "Toggle Performance Monitor /performance", aliases: ["/performance", "/perf", "FPS monitor"], category: "View", action: () => updatePerformanceVisibility(!showPerformanceOverlayRef.current) },
     { id: "code.documentation.toggle", name: "Toggle Code Documentation Overlay /docs overlay", aliases: ["/docs overlay", "/documentation overlay", "/lsp overlay", "docs overlay", "lsp overlay", "toggle documentation overlay"], category: "View", action: () => setShowDocumentationOverlay(previous => !previous) },
     { id: "physics.toolbar.toggle", name: "Toggle Physics Toolbar /physicstoolbar", aliases: ["/physicstoolbar", "/physics toolbar", "physics toolbar"], category: "Physics", ai: { expose: true, description: "Toggle the floating or docked physics authoring toolbar." }, action: () => physicsToolbarOpen ? closePhysicsToolbar() : setPhysicsToolbarOpen(true) },
@@ -15229,6 +15372,16 @@ function App() {
     if (match) return {
       command: COMMANDS.find(command => command.id === "webembed.create"),
       args: { url: match[1]?.trim() || "" },
+    };
+    match = /^\/(?:docs|documentation|help)\s+open\s+(.+)$/i.exec(input);
+    if (match) return {
+      command: COMMANDS.find(command => command.id === "documentation.open"),
+      args: { id: match[1].trim() },
+    };
+    match = /^\/(?:docs|documentation|help)\s+(?:search\s+)?(.+)$/i.exec(input);
+    if (match && !/^overlay(?:\s|$)/i.test(match[1])) return {
+      command: COMMANDS.find(command => command.id === "documentation.search"),
+      args: { query: match[1].trim() },
     };
     match = /^\/p5(?:\s+(.+))?$/i.exec(input);
     if (match) return {
@@ -18678,16 +18831,19 @@ function App() {
         ...(args.transportMode === "free" || args.transportMode === "linked"
           ? { transportMode: args.transportMode }
           : (shaderDefaults || tixyDefaults ? { transportMode: "free" } : {})),
-        settings: shaderExample ? {
-          shaderExample: shaderExample.id,
-          shaderMode: shaderExample.mode,
-          shaderDialect: shaderExample.dialect || "standard",
-          compositeMode: "overlay",
-          compositeOpacity: 1,
-          blendMode: "normal",
-          sceneInteraction: true,
-          emitterSource: "scene",
-        } : undefined,
+        settings: {
+          ...(shaderExample ? {
+            shaderExample: shaderExample.id,
+            shaderMode: shaderExample.mode,
+            shaderDialect: shaderExample.dialect || "standard",
+            compositeMode: "overlay",
+            compositeOpacity: 1,
+            blendMode: "normal",
+            sceneInteraction: true,
+            emitterSource: "scene",
+          } : {}),
+          ...(args.runtimeSettings && typeof args.runtimeSettings === "object" && !Array.isArray(args.runtimeSettings) ? args.runtimeSettings : {}),
+        },
       },
       view: args.view || (shaderDefaults || tixyDefaults ? "preview" : undefined),
       typography: args.typography,
@@ -19851,7 +20007,8 @@ function App() {
       svgScripts,
       arrangement: arrangementStateRef.current,
       playlist: playlistStateRef.current,
-    } : { arrangement: arrangementStateRef.current, playlist: playlistStateRef.current }, kind === "scene"
+      walkthroughs: walkthroughsRef.current,
+    } : { arrangement: arrangementStateRef.current, playlist: playlistStateRef.current, walkthroughs: walkthroughsRef.current }, kind === "scene"
       ? relationshipGraphRef.current
       : relationshipGraphForSelection(relationshipGraphRef.current, elements.filter(element => !element.isDeleted).map(element => element.id)), kind === "scene"
       ? collaborationMetadataRef.current
@@ -19913,9 +20070,12 @@ function App() {
       const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
       const sceneJson = createUnderscoresExchangeJson("scene", elements);
       const markdown = isObsidianSceneExportFilename(requestedName);
+      const excalidraw = /\.excalidraw$/i.test(String(requestedName || ""));
       const filename = markdown
         ? normalizeObsidianSceneExportFilename(requestedName)
-        : normalizeSceneExportFilename(requestedName);
+        : excalidraw
+          ? normalizeSceneExportFilename(requestedName)
+          : normalizePatchExportFilename(requestedName);
       downloadTextFile(
         markdown ? createObsidianExcalidrawMarkdown(sceneJson) : sceneJson,
         filename,
@@ -19936,12 +20096,28 @@ function App() {
         ? `data:application/json;charset=utf-8,${encodeURIComponent(text)}`
         : URL.createObjectURL(new Blob([text], { type: "application/json" }));
       event.currentTarget.href = url;
-      event.currentTarget.download = normalizeSceneExportFilename();
+      event.currentTarget.download = normalizePatchExportFilename();
       if (!useDataUrl) window.setTimeout(() => URL.revokeObjectURL(url), 5000);
       setSceneExchangeStatus(`Exported ${elements.filter(element => !element.isDeleted).length} scene objects with Underscores metadata.`);
     } catch (error) {
       event.preventDefault();
       setSceneExchangeStatus(error.message || "Scene export failed.");
+    }
+  };
+
+  const exportUnderscoresSelectionFragment = (requestedName = "fragment") => {
+    try {
+      const appState = excalidrawAPI.getAppState();
+      const elements = getSelectionExchangeElements(excalidrawAPI.getSceneElementsIncludingDeleted(), appState.selectedElementIds || {});
+      if (!elements.length) throw new Error("Select one or more objects to export as a patch fragment.");
+      const json = createUnderscoresExchangeJson("selection", elements);
+      const filename = normalizePatchExportFilename(requestedName);
+      downloadTextFile(json, filename);
+      setSceneExchangeStatus(`Exported ${elements.length} selected object${elements.length === 1 ? "" : "s"} as ${filename}.`);
+      return filename;
+    } catch (error) {
+      setSceneExchangeStatus(error.message || "Fragment export failed.");
+      return null;
     }
   };
 
@@ -20028,6 +20204,10 @@ function App() {
         const importedPlaylist = createPlaylistState(authoredState.playlist);
         playlistStateRef.current = importedPlaylist;
         setPlaylistState(importedPlaylist);
+        const importedWalkthroughs = normalizeWalkthroughs([...(BUNDLED_WALKTHROUGHS || []), ...(authoredState.walkthroughs || [])]);
+        walkthroughsRef.current = importedWalkthroughs;
+        setWalkthroughs(importedWalkthroughs);
+        setActiveWalkthroughId(current => importedWalkthroughs.some(item => item.id === current) ? current : (importedWalkthroughs[0]?.id || ""));
       } else {
         const emptyArrangement = createArrangementState();
         arrangementStateRef.current = emptyArrangement;
@@ -20035,6 +20215,8 @@ function App() {
         const emptyPlaylist = createPlaylistState();
         playlistStateRef.current = emptyPlaylist;
         setPlaylistState(emptyPlaylist);
+        walkthroughsRef.current = normalizeWalkthroughs(BUNDLED_WALKTHROUGHS);
+        setWalkthroughs(walkthroughsRef.current);
       }
       const restoredActiveP5Script = restoredP5.scripts[0];
       setActiveP5ScriptId(restoredActiveP5Script?.id || "");
@@ -20077,7 +20259,7 @@ function App() {
     } catch (error) {
       console.error("Underscores last-scene autosave failed.", error);
     }
-  }, [collaborationController, eventBus, excalidrawAPI, scoreTime, scoreRate, scoreTempo, scoreTimeSignature, transportDisplayMode, transportFps, scoreSampleRate, transportLoopEnabled, transportLoopStart, transportLoopEnd, transportLoopStartValue, transportLoopEndValue, p5Scripts, streamGraph, brushChannels, mediaSources, brushPalette, iannixScripts, playCoreScripts, svgScripts]);
+  }, [collaborationController, eventBus, excalidrawAPI, scoreTime, scoreRate, scoreTempo, scoreTimeSignature, transportDisplayMode, transportFps, scoreSampleRate, transportLoopEnabled, transportLoopStart, transportLoopEnd, transportLoopStartValue, transportLoopEndValue, p5Scripts, streamGraph, brushChannels, mediaSources, brushPalette, iannixScripts, playCoreScripts, svgScripts, walkthroughs]);
 
   const scheduleLastSceneSave = useCallback((delay = 500) => {
     if (collaborationController.getStatus().active || !lastSceneRestoreAttemptedRef.current || lastSceneRestoreInProgressRef.current) return;
@@ -20130,7 +20312,7 @@ function App() {
   useEffect(() => {
     if (!lastSceneRestoreAttemptedRef.current || lastSceneRestoreInProgressRef.current) return;
     scheduleLastSceneSave();
-  }, [arrangementState, playlistState, scheduleLastSceneSave]);
+  }, [arrangementState, playlistState, scheduleLastSceneSave, walkthroughs]);
 
   useEffect(() => {
     if (!collaborationState.active || !collaborationState.initialized || collaborationApplyingRemoteRef.current) return;
@@ -20151,6 +20333,7 @@ function App() {
       p5Scripts,
       playCoreScripts,
       playlistState,
+      walkthroughs,
       relationshipGraph,
       scoreRate,
       scoreSampleRate,
@@ -20186,6 +20369,7 @@ function App() {
     p5Scripts,
     playCoreScripts,
     playlistState,
+    walkthroughs,
     relationshipGraph,
     scoreRate,
     scoreSampleRate,
@@ -20361,6 +20545,62 @@ function App() {
         });
       }
     });
+  };
+
+  runtimeCallbacksRef.current.walkthroughCaptureBaseline = captureSessionBaseline;
+  runtimeCallbacksRef.current.walkthroughRestoreBaseline = restoreSessionBaseline;
+  runtimeCallbacksRef.current.walkthroughPerformUi = cue => performWalkthroughUiAction(cue, {
+    documentRef: document,
+    getCanvasApi: () => excalidrawAPIRef.current,
+    sceneToViewport: sceneCoordsToViewportCoords,
+  });
+  runtimeCallbacksRef.current.walkthroughEvaluate = assertion => evaluateWalkthroughAssertion(assertion, {
+    panels: Object.fromEntries(UNDERSCORES_PANELS.map(panel => [panel.id, {
+      open: Boolean(openPanels[panel.id]),
+      active: panelLayouts[panel.id]?.placement === PANEL_PLACEMENTS.FLOATING
+        || activeDockPanels[panelLayouts[panel.id]?.placement] === panel.id,
+    }])),
+    elements: excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || [],
+    selectedElementIds: Object.keys(excalidrawAPIRef.current?.getAppState?.().selectedElementIds || {}).filter(id => excalidrawAPIRef.current.getAppState().selectedElementIds[id]),
+    events: eventBus.recent(250),
+  });
+
+  useEffect(() => {
+    if (walkthroughSnapshot.walkthrough?.clockMode !== "linked") return;
+    if (scorePlaying) walkthroughRunner.resume();
+    else walkthroughRunner.pause();
+  }, [scorePlaying, walkthroughRunner, walkthroughSnapshot.walkthrough?.clockMode]);
+
+  useEffect(() => {
+    if (walkthroughSnapshot.walkthrough?.clockMode !== "linked") return;
+    walkthroughRunner.seekTime(scoreTime, { play: scorePlaying });
+  }, [scorePlaying, scoreTime, walkthroughRunner, walkthroughSnapshot.walkthrough?.clockMode]);
+
+  const walkthroughRecoveryCheckedRef = useRef(false);
+  useEffect(() => {
+    if (!excalidrawAPI || walkthroughRecoveryCheckedRef.current) return;
+    walkthroughRecoveryCheckedRef.current = true;
+    void historyLibrary.list("underscores-walkthrough-recovery").then(records => {
+      const recovery = records.find(record => record.id === "active-walkthrough-recovery");
+      if (!recovery?.baseline) return;
+      const restore = window.confirm("A guided walkthrough was interrupted. Restore the starting patch? Choose Cancel to keep the current patch.");
+      if (restore) void restoreSessionBaseline(recovery.baseline);
+      void historyLibrary.remove("active-walkthrough-recovery");
+    });
+  }, [excalidrawAPI, historyLibrary]);
+
+  const stopWalkthroughWithChoice = async () => {
+    const restore = window.confirm("Restore the starting patch? Choose Cancel to keep the walkthrough results.");
+    const snapshot = await walkthroughRunner.stop({ restore });
+    if (snapshot.trace) await historyLibrary.put(snapshot.trace);
+    setSceneExchangeStatus(restore ? "Restored the patch captured before the walkthrough." : "Kept the walkthrough results.");
+    return snapshot;
+  };
+
+  const exportWalkthroughRun = () => {
+    const trace = walkthroughRunner.snapshot().trace;
+    if (!trace) return;
+    downloadTextFile(JSON.stringify(trace, null, 2), `${trace.walkthroughId || "walkthrough"}-run.__.json`);
   };
 
   const applySessionAction = async (action, { emitMidi = false } = {}) => {
@@ -21019,6 +21259,16 @@ function App() {
         interval: transportLaunchQuantization?.interval || null,
       },
     },
+    walkthrough: {
+      status: walkthroughSnapshot.status,
+      id: walkthroughSnapshot.walkthrough?.id || null,
+      title: walkthroughSnapshot.walkthrough?.title || null,
+      stepId: walkthroughSnapshot.step?.id || null,
+      stepIndex: walkthroughSnapshot.stepIndex,
+      stepCount: walkthroughSnapshot.walkthrough?.steps?.length || 0,
+      rate: walkthroughSnapshot.rate,
+      instant: walkthroughSnapshot.instant,
+    },
   };
 
   useLayoutEffect(() => {
@@ -21037,7 +21287,7 @@ function App() {
     });
     let webMCPRegistration = null;
     const api = {
-      apiVersion: 13,
+      apiVersion: 14,
       commands: {
         list: () => commandRegistry.list(),
         describe: id => commandRegistry.describe(id),
@@ -21084,6 +21334,25 @@ function App() {
         export: () => historyController.export(),
         import: payload => historyController.load(parseUnderscoresSession(payload)),
       },
+      walkthroughs: Object.freeze({
+        list: () => walkthroughsRef.current.map(item => ({ id: item.id, revision: item.revision, title: item.title, description: item.description, clockMode: item.clockMode, stepCount: item.steps.length })),
+        get: id => { const item = getWalkthrough(id); return item ? structuredClone(item) : null; },
+        create: document => createWalkthroughDocument(document),
+        update: (id, patch, expectedRevision) => updateWalkthroughDocument(id, patch, expectedRevision),
+        delete: (id, expectedRevision) => deleteWalkthroughDocument(id, expectedRevision),
+        fromHistory: options => createWalkthroughFromHistory(options),
+        start: (id, options) => startWalkthrough(id, options),
+        pause: () => walkthroughRunner.pause(),
+        resume: () => walkthroughRunner.resume(),
+        next: () => walkthroughRunner.next(),
+        previous: () => walkthroughRunner.previous(),
+        check: () => walkthroughRunner.check(),
+        hint: () => walkthroughRunner.hint(),
+        stop: options => walkthroughRunner.stop(options),
+        setRate: (rate, options) => walkthroughRunner.setRate(rate, options),
+        seekTime: (time, options) => walkthroughRunner.seekTime(time, options),
+        status: () => walkthroughRunner.snapshot(),
+      }),
       macros: {
         list: () => historyLibrary.list(UNDERSCORES_MACRO_TYPE),
         saveRange: options => {
@@ -26112,6 +26381,9 @@ function App() {
           onLoopEnabledChange={setTransportLoopEnabled}
           onLoopChange={updateTransportLoop}
           automationKeys={automationKeys}
+          walkthroughMarkers={walkthroughSnapshot.walkthrough?.clockMode === "linked"
+            ? walkthroughSnapshot.walkthrough.steps.map((step, index) => ({ id: step.id, title: step.title, time: step.at, active: index === walkthroughSnapshot.stepIndex }))
+            : []}
           followPlayhead={followTimelinePlayhead}
           arrangementLanes={arrangementIndex.lanes.map(lane => ({
             ...lane,
@@ -26213,7 +26485,7 @@ function App() {
     setFollowTimelinePlayhead(true);
     setScriptEditorTheme("underscores");
     setTransparentBoardExport(false);
-    setLaserColor("#ff0000");
+    setLaserColor(DEFAULT_LASER_COLOR);
     setLaserOpacity(100);
     setGlobalRoundness(false);
     setCustomBrushRoundness(false);
@@ -26237,7 +26509,7 @@ function App() {
     localStorage.setItem("underscores_transport_launch_quantization", JSON.stringify(normalizeTransportLaunchQuantization(null)));
     localStorage.setItem("underscores_iannix_follow_playhead", "true");
     localStorage.setItem("underscores_export_transparent", "false");
-    localStorage.setItem("underscores_laser_color", "#ff0000");
+    localStorage.setItem("underscores_laser_color", DEFAULT_LASER_COLOR);
     localStorage.setItem("underscores_laser_opacity", "100");
     localStorage.setItem(CUSTOM_BRUSH_ROUNDNESS_STORAGE_KEY, "false");
     localStorage.setItem(DRAWING_ROUNDNESS_STORAGE_KEY, "0");
@@ -28774,6 +29046,55 @@ function App() {
               onExport={exportHistorySession}
               onImport={importHistorySession}
               onClear={clearHistorySession}
+              onCreateWalkthrough={() => {
+                const walkthrough = createWalkthroughFromHistory();
+                toggleUnderscoresPanel("walkthrough", { open: true });
+                setActiveWalkthroughId(walkthrough.id);
+              }}
+            />
+          </UnderscoresPanel>
+          )}
+
+          {shouldRenderPanel("walkthrough") && (
+          <UnderscoresPanel
+            id="walkthrough"
+            title="Walkthrough"
+            placement={panelLayouts.walkthrough.placement}
+            layout={panelLayouts.walkthrough}
+            dockTabs={getPanelDockTabs("walkthrough")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.walkthrough.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={startSidebarPanelDrag}
+            onCloseDockTab={closeUnderscoresPanel}
+            onPlacementChange={placement => setPanelPlacement("walkthrough", placement)}
+            onDragStart={event => startSidebarPanelDrag("walkthrough", event)}
+            onClose={() => closeUnderscoresPanel("walkthrough")}
+            onResizeStart={handlePanelResizeMouseDown}
+            collapsed={panelLayouts.walkthrough.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.walkthrough.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.walkthrough.placement]: false }))}
+          >
+            <WalkthroughPanel
+              walkthroughs={walkthroughs}
+              snapshot={walkthroughSnapshot}
+              activeId={activeWalkthroughId}
+              onSelect={setActiveWalkthroughId}
+              onCreate={() => createWalkthroughDocument({ title: "Untitled walkthrough", steps: [] })}
+              onCreateFromHistory={() => createWalkthroughFromHistory()}
+              onUpdate={updateWalkthroughDocument}
+              onDelete={(id) => { if (window.confirm("Delete this walkthrough?")) deleteWalkthroughDocument(id); }}
+              onStart={startWalkthrough}
+              onPause={() => walkthroughRunner.pause()}
+              onResume={() => walkthroughRunner.resume()}
+              onStop={stopWalkthroughWithChoice}
+              onNext={() => walkthroughRunner.next()}
+              onPrevious={() => walkthroughRunner.previous()}
+              onRate={(rate, options) => walkthroughRunner.setRate(rate, options)}
+              onExportRun={exportWalkthroughRun}
+              targetOptions={[
+                "canvas", "canvas.selection", "app.commandPalette", "editor.livecode",
+                ...UNDERSCORES_PANELS.map(panel => `panel.${panel.id}`),
+                ...(excalidrawAPI?.getSceneElements?.() || []).filter(element => !element.isDeleted).map(element => `canvas.element:${element.id}`),
+              ]}
             />
           </UnderscoresPanel>
           )}
@@ -29680,6 +30001,37 @@ function App() {
           </UnderscoresPanel>
           )}
 
+          {(panelLayouts.documentation.placement === PANEL_PLACEMENTS.BOTTOM ? shouldRenderHorizontalPanel("documentation") : shouldRenderPanel("documentation")) && (
+          <UnderscoresPanel
+            id="documentation"
+            title="Documentation"
+            placement={panelLayouts.documentation.placement}
+            layout={panelLayouts.documentation}
+            dockTabs={panelLayouts.documentation.placement === PANEL_PLACEMENTS.BOTTOM ? bottomDockTabs : getPanelDockTabs("documentation")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.documentation.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={panelLayouts.documentation.placement === PANEL_PLACEMENTS.BOTTOM ? startHorizontalPanelDrag : startSidebarPanelDrag}
+            onCloseDockTab={panelLayouts.documentation.placement === PANEL_PLACEMENTS.BOTTOM ? closeHorizontalPanel : closeUnderscoresPanel}
+            onPlacementChange={placement => setPanelPlacement("documentation", placement)}
+            onDragStart={event => panelLayouts.documentation.placement === PANEL_PLACEMENTS.BOTTOM ? startHorizontalPanelDrag("documentation", event) : startSidebarPanelDrag("documentation", event)}
+            onClose={() => panelLayouts.documentation.placement === PANEL_PLACEMENTS.BOTTOM ? closeHorizontalPanel("documentation") : closeUnderscoresPanel("documentation")}
+            onResizeStart={handlePanelResizeMouseDown}
+            allowBottom
+            bottomHeight={320}
+            collapsed={panelLayouts.documentation.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.documentation.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.documentation.placement]: false }))}
+          >
+            <DocumentationPanel
+              horizontal={panelLayouts.documentation.placement === PANEL_PLACEMENTS.BOTTOM}
+              helpCatalog={BUNDLED_HELP_CATALOG}
+              gettingStartedId="onboarding"
+              request={documentationRequest}
+              onStartWalkthrough={startWalkthrough}
+              onInsertHelp={item => commandRegistry.execute(item.insertCommand.id, item.insertCommand.args, { source: "documentation-catalog" })}
+            />
+          </UnderscoresPanel>
+          )}
+
           {(panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? shouldRenderHorizontalPanel("info") : shouldRenderPanel("info")) && (
           <UnderscoresPanel
             id="info"
@@ -29705,6 +30057,7 @@ function App() {
               mode={shouldRenderPanel("script") ? scriptPanelType : (shouldRenderPanel("mapping") || shouldRenderPanel("media-input")) ? "media" : "default"}
               iannixCommand={iannixCommandHelp}
               livecodeKind={selectedLivecodeKindForInfo}
+              onOpenDocumentation={query => { setDocumentationRequest({ query: String(query || ""), nonce: Date.now() }); setUnderscoresPanelOpen("documentation", true, { forceOpen: true }); }}
             />
           </UnderscoresPanel>
           )}
@@ -30046,6 +30399,20 @@ function App() {
         {renderSvgNodeSelectionOverlay()}
       </div>
 
+      <WalkthroughOverlay
+        snapshot={walkthroughSnapshot}
+        resolveTarget={resolveWalkthroughTargetForOverlay}
+        onPause={() => walkthroughRunner.pause()}
+        onResume={() => walkthroughRunner.resume()}
+        onNext={() => walkthroughRunner.next()}
+        onPrevious={() => walkthroughRunner.previous()}
+        onCheck={() => walkthroughRunner.check()}
+        onHint={() => walkthroughRunner.hint()}
+        onDoIt={() => walkthroughRunner.doIt()}
+        onSkip={() => walkthroughRunner.next({ skipped: true })}
+        onStop={stopWalkthroughWithChoice}
+      />
+
       {dockPreview && (
         <div className={`panel-dock-preview panel-dock-preview-${dockPreview}`} aria-hidden="true" />
       )}
@@ -30139,8 +30506,11 @@ function App() {
                         onMouseDown={event => event.preventDefault()}
                         onClick={() => handlePaletteAutocompleteSelect(tag)}
                       >
-                        <span>{tag.name}</span>
-                        <small>{tag.description}</small>
+                        <span className="command-palette-suggestion-name">{tag.name}</span>
+                        <span className="command-palette-suggestion-meta">
+                          {tag.category && <small className="command-category">{tag.category}</small>}
+                          <small className="command-palette-suggestion-description">{tag.description}</small>
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -30154,9 +30524,9 @@ function App() {
                     onClick={() => executeCommand(cmd)}
                     onMouseEnter={() => setSelectedIndex(idx)}
                   >
-                    <div style={{ display: "flex", flexDirection: "column" }}>
+                    <div className="command-palette-item-main">
                       <span className="command-name">{cmd.name}</span>
-                      <span className="command-category">{cmd.category}</span>
+                      {cmd.category && <span className="command-category">{cmd.category}</span>}
                     </div>
                     {cmd.id === "ask-ai" && (
                       <span className="command-badge">AI Query</span>

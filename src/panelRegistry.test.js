@@ -13,7 +13,7 @@ test("dock registry keeps the requested primary right and bottom tab order", () 
     .filter(panel => panel.placements.includes("right"))
     .map(panel => panel.id);
   assert.deepEqual(rightDockOrder, [
-    "outliner", "playlist", "properties", "iannix", "script", "grid", "physics", "mods", "synth", "media-input", "inputs", "holistic", "mapping", "collaboration", "chat", "history", "settings", "mixer", "info", "console",
+    "outliner", "playlist", "properties", "iannix", "script", "grid", "physics", "mods", "synth", "media-input", "inputs", "holistic", "mapping", "collaboration", "chat", "history", "walkthrough", "documentation", "settings", "mixer", "info", "console",
   ]);
   assert.deepEqual(UNDERSCORES_PANELS
     .filter(panel => panel.naturalPlacement === "bottom")
@@ -41,11 +41,15 @@ test("panel lookup and slash matching share one registry", () => {
   assert.equal(getUnderscoresPanel("script")?.slash, "/script");
   assert.equal(getUnderscoresPanel("info")?.slash, "/info");
   assert.deepEqual(getUnderscoresPanel("info")?.placements, ["left", "floating", "right", "bottom"]);
+  assert.equal(getUnderscoresPanel("documentation")?.slash, "/documentation");
+  assert.equal(matchesUnderscoresPanel(getUnderscoresPanel("documentation"), "/docs"), true);
+  assert.deepEqual(getUnderscoresPanel("documentation")?.placements, ["left", "floating", "right", "bottom"]);
   assert.equal(matchesUnderscoresPanel(getUnderscoresPanel("settings"), "midi"), false);
 });
 
-test("natural panel placement sends horizontal panels bottom and vertical panels right", () => {
+test("natural panel placement honors each panel's intended dock", () => {
   assert.equal(getNaturalPanelPlacement(getUnderscoresPanel("script")), "right");
+  assert.equal(getNaturalPanelPlacement(getUnderscoresPanel("documentation")), "left");
   assert.equal(getNaturalPanelPlacement(getUnderscoresPanel("info")), "bottom");
   assert.equal(getNaturalPanelPlacement(getUnderscoresPanel("mixer")), "bottom");
   assert.equal(getNaturalPanelPlacement(getUnderscoresPanel("transport")), "bottom");

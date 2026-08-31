@@ -79,6 +79,7 @@ Excalidraw palette change without recompilation.
 | `inputs` | `registerAdapter(adapter)`, `unregisterAdapter(id)`, `emit(sample)` |
 | `events` | `subscribe(pattern, listener)` |
 | `webmcp` | `tools()`, `getStatus()`; reports the progressive-enhancement Site tools adapter added in API version 12 |
+| `walkthroughs` | `list()`, `get(id)`, revision-checked authoring, History conversion, playback, assertions, hints, seek/rate controls, and local status added in API version 14 |
 | `art.unicursal` | `presets()`, `generate(sourceRef, options)` |
 | `relations` | Graph `get()`, `set(graph)`, `add(collection, item)`, `update(collection, id, patch)`, `remove(collection, id)`; `mappings.list(systemId)`, `mappings.create(item)`, `mappings.update(id, patch)`, and `mappings.remove(id)`; endpoint, adapter, collision-stream, and relationship-event helpers |
 | `physics` | `world.get()` / `world.update(patch)`; system/body/population/constraint/mapping helpers; a legacy `routes` compatibility collection; `play`, `pause`, `reset`, `apply`, `materialize`, `impulse`, `grab`, `moveGrab`, `releaseGrab`, `poses`, `telemetry`, and `snapshot`. `world.pausedEditMode` defaults to `author` (paused canvas edits update the reset pose); set it to `preview` to preserve the reset pose. `world.livePose` enables constraint-solving authoring grabs; press `\\` outside a text field to toggle it. Plain Cmd remains available to Excalidraw alignment. `world.collisionLayers` owns the named layer stack and symmetric contact matrix. Authored body settings live at `object.customData.physics`, including `collider.kind` (`circle`, `ellipse`, `box`, `convex`, `polyline`, or compound `chain`) and optional `collisionLayers` membership. Constraint objects additionally persist `axle`, legacy-compatible `fixate`/Weld, `spring`, or `rope` configuration there. A rope is one authored path plus a `rope` constraint; its sampled Rapier links are runtime-only and exposed only through the rope's rendered geometry. The relationship graph supplies only stable relationship bindings. `customData.underscoresPhysics` remains a read-only legacy alias. |
@@ -100,6 +101,17 @@ the anchor; `activate(index)` also fires its persisted Command, Mini-script, or 
 `next()` and `step()` preserve the presenter rule that a pending Manim cue is advanced before the
 outer anchor. JavaScript trigger rows use the same trusted `__` bridge as Manim and other local
 script hosts; command and Mini-script rows remain resolved through the allowlisted command catalog.
+
+Guided walkthroughs use `__.walkthroughs`. Authoring mutations accept expected revisions, while
+playback and learner state remain local even in a multiplayer room:
+
+```js
+const tours = __.walkthroughs.list();
+await __.walkthroughs.start(tours[0].id, { rate: 0.75 });
+__.walkthroughs.next();
+__.walkthroughs.setRate(1.5);
+__.walkthroughs.stop({ restore: false });
+```
 
 Semantic observations are transient and read-only:
 
@@ -141,6 +153,9 @@ brush workflows without exposing the raw JavaScript API or arbitrary code execut
 
 API version 13 adds the `__.playlist` control namespace and persisted per-anchor Command,
 Mini-script, and trusted JavaScript triggers.
+
+API version 14 adds `__.walkthroughs`, local recovery-aware playback, semantic target and assertion
+adapters, versioned walkthrough documents, run traces, and scene exchange version 14 patch metadata.
 
 Persistent actor changes go through `media.binding.create`, `media.binding.update`,
 `media.binding.remove`, and `media.actors.arm`. API version 6 introduces the semantic stream service

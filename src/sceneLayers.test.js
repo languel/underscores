@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 import {
   buildSceneGroupTree,
   groupSceneElements,
+  isNativeExcalidrawElement,
+  isOutlinerCodeElement,
+  isOutlinerPhysicsElement,
+  isOutlinerScoreElement,
   moveSceneElementsToGroup,
   moveSceneGroupToParent,
   moveSceneElementsToGroupParent,
@@ -11,6 +15,29 @@ import {
 } from "./sceneLayers.js";
 
 const element = (id, groupIds = []) => ({ id, groupIds, isDeleted: false });
+
+test("distinguishes native Excalidraw objects from Underscores-managed objects", () => {
+  assert.equal(isNativeExcalidrawElement({ id: "shape", type: "rectangle", customData: {} }), true);
+  assert.equal(isNativeExcalidrawElement({ id: "labelled", type: "text", customData: { underscoresLabel: "Note" } }), true);
+  assert.equal(isNativeExcalidrawElement({ id: "code", type: "rectangle", customData: { underscoresLivecode: {} } }), false);
+  assert.equal(isNativeExcalidrawElement({ id: "svg", type: "rectangle", customData: { underscoresSvg: {} } }), false);
+  assert.equal(isNativeExcalidrawElement({ id: "media", type: "rectangle", customData: { underscoresMediaStream: {} } }), false);
+  assert.equal(isNativeExcalidrawElement({ id: "gesture", type: "freedraw", customData: { underscoresGesture: {} } }), true);
+  assert.equal(isNativeExcalidrawElement({ id: "score", type: "ellipse", customData: { iannixImport: {} } }), false);
+  assert.equal(isNativeExcalidrawElement({ id: "body", type: "ellipse", customData: { physics: {} } }), false);
+  assert.equal(isNativeExcalidrawElement({ id: "deleted", type: "rectangle", isDeleted: true }), false);
+});
+
+test("classifies code, score, and physics Outliner elements independently", () => {
+  assert.equal(isOutlinerCodeElement({ customData: { underscoresLivecode: {} } }), true);
+  assert.equal(isOutlinerCodeElement({ customData: { underscoresSvg: {} } }), true);
+  assert.equal(isOutlinerCodeElement({ customData: { score: {} } }), false);
+  assert.equal(isOutlinerScoreElement({ customData: { score: { role: "curve" } } }), true);
+  assert.equal(isOutlinerScoreElement({ customData: { iannixImport: { scoreId: "demo" } } }), true);
+  assert.equal(isOutlinerPhysicsElement({ customData: { physics: { bodyType: "dynamic" } } }), true);
+  assert.equal(isOutlinerPhysicsElement({ customData: { underscoresPhysics: { bodyType: "fixed" } } }), true);
+  assert.equal(isOutlinerPhysicsElement({ customData: { underscoresGesture: {} } }), false);
+});
 
 test("groups selected scene elements without replacing existing nested memberships", () => {
   const source = [element("a", ["outer"]), element("b", ["outer"]), element("c")];

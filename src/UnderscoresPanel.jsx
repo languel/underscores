@@ -32,6 +32,12 @@ export const PanelIcon = ({ id }) => {
   if (id === "history") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.5"/><path d="M4 4v4.5h4.5M12 7v5l3 2"/></svg>;
   }
+  if (id === "walkthrough") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h5M8 16h7"/><circle cx="18.5" cy="5.5" r="2.5"/></svg>;
+  }
+  if (id === "documentation") {
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v17H6.5A2.5 2.5 0 0 0 4 22V5.5ZM20 5.5A2.5 2.5 0 0 0 17.5 3H12v17h5.5A2.5 2.5 0 0 1 20 22V5.5Z"/></svg>;
+  }
   if (id === "properties") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h8M16 18h4"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></svg>;
   }
@@ -129,6 +135,31 @@ export default function UnderscoresPanel({
     onPlacementChange(getNaturalPanelPlacement(panelDefinition));
   };
 
+  // Keep the resize grip's double-click gesture local to docked panels. An
+  // open dock collapses to its edge; a collapsed dock keeps its existing
+  // expand gesture. The parent owns the persisted dock state.
+  const handleResizeDoubleClick = event => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (collapsed) {
+      onExpand?.();
+      return;
+    }
+    onResizeStart?.(id, event, placement, { collapse: true });
+  };
+
+  const handleResizeMouseDown = event => {
+    // A collapsed dock is represented by the grip at the edge, so its
+    // pointer area is reserved for the expand double-click. Likewise, do not
+    // start a second resize gesture for the second press in a double-click.
+    // This keeps the browser/window edge from winning the drag interaction.
+    if (event.button !== 0 || collapsed || event.detail > 1) {
+      event.stopPropagation();
+      return;
+    }
+    onResizeStart?.(id, event, placement);
+  };
+
   const dockWidthVariable = placement === PANEL_PLACEMENTS.LEFT
     ? "--underscores-left-dock-width"
     : "--underscores-right-dock-width";
@@ -155,9 +186,9 @@ export default function UnderscoresPanel({
       {!floating && (
         <div
           className={`underscores-panel-resize-handle underscores-panel-resize-${placement}`}
-          onMouseDown={event => onResizeStart(id, event, placement)}
-          onDoubleClick={collapsed ? onExpand : undefined}
-          title={collapsed ? `Drag or double-click to expand ${title}` : `Drag to resize or collapse ${title}`}
+          onMouseDown={handleResizeMouseDown}
+          onDoubleClick={handleResizeDoubleClick}
+          title={collapsed ? `Drag or double-click to expand ${title}` : `Drag to resize; double-click to collapse ${title}`}
           aria-label={`Resize ${title} panel`}
         />
       )}
