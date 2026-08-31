@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { renderMarkdownWithMath } from "./livecodePresentation.js";
 
@@ -13,11 +13,14 @@ export default function WalkthroughOverlay({
   onPrevious,
   onCheck,
   onHint,
+  onDoIt,
   onSkip,
   onStop,
 }) {
   const [point, setPoint] = useState(EMPTY_POINT);
   const [hint, setHint] = useState("");
+  const [panelPosition, setPanelPosition] = useState(null);
+  const dragRef = useRef(null);
   const step = snapshot?.step;
   const active = snapshot && !["idle", "stopped"].includes(snapshot.status);
   const waiting = snapshot?.status === "waiting";
@@ -41,6 +44,40 @@ export default function WalkthroughOverlay({
 
   useEffect(() => setHint(""), [step?.id]);
 
+  useEffect(() => () => { dragRef.current = null; }, []);
+
+  const handlePanelPointerDown = event => {
+    if (event.button !== 0) return;
+    const panel = event.currentTarget.closest(".walkthrough-narration");
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    dragRef.current = { pointerId: event.pointerId, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    event.currentTarget.classList.add("is-dragging");
+    event.preventDefault();
+  };
+
+  const handlePanelPointerMove = event => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const panel = event.currentTarget.closest(".walkthrough-narration");
+    if (!panel) return;
+    const margin = 8;
+    const maxLeft = Math.max(margin, window.innerWidth - panel.offsetWidth - margin);
+    const maxTop = Math.max(margin, window.innerHeight - panel.offsetHeight - margin);
+    setPanelPosition({
+      left: Math.min(maxLeft, Math.max(margin, event.clientX - drag.offsetX)),
+      top: Math.min(maxTop, Math.max(margin, event.clientY - drag.offsetY)),
+    });
+  };
+
+  const handlePanelPointerUp = event => {
+    if (!dragRef.current || dragRef.current.pointerId !== event.pointerId) return;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    event.currentTarget.classList.remove("is-dragging");
+    dragRef.current = null;
+  };
+
   const progress = useMemo(() => {
     const total = snapshot?.walkthrough?.steps?.length || 0;
     return total ? `${Math.max(0, snapshot.stepIndex) + 1} / ${total}` : "";
@@ -60,8 +97,20 @@ export default function WalkthroughOverlay({
         <span className="walkthrough-cursor-dot" />
         <span className="walkthrough-cursor-ring" />
       </div>
-      <section className="walkthrough-narration" role="dialog" aria-label={`Guided walkthrough: ${step.title}`}>
-        <header>
+      <section
+        className="walkthrough-narration"
+        role="dialog"
+        aria-label={`Guided walkthrough: ${step.title}`}
+        style={panelPosition ? { left: `${panelPosition.left}px`, top: `${panelPosition.top}px`, bottom: "auto", transform: "none" } : undefined}
+      >
+        <header
+          className="walkthrough-drag-handle"
+          onPointerDown={handlePanelPointerDown}
+          onPointerMove={handlePanelPointerMove}
+          onPointerUp={handlePanelPointerUp}
+          onPointerCancel={handlePanelPointerUp}
+          title="Drag to reposition this walkthrough"
+        >
           <span>{snapshot.walkthrough.title}</span>
           <span>{progress}</span>
         </header>
@@ -76,6 +125,14 @@ export default function WalkthroughOverlay({
             ? <button type="button" className="primary" onClick={onCheck}>Check</button>
             : <button type="button" className="primary" onClick={onNext} disabled={!waiting && step.advance.mode !== "continue"}>Continue</button>}
           {step.hint && <button type="button" onClick={() => setHint(onHint?.() || step.hint)}>Hint</button>}
+          <button
+            type="button"
+            onClick={onDoIt}
+            disabled={!waiting}
+            title="Try this step yourself first; Do it lets the walkthrough perform it for you."
+          >
+            Do it
+          </button>
           {step.allowSkip && waiting && <button type="button" onClick={onSkip}>Skip</button>}
           <button type="button" onClick={onStop}>Stop</button>
         </footer>

@@ -390,6 +390,17 @@ export class WalkthroughRunner {
     return this.state.step?.hint || "";
   }
 
+  async doIt() {
+    const step = this.state.step;
+    if (!step || !["waiting", "paused"].includes(this.state.status)) return this.snapshot();
+    this.publish({ trace: appendWalkthroughTraceEvent(this.state.trace, { kind: "doIt", stepId: step.id }) });
+    if (step.advance.mode === "assertion") {
+      await this.check();
+      return this.snapshot();
+    }
+    return this.next({ automatic: true });
+  }
+
   async finish(outcome = "completed") {
     this.generation += 1;
     const trace = completeWalkthroughRunTrace(this.state.trace, outcome);

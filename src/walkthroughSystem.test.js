@@ -152,3 +152,18 @@ test("runner persists and clears reload recovery checkpoints", async () => {
   await runner.stop();
   assert.equal(cleared, 1);
 });
+
+test("runner records Do it and advances a waiting learner step", async () => {
+  const runner = new WalkthroughRunner({ wait: async () => undefined });
+  const walkthrough = createWalkthrough({ steps: [
+    { id: "try-it", title: "Try it", advance: { mode: "continue" } },
+    { id: "next", title: "Next", advance: { mode: "continue" } },
+  ] });
+  await runner.start(walkthrough, { instant: true });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(runner.snapshot().status, "waiting");
+  await runner.doIt();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(runner.snapshot().step.id, "next");
+  assert.equal(runner.snapshot().trace.events.some(event => event.kind === "doIt"), true);
+});

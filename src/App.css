@@ -68,6 +68,8 @@
 .walkthrough-narration header,
 .walkthrough-narration footer { display: flex; align-items: center; gap: 7px; }
 .walkthrough-narration header { justify-content: space-between; color: var(--underscores-muted, #999); font-size: 11px; }
+.walkthrough-drag-handle { cursor: grab; user-select: none; touch-action: none; }
+.walkthrough-drag-handle.is-dragging { cursor: grabbing; }
 .walkthrough-narration h2 { margin: 8px 0 4px; font-size: 16px; font-weight: 600; }
 .walkthrough-narration p { margin: 4px 0 10px; line-height: 1.45; }
 .walkthrough-narration footer { justify-content: flex-end; }

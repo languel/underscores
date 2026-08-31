@@ -30344,6 +30344,7 @@ function App() {
         onPrevious={() => walkthroughRunner.previous()}
         onCheck={() => walkthroughRunner.check()}
         onHint={() => walkthroughRunner.hint()}
+        onDoIt={() => walkthroughRunner.doIt()}
         onSkip={() => walkthroughRunner.next({ skipped: true })}
         onStop={stopWalkthroughWithChoice}
       />

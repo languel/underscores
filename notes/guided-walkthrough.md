@@ -12,7 +12,7 @@ Every step has an `id`, `title`, optional `narration`, optional `info`, `focusTa
 
 - `auto` moves on after its cues.
 - `continue` waits for the learner.
-- `assertion` evaluates one allowlisted assertion and offers Check, Retry, Hint, Skip, or Continue as appropriate.
+- `assertion` evaluates one allowlisted assertion and offers Check, Retry, Hint, Skip, or Continue as appropriate. Waiting steps also expose `Do it`; try the step yourself first, then let the walkthrough advance it for you when needed.
 
 Assertions can inspect panel state, object existence by ID/kind/name/count, selection membership, Livecode kind/compile/running state, and observed commands or events. Walkthrough files cannot contain CSS selectors, arbitrary DOM access, or arbitrary JavaScript.
 
@@ -20,7 +20,7 @@ Assertions can inspect panel state, object existence by ID/kind/name/count, sele
 
 The Walkthrough panel (`/walkthrough`, `/tour`, or `/guide`) contains the library, controls, pace, editable step list, semantic target picker, cue editor, assertion builder, and validation messages. Free-clock playback supports slow, normal, fast, custom, and instant rates. Transport-linked playback follows play, pause, seek, and rate, while read-only step markers appear in Timeline.
 
-The visible cursor and click halo render in a portal above the application. Motion uses CSS transforms and `requestAnimationFrame`; it does not serialize or write the scene on animation frames, and reduced-motion preferences disable travel animation.
+The visible cursor and click halo render in a portal above the application. Motion uses CSS transforms and `requestAnimationFrame`; it does not serialize or write the scene on animation frames, and reduced-motion preferences disable travel animation. The narration card can be dragged by its title bar to keep help or Timeline visible; its position remains local to the current browser session.
 
 Before playback, Underscores captures a complete scene-exchange and presentation baseline and persists a local recovery record. Stop and completion both offer Keep Results or Restore Starting Patch. Reloading with an unfinished run offers the same choice, so walkthrough recovery does not depend on global undo/redo.
 
