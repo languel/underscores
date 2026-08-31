@@ -434,8 +434,8 @@ const nextLivecodeViewForNode = node => {
 };
 const livecodeViewCycleTitle = node => (
   node.kind === "strudel"
-    ? "Cycle output, code, and code overlay view (Cmd/Ctrl+Shift+Enter while editing)"
-    : "Cycle output, code, code overlay, and split view (Cmd/Ctrl+Shift+Enter while editing)"
+    ? "Cycle output, code, and code overlay view (Cmd/Ctrl+Shift+Enter while editing; Cmd/Ctrl+double-click switches to output)"
+    : "Cycle output, code, code overlay, and split view (Cmd/Ctrl+Shift+Enter while editing; Cmd/Ctrl+double-click switches to output)"
 );
 export function LivecodeAutoUpdateToggle({ node, onPatch, className = "" }) {
   const enabled = isLivecodeAutoUpdateEnabled(node);
@@ -577,6 +577,13 @@ export function LivecodeNodeOverlay({
       event.preventDefault();
       event.stopPropagation();
     };
+    const handleCommandEditorDoubleClick = event => {
+      if (!isLivecodeCommandOutputGesture(event)) return;
+      if (!event.target?.closest?.(".underscores-code-editor, .cm-editor")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (node.view !== "preview") onPatch?.(element.id, { view: "preview" }, { commitToHistory: true });
+    };
     return <div
       key={element.id}
       className={`underscores-livecode-node ${selected ? "selected" : ""} ${editing ? "editing" : ""} ${aiQueryActive ? "ai-query-active" : ""} ${node.typography.glyphOnlyOverlay ? "glyph-only-overlay" : ""} ${node.view}`}
@@ -593,6 +600,7 @@ export function LivecodeNodeOverlay({
       }}
       onPointerDownCapture={handleCommandOutputPointer}
       onClickCapture={handleCommandOutputClick}
+      onDoubleClickCapture={handleCommandEditorDoubleClick}
     >
       {visible && node.runtime.settings?.showChrome === true && <NodeChrome
         node={node}
