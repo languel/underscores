@@ -32,6 +32,7 @@ History's **Create walkthrough** action converts the active recording into a dra
 
 The revision-checked command surface is:
 
+- `walkthrough.welcome` starts the bundled Getting Started tour; `/welcome` and `/get_started` are its no-argument slash aliases
 - `walkthrough.list`, `walkthrough.get`, `walkthrough.create`, `walkthrough.update`, `walkthrough.delete`, and `walkthrough.fromHistory`
 - `walkthrough.start`, `walkthrough.pause`, `walkthrough.resume`, `walkthrough.next`, `walkthrough.previous`, and `walkthrough.stop`
 - `walkthrough.rate.set`
@@ -44,7 +45,9 @@ Each run produces a local `underscores-walkthrough-run` JSON trace with cue exec
 
 ## Bundled onboarding
 
-The bundled **Welcome to Underscores** walkthrough introduces the blank canvas, command palette, core panels, Timeline and Info, visibly authored p5 and GLSL examples, explicit audio enablement, a compact audio/physics pendulum demonstration, and the final Keep/Restore decision. The Info panel stays synchronized and links to follow-up help entries.
+The bundled **Welcome to Underscores** walkthrough introduces Underscores as an infinite creative computational canvas for performance, teaching, exploration, and research. It then introduces the blank canvas, command palette, core panels, Timeline and Info, visibly authored p5 and GLSL examples, explicit audio enablement, a compact audio/physics pendulum demonstration, and the final Keep/Restore decision. Run `/welcome` (or `/get_started`) to begin it. The welcome command is the first entry in an empty Command Palette, and its `walkthrough.welcome` ID is exposed to WebMCP through the shared command catalog. Info stays synchronized with the current control or walkthrough step, while Documentation provides the searchable learning library and follow-up help patches.
+
+Documentation is a separate dockable panel (`/documentation`, `/docs`, or `/help`). It opens in the left dock by default, may move to the right, float, or join the bottom dock, and contains a persistent table of contents for reference topics and patch-based lessons. Its text-size control is stored locally, and Documentation keeps the compact **Getting started** shortcut at the top. Info stays focused on compact contextual summaries and links into Documentation rather than duplicating the full catalog.
 
 ## Implementation map
 
@@ -53,4 +56,6 @@ The bundled **Welcome to Underscores** walkthrough introduces the blank canvas, 
 - `src/WalkthroughOverlay.jsx`: cursor, narration, prompts, and learner controls.
 - `src/WalkthroughPanel.jsx`: browsing, playback, authoring, validation, and trace export.
 - `src/walkthroughCatalog.js`: onboarding and bundled help entries.
+- `src/DocumentationPanel.jsx`: searchable table of contents, help-patch actions, and locally persisted reading size.
+- `src/InfoPanel.jsx`: contextual hover, focus, and active-editor reference only.
 - `src/webmcp.js`: WebMCP discovery and control.

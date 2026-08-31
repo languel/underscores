@@ -31,6 +31,8 @@ composer. Chat has its own font-size control, compact participant roster,
 transcript copy, and clear-chat actions. Chat messages are exchanged in the
 room hello/update flow but are not part of the authored scene document or scene
 exports.
+The AI and room composers share the same themed 50%-translucent input surface, so
+the canvas remains visible behind either chat without changing message readability.
 
 ## Livecode and the shared clock
 

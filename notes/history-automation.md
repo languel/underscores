@@ -100,11 +100,15 @@ Numbers interpolate linearly, rotations use the shortest angular path, and struc
 
 Useful slash commands include:
 
+- `/welcome` or `/get_started` starts the bundled Getting Started guided tour.
 - `/record start`, `/record play`, `/record loop`, `/record pause`, `/record stop`
 - `/history`, `/history play`, `/history seek 2.5`
 - `/macro save My phrase`, `/macro insert My phrase relative`
 - `/ex save [name]` saves the current project; an optional name such as `/ex save bioblip_melody` downloads `bioblip_melody.__.json`. Explicit `.excalidraw` export remains available for interoperability.
 - `/autokey`
+- `/left sidebar`, `/right sidebar`, and `/bottom bar` collapse or reveal the corresponding dock.
+  These presentation commands are also exposed through WebMCP as `dock.left.toggle`,
+  `dock.right.toggle`, and `dock.bottom.toggle`.
 - `/command transport.seek {"seconds":2.5}` for any stable registry ID
 
 AI and multiplayer chat, as well as the Command Palette, share the same `@` context tags and

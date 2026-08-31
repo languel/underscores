@@ -19,17 +19,19 @@ const GLSL_SOURCE = `void main() {
   o = vec4(mix(vec3(0.1, 0.25, 0.8), vec3(1.0, 0.25, 0.55), wave), 1.0);
 }`;
 
+export const ONBOARDING_WALKTHROUGH_ID = "guided-onboarding-v1";
+
 export const ONBOARDING_WALKTHROUGH = createWalkthrough({
-  id: "guided-onboarding-v1",
+  id: ONBOARDING_WALKTHROUGH_ID,
   title: "Welcome to Underscores",
-  description: "A guided introduction to the creative blackboard, Livecode, sound, physics, and the main workspace panels.",
+  description: "A guided introduction to Underscores as an infinite creative computational canvas for performance, teaching, exploration, and research, with Livecode, sound, physics, and the main workspace panels.",
   clockMode: "free",
   defaultRate: 1,
   steps: [
     {
       id: "welcome",
-      title: "A creative blackboard",
-      narration: "Underscores begins as a quiet canvas. Drawing, code, sound, motion, collaboration, and the assistant all meet on the same patch.",
+      title: "An infinite creative computational canvas",
+      narration: "Underscores is an infinite creative computational canvas for performance, teaching, exploration, and research. Drawing, code, sound, motion, collaboration, and the assistant all meet on the same patch.",
       info: "Guided walkthroughs use the same semantic commands as the palette, assistant, WebMCP, History, and Playlist.",
       focusTarget: "canvas",
       advance: { mode: "continue" },
@@ -139,7 +141,7 @@ export const ONBOARDING_WALKTHROUGH = createWalkthrough({
 export const BUNDLED_WALKTHROUGHS = Object.freeze([ONBOARDING_WALKTHROUGH]);
 
 export const BUNDLED_HELP_CATALOG = Object.freeze([
-  { id: "onboarding", title: "Welcome to Underscores", category: "Getting started", tags: ["tour", "canvas", "panels"], summary: "A guided tour of the creative blackboard.", walkthroughId: ONBOARDING_WALKTHROUGH.id },
+  { id: "onboarding", title: "Welcome to Underscores", category: "Getting started", tags: ["tour", "canvas", "panels", "performance", "teaching", "exploration", "research"], summary: "A guided tour of an infinite creative computational canvas for performance, teaching, exploration, and research.", walkthroughId: ONBOARDING_WALKTHROUGH.id },
   { id: "p5", title: "p5 Livecode", category: "Livecode", tags: ["javascript", "visuals", "p5"], summary: "Create visual sketches that live on the canvas.", walkthroughId: ONBOARDING_WALKTHROUGH.id, stepId: "p5", insertCommand: { id: "livecode.node.create", args: { kind: "p5", name: "Help p5 sketch", source: P5_SOURCE, running: true, transportMode: "free" } } },
   { id: "glsl", title: "GLSL shaders", category: "Livecode", tags: ["shader", "glsl", "visuals"], summary: "Render fragment shaders with shared time and composition.", walkthroughId: ONBOARDING_WALKTHROUGH.id, stepId: "glsl", insertCommand: { id: "livecode.node.create", args: { kind: "shader", name: "Help radial shader", source: GLSL_SOURCE, running: true, transportMode: "free" } } },
   { id: "audio-physics", title: "Audio and physics", category: "Systems", tags: ["sound", "physics", "mapping"], summary: "Connect movement and collisions to the internal synth.", walkthroughId: ONBOARDING_WALKTHROUGH.id, stepId: "audio", insertCommand: { id: "demo.reich.pendulum.create", args: { count: 2, preset: "bowed", running: false, audio: false } } },

@@ -29,6 +29,22 @@ The first high-level composition commands are discoverable through the same cata
 | `demo.catalog` | Lists the ready-made composition/physics studies and their intended phase. |
 | `demo.reich.pendulum.create` | Creates a native Steve Reich-inspired pendulum study (four voices by default): rods, bobs, world axles, speakers, a phase timeline, score metadata, and collision-to-Expressive-Synth mappings. `running` defaults to true; `audio: false` stages physics without intentionally starting audio. |
 
+Presentation layout is commandable through the same catalog: `dock.left.toggle`,
+`dock.right.toggle`, and `dock.bottom.toggle` collapse or reveal the left sidebar, right sidebar,
+and bottom bar. The corresponding slash aliases are `/left sidebar`, `/right sidebar`, and
+`/bottom bar`.
+
+The catalog also exposes `walkthrough.welcome`, the no-argument command that starts the bundled
+Getting Started tour. Its Command Palette aliases are `/welcome` and `/get_started`.
+
+The panel command catalog includes `panel-documentation`, whose slash aliases are
+`/documentation`, `/docs`, and `/help`. Because panel commands use the shared `ai.expose` registry,
+the palette, embedded assistant, and WebMCP all open or close the same Documentation panel state.
+Documentation lookup uses the same revision-safe command path: `documentation.search` accepts a
+free-text query (`/docs search <term>` or `/help <term>`), while `documentation.open` selects a
+stable page id (`/docs open <id>`). Both commands open the panel when it is closed, so a script,
+assistant, or WebMCP client can take a learner directly to the relevant reference page.
+
 The pendulum study is an intentionally honest first scaffold rather than a claim to reproduce the
 original recording. Its first sound path uses contact-begin velocity, angular velocity, mapped gain,
 and scene position to shape built-in voices. Raw feedback and double-pendulum variants are

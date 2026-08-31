@@ -10,65 +10,22 @@ const DEFAULT_INFO_VIEW = Object.freeze({
   body: "Hover or focus a control to see what it does. This view can be docked on either side, docked at the bottom, or kept as a floating reference.",
 });
 
-const HELP_TOPICS = Object.freeze([
-  {
-    id: "physics-formulas",
-    title: "Physics mapping formulas",
-    keywords: "formula mapping physics midi pitch velocity cc bend collision expression variables scale major minor pentatonic",
-    body: "Formulas are safe expressions, not JavaScript. They support arithmetic, comparisons, &&, ||, !, parentheses, and if, abs, min, max, clamp, round, floor, ceil, pow.\n\nShared values: raw (selected source field), norm (normalized source range), value (mapped output), impulse, speed, x/y (contact point), normalX/normalY, aX/aY/aVx/aVy/aSpeed, bX/bY/bVx/bVy/bSpeed, gravityX/gravityY, worldTime, step, timeScale, simSpeed, pixelsPerMeter. Body material values are available as aMass/bMass, aFriction/bFriction, aBounce/bBounce, and aDensity/bDensity. Each physics object also has Object note, available as aNote/noteA and bNote/noteB.\n\nPitch formulas also receive baseNote. Scale helpers: major(root, degree), minor(root, degree), pentatonic(root, degree), and scale(root, degree, semitone0, ...).",
-    examples: [
-      "major(baseNote, floor(speed / 12))",
-      "clamp(20 + speed * 2, 1, 127)",
-      "round(clamp(8192 + normalX * 8191, 0, 16383))",
-    ],
-  },
-  {
-    id: "physics-mappings",
-    title: "Physics collision mappings",
-    keywords: "physics collision mapping source filter transform target midi expressive synth begin hit end stay contact body wall tags object",
-    body: "Mappings run Source → Filter → Transform → Target without a React render. Source chooses a system, collision class, contact phase, tags or specific objects, and a numeric field. Filter rejects events by range or boolean formula. Transform maps the surviving value. Target sends MIDI Note, CC, Pitch Bend, or an Expressive Synth voice.\n\nUse hit for one note per impact. Use begin/end with a pair-gate target for notes or voices that persist while a pair is in contact. Stay is opt-in and drives continuous expressive updates while Contact stay events is enabled for the world.",
-  },
-  {
-    id: "physics-debug",
-    title: "Physics debug overlay",
-    keywords: "physics debug overlay collider contacts collisions forces labels bodies springs constraints",
-    body: "The Physics Debug Overlay is diagnostic-only and does not serialize as canvas art. Bodies and colliders show the geometry sent to Rapier; labels identify their runtime bodies. Contact markers show recent collision points, while force arrows show reported contact impulse. Enable only the filters needed while diagnosing a system.",
-  },
-  {
-    id: "score",
-    title: "Score roles",
-    keywords: "score iannix curve cursor trigger transport midi role",
-    body: "A Score combines curves, cursors, and triggers. Curves provide the path, cursors travel it in score time, and triggers emit messages at positions on a curve. Score roles are independent from physics roles; mappings and scripts can bridge their events when needed.",
-  },
-  {
-    id: "media-streams",
-    title: "Media streams and actors",
-    keywords: "media stream mediapipe holistic camera actor brush input landmark source catalog clip recorder gif mp4 webm alpha audio download frame all loop",
-    body: "Media sources stay dormant in the catalog until selected or connected to an enabled scene object. Select one to preview and play it, use Record clip to create GIF, MP4 with source audio, audio-only, or WebM alpha clips, and press Escape to clear selection. Canvas capture can target a frame, rectangle, or the full scene. A Holistic processor stores its source, transform, and display settings without creating one object per landmark. Use the Media and Inputs panels to create streams, then use actors, Brush channels, or scripts to consume them.",
-  },
-  {
-    id: "script-parameters",
-    title: "Script parameters",
-    keywords: "parameter params param number string text color picker boolean bool json object canvas element p5 play core livecode brush iannix",
-    body: "Shared @param declarations accept numbers, strings, CSS colors, booleans, parsed JSON values, and canvas object references. Numbers keep their range and step controls; colors use the compact in-app picker, live app/canvas eyedropper preview, and dynamic __ color references; JSON is edited as a JavaScript value and object references resolve through the canvas query API.",
-  },
-]);
-
 const isDefaultInfo = info => (
   !info
   || (info.title === DEFAULT_INFO_VIEW.title && info.body === DEFAULT_INFO_VIEW.body)
 );
 
-const DocumentationReference = ({ documentation }) => {
+const DocumentationReference = ({ documentation, onOpenDocumentation }) => {
   if (!documentation) return null;
   const source = documentation.referenceSource || "Language reference";
   return (
     <section className="info-panel-documentation" aria-label={`${source} documentation`}>
       <div className="info-panel-documentation-heading">
         <span>{source}</span>
-        {documentation.referenceUrl && (
-          <a href={documentation.referenceUrl} target="_blank" rel="noreferrer">Open reference ↗</a>
-        )}
+        <span className="info-panel-documentation-links">
+          {onOpenDocumentation && <button type="button" onClick={onOpenDocumentation}>Open Documentation</button>}
+          {documentation.referenceUrl && <a href={documentation.referenceUrl} target="_blank" rel="noreferrer">Open reference ↗</a>}
+        </span>
       </div>
       {documentation.signature && <code className="info-panel-documentation-signature">{documentation.signature}</code>}
       {documentation.description && <p>{documentation.description}</p>}
@@ -79,17 +36,7 @@ const DocumentationReference = ({ documentation }) => {
   );
 };
 
-const findHelpTopics = (query, extraTopics = []) => {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return [];
-  const terms = normalized.split(/\s+/).filter(Boolean);
-  return [...extraTopics, ...HELP_TOPICS].filter(topic => {
-    const haystack = `${topic.title} ${topic.keywords} ${topic.body}`.toLowerCase();
-    return terms.every(term => haystack.includes(term));
-  });
-};
-
-const SvgInfoGuide = () => (
+const _SvgInfoGuide = () => (
   <div className="info-svg-guide">
     <section>
       <h3>Document</h3>
@@ -273,7 +220,7 @@ const P5ApiReference = () => {
   );
 };
 
-const P5InfoGuide = () => (
+const _P5InfoGuide = () => (
   <div className="info-svg-guide">
     <section>
       <h3>p5 sketch</h3>
@@ -296,7 +243,7 @@ function draw() {
   </div>
 );
 
-const MediaStreamsInfoGuide = () => (
+const _MediaStreamsInfoGuide = () => (
   <div className="info-svg-guide">
     <section>
       <h3>Source catalog and clip recorder</h3>
@@ -363,7 +310,7 @@ edges.subscribe(event => console.log(event.transition));`}</code></pre>
   </div>
 );
 
-const PlayCoreInfoGuide = () => (
+const _PlayCoreInfoGuide = () => (
   <div className="info-svg-guide">
     <section>
       <h3>Play Core frame</h3>
@@ -417,7 +364,7 @@ import { sort } from '/src/modules/sort.js'`}</code></pre>
   </div>
 );
 
-const OrcaInfoGuide = () => (
+const _OrcaInfoGuide = () => (
   <div className="info-svg-guide info-orca-guide">
     <section>
       <h3>Orca grid</h3>
@@ -449,7 +396,7 @@ const OrcaInfoGuide = () => (
   </div>
 );
 
-const IannixInfoGuide = ({ activeCommand = null }) => (
+const _IannixInfoGuide = ({ activeCommand = null }) => (
   <div className="info-svg-guide">
     {activeCommand && (
       <section className="info-iannix-active-command">
@@ -519,7 +466,7 @@ function makeWithScript() {
   </div>
 );
 
-const BrushInfoGuide = () => (
+const _BrushInfoGuide = () => (
   <div className="info-svg-guide">
     <section>
       <h3>Brush modifier</h3>
@@ -534,7 +481,7 @@ const BrushInfoGuide = () => (
   </div>
 );
 
-const LivecodeInfoGuide = ({ kind }) => {
+const _LivecodeInfoGuide = ({ kind }) => {
   const help = getLivecodeHelp(kind);
   const bridge = getLivecodeBridgeHelp(kind);
   return (
@@ -552,86 +499,63 @@ const LivecodeInfoGuide = ({ kind }) => {
   );
 };
 
-const livecodeHelpTopic = kind => {
-  const normalizedKind = normalizeLivecodeKind(kind);
-  if (normalizedKind === "orca") {
-    return {
-      id: "livecode-guide-orca",
-      title: "Orca quick reference",
-      keywords: "orca grid operator clock frame MIDI note CC pitch bend compact fit width height",
-      body: "Orca is a compact frame-based livecoding grid. Edit cells directly, choose the working width and height, and use Fit frame to adapt the grid to its host. Linked clocks follow the transport; Free clocks run while the node is running.",
-      guide: <OrcaInfoGuide />,
-      examples: [],
-    };
-  }
-  const help = getLivecodeHelp(normalizedKind);
-  const bridge = getLivecodeBridgeHelp(normalizedKind);
-  return {
-    id: `livecode-guide-${normalizedKind}`,
-    title: help.title,
-    keywords: `livecode ${normalizedKind} script language guide ${help.title} __ underscores bridge api`,
-    body: [help.summary, ...help.points, bridge.summary, ...bridge.points, help.footer].join("\n\n"),
-    guide: <LivecodeInfoGuide kind={normalizedKind} />,
-    examples: [],
-  };
-};
+const CompactGuide = ({ summary, example, details }) => (
+  <div className="info-compact-guide">
+    <p>{summary}</p>
+    {example && <pre><code>{example}</code></pre>}
+    {details && <p>{details}</p>}
+    <small>Open Documentation for the full reference, patterns, and troubleshooting notes.</small>
+  </div>
+);
 
-const scriptGuide = (mode, iannixCommand, livecodeKind) => {
-  if (mode === "svg") return <SvgInfoGuide />;
-  if (mode === "p5") return <P5InfoGuide />;
-  if (mode === "play") return <PlayCoreInfoGuide />;
-  if (mode === "iannix") return <IannixInfoGuide activeCommand={iannixCommand} />;
-  if (mode === "brush") return <BrushInfoGuide />;
-  if (mode === "media") return <MediaStreamsInfoGuide />;
-  if (mode === "livecode" && normalizeLivecodeKind(livecodeKind) === "orca") return <OrcaInfoGuide />;
-  if (mode === "livecode") return <LivecodeInfoGuide kind={livecodeKind} />;
+const compactScriptGuide = (mode, iannixCommand, livecodeKind) => {
+  if (mode === "svg") return <CompactGuide
+    summary="Edit SVG paths, shapes, transforms, and styles directly on the canvas. Use the Script panel for source and Properties or Outliner for precise selection."
+    example={'<path d="M20 90 C80 20 240 160 300 90" fill="none" stroke="currentColor" />'}
+    details="Command-click a path to edit it; double-click a segment to insert an anchor."
+  />;
+  if (mode === "p5") return <CompactGuide
+    summary="p5 sketches run as self-contained Livecode nodes. Use the host dimensions and __.params, then compile or run from Script."
+    example={'function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  circle(width / 2, height / 2, 80);\n}'}
+    details="Transparent surfaces and frame reset behavior are available in Node settings."
+  />;
+  if (mode === "play") return <CompactGuide
+    summary="Play Core renders one ASCII cell at a time into a frame. Select a frame to edit its program, or press Play with no selection to create one."
+    example={'export const settings = { fps: 30 };\nexport function main({ x, y }, context) {\n  return Math.sin(x + context.time / 400) > 0 ? "·" : " ";\n}'}
+    details="Use @param declarations for editable values and __ for the shared canvas, event, and transport bridge."
+  />;
+  if (mode === "iannix") return <CompactGuide
+    summary={iannixCommand ? `${iannixCommand.command}: ${iannixCommand.description}` : "Scores combine curves, cursors, and triggers. Build them with textual run() commands and let Timeline provide shared time."}
+    example={iannixCommand ? `run("${iannixCommand.example}")` : 'run("add curve orbit")\nrun("add cursor traveler")\nrun("setCurve traveler orbit")'}
+    details="Completion lists the supported syntax and runnable examples; open Documentation for the full Score reference."
+  />;
+  if (mode === "brush") return <CompactGuide
+    summary="Brush modifiers transform point tracks. Use a small pure function, declare @param values, and apply or bake the result when it is ready."
+    example={'(points, globals) => {\n  return [points];\n}'}
+    details="Brush channels can map typed input streams to live strokes without changing the source geometry."
+  />;
+  if (mode === "media") return <CompactGuide
+    summary="Media sources feed previews, Canvas capture, Holistic processors, actors, and typed input streams. Keep source selection and recording local to the session."
+    example={'const body = __.streams.get("Holistic");\nconst finger = body.feature("left_hand.index_finger_tip", { space: "scene" });'}
+    details="Use Media for sources, Inputs for adapters, and Mapping or Brush for destinations."
+  />;
+  if (mode === "livecode" && normalizeLivecodeKind(livecodeKind) === "orca") return <CompactGuide
+    summary="Orca is a compact frame-based livecoding grid. Type directly into cells, then run or step the node with its free or transport-linked clock."
+    example={'..:03C..\n..*....\n..R....'}
+    details="Use the Orca reference in Documentation for operators, note syntax, and clock behavior."
+  />;
+  if (mode === "livecode") {
+    const help = getLivecodeHelp(livecodeKind);
+    const bridge = getLivecodeBridgeHelp(livecodeKind);
+    return <CompactGuide
+      summary={help.summary}
+      details={`${bridge.summary} ${help.footer}`}
+    />;
+  }
   return null;
 };
 
-const SCRIPT_GUIDE_SEARCH = Object.freeze({
-  brush: Object.freeze({
-    title: "Brush quick reference",
-    keywords: "brush modifier geometry points tracks globals parameters javascript",
-    body: "Brush modifiers receive points and Underscores globals, then return transformed or replacement tracks. Use @param declarations to expose editable values.",
-  }),
-  iannix: Object.freeze({
-    title: "Score quick reference",
-    keywords: "score iannix curve cursor trigger transport midi run load command",
-    body: "Scores contain curves, cursors, and triggers. Use run() commands to create and configure them, then use score time and transport to drive playback.",
-  }),
-  p5: Object.freeze({
-    title: "p5 quick reference",
-    keywords: "p5 sketch javascript setup draw canvas brush frame api params",
-    body: "p5 sketches use setup() and draw() with the local canvas. The shared __ bridge exposes the host element, parameters, scene queries, events, transport, and Underscores API.",
-  }),
-  play: Object.freeze({
-    title: "Play Core quick reference",
-    keywords: "play core ascii cells main settings pointer buffer transport modules",
-    body: "Play Core programs return one glyph or cell object from main() for each ASCII cell. Use settings, lifecycle hooks, pointer callbacks, @param values, and bundled local modules.",
-  }),
-  svg: Object.freeze({
-    title: "SVG quick reference",
-    keywords: "svg path source editor anchors handles fill stroke geometry document",
-    body: "SVG source remains canonical. Use paths, shapes, groups, transforms, fill, and stroke; edit source or canvas geometry while preserving the document structure.",
-  }),
-  media: Object.freeze({
-    title: "Media streams and actors",
-    keywords: "media stream mediapipe holistic camera inputs actors landmarks brush source catalog clip recorder gif mp4 webm alpha audio download frame all loop",
-    body: "Media sources stay dormant until selected or connected to an enabled scene object. Select one to preview/play it, use Record clip to create GIF, MP4 with source audio, audio-only, or WebM alpha clips, and press Escape to clear selection. Canvas capture can target a frame, rectangle, or the full scene. Use the Media, Inputs, Mapping, and Brush panels to consume landmarks, values, events, and images.",
-  }),
-});
-
-const scriptGuideTopic = (mode, iannixCommand, livecodeKind) => {
-  if (mode === "livecode") return livecodeHelpTopic(livecodeKind);
-  const definition = SCRIPT_GUIDE_SEARCH[mode];
-  if (!definition) return null;
-  return {
-    id: `script-guide-${mode}`,
-    ...definition,
-    guide: scriptGuide(mode, iannixCommand, livecodeKind),
-    examples: [],
-  };
-};
+const scriptGuide = (mode, iannixCommand, livecodeKind) => compactScriptGuide(mode, iannixCommand, livecodeKind);
 
 const guideTitle = (mode, livecodeKind) => ({
   svg: "SVG quick reference",
@@ -644,29 +568,17 @@ const guideTitle = (mode, livecodeKind) => ({
   ? normalizeLivecodeKind(livecodeKind) === "orca" ? "Orca quick reference" : getLivecodeHelp(livecodeKind).title
   : null));
 
-export default function InfoPanel({ info = DEFAULT_INFO_VIEW, mode = "default", iannixCommand = null, livecodeKind = null, helpCatalog = [], onStartWalkthrough, onInsertHelp }) {
-  const [search, setSearch] = useState("");
-  const [selectedTopicId, setSelectedTopicId] = useState(null);
+export default function InfoPanel({ info = DEFAULT_INFO_VIEW, mode = "default", iannixCommand = null, livecodeKind = null, onOpenDocumentation }) {
   const [copiedExample, setCopiedExample] = useState("");
   const guide = scriptGuide(mode, iannixCommand, livecodeKind);
-  const activeGuideTopic = scriptGuideTopic(mode, iannixCommand, livecodeKind);
-  const matchingTopics = findHelpTopics(search, activeGuideTopic ? [activeGuideTopic] : []);
-  const selectedTopic = matchingTopics.find(topic => topic.id === selectedTopicId) || matchingTopics[0] || null;
-  const searchIsActive = search.trim().length > 0;
   const focusedInfo = !isDefaultInfo(info)
     && !(guide && info?.title === "Script type")
     ? info
     : null;
-  const title = searchIsActive
-    ? selectedTopic?.title || "No help found"
-    : focusedInfo?.title || guideTitle(mode, livecodeKind) || DEFAULT_INFO_VIEW.title;
-  const body = searchIsActive
-    ? selectedTopic?.guide || selectedTopic?.body || "Try a different term, such as physics, formula, MIDI, score, or media."
-    : focusedInfo?.body || guide || DEFAULT_INFO_VIEW.body;
-  const examples = searchIsActive ? selectedTopic?.examples || [] : focusedInfo?.examples || [];
-  const documentation = searchIsActive ? null : focusedInfo?.documentation || null;
-  const helpQuery = search.trim().toLowerCase();
-  const catalogMatches = helpCatalog.filter(item => !helpQuery || [item.title, item.category, item.summary, ...(item.tags || [])].join(" ").toLowerCase().includes(helpQuery));
+  const title = focusedInfo?.title || guideTitle(mode, livecodeKind) || DEFAULT_INFO_VIEW.title;
+  const body = focusedInfo?.body || guide || DEFAULT_INFO_VIEW.body;
+  const examples = focusedInfo?.examples || [];
+  const documentation = focusedInfo?.documentation || null;
   const copyExample = async example => {
     if (!globalThis.navigator?.clipboard?.writeText) return;
     try {
@@ -680,42 +592,14 @@ export default function InfoPanel({ info = DEFAULT_INFO_VIEW, mode = "default", 
 
   return (
     <div className="info-panel">
-      <div className="info-panel-search">
-        <input
-          type="search"
-          value={search}
-          placeholder="Search help"
-          aria-label="Search help"
-          onKeyDown={event => event.stopPropagation()}
-          onChange={event => {
-            setSearch(event.target.value);
-            setSelectedTopicId(null);
-          }}
-        />
-        {searchIsActive && (
-          <button type="button" className="info-panel-search-clear" onClick={() => {
-            setSearch("");
-            setSelectedTopicId(null);
-          }}>Clear</button>
-        )}
-      </div>
-      {searchIsActive && matchingTopics.length > 1 && (
-        <div className="info-panel-search-results" aria-label="Help search results">
-          {matchingTopics.map(topic => (
-            <button
-              key={topic.id}
-              type="button"
-              className={`info-panel-search-result${selectedTopic?.id === topic.id ? " active" : ""}`}
-              onClick={() => setSelectedTopicId(topic.id)}
-            >{topic.title}</button>
-          ))}
-        </div>
-      )}
       <div className="info-panel-title">{title}</div>
+      {!documentation && onOpenDocumentation && (
+        <button type="button" className="info-panel-doc-link" onClick={() => onOpenDocumentation(title)}>Open in Documentation</button>
+      )}
       <div className={`info-panel-body${typeof body === "string" ? " text" : ""}`} aria-live="polite">
         {body}
       </div>
-      <DocumentationReference documentation={documentation} />
+      <DocumentationReference documentation={documentation} onOpenDocumentation={onOpenDocumentation ? () => onOpenDocumentation(title) : null} />
       {examples.length > 0 && (
         <section className="info-panel-examples" aria-label="Copyable examples">
           <h3>Examples</h3>
@@ -725,19 +609,6 @@ export default function InfoPanel({ info = DEFAULT_INFO_VIEW, mode = "default", 
               <button type="button" onClick={() => void copyExample(example)}>{copiedExample === example ? "Copied" : "Copy"}</button>
             </div>
           ))}
-        </section>
-      )}
-      {catalogMatches.length > 0 && (
-        <section className="info-panel-help-catalog" aria-label="Help patch library">
-          <h3>Help patches</h3>
-          {catalogMatches.map(item => <article key={item.id}>
-            <div><strong>{item.title}</strong><small>{item.category}</small></div>
-            <p>{item.summary}</p>
-            <footer>
-              {item.walkthroughId && <button type="button" onClick={() => onStartWalkthrough?.(item.walkthroughId, { stepId: item.stepId })}>Start walkthrough</button>}
-              {item.insertCommand && <button type="button" onClick={() => onInsertHelp?.(item)}>Insert patch</button>}
-            </footer>
-          </article>)}
         </section>
       )}
     </div>

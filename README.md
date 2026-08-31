@@ -1,6 +1,6 @@
 # Underscores AI Board
 
-Underscores is a sleek, AI-assisted infinite canvas sketchboard built on top of React, Vite, and Excalidraw. It features customized themes, automated drawing tools, satori-zen layout, and an integrated local AI chat assistant.
+Underscores is a sleek, AI-assisted infinite creative computational canvas built on top of React, Vite, and Excalidraw. It supports performance, teaching, exploration, and research through customized themes, automated drawing tools, satori-zen layout, and an integrated local AI chat assistant.
 
 ## Features
 
@@ -21,7 +21,7 @@ Underscores is a sleek, AI-assisted infinite canvas sketchboard built on top of 
 - **Playlist Anchors:** The **Playlist** panel provides a compact QLab/PowerPoint-style presentation list over canvas objects. Add selected objects as ordered anchors, drag to reorder, double-click an anchor to frame and activate it, and use the mini transport to play, pause, step, or move between anchors. Each row has a transport-aware duration, a cut transition placeholder, and an arm control; Loop repeats the list. Playlist state is persisted with the scene under `underscores.authoredState.playlist`, while the anchored canvas objects remain ordinary editable Excalidraw elements. See [Playlist anchors](notes/playlist.md).
 - **Guided Walkthroughs:** `/walkthrough` opens a visible automation and teaching layer with a glowing semantic cursor, Markdown narration, learner prompts, assertions, free or transport-linked pacing, History conversion, Playlist/API/WebMCP controls, and recoverable Keep/Restore playback. The bundled onboarding introduces the main panels, p5, GLSL, audio, and physics. See [Guided Walkthroughs](notes/guided-walkthrough.md).
 - **Object Auto-keying:** The transport records position, rotation, scale, opacity, styles, modifier/IanniX properties, and geometry snapshots into editable object automation tracks.
-- **Independent Dockable Panels:** AI Assistant, Mods & FX, Script, IanniX, Mixer, Expressive Synth, Info, Settings, and Console each keep their own placement. Floating panels can coexist; panels docked to the same side become one compact icon tab group. Timeline, Mixer, and Info naturally return to the bottom dock; every other panel returns to the right dock. Shared dock dimensions remain stable while switching tabs and change only through the dock resize edges. Closing a panel returns it to its natural dock rather than removing it from the workspace.
+- **Independent Dockable Panels:** AI Assistant, Mods & FX, Script, IanniX, Mixer, Expressive Synth, Info, Documentation, Settings, and Console each keep their own placement. Floating panels can coexist; panels docked to the same side become one compact icon tab group. Timeline, Mixer, Info, Documentation, and Console use a deterministic order when docked together at the bottom; Documentation naturally opens in the left dock, while the other panels return to their own natural docks. Shared dock dimensions remain stable while switching tabs and change only through the dock resize edges. Closing a panel returns it to its natural dock rather than removing it from the workspace.
 - **Non-destructive Mods & FX:** Attach ordered geometric filters and multi-track brushes to freehand strokes or lines while retaining editable source points.
 - **Modifier Baking:** Bake a complete stack or one modifier at a time. Partial bakes become independently selectable artwork while the remaining stack stays live.
 - **Evolving Brushes:** Time-aware brushes can animate while the pointer is down, freeze per stroke on release, and optionally use a shared global clock.
@@ -161,7 +161,7 @@ Mods & FX remains the rendering layer: changing or baking a brush does not redef
 
 The same registry powers menu, shortcut, slash, API, and AI execution. Any stable command ID can be invoked with `/command <id> <json>`. External tools can subscribe to events or register normalized input adapters through `window.__`. See `notes/history-automation.md` for the session format, API, interpolation rules, and adapter contract.
 
-AI chat and the Command Palette are the primary command-entry surfaces. The Console remains a
+AI chat and the Command Palette are the primary command-entry surfaces. Documentation is searchable from its panel or with `/docs search <term>`; `/docs open <id>` opens a known topic, and `/documentation` / `/help` are aliases. The Console remains a
 live event inspector with filtering, export, and copyable replay inputs; it no longer has a
 separate command composer. A recognized slash invocation such as `/physics play`, `/ex save`, or
 `/command transport.seek {"seconds":2.5}` executes locally and is recorded through the same

@@ -1,6 +1,14 @@
 # Project status
 
-Last updated: 2026-08-30
+Last updated: 2026-08-31
+
+## Documentation and panel polish (2026-08-31)
+
+Documentation now has a searchable, nested table of contents with local reading-size control,
+patch insertion, and walkthrough launch actions. It is a first-class left-docked panel that can
+also join the deterministic bottom order (Timeline, Mixer, Info, Documentation, Console), while
+Info remains a compact contextual reference. The shared AI and room-chat composers use a themed
+50%-translucent input surface, and panel notes now document the `/docs` and `/help` lookup aliases.
 
 ## Known undo/redo limitation (2026-08-30)
 

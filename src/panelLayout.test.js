@@ -27,9 +27,11 @@ test("normalizes panel layout storage independently per panel", () => {
   assert.deepEqual(layouts.script, { placement: PANEL_PLACEMENTS.RIGHT, x: 84, y: 112, width: 440, height: 760 });
   assert.deepEqual(layouts.synth, { placement: PANEL_PLACEMENTS.RIGHT, x: 120, y: 136, width: 360, height: 720 });
   assert.deepEqual(layouts.inputs, { placement: PANEL_PLACEMENTS.RIGHT, x: 144, y: 152, width: 380, height: 700 });
+  assert.deepEqual(layouts.documentation, { placement: PANEL_PLACEMENTS.LEFT, x: 32, y: 72, width: 380, height: 720 });
   assert.deepEqual(layouts.info, { placement: PANEL_PLACEMENTS.BOTTOM, x: 32, y: 520, width: 720, height: 240 });
   assert.equal(layouts.console.placement, PANEL_PLACEMENTS.BOTTOM);
   assert.equal(normalizePanelLayouts({ info: { placement: "bottom" } }).info.placement, PANEL_PLACEMENTS.BOTTOM);
+  assert.equal(normalizePanelLayouts({ documentation: { placement: "bottom" } }).documentation.placement, PANEL_PLACEMENTS.BOTTOM);
   assert.equal(normalizePanelLayouts({ console: { placement: "bottom" } }).console.placement, PANEL_PLACEMENTS.BOTTOM);
   assert.equal(normalizePanelLayouts({ grid: { placement: "bottom" } }).grid.placement, PANEL_PLACEMENTS.RIGHT);
   assert.deepEqual(
@@ -56,6 +58,16 @@ test("groups only open panels sharing the requested dock", () => {
   assert.deepEqual(
     getOpenPanelsForPlacement(panels, { chat: true, mods: true, settings: true }, layouts, PANEL_PLACEMENTS.RIGHT),
     [{ id: "chat" }, { id: "mods" }],
+  );
+});
+
+test("orders the bottom dock as Timeline, Mixer, Info, Documentation, Console", () => {
+  const panels = [{ id: "console" }, { id: "documentation" }, { id: "info" }, { id: "mixer" }, { id: "transport" }];
+  const layouts = Object.fromEntries(panels.map(panel => [panel.id, { placement: PANEL_PLACEMENTS.BOTTOM }]));
+  const openPanels = Object.fromEntries(panels.map(panel => [panel.id, true]));
+  assert.deepEqual(
+    getOpenPanelsForPlacement(panels, openPanels, layouts, PANEL_PLACEMENTS.BOTTOM).map(panel => panel.id),
+    ["transport", "mixer", "info", "documentation", "console"],
   );
 });
 

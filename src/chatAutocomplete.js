@@ -36,6 +36,7 @@ export const buildChatAutocompleteSuggestions = (commands = []) => {
         description,
         trigger: "/",
         commandId: command?.id || null,
+        category: command?.category || null,
       });
     }
   }

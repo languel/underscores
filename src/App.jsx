@@ -60,7 +60,7 @@ import { formatAIScriptSource, validateAIBrushSource, validateAIIannixSource } f
 import { getIannixCommandAtSourcePosition } from "./iannixCommandReference.js";
 import { createUnderscoresMacro, UNDERSCORES_MACRO_TYPE, UnderscoresLibraryStore, UnderscoresSessionController, instantiateUnderscoresMacro, mergeSceneMutation, parseUnderscoresSession } from "./sessionHistory.js";
 import { WalkthroughRunner, createWalkthrough, evaluateWalkthroughAssertion, normalizeWalkthroughs, parseWalkthrough, requiresWalkthroughLearnerGate, updateWalkthroughRevision, walkthroughFromSession } from "./walkthroughSystem.js";
-import { BUNDLED_HELP_CATALOG, BUNDLED_WALKTHROUGHS } from "./walkthroughCatalog.js";
+import { BUNDLED_HELP_CATALOG, BUNDLED_WALKTHROUGHS, ONBOARDING_WALKTHROUGH_ID } from "./walkthroughCatalog.js";
 import { performWalkthroughUiAction, resolveWalkthroughTarget } from "./walkthroughTargets.js";
 import { createGestureTrack, gesturePathProgressAtElapsed, getGesturePlaybackState, normalizeGestureTrack, sliceGesturePath } from "./gestureTrack.js";
 import {
@@ -93,6 +93,7 @@ import GridPanel from "./GridPanel.jsx";
 import ExpressiveSynthPanel from "./ExpressiveSynthPanel.jsx";
 import MixerPanel from "./MixerPanel.jsx";
 import InfoPanel from "./InfoPanel.jsx";
+import DocumentationPanel from "./DocumentationPanel.jsx";
 import {
   addMixerTrack,
   getExternalMixerOutputId,
@@ -3397,24 +3398,24 @@ function App() {
       const saved = JSON.parse(localStorage.getItem("underscores_panel_visibility_v1") || "null") || {};
       return {
         collaboration: saved.collaboration ?? true, chat: true, settings: true, mods: true, script: true, iannix: true, physics: saved.physics ?? true, mixer: true, synth: true, inputs: saved.inputs ?? true,
-        holistic: true, mapping: true, info: true, console: true, history: true, walkthrough: true, properties: true, outliner: true, playlist: true, grid: true,
+        holistic: true, mapping: true, documentation: true, info: true, console: true, history: true, walkthrough: true, properties: true, outliner: true, playlist: true, grid: true,
         ...saved,
         "media-input": saved["media-input"] ?? saved["video-input"] ?? true,
       };
     } catch {
-      return { collaboration: true, chat: true, settings: true, mods: true, script: true, iannix: true, physics: true, mixer: true, synth: true, "media-input": true, inputs: true, holistic: true, mapping: true, info: true, console: true, history: true, walkthrough: true, properties: true, outliner: true, playlist: true, grid: true };
+      return { collaboration: true, chat: true, settings: true, mods: true, script: true, iannix: true, physics: true, mixer: true, synth: true, "media-input": true, inputs: true, holistic: true, mapping: true, documentation: true, info: true, console: true, history: true, walkthrough: true, properties: true, outliner: true, playlist: true, grid: true };
     }
   });
   const [activeDockPanels, setActiveDockPanels] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("underscores_panel_dock_tabs_v1") || "null") || {};
       return {
-        left: saved.left === "video-input" ? "media-input" : (saved.left || "mods"),
+        left: saved.left === "video-input" ? "media-input" : (saved.left || "documentation"),
         right: saved.right === "video-input" ? "media-input" : (saved.right || "mods"),
         bottom: saved.bottom === "video-input" ? "media-input" : (saved.bottom || "transport"),
       };
     } catch {
-      return { left: "mods", right: "mods", bottom: "transport" };
+      return { left: "documentation", right: "mods", bottom: "transport" };
     }
   });
   const [collapsedDocks, setCollapsedDocks] = useState(() => {
@@ -3426,6 +3427,7 @@ function App() {
   });
   const [draggingPanelId, setDraggingPanelId] = useState(null);
   const [infoView, setInfoView] = useState(DEFAULT_INFO_VIEW);
+  const [documentationRequest, setDocumentationRequest] = useState(null);
   const [walkthroughs, setWalkthroughs] = useState(() => normalizeWalkthroughs(BUNDLED_WALKTHROUGHS));
   const walkthroughsRef = useRef(walkthroughs);
   const [activeWalkthroughId, setActiveWalkthroughId] = useState(() => BUNDLED_WALKTHROUGHS[0]?.id || "");
@@ -8998,9 +9000,15 @@ function App() {
     }
   }, [customBrushActive, excalidrawAPI]);
 
-  const handlePanelResizeMouseDown = (panelId, e, placement = PANEL_PLACEMENTS.RIGHT) => {
+  const handlePanelResizeMouseDown = (panelId, e, placement = PANEL_PLACEMENTS.RIGHT, options = {}) => {
     e.preventDefault();
     e.stopPropagation();
+    if (options.collapse) {
+      if ([PANEL_PLACEMENTS.LEFT, PANEL_PLACEMENTS.RIGHT, PANEL_PLACEMENTS.BOTTOM].includes(placement)) {
+        setCollapsedDocks(previous => ({ ...previous, [placement]: true }));
+      }
+      return;
+    }
     const panel = e.currentTarget.closest(".underscores-panel-shell");
     const startRect = panel?.getBoundingClientRect();
     const startX = e.clientX;
@@ -14013,6 +14021,7 @@ function App() {
     aliases: [panel.slash, ...(panel.aliases || []), panel.label, `panel ${panel.label}`],
     category: "Panels",
     record: "presentation",
+    ai: { expose: true, description: `Toggle the ${panel.label} panel.` },
     panel,
     action: () => {
       applyingRecordedUiStateRef.current = true;
@@ -14420,12 +14429,26 @@ function App() {
   };
 
   const COMMANDS = [
+    {
+      id: "walkthrough.welcome",
+      name: "/welcome — Start Getting Started Tour",
+      aliases: ["/welcome", "/get_started"],
+      category: "Walkthrough",
+      record: "never",
+      ai: {
+        expose: true,
+        description: "Start the bundled Getting Started guided tour from its first step.",
+      },
+      action: () => startWalkthrough(ONBOARDING_WALKTHROUGH_ID),
+    },
     ...PANEL_COMMANDS,
     ...EXCALIDRAW_COMMANDS,
     { id: "commandPalette.open", name: "Open Command Palette", category: "Panels", record: "presentation", action: () => { setShowCommandPalette(true); window.setTimeout(() => paletteInputRef.current?.focus(), 0); } },
     { id: "commandPalette.close", name: "Close Command Palette", category: "Panels", record: "presentation", action: () => setShowCommandPalette(false) },
     { id: "panel.open", name: "Open Panel", category: "Panels", record: "presentation", args: { panelId: "string" }, ai: { expose: true, description: "Open a registered Underscores panel deterministically." }, action: (_api, args = {}) => setUnderscoresPanelOpen(args.panelId, true, args.options || {}) },
     { id: "panel.close", name: "Close Panel", category: "Panels", record: "presentation", args: { panelId: "string" }, ai: { expose: true, description: "Close a registered Underscores panel deterministically." }, action: (_api, args = {}) => setUnderscoresPanelOpen(args.panelId, false) },
+    { id: "documentation.open", name: "Documentation: Open Page /docs open", aliases: ["/docs open", "/documentation open", "/help open"], category: "Documentation", record: "presentation", args: { id: "string" }, ai: { expose: true, description: "Open the Documentation panel and select a page by its stable id." }, action: (_api, args = {}) => { setDocumentationRequest({ entryId: args.id, query: "", nonce: Date.now() }); setUnderscoresPanelOpen("documentation", true, { forceOpen: true }); return { id: args.id }; } },
+    { id: "documentation.search", name: "Documentation: Search /docs search", aliases: ["/docs search", "/documentation search", "/help search"], category: "Documentation", record: "presentation", args: { query: "string" }, ai: { expose: true, description: "Open the Documentation panel and search its nested reference and help catalog." }, action: (_api, args = {}) => { setDocumentationRequest({ query: String(args.query || ""), nonce: Date.now() }); setUnderscoresPanelOpen("documentation", true, { forceOpen: true }); return { query: String(args.query || "") }; } },
     { id: "walkthrough.list", name: "Walkthrough: List", aliases: ["/walkthrough list"], category: "Walkthrough", record: "never", ai: { expose: true, description: "List the guided walkthroughs authored in this patch." }, action: () => walkthroughsRef.current.map(({ id, revision, title, description, clockMode, steps }) => ({ id, revision, title, description, clockMode, stepCount: steps.length })) },
     { id: "walkthrough.get", name: "Walkthrough: Get", aliases: ["/walkthrough get"], category: "Walkthrough", record: "never", args: { id: "string" }, ai: { expose: true, description: "Read one guided walkthrough document." }, action: (_api, args = {}) => { const item = getWalkthrough(args.id); if (!item) throw new Error(`Unknown walkthrough: ${args.id}.`); return structuredClone(item); } },
     { id: "walkthrough.create", name: "Walkthrough: Create", aliases: ["/walkthrough create"], category: "Walkthrough", record: "never", args: { document: "underscores-walkthrough" }, ai: { expose: true, description: "Create a revisioned guided walkthrough using registered commands and semantic targets only." }, action: (_api, args = {}) => createWalkthroughDocument(args.document || args) },
@@ -14440,7 +14463,9 @@ function App() {
     { id: "walkthrough.stop", name: "Walkthrough: Stop", aliases: ["/walkthrough stop"], category: "Walkthrough", record: "never", args: { restore: "boolean?" }, ai: { expose: true, description: "Stop the walkthrough and either keep results or restore the captured starting patch." }, action: (_api, args = {}) => walkthroughRunner.stop({ restore: Boolean(args.restore) }) },
     { id: "walkthrough.rate.set", name: "Walkthrough: Set Pace", aliases: ["/walkthrough rate"], category: "Walkthrough", record: "never", args: { rate: "number", instant: "boolean?" }, ai: { expose: true, description: "Set walkthrough pacing or instant execution." }, action: (_api, args = {}) => walkthroughRunner.setRate(args.rate, { instant: Boolean(args.instant) }) },
     { id: "panel-properties.open", name: "Open Properties Panel", category: "Panels", action: () => toggleUnderscoresPanel("properties", { open: true }) },
-    { id: "dock.bottom.toggle", name: "Collapse / reveal bottom dock", aliases: ["/bottom dock"], category: "Panels", record: "presentation", action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
+    { id: "dock.left.toggle", name: "Toggle Left Sidebar /left sidebar", aliases: ["/left sidebar", "/sidebar left", "/left dock", "left sidebar"], category: "Panels", record: "presentation", ai: { expose: true, description: "Collapse or reveal the left sidebar dock." }, action: () => setCollapsedDocks(previous => ({ ...previous, left: !previous.left })) },
+    { id: "dock.right.toggle", name: "Toggle Right Sidebar /right sidebar", aliases: ["/right sidebar", "/sidebar right", "/right dock", "right sidebar"], category: "Panels", record: "presentation", ai: { expose: true, description: "Collapse or reveal the right sidebar dock." }, action: () => setCollapsedDocks(previous => ({ ...previous, right: !previous.right })) },
+    { id: "dock.bottom.toggle", name: "Toggle Bottom Bar /bottom bar", aliases: ["/bottom", "/bottom bar", "/bottom dock", "bottom bar"], category: "Panels", record: "presentation", ai: { expose: true, description: "Collapse or reveal the bottom bar dock." }, action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "performance.toggle", version: 2, name: "Toggle Performance Monitor /performance", aliases: ["/performance", "/perf", "FPS monitor"], category: "View", action: () => updatePerformanceVisibility(!showPerformanceOverlayRef.current) },
     { id: "code.documentation.toggle", name: "Toggle Code Documentation Overlay /docs overlay", aliases: ["/docs overlay", "/documentation overlay", "/lsp overlay", "docs overlay", "lsp overlay", "toggle documentation overlay"], category: "View", action: () => setShowDocumentationOverlay(previous => !previous) },
     { id: "physics.toolbar.toggle", name: "Toggle Physics Toolbar /physicstoolbar", aliases: ["/physicstoolbar", "/physics toolbar", "physics toolbar"], category: "Physics", ai: { expose: true, description: "Toggle the floating or docked physics authoring toolbar." }, action: () => physicsToolbarOpen ? closePhysicsToolbar() : setPhysicsToolbarOpen(true) },
@@ -15347,6 +15372,16 @@ function App() {
     if (match) return {
       command: COMMANDS.find(command => command.id === "webembed.create"),
       args: { url: match[1]?.trim() || "" },
+    };
+    match = /^\/(?:docs|documentation|help)\s+open\s+(.+)$/i.exec(input);
+    if (match) return {
+      command: COMMANDS.find(command => command.id === "documentation.open"),
+      args: { id: match[1].trim() },
+    };
+    match = /^\/(?:docs|documentation|help)\s+(?:search\s+)?(.+)$/i.exec(input);
+    if (match && !/^overlay(?:\s|$)/i.test(match[1])) return {
+      command: COMMANDS.find(command => command.id === "documentation.search"),
+      args: { query: match[1].trim() },
     };
     match = /^\/p5(?:\s+(.+))?$/i.exec(input);
     if (match) return {
@@ -29966,6 +30001,37 @@ function App() {
           </UnderscoresPanel>
           )}
 
+          {(panelLayouts.documentation.placement === PANEL_PLACEMENTS.BOTTOM ? shouldRenderHorizontalPanel("documentation") : shouldRenderPanel("documentation")) && (
+          <UnderscoresPanel
+            id="documentation"
+            title="Documentation"
+            placement={panelLayouts.documentation.placement}
+            layout={panelLayouts.documentation}
+            dockTabs={panelLayouts.documentation.placement === PANEL_PLACEMENTS.BOTTOM ? bottomDockTabs : getPanelDockTabs("documentation")}
+            onSelectDockTab={panelId => setActiveDockPanels(previous => ({ ...previous, [panelLayouts.documentation.placement]: panelId }))}
+            onDockTabPlacementChange={setPanelPlacement}
+            onDockTabDragStart={panelLayouts.documentation.placement === PANEL_PLACEMENTS.BOTTOM ? startHorizontalPanelDrag : startSidebarPanelDrag}
+            onCloseDockTab={panelLayouts.documentation.placement === PANEL_PLACEMENTS.BOTTOM ? closeHorizontalPanel : closeUnderscoresPanel}
+            onPlacementChange={placement => setPanelPlacement("documentation", placement)}
+            onDragStart={event => panelLayouts.documentation.placement === PANEL_PLACEMENTS.BOTTOM ? startHorizontalPanelDrag("documentation", event) : startSidebarPanelDrag("documentation", event)}
+            onClose={() => panelLayouts.documentation.placement === PANEL_PLACEMENTS.BOTTOM ? closeHorizontalPanel("documentation") : closeUnderscoresPanel("documentation")}
+            onResizeStart={handlePanelResizeMouseDown}
+            allowBottom
+            bottomHeight={320}
+            collapsed={panelLayouts.documentation.placement !== PANEL_PLACEMENTS.FLOATING && collapsedDocks[panelLayouts.documentation.placement]}
+            onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.documentation.placement]: false }))}
+          >
+            <DocumentationPanel
+              horizontal={panelLayouts.documentation.placement === PANEL_PLACEMENTS.BOTTOM}
+              helpCatalog={BUNDLED_HELP_CATALOG}
+              gettingStartedId="onboarding"
+              request={documentationRequest}
+              onStartWalkthrough={startWalkthrough}
+              onInsertHelp={item => commandRegistry.execute(item.insertCommand.id, item.insertCommand.args, { source: "documentation-catalog" })}
+            />
+          </UnderscoresPanel>
+          )}
+
           {(panelLayouts.info.placement === PANEL_PLACEMENTS.BOTTOM ? shouldRenderHorizontalPanel("info") : shouldRenderPanel("info")) && (
           <UnderscoresPanel
             id="info"
@@ -29991,9 +30057,7 @@ function App() {
               mode={shouldRenderPanel("script") ? scriptPanelType : (shouldRenderPanel("mapping") || shouldRenderPanel("media-input")) ? "media" : "default"}
               iannixCommand={iannixCommandHelp}
               livecodeKind={selectedLivecodeKindForInfo}
-              helpCatalog={BUNDLED_HELP_CATALOG}
-              onStartWalkthrough={startWalkthrough}
-              onInsertHelp={item => commandRegistry.execute(item.insertCommand.id, item.insertCommand.args, { source: "help-catalog" })}
+              onOpenDocumentation={query => { setDocumentationRequest({ query: String(query || ""), nonce: Date.now() }); setUnderscoresPanelOpen("documentation", true, { forceOpen: true }); }}
             />
           </UnderscoresPanel>
           )}
@@ -30442,8 +30506,11 @@ function App() {
                         onMouseDown={event => event.preventDefault()}
                         onClick={() => handlePaletteAutocompleteSelect(tag)}
                       >
-                        <span>{tag.name}</span>
-                        <small>{tag.description}</small>
+                        <span className="command-palette-suggestion-name">{tag.name}</span>
+                        <span className="command-palette-suggestion-meta">
+                          {tag.category && <small className="command-category">{tag.category}</small>}
+                          <small className="command-palette-suggestion-description">{tag.description}</small>
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -30457,9 +30524,9 @@ function App() {
                     onClick={() => executeCommand(cmd)}
                     onMouseEnter={() => setSelectedIndex(idx)}
                   >
-                    <div style={{ display: "flex", flexDirection: "column" }}>
+                    <div className="command-palette-item-main">
                       <span className="command-name">{cmd.name}</span>
-                      <span className="command-category">{cmd.category}</span>
+                      {cmd.category && <span className="command-category">{cmd.category}</span>}
                     </div>
                     {cmd.id === "ask-ai" && (
                       <span className="command-badge">AI Query</span>

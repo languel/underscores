@@ -1,6 +1,14 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { PanelIcon } from "./UnderscoresPanel.jsx";
 import { infoProps } from "./uiInfo.js";
-import { buildSceneGroupTree, getOutlinerLayerElements } from "./sceneLayers.js";
+import {
+  buildSceneGroupTree,
+  getOutlinerLayerElements,
+  isNativeExcalidrawElement,
+  isOutlinerCodeElement,
+  isOutlinerPhysicsElement,
+  isOutlinerScoreElement,
+} from "./sceneLayers.js";
 import { analyzeSvgSource, normalizeSvgObject } from "./svgObject.js";
 import { getEditableSvgPathNodes } from "./svgPathGeometry.js";
 import { getLivecodeKindDefinition, isLivecodeNodeElement, normalizeLivecodeNode } from "./livecodeNode.js";
@@ -10,6 +18,19 @@ import { getScoreData } from "./iannixEngine.js";
 const groupLabel = groupId => `Group · ${String(groupId).slice(0, 8)}`;
 const scoreLabel = label => `Score · ${label}`;
 const iannixGroupLabel = groupId => `Score · ${groupId}`;
+const OUTLINER_FILTERS = [
+  { id: "native", label: "native Excalidraw objects", icon: "native", storageKey: "underscores_outliner_show_native_objects", matches: isNativeExcalidrawElement },
+  { id: "code", label: "code objects", icon: "script", storageKey: "underscores_outliner_show_code_objects", matches: isOutlinerCodeElement },
+  { id: "score", label: "score elements", icon: "iannix", storageKey: "underscores_outliner_show_score_objects", matches: isOutlinerScoreElement },
+  { id: "physics", label: "physics elements", icon: "physics", storageKey: "underscores_outliner_show_physics_objects", matches: isOutlinerPhysicsElement },
+];
+
+const OutlinerFilterIcon = ({ kind, filtered }) => <span className="outliner-filter-icon" aria-hidden="true">
+  {kind === "native"
+    ? <svg viewBox="0 0 24 24"><rect x="4" y="4" width="10" height="10" rx="1.5" /><path d="m10 18 5-8 5 8Z" /></svg>
+    : <PanelIcon id={kind} />}
+  {filtered && <svg className="outliner-filter-slash" viewBox="0 0 24 24"><path d="M3 21 21 3" /></svg>}
+</span>;
 
 // Keep object-facing labels consistent anywhere a scene object is referenced
 // outside the Outliner (for example physics connection selectors). An
@@ -43,6 +64,9 @@ const OutlinerPanel = memo(function OutlinerPanel({
 }) {
   const [query, setQuery] = useState("");
   const [nameMode, setNameMode] = useState(() => localStorage.getItem("underscores_outliner_name_mode") === "ids" ? "ids" : "labels");
+  const [shownObjectKinds, setShownObjectKinds] = useState(() => Object.fromEntries(
+    OUTLINER_FILTERS.map(filter => [filter.id, localStorage.getItem(filter.storageKey) !== "false"]),
+  ));
   const [editingId, setEditingId] = useState(null);
   const [editingValue, setEditingValue] = useState("");
   const [draggingIds, setDraggingIds] = useState([]);
@@ -52,12 +76,14 @@ const OutlinerPanel = memo(function OutlinerPanel({
   const rowRefs = useRef(new Map());
   const selectionAnchorRef = useRef(null);
   const editingRef = useRef(null);
+  const outlinerElements = useMemo(() => getOutlinerLayerElements(elements), [elements]);
   const visibleElements = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return getOutlinerLayerElements(elements).filter(element => !needle || `${
-      element.type
-      } ${element.id} ${getScoreData(element)?.label || ""} ${element.customData?.iannixImport?.externalId || ""} ${element.customData?.iannixImport?.group || ""} ${isLivecodeNodeElement(element) ? `${normalizeLivecodeNode(element.customData.underscoresLivecode).name} ${normalizeLivecodeNode(element.customData.underscoresLivecode).kind}` : ""} ${isMediaStreamElement(element) ? `${normalizeMediaStreamConfig(element.customData.underscoresMediaStream).name} ${normalizeMediaStreamConfig(element.customData.underscoresMediaStream).kind}` : ""}`.toLowerCase().includes(needle));
-  }, [elements, query]);
+    return outlinerElements.filter(element => {
+      if (OUTLINER_FILTERS.some(filter => !shownObjectKinds[filter.id] && filter.matches(element))) return false;
+      return !needle || `${element.type} ${element.id} ${getScoreData(element)?.label || ""} ${element.customData?.iannixImport?.externalId || ""} ${element.customData?.iannixImport?.group || ""} ${isLivecodeNodeElement(element) ? `${normalizeLivecodeNode(element.customData.underscoresLivecode).name} ${normalizeLivecodeNode(element.customData.underscoresLivecode).kind}` : ""} ${isMediaStreamElement(element) ? `${normalizeMediaStreamConfig(element.customData.underscoresMediaStream).name} ${normalizeMediaStreamConfig(element.customData.underscoresMediaStream).kind}` : ""}`.toLowerCase().includes(needle);
+    });
+  }, [outlinerElements, query, shownObjectKinds]);
   const groupTree = useMemo(() => buildSceneGroupTree(visibleElements, { outlinerOrder: true }), [visibleElements]);
   const getElementTypeLabel = element => {
     if (element.customData?.underscoresSvg) return "SVG";
@@ -337,11 +363,34 @@ const OutlinerPanel = memo(function OutlinerPanel({
   return <div className="outliner-panel">
     <div className="outliner-toolbar">
       <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter scene" aria-label="Filter scene objects" {...infoProps("Filter scene", "Filter Outliner rows by object type, ID, score label, external ID, or score group.")} />
+      <div className="outliner-filter-group" role="group" aria-label="Outliner object filters">
+        {OUTLINER_FILTERS.map(filter => {
+          const shown = shownObjectKinds[filter.id];
+          return <button
+            type="button"
+            className={`outliner-filter ${shown ? "" : "active"}`}
+            key={filter.id}
+            onClick={() => setShownObjectKinds(current => {
+              const next = !current[filter.id];
+              localStorage.setItem(filter.storageKey, String(next));
+              return { ...current, [filter.id]: next };
+            })}
+            aria-pressed={!shown}
+            aria-label={`Filter ${filter.label} from Outliner`}
+            {...infoProps(
+              `${shown ? "Hide" : "Show"} ${filter.label}`,
+              `${shown ? "Hide" : "Show"} ${filter.label} in the Outliner. This only filters the list; canvas objects are unchanged.`,
+            )}
+          ><OutlinerFilterIcon kind={filter.icon} filtered={!shown} /></button>;
+        })}
+      </div>
       <button type="button" className="outliner-name-mode" onClick={() => setNameMode(current => { const next = current === "labels" ? "ids" : "labels"; localStorage.setItem("underscores_outliner_name_mode", next); return next; })} title={`Showing ${nameMode}. Click to show ${nameMode === "labels" ? "IDs" : "labels"}.`}>{nameMode === "labels" ? "Labels" : "IDs"}</button>
-      <span>{visibleElements.length}</span>
+      <span className="outliner-count">{visibleElements.length}</span>
     </div>
     <div className="outliner-list" role="tree" tabIndex={0} aria-label="Scene objects" onKeyDown={handleKeyDown}>
-      {visibleElements.length ? groupTree.children.map(node => renderNode(node)) : <div className="scene-panel-empty compact">No scene objects.</div>}
+      {visibleElements.length
+        ? groupTree.children.map(node => renderNode(node))
+        : <div className="scene-panel-empty compact">{outlinerElements.length ? "No matching objects." : "No scene objects."}</div>}
     </div>
   </div>;
 });

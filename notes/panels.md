@@ -1,8 +1,8 @@
 # Panel System Notes
 
-Last updated: 2026-08-02
+Last updated: 2026-08-31
 
-Underscores owns one persistent panel model for **AI Assistant**, **Brush**, **Script**, **Scene**, **Physics**, **Mixer**, **Expressive Synth**, **Media**, **Inputs**, **MediaPipe Holistic**, **Mapping**, **Info**, **Settings**, **Console**, and **Transport**. Side panels support left dock, floating, and right dock placement. Mixer and Info additionally support the bottom dock; Transport supports floating and bottom-docked placement. Timeline, Mixer, and Info use the bottom as their natural home; all other panels use the right dock.
+Underscores owns one persistent panel model for **AI Assistant**, **Brush**, **Script**, **Scene**, **Physics**, **Mixer**, **Expressive Synth**, **Media**, **Inputs**, **MediaPipe Holistic**, **Mapping**, **Info**, **Documentation**, **Settings**, **Console**, and **Transport**. Side panels support left dock, floating, and right dock placement. Mixer, Info, Documentation, and Console additionally support the bottom dock; Transport supports floating and bottom-docked placement. Timeline, Mixer, Info, and Console use the bottom as their natural home; Documentation opens in the left dock by default and can join the bottom dock. When multiple panels are bottom-docked, tabs are ordered Timeline, Mixer, Info, Documentation, Console.
 
 ## Identity icon contract
 
@@ -38,7 +38,7 @@ The following state persists independently:
 - collapsed state for each side and bottom dock;
 - transport placement and dimensions.
 
-Every panel is available from the main menu and command palette, including `/chat`, `/brush` (legacy `/mods`), `/script`, `/score` (legacy `/iannix` and `/scene`), `/physics` (also `/relations`), `/synth`, `/media` (legacy `/media-input`), `/inputs` (also `/signals`), `/holistic`, `/mapping`, `/settings`, `/console`, and `/transport`. `/svg` opens the Script panel with its SVG adapter selected. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline. Console is an event-log and replay-inspection surface; command execution belongs in the Command Palette or either chat composer.
+Every panel is available from the main menu and command palette, including `/chat`, `/brush` (legacy `/mods`), `/script`, `/score` (legacy `/iannix` and `/scene`), `/physics` (also `/relations`), `/synth`, `/media` (legacy `/media-input`), `/inputs` (also `/signals`), `/holistic`, `/mapping`, `/settings`, `/console`, `/transport`, and `/documentation` (aliases `/docs` and `/help`). `/svg` opens the Script panel with its SVG adapter selected. `/docs search <term>` filters the Documentation table of contents and `/docs open <id>` opens a topic directly. Console / Info owns scene counts, score activity, MIDI clock status, and the global score-label display toggle rather than placing those diagnostics in the timeline. Console is an event-log and replay-inspection surface; command execution belongs in the Command Palette or either chat composer.
 
 Physics also has an optional compact **Physics toolbar** on the canvas. It is a draggable single-column
 tool utility, not a second inspector: drag its atom identity icon near the top to dock it, or drag
