@@ -42,3 +42,8 @@ test("script quick-reference links resolve to one documentation page", () => {
     assert.equal(filterDocumentationEntries(HELP_TOPICS, title).filter(entry => entry.title === title).length, 1, title);
   }
 });
+
+test("Livecode compositing guide is searchable by controls and Fluid emission", () => {
+  assert.ok(filterDocumentationEntries(HELP_TOPICS, "livecode layer blend").some(entry => entry.id === "livecode-compositing"));
+  assert.deepEqual(filterDocumentationEntries(HELP_TOPICS, "fluid emission geometry").map(entry => entry.id), ["livecode-compositing", "script-glsl"]);
+});

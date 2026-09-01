@@ -1,3 +1,10 @@
+import { getScriptParameterValues, parseScriptParameters } from "./scriptParameters.js";
+import {
+  LIVECODE_BLEND_MODES,
+  LIVECODE_COMPOSITE_MODES,
+  normalizeLivecodeComposition,
+} from "./livecodeComposition.js";
+
 export const SHADER_VERTEX_SOURCE = `#version 300 es
 in vec2 a_position;
 out vec2 v_uv;
@@ -326,6 +333,8 @@ void main() {
 export const FLUID_BRUSH_FRAGMENT_SOURCE = `#version 300 es
 precision highp float;
 
+// @param emission = true (boolean)
+
 #define MAX_SEGMENTS 128
 
 uniform sampler2D u_previous;
@@ -407,6 +416,8 @@ void main() {
 // texture; the host display pass supplies paper grain and Beer-Lambert color.
 export const INKWASH_FRAGMENT_SOURCE = `#version 300 es
 precision highp float;
+
+// @param emission = true (boolean)
 
 #define MAX_SEGMENTS 128
 
@@ -516,21 +527,35 @@ export const getShaderExample = id => SHADER_EXAMPLES.find(example => example.id
 
 export const shaderExampleForSource = source => SHADER_EXAMPLES.find(example => example.source === source) || null;
 
-export const SHADER_COMPOSITE_MODES = Object.freeze(["overlay", "underlay"]);
-export const SHADER_BLEND_MODES = Object.freeze(["normal", "screen", "multiply", "overlay", "soft-light"]);
+export const SHADER_COMPOSITE_MODES = LIVECODE_COMPOSITE_MODES;
+export const SHADER_BLEND_MODES = LIVECODE_BLEND_MODES;
 export const SHADER_BACKGROUND_MODES = Object.freeze(["solid", "transparent"]);
 export const SHADER_EMITTER_SOURCES = Object.freeze(["scene", "debug"]);
 
 export const normalizeShaderCompositionSettings = value => {
   const raw = value && typeof value === "object" ? value : {};
+  const shared = normalizeLivecodeComposition({
+    ...raw,
+    backgroundMode: raw.backgroundMode ?? "solid",
+  });
   return {
-    compositeMode: SHADER_COMPOSITE_MODES.includes(raw.compositeMode) ? raw.compositeMode : "overlay",
-    compositeOpacity: Math.max(0, Math.min(1, Number.isFinite(Number(raw.compositeOpacity)) ? Number(raw.compositeOpacity) : 1)),
-    blendMode: SHADER_BLEND_MODES.includes(raw.blendMode) ? raw.blendMode : "normal",
+    compositeMode: shared.compositeMode,
+    compositeOpacity: shared.compositeOpacity,
+    blendMode: shared.blendMode,
     backgroundMode: SHADER_BACKGROUND_MODES.includes(raw.backgroundMode) ? raw.backgroundMode : "solid",
     sceneInteraction: raw.sceneInteraction !== false,
     emitterSource: SHADER_EMITTER_SOURCES.includes(raw.emitterSource) ? raw.emitterSource : "scene",
   };
+};
+
+export const resolveShaderEmissionEnabled = node => {
+  const parameters = parseScriptParameters(node?.source, { values: node?.parameters || {} });
+  if (parameters.some(parameter => parameter.name === "emission")) {
+    return getScriptParameterValues(parameters).emission !== false;
+  }
+  // Older patches stored this demo behavior as a node setting. Keep those
+  // scenes sounding and looking the same until their source gains @param.
+  return node?.runtime?.settings?.sceneInteraction !== false;
 };
 
 // The Excalidraw drawing surface must remain transparent while an underlay is

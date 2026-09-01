@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef } from "react";
 import { sceneCoordsToViewportCoords, viewportCoordsToSceneCoords } from "@excalidraw/excalidraw/dist/excalidraw.production.min.js";
-import { createVisibleGridLines, normalizeGlobalGrid } from "./gridSystem.js";
+import { createVisibleGridIntersections, createVisibleGridLines, normalizeGlobalGrid } from "./gridSystem.js";
 
 const lineColor = (color, theme, type, opacity) => {
   const normalized = String(color || "").replace("#", "");
@@ -40,14 +40,28 @@ const GlobalGridCanvas = memo(function GlobalGridCanvas({ grid: gridValue, appSt
 
       const topLeft = viewportCoordsToSceneCoords({ clientX: rect.left, clientY: rect.top }, appState);
       const bottomRight = viewportCoordsToSceneCoords({ clientX: rect.right, clientY: rect.bottom }, appState);
-      const lines = createVisibleGridLines(grid, {
+      const viewport = {
         minX: Math.min(topLeft.x, bottomRight.x),
         minY: Math.min(topLeft.y, bottomRight.y),
         maxX: Math.max(topLeft.x, bottomRight.x),
         maxY: Math.max(topLeft.y, bottomRight.y),
-      }, { zoom: appState.zoom?.value || 1, maxLines: 240 });
+      };
 
       const snapping = grid.snap.mode !== "off";
+      const useUnsnappedDots = !snapping && grid.appearance.unsnappedDots;
+      if (useUnsnappedDots) {
+        const intersections = createVisibleGridIntersections(grid, viewport, { zoom: appState.zoom?.value || 1, maxLines: 240 });
+        for (const intersection of intersections) {
+          const point = sceneCoordsToViewportCoords({ sceneX: intersection.point[0], sceneY: intersection.point[1] }, appState);
+          const radius = intersection.type === "axis" ? 1.7 : intersection.type === "major" ? 1.35 : 1;
+          context.beginPath();
+          context.arc(point.x - rect.left, point.y - rect.top, radius, 0, Math.PI * 2);
+          context.fillStyle = lineColor(color, theme, intersection.type, grid.appearance.opacity);
+          context.fill();
+        }
+        return;
+      }
+      const lines = createVisibleGridLines(grid, viewport, { zoom: appState.zoom?.value || 1, maxLines: 240 });
       context.setLineDash(snapping ? [] : [1, 4]);
       context.lineCap = snapping ? "square" : "round";
       for (const line of lines) {

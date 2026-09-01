@@ -1,8 +1,16 @@
 import { normalizeP5Frame, normalizeP5Version, resolveP5SourceMode } from "./p5Frame.js";
 import { normalizePlayCoreFrame, validatePlayCoreSource } from "./playCoreFrame.js";
 import { normalizeManimFrame, validateManimSource } from "./manimFrame.js";
+import { normalizeThreeFrame, validateThreeSource } from "./threeFrame.js";
 import { LIVECODE_KINDS, normalizeLivecodeNode, resolveLivecodeRuntimeNode } from "./livecodeNode.js";
-import { normalizeLivecodeComposition, resolveP5Transparency } from "./livecodeComposition.js";
+import {
+  LIVECODE_BACKGROUND_MODES,
+  LIVECODE_BLEND_MODES,
+  LIVECODE_COMPOSITE_MODES,
+  LIVECODE_PERSISTENCE_MODES,
+  normalizeLivecodeComposition,
+  resolveP5Transparency,
+} from "./livecodeComposition.js";
 import { validateShaderSource } from "./shaderLivecode.js";
 import { validateTixySource } from "./tixyRuntime.js";
 
@@ -21,10 +29,28 @@ const syntaxValidation = source => {
   }
 };
 
+const VISUAL_COMPOSITION = Object.freeze({
+  compositeModes: LIVECODE_COMPOSITE_MODES,
+  blendModes: LIVECODE_BLEND_MODES,
+  backgroundModes: LIVECODE_BACKGROUND_MODES,
+  persistenceModes: Object.freeze([]),
+});
+
+const P5_COMPOSITION = Object.freeze({
+  ...VISUAL_COMPOSITION,
+  persistenceModes: LIVECODE_PERSISTENCE_MODES,
+});
+
+const SHADER_COMPOSITION = Object.freeze({
+  ...VISUAL_COMPOSITION,
+  backgroundModes: Object.freeze(["solid", "transparent"]),
+});
+
 export const LIVECODE_ADAPTERS = Object.freeze({
   [LIVECODE_KINDS.p5]: Object.freeze({
     id: LIVECODE_KINDS.p5,
     runtime: "p5",
+    composition: P5_COMPOSITION,
     validate: syntaxValidation,
     makeRuntimeConfig: rawNode => {
       const node = normalizeLivecodeNode(rawNode);
@@ -55,13 +81,17 @@ export const LIVECODE_ADAPTERS = Object.freeze({
   [LIVECODE_KINDS.manim]: Object.freeze({
     id: LIVECODE_KINDS.manim,
     runtime: "manim",
+    composition: VISUAL_COMPOSITION,
     validate: validateManimSource,
     makeRuntimeConfig: rawNode => {
       const node = normalizeLivecodeNode(rawNode);
+      const composition = normalizeLivecodeComposition(node.runtime.settings);
       return normalizeManimFrame({
         source: node.source,
         parameters: node.parameters,
-        transparent: node.runtime.settings?.transparent !== false,
+        transparent: composition.backgroundMode === "solid"
+          ? false
+          : node.runtime.settings?.transparent !== false,
         allowInteraction: node.runtime.settings?.allowInteraction !== false,
         progressionMode: node.runtime.settings?.progressionMode || "auto",
         runtimeUrl: node.runtime.settings?.runtimeUrl,
@@ -69,9 +99,29 @@ export const LIVECODE_ADAPTERS = Object.freeze({
       });
     },
   }),
+  [LIVECODE_KINDS.three]: Object.freeze({
+    id: LIVECODE_KINDS.three,
+    runtime: "three",
+    composition: VISUAL_COMPOSITION,
+    validate: validateThreeSource,
+    makeRuntimeConfig: rawNode => {
+      const node = normalizeLivecodeNode(rawNode);
+      const composition = normalizeLivecodeComposition(node.runtime.settings);
+      return normalizeThreeFrame({
+        source: node.source,
+        parameters: node.parameters,
+        transparent: composition.backgroundMode === "solid" || composition.backgroundMode === "theme"
+          ? false
+          : node.runtime.settings?.transparent !== false,
+        allowInteraction: node.runtime.settings?.allowInteraction !== false,
+        reloadNonce: node.revision,
+      });
+    },
+  }),
   [LIVECODE_KINDS.playcore]: Object.freeze({
     id: LIVECODE_KINDS.playcore,
     runtime: "playcore",
+    composition: VISUAL_COMPOSITION,
     validate: validatePlayCoreSource,
     makeRuntimeConfig: rawNode => {
       const node = normalizeLivecodeNode(rawNode);
@@ -87,17 +137,19 @@ export const LIVECODE_ADAPTERS = Object.freeze({
   [LIVECODE_KINDS.strudel]: Object.freeze({
     id: LIVECODE_KINDS.strudel,
     runtime: "strudel",
+    composition: VISUAL_COMPOSITION,
     validate: source => String(source || "").trim()
       ? { valid: true, error: "" }
       : { valid: false, error: "Enter a Strudel pattern before running this node." },
     makeRuntimeConfig: rawNode => normalizeLivecodeNode(rawNode),
   }),
-  [LIVECODE_KINDS.markdown]: Object.freeze({ id: LIVECODE_KINDS.markdown, runtime: "presentation", validate: () => ({ valid: true, error: "" }) }),
-  [LIVECODE_KINDS.latex]: Object.freeze({ id: LIVECODE_KINDS.latex, runtime: "presentation", validate: () => ({ valid: true, error: "" }) }),
-  [LIVECODE_KINDS.html]: Object.freeze({ id: LIVECODE_KINDS.html, runtime: "presentation", validate: () => ({ valid: true, error: "" }) }),
+  [LIVECODE_KINDS.markdown]: Object.freeze({ id: LIVECODE_KINDS.markdown, runtime: "presentation", composition: VISUAL_COMPOSITION, validate: () => ({ valid: true, error: "" }) }),
+  [LIVECODE_KINDS.latex]: Object.freeze({ id: LIVECODE_KINDS.latex, runtime: "presentation", composition: VISUAL_COMPOSITION, validate: () => ({ valid: true, error: "" }) }),
+  [LIVECODE_KINDS.html]: Object.freeze({ id: LIVECODE_KINDS.html, runtime: "presentation", composition: VISUAL_COMPOSITION, validate: () => ({ valid: true, error: "" }) }),
   [LIVECODE_KINDS.svg]: Object.freeze({
     id: LIVECODE_KINDS.svg,
     runtime: "presentation",
+    composition: VISUAL_COMPOSITION,
     validate: source => /^\s*<svg(?:\s|>)/i.test(String(source || ""))
       ? { valid: true, error: "" }
       : { valid: false, error: "SVG source must start with an <svg> element." },
@@ -105,6 +157,7 @@ export const LIVECODE_ADAPTERS = Object.freeze({
   [LIVECODE_KINDS.orca]: Object.freeze({
     id: LIVECODE_KINDS.orca,
     runtime: "orca",
+    composition: VISUAL_COMPOSITION,
     validate: source => String(source || "").includes("\u0000")
       ? { valid: false, error: "Orca grid source cannot contain null characters." }
       : { valid: true, error: "" },
@@ -113,12 +166,14 @@ export const LIVECODE_ADAPTERS = Object.freeze({
   [LIVECODE_KINDS.shader]: Object.freeze({
     id: LIVECODE_KINDS.shader,
     runtime: "shader",
+    composition: SHADER_COMPOSITION,
     validate: validateShaderSource,
     makeRuntimeConfig: rawNode => normalizeLivecodeNode(rawNode),
   }),
   [LIVECODE_KINDS.tixy]: Object.freeze({
     id: LIVECODE_KINDS.tixy,
     runtime: "tixy",
+    composition: VISUAL_COMPOSITION,
     validate: validateTixySource,
     makeRuntimeConfig: rawNode => {
       const node = normalizeLivecodeNode(rawNode);
@@ -137,6 +192,10 @@ export const getLivecodeAdapter = rawNode => (
   LIVECODE_ADAPTERS[normalizeLivecodeNode(rawNode).kind] || LIVECODE_ADAPTERS[LIVECODE_KINDS.strudel]
 );
 
+export const getLivecodeCompositionCapabilities = rawNode => (
+  getLivecodeAdapter(rawNode).composition || VISUAL_COMPOSITION
+);
+
 export const validateLivecodeNode = rawNode => {
   const node = normalizeLivecodeNode(rawNode);
   return getLivecodeAdapter(node).validate(node.source, node);
@@ -149,7 +208,7 @@ export const getLivecodeRuntimeConfig = rawNode => {
 
 export const hasNativeLivecodeRuntime = rawNode => {
   const runtime = getLivecodeAdapter(rawNode).runtime;
-  return runtime === "p5" || runtime === "manim" || runtime === "playcore" || runtime === "strudel" || runtime === "orca" || runtime === "shader" || runtime === "tixy";
+  return runtime === "p5" || runtime === "manim" || runtime === "three" || runtime === "playcore" || runtime === "strudel" || runtime === "orca" || runtime === "shader" || runtime === "tixy";
 };
 
 export const isLivecodeNodeRunnable = rawNode => {
@@ -161,6 +220,7 @@ export const describeLivecodeRuntime = rawNode => {
   const adapter = getLivecodeAdapter(rawNode);
   if (adapter.runtime === "p5") return "Bundled p5.js 2.x / 1.x runtime";
   if (adapter.runtime === "manim") return "manim-web mathematical animation runtime";
+  if (adapter.runtime === "three") return "Bundled Three.js scene runtime";
   if (adapter.runtime === "playcore") return "Bundled Play Core runtime";
   if (adapter.runtime === "strudel") return "Shared native Strudel scheduler";
   if (adapter.runtime === "orca") return "Native Orca grid and Underscores MIDI routing";

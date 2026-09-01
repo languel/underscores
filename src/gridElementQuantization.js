@@ -48,11 +48,10 @@ const reframeLinearElement = (element, points) => {
         : {}),
     },
   });
-  if (element.type === "freedraw") {
+  if (element.type === "freedraw" && points.length !== element.points?.length) {
     next.pressures = points.map((point, index) => Number.isFinite(Number(point.pressure))
       ? Number(point.pressure)
       : Number.isFinite(Number(element.pressures?.[index])) ? Number(element.pressures[index]) : 0.5);
-    next.simulatePressure = false;
   }
   return next;
 };
@@ -67,8 +66,11 @@ const snapConfigured = (grid, point, options) => snapPointToGrid(grid, point, {
 const quantizeBezier = (element, grid, options) => {
   const geometry = normalizeBezierGeometry(element.customData?.underscoresGeometry);
   const controls = getBezierWorldAnchors(element);
-  const anchors = controls.map(control => {
-    const anchor = snapConfigured(grid, control.anchor, options);
+  const pointIndices = Array.isArray(options?.pointIndices) ? new Set(options.pointIndices) : null;
+  const anchors = controls.map((control, index) => {
+    const anchor = !pointIndices || pointIndices.has(index)
+      ? snapConfigured(grid, control.anchor, options)
+      : control.anchor;
     return {
       x: anchor[0],
       y: anchor[1],
@@ -112,6 +114,62 @@ export const translateGridElement = (element, delta) => {
       ...(element.customData || {}),
       ...(Array.isArray(originalPoints) ? {
         originalPoints: originalPoints.map(point => pointWithMetadata(point, point[0] + dx, point[1] + dy)),
+      } : {}),
+    },
+  });
+};
+
+// Transform snapping operates on the selected object's frame. Freehand and
+// linear geometry scales with that frame, while authored pressure and point
+// metadata remain untouched. Point-by-point quantization is deliberately a
+// separate operation so resizing a smooth stroke cannot turn it into a grid
+// of samples or change its taper.
+export const quantizeGridElementBounds = (element, grid, options = {}) => {
+  if (!element || element.isDeleted) return element;
+  if (Math.abs(element.angle || 0) > 1e-8 || !Number.isFinite(element.width) || !Number.isFinite(element.height)) {
+    const first = snapConfigured(grid, [element.x, element.y], options);
+    return translateGridElement(element, [first[0] - element.x, first[1] - element.y]);
+  }
+  const hasPoints = Array.isArray(element.points) && element.points.length >= 2;
+  const localXs = hasPoints ? element.points.map(point => Number(point[0]) || 0) : null;
+  const localYs = hasPoints ? element.points.map(point => Number(point[1]) || 0) : null;
+  const localMinX = hasPoints ? Math.min(...localXs) : 0;
+  const localMinY = hasPoints ? Math.min(...localYs) : 0;
+  const localMaxX = hasPoints ? Math.max(...localXs) : Number(element.width) || 0;
+  const localMaxY = hasPoints ? Math.max(...localYs) : Number(element.height) || 0;
+  const sourceFirst = [element.x + localMinX, element.y + localMinY];
+  const sourceOpposite = [element.x + localMaxX, element.y + localMaxY];
+  const first = snapConfigured(grid, sourceFirst, options);
+  const opposite = snapConfigured(grid, sourceOpposite, options);
+  const oldWidth = Number(element.width) || 0;
+  const oldHeight = Number(element.height) || 0;
+  const sourceWidth = sourceOpposite[0] - sourceFirst[0];
+  const sourceHeight = sourceOpposite[1] - sourceFirst[1];
+  const targetWidth = Math.max(1, opposite[0] - first[0]);
+  const targetHeight = Math.max(1, opposite[1] - first[1]);
+  if (samePoint(first, sourceFirst) && samePoint(opposite, sourceOpposite)) return element;
+  const scaleX = Math.abs(sourceWidth) > 1e-8 ? targetWidth / sourceWidth : 1;
+  const scaleY = Math.abs(sourceHeight) > 1e-8 ? targetHeight / sourceHeight : 1;
+  const x = first[0] + (element.x - sourceFirst[0]) * scaleX;
+  const y = first[1] + (element.y - sourceFirst[1]) * scaleY;
+  const originalPoints = element.customData?.originalPoints;
+  return versioned({
+    ...element,
+    x,
+    y,
+    width: Math.max(1, oldWidth * scaleX),
+    height: Math.max(1, oldHeight * scaleY),
+    ...(Array.isArray(element.points) ? {
+      points: element.points.map(point => pointWithMetadata(point, point[0] * scaleX, point[1] * scaleY)),
+    } : {}),
+    customData: {
+      ...(element.customData || {}),
+      ...(Array.isArray(originalPoints) ? {
+        originalPoints: originalPoints.map(point => pointWithMetadata(
+          point,
+          first[0] + (point[0] - sourceFirst[0]) * scaleX,
+          first[1] + (point[1] - sourceFirst[1]) * scaleY,
+        )),
       } : {}),
     },
   });

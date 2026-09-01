@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildSceneGroupTree,
+  getOutlinerLayerElements,
   groupSceneElements,
   isNativeExcalidrawElement,
   isOutlinerCodeElement,
@@ -11,6 +12,8 @@ import {
   moveSceneGroupToParent,
   moveSceneElementsToGroupParent,
   renameSceneGroup,
+  reorderSceneElements,
+  reorderSelectedSceneElements,
   ungroupSceneElements,
 } from "./sceneLayers.js";
 
@@ -64,6 +67,32 @@ test("builds a nested outliner tree from Excalidraw group ids", () => {
   assert.equal(tree.children[1].children[0].element.id, "front");
   assert.equal(tree.children[1].children[1].id, "inner");
   assert.equal(tree.children[1].children[1].children[0].element.id, "back");
+});
+
+test("Outliner order is the reverse of Excalidraw paint order and shared reordering preserves it", () => {
+  const source = [element("back"), element("middle"), element("front")];
+  assert.deepEqual(getOutlinerLayerElements(source).map(item => item.id), ["front", "middle", "back"]);
+
+  // Dropping middle above front in the front-to-back Outliner brings it to
+  // the visual front of the back-to-front Excalidraw element stack.
+  const raised = reorderSceneElements(source, "middle", "front", "front");
+  assert.deepEqual(raised.map(item => item.id), ["back", "front", "middle"]);
+  assert.deepEqual(getOutlinerLayerElements(raised).map(item => item.id), ["middle", "front", "back"]);
+
+  // Dropping it below back sends it to the visual back.
+  const lowered = reorderSceneElements(raised, "middle", "back", "back");
+  assert.deepEqual(lowered.map(item => item.id), ["middle", "back", "front"]);
+  assert.deepEqual(getOutlinerLayerElements(lowered).map(item => item.id), ["front", "back", "middle"]);
+});
+
+test("selection layer actions preserve internal order while moving through the shared paint stack", () => {
+  const source = [element("back"), element("first"), element("second"), element("front")];
+  const selected = { first: true, second: true };
+
+  assert.deepEqual(reorderSelectedSceneElements(source, selected, "backward").map(item => item.id), ["first", "second", "back", "front"]);
+  assert.deepEqual(reorderSelectedSceneElements(source, selected, "forward").map(item => item.id), ["back", "front", "first", "second"]);
+  assert.deepEqual(reorderSelectedSceneElements(source, selected, "back").map(item => item.id), ["first", "second", "back", "front"]);
+  assert.deepEqual(reorderSelectedSceneElements(source, selected, "front").map(item => item.id), ["back", "front", "first", "second"]);
 });
 
 test("puts imported IanniX objects below their score and setGroup hierarchy", () => {

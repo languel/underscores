@@ -546,8 +546,8 @@ body, html {
   background-color: var(--bg-app);
 }
 
-/* Shader underlays mirror excalishader's transparent-canvas composition:
- * Underscores supplies the board background, the shader paints above it, and
+/* Livecode underlays mirror excalishader's transparent-canvas composition:
+ * Underscores supplies the board background, the live surface paints above it, and
  * Excalidraw's transparent drawing canvas keeps authored strokes crisp. */
 #canvas-container > .excalidraw {
   position: relative;
@@ -555,6 +555,17 @@ body, html {
      chrome need to rise above sibling canvas overlays. DOM order still keeps
      the transparent drawing surface above shader underlays. */
   z-index: auto;
+}
+
+/* A selected freehand/linear element can have a large empty interior. Keep
+   the native Excalidraw path/handle hit tests in charge, but make that safe
+   interior visibly draggable just like the rest of a selected classic object. */
+#canvas-container canvas.excalidraw__canvas.interactive.underscores-classic-selection-move-cursor {
+  cursor: move !important;
+}
+
+#canvas-container canvas.excalidraw__canvas.interactive.underscores-classic-selection-grabbing-cursor {
+  cursor: grabbing !important;
 }
 
 /* --- OVERLAY TOGGLE BUTTONS --- */
@@ -1566,6 +1577,68 @@ body .excalidraw .underscores-collaboration-chat-composer textarea {
   border-bottom: none;
   padding: 0;
   background: var(--input-bg-color, rgba(128,128,128,.08));
+}
+
+.context-prompt-autocomplete {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: min(320px, 45vh);
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--underscores-panel-bg, var(--island-bg-color));
+  box-shadow: var(--shadow-island-stronger, 0 10px 30px rgba(0,0,0,.3));
+  pointer-events: auto;
+}
+
+.context-prompt-autocomplete button {
+  width: 100%;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.context-prompt-autocomplete button:hover,
+.context-prompt-autocomplete button.is-active {
+  background: var(--button-hover-bg);
+}
+
+.context-prompt-operation-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-prompt-operation-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  color: var(--color-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.context-prompt-operation-syntax {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .context-prompt-marker {
@@ -4097,6 +4170,16 @@ body .excalidraw .sidebar {
   z-index: 0;
 }
 
+/* Text selection and caret placement require trusted pointer events; synthetic
+   events routed from the Excalidraw canvas cannot move a browser caret. Raise
+   an active code editor above that canvas only while it is actually editing.
+   Preview mode remains a true underlay, preserving its authored composition. */
+.underscores-livecode-overlay.underlay:has(
+  .underscores-livecode-node.editing:not(.preview)[data-livecode-pointer-mode="node"]
+) {
+  z-index: 3;
+}
+
 .underscores-livecode-overlay.underlay .underscores-shader-frame {
   border-color: transparent;
 }
@@ -4112,6 +4195,41 @@ body .excalidraw .sidebar {
      the overlay from negotiating browser scroll/zoom prevents a selected
      node from turning a board pinch into page zoom. */
   touch-action: none;
+}
+
+/* A Livecode node is an interactive surface by default. Its explicit Canvas
+   pointer setting turns this off so the underlying Excalidraw host remains
+   directly selectable and draggable. */
+.underscores-livecode-node[data-livecode-pointer-mode="node"] {
+  pointer-events: auto;
+  touch-action: pan-x pan-y;
+}
+
+.underscores-livecode-node[data-livecode-pointer-mode="canvas"] {
+  pointer-events: none;
+  touch-action: none;
+}
+
+.underscores-livecode-node[data-livecode-background="theme"] {
+  background: color-mix(in srgb, var(--underscores-panel-bg, var(--island-bg-color)) 24%, transparent);
+}
+
+.underscores-livecode-node[data-livecode-background="solid"]:not([data-livecode-kind="shader"]) {
+  background: var(--underscores-panel-bg, var(--island-bg-color));
+}
+
+.underscores-livecode-node:is(
+  [data-livecode-background="transparent"],
+  [data-livecode-background="theme"],
+  [data-livecode-background="solid"]
+) :is(
+  .livecode-node-preview,
+  .livecode-markdown,
+  .livecode-latex,
+  .livecode-html-frame,
+  .livecode-svg
+) {
+  background: transparent;
 }
 
 .underscores-livecode-node.ai-query-active::after {
@@ -5055,7 +5173,7 @@ body .excalidraw .sidebar {
   margin: 0;
 }
 
-.underscores-livecode-node.editing {
+.underscores-livecode-node.editing:not(.preview) {
   z-index: 4;
   pointer-events: auto;
   /* Editing surfaces keep native two-finger text scrolling; board gestures
@@ -7733,6 +7851,22 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .manim-livecode-frame { position: relative; width: 100%; height: 100%; overflow: hidden; background: transparent; }
 .manim-livecode-host { width: 100%; height: 100%; }
 .manim-livecode-host canvas { display: block; width: 100% !important; height: 100% !important; }
+.underscores-three-frame,
+.underscores-three-host,
+.underscores-three-canvas {
+  width: 100%;
+  height: 100%;
+}
+.underscores-three-frame,
+.underscores-three-host {
+  position: relative;
+  overflow: hidden;
+  background: transparent;
+}
+.underscores-three-canvas {
+  display: block;
+  touch-action: none;
+}
 .manim-cue-next {
   pointer-events: auto;
   appearance: none;

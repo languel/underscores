@@ -9,6 +9,7 @@ import {
   defaultLivecodeSource,
   getLivecodeFont,
   getLivecodeEditorProfile,
+  getLivecodePointerMode,
   getLivecodeViewForDoubleClick,
   isLivecodeAutoUpdateEnabled,
   isLivecodeCommandCycleGesture,
@@ -34,15 +35,17 @@ test("blank nodes get stable human-readable names without adapter suffixes", () 
   assert.equal(randomLivecodeName(LIVECODE_KINDS.p5, "node-blank"), first.name);
 });
 
-test("author-facing Livecode kinds keep the visual-first order and include SVG", () => {
+test("author-facing Livecode kinds keep the visual-first order and include Three.js and SVG", () => {
   assert.deepEqual(LIVECODE_KIND_ORDER.slice(0, 5), [
     LIVECODE_KINDS.p5,
     LIVECODE_KINDS.markdown,
     LIVECODE_KINDS.shader,
+    LIVECODE_KINDS.three,
     LIVECODE_KINDS.tixy,
-    LIVECODE_KINDS.html,
   ]);
   assert.equal(LIVECODE_KIND_ORDER.includes(LIVECODE_KINDS.svg), true);
+  assert.equal(LIVECODE_KIND_ORDER.includes(LIVECODE_KINDS.three), true);
+  assert.equal(defaultLivecodeSource(LIVECODE_KINDS.three).includes("tick("), true);
 });
 
 test("example copies append copy once", () => {
@@ -58,6 +61,13 @@ test("maps Livecode double-click modifiers to explicit views", () => {
   assert.equal(getLivecodeViewForDoubleClick({ metaKey: true }), "preview");
   assert.equal(getLivecodeViewForDoubleClick({ ctrlKey: true }), "preview");
   assert.equal(getLivecodeViewForDoubleClick({ metaKey: true, shiftKey: true }), null);
+});
+
+test("Livecode nodes consume pointer input unless canvas pass-through is enabled", () => {
+  assert.equal(getLivecodePointerMode({}), "node");
+  assert.equal(getLivecodePointerMode({ runtime: { settings: {} } }), "node");
+  assert.equal(getLivecodePointerMode({ runtime: { settings: { canvasPointerEvents: true } } }), "canvas");
+  assert.equal(getLivecodePointerMode({ runtime: { settings: { canvasPointerEvents: false } } }), "node");
 });
 
 test("Livecode command output shortcut leaves overlap cycling and editor chords alone", () => {
@@ -101,7 +111,7 @@ test("creates a versioned, self-contained Livecode Node with a stable runtime co
       ligatures: true,
       showLineNumbers: false,
       showFoldGutter: false,
-      codeOverlayOpacity: 0,
+      codeOverlayOpacity: 0.5,
       glyphOnlyOverlay: true,
     },
     revision: 0,
@@ -131,7 +141,7 @@ test("normalization keeps unsupported values bounded and preserves authored sour
     ligatures: true,
     showLineNumbers: false,
     showFoldGutter: false,
-    codeOverlayOpacity: 0,
+    codeOverlayOpacity: 0.5,
     glyphOnlyOverlay: true,
   });
 });
@@ -139,6 +149,12 @@ test("normalization keeps unsupported values bounded and preserves authored sour
 test("supports raw Code mode while retaining legacy code-overlay values", () => {
   assert.equal(createLivecodeNode({ kind: "shader", view: "source" }).view, "source");
   assert.equal(createLivecodeNode({ kind: "shader", view: "overlay" }).view, "code");
+});
+
+test("code overlay opacity defaults to 50% while preserving an explicit zero", () => {
+  assert.equal(normalizeLivecodeNode({ kind: LIVECODE_KINDS.p5 }).typography.codeOverlayOpacity, 0.5);
+  assert.equal(normalizeLivecodeNode({ kind: LIVECODE_KINDS.p5, typography: { codeOverlayOpacity: 0 } }).typography.codeOverlayOpacity, 0);
+  assert.equal(normalizeLivecodeNode({ kind: LIVECODE_KINDS.p5, typography: { codeOverlayOpacity: 1.4 } }).typography.codeOverlayOpacity, 1);
 });
 
 test("Strudel nodes preserve code and output views without a split surface", () => {

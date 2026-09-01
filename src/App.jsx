@@ -48,7 +48,7 @@ import { applyPlaylistTargetArgs, executePlaylistJavaScript, parsePlaylistComman
 import { createPlaylistItem, createPlaylistState, getPlaylistItemElements, movePlaylistItem } from "./playlist.js";
 import { findPendingManimCue } from "./manimRuntimeRegistry.js";
 import { applyPresentationVisibility, canFitPresentationBounds, isElementVisibleInPresentation } from "./presentationVisibility.js";
-import { groupSceneElements, moveSceneElementsToGroup, moveSceneElementsToGroupParent, moveSceneGroupToParent, renameSceneGroup, reorderSceneElements, ungroupSceneElements } from "./sceneLayers.js";
+import { groupSceneElements, moveSceneElementsToGroup, moveSceneElementsToGroupParent, moveSceneGroupToParent, renameSceneGroup, reorderSceneElements, reorderSelectedSceneElements, ungroupSceneElements } from "./sceneLayers.js";
 import IannixDataPanel from "./IannixDataPanel.jsx";
 import { UnderscoresCommandRegistry, UnderscoresEventBus, UnderscoresInputBus, findExactCommand, parseGenericCommandSlash } from "./commandSystem.js";
 import { buildAIAutomationGuide, isAICommandAllowed, parseUnderscoresCommandTags } from "./aiTooling.js";
@@ -134,11 +134,11 @@ import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
 import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
 import { LivecodeAutoUpdateToggle, LivecodeClockToggle, LivecodeNodeEditor, LivecodeNodeOverlay, StrudelPanelStatus } from "./LivecodeNodeOverlay.jsx";
-import { adjustLivecodeFontSize, copyLivecodeExampleName, createLivecodeNode, defaultLivecodeSource, getLivecodeFont, getLivecodeKindDefinition, getLivecodeViewForDoubleClick, isLivecodeAutoUpdateEnabled, isLivecodeCommandCycleGesture, isLivecodeCommandOutputGesture, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KIND_DEFINITIONS, LIVECODE_KIND_ORDER, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, randomLivecodeName, replaceLivecodeNodeProgram, resolveLivecodeRuntimeSource } from "./livecodeNode.js";
-import { LIVECODE_PERSISTENCE_MODES, normalizeLivecodeComposition } from "./livecodeComposition.js";
+import { adjustLivecodeFontSize, copyLivecodeExampleName, createLivecodeNode, defaultLivecodeSource, getLivecodeFont, getLivecodeKindDefinition, getLivecodePointerMode, getLivecodeViewForDoubleClick, isLivecodeAutoUpdateEnabled, isLivecodeCommandCycleGesture, isLivecodeCommandOutputGesture, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KIND_DEFINITIONS, LIVECODE_KIND_ORDER, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, randomLivecodeName, replaceLivecodeNodeProgram, resolveLivecodeRuntimeSource } from "./livecodeNode.js";
+import { isLivecodeUnderlayVisible, normalizeLivecodeComposition } from "./livecodeComposition.js";
 import { getLivecodeExamples } from "./livecodeExamples.js";
-import { describeLivecodeRuntime, validateLivecodeNode } from "./livecodeAdapters.js";
-import { getShaderExample, isShaderUnderlayVisible, normalizeShaderCompositionSettings, normalizeShaderSourceMode, shaderExampleForSource } from "./shaderLivecode.js";
+import { describeLivecodeRuntime, getLivecodeCompositionCapabilities, validateLivecodeNode } from "./livecodeAdapters.js";
+import { getShaderExample, normalizeShaderCompositionSettings, normalizeShaderSourceMode, shaderExampleForSource } from "./shaderLivecode.js";
 import { getShaderStatuses, SHADER_STATUS_EVENT } from "./shaderStatus.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
 import { isPublicSafeBuild } from "./buildProfile.js";
@@ -212,10 +212,12 @@ import { captureLivecodeFrameSnapshot, clearLivecodeFrameSnapshot, getLivecodeFr
 import PerformanceOverlay from "./PerformanceOverlay.jsx";
 import { underscoresPerformanceMonitor } from "./performanceMonitor.js";
 import { createBakedImageElement, createBakedImageFile, createCanvasSnapshotImageElement, replaceSceneElementsWithBake } from "./sceneBake.js";
-import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
+import { quantizeGridElement, quantizeGridElementBounds, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
+import { createGridInteractionState, updateGridInteractionMovement } from "./gridInteraction.js";
+import { getClassicSelectionDragCandidate } from "./classicSelectionInteraction.js";
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
 import { parseContextCommand } from "./contextCommand.js";
-import { stepStrokeWidth } from "./strokeWidthShortcuts.js";
+import { applyStrokeWidthShortcut } from "./strokeWidthShortcuts.js";
 import { infoProps } from "./uiInfo.js";
 import {
   AI_PROVIDER_OPTIONS,
@@ -234,7 +236,8 @@ import {
   selectAIModelFromList,
 } from "./aiProviders.js";
 
-import { convertShapeElementToPath, fitRectangularElementToViewport, getCanvasContextMenuCapabilities, setSelectedElementRoundness } from "./canvasContextMenu.js";
+import { convertShapeElementToPath, fitRectangularElementToViewport, getCanvasContextMenuCapabilities, hasAuthoredPointGeometry, setSelectedElementRoundness } from "./canvasContextMenu.js";
+import { filterSelectionOperationSuggestions, getSelectionOperationSuggestions, parseSelectionOperation } from "./selectionOperations.js";
 import { normalizeRoughnessValue, normalizeRoundnessValue, parseDrawingStyleSlash } from "./drawingStyleCommands.js";
 import { DEFAULT_SELECTION_FILTER, filterSelectedElementIds, isInteriorObjectSelectionGesture, normalizeSelectionFilter, selectionFilterAllowsElement, selectionMapsEqual, SELECTION_FILTER_STORAGE_KEY, toggleSelectionFilter } from "./selectionFilter.js";
 import {
@@ -3210,6 +3213,7 @@ function App() {
     globalGridUpdate: () => {},
     globalGridReset: () => {},
     gridQuantizeSelection: () => {},
+    gridSnapPoints: () => {},
     playlistPlay: () => {},
     playlistPause: () => {},
     playlistNext: async () => {},
@@ -3460,6 +3464,7 @@ function App() {
   const [, setCommandRegistryVersion] = useState(0);
   const [showContextPrompt, setShowContextPrompt] = useState(false);
   const [contextPrompt, setContextPrompt] = useState("");
+  const [contextPromptIndex, setContextPromptIndex] = useState(0);
   const [contextPromptPosition, setContextPromptPosition] = useState(null);
   const [satoriMode, setSatoriMode] = useState(true);
   const [presentationMode, setPresentationMode] = useState(() => localStorage.getItem("underscores_presentation_mode") === "true");
@@ -4586,8 +4591,13 @@ function App() {
   }, [brushChannels, foregroundColor]);
   const [svgOverlayScene, setSvgOverlayScene] = useState({ elements: [], appState: null });
   const [livecodeOverlayScene, setLivecodeOverlayScene] = useState({ elements: [], appState: null });
-  const shaderUnderlayActive = useMemo(() => livecodeOverlayScene.elements.some(element => (
-    isShaderUnderlayVisible(element, {
+  // Excalidraw can change only its element-array order for Send backward /
+  // Bring forward. Keep a compact immutable snapshot for the Outliner so it
+  // observes the canonical stack even when object fields are unchanged.
+  const [outlinerSceneElements, setOutlinerSceneElements] = useState([]);
+  const outlinerSceneSignatureRef = useRef("");
+  const livecodeUnderlayActive = useMemo(() => livecodeOverlayScene.elements.some(element => (
+    isLivecodeUnderlayVisible(element, {
       hasRetainedFrame: Boolean(getLivecodeFrameSnapshot(element.id)),
     })
   )), [livecodeOverlayScene.elements]);
@@ -5034,7 +5044,7 @@ function App() {
   const selectionFilterRef = useRef(selectionFilter);
   selectionFilterRef.current = selectionFilter;
   const gridQuantizingRef = useRef(false);
-  const gridInteractionRef = useRef({ moving: false, resizing: false, pointEditing: false, pointIndices: null });
+  const gridInteractionRef = useRef(createGridInteractionState());
   const editingLinearGridRef = useRef(null);
   const multiElementGridRef = useRef(null);
   const activeGridToolRef = useRef(null);
@@ -5356,6 +5366,8 @@ function App() {
   const [bezierEditElementId, setBezierEditElementId] = useState(null);
   const [bezierSelectedAnchor, setBezierSelectedAnchor] = useState(null);
   const bezierDragRef = useRef(null);
+  const classicSelectionDragRef = useRef(null);
+  const classicSelectionCursorRef = useRef(null);
   const lastBezierPointerDownRef = useRef(null);
   const lastSvgPointerDownRef = useRef(null);
   const [selectedSvgNode, setSelectedSvgNode] = useState(null);
@@ -6361,6 +6373,7 @@ function App() {
     syncP5Overlay(elements, excalidrawAPI.getAppState());
     syncSvgOverlay(elements, excalidrawAPI.getAppState());
     syncLivecodeOverlay(elements, excalidrawAPI.getAppState());
+    syncOutlinerScene(elements);
   }, [excalidrawAPI]);
 
   useEffect(() => () => {
@@ -7450,7 +7463,9 @@ function App() {
   // gesture recognizer. Keep their ids while forwarding the native gesture
   // to the real canvas so a two-finger pan/pinch remains a board gesture.
   const forwardedLivecodePointerIdsRef = useRef(new Set());
+  const livecodeCanvasInputPointersRef = useRef(new Map());
   const livecodeNodeAtCanvasPointerRef = useRef(null);
+  const forwardCanvasWheelToLivecodeRef = useRef(null);
   const mediaPreviewAtCanvasPointerRef = useRef(null);
   const toggleLivecodeNodeRunRef = useRef(null);
   const laserWasActiveRef = useRef(false);
@@ -8524,9 +8539,153 @@ function App() {
     return true;
   };
 
+  const setClassicSelectionCursor = value => {
+    const canvas = interactiveExcalidrawCanvas();
+    if (!canvas) return;
+    canvas.classList.toggle("underscores-classic-selection-move-cursor", value === "move");
+    canvas.classList.toggle("underscores-classic-selection-grabbing-cursor", value === "grabbing");
+    classicSelectionCursorRef.current = value || null;
+  };
+
+  const clearClassicSelectionCursor = () => {
+    const canvas = interactiveExcalidrawCanvas();
+    canvas?.classList.remove(
+      "underscores-classic-selection-move-cursor",
+      "underscores-classic-selection-grabbing-cursor",
+    );
+    classicSelectionCursorRef.current = null;
+  };
+
+  const getClassicSelectionCandidateAtPointer = event => {
+    const api = excalidrawAPIRef.current || excalidrawAPI;
+    if (!api) return null;
+    const appState = api.getAppState();
+    if (appState.activeTool?.type !== "selection") return null;
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return null;
+    const target = event.target;
+    const canvas = target?.closest?.("canvas.excalidraw__canvas.interactive");
+    if (!canvas) return null;
+    if (target?.closest?.(
+      ".underscores-livecode-node, .underscores-code-editor, .cm-editor, .underscores-embed-interactive, "
+      + ".svg-path-control, .physics-canvas-toolbar, .underscores-panel-shell, button, input, textarea, select",
+    )) return null;
+    const viewport = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, appState);
+    const elements = api.getSceneElements?.() || [];
+    return getClassicSelectionDragCandidate({
+      elements,
+      selectedElementIds: appState.selectedElementIds || {},
+      point: [viewport.x, viewport.y],
+      zoom: appState.zoom?.value || 1,
+      isExcluded: element => Boolean(
+        isLivecodeNodeElement(element)
+        || isSvgObjectElement(element)
+        || isMediaStreamElement(element)
+        || isP5FrameElement(element)
+        || isPlayCoreFrameElement(element)
+        || isRuntimeCursor(element)
+        || hasCubicBezierGeometry(element)
+        || getScoreData(element)
+        || normalizeGestureTrack(element.customData?.underscoresGesture)
+        || element.customData?.modifiers?.length
+        || element.customData?.parentId,
+      ),
+    });
+  };
+
+  const handleClassicSelectionPointerDown = event => {
+    const candidate = getClassicSelectionCandidateAtPointer(event);
+    if (!candidate) return false;
+    const api = excalidrawAPIRef.current || excalidrawAPI;
+    const world = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, api.getAppState());
+    const original = candidate.element;
+    classicSelectionDragRef.current = {
+      elementId: original.id,
+      pointerId: event.pointerId,
+      startWorld: [world.x, world.y],
+      latestDelta: [0, 0],
+      moved: false,
+      original,
+    };
+    gridInteractionRef.current.moving = false;
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+    event.stopPropagation();
+    setClassicSelectionCursor("grabbing");
+    return true;
+  };
+
+  const handleClassicSelectionPointerMove = event => {
+    const drag = classicSelectionDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+    if (event.buttons !== 1) return true;
+    const api = excalidrawAPIRef.current || excalidrawAPI;
+    if (!api) return true;
+    const world = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, api.getAppState());
+    const delta = [world.x - drag.startWorld[0], world.y - drag.startWorld[1]];
+    if (!drag.moved && Math.hypot(delta[0], delta[1]) < 3 / Math.max(0.01, api.getAppState().zoom?.value || 1)) {
+      event.preventDefault();
+      event.stopPropagation();
+      setClassicSelectionCursor("grabbing");
+      return true;
+    }
+    drag.moved = true;
+    drag.latestDelta = delta;
+    gridInteractionRef.current.moved = true;
+    gridInteractionRef.current.moving = true;
+    const scene = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements?.() || [];
+    api.updateScene({
+      elements: scene.map(element => element.id === drag.elementId ? translateGridElement(drag.original, delta) : element),
+      commitToHistory: false,
+    });
+    event.preventDefault();
+    event.stopPropagation();
+    setClassicSelectionCursor("grabbing");
+    return true;
+  };
+
+  const handleClassicSelectionPointerUp = event => {
+    const drag = classicSelectionDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+    classicSelectionDragRef.current = null;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget?.releasePointerCapture?.(event.pointerId);
+    clearClassicSelectionCursor();
+    const api = excalidrawAPIRef.current || excalidrawAPI;
+    gridInteractionRef.current = createGridInteractionState();
+    if (!api || !drag.moved) return true;
+    const scene = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements?.() || [];
+    const moved = scene.map(element => element.id === drag.elementId ? translateGridElement(drag.original, drag.latestDelta) : element);
+    const grid = globalGridRef.current;
+    if (grid.snap.mode !== "off" && grid.snap.targets.transforms) {
+      const quantized = quantizeGlobalGridElements({
+        elementIds: [drag.elementId],
+        transformOnly: true,
+        commitToHistory: true,
+      });
+      if (quantized.count) return true;
+    }
+    api.updateScene({ elements: moved, commitToHistory: true });
+    return true;
+  };
+
+  const updateClassicSelectionCursorForPointer = event => {
+    if (classicSelectionDragRef.current) {
+      setClassicSelectionCursor("grabbing");
+      return;
+    }
+    if (getClassicSelectionCandidateAtPointer(event)) setClassicSelectionCursor("move");
+    else clearClassicSelectionCursor();
+  };
+
   const handleCanvasPointerDown = (e) => {
     if (!excalidrawAPI) return;
     if (isForwardedCanvasGesture(e.nativeEvent || e)) return;
+    if (forwardCanvasPointerToLivecode(e.nativeEvent || e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (forwardLivecodePointer(e.nativeEvent || e)) {
       e.preventDefault();
       e.stopPropagation();
@@ -8534,7 +8693,7 @@ function App() {
     }
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
     if (e.button !== 0) return;
-    gridInteractionRef.current = { moving: false, resizing: false, pointEditing: false, pointIndices: null };
+    gridInteractionRef.current = createGridInteractionState([e.clientX, e.clientY]);
 
     // An active object picker takes precedence over canvas overlays so object
     // parameters can target any visible scene object, including live nodes.
@@ -8695,6 +8854,7 @@ function App() {
         return;
       }
       if (!e.metaKey && !e.ctrlKey && !e.shiftKey) runtimeCursorSelectionRef.current = {};
+      if (handleClassicSelectionPointerDown(e)) return;
     }
 
     if (!modifierDrawingActive) {
@@ -8793,12 +8953,24 @@ function App() {
 
   const handleCanvasPointerMove = (e) => {
     if (isForwardedCanvasGesture(e.nativeEvent || e)) return;
+    if (forwardCanvasPointerToLivecode(e.nativeEvent || e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      clearClassicSelectionCursor();
+      return;
+    }
     if (forwardLivecodePointer(e.nativeEvent || e)) {
       e.preventDefault();
       e.stopPropagation();
       return;
     }
+    if (classicSelectionDragRef.current) {
+      handleClassicSelectionPointerMove(e);
+      return;
+    }
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
+    updateGridInteractionMovement(gridInteractionRef.current, e);
+    updateClassicSelectionCursorForPointer(e);
     const linkedMedia = findLinkedMediaAtPointer(e.clientX, e.clientY);
     setHoveredLinkedElementId(previous => previous === (linkedMedia?.id || null) ? previous : (linkedMedia?.id || null));
     if (handlePhysicsPointerMove(e)) return;
@@ -9391,7 +9563,7 @@ function App() {
     }
   };
 
-  const handleSimplifyStroke = (algorithm) => {
+  const handleSimplifyStroke = (algorithm, options = {}) => {
     if (!excalidrawAPI) return;
     const appState = excalidrawAPI.getAppState();
     const selectedIds = appState.selectedElementIds || {};
@@ -9429,17 +9601,22 @@ function App() {
 
           let simplifiedAbs;
           if (algorithm === "rdp") {
-            simplifiedAbs = simplifyRDP(absolutePoints, 2.5); // 2.5px tolerance
+            const tolerance = Number.isFinite(Number(options.tolerance)) ? Math.max(0.1, Math.min(100, Number(options.tolerance))) : 2.5;
+            simplifiedAbs = simplifyRDP(absolutePoints, tolerance);
           } else if (algorithm === "vw") {
-            simplifiedAbs = simplifyVW(absolutePoints, 15.0); // 15px^2 area tolerance
+            const tolerance = Number.isFinite(Number(options.tolerance)) ? Math.max(0.1, Math.min(1000, Number(options.tolerance))) : 15.0;
+            simplifiedAbs = simplifyVW(absolutePoints, tolerance);
           } else if (algorithm === "smooth") {
-            simplifiedAbs = smoothPathLaplacian(absolutePoints, 0.4, 3); // 3 iterations of 0.4 Laplacian weight
+            const iterations = Number.isFinite(Number(options.amount)) ? Math.max(1, Math.min(100, Math.round(Number(options.amount)))) : 3;
+            simplifiedAbs = smoothPathLaplacian(absolutePoints, 0.4, iterations);
           } else if (algorithm === "taubin") {
-            simplifiedAbs = smoothPathTaubin(absolutePoints, 0.5, -0.53, 10, false);
+            const iterations = Number.isFinite(Number(options.amount)) ? Math.max(1, Math.min(100, Math.round(Number(options.amount)))) : 10;
+            simplifiedAbs = smoothPathTaubin(absolutePoints, 0.5, -0.53, iterations, false);
           } else if (algorithm === "close") {
             simplifiedAbs = closeAndSmoothJoint(absolutePoints, el.type, el.roundness);
           } else if (algorithm === "resample") {
-            simplifiedAbs = resampleUniform(absolutePoints, absolutePoints.length);
+            const count = Number.isFinite(Number(options.count)) ? Math.max(2, Math.min(10000, Math.round(Number(options.count)))) : absolutePoints.length;
+            simplifiedAbs = resampleUniform(absolutePoints, count);
           } else if (algorithm === "snap") {
             simplifiedAbs = absolutePoints.map(point => snapPointToGrid(globalGridRef.current, point, {
               mode: "hard",
@@ -9481,10 +9658,40 @@ function App() {
     const selectedIds = appState.selectedElementIds || {};
     const elements = excalidrawAPI.getSceneElements();
 
-    const selectedContextElements = elements.filter(element => selectedIds[element.id] && !element.isDeleted);
+    let selectedContextElements = elements.filter(element => selectedIds[element.id] && !element.isDeleted);
+    // A Shift+right-click on an unselected object should still be able to
+    // address that object. Excalidraw does not consistently promote the
+    // right-click target into the selection before bubbling contextmenu, so
+    // resolve a small semantic hit test from the scene geometry here. This is
+    // deliberately bounds/point based; it never reaches into arbitrary DOM or
+    // CSS selectors and only runs for events originating on the canvas.
+    if (!selectedContextElements.length && e.target?.closest?.("canvas")) {
+      const scenePoint = viewportCoordsToSceneCoords({ clientX: e.clientX, clientY: e.clientY }, appState);
+      const hit = [...elements].reverse().find(element => {
+        if (element.isDeleted || isSvgObjectElement(element) || !getCanvasContextMenuCapabilities([element]).selected.length) return false;
+        const points = Array.isArray(element.points) && element.points.length >= 2
+          ? element.points.map(point => [Number(element.x) + (Number(point[0]) || 0), Number(element.y) + (Number(point[1]) || 0)])
+          : [[Number(element.x) || 0, Number(element.y) || 0], [
+            (Number(element.x) || 0) + Math.abs(Number(element.width) || 0),
+            (Number(element.y) || 0) + Math.abs(Number(element.height) || 0),
+          ]];
+        const xs = points.map(point => point[0]);
+        const ys = points.map(point => point[1]);
+        const padding = Math.max(6, (Number(element.strokeWidth) || 1) / 2 + 3);
+        return scenePoint.x >= Math.min(...xs) - padding
+          && scenePoint.x <= Math.max(...xs) + padding
+          && scenePoint.y >= Math.min(...ys) - padding
+          && scenePoint.y <= Math.max(...ys) + padding;
+      });
+      if (hit) {
+        selectedContextElements = [hit];
+        api.updateScene({ appState: { selectedElementIds: { [hit.id]: true }, selectedGroupIds: {} }, commitToHistory: false });
+      }
+    }
     const capabilities = getCanvasContextMenuCapabilities(
       selectedContextElements.filter(element => !isSvgObjectElement(element))
     );
+    const contextElementIds = selectedContextElements.map(element => element.id);
     const selectedStrokeElements = capabilities.paths;
 
     // Shift+right-click is Underscores's own canvas menu. Keep SVG clipboard
@@ -9531,6 +9738,7 @@ function App() {
         showToSpline: hasConvertiblePath || hasShapes,
         showFromSpline: hasSpline,
         showPathOperations: capabilities.showPathOperations,
+        showSnapPoints: capabilities.showSnapPoints,
         showSharpRound: capabilities.showSharpRound,
         allSharp: capabilities.allSharp,
         allRound: capabilities.allRound,
@@ -9540,6 +9748,7 @@ function App() {
         showCreateLivecode: true,
         showViewportFit: viewportFitTarget,
         targetElementId: viewportFitTarget ? selectedContextElements[0].id : "",
+        elementIds: contextElementIds,
         hasSelection: true,
         hasSingleSelection: selectedContextElements.length === 1,
       });
@@ -9552,15 +9761,16 @@ function App() {
         showP5FrameExport: false,
         showCreateLivecode: true,
         showMakeBody: false,
+        elementIds: [],
         hasSelection: false,
         hasSingleSelection: false,
       });
     }
   };
 
-  const fitContextElementToViewport = mode => {
+  const fitContextElementToViewport = (mode, targetIdOverride = "") => {
     const api = excalidrawAPIRef.current;
-    const targetId = customContextMenu?.targetElementId;
+    const targetId = targetIdOverride || customContextMenu?.targetElementId;
     if (!api || !targetId) return;
     const appState = api.getAppState();
     const zoom = Math.max(0.01, Number(appState.zoom?.value) || 1);
@@ -10575,6 +10785,8 @@ function App() {
   const quantizeGlobalGridElements = ({
     elementIds = null,
     transformOnly = false,
+    boundsOnly = false,
+    pointsOnly = false,
     forceHard = true,
     commitToHistory = true,
     resolution = null,
@@ -10587,7 +10799,11 @@ function App() {
     const selectedIds = elementIds
       ? new Set(elementIds)
       : new Set(Object.keys(api.getAppState().selectedElementIds || {}).filter(id => api.getAppState().selectedElementIds[id]));
-    const selected = api.getSceneElements().filter(element => selectedIds.has(element.id) && !element.isDeleted);
+    const selected = api.getSceneElements().filter(element => (
+      selectedIds.has(element.id)
+      && !element.isDeleted
+      && (!pointsOnly || hasAuthoredPointGeometry(element))
+    ));
     if (!selected.length) return { count: 0 };
     const zoom = api.getAppState().zoom?.value || 1;
     const options = {
@@ -10605,6 +10821,12 @@ function App() {
       if (Math.abs(delta[0]) < 1e-8 && Math.abs(delta[1]) < 1e-8) return { count: 0, delta };
       replacements = new Map(selected.map(element => [element.id, translateGridElement(element, delta)]));
       changed = selected.length;
+    } else if (boundsOnly) {
+      replacements = new Map(selected.map(element => {
+        const next = quantizeGridElementBounds(element, grid, options);
+        if (next !== element) changed += 1;
+        return [element.id, next];
+      }));
     } else {
       replacements = new Map(selected.map(element => {
         const next = quantizeGridElement(element, grid, options);
@@ -10641,7 +10863,7 @@ function App() {
       if (!api) return;
       const appState = api.getAppState();
       const interaction = gridInteractionRef.current;
-      gridInteractionRef.current = { moving: false, resizing: false, pointEditing: false, pointIndices: null };
+      gridInteractionRef.current = createGridInteractionState();
       if (appState.multiElement?.id && appState.activeTool?.type === "line") return;
       const selectedIds = Object.keys(appState.selectedElementIds || {}).filter(id => appState.selectedElementIds[id]);
       const editingLinearId = appState.editingLinearElement?.elementId || (interaction.pointEditing ? editingLinearGridRef.current : null);
@@ -10667,12 +10889,14 @@ function App() {
       const quantizeGlobalIds = () => globallyEligibleIds.length && quantizeGlobalGridElements({
         elementIds: globallyEligibleIds,
         transformOnly: globallyEligibleIds.length > 1 || (!isPointEdit && !isCreation && !isResize),
+        boundsOnly: isResize && !isPointEdit && !isCreation,
         forceHard: forceHardSnap,
         pointIndices: isPointEdit && interaction.pointIndices?.length ? interaction.pointIndices : null,
       });
       if (boundIds.length) quantizeGlobalGridElements({
         elementIds: boundIds,
         transformOnly: boundIds.length > 1 || (!isPointEdit && !isCreation && !isResize),
+        boundsOnly: isResize && !isPointEdit && !isCreation,
         forceHard: true,
         pointIndices: isPointEdit && interaction.pointIndices?.length ? interaction.pointIndices : null,
       });
@@ -10730,6 +10954,123 @@ function App() {
       || null;
   };
 
+  const getLivecodeCanvasInputTarget = element => {
+    if (!element?.id) return null;
+    const root = [...document.querySelectorAll(".underscores-livecode-overlay.underlay .underscores-livecode-node")]
+      .find(candidate => candidate.dataset.livecodeNodeId === element.id);
+    if (!root) return null;
+    const node = normalizeLivecodeNode(element.customData?.underscoresLivecode);
+    // Code is the frontmost authored surface in source, overlay, and split
+    // views. In output mode, prefer the renderer's actual canvas so p5 and
+    // other sketches receive their normal pointer callbacks.
+    if (["source", "code", "overlay", "split"].includes(node.view)) {
+      const editor = root.querySelector(".underscores-code-editor .cm-content, .underscores-code-editor .cm-editor");
+      if (editor) return editor;
+    }
+    return root.querySelector(".livecode-node-output canvas, canvas, iframe") || root;
+  };
+
+  const dispatchPointerToLivecode = (target, nativeEvent) => {
+    if (!target || !nativeEvent) return false;
+    const forwarded = new PointerEvent(nativeEvent.type, {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      detail: nativeEvent.detail || 0,
+      screenX: nativeEvent.screenX || 0,
+      screenY: nativeEvent.screenY || 0,
+      clientX: nativeEvent.clientX || 0,
+      clientY: nativeEvent.clientY || 0,
+      ctrlKey: Boolean(nativeEvent.ctrlKey),
+      altKey: Boolean(nativeEvent.altKey),
+      shiftKey: Boolean(nativeEvent.shiftKey),
+      metaKey: Boolean(nativeEvent.metaKey),
+      button: nativeEvent.button ?? 0,
+      buttons: nativeEvent.buttons ?? 0,
+      relatedTarget: nativeEvent.relatedTarget || null,
+      pointerId: nativeEvent.pointerId ?? 1,
+      pointerType: nativeEvent.pointerType || "mouse",
+      isPrimary: nativeEvent.isPrimary !== false,
+      width: nativeEvent.width || 1,
+      height: nativeEvent.height || 1,
+      pressure: Number.isFinite(nativeEvent.pressure) ? nativeEvent.pressure : 0.5,
+      tangentialPressure: nativeEvent.tangentialPressure || 0,
+      tiltX: nativeEvent.tiltX || 0,
+      tiltY: nativeEvent.tiltY || 0,
+      twist: nativeEvent.twist || 0,
+    });
+    Object.defineProperty(forwarded, "__underscoresForwarded", { value: true });
+    target.dispatchEvent(forwarded);
+    return true;
+  };
+
+  // Underlay Livecode is intentionally painted below Excalidraw so native
+  // objects can sit over it. Route the canvas event back to the live surface
+  // when it owns input; otherwise Excalidraw would start a marquee or show a
+  // move cursor over a running sketch.
+  const forwardCanvasPointerToLivecode = event => {
+    const nativeEvent = event?.nativeEvent || event;
+    if (!nativeEvent || isForwardedCanvasGesture(nativeEvent)) return false;
+    const canvas = nativeEvent.target?.closest?.("canvas.excalidraw__canvas.interactive");
+    if (!canvas) return false;
+    const pointerId = nativeEvent.pointerId;
+    const activeElementId = pointerId !== undefined
+      ? livecodeCanvasInputPointersRef.current.get(pointerId)
+      : null;
+    const element = activeElementId
+      ? (excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || excalidrawAPIRef.current?.getSceneElements?.() || [])
+        .find(candidate => candidate.id === activeElementId && !candidate.isDeleted)
+      : livecodeNodeAtCanvasPointer(nativeEvent.clientX, nativeEvent.clientY);
+    if (!element || getLivecodePointerMode(normalizeLivecodeNode(element.customData?.underscoresLivecode)) !== "node") return false;
+    if (nativeEvent.type === "pointerdown" && pointerId !== undefined) {
+      livecodeCanvasInputPointersRef.current.set(pointerId, element.id);
+    }
+    dispatchPointerToLivecode(getLivecodeCanvasInputTarget(element), nativeEvent);
+    if ((nativeEvent.type === "pointerup" || nativeEvent.type === "pointercancel") && pointerId !== undefined) {
+      livecodeCanvasInputPointersRef.current.delete(pointerId);
+    }
+    return true;
+  };
+
+  const forwardCanvasWheelToLivecode = (nativeEvent, coordinates = null) => {
+    if (!nativeEvent || isForwardedCanvasGesture(nativeEvent)) return false;
+    const clientX = coordinates?.clientX ?? nativeEvent.clientX;
+    const clientY = coordinates?.clientY ?? nativeEvent.clientY;
+    const hit = livecodeNodeAtCanvasPointer(clientX, clientY);
+    if (!hit || getLivecodePointerMode(normalizeLivecodeNode(hit.customData?.underscoresLivecode)) !== "node") return false;
+    const target = getLivecodeCanvasInputTarget(hit);
+    const scroller = target?.closest?.(".underscores-code-editor")?.querySelector?.(".cm-scroller")
+      || target?.querySelector?.(".cm-scroller");
+    if (scroller) {
+      scroller.scrollBy({ left: nativeEvent.deltaX || 0, top: nativeEvent.deltaY || 0 });
+      return true;
+    }
+    if (!target) return true;
+    const forwarded = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      deltaX: nativeEvent.deltaX || 0,
+      deltaY: nativeEvent.deltaY || 0,
+      deltaZ: nativeEvent.deltaZ || 0,
+      deltaMode: nativeEvent.deltaMode || 0,
+      screenX: nativeEvent.screenX || 0,
+      screenY: nativeEvent.screenY || 0,
+      clientX: clientX || 0,
+      clientY: clientY || 0,
+      ctrlKey: Boolean(nativeEvent.ctrlKey),
+      altKey: Boolean(nativeEvent.altKey),
+      shiftKey: Boolean(nativeEvent.shiftKey),
+      metaKey: Boolean(nativeEvent.metaKey),
+    });
+    Object.defineProperty(forwarded, "__underscoresForwarded", { value: true });
+    target.dispatchEvent(forwarded);
+    return true;
+  };
+  forwardCanvasWheelToLivecodeRef.current = forwardCanvasWheelToLivecode;
+
   const isLivecodeEditorTarget = target => Boolean(target?.closest?.(
     ".underscores-code-editor, .cm-editor, textarea, input, select, button"
   ));
@@ -10744,7 +11085,9 @@ function App() {
     const overLivecodeNode = nativeEvent.target?.closest?.(".underscores-livecode-node");
     if (isLivecodeEditorTarget(nativeEvent.target)) return false;
     const activeForwardedPointer = pointerId !== undefined && pointerIds.has(pointerId);
-    const shouldForward = nativeEvent.pointerType === "touch" && (overLivecodeNode || activeForwardedPointer);
+    const shouldForward = nativeEvent.pointerType === "touch" && (
+      overLivecodeNode?.dataset.livecodePointerMode === "canvas" || activeForwardedPointer
+    );
     if (!shouldForward) return false;
     const canvas = interactiveExcalidrawCanvas();
     if (!canvas) return false;
@@ -10821,11 +11164,15 @@ function App() {
 
   const handleCanvasWheelCapture = event => {
     const nativeEvent = event.nativeEvent || event;
-    if (
-      isForwardedCanvasGesture(nativeEvent)
-      || !event.target?.closest?.(".underscores-livecode-node")
-      || isLivecodeEditorTarget(event.target)
-    ) return;
+    if (isForwardedCanvasGesture(nativeEvent)) return;
+    if (forwardCanvasWheelToLivecode(nativeEvent)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    const targetLivecodeNode = event.target?.closest?.(".underscores-livecode-node");
+    if (!targetLivecodeNode || isLivecodeEditorTarget(event.target)) return;
+    if (targetLivecodeNode.dataset.livecodePointerMode !== "canvas") return;
     event.preventDefault();
     event.stopPropagation();
     forwardLivecodeWheel(nativeEvent);
@@ -10879,7 +11226,9 @@ function App() {
       // Events whose target is still inside the canvas will be forwarded by
       // React's capture handler. Only dispatch here when retargeting skipped
       // the canvas entirely, otherwise the gesture would be applied twice.
-      if (retargetedToDocument) forwardLivecodeWheel(event, { clientX, clientY });
+      if (retargetedToDocument && !forwardCanvasWheelToLivecodeRef.current?.(event, { clientX, clientY })) {
+        forwardLivecodeWheel(event, { clientX, clientY });
+      }
     };
     document.addEventListener("wheel", preventLivecodePageZoom, { capture: true, passive: false });
     return () => document.removeEventListener("wheel", preventLivecodePageZoom, { capture: true });
@@ -10887,11 +11236,17 @@ function App() {
 
   const handleCanvasPointerUp = (e) => {
     if (isForwardedCanvasGesture(e.nativeEvent || e)) return;
+    if (forwardCanvasPointerToLivecode(e.nativeEvent || e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (forwardLivecodePointer(e.nativeEvent || e)) {
       e.preventDefault();
       e.stopPropagation();
       return;
     }
+    if (handleClassicSelectionPointerUp(e)) return;
     if (handlePhysicsPointerUp(e)) return;
     if (handleSvgPathConstructionPointerUp(e)) return;
     if (handleSvgPathPointerUp(e)) return;
@@ -11271,7 +11626,7 @@ function App() {
   useEffect(() => {
     const api = excalidrawAPIRef.current;
     if (!api) return;
-    const viewBackgroundColor = shaderUnderlayActive
+    const viewBackgroundColor = livecodeUnderlayActive
       ? "transparent"
       : canvasColorForExcalidraw(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme);
     if (api.getAppState()?.viewBackgroundColor !== viewBackgroundColor) {
@@ -11282,7 +11637,7 @@ function App() {
       });
     }
     api.refresh?.();
-  }, [excalidrawAPI, interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, shaderUnderlayActive, theme]);
+  }, [excalidrawAPI, interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, livecodeUnderlayActive, theme]);
 
   // Scroll chat messages to bottom
   useEffect(() => {
@@ -14428,6 +14783,26 @@ function App() {
     return walkthroughRunner.start(walkthrough, options);
   };
 
+  const reorderSelectedSceneLayer = (direction, args = {}) => {
+    const api = excalidrawAPIRef.current || excalidrawAPI;
+    if (!api) throw new Error("The canvas is not ready.");
+    const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements?.() || [];
+    const requestedIds = Array.isArray(args.elementIds)
+      ? args.elementIds.filter(id => typeof id === "string" && id)
+      : null;
+    const selectedIds = requestedIds?.length
+      ? Object.fromEntries(requestedIds.map(id => [id, true]))
+      : api.getAppState().selectedElementIds || {};
+    const elementIds = elements
+      .filter(element => selectedIds[element.id] && !element.isDeleted)
+      .map(element => element.id);
+    if (!elementIds.length) throw new Error("Select one or more canvas objects first.");
+    const nextElements = reorderSelectedSceneElements(elements, selectedIds, direction);
+    if (nextElements === elements) return { elementIds, direction, changed: false };
+    api.updateScene({ elements: nextElements, commitToHistory: true });
+    return { elementIds, direction, changed: true };
+  };
+
   const COMMANDS = [
     {
       id: "walkthrough.welcome",
@@ -14519,9 +14894,10 @@ function App() {
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
-    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "/code", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|manim|playcore|markdown|latex|html|orca|shader|tixy|svg?", example: "kind-specific example id?", name: "string?", width: "number?", height: "number?", source: "string?", parameters: "object?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", view: "preview|source|code|split?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Manim nodes accept authored manim-web JavaScript with top-level await and receive scene, cue(), MANIM, and the shared __ bridge; choose transportMode free for an immediately self-running animation or linked for score-controlled playback. Shader nodes accept hello, minimal, rainbow, shadow, fluid, or stokes examples. Tixy nodes accept a compact (t, i, x, y) JavaScript expression and render a transport-synchronized 16×16 dot grid by default; optional @param gridSize, gridWidth, gridHeight, color1, color0, and backgroundColor declarations customize dimensions and palettes. A numeric gridSize is square, a [width, height] JSON value is rectangular, and the background defaults to transparent for layering. SVG nodes render sanitized source locally with transport-aware animation seeking. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "manim", name: "Animated geometric proof", width: 640, height: 420, transportMode: "free", view: "preview", running: true, source: "const circle = new Circle({ radius: 1.5 });\nawait scene.play(new Create(circle));" } }, action: (_api, args) => createLivecodeCanvasNode(args) },
+    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "/code", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|manim|three|playcore|markdown|latex|html|orca|shader|tixy|svg?", example: "kind-specific example id?", name: "string?", width: "number?", height: "number?", source: "string?", parameters: "object?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", view: "preview|source|code|split?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Three.js nodes are standalone bundled scenes: authored JavaScript receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), and the shared __ bridge. They do not depend on Manim. Manim nodes accept authored manim-web JavaScript with top-level await and receive scene, cue(), MANIM, and __. Choose transportMode free for an immediately self-running animation or linked for score-controlled playback. Shader nodes accept hello, minimal, rainbow, shadow, fluid, or stokes examples. Tixy nodes accept a compact (t, i, x, y) JavaScript expression and render a transport-synchronized 16×16 dot grid by default; optional @param gridSize, gridWidth, gridHeight, color1, color0, and backgroundColor declarations customize dimensions and palettes. A numeric gridSize is square, a [width, height] JSON value is rectangular, and the background defaults to transparent for layering. SVG nodes render sanitized source locally with transport-aware animation seeking. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "three", name: "Three.js form", width: 640, height: 420, transportMode: "free", view: "preview", running: true, source: "const mesh = new THREE.Mesh(new THREE.TorusKnotGeometry(), new THREE.MeshNormalMaterial());\nscene.add(mesh);\ntick(({ delta }) => { mesh.rotation.y += delta; });" } }, action: (_api, args) => createLivecodeCanvasNode(args) },
     { id: "livecode.node.create.strudel", name: "Create Strudel Livecode Node /live strudel", aliases: ["/live strudel", "/code strudel"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel }) },
     { id: "livecode.node.create.p5", name: "Create p5 Livecode Node /live p5", aliases: ["/live p5", "/code p5"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.p5 }) },
+    { id: "livecode.node.create.three", name: "Create Three.js Livecode Node /live three", aliases: ["/live three", "/live threejs", "/code three", "/three"], category: "Livecode", ai: { expose: true, description: "Create an independent bundled Three.js Livecode Node. The source receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), and __." }, action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.three }) },
     { id: "livecode.node.create.playcore", name: "Create Play Core Livecode Node /live playcore", aliases: ["/live playcore", "/live play", "/code playcore", "/code play"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.playcore }) },
     { id: "livecode.node.create.markdown", name: "Create Markdown Livecode Node /live markdown", aliases: ["/live markdown", "/live md", "/code markdown", "/code md"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.markdown }) },
     { id: "livecode.node.create.latex", name: "Create LaTeX Livecode Node /live latex", aliases: ["/live latex", "/live tex", "/code latex", "/code tex"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.latex }) },
@@ -14529,7 +14905,7 @@ function App() {
     { id: "livecode.node.create.orca", name: "Create Orca Livecode Node /live orca", aliases: ["/live orca", "/code orca"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.orca }) },
     { id: "livecode.node.create.tixy", name: "Create Tixy Livecode Node /live tixy", aliases: ["/live tixy", "/code tixy", "/tixy"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.tixy, example: "waves" }) },
     { id: "livecode.node.create.svg", name: "Create SVG Livecode Node /live svg", aliases: ["/live svg", "/code svg"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.svg }) },
-    { id: "livecode.node.update", name: "Update Livecode Node", category: "Livecode", args: { elementId: "string?", kind: "strudel|p5|manim|playcore|markdown|latex|html|orca|shader|tixy|svg?", name: "string?", source: "string?", parameters: "object?", view: "preview|source|code|split?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", runtimeSettings: "object?" }, ai: { expose: true, description: "Explain, replace, or adjust an existing code-capable canvas object. Uses elementId from the active scene; when omitted, updates the selected Livecode, legacy p5, or Play Core host. Legacy hosts are migrated in place so the edit stays on the selected object. Source is stored as authored text and must be a valid JSON string in the command payload. To expose an @param, put the // @param declaration in source and read it as __.params.name; parameters only overrides an already-declared value. Manim source may use top-level await with scene, cue(), MANIM, and __. Tixy source uses the compact (t, i, x, y) expression contract. SVG nodes render sanitized source locally with transport-aware animation seeking. This does not execute arbitrary code outside the node runtime.", example: { elementId: "livecode-host", source: "const square = new Square({ sideLength: 2 });\\nawait scene.play(new Create(square));", view: "code" } }, action: (_api, args) => updateAILivecodeNode(args) },
+    { id: "livecode.node.update", name: "Update Livecode Node", category: "Livecode", args: { elementId: "string?", kind: "strudel|p5|manim|three|playcore|markdown|latex|html|orca|shader|tixy|svg?", name: "string?", source: "string?", parameters: "object?", view: "preview|source|code|split?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", runtimeSettings: "object?" }, ai: { expose: true, description: "Explain, replace, or adjust an existing code-capable canvas object. Uses elementId from the active scene; when omitted, updates the selected Livecode, legacy p5, or Play Core host. Legacy hosts are migrated in place so the edit stays on the selected object. Source is stored as authored text and must be a valid JSON string in the command payload. To expose an @param, put the // @param declaration in source and read it as __.params.name; parameters only overrides an already-declared value. Three.js source receives standalone THREE, scene, camera, renderer, tick(callback), onDispose(callback), and __. Manim source may use top-level await with scene, cue(), MANIM, and __. Tixy source uses the compact (t, i, x, y) expression contract. SVG nodes render sanitized source locally with transport-aware animation seeking. This does not execute arbitrary code outside the node runtime.", example: { elementId: "livecode-host", source: "const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshNormalMaterial());\\nscene.add(mesh);\\ntick(({ delta }) => { mesh.rotation.y += delta; });", view: "code" } }, action: (_api, args) => updateAILivecodeNode(args) },
     { id: "livecode.node.create.shader", name: "Create Hello GLSL Livecode Node /live shader", aliases: ["/live shader", "/live glsl", "/code shader", "/code glsl", "/shader", "/shader hello"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "hello" }) },
     { id: "livecode.node.create.shader.minimal", name: "Create Minimal Twigl Shader /shader minimal", aliases: ["/shader minimal", "/live shader minimal", "/code shader minimal", "/shader shadertoy", "/shader twigl"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "minimal-raymarch" }) },
     { id: "livecode.node.create.shader.rainbow", name: "Create Rainbow Shader /shader rainbow", aliases: ["/shader rainbow", "/live shader rainbow", "/code shader rainbow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "rainbow" }) },
@@ -14571,6 +14947,10 @@ function App() {
     { id: "svg.path.anchor.delete", name: "Delete Selected SVG Anchor", category: "SVG", action: () => deleteSelectedSvgAnchor() },
     { id: "scene.group", name: "Group Selected Scene Objects /group", aliases: ["/group", "Group selection"], category: "Scene", action: () => groupSceneSelection() },
     { id: "scene.ungroup", name: "Ungroup Selected Scene Objects /ungroup", aliases: ["/ungroup", "Ungroup selection"], category: "Scene", action: () => ungroupSceneSelection() },
+    { id: "scene.layer.sendBackward", name: "Send Selection Backward /send backward", aliases: ["/send backward", "Send selection backward"], category: "Scene", args: { elementIds: "array?" }, ai: { expose: true, description: "Move the selected canvas objects one layer backward in the shared Excalidraw and Outliner stack.", example: { elementIds: ["element-id"] } }, action: (_api, args = {}) => reorderSelectedSceneLayer("backward", args) },
+    { id: "scene.layer.bringForward", name: "Bring Selection Forward /bring forward", aliases: ["/bring forward", "Bring selection forward"], category: "Scene", args: { elementIds: "array?" }, ai: { expose: true, description: "Move the selected canvas objects one layer forward in the shared Excalidraw and Outliner stack.", example: { elementIds: ["element-id"] } }, action: (_api, args = {}) => reorderSelectedSceneLayer("forward", args) },
+    { id: "scene.layer.sendToBack", name: "Send Selection to Back /send to back", aliases: ["/send to back", "Send selection to back"], category: "Scene", args: { elementIds: "array?" }, ai: { expose: true, description: "Move the selected canvas objects to the back of the shared Excalidraw and Outliner stack.", example: { elementIds: ["element-id"] } }, action: (_api, args = {}) => reorderSelectedSceneLayer("back", args) },
+    { id: "scene.layer.bringToFront", name: "Bring Selection to Front /bring to front", aliases: ["/bring to front", "Bring selection to front"], category: "Scene", args: { elementIds: "array?" }, ai: { expose: true, description: "Move the selected canvas objects to the front of the shared Excalidraw and Outliner stack.", example: { elementIds: ["element-id"] } }, action: (_api, args = {}) => reorderSelectedSceneLayer("front", args) },
     { id: "svg.copy.selection", name: "Copy Selection as Editable SVG /copy svg", aliases: ["/copy svg", "Copy selection SVG"], category: "Canvas", action: () => copySelectionAsSvg() },
     { id: "svg.paste.editable", name: "Paste SVG as Editable Paths /paste svg", aliases: ["/paste svg", "Paste SVG as paths"], category: "Canvas", action: () => pasteSvgAsEditable() },
     { id: "export.board.png", name: "Export Board as PNG /export board", aliases: ["/export board", "/export png", "Export Underscores board"], category: "Canvas", action: () => void exportUnderscoresBoardPng() },
@@ -14640,8 +15020,191 @@ function App() {
     { id: "tool-eraser", name: "Select Eraser Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "eraser", locked: tool.locked ?? false } } }); } },
     { id: "tool-hand", name: "Select Hand/Pan Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "hand", locked: tool.locked ?? false } } }); } },
     { id: "restore-original-stroke", name: "Restore Original Stroke (Recover Brush Replacement)", category: "Brushes", action: () => handleRestoreOriginalStroke() },
-    { id: "convert-to-line", name: "Convert Selected Strokes to Straight Lines", category: "Brushes", action: () => handleConvertType("line") },
-    { id: "convert-to-freedraw", name: "Convert Selected Lines to Freehand Pencil", category: "Brushes", action: () => handleConvertType("freedraw") },
+    { id: "convert-to-line", name: "Convert Selected Strokes to Straight Lines", aliases: ["/convert line"], category: "Brushes", action: () => handleConvertType("line") },
+    { id: "convert-to-freedraw", name: "Convert Selected Lines to Freehand Pencil", aliases: ["/convert freehand"], category: "Brushes", action: () => handleConvertType("freedraw") },
+    {
+      id: "path.simplify.rdp",
+      name: "Simplify Path (RDP) /simplify rdp",
+      aliases: ["/simplify rdp", "simplify rdp", "Simplify Path (RDP)"],
+      category: "Selection",
+      args: { tolerance: "number?" },
+      ai: { expose: true, description: "Simplify selected freehand or line paths with the Ramer-Douglas-Peucker tolerance in pixels." },
+      action: (_api, args = {}) => handleSimplifyStroke("rdp", args),
+    },
+    {
+      id: "path.simplify.vw",
+      name: "Simplify Path (VW) /simplify vw",
+      aliases: ["/simplify vw", "simplify vw", "Simplify Path (VW)"],
+      category: "Selection",
+      args: { tolerance: "number?" },
+      ai: { expose: true, description: "Simplify selected freehand or line paths with the Visvalingam-Whyatt area tolerance." },
+      action: (_api, args = {}) => handleSimplifyStroke("vw", args),
+    },
+    {
+      id: "path.smooth",
+      name: "Smooth Path (Laplacian) /smooth",
+      aliases: ["/smooth", "/smooth path", "smooth", "smooth path", "Smooth Path (Laplacian)"],
+      category: "Selection",
+      args: { amount: "number? (iterations 1-100)" },
+      ai: { expose: true, description: "Smooth selected freehand or line paths. The optional amount is the Laplacian iteration count from 1 to 100.", example: { amount: 10 } },
+      action: (_api, args = {}) => handleSimplifyStroke("smooth", args),
+    },
+    {
+      id: "path.smooth.taubin",
+      name: "Smooth Path (Taubin) /smooth taubin",
+      aliases: ["/smooth taubin", "/taubin", "smooth taubin", "taubin", "Smooth Path (Taubin)"],
+      category: "Selection",
+      args: { amount: "number? (iterations 1-100)" },
+      ai: { expose: true, description: "Smooth selected freehand or line paths with Taubin smoothing. The optional amount is the iteration count from 1 to 100.", example: { amount: 10 } },
+      action: (_api, args = {}) => handleSimplifyStroke("taubin", args),
+    },
+    {
+      id: "path.resample",
+      name: "Resample Path Uniformly /resample",
+      aliases: ["/resample", "resample", "resample uniformly"],
+      category: "Selection",
+      args: { count: "number? (point count)" },
+      ai: { expose: true, description: "Resample selected paths at equal distances. Omit count to keep the current point count." },
+      action: (_api, args = {}) => handleSimplifyStroke("resample", args),
+    },
+    {
+      id: "path.close",
+      name: "Close Path and Smooth Joint /close path",
+      aliases: ["/close path", "close path", "close and smooth"],
+      category: "Selection",
+      ai: { expose: true, description: "Close selected paths by joining their ends and smoothing the new joint." },
+      action: () => handleSimplifyStroke("close"),
+    },
+    {
+      id: "selection.roundness.sharp",
+      name: "Sharp Corners on Selection /sharp corners",
+      aliases: ["/sharp corners", "sharp corners", "selection sharp"],
+      category: "Selection",
+      ai: { expose: true, description: "Set sharp corners on the selected lines, freehand paths, rectangles, and diamonds." },
+      action: () => handleSetSelectedSharpness("sharp"),
+    },
+    {
+      id: "selection.roundness.round",
+      name: "Rounded Corners on Selection /round corners",
+      aliases: ["/round corners", "round corners", "rounded corners", "selection round"],
+      category: "Selection",
+      ai: { expose: true, description: "Set rounded corners on the selected lines, freehand paths, rectangles, and diamonds." },
+      action: () => handleSetSelectedSharpness("round"),
+    },
+    {
+      id: "selection.convert.path",
+      name: "Convert Selection to Path /convert path",
+      aliases: ["/convert path", "convert to path", "to path"],
+      category: "Selection",
+      ai: { expose: true, description: "Convert selected rectangles, ellipses, and diamonds into editable native paths." },
+      action: () => handleConvertType("line"),
+    },
+    {
+      id: "selection.convert.line",
+      name: "Convert Selection to Line /convert line",
+      aliases: ["/convert line", "convert to line", "to line"],
+      category: "Selection",
+      ai: { expose: true, description: "Convert selected strokes or splines to native lines." },
+      action: () => handleConvertType("line"),
+    },
+    {
+      id: "selection.convert.freehand",
+      name: "Convert Selection to Freehand /convert freehand",
+      aliases: ["/convert freehand", "convert to freehand", "convert to pencil", "to freehand"],
+      category: "Selection",
+      ai: { expose: true, description: "Convert selected objects to freehand pencil strokes." },
+      action: () => handleConvertType("freedraw"),
+    },
+    {
+      id: "selection.convert.spline",
+      name: "Convert Selection to Spline /convert spline",
+      aliases: ["/convert spline", "convert to spline", "to spline"],
+      category: "Selection",
+      ai: { expose: true, description: "Convert selected paths into canonical cubic splines." },
+      action: () => convertSelectedToBezier(),
+    },
+    {
+      id: "selection.convert.fromSpline",
+      name: "Convert Selection from Spline /convert from spline",
+      aliases: ["/convert from spline", "convert from spline", "from spline"],
+      category: "Selection",
+      ai: { expose: true, description: "Convert selected splines back to native Excalidraw paths." },
+      action: () => convertSelectedFromBezier(),
+    },
+    {
+      id: "selection.role.cursor",
+      name: "Make Selection a Cursor /make cursor",
+      aliases: ["/make cursor", "make cursor", "cursor"],
+      category: "Selection",
+      ai: { expose: true, description: "Assign the Cursor score role to the current selection." },
+      action: () => assignIannixRole(getLiveSelectedElements(), "cursor"),
+    },
+    {
+      id: "selection.role.curve",
+      name: "Make Selection a Curve /make curve",
+      aliases: ["/make curve", "make curve", "curve"],
+      category: "Selection",
+      ai: { expose: true, description: "Assign the Curve score role to the current selection." },
+      action: () => assignIannixRole(getLiveSelectedElements(), "curve"),
+    },
+    {
+      id: "selection.role.trigger",
+      name: "Make Selection a Trigger /make trigger",
+      aliases: ["/make trigger", "make trigger", "trigger"],
+      category: "Selection",
+      ai: { expose: true, description: "Assign the Trigger score role to the current selection." },
+      action: () => assignIannixRole(getLiveSelectedElements(), "trigger"),
+    },
+    {
+      id: "selection.add.cursor",
+      name: "Add Cursor to Selected Curves /add cursor",
+      aliases: ["/add cursor", "/add cursor to selected curves", "add cursor"],
+      category: "Selection",
+      ai: { expose: true, description: "Mark selected paths as curves and attach runtime cursors." },
+      action: () => addCursorsToSelectedCurves(),
+    },
+    {
+      id: "selection.convert.svg",
+      name: "Convert Selection to SVG /convert to svg",
+      aliases: ["/convert to svg", "convert to svg", "bake to svg"],
+      category: "Selection",
+      ai: { expose: true, description: "Replace selected native objects with a source-preserving SVG object." },
+      action: () => convertSelectionToSvgObject(),
+    },
+    {
+      id: "selection.svg.attach",
+      name: "Attach SVG Code to Selection /attach svg",
+      aliases: ["/attach svg", "attach svg", "attach svg code"],
+      category: "Selection",
+      ai: { expose: true, description: "Attach a blank editable SVG source to the selected rectangle." },
+      action: () => attachSvgCodeToSelectedRectangle(),
+    },
+    {
+      id: "selection.viewport.fit",
+      name: "Fit Selection to Viewport /fit viewport",
+      aliases: ["/fit viewport", "fit viewport", "fit to viewport"],
+      category: "Selection",
+      ai: { expose: true, description: "Scale and center the selected rectangle or frame inside the visible viewport." },
+      action: () => {
+        const target = getLiveSelectedElements().find(element => ["rectangle", "frame"].includes(element.type));
+        if (!target) throw new Error("Select a rectangle or frame first.");
+        fitContextElementToViewport("fit", target.id);
+        return { elementId: target.id, mode: "fit" };
+      },
+    },
+    {
+      id: "selection.viewport.pip",
+      name: "Fit Selection to PIP /fit pip",
+      aliases: ["/fit pip", "fit pip", "fit to pip"],
+      category: "Selection",
+      ai: { expose: true, description: "Place the selected rectangle or frame at the bottom-right as a small picture-in-picture." },
+      action: () => {
+        const target = getLiveSelectedElements().find(element => ["rectangle", "frame"].includes(element.type));
+        if (!target) throw new Error("Select a rectangle or frame first.");
+        fitContextElementToViewport("pip", target.id);
+        return { elementId: target.id, mode: "pip" };
+      },
+    },
     { id: "iannix.cursor.addToSelectedCurves", name: "Add Cursor to Selected Curves /add cursor to selected curves", aliases: ["/add cursor to selected curves", "Add Cursor to Selected Curves"], category: "Score", action: () => addCursorsToSelectedCurves() },
     { id: "expressiveSynth.demo.create", name: "Add and Play Expressive Synth Demo /synth demo", aliases: ["/synth demo", "Expressive Synth Demo"], category: "Score", action: () => addExpressiveSynthDemo() },
     { id: "geometry.roughness.set", name: "Set Drawing Roughness /roughness n", aliases: ["/roughness"], category: "Geometry", args: { value: "0|1|2" }, ai: { expose: true, description: "Set the default Excalidraw sloppiness for newly drawn shapes to 0, 1, or 2." }, action: (_api, args = {}) => setDrawingRoughness(args.value) },
@@ -14697,6 +15260,7 @@ function App() {
     { id: "grid.visible.toggle", name: "Toggle Global Grid Visibility /grid visible", aliases: ["/grid visible"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridUpdate({ appearance: { visible: !globalGridRef.current.appearance.visible } }) },
     { id: "grid.snap.toggle", name: "Toggle Global Grid Snapping /grid snap", aliases: ["/grid snap"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridUpdate({ snap: { mode: globalGridRef.current.snap.mode === "off" ? "hard" : "off" } }) },
     { id: "grid.quantize.selection", name: "Quantize Selection to Global Grid /grid quantize", aliases: ["/grid quantize"], category: "Grid", args: { elementIds: "string[]?", resolution: "minor|major?", axes: "x|y|both?" }, action: (_api, args) => runtimeCallbacksRef.current.gridQuantizeSelection(args) },
+    { id: "grid.snap.points", name: "Snap Points to Grid /grid snap points", aliases: ["/grid snap points", "/snap points", "Snap points to grid"], category: "Grid", args: { elementIds: "string[]?", pointIndices: "number[]?", resolution: "minor|major?", axes: "x|y|both?" }, ai: { expose: true, description: "Snap every authored point in selected paths or curves to the global grid without applying the default bounds-only transform snap. Use elementIds to target explicit objects; otherwise the current selection is used.", example: { elementIds: ["curve-a"], resolution: "minor", axes: "both" } }, action: (_api, args) => runtimeCallbacksRef.current.gridSnapPoints(args) },
     { id: "score.time.update", name: "Update Score Object Time /score time", aliases: ["/score time"], category: "Score", args: { elementIds: "string[]?", start: "number|timeValue?", duration: "number|timeValue?", rate: "number?", loopMode: "once|loop|pingPong?" }, ai: { expose: true, description: "Set score object start, duration, rate, or loop mode. Time values accept expressions such as 4n, 2 bars, 500 ms, or 30 f.", example: { elementIds: ["curve-a"], duration: "2 bars", loopMode: "loop" } }, action: (_api, args) => updateScoreObjectTiming(args) },
     { id: "score.time.restoreAuto", name: "Restore Geometry-derived Duration /score duration auto", aliases: ["/score duration auto"], category: "Score", args: { elementIds: "string[]?" }, action: (_api, args) => restoreScoreAutoDuration(args) },
     { id: "score.grid.assign", name: "Assign Score Object Grid /score grid", aliases: ["/score grid"], category: "Grid", args: { elementIds: "string[]?", gridId: "string", metric: "string?" }, action: (_api, args) => updateScoreGridBinding(args) },
@@ -14827,6 +15391,7 @@ function App() {
       // defocuses it without changing plain Escape's editor behavior.
       const activeElement = document.activeElement;
       const shortcutActionForEvent = findShortcutAction(shortcutBindings, e);
+      const isSceneLayerShortcut = shortcutActionForEvent?.id?.startsWith("scene.layer.");
       if (showContextPrompt && activeElement?.id === "context-prompt-input" && shortcutActionForEvent?.id === "ai.context.prompt") return;
       const objectPickerEscape = e.key === "Escape" && Boolean(objectEyedropperRef.current);
       const activeCanvasLivecodeNode = activeElement?.closest?.(".underscores-livecode-node");
@@ -14862,6 +15427,7 @@ function App() {
         && shortcutActionForEvent?.id !== "object.pick.fromCanvas"
         && shortcutActionForEvent?.id !== "ai.context.prompt"
         && shortcutActionForEvent?.id !== "livecode.manim.cue.next"
+        && !isSceneLayerShortcut
         && !objectPickerEscape) return;
 
       // Escape is a global cancel/clear gesture: close transient UI, blur any
@@ -14894,6 +15460,7 @@ function App() {
         if (showContextPrompt) {
           setShowContextPrompt(false);
           setContextPrompt("");
+          setContextPromptIndex(0);
           setContextPromptPosition(null);
         }
         if (typeof activeElement?.blur === "function") activeElement.blur();
@@ -15015,6 +15582,7 @@ function App() {
         || shortcutActionForEvent?.id === "object.pick.fromCanvas"
         || shortcutActionForEvent?.id === "ai.context.prompt"
         || shortcutActionForEvent?.id === "code.documentation.toggle"
+        || isSceneLayerShortcut
         ? shortcutActionForEvent
         : null;
       if (shortcutAction) {
@@ -15043,6 +15611,7 @@ function App() {
           });
           setShowContextPrompt(true);
           setContextPrompt("");
+          setContextPromptIndex(0);
           return;
         }
         if (shortcutAction.id === "dock.left.toggle" || shortcutAction.id === "dock.right.toggle") {
@@ -15119,9 +15688,19 @@ function App() {
           if (!canAdjustWidth) return;
           const direction = shortcutAction.id.includes("decrease") ? -1 : 1;
           const fine = shortcutAction.id.endsWith("Fine");
-          const newWidth = stepStrokeWidth(appState.currentItemStrokeWidth ?? 1, direction, fine);
-          const elements = excalidrawAPI.getSceneElements().map(element => appState.selectedElementIds?.[element.id] && ["freedraw", "line"].includes(element.type) ? { ...element, strokeWidth: newWidth } : element);
-          excalidrawAPI.updateScene({ elements, appState: { currentItemStrokeWidth: newWidth } });
+          const adjusted = applyStrokeWidthShortcut({
+            elements: excalidrawAPI.getSceneElementsIncludingDeleted(),
+            selectedElementIds: appState.selectedElementIds,
+            currentItemStrokeWidth: appState.currentItemStrokeWidth,
+            direction,
+            fine,
+          });
+          e.stopImmediatePropagation?.();
+          excalidrawAPI.updateScene({
+            elements: adjusted.elements,
+            appState: { currentItemStrokeWidth: adjusted.currentItemStrokeWidth },
+            commitToHistory: true,
+          });
           return;
         }
         commandRegistry.execute(shortcutAction.commandId || shortcutAction.id, {}, {
@@ -15274,6 +15853,19 @@ function App() {
       cmd.category.toLowerCase().includes(query) ||
       cmd.aliases?.some(alias => alias.toLowerCase().includes(query))
     );
+    const selectionOperation = parseSelectionOperation(commandSearch.trim());
+    if (selectionOperation) {
+      const command = COMMANDS.find(candidate => candidate.id === selectionOperation.commandId);
+      const hasRegisteredMatch = command && matches.some(candidate => candidate.id === command.id);
+      if (command && !hasRegisteredMatch) {
+        matches.unshift({
+          ...command,
+          id: `selection-operation-inline:${command.id}:${commandSearch.trim()}`,
+          name: `${command.name} (${commandSearch.trim()})`,
+          selectionOperation,
+        });
+      }
+    }
     const inlineIannixMatch = /^\/(?:ix|iannix|score)\s+(.+)$/i.exec(commandSearch.trim());
     if (inlineIannixMatch && !matches.some(command => command.aliases?.some(alias => alias.toLowerCase() === query))) {
       const command = inlineIannixMatch[1].trim();
@@ -15360,6 +15952,11 @@ function App() {
     if (!input.startsWith("/") && !allowBare) return null;
     const exact = findExactCommand(input, COMMANDS);
     if (exact) return { command: exact, args: {} };
+    const selectionOperation = parseSelectionOperation(input);
+    if (selectionOperation) {
+      const command = COMMANDS.find(candidate => candidate.id === selectionOperation.commandId);
+      if (command) return { command, args: selectionOperation.args || {} };
+    }
     if (!input.startsWith("/")) return null;
     const drawingStyle = parseDrawingStyleSlash(input);
     if (drawingStyle) return { command: COMMANDS.find(command => command.id === drawingStyle.id), args: drawingStyle.args };
@@ -15502,6 +16099,13 @@ function App() {
       return commandRegistry.execute("ai.prompt", { prompt: commandSearch }, { source, transportTime: scoreTimeRef.current });
     }
     try {
+      if (cmd.selectionOperation) {
+        return await commandRegistry.execute(
+          cmd.selectionOperation.commandId,
+          cmd.selectionOperation.args || {},
+          { source, record: true, transportTime: scoreTimeRef.current },
+        );
+      }
       if (cmd.inlineIannixCommand) {
         return await commandRegistry.execute("iannix.command.execute", { command: cmd.inlineIannixCommand }, { source, transportTime: scoreTimeRef.current });
       }
@@ -15539,10 +16143,30 @@ function App() {
     return (api.getSceneElements?.() || []).filter(element => !element.isDeleted && selectedIds[element.id]);
   };
 
+  const contextOperationSuggestions = getSelectionOperationSuggestions(getLiveSelectedElements());
+  const filteredContextOperationSuggestions = filterSelectionOperationSuggestions(
+    contextPrompt,
+    contextOperationSuggestions,
+  ).slice(0, 12);
+
+  const selectContextOperation = operation => {
+    if (!operation) return;
+    const completion = operation.syntax.replace(/\s+\[[^\]]+\]/g, "");
+    const value = operation.acceptsNumber ? `${completion} ` : completion;
+    setContextPrompt(value);
+    setContextPromptIndex(0);
+    window.setTimeout(() => {
+      const input = contextPromptInputRef.current;
+      input?.focus();
+      input?.setSelectionRange(value.length, value.length);
+    }, 0);
+  };
+
   const executeContextPrompt = async prompt => {
     const text = String(prompt || "").trim();
     if (!text) return;
     const selected = getLiveSelectedElements();
+    const selectionOperation = parseSelectionOperation(text);
     const action = parseContextCommand(text);
     const directCommand = parseSlashInvocation(text, { allowBare: true });
     const mediaInstances = selected.filter(element => {
@@ -15551,6 +16175,25 @@ function App() {
     });
     const mediaObjects = selected.filter(isMediaStreamElement);
     const livecodeNodes = selected.filter(isLivecodeNodeElement);
+
+    if (selectionOperation) {
+      if (selected.length === 0) {
+        reportAiStatus("Select one or more canvas objects first.", "error");
+        return;
+      }
+      try {
+        await commandRegistry.execute(selectionOperation.commandId, selectionOperation.args || {}, {
+          source: "context-prompt",
+          record: true,
+          transportTime: scoreTimeRef.current,
+        });
+        const operation = contextOperationSuggestions.find(item => item.id === selectionOperation.operationId);
+        reportAiStatus(`Executed ${operation?.name || selectionOperation.commandId}.`);
+      } catch (error) {
+        reportAiStatus(error?.message || "Selection operation failed.", "error");
+      }
+      return;
+    }
 
     if (action?.kind === "documentationOverlay") {
       const language = action.language;
@@ -15693,12 +16336,16 @@ function App() {
           case "orcaGridFit":
           case "orcaGridGuide":
           case "emitterSource":
-          case "sceneInteraction":
           case "showChrome":
           case "syncTransport":
           case "frameVisuals":
           case "keepLastFrame":
             patch = { runtime: { settings: { [setting]: action.value } } };
+            break;
+          case "sceneInteraction":
+            patch = parseScriptParameters(node.source).some(parameter => parameter.name === "emission")
+              ? { parameters: { emission: action.value } }
+              : { runtime: { settings: { sceneInteraction: action.value } } };
             break;
           case "enabled":
             patch = { runtime: { enabled: action.value } };
@@ -15723,10 +16370,12 @@ function App() {
     }
 
     if (action?.kind === "blend") {
-      const shaderNodes = livecodeNodes.filter(element => normalizeLivecodeNode(element.customData?.underscoresLivecode).kind === LIVECODE_KINDS.shader);
+      const compositableNodes = livecodeNodes.filter(element => (
+        getLivecodeCompositionCapabilities(normalizeLivecodeNode(element.customData?.underscoresLivecode)).blendModes.includes(action.value)
+      ));
       let changed = 0;
-      const applicable = shaderNodes.length + mediaObjects.length;
-      shaderNodes.forEach(element => {
+      const applicable = compositableNodes.length + mediaObjects.length;
+      compositableNodes.forEach(element => {
         if (patchLivecodeCanvasNode(element.id, { runtime: { settings: { blendMode: action.value } } }, { commitToHistory: true })) changed += 1;
       });
       mediaObjects.forEach(element => {
@@ -17701,7 +18350,7 @@ function App() {
     const exportBounds = getElementsExportBounds(elements);
     if (!exportBounds) return null;
     const includeBackground = background !== "transparent";
-    const captureBackground = background === "transparent" || shaderUnderlayActive
+    const captureBackground = background === "transparent" || livecodeUnderlayActive
       ? "transparent"
       : canvasColorForExcalidraw(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme);
     try {
@@ -17731,7 +18380,7 @@ function App() {
     } catch {
       return null;
     }
-  }, [interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, p5OverlayScene.canvasElements, shaderUnderlayActive, theme]);
+  }, [interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, livecodeUnderlayActive, p5OverlayScene.canvasElements, theme]);
 
   // A reusable object-input gesture.  Media canvas sources are the first
   // consumer, but parameter routes and other object-backed inputs can supply
@@ -18839,7 +19488,6 @@ function App() {
             compositeMode: "overlay",
             compositeOpacity: 1,
             blendMode: "normal",
-            sceneInteraction: true,
             emitterSource: "scene",
           } : {}),
           ...(args.runtimeSettings && typeof args.runtimeSettings === "object" && !Array.isArray(args.runtimeSettings) ? args.runtimeSettings : {}),
@@ -21000,6 +21648,14 @@ function App() {
     elementIds: args?.elementIds,
     resolution: args?.resolution,
     axes: args?.axes,
+    forceHard: true,
+  });
+  runtimeCallbacksRef.current.gridSnapPoints = (args = {}) => quantizeGlobalGridElements({
+    elementIds: args?.elementIds,
+    resolution: args?.resolution,
+    axes: args?.axes,
+    pointIndices: args?.pointIndices,
+    pointsOnly: true,
     forceHard: true,
   });
 
@@ -24181,7 +24837,11 @@ function App() {
       <button type="button" className="palette-action-btn primary" onClick={() => createLivecodeCanvasNode({ kind: isPublicSafeBuild ? LIVECODE_KINDS.p5 : LIVECODE_KINDS.strudel })}>Create Livecode Node</button>
     </div>;
     const node = normalizeLivecodeNode(nodeElement.customData?.underscoresLivecode);
-    const composition = normalizeLivecodeComposition(node.runtime.settings);
+    const shaderSettings = node.kind === LIVECODE_KINDS.shader
+      ? normalizeShaderCompositionSettings(node.runtime.settings)
+      : null;
+    const composition = shaderSettings || normalizeLivecodeComposition(node.runtime.settings);
+    const compositionCapabilities = getLivecodeCompositionCapabilities(node);
     const definition = getLivecodeKindDefinition(node.kind);
     const p5Validation = node.kind === LIVECODE_KINDS.p5 ? validateLivecodeNode(node) : null;
     const p5RuntimeStatus = p5Validation && !p5Validation.valid
@@ -24193,7 +24853,6 @@ function App() {
     const shaderExample = node.kind === LIVECODE_KINDS.shader && shaderExampleId
       ? getShaderExample(shaderExampleId)
       : null;
-    const shaderComposition = normalizeShaderCompositionSettings(node.runtime.settings);
     const shaderSourceMode = normalizeShaderSourceMode(node.runtime.settings?.shaderDialect);
     const livecodeExamples = getLivecodeExamples(node.kind);
     const activeLivecodeExampleId = node.kind === LIVECODE_KINDS.shader
@@ -24315,23 +24974,22 @@ function App() {
         {node.kind === LIVECODE_KINDS.orca
           ? <label className="livecode-view-control">View <span className="livecode-static-option">Grid</span></label>
           : <label className="livecode-view-control">View <select value={node.view === "overlay" ? "code" : node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="preview">Output</option><option value="source">Code</option><option value="code">Code Overlay</option>{node.kind !== LIVECODE_KINDS.strudel && <option value="split">Code/Output</option>}</select></label>}
-        {[LIVECODE_KINDS.p5, LIVECODE_KINDS.manim, LIVECODE_KINDS.playcore, LIVECODE_KINDS.shader, LIVECODE_KINDS.strudel, LIVECODE_KINDS.tixy].includes(node.kind) && <label title="Keep the most recent rendered canvas frame visible when this node is stopped. Readback happens only when stopping.">Last frame <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.keepLastFrame !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { keepLastFrame: event.target.checked } } }, { commitToHistory: true })} />Keep</span></label>}
+        {[LIVECODE_KINDS.p5, LIVECODE_KINDS.manim, LIVECODE_KINDS.three, LIVECODE_KINDS.playcore, LIVECODE_KINDS.shader, LIVECODE_KINDS.strudel, LIVECODE_KINDS.tixy].includes(node.kind) && <label title="Keep the most recent rendered canvas frame visible when this node is stopped. Readback happens only when stopping.">Last frame <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.keepLastFrame !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { keepLastFrame: event.target.checked } } }, { commitToHistory: true })} />Keep</span></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Choose the native compact Orca cell spacing or fill the host frame">Spacing <select value={node.runtime.settings?.orcaDensity === "spacious" ? "spacious" : "compact"} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaDensity: event.target.value } } }, { commitToHistory: true })}><option value="compact">Compact</option><option value="spacious">Spacious</option></select></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Number of editable Orca columns">Grid width <NumericInput min="4" max="128" step="1" value={node.runtime.settings?.orcaGridWidth || 32} defaultValue={32} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridWidth: value } } }, { commitToHistory: true })} /></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Number of editable Orca rows">Grid height <NumericInput min="2" max="128" step="1" value={node.runtime.settings?.orcaGridHeight || 16} defaultValue={16} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridHeight: value } } }, { commitToHistory: true })} /></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Automatically size Orca cells to fit the host frame"><span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.orcaGridFit !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridFit: event.target.checked } } }, { commitToHistory: true })} />Fit frame</span></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Show a faint guide lattice behind the Orca cells">Guide <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.orcaGridGuide === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridGuide: event.target.checked } } }, { commitToHistory: true })} />Grid</span></label>}
         {node.kind === LIVECODE_KINDS.p5 && <label title="Choose the embedded p5.js major runtime. The latest 2.x is the default; use 1.x for sketches or libraries that need the legacy API.">p5 version <select value={normalizeP5Version(node.runtime.settings?.p5Version)} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { p5Version: normalizeP5Version(event.target.value) } } }, { commitToHistory: true })}>{P5_RUNTIME_OPTIONS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>}
-        {node.kind === LIVECODE_KINDS.p5 && <label title="Choose whether this p5 surface is transparent or uses its authored/default background behavior">Background <select value={composition.backgroundMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { backgroundMode: event.target.value, transparent: undefined } } }, { commitToHistory: true })}><option value="auto">Adapter default</option><option value="transparent">Transparent surface</option><option value="solid">Solid / authored</option></select></label>}
-        {node.kind === LIVECODE_KINDS.p5 && <label title="Reset the p5 surface before each frame, or leave accumulation under sketch control">Frame reset <select value={composition.persistence} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { persistence: event.target.value } } }, { commitToHistory: true })}>{LIVECODE_PERSISTENCE_MODES.map(mode => <option key={mode} value={mode}>{mode === "auto" ? "Adapter default" : mode === "clear" ? "Clear each frame" : "Accumulate"}</option>)}</select></label>}
         <label title="Show the compact tab above this Livecode node on the canvas">Canvas tab <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.showChrome === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { showChrome: event.target.checked } } }, { commitToHistory: true })} />Show</span></label>
+        <label title="Default: this node receives scrolling, text, and sketch input. Enable only when you want pointer gestures to select or transform it with the canvas.">Canvas pointer <span className="livecode-checkbox"><input type="checkbox" checked={getLivecodePointerMode(node) === "canvas"} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { canvasPointerEvents: event.target.checked } } }, { commitToHistory: true })} />Pass through</span></label>
         {node.kind === LIVECODE_KINDS.shader && <label title="Choose the full GLSL ES 3.00 contract or a compact Twigl/Shadertoy-style fragment body">Source <select value={shaderSourceMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { shaderDialect: event.target.value } } }, { commitToHistory: true })}><option value="standard">GLSL 300</option><option value="shadertoy">Minimal / Twigl / Shadertoy</option></select></label>}
-        {node.kind === LIVECODE_KINDS.shader && <label>Layer <select value={shaderComposition.compositeMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeMode: event.target.value } } }, { commitToHistory: true })}><option value="overlay">Above objects</option><option value="underlay">Below objects</option></select></label>}
-        {node.kind === LIVECODE_KINDS.shader && <label>Opacity % <NumericInput min="0" max="100" step="5" value={Math.round(shaderComposition.compositeOpacity * 100)} defaultValue={100} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeOpacity: value / 100 } } }, { commitToHistory: true })} /></label>}
-        {node.kind === LIVECODE_KINDS.shader && <label>Blend <select value={shaderComposition.blendMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { blendMode: event.target.value } } }, { commitToHistory: true })}><option value="normal">Normal</option><option value="screen">Screen</option><option value="multiply">Multiply</option><option value="overlay">Overlay</option><option value="soft-light">Soft light</option></select></label>}
-        {node.kind === LIVECODE_KINDS.shader && <label>Background <select value={shaderComposition.backgroundMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { backgroundMode: event.target.value } } }, { commitToHistory: true })}><option value="solid">Solid</option><option value="transparent">Transparent</option></select></label>}
-        {node.kind === LIVECODE_KINDS.shader && shaderExample?.id === "inkwash" && <label title="Choose whether ink is emitted by authored Excalidraw paths or only by currently visible physics diagnostics">Emitters <select value={shaderComposition.emitterSource} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { emitterSource: event.target.value } } }, { commitToHistory: true })}><option value="scene">Scene objects</option><option value="debug">Physics debug</option></select></label>}
-        {node.kind === LIVECODE_KINDS.shader && ["fluid", "inkwash"].includes(shaderExample?.id) && <label title="Enable the selected geometry source as a continuously emitting flow field">Emission <span className="livecode-checkbox"><input type="checkbox" checked={shaderComposition.sceneInteraction} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { sceneInteraction: event.target.checked } } }, { commitToHistory: true })} />Enabled</span></label>}
+        {compositionCapabilities.compositeModes.length > 0 && <label title="Place this visual node above or below native canvas objects without copying its pixels">Layer <select value={composition.compositeMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeMode: event.target.value } } }, { commitToHistory: true })}>{compositionCapabilities.compositeModes.map(mode => <option key={mode} value={mode}>{mode === "underlay" ? "Below objects" : "Above objects"}</option>)}</select></label>}
+        <label title="Adjust this node surface in the browser compositor; native object opacity remains independent">Opacity % <NumericInput min="0" max="100" step="5" value={Math.round(composition.compositeOpacity * 100)} defaultValue={100} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeOpacity: value / 100 } } }, { commitToHistory: true })} /></label>
+        {compositionCapabilities.blendModes.length > 0 && <label title="Blend this node surface with the visual layers beneath it">Blend <select value={composition.blendMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { blendMode: event.target.value } } }, { commitToHistory: true })}>{compositionCapabilities.blendModes.map(mode => <option key={mode} value={mode}>{mode === "soft-light" ? "Soft light" : mode[0].toUpperCase() + mode.slice(1)}</option>)}</select></label>}
+        {compositionCapabilities.backgroundModes.length > 0 && <label title="Choose the host surface background. Authored canvas or iframe pixels may still paint their own background.">Background <select value={composition.backgroundMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { backgroundMode: event.target.value, transparent: undefined } } }, { commitToHistory: true })}>{compositionCapabilities.backgroundModes.map(mode => <option key={mode} value={mode}>{mode === "auto" ? "Adapter default" : mode === "transparent" ? "Transparent surface" : mode === "theme" ? "Theme surface" : "Solid / authored"}</option>)}</select></label>}
+        {compositionCapabilities.persistenceModes.length > 0 && <label title="Reset this renderer before each frame, or leave accumulation under the script's control">Frame reset <select value={composition.persistence} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { persistence: event.target.value } } }, { commitToHistory: true })}>{compositionCapabilities.persistenceModes.map(mode => <option key={mode} value={mode}>{mode === "auto" ? "Adapter default" : mode === "clear" ? "Clear each frame" : "Accumulate"}</option>)}</select></label>}
+        {node.kind === LIVECODE_KINDS.shader && shaderExample?.id === "inkwash" && <label title="Choose whether ink is emitted by authored Excalidraw paths or only by currently visible physics diagnostics">Emitters <select value={shaderSettings.emitterSource} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { emitterSource: event.target.value } } }, { commitToHistory: true })}><option value="scene">Scene objects</option><option value="debug">Physics debug</option></select></label>}
         {node.kind === LIVECODE_KINDS.strudel && <label>Transport <span className="livecode-checkbox"><input type="checkbox" checked={Boolean(node.runtime.settings?.syncTransport)} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { syncTransport: event.target.checked } } }, { commitToHistory: true })} />Full sync</span></label>}
         {node.kind === LIVECODE_KINDS.strudel && <label title="Render public Strudel visualizers such as .pianoroll() across this node frame">Visuals <span className="livecode-checkbox"><input type="checkbox" aria-label="Strudel frame visuals" checked={node.runtime.settings?.frameVisuals !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { frameVisuals: event.target.checked } } }, { commitToHistory: true })} />Frame</span></label>}
         <label title="Ctrl-M, then L">Lines <span className="livecode-checkbox"><input type="checkbox" checked={node.typography.showLineNumbers} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { typography: { showLineNumbers: event.target.checked } }, { commitToHistory: true })} />Numbers</span></label>
@@ -27663,6 +28321,17 @@ function App() {
       setLivecodeOverlayScene(livecodeOverlaySyncRef.current.pending);
     });
   };
+  const syncOutlinerScene = elements => {
+    const signature = (elements || []).map(element => [
+      element?.id || "",
+      element?.isDeleted ? 1 : 0,
+      element?.version || 0,
+      element?.versionNonce || 0,
+    ].join(":")).join("|");
+    if (outlinerSceneSignatureRef.current === signature) return;
+    outlinerSceneSignatureRef.current = signature;
+    setOutlinerSceneElements([...(elements || [])]);
+  };
   const updateInfoViewFromEvent = event => {
     const editor = event.target?.closest?.(".underscores-code-editor, .orca-node, .livecode-markdown-block textarea");
     if (editor) {
@@ -27788,7 +28457,10 @@ function App() {
         id="canvas-container" 
         onPointerDownCapture={handleCanvasPointerDown}
         onPointerMoveCapture={handleCanvasPointerMove}
-        onPointerLeave={() => setHoveredLinkedElementId(null)}
+        onPointerLeave={() => {
+          setHoveredLinkedElementId(null);
+          clearClassicSelectionCursor();
+        }}
         onPointerUpCapture={handleCanvasPointerUp}
         onPointerCancelCapture={handleCanvasPointerUp}
         onLostPointerCaptureCapture={handleCanvasPointerUp}
@@ -27840,7 +28512,7 @@ function App() {
             appState: {
               currentItemRoughness: 0,
               currentItemRoundness: globalRoundness ? "round" : "sharp",
-              viewBackgroundColor: shaderUnderlayActive
+              viewBackgroundColor: livecodeUnderlayActive
                 ? "transparent"
                 : canvasColorForExcalidraw(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme),
               gridSize: null,
@@ -27855,6 +28527,7 @@ function App() {
             syncP5Overlay(elements, appState);
             syncSvgOverlay(elements, appState);
             syncLivecodeOverlay(elements, appState);
+            syncOutlinerScene(elements);
 
             // Frames are native grouping containers, but their visual title is
             // Underscores presentation state. Once native creation finishes,
@@ -27962,9 +28635,10 @@ function App() {
               });
             }
 
-            if (appState.draggingElement) gridInteractionRef.current.moving = true;
-            if (appState.resizingElement || appState.isRotating) gridInteractionRef.current.resizing = true;
-            if (activeLinearState && isMouseDownRef.current) {
+            const gridPointerMoved = gridInteractionRef.current.moved;
+            if (gridPointerMoved && appState.draggingElement) gridInteractionRef.current.moving = true;
+            if (gridPointerMoved && (appState.resizingElement || appState.isRotating)) gridInteractionRef.current.resizing = true;
+            if (gridPointerMoved && activeLinearState && isMouseDownRef.current) {
               gridInteractionRef.current.pointEditing = true;
               const selectedPointIndices = activeLinearState.selectedPointsIndices;
               const lastClickedPoint = activeLinearState.pointerDownState?.lastClickedPoint;
@@ -29185,7 +29859,7 @@ function App() {
             onExpand={() => setCollapsedDocks(previous => ({ ...previous, [panelLayouts.outliner.placement]: false }))}
           >
             <OutlinerPanel
-              elements={excalidrawAPI?.getSceneElementsIncludingDeleted() || []}
+              elements={outlinerSceneElements}
               selectedElementIds={selectedElementIds}
               selectedSvgNode={selectedSvgNode}
               onSelect={(elementId, selection = {}) => {
@@ -30544,7 +31218,7 @@ function App() {
 
       {showContextPrompt && (
         <div className={`excalidraw theme--${theme}`}>
-          <div id="context-prompt-overlay" onClick={() => { setShowContextPrompt(false); setContextPrompt(""); setContextPromptPosition(null); }}>
+          <div id="context-prompt-overlay" onClick={() => { setShowContextPrompt(false); setContextPrompt(""); setContextPromptIndex(0); setContextPromptPosition(null); }}>
             <div
               className="context-prompt-card command-palette-card"
               style={contextPromptPosition ? { left: `${contextPromptPosition.left}px`, top: `${contextPromptPosition.top}px` } : undefined}
@@ -30557,7 +31231,10 @@ function App() {
                   id="context-prompt-input"
                   rows={1}
                   value={contextPrompt}
-                  onChange={event => setContextPrompt(event.target.value)}
+                  onChange={event => {
+                    setContextPrompt(event.target.value);
+                    setContextPromptIndex(0);
+                  }}
                   placeholder=""
                   aria-label="Context AI command"
                   onKeyDown={event => {
@@ -30565,18 +31242,58 @@ function App() {
                       event.preventDefault();
                       setShowContextPrompt(false);
                       setContextPrompt("");
+                      setContextPromptIndex(0);
                       setContextPromptPosition(null);
+                    } else if (event.key === "ArrowDown" && filteredContextOperationSuggestions.length > 0) {
+                      event.preventDefault();
+                      setContextPromptIndex(index => (index + 1) % filteredContextOperationSuggestions.length);
+                    } else if (event.key === "ArrowUp" && filteredContextOperationSuggestions.length > 0) {
+                      event.preventDefault();
+                      setContextPromptIndex(index => (index - 1 + filteredContextOperationSuggestions.length) % filteredContextOperationSuggestions.length);
+                    } else if (event.key === "Tab" && filteredContextOperationSuggestions.length > 0) {
+                      event.preventDefault();
+                      selectContextOperation(filteredContextOperationSuggestions[contextPromptIndex] || filteredContextOperationSuggestions[0]);
                     } else if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
                       const prompt = contextPrompt.trim();
+                      const parsed = parseSelectionOperation(prompt);
+                      if (!parsed && filteredContextOperationSuggestions.length > 0) {
+                        selectContextOperation(filteredContextOperationSuggestions[contextPromptIndex] || filteredContextOperationSuggestions[0]);
+                        return;
+                      }
                       setShowContextPrompt(false);
                       setContextPrompt("");
+                      setContextPromptIndex(0);
                       setContextPromptPosition(null);
                       if (prompt) void contextPromptActionRef.current?.(prompt);
                     }
                   }}
                 />
               </div>
+              {filteredContextOperationSuggestions.length > 0 && (
+                <div className="context-prompt-autocomplete" role="listbox" aria-label="Selection operations">
+                  {filteredContextOperationSuggestions.map((operation, index) => (
+                    <button
+                      key={operation.id}
+                      type="button"
+                      role="option"
+                      aria-selected={index === contextPromptIndex}
+                      className={index === contextPromptIndex ? "is-active" : ""}
+                      onMouseEnter={() => setContextPromptIndex(index)}
+                      onMouseDown={event => {
+                        event.preventDefault();
+                        selectContextOperation(operation);
+                      }}
+                    >
+                      <span className="context-prompt-operation-name">{operation.name}</span>
+                      <span className="context-prompt-operation-meta">
+                        <span className="command-category">{operation.category}</span>
+                        <span className="context-prompt-operation-syntax">{operation.syntax}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -30836,7 +31553,7 @@ function App() {
                   Export Selected p5 Frame as PNG
                 </button>
               )}
-              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showToSvg || customContextMenu.showMakeBody || customContextMenu.showMakeRole || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showMigrateLivecode || customContextMenu.showAttachSvgCode || customContextMenu.showMakePreview || customContextMenu.showCreateLivecode || customContextMenu.showViewportFit || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
+              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showToSvg || customContextMenu.showMakeBody || customContextMenu.showMakeRole || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showMigrateLivecode || customContextMenu.showAttachSvgCode || customContextMenu.showMakePreview || customContextMenu.showCreateLivecode || customContextMenu.showViewportFit || customContextMenu.showSharpRound || customContextMenu.showPathOperations || customContextMenu.showSnapPoints) && <div className="custom-floating-context-menu-separator" />}
             </>
           )}
           {customContextMenu.showViewportFit && (
@@ -31245,6 +31962,31 @@ function App() {
             </>
           )}
 
+          {customContextMenu.showSnapPoints && (
+            <button
+              onPointerDown={event => {
+                event.preventDefault();
+                event.stopPropagation();
+                const elementIds = customContextMenu.elementIds?.length
+                  ? customContextMenu.elementIds
+                  : getSelectedElements().map(element => element.id);
+                void commandRegistry.execute("grid.snap.points", { elementIds }, {
+                  source: "context-menu",
+                  record: true,
+                  transportTime: scoreTimeRef.current,
+                }).catch(error => setSceneExchangeStatus(error.message || "Could not snap points to the grid."));
+                setCustomContextMenu(null);
+              }}
+              className="custom-floating-context-menu-btn"
+              title="Snap every authored point in the selected paths to the current grid while preserving their stroke characteristics"
+            >
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                <path strokeLinecap="round" d="M3 6h18M3 12h18M3 18h18M6 3v18M12 3v18M18 3v18" />
+              </svg>
+              Snap Points to Grid
+            </button>
+          )}
+
           {customContextMenu.showPathOperations && (
             <>
               {/* Separator and Curve Operations */}
@@ -31253,7 +31995,7 @@ function App() {
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              handleSimplifyStroke("rdp");
+              void commandRegistry.execute("path.simplify.rdp", {}, { source: "context-menu", record: true, transportTime: scoreTimeRef.current }).catch(error => setSceneExchangeStatus(error.message || "Could not simplify the path."));
               setCustomContextMenu(null);
             }}
             className="custom-floating-context-menu-btn"
@@ -31268,7 +32010,7 @@ function App() {
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              handleSimplifyStroke("vw");
+              void commandRegistry.execute("path.simplify.vw", {}, { source: "context-menu", record: true, transportTime: scoreTimeRef.current }).catch(error => setSceneExchangeStatus(error.message || "Could not simplify the path."));
               setCustomContextMenu(null);
             }}
             className="custom-floating-context-menu-btn"
@@ -31283,7 +32025,7 @@ function App() {
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              handleSimplifyStroke("smooth");
+              void commandRegistry.execute("path.smooth", {}, { source: "context-menu", record: true, transportTime: scoreTimeRef.current }).catch(error => setSceneExchangeStatus(error.message || "Could not smooth the path."));
               setCustomContextMenu(null);
             }}
             className="custom-floating-context-menu-btn"
@@ -31298,7 +32040,7 @@ function App() {
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              handleSimplifyStroke("taubin");
+              void commandRegistry.execute("path.smooth.taubin", {}, { source: "context-menu", record: true, transportTime: scoreTimeRef.current }).catch(error => setSceneExchangeStatus(error.message || "Could not smooth the path."));
               setCustomContextMenu(null);
             }}
             className="custom-floating-context-menu-btn"
@@ -31313,7 +32055,7 @@ function App() {
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              handleSimplifyStroke("resample");
+              void commandRegistry.execute("path.resample", {}, { source: "context-menu", record: true, transportTime: scoreTimeRef.current }).catch(error => setSceneExchangeStatus(error.message || "Could not resample the path."));
               setCustomContextMenu(null);
             }}
             className="custom-floating-context-menu-btn"
@@ -31328,7 +32070,7 @@ function App() {
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              handleSimplifyStroke("close");
+              void commandRegistry.execute("path.close", {}, { source: "context-menu", record: true, transportTime: scoreTimeRef.current }).catch(error => setSceneExchangeStatus(error.message || "Could not close the path."));
               setCustomContextMenu(null);
             }}
             className="custom-floating-context-menu-btn"
@@ -31339,21 +32081,6 @@ function App() {
             </svg>
             Close & Smooth Joint
           </button>
-          <button
-            onPointerDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              handleSimplifyStroke("snap");
-              setCustomContextMenu(null);
-            }}
-            className="custom-floating-context-menu-btn"
-            title="Snap all points of the selected curve individually to the nearest grid intersection"
-          >
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 14h18M10 3v18M14 3v18" />
-            </svg>
-            Snap Points to Grid
-              </button>
             </>
           )}
         </div>
