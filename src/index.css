@@ -546,8 +546,8 @@ body, html {
   background-color: var(--bg-app);
 }
 
-/* Shader underlays mirror excalishader's transparent-canvas composition:
- * Underscores supplies the board background, the shader paints above it, and
+/* Livecode underlays mirror excalishader's transparent-canvas composition:
+ * Underscores supplies the board background, the live surface paints above it, and
  * Excalidraw's transparent drawing canvas keeps authored strokes crisp. */
 #canvas-container > .excalidraw {
   position: relative;
@@ -4170,6 +4170,16 @@ body .excalidraw .sidebar {
   z-index: 0;
 }
 
+/* Text selection and caret placement require trusted pointer events; synthetic
+   events routed from the Excalidraw canvas cannot move a browser caret. Raise
+   an active code editor above that canvas only while it is actually editing.
+   Preview mode remains a true underlay, preserving its authored composition. */
+.underscores-livecode-overlay.underlay:has(
+  .underscores-livecode-node.editing:not(.preview)[data-livecode-pointer-mode="node"]
+) {
+  z-index: 3;
+}
+
 .underscores-livecode-overlay.underlay .underscores-shader-frame {
   border-color: transparent;
 }
@@ -4185,6 +4195,41 @@ body .excalidraw .sidebar {
      the overlay from negotiating browser scroll/zoom prevents a selected
      node from turning a board pinch into page zoom. */
   touch-action: none;
+}
+
+/* A Livecode node is an interactive surface by default. Its explicit Canvas
+   pointer setting turns this off so the underlying Excalidraw host remains
+   directly selectable and draggable. */
+.underscores-livecode-node[data-livecode-pointer-mode="node"] {
+  pointer-events: auto;
+  touch-action: pan-x pan-y;
+}
+
+.underscores-livecode-node[data-livecode-pointer-mode="canvas"] {
+  pointer-events: none;
+  touch-action: none;
+}
+
+.underscores-livecode-node[data-livecode-background="theme"] {
+  background: color-mix(in srgb, var(--underscores-panel-bg, var(--island-bg-color)) 24%, transparent);
+}
+
+.underscores-livecode-node[data-livecode-background="solid"]:not([data-livecode-kind="shader"]) {
+  background: var(--underscores-panel-bg, var(--island-bg-color));
+}
+
+.underscores-livecode-node:is(
+  [data-livecode-background="transparent"],
+  [data-livecode-background="theme"],
+  [data-livecode-background="solid"]
+) :is(
+  .livecode-node-preview,
+  .livecode-markdown,
+  .livecode-latex,
+  .livecode-html-frame,
+  .livecode-svg
+) {
+  background: transparent;
 }
 
 .underscores-livecode-node.ai-query-active::after {
@@ -5128,7 +5173,7 @@ body .excalidraw .sidebar {
   margin: 0;
 }
 
-.underscores-livecode-node.editing {
+.underscores-livecode-node.editing:not(.preview) {
   z-index: 4;
   pointer-events: auto;
   /* Editing surfaces keep native two-finger text scrolling; board gestures
@@ -7806,6 +7851,22 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .manim-livecode-frame { position: relative; width: 100%; height: 100%; overflow: hidden; background: transparent; }
 .manim-livecode-host { width: 100%; height: 100%; }
 .manim-livecode-host canvas { display: block; width: 100% !important; height: 100% !important; }
+.underscores-three-frame,
+.underscores-three-host,
+.underscores-three-canvas {
+  width: 100%;
+  height: 100%;
+}
+.underscores-three-frame,
+.underscores-three-host {
+  position: relative;
+  overflow: hidden;
+  background: transparent;
+}
+.underscores-three-canvas {
+  display: block;
+  touch-action: none;
+}
 .manim-cue-next {
   pointer-events: auto;
   appearance: none;

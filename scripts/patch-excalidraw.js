@@ -72,6 +72,18 @@ for (const target of targets) {
         /remotePointerViewportCoords:o/g,
         'remotePointerViewportCoords:{}'
       )
+      // Excalidraw's one-step layer actions otherwise also match the macOS
+      // Cmd+Option bracket chords. Their higher key priority then wins before
+      // the corresponding Send to back / Bring to front action gets a chance
+      // to run. Reserve Option for the all-the-way layer actions.
+      .replace(
+        /(keyTest: event => event\[_keys__WEBPACK_IMPORTED_MODULE_3__\.KEYS\.CTRL_OR_CMD\] && !event\.shiftKey) && (event\.code === _keys__WEBPACK_IMPORTED_MODULE_3__\.CODES\.BRACKET_(?:LEFT|RIGHT),)/g,
+        '$1 && !event.altKey && $2'
+      )
+      .replace(
+        /(keyTest:function\(e\)\{return e\[[A-Za-z_$][A-Za-z0-9_$]*\.tW\.CTRL_OR_CMD\]&&!e\.shiftKey)(&&e\.code===[A-Za-z_$][A-Za-z0-9_$]*\.aU\.BRACKET_(?:LEFT|RIGHT))/g,
+        '$1&&!e.altKey$2'
+      )
       // Replace deprecated unload event with pagehide to satisfy browser policies
       .replace(/(EVENT\\?\[\\?["']UNLOAD\\?["']\\?\]\s*=\s*)(\\?["'])unload\2/gi, '$1$2pagehide$2')
       .replace(/(\bUNLOAD\s*=\s*)(\\?["'])unload\2/gi, '$1$2pagehide$2');

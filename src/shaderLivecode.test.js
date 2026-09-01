@@ -5,6 +5,7 @@ import {
   getShaderExample,
   INKWASH_FRAGMENT_SOURCE,
   normalizeShaderCompositionSettings,
+  resolveShaderEmissionEnabled,
   isShaderUnderlayVisible,
   prepareShaderSource,
   SHADER_EXAMPLES,
@@ -89,10 +90,17 @@ test("the shader catalog exposes the excalishader examples, Inkwash, and Stokes"
   assert.equal(getShaderExample("missing").id, "hello");
   assert.equal(getShaderExample("minimal-raymarch").dialect, "shadertoy");
   assert.match(FLUID_BRUSH_FRAGMENT_SOURCE, /uniform vec4 u_segments/);
+  assert.match(FLUID_BRUSH_FRAGMENT_SOURCE, /@param emission = true \(boolean\)/);
   assert.match(FLUID_BRUSH_FRAGMENT_SOURCE, /uniform float u_sceneInteraction/);
   assert.match(INKWASH_FRAGMENT_SOURCE, /float mobility/);
   assert.match(INKWASH_FRAGMENT_SOURCE, /uniform float u_brushMode/);
   assert.match(INKWASH_FRAGMENT_SOURCE, /float sceneCapacity/);
+});
+
+test("fluid emission is an authored parameter with legacy node-setting fallback", () => {
+  assert.equal(resolveShaderEmissionEnabled({ source: FLUID_BRUSH_FRAGMENT_SOURCE, parameters: {} }), true);
+  assert.equal(resolveShaderEmissionEnabled({ source: FLUID_BRUSH_FRAGMENT_SOURCE, parameters: { emission: false } }), false);
+  assert.equal(resolveShaderEmissionEnabled({ source: "void main() {}", runtime: { settings: { sceneInteraction: false } } }), false);
 });
 
 test("shader composition settings normalize optional layering and transparency", () => {

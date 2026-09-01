@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { SHADER_VERTEX_SOURCE } from "./shaderLivecode.js";
 import { collectShaderSceneSegments, collectShaderWorldSegments, flattenShaderSegments, MAX_SHADER_SEGMENTS } from "./shaderSceneGeometry.js";
 import { publishShaderStatus } from "./shaderStatus.js";
+import { resolveShaderEmissionEnabled } from "./shaderLivecode.js";
 import { isLivecodeTransportPlaying } from "./livecodeTransport.js";
 import { readWebglFrame, registerLivecodeCapture } from "./livecodeCapture.js";
 
@@ -110,6 +111,7 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
   const transportRef = useRef(transport);
   const elementRef = useRef(element);
   const statusRef = useRef({});
+  const emissionEnabled = resolveShaderEmissionEnabled(node);
   transportRef.current = transport;
   elementRef.current = element;
   statusRef.current = {
@@ -303,7 +305,9 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
         if (segmentsLocation || segmentCountLocation) {
           const shaderElement = elementRef.current;
           const useDebugEmitters = node.runtime.settings?.emitterSource === "debug";
-          if (useDebugEmitters) {
+          if (!emissionEnabled) {
+            geometryCache = { elements: null, nodeSignature: "disabled", values: null, count: 0 };
+          } else if (useDebugEmitters) {
             const segments = collectShaderWorldSegments(
               scriptRuntimeRef.current?.getPhysicsDebugSegments?.() || [],
               shaderElement,
@@ -328,10 +332,10 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
               };
             }
           }
-          if (segmentsLocation) gl.uniform4fv(segmentsLocation, geometryCache.values);
+          if (segmentsLocation && geometryCache.values) gl.uniform4fv(segmentsLocation, geometryCache.values);
           if (segmentCountLocation) gl.uniform1f(segmentCountLocation, geometryCache.count);
         }
-        setUniform1f(uniforms.sceneInteraction, node.runtime.settings?.sceneInteraction === false ? 0 : 1);
+        setUniform1f(uniforms.sceneInteraction, emissionEnabled ? 1 : 0);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
 
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -374,7 +378,7 @@ export default function FluidShaderFrame({ element, node, transport, scriptRunti
       window.removeEventListener("pointercancel", handlePointerUp);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [node.runtime.settings?.backgroundMode, node.runtime.settings?.emitterSource, node.runtime.settings?.sceneInteraction, node.runtime.settings?.shaderExample, node.runtime.transportMode, scriptRuntimeRef]);
+  }, [emissionEnabled, node.runtime.settings?.backgroundMode, node.runtime.settings?.emitterSource, node.runtime.settings?.shaderExample, node.runtime.transportMode, scriptRuntimeRef]);
 
   return <div className={`underscores-shader-frame underscores-fluid-shader-frame${node.runtime.settings?.backgroundMode === "transparent" ? " transparent-background" : ""}`}>
     <canvas ref={canvasRef} className="underscores-shader-canvas" aria-label="GLSL output" />

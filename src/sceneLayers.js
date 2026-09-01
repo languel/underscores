@@ -67,6 +67,60 @@ export const reorderSceneElements = (
   return next.every((element, index) => element === elements[index]) ? elements : next;
 };
 
+// Reorder a selection using the same back-to-front array that Excalidraw
+// paints. Keeping this here lets keyboard, slash/WebMCP, and Outliner paths
+// share one stack model instead of relying on a focused DOM surface to pass a
+// native Excalidraw keyboard event through.
+export const reorderSelectedSceneElements = (
+  elements = [],
+  selectedElementIds = {},
+  direction = "forward",
+) => {
+  if (!Array.isArray(elements)) return elements;
+  const selected = new Set(Object.entries(selectedElementIds || {})
+    .filter(([, value]) => value)
+    .map(([id]) => id));
+  if (!selected.size) return elements;
+
+  const hasLiveSelection = elements.some(element => selected.has(element?.id) && !element?.isDeleted);
+  if (!hasLiveSelection) return elements;
+
+  if (direction === "back" || direction === "front") {
+    const selectedElements = elements.filter(element => selected.has(element?.id) && !element?.isDeleted);
+    const remainingElements = elements.filter(element => !selected.has(element?.id) || element?.isDeleted);
+    const next = direction === "back"
+      ? [...selectedElements, ...remainingElements]
+      : [...remainingElements, ...selectedElements];
+    return next.every((element, index) => element === elements[index]) ? elements : next;
+  }
+
+  const next = [...elements];
+  if (direction === "backward") {
+    for (let index = 1; index < next.length; index += 1) {
+      if (
+        selected.has(next[index]?.id)
+        && !next[index]?.isDeleted
+        && !selected.has(next[index - 1]?.id)
+        && !next[index - 1]?.isDeleted
+      ) {
+        [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      }
+    }
+  } else {
+    for (let index = next.length - 2; index >= 0; index -= 1) {
+      if (
+        selected.has(next[index]?.id)
+        && !next[index]?.isDeleted
+        && !selected.has(next[index + 1]?.id)
+        && !next[index + 1]?.isDeleted
+      ) {
+        [next[index], next[index + 1]] = [next[index + 1], next[index]];
+      }
+    }
+  }
+  return next.every((element, index) => element === elements[index]) ? elements : next;
+};
+
 const liveElementIds = (elements, elementIds) => new Set(
   (elementIds || []).filter(id => elements.some(element => element?.id === id && !element.isDeleted)),
 );

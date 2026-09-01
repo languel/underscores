@@ -47,6 +47,18 @@ export const HELP_TOPICS = Object.freeze([
     body: "Shared @param declarations accept numbers, strings, CSS colors, booleans, parsed JSON values, and canvas object references. Numbers keep their range and step controls; colors use the compact in-app picker, live app/canvas eyedropper preview, and dynamic __ color references; JSON is edited as a JavaScript value and object references resolve through the canvas query API.",
   },
   {
+    id: "livecode-compositing",
+    title: "Livecode compositing",
+    keywords: "livecode compositing composition layer underlay overlay blend opacity background transparent theme solid performance gpu fluid brush emission",
+    body: "Every visual Livecode node can be composed without flattening its output. Layer places the node above or below native canvas objects; Opacity and Blend are browser-compositor properties; Background controls the host surface while preserving adapter-owned pixels. Defaults remain Above objects, 100%, Normal, and Adapter default, so an untouched node adds no extra blending work.\n\nLarge overlapping translucent or blended surfaces cost GPU fill-rate in proportion to their pixel area. Prefer Normal for nodes that do not need blending, keep full-canvas feedback nodes bounded, and avoid stacking many Retina-sized transparent surfaces. Composition never reads pixels back or writes scene state per frame.\n\nFluid Brush and Inkwash declare // @param emission = true (boolean). Emission lets the chosen scene or physics-debug geometry continuously inject and stir dye or wet pigment. Turn it off in Parameters to keep pointer painting while skipping geometry collection. Older patches with the former node setting remain compatible.",
+    examples: [
+      "layer underlay",
+      "blend screen",
+      "node opacity 65",
+      "// @param emission = true (boolean)",
+    ],
+  },
+  {
     id: "script-svg",
     title: "SVG quick reference",
     keywords: "svg quick reference path shape transform style viewbox source editor anchor bezier",
@@ -70,7 +82,7 @@ export const HELP_TOPICS = Object.freeze([
     id: "script-glsl",
     title: "GLSL quick reference",
     keywords: "glsl quick reference livecode shader fragment uv fc r t resolution composition",
-    body: "GLSL nodes render fragment shaders into a composable Livecode surface. The standard inputs include FC.xy for the fragment coordinate, r.xy for the surface resolution, and t for shared time. Keep the shader deterministic and let the node settings choose preview or output behavior.",
+    body: "GLSL nodes render fragment shaders into a composable Livecode surface. The standard inputs include FC.xy for the fragment coordinate, r.xy for the surface resolution, and t for shared time. Layer, surface opacity, blend, and background use the shared Livecode compositor. Fluid Brush and Inkwash expose Emission as a script parameter: it lets scene or physics-debug geometry continuously inject and stir dye while pointer painting remains available.",
     examples: [
       "vec2 uv = (FC.xy - 0.5 * r.xy) / r.y;",
       "o = vec4(0.1 + 0.4 * sin(t + uv.x), 0.25, 0.8, 1.0);",
@@ -139,6 +151,16 @@ export const HELP_TOPICS = Object.freeze([
     examples: [
       "const shape = new Circle();",
       "await scene.play(new Create(shape));",
+    ],
+  },
+  {
+    id: "script-three",
+    title: "Three.js quick reference",
+    keywords: "three threejs webgl 3d scene camera renderer mesh geometry material tick dispose livecode transport params",
+    body: "Three.js nodes are independent bundled 3D Livecode scenes, not a Manim backend. Source receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), and __. Build geometry once, add it to scene, and animate with tick. Linked follows Score transport; Free uses the node clock. Use onDispose for listeners or resources that are not attached to the scene graph.",
+    examples: [
+      "const mesh = new THREE.Mesh(new THREE.TorusKnotGeometry(), new THREE.MeshNormalMaterial());\nscene.add(mesh);",
+      "tick(({ delta }) => { mesh.rotation.y += delta; });",
     ],
   },
   {

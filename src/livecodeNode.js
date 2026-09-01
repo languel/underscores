@@ -13,6 +13,7 @@ export const LIVECODE_KINDS = Object.freeze({
   strudel: "strudel",
   p5: "p5",
   manim: "manim",
+  three: "three",
   playcore: "playcore",
   markdown: "markdown",
   latex: "latex",
@@ -30,6 +31,7 @@ export const LIVECODE_KIND_ORDER = Object.freeze([
   LIVECODE_KINDS.p5,
   LIVECODE_KINDS.markdown,
   LIVECODE_KINDS.shader,
+  LIVECODE_KINDS.three,
   LIVECODE_KINDS.tixy,
   LIVECODE_KINDS.html,
   LIVECODE_KINDS.strudel,
@@ -61,6 +63,13 @@ export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
     defaultName: "Untitled Manim",
     defaultSource: `// @param radius = 1.5 (0.25..3 step:0.05)\nconst circle = new Circle({ radius: __.params.radius });\n\nawait scene.play(new Create(circle));\nawait cue("Transform");\nconst square = new Square({ sideLength: __.params.radius * 2 });\nawait scene.play(new Transform(circle, square));`,
     summary: "Interactive mathematical animation with manim-web. Uses the shared Livecode parameters, free/linked transport, and optional cue progression.",
+  }),
+  [LIVECODE_KINDS.three]: Object.freeze({
+    label: "Three.js",
+    editorProfile: "javascript",
+    defaultName: "Untitled Three.js",
+    defaultSource: `// @param speed = 0.7 (0..3 step:0.05)\nconst geometry = new THREE.IcosahedronGeometry(1.2, 2);\nconst material = new THREE.MeshStandardMaterial({\n  color: __.currentColor,\n  roughness: 0.28,\n  metalness: 0.42,\n});\nconst form = new THREE.Mesh(geometry, material);\nscene.add(form);\n\nscene.add(new THREE.HemisphereLight(0x8bd5ff, 0x0a0d16, 2.2));\nconst key = new THREE.DirectionalLight(0xffffff, 2.4);\nkey.position.set(3, 2, 4);\nscene.add(key);\n\ntick(({ delta }) => {\n  form.rotation.x += delta * __.params.speed;\n  form.rotation.y += delta * __.params.speed * 1.35;\n});`,
+    summary: "Standalone Three.js scene with a bundled renderer, shared Livecode parameters, free/linked transport, and canvas compositing.",
   }),
   [LIVECODE_KINDS.playcore]: Object.freeze({
     label: "Play Core",
@@ -140,7 +149,7 @@ export const DEFAULT_LIVECODE_TYPOGRAPHY = Object.freeze({
   ligatures: true,
   showLineNumbers: false,
   showFoldGutter: false,
-  codeOverlayOpacity: 0,
+  codeOverlayOpacity: 0.5,
   glyphOnlyOverlay: true,
 });
 
@@ -254,6 +263,7 @@ export const isLivecodeCommandCycleGesture = event => Boolean(
 
 export const normalizeLivecodeTypography = value => {
   const raw = value && typeof value === "object" ? value : {};
+  const codeOverlayOpacity = Number(raw.codeOverlayOpacity);
   return {
     font: getLivecodeFont(raw.font).id,
     fontSize: Math.max(8, Math.min(72, Number(raw.fontSize) || DEFAULT_LIVECODE_TYPOGRAPHY.fontSize)),
@@ -263,7 +273,9 @@ export const normalizeLivecodeTypography = value => {
     ligatures: raw.ligatures !== false,
     showLineNumbers: raw.showLineNumbers === true,
     showFoldGutter: raw.showFoldGutter === true,
-    codeOverlayOpacity: Math.max(0, Math.min(1, Number(raw.codeOverlayOpacity) || DEFAULT_LIVECODE_TYPOGRAPHY.codeOverlayOpacity)),
+    codeOverlayOpacity: Number.isFinite(codeOverlayOpacity)
+      ? Math.max(0, Math.min(1, codeOverlayOpacity))
+      : DEFAULT_LIVECODE_TYPOGRAPHY.codeOverlayOpacity,
     glyphOnlyOverlay: raw.glyphOnlyOverlay !== false,
   };
 };
@@ -301,6 +313,18 @@ export const isLivecodeAutoUpdateEnabled = rawNode => {
   if (typeof setting === "boolean") return setting;
   return kind !== LIVECODE_KINDS.strudel;
 };
+
+// Livecode surfaces own pointer input by default. This keeps scrolling,
+// editing, and interactive sketches independent from Excalidraw gestures.
+// Authors can opt a node into canvas pass-through when they want to select or
+// transform it directly on the board.
+export const getLivecodePointerMode = rawNode => (
+  rawNode?.runtime?.settings?.canvasPointerEvents === true ? "canvas" : "node"
+);
+
+export const livecodeConsumesPointerEvents = rawNode => (
+  getLivecodePointerMode(rawNode) === "node"
+);
 
 export const resolveLivecodeRuntimeSource = rawNode => {
   const source = typeof rawNode?.source === "string" ? rawNode.source : "";

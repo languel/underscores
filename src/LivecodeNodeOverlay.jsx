@@ -2,8 +2,9 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import UnderscoresCodeEditor from "./UnderscoresCodeEditor.jsx";
 import P5Frame from "./P5Frame.jsx";
 import ManimFrame from "./ManimFrame.jsx";
+import ThreeFrame from "./ThreeFrame.jsx";
 import { PlayCoreFrame } from "./PlayCoreFrame.jsx";
-import { getLivecodeRuntimeConfig, isLivecodeNodeRunnable, validateLivecodeNode } from "./livecodeAdapters.js";
+import { getLivecodeCompositionCapabilities, getLivecodeRuntimeConfig, isLivecodeNodeRunnable, validateLivecodeNode } from "./livecodeAdapters.js";
 import { getStrudelRuntimeManager } from "./strudelRuntime.js";
 import { createScriptCanvasApi, resolveScriptParameterValues } from "./scriptRuntime.js";
 import { parseScriptParameters } from "./scriptParameters.js";
@@ -12,14 +13,17 @@ import OrcaNode from "./OrcaNode.jsx";
 import ShaderLivecodeFrame from "./ShaderLivecodeFrame.jsx";
 import TixyFrame from "./TixyFrame.jsx";
 import { normalizeShaderCompositionSettings } from "./shaderLivecode.js";
+import { livecodeRendererSettings, normalizeLivecodeComposition } from "./livecodeComposition.js";
 import { validateP5Source } from "./p5Frame.js";
 import { validateManimSource } from "./manimFrame.js";
+import { validateThreeSource } from "./threeFrame.js";
 import { sourceDiagnostic } from "./scriptEditorDiagnostics.js";
 import {
   getLivecodeEditorProfile,
   getLivecodeFont,
   getLivecodeKindDefinition,
   getLivecodeViewForDoubleClick,
+  getLivecodePointerMode,
   adjustLivecodeFontSize,
   isLivecodeCommandOutputGesture,
   LIVECODE_KIND_DEFINITIONS,
@@ -40,6 +44,12 @@ import { SquareClockIcon, StopwatchIcon } from "./UnderscoresPanel.jsx";
 
 const StopIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1" /></svg>;
 const RunIcon = () => <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 9 6-9 6V6Z" /></svg>;
+
+const compositionForNode = node => (
+  node.kind === "shader"
+    ? normalizeShaderCompositionSettings(node.runtime.settings)
+    : normalizeLivecodeComposition(node.runtime.settings)
+);
 
 const LivecodeAutoUpdateIcon = ({ enabled }) => enabled
   ? <svg className="livecode-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -155,6 +165,11 @@ export function LivecodeNodeEditor({
         return validation.valid
           ? []
           : [sourceDiagnostic(source, `Manim does not compile: ${validation.error || "syntax error"}`)];
+      } : node.kind === "three" ? source => {
+        const validation = validateThreeSource(source);
+        return validation.valid
+          ? []
+          : [sourceDiagnostic(source, `Three.js does not compile: ${validation.error || "syntax error"}`)];
       } : undefined}
       scriptType={getLivecodeEditorProfile(node)}
       p5Mode={node.kind === "p5"
@@ -365,7 +380,7 @@ function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef, transport }
   // the authored inputs instead so animation clocks and subscriptions survive
   // ordinary UI interaction.
   const parameterKey = JSON.stringify(node.parameters || {});
-  const settingsKey = JSON.stringify(node.runtime.settings || {});
+  const settingsKey = JSON.stringify(livecodeRendererSettings(node.runtime.settings));
   const runtimeNode = resolveLivecodeRuntimeNode(node);
   const configKey = `${runtimeNode.kind}\u0000${runtimeNode.revision}\u0000${runtimeNode.source}\u0000${parameterKey}\u0000${settingsKey}`;
   const configRef = useRef(null);
@@ -385,6 +400,7 @@ function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef, transport }
   return <div className="livecode-node-runtime visible" aria-label={`${getLivecodeKindDefinition(node.kind).label} runtime`}>
     {node.kind === "p5" ? <P5Frame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
     {node.kind === "manim" ? <ManimFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
+    {node.kind === "three" ? <ThreeFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
     {node.kind === "playcore" ? <PlayCoreFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
     {node.kind === "shader" ? <ShaderLivecodeFrame element={element} node={runtimeNode} transport={transport} scriptRuntimeRef={scriptRuntimeRef} /> : null}
     {node.kind === "tixy" ? <TixyFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
@@ -542,7 +558,9 @@ export function LivecodeNodeOverlay({
     const arranged = arrangementRuntime?.get?.(element.id);
     if (arranged && !arranged.active) return false;
     const candidate = normalizeLivecodeNode(element.customData.underscoresLivecode);
-    const underlay = candidate.kind === "shader" && normalizeShaderCompositionSettings(candidate.runtime.settings).compositeMode === "underlay";
+    const capabilities = getLivecodeCompositionCapabilities(candidate);
+    const underlay = capabilities.compositeModes.includes("underlay")
+      && compositionForNode(candidate).compositeMode === "underlay";
     return layer === "underlay" ? underlay : !underlay;
   }).map(element => {
     const arranged = arrangementRuntime?.get?.(element.id) || null;
@@ -556,7 +574,8 @@ export function LivecodeNodeOverlay({
       playing: Boolean(transport?.playing) && arranged.active,
       time: arranged.state?.localTime || 0,
     } : transport;
-    const composition = normalizeShaderCompositionSettings(node.runtime.settings);
+    const composition = compositionForNode(node);
+    const pointerMode = getLivecodePointerMode(node);
     const docsOverlayEnabled = documentationOverlayByLanguage?.[node.kind] ?? showDocumentationOverlay;
     const selected = Boolean(camera.selectedElementIds[element.id]);
     const aiQueryActive = selected && aiQueryElementIds.includes(element.id);
@@ -588,14 +607,17 @@ export function LivecodeNodeOverlay({
       key={element.id}
       className={`underscores-livecode-node ${selected ? "selected" : ""} ${editing ? "editing" : ""} ${aiQueryActive ? "ai-query-active" : ""} ${node.typography.glyphOnlyOverlay ? "glyph-only-overlay" : ""} ${node.view}`}
       data-livecode-node-id={element.id}
+      data-livecode-kind={node.kind}
+      data-livecode-background={composition.backgroundMode}
+      data-livecode-pointer-mode={pointerMode}
       style={{
         left: (element.x + camera.scrollX) * camera.zoom,
         top: (element.y + camera.scrollY) * camera.zoom,
         width: Math.max(1, element.width * camera.zoom),
         height: Math.max(1, element.height * camera.zoom),
         transform: `rotate(${element.angle || 0}rad)`,
-        opacity: Math.max(0, Math.min(1, (Number(element.opacity) || 100) / 100)) * (node.kind === "shader" ? composition.compositeOpacity : 1),
-        mixBlendMode: node.kind === "shader" ? composition.blendMode : undefined,
+        opacity: Math.max(0, Math.min(1, (Number.isFinite(Number(element.opacity)) ? Number(element.opacity) : 100) / 100)) * composition.compositeOpacity,
+        mixBlendMode: composition.blendMode === "normal" ? undefined : composition.blendMode,
         ...editorStyleFor(node.typography),
       }}
       onPointerDownCapture={handleCommandOutputPointer}

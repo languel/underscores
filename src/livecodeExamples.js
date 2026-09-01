@@ -27,6 +27,7 @@ export const LIVECODE_TEMPLATES = Object.freeze({
   [LIVECODE_KINDS.strudel]: `// Ctrl/Cmd+Enter evaluates this node.\n$: note("c3 e3 g3 b3")\n  .s("sine")\n  .slow(2)`,
   [LIVECODE_KINDS.p5]: defaultLivecodeSource(LIVECODE_KINDS.p5),
   [LIVECODE_KINDS.manim]: defaultLivecodeSource(LIVECODE_KINDS.manim),
+  [LIVECODE_KINDS.three]: defaultLivecodeSource(LIVECODE_KINDS.three),
   [LIVECODE_KINDS.playcore]: defaultLivecodeSource(LIVECODE_KINDS.playcore),
   [LIVECODE_KINDS.markdown]: `# Markdown starter\n\nWrite **rich text** here. Inline math: $E = mc^2$.\n\n- one\n- two`,
   [LIVECODE_KINDS.latex]: `\\frac{\\partial}{\\partial t} \\Psi = i \\nabla^2 \\Psi`,

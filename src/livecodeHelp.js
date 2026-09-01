@@ -2,10 +2,11 @@ import { LIVECODE_KINDS, normalizeLivecodeKind } from "./livecodeNode.js";
 
 export const getLivecodeBridgeHelp = kind => {
   const normalizedKind = normalizeLivecodeKind(kind);
-  const trusted = [LIVECODE_KINDS.p5, LIVECODE_KINDS.manim, LIVECODE_KINDS.playcore, LIVECODE_KINDS.strudel, LIVECODE_KINDS.tixy].includes(normalizedKind);
+  const trusted = [LIVECODE_KINDS.p5, LIVECODE_KINDS.manim, LIVECODE_KINDS.three, LIVECODE_KINDS.playcore, LIVECODE_KINDS.strudel, LIVECODE_KINDS.tixy].includes(normalizedKind);
   const details = {
     [LIVECODE_KINDS.p5]: "p5 receives __ as its live frame bridge. Use __.element for the host size, __.params for @param values, and __.canvas / __.events / __.transport for scene queries, events, and score time.",
     [LIVECODE_KINDS.manim]: "Manim receives __ beside scene and cue(). Use __.params for authored controls, __.canvas / __.events for score context, __.transport for linked timing, and __.currentColor / __.colors for canvas-aware styling.",
+    [LIVECODE_KINDS.three]: "Three.js receives __ beside THREE, scene, camera, renderer, tick(callback), and onDispose(callback). Use __.params for authored controls, __.canvas / __.events for score context, and __.transport for linked timing.",
     [LIVECODE_KINDS.playcore]: "Play Core receives __ as the final program argument. Use __.element, __.params, __.canvas, __.events, __.transport, and __.api from lifecycle hooks and main().",
     [LIVECODE_KINDS.strudel]: "Strudel evaluates with __ in scope. The most useful live values are __.transport, __.canvas, __.events, __.params, and __.strudel for node-local transport controls.",
     [LIVECODE_KINDS.html]: "HTML runs in an isolated iframe instead of the JavaScript bridge. Use window.__.post(type, detail) to send a message and window.__.onMessage(listener) to receive the host's read-only runtime snapshot.",
@@ -74,6 +75,18 @@ export const LIVECODE_HELP = Object.freeze({
       "Linked waits for Underscores transport before advancing; Free uses Manim's own scheduler. Source or parameter edits restart the disposable runtime while the authored node remains canonical.",
     ]),
     footer: "The pinned manim-web browser runtime currently loads from its official CDN on first use, so offline packaging remains a follow-up.",
+  }),
+  [LIVECODE_KINDS.three]: Object.freeze({
+    title: "Three.js quick reference",
+    summary: "A bundled standalone Three.js scene runs inside a first-class Livecode Node, independently of Manim.",
+    points: Object.freeze([
+      "Source receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), and the shared __ bridge. Create objects once, add them to scene, then animate through tick(({ time, delta, frame }) => ...).",
+      "The renderer and camera are ready before your source runs. The host renders after each tick, so call renderer.render(scene, camera) only when you deliberately need an extra pass or render target.",
+      "Use // @param declarations and __.params for persistent controls. __ also exposes canvas objects, events, transport time, appearance colors, Console output, and __.api.",
+      "Free gives the node a local clock. Linked follows score play, pause, seek, and rate; tick callbacks pause while the shared transport is paused.",
+      "Use onDispose(() => ...) for external listeners, post-processing resources, or anything the node cannot discover through its scene graph. Geometry and materials attached to scene are released with the node.",
+    ]),
+    footer: "Three.js is bundled with Underscores and has its own renderer lifecycle; Manim remains a separate animation-oriented adapter.",
   }),
   [LIVECODE_KINDS.playcore]: Object.freeze({
     title: "Play Core quick reference",
@@ -144,8 +157,8 @@ export const LIVECODE_HELP = Object.freeze({
       "Minimal mode supplies classic Twigl values resolution (vec2), mouse (vec4 pixels/press state), time, frame, and backbuffer, plus the short aliases iResolution, iTime, iMouse, iFrame, FC, r, m, t, f, b, and o. Common Twigl helpers include hsv(), rotate2D(), rotate3D(), fsnoise(), PI, and PI2.",
       "Choose Hello GLSL, Rainbow geometry, 2D shadows, Fluid brush, Inkwash, or Stokes flow from the Example menu, then edit the complete source.",
       "Common uniforms are u_resolution, u_time, u_transportTime, u_pointer, u_pointerDown, and u_currentColor. Geometry examples also receive u_segments and u_segmentCount.",
-      "Layer places the shader above or below Excalidraw objects. Opacity and Blend provide non-destructive composition without changing the GLSL source.",
-      "Fluid brush and Inkwash are feedback shaders: u_previous is the prior frame, u_delta is frame time, and u_pointerDelta carries brush motion. Emission makes the selected geometry source emit and stir dye or wet pigment.",
+      "Layer, Opacity, Blend, and Background use the shared Livecode compositor, so the same non-destructive controls are available to other visual node kinds.",
+      "Fluid brush and Inkwash are feedback shaders: u_previous is the prior frame, u_delta is frame time, and u_pointerDelta carries brush motion. Their authored emission boolean parameter makes the selected geometry source emit and stir dye or wet pigment; turn it off to keep pointer painting without geometry emission.",
       "Inkwash can emit from nearby Excalidraw objects or only from visible physics diagnostics such as collider outlines, constraints, collision markers, force vectors, and trails. Ordinary drags use a fine ink pen; Command-drag activates the wider water brush without taking over Excalidraw's right-drag gesture.",
       "Linked time follows Underscores's score; Free time advances independently. Compile errors appear in the Console's non-logged Live section while the previous working program keeps rendering.",
       "While editing, Cmd/Ctrl+Shift+Enter cycles Output → Code → Code Overlay → Code/Output. Cmd/Ctrl+Enter runs, Ctrl+. or Alt+. stops, and Ctrl+M then L toggles line numbers. Clicking in the source only places the editor cursor.",

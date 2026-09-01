@@ -70,6 +70,18 @@ test("panel shortcuts open Properties on Command-Option-P and toggle the physics
   assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, physicsToolbarEvent)?.id, "physics.toolbar.toggle");
 });
 
+test("layer shortcuts reserve the native bracket chords for the shared scene stack", () => {
+  const sendBackward = { code: "BracketLeft", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false };
+  const bringForward = { code: "BracketRight", metaKey: true, ctrlKey: false, altKey: false, shiftKey: false };
+  const sendToBack = { code: "BracketLeft", metaKey: true, ctrlKey: false, altKey: true, shiftKey: false };
+  const bringToFront = { code: "BracketRight", metaKey: true, ctrlKey: false, altKey: true, shiftKey: false };
+
+  assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, sendBackward)?.id, "scene.layer.sendBackward");
+  assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, bringForward)?.id, "scene.layer.bringForward");
+  assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, sendToBack)?.id, "scene.layer.sendToBack");
+  assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, bringToFront)?.id, "scene.layer.bringToFront");
+});
+
 test("ignores bare modifier presses", () => {
   assert.equal(shortcutFromEvent({ code: "ShiftLeft", shiftKey: true }), null);
 });
