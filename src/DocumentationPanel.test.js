@@ -33,6 +33,7 @@ test("script quick-reference links resolve to one documentation page", () => {
     "Media streams quick reference",
     "Strudel quick reference",
     "Manim quick reference",
+    "Three.js quick reference",
     "Markdown quick reference",
     "LaTeX quick reference",
     "HTML quick reference",

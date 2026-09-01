@@ -19,6 +19,34 @@ test("kind-specific example catalogs retain their existing starters", () => {
   assert.ok(getLivecodeExamples(LIVECODE_KINDS.shader).some(example => example.id === "hello"));
 });
 
+test("Three.js exposes standalone geometry and motion starters", () => {
+  const examples = getLivecodeExamples(LIVECODE_KINDS.three);
+  assert.deepEqual(
+    examples.map(example => example.id),
+    ["unit-cube", "lit-torus-knot", "orbiting-spheres", "parameter-dancing-lights", "mediapipe-unicursal-3d", "mediapipe-schlemmer-3d"],
+  );
+  for (const example of examples) {
+    assert.ok(example.name, `${example.id} should have a name`);
+    assert.match(example.source, /THREE\./, `${example.id} should use the bundled Three.js namespace`);
+    assert.match(example.source, /scene\.add/, `${example.id} should add content to the provided scene`);
+    assert.match(example.source, /tick\(/, `${example.id} should use the transport-aware tick helper`);
+  }
+  assert.match(examples.find(example => example.id === "unit-cube").source, /BoxGeometry\(1, 1, 1\)/);
+  assert.match(examples.find(example => example.id === "lit-torus-knot").source, /TorusKnotGeometry/);
+  const dancingLights = examples.find(example => example.id === "parameter-dancing-lights");
+  assert.match(dancingLights.source, /@param count/);
+  assert.match(dancingLights.source, /__\.params\.energy/);
+  assert.match(dancingLights.source, /PointLight/);
+  const unicursal = examples.find(example => example.id === "mediapipe-unicursal-3d");
+  assert.match(unicursal.source, /__\.streams\?\.list\?\.\(\)/);
+  assert.match(unicursal.source, /pose\.left_wrist/);
+  assert.match(unicursal.source, /DynamicDrawUsage/);
+  const schlemmer = examples.find(example => example.id === "mediapipe-schlemmer-3d");
+  assert.match(schlemmer.source, /T-?pose/);
+  assert.match(schlemmer.source, /CylinderGeometry/);
+  assert.match(schlemmer.source, /TorusGeometry/);
+});
+
 test("Strudel exposes basics, grooves, and a composed theme", () => {
   const examples = getLivecodeExamples(LIVECODE_KINDS.strudel);
   assert.deepEqual(
