@@ -22,7 +22,7 @@ const SelectField = ({ label, value, onChange, children, help }) => (
 const Check = ({ label, checked, onChange, help }) => (
   <label className="grid-panel-check" {...(help ? infoProps(label, help) : {})}>
     <span>{label}</span>
-    <input type="checkbox" checked={checked} onChange={onChange} />
+    <input type="checkbox" checked={checked === true} onChange={onChange} />
   </label>
 );
 
@@ -57,6 +57,7 @@ export default function GridPanel({
           <Check label="Minor" checked={grid.appearance.showMinor} onChange={event => onUpdate({ appearance: { showMinor: event.target.checked } })} />
           <Check label="Major" checked={grid.appearance.showMajor} onChange={event => onUpdate({ appearance: { showMajor: event.target.checked } })} />
           <Check label="Axes" checked={grid.appearance.showAxes} onChange={event => onUpdate({ appearance: { showAxes: event.target.checked } })} />
+          <Check label="Dots when Snap Off" help="Show only grid intersections as dots while snapping is Off. Snap-enabled grids keep the line rendering." checked={grid.appearance.unsnappedDots} onChange={event => onUpdate({ appearance: { unsnappedDots: event.target.checked } })} />
         </div>
       </InspectorSection>
 
@@ -76,15 +77,15 @@ export default function GridPanel({
         <div className="grid-panel-row grid-panel-targets">
           {[
             ['Input', 'input', 'Snap pointer samples while drawing new lines and freehand strokes.'],
-            ['Transforms', 'transforms', 'Snap object creation, movement, and resizing; multi-selection movement preserves relative spacing.'],
-            ['Points', 'points', 'Snap individual line, spline, and Bézier points while entering or editing them.'],
+            ['Transforms', 'transforms', 'Snap object bounds during movement and resizing. Freehand shape and pressure remain intact; multi-selection preserves relative spacing.'],
+            ['Points', 'points', 'Snap individual line, spline, Bézier, and freehand points while entering or explicitly editing them.'],
             ['Generated', 'generated', 'Allow modifier- or script-generated geometry to opt into grid snapping. Disabled by default to preserve procedural output.'],
           ].map(([label, key, help]) => (
             <Check key={key} label={label} help={help} checked={grid.snap.targets[key]} onChange={event => onUpdate({ snap: { targets: { [key]: event.target.checked } } })} />
           ))}
         </div>
         <div className="grid-panel-row grid-panel-actions">
-          <button type="button" onClick={onQuantizeSelection} {...infoProps("Quantize selection", "Move the selected authored geometry onto the current grid resolution immediately.")}>Quantize selection</button>
+          <button type="button" onClick={onQuantizeSelection} {...infoProps("Quantize points", "Explicitly snap every authored point in the selection to the current grid. Use Transform snapping when you only want the object bounds aligned.")}>Quantize points</button>
         </div>
       </InspectorSection>
 

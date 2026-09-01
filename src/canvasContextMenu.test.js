@@ -4,6 +4,7 @@ import {
   convertShapeElementToPath,
   fitRectangularElementToViewport,
   getCanvasContextMenuCapabilities,
+  hasAuthoredPointGeometry,
   isCanvasContextElement,
   setSelectedElementRoundness,
   supportsElementRoundness,
@@ -36,7 +37,7 @@ test("rotated viewport fitting uses the visible bounding box without cropping", 
 });
 
 test("canvas context menu accepts paths and basic shapes", () => {
-  for (const type of ["freedraw", "line", "ellipse", "rectangle", "diamond"]) {
+  for (const type of ["freedraw", "line", "arrow", "ellipse", "rectangle", "diamond", "frame"]) {
     assert.equal(isCanvasContextElement({ id: type, type }), true);
   }
   assert.equal(isCanvasContextElement({ id: "text", type: "text" }), false);
@@ -45,6 +46,7 @@ test("canvas context menu accepts paths and basic shapes", () => {
 
 test("roundness is available for paths, rectangles, and diamonds but not ellipses", () => {
   assert.equal(supportsElementRoundness({ type: "line" }), true);
+  assert.equal(supportsElementRoundness({ type: "arrow" }), true);
   assert.equal(supportsElementRoundness({ type: "rectangle" }), true);
   assert.equal(supportsElementRoundness({ type: "diamond" }), true);
   assert.equal(supportsElementRoundness({ type: "ellipse" }), false);
@@ -56,8 +58,22 @@ test("roundness is available for paths, rectangles, and diamonds but not ellipse
   assert.equal(capabilities.hasShapes, true);
   assert.equal(capabilities.showPathOperations, false);
   assert.equal(capabilities.showSharpRound, true);
+  assert.equal(capabilities.showSnapPoints, false);
   assert.equal(capabilities.allSharp, true);
   assert.equal(capabilities.allRound, false);
+});
+
+test("point snapping capability is limited to authored point geometry", () => {
+  assert.equal(hasAuthoredPointGeometry({ type: "freedraw", points: [[0, 0], [1, 1]] }), true);
+  assert.equal(hasAuthoredPointGeometry({ type: "line", points: [[0, 0]] }), false);
+  assert.equal(hasAuthoredPointGeometry({ type: "rectangle", width: 10, height: 10 }), false);
+  assert.equal(hasAuthoredPointGeometry({ type: "line", customData: { underscoresGeometry: { anchors: [{ x: 0, y: 0 }, { x: 1, y: 1 }] } } }), true);
+
+  const capabilities = getCanvasContextMenuCapabilities([
+    { id: "arrow", type: "arrow", points: [[0, 0], [10, 10]] },
+    { id: "box", type: "rectangle", width: 10, height: 10 },
+  ]);
+  assert.equal(capabilities.showSnapPoints, true);
 });
 
 test("setting selection roundness is immutable and ignores ellipses", () => {

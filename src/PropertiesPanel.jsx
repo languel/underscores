@@ -190,6 +190,7 @@ const EditableValue = ({ value, path, onChange, mediaSources = [] }) => {
 };
 
 const PropertyNode = ({ name, value, depth = 0, path = [], query, onChange, isSharedPath, mediaSources, pinnedKeys, onTogglePin, showPin = true, ownerElement, onPickObjectReference }) => {
+  const [expanded, setExpanded] = useState(depth < 1);
   const roundness = path.at(-1) === "roundness" && supportsRoundness(ownerElement);
   if (roundness) {
     const key = pathKey(path);
@@ -209,12 +210,15 @@ const PropertyNode = ({ name, value, depth = 0, path = [], query, onChange, isSh
     ? entries.filter(([key, item]) => nodeMatches(item, [...path, key], query))
     : entries;
   if (!visibleEntries.length) return null;
+  const open = query?.needle ? true : expanded;
   return (
-    <details className="properties-group" open={query?.needle ? true : depth < 1}>
+    <details className="properties-group" open={open} onToggle={event => {
+      if (!query?.needle) setExpanded(event.currentTarget.open);
+    }}>
       <summary><span>{name}</span><small>{Array.isArray(value) ? `[${visibleEntries.length}]` : `{${visibleEntries.length}}`}</small></summary>
-      <div className="properties-children">
+      {open ? <div className="properties-children">
         {visibleEntries.map(([key, item]) => <PropertyNode key={key} name={String(key)} value={item} depth={depth + 1} path={[...path, key]} query={query} onChange={onChange} isSharedPath={isSharedPath} mediaSources={mediaSources} pinnedKeys={pinnedKeys} onTogglePin={onTogglePin} showPin={showPin} ownerElement={ownerElement} onPickObjectReference={onPickObjectReference} />)}
-      </div>
+      </div> : null}
     </details>
   );
 };

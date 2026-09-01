@@ -30,7 +30,7 @@ export const DEFAULT_GLOBAL_GRID = Object.freeze({
   topology: "rectangular",
   transform: Object.freeze({ origin: Object.freeze([0, 0]), rotation: 0 }),
   spacing: Object.freeze({ x: 100, y: 100, subdivisionsX: 5, subdivisionsY: 5 }),
-  appearance: Object.freeze({ visible: false, showMinor: true, showMajor: true, showAxes: true, opacity: 0.32 }),
+  appearance: Object.freeze({ visible: false, showMinor: true, showMajor: true, showAxes: true, unsnappedDots: true, opacity: 0.32 }),
   snap: Object.freeze({
     mode: "off",
     resolution: "minor",
@@ -137,6 +137,7 @@ export const normalizeGlobalGrid = value => {
       showMinor: appearance.showMinor !== false,
       showMajor: appearance.showMajor !== false,
       showAxes: appearance.showAxes !== false,
+      unsnappedDots: appearance.unsnappedDots !== false,
       opacity: clamp(appearance.opacity, 0.02, 1, DEFAULT_GLOBAL_GRID.appearance.opacity),
     },
     snap: {
@@ -385,6 +386,37 @@ export const createVisibleGridLines = (gridValue, viewport, options = {}) => {
     ...visibleAxisLines({ axis: "x", minimum: minimumX, maximum: maximumX, crossMinimum: minimumY, crossMaximum: maximumY, grid, zoom, maxLines }),
     ...visibleAxisLines({ axis: "y", minimum: minimumY, maximum: maximumY, crossMinimum: minimumX, crossMaximum: maximumX, grid, zoom, maxLines }),
   ];
+};
+
+/**
+ * Return the visible intersections of the generated grid lines.  Keeping this
+ * derived from createVisibleGridLines means dot rendering honors the same
+ * viewport culling, density cap, rotation, and appearance filters as line
+ * rendering.
+ */
+export const createVisibleGridIntersections = (gridValue, viewport, options = {}) => {
+  const grid = normalizeGlobalGrid(gridValue);
+  const lines = createVisibleGridLines(grid, viewport, options);
+  const xLines = lines.filter(line => line.axis === "x");
+  const yLines = lines.filter(line => line.axis === "y");
+  const cos = Math.cos(grid.transform.rotation);
+  const sin = Math.sin(grid.transform.rotation);
+  const intersections = [];
+  for (const xLine of xLines) {
+    for (const yLine of yLines) {
+      const type = xLine.type === "axis" || yLine.type === "axis"
+        ? "axis"
+        : xLine.type === "major" || yLine.type === "major" ? "major" : "minor";
+      intersections.push({
+        point: [
+          grid.transform.origin[0] + xLine.coordinate * grid.spacing.x * cos - yLine.coordinate * grid.spacing.y * sin,
+          grid.transform.origin[1] + xLine.coordinate * grid.spacing.x * sin + yLine.coordinate * grid.spacing.y * cos,
+        ],
+        type,
+      });
+    }
+  }
+  return intersections;
 };
 
 export const formatGridTimeMapping = (gridValue, clock) => {

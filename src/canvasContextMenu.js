@@ -1,14 +1,17 @@
 export const CANVAS_CONTEXT_ELEMENT_TYPES = Object.freeze([
   "freedraw",
   "line",
+  "arrow",
   "ellipse",
   "rectangle",
   "diamond",
+  "frame",
 ]);
 
 export const ROUNDABLE_ELEMENT_TYPES = Object.freeze([
   "freedraw",
   "line",
+  "arrow",
   "rectangle",
   "diamond",
 ]);
@@ -24,6 +27,14 @@ export const supportsElementRoundness = element => Boolean(
   element && !element.isDeleted && roundableTypes.has(element.type)
 );
 
+export const hasAuthoredPointGeometry = element => Boolean(
+  element
+  && !element.isDeleted
+  && ((Array.isArray(element.points) && element.points.length >= 2)
+    || (Array.isArray(element.customData?.underscoresGeometry?.anchors)
+      && element.customData.underscoresGeometry.anchors.length >= 2))
+);
+
 export const getCanvasContextMenuCapabilities = elements => {
   const selected = (Array.isArray(elements) ? elements : []).filter(isCanvasContextElement);
   const paths = selected.filter(element => element.type === "freedraw" || element.type === "line");
@@ -32,6 +43,7 @@ export const getCanvasContextMenuCapabilities = elements => {
     selected,
     paths,
     roundable,
+    showSnapPoints: selected.some(hasAuthoredPointGeometry),
     hasShapes: selected.some(element => ["ellipse", "rectangle", "diamond"].includes(element.type)),
     showPathOperations: paths.length > 0,
     showSharpRound: roundable.length > 0,

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULT_GLOBAL_GRID,
+  createVisibleGridIntersections,
   createVisibleGridLines,
   gridToWorldPoint,
   gridUnitsToSeconds,
@@ -29,6 +30,8 @@ test("normalizes legacy and invalid grid values to a stable global singleton", (
   assert.equal(grid.spacing.subdivisionsX, 64);
   assert.equal(grid.spacing.subdivisionsY, 1);
   assert.equal(grid.snap.mode, "off");
+  assert.equal(grid.appearance.unsnappedDots, DEFAULT_GLOBAL_GRID.appearance.unsnappedDots);
+  assert.equal(normalizeGlobalGrid({ appearance: { unsnappedDots: false } }).appearance.unsnappedDots, false);
 });
 
 test("world and grid transforms round-trip with non-square spacing and rotation", () => {
@@ -139,4 +142,16 @@ test("visible line generation classifies axes and caps dense viewports", () => {
   assert.ok(lines.length <= 160);
   assert.ok(lines.some(line => line.type === "axis" && line.axis === "x"));
   assert.ok(lines.some(line => line.type === "axis" && line.axis === "y"));
+});
+
+test("visible grid intersections reuse line visibility and classify major and axis crossings", () => {
+  const grid = mergeGridPatch(DEFAULT_GLOBAL_GRID, {
+    appearance: { visible: true, unsnappedDots: true },
+    spacing: { x: 100, y: 100, subdivisionsX: 2, subdivisionsY: 2 },
+  });
+  const intersections = createVisibleGridIntersections(grid, { minX: -110, minY: -110, maxX: 110, maxY: 110 }, { zoom: 1, maxLines: 20 });
+  assert.ok(intersections.length > 0);
+  assert.ok(intersections.some(intersection => intersection.type === "axis" && intersection.point[0] === 0 && intersection.point[1] === 0));
+  assert.ok(intersections.some(intersection => intersection.type === "major"));
+  assert.ok(intersections.every(intersection => Array.isArray(intersection.point) && intersection.point.length === 2));
 });

@@ -212,10 +212,12 @@ import { captureLivecodeFrameSnapshot, clearLivecodeFrameSnapshot, getLivecodeFr
 import PerformanceOverlay from "./PerformanceOverlay.jsx";
 import { underscoresPerformanceMonitor } from "./performanceMonitor.js";
 import { createBakedImageElement, createBakedImageFile, createCanvasSnapshotImageElement, replaceSceneElementsWithBake } from "./sceneBake.js";
-import { quantizeGridElement, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
+import { quantizeGridElement, quantizeGridElementBounds, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
+import { createGridInteractionState, updateGridInteractionMovement } from "./gridInteraction.js";
+import { getClassicSelectionDragCandidate } from "./classicSelectionInteraction.js";
 import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
 import { parseContextCommand } from "./contextCommand.js";
-import { stepStrokeWidth } from "./strokeWidthShortcuts.js";
+import { applyStrokeWidthShortcut } from "./strokeWidthShortcuts.js";
 import { infoProps } from "./uiInfo.js";
 import {
   AI_PROVIDER_OPTIONS,
@@ -234,7 +236,8 @@ import {
   selectAIModelFromList,
 } from "./aiProviders.js";
 
-import { convertShapeElementToPath, fitRectangularElementToViewport, getCanvasContextMenuCapabilities, setSelectedElementRoundness } from "./canvasContextMenu.js";
+import { convertShapeElementToPath, fitRectangularElementToViewport, getCanvasContextMenuCapabilities, hasAuthoredPointGeometry, setSelectedElementRoundness } from "./canvasContextMenu.js";
+import { filterSelectionOperationSuggestions, getSelectionOperationSuggestions, parseSelectionOperation } from "./selectionOperations.js";
 import { normalizeRoughnessValue, normalizeRoundnessValue, parseDrawingStyleSlash } from "./drawingStyleCommands.js";
 import { DEFAULT_SELECTION_FILTER, filterSelectedElementIds, isInteriorObjectSelectionGesture, normalizeSelectionFilter, selectionFilterAllowsElement, selectionMapsEqual, SELECTION_FILTER_STORAGE_KEY, toggleSelectionFilter } from "./selectionFilter.js";
 import {
@@ -3210,6 +3213,7 @@ function App() {
     globalGridUpdate: () => {},
     globalGridReset: () => {},
     gridQuantizeSelection: () => {},
+    gridSnapPoints: () => {},
     playlistPlay: () => {},
     playlistPause: () => {},
     playlistNext: async () => {},
@@ -3460,6 +3464,7 @@ function App() {
   const [, setCommandRegistryVersion] = useState(0);
   const [showContextPrompt, setShowContextPrompt] = useState(false);
   const [contextPrompt, setContextPrompt] = useState("");
+  const [contextPromptIndex, setContextPromptIndex] = useState(0);
   const [contextPromptPosition, setContextPromptPosition] = useState(null);
   const [satoriMode, setSatoriMode] = useState(true);
   const [presentationMode, setPresentationMode] = useState(() => localStorage.getItem("underscores_presentation_mode") === "true");
@@ -5034,7 +5039,7 @@ function App() {
   const selectionFilterRef = useRef(selectionFilter);
   selectionFilterRef.current = selectionFilter;
   const gridQuantizingRef = useRef(false);
-  const gridInteractionRef = useRef({ moving: false, resizing: false, pointEditing: false, pointIndices: null });
+  const gridInteractionRef = useRef(createGridInteractionState());
   const editingLinearGridRef = useRef(null);
   const multiElementGridRef = useRef(null);
   const activeGridToolRef = useRef(null);
@@ -5356,6 +5361,8 @@ function App() {
   const [bezierEditElementId, setBezierEditElementId] = useState(null);
   const [bezierSelectedAnchor, setBezierSelectedAnchor] = useState(null);
   const bezierDragRef = useRef(null);
+  const classicSelectionDragRef = useRef(null);
+  const classicSelectionCursorRef = useRef(null);
   const lastBezierPointerDownRef = useRef(null);
   const lastSvgPointerDownRef = useRef(null);
   const [selectedSvgNode, setSelectedSvgNode] = useState(null);
@@ -8524,6 +8531,145 @@ function App() {
     return true;
   };
 
+  const setClassicSelectionCursor = value => {
+    const canvas = interactiveExcalidrawCanvas();
+    if (!canvas) return;
+    canvas.classList.toggle("underscores-classic-selection-move-cursor", value === "move");
+    canvas.classList.toggle("underscores-classic-selection-grabbing-cursor", value === "grabbing");
+    classicSelectionCursorRef.current = value || null;
+  };
+
+  const clearClassicSelectionCursor = () => {
+    const canvas = interactiveExcalidrawCanvas();
+    canvas?.classList.remove(
+      "underscores-classic-selection-move-cursor",
+      "underscores-classic-selection-grabbing-cursor",
+    );
+    classicSelectionCursorRef.current = null;
+  };
+
+  const getClassicSelectionCandidateAtPointer = event => {
+    const api = excalidrawAPIRef.current || excalidrawAPI;
+    if (!api) return null;
+    const appState = api.getAppState();
+    if (appState.activeTool?.type !== "selection") return null;
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return null;
+    const target = event.target;
+    const canvas = target?.closest?.("canvas.excalidraw__canvas.interactive");
+    if (!canvas) return null;
+    if (target?.closest?.(
+      ".underscores-livecode-node, .underscores-code-editor, .cm-editor, .underscores-embed-interactive, "
+      + ".svg-path-control, .physics-canvas-toolbar, .underscores-panel-shell, button, input, textarea, select",
+    )) return null;
+    const viewport = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, appState);
+    const elements = api.getSceneElements?.() || [];
+    return getClassicSelectionDragCandidate({
+      elements,
+      selectedElementIds: appState.selectedElementIds || {},
+      point: [viewport.x, viewport.y],
+      zoom: appState.zoom?.value || 1,
+      isExcluded: element => Boolean(
+        isLivecodeNodeElement(element)
+        || isSvgObjectElement(element)
+        || isMediaStreamElement(element)
+        || isP5FrameElement(element)
+        || isPlayCoreFrameElement(element)
+        || isRuntimeCursor(element)
+        || hasCubicBezierGeometry(element)
+        || getScoreData(element)
+        || normalizeGestureTrack(element.customData?.underscoresGesture)
+        || element.customData?.modifiers?.length
+        || element.customData?.parentId,
+      ),
+    });
+  };
+
+  const handleClassicSelectionPointerDown = event => {
+    const candidate = getClassicSelectionCandidateAtPointer(event);
+    if (!candidate) return false;
+    const api = excalidrawAPIRef.current || excalidrawAPI;
+    const world = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, api.getAppState());
+    const original = candidate.element;
+    classicSelectionDragRef.current = {
+      elementId: original.id,
+      pointerId: event.pointerId,
+      startWorld: [world.x, world.y],
+      latestDelta: [0, 0],
+      moved: false,
+      original,
+    };
+    gridInteractionRef.current.moving = false;
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+    event.stopPropagation();
+    setClassicSelectionCursor("grabbing");
+    return true;
+  };
+
+  const handleClassicSelectionPointerMove = event => {
+    const drag = classicSelectionDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+    if (event.buttons !== 1) return true;
+    const api = excalidrawAPIRef.current || excalidrawAPI;
+    if (!api) return true;
+    const world = viewportCoordsToSceneCoords({ clientX: event.clientX, clientY: event.clientY }, api.getAppState());
+    const delta = [world.x - drag.startWorld[0], world.y - drag.startWorld[1]];
+    if (!drag.moved && Math.hypot(delta[0], delta[1]) < 3 / Math.max(0.01, api.getAppState().zoom?.value || 1)) {
+      event.preventDefault();
+      event.stopPropagation();
+      setClassicSelectionCursor("grabbing");
+      return true;
+    }
+    drag.moved = true;
+    drag.latestDelta = delta;
+    gridInteractionRef.current.moved = true;
+    gridInteractionRef.current.moving = true;
+    const scene = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements?.() || [];
+    api.updateScene({
+      elements: scene.map(element => element.id === drag.elementId ? translateGridElement(drag.original, delta) : element),
+      commitToHistory: false,
+    });
+    event.preventDefault();
+    event.stopPropagation();
+    setClassicSelectionCursor("grabbing");
+    return true;
+  };
+
+  const handleClassicSelectionPointerUp = event => {
+    const drag = classicSelectionDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return false;
+    classicSelectionDragRef.current = null;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget?.releasePointerCapture?.(event.pointerId);
+    clearClassicSelectionCursor();
+    const api = excalidrawAPIRef.current || excalidrawAPI;
+    gridInteractionRef.current = createGridInteractionState();
+    if (!api || !drag.moved) return true;
+    const scene = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements?.() || [];
+    const moved = scene.map(element => element.id === drag.elementId ? translateGridElement(drag.original, drag.latestDelta) : element);
+    const grid = globalGridRef.current;
+    if (grid.snap.mode !== "off" && grid.snap.targets.transforms) {
+      const quantized = quantizeGlobalGridElements({
+        elementIds: [drag.elementId],
+        transformOnly: true,
+        commitToHistory: true,
+      });
+      if (quantized.count) return true;
+    }
+    api.updateScene({ elements: moved, commitToHistory: true });
+    return true;
+  };
+
+  const updateClassicSelectionCursorForPointer = event => {
+    if (classicSelectionDragRef.current) {
+      setClassicSelectionCursor("grabbing");
+      return;
+    }
+    if (getClassicSelectionCandidateAtPointer(event)) setClassicSelectionCursor("move");
+    else clearClassicSelectionCursor();
+  };
+
   const handleCanvasPointerDown = (e) => {
     if (!excalidrawAPI) return;
     if (isForwardedCanvasGesture(e.nativeEvent || e)) return;
@@ -8534,7 +8680,7 @@ function App() {
     }
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
     if (e.button !== 0) return;
-    gridInteractionRef.current = { moving: false, resizing: false, pointEditing: false, pointIndices: null };
+    gridInteractionRef.current = createGridInteractionState([e.clientX, e.clientY]);
 
     // An active object picker takes precedence over canvas overlays so object
     // parameters can target any visible scene object, including live nodes.
@@ -8695,6 +8841,7 @@ function App() {
         return;
       }
       if (!e.metaKey && !e.ctrlKey && !e.shiftKey) runtimeCursorSelectionRef.current = {};
+      if (handleClassicSelectionPointerDown(e)) return;
     }
 
     if (!modifierDrawingActive) {
@@ -8798,7 +8945,13 @@ function App() {
       e.stopPropagation();
       return;
     }
+    if (classicSelectionDragRef.current) {
+      handleClassicSelectionPointerMove(e);
+      return;
+    }
     lastCanvasPointerRef.current = [e.clientX, e.clientY];
+    updateGridInteractionMovement(gridInteractionRef.current, e);
+    updateClassicSelectionCursorForPointer(e);
     const linkedMedia = findLinkedMediaAtPointer(e.clientX, e.clientY);
     setHoveredLinkedElementId(previous => previous === (linkedMedia?.id || null) ? previous : (linkedMedia?.id || null));
     if (handlePhysicsPointerMove(e)) return;
@@ -9391,7 +9544,7 @@ function App() {
     }
   };
 
-  const handleSimplifyStroke = (algorithm) => {
+  const handleSimplifyStroke = (algorithm, options = {}) => {
     if (!excalidrawAPI) return;
     const appState = excalidrawAPI.getAppState();
     const selectedIds = appState.selectedElementIds || {};
@@ -9429,17 +9582,22 @@ function App() {
 
           let simplifiedAbs;
           if (algorithm === "rdp") {
-            simplifiedAbs = simplifyRDP(absolutePoints, 2.5); // 2.5px tolerance
+            const tolerance = Number.isFinite(Number(options.tolerance)) ? Math.max(0.1, Math.min(100, Number(options.tolerance))) : 2.5;
+            simplifiedAbs = simplifyRDP(absolutePoints, tolerance);
           } else if (algorithm === "vw") {
-            simplifiedAbs = simplifyVW(absolutePoints, 15.0); // 15px^2 area tolerance
+            const tolerance = Number.isFinite(Number(options.tolerance)) ? Math.max(0.1, Math.min(1000, Number(options.tolerance))) : 15.0;
+            simplifiedAbs = simplifyVW(absolutePoints, tolerance);
           } else if (algorithm === "smooth") {
-            simplifiedAbs = smoothPathLaplacian(absolutePoints, 0.4, 3); // 3 iterations of 0.4 Laplacian weight
+            const iterations = Number.isFinite(Number(options.amount)) ? Math.max(1, Math.min(100, Math.round(Number(options.amount)))) : 3;
+            simplifiedAbs = smoothPathLaplacian(absolutePoints, 0.4, iterations);
           } else if (algorithm === "taubin") {
-            simplifiedAbs = smoothPathTaubin(absolutePoints, 0.5, -0.53, 10, false);
+            const iterations = Number.isFinite(Number(options.amount)) ? Math.max(1, Math.min(100, Math.round(Number(options.amount)))) : 10;
+            simplifiedAbs = smoothPathTaubin(absolutePoints, 0.5, -0.53, iterations, false);
           } else if (algorithm === "close") {
             simplifiedAbs = closeAndSmoothJoint(absolutePoints, el.type, el.roundness);
           } else if (algorithm === "resample") {
-            simplifiedAbs = resampleUniform(absolutePoints, absolutePoints.length);
+            const count = Number.isFinite(Number(options.count)) ? Math.max(2, Math.min(10000, Math.round(Number(options.count)))) : absolutePoints.length;
+            simplifiedAbs = resampleUniform(absolutePoints, count);
           } else if (algorithm === "snap") {
             simplifiedAbs = absolutePoints.map(point => snapPointToGrid(globalGridRef.current, point, {
               mode: "hard",
@@ -9481,10 +9639,40 @@ function App() {
     const selectedIds = appState.selectedElementIds || {};
     const elements = excalidrawAPI.getSceneElements();
 
-    const selectedContextElements = elements.filter(element => selectedIds[element.id] && !element.isDeleted);
+    let selectedContextElements = elements.filter(element => selectedIds[element.id] && !element.isDeleted);
+    // A Shift+right-click on an unselected object should still be able to
+    // address that object. Excalidraw does not consistently promote the
+    // right-click target into the selection before bubbling contextmenu, so
+    // resolve a small semantic hit test from the scene geometry here. This is
+    // deliberately bounds/point based; it never reaches into arbitrary DOM or
+    // CSS selectors and only runs for events originating on the canvas.
+    if (!selectedContextElements.length && e.target?.closest?.("canvas")) {
+      const scenePoint = viewportCoordsToSceneCoords({ clientX: e.clientX, clientY: e.clientY }, appState);
+      const hit = [...elements].reverse().find(element => {
+        if (element.isDeleted || isSvgObjectElement(element) || !getCanvasContextMenuCapabilities([element]).selected.length) return false;
+        const points = Array.isArray(element.points) && element.points.length >= 2
+          ? element.points.map(point => [Number(element.x) + (Number(point[0]) || 0), Number(element.y) + (Number(point[1]) || 0)])
+          : [[Number(element.x) || 0, Number(element.y) || 0], [
+            (Number(element.x) || 0) + Math.abs(Number(element.width) || 0),
+            (Number(element.y) || 0) + Math.abs(Number(element.height) || 0),
+          ]];
+        const xs = points.map(point => point[0]);
+        const ys = points.map(point => point[1]);
+        const padding = Math.max(6, (Number(element.strokeWidth) || 1) / 2 + 3);
+        return scenePoint.x >= Math.min(...xs) - padding
+          && scenePoint.x <= Math.max(...xs) + padding
+          && scenePoint.y >= Math.min(...ys) - padding
+          && scenePoint.y <= Math.max(...ys) + padding;
+      });
+      if (hit) {
+        selectedContextElements = [hit];
+        api.updateScene({ appState: { selectedElementIds: { [hit.id]: true }, selectedGroupIds: {} }, commitToHistory: false });
+      }
+    }
     const capabilities = getCanvasContextMenuCapabilities(
       selectedContextElements.filter(element => !isSvgObjectElement(element))
     );
+    const contextElementIds = selectedContextElements.map(element => element.id);
     const selectedStrokeElements = capabilities.paths;
 
     // Shift+right-click is Underscores's own canvas menu. Keep SVG clipboard
@@ -9531,6 +9719,7 @@ function App() {
         showToSpline: hasConvertiblePath || hasShapes,
         showFromSpline: hasSpline,
         showPathOperations: capabilities.showPathOperations,
+        showSnapPoints: capabilities.showSnapPoints,
         showSharpRound: capabilities.showSharpRound,
         allSharp: capabilities.allSharp,
         allRound: capabilities.allRound,
@@ -9540,6 +9729,7 @@ function App() {
         showCreateLivecode: true,
         showViewportFit: viewportFitTarget,
         targetElementId: viewportFitTarget ? selectedContextElements[0].id : "",
+        elementIds: contextElementIds,
         hasSelection: true,
         hasSingleSelection: selectedContextElements.length === 1,
       });
@@ -9552,15 +9742,16 @@ function App() {
         showP5FrameExport: false,
         showCreateLivecode: true,
         showMakeBody: false,
+        elementIds: [],
         hasSelection: false,
         hasSingleSelection: false,
       });
     }
   };
 
-  const fitContextElementToViewport = mode => {
+  const fitContextElementToViewport = (mode, targetIdOverride = "") => {
     const api = excalidrawAPIRef.current;
-    const targetId = customContextMenu?.targetElementId;
+    const targetId = targetIdOverride || customContextMenu?.targetElementId;
     if (!api || !targetId) return;
     const appState = api.getAppState();
     const zoom = Math.max(0.01, Number(appState.zoom?.value) || 1);
@@ -10575,6 +10766,8 @@ function App() {
   const quantizeGlobalGridElements = ({
     elementIds = null,
     transformOnly = false,
+    boundsOnly = false,
+    pointsOnly = false,
     forceHard = true,
     commitToHistory = true,
     resolution = null,
@@ -10587,7 +10780,11 @@ function App() {
     const selectedIds = elementIds
       ? new Set(elementIds)
       : new Set(Object.keys(api.getAppState().selectedElementIds || {}).filter(id => api.getAppState().selectedElementIds[id]));
-    const selected = api.getSceneElements().filter(element => selectedIds.has(element.id) && !element.isDeleted);
+    const selected = api.getSceneElements().filter(element => (
+      selectedIds.has(element.id)
+      && !element.isDeleted
+      && (!pointsOnly || hasAuthoredPointGeometry(element))
+    ));
     if (!selected.length) return { count: 0 };
     const zoom = api.getAppState().zoom?.value || 1;
     const options = {
@@ -10605,6 +10802,12 @@ function App() {
       if (Math.abs(delta[0]) < 1e-8 && Math.abs(delta[1]) < 1e-8) return { count: 0, delta };
       replacements = new Map(selected.map(element => [element.id, translateGridElement(element, delta)]));
       changed = selected.length;
+    } else if (boundsOnly) {
+      replacements = new Map(selected.map(element => {
+        const next = quantizeGridElementBounds(element, grid, options);
+        if (next !== element) changed += 1;
+        return [element.id, next];
+      }));
     } else {
       replacements = new Map(selected.map(element => {
         const next = quantizeGridElement(element, grid, options);
@@ -10641,7 +10844,7 @@ function App() {
       if (!api) return;
       const appState = api.getAppState();
       const interaction = gridInteractionRef.current;
-      gridInteractionRef.current = { moving: false, resizing: false, pointEditing: false, pointIndices: null };
+      gridInteractionRef.current = createGridInteractionState();
       if (appState.multiElement?.id && appState.activeTool?.type === "line") return;
       const selectedIds = Object.keys(appState.selectedElementIds || {}).filter(id => appState.selectedElementIds[id]);
       const editingLinearId = appState.editingLinearElement?.elementId || (interaction.pointEditing ? editingLinearGridRef.current : null);
@@ -10667,12 +10870,14 @@ function App() {
       const quantizeGlobalIds = () => globallyEligibleIds.length && quantizeGlobalGridElements({
         elementIds: globallyEligibleIds,
         transformOnly: globallyEligibleIds.length > 1 || (!isPointEdit && !isCreation && !isResize),
+        boundsOnly: isResize && !isPointEdit && !isCreation,
         forceHard: forceHardSnap,
         pointIndices: isPointEdit && interaction.pointIndices?.length ? interaction.pointIndices : null,
       });
       if (boundIds.length) quantizeGlobalGridElements({
         elementIds: boundIds,
         transformOnly: boundIds.length > 1 || (!isPointEdit && !isCreation && !isResize),
+        boundsOnly: isResize && !isPointEdit && !isCreation,
         forceHard: true,
         pointIndices: isPointEdit && interaction.pointIndices?.length ? interaction.pointIndices : null,
       });
@@ -10892,6 +11097,7 @@ function App() {
       e.stopPropagation();
       return;
     }
+    if (handleClassicSelectionPointerUp(e)) return;
     if (handlePhysicsPointerUp(e)) return;
     if (handleSvgPathConstructionPointerUp(e)) return;
     if (handleSvgPathPointerUp(e)) return;
@@ -14640,8 +14846,191 @@ function App() {
     { id: "tool-eraser", name: "Select Eraser Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "eraser", locked: tool.locked ?? false } } }); } },
     { id: "tool-hand", name: "Select Hand/Pan Tool", category: "Tools", action: (api) => { const tool = api.getAppState().activeTool || {}; api.updateScene({ appState: { activeTool: { ...tool, type: "hand", locked: tool.locked ?? false } } }); } },
     { id: "restore-original-stroke", name: "Restore Original Stroke (Recover Brush Replacement)", category: "Brushes", action: () => handleRestoreOriginalStroke() },
-    { id: "convert-to-line", name: "Convert Selected Strokes to Straight Lines", category: "Brushes", action: () => handleConvertType("line") },
-    { id: "convert-to-freedraw", name: "Convert Selected Lines to Freehand Pencil", category: "Brushes", action: () => handleConvertType("freedraw") },
+    { id: "convert-to-line", name: "Convert Selected Strokes to Straight Lines", aliases: ["/convert line"], category: "Brushes", action: () => handleConvertType("line") },
+    { id: "convert-to-freedraw", name: "Convert Selected Lines to Freehand Pencil", aliases: ["/convert freehand"], category: "Brushes", action: () => handleConvertType("freedraw") },
+    {
+      id: "path.simplify.rdp",
+      name: "Simplify Path (RDP) /simplify rdp",
+      aliases: ["/simplify rdp", "simplify rdp", "Simplify Path (RDP)"],
+      category: "Selection",
+      args: { tolerance: "number?" },
+      ai: { expose: true, description: "Simplify selected freehand or line paths with the Ramer-Douglas-Peucker tolerance in pixels." },
+      action: (_api, args = {}) => handleSimplifyStroke("rdp", args),
+    },
+    {
+      id: "path.simplify.vw",
+      name: "Simplify Path (VW) /simplify vw",
+      aliases: ["/simplify vw", "simplify vw", "Simplify Path (VW)"],
+      category: "Selection",
+      args: { tolerance: "number?" },
+      ai: { expose: true, description: "Simplify selected freehand or line paths with the Visvalingam-Whyatt area tolerance." },
+      action: (_api, args = {}) => handleSimplifyStroke("vw", args),
+    },
+    {
+      id: "path.smooth",
+      name: "Smooth Path (Laplacian) /smooth",
+      aliases: ["/smooth", "/smooth path", "smooth", "smooth path", "Smooth Path (Laplacian)"],
+      category: "Selection",
+      args: { amount: "number? (iterations 1-100)" },
+      ai: { expose: true, description: "Smooth selected freehand or line paths. The optional amount is the Laplacian iteration count from 1 to 100.", example: { amount: 10 } },
+      action: (_api, args = {}) => handleSimplifyStroke("smooth", args),
+    },
+    {
+      id: "path.smooth.taubin",
+      name: "Smooth Path (Taubin) /smooth taubin",
+      aliases: ["/smooth taubin", "/taubin", "smooth taubin", "taubin", "Smooth Path (Taubin)"],
+      category: "Selection",
+      args: { amount: "number? (iterations 1-100)" },
+      ai: { expose: true, description: "Smooth selected freehand or line paths with Taubin smoothing. The optional amount is the iteration count from 1 to 100.", example: { amount: 10 } },
+      action: (_api, args = {}) => handleSimplifyStroke("taubin", args),
+    },
+    {
+      id: "path.resample",
+      name: "Resample Path Uniformly /resample",
+      aliases: ["/resample", "resample", "resample uniformly"],
+      category: "Selection",
+      args: { count: "number? (point count)" },
+      ai: { expose: true, description: "Resample selected paths at equal distances. Omit count to keep the current point count." },
+      action: (_api, args = {}) => handleSimplifyStroke("resample", args),
+    },
+    {
+      id: "path.close",
+      name: "Close Path and Smooth Joint /close path",
+      aliases: ["/close path", "close path", "close and smooth"],
+      category: "Selection",
+      ai: { expose: true, description: "Close selected paths by joining their ends and smoothing the new joint." },
+      action: () => handleSimplifyStroke("close"),
+    },
+    {
+      id: "selection.roundness.sharp",
+      name: "Sharp Corners on Selection /sharp corners",
+      aliases: ["/sharp corners", "sharp corners", "selection sharp"],
+      category: "Selection",
+      ai: { expose: true, description: "Set sharp corners on the selected lines, freehand paths, rectangles, and diamonds." },
+      action: () => handleSetSelectedSharpness("sharp"),
+    },
+    {
+      id: "selection.roundness.round",
+      name: "Rounded Corners on Selection /round corners",
+      aliases: ["/round corners", "round corners", "rounded corners", "selection round"],
+      category: "Selection",
+      ai: { expose: true, description: "Set rounded corners on the selected lines, freehand paths, rectangles, and diamonds." },
+      action: () => handleSetSelectedSharpness("round"),
+    },
+    {
+      id: "selection.convert.path",
+      name: "Convert Selection to Path /convert path",
+      aliases: ["/convert path", "convert to path", "to path"],
+      category: "Selection",
+      ai: { expose: true, description: "Convert selected rectangles, ellipses, and diamonds into editable native paths." },
+      action: () => handleConvertType("line"),
+    },
+    {
+      id: "selection.convert.line",
+      name: "Convert Selection to Line /convert line",
+      aliases: ["/convert line", "convert to line", "to line"],
+      category: "Selection",
+      ai: { expose: true, description: "Convert selected strokes or splines to native lines." },
+      action: () => handleConvertType("line"),
+    },
+    {
+      id: "selection.convert.freehand",
+      name: "Convert Selection to Freehand /convert freehand",
+      aliases: ["/convert freehand", "convert to freehand", "convert to pencil", "to freehand"],
+      category: "Selection",
+      ai: { expose: true, description: "Convert selected objects to freehand pencil strokes." },
+      action: () => handleConvertType("freedraw"),
+    },
+    {
+      id: "selection.convert.spline",
+      name: "Convert Selection to Spline /convert spline",
+      aliases: ["/convert spline", "convert to spline", "to spline"],
+      category: "Selection",
+      ai: { expose: true, description: "Convert selected paths into canonical cubic splines." },
+      action: () => convertSelectedToBezier(),
+    },
+    {
+      id: "selection.convert.fromSpline",
+      name: "Convert Selection from Spline /convert from spline",
+      aliases: ["/convert from spline", "convert from spline", "from spline"],
+      category: "Selection",
+      ai: { expose: true, description: "Convert selected splines back to native Excalidraw paths." },
+      action: () => convertSelectedFromBezier(),
+    },
+    {
+      id: "selection.role.cursor",
+      name: "Make Selection a Cursor /make cursor",
+      aliases: ["/make cursor", "make cursor", "cursor"],
+      category: "Selection",
+      ai: { expose: true, description: "Assign the Cursor score role to the current selection." },
+      action: () => assignIannixRole(getLiveSelectedElements(), "cursor"),
+    },
+    {
+      id: "selection.role.curve",
+      name: "Make Selection a Curve /make curve",
+      aliases: ["/make curve", "make curve", "curve"],
+      category: "Selection",
+      ai: { expose: true, description: "Assign the Curve score role to the current selection." },
+      action: () => assignIannixRole(getLiveSelectedElements(), "curve"),
+    },
+    {
+      id: "selection.role.trigger",
+      name: "Make Selection a Trigger /make trigger",
+      aliases: ["/make trigger", "make trigger", "trigger"],
+      category: "Selection",
+      ai: { expose: true, description: "Assign the Trigger score role to the current selection." },
+      action: () => assignIannixRole(getLiveSelectedElements(), "trigger"),
+    },
+    {
+      id: "selection.add.cursor",
+      name: "Add Cursor to Selected Curves /add cursor",
+      aliases: ["/add cursor", "/add cursor to selected curves", "add cursor"],
+      category: "Selection",
+      ai: { expose: true, description: "Mark selected paths as curves and attach runtime cursors." },
+      action: () => addCursorsToSelectedCurves(),
+    },
+    {
+      id: "selection.convert.svg",
+      name: "Convert Selection to SVG /convert to svg",
+      aliases: ["/convert to svg", "convert to svg", "bake to svg"],
+      category: "Selection",
+      ai: { expose: true, description: "Replace selected native objects with a source-preserving SVG object." },
+      action: () => convertSelectionToSvgObject(),
+    },
+    {
+      id: "selection.svg.attach",
+      name: "Attach SVG Code to Selection /attach svg",
+      aliases: ["/attach svg", "attach svg", "attach svg code"],
+      category: "Selection",
+      ai: { expose: true, description: "Attach a blank editable SVG source to the selected rectangle." },
+      action: () => attachSvgCodeToSelectedRectangle(),
+    },
+    {
+      id: "selection.viewport.fit",
+      name: "Fit Selection to Viewport /fit viewport",
+      aliases: ["/fit viewport", "fit viewport", "fit to viewport"],
+      category: "Selection",
+      ai: { expose: true, description: "Scale and center the selected rectangle or frame inside the visible viewport." },
+      action: () => {
+        const target = getLiveSelectedElements().find(element => ["rectangle", "frame"].includes(element.type));
+        if (!target) throw new Error("Select a rectangle or frame first.");
+        fitContextElementToViewport("fit", target.id);
+        return { elementId: target.id, mode: "fit" };
+      },
+    },
+    {
+      id: "selection.viewport.pip",
+      name: "Fit Selection to PIP /fit pip",
+      aliases: ["/fit pip", "fit pip", "fit to pip"],
+      category: "Selection",
+      ai: { expose: true, description: "Place the selected rectangle or frame at the bottom-right as a small picture-in-picture." },
+      action: () => {
+        const target = getLiveSelectedElements().find(element => ["rectangle", "frame"].includes(element.type));
+        if (!target) throw new Error("Select a rectangle or frame first.");
+        fitContextElementToViewport("pip", target.id);
+        return { elementId: target.id, mode: "pip" };
+      },
+    },
     { id: "iannix.cursor.addToSelectedCurves", name: "Add Cursor to Selected Curves /add cursor to selected curves", aliases: ["/add cursor to selected curves", "Add Cursor to Selected Curves"], category: "Score", action: () => addCursorsToSelectedCurves() },
     { id: "expressiveSynth.demo.create", name: "Add and Play Expressive Synth Demo /synth demo", aliases: ["/synth demo", "Expressive Synth Demo"], category: "Score", action: () => addExpressiveSynthDemo() },
     { id: "geometry.roughness.set", name: "Set Drawing Roughness /roughness n", aliases: ["/roughness"], category: "Geometry", args: { value: "0|1|2" }, ai: { expose: true, description: "Set the default Excalidraw sloppiness for newly drawn shapes to 0, 1, or 2." }, action: (_api, args = {}) => setDrawingRoughness(args.value) },
@@ -14697,6 +15086,7 @@ function App() {
     { id: "grid.visible.toggle", name: "Toggle Global Grid Visibility /grid visible", aliases: ["/grid visible"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridUpdate({ appearance: { visible: !globalGridRef.current.appearance.visible } }) },
     { id: "grid.snap.toggle", name: "Toggle Global Grid Snapping /grid snap", aliases: ["/grid snap"], category: "Grid", action: () => runtimeCallbacksRef.current.globalGridUpdate({ snap: { mode: globalGridRef.current.snap.mode === "off" ? "hard" : "off" } }) },
     { id: "grid.quantize.selection", name: "Quantize Selection to Global Grid /grid quantize", aliases: ["/grid quantize"], category: "Grid", args: { elementIds: "string[]?", resolution: "minor|major?", axes: "x|y|both?" }, action: (_api, args) => runtimeCallbacksRef.current.gridQuantizeSelection(args) },
+    { id: "grid.snap.points", name: "Snap Points to Grid /grid snap points", aliases: ["/grid snap points", "/snap points", "Snap points to grid"], category: "Grid", args: { elementIds: "string[]?", pointIndices: "number[]?", resolution: "minor|major?", axes: "x|y|both?" }, ai: { expose: true, description: "Snap every authored point in selected paths or curves to the global grid without applying the default bounds-only transform snap. Use elementIds to target explicit objects; otherwise the current selection is used.", example: { elementIds: ["curve-a"], resolution: "minor", axes: "both" } }, action: (_api, args) => runtimeCallbacksRef.current.gridSnapPoints(args) },
     { id: "score.time.update", name: "Update Score Object Time /score time", aliases: ["/score time"], category: "Score", args: { elementIds: "string[]?", start: "number|timeValue?", duration: "number|timeValue?", rate: "number?", loopMode: "once|loop|pingPong?" }, ai: { expose: true, description: "Set score object start, duration, rate, or loop mode. Time values accept expressions such as 4n, 2 bars, 500 ms, or 30 f.", example: { elementIds: ["curve-a"], duration: "2 bars", loopMode: "loop" } }, action: (_api, args) => updateScoreObjectTiming(args) },
     { id: "score.time.restoreAuto", name: "Restore Geometry-derived Duration /score duration auto", aliases: ["/score duration auto"], category: "Score", args: { elementIds: "string[]?" }, action: (_api, args) => restoreScoreAutoDuration(args) },
     { id: "score.grid.assign", name: "Assign Score Object Grid /score grid", aliases: ["/score grid"], category: "Grid", args: { elementIds: "string[]?", gridId: "string", metric: "string?" }, action: (_api, args) => updateScoreGridBinding(args) },
@@ -14894,6 +15284,7 @@ function App() {
         if (showContextPrompt) {
           setShowContextPrompt(false);
           setContextPrompt("");
+          setContextPromptIndex(0);
           setContextPromptPosition(null);
         }
         if (typeof activeElement?.blur === "function") activeElement.blur();
@@ -15043,6 +15434,7 @@ function App() {
           });
           setShowContextPrompt(true);
           setContextPrompt("");
+          setContextPromptIndex(0);
           return;
         }
         if (shortcutAction.id === "dock.left.toggle" || shortcutAction.id === "dock.right.toggle") {
@@ -15119,9 +15511,19 @@ function App() {
           if (!canAdjustWidth) return;
           const direction = shortcutAction.id.includes("decrease") ? -1 : 1;
           const fine = shortcutAction.id.endsWith("Fine");
-          const newWidth = stepStrokeWidth(appState.currentItemStrokeWidth ?? 1, direction, fine);
-          const elements = excalidrawAPI.getSceneElements().map(element => appState.selectedElementIds?.[element.id] && ["freedraw", "line"].includes(element.type) ? { ...element, strokeWidth: newWidth } : element);
-          excalidrawAPI.updateScene({ elements, appState: { currentItemStrokeWidth: newWidth } });
+          const adjusted = applyStrokeWidthShortcut({
+            elements: excalidrawAPI.getSceneElementsIncludingDeleted(),
+            selectedElementIds: appState.selectedElementIds,
+            currentItemStrokeWidth: appState.currentItemStrokeWidth,
+            direction,
+            fine,
+          });
+          e.stopImmediatePropagation?.();
+          excalidrawAPI.updateScene({
+            elements: adjusted.elements,
+            appState: { currentItemStrokeWidth: adjusted.currentItemStrokeWidth },
+            commitToHistory: true,
+          });
           return;
         }
         commandRegistry.execute(shortcutAction.commandId || shortcutAction.id, {}, {
@@ -15274,6 +15676,19 @@ function App() {
       cmd.category.toLowerCase().includes(query) ||
       cmd.aliases?.some(alias => alias.toLowerCase().includes(query))
     );
+    const selectionOperation = parseSelectionOperation(commandSearch.trim());
+    if (selectionOperation) {
+      const command = COMMANDS.find(candidate => candidate.id === selectionOperation.commandId);
+      const hasRegisteredMatch = command && matches.some(candidate => candidate.id === command.id);
+      if (command && !hasRegisteredMatch) {
+        matches.unshift({
+          ...command,
+          id: `selection-operation-inline:${command.id}:${commandSearch.trim()}`,
+          name: `${command.name} (${commandSearch.trim()})`,
+          selectionOperation,
+        });
+      }
+    }
     const inlineIannixMatch = /^\/(?:ix|iannix|score)\s+(.+)$/i.exec(commandSearch.trim());
     if (inlineIannixMatch && !matches.some(command => command.aliases?.some(alias => alias.toLowerCase() === query))) {
       const command = inlineIannixMatch[1].trim();
@@ -15360,6 +15775,11 @@ function App() {
     if (!input.startsWith("/") && !allowBare) return null;
     const exact = findExactCommand(input, COMMANDS);
     if (exact) return { command: exact, args: {} };
+    const selectionOperation = parseSelectionOperation(input);
+    if (selectionOperation) {
+      const command = COMMANDS.find(candidate => candidate.id === selectionOperation.commandId);
+      if (command) return { command, args: selectionOperation.args || {} };
+    }
     if (!input.startsWith("/")) return null;
     const drawingStyle = parseDrawingStyleSlash(input);
     if (drawingStyle) return { command: COMMANDS.find(command => command.id === drawingStyle.id), args: drawingStyle.args };
@@ -15502,6 +15922,13 @@ function App() {
       return commandRegistry.execute("ai.prompt", { prompt: commandSearch }, { source, transportTime: scoreTimeRef.current });
     }
     try {
+      if (cmd.selectionOperation) {
+        return await commandRegistry.execute(
+          cmd.selectionOperation.commandId,
+          cmd.selectionOperation.args || {},
+          { source, record: true, transportTime: scoreTimeRef.current },
+        );
+      }
       if (cmd.inlineIannixCommand) {
         return await commandRegistry.execute("iannix.command.execute", { command: cmd.inlineIannixCommand }, { source, transportTime: scoreTimeRef.current });
       }
@@ -15539,10 +15966,30 @@ function App() {
     return (api.getSceneElements?.() || []).filter(element => !element.isDeleted && selectedIds[element.id]);
   };
 
+  const contextOperationSuggestions = getSelectionOperationSuggestions(getLiveSelectedElements());
+  const filteredContextOperationSuggestions = filterSelectionOperationSuggestions(
+    contextPrompt,
+    contextOperationSuggestions,
+  ).slice(0, 12);
+
+  const selectContextOperation = operation => {
+    if (!operation) return;
+    const completion = operation.syntax.replace(/\s+\[[^\]]+\]/g, "");
+    const value = operation.acceptsNumber ? `${completion} ` : completion;
+    setContextPrompt(value);
+    setContextPromptIndex(0);
+    window.setTimeout(() => {
+      const input = contextPromptInputRef.current;
+      input?.focus();
+      input?.setSelectionRange(value.length, value.length);
+    }, 0);
+  };
+
   const executeContextPrompt = async prompt => {
     const text = String(prompt || "").trim();
     if (!text) return;
     const selected = getLiveSelectedElements();
+    const selectionOperation = parseSelectionOperation(text);
     const action = parseContextCommand(text);
     const directCommand = parseSlashInvocation(text, { allowBare: true });
     const mediaInstances = selected.filter(element => {
@@ -15551,6 +15998,25 @@ function App() {
     });
     const mediaObjects = selected.filter(isMediaStreamElement);
     const livecodeNodes = selected.filter(isLivecodeNodeElement);
+
+    if (selectionOperation) {
+      if (selected.length === 0) {
+        reportAiStatus("Select one or more canvas objects first.", "error");
+        return;
+      }
+      try {
+        await commandRegistry.execute(selectionOperation.commandId, selectionOperation.args || {}, {
+          source: "context-prompt",
+          record: true,
+          transportTime: scoreTimeRef.current,
+        });
+        const operation = contextOperationSuggestions.find(item => item.id === selectionOperation.operationId);
+        reportAiStatus(`Executed ${operation?.name || selectionOperation.commandId}.`);
+      } catch (error) {
+        reportAiStatus(error?.message || "Selection operation failed.", "error");
+      }
+      return;
+    }
 
     if (action?.kind === "documentationOverlay") {
       const language = action.language;
@@ -21000,6 +21466,14 @@ function App() {
     elementIds: args?.elementIds,
     resolution: args?.resolution,
     axes: args?.axes,
+    forceHard: true,
+  });
+  runtimeCallbacksRef.current.gridSnapPoints = (args = {}) => quantizeGlobalGridElements({
+    elementIds: args?.elementIds,
+    resolution: args?.resolution,
+    axes: args?.axes,
+    pointIndices: args?.pointIndices,
+    pointsOnly: true,
     forceHard: true,
   });
 
@@ -27788,7 +28262,10 @@ function App() {
         id="canvas-container" 
         onPointerDownCapture={handleCanvasPointerDown}
         onPointerMoveCapture={handleCanvasPointerMove}
-        onPointerLeave={() => setHoveredLinkedElementId(null)}
+        onPointerLeave={() => {
+          setHoveredLinkedElementId(null);
+          clearClassicSelectionCursor();
+        }}
         onPointerUpCapture={handleCanvasPointerUp}
         onPointerCancelCapture={handleCanvasPointerUp}
         onLostPointerCaptureCapture={handleCanvasPointerUp}
@@ -27962,9 +28439,10 @@ function App() {
               });
             }
 
-            if (appState.draggingElement) gridInteractionRef.current.moving = true;
-            if (appState.resizingElement || appState.isRotating) gridInteractionRef.current.resizing = true;
-            if (activeLinearState && isMouseDownRef.current) {
+            const gridPointerMoved = gridInteractionRef.current.moved;
+            if (gridPointerMoved && appState.draggingElement) gridInteractionRef.current.moving = true;
+            if (gridPointerMoved && (appState.resizingElement || appState.isRotating)) gridInteractionRef.current.resizing = true;
+            if (gridPointerMoved && activeLinearState && isMouseDownRef.current) {
               gridInteractionRef.current.pointEditing = true;
               const selectedPointIndices = activeLinearState.selectedPointsIndices;
               const lastClickedPoint = activeLinearState.pointerDownState?.lastClickedPoint;
@@ -30544,7 +31022,7 @@ function App() {
 
       {showContextPrompt && (
         <div className={`excalidraw theme--${theme}`}>
-          <div id="context-prompt-overlay" onClick={() => { setShowContextPrompt(false); setContextPrompt(""); setContextPromptPosition(null); }}>
+          <div id="context-prompt-overlay" onClick={() => { setShowContextPrompt(false); setContextPrompt(""); setContextPromptIndex(0); setContextPromptPosition(null); }}>
             <div
               className="context-prompt-card command-palette-card"
               style={contextPromptPosition ? { left: `${contextPromptPosition.left}px`, top: `${contextPromptPosition.top}px` } : undefined}
@@ -30557,7 +31035,10 @@ function App() {
                   id="context-prompt-input"
                   rows={1}
                   value={contextPrompt}
-                  onChange={event => setContextPrompt(event.target.value)}
+                  onChange={event => {
+                    setContextPrompt(event.target.value);
+                    setContextPromptIndex(0);
+                  }}
                   placeholder=""
                   aria-label="Context AI command"
                   onKeyDown={event => {
@@ -30565,18 +31046,58 @@ function App() {
                       event.preventDefault();
                       setShowContextPrompt(false);
                       setContextPrompt("");
+                      setContextPromptIndex(0);
                       setContextPromptPosition(null);
+                    } else if (event.key === "ArrowDown" && filteredContextOperationSuggestions.length > 0) {
+                      event.preventDefault();
+                      setContextPromptIndex(index => (index + 1) % filteredContextOperationSuggestions.length);
+                    } else if (event.key === "ArrowUp" && filteredContextOperationSuggestions.length > 0) {
+                      event.preventDefault();
+                      setContextPromptIndex(index => (index - 1 + filteredContextOperationSuggestions.length) % filteredContextOperationSuggestions.length);
+                    } else if (event.key === "Tab" && filteredContextOperationSuggestions.length > 0) {
+                      event.preventDefault();
+                      selectContextOperation(filteredContextOperationSuggestions[contextPromptIndex] || filteredContextOperationSuggestions[0]);
                     } else if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
                       const prompt = contextPrompt.trim();
+                      const parsed = parseSelectionOperation(prompt);
+                      if (!parsed && filteredContextOperationSuggestions.length > 0) {
+                        selectContextOperation(filteredContextOperationSuggestions[contextPromptIndex] || filteredContextOperationSuggestions[0]);
+                        return;
+                      }
                       setShowContextPrompt(false);
                       setContextPrompt("");
+                      setContextPromptIndex(0);
                       setContextPromptPosition(null);
                       if (prompt) void contextPromptActionRef.current?.(prompt);
                     }
                   }}
                 />
               </div>
+              {filteredContextOperationSuggestions.length > 0 && (
+                <div className="context-prompt-autocomplete" role="listbox" aria-label="Selection operations">
+                  {filteredContextOperationSuggestions.map((operation, index) => (
+                    <button
+                      key={operation.id}
+                      type="button"
+                      role="option"
+                      aria-selected={index === contextPromptIndex}
+                      className={index === contextPromptIndex ? "is-active" : ""}
+                      onMouseEnter={() => setContextPromptIndex(index)}
+                      onMouseDown={event => {
+                        event.preventDefault();
+                        selectContextOperation(operation);
+                      }}
+                    >
+                      <span className="context-prompt-operation-name">{operation.name}</span>
+                      <span className="context-prompt-operation-meta">
+                        <span className="command-category">{operation.category}</span>
+                        <span className="context-prompt-operation-syntax">{operation.syntax}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -30836,7 +31357,7 @@ function App() {
                   Export Selected p5 Frame as PNG
                 </button>
               )}
-              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showToSvg || customContextMenu.showMakeBody || customContextMenu.showMakeRole || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showMigrateLivecode || customContextMenu.showAttachSvgCode || customContextMenu.showMakePreview || customContextMenu.showCreateLivecode || customContextMenu.showViewportFit || customContextMenu.showSharpRound || customContextMenu.showPathOperations) && <div className="custom-floating-context-menu-separator" />}
+              {(customContextMenu.showRestore || customContextMenu.showToPath || customContextMenu.showToLine || customContextMenu.showToFreehand || customContextMenu.showToSpline || customContextMenu.showFromSpline || customContextMenu.showToSvg || customContextMenu.showMakeBody || customContextMenu.showMakeRole || customContextMenu.showAddCursor || customContextMenu.showAttachP5 || customContextMenu.showMigrateLivecode || customContextMenu.showAttachSvgCode || customContextMenu.showMakePreview || customContextMenu.showCreateLivecode || customContextMenu.showViewportFit || customContextMenu.showSharpRound || customContextMenu.showPathOperations || customContextMenu.showSnapPoints) && <div className="custom-floating-context-menu-separator" />}
             </>
           )}
           {customContextMenu.showViewportFit && (
@@ -31245,6 +31766,31 @@ function App() {
             </>
           )}
 
+          {customContextMenu.showSnapPoints && (
+            <button
+              onPointerDown={event => {
+                event.preventDefault();
+                event.stopPropagation();
+                const elementIds = customContextMenu.elementIds?.length
+                  ? customContextMenu.elementIds
+                  : getSelectedElements().map(element => element.id);
+                void commandRegistry.execute("grid.snap.points", { elementIds }, {
+                  source: "context-menu",
+                  record: true,
+                  transportTime: scoreTimeRef.current,
+                }).catch(error => setSceneExchangeStatus(error.message || "Could not snap points to the grid."));
+                setCustomContextMenu(null);
+              }}
+              className="custom-floating-context-menu-btn"
+              title="Snap every authored point in the selected paths to the current grid while preserving their stroke characteristics"
+            >
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.2" style={{ marginRight: "8px" }}>
+                <path strokeLinecap="round" d="M3 6h18M3 12h18M3 18h18M6 3v18M12 3v18M18 3v18" />
+              </svg>
+              Snap Points to Grid
+            </button>
+          )}
+
           {customContextMenu.showPathOperations && (
             <>
               {/* Separator and Curve Operations */}
@@ -31253,7 +31799,7 @@ function App() {
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              handleSimplifyStroke("rdp");
+              void commandRegistry.execute("path.simplify.rdp", {}, { source: "context-menu", record: true, transportTime: scoreTimeRef.current }).catch(error => setSceneExchangeStatus(error.message || "Could not simplify the path."));
               setCustomContextMenu(null);
             }}
             className="custom-floating-context-menu-btn"
@@ -31268,7 +31814,7 @@ function App() {
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              handleSimplifyStroke("vw");
+              void commandRegistry.execute("path.simplify.vw", {}, { source: "context-menu", record: true, transportTime: scoreTimeRef.current }).catch(error => setSceneExchangeStatus(error.message || "Could not simplify the path."));
               setCustomContextMenu(null);
             }}
             className="custom-floating-context-menu-btn"
@@ -31283,7 +31829,7 @@ function App() {
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              handleSimplifyStroke("smooth");
+              void commandRegistry.execute("path.smooth", {}, { source: "context-menu", record: true, transportTime: scoreTimeRef.current }).catch(error => setSceneExchangeStatus(error.message || "Could not smooth the path."));
               setCustomContextMenu(null);
             }}
             className="custom-floating-context-menu-btn"
@@ -31298,7 +31844,7 @@ function App() {
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              handleSimplifyStroke("taubin");
+              void commandRegistry.execute("path.smooth.taubin", {}, { source: "context-menu", record: true, transportTime: scoreTimeRef.current }).catch(error => setSceneExchangeStatus(error.message || "Could not smooth the path."));
               setCustomContextMenu(null);
             }}
             className="custom-floating-context-menu-btn"
@@ -31313,7 +31859,7 @@ function App() {
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              handleSimplifyStroke("resample");
+              void commandRegistry.execute("path.resample", {}, { source: "context-menu", record: true, transportTime: scoreTimeRef.current }).catch(error => setSceneExchangeStatus(error.message || "Could not resample the path."));
               setCustomContextMenu(null);
             }}
             className="custom-floating-context-menu-btn"
@@ -31328,7 +31874,7 @@ function App() {
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              handleSimplifyStroke("close");
+              void commandRegistry.execute("path.close", {}, { source: "context-menu", record: true, transportTime: scoreTimeRef.current }).catch(error => setSceneExchangeStatus(error.message || "Could not close the path."));
               setCustomContextMenu(null);
             }}
             className="custom-floating-context-menu-btn"
@@ -31339,21 +31885,6 @@ function App() {
             </svg>
             Close & Smooth Joint
           </button>
-          <button
-            onPointerDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              handleSimplifyStroke("snap");
-              setCustomContextMenu(null);
-            }}
-            className="custom-floating-context-menu-btn"
-            title="Snap all points of the selected curve individually to the nearest grid intersection"
-          >
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: "8px" }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 14h18M10 3v18M14 3v18" />
-            </svg>
-            Snap Points to Grid
-              </button>
             </>
           )}
         </div>
