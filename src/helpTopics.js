@@ -81,7 +81,7 @@ export const HELP_TOPICS = Object.freeze([
   {
     id: "script-glsl",
     title: "GLSL quick reference",
-    keywords: "glsl quick reference livecode shader fragment uv fc r t resolution composition",
+    keywords: "glsl quick reference livecode shader fragment blank template uv fc r t resolution composition",
     body: "GLSL nodes render fragment shaders into a composable Livecode surface. The standard inputs include FC.xy for the fragment coordinate, r.xy for the surface resolution, and t for shared time. Layer, surface opacity, blend, and background use the shared Livecode compositor. Fluid Brush and Inkwash expose Emission as a script parameter: it lets scene or physics-debug geometry continuously inject and stir dye while pointer painting remains available.",
     examples: [
       "vec2 uv = (FC.xy - 0.5 * r.xy) / r.y;",
@@ -126,11 +126,12 @@ export const HELP_TOPICS = Object.freeze([
   {
     id: "script-media",
     title: "Media streams quick reference",
-    keywords: "media streams quick reference holistic mediapipe feature inputs mapping actors scene normalized",
-    body: "Media sources feed previews, Canvas capture, Holistic processors, actors, and typed streams. Source pixels and device handles stay local; semantic observations can be read by scripts or routed through Inputs, Mapping, and Brush.",
+    keywords: "media streams quick reference holistic mediapipe feature inputs mapping actors scene normalized schlemmer pose t-pose fallback",
+    body: "Media sources feed previews, Canvas capture, Holistic processors, actors, and typed streams. Source pixels and device handles stay local; semantic observations can be read by scripts or routed through Inputs, Mapping, and Brush. The MediaPipe · Schlemmer pose p5 example reads named pose landmarks and draws a Bauhaus-style figurine from discs, hoops, blocks, cylinders, and wedges, then uses a deterministic T-pose whenever no Holistic stream or completed frame is available.",
     examples: [
       "const body = __.streams.get(\"Holistic\");",
       "const finger = body.feature(\"left_hand.index_finger_tip\", { space: \"scene\" });",
+      "const nose = body.feature(\"pose.nose\", { space: \"normalized\" });",
     ],
   },
   {
@@ -156,11 +157,13 @@ export const HELP_TOPICS = Object.freeze([
   {
     id: "script-three",
     title: "Three.js quick reference",
-    keywords: "three threejs webgl 3d scene camera renderer mesh geometry material tick dispose livecode transport params",
-    body: "Three.js nodes are independent bundled 3D Livecode scenes, not a Manim backend. Source receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), and __. Build geometry once, add it to scene, and animate with tick. Linked follows Score transport; Free uses the node clock. Use onDispose for listeners or resources that are not attached to the scene graph.",
+    keywords: "three threejs webgl 3d scene camera controls blender option alt orbit pan zoom wasd mediapipe holistic unicursal schlemmer costume ribbon renderer mesh geometry material unit cube torus knot orbiting spheres parameter dancing lights energy tick dispose livecode transport params",
+    body: "Three.js nodes are independent bundled 3D Livecode scenes, not a Manim backend. `/live three` opens a blank source document; the Example menu provides Unit cube, Lit torus knot, Orbiting spheres, Parameter dancing lights, MediaPipe Unicursal ribbon (3D), and MediaPipe Schlemmer costume (3D) starters. The two MediaPipe sources read named Holistic landmarks through __.streams and keep deterministic fallbacks until a frame is available. Source receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), and __. Build geometry once, add it to scene, and animate with tick. Blender-style controls use Option-drag to orbit, Shift+Option-drag to pan, Ctrl+Option-drag to zoom, two-finger drag to orbit, Shift+two-finger drag to pan, and Ctrl+two-finger drag to zoom. WASD pans, Q/E zooms, and arrow keys orbit when the patch is focused. Camera state is local runtime state. Linked follows Score transport; Free uses the node clock. Use onDispose for listeners or resources that are not attached to the scene graph.",
     examples: [
-      "const mesh = new THREE.Mesh(new THREE.TorusKnotGeometry(), new THREE.MeshNormalMaterial());\nscene.add(mesh);",
-      "tick(({ delta }) => { mesh.rotation.y += delta; });",
+      "const cube = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshNormalMaterial());\nscene.add(cube);",
+      "tick(({ delta }) => { cube.rotation.y += delta; });",
+      "// @param energy = 1.6 (0.4..3 step:0.1)\nconst light = new THREE.PointLight(0x8bd5ff, __.params.energy);\nscene.add(light);",
+      "const body = __.streams.list().find(stream => stream.kind === \"holistic\");\nconst nose = body?.feature(\"pose.nose\", { space: \"normalized\" });",
     ],
   },
   {

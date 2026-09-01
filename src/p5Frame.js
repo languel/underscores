@@ -99,6 +99,213 @@ p.draw = () => {
 };`,
   }),
   Object.freeze({
+    id: "mediapipe-schlemmer-pose",
+    name: "MediaPipe · Schlemmer pose",
+    mode: "instance",
+    source: `// Abstract figurine driven by a Holistic pose.
+// If MediaPipe is unavailable, the same Bauhaus costume is shown in a stable T-pose.
+// The circles, cylinders, hoops, blocks, and wedges echo Schlemmer's transformed body.
+const T_POSE = Object.freeze({
+  nose: { x: 0.5, y: 0.18 },
+  leftShoulder: { x: 0.34, y: 0.36 },
+  rightShoulder: { x: 0.66, y: 0.36 },
+  leftElbow: { x: 0.18, y: 0.36 },
+  rightElbow: { x: 0.82, y: 0.36 },
+  leftWrist: { x: 0.07, y: 0.36 },
+  rightWrist: { x: 0.93, y: 0.36 },
+  leftHip: { x: 0.42, y: 0.58 },
+  rightHip: { x: 0.58, y: 0.58 },
+  leftKnee: { x: 0.42, y: 0.78 },
+  rightKnee: { x: 0.58, y: 0.78 },
+  leftAnkle: { x: 0.42, y: 0.97 },
+  rightAnkle: { x: 0.58, y: 0.97 },
+});
+
+const POSE_FEATURES = Object.freeze({
+  nose: "pose.nose",
+  leftShoulder: "pose.left_shoulder",
+  rightShoulder: "pose.right_shoulder",
+  leftElbow: "pose.left_elbow",
+  rightElbow: "pose.right_elbow",
+  leftWrist: "pose.left_wrist",
+  rightWrist: "pose.right_wrist",
+  leftHip: "pose.left_hip",
+  rightHip: "pose.right_hip",
+  leftKnee: "pose.left_knee",
+  rightKnee: "pose.right_knee",
+  leftAnkle: "pose.left_ankle",
+  rightAnkle: "pose.right_ankle",
+});
+
+const readPosePoint = (stream, featureId) => {
+  const feature = stream?.feature(featureId, { space: "normalized" });
+  const point = feature?.position || feature?.normalized;
+  return feature?.available && Number.isFinite(point?.x) && Number.isFinite(point?.y)
+    ? { x: point.x, y: point.y }
+    : null;
+};
+
+const readPose = stream => {
+  // Descriptors are snapshots, while feature() reads the current semantic
+  // frame. A processor can be registered before its first frame and then
+  // become live without replacing its descriptor object.
+  if (typeof stream?.feature !== "function") return null;
+  const pose = Object.fromEntries(Object.entries(POSE_FEATURES).map(([name, featureId]) => [name, readPosePoint(stream, featureId)]));
+  return Object.values(pose).every(Boolean) ? pose : null;
+};
+
+const midpoint = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const angle = (from, to) => Math.atan2(to.y - from.y, to.x - from.x);
+
+const drawDisc = (at, radius, fill, outline = null, outlineWidth = 2) => {
+  p.fill(fill);
+  if (outline) {
+    p.stroke(outline);
+    p.strokeWeight(outlineWidth);
+  } else p.noStroke();
+  p.circle(at.x, at.y, radius * 2);
+};
+
+const drawBlock = (at, width, height, rotation, fill, outline = null) => {
+  p.push();
+  p.translate(at.x, at.y);
+  p.rotate(rotation);
+  p.rectMode(p.CENTER);
+  p.fill(fill);
+  if (outline) {
+    p.stroke(outline);
+    p.strokeWeight(2);
+  } else p.noStroke();
+  p.rect(0, 0, width, height, Math.min(8, height * 0.16));
+  p.rectMode(p.CORNER);
+  p.pop();
+};
+
+const drawRod = (from, to, width, fill) => {
+  p.stroke(fill);
+  p.strokeWeight(width);
+  p.strokeCap(p.SQUARE);
+  p.line(from.x, from.y, to.x, to.y);
+};
+
+const drawCostumeRod = (from, to, width, fill, endFill) => {
+  drawRod(from, to, width, fill);
+  const center = midpoint(from, to);
+  const rotation = angle(from, to);
+  drawBlock(center, width * 1.35, width * 0.82, rotation, fill, endFill);
+  drawDisc(from, width * 0.64, endFill);
+  drawDisc(to, width * 0.72, endFill);
+};
+
+let lastStream = null;
+
+p.setup = () => {
+  p.createCanvas(__.element.width, __.element.height);
+  p.pixelDensity(1);
+  p.textFont("monospace");
+};
+
+p.draw = () => {
+  p.clear();
+  const discoveredStream = __.streams.list().find(stream => stream.kind === "holistic");
+  if (discoveredStream) lastStream = discoveredStream;
+  const livePose = readPose(lastStream);
+  const pose = livePose || T_POSE;
+  const point = name => ({ x: pose[name].x * p.width, y: pose[name].y * p.height });
+  const nose = point("nose");
+  const leftShoulder = point("leftShoulder");
+  const rightShoulder = point("rightShoulder");
+  const leftElbow = point("leftElbow");
+  const rightElbow = point("rightElbow");
+  const leftWrist = point("leftWrist");
+  const rightWrist = point("rightWrist");
+  const leftHip = point("leftHip");
+  const rightHip = point("rightHip");
+  const leftKnee = point("leftKnee");
+  const rightKnee = point("rightKnee");
+  const leftAnkle = point("leftAnkle");
+  const rightAnkle = point("rightAnkle");
+  const shoulderMid = midpoint(leftShoulder, rightShoulder);
+  const hipMid = midpoint(leftHip, rightHip);
+  const torsoCenter = midpoint(shoulderMid, hipMid);
+  const shoulderSpan = distance(leftShoulder, rightShoulder);
+  const torsoHeight = distance(shoulderMid, hipMid);
+  const torsoWidth = Math.max(24, shoulderSpan * 0.62);
+  const headSize = Math.max(28, torsoWidth * 0.48);
+  const primary = __.currentColor || "#e8e8e8";
+  const blue = __.colors?.accent?.css || "#2f6de1";
+  const red = __.colors?.highlight?.css || "#d94c3d";
+  const yellow = __.colors?.warning?.css || "#f5c84c";
+
+  // The rear halo and shoulder beam establish the costume silhouette before
+  // its smaller articulated forms are placed on top.
+  p.noFill();
+  p.stroke(blue);
+  p.strokeWeight(Math.max(4, torsoWidth * 0.08));
+  p.ellipse(shoulderMid.x, shoulderMid.y + torsoHeight * 0.22, torsoWidth * 1.75, torsoWidth * 0.96);
+  drawRod(leftShoulder, rightShoulder, Math.max(16, torsoWidth * 0.23), yellow);
+  drawDisc(leftShoulder, Math.max(12, torsoWidth * 0.18), red, primary);
+  drawDisc(rightShoulder, Math.max(12, torsoWidth * 0.18), blue, primary);
+
+  // Arms become alternating coloured rods with block cuffs and circular joints.
+  drawCostumeRod(leftShoulder, leftElbow, Math.max(11, torsoWidth * 0.17), blue, red);
+  drawCostumeRod(leftElbow, leftWrist, Math.max(10, torsoWidth * 0.14), yellow, primary);
+  drawCostumeRod(rightShoulder, rightElbow, Math.max(11, torsoWidth * 0.17), red, blue);
+  drawCostumeRod(rightElbow, rightWrist, Math.max(10, torsoWidth * 0.14), yellow, primary);
+
+  // The torso is a moving quadrilateral wrapped in a Bauhaus hoop and a
+  // contrasting central block rather than a naturalistic shirt or chest.
+  p.noStroke();
+  p.fill(blue);
+  p.quad(
+    leftShoulder.x, leftShoulder.y,
+    rightShoulder.x, rightShoulder.y,
+    rightHip.x, rightHip.y,
+    leftHip.x, leftHip.y,
+  );
+  drawBlock(torsoCenter, torsoWidth * 0.42, torsoHeight * 0.7, angle(shoulderMid, hipMid), red, primary);
+  p.fill(yellow);
+  p.triangle(
+    shoulderMid.x, shoulderMid.y + torsoHeight * 0.02,
+    hipMid.x - torsoWidth * 0.35, hipMid.y,
+    hipMid.x + torsoWidth * 0.35, hipMid.y,
+  );
+  p.noFill();
+  p.stroke(red);
+  p.strokeWeight(Math.max(4, torsoWidth * 0.07));
+  p.ellipse(hipMid.x, hipMid.y + torsoHeight * 0.03, torsoWidth * 1.48, torsoWidth * 0.72);
+  drawDisc(hipMid, Math.max(11, torsoWidth * 0.18), primary, red);
+
+  // Legs read as mechanical costume parts: long rods, knee discs, and square feet.
+  drawCostumeRod(leftHip, leftKnee, Math.max(14, torsoWidth * 0.2), red, yellow);
+  drawCostumeRod(leftKnee, leftAnkle, Math.max(12, torsoWidth * 0.17), blue, primary);
+  drawCostumeRod(rightHip, rightKnee, Math.max(14, torsoWidth * 0.2), yellow, red);
+  drawCostumeRod(rightKnee, rightAnkle, Math.max(12, torsoWidth * 0.17), blue, primary);
+  drawBlock(leftAnkle, torsoWidth * 0.36, torsoWidth * 0.22, 0, red, primary);
+  drawBlock(rightAnkle, torsoWidth * 0.36, torsoWidth * 0.22, 0, yellow, primary);
+
+  // A cylindrical neck and nested head discs complete the figurine. Small
+  // eye discs keep the face legible without turning it into a portrait.
+  const neck = { x: shoulderMid.x, y: shoulderMid.y - torsoHeight * 0.17 };
+  drawRod(neck, nose, Math.max(10, torsoWidth * 0.16), red);
+  drawDisc(neck, Math.max(9, torsoWidth * 0.12), yellow, primary);
+  drawDisc(nose, headSize * 0.9, primary, red, 3);
+  drawDisc(nose, headSize * 0.65, yellow);
+  drawDisc({ x: nose.x - headSize * 0.24, y: nose.y - headSize * 0.08 }, headSize * 0.1, blue);
+  drawDisc({ x: nose.x + headSize * 0.24, y: nose.y - headSize * 0.08 }, headSize * 0.1, blue);
+  p.noFill();
+  p.stroke(blue);
+  p.strokeWeight(3);
+  p.circle(nose.x, nose.y, headSize * 1.55);
+
+  p.noStroke();
+  p.fill(primary);
+  p.textSize(11);
+  p.text(livePose ? "MediaPipe figurine" : "T-pose fallback · add MediaPipe input", 12, 20);
+};`,
+  }),
+  Object.freeze({
     id: "bare-instance",
     name: "Bare instance mode",
     mode: "instance",

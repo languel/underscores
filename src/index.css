@@ -7867,6 +7867,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   display: block;
   touch-action: none;
 }
+.underscores-three-canvas:focus { outline: none; }
 .manim-cue-next {
   pointer-events: auto;
   appearance: none;

@@ -6,6 +6,7 @@ import { createScriptConsole } from "./scriptConsole.js";
 import { isLivecodeTransportPlaying } from "./livecodeTransport.js";
 import { readWebglFrame, registerLivecodeCapture } from "./livecodeCapture.js";
 import { cacheThreeFrameConfig, compileThreeSource } from "./threeFrame.js";
+import { createThreeCameraControls } from "./threeCameraControls.js";
 
 const publishThreeStatus = (elementId, kind, message = "") => {
   if (typeof window === "undefined") return;
@@ -44,6 +45,7 @@ const createBridge = (element, config, scriptRuntimeRef, transportRef) => {
     objects: canvas,
     events: canvas.events,
     params,
+    get streams() { return scriptRuntimeRef?.current?.getStreams?.(element.id) || window.__?.streams; },
     get object() { return canvas.get(element.id); },
     get transport() { return transportRef.current || {}; },
     get time() { return Math.max(0, Number(transportRef.current?.time) || 0); },
@@ -87,6 +89,7 @@ export default function ThreeFrame({ element, config: rawConfig, scriptRuntimeRe
     let resizeObserver = null;
     let intersectionObserver = null;
     let unregisterCapture = () => {};
+    let cameraControls = null;
     let frameRequest = 0;
     let observerVisible = true;
     const disposers = [];
@@ -126,6 +129,11 @@ export default function ThreeFrame({ element, config: rawConfig, scriptRuntimeRe
         };
         await compileThreeSource(config.source)(THREE, scene, camera, renderer, bridge, tick, onDispose);
         if (disposed) return;
+
+        // Camera interaction is runtime-only. It is installed after authored
+        // setup so scripts can still establish their initial camera, then a
+        // learner can orbit/pan/zoom the patch without mutating scene state.
+        cameraControls = createThreeCameraControls({ canvas: renderer.domElement, camera });
 
         const resize = () => {
           const rect = host.getBoundingClientRect();
@@ -175,6 +183,7 @@ export default function ThreeFrame({ element, config: rawConfig, scriptRuntimeRe
             tickers.slice().forEach(callback => callback(context));
             frame += 1;
           }
+          cameraControls?.update(lastNow === null ? 0 : Math.min(0.1, Math.max(0, (now - lastNow) / 1000)));
           renderer.render(scene, camera);
           lastNow = now;
           lastTime = time;
@@ -194,6 +203,7 @@ export default function ThreeFrame({ element, config: rawConfig, scriptRuntimeRe
       window.cancelAnimationFrame(frameRequest);
       document.removeEventListener("visibilitychange", handleVisibility);
       unregisterCapture();
+      cameraControls?.dispose?.();
       intersectionObserver?.disconnect();
       resizeObserver?.disconnect();
       disposers.splice(0).reverse().forEach(dispose => {

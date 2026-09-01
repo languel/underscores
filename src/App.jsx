@@ -14569,13 +14569,13 @@ function App() {
       category: "Excalidraw",
       ai: { expose: true, description: "Clear the board and its physics relationships without a popup." },
       action: api => {
-        tombstoneSceneElements(api);
         const emptyGraph = createEmptyRelationshipGraph();
         physicsRuntimeRef.current.pause();
         physicsRuntimeRef.current.setGraph(emptyGraph);
         relationshipGraphRef.current = emptyGraph;
         setPhysicsWorldPlaying(false);
         setRelationshipGraph(emptyGraph);
+        tombstoneSceneElements(api);
       },
     },
     {
@@ -14894,10 +14894,10 @@ function App() {
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
-    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "/code", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|manim|three|playcore|markdown|latex|html|orca|shader|tixy|svg?", example: "kind-specific example id?", name: "string?", width: "number?", height: "number?", source: "string?", parameters: "object?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", view: "preview|source|code|split?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Three.js nodes are standalone bundled scenes: authored JavaScript receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), and the shared __ bridge. They do not depend on Manim. Manim nodes accept authored manim-web JavaScript with top-level await and receive scene, cue(), MANIM, and __. Choose transportMode free for an immediately self-running animation or linked for score-controlled playback. Shader nodes accept hello, minimal, rainbow, shadow, fluid, or stokes examples. Tixy nodes accept a compact (t, i, x, y) JavaScript expression and render a transport-synchronized 16×16 dot grid by default; optional @param gridSize, gridWidth, gridHeight, color1, color0, and backgroundColor declarations customize dimensions and palettes. A numeric gridSize is square, a [width, height] JSON value is rectangular, and the background defaults to transparent for layering. SVG nodes render sanitized source locally with transport-aware animation seeking. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "three", name: "Three.js form", width: 640, height: 420, transportMode: "free", view: "preview", running: true, source: "const mesh = new THREE.Mesh(new THREE.TorusKnotGeometry(), new THREE.MeshNormalMaterial());\nscene.add(mesh);\ntick(({ delta }) => { mesh.rotation.y += delta; });" } }, action: (_api, args) => createLivecodeCanvasNode(args) },
+    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "/code", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|manim|three|playcore|markdown|latex|html|orca|shader|tixy|svg?", example: "kind-specific example id?", name: "string?", width: "number?", height: "number?", source: "string?", parameters: "object?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", view: "preview|source|code|split?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Three.js nodes are standalone bundled scenes: authored JavaScript receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), and the shared __ bridge. They do not depend on Manim. Three starters are unit-cube, lit-torus-knot, orbiting-spheres, parameter-dancing-lights, mediapipe-unicursal-3d, and mediapipe-schlemmer-3d; omit example for a blank source. The MediaPipe starters read named Holistic landmarks and use deterministic fallbacks when no completed frame is available. Manim nodes accept authored manim-web JavaScript with top-level await and receive scene, cue(), MANIM, and __. Choose transportMode free for an immediately self-running animation or linked for score-controlled playback. Shader nodes accept hello, minimal, rainbow, shadow, fluid, or stokes examples. Tixy nodes accept a compact (t, i, x, y) JavaScript expression and render a transport-synchronized 16×16 dot grid by default; optional @param gridSize, gridWidth, gridHeight, color1, color0, and backgroundColor declarations customize dimensions and palettes. A numeric gridSize is square, a [width, height] JSON value is rectangular, and the background defaults to transparent for layering. SVG nodes render sanitized source locally with transport-aware animation seeking. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "three", example: "unit-cube", name: "Three.js form", width: 640, height: 420, transportMode: "free", view: "preview", running: true } }, action: (_api, args) => createLivecodeCanvasNode(args) },
     { id: "livecode.node.create.strudel", name: "Create Strudel Livecode Node /live strudel", aliases: ["/live strudel", "/code strudel"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel }) },
     { id: "livecode.node.create.p5", name: "Create p5 Livecode Node /live p5", aliases: ["/live p5", "/code p5"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.p5 }) },
-    { id: "livecode.node.create.three", name: "Create Three.js Livecode Node /live three", aliases: ["/live three", "/live threejs", "/code three", "/three"], category: "Livecode", ai: { expose: true, description: "Create an independent bundled Three.js Livecode Node. The source receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), and __." }, action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.three }) },
+    { id: "livecode.node.create.three", name: "Create Three.js Livecode Node /live three", aliases: ["/live three", "/live threejs", "/code three", "/three"], category: "Livecode", ai: { expose: true, description: "Create an independent bundled Three.js Livecode Node. The source receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), and __. The Example menu includes Unit cube, Lit torus knot, Orbiting spheres, Parameter dancing lights, MediaPipe Unicursal ribbon (3D), and MediaPipe Schlemmer costume (3D); the last two read Holistic landmarks and fall back to deterministic geometry when no frame is available. The node surface supports local orbit, pan, zoom, and keyboard camera controls." }, action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.three }) },
     { id: "livecode.node.create.playcore", name: "Create Play Core Livecode Node /live playcore", aliases: ["/live playcore", "/live play", "/code playcore", "/code play"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.playcore }) },
     { id: "livecode.node.create.markdown", name: "Create Markdown Livecode Node /live markdown", aliases: ["/live markdown", "/live md", "/code markdown", "/code md"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.markdown }) },
     { id: "livecode.node.create.latex", name: "Create LaTeX Livecode Node /live latex", aliases: ["/live latex", "/live tex", "/code latex", "/code tex"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.latex }) },
@@ -14906,7 +14906,8 @@ function App() {
     { id: "livecode.node.create.tixy", name: "Create Tixy Livecode Node /live tixy", aliases: ["/live tixy", "/code tixy", "/tixy"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.tixy, example: "waves" }) },
     { id: "livecode.node.create.svg", name: "Create SVG Livecode Node /live svg", aliases: ["/live svg", "/code svg"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.svg }) },
     { id: "livecode.node.update", name: "Update Livecode Node", category: "Livecode", args: { elementId: "string?", kind: "strudel|p5|manim|three|playcore|markdown|latex|html|orca|shader|tixy|svg?", name: "string?", source: "string?", parameters: "object?", view: "preview|source|code|split?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", runtimeSettings: "object?" }, ai: { expose: true, description: "Explain, replace, or adjust an existing code-capable canvas object. Uses elementId from the active scene; when omitted, updates the selected Livecode, legacy p5, or Play Core host. Legacy hosts are migrated in place so the edit stays on the selected object. Source is stored as authored text and must be a valid JSON string in the command payload. To expose an @param, put the // @param declaration in source and read it as __.params.name; parameters only overrides an already-declared value. Three.js source receives standalone THREE, scene, camera, renderer, tick(callback), onDispose(callback), and __. Manim source may use top-level await with scene, cue(), MANIM, and __. Tixy source uses the compact (t, i, x, y) expression contract. SVG nodes render sanitized source locally with transport-aware animation seeking. This does not execute arbitrary code outside the node runtime.", example: { elementId: "livecode-host", source: "const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshNormalMaterial());\\nscene.add(mesh);\\ntick(({ delta }) => { mesh.rotation.y += delta; });", view: "code" } }, action: (_api, args) => updateAILivecodeNode(args) },
-    { id: "livecode.node.create.shader", name: "Create Hello GLSL Livecode Node /live shader", aliases: ["/live shader", "/live glsl", "/code shader", "/code glsl", "/shader", "/shader hello"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "hello" }) },
+    { id: "livecode.node.create.shader", name: "Create GLSL Livecode Node /live shader", aliases: ["/live shader", "/live glsl", "/code shader", "/code glsl"], category: "Livecode", ai: { expose: true, description: "Create a blank GLSL Livecode Node ready for authoring. The node uses the local WebGL shader runtime; choose an explicit shader example when you want a prefilled source." }, action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader }) },
+    { id: "livecode.node.create.shader.hello", name: "Create Hello GLSL Livecode Node /shader hello", aliases: ["/shader", "/shader hello", "/live shader hello", "/live glsl hello", "/code shader hello"], category: "Livecode", ai: { expose: true, description: "Create the Hello GLSL example as a ready-to-run Livecode Node." }, action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "hello" }) },
     { id: "livecode.node.create.shader.minimal", name: "Create Minimal Twigl Shader /shader minimal", aliases: ["/shader minimal", "/live shader minimal", "/code shader minimal", "/shader shadertoy", "/shader twigl"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "minimal-raymarch" }) },
     { id: "livecode.node.create.shader.rainbow", name: "Create Rainbow Shader /shader rainbow", aliases: ["/shader rainbow", "/live shader rainbow", "/code shader rainbow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "rainbow" }) },
     { id: "livecode.node.create.shader.shadow", name: "Create 2D Shadow Shader /shader shadow", aliases: ["/shader shadow", "/live shader shadow", "/code shader shadow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "shadow" }) },
@@ -15591,7 +15592,12 @@ function App() {
         }
         e.preventDefault();
         e.stopPropagation();
-        if (shortcutAction.id === "toggle-theme") e.stopImmediatePropagation();
+        // Ctrl/Cmd+Shift+Delete is also handled by Excalidraw itself. Stop
+        // sibling listeners before dispatching our trusted clear command so a
+        // single keypress cannot trigger two competing scene updates.
+        if (shortcutAction.id === "iannix.command.clear" || shortcutAction.id === "toggle-theme") {
+          e.stopImmediatePropagation?.();
+        }
         if (shortcutAction.id === "transport.play.toggle") {
           setScorePlaying(playing => !playing);
           return;
@@ -19464,9 +19470,13 @@ function App() {
     const tixyExample = kind === LIVECODE_KINDS.tixy && args.example
       ? getLivecodeExamples(kind).find(example => example.id === args.example)
       : null;
-    const starterExample = shaderExample || tixyExample;
+    const threeExample = kind === LIVECODE_KINDS.three && args.example
+      ? getLivecodeExamples(kind).find(example => example.id === args.example)
+      : null;
+    const starterExample = shaderExample || tixyExample || threeExample;
     const shaderDefaults = Boolean(shaderExample);
     const tixyDefaults = Boolean(tixyExample);
+    const threeDefaults = Boolean(threeExample);
     const node = createLivecodeNode({
       kind,
       name: args.name || (starterExample ? copyLivecodeExampleName(starterExample.name) : randomLivecodeName(kind)),
@@ -19475,11 +19485,11 @@ function App() {
       runtime: {
         ...(typeof args.running === "boolean"
           ? { running: args.running }
-          : (shaderDefaults || tixyDefaults ? { running: true } : {})),
+          : (shaderDefaults || tixyDefaults || threeDefaults ? { running: true } : {})),
         enabled: args.enabled !== false,
         ...(args.transportMode === "free" || args.transportMode === "linked"
           ? { transportMode: args.transportMode }
-          : (shaderDefaults || tixyDefaults ? { transportMode: "free" } : {})),
+          : (shaderDefaults || tixyDefaults || threeDefaults ? { transportMode: "free" } : {})),
         settings: {
           ...(shaderExample ? {
             shaderExample: shaderExample.id,
@@ -19490,10 +19500,11 @@ function App() {
             blendMode: "normal",
             emitterSource: "scene",
           } : {}),
+          ...(threeExample ? { livecodeExample: threeExample.id } : {}),
           ...(args.runtimeSettings && typeof args.runtimeSettings === "object" && !Array.isArray(args.runtimeSettings) ? args.runtimeSettings : {}),
         },
       },
-      view: args.view || (shaderDefaults || tixyDefaults ? "preview" : undefined),
+      view: args.view || (shaderDefaults || tixyDefaults || threeDefaults ? "preview" : undefined),
       typography: args.typography,
     });
     const width = Math.max(120, Math.min(4096, Number(args.width) || (node.kind === LIVECODE_KINDS.orca ? 480 : 520)));
@@ -22957,6 +22968,16 @@ function App() {
     }
     if (unsupported.length) throw new Error(unsupported[0].reason);
     if (operations.some(operation => operation.type === "clear")) {
+      // Quiesce physics before publishing the tombstones. Excalidraw invokes
+      // onChange synchronously from updateScene; clearing the ref/runtime
+      // first prevents that callback from traversing a stale graph while the
+      // scene is being emptied.
+      const emptyGraph = createEmptyRelationshipGraph();
+      physicsRuntimeRef.current.pause();
+      physicsRuntimeRef.current.setGraph(emptyGraph);
+      relationshipGraphRef.current = emptyGraph;
+      setPhysicsWorldPlaying(false);
+      setRelationshipGraph(emptyGraph);
       await runWithoutSessionSceneRecording(async () => {
         tombstoneSceneElements(excalidrawAPIRef.current);
         setSelectedElementIds({});
@@ -22966,9 +22987,6 @@ function App() {
       // A scene clear also stops score-driven physics and removes its authored
       // graph. Keep this in the single trusted clear path so the shortcut,
       // command palette, and IanniX command UI cannot diverge.
-      physicsRuntimeRef.current.pause();
-      setPhysicsWorldPlaying(false);
-      setRelationshipGraph(createEmptyRelationshipGraph());
       setSceneExchangeStatus("Executed IanniX command: cleared the scene.");
       eventBus.emit("iannix.command.executed", { command, objectCount: 0 }, { source: "iannix" });
       return { command, objectCount: 0 };
