@@ -22,6 +22,59 @@ const topicEntries = HELP_TOPICS.map(topic => ({ ...topic, type: "reference", ca
 
 const entryBody = entry => entry.body || entry.summary || "";
 
+const DOCUMENTATION_LIVECODE_KINDS = Object.freeze({
+  "script-p5": "p5",
+  "script-glsl": "shader",
+  "script-play-core": "playcore",
+  "script-orca": "orca",
+  "script-strudel": "strudel",
+  "script-manim": "manim",
+  "script-three": "three",
+  "script-markdown": "markdown",
+  "script-latex": "latex",
+  "script-html": "html",
+  "script-tixy": "tixy",
+  "script-svg": "svg",
+});
+
+const DocumentationActionIcon = ({ type }) => {
+  const paths = {
+    copy: <><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V5H5v11h3" /></>,
+    add: <><path d="M12 5v14M5 12h14" /></>,
+  };
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[type]}</svg>;
+};
+
+const DocumentationCodeBlock = ({ source, entry, onCreateLivecode }) => {
+  const [copyState, setCopyState] = useState("ready");
+  const kind = DOCUMENTATION_LIVECODE_KINDS[entry?.sourceId || entry?.id];
+  const copy = async () => {
+    try {
+      if (!globalThis.navigator?.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      await globalThis.navigator.clipboard.writeText(source);
+      setCopyState("copied");
+    } catch {
+      setCopyState("unavailable");
+    }
+  };
+  const copyLabel = copyState === "copied" ? "Copied example to the clipboard" : copyState === "unavailable" ? "Clipboard unavailable" : "Copy example to the clipboard";
+  return (
+    <div className="documentation-code-block">
+      <pre><code>{source}</code></pre>
+      <div className="documentation-code-actions">
+        <button type="button" className="documentation-code-action" onClick={() => void copy()} title={copyLabel} aria-label={copyLabel}><DocumentationActionIcon type="copy" /></button>
+        {kind && <button
+          type="button"
+          className="documentation-code-action"
+          onClick={() => onCreateLivecode?.({ kind, source, name: `${entry.title} example` })}
+          title="Create a Livecode node from this example"
+          aria-label="Create a Livecode node from this example"
+        ><DocumentationActionIcon type="add" /></button>}
+      </div>
+    </div>
+  );
+};
+
 export default function DocumentationPanel({
   helpCatalog = [],
   horizontal = false,
@@ -29,6 +82,7 @@ export default function DocumentationPanel({
   request = null,
   onStartWalkthrough,
   onInsertHelp,
+  onCreateLivecode,
 }) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(() => gettingStartedId ? `patch:${gettingStartedId}` : topicEntries[0]?.id || "");
@@ -181,7 +235,14 @@ export default function DocumentationPanel({
               {selectedEntry.examples?.length > 0 && (
                 <section className="documentation-examples" aria-label="Examples">
                   <h3>Examples</h3>
-                  {selectedEntry.examples.map(example => <pre key={example}><code>{example}</code></pre>)}
+                  {selectedEntry.examples.map(example => (
+                    <DocumentationCodeBlock
+                      key={example}
+                      source={String(example)}
+                      entry={selectedEntry}
+                      onCreateLivecode={onCreateLivecode}
+                    />
+                  ))}
                 </section>
               )}
               {selectedEntry.type === "patch" && (
