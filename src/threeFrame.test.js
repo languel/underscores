@@ -47,3 +47,10 @@ test("Three.js source receives the independent scene contract and accepts top-le
   assert.deepEqual(calls, [["Three", 2, 0.5]]);
   assert.equal(validateThreeSource("const = nope").valid, false);
 });
+
+test("Three.js source receives the safe model loader contract", async () => {
+  const calls = [];
+  const run = compileThreeSource("const asset = await loadModel('sample.glb'); __.params.result.push(asset.format);");
+  await run({}, {}, {}, {}, { params: { result: calls } }, () => {}, () => {}, async url => ({ format: url.split(".").pop() }));
+  assert.deepEqual(calls, ["glb"]);
+});

@@ -4,6 +4,7 @@ import { SHADER_EXAMPLES } from "./shaderLivecode.js";
 import { MANIM_DEMO_EXAMPLES } from "./manimDemoExamples.js";
 import { LIVECODE_KINDS, defaultLivecodeSource } from "./livecodeNode.js";
 import { ORCA_GRID_HEIGHT, ORCA_GRID_WIDTH } from "./orcaEngine.js";
+import { THREE_MODEL_EXAMPLES } from "./threeModel.js";
 
 const orcaGrid = (...rows) => Array.from(
   { length: ORCA_GRID_HEIGHT },
@@ -219,6 +220,58 @@ tick(({ time }) => {
     light.intensity = energy * (index === 2 ? 6 : 8);
   });
   });`,
+  },
+  {
+    id: "model-viewer-gltf",
+    label: "Models · glTF viewer",
+    name: "glTF model viewer",
+    source: `// loadModel is the safe Three.js model loader. It accepts CORS-enabled
+// OBJ, glTF/GLB, and USD/USDZ URLs and returns { scene, animations }.
+const asset = await loadModel(${JSON.stringify(THREE_MODEL_EXAMPLES.find(example => example.id === "damaged-helmet")?.url || "")});
+scene.add(asset.scene);
+scene.add(new THREE.HemisphereLight(0x8bd5ff, 0x101522, 1.8));
+const key = new THREE.DirectionalLight(0xffffff, 2.6);
+key.position.set(3, 4, 5);
+scene.add(key);
+
+tick(({ time }) => {
+  asset.scene.rotation.y = time * 0.25;
+});`,
+  },
+  {
+    id: "model-viewer-animation-morph",
+    label: "Models · Animation + blendshape",
+    name: "Animated glTF blendshape",
+    source: `// Khronos AnimatedMorphCube includes an animation and morph targets.
+const asset = await loadModel(${JSON.stringify(THREE_MODEL_EXAMPLES.find(example => example.id === "animated-morph-cube")?.url || "")});
+scene.add(asset.scene);
+const mixer = new THREE.AnimationMixer(asset.scene);
+if (asset.animations[0]) mixer.clipAction(asset.animations[0]).play();
+let morph = 0;
+
+tick(({ delta, time }) => {
+  mixer.update(delta);
+  morph = 0.5 + 0.5 * Math.sin(time * 1.7);
+  asset.scene.traverse(object => {
+    if (!object.morphTargetInfluences) return;
+    object.morphTargetInfluences.fill(morph);
+  });
+});`,
+  },
+  {
+    id: "model-viewer-obj-teapot",
+    label: "Models · OBJ teapot",
+    name: "MIT OBJ teapot",
+    source: `const asset = await loadModel(${JSON.stringify(THREE_MODEL_EXAMPLES.find(example => example.id === "mit-teapot")?.url || "")});
+scene.add(asset.scene);
+scene.add(new THREE.HemisphereLight(0x8bd5ff, 0x111827, 2));
+const light = new THREE.DirectionalLight(0xffffff, 3);
+light.position.set(2, 3, 4);
+scene.add(light);
+
+tick(({ time }) => {
+  asset.scene.rotation.y = time * 0.15;
+});`,
   },
   {
     id: "mediapipe-unicursal-3d",

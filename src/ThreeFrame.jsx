@@ -7,6 +7,7 @@ import { isLivecodeTransportPlaying } from "./livecodeTransport.js";
 import { readWebglFrame, registerLivecodeCapture } from "./livecodeCapture.js";
 import { cacheThreeFrameConfig, compileThreeSource } from "./threeFrame.js";
 import { createThreeCameraControls, THREE_CAMERA_CONTROLS_HINT } from "./threeCameraControls.js";
+import { loadThreeModel } from "./threeModel.js";
 
 const publishThreeStatus = (elementId, kind, message = "") => {
   if (typeof window === "undefined") return;
@@ -203,7 +204,8 @@ export default function ThreeFrame({ element, config: rawConfig, scriptRuntimeRe
           if (typeof callback !== "function") throw new TypeError("onDispose(callback) requires a function.");
           disposers.push(callback);
         };
-        await compileThreeSource(config.source)(THREE, scene, camera, renderer, bridge, tick, onDispose);
+        const loadModel = (url, options = {}) => loadThreeModel(url, options);
+        await compileThreeSource(config.source)(THREE, scene, camera, renderer, bridge, tick, onDispose, loadModel);
         if (cancelled) {
           release();
           return;

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { getLivecodeExamples, LIVECODE_TEMPLATES } from "./livecodeExamples.js";
 import { LIVECODE_KINDS } from "./livecodeNode.js";
 import { ORCA_GRID_HEIGHT, ORCA_GRID_WIDTH, parseOrcaGrid, runOrcaFrame } from "./orcaEngine.js";
+import { getP5Example } from "./p5Frame.js";
 
 test("blank source templates remain available without a synthetic Barebones example", () => {
   for (const kind of Object.values(LIVECODE_KINDS)) {
@@ -19,11 +20,21 @@ test("kind-specific example catalogs retain their existing starters", () => {
   assert.ok(getLivecodeExamples(LIVECODE_KINDS.shader).some(example => example.id === "hello"));
 });
 
+test("p5 Blobatar starter follows MediaPipe with a mouse fallback", () => {
+  const example = getP5Example("mediapipe-blobatar");
+  assert.ok(example);
+  assert.equal(example.mode, "instance");
+  assert.match(example.source, /pose\.nose/);
+  assert.match(example.source, /mouseX/);
+  assert.match(example.source, /drawBlob/);
+  assert.match(example.source, /currentColor/);
+});
+
 test("Three.js exposes standalone geometry and motion starters", () => {
   const examples = getLivecodeExamples(LIVECODE_KINDS.three);
   assert.deepEqual(
     examples.map(example => example.id),
-    ["unit-cube", "lit-torus-knot", "orbiting-spheres", "parameter-dancing-lights", "mediapipe-unicursal-3d", "mediapipe-schlemmer-3d"],
+    ["unit-cube", "lit-torus-knot", "orbiting-spheres", "parameter-dancing-lights", "model-viewer-gltf", "model-viewer-animation-morph", "model-viewer-obj-teapot", "mediapipe-unicursal-3d", "mediapipe-schlemmer-3d"],
   );
   for (const example of examples) {
     assert.ok(example.name, `${example.id} should have a name`);

@@ -60,6 +60,7 @@ export const LIVECODE_HELP = Object.freeze({
     points: Object.freeze([
       "Use global setup() and draw(), or the existing compatible p5 mode. The live surface is the node's rectangle size.",
       "Use __.element, __.params, __.canvas, __.events, and __.transport from the shared bridge.",
+      "The MediaPipe · Blobatar starter reads __.streams for pose.nose, eases a simple blob toward the landmark, and falls back to mouseX/mouseY when no Holistic frame is ready. It is intentionally small enough to copy and explain in a lesson.",
       "Auto-update is on by default, so valid edits compile immediately. Turn it off to keep a draft separate until Cmd/Ctrl+Enter evaluates it.",
       "Valid edits keep the last working sketch until the replacement compiles; docking never stops the running node.",
     ]),

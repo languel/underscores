@@ -515,7 +515,7 @@ const compactScriptGuide = (mode, iannixCommand, livecodeKind) => {
     details="Command-click a path to edit it; double-click a segment to insert an anchor."
   />;
   if (mode === "p5") return <CompactGuide
-    summary="p5 sketches run as self-contained Livecode nodes. Use the host dimensions and __.params, then compile or run from Script."
+    summary="p5 sketches run as self-contained Livecode nodes. Use the host dimensions and __.params, then compile or run from Script. The MediaPipe · Blobatar example follows pose.nose and falls back to the mouse."
     example={'function setup() {\n  createCanvas(__.element.width, __.element.height);\n}\n\nfunction draw() {\n  circle(width / 2, height / 2, 80);\n}'}
     details="Transparent surfaces and frame reset behavior are available in Node settings."
   />;

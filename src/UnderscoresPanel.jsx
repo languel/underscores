@@ -58,7 +58,7 @@ export const PanelIcon = ({ id }) => {
     </svg>;
   }
   if (id === "media-input") {
-    return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m5 17 4.5-4 3 2 2.5-3 4 5M8 20l3-4"/></svg>;
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m5 17 4.5-4 3 2 2.5-3 4 5M15.5 8.5l3 1.7v3.5l-3 1.7-3-1.7v-3.5l3-1.7Z"/></svg>;
   }
   if (id === "inputs") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h4l2.2-6 3.6 12 2.4-8 2 2H21"/><circle cx="4" cy="12" r="1.5"/><circle cx="20" cy="12" r="1.5"/></svg>;

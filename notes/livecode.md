@@ -63,13 +63,16 @@ selected Livecode Node. The node keeps its scene identity and geometry while its
 source, compatible runtime settings, name, and parameters are retargeted to the applied program.
 
 The p5 Livecode flow is the currently polished runtime path: concurrent nodes, canvas editing, source-panel editing, output, and overlay/split views are expected to work together.
-The p5 example catalog also includes **MediaPipe · Unicursal portrait** and **MediaPipe · Schlemmer
-pose**. The first is a supported live prototype for the shared `__.art.unicursal` engine. The
-second reads named pose landmarks through `__.streams` and draws a Bauhaus-style figurine from
-rods, discs, hoops, blocks, cylinders, and wedges. It deliberately falls back to a deterministic
-T-pose when no Holistic processor or completed frame is available, so a lesson or demo has a useful
-visual result before camera permissions, model assets, or network access are ready. Add a Holistic
-processor to animate it; landmark observations remain runtime-only and are never copied into the
+The p5 example catalog includes **MediaPipe · Blobatar**, **MediaPipe · Unicursal portrait**, and
+**MediaPipe · Schlemmer pose**. Blobatar is the smallest starting point: it reads the named
+`pose.nose` feature through `__.streams`, eases a soft blob and its eyes toward that point, and
+falls back to `mouseX` / `mouseY` when no Holistic processor or completed frame is available. It
+is deliberately short enough to copy into a lesson and extend with new expressions or parameters.
+Unicursal is a supported live prototype for the shared `__.art.unicursal` engine. Schlemmer reads
+named pose landmarks and draws a Bauhaus-style figurine from rods, discs, hoops, blocks, cylinders,
+and wedges; it falls back to a deterministic T-pose so a lesson or demo has a useful visual result
+before camera permissions, model assets, or network access are ready. Add a Holistic processor to
+animate these examples; landmark observations remain runtime-only and are never copied into the
 scene.
 
 #### Runtime repair notes

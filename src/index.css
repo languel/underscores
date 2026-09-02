@@ -8044,6 +8044,23 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   filter: none !important;
 }
 
+.underscores-three-model-preview,
+.underscores-three-model-host,
+.underscores-three-model-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 1px;
+  min-height: 1px;
+}
+
+.underscores-three-model-preview {
+  overflow: hidden;
+  background: var(--underscores-canvas-bg, var(--color-canvas-background, #08090a));
+}
+
+.underscores-three-model-canvas { filter: none !important; }
+
 .underscores-media-stream-frame {
   position: absolute;
   overflow: hidden;
@@ -11355,6 +11372,39 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   background: var(--underscores-canvas-bg, var(--color-canvas-background, #08090a));
   object-fit: contain;
 }
+
+.media-stream-panel-preview.underscores-three-model-preview {
+  min-height: 120px;
+  object-fit: initial;
+}
+
+.media-stream-panel-model-controls {
+  display: grid;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid var(--underscores-panel-border, var(--border-color));
+  background: var(--underscores-panel-subtle-bg, rgba(128, 128, 128, 0.04));
+}
+
+.media-stream-panel-model-morphs {
+  display: grid;
+  gap: 5px;
+  max-height: 160px;
+  overflow: auto;
+  padding-top: 5px;
+}
+
+.media-stream-panel-model-morph {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(80px, 1fr);
+  align-items: center;
+  gap: 7px;
+  color: var(--color-secondary);
+  font-size: 10px;
+}
+
+.media-stream-panel-model-morph span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-stream-panel-model-morph input { width: 100%; accent-color: var(--color-primary); }
 
 .media-stream-panel-output {
   display: grid;

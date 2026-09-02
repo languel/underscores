@@ -71,11 +71,12 @@ export const HELP_TOPICS = Object.freeze([
   {
     id: "script-p5",
     title: "p5 quick reference",
-    keywords: "p5 quick reference livecode javascript sketch setup draw createcanvas params transparent frame reset",
-    body: "p5 sketches run as self-contained Livecode nodes. setup() runs once, draw() runs each frame, and __.element plus __.params connect the sketch to its host and declared controls. Change p5 version, transparent-surface, and frame-reset settings in Node settings when a sketch needs a different lifecycle.",
+    keywords: "p5 quick reference livecode javascript sketch setup draw createcanvas params transparent frame reset mediapipe blobatar avatar mouse follow",
+    body: "p5 sketches run as self-contained Livecode nodes. setup() runs once, draw() runs each frame, and __.element plus __.params connect the sketch to its host and declared controls. The Example menu includes MediaPipe · Blobatar: a small, theme-aware avatar whose body eases toward pose.nose and falls back to mouseX/mouseY when no Holistic frame is available. Change p5 version, transparent-surface, and frame-reset settings in Node settings when a sketch needs a different lifecycle.",
     examples: [
       "function setup() { createCanvas(__.element.width, __.element.height); }",
       "function draw() { circle(width / 2, height / 2, 80); }",
+      "const body = __.streams.list().find(stream => stream.kind === \"holistic\");\nconst nose = body?.feature(\"pose.nose\", { space: \"normalized\" });\nconst x = nose?.position?.x * width || mouseX;",
     ],
   },
   {
@@ -126,8 +127,8 @@ export const HELP_TOPICS = Object.freeze([
   {
     id: "script-media",
     title: "Media streams quick reference",
-    keywords: "media streams quick reference holistic mediapipe feature inputs mapping actors scene normalized schlemmer pose t-pose fallback",
-    body: "Media sources feed previews, Canvas capture, Holistic processors, actors, and typed streams. Source pixels and device handles stay local; semantic observations can be read by scripts or routed through Inputs, Mapping, and Brush. The MediaPipe · Schlemmer pose p5 example reads named pose landmarks and draws a Bauhaus-style figurine from discs, hoops, blocks, cylinders, and wedges, then uses a deterministic T-pose whenever no Holistic stream or completed frame is available.",
+    keywords: "media streams quick reference holistic mediapipe feature inputs mapping actors scene normalized schlemmer pose blobatar avatar t-pose fallback mouse",
+    body: "Media sources feed previews, Canvas capture, Holistic processors, actors, and typed streams. Source pixels and device handles stay local; semantic observations can be read by scripts or routed through Inputs, Mapping, and Brush. The MediaPipe · Schlemmer pose p5 example reads named pose landmarks and draws a Bauhaus-style figurine from discs, hoops, blocks, cylinders, and wedges, then uses a deterministic T-pose whenever no Holistic stream or completed frame is available. The MediaPipe · Blobatar p5 example uses the same pose.nose feature to move a cute blob and falls back to the mouse so it remains runnable without camera permissions.",
     examples: [
       "const body = __.streams.get(\"Holistic\");",
       "const finger = body.feature(\"left_hand.index_finger_tip\", { space: \"scene\" });",
@@ -158,12 +159,24 @@ export const HELP_TOPICS = Object.freeze([
     id: "script-three",
     title: "Three.js quick reference",
     keywords: "three threejs webgl 3d scene camera controls blender option alt orbit pan zoom wasd mediapipe holistic unicursal schlemmer costume ribbon renderer mesh geometry material unit cube torus knot orbiting spheres parameter dancing lights energy tick dispose livecode transport params",
-    body: "Three.js nodes are independent bundled 3D Livecode scenes, not a Manim backend. `/live three` opens a blank source document; the Example menu provides Unit cube, Lit torus knot, Orbiting spheres, Parameter dancing lights, MediaPipe Unicursal ribbon (3D), and MediaPipe Schlemmer costume (3D) starters. The two MediaPipe sources read named Holistic landmarks through __.streams and keep deterministic fallbacks until a frame is available. Source receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), and __. Build geometry once, add it to scene, and animate with tick. Blender-style controls use Option-drag to orbit, Shift+Option-drag to pan, Ctrl+Option-drag to zoom, two-finger drag to orbit, Shift+two-finger drag to pan, and Ctrl+two-finger drag to zoom. When the patch is focused, W/S move forward/back relative to the current camera, A/D strafe, Q/E move vertically, Shift increases movement speed, and arrow keys orbit. Camera state is local runtime state. Linked follows Score transport; Free uses the node clock. Use onDispose for listeners or resources that are not attached to the scene graph.",
+    body: "Three.js nodes are independent bundled 3D Livecode scenes, not a Manim backend. `/live three` opens a blank source document; the Example menu provides Unit cube, Lit torus knot, Orbiting spheres, Parameter dancing lights, glTF model viewer, Animated glTF blendshape, MIT OBJ teapot, MediaPipe Unicursal ribbon (3D), and MediaPipe Schlemmer costume (3D) starters. The two MediaPipe sources read named Holistic landmarks through __.streams and keep deterministic fallbacks until a frame is available. Source receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), loadModel(url, options?), and __. `loadModel` is an allow-listed loader for OBJ, glTF/GLB, and USD/USDZ; it returns `{ scene, animations, format }`, so an authored node can create an AnimationMixer and apply morphTargetInfluences without importing a loader or touching the DOM. Build geometry once, add it to scene, and animate with tick. Blender-style controls use Option-drag to orbit, Shift+Option-drag to pan, Ctrl+Option-drag to zoom, two-finger drag to orbit, Shift+two-finger drag to pan, and Ctrl+two-finger drag to zoom. When the patch is focused, W/S move forward/back relative to the current camera, A/D strafe, Q/E move vertically, Shift increases movement speed, and arrow keys orbit. Camera state is local runtime state. Linked follows Score transport; Free uses the node clock. Use onDispose for listeners or resources that are not attached to the scene graph. For local files, GLB is the most portable single-file choice; a local .gltf may need its companion .bin and textures available at resolvable URLs.",
     examples: [
       "const cube = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshNormalMaterial());\nscene.add(cube);",
       "tick(({ delta }) => { cube.rotation.y += delta; });",
       "// @param energy = 1.6 (0.4..3 step:0.1)\nconst light = new THREE.PointLight(0x8bd5ff, __.params.energy);\nscene.add(light);",
+      "const asset = await loadModel(\"https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/AnimatedMorphCube/glTF-Binary/AnimatedMorphCube.glb\");\nscene.add(asset.scene);\nconst mixer = new THREE.AnimationMixer(asset.scene);\nif (asset.animations[0]) mixer.clipAction(asset.animations[0]).play();\ntick(({ delta }) => mixer.update(delta));",
       "const body = __.streams.list().find(stream => stream.kind === \"holistic\");\nconst nose = body?.feature(\"pose.nose\", { space: \"normalized\" });",
+    ],
+  },
+  {
+    id: "media-3d-models",
+    title: "3D model inputs",
+    keywords: "3d model obj gltf glb usd usdz media input drag drop model viewer animation mixer blendshape morph target preview",
+    body: "Drop an OBJ, GLB/glTF, or USD/USDZ file onto the canvas, or choose it from the Media panel's source picker. The file is stored in this browser's session catalog and becomes a normal Media source; drag the source icon onto the canvas to create a model preview. GLB is the easiest local format because it bundles geometry, materials, textures, and animations. glTF JSON files can reference external .bin and texture files, so a CORS-enabled URL or a complete resolvable file set is required. USD/USDZ is supported when the file is self-contained. Select a model source to choose a glTF animation, play or pause it, set loop and speed, and adjust discovered morph targets (blendshapes). Remote URLs must allow CORS. The Media panel also includes the [Khronos glTF Sample Assets](https://github.khronos.org/glTF-Assets/) Damaged Helmet and Animated Morph Cube samples plus the [MIT 6.837 OBJ teapot](https://groups.csail.mit.edu/graphics/classes/6.837/F03/models/teapot.obj) as quick starts. `USD` is decoded with Three.js's bundled USDLoader; material and feature support depends on the source file.",
+    examples: [
+      "/model example=animated-morph-cube",
+      "const asset = await loadModel(\"https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/DamagedHelmet/glTF-Binary/DamagedHelmet.glb\");",
+      "asset.scene.traverse(object => object.morphTargetInfluences?.fill(0.5));",
     ],
   },
   {

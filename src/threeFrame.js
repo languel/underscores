@@ -40,6 +40,7 @@ export const compileThreeSource = source => new AsyncFunction(
   "__",
   "tick",
   "onDispose",
+  "loadModel",
   `"use strict";\n${String(source || "")}\n//# sourceURL=underscores-three-livecode.js`,
 );
 
