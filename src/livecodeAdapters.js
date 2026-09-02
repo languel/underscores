@@ -114,6 +114,7 @@ export const LIVECODE_ADAPTERS = Object.freeze({
           ? false
           : node.runtime.settings?.transparent !== false,
         allowInteraction: node.runtime.settings?.allowInteraction !== false,
+        keepLastFrame: node.runtime.settings?.keepLastFrame !== false,
         reloadNonce: node.revision,
       });
     },

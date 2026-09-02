@@ -168,7 +168,15 @@ export default function ThreeFrame({ element, config: rawConfig, scriptRuntimeRe
     };
     const start = async () => {
       try {
-        renderer = new THREE.WebGLRenderer({ alpha: config.transparent, antialias: true });
+        renderer = new THREE.WebGLRenderer({
+          alpha: config.transparent,
+          antialias: true,
+          // The shared stop path reads the default framebuffer once to retain
+          // the last visible frame. Without this flag, WebGL is allowed to
+          // discard the back buffer after presenting and the resulting PNG can
+          // be fully transparent even though the live canvas was rendered.
+          preserveDrawingBuffer: config.keepLastFrame,
+        });
         renderer.setPixelRatio(Math.min(config.pixelRatio, Math.max(1, Number(window.devicePixelRatio) || 1)));
         // The outer Livecode node already scales with the board camera. Keep
         // the WebGL drawing buffer at the node's authored size so a zoom
