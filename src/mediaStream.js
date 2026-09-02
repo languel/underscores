@@ -1,4 +1,5 @@
 import { normalizeUnicursalOptions } from "./unicursalPath.js";
+import { inferThreeModelFormat, isThreeModelFile, normalizeThreeModelSettings } from "./threeModel.js";
 
 export const MEDIA_STREAM_KINDS = Object.freeze({
   CAMERA: "camera",
@@ -167,8 +168,9 @@ export const normalizeMediaBindings = value => {
 };
 
 export const inferMediaType = (url = "", explicit = "") => {
-  if (["image", "video", "audio"].includes(explicit)) return explicit;
   const source = String(url).split(/[?#]/)[0].toLowerCase();
+  if (inferThreeModelFormat(source)) return "model";
+  if (["image", "video", "audio", "model"].includes(explicit)) return explicit;
   if (/\.(gif|png|jpe?g|webp|avif|svg)$/.test(source)) return "image";
   if (/\.(mp3|wav|m4a|aac|flac|oga|ogg|opus)$/.test(source)) return "audio";
   return "video";
@@ -209,6 +211,8 @@ export const isSupportedMediaFile = file => {
   const type = String(file?.type || "").toLowerCase();
   const name = String(file?.name || "");
   return Boolean(file) && (
+    isThreeModelFile(file)
+    ||
     type.startsWith("image/")
     || type.startsWith("video/")
     || type.startsWith("audio/")
@@ -240,6 +244,7 @@ export const createMediaStreamConfig = (kind = MEDIA_STREAM_KINDS.MEDIA, overrid
     // state and start paused; source entries retain the legacy fields only so
     // existing processor connections can be normalized safely.
     media: { url: "", mediaType: "video", fileName: "", loop: true, muted: true, playing: kind === MEDIA_STREAM_KINDS.PREVIEW ? false : true, playbackRate: 1, volume: 1, linkTransport: false, manual: false },
+    model: normalizeThreeModelSettings(),
     blendMode: "normal",
     canvas: { elementId: "", live: false, background: "theme" },
     output: DEFAULT_OUTPUT,
@@ -288,6 +293,7 @@ export const normalizeMediaStreamConfig = value => {
   const crop = source.crop && typeof source.crop === "object" ? source.crop : {};
   const camera = source.camera && typeof source.camera === "object" ? source.camera : {};
   const media = source.media && typeof source.media === "object" ? source.media : {};
+  const model = source.model && typeof source.model === "object" ? source.model : {};
   const canvas = source.canvas && typeof source.canvas === "object" ? source.canvas : {};
   const output = source.output && typeof source.output === "object" ? source.output : {};
   const holistic = source.holistic && typeof source.holistic === "object" ? source.holistic : {};
@@ -351,6 +357,7 @@ export const normalizeMediaStreamConfig = value => {
       volume: clamp(media.volume, 0, 1, 1),
       manual: media.manual === true,
     },
+    model: normalizeThreeModelSettings(model),
     canvas: {
       elementId: cleanString(canvas.elementId),
       live: canvas.live === true,
@@ -555,6 +562,14 @@ export const patchMediaStreamConfig = (value, patch = {}) => {
     crop: { ...current.crop, ...(patch.crop || {}) },
     camera: { ...current.camera, ...(patch.camera || {}) },
     media,
+    model: {
+      ...current.model,
+      ...(patch.model || {}),
+      morphTargets: {
+        ...current.model.morphTargets,
+        ...(patch.model?.morphTargets || {}),
+      },
+    },
     canvas: { ...current.canvas, ...(patch.canvas || {}) },
     output: { ...current.output, ...(patch.output || {}) },
     holistic: {

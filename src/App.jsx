@@ -137,6 +137,7 @@ import { LivecodeAutoUpdateToggle, LivecodeClockToggle, LivecodeNodeEditor, Live
 import { adjustLivecodeFontSize, copyLivecodeExampleName, createLivecodeNode, defaultLivecodeSource, getLivecodeFont, getLivecodeKindDefinition, getLivecodePointerMode, getLivecodeViewForDoubleClick, isLivecodeAutoUpdateEnabled, isLivecodeCommandCycleGesture, isLivecodeCommandOutputGesture, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KIND_DEFINITIONS, LIVECODE_KIND_ORDER, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, randomLivecodeName, replaceLivecodeNodeProgram, resolveLivecodeRuntimeSource } from "./livecodeNode.js";
 import { isLivecodeUnderlayVisible, normalizeLivecodeComposition } from "./livecodeComposition.js";
 import { getLivecodeExamples } from "./livecodeExamples.js";
+import { getThreeModelExample, inferThreeModelFormat, THREE_MODEL_EXAMPLES } from "./threeModel.js";
 import { describeLivecodeRuntime, getLivecodeCompositionCapabilities, validateLivecodeNode } from "./livecodeAdapters.js";
 import { getShaderExample, normalizeShaderCompositionSettings, normalizeShaderSourceMode, shaderExampleForSource } from "./shaderLivecode.js";
 import { getShaderStatuses, SHADER_STATUS_EVENT } from "./shaderStatus.js";
@@ -14898,10 +14899,10 @@ function App() {
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
-    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "/code", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|manim|three|playcore|markdown|latex|html|orca|shader|tixy|svg?", example: "kind-specific example id?", name: "string?", width: "number?", height: "number?", source: "string?", parameters: "object?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", view: "preview|source|code|split?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Three.js nodes are standalone bundled scenes: authored JavaScript receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), and the shared __ bridge. They do not depend on Manim. Three starters are unit-cube, lit-torus-knot, orbiting-spheres, parameter-dancing-lights, mediapipe-unicursal-3d, and mediapipe-schlemmer-3d; omit example for a blank source. The MediaPipe starters read named Holistic landmarks and use deterministic fallbacks when no completed frame is available. Manim nodes accept authored manim-web JavaScript with top-level await and receive scene, cue(), MANIM, and __. Choose transportMode free for an immediately self-running animation or linked for score-controlled playback. Shader nodes accept hello, minimal, rainbow, shadow, fluid, or stokes examples. Tixy nodes accept a compact (t, i, x, y) JavaScript expression and render a transport-synchronized 16×16 dot grid by default; optional @param gridSize, gridWidth, gridHeight, color1, color0, and backgroundColor declarations customize dimensions and palettes. A numeric gridSize is square, a [width, height] JSON value is rectangular, and the background defaults to transparent for layering. SVG nodes render sanitized source locally with transport-aware animation seeking. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "three", example: "unit-cube", name: "Three.js form", width: 640, height: 420, transportMode: "free", view: "preview", running: true } }, action: (_api, args) => createLivecodeCanvasNode(args) },
+    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "/code", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|manim|three|playcore|markdown|latex|html|orca|shader|tixy|svg?", example: "kind-specific example id?", name: "string?", width: "number?", height: "number?", source: "string?", parameters: "object?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", view: "preview|source|code|split?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Three.js nodes are standalone bundled scenes: authored JavaScript receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), loadModel(url, options?), and the shared __ bridge. loadModel safely loads OBJ, glTF/GLB, and USD/USDZ and returns a scene plus animation clips. They do not depend on Manim. Three starters are unit-cube, lit-torus-knot, orbiting-spheres, parameter-dancing-lights, model-viewer-gltf, model-viewer-animation-morph, model-viewer-obj-teapot, mediapipe-unicursal-3d, and mediapipe-schlemmer-3d; omit example for a blank source. The MediaPipe starters read named Holistic landmarks and use deterministic fallbacks when no completed frame is available. Manim nodes accept authored manim-web JavaScript with top-level await and receive scene, cue(), MANIM, and __. Choose transportMode free for an immediately self-running animation or linked for score-controlled playback. Shader nodes accept hello, minimal, rainbow, shadow, fluid, or stokes examples. Tixy nodes accept a compact (t, i, x, y) JavaScript expression and render a transport-synchronized 16×16 dot grid by default; optional @param gridSize, gridWidth, gridHeight, color1, color0, and backgroundColor declarations customize dimensions and palettes. A numeric gridSize is square, a [width, height] JSON value is rectangular, and the background defaults to transparent for layering. SVG nodes render sanitized source locally with transport-aware animation seeking. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "three", example: "model-viewer-gltf", name: "Three.js model", width: 640, height: 420, transportMode: "free", view: "preview", running: true } }, action: (_api, args) => createLivecodeCanvasNode(args) },
     { id: "livecode.node.create.strudel", name: "Create Strudel Livecode Node /live strudel", aliases: ["/live strudel", "/code strudel"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel }) },
     { id: "livecode.node.create.p5", name: "Create p5 Livecode Node /live p5", aliases: ["/live p5", "/code p5"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.p5 }) },
-    { id: "livecode.node.create.three", name: "Create Three.js Livecode Node /live three", aliases: ["/live three", "/live threejs", "/code three", "/three"], category: "Livecode", ai: { expose: true, description: "Create an independent bundled Three.js Livecode Node. The source receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), and __. The Example menu includes Unit cube, Lit torus knot, Orbiting spheres, Parameter dancing lights, MediaPipe Unicursal ribbon (3D), and MediaPipe Schlemmer costume (3D); the last two read Holistic landmarks and fall back to deterministic geometry when no frame is available. The node surface supports local orbit, pan, zoom, and keyboard camera controls." }, action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.three }) },
+    { id: "livecode.node.create.three", name: "Create Three.js Livecode Node /live three", aliases: ["/live three", "/live threejs", "/code three", "/three"], category: "Livecode", ai: { expose: true, description: "Create an independent bundled Three.js Livecode Node. The source receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), loadModel(url, options?), and __. loadModel supports OBJ, glTF/GLB, and USD/USDZ, returning scene and animation clips. The Example menu includes Unit cube, Lit torus knot, Orbiting spheres, Parameter dancing lights, glTF model viewer, Animated glTF blendshape, MIT OBJ teapot, MediaPipe Unicursal ribbon (3D), and MediaPipe Schlemmer costume (3D); the last two read Holistic landmarks and fall back to deterministic geometry when no frame is available. The node surface supports local orbit, pan, zoom, and keyboard camera controls." }, action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.three }) },
     { id: "livecode.node.create.playcore", name: "Create Play Core Livecode Node /live playcore", aliases: ["/live playcore", "/live play", "/code playcore", "/code play"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.playcore }) },
     { id: "livecode.node.create.markdown", name: "Create Markdown Livecode Node /live markdown", aliases: ["/live markdown", "/live md", "/code markdown", "/code md"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.markdown }) },
     { id: "livecode.node.create.latex", name: "Create LaTeX Livecode Node /live latex", aliases: ["/live latex", "/live tex", "/code latex", "/code tex"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.latex }) },
@@ -14984,6 +14985,15 @@ function App() {
     { id: "livecode.node.migrate", name: "Migrate p5 or Play Core Host to Livecode Node", aliases: ["Migrate to Livecode Node"], category: "Canvas", action: () => { const target = getSelectedElements().find(element => isP5FrameElement(element) || isPlayCoreFrameElement(element)); if (!target) throw new Error("Select a p5 or Play Core host first."); return migrateLegacyHostToLivecodeNode(target.id); } },
     { id: "media.camera.create", name: "Create Camera Input", aliases: ["/camera", "webcam stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.CAMERA, args) },
     { id: "media.input.create", name: "Create Media Input", aliases: ["/media", "image stream", "video stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.MEDIA, { ...args, media: { url: args?.url || args?.media?.url || "", ...(args?.media || {}) } }) },
+    { id: "media.model.create", name: "Create 3D Model Input /model", aliases: ["/model", "/3d model", "model input"], category: "Media Streams", args: { url: "OBJ, glTF, GLB, or USD URL", name: "string?", example: "damaged-helmet|animated-morph-cube|mit-teapot?" }, ai: { expose: true, description: "Create a Media source for a local or CORS-enabled OBJ, glTF/GLB, or USD/USDZ model. Omit url and choose a standard Khronos or MIT example by id. The Media panel exposes glTF animation and blendshape controls.", example: { example: "animated-morph-cube" } }, action: (_api, args = {}) => {
+      const example = args.example ? getThreeModelExample(args.example) : null;
+      const url = String(args.url || example?.url || "").trim();
+      if (!url) throw new Error(`Provide a model URL or one of: ${THREE_MODEL_EXAMPLES.map(item => item.id).join(", ")}.`);
+      return createMediaInputSource(MEDIA_STREAM_KINDS.MEDIA, {
+        name: args.name || example?.name || "3D model",
+        media: { url, fileName: "", mediaType: "model", muted: true },
+      });
+    } },
     { id: "media.preview.make", name: "Make Selected Frame or Rectangle a Preview /preview", aliases: ["/preview", "/preview make", "Make Preview"], category: "Media Streams", args: { sourceId: "string?" }, action: (_api, args) => makeSelectedMediaPreview(args) },
     { id: "media.holistic.create", name: "Create MediaPipe Holistic Object", aliases: ["/holistic-object", "landmark stream"], category: "Media Streams", action: (_api, args) => createMediaStreamObject(MEDIA_STREAM_KINDS.HOLISTIC, { ...args, holistic: { sourceId: args?.sourceId || args?.sourceElementId || args?.holistic?.sourceId || args?.holistic?.sourceElementId || "", ...(args?.holistic || {}) } }) },
     { id: "media.holistic.snapshot", name: "Snapshot Selected Holistic Landmarks", category: "Media Streams", action: () => { const target = getSelectedElements().find(element => isMediaStreamElement(element) && normalizeMediaStreamConfig(element.customData.underscoresMediaStream).kind === MEDIA_STREAM_KINDS.HOLISTIC); if (!target) throw new Error("Select a MediaPipe Holistic object first."); snapshotHolisticLandmarks(target.id); return { elementIds: [target.id] }; } },
@@ -18227,6 +18237,27 @@ function App() {
     if (embedUrl) {
       event.preventDefault();
       event.stopPropagation();
+      const modelFormat = inferThreeModelFormat(embedUrl);
+      if (modelFormat) {
+        const modelName = (() => {
+          try {
+            const pathname = new URL(embedUrl).pathname;
+            return decodeURIComponent(pathname.split("/").pop() || "3D model");
+          } catch {
+            return "3D model";
+          }
+        })();
+        const source = createMediaInputSource(MEDIA_STREAM_KINDS.MEDIA, {
+          name: modelName,
+          media: { url: embedUrl, fileName: "", mediaType: "model", muted: true },
+        });
+        setActiveMediaSourceId(source.id);
+        createMediaPreviewAt(source.id, event.clientX, event.clientY, source);
+        toggleUnderscoresPanel("media-input", { open: true });
+        setActiveDockPanels(previous => ({ ...previous, [panelLayouts["media-input"].placement]: "media-input" }));
+        setSceneExchangeStatus(`Added ${modelName} as a 3D model source.`);
+        return;
+      }
       createWebEmbed({ url: embedUrl, clientX: event.clientX, clientY: event.clientY });
       setSceneExchangeStatus(`Added web embed: ${embedUrl}`);
       return;
@@ -18611,9 +18642,11 @@ function App() {
   };
 
   const chooseMediaStreamFile = (file, sourceId = "") => {
-    const mediaType = file.type.startsWith("image/")
+    const mediaType = String(file?.type || "").startsWith("model/")
+      ? "model"
+      : String(file?.type || "").startsWith("image/")
       ? "image"
-      : file.type.startsWith("audio/")
+      : String(file?.type || "").startsWith("audio/")
         ? "audio"
         : inferMediaType(file.name);
     const selected = mediaSources.find(source => source.id === sourceId && source.kind === MEDIA_STREAM_KINDS.MEDIA);

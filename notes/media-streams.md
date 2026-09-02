@@ -252,13 +252,16 @@ const path = __.art.unicursal.generate("Holistic", {
 });
 ```
 
-The p5 example catalog includes **MediaPipe · Unicursal portrait** and **MediaPipe · Schlemmer
-pose**. Unicursal calls this exact shared engine, so the livecode prototype and first-class object
-produce identical target geometry for the same completed frame and options; only their renderer and
-host transform differ. Schlemmer pose consumes named `pose.*` landmarks directly and renders a
-small Bauhaus figurine assembled from discs, hoops, blocks, cylinders, and wedges. When a Holistic stream or frame is unavailable it renders a stable
-T-pose fallback, which keeps examples and walkthroughs legible while a camera, permission, or model
-asset is being prepared.
+The p5 example catalog includes **MediaPipe · Blobatar**, **MediaPipe · Unicursal portrait**, and
+**MediaPipe · Schlemmer pose**. Blobatar is a deliberately small teaching example: it reads the
+named `pose.nose` feature, eases a soft blob and its eyes toward the landmark, and uses `mouseX` /
+`mouseY` whenever a Holistic processor or completed frame is unavailable. Unicursal calls this
+exact shared engine, so the livecode prototype and first-class object produce identical target
+geometry for the same completed frame and options; only their renderer and host transform differ.
+Schlemmer pose consumes named `pose.*` landmarks directly and renders a small Bauhaus figurine
+assembled from discs, hoops, blocks, cylinders, and wedges. It uses a stable T-pose fallback, which
+keeps examples and walkthroughs legible while a camera, permission, or model asset is being
+prepared.
 
 ## Verification checkpoint
 

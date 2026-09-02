@@ -129,7 +129,7 @@ test("validates p5 source syntax without running a sketch", () => {
 });
 
 test("ships editable starter examples for both p5 styles and the Underscores bridge", () => {
-  assert.equal(P5_EXAMPLES.length, 8);
+  assert.equal(P5_EXAMPLES.length, 9);
   assert.equal(new Set(P5_EXAMPLES.map(example => example.id)).size, P5_EXAMPLES.length);
   assert.equal(getP5Example("bare-instance")?.mode, "instance");
   assert.equal(getP5Example("bare-global")?.mode, "global");
@@ -147,6 +147,10 @@ test("ships editable starter examples for both p5 styles and the Underscores bri
   assert.doesNotMatch(pose.source, /Waiting for a Holistic frame/);
   assert.match(pose.source, /__\.streams\.list\(\)/);
   assert.match(pose.source, /pose\.left_shoulder/);
+  const blobatar = getP5Example("mediapipe-blobatar");
+  assert.equal(blobatar.mode, "instance");
+  assert.match(blobatar.source, /pose\.nose/);
+  assert.match(blobatar.source, /mouseX/);
   assert.doesNotMatch(DEFAULT_P5_SOURCE, /\bunderscores\b/);
   assert.doesNotMatch(DEFAULT_P5_CLASSIC_SOURCE, /\bunderscores\b/);
   P5_EXAMPLES.forEach(example => {

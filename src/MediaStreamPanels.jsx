@@ -10,6 +10,7 @@ import {
 } from "./mediaStream.js";
 import { FACE_DISPLAY_GROUPS } from "./mediaLandmarkOntology.js";
 import { MediaRuntimePreview } from "./MediaStreamOverlay.jsx";
+import ThreeModelPreview from "./ThreeModelPreview.jsx";
 import { getMediaRuntimeSource, getMediaSessionFileUrl, subscribeMediaStreamRuntime } from "./mediaStreamRuntime.js";
 import { createGifClipRecorder, createMediaRecorderClip, MEDIA_CLIP_FORMATS } from "./mediaClipRecorder.js";
 import { infoProps } from "./uiInfo.js";
@@ -17,6 +18,7 @@ import NumericInput from "./NumericInput.jsx";
 import TimeValueInput from "./TimeValueInput.jsx";
 import { normalizeUnicursalOptions, UNICURSAL_PRESETS } from "./unicursalPath.js";
 import { getStrudelAudioCaptureStream, releaseStrudelAudioCaptureStream } from "./strudelRuntime.js";
+import { THREE_MODEL_EXAMPLES } from "./threeModel.js";
 
 const stopKeyPropagation = event => event.stopPropagation();
 
@@ -112,9 +114,10 @@ const useSourceMetrics = sourceId => {
   return metrics;
 };
 
-const SourceKindIcon = ({ kind }) => {
+const SourceKindIcon = ({ kind, mediaType }) => {
   if (kind === MEDIA_STREAM_KINDS.CAMERA) return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5h10.5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Zm12.5 3.2 4-2.4a1 1 0 0 1 1.5.86v7.68a1 1 0 0 1-1.5.86l-4-2.4" /></svg>;
   if (kind === MEDIA_STREAM_KINDS.CANVAS) return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1.5" /><path d="m5.5 17 4.8-5 3.2 3 2.2-2 3 4" /></svg>;
+  if (mediaType === "model") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" /><path d="m4.5 7.5 7.5 4.3 7.5-4.3M12 11.8V21" /></svg>;
   return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1.5" /><circle cx="8.5" cy="9" r="1.4" /><path d="m5.5 17 4.8-5 3.2 3 2.2-2 3 4" /></svg>;
 };
 
@@ -122,7 +125,7 @@ const sourceKindLabel = kind => ({
   [MEDIA_STREAM_KINDS.CAMERA]: "Camera",
   [MEDIA_STREAM_KINDS.CANVAS]: "Canvas source",
   [MEDIA_STREAM_KINDS.MEDIA]: "Media source",
-}[kind] || "Image source");
+}[kind] || "Media source");
 
 const isMissingLocalMediaFile = source => Boolean(
   source?.kind === MEDIA_STREAM_KINDS.MEDIA
@@ -156,7 +159,7 @@ const SourceList = ({ sources, selectedId, empty, onSelect, onDelete, onDownload
           event.dataTransfer.setData("application/x-underscores-media-source", source.id);
           event.dataTransfer.setData("text/plain", source.name);
         }}
-      ><SourceKindIcon kind={source.kind} /></button>
+      ><SourceKindIcon kind={source.kind} mediaType={source.media?.mediaType} /></button>
       <button type="button" className="media-stream-panel-row-select" onClick={() => onSelect(source.id)}>
         <span className="media-stream-panel-row-name">{source.name}</span>
         {missingFile && <span className="media-stream-panel-row-missing" title="Local file unavailable" aria-label="Local file unavailable">!</span>}
@@ -324,6 +327,7 @@ const isAnimatedSource = source => source.kind === MEDIA_STREAM_KINDS.CAMERA
     source.media.mediaType === "video"
     || source.media.mediaType === "audio"
     || isGifMediaSource(source)
+    || source.media.mediaType === "model"
   ));
 
 const SourcePreviewPlaybar = ({ source, runtimeId }) => {
@@ -374,11 +378,12 @@ const SourcePreviewPlaybar = ({ source, runtimeId }) => {
 
 const SourceTransportControls = ({ source, onPatch }) => {
   const isCamera = source.kind === MEDIA_STREAM_KINDS.CAMERA;
+  const isModel = source.media.mediaType === "model";
   const canSetRate = !isCamera && source.media.mediaType !== "audio" && isAnimatedSource(source);
-  const canLinkTransport = !isCamera && isAnimatedSource(source);
+  const canLinkTransport = !isCamera && !isModel && isAnimatedSource(source);
   const canMute = !isCamera && ["audio", "video"].includes(source.media.mediaType);
   const canLoop = !isCamera && isAnimatedSource(source);
-  const isPlaying = source.media.playing;
+  const isPlaying = isModel ? source.model.playing : source.media.playing;
   const transportTitle = isPlaying ? "Freeze input" : "Resume input";
   const transportHelp = isCamera
     ? "Freeze or resume this camera's processed output. The camera stays connected while frozen."
@@ -387,7 +392,7 @@ const SourceTransportControls = ({ source, onPatch }) => {
     <button
       type="button"
       className={`iannix-flat-button media-source-play-toggle ${isPlaying ? "active" : ""}`}
-      onClick={() => onPatch({ media: { playing: !isPlaying } })}
+      onClick={() => onPatch(isModel ? { model: { playing: !isPlaying } } : { media: { playing: !isPlaying } })}
       aria-label={transportTitle}
       aria-pressed={isPlaying}
       {...infoProps(transportTitle, transportHelp)}
@@ -400,7 +405,7 @@ const SourceTransportControls = ({ source, onPatch }) => {
     </button>
     {canSetRate && <label className="media-stream-panel-field">
       <span>Speed</span>
-      <NumericInput min="-8" max="8" step="0.1" value={source.media.playbackRate} defaultValue={1} onKeyDown={stopKeyPropagation} onCommit={playbackRate => onPatch({ media: { playbackRate } })} />
+      <NumericInput min="0" max="8" step="0.1" value={isModel ? source.model.playbackRate : source.media.playbackRate} defaultValue={1} onKeyDown={stopKeyPropagation} onCommit={playbackRate => onPatch(isModel ? { model: { playbackRate } } : { media: { playbackRate } })} />
     </label>}
     {canLinkTransport && <label className="media-stream-panel-check" {...infoProps("Link transport", "Follow the shared score transport for play, pause, seek, and the waveform playhead. The local Play button still gates this clip.")}>
       <input type="checkbox" checked={source.media.linkTransport === true} onChange={event => onPatch({ media: { linkTransport: event.target.checked } })} />
@@ -410,8 +415,8 @@ const SourceTransportControls = ({ source, onPatch }) => {
       <input type="checkbox" checked={source.media.muted === true} onChange={event => onPatch({ media: { muted: event.target.checked } })} />
       <span>Mute</span>
     </label>}
-    {canLoop && <label className="media-stream-panel-check" {...infoProps("Loop preview", "Loop this local source-bin preview. Canvas instances keep their own loop setting.")}>
-      <input type="checkbox" checked={source.media.loop === true} onChange={event => onPatch({ media: { loop: event.target.checked } })} />
+    {canLoop && <label className="media-stream-panel-check" {...infoProps("Loop preview", isModel ? "Loop the selected glTF animation." : "Loop this local source-bin preview. Canvas instances keep their own loop setting.")}>
+      <input type="checkbox" checked={isModel ? source.model.loop === true : source.media.loop === true} onChange={event => onPatch(isModel ? { model: { loop: event.target.checked } } : { media: { loop: event.target.checked } })} />
       <span>Loop</span>
     </label>}
   </div>;
@@ -421,8 +426,13 @@ const createSourcePreviewMedia = () => ({ playing: false, muted: true, loop: tru
 
 const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAssignPreview, onPreviewPlaybackChange, children, status, transportTime = 0, transportPlaying = false }) => {
   const metrics = useSourceMetrics(source.id);
+  const [modelInfo, setModelInfo] = useState(null);
+  const isModel = source.media.mediaType === "model";
   const [previewMedia, setPreviewMedia] = useState(createSourcePreviewMedia);
   const previewRuntimeId = source.kind === MEDIA_STREAM_KINDS.MEDIA ? `${source.id}:panel` : source.id;
+  useEffect(() => {
+    setModelInfo(null);
+  }, [source.id, source.media.mediaType, source.media.url, source.media.fileName]);
   useEffect(() => {
     const next = createSourcePreviewMedia();
     setPreviewMedia(next);
@@ -438,7 +448,9 @@ const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAs
   };
   const previewSource = useMemo(() => ({ ...source, media: { ...source.media, ...previewMedia } }), [previewMedia, source]);
   return <div className="media-stream-panel-detail">
-  <MediaRuntimePreview sourceId={previewRuntimeId} sourceFileId={source.id} source={previewSource} className="media-stream-panel-preview" transportTime={transportTime} transportPlaying={transportPlaying} />
+  {isModel
+    ? <ThreeModelPreview source={source} sourceFileId={source.id} runtimeId={previewRuntimeId} className="media-stream-panel-preview" onModelInfo={setModelInfo} />
+    : <MediaRuntimePreview sourceId={previewRuntimeId} sourceFileId={source.id} source={previewSource} className="media-stream-panel-preview" transportTime={transportTime} transportPlaying={transportPlaying} />}
   <label className="media-stream-panel-field">
     <span>Name</span>
     <input value={source.name} onKeyDown={stopKeyPropagation} onChange={event => onPatch({ name: event.target.value })} />
@@ -452,7 +464,33 @@ const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAs
     </select>
   </label>
   {children}
-  <SourceTransportControls source={previewSource} onPatch={patchPreviewMedia} />
+  {isModel && <div className="media-stream-panel-model-controls" role="group" aria-label="3D model controls">
+    <div className="media-stream-panel-note">{modelInfo?.format ? `${modelInfo.format.toUpperCase()} model` : "Loading 3D model…"}{modelInfo?.animations?.length ? ` · ${modelInfo.animations.length} animation${modelInfo.animations.length === 1 ? "" : "s"}` : ""}{modelInfo?.morphTargets?.length ? ` · ${modelInfo.morphTargets.length} morph target${modelInfo.morphTargets.length === 1 ? "" : "s"}` : ""}</div>
+    <label className="media-stream-panel-field">
+      <span>Example</span>
+      <select value="" onChange={event => {
+        const example = THREE_MODEL_EXAMPLES.find(candidate => candidate.id === event.target.value);
+        if (example) onPatch({ name: example.name, media: { url: example.url, fileName: "", mediaType: "model" } });
+      }}>
+        <option value="">Choose a standard model…</option>
+        {THREE_MODEL_EXAMPLES.map(example => <option key={example.id} value={example.id}>{example.name}</option>)}
+      </select>
+    </label>
+    {modelInfo?.animations?.length > 0 && <label className="media-stream-panel-field">
+      <span>Animation</span>
+      <select value={source.model.animation || ""} onChange={event => onPatch({ model: { animation: event.target.value, playing: true } })}>
+        <option value="">First animation</option>
+        {modelInfo.animations.map(animation => <option key={animation.name} value={animation.name}>{animation.name}</option>)}
+      </select>
+    </label>}
+    {modelInfo?.morphTargets?.length > 0 && <details open><summary>Blendshapes</summary><div className="media-stream-panel-model-morphs">
+      {modelInfo.morphTargets.map(target => <label key={target.id} className="media-stream-panel-model-morph">
+        <span>{target.name}{target.meshName ? ` · ${target.meshName}` : ""}</span>
+        <input type="range" min="0" max="1" step="0.01" value={source.model.morphTargets[target.id] ?? source.model.morphTargets[target.name] ?? 0} onChange={event => onPatch({ model: { morphTargets: { [target.id]: Number(event.target.value) } } })} />
+      </label>)}
+    </div></details>}
+  </div>}
+  <SourceTransportControls source={isModel ? source : previewSource} onPatch={isModel ? onPatch : patchPreviewMedia} />
   <SourcePreviewPlaybar source={previewSource} runtimeId={previewRuntimeId} />
   <div className="media-stream-panel-output" role="group" aria-label="Published image stream settings">
     <label className="media-stream-panel-field"><span>FPS</span>
@@ -468,11 +506,11 @@ const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAs
     </label>
     {metrics && <div className="media-stream-panel-metrics">{metrics.original[0]} × {metrics.original[1]} original · {metrics.output[0]} × {metrics.output[1]} output{metrics.fps ? ` · ${metrics.fps} fps live` : ""}</div>}
   </div>
-  <label className="media-stream-panel-check" {...infoProps("Mirror output", "Mirror the processed output used by all previews and downstream processors.")}>
+  {!isModel && <label className="media-stream-panel-check" {...infoProps("Mirror output", "Mirror the processed output used by all previews and downstream processors.")}>
     <input type="checkbox" checked={source.mirror} onChange={event => onPatch({ mirror: event.target.checked })} />
     <span>Mirror</span>
-  </label>
-  <CropControls crop={source.crop} onPatch={onPatch} />
+  </label>}
+  {!isModel && <CropControls crop={source.crop} onPatch={onPatch} />}
   <label className="media-stream-panel-check" {...infoProps("Input enabled", "Turn off this source runtime without deleting its stored configuration or any assigned previews.")}>
     <input type="checkbox" checked={source.enabled} onChange={event => onPatch({ enabled: event.target.checked })} />
     <span>Enabled</span>
@@ -735,7 +773,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
   }), []);
 
   const addSource = () => {
-    const source = onCreate(MEDIA_STREAM_KINDS.MEDIA, { name: "Image source" });
+    const source = onCreate(MEDIA_STREAM_KINDS.MEDIA, { name: "Media source" });
     if (source?.id) setSelectedId(source.id);
   };
   const addCanvasSource = () => {
@@ -762,7 +800,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
     {missingFileCount > 0 && <div className="media-stream-panel-note media-stream-panel-missing-summary" role="status">
       <strong>{missingFileCount} local {missingFileCount === 1 ? "file is" : "files are"} unavailable.</strong>
     </div>}
-    <input ref={fileRef} type="file" hidden accept="image/*,video/*,audio/*,.gif" onChange={event => {
+    <input ref={fileRef} type="file" hidden accept="image/*,video/*,audio/*,.gif,.obj,.gltf,.glb,.usd,.usda,.usdc,.usdz" onChange={event => {
       const file = event.target.files?.[0];
       const sourceId = pendingFileSourceIdRef.current || selected?.id;
       if (file) onChooseFile(file, sourceId);
@@ -772,7 +810,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
     <SourceList
       sources={sources}
       selectedId={selected?.id}
-      empty="No image inputs yet."
+      empty="No media inputs yet."
       onSelect={setSelectedId}
       onDelete={onDelete}
       onDownload={downloadSource}
@@ -828,7 +866,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
               <span>URL</span>
               <div className="media-stream-panel-inline-control">
                 <input value={selected.media.url} placeholder={selected.media.fileName || "https://…"} onKeyDown={stopKeyPropagation} onChange={event => onPatch(selected.id, { media: { url: event.target.value, fileName: "" } })} />
-                <button type="button" className="iannix-flat-button media-stream-panel-icon-button" onClick={() => chooseFile(selected?.id)} aria-label="Choose media file" title="Choose image, GIF, or video">⌑</button>
+                <button type="button" className="iannix-flat-button media-stream-panel-icon-button" onClick={() => chooseFile(selected?.id)} aria-label="Choose media file" title="Choose image, GIF, video, or 3D model">⌑</button>
               </div>
             </label>
             {selected.media.fileName && (isMissingLocalMediaFile(selected)

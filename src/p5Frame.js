@@ -306,6 +306,94 @@ p.draw = () => {
 };`,
   }),
   Object.freeze({
+    id: "mediapipe-blobatar",
+    name: "MediaPipe · Blobatar",
+    mode: "instance",
+    source: `// A cute, deliberately small blob avatar.
+// The nose landmark drives its position when Holistic is live; the mouse is
+// the friendly fallback, so this example is useful before camera setup.
+let holistic = null;
+let avatar = { x: 0, y: 0 };
+let phase = 0;
+
+const readNose = () => {
+  holistic ||= __.streams?.list?.().find(stream => stream.kind === "holistic");
+  const feature = holistic?.feature?.("pose.nose", { space: "normalized" });
+  const point = feature?.position || feature?.normalized;
+  return feature?.available && Number.isFinite(point?.x) && Number.isFinite(point?.y)
+    ? point
+    : null;
+};
+
+const drawBlob = (center, radius, time) => {
+  p.beginShape();
+  for (let index = 0; index < 28; index += 1) {
+    const angle = (index / 28) * p.TWO_PI;
+    const wobble = 1
+      + 0.08 * p.sin(time * 2.4 + angle * 3)
+      + 0.04 * p.sin(time * 1.3 - angle * 5);
+    p.vertex(
+      center.x + p.cos(angle) * radius * wobble,
+      center.y + p.sin(angle) * radius * wobble,
+    );
+  }
+  p.endShape(p.CLOSE);
+};
+
+p.setup = () => {
+  p.createCanvas(__.element.width, __.element.height);
+  p.pixelDensity(1);
+  avatar = { x: p.width / 2, y: p.height / 2 };
+};
+
+p.draw = () => {
+  p.clear();
+  phase += 0.04;
+
+  const nose = readNose();
+  const mouseX = Number.isFinite(p.mouseX) && p.mouseX >= 0 ? p.mouseX : p.width / 2;
+  const mouseY = Number.isFinite(p.mouseY) && p.mouseY >= 0 ? p.mouseY : p.height / 2;
+  const target = nose
+    ? { x: nose.x * p.width, y: nose.y * p.height }
+    : { x: mouseX, y: mouseY };
+  avatar.x = p.lerp(avatar.x, p.constrain(target.x, 0, p.width), 0.12);
+  avatar.y = p.lerp(avatar.y, p.constrain(target.y, 0, p.height), 0.12);
+
+  const radius = p.min(p.width, p.height) * 0.2;
+  const accent = __.colors?.accent?.css || "#63d8ff";
+  const highlight = __.colors?.highlight?.css || "#ff7aa2";
+  const foreground = __.currentColor || "#eef7ff";
+  const background = __.currentBackgroundColor || "#10131c";
+  const lookX = p.constrain((target.x - avatar.x) * 0.06, -7, 7);
+  const lookY = p.constrain((target.y - avatar.y) * 0.04, -5, 5);
+
+  // A soft body, two ears, and tiny feet keep the construction readable.
+  p.noStroke();
+  p.fill(accent);
+  drawBlob({ x: avatar.x, y: avatar.y + radius * 0.1 }, radius, phase);
+  p.fill(highlight);
+  p.circle(avatar.x - radius * 0.72, avatar.y - radius * 0.68, radius * 0.42);
+  p.circle(avatar.x + radius * 0.72, avatar.y - radius * 0.68, radius * 0.42);
+  p.fill(foreground);
+  p.ellipse(avatar.x - radius * 0.5, avatar.y + radius * 0.95, radius * 0.5, radius * 0.2);
+  p.ellipse(avatar.x + radius * 0.5, avatar.y + radius * 0.95, radius * 0.5, radius * 0.2);
+
+  // The pupils look toward the landmark or pointer without extra assets.
+  p.fill(background);
+  p.circle(avatar.x - radius * 0.34 + lookX, avatar.y - radius * 0.16 + lookY, radius * 0.18);
+  p.circle(avatar.x + radius * 0.34 + lookX, avatar.y - radius * 0.16 + lookY, radius * 0.18);
+  p.noFill();
+  p.stroke(background);
+  p.strokeWeight(Math.max(2, radius * 0.05));
+  p.arc(avatar.x, avatar.y + radius * 0.18, radius * 0.62, radius * 0.42, 0.15, p.PI - 0.15);
+
+  p.noStroke();
+  p.fill(foreground);
+  p.textSize(11);
+  p.text(nose ? "MediaPipe blobatar" : "Mouse blobatar · add MediaPipe", 12, 20);
+};`,
+  }),
+  Object.freeze({
     id: "bare-instance",
     name: "Bare instance mode",
     mode: "instance",

@@ -31,6 +31,7 @@ import {
   transformUnicursalFrame,
 } from "./unicursalPath.js";
 import { audioWaveformPath, createAudioWaveform } from "./audioWaveform.js";
+import ThreeModelPreview from "./ThreeModelPreview.jsx";
 
 const HOLISTIC_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js";
 const HOLISTIC_ASSET_ROOT = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic/";
@@ -844,10 +845,18 @@ export function MediaSourceRuntimeLayer({ sources, activeSourceId = "", connecte
   const demandedSourceIds = useMemo(() => new Set([
     ...(connectedSourceIds || []),
     ...(activeSourceId && !panelOwnsActiveMedia ? [activeSourceId] : []),
-  ].filter(Boolean)), [activeSourceId, connectedSourceIds, panelOwnsActiveMedia]);
+  ].filter(sourceId => {
+    if (!sourceId) return false;
+    // Model previews own their WebGL renderer directly (in the panel or on
+    // the canvas). Do not also mount a hidden 1×1 renderer in the source
+    // runtime layer when a model is merely selected or referenced.
+    const source = (sources || []).find(candidate => candidate.id === sourceId);
+    return source?.media?.mediaType !== "model";
+  })), [activeSourceId, connectedSourceIds, panelOwnsActiveMedia, sources]);
   const panelSources = useMemo(() => (sources || []).filter(source => (
     source.enabled
     && source.kind === MEDIA_STREAM_KINDS.MEDIA
+    && source.media?.mediaType !== "model"
     && panelPreviewIds.has(source.id)
   )), [panelPreviewIds, sources]);
   return <div className="underscores-media-runtime-layer" aria-hidden="true">
@@ -855,15 +864,15 @@ export function MediaSourceRuntimeLayer({ sources, activeSourceId = "", connecte
       ? <CanvasMediaSource key={source.id} source={source} captureCanvasSource={captureCanvasSource} captureRevision={captureRevision} />
       : <ProcessedMediaSource key={source.id} source={source} runtimeId={source.id} playbackOverride={playbackOverrides[source.id] || null} transportTime={transportTime} transportPlaying={transportPlaying} transportRate={transportRate} onMediaEnded={onMediaEnded} />)}
     {panelSources.map(source => <ProcessedMediaSource
-      key={`${source.id}:panel`}
-      source={source}
-      runtimeId={`${source.id}:panel`}
-      playbackOverride={panelPreviewPlayback[source.id] || null}
-      transportTime={transportTime}
-      transportPlaying={transportPlaying}
-      transportRate={transportRate}
-      onMediaEnded={onMediaEnded}
-    />)}
+        key={`${source.id}:panel`}
+        source={source}
+        runtimeId={`${source.id}:panel`}
+        playbackOverride={panelPreviewPlayback[source.id] || null}
+        transportTime={transportTime}
+        transportPlaying={transportPlaying}
+        transportRate={transportRate}
+        onMediaEnded={onMediaEnded}
+      />)}
   </div>;
 }
 
@@ -1540,9 +1549,11 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
         <div className="underscores-media-stream-content">
           {config.kind === MEDIA_STREAM_KINDS.PREVIEW
             ? config.sourceId && sourceIds.has(config.sourceId)
-              ? previewSource?.media?.mediaType === "audio"
-                ? <AudioWaveformPreview sourceId={config.sourceId} source={previewInstanceSource} transportTime={instanceTransportTime} transportPlaying={instanceTransportPlaying} />
-                : <MediaRuntimePreview sourceId={config.sourceId} source={previewInstanceSource} transportTime={instanceTransportTime} transportPlaying={instanceTransportPlaying} />
+              ? previewSource?.media?.mediaType === "model"
+                ? <ThreeModelPreview sourceId={config.sourceId} sourceFileId={config.sourceId} runtimeId={`${config.sourceId}:preview:${element.id}`} source={previewInstanceSource} />
+                : previewSource?.media?.mediaType === "audio"
+                  ? <AudioWaveformPreview sourceId={config.sourceId} source={previewInstanceSource} transportTime={instanceTransportTime} transportPlaying={instanceTransportPlaying} />
+                  : <MediaRuntimePreview sourceId={config.sourceId} source={previewInstanceSource} transportTime={instanceTransportTime} transportPlaying={instanceTransportPlaying} />
               : <div className="underscores-media-empty">Input stream is missing</div>
             : config.kind === MEDIA_STREAM_KINDS.UNICURSAL
               ? <UnicursalSource
