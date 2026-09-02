@@ -33,6 +33,8 @@ test("Three.js Livecode uses stable renderer defaults", () => {
   assert.equal(frame.transparent, false);
   assert.equal(frame.pixelRatio, 2);
   assert.equal(frame.allowInteraction, true);
+  assert.equal(frame.keepLastFrame, true);
+  assert.equal(normalizeThreeFrame({ keepLastFrame: false }).keepLastFrame, false);
   assert.equal(THREE_LIVECODE_VERSION, "0.185.1");
 });
 

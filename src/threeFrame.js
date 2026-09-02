@@ -13,6 +13,10 @@ export const normalizeThreeFrame = value => {
       : {},
     transparent: raw.transparent !== false,
     allowInteraction: raw.allowInteraction !== false,
+    // A stopped Three.js node is replaced by a bounded PNG thumbnail. Keep
+    // the default framebuffer available for that one readback when the
+    // author has enabled the shared Livecode "Keep last frame" setting.
+    keepLastFrame: raw.keepLastFrame !== false,
     pixelRatio: Math.max(1, Math.min(2, Number(raw.pixelRatio) || 2)),
     reloadNonce: Math.max(0, Number(raw.reloadNonce) || 0),
   };
