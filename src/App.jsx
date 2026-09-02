@@ -3473,6 +3473,7 @@ function App() {
     const saved = localStorage.getItem("underscores_show_toolbar_hints");
     return saved === "true";
   });
+  const [showCanvasHoverTips, setShowCanvasHoverTips] = useState(() => localStorage.getItem("underscores_show_canvas_hover_tips") !== "false");
   const [showBottomNotifications, setShowBottomNotifications] = useState(() => {
     const saved = localStorage.getItem("underscores_show_bottom_notifications");
     return saved === "true";
@@ -3511,6 +3512,9 @@ function App() {
     const saved = localStorage.getItem("underscores_default_stabilizer_damping");
     return saved ? parseFloat(saved) : 0.12;
   });
+  useEffect(() => {
+    localStorage.setItem("underscores_show_canvas_hover_tips", String(showCanvasHoverTips));
+  }, [showCanvasHoverTips]);
   useEffect(() => {
     localStorage.setItem("underscores_presentation_mode", String(presentationMode));
   }, [presentationMode]);
@@ -21618,6 +21622,7 @@ function App() {
     if (state.roleTheme && typeof state.roleTheme === "object") setRoleTheme(previous => ({ ...previous, ...state.roleTheme }));
     if (typeof state.satoriMode === "boolean") setSatoriMode(state.satoriMode);
     if (typeof state.showToolbarHints === "boolean") setShowToolbarHints(state.showToolbarHints);
+    if (typeof state.showCanvasHoverTips === "boolean") setShowCanvasHoverTips(state.showCanvasHoverTips);
     if (typeof state.showBottomNotifications === "boolean") setShowBottomNotifications(state.showBottomNotifications);
     if (typeof state.forceDesktopLayout === "boolean") setForceDesktopLayout(state.forceDesktopLayout);
     if (typeof state.forceUnderscoresUiTheme === "boolean") setForceUnderscoresUiTheme(state.forceUnderscoresUiTheme);
@@ -21878,6 +21883,7 @@ function App() {
       roleTheme,
       satoriMode,
       showToolbarHints,
+      showCanvasHoverTips,
       showBottomNotifications,
       forceDesktopLayout,
       forceUnderscoresUiTheme,
@@ -21905,7 +21911,7 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record board settings", error));
     }, 180);
-  }, [accentColor, accentOpacity, autocompleteEnabled, commandRegistry, defaultStabilizerDamping, documentationTipMode, forceDesktopLayout, forceUnderscoresUiTheme, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceFont, interfaceFontSize, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, physicsToolbarDockedTop, physicsToolbarOpen, roleTheme, satoriMode, showBottomNotifications, showDebugLayer, showToolbarHints, theme]);
+  }, [accentColor, accentOpacity, autocompleteEnabled, commandRegistry, defaultStabilizerDamping, documentationTipMode, forceDesktopLayout, forceUnderscoresUiTheme, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceFont, interfaceFontSize, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, physicsToolbarDockedTop, physicsToolbarOpen, roleTheme, satoriMode, showBottomNotifications, showCanvasHoverTips, showDebugLayer, showToolbarHints, theme]);
 
   webMCPContextRef.current = {
     transport: {
@@ -27147,6 +27153,7 @@ function App() {
     setForceDesktopLayout(true);
     setForceUnderscoresUiTheme(true);
     setShowToolbarHints(false);
+    setShowCanvasHoverTips(true);
     setShowBottomNotifications(false);
     setShowDocumentationOverlay(true);
     setDocumentationOverlayByLanguage({});
@@ -27172,6 +27179,7 @@ function App() {
     localStorage.setItem(PHYSICS_TOOLBAR_OPEN_STORAGE_KEY, "false");
     localStorage.setItem(PHYSICS_TOOLBAR_DOCKED_STORAGE_KEY, "false");
     localStorage.setItem("underscores_show_toolbar_hints", "false");
+    localStorage.setItem("underscores_show_canvas_hover_tips", "true");
     localStorage.setItem("underscores_show_bottom_notifications", "false");
     localStorage.setItem("underscores_code_documentation_overlay", "true");
     localStorage.setItem("underscores_code_documentation_overlays_v1", "{}");
@@ -27518,11 +27526,12 @@ function App() {
               ["p5 documentation overlay", documentationOverlayByLanguage.p5 ?? showDocumentationOverlay, value => setDocumentationOverlayByLanguage(previous => ({ ...previous, p5: value }))],
               ["Strudel documentation overlay", documentationOverlayByLanguage.strudel ?? showDocumentationOverlay, value => setDocumentationOverlayByLanguage(previous => ({ ...previous, strudel: value }))],
               ["Show toolbar hints", showToolbarHints, value => { setShowToolbarHints(value); localStorage.setItem("underscores_show_toolbar_hints", value); }],
+              ["Show canvas hover tips", showCanvasHoverTips, value => { setShowCanvasHoverTips(value); localStorage.setItem("underscores_show_canvas_hover_tips", value); }],
               ["Show bottom alerts", showBottomNotifications, value => { setShowBottomNotifications(value); localStorage.setItem("underscores_show_bottom_notifications", value); }],
               ["Show performance monitor", showPerformanceOverlay, updatePerformanceVisibility],
               ["Show modifier debug coordinates", showDebugLayer, setShowDebugLayer],
             ].map(([label, checked, update]) => (
-              <label className="settings-panel-check" key={label} {...infoProps(label, label === "Force desktop layout" ? "Keep the full docked desktop interface at smaller viewport sizes." : label === "Force __ UI theme" ? "Make Excalidraw panels, tool islands, popovers, settings, inputs, and menus use the active __ interface surfaces and colors." : label === "Code autocomplete" ? "Show or hide the completion list while editing code. Documentation tips are controlled separately above." : label === "Code documentation overlay" ? "Allow the compact floating documentation card when the tip trigger is Hover. The Info panel remains available according to the trigger setting." : label === "p5 documentation overlay" ? "Show the compact local p5 reference card when hovering p5 symbols. The Info panel can still show documentation when this popup is hidden." : label === "Strudel documentation overlay" ? "Show the compact local Strudel reference card when hovering documented pattern functions." : label === "Show toolbar hints" ? "Show native hover labels for toolbar controls." : label === "Show bottom alerts" ? "Show transient status messages along the bottom edge." : label === "Show performance monitor" ? "Show the FPS and scene-workload monitor attached to Console or floating over the canvas." : "Overlay modifier coordinate diagnostics on the canvas.")}>
+              <label className="settings-panel-check" key={label} {...infoProps(label, label === "Force desktop layout" ? "Keep the full docked desktop interface at smaller viewport sizes." : label === "Force __ UI theme" ? "Make Excalidraw panels, tool islands, popovers, settings, inputs, and menus use the active __ interface surfaces and colors." : label === "Code autocomplete" ? "Show or hide the completion list while editing code. Documentation tips are controlled separately above." : label === "Code documentation overlay" ? "Allow the compact floating documentation card when the tip trigger is Hover. The Info panel remains available according to the trigger setting." : label === "p5 documentation overlay" ? "Show the compact local p5 reference card when hovering p5 symbols. The Info panel can still show documentation when this popup is hidden." : label === "Strudel documentation overlay" ? "Show the compact local Strudel reference card when hovering documented pattern functions." : label === "Show toolbar hints" ? "Show native hover labels for toolbar controls." : label === "Show canvas hover tips" ? "Show native help tooltips on interactive canvas outputs, such as Three.js camera controls. Disable this during performance or recording." : label === "Show bottom alerts" ? "Show transient status messages along the bottom edge." : label === "Show performance monitor" ? "Show the FPS and scene-workload monitor attached to Console or floating over the canvas." : "Overlay modifier coordinate diagnostics on the canvas.")}>
                 <span>{label}</span>
                 <input type="checkbox" checked={checked} onChange={event => update(event.target.checked)} />
               </label>
@@ -28307,7 +28316,7 @@ function App() {
       camera.zoom.value,
       selectedSignature,
       ...nodes.map(element => {
-        const node = normalizeLivecodeNode(element.customData?.underscoresLivecode);
+        const node = element.customData?.underscoresLivecode || {};
         return [
           element.id,
           element.x,
@@ -28320,13 +28329,10 @@ function App() {
           element.versionNonce,
           element.customData?.outlinerHidden ? 1 : 0,
           node.revision,
-          node.runtime.running ? 1 : 0,
+          node.runtime?.running ? 1 : 0,
           node.view,
           node.kind,
           node.name,
-          node.source,
-          JSON.stringify(node.typography),
-          JSON.stringify(node.runtime),
         ].join(",");
       }),
     ].join("|");
@@ -28509,6 +28515,7 @@ function App() {
           documentationOverlayByLanguage={documentationOverlayByLanguage}
           documentationTipMode={documentationTipMode}
           autocompleteEnabled={autocompleteEnabled}
+          showCanvasHoverTips={showCanvasHoverTips}
           onDocumentationHover={updateInfoViewFromDocumentation}
           arrangementRuntime={arrangementRuntime}
         />
@@ -30720,6 +30727,12 @@ function App() {
               request={documentationRequest}
               onStartWalkthrough={startWalkthrough}
               onInsertHelp={item => commandRegistry.execute(item.insertCommand.id, item.insertCommand.args, { source: "documentation-catalog" })}
+              onCreateLivecode={({ kind, source, name }) => commandRegistry.execute("livecode.node.create", {
+                kind,
+                source,
+                name,
+                view: "source",
+              }, { source: "documentation-code-block" })}
             />
           </UnderscoresPanel>
           )}
@@ -30956,6 +30969,7 @@ function App() {
           documentationOverlayByLanguage={documentationOverlayByLanguage}
           documentationTipMode={documentationTipMode}
           autocompleteEnabled={autocompleteEnabled}
+          showCanvasHoverTips={showCanvasHoverTips}
           onDocumentationHover={updateInfoViewFromDocumentation}
           arrangementRuntime={arrangementRuntime}
         />

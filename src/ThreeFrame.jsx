@@ -6,7 +6,7 @@ import { createScriptConsole } from "./scriptConsole.js";
 import { isLivecodeTransportPlaying } from "./livecodeTransport.js";
 import { readWebglFrame, registerLivecodeCapture } from "./livecodeCapture.js";
 import { cacheThreeFrameConfig, compileThreeSource } from "./threeFrame.js";
-import { createThreeCameraControls } from "./threeCameraControls.js";
+import { createThreeCameraControls, THREE_CAMERA_CONTROLS_HINT } from "./threeCameraControls.js";
 
 const publishThreeStatus = (elementId, kind, message = "") => {
   if (typeof window === "undefined") return;
@@ -63,14 +63,18 @@ const createBridge = (element, config, scriptRuntimeRef, transportRef) => {
   };
 };
 
-export default function ThreeFrame({ element, config: rawConfig, scriptRuntimeRef, transport, transportMode = "free" }) {
+export default function ThreeFrame({ element, config: rawConfig, scriptRuntimeRef, transport, transportMode = "free", showCanvasHoverTips = true }) {
   const hostRef = useRef(null);
   const rendererRef = useRef(null);
+  const activeRuntimeRef = useRef(null);
+  const generationRef = useRef(0);
+  const showCanvasHoverTipsRef = useRef(showCanvasHoverTips);
   const configCacheRef = useRef(null);
   const transportRef = useRef(transport);
   const modeRef = useRef(transportMode);
   transportRef.current = transport;
   modeRef.current = transportMode;
+  showCanvasHoverTipsRef.current = showCanvasHoverTips;
   const elementSnapshot = useMemo(() => ({
     id: element?.id || "",
     width: Math.max(1, Number(element?.width) || 1),
@@ -82,11 +86,16 @@ export default function ThreeFrame({ element, config: rawConfig, scriptRuntimeRe
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return undefined;
-    let disposed = false;
+    const generation = generationRef.current + 1;
+    generationRef.current = generation;
+    let cancelled = false;
+    let activated = false;
+    let released = false;
     let scene = null;
+    let camera = null;
+    let bridge = null;
     let visible = document.visibilityState !== "hidden";
     let renderer = null;
-    let resizeObserver = null;
     let intersectionObserver = null;
     let unregisterCapture = () => {};
     let cameraControls = null;
@@ -101,20 +110,79 @@ export default function ThreeFrame({ element, config: rawConfig, scriptRuntimeRe
     let freeStartedAt = null;
 
     const report = (kind, message) => publishThreeStatus(elementSnapshot.id, kind, message);
+    const release = ({ clearHost = false, reportClear = false } = {}) => {
+      if (released) return;
+      released = true;
+      window.cancelAnimationFrame(frameRequest);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      unregisterCapture();
+      cameraControls?.dispose?.();
+      intersectionObserver?.disconnect();
+      disposers.splice(0).reverse().forEach(dispose => {
+        try { dispose(); } catch { /* User cleanup must not block node disposal. */ }
+      });
+      disposeSceneResources(scene);
+      renderer?.dispose?.();
+      renderer?.forceContextLoss?.();
+      if (rendererRef.current === renderer) rendererRef.current = null;
+      if (activeRuntimeRef.current?.generation === generation) activeRuntimeRef.current = null;
+      if (clearHost) host.replaceChildren();
+      if (reportClear) report("clear");
+    };
+    const handleVisibility = () => { visible = document.visibilityState !== "hidden"; };
+    const paint = now => {
+      if (released) return;
+      const surfaceVisible = visible && observerVisible;
+      const shouldRun = surfaceVisible
+        && isLivecodeTransportPlaying(modeRef.current, transportRef.current);
+      const linked = modeRef.current !== "free";
+      const time = linked
+        ? Math.max(0, Number(transportRef.current?.time) || 0)
+        : ((now - (freeStartedAt ?? now)) / 1000);
+      if (freeStartedAt === null) freeStartedAt = now;
+      const delta = lastNow === null || !shouldRun
+        ? 0
+        : linked
+          ? Math.max(0, Math.min(0.25, time - (lastTime ?? time)))
+          : Math.max(0, Math.min(0.25, (now - lastNow) / 1000));
+      if (shouldRun) {
+        const context = Object.freeze({
+          time,
+          delta,
+          frame,
+          transport: transportRef.current || {},
+          scene,
+          camera,
+          renderer,
+          __: bridge,
+        });
+        tickers.slice().forEach(callback => callback(context));
+        frame += 1;
+      }
+      const controlsChanged = surfaceVisible
+        && cameraControls?.update(lastNow === null ? 0 : Math.min(0.1, Math.max(0, (now - lastNow) / 1000))) === true;
+      if (shouldRun || controlsChanged) renderer.render(scene, camera);
+      lastNow = now;
+      lastTime = time;
+      frameRequest = window.requestAnimationFrame(paint);
+    };
     const start = async () => {
       try {
         renderer = new THREE.WebGLRenderer({ alpha: config.transparent, antialias: true });
-        rendererRef.current = renderer;
         renderer.setPixelRatio(Math.min(config.pixelRatio, Math.max(1, Number(window.devicePixelRatio) || 1)));
+        // The outer Livecode node already scales with the board camera. Keep
+        // the WebGL drawing buffer at the node's authored size so a zoom
+        // gesture remains a compositor operation instead of reallocating every
+        // Three.js framebuffer on every animation step.
+        renderer.setSize(elementSnapshot.width, elementSnapshot.height, false);
         renderer.outputColorSpace = THREE.SRGBColorSpace;
         renderer.domElement.className = "underscores-three-canvas";
         renderer.domElement.setAttribute("aria-label", "Three.js output");
-        host.replaceChildren(renderer.domElement);
 
         scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
+        camera = new THREE.PerspectiveCamera(45, elementSnapshot.width / elementSnapshot.height, 0.01, 1000);
         camera.position.set(0, 0, 4);
-        const bridge = createBridge(elementSnapshot, config, scriptRuntimeRef, transportRef);
+        bridge = createBridge(elementSnapshot, config, scriptRuntimeRef, transportRef);
         const tick = callback => {
           if (typeof callback !== "function") throw new TypeError("tick(callback) requires a function.");
           tickers.push(callback);
@@ -128,24 +196,25 @@ export default function ThreeFrame({ element, config: rawConfig, scriptRuntimeRe
           disposers.push(callback);
         };
         await compileThreeSource(config.source)(THREE, scene, camera, renderer, bridge, tick, onDispose);
-        if (disposed) return;
+        if (cancelled) {
+          release();
+          return;
+        }
 
         // Camera interaction is runtime-only. It is installed after authored
         // setup so scripts can still establish their initial camera, then a
         // learner can orbit/pan/zoom the patch without mutating scene state.
         cameraControls = createThreeCameraControls({ canvas: renderer.domElement, camera });
+        renderer.domElement.title = showCanvasHoverTipsRef.current ? THREE_CAMERA_CONTROLS_HINT : "";
+        // Paint the candidate while it is still detached. The current runtime
+        // stays visible until this succeeds, so valid source edits swap one
+        // ready frame for another instead of exposing a cleared canvas.
+        renderer.render(scene, camera);
+        if (cancelled) {
+          release();
+          return;
+        }
 
-        const resize = () => {
-          const rect = host.getBoundingClientRect();
-          const width = Math.max(1, Math.round(rect.width || elementSnapshot.width));
-          const height = Math.max(1, Math.round(rect.height || elementSnapshot.height));
-          renderer.setSize(width, height, false);
-          camera.aspect = width / height;
-          camera.updateProjectionMatrix();
-        };
-        resize();
-        resizeObserver = new ResizeObserver(resize);
-        resizeObserver.observe(host);
         intersectionObserver = new IntersectionObserver(entries => {
           observerVisible = entries.some(entry => entry.isIntersecting);
         });
@@ -153,72 +222,40 @@ export default function ThreeFrame({ element, config: rawConfig, scriptRuntimeRe
         unregisterCapture = registerLivecodeCapture(elementSnapshot.id, () => (
           readWebglFrame(renderer.domElement, renderer.getContext(), captureRuntime)
         ));
+        document.addEventListener("visibilitychange", handleVisibility);
+        const previousRuntime = activeRuntimeRef.current;
+        activeRuntimeRef.current = { generation, release };
+        rendererRef.current = renderer;
+        activated = true;
+        host.replaceChildren(renderer.domElement);
+        previousRuntime?.release?.();
         report("success", "Compiled successfully.");
-
-        const paint = now => {
-          if (disposed) return;
-          const shouldRun = visible && observerVisible
-            && isLivecodeTransportPlaying(modeRef.current, transportRef.current);
-          const linked = modeRef.current !== "free";
-          const time = linked
-            ? Math.max(0, Number(transportRef.current?.time) || 0)
-            : ((now - (freeStartedAt ?? now)) / 1000);
-          if (freeStartedAt === null) freeStartedAt = now;
-          const delta = lastNow === null || !shouldRun
-            ? 0
-            : linked
-              ? Math.max(0, Math.min(0.25, time - (lastTime ?? time)))
-              : Math.max(0, Math.min(0.25, (now - lastNow) / 1000));
-          if (shouldRun) {
-            const context = Object.freeze({
-              time,
-              delta,
-              frame,
-              transport: transportRef.current || {},
-              scene,
-              camera,
-              renderer,
-              __: bridge,
-            });
-            tickers.slice().forEach(callback => callback(context));
-            frame += 1;
-          }
-          cameraControls?.update(lastNow === null ? 0 : Math.min(0.1, Math.max(0, (now - lastNow) / 1000)));
-          renderer.render(scene, camera);
-          lastNow = now;
-          lastTime = time;
-          frameRequest = window.requestAnimationFrame(paint);
-        };
         frameRequest = window.requestAnimationFrame(paint);
       } catch (error) {
-        if (disposed) return;
+        release();
+        if (cancelled) return;
         report("error", error instanceof Error ? error.message : String(error));
       }
     };
-    const handleVisibility = () => { visible = document.visibilityState !== "hidden"; };
-    document.addEventListener("visibilitychange", handleVisibility);
     void start();
     return () => {
-      disposed = true;
-      window.cancelAnimationFrame(frameRequest);
-      document.removeEventListener("visibilitychange", handleVisibility);
-      unregisterCapture();
-      cameraControls?.dispose?.();
-      intersectionObserver?.disconnect();
-      resizeObserver?.disconnect();
-      disposers.splice(0).reverse().forEach(dispose => {
-        try { dispose(); } catch { /* User cleanup must not block node disposal. */ }
+      cancelled = true;
+      if (!activated) release();
+      // React runs the next dependency effect after this cleanup in the same
+      // commit. Deferring the unmount decision lets a replacement runtime keep
+      // the current canvas alive, while a genuine component unmount still
+      // releases whichever generation is active.
+      queueMicrotask(() => {
+        if (generationRef.current !== generation) return;
+        activeRuntimeRef.current?.release?.({ clearHost: true, reportClear: true });
       });
-      disposeSceneResources(scene);
-      // The scene is reachable only within start(), but Three's renderer and
-      // its canvas must always be released even if authored setup threw.
-      renderer?.dispose?.();
-      renderer?.forceContextLoss?.();
-      if (rendererRef.current === renderer) rendererRef.current = null;
-      host.replaceChildren();
-      report("clear");
     };
   }, [config, elementSnapshot, scriptRuntimeRef]);
+
+  useEffect(() => {
+    const canvas = rendererRef.current?.domElement;
+    if (canvas) canvas.title = showCanvasHoverTips ? THREE_CAMERA_CONTROLS_HINT : "";
+  }, [showCanvasHoverTips]);
 
   return <div
     className="underscores-three-frame"

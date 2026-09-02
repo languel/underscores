@@ -84,7 +84,7 @@ export const LIVECODE_HELP = Object.freeze({
       "The renderer and camera are ready before your source runs. The host renders after each tick, so call renderer.render(scene, camera) only when you deliberately need an extra pass or render target.",
       "Use // @param declarations and __.params for persistent controls. __ also exposes canvas objects, events, transport time, appearance colors, Console output, and __.api.",
       "Free gives the node a local clock. Linked follows score play, pause, seek, and rate; tick callbacks pause while the shared transport is paused.",
-      "The node surface uses Blender-style camera gestures: Option-drag orbits, Shift+Option-drag pans, Ctrl+Option-drag zooms, two-finger trackpad drag orbits, Shift+two-finger drag pans, and Ctrl+two-finger drag zooms. Focus the surface for WASD/QE movement or arrow-key orbiting; camera state is runtime-only.",
+      "The node surface uses Blender-style camera gestures: Option-drag orbits, Shift+Option-drag pans, Ctrl+Option-drag zooms, two-finger trackpad drag orbits, Shift+two-finger drag pans, and Ctrl+two-finger drag zooms. Focus the surface for camera-relative W/S forward/back, A/D strafe, Q/E vertical movement, Shift sprint speed, or arrow-key orbiting; camera state is runtime-only.",
       "The example catalog includes MediaPipe · Unicursal ribbon (3D) and MediaPipe · Schlemmer costume (3D). Both read named Holistic landmarks through __.streams and fall back to a deterministic drawing when no frame is available.",
       "Use onDispose(() => ...) for external listeners, post-processing resources, or anything the node cannot discover through its scene graph. Geometry and materials attached to scene are released with the node.",
     ]),

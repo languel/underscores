@@ -10128,6 +10128,46 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   white-space: pre-wrap;
 }
 
+.documentation-code-block {
+  position: relative;
+  min-width: 0;
+}
+
+.documentation-code-block pre {
+  padding-right: 78px;
+}
+
+.documentation-code-actions {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: flex;
+  gap: 4px;
+}
+
+.documentation-code-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--underscores-ui-control-height);
+  height: var(--underscores-ui-control-height);
+  min-height: var(--underscores-ui-control-height);
+  padding: 0;
+  color: var(--color-secondary);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--underscores-ui-control-radius, 4px);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.documentation-code-actions button:hover,
+.documentation-code-actions button:focus-visible {
+  color: var(--color-primary);
+  background: var(--underscores-selected-control-bg, color-mix(in srgb, var(--color-primary) 8%, transparent));
+}
+
 .documentation-actions {
   display: flex;
   flex-wrap: wrap;

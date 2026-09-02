@@ -372,7 +372,7 @@ export function StrudelPanelStatus({ nodeId, node, transport, message = "" }) {
   return <p className="p5-script-status" role="status" aria-live="polite">{text}</p>;
 }
 
-function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef, transport }) {
+function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef, transport, showCanvasHoverTips = true }) {
   // `node` is normalized afresh whenever the overlay renders (including
   // transport ticks and selection changes).  Memoizing on its object identity
   // would therefore rebuild the runtime config and tear down a renderer even
@@ -391,7 +391,16 @@ function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef, transport }
   const validation = validateLivecodeNode(runtimeNode);
   const [lastWorkingConfig, setLastWorkingConfig] = useState(() => validation.valid ? config : null);
   useEffect(() => {
-    if (validation.valid) setLastWorkingConfig(config);
+    if (!validation.valid) return undefined;
+    if (runtimeNode.kind !== "three") {
+      setLastWorkingConfig(config);
+      return undefined;
+    }
+    // Three source updates create a full WebGL runtime. Coalesce ordinary
+    // typing bursts so we compile once after the author pauses instead of
+    // creating and discarding a context for every syntactically valid key.
+    const timeout = window.setTimeout(() => setLastWorkingConfig(config), 120);
+    return () => window.clearTimeout(timeout);
   }, [runtimeNode.kind, runtimeNode.revision, validation.valid, config]);
   // Runtime failures belong to the script panel and Event Console. Keep the
   // canvas surface empty while an invalid draft is being edited rather than
@@ -400,14 +409,14 @@ function PersistedLivecodeRuntime({ element, node, scriptRuntimeRef, transport }
   return <div className="livecode-node-runtime visible" aria-label={`${getLivecodeKindDefinition(node.kind).label} runtime`}>
     {node.kind === "p5" ? <P5Frame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
     {node.kind === "manim" ? <ManimFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
-    {node.kind === "three" ? <ThreeFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
+    {node.kind === "three" ? <ThreeFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} showCanvasHoverTips={showCanvasHoverTips} /> : null}
     {node.kind === "playcore" ? <PlayCoreFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
     {node.kind === "shader" ? <ShaderLivecodeFrame element={element} node={runtimeNode} transport={transport} scriptRuntimeRef={scriptRuntimeRef} /> : null}
     {node.kind === "tixy" ? <TixyFrame element={element} config={lastWorkingConfig} scriptRuntimeRef={scriptRuntimeRef} transport={transport} transportMode={node.runtime.transportMode} /> : null}
   </div>;
 }
 
-function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef, transport, editable = false, documentEditing = false, onActivate, onPatch, onCommit, onMidiEvents, onStrudelTransport, onToggleRun }) {
+function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef, transport, editable = false, documentEditing = false, onActivate, onPatch, onCommit, onMidiEvents, onStrudelTransport, onToggleRun, showCanvasHoverTips = true }) {
   const runtimeNode = resolveLivecodeRuntimeNode(node);
   useEffect(() => () => scriptRuntimeRef.current?.disposeStreamsOwner?.(element.id), [element.id, node.runtime.running, scriptRuntimeRef]);
   const lastFrame = node.runtime.settings?.keepLastFrame !== false
@@ -439,7 +448,7 @@ function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef, transport, ed
     return <StrudelNodeRuntime element={element} node={runtimeNode} scriptRuntimeRef={scriptRuntimeRef} onStrudelTransport={onStrudelTransport} />;
   }
   return isLivecodeNodeRunnable(node)
-    ? <PersistedLivecodeRuntime key={node.kind} element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} transport={transport} />
+    ? <PersistedLivecodeRuntime key={node.kind} element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} transport={transport} showCanvasHoverTips={showCanvasHoverTips} />
     : null;
 }
 
@@ -538,6 +547,7 @@ export function LivecodeNodeOverlay({
   documentationTipMode = "hover",
   autocompleteEnabled = true,
   onDocumentationHover,
+  showCanvasHoverTips = true,
   arrangementRuntime = null,
 }) {
   const camera = useMemo(() => ({
@@ -643,6 +653,7 @@ export function LivecodeNodeOverlay({
           onMidiEvents={(events, metadata) => onMidiEvents?.(element.id, events, metadata)}
           onStrudelTransport={onStrudelTransport}
           onToggleRun={onToggleRun}
+          showCanvasHoverTips={showCanvasHoverTips}
         />;
         const editor = <LivecodeNodeEditor
           node={node}
