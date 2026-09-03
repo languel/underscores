@@ -56,7 +56,7 @@ import { UnderscoresCommandRegistry, UnderscoresEventBus, UnderscoresInputBus, f
 import { buildAIAutomationGuide, isAICommandAllowed, parseUnderscoresCommandTags } from "./aiTooling.js";
 import { registerUnderscoresWebMCP, UNDERSCORES_WEBMCP_TOOL_NAMES } from "./webmcp.js";
 import { renderChatMessage } from "./chatPresentation.js";
-import { buildChatAutocompleteSuggestions, filterChatAutocompleteSuggestions, getChatAutocompleteToken, resizeChatInput } from "./chatAutocomplete.js";
+import { buildChatAutocompleteSuggestions, filterChatAutocompleteSuggestions, filterCommandPaletteAutocompleteSuggestions, getChatAutocompleteToken, resizeChatInput } from "./chatAutocomplete.js";
 import { autoKeyElement, AUTO_KEY_PATHS, collectAutomationKeys, evaluateElementAutomation, interpolationForPath, upsertAutomationKey } from "./automation.js";
 import { formatAIScriptSource, validateAIBrushSource, validateAIIannixSource } from "./scriptAuthoring.js";
 import { getIannixCommandAtSourcePosition } from "./iannixCommandReference.js";
@@ -136,7 +136,7 @@ import { PlayCoreFrameOverlay } from "./PlayCoreFrame.jsx";
 import { DEFAULT_PLAY_CORE_FRAME, DEFAULT_PLAY_CORE_SOURCE, PLAY_CORE_STORAGE_KEY, canHostPlayCoreFrame, createPlayCoreScript, isPlayCoreFrameElement, normalizePlayCoreFrame, normalizePlayCoreScripts, validatePlayCoreSource } from "./playCoreFrame.js";
 import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
 import { LivecodeAutoUpdateToggle, LivecodeClockToggle, LivecodeNodeEditor, LivecodeNodeOverlay, StrudelPanelStatus } from "./LivecodeNodeOverlay.jsx";
-import { adjustLivecodeFontSize, copyLivecodeExampleName, createLivecodeNode, defaultLivecodeSource, getLivecodeFont, getLivecodeKindDefinition, getLivecodePointerMode, getLivecodeViewForDoubleClick, isLivecodeAutoUpdateEnabled, isLivecodeCommandCycleGesture, isLivecodeCommandOutputGesture, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KIND_DEFINITIONS, LIVECODE_KIND_ORDER, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, randomLivecodeName, replaceLivecodeNodeProgram, resolveLivecodeRuntimeSource } from "./livecodeNode.js";
+import { adjustLivecodeFontSize, copyLivecodeExampleName, createLivecodeNode, getLivecodeFont, getLivecodeKindDefinition, getLivecodePointerMode, getLivecodeViewForDoubleClick, isLivecodeAutoUpdateEnabled, isLivecodeCommandCycleGesture, isLivecodeCommandOutputGesture, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KIND_DEFINITIONS, LIVECODE_KIND_ORDER, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, randomLivecodeName, replaceLivecodeNodeProgram, resolveLivecodeRuntimeSource } from "./livecodeNode.js";
 import { isLivecodeUnderlayVisible, normalizeLivecodeComposition } from "./livecodeComposition.js";
 import { getLivecodeExamples } from "./livecodeExamples.js";
 import { getThreeModelExample, inferThreeModelFormat, THREE_MODEL_EXAMPLES } from "./threeModel.js";
@@ -215,7 +215,7 @@ import { captureLivecodeFrameSnapshot, clearLivecodeFrameSnapshot, getLivecodeFr
 import PerformanceOverlay from "./PerformanceOverlay.jsx";
 import ScreencastInputOverlay from "./ScreencastInputOverlay.jsx";
 import SessionVirtualCursorIcon from "./SessionVirtualCursorIcon.jsx";
-import { formatScreencastKey, SCREENCAST_INPUT_STORAGE_KEY, screencastToolLabel } from "./screencastInput.js";
+import { formatScreencastKey, SCREENCAST_INPUT_MINIMAL_KEY, SCREENCAST_INPUT_STORAGE_KEY, screencastToolLabel } from "./screencastInput.js";
 import { underscoresPerformanceMonitor } from "./performanceMonitor.js";
 import { createBakedImageElement, createBakedImageFile, createCanvasSnapshotImageElement, replaceSceneElementsWithBake } from "./sceneBake.js";
 import { quantizeGridElement, quantizeGridElementBounds, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
@@ -3201,6 +3201,7 @@ function App() {
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
   const [screencastInputVisible, setScreencastInputVisible] = useState(() => localStorage.getItem(SCREENCAST_INPUT_STORAGE_KEY) === "true");
+  const [screencastInputMinimal, setScreencastInputMinimal] = useState(() => localStorage.getItem(SCREENCAST_INPUT_MINIMAL_KEY) === "true");
   const [screencastInputEvents, setScreencastInputEvents] = useState([]);
   const [activeCanvasToolType, setActiveCanvasToolType] = useState("freedraw");
   const screencastInputVisibleRef = useRef(screencastInputVisible);
@@ -3588,6 +3589,9 @@ function App() {
     screencastInputVisibleRef.current = screencastInputVisible;
     localStorage.setItem(SCREENCAST_INPUT_STORAGE_KEY, String(screencastInputVisible));
   }, [screencastInputVisible]);
+  useEffect(() => {
+    localStorage.setItem(SCREENCAST_INPUT_MINIMAL_KEY, String(screencastInputMinimal));
+  }, [screencastInputMinimal]);
   useEffect(() => {
     localStorage.setItem(PHYSICS_DEBUG_STORAGE_KEY, JSON.stringify(physicsDebug));
   }, [physicsDebug]);
@@ -16587,10 +16591,10 @@ function App() {
     return matches;
   };
 
-  const getFilteredPaletteTags = () => filterChatAutocompleteSuggestions(
+  const getFilteredPaletteTags = () => filterCommandPaletteAutocompleteSuggestions(
     paletteAutocompleteToken,
     chatAutocompleteSuggestions,
-  ).slice(0, 12);
+  );
 
   const handlePaletteAutocompleteSelect = suggestion => {
     const input = paletteInputRef.current;
@@ -19936,13 +19940,7 @@ function App() {
     const existing = elements.find(element => element.id === elementId && !element.isDeleted && isLivecodeNodeElement(element));
     if (!existing) return null;
     const previous = normalizeLivecodeNode(existing.customData?.underscoresLivecode);
-    const nextPatch = { ...patch };
-    if (Object.hasOwn(nextPatch, "kind") && !Object.hasOwn(nextPatch, "source") && nextPatch.kind !== previous.kind && previous.source === defaultLivecodeSource(previous.kind)) {
-      // Switching a legacy template-backed node should not inject a new
-      // template into the livecoding surface.
-      nextPatch.source = "";
-    }
-    const node = patchLivecodeNode(previous, nextPatch);
+    const node = patchLivecodeNode(previous, { ...patch });
     const now = Date.now();
     api.updateScene({
       elements: elements.map(element => element.id !== elementId ? element : {
@@ -22415,6 +22413,7 @@ function App() {
     if (typeof state.showToolbarHints === "boolean") setShowToolbarHints(state.showToolbarHints);
     if (typeof state.showCanvasHoverTips === "boolean") setShowCanvasHoverTips(state.showCanvasHoverTips);
     if (typeof state.screencastInputVisible === "boolean") updateScreencastInputVisibility(state.screencastInputVisible);
+    if (typeof state.screencastInputMinimal === "boolean") setScreencastInputMinimal(state.screencastInputMinimal);
     if (typeof state.showBottomNotifications === "boolean") setShowBottomNotifications(state.showBottomNotifications);
     if (typeof state.forceDesktopLayout === "boolean") setForceDesktopLayout(state.forceDesktopLayout);
     if (typeof state.forceUnderscoresUiTheme === "boolean") setForceUnderscoresUiTheme(state.forceUnderscoresUiTheme);
@@ -22677,6 +22676,7 @@ function App() {
       showToolbarHints,
       showCanvasHoverTips,
       screencastInputVisible,
+      screencastInputMinimal,
       showBottomNotifications,
       forceDesktopLayout,
       forceUnderscoresUiTheme,
@@ -22704,7 +22704,7 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record board settings", error));
     }, 180);
-  }, [accentColor, accentOpacity, autocompleteEnabled, commandRegistry, defaultStabilizerDamping, documentationTipMode, forceDesktopLayout, forceUnderscoresUiTheme, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceFont, interfaceFontSize, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, physicsToolbarDockedTop, physicsToolbarOpen, roleTheme, satoriMode, screencastInputVisible, showBottomNotifications, showCanvasHoverTips, showDebugLayer, showToolbarHints, theme]);
+  }, [accentColor, accentOpacity, autocompleteEnabled, commandRegistry, defaultStabilizerDamping, documentationTipMode, forceDesktopLayout, forceUnderscoresUiTheme, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceFont, interfaceFontSize, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, physicsToolbarDockedTop, physicsToolbarOpen, roleTheme, satoriMode, screencastInputMinimal, screencastInputVisible, showBottomNotifications, showCanvasHoverTips, showDebugLayer, showToolbarHints, theme]);
 
   webMCPContextRef.current = {
     transport: {
@@ -28322,11 +28322,12 @@ function App() {
               ["Show toolbar hints", showToolbarHints, value => { setShowToolbarHints(value); localStorage.setItem("underscores_show_toolbar_hints", value); }],
               ["Show canvas hover tips", showCanvasHoverTips, value => { setShowCanvasHoverTips(value); localStorage.setItem("underscores_show_canvas_hover_tips", value); }],
               ["Screencast input", screencastInputVisible, updateScreencastInputVisibility],
+              ["Minimal screencast input", screencastInputMinimal, value => { setScreencastInputMinimal(value); localStorage.setItem(SCREENCAST_INPUT_MINIMAL_KEY, String(value)); }],
               ["Show bottom alerts", showBottomNotifications, value => { setShowBottomNotifications(value); localStorage.setItem("underscores_show_bottom_notifications", value); }],
               ["Show performance monitor", showPerformanceOverlay, updatePerformanceVisibility],
               ["Show modifier debug coordinates", showDebugLayer, setShowDebugLayer],
             ].map(([label, checked, update]) => (
-            <label className="settings-panel-check" key={label} {...infoProps(label, label === "Force desktop layout" ? "Keep the full docked desktop interface at smaller viewport sizes." : label === "Force __ UI theme" ? "Make Excalidraw panels, tool islands, popovers, settings, inputs, and menus use the active __ interface surfaces and colors." : label === "Code autocomplete" ? "Show or hide the completion list while editing code. Documentation tips are controlled separately above." : label === "Code documentation overlay" ? "Allow the compact floating documentation card when the tip trigger is Hover. The Info panel remains available according to the trigger setting." : label === "p5 documentation overlay" ? "Show the compact local p5 reference card when hovering p5 symbols. The Info panel can still show documentation when this popup is hidden." : label === "Strudel documentation overlay" ? "Show the compact local Strudel reference card when hovering documented pattern functions." : label === "Show toolbar hints" ? "Show native hover labels for toolbar controls." : label === "Show canvas hover tips" ? "Show native help tooltips on interactive canvas outputs, such as Three.js camera controls. Disable this during performance or recording." : label === "Screencast input" ? "Show a subtle draggable overlay with recent clicks, drags, scrolls, shortcuts, and tool changes. Toggle it with Command-Option-I on macOS or Ctrl-Alt-I elsewhere." : label === "Show bottom alerts" ? "Show transient status messages along the bottom edge." : label === "Show performance monitor" ? "Show the FPS and scene-workload monitor attached to Console or floating over the canvas." : "Overlay modifier coordinate diagnostics on the canvas.")}>
+            <label className="settings-panel-check" key={label} {...infoProps(label, label === "Force desktop layout" ? "Keep the full docked desktop interface at smaller viewport sizes." : label === "Force __ UI theme" ? "Make Excalidraw panels, tool islands, popovers, settings, inputs, and menus use the active __ interface surfaces and colors." : label === "Code autocomplete" ? "Show or hide the completion list while editing code. Documentation tips are controlled separately above." : label === "Code documentation overlay" ? "Allow the compact floating documentation card when the tip trigger is Hover. The Info panel remains available according to the trigger setting." : label === "p5 documentation overlay" ? "Show the compact local p5 reference card when hovering p5 symbols. The Info panel can still show documentation when this popup is hidden." : label === "Strudel documentation overlay" ? "Show the compact local Strudel reference card when hovering documented pattern functions." : label === "Show toolbar hints" ? "Show native hover labels for toolbar controls." : label === "Show canvas hover tips" ? "Show native help tooltips on interactive canvas outputs, such as Three.js camera controls. Disable this during performance or recording." : label === "Screencast input" ? "Show a subtle draggable overlay with the latest event and a short recent-event queue. Toggle it with Command-Option-I on macOS or Ctrl-Alt-I elsewhere." : label === "Minimal screencast input" ? "Show only the latest screencast event in one compact row; turn this off to keep the recent-event queue below it." : label === "Show bottom alerts" ? "Show transient status messages along the bottom edge." : label === "Show performance monitor" ? "Show the FPS and scene-workload monitor attached to Console or floating over the canvas." : "Overlay modifier coordinate diagnostics on the canvas.")}>
                 <span>{label}</span>
                 <input type="checkbox" checked={checked} onChange={event => update(event.target.checked)} />
               </label>
@@ -31714,6 +31715,7 @@ function App() {
         {screencastInputVisible ? <ScreencastInputOverlay
           events={screencastInputEvents}
           activeTool={activeCanvasToolType}
+          minimal={screencastInputMinimal}
           onClose={() => updateScreencastInputVisibility(false)}
         /> : null}
 

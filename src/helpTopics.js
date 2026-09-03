@@ -84,11 +84,12 @@ export const HELP_TOPICS = Object.freeze([
   {
     id: "script-p5",
     title: "p5 quick reference",
-    keywords: "p5 quick reference livecode javascript sketch setup draw createcanvas params transparent frame reset mediapipe blobatar avatar mouse follow",
-    body: "p5 sketches run as self-contained Livecode nodes. setup() runs once, draw() runs each frame, and __.element plus __.params connect the sketch to its host and declared controls. The Example menu includes MediaPipe · Blobatar: a small, theme-aware avatar whose body eases toward pose.nose and falls back to mouseX/mouseY when no Holistic frame is available. Change p5 version, transparent-surface, and frame-reset settings in Node settings when a sketch needs a different lifecycle.",
+    keywords: "p5 quick reference livecode javascript sketch setup draw createcanvas params transparent frame reset mediapipe blobatar avatar mouse follow pollock splatter action painting gesture",
+    body: "p5 sketches run as self-contained Livecode nodes. setup() runs once, draw() runs each frame, and __.element plus __.params connect the sketch to its host and declared controls. The Example menu includes MediaPipe · Blobatar: a small, theme-aware avatar whose body eases toward pose.nose and falls back to mouseX/mouseY when no Holistic frame is available, and Pollock / Splatter: an editable action-painting study where gesture speed controls paint thickness and every paint/spray control is exposed as a parameter. Change p5 version, transparent-surface, and frame-reset settings in Node settings when a sketch needs a different lifecycle.",
     examples: [
       "function setup() { createCanvas(__.element.width, __.element.height); }",
       "function draw() { circle(width / 2, height / 2, 80); }",
+      "Pollock / Splatter → drag to paint; tune maxLineWidth, splatMax, or splatSpread in Parameters.",
       "const body = __.streams.list().find(stream => stream.kind === \"holistic\");\nconst nose = body?.feature(\"pose.nose\", { space: \"normalized\" });\nconst x = nose?.position?.x * width || mouseX;",
     ],
   },

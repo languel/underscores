@@ -1,12 +1,13 @@
 # Screencast input
 
-Screencast input is a small, theme-aware teaching aid for live demonstrations. It surfaces recent shortcuts, clicks, completed drags, scroll direction, and Excalidraw tool changes in a compact overlay inspired by Blender's Screencast Keys. It is intentionally a cue layer rather than a second event recorder: continuous pointer samples stay out of the overlay so the canvas remains quiet.
+Screencast input is a small, theme-aware teaching aid for live demonstrations. It puts the latest shortcut, click, drag, scroll, or tool event in a slightly larger header, with a short queue of earlier cues below. The header uses an event icon (keyboard, mouse, or tool) and keeps the active canvas tool on the right so the visual state is readable at a glance. It is intentionally a cue layer rather than a second event recorder: continuous pointer samples stay out of the overlay so the canvas remains quiet.
 
 ## Toggle and placement
 
 - Run `/screencast` from the command palette or a slash-command field.
 - Press **Command-Option-I** on macOS, or **Ctrl-Alt-I** on other platforms.
 - Enable **Settings → Interface → Screencast input**.
+- Enable **Settings → Interface → Minimal screencast input** to keep only the latest event in one row; turn it off when the recent-event queue is useful for a lesson.
 - Drag the overlay header to move it. Its position is remembered in this browser.
 - Click `×` or repeat the shortcut to hide it.
 
