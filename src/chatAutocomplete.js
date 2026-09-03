@@ -76,6 +76,14 @@ export const filterChatAutocompleteSuggestions = (token, suggestions = []) => {
     .filter(suggestion => String(suggestion.name || "").slice(1).toLowerCase().includes(query));
 };
 
+// The command palette has a dedicated result list for slash commands. Keep
+// its secondary autocomplete overlay for context mentions only, otherwise a
+// slash query would render the same commands in two different menus.
+export const filterCommandPaletteAutocompleteSuggestions = (token, suggestions = [], limit = 12) => {
+  if (token?.trigger === "/") return [];
+  return filterChatAutocompleteSuggestions(token, suggestions).slice(0, limit);
+};
+
 export const resizeChatInput = (element, minHeight = 36, maxHeight = 150) => {
   if (!element) return;
   element.style.height = "auto";

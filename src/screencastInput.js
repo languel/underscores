@@ -1,5 +1,6 @@
 export const SCREENCAST_INPUT_STORAGE_KEY = "underscores_screencast_input";
 export const SCREENCAST_INPUT_POSITION_KEY = "underscores_screencast_input_position_v1";
+export const SCREENCAST_INPUT_MINIMAL_KEY = "underscores_screencast_input_minimal";
 
 const TOOL_LABELS = Object.freeze({
   selection: "Select",

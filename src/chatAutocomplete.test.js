@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildChatAutocompleteSuggestions,
   filterChatAutocompleteSuggestions,
+  filterCommandPaletteAutocompleteSuggestions,
   getChatAutocompleteToken,
 } from "./chatAutocomplete.js";
 
@@ -34,4 +35,18 @@ test("chat autocomplete shares context tags and registered slash aliases", () =>
   assert.deepEqual(commands.map(item => item.name), ["/physics new"]);
   assert.equal(commands[0].category, "Physics");
   assert.equal(suggestions.some(item => item.name === "/demo"), true);
+});
+
+test("command palette leaves slash completion to its command-result list", () => {
+  const suggestions = buildChatAutocompleteSuggestions([
+    { id: "live.p5", aliases: ["/live p5"] },
+  ]);
+  const slashToken = getChatAutocompleteToken("/live p", 7);
+  const mentionToken = getChatAutocompleteToken("@canvas", 7);
+
+  assert.deepEqual(filterCommandPaletteAutocompleteSuggestions(slashToken, suggestions), []);
+  assert.deepEqual(
+    filterCommandPaletteAutocompleteSuggestions(mentionToken, suggestions).map(item => item.name),
+    ["@canvas", "@canvas-as-svg", "@canvas-as-png"],
+  );
 });

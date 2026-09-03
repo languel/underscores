@@ -247,6 +247,32 @@ test("patches retain node identity, source ownership, and bump the document revi
   assert.equal(patched.typography.fontSize, 16);
 });
 
+test("switching Livecode kinds blanks new drafts and restores each kind's source", () => {
+  const p5Source = "function draw() { circle(10, 10, 10); }";
+  const shaderSource = "void main() { fragColor = vec4(1.0); }";
+  const initial = createLivecodeNode({ nodeId: "kind-switch", kind: LIVECODE_KINDS.p5, source: p5Source });
+  const shader = patchLivecodeNode(initial, { kind: LIVECODE_KINDS.shader });
+  assert.equal(shader.source, "");
+  assert.equal(shader.sourceByKind.p5, p5Source);
+
+  const editedShader = patchLivecodeNode(shader, { source: shaderSource });
+  assert.equal(editedShader.sourceByKind.shader, shaderSource);
+  const restoredP5 = patchLivecodeNode(editedShader, { kind: LIVECODE_KINDS.p5 });
+  assert.equal(restoredP5.source, p5Source);
+  const restoredShader = patchLivecodeNode(restoredP5, { kind: LIVECODE_KINDS.shader });
+  assert.equal(restoredShader.source, shaderSource);
+});
+
+test("explicit source updates win when changing Livecode kind", () => {
+  const source = "export function main() { return '.'; }";
+  const updated = patchLivecodeNode(
+    createLivecodeNode({ kind: LIVECODE_KINDS.p5, source: "function draw() {}" }),
+    { kind: LIVECODE_KINDS.playcore, source },
+  );
+  assert.equal(updated.source, source);
+  assert.equal(updated.sourceByKind.playcore, source);
+});
+
 test("adjusts Livecode font size by one pixel within the persisted bounds", () => {
   assert.equal(adjustLivecodeFontSize(14, 1), 15);
   assert.equal(adjustLivecodeFontSize(14, -1), 13);

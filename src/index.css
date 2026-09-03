@@ -570,8 +570,11 @@ body, html {
 
 /* Keep the drawing cursor legible when an authored tool is active. The
  * selector is scoped to Excalidraw's canvas so interactive livecode/model
- * surfaces retain their own pointer and gesture handling. */
-#canvas-container[data-underscores-active-tool="selection"] .excalidraw__canvas.interactive { cursor: default !important; }
+ * surfaces retain their own pointer and gesture handling. Excalidraw writes
+ * its resize/rotate cursor inline while selection is active, so this default
+ * fallback must not be important: `ns-/ew-/nwse-/nesw-resize` affordances at
+ * handles should win as the pointer approaches a selected object's edges. */
+#canvas-container[data-underscores-active-tool="selection"] .excalidraw__canvas.interactive { cursor: default; }
 #canvas-container[data-underscores-active-tool="hand"] .excalidraw__canvas.interactive { cursor: grab !important; }
 #canvas-container[data-underscores-active-tool="eraser"] .excalidraw__canvas.interactive { cursor: cell !important; }
 #canvas-container[data-underscores-active-tool="laser"] .excalidraw__canvas.interactive { cursor: crosshair !important; }
@@ -6671,7 +6674,7 @@ a.iannix-flat-button {
 .underscores-screencast-input {
   position: fixed;
   z-index: 2500;
-  width: min(260px, calc(100vw - 16px));
+  width: min(340px, calc(100vw - 16px));
   padding: 0;
   color: var(--underscores-foreground, var(--color-primary));
   background: color-mix(in srgb, var(--underscores-panel-bg, var(--island-bg-color, #171719)) 86%, transparent);
@@ -6686,9 +6689,9 @@ a.iannix-flat-button {
 .underscores-screencast-input-header {
   display: flex;
   align-items: center;
-  gap: 5px;
-  min-height: 22px;
-  padding: 2px 4px 2px 6px;
+  gap: 6px;
+  min-height: 31px;
+  padding: 4px 4px 4px 7px;
   color: var(--underscores-muted, var(--color-secondary));
   border-bottom: 1px solid color-mix(in srgb, var(--underscores-foreground, currentColor) 12%, transparent);
   cursor: grab;
@@ -6696,16 +6699,19 @@ a.iannix-flat-button {
   touch-action: none;
 }
 .underscores-screencast-input.is-dragging .underscores-screencast-input-header { cursor: grabbing; }
-.underscores-screencast-input-tool {
+.underscores-screencast-input-current-icon {
   display: grid;
-  width: 15px;
-  height: 15px;
+  width: 18px;
+  height: 18px;
   place-items: center;
   color: var(--underscores-accent, var(--color-primary));
-  font-size: 13px;
+  font-size: 15px;
 }
-.underscores-screencast-input-title { color: var(--underscores-foreground, var(--color-primary)); font-weight: 600; letter-spacing: .02em; }
-.underscores-screencast-input-active-tool { margin-left: auto; color: var(--underscores-muted, var(--color-secondary)); }
+.underscores-screencast-input-current { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 6px; }
+.underscores-screencast-input-current-label { overflow: hidden; color: var(--underscores-foreground, var(--color-primary)); font-size: 12px; font-weight: 650; letter-spacing: .01em; text-overflow: ellipsis; white-space: nowrap; }
+.underscores-screencast-input-current code { overflow: hidden; color: var(--underscores-muted, var(--color-secondary)); font: inherit; text-overflow: ellipsis; white-space: nowrap; }
+.underscores-screencast-input-active-tool { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; color: var(--underscores-muted, var(--color-secondary)); font-size: 10px; white-space: nowrap; }
+.underscores-screencast-input-active-tool > span:first-child { color: var(--underscores-accent, var(--color-primary)); font-size: 13px; }
 .underscores-screencast-input-header button {
   width: 17px;
   height: 17px;
@@ -6723,6 +6729,10 @@ a.iannix-flat-button {
 .underscores-screencast-input-event-label { overflow: hidden; color: var(--underscores-foreground, var(--color-primary)); text-overflow: ellipsis; white-space: nowrap; }
 .underscores-screencast-input-event code { margin-left: auto; overflow: hidden; color: var(--underscores-muted, var(--color-secondary)); font: inherit; text-overflow: ellipsis; white-space: nowrap; }
 .underscores-screencast-input-empty { padding: 2px 0; color: var(--underscores-muted, var(--color-secondary)); opacity: .75; }
+.underscores-screencast-input.is-minimal { width: min(360px, calc(100vw - 16px)); }
+.underscores-screencast-input.is-minimal .underscores-screencast-input-header { min-height: 26px; padding-top: 2px; padding-bottom: 2px; }
+.underscores-screencast-input.is-minimal .underscores-screencast-input-current-icon { width: 16px; height: 16px; font-size: 13px; }
+.underscores-screencast-input.is-minimal .underscores-screencast-input-current-label { font-size: 11px; }
 
 .iannix-transport {
   --transport-bg: var(--underscores-panel-bg, var(--island-bg-color, var(--bg-sidebar, #fff)));

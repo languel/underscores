@@ -477,6 +477,117 @@ function keyPressed() {
 }`,
   }),
   Object.freeze({
+    id: "pollock-splatter",
+    name: "Pollock / Splatter",
+    mode: "global",
+    source: `// A readable action-painting study, adapted for an editable Livecode node.
+// Drag to paint. Slow movement makes thick marks; fast movement makes threads.
+// Press Space to clear and click to choose a new colour / reseed the gesture.
+// @param backgroundColor = "#e8e0cf" (color)
+// @param maxLineWidth = 91 (20..180 step:1)
+// @param maxBlobSize = 24 (4..80 step:1)
+// @param sizeInfluence = 0.55 (0.05..1 step:0.05)
+// @param midPointPush = 0.8 (0..2 step:0.05)
+// @param splatMax = 5 (0..24 step:1)
+// @param splatBias = 4 (1..8 step:0.25)
+// @param splatSpread = 2.5 (0..6 step:0.1)
+// @param splatDistanceVariation = 0.8 (0..1 step:0.05)
+// @param splatSizeMin = 0.15 (0.05..1 step:0.05)
+// @param splatSizeMax = 0.6 (0.1..1.5 step:0.05)
+
+const palette = [
+  "#171614", "#29251f", "#f0eadb", "#b9ae98",
+  "#9b2922", "#c58b28", "#244a5a", "#68533b",
+];
+
+let colorIndex = 0;
+let previousX = 0;
+let previousY = 0;
+let previousPreviousX = 0;
+let previousPreviousY = 0;
+let paintSize = 0;
+let initialized = false;
+
+const parameter = (name, fallback) => {
+  const value = Number(__.params?.[name]);
+  return Number.isFinite(value) ? value : fallback;
+};
+
+function setup() {
+  createCanvas(__.element.width, __.element.height);
+  pixelDensity(1);
+  background(__.params.backgroundColor || "#e8e0cf");
+  strokeCap(ROUND);
+  noFill();
+}
+
+function mousePressed() {
+  colorIndex = (colorIndex + 1) % palette.length;
+  previousPreviousX = previousX = mouseX;
+  previousPreviousY = previousY = mouseY;
+  paintSize = 0;
+  initialized = true;
+}
+
+function mouseDragged() {
+  const x = mouseX;
+  const y = mouseY;
+  const px = pmouseX;
+  const py = pmouseY;
+  if (!initialized) {
+    previousPreviousX = previousX = x;
+    previousPreviousY = previousY = y;
+    initialized = true;
+    return;
+  }
+  const movement = max(dist(px, py, x, y), 0.001);
+  const targetSize = min(parameter("maxLineWidth", 91) / movement, parameter("maxBlobSize", 24));
+  const influence = parameter("sizeInfluence", 0.55);
+  paintSize = influence * targetSize + (1 - influence) * paintSize;
+
+  // Extend the previous direction to get a gentle, whipping quadratic curve.
+  const controlX = previousX + (previousX - previousPreviousX) * parameter("midPointPush", 0.8);
+  const controlY = previousY + (previousY - previousPreviousY) * parameter("midPointPush", 0.8);
+  const paint = color(palette[colorIndex]);
+  paint.setAlpha(230);
+  stroke(paint);
+  strokeWeight(max(paintSize, 0.4));
+  const c1x = px + (2 / 3) * (controlX - px);
+  const c1y = py + (2 / 3) * (controlY - py);
+  const c2x = x + (2 / 3) * (controlX - x);
+  const c2y = y + (2 / 3) * (controlY - y);
+  bezier(px, py, c1x, c1y, c2x, c2y, x, y);
+
+  const splatCount = floor(parameter("splatMax", 5) * pow(random(), parameter("splatBias", 4)));
+  const gestureLength = dist(previousPreviousX, previousPreviousY, previousX, previousY);
+  const spread = parameter("splatSpread", 2.5);
+  const variation = parameter("splatDistanceVariation", 0.8);
+  for (let index = 0; index < splatCount; index += 1) {
+    const distanceFactor = lerp(0.5, random(), variation);
+    const radius = gestureLength * spread * distanceFactor;
+    const angle = random(TWO_PI);
+    const splatSize = paintSize * random(parameter("splatSizeMin", 0.15), parameter("splatSizeMax", 0.6));
+    const splatX = px + cos(angle) * radius;
+    const splatY = py + sin(angle) * radius;
+    strokeWeight(max(splatSize, 0.4));
+    line(splatX, splatY, splatX + random(-0.5, 0.5), splatY + random(-0.5, 0.5));
+  }
+
+  previousPreviousX = previousX;
+  previousPreviousY = previousY;
+  previousX = x;
+  previousY = y;
+}
+
+function keyPressed() {
+  if (key === " ") background(__.params.backgroundColor || "#e8e0cf");
+}
+
+function windowResized() {
+  resizeCanvas(__.element.width, __.element.height);
+}`,
+  }),
+  Object.freeze({
     id: "random-lines",
     name: "Random lines",
     mode: "instance",

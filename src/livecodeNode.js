@@ -203,6 +203,15 @@ export const normalizeLivecodeKind = value => (
 
 export const getLivecodeKindDefinition = value => LIVECODE_KIND_DEFINITIONS[normalizeLivecodeKind(value)];
 
+const normalizeLivecodeSourceByKind = value => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([kind, source]) => isLivecodeKind(kind) && typeof source === "string")
+      .map(([kind, source]) => [kind, source]),
+  );
+};
+
 export const getLivecodeFont = value => (
   LIVE_CODE_FONT_OPTIONS.find(option => option.id === value) || LIVE_CODE_FONT_OPTIONS[0]
 );
@@ -352,6 +361,7 @@ export const resolveLivecodeRuntimeNode = rawNode => {
 export const createLivecodeNode = value => {
   const raw = value && typeof value === "object" ? value : {};
   const kind = normalizeLivecodeKind(raw.kind);
+  const sourceByKind = normalizeLivecodeSourceByKind(raw.sourceByKind);
   const requestedView = ["code", "preview", "source", "split"].includes(raw.view)
     ? raw.view
     : raw.view === "overlay"
@@ -385,7 +395,7 @@ export const createLivecodeNode = value => {
       evaluationRevision: Math.max(0, Number(normalizedRuntime.settings.evaluationRevision) || 0),
     };
   }
-  return {
+  const node = {
     version: LIVECODE_NODE_VERSION,
     nodeId,
     kind,
@@ -408,6 +418,10 @@ export const createLivecodeNode = value => {
     createdAt: Math.max(0, Number(raw.createdAt) || Date.now()),
     updatedAt: Math.max(0, Number(raw.updatedAt) || Date.now()),
   };
+  // Keep the field omitted for ordinary nodes so the persisted shape remains
+  // compact and existing scenes retain their established representation.
+  if (Object.keys(sourceByKind).length > 0) node.sourceByKind = sourceByKind;
+  return node;
 };
 
 export const normalizeLivecodeNode = createLivecodeNode;
@@ -423,6 +437,15 @@ export const getLivecodeEditorProfile = node => getLivecodeKindDefinition(node?.
 export const patchLivecodeNode = (value, patch = {}) => {
   const previous = normalizeLivecodeNode(value);
   const kind = normalizeLivecodeKind(patch.kind ?? previous.kind);
+  const kindChanged = kind !== previous.kind;
+  const sourceByKind = {
+    ...(previous.sourceByKind || {}),
+  };
+  if (kindChanged) sourceByKind[previous.kind] = previous.source;
+  const hasSourcePatch = Object.hasOwn(patch, "source");
+  const nextSource = kindChanged && !hasSourcePatch
+    ? (Object.hasOwn(sourceByKind, kind) ? sourceByKind[kind] : "")
+    : patch.source;
   const settingPatch = patch.runtime?.settings && typeof patch.runtime.settings === "object"
     ? patch.runtime.settings
     : null;
@@ -449,16 +472,26 @@ export const patchLivecodeNode = (value, patch = {}) => {
       evaluationRevision: Math.max(0, Number(previous.runtime.settings?.evaluationRevision) || 0) + 1,
     };
   }
-  return normalizeLivecodeNode({
+  const next = {
     ...previous,
     ...patch,
     kind,
+    ...(kindChanged && !hasSourcePatch ? { source: nextSource } : {}),
+    ...(kindChanged || hasSourcePatch
+      ? {
+        sourceByKind: {
+          ...sourceByKind,
+          [kind]: typeof nextSource === "string" ? nextSource : "",
+        },
+      }
+      : {}),
     runtime,
     typography: patch.typography ? { ...previous.typography, ...patch.typography } : previous.typography,
     parameters: patch.parameters ? { ...previous.parameters, ...patch.parameters } : previous.parameters,
     revision: previous.revision + 1,
     updatedAt: Date.now(),
-  });
+  };
+  return normalizeLivecodeNode(next);
 };
 
 export const replaceLivecodeNodeProgram = (value, {
@@ -470,6 +503,12 @@ export const replaceLivecodeNodeProgram = (value, {
   const previous = normalizeLivecodeNode(value);
   const nextKind = normalizeLivecodeKind(kind ?? previous.kind);
   const kindChanged = nextKind !== previous.kind;
+  const nextSource = typeof source === "string" ? source : previous.source;
+  const sourceByKind = {
+    ...(previous.sourceByKind || {}),
+    ...(kindChanged ? { [previous.kind]: previous.source } : {}),
+    [nextKind]: nextSource,
+  };
   const nextName = typeof name === "string" && name.trim()
     ? name.trim()
     : kindChanged
@@ -479,7 +518,8 @@ export const replaceLivecodeNodeProgram = (value, {
     ...previous,
     kind: nextKind,
     name: nextName,
-    source: typeof source === "string" ? source : previous.source,
+    source: nextSource,
+    sourceByKind,
     parameters: kindChanged ? {} : previous.parameters,
     runtime: {
       ...previous.runtime,
