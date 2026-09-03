@@ -66,7 +66,8 @@ const HistoryPanel = memo(function HistoryPanel({
   onCreateWalkthrough,
 }) {
   const fileRef = useRef(null);
-  const [selectedActionId, setSelectedActionId] = useState(null);
+  const selectionAnchorRef = useRef(null);
+  const [selectedActionIds, setSelectedActionIds] = useState([]);
   const [draft, setDraft] = useState("");
   const [draftError, setDraftError] = useState("");
   const [rangeStart, setRangeStart] = useState(() => createTimeValue("0 s"));
@@ -74,7 +75,19 @@ const HistoryPanel = memo(function HistoryPanel({
   const commandNames = useMemo(() => new Map(commands.map(command => [command.id, command.title || command.name || command.id])), [commands]);
   const session = snapshot.session;
   const actions = session?.actions || [];
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+  const actionIdsKey = actions.map(action => action.id).join("\u001f");
+  const selectedActionId = selectedActionIds[0] || null;
   const selectedAction = actions.find(action => action.id === selectedActionId) || null;
+
+  useEffect(() => {
+    setSelectedActionIds(previous => {
+      const availableIds = new Set(actionsRef.current.map(action => action.id));
+      const next = previous.filter(id => availableIds.has(id));
+      return next.length === previous.length ? previous : next;
+    });
+  }, [actionIdsKey]);
 
   useEffect(() => {
     if (!selectedAction) {
@@ -97,8 +110,53 @@ const HistoryPanel = memo(function HistoryPanel({
     }
   };
 
+  const selectAction = (event, actionId) => {
+    const additive = event.metaKey || event.ctrlKey;
+    if (event.shiftKey) {
+      const anchorIndex = actions.findIndex(action => action.id === selectionAnchorRef.current);
+      const targetIndex = actions.findIndex(action => action.id === actionId);
+      const rangeIds = anchorIndex >= 0 && targetIndex >= 0
+        ? actions.slice(Math.min(anchorIndex, targetIndex), Math.max(anchorIndex, targetIndex) + 1).map(action => action.id)
+        : [actionId];
+      setSelectedActionIds(previous => {
+        const next = additive ? [...previous, ...rangeIds] : rangeIds;
+        const order = new Map(actions.map((action, index) => [action.id, index]));
+        return [...new Set(next)].sort((left, right) => order.get(left) - order.get(right));
+      });
+      if (anchorIndex < 0) selectionAnchorRef.current = actionId;
+      return;
+    }
+    if (additive) {
+      setSelectedActionIds(previous => previous.includes(actionId)
+        ? previous.filter(id => id !== actionId)
+        : [...previous, actionId]);
+    } else setSelectedActionIds([actionId]);
+    selectionAnchorRef.current = actionId;
+  };
+
   const isRecording = snapshot.status === "recording" || snapshot.status === "recording-paused";
+  const isRecordingPaused = snapshot.status === "recording-paused";
   const isPlaying = snapshot.status === "playing" || snapshot.status === "playback-paused";
+  const isPlaybackPaused = snapshot.status === "playback-paused";
+  const pauseTitle = isRecording
+    ? (isRecordingPaused ? "Resume recording" : "Pause recording")
+    : isPlaying
+      ? (isPlaybackPaused ? "Resume playback" : "Pause playback")
+      : "Pause recording or playback";
+  const playbackTitle = snapshot.status === "playing"
+    ? "Stop playback"
+    : isPlaybackPaused
+      ? "Restart playback from the beginning"
+      : "Play session";
+  const transportStatus = isRecordingPaused
+    ? "Recording paused"
+    : isRecording
+      ? "Recording"
+      : isPlaybackPaused
+        ? "Playback paused"
+        : snapshot.status === "playing"
+          ? "Playing"
+          : "";
 
   useEffect(() => {
     setRangeEnd(createTimeValue(`${snapshot.duration} s`, snapshot.duration));
@@ -107,15 +165,16 @@ const HistoryPanel = memo(function HistoryPanel({
   return (
     <div className="history-panel">
       <div className="history-transport">
-        <IconButton title={isRecording ? "Stop recording" : "Start recording"} className={isRecording ? "recording" : ""} onClick={isRecording ? onStop : onStart}>
+        <IconButton title={isRecording ? "Stop recording" : "Record new take"} className={isRecording ? "recording" : ""} onClick={isRecording ? onStop : onStart}>
           {isRecording ? <span className="history-stop-icon" /> : <span className="history-record-icon" />}
         </IconButton>
-        <IconButton title={snapshot.status.includes("paused") ? "Resume" : "Pause"} onClick={onPause} disabled={snapshot.status === "idle"}>
-          <span className="history-pause-icon" />
+        <IconButton title={pauseTitle} onClick={onPause} disabled={!isRecording && !isPlaying}>
+          {snapshot.status.includes("paused") ? <span className="history-play-icon" /> : <span className="history-pause-icon" />}
         </IconButton>
-        <IconButton title={isPlaying ? "Stop playback" : "Play session"} onClick={isPlaying ? onStop : onPlay} disabled={!actions.length}>
-          {isPlaying ? <span className="history-stop-icon" /> : <span className="history-play-icon" />}
+        <IconButton title={playbackTitle} onClick={snapshot.status === "playing" ? onStop : onPlay} disabled={!actions.length || isRecording}>
+          {snapshot.status === "playing" ? <span className="history-stop-icon" /> : <span className="history-play-icon" />}
         </IconButton>
+        {transportStatus ? <span className={`history-transport-status ${isRecording ? "recording" : "playing"}`} role="status">{transportStatus}</span> : null}
         <input
           className="history-seek"
           type="range"
@@ -178,14 +237,14 @@ const HistoryPanel = memo(function HistoryPanel({
           <button type="button" onClick={() => { const start = resolveTimeValue(rangeStart, timeContext); const end = resolveTimeValue(rangeEnd, timeContext); onSaveMacro({ start: Math.min(start, end), end: Math.max(start, end) }); }}>Save range</button>
         </div>
       ) : null}
-      <div className="history-action-list" role="listbox" aria-label="Recorded actions">
+      <div className="history-action-list" role="listbox" aria-label="Recorded actions" aria-multiselectable="true">
         {actions.length === 0 ? (
           <div className="history-empty">Start recording, then draw or use Underscores commands.</div>
         ) : actions.map(action => {
           const index = actions.findIndex(candidate => candidate.id === action.id);
           return (
-          <div key={action.id} className={`history-action ${selectedActionId === action.id ? "selected" : ""} ${action.enabled ? "" : "disabled"}`}>
-            <button type="button" className="history-action-main" onClick={() => setSelectedActionId(action.id)}>
+          <div key={action.id} role="option" aria-selected={selectedActionIds.includes(action.id)} className={`history-action ${selectedActionIds.includes(action.id) ? "selected" : ""} ${action.enabled ? "" : "disabled"}`}>
+            <button type="button" className="history-action-main" onClick={event => selectAction(event, action.id)} title="Select action; Shift-click a range, or Command/Ctrl-click to toggle">
               <span className={`history-action-kind kind-${action.kind}`} />
               <span className="history-action-copy">
                 <strong>{actionLabel(action, commandNames)}</strong>
@@ -207,7 +266,12 @@ const HistoryPanel = memo(function HistoryPanel({
         })}
       </div>
 
-      {selectedAction ? (
+      {selectedActionIds.length > 1 ? (
+        <div className="history-selection-summary">
+          <div className="history-section-heading"><span>{selectedActionIds.length} actions selected</span><span>Shift-click range · Command/Ctrl-click toggle</span></div>
+          <button type="button" onClick={() => onSaveMacro({ actionIds: selectedActionIds })}>Save selection as macro</button>
+        </div>
+      ) : selectedAction ? (
         <div className="history-editor">
           <div className="history-section-heading"><span>Edit action JSON</span><span>{selectedAction.kind}</span></div>
           <label className="history-action-time"><span>Action time</span><TimeValueInput aria-label="History action time" data-route-path={`history.actions.${selectedAction.id}.at`} value={selectedAction.atValue || `${selectedAction.at} s`} context={timeContext} defaultValue="0 s" minSeconds={0} onChange={(next, seconds) => onUpdateAction(selectedAction.id, { at: seconds, atValue: next })} /></label>
@@ -217,14 +281,14 @@ const HistoryPanel = memo(function HistoryPanel({
           <div className="history-editor-actions">
             <button type="button" onClick={applyDraft}>Apply</button>
             <button type="button" onClick={() => setDraft(JSON.stringify(selectedAction, null, 2))}>Reset</button>
-            <button type="button" onClick={() => onSaveMacro({ actionIds: [selectedAction.id] })}>Save step as macro</button>
+            <button type="button" onClick={() => onSaveMacro({ actionIds: [selectedAction.id] })}>Save action as macro</button>
           </div>
         </div>
       ) : null}
 
       <div className="history-section-heading"><span>Sequence library</span><span>{macros.length}</span></div>
       <div className="history-macro-list">
-        {macros.length === 0 ? <div className="history-empty compact">Select an action and save it as a reusable macro.</div> : macros.map(macro => (
+        {macros.length === 0 ? <div className="history-empty compact">Select one or more actions and save them as a reusable macro.</div> : macros.map(macro => (
           <div className="history-macro" key={macro.id}>
             <span>{macro.name}</span>
             <button type="button" onClick={() => onInsertMacro(macro, "relative")}>Insert relative</button>
