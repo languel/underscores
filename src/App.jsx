@@ -215,7 +215,7 @@ import { captureLivecodeFrameSnapshot, clearLivecodeFrameSnapshot, getLivecodeFr
 import PerformanceOverlay from "./PerformanceOverlay.jsx";
 import ScreencastInputOverlay from "./ScreencastInputOverlay.jsx";
 import SessionVirtualCursorIcon from "./SessionVirtualCursorIcon.jsx";
-import { formatScreencastKey, SCREENCAST_INPUT_MINIMAL_KEY, SCREENCAST_INPUT_STORAGE_KEY, screencastToolLabel } from "./screencastInput.js";
+import { formatScreencastKey, formatScreencastModifiers, isScreencastModifierKey, SCREENCAST_INPUT_MINIMAL_KEY, SCREENCAST_INPUT_STORAGE_KEY, screencastModifierState, screencastToolLabel } from "./screencastInput.js";
 import { underscoresPerformanceMonitor } from "./performanceMonitor.js";
 import { createBakedImageElement, createBakedImageFile, createCanvasSnapshotImageElement, replaceSceneElementsWithBake } from "./sceneBake.js";
 import { quantizeGridElement, quantizeGridElementBounds, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
@@ -15659,7 +15659,10 @@ function App() {
       return event.button === 1 ? "middle" : event.button === 2 ? "right" : "left";
     };
     const handleKeyDown = event => {
-      if (event.repeat || isOverlayTarget(event.target)) return;
+      // A modifier is part of the following key or pointer gesture. Showing
+      // Meta/Shift/Alt as a separate cue makes a Cmd-click look like two
+      // unrelated actions in the screencast overlay.
+      if (event.repeat || isOverlayTarget(event.target) || isScreencastModifierKey(event)) return;
       const shortcut = findShortcutAction(shortcutBindings, event);
       emitScreencastInputEvent({
         kind: "key",
@@ -15676,6 +15679,7 @@ function App() {
         y: Number(event.clientY) || 0,
         button: buttonLabel(event),
         pointerType: event.pointerType || "mouse",
+        modifiers: screencastModifierState(event),
         scope: scopeForTarget(event.target),
         target: targetLabel(event.target),
       });
@@ -15689,11 +15693,15 @@ function App() {
       const x = Number(event.clientX) || 0;
       const y = Number(event.clientY) || 0;
       const distance = Math.hypot(x - start.x, y - start.y);
-      const gesture = distance > 4 ? `${start.button} drag` : `${start.button} click`;
+      const action = distance > 4 ? "drag" : "click";
+      const modifierPrefix = formatScreencastModifiers(start.modifiers);
+      const gesture = `${modifierPrefix ? `${modifierPrefix} ` : ""}${start.button} ${action}`;
       emitScreencastInputEvent({
         kind: "pointer",
         icon: distance > 4 ? "↗" : "•",
         label: `${start.scope} · ${gesture}`,
+        button: start.button,
+        modifiers: start.modifiers,
         detail: start.target || start.pointerType,
       });
     };

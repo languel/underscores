@@ -1,15 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { clampScreencastPosition, formatScreencastKey, screencastToolIcon, screencastToolLabel } from "./screencastInput.js";
+import { clampScreencastPosition, formatScreencastKey, formatScreencastModifiers, isScreencastModifierKey, screencastModifierState, screencastToolIcon, screencastToolLabel } from "./screencastInput.js";
 
 test("formats modifier keys for the screencast overlay", () => {
   assert.equal(formatScreencastKey({ metaKey: true, altKey: true, key: "i" }), "⌘⌥i");
   assert.equal(formatScreencastKey({ shiftKey: true, key: " " }), "⇧Space");
+  assert.equal(formatScreencastModifiers({ meta: true, shift: true }), "⌘⇧");
+  assert.deepEqual(screencastModifierState({ metaKey: true, altKey: true }), { alt: true, ctrl: false, meta: true, shift: false });
+  assert.equal(isScreencastModifierKey({ key: "Meta" }), true);
+  assert.equal(isScreencastModifierKey({ key: "m" }), false);
 });
 
 test("describes common canvas tools", () => {
   assert.equal(screencastToolLabel("freedraw"), "Pencil");
   assert.equal(screencastToolIcon("freedraw"), "✎");
+  assert.equal(screencastToolIcon("hand"), "↔");
   assert.equal(screencastToolLabel("unknown-tool"), "Unknown Tool");
 });
 
